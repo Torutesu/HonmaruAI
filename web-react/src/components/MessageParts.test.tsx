@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { renderRich, prefixLines, continueBlock, bulletOnSpace, lineMark, BULLET } from './MessageParts'
+import { renderRich, prefixLines, continueBlock, bulletOnSpace, lineMark, BULLET, placeMenu } from './MessageParts'
 
 const html = (text: string) => renderToStaticMarkup(<>{renderRich(text, () => 'mention')}</>)
 
@@ -344,5 +344,28 @@ describe('the note under a message on its way', () => {
 
   it('is nothing under a message the server has', async () => {
     expect(await note({ id: '0f9c-uuid' })).toBe('')
+  })
+})
+
+// A message toolbar's menu covers the conversation instead of stretching it
+// (#657): under its button, above it near the bottom, never off the window.
+describe('where a toolbar menu opens', () => {
+  const view = { width: 1280, height: 800 }
+  const button = (top: number, right = 1200) => ({ left: right - 28, right, top, bottom: top + 28 })
+  it('opens under its button, its right edge on the button', () => {
+    expect(placeMenu(button(100), { width: 240, height: 300 }, view)).toEqual({ left: 960, top: 132, maxHeight: 660 })
+  })
+  it('opens above its button near the bottom of the window', () => {
+    const p = placeMenu(button(720), { width: 240, height: 300 }, view)
+    expect(p.top + 300).toBe(716)
+    expect(p.top).toBeGreaterThanOrEqual(8)
+  })
+  it('scrolls inside instead of running off a short window', () => {
+    const p = placeMenu(button(150), { width: 240, height: 900 }, { width: 1280, height: 400 })
+    expect(p.top).toBeGreaterThanOrEqual(8)
+    expect(p.top + Math.min(900, p.maxHeight)).toBeLessThanOrEqual(400)
+  })
+  it('stays on screen at the left edge of a narrow window', () => {
+    expect(placeMenu(button(100, 60), { width: 240, height: 200 }, { width: 320, height: 600 }).left).toBe(8)
   })
 })

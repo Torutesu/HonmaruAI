@@ -632,6 +632,9 @@ body.slk-resizing iframe { pointer-events: none; }
   background: var(--slk-bg); border: 1px solid var(--slk-line); border-radius: 10px; padding: 6px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, .18);
 }
+/* A message toolbar's menu: fixed to the window by its button, placed by
+   placeMenu, so it covers the conversation and adds nothing to it (#657). */
+.classic.slk.slk .slk-menu.slk-menu-float { position: fixed; right: auto; z-index: 1000; overflow-y: auto; overscroll-behavior: contain; }
 .classic.slk.slk .slk-menu button {
   display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%;
   border: none; background: none; padding: 7px 10px; border-radius: 6px; cursor: pointer;

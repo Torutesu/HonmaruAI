@@ -350,9 +350,64 @@ function useOpenChange(open: boolean, onOpenChange: (open: boolean) => void) {
   }, [open])
 }
 
+/// Where a menu opened from a button in a message's toolbar goes: under the
+/// button with its right edge on the button's, or above it when there is
+/// not room below and there is more above; never off the window, and never
+/// taller than the room it has (it scrolls inside instead).
+export function placeMenu(anchor: { left: number; right: number; top: number; bottom: number }, size: { width: number; height: number }, view: { width: number; height: number }, margin = 8): { left: number; top: number; maxHeight: number } {
+  const below = view.height - anchor.bottom - 4 - margin
+  const above = anchor.top - 4 - margin
+  const up = size.height > below && above > below
+  const room = Math.max(120, up ? above : below)
+  const height = Math.min(size.height, room)
+  const top = up ? anchor.top - 4 - height : anchor.bottom + 4
+  return {
+    left: Math.max(margin, Math.min(anchor.right - size.width, view.width - size.width - margin)),
+    top: Math.max(margin, Math.min(top, view.height - height - margin)),
+    maxHeight: room,
+  }
+}
+
+/// A toolbar menu is fixed to the window, not laid out in the conversation:
+/// opened on the last message it used to stretch the log below it, which
+/// then scrolled to its new end and left a gap above the box (#657). Placed
+/// before it is painted, and again as the conversation scrolls or the
+/// window changes, so it stays by its button.
+function useMenuPlace(open: boolean, anchor: React.RefObject<HTMLElement>, box: React.RefObject<HTMLElement>): React.CSSProperties {
+  const [place, setPlace] = useState<React.CSSProperties>({ visibility: 'hidden' })
+  useLayoutEffect(() => {
+    if (!open) return
+    const measure = () => {
+      const a = anchor.current?.getBoundingClientRect()
+      const el = box.current
+      if (!a || !el) return
+      const p = placeMenu(a, { width: el.offsetWidth, height: el.scrollHeight }, { width: window.innerWidth, height: window.innerHeight })
+      setPlace({ left: p.left, top: p.top, maxHeight: p.maxHeight })
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+      setPlace({ visibility: 'hidden' })
+    }
+  }, [open, anchor, box])
+  return place
+}
+
+/// The emoji picker a toolbar's smile opens: fixed to the window by the
+/// smile, above it near the bottom, for the same reason as the menu.
+const pickerBy = (button: HTMLElement | null) => {
+  const r = button?.getBoundingClientRect()
+  if (!r) return { x: 8, y: 8 }
+  const p = placeMenu(r, { width: 300, height: 360 }, { width: window.innerWidth, height: window.innerHeight })
+  return { x: p.left, y: p.top }
+}
+
 /// Everything you can do to one message, on hover — reactions, a reply, a
-/// thread, a pin, and behind ⋯ the rest: edit, delete, copy, make it a
-/// decision. What is behind ⋯ is the one list the right-click menu and a
+/// thread, a pin, a pencil on your own, and behind ⋯ the rest: edit,
+/// delete, copy, make it a decision. What is behind ⋯ is the one list the right-click menu and a
 /// phone's long press draw too.
 export const MessageActions: React.FC<MessageMenuActions & {
   message: ChannelMessage
@@ -361,10 +416,14 @@ export const MessageActions: React.FC<MessageMenuActions & {
 }> = ({ message, onReact, onOpenChange, ...actions }) => {
   const t = useT()
   const { inThread, onQuote, onReply, onPin } = actions
-  const [picker, setPicker] = useState(false)
+  const [picker, setPicker] = useState<{ x: number; y: number } | null>(null)
   const [menu, setMenu] = useState(false)
   const menuBox = useRef<HTMLDivElement>(null)
-  useOpenChange(picker || menu, onOpenChange)
+  const moreButton = useRef<HTMLButtonElement>(null)
+  const smileButton = useRef<HTMLButtonElement>(null)
+  const floating = useRef<HTMLDivElement>(null)
+  const place = useMenuPlace(menu, moreButton, floating)
+  useOpenChange(Boolean(picker) || menu, onOpenChange)
   useEffect(() => {
     if (!menu) return
     const down = (e: MouseEvent) => { if (menuBox.current && !menuBox.current.contains(e.target as Node)) setMenu(false) }
@@ -376,7 +435,7 @@ export const MessageActions: React.FC<MessageMenuActions & {
   return (
     <>
       <QuickReactions onReact={onReact} />
-      <button type="button" className="slk-tool" onClick={() => setPicker((p) => !p)} title={t('Add reaction')} aria-label={t('Add reaction')} aria-expanded={picker}><Icon name="smile" size={16} /></button>
+      <button ref={smileButton} type="button" className="slk-tool" onClick={() => setPicker((p) => (p ? null : pickerBy(smileButton.current)))} title={t('Add reaction')} aria-label={t('Add reaction')} aria-expanded={Boolean(picker)}><Icon name="smile" size={16} /></button>
       {onQuote && (
         <button type="button" className="slk-tool" onClick={onQuote} title={t('Reply')} aria-label={t('Reply')} data-tool="quote"><Icon name="reply" size={16} /></button>
       )}
@@ -386,10 +445,16 @@ export const MessageActions: React.FC<MessageMenuActions & {
       {onPin && !inThread && (
         <button type="button" className={`slk-tool${message.pinned ? ' on' : ''}`} onClick={onPin} title={message.pinned ? t('Unpin') : t('Pin to channel')} aria-label={message.pinned ? t('Unpin') : t('Pin to channel')}><Icon name="pin" size={16} /></button>
       )}
+      {/* Your own message, hovered: most often to fix what you just wrote,
+          so its editor is one press away, not inside ⋯ (#658). Only where
+          ⋯ offers Edit too: yours, and a message, not a card or a note. */}
+      {actions.onEdit && (
+        <button type="button" className="slk-tool" onClick={actions.onEdit} title={t('Edit message')} aria-label={t('Edit message')} data-tool="edit"><Icon name="edit" size={16} /></button>
+      )}
       <div className="slk-tool-menu-wrap" ref={menuBox}>
-        <button type="button" className="slk-tool" onClick={() => setMenu((m) => !m)} aria-label={t('More actions')} aria-expanded={menu} aria-haspopup="menu"><Icon name="more" size={16} /></button>
+        <button ref={moreButton} type="button" className="slk-tool" onClick={() => setMenu((m) => !m)} aria-label={t('More actions')} aria-expanded={menu} aria-haspopup="menu"><Icon name="more" size={16} /></button>
         {menu && (
-          <div className="slk-menu" role="menu">
+          <div ref={floating} className="slk-menu slk-menu-float" role="menu" style={place}>
             {messageMenuEntries(message, { ...actions, t }).map((e, i) => (e.kind === 'sep'
               ? <div key={i} className="slk-menu-sep" />
               : e.kind === 'item' && (
@@ -400,7 +465,7 @@ export const MessageActions: React.FC<MessageMenuActions & {
           </div>
         )}
       </div>
-      {picker && <EmojiPicker onPick={onReact} onClose={() => setPicker(false)} />}
+      {picker && <EmojiPickerAt at={picker} onPick={onReact} onClose={() => setPicker(null)} />}
     </>
   )
 }
@@ -414,10 +479,14 @@ export const CardActions: React.FC<{
   onOpenChange: (open: boolean) => void
 }> = ({ onReact, onOpen, onDelete, onOpenChange }) => {
   const t = useT()
-  const [picker, setPicker] = useState(false)
+  const [picker, setPicker] = useState<{ x: number; y: number } | null>(null)
   const [menu, setMenu] = useState(false)
   const menuBox = useRef<HTMLDivElement>(null)
-  useOpenChange(picker || menu, onOpenChange)
+  const moreButton = useRef<HTMLButtonElement>(null)
+  const smileButton = useRef<HTMLButtonElement>(null)
+  const floating = useRef<HTMLDivElement>(null)
+  const place = useMenuPlace(menu, moreButton, floating)
+  useOpenChange(Boolean(picker) || menu, onOpenChange)
   useEffect(() => {
     if (!menu) return
     const down = (e: MouseEvent) => { if (menuBox.current && !menuBox.current.contains(e.target as Node)) setMenu(false) }
@@ -429,18 +498,18 @@ export const CardActions: React.FC<{
   return (
     <>
       <QuickReactions onReact={onReact} />
-      <button type="button" className="slk-tool" onClick={() => setPicker((p) => !p)} title={t('Add reaction')} aria-label={t('Add reaction')} aria-expanded={picker}><Icon name="smile" size={16} /></button>
+      <button ref={smileButton} type="button" className="slk-tool" onClick={() => setPicker((p) => (p ? null : pickerBy(smileButton.current)))} title={t('Add reaction')} aria-label={t('Add reaction')} aria-expanded={Boolean(picker)}><Icon name="smile" size={16} /></button>
       <div className="slk-tool-menu-wrap" ref={menuBox}>
-        <button type="button" className="slk-tool" onClick={() => setMenu((m) => !m)} aria-label={t('More actions')} aria-expanded={menu} aria-haspopup="menu" data-card-more="1"><Icon name="more" size={16} /></button>
+        <button ref={moreButton} type="button" className="slk-tool" onClick={() => setMenu((m) => !m)} aria-label={t('More actions')} aria-expanded={menu} aria-haspopup="menu" data-card-more="1"><Icon name="more" size={16} /></button>
         {menu && (
-          <div className="slk-menu" role="menu">
+          <div ref={floating} className="slk-menu slk-menu-float" role="menu" style={place}>
             <button type="button" role="menuitem" onClick={() => { setMenu(false); onOpen() }}>{t('Open')}</button>
             {onDelete && <div className="slk-menu-sep" />}
             {onDelete && <button type="button" role="menuitem" className="danger" data-menu="delete-card" onClick={() => { setMenu(false); onDelete() }}>{t('Delete this card')}</button>}
           </div>
         )}
       </div>
-      {picker && <EmojiPicker onPick={(e) => { setPicker(false); onReact(e) }} onClose={() => setPicker(false)} />}
+      {picker && <EmojiPickerAt at={picker} onPick={(e) => { setPicker(null); onReact(e) }} onClose={() => setPicker(null)} />}
     </>
   )
 }

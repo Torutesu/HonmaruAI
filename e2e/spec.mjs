@@ -3628,6 +3628,83 @@ await step('the message box has an emoji button that puts the emoji where the ca
   }
 })
 
+// A message's hover toolbar (#657, #658): a pencil edits your own message,
+// and only yours; its ⋯ menu covers the conversation instead of stretching
+// it, so nothing under it moves, even on the last message.
+await step('a message’s toolbar edits your own with a pencil, and its menu covers the conversation without moving it', async () => {
+  await closeEverything()
+  if (!mate) throw new Error('the teammate this step needs is not here')
+  const kenji = mate.pages()[0] || await mate.newPage()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  try {
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    const group = '.slk-side .cl-thread[data-view^="g:"]'
+    await desk.waitForSelector(group, { timeout: 20000 })
+    const view = await desk.getAttribute(`${group} >> nth=0`, 'data-view')
+    await desk.click(`${group} .cl-open >> nth=0`)
+    const stamp = Date.now()
+    const theirsText = `from kenji ${stamp}`, mineText = `a typo here ${stamp}`
+    const said = await kenji.evaluate(async ({ host, view, body }) => {
+      const r = await fetch(`${host}/channels/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': localStorage.getItem('sessionToken') }, body: JSON.stringify({ orgId: localStorage.getItem('orgId'), channel: view, body }) })
+      return r.status
+    }, { host: API, view, body: theirsText })
+    if (said >= 300) throw new Error(`Kenji could not post: ${said}`)
+    const box = '.slk-composer:not(.thread) .slk-input'
+    await desk.waitForSelector(`.slk-main .slk-msg .slk-text:has-text("${theirsText}")`, { timeout: 15000 })
+    await desk.fill(box, mineText)
+    await desk.keyboard.press('Enter')
+    await desk.waitForSelector(`.slk-main .slk-msg.mine:not(.pending):not(.failed) .slk-text:has-text("${mineText}")`, { timeout: 15000 })
+    const mine = desk.locator('.slk-main .slk-msg.mine[id^="msg-"]', { hasText: mineText }).last()
+    const theirs = desk.locator('.slk-main .slk-msg[id^="msg-"]', { hasText: theirsText }).last()
+
+    // No pencil on somebody else's message.
+    await theirs.hover()
+    if (await theirs.locator('[data-tool="edit"]').count()) throw new Error("someone else's message offers the pencil")
+
+    // ⋯ on the last message: the conversation stays exactly where it was.
+    await mine.hover()
+    const measure = () => desk.evaluate((text) => {
+      const log = document.querySelector('.slk-main .slk-log')
+      const row = [...document.querySelectorAll('.slk-main .slk-msg.mine')].filter((el) => el.textContent.includes(text)).pop()
+      const composer = document.querySelector('.slk-composer:not(.thread)')
+      return { height: log.scrollHeight, top: Math.round(log.scrollTop), composer: Math.round(composer.getBoundingClientRect().top), row: Math.round(row.getBoundingClientRect().height) }
+    }, mineText)
+    const before = await measure()
+    await mine.locator('.slk-tool[aria-label="More actions"]').click()
+    const menu = mine.locator('.slk-menu-float')
+    await menu.waitFor({ timeout: 5000 })
+    await desk.waitForTimeout(400)
+    const during = await measure()
+    const box2 = await menu.boundingBox()
+    await desk.screenshot({ path: `${SHOTS}/56d-message-menu.png` })
+    for (const k of ['height', 'top', 'composer', 'row']) {
+      if (Math.abs(during[k] - before[k]) > 1) throw new Error(`opening ⋯ moved the conversation: ${k} ${before[k]} → ${during[k]}`)
+    }
+    if (!box2 || box2.y < 0 || box2.y + box2.height > 820 || box2.x < 0 || box2.x + box2.width > 1280) throw new Error(`the ⋯ menu runs off the window: ${JSON.stringify(box2)}`)
+    if (!(await menu.locator('[data-menu="edit"]').isVisible())) throw new Error('the ⋯ menu lost its Edit message')
+    await desk.keyboard.press('Escape')
+    await menu.waitFor({ state: 'detached', timeout: 5000 })
+    const after = await measure()
+    if (Math.abs(after.height - before.height) > 1 || Math.abs(after.composer - before.composer) > 1) throw new Error('closing ⋯ moved the conversation')
+
+    // The pencil: the same editor as ⋯ › Edit message.
+    await mine.hover()
+    const pencil = mine.locator('[data-tool="edit"]')
+    if (await pencil.getAttribute('aria-label') !== 'Edit message') throw new Error('the pencil has no label')
+    await pencil.click()
+    await desk.waitForSelector('.slk-main .slk-edit textarea', { timeout: 5000 }).catch(() => { throw new Error('the pencil opened no editor') })
+    if (await desk.inputValue('.slk-main .slk-edit textarea') !== mineText) throw new Error('the editor did not hold the message')
+    await desk.keyboard.press('Escape')
+    await desk.waitForSelector('.slk-main .slk-edit', { state: 'detached', timeout: 5000 })
+    // From the keyboard: the message focused shows its tools, pencil and all.
+    await mine.evaluate((el) => el.focus())
+    if (!(await pencil.isVisible())) throw new Error('a focused message does not show the pencil')
+  } finally {
+    await desk.close()
+  }
+})
+
 await step('a status set from the avatar on a laptop shows in a teammate’s sidebar', async () => {
   await closeEverything()
   if (!mate) throw new Error('the teammate this step needs is not here')
