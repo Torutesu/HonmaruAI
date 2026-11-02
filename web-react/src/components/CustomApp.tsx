@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAppearance } from '../utils/appearance'
 import type { App, AppAction, AppConnection, AppFork, AppEntity, HarnessApi, Row, Table } from '../utils/harness'
 
@@ -140,33 +140,60 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
   return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : 'データ変更の確認'}</h3><p>{change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre><button disabled={working} onClick={() => decide(false)}>キャンセル</button><button disabled={working} onClick={() => decide(true)}>この変更を許可</button></div>}{renderState !== 'ready' && <div className="hx-custom-status" role="status">{renderState === 'loading' ? 'アプリを読み込んでいます…' : <><span>アプリを表示できませんでした。</span><button type="button" onClick={() => setAttempt(value => value + 1)}>再試行</button></>}</div>}<iframe tabIndex={decorative ? -1 : undefined} ref={frame} onLoad={() => initialize()} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={`${html}:${theme}:${appId}:${httpBase}:${attempt}`} src={`${httpBase}/custom-app-runner?v=4`} className="hx-custom-frame" /></>
 }
 export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { app: App; table: Table; rows: Row[]; api: HarnessApi; reload: () => unknown; httpBase: string }) {
+  const scope=useMemo(()=>({}),[app.id,api]),activeScope=useRef<object|null>(scope);activeScope.current=scope
   const [html, setHtml] = useState(app.definition.custom?.draft || '')
+  const htmlRef=useRef(html),editGeneration=useRef(0),remote=useRef({scope,draft:app.definition.custom?.draft||'',generation:0}),pending=useRef<{scope:object}|null>(null)
+  const [shownScope,setShownScope]=useState(scope),[generated,setGenerated]=useState<{html:string;prompt:string;startingHtml:string;contextGeneration:number;version:number}|null>(null),[remoteChanged,setRemoteChanged]=useState(false)
+  const promptGeneration=useRef(0),context=JSON.stringify([app.version,app.definition.custom?.draft||'',table.id,table.columns]),contextRef=useRef(context),contextGeneration=useRef(0)
+  if(contextRef.current!==context){contextRef.current=context;contextGeneration.current++}
   const [prompt, setPrompt] = useState('')
   const [preview, setPreview] = useState(Boolean(app.definition.custom?.draft))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [history, setHistory] = useState<Array<{version: number; note: string | null}>>([])
-  useEffect(() => { setHtml(app.definition.custom?.draft || '') }, [app.id, app.definition.custom?.draft])
+  useLayoutEffect(()=>{
+    activeScope.current=scope
+    const draft=app.definition.custom?.draft||''
+    htmlRef.current=draft;editGeneration.current++;remote.current={scope,draft,generation:editGeneration.current};promptGeneration.current++;pending.current=null
+    setHtml(draft);setPrompt('');setPreview(Boolean(draft));setGenerated(null);setRemoteChanged(false);setBusy(false);setError('');setHistory([]);setShownScope(scope)
+    return()=>{if(activeScope.current===scope)activeScope.current=null}
+  },[scope])
+  useEffect(()=>{
+    if(remote.current.scope!==scope)return
+    const draft=app.definition.custom?.draft||'',previous=remote.current.draft
+    if(draft===previous)return
+    const pristine=htmlRef.current===previous&&editGeneration.current===remote.current.generation
+    editGeneration.current++;remote.current={scope,draft,generation:editGeneration.current}
+    if(pristine){htmlRef.current=draft;setHtml(draft);setRemoteChanged(false)}
+    else setRemoteChanged(htmlRef.current!==draft)
+  },[scope,app.definition.custom?.draft])
   async function run(action: () => Promise<unknown>) {
+    if(pending.current?.scope===scope)return
+    const operation={scope};pending.current=operation
     setBusy(true); setError('')
-    try { await action() } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
+    try { await action() } catch (e) { if(activeScope.current===scope)setError(e instanceof Error ? e.message : String(e)) } finally { if(pending.current===operation){pending.current=null;if(activeScope.current===scope)setBusy(false)} }
   }
   const changed = html !== (app.definition.custom?.draft || '')
+  const currentRemote=app.definition.custom?.draft||''
+  const remoteConflict=remoteChanged||(remote.current.scope===scope&&remote.current.draft!==currentRemote&&(htmlRef.current!==remote.current.draft||editGeneration.current!==remote.current.generation)&&htmlRef.current!==currentRemote)
+  if(shownScope!==scope)return <section className="hx-custom-editor" role="status">アプリを読み込んでいます…</section>
   return <section className="hx-custom-editor">
     <h2>カスタムアプリ</h2><p>HTML・CSS・JavaScriptで独自の画面を作成できます。検証DBを作成するとプレビュー内で本番と分離した書き込みを試せます。未作成時は読み取り専用です。公開後のデータ変更は毎回確認します。保存した下書きを確認して公開してください。</p>
-    <form onSubmit={e => { e.preventDefault(); void run(async () => { const result = await api.generateCustom(app.id, prompt); setHtml(result.html); setPreview(true) }) }}>
-      <textarea aria-label="作りたいカスタムアプリ" placeholder="例：期限が近いタスクを強調するダッシュボード。担当者で絞り込み、進捗率を表示。" value={prompt} maxLength={4000} onChange={e => setPrompt(e.target.value)} />
-      <button className="pill-btn" disabled={busy || !prompt.trim()}>{busy ? '処理中…' : '自然文からコードを生成'}</button>
+    <form onSubmit={e => { e.preventDefault();if(generated!==null||!prompt.trim())return;const started=editGeneration.current,startedPrompt=promptGeneration.current,startedContext=contextGeneration.current,startedConflict=remoteConflict,request=prompt,version=app.version,startingHtml=htmlRef.current;void run(async () => { const result = await api.generateCustom(app.id, request);if(activeScope.current!==scope)return;if(typeof result?.html!=='string'||!result.html.trim()||result.html.length>120000)throw new Error('生成結果を確認できません。現在のコードは保持されています。');if(startedConflict||editGeneration.current!==started||promptGeneration.current!==startedPrompt||contextGeneration.current!==startedContext)setGenerated({html:result.html,prompt:request,startingHtml,contextGeneration:startedContext,version});else{htmlRef.current=result.html;editGeneration.current++;setHtml(result.html);setPreview(true)} }) }}>
+      <textarea aria-label="作りたいカスタムアプリ" placeholder="例：期限が近いタスクを強調するダッシュボード。担当者で絞り込み、進捗率を表示。" value={prompt} maxLength={4000} onChange={e => {promptGeneration.current++;setPrompt(e.target.value)}} />
+      <button className="pill-btn" disabled={busy || generated!==null || !prompt.trim()}>{busy ? '処理中…' : '自然文からコードを生成'}</button>
     </form>
     {error && <p role="alert" className="form-error">{error}</p>}
-    <details className="hx-custom-source"><summary>コードを編集</summary><label>HTML / CSS / JavaScript<textarea className="hx-code-editor" aria-label="カスタムアプリのソース" value={html} maxLength={119800} spellCheck={false} onChange={e => { setHtml(e.target.value); setPreview(false) }} /></label></details>
+    {remoteConflict&&<section aria-label="保存済みコードの変更"><p role="status">保存済みのコードが変更されました。編集中のコードは保持しています。保存前に内容を確認してください。</p><label>現在保存されているコード<textarea className="hx-code-editor" aria-label="現在保存されているコード" value={currentRemote} readOnly rows={6}/></label><div className="hx-actions"><button type="button" className="pill-btn quiet" onClick={()=>{if(!window.confirm('編集中のコードを破棄して、現在保存されているコードを使いますか？'))return;htmlRef.current=currentRemote;editGeneration.current++;remote.current={scope,draft:currentRemote,generation:editGeneration.current};setHtml(currentRemote);setPreview(false);setRemoteChanged(false)}}>保存済みコードを使う</button><button type="button" className="pill-btn quiet" onClick={()=>{if(!window.confirm('編集中のコードを保持します。次に保存すると現在保存されているコードを上書きします。続けますか？'))return;setRemoteChanged(false)}}>編集中のコードで続ける</button></div></section>}
+    <details className="hx-custom-source"><summary>コードを編集</summary><label>HTML / CSS / JavaScript<textarea className="hx-code-editor" aria-label="カスタムアプリのソース" value={html} maxLength={119800} spellCheck={false} onChange={e => {htmlRef.current=e.target.value;editGeneration.current++;setHtml(e.target.value); setPreview(false) }} /></label></details>
+    {generated!==null&&<section aria-label="生成結果を確認"><p role="status">生成中に入力またはアプリの状態が変更されたため、現在のコードは変更していません。生成結果を確認して選択してください。</p>{generated.contextGeneration!==contextGeneration.current&&<p role="status">生成時のバージョン {generated.version} からアプリの状態が変更されています。現在の状態に合うか確認してください。</p>}<label>生成開始時の編集中コード<textarea className="hx-code-editor" aria-label="生成開始時の編集中コード" value={generated.startingHtml} readOnly rows={6}/></label><label>送信した依頼<textarea aria-label="生成時の依頼" value={generated.prompt} readOnly rows={2}/></label><label>生成結果<textarea className="hx-code-editor" aria-label="生成されたコード" value={generated.html} readOnly rows={6}/></label><div className="hx-actions"><button type="button" className="pill-btn" onClick={()=>{const warning=generated.contextGeneration!==contextGeneration.current?`生成時のバージョン ${generated.version} からアプリの状態が変更されています。`:'';if(!window.confirm(`${warning}生成結果で編集中のコードを置き換えます。現在のコードは自動保存されません。続けますか？`))return;htmlRef.current=generated.html;editGeneration.current++;setHtml(generated.html);setGenerated(null);setPreview(true)}}>生成結果を採用</button><button type="button" className="pill-btn quiet" onClick={()=>setGenerated(null)}>生成結果を破棄し、現在のコードを残す</button></div></section>}
     <div className="hx-actions">
       <button className="pill-btn quiet" disabled={!html || busy} onClick={() => setPreview(v => !v)}>{preview ? 'プレビューを閉じる' : 'プレビュー'}</button>
-      <button className="pill-btn" disabled={busy || !html || !changed} onClick={() => void run(async () => { await api.saveCustom(app.id, 'draft', app.version, html); await reload() })}>下書きを保存</button>
-      <button className="pill-btn" disabled={busy || changed || !html || html === app.definition.custom?.published} onClick={() => void run(async () => { await api.saveCustom(app.id, 'publish', app.version); await reload() })}>保存した下書きを公開</button>
-      {app.definition.custom?.published && <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'unpublish', app.version); await reload() })}>公開を停止</button>}
+      <button className="pill-btn" disabled={busy || remoteConflict || !html || !changed} onClick={() => {if(remoteConflict)return;void run(async () => { await api.saveCustom(app.id, 'draft', app.version, html); if(activeScope.current===scope)await reload() })}}>下書きを保存</button>
+      <button className="pill-btn" disabled={busy || remoteConflict || changed || !html || html === app.definition.custom?.published} onClick={() => {if(remoteConflict)return;void run(async () => { await api.saveCustom(app.id, 'publish', app.version); if(activeScope.current===scope)await reload() })}}>保存した下書きを公開</button>
+      {app.definition.custom?.published && <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'unpublish', app.version); if(activeScope.current===scope)await reload() })}>公開を停止</button>}
     </div>
-    <details onToggle={e => { if (e.currentTarget.open) void api.versions(app.id).then(r => setHistory(r.versions)).catch(e => setError(String(e))) }}><summary>コードの履歴</summary>{history.filter(v => v.note?.startsWith('Custom app:')).map(v => <p key={v.version}>v{v.version} · {v.note} <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'restore', app.version, undefined, v.version); await reload() })}>下書きに復元</button></p>)}</details>
+    <details onToggle={e => { if (e.currentTarget.open) void api.versions(app.id).then(r => {if(activeScope.current===scope)setHistory(r.versions)}).catch(e => {if(activeScope.current===scope)setError(String(e))}) }}><summary>コードの履歴</summary>{history.filter(v => v.note?.startsWith('Custom app:')).map(v => <p key={v.version}>v{v.version} · {v.note} <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'restore', app.version, undefined, v.version); if(activeScope.current===scope)await reload() })}>下書きに復元</button></p>)}</details>
     <small>{changed ? '未保存の変更があります' : `バージョン ${app.version}`} · 直接の外部通信なし・接続は確認付き · アプリの閲覧権限を継承 · 公開操作は監査ログに記録</small>
     {preview && <ForkPreview appId={app.id} api={api} httpBase={httpBase} html={html} table={table} rows={rows} />}
   </section>
