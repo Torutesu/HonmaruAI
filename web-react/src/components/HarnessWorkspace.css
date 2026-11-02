@@ -777,6 +777,7 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-floating-app:has(.hx-app-fullscreen) .hx-floating-resize { display:none; }
 
 .hx-floating-search { display:none !important; }
+.hx-floating-search-query { display:none; }
 .hx-floating-app .hx-data-toolbar { container-type:inline-size; container-name:floatingtools; }
 @container floatingtools (max-width:640px) {
  .hx-data-heading > .pill-btn { font-size:0 !important; gap:0 !important; width:28px; height:28px; padding:6px !important; }
@@ -785,6 +786,8 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
  .hx-data-tools .hx-floating-search { display:inline-flex !important; }
  .hx-data-tools > input[type=search] { display:none; }
  .hx-data-tools.hx-search-expanded > input[type=search] { display:block; width:120px !important; }
+ .hx-data-tools .hx-floating-search-query { display:block; flex:0 1 140px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:1px solid var(--hx-border); border-radius:6px; padding:5px 8px; background:var(--hx-hover); color:var(--hx-text); font:inherit; font-size:12px; cursor:pointer; }
+ .hx-data-tools .hx-floating-search-query:focus-visible { outline:2px solid var(--hx-accent); outline-offset:2px; }
  .hx-data-tools > span { display:none; }
 }
 /* Floating reference panels use a single neutral frame, not the full app canvas. */

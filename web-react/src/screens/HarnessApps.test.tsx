@@ -133,6 +133,34 @@ test('the metrics view does not offer a search that cannot filter its aggregates
   await act(async()=>{tree!.root.findAllByProps({role:'tab'})[0].props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
   expect(search()!.props.value).toBe('Alpha')
 })
+
+test('a collapsed floating search exposes the active query and reopens it without clearing the filter', async () => {
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const alpha={id:'a',values:{title:'Alpha'},updatedAt:''},beta={id:'b',values:{title:'Beta'},updatedAt:''}
+  const view={id:'main',type:'table',name:'All',rows:[alpha,beta]}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[alpha,beta],views:[view],canCustomize:false}),
+    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data" floating/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const toggle=()=>tree!.root.findByProps({className:'hx-floating-search pill-btn quiet'})
+  const input=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
+  act(()=>toggle().props.onClick())
+  act(()=>input().props.onChange({target:{value:'Alpha'}}))
+  expect(tree!.root.findAllByProps({'data-row':'b'})).toHaveLength(0)
+  act(()=>toggle().props.onClick())
+  const indicator=tree!.root.findByProps({className:'hx-floating-search-query'})
+  expect(indicator.props.title).toBe('Search: Alpha')
+  expect(input().props.value).toBe('Alpha')
+  act(()=>indicator.props.onClick())
+  expect(toggle().props['aria-expanded']).toBe(true)
+  expect(input().props.value).toBe('Alpha')
+  act(()=>input().props.onChange({target:{value:''}}))
+  expect(tree!.root.findAllByProps({'data-row':'a'})).toHaveLength(1)
+  expect(tree!.root.findAllByProps({'data-row':'b'})).toHaveLength(1)
+  expect(tree!.root.findAllByProps({className:'hx-floating-search-query'})).toHaveLength(0)
+})
 const button = (label: string) => tree!.root.findAllByType('button').find(node => node.props.children === label)!
 test.each(['board','calendar'] as const)('search and annotation cancellation coexist in the %s view', async type => {
   const listeners = new Set<(event:any)=>void>()
