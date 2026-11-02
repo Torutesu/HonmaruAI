@@ -222,8 +222,12 @@ export const ComposerEmojiButton: React.FC<{ target: React.RefObject<HTMLTextAre
         onMouseDown={() => { wasOpen.current = Boolean(at) }}
         onClick={() => {
           if (wasOpen.current) { wasOpen.current = false; return }
+          // Above the box, which sits at the foot of the window, so the
+          // picker never covers what is being written; its left edge on
+          // the button's, kept inside the window.
           const r = button.current!.getBoundingClientRect()
-          setAt({ x: r.left, y: r.top })
+          const p = placeMenu(r, { width: 300, height: 380 }, { width: window.innerWidth, height: window.innerHeight })
+          setAt({ x: Math.max(8, Math.min(r.left, window.innerWidth - 308)), y: p.top })
         }}
         data-composer-emoji
       >

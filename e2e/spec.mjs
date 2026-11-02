@@ -3598,6 +3598,13 @@ await step('the message box has an emoji button that puts the emoji where the ca
     // The workspace's own emoji are in it.
     await desk.waitForSelector('.slk-picker-at [data-custom-emoji]', { timeout: 10000 })
       .catch(() => { throw new Error("the composer's picker leaves out the workspace's emoji") })
+    // Above the box, not over what is being written.
+    const covers = await desk.evaluate(() => {
+      const picker = document.querySelector('.slk-picker-at').getBoundingClientRect()
+      const box = document.querySelector('.slk-composer:not(.thread)').getBoundingClientRect()
+      return { pickerBottom: Math.round(picker.bottom), boxTop: Math.round(box.top), inside: picker.top >= 0 && picker.bottom <= window.innerHeight }
+    })
+    if (covers.pickerBottom > covers.boxTop + 1 || !covers.inside) throw new Error(`the picker covers the message box or leaves the window: ${JSON.stringify(covers)}`)
     await desk.screenshot({ path: `${SHOTS}/56c-composer-emoji.png` })
     await desk.fill('.slk-picker-at [data-emoji-search]', 'thumbs up')
     await desk.waitForSelector('.slk-picker-at .slk-picker-emoji[aria-label="👍"]', { timeout: 10000 })
