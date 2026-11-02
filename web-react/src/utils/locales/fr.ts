@@ -1,6 +1,14 @@
 // The interface in fr: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'New {name}': 'Nouveau : {name}',
+  '{label} ({n} active)': '{label} ({n} actifs)',
+  'Filter records': 'Filtrer les enregistrements',
+  'New record': 'Nouvel enregistrement',
+  'Fields': 'Champs',
+  'Search records': 'Rechercher des enregistrements',
+  'Group records': 'Regrouper les enregistrements',
+  'More data viewer actions': 'Autres actions de la vue des données',
   'Some app notifications could not be loaded. Try again.': 'Certaines notifications d’application n’ont pas pu être chargées. Réessayez.',
   'Previous month': 'Mois précédent',
   'Next month': 'Mois suivant',

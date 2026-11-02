@@ -51,7 +51,7 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
         if (await page.evaluate(() => Boolean(document.activeElement?.closest('.classic')))) throw new Error('Covered conversation stole keyboard focus')
       }
       stage = 'open filter popover'
-      await foreground.getByRole('button', { name: 'フィルター', exact: true }).click()
+      await foreground.getByRole('button', { name: /^(?:フィルター|Filter records)$/ }).click()
       stage = 'adjust filter'
       await foreground.getByRole('button', { name: 'フィルターを調整', exact: true }).click()
       stage = 'wait for source thread'
