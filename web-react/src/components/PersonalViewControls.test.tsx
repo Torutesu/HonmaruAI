@@ -1,3 +1,4 @@
+vi.mock('../utils/i18n',()=>({useT:()=>(key:string)=>key==='Fields'?'フィールド':key}))
 import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {test,expect,vi,afterEach} from 'vitest'

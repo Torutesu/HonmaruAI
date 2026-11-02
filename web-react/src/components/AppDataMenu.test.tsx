@@ -1,3 +1,4 @@
+vi.mock('../utils/i18n',()=>({useT:()=>(key:string)=>key==='More data viewer actions'?'その他のデータビューアー操作':key}))
 import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {afterEach,expect,test,vi} from 'vitest'

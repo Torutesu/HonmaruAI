@@ -11,7 +11,7 @@ vi.mock('./HarnessShared', async importOriginal => ({
   useApi: () => state.api,
 }))
 vi.mock('../utils/i18n', () => {
-  const identity = (text: string, values?: Record<string, unknown>) => text.replace(/\{(\w+)\}/g, (match, key) => values?.[key] == null ? match : String(values[key]))
+  const identity = (text: string, values?: Record<string, unknown>) => (({'Fields':'フィールド','Filter records':'フィルター','Group records':'グループ化','New record':'新規レコード','New {name}':'新規{name}','More data viewer actions':'その他のデータビューアー操作'} as Record<string,string>)[text] || text).replace(/\{(\w+)\}/g, (match, key) => values?.[key] == null ? match : String(values[key]))
   return { useT: () => identity }
 })
 vi.mock('../utils/appPins', () => ({ useAppPins: () => ({ pins: [], toggle: vi.fn() }) }))
@@ -445,6 +445,8 @@ test('the app data viewer keeps one record-create action in the table toolbar', 
   const createActions = tree!.root.findAllByProps({ className: 'pill-btn hx-create-record' })
   expect(createActions).toHaveLength(1)
   expect(createActions[0].children).toContain('新規タスク')
+  expect(createActions[0].props.title).toBe('新規タスク')
+  expect(createActions[0].props['aria-label']).toBe('新規タスク')
   expect(tree!.root.findAllByType('h2').some(node => node.children.includes('タスク'))).toBe(true)
   expect(tree!.root.findAllByType('button').some(node => node.children.includes('Add a row'))).toBe(false)
 })

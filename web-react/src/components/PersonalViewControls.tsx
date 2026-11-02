@@ -1,8 +1,10 @@
 import {displayLayout, SYSTEM_COLUMN_IDS} from '../utils/systemColumns'
 import React, {useEffect, useRef, useState} from 'react'
 import {Icon} from './Icon'
+import {useT} from '../utils/i18n'
 import type {Column, PersonalViews, View} from '../utils/harness'
 export function PersonalViewControls({view,columns,state,save,onSelect,onSettings,onRemoved,personal,conflicted=false,sharedIds=[],control='both'}:{view:View;columns:Column[];state:PersonalViews;save:(next:PersonalViews)=>Promise<void>;onSelect:(id:string)=>void;onSettings:()=>void;onRemoved?:()=>void;personal:boolean;conflicted?:boolean;sharedIds?:string[];control?:'both'|'fields'|'view'}) {
+ const t=useT()
  const [open,setOpen]=useState<'fields'|'view'|null>(null),[name,setName]=useState(view.name),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirmDelete,setConfirmDelete]=useState(false),[recoverId,setRecoverId]=useState<string|null>(null)
  const layout=displayLayout(columns,state.layouts[view.id]), ids=layout.columns.map(c=>c.id)
  const [order,setOrder]=useState(layout?.order || ids),[widths,setWidths]=useState<Record<string,number>>(layout?.widths || {})
@@ -14,7 +16,7 @@ export function PersonalViewControls({view,columns,state,save,onSelect,onSetting
  const perform=async(next:PersonalViews,id?:string,onDone?:()=>void)=>{setBusy(true);setError('');try{await save(next);setOpen(null);if(id)onSelect(id);const active=typeof document==='undefined'?null:document.activeElement;if(onDone&&(!active||active===document.body||root.current?.contains(active)))onDone()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
  const move=(id:string,delta:number)=>{const next=[...order],i=next.indexOf(id);[next[i],next[i+delta]]=[next[i+delta],next[i]];setOrder(next)}
  return <div className="hx-view-controls" ref={root} onKeyDown={e=>{if(e.key==='Escape'&&open){e.stopPropagation();if(!busy){setOpen(null);root.current?.querySelector<HTMLButtonElement>('button')?.focus()}}}}>
- {control!=='view'&&<button className="pill-btn quiet" aria-expanded={open==='fields'} onClick={()=>setOpen(open==='fields'?null:'fields')}><Icon name="sliders" size={14}/>フィールド</button>}
+ {control!=='view'&&<button className="pill-btn quiet" title={t('Fields')} aria-label={t('Fields')} aria-expanded={open==='fields'} onClick={()=>setOpen(open==='fields'?null:'fields')}><Icon name="sliders" size={14}/>{t('Fields')}</button>}
  {control!=='fields'&&<button className="pill-btn quiet hx-new-view" aria-label={personal?'新しいビュー / 編集':'新しいビュー'} title={personal?'新しいビュー / 編集':'新しいビュー'} aria-expanded={open==='view'} onClick={()=>{setName(view.name);setConfirmDelete(false);setRecoverId(null);setError('');setOpen(open==='view'?null:'view')}}><Icon name="plus" size={14}/>{control==='both'&&<>新しいビュー{personal?' / 編集':''}</>}</button>}
  {open && <div className="hx-view-popover hx-personal-popover" role="dialog" aria-label={open==='fields'?'列の表示設定':'個人ビュー'}>
  <strong>{open==='fields'?'フィールド':'個人ビュー'}</strong><p className="hx-view-hint">自分だけに適用・同じアカウントの端末間で同期</p>

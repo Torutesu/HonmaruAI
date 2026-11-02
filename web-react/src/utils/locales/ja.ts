@@ -1,6 +1,12 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'New {name}': '新規{name}',
+  '{label} ({n} active)': '{label}（{n}件）',
+  'Filter records': 'フィルター',
+  'New record': '新規レコード',
+  'Group records': 'グループ化',
+  'More data viewer actions': 'その他のデータビューアー操作',
   'Some app notifications could not be loaded. Try again.': '一部のアプリ通知を読み込めませんでした。もう一度お試しください。',
   'Previous month': '前の月',
   'Next month': '次の月',

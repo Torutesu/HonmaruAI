@@ -1,3 +1,4 @@
+vi.mock('../utils/i18n',()=>({useT:()=> (key:string,values?:Record<string,unknown>)=>({'Filter records':'フィルター','Group records':'グループ化','{label} ({n} active)':'{label}（{n}件）'} as Record<string,string>)[key]?.replace(/\{(\w+)\}/g,(_,name)=>String(values?.[name]??''))??key}))
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, expect, test, vi } from 'vitest'
