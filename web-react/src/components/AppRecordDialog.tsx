@@ -1,17 +1,34 @@
-import React, {useEffect, useRef, useState} from 'react'
+import React, {useRef, useState} from 'react'
 import {Dialog} from './Dialog'
 import type {AppEntity, Column, Row} from '../utils/harness'
 import {AppPersonPicker, type AppPerson} from './AppPersonPicker'
 import {AppRelationPicker} from './AppRelationPicker'
+import {useT} from '../utils/i18n'
 
 type RelationEntity=AppEntity & {rows:Row[]}
 
+function equalValue(left:unknown,right:unknown):boolean {
+ if(Object.is(left,right))return true
+ return Array.isArray(left)&&Array.isArray(right)&&left.length===right.length&&left.every((item,index)=>equalValue(item,right[index]))
+}
+
 export function AppRecordDialog({appName,tableName=appName,columns,initial={},record,conversation,members=[],membersReady=true,relationEntities=[],save,onClose}:{appName:string;tableName?:string;columns:Column[];initial?:Record<string,unknown>;record?:Row;conversation?:React.ReactNode;members?:AppPerson[];membersReady?:boolean;relationEntities?:RelationEntity[];save:(values:Record<string,unknown>)=>Promise<void>;onClose:()=>void}) {
- const [draft,setDraft]=useState<Record<string,unknown>>(record?.values || initial),[busy,setBusy]=useState(false),[error,setError]=useState('')
- const pending=useRef(false),form=useRef<HTMLFormElement>(null)
- const close=()=>{if(!pending.current)onClose()}
- useEffect(()=>{const trap=(e:KeyboardEvent)=>{if(e.key!=='Tab')return;const dialog=form.current?.closest('[role="dialog"]');const fields=Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled)')||[]);const first=fields[0],last=fields.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}};document.addEventListener('keydown',trap,true);return()=>document.removeEventListener('keydown',trap,true)},[])
- const submit=async(e:React.FormEvent)=>{e.preventDefault();if(pending.current)return;pending.current=true;setBusy(true);setError('');try{const values=Object.fromEntries(columns.filter(c=>record ? draft[c.id]!==record.values[c.id] : draft[c.id]!==undefined&&draft[c.id]!=='').map(c=>[c.id,draft[c.id]===''?null:c.type==='number'&&draft[c.id]!=null?Number(draft[c.id]):draft[c.id]]));await save(values);onClose()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=false;setBusy(false)}}
+ const t=useT()
+ const [draft,setDraft]=useState<Record<string,unknown>>(record?.values || initial),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirmDiscard,setConfirmDiscard]=useState(false)
+ const pending=useRef(false),form=useRef<HTMLFormElement>(null),original=useRef(record?.values||initial)
+ const values=(source=draft)=>Object.fromEntries(columns.filter(c=>record ? source[c.id]!==record.values[c.id] : source[c.id]!==undefined&&source[c.id]!=='').map(c=>[c.id,source[c.id]===''?null:c.type==='number'&&source[c.id]!=null?Number(source[c.id]):source[c.id]]))
+ const close=()=>{
+  if(pending.current||confirmDiscard)return
+  const current=values(),baseline=record?original.current:values(original.current)
+  const changed=record?Object.entries(current).some(([id,value])=>!equalValue(value,baseline[id])):Array.from(new Set([...Object.keys(current),...Object.keys(baseline)])).some(id=>!equalValue(current[id],baseline[id]))
+  // Number() can round distinct input strings to the same IEEE-754 value.
+  // Keep the user's exact numeric text safe when closing, even if saving it
+  // would currently coerce to the original number.
+  const numericTextChanged=columns.some(c=>c.type==='number'&&String(draft[c.id]??'')!==String(original.current[c.id]??''))
+  const incomplete=Array.from(form.current?.querySelectorAll<HTMLInputElement>('input')||[]).some(input=>input.validity.badInput)
+  if(changed||numericTextChanged||incomplete)setConfirmDiscard(true);else onClose()
+ }
+ const submit=async(e:React.FormEvent)=>{e.preventDefault();if(pending.current||confirmDiscard)return;pending.current=true;setBusy(true);setError('');try{await save(values());onClose()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=false;setBusy(false)}}
  const change=(id:string,value:unknown)=>setDraft(d=>({...d,[id]:value}))
  return <Dialog title={record?"レコード詳細":tableName!==appName?`新規${tableName}`:"新規レコード"} lede={record?appName:`${appName}に新しいレコードを作成します。`} className={`hx-record-dialog${conversation?' hx-record-with-chat':''}`} onClose={close} footer={<><button className="dlg-btn" disabled={busy} onClick={close}>キャンセル</button><button className="dlg-btn primary" form="hx-record-form" type="submit" disabled={busy}>{busy?(record?'保存中…':'作成中…'):(record?'保存':'作成')}</button></>}>
   <div className="hx-record-columns"><form id="hx-record-form" ref={form} onSubmit={e=>void submit(e)} className="hx-record-form">
@@ -23,5 +40,6 @@ export function AppRecordDialog({appName,tableName=appName,columns,initial={},re
    {record&&<dl className="hx-record-metadata"><div><dt>ID</dt><dd>{record.id}</dd></div><div><dt>作成日時</dt><dd>{record.createdAt ? new Date(record.createdAt).toLocaleString() : '—'}</dd></div><div><dt>更新日時</dt><dd>{new Date(record.updatedAt).toLocaleString()}</dd></div></dl>}
    {error&&<p role="alert" className="dlg-error">{error}</p>}
   </form>{conversation}</div>
+  {confirmDiscard&&<Dialog title={t('Discard unsaved record changes?')} lede={t('Your record changes have not been saved.')} onClose={()=>setConfirmDiscard(false)} footer={<><button className="dlg-btn" onClick={()=>setConfirmDiscard(false)}>{t('Keep editing')}</button><button className="dlg-btn primary" onClick={onClose}>{t('Discard changes')}</button></>}>{null}</Dialog>}
  </Dialog>
 }
