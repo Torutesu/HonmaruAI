@@ -2,6 +2,7 @@ import {SYSTEM_COLUMNS, isSystemTimestamp, localDateTime, utcDateTime} from '../
 import React, { useEffect, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import {AppRelationPicker} from './AppRelationPicker'
+import {composing} from '../utils/keys'
 import type { Column, Row, View } from '../utils/harness'
 const operators = [['eq','と等しい'],['neq','と等しくない'],['contains','を含む'],['empty','が空'],['not_empty','が空ではない'],['gt','より大きい / 後'],['lt','より小さい / 前']]
 type RelationEntity={key:string;table:{columns:Column[]};rows:Row[]}
@@ -42,7 +43,7 @@ export function AppViewControls({view,columns,save,canEdit,personal=false,onAdju
     return label==null||label===''?row.id:String(label)
   }
   const filterOperatorLabel=(column:Column|undefined,op:string)=>column?.type==='relation'&&column.multiple?(op==='eq'?'を含む':op==='neq'?'を含まない':operators.find(o=>o[0]===op)?.[1]):operators.find(o=>o[0]===op)?.[1]
-  return <div ref={root} className="hx-view-controls" onKeyDown={e=>{if(e.key==='Escape'&&!busy){e.stopPropagation();close()}}}>
+  return <div ref={root} className="hx-view-controls" onKeyDown={e=>{if(e.key==='Escape'&&!composing(e)&&!busy){e.stopPropagation();close()}}}>
     {(['filter','group'] as const).filter(kind=>kind==='filter'||view.type==='table'||view.type==='board').map(kind=><button key={kind} className={`pill-btn quiet ${open===kind?'on':''}`} aria-haspopup="dialog" aria-expanded={open===kind} onClick={e=>{trigger.current=e.currentTarget;setOpen(open===kind?null:kind);setEditing(false);setError('');setFilters((view.filters||[]).map(f=>columns.find(c=>c.id===f.column)?.type==='relation'&&f.op==='contains'?{...f,op:'eq'}:f));setWhere(view.where);setGroup(view.groupBy||'')}}><Icon name={kind==='filter'?'filter':'group'} size={14}/>{kind==='filter'?'フィルター':'グループ化'}{kind==='filter'&&activeCount>0&&<span className="hx-count">{activeCount}</span>}</button>)}
     {open&&<div className={`hx-view-popover ${editing&&open==='filter'?'editing':''}`} role="dialog" aria-label={open==='filter'?'フィルターを編集':'グループ化を編集'}>
       {open==='filter'?<>

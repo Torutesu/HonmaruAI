@@ -24,6 +24,35 @@ test('filter editor saves selected values and preserves its draft on server reje
   expect(ui.tree.root.findByProps({'aria-label':'条件1の値'}).props.value).toBe('完了')
   act(()=>ui.tree.unmount())
 })
+
+test('IME Escape keeps the unsaved filter open; ordinary Escape still cancels it',()=>{
+  const ui=setup(undefined,undefined,[{id:'title',name:'タイトル',type:'text'}])
+  ui.click('フィルター');ui.click('フィルターを調整');ui.click('条件を追加')
+  act(()=>ui.tree.root.findByProps({'aria-label':'条件1の値'}).props.onChange({target:{value:'編集中'}}))
+  const root=()=>ui.tree.root.findByProps({className:'hx-view-controls'})
+  const send=(nativeEvent:object)=>{const stop=vi.fn();act(()=>root().props.onKeyDown({key:'Escape',nativeEvent,stopPropagation:stop}));return stop}
+  expect(send({isComposing:true})).not.toHaveBeenCalled()
+  expect(send({keyCode:229})).not.toHaveBeenCalled()
+  expect(ui.tree.root.findByProps({'aria-label':'条件1の値'}).props.value).toBe('編集中')
+  expect(ui.save).not.toHaveBeenCalled()
+  expect(send({isComposing:false,keyCode:27})).toHaveBeenCalledOnce()
+  expect(ui.tree.root.findAllByProps({role:'dialog'})).toHaveLength(0)
+  ui.click('フィルター');ui.click('フィルターを調整')
+  expect(ui.tree.root.findAllByProps({'aria-label':'条件1の値'})).toHaveLength(0)
+  expect(ui.save).not.toHaveBeenCalled()
+  act(()=>ui.tree.unmount())
+})
+
+test('a filter can still be saved after Escape is used for IME composition',async()=>{
+  const ui=setup(undefined,undefined,[{id:'title',name:'タイトル',type:'text'}])
+  ui.click('フィルター');ui.click('フィルターを調整');ui.click('条件を追加')
+  act(()=>ui.tree.root.findByProps({'aria-label':'条件1の値'}).props.onChange({target:{value:'日本語'}}))
+  act(()=>ui.tree.root.findByProps({className:'hx-view-controls'}).props.onKeyDown({key:'Escape',nativeEvent:{isComposing:true},stopPropagation:vi.fn()}))
+  await act(async()=>{ui.tree.root.findAllByType('button').find(b=>b.children.includes('保存'))!.props.onClick();await Promise.resolve()})
+  expect(ui.save).toHaveBeenCalledWith({filters:[{column:'title',op:'eq',value:'日本語'}],where:{}})
+  expect(ui.tree.root.findAllByProps({role:'dialog'})).toHaveLength(0)
+  act(()=>ui.tree.unmount())
+})
 test('group editor can select and save a column',async()=>{
   const ui=setup();ui.click('グループ化');ui.click('グループ化を調整')
   act(()=>ui.tree.root.findByProps({'aria-label':'グループ化するフィールド'}).props.onChange({target:{value:'state'}}))
