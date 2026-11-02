@@ -73,7 +73,7 @@ export interface Step {
   when?: WorkflowCondition
   type: StepType
   channel?: string; text?: string; agentId?: string; prompt?: string; tableId?: string; rowId?: string
-  values?: Record<string, string>; to?: string; title?: string; summary?: string; minutes?: number
+  values?: Record<string, unknown>; to?: string; title?: string; summary?: string; minutes?: number
 }
 export interface WorkflowSourceState {source:{threadId:string;channel:string;body:string;createdAt:string}|null;canBind:boolean;candidates:Array<{id:string;channel:string;body:string;createdAt:string}>;nextCursor:number|null}
 export interface WorkflowNotice { workflowId: string; generation: string; runId: string; createdAt: string; readAt: string|null; name: string; paused: boolean }

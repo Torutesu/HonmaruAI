@@ -692,3 +692,15 @@ test('workflow detail edits UTC run limits and displays usage with the saved rev
  await act(async()=>{await button('Save budget settings').props.onClick()})
  expect(state.api.updateWorkflowBudget).toHaveBeenCalledWith(workflow.id,{revision:4,dailyLimit:5,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:2,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'warn'})
 })
+
+test('saving a loaded workflow without editing preserves zero and false values',async()=>{
+ const editable={...workflow,updatedAt:'2026-10-25T00:00:00.000Z',trigger:{type:'manual'},steps:[{type:'add_row',tableId:'tasks',values:{quantity:0,approved:false}}]}
+ state.api.tables.mockResolvedValue({tables:[{id:'tasks',name:'Tasks',columns:[{id:'quantity',name:'Quantity',type:'number'},{id:'approved',name:'Approved',type:'checkbox'}]}]})
+ state.api.workflow.mockResolvedValue({workflow:editable,runs:[],canEdit:true})
+ state.api.updateWorkflow=vi.fn().mockResolvedValue({workflow:editable})
+ await open();await act(async()=>{button('Edit workflow').props.onClick()})
+ const fields=tree.root.findAllByType('input').map(node=>node.props.value)
+ expect(fields).toContain('0');expect(fields).toContain('false')
+ await act(async()=>{await button('Save workflow').props.onClick()})
+ expect(state.api.updateWorkflow).toHaveBeenCalledWith(workflow.id,expect.objectContaining({steps:[{type:'add_row',tableId:'tasks',values:{quantity:0,approved:false}}]}))
+})

@@ -60,7 +60,7 @@ export function StepEditor({ api, step, onChange, onRemove, tables, agents, trig
           {valueTable.columns.map((c) => (
             <label key={c.id} className="hx-inline">
               <span>{c.name}</span>
-              <input className="hx-cell-input" value={step.values?.[c.id] || ''} placeholder={c.type === 'select' ? (c.options || []).join(' / ') : ''} onChange={(e) => set({ values: { ...(step.values || {}), [c.id]: e.target.value } })} />
+              <input className="hx-cell-input" value={String(step.values?.[c.id] ?? '')} placeholder={c.type === 'select' ? (c.options || []).join(' / ') : ''} onChange={(e) => set({ values: { ...(step.values || {}), [c.id]: e.target.value } })} />
             </label>
           ))}
         </div>
