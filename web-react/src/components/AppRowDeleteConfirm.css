@@ -1,0 +1,6 @@
+.app-row-delete .dlg-error { color: #b42318; }
+.app-row-delete p { margin: 0; overflow-wrap: anywhere; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .app-row-delete .dlg-error { color: #ff8b8b; }
+}
+:root[data-theme="dark"] .app-row-delete .dlg-error { color: #ff8b8b; }

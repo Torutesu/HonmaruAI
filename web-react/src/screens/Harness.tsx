@@ -3,6 +3,7 @@ import {AppConversationInbox} from '../components/AppConversationInbox'
 import {AppConversationPanel} from '../components/AppConversationPanel'
 import {AppAnnotationDialog, AppAnnotationLayer, AppAnnotationList, AppAnnotationMarkers, type AppAnnotationSelection} from '../components/AppAnnotation'
 import {AppRecordDialog} from '../components/AppRecordDialog'
+import {AppRowDeleteConfirm} from '../components/AppRowDeleteConfirm'
 import {AppDataMenu} from '../components/AppDataMenu'
 import {displayLayout, fitTableColumns, isSystemColumn, systemCellText, nextColumnSort} from '../utils/systemColumns'
 import { ColumnResize } from '../components/ColumnResize'
@@ -414,6 +415,11 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   }
   const [chatScope,setChatScope]=useState<{tableId?:string;rowId?:string}>({})
   const [editingRecord,setEditingRecord]=useState<Row|null>(null)
+  const [deletingRecord,setDeletingRecord]=useState<{api:HarnessApi;appId:string;tableId:string;id:string;updatedAt:string;label:string}|null>(null)
+  const [uncertainDeletes,setUncertainDeletes]=useState<Array<{tableId:string;id:string;reason:string}>>([])
+  const uncertainDeletesRef=useRef(uncertainDeletes)
+  const changeUncertainDeletes=useCallback((update:(items:typeof uncertainDeletes)=>typeof uncertainDeletes)=>{const next=update(uncertainDeletesRef.current);uncertainDeletesRef.current=next;setUncertainDeletes(next)},[])
+  useEffect(()=>{changeUncertainDeletes(()=>[])},[api,appId,changeUncertainDeletes])
   const [recordMembers,setRecordMembers]=useState<Array<{ref:string;name:string}>>([]),[recordMembersReady,setRecordMembersReady]=useState(false)
   useEffect(()=>{if(!data?.table.columns.some(c=>c.type==='person')||!creating&&!editingRecord){setRecordMembers([]);setRecordMembersReady(false);return}let active=true;setRecordMembers([]);setRecordMembersReady(false);void api.members().then(result=>{if(active){setRecordMembers(result.members);setRecordMembersReady(true)}},()=>{if(active){setRecordMembers([]);setRecordMembersReady(true)}});return()=>{active=false}},[creating,editingRecord,api,data?.table.columns])
   useEffect(()=>{if(!fullscreen)return;const exit=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!creating&&!editingRecord){e.stopPropagation();setFullscreen(false)}};document.addEventListener('keydown',exit);return()=>document.removeEventListener('keydown',exit)},[fullscreen,creating,editingRecord])
@@ -437,7 +443,9 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const deferAutomaticCommit=useRef<()=>boolean>(()=>false)
   const markAutomaticPending=useRef<()=>void>(()=>{})
 
-  const load = useCallback((automatic=false) => act('load', async () => {
+  const load = useCallback((automatic=false,clearUncertain=false) => {
+   const observed=clearUncertain?new Set(uncertainDeletesRef.current):null
+   return act('load', async () => {
     const sequence=++loadSequence.current
     const readPair=async()=>{
       try{return await Promise.all([api.app(appId),api.personalViews(appId)])}
@@ -477,9 +485,11 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
     if(snapshot?.api===api&&snapshot.appId===appId&&snapshot.value.revision>preferences.revision)throw new Error('個人ビューが更新中です。再読み込みしてください。')
     if(automatic&&deferAutomaticCommit.current()){markAutomaticPending.current();return}
     personalSnapshot.current={api,appId,value:preferences}
+    if(observed)changeUncertainDeletes(items=>items.filter(item=>!observed.has(item)))
     setLoadedApi(api);setData(next);setSnapshotPending(false);setRelationEntities(targets);setPersonal(preferences); setViewIndex(Math.max(0,[...next.views,...preferences.computed].findIndex(v=>v.id===preferences.activeView))); if (!initializedSection.current) { initializedSection.current = true; setSection(initialSection || (next.app.definition.custom?.published ? 'overview' : 'data')) }
-  }), [api, appId, act, initialSection])
-  useEffect(() => { setEditingRecord(null);setCreating(false);setChatScope(initialConversation||{});setChatOpen(Boolean(initialConversation)||Boolean(openConversation));load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load,initialConversation,openConversation])
+   })
+  }, [api, appId, act, initialSection,changeUncertainDeletes])
+  useEffect(() => { setEditingRecord(null);setDeletingRecord(null);setCreating(false);setChatScope(initialConversation||{});setChatOpen(Boolean(initialConversation)||Boolean(openConversation));load();return()=>{loadSequence.current++;initializedSection.current=false} }, [load,initialConversation,openConversation])
   const interaction=useRef({busy,creating,editingRecord,annotationSelection})
   const retryRefresh=useRef<()=>void>(()=>{})
   interaction.current={busy,creating,editingRecord,annotationSelection}
@@ -547,12 +557,11 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
     }) } finally { pendingCellWrites.current--;retryRefresh.current() }
   }
   const addRow = () => setCreating(true)
-  const removeRow = (row: Row) => act(`del:${row.id}`, async () => { await api.deleteRow(table.id, row.id, row.updatedAt); await load() })
 
   return (
     <Shell
       className={`hx-resource-screen hx-app-detail${chatOpen?' hx-app-with-chat':''}${fullscreen?' hx-app-fullscreen':''}`}
-      title={<span className="hx-app-title"><HarnessAppIcon icon={app.icon} size={16} /><button onClick={() => selectSection(app.definition.custom?.published ? 'overview' : 'data')}>{app.name}</button>{section !== 'overview' && <span className="hx-app-breadcrumb">/ {t(section === 'data' ? 'Data viewer' : section === 'custom' ? 'Customize app' : section === 'backend' ? '実行基盤' : 'Settings')}</span>}<button className="hx-app-icon-button" aria-label="データを更新" disabled={busy!==null} onClick={()=>void load()}><Icon name="refresh" size={14}/></button></span>}
+      title={<span className="hx-app-title"><HarnessAppIcon icon={app.icon} size={16} /><button onClick={() => selectSection(app.definition.custom?.published ? 'overview' : 'data')}>{app.name}</button>{section !== 'overview' && <span className="hx-app-breadcrumb">/ {t(section === 'data' ? 'Data viewer' : section === 'custom' ? 'Customize app' : section === 'backend' ? '実行基盤' : 'Settings')}</span>}<button className="hx-app-icon-button" aria-label="データを更新" disabled={busy!==null} onClick={()=>void load(false,true)}><Icon name="refresh" size={14}/></button></span>}
       onClose={onBack}
       nested
       actions={<><button className="pill-btn quiet" onClick={() => selectSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => selectSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><AppConversationInbox api={api} appId={app.id} onOpen={scope=>{setChatScope(scope);setChatOpen(true)}}/>{(section==='data'||section==='overview'&&Boolean(app.definition.custom?.published))&&<button className="hx-app-icon-button" aria-label={annotationActive?'注釈モードを終了':'注釈'} aria-pressed={annotationActive} title={annotationActive?'注釈モードを終了':'注釈'} onClick={()=>{setAnnotationSelection(null);setAnnotationActive(value=>!value)}}><Icon name="annotate" size={16}/></button>}<button className="hx-app-icon-button" aria-label={chatOpen?'アプリチャットを閉じる':'アプリチャットを開く'} aria-pressed={chatOpen} onClick={()=>{setChatScope({});setChatOpen(!chatOpen)}}><Icon name="message" size={16}/></button><button className="hx-app-icon-button" aria-label={fullscreen?'全画面表示を終了':'全画面表示'} aria-pressed={fullscreen} onClick={()=>setFullscreen(!fullscreen)}><Icon name={fullscreen?'minimize':'maximize'} size={16}/></button><HarnessAppMenu api={api} appId={app.id} orgId={orgId} onSection={selectSection} onFloat={!floating&&floatApp&&['overview','data'].includes(section)?()=>{floatApp(app.id,section);onClose()}:undefined} /><button className="hx-app-icon-button" aria-label={floating?'フローティングアプリを閉じる':'パネルを閉じる'} onClick={onClose}><Icon name="x" size={16}/></button></>}
@@ -566,6 +575,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section !== 'overview' && section !== 'data' && <nav className="hx-app-sections" aria-label={t('App sections')}>{(['overview', 'data', 'custom', 'backend', 'settings'] as const).map(tab => <button key={tab} aria-current={section === tab ? 'page' : undefined} className={section === tab ? 'on' : ''} onClick={() => selectSection(tab)}>{t(tab === 'overview' ? 'Overview' : tab === 'data' ? 'Data viewer' : tab === 'custom' ? 'Customize app' : tab === 'backend' ? '実行基盤' : 'Settings')}</button>)}</nav>}
       {creating&&<AppRecordDialog appName={app.name} tableName={table.name} columns={table.columns} relationEntities={relationEntities} members={recordMembers} membersReady={recordMembersReady} save={async values=>{await api.addRow(table.id,values,'strict');await load()}} onClose={()=>setCreating(false)}/>}
       {editingRecord&&<AppRecordDialog key={editingRecord.id} appName={app.name} columns={table.columns} relationEntities={relationEntities} members={recordMembers} membersReady={recordMembersReady} record={editingRecord} conversation={<AppConversationPanel key={`${orgId}:${app.id}:${editingRecord.id}`} api={api} appId={app.id} tableId={table.id} rowId={editingRecord.id} title="レコードチャット" context={displayCellText(table.columns[0],editingRecord.values[table.columns[0].id])||editingRecord.id}/>} save={async values=>{if(Object.keys(values).length)await api.updateRow(table.id,editingRecord.id,values,editingRecord.updatedAt);await load()}} onClose={()=>setEditingRecord(null)}/>}
+      {deletingRecord?.api===api&&deletingRecord.appId===appId&&<AppRowDeleteConfirm key={`${deletingRecord.tableId}:${deletingRecord.id}:${deletingRecord.updatedAt}`} label={deletingRecord.label} rowId={deletingRecord.id} uncertain={uncertainDeletes.some(item=>item.tableId===deletingRecord.tableId&&item.id===deletingRecord.id)} initialReason={uncertainDeletes.find(item=>item.tableId===deletingRecord.tableId&&item.id===deletingRecord.id)?.reason} onUncertain={reason=>{if(currentApi.current!==deletingRecord.api||currentAppId.current!==deletingRecord.appId)return;changeUncertainDeletes(items=>items.some(item=>item.tableId===deletingRecord.tableId&&item.id===deletingRecord.id)?items:[...items,{tableId:deletingRecord.tableId,id:deletingRecord.id,reason}])}} onClose={()=>setDeletingRecord(null)} onDelete={async()=>{const result=await deletingRecord.api.deleteRow(deletingRecord.tableId,deletingRecord.id,deletingRecord.updatedAt);if(!result.deleted)throw new Error('Delete was not confirmed.')}} onDeleted={()=>{if(currentApi.current!==deletingRecord.api||currentAppId.current!==deletingRecord.appId)return;setDeletingRecord(null);void load()}}/>}
       {section === 'backend' && <CompanyApp app={app} api={api} canManage={data.canCustomize !== false} reload={load} />}
       {section === 'custom' && data.canCustomize === false && <p>カスタムコードの編集・公開は、作成者または管理者が行えます。</p>}
       {section === 'custom' && data.canCustomize !== false && <CustomAppEditor httpBase={httpBase} app={app} table={table} rows={data.rows} api={api} reload={load} />}
@@ -642,7 +652,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
                   {displayColumns.map((c) => (
                     <td key={c.id}>{isSystemColumn(c.id)?<span className="hx-system-cell" title={c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt}>{systemCellText(row,c.id)}</span>:<CellInput relationEntities={relationEntities} members={recordMembers} width={tableSizing.widths[c.id]} wrap={layout.wrapText===true} column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} />}</td>
                   ))}
-                  <td><div className="hx-record-actions"><button className="hx-app-icon-button" aria-label={`${displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'}の詳細を開く`} onClick={()=>setEditingRecord(row)}><Icon name="maximize" size={14}/></button><button className="btn-text danger" onClick={() => removeRow(row)} disabled={busy === `del:${row.id}`} aria-label={t('Delete row')}><Icon name="trash" size={14} /></button></div></td>
+                  <td><div className="hx-record-actions"><button className="hx-app-icon-button" aria-label={`${displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'}の詳細を開く`} onClick={()=>setEditingRecord(row)}><Icon name="maximize" size={14}/></button><button className="btn-text danger" onClick={() => setDeletingRecord({api,appId,tableId:table.id,id:row.id,updatedAt:row.updatedAt,label:displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'})} aria-label={t('Delete row')}><Icon name="trash" size={14} /></button></div></td>
                   <td className="hx-table-spacer" aria-hidden="true" />
                 </tr>
               ))}</React.Fragment>)}
