@@ -1,13 +1,14 @@
-import React, {useEffect, useId, useMemo, useRef, useState} from 'react'
+import React, {useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import {Icon} from './Icon'
 import type {Column, Row} from '../utils/harness'
-import {enterKey} from '../utils/keys'
+import {composing,enterKey} from '../utils/keys'
 
 export type RelationOption = {id:string;label:string}
+type Active = {kind:'record';id:string}|{kind:'clear'}|null
 
 function RelationField({column,value,options=[],disabled=false,onChange}:{column:Column;value:unknown;options?:RelationOption[];disabled?:boolean;onChange:(value:unknown)=>void}) {
- const id=useId(),root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),search=useRef<HTMLInputElement>(null)
- const [open,setOpen]=useState(false),[query,setQuery]=useState(''),[active,setActive]=useState(0),[position,setPosition]=useState<React.CSSProperties>({})
+ const id=useId(),root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),search=useRef<HTMLInputElement>(null),popup=useRef<HTMLDivElement>(null)
+ const [open,setOpen]=useState(false),[query,setQuery]=useState(''),[active,setActive]=useState<Active>(null),[position,setPosition]=useState<React.CSSProperties>({})
  const multiple=Boolean(column.multiple),selectedIds=useMemo(()=>multiple?(Array.isArray(value)?Array.from(new Set(value.filter((item):item is string=>typeof item==='string'))):[]):typeof value==='string'&&value?[value]:[],[multiple,value])
  const byId=useMemo(()=>new Map(options.map(option=>[option.id,option])),[options])
  const matches=useMemo(()=>{
@@ -15,6 +16,10 @@ function RelationField({column,value,options=[],disabled=false,onChange}:{column
   return options.filter(option=>!needle||option.label.toLocaleLowerCase().includes(needle)||option.id.toLocaleLowerCase().includes(needle))
  },[options,query])
  const visible=matches.slice(0,100)
+ // Keep the highlighted record by ID as rows change; an absent record must
+ // never turn into a different selection merely because its index was reused.
+ const found=active?.kind==='record'?visible.findIndex(option=>option.id===active.id):-1
+ const activeIndex=active?.kind==='clear'&&!multiple?-1:found>=0?found:null
  const selected=selectedIds.map(recordId=>byId.get(recordId)||{id:recordId,label:`${recordId}（未取得）`})
  const close=()=>setOpen(false)
  const show=()=>{
@@ -25,23 +30,37 @@ function RelationField({column,value,options=[],disabled=false,onChange}:{column
    const available=above?rect.top-20:spaceBelow
    setPosition({position:'fixed',zIndex:260,width,left:Math.max(12,Math.min(rect.left,window.innerWidth-width-12)),top:above?rect.top-4:rect.bottom+4,transform:above?'translateY(-100%)':undefined,maxHeight:Math.max(120,Math.min(320,available))})
   }
-  setQuery('');setActive(Math.min(99,Math.max(0,options.findIndex(option=>selectedIds.includes(option.id)))));setOpen(true)
+  const selectedVisible=options.slice(0,100).find(option=>selectedIds.includes(option.id))
+  setQuery('');setActive(selectedVisible?{kind:'record',id:selectedVisible.id}:selectedIds.length?null:options[0]?{kind:'record',id:options[0].id}:null);setOpen(true)
  }
  const choose=(recordId:string)=>{
   if(disabled)return
   if(multiple){onChange(selectedIds.includes(recordId)?selectedIds.filter(id=>id!==recordId):[...selectedIds,recordId]);return}
-  onChange(recordId===selectedIds[0]?null:recordId);close();trigger.current?.focus()
+  if(recordId!==selectedIds[0])onChange(recordId);close();trigger.current?.focus()
  }
  const remove=(recordId:string)=>{if(disabled)return;onChange(selectedIds.filter(id=>id!==recordId))}
- const move=(key:string)=>{
-  if(!visible.length)return
-  setActive(index=>key==='Home'?0:key==='End'?visible.length-1:(index+(key==='ArrowDown'?1:visible.length-1))%visible.length)
+ const clear=()=>{if(disabled)return;onChange(null);close();trigger.current?.focus()}
+ const selectActive=()=>{if(activeIndex===-1)clear();else if(activeIndex!==null&&visible[activeIndex])choose(visible[activeIndex].id)}
+ const reveal=(index:number)=>{
+  const container=popup.current,option=container?.ownerDocument.getElementById(index===-1?`${id}-clear`:`${id}-${index}`)
+  if(!container||!option||!container.contains(option))return
+  const bounds=container.getBoundingClientRect(),item=option.getBoundingClientRect()
+  const top=Math.max(bounds.top,search.current?.parentElement?.getBoundingClientRect().bottom??bounds.top)
+  if(item.top<top)container.scrollTop-=top-item.top
+  else if(item.bottom>bounds.bottom)container.scrollTop+=item.bottom-bounds.bottom
  }
+ const move=(key:string)=>{
+  const first=multiple?0:-1,last=visible.length-1
+  if(last<first)return
+  const next=key==='Home'?first:key==='End'?last:activeIndex===null?(key==='ArrowDown'?first:last):key==='ArrowDown'?(activeIndex>=last?first:activeIndex+1):(activeIndex<=first?last:activeIndex-1)
+  setActive(next===-1?{kind:'clear'}:{kind:'record',id:visible[next].id});reveal(next)
+ }
+ useLayoutEffect(()=>{if(active?.kind==='record'&&activeIndex===null)setActive(null);if(open&&activeIndex!==null)reveal(activeIndex)},[open,query,options])
  useEffect(()=>{if(open)search.current?.focus()},[open])
  useEffect(()=>{
   if(!open)return
   const outside=(event:PointerEvent)=>{if(!root.current?.contains(event.target as Node))close()}
-  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'&&root.current?.contains(event.target as Node)){event.preventDefault();event.stopImmediatePropagation();close();trigger.current?.focus()}}
+  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'&&!composing(event)&&root.current?.contains(event.target as Node)){event.preventDefault();event.stopImmediatePropagation();close();trigger.current?.focus()}}
   const reposition=(event:Event)=>{if(event.target===window||!root.current?.contains(event.target as Node))close()}
   document.addEventListener('pointerdown',outside,true);window.addEventListener('keydown',escape,true);window.addEventListener('resize',reposition);window.addEventListener('scroll',reposition,true)
   return()=>{document.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);window.removeEventListener('resize',reposition);window.removeEventListener('scroll',reposition,true)}
@@ -53,15 +72,15 @@ function RelationField({column,value,options=[],disabled=false,onChange}:{column
    {selected.map(option=><span className="hx-relation-chip" key={option.id}><span title={option.label}>{option.label}</span><button type="button" aria-label={`${option.label}を解除`} disabled={disabled} onClick={()=>remove(option.id)}>×</button></span>)}
   </div>}
   <button ref={trigger} type="button" className="hx-relation-trigger" aria-label={column.name} aria-haspopup="listbox" aria-expanded={open} aria-controls={open?`${id}-list`:undefined} disabled={disabled}
-   onClick={()=>open?close():show()} onKeyDown={event=>{if(disabled||event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();if(!open)show();else move(event.key)}else if(open&&enterKey(event)){event.preventDefault();const option=visible[active];if(option)choose(option.id)}else if(event.key==='Escape'&&open){event.preventDefault();close()}}}>
+   onClick={()=>open?close():show()} onKeyDown={event=>{if(disabled||composing(event))return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();if(!open)show();else move(event.key)}else if(open&&enterKey(event)){event.preventDefault();selectActive()}else if(event.key==='Escape'&&open){event.preventDefault();close()}}}>
    <span className={selected.length?'':'hx-relation-placeholder'}>{label}</span>
    <Icon name="chevron-down" size={14}/>
   </button>
-  {open&&<div className="hx-relation-options" style={position}>
-   <div className="hx-relation-search"><Icon name="search" size={14}/><input ref={search} type="search" aria-label={`${column.name}を検索`} placeholder="検索…" value={query} onChange={event=>{setQuery(event.target.value);setActive(0)}} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();move(event.key)}else if(enterKey(event)){event.preventDefault();const option=visible[active];if(option)choose(option.id)}else if(event.key==='Tab')close()}}/></div>
+  {open&&<div ref={popup} className="hx-relation-options" style={position}>
+   <div className="hx-relation-search"><Icon name="search" size={14}/><input ref={search} type="search" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls={`${id}-list`} aria-activedescendant={activeIndex===null?undefined:activeIndex===-1?`${id}-clear`:`${id}-${activeIndex}`} aria-label={`${column.name}を検索`} placeholder="検索…" value={query} onChange={event=>{const next=event.target.value,needle=next.trim().toLocaleLowerCase(),first=options.find(option=>!needle||option.label.toLocaleLowerCase().includes(needle)||option.id.toLocaleLowerCase().includes(needle));setQuery(next);setActive(first?{kind:'record',id:first.id}:null)}} onKeyDown={event=>{if(composing(event))return;if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();move(event.key)}else if(enterKey(event)){event.preventDefault();selectActive()}else if(event.key==='Tab')close()}}/></div>
    <div id={`${id}-list`} role="listbox" aria-label={`${column.name}の候補`} aria-multiselectable={multiple||undefined} className="hx-relation-list">
-    {!multiple&&<button type="button" role="option" className="hx-relation-option" aria-selected={!selectedIds.length} onMouseDown={event=>event.preventDefault()} onClick={()=>{onChange(null);close();trigger.current?.focus()}}><span>{column.name}なし</span>{!selectedIds.length&&<Icon name="check" size={14}/>}</button>}
-    {visible.map((option,index)=>{const checked=selectedIds.includes(option.id);return <button key={option.id} id={`${id}-${index}`} type="button" role="option" aria-selected={checked} className={`hx-relation-option${index===active?' active':''}`} onMouseDown={event=>event.preventDefault()} onMouseMove={()=>setActive(index)} onClick={()=>choose(option.id)}>
+    {!multiple&&<button type="button" role="option" id={`${id}-clear`} className={`hx-relation-option${activeIndex===-1?' active':''}`} aria-selected={!selectedIds.length} onMouseMove={()=>setActive({kind:'clear'})} onMouseDown={event=>event.preventDefault()} onClick={clear}><span>{column.name}なし</span>{!selectedIds.length&&<Icon name="check" size={14}/>}</button>}
+    {visible.map((option,index)=>{const checked=selectedIds.includes(option.id);return <button key={option.id} id={`${id}-${index}`} type="button" role="option" aria-selected={checked} className={`hx-relation-option${index===activeIndex?' active':''}`} onMouseDown={event=>event.preventDefault()} onMouseMove={()=>setActive({kind:'record',id:option.id})} onClick={()=>choose(option.id)}>
      <span className="hx-relation-option-label">{option.label}</span>{checked&&<Icon name="check" size={14}/>}
     </button>})}
     {!visible.length&&<p>該当するレコードがありません</p>}
