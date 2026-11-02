@@ -788,6 +788,7 @@ const table: Record<string, string> = {
   'Jump to a conversation, or search messages and decisions — from:@name in:#channel…': 'Zu einer Unterhaltung springen oder Nachrichten und Entscheidungen suchen (from:@Name in:#Kanal) …',
   '{n} mentions of you': 'Du wurdest {n}-mal erwähnt',
   '1 mention of you': 'Du wurdest einmal erwähnt',
+  'Insert emoji': 'Emoji einfügen',
   'Add reaction': 'Reaktion hinzufügen',
   'React with {emoji}': 'Mit {emoji} reagieren',
   'Unpin': 'Lösen',

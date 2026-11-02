@@ -72,7 +72,7 @@ import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/custom
 import { messageContextEntries, messageMenuTriggers, type MessageMenuActions } from '../utils/messageMenu'
 import { rememberEmoji, useQuickReactions } from '../utils/emojiSearch'
 import { DailyReportDraft } from './DailyReport'
-import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, FormatBar, bulletOnSpace, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ThreadReplyLine, ReplyingBar, UnsentNote } from './MessageParts'
+import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, ComposerEmojiButton, FormatBar, bulletOnSpace, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ThreadReplyLine, ReplyingBar, UnsentNote } from './MessageParts'
 import { heard as heardTyping, said, expire, nextExpiry as nextTypingExpiry, typistsIn, typedIn, stoppedIn, sendTyping } from '../utils/typing'
 import type { Typist, TypingEvent, Outgoing as TypingOut, Place, Signal } from '../utils/typing'
 import { quoteOf, refreshQuotes, withoutThread, displayedQuote, replySources, ReferenceReads, missingReplySource } from '../utils/replies'
@@ -5203,6 +5203,7 @@ export const ClassicList: React.FC<Props> = ({
             {threadMention.menu}
             <div className="slk-composer-bar">
               {!harness && <button type="button" className="slk-attach-btn" onClick={() => threadAttachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>}
+              <ComposerEmojiButton target={threadComposer} value={threadDraft} set={setThreadDraft} />
               <input ref={threadAttachInput} type="file" multiple hidden onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ''; if (files.length) threadUploads.add(files, thread.channel) }} />
               {harness ? <HarnessComposerMenu key={`thread-menu:${api.orgId}:${userId}:${thread.parent.id}`} onAttach={()=>threadAttachInput.current?.click()}
                 onMention={()=>{const el=threadComposer.current;const a=el?.selectionStart??threadDraft.length,b=el?.selectionEnd??a;setThreadDraft(threadDraft.slice(0,a)+'@'+threadDraft.slice(b));requestAnimationFrame(()=>{el?.focus();el?.setSelectionRange(a+1,a+1);threadMention.track()})}}
@@ -5818,6 +5819,7 @@ export const ClassicList: React.FC<Props> = ({
             <SlashMenu draft={draft} onPick={(name) => { setDraft(`/${name} `); composer.current?.focus() }} />
             <div className="slk-composer-bar">
               {!harness && <button type="button" className="slk-attach-btn" onClick={() => attachInput.current?.click()} aria-label={t('Attach files')} title={t('Attach files')}><Icon name="paperclip" size={17} /></button>}
+              <ComposerEmojiButton target={composer} value={draft} set={setDraft} />
               <input ref={attachInput} type="file" multiple hidden data-attach="1" onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ''; if (files.length) uploads.add(files, thread.view!) }} />
               {harness ? <HarnessComposerMenu key={`menu:${api.orgId}:${userId}:${thread.view}`} onAttach={() => attachInput.current?.click()}
                 onMention={() => { const el=composer.current; const a=el?.selectionStart ?? draft.length, b=el?.selectionEnd ?? a; setDraft(draft.slice(0,a)+'@'+draft.slice(b)); requestAnimationFrame(()=>{el?.focus();el?.setSelectionRange(a+1,a+1);mention.track()}) }}

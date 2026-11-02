@@ -30,7 +30,7 @@ const PICKER_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 
 /// into one grid of what matches, and Enter takes the first. The arrows move
 /// through the grids, and Tab leaves them in one step. Until the list is
 /// here it says so, and offers to fetch it again if it did not come.
-export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: () => void }> = ({ onPick, onClose }) => {
+export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: () => void; label?: string }> = ({ onPick, onClose, label }) => {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const search = useRef<HTMLInputElement>(null)
@@ -106,7 +106,7 @@ export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: (
     else focusCell(next)
   }
   return (
-    <div className="slk-picker" ref={box} role="dialog" aria-label={t('Add reaction')} onKeyDown={onKeyDown}>
+    <div className="slk-picker" ref={box} role="dialog" aria-label={label || t('Add reaction')} onKeyDown={onKeyDown}>
       <div className="slk-picker-head">
         <input
           ref={search}
@@ -171,7 +171,7 @@ export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: (
 /// the channel and in the thread, and two pickers shut each other). The
 /// focus goes to its first emoji, so a keyboard that opened the menu
 /// carries on into it, and back to the message when it shuts.
-export const EmojiPickerAt: React.FC<{ at: { x: number; y: number }; onPick: (emoji: string) => void; onClose: () => void }> = ({ at, onPick, onClose }) => {
+export const EmojiPickerAt: React.FC<{ at: { x: number; y: number }; onPick: (emoji: string) => void; onClose: () => void; label?: string }> = ({ at, onPick, onClose, label }) => {
   const ref = useRef<HTMLDivElement>(null)
   const [place, setPlace] = useState<{ left: number; top: number }>({ left: at.x, top: at.y })
   useLayoutEffect(() => {
@@ -186,8 +186,51 @@ export const EmojiPickerAt: React.FC<{ at: { x: number; y: number }; onPick: (em
   }, [])
   return (
     <div ref={ref} className="slk-picker-at" style={place}>
-      <EmojiPicker onPick={onPick} onClose={onClose} />
+      <EmojiPicker onPick={onPick} onClose={onClose} label={label} />
     </div>
+  )
+}
+
+/// The smile in a composer's bar: the same picker a reaction opens, and
+/// what is picked goes into the draft where the caret was — nothing is
+/// sent, what was written stays, and the caret is back after the emoji.
+export const ComposerEmojiButton: React.FC<{ target: React.RefObject<HTMLTextAreaElement>; value: string; set: (v: string) => void }> = ({ target, value, set }) => {
+  const t = useT()
+  const button = useRef<HTMLButtonElement>(null)
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null)
+  // A click on the button while the picker is open shuts it: the press
+  // outside the picker shuts it first, and this one must not reopen it.
+  const wasOpen = useRef(false)
+  const insert = (emoji: string) => {
+    const el = target.current
+    const a = el?.selectionStart ?? value.length
+    const b = el?.selectionEnd ?? a
+    const caret = a + emoji.length
+    set(value.slice(0, a) + emoji + value.slice(b))
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(caret, caret) })
+  }
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        className="slk-attach-btn"
+        aria-label={t('Insert emoji')}
+        title={t('Insert emoji')}
+        aria-haspopup="dialog"
+        aria-expanded={Boolean(at)}
+        onMouseDown={() => { wasOpen.current = Boolean(at) }}
+        onClick={() => {
+          if (wasOpen.current) { wasOpen.current = false; return }
+          const r = button.current!.getBoundingClientRect()
+          setAt({ x: r.left, y: r.top })
+        }}
+        data-composer-emoji
+      >
+        <Icon name="smile" size={17} />
+      </button>
+      {at && <EmojiPickerAt at={at} label={t('Insert emoji')} onPick={insert} onClose={() => setAt(null)} />}
+    </>
   )
 }
 

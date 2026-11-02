@@ -3568,6 +3568,66 @@ await step('a workspace adds its own emoji, and uses them in a message and a rea
 // Your status, one click from your avatar — on a laptop the rail's, at its
 // foot. A preset and Save, and a teammate's sidebar wears its emoji; Escape
 // shuts the popover and hands focus back to the avatar that opened it.
+// The composer's own emoji button (#656): in a direct message, the picker a
+// reaction opens, and the emoji goes into the draft where the caret was.
+await step('the message box has an emoji button that puts the emoji where the caret is, and sends nothing', async () => {
+  await closeEverything()
+  const desk = await phone.newPage()
+  await desk.setViewportSize({ width: 1280, height: 820 })
+  try {
+    await desk.goto(`${WEB}#/list`, { waitUntil: 'load' })
+    const dm = '.slk-side .cl-thread[data-view^="dm:"]'
+    await desk.waitForSelector(dm, { timeout: 20000 })
+    await desk.click(`${dm} .cl-open >> nth=0`)
+    const box = '.slk-composer:not(.thread) .slk-input'
+    await desk.waitForSelector(box, { timeout: 10000 })
+    const view = await desk.getAttribute(`${dm} >> nth=0`, 'data-view')
+    const before = await desk.evaluate(async ({ host, view }) => {
+      const org = localStorage.getItem('orgId'), token = localStorage.getItem('sessionToken')
+      const r = await fetch(`${host}/channels/messages?orgId=${encodeURIComponent(org)}&channel=${encodeURIComponent(view)}`, { headers: { 'x-session-token': token } })
+      return ((await r.json()).messages || []).length
+    }, { host: API, view })
+    await desk.fill(box, 'hello world')
+    // The caret after "hello", as a person leaves it to add something there.
+    await desk.$eval(box, (el) => { el.focus(); el.setSelectionRange(5, 5) })
+    const button = '.slk-composer:not(.thread) [data-composer-emoji]'
+    if (await desk.getAttribute(button, 'aria-label') !== 'Insert emoji') throw new Error('the emoji button has no label')
+    await desk.click(button)
+    await desk.waitForSelector('.slk-picker-at [role="dialog"][aria-label="Insert emoji"]', { timeout: 5000 })
+      .catch(() => { throw new Error('the emoji button opened no picker') })
+    // The workspace's own emoji are in it.
+    await desk.waitForSelector('.slk-picker-at [data-custom-emoji]', { timeout: 10000 })
+      .catch(() => { throw new Error("the composer's picker leaves out the workspace's emoji") })
+    await desk.screenshot({ path: `${SHOTS}/56c-composer-emoji.png` })
+    await desk.fill('.slk-picker-at [data-emoji-search]', 'thumbs up')
+    await desk.waitForSelector('.slk-picker-at .slk-picker-emoji[aria-label="👍"]', { timeout: 10000 })
+    await desk.click('.slk-picker-at .slk-picker-emoji[aria-label="👍"]')
+    await desk.waitForSelector('.slk-picker-at', { state: 'detached', timeout: 5000 })
+    const after = await desk.$eval(box, (el) => ({ value: el.value, caret: el.selectionStart, focused: document.activeElement === el }))
+    if (after.value !== 'hello👍 world') throw new Error(`the emoji went in as "${after.value}"`)
+    if (!after.focused) throw new Error('the message box did not get the focus back')
+    if (after.caret !== 'hello👍'.length) throw new Error(`the caret is at ${after.caret}, not after the emoji`)
+    // Esc shuts the picker and leaves the draft, from the keyboard alone.
+    await desk.focus(button)
+    await desk.keyboard.press('Enter')
+    await desk.waitForSelector('.slk-picker-at', { timeout: 5000 })
+    await desk.keyboard.press('Escape')
+    await desk.waitForSelector('.slk-picker-at', { state: 'detached', timeout: 5000 })
+      .catch(() => { throw new Error('Escape did not shut the picker') })
+    if (await desk.inputValue(box) !== 'hello👍 world') throw new Error('closing the picker changed the draft')
+    // Nothing was sent.
+    const sent = await desk.evaluate(async ({ host, view }) => {
+      const org = localStorage.getItem('orgId'), token = localStorage.getItem('sessionToken')
+      const r = await fetch(`${host}/channels/messages?orgId=${encodeURIComponent(org)}&channel=${encodeURIComponent(view)}`, { headers: { 'x-session-token': token } })
+      return ((await r.json()).messages || []).length
+    }, { host: API, view })
+    if (sent !== before) throw new Error('picking an emoji sent the message')
+    await desk.fill(box, '')
+  } finally {
+    await desk.close()
+  }
+})
+
 await step('a status set from the avatar on a laptop shows in a teammate’s sidebar', async () => {
   await closeEverything()
   if (!mate) throw new Error('the teammate this step needs is not here')

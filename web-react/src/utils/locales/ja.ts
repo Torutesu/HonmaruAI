@@ -1257,6 +1257,7 @@ const table: Record<string, string> = {
   'Jump to a conversation, or search messages and decisions — from:@name in:#channel…': '会話へ移動、またはメッセージと決定を検索（from:@名前 in:#チャンネル）…',
   '{n} mentions of you': 'あなたへのメンション{n}件',
   '1 mention of you': 'あなたへのメンション1件',
+  'Insert emoji': '絵文字を挿入',
   'Add reaction': 'リアクションを追加',
   'React with {emoji}': '{emoji} でリアクション',
   'Unpin': 'ピン留めを外す',
