@@ -3654,8 +3654,9 @@ await step('a message’s toolbar edits your own with a pencil, and its menu cov
     await desk.waitForSelector(`.slk-main .slk-msg .slk-text:has-text("${theirsText}")`, { timeout: 15000 })
     await desk.fill(box, mineText)
     await desk.keyboard.press('Enter')
-    await desk.waitForSelector(`.slk-main .slk-msg.mine:not(.pending):not(.failed) .slk-text:has-text("${mineText}")`, { timeout: 15000 })
-    const mine = desk.locator('.slk-main .slk-msg.mine[id^="msg-"]', { hasText: mineText }).last()
+    // The server's copy, not the one drawn the moment Enter is pressed.
+    await desk.waitForSelector(`.slk-main .slk-msg:not(.pending):not(.failed) .slk-text:has-text("${mineText}")`, { timeout: 15000 })
+    const mine = desk.locator('.slk-main .slk-msg[id^="msg-"]', { hasText: mineText }).last()
     const theirs = desk.locator('.slk-main .slk-msg[id^="msg-"]', { hasText: theirsText }).last()
 
     // No pencil on somebody else's message.
@@ -3666,7 +3667,7 @@ await step('a message’s toolbar edits your own with a pencil, and its menu cov
     await mine.hover()
     const measure = () => desk.evaluate((text) => {
       const log = document.querySelector('.slk-main .slk-log')
-      const row = [...document.querySelectorAll('.slk-main .slk-msg.mine')].filter((el) => el.textContent.includes(text)).pop()
+      const row = [...document.querySelectorAll('.slk-main .slk-msg[id^="msg-"]')].filter((el) => el.textContent.includes(text)).pop()
       const composer = document.querySelector('.slk-composer:not(.thread)')
       return { height: log.scrollHeight, top: Math.round(log.scrollTop), composer: Math.round(composer.getBoundingClientRect().top), row: Math.round(row.getBoundingClientRect().height) }
     }, mineText)
