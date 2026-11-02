@@ -20,7 +20,7 @@ import { AppSharing } from '../components/AppSharing'
 import { TemplateSharing } from '../components/TemplateSharing'
 import { AppCalendar } from '../components/AppCalendar'
 import { RemoteMcpServers } from '../components/RemoteMcpServers'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import { hashForApp, hashForAppSource, hashForCard, consumeAppDraftHash, appSectionHash, type AppSection } from '../utils/route'
@@ -30,7 +30,7 @@ import {
 } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps, type HarnessScreen } from './HarnessShared'
 import { ModePicker } from './HarnessHome'
-import { enterKey } from '../utils/keys'
+import { composing, enterKey } from '../utils/keys'
 
 export const newAppRecordLabel = (appName: string, tableName: string, titleColumnName = '') => {
   if (tableName && tableName !== appName) return `新規${tableName}`
@@ -395,7 +395,31 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   const [search, setSearch] = useState('')
   const [searchExpanded,setSearchExpanded]=useState(false)
   const searchInput=useRef<HTMLInputElement>(null)
-  useEffect(()=>{if(searchExpanded)searchInput.current?.focus()},[searchExpanded])
+  const searchToggle=useRef<HTMLButtonElement>(null)
+  const searchQuery=useRef<HTMLButtonElement>(null)
+  const searchToolbar=useRef<HTMLDivElement>(null)
+  const searchFocusRequested=useRef(false)
+  const openSearch=()=>{searchFocusRequested.current=true;setSearchExpanded(true)}
+  useLayoutEffect(()=>{if(searchExpanded&&searchFocusRequested.current){searchFocusRequested.current=false;searchInput.current?.focus()}},[searchExpanded])
+  // A floating toolbar can grow without a window resize. When its compact
+  // controls disappear, keep focus in search only if it was on one of them.
+  useEffect(()=>{
+    const toolbar=searchToolbar.current
+    if(!floating||section!=='data'||!toolbar||typeof ResizeObserver==='undefined')return
+    let width=0,frame:number|null=null
+    const observer=new ResizeObserver(entries=>{
+      width=entries[0]?.contentRect.width??0
+      if(width<=640||frame!==null||typeof requestAnimationFrame==='undefined')return
+      if(document.activeElement!==searchToggle.current&&document.activeElement!==searchQuery.current)return
+      // Do not change layout inside ResizeObserver's delivery cycle.
+      frame=requestAnimationFrame(()=>{
+        frame=null
+        if(width>640&&toolbar.clientWidth>640&&(document.activeElement===searchToggle.current||document.activeElement===searchQuery.current))searchInput.current?.focus()
+      })
+    })
+    observer.observe(toolbar)
+    return()=>{observer.disconnect();if(frame!==null)cancelAnimationFrame(frame)}
+  },[floating,section,Boolean(data)])
   const [creating,setCreating]=useState(false),[fullscreen,setFullscreen]=useState(false)
   const [chatOpen,setChatOpen]=useState(false)
   const [annotationActive,setAnnotationActive]=useState(false)
@@ -422,7 +446,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   useEffect(()=>{changeUncertainDeletes(()=>[])},[api,appId,changeUncertainDeletes])
   const [recordMembers,setRecordMembers]=useState<Array<{ref:string;name:string}>>([]),[recordMembersReady,setRecordMembersReady]=useState(false)
   useEffect(()=>{if(!data?.table.columns.some(c=>c.type==='person')||!creating&&!editingRecord){setRecordMembers([]);setRecordMembersReady(false);return}let active=true;setRecordMembers([]);setRecordMembersReady(false);void api.members().then(result=>{if(active){setRecordMembers(result.members);setRecordMembersReady(true)}},()=>{if(active){setRecordMembers([]);setRecordMembersReady(true)}});return()=>{active=false}},[creating,editingRecord,api,data?.table.columns])
-  useEffect(()=>{if(!fullscreen)return;const exit=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!creating&&!editingRecord){e.stopPropagation();setFullscreen(false)}};document.addEventListener('keydown',exit);return()=>document.removeEventListener('keydown',exit)},[fullscreen,creating,editingRecord])
+  useEffect(()=>{if(!fullscreen)return;const exit=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!composing(e)&&!creating&&!editingRecord){e.stopPropagation();setFullscreen(false)}};document.addEventListener('keydown',exit);return()=>document.removeEventListener('keydown',exit)},[fullscreen,creating,editingRecord])
   useEffect(()=>{setAnnotationActive(false);setAnnotationSelection(null);setAnnotationListOpen(false)},[section])
   useEffect(()=>{
     let active=true
@@ -582,8 +606,8 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'overview' && app.definition.custom?.published && <CustomAppFrame appId={app.id} api={api} reload={load} httpBase={httpBase} html={app.definition.custom.published} table={table} rows={data.rows} />}
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => selectSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => selectSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
-      <div className="hx-data-toolbar"><div className="hx-data-heading"><h2>{appTableDisplayName(app.name,table.name,table.columns[0]?.name)}</h2><button className="pill-btn hx-create-record" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{newAppRecordLabel(app.name,table.name,table.columns[0]?.name)}</button></div>
-      <div className={`hx-data-tools${searchExpanded&&view.type!=='metrics'?' hx-search-expanded':''}`}>{view.type!=='metrics'&&<><button className="hx-floating-search pill-btn quiet" aria-label={search?`レコードを検索（検索中: ${search}）`:t('Search records')} aria-expanded={searchExpanded} onClick={()=>setSearchExpanded(value=>!value)}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onChange={e => setSearch(e.target.value)} /></>}<PersonalViewControls control="fields" key={`${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${selectedIndex}:${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={isPersonalView} onAdjust={isPersonalView?undefined:kind=>{location.hash=hashForAppSource(app.id,orgId,'data',`「${app.name}」（${table.name}）のデータビューアーのビュー「${view.name}」の${kind==='filter'?'フィルター':'グループ化'}を調整：`.slice(0,1000))}} canEdit={canEditView} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: shownCount })}</span></div>
+      <div className="hx-data-toolbar" ref={searchToolbar}><div className="hx-data-heading"><h2>{appTableDisplayName(app.name,table.name,table.columns[0]?.name)}</h2><button className="pill-btn hx-create-record" onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{newAppRecordLabel(app.name,table.name,table.columns[0]?.name)}</button></div>
+      <div className={`hx-data-tools${searchExpanded&&view.type!=='metrics'?' hx-search-expanded':''}`}>{view.type!=='metrics'&&<><button ref={searchToggle} className="hx-floating-search pill-btn quiet" aria-label={search?`${t('Search records')}: ${search}`:t('Search records')} aria-expanded={searchExpanded} onClick={()=>{if(searchExpanded)setSearchExpanded(false);else openSearch()}}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onFocus={()=>setSearchExpanded(true)} onChange={e => setSearch(e.target.value)} />{search&&!searchExpanded&&<button ref={searchQuery} type="button" className="hx-floating-search-query" title={`${t('Search')}: ${search}`} onClick={openSearch}>{t('Search')}: {search}</button>}</>}<PersonalViewControls control="fields" key={`${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${selectedIndex}:${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={isPersonalView} onAdjust={isPersonalView?undefined:kind=>{location.hash=hashForAppSource(app.id,orgId,'data',`「${app.name}」（${table.name}）のデータビューアーのビュー「${view.name}」の${kind==='filter'?'フィルター':'グループ化'}を調整：`.slice(0,1000))}} canEdit={canEditView} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})}/>}<span>{t('{n} records', { n: shownCount })}</span></div>
       <div className="hx-tabs" role="tablist">
         {allViews.map((v, i) => (
           <button key={`${i}:${v.id}`} ref={i===selectedIndex?selectedViewTab:undefined} role="tab" aria-selected={i === selectedIndex} className={i === selectedIndex ? 'on' : ''} disabled={i>=data.views.length&&sharedIds.has(v.id)} title={i>=data.views.length&&sharedIds.has(v.id)?'共有ビューとIDが重複しているため利用できません。':undefined} onClick={() => {setViewIndex(i);void act('view',()=>savePersonal({...personal,activeView:v.id}))}}>
