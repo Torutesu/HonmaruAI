@@ -778,6 +778,9 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 
 .hx-floating-search { display:none !important; }
 .hx-floating-search-query { display:none; }
+/* Keep a focused compact control mounted while ResizeObserver moves focus. */
+.hx-floating-search:focus { display:inline-flex !important; }
+.hx-floating-search-query:focus { display:block; }
 .hx-floating-app .hx-data-toolbar { container-type:inline-size; container-name:floatingtools; }
 @container floatingtools (max-width:640px) {
  .hx-data-heading > .pill-btn { font-size:0 !important; gap:0 !important; width:28px; height:28px; padding:6px !important; }

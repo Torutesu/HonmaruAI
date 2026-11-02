@@ -161,6 +161,76 @@ test('a collapsed floating search exposes the active query and reopens it withou
   expect(tree!.root.findAllByProps({'data-row':'b'})).toHaveLength(1)
   expect(tree!.root.findAllByProps({className:'hx-floating-search-query'})).toHaveLength(0)
 })
+
+test('resizing a floating viewer preserves active search focus without moving unrelated focus', async () => {
+  const doc={activeElement:null as any,addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'}
+  vi.stubGlobal('document',doc)
+  const observers:Array<{callback:(entries:Array<{contentRect:{width:number}}>)=>void;target?:unknown}>=[]
+  vi.stubGlobal('ResizeObserver',class {
+    entry:{callback:(entries:Array<{contentRect:{width:number}}>)=>void;target?:unknown}
+    constructor(callback:(entries:Array<{contentRect:{width:number}}>)=>void){this.entry={callback};observers.push(this.entry)}
+    observe(target:unknown){this.entry.target=target}
+    disconnect(){}
+  })
+  let nextFrame=0
+  const frames=new Map<number,()=>void>()
+  vi.stubGlobal('requestAnimationFrame',(fn:()=>void)=>{frames.set(++nextFrame,fn);return nextFrame})
+  vi.stubGlobal('cancelAnimationFrame',(id:number)=>frames.delete(id))
+  const row={id:'a',values:{title:'Alpha'},updatedAt:''},view={id:'main',type:'table',name:'All',rows:[row]}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[view],canCustomize:false}),
+    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  }
+  const toolbar={clientWidth:700},toggleNode={},queryNode={},other={}
+  const inputNode={focus:vi.fn(()=>{doc.activeElement=inputNode})}
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data" floating/>,{createNodeMock:element=>{
+    if(element.props.className==='hx-data-toolbar')return toolbar
+    if(element.props.className==='hx-floating-search pill-btn quiet')return toggleNode
+    if(element.props.className==='hx-floating-search-query')return queryNode
+    if(element.props.type==='search')return inputNode
+    if(element.props.className==='hx-table-wrap')return {clientWidth:400}
+    return null
+  }});await new Promise(resolve=>setTimeout(resolve,0))})
+  const toggle=()=>tree!.root.findByProps({className:'hx-floating-search pill-btn quiet'})
+  const input=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
+  const resize=(width:number)=>act(()=>{toolbar.clientWidth=width;observers.find(entry=>entry.target===toolbar)!.callback([{contentRect:{width}}])})
+  const flush=()=>act(()=>{for(const [id,callback] of [...frames]){frames.delete(id);callback()}})
+  // Focusing an already visible field leaves it expanded on a narrower toolbar,
+  // without re-focusing the field (and interrupting a composition session).
+  act(()=>input().props.onFocus());expect(toggle().props['aria-expanded']).toBe(true)
+  expect(inputNode.focus).not.toHaveBeenCalled()
+  act(()=>input().props.onChange({target:{value:'Alpha'}}));act(()=>toggle().props.onClick())
+  doc.activeElement=queryNode;resize(700);flush();expect(doc.activeElement).toBe(inputNode)
+  doc.activeElement=toggleNode;resize(700);flush();expect(doc.activeElement).toBe(inputNode)
+  doc.activeElement=other;resize(700);flush();expect(doc.activeElement).toBe(other)
+  doc.activeElement=queryNode;resize(700);doc.activeElement=other;flush();expect(doc.activeElement).toBe(other)
+  doc.activeElement=queryNode;resize(700);resize(320);flush();expect(doc.activeElement).toBe(queryNode)
+  resize(700);toolbar.clientWidth=320;flush();expect(doc.activeElement).toBe(queryNode)
+  resize(700);expect(frames.size).toBe(1);act(()=>tree!.unmount());tree=undefined;expect(frames.size).toBe(0)
+})
+
+test('Escape during IME composition does not close the fullscreen app', async () => {
+  const listeners=new Set<(event:any)=>void>()
+  vi.stubGlobal('document',{visibilityState:'visible',addEventListener:(name:string,fn:(event:any)=>void)=>{if(name==='keydown')listeners.add(fn)},removeEventListener:(name:string,fn:(event:any)=>void)=>{if(name==='keydown')listeners.delete(fn)}})
+  const row={id:'a',values:{title:'Alpha'},updatedAt:''},view={id:'main',type:'table',name:'All',rows:[row]}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[view],canCustomize:false}),
+    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data" floating/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>tree!.root.findByProps({'aria-label':'全画面表示'}).props.onClick())
+  const send=(event:any)=>act(()=>{for(const listener of listeners)listener(event)})
+  const stop=vi.fn()
+  send({key:'Escape',isComposing:true,stopPropagation:stop})
+  send({key:'Escape',keyCode:229,stopPropagation:stop})
+  expect(tree!.root.findAllByProps({'aria-label':'全画面表示を終了'})).toHaveLength(1)
+  expect(stop).not.toHaveBeenCalled()
+  send({key:'Escape',stopPropagation:stop})
+  expect(stop).toHaveBeenCalledOnce()
+  expect(tree!.root.findAllByProps({'aria-label':'全画面表示'})).toHaveLength(1)
+})
 const button = (label: string) => tree!.root.findAllByType('button').find(node => node.props.children === label)!
 test.each(['board','calendar'] as const)('search and annotation cancellation coexist in the %s view', async type => {
   const listeners = new Set<(event:any)=>void>()
