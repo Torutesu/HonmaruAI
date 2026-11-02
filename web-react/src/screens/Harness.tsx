@@ -315,13 +315,15 @@ function relationOptionLabel(entity: RelationEntity, row: Row) {
 function NumericCellInput({column,value,draft,setDraft,onSave}:{column:Column;value:unknown;draft:string;setDraft:React.Dispatch<React.SetStateAction<string>>;onSave:(value:unknown)=>void}) {
   const t=useT(),numberErrorId=React.useId()
   const [numberError,setNumberError]=useState<'precision'|'incomplete'|null>(null)
-  useEffect(()=>{setNumberError(null)},[value])
+  const incomplete=useRef(false)
+  useEffect(()=>{incomplete.current=false;setNumberError(null)},[value])
   return <>
     <input className="hx-cell-input" type="number" value={draft}
       aria-invalid={numberError?true:undefined} aria-describedby={numberError?numberErrorId:undefined}
-      onChange={e=>{setDraft(e.target.value);setNumberError(null)}}
+      onInput={e=>{incomplete.current=e.currentTarget.validity.badInput;if(!incomplete.current)setNumberError(null)}}
+      onChange={e=>{setDraft(e.target.value);if(!e.target.validity?.badInput)setNumberError(null)}}
       onBlur={e=>{
-        if(e.currentTarget.validity.badInput){setNumberError('incomplete');return}
+        if(e.currentTarget.validity.badInput||incomplete.current){incomplete.current=true;setNumberError('incomplete');return}
         if(draft===(value==null?'':String(value)))return
         if(draft!==''&&!numberPreservesDecimal(draft)){setNumberError('precision');return}
         setNumberError(null);onSave(draft)

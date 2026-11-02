@@ -25,8 +25,10 @@ test('inline number warns and retains an unsafe value; a corrected value saves',
 
 test('incomplete number does not clear a stored value, while an explicit empty field can',async()=>{
  const {tree,api,row}=await renderView(),input=()=>tree.root.findByProps({'aria-label':'Amount'})
- act(()=>input().props.onChange({target:{value:''}}));act(()=>input().props.onBlur({currentTarget:{validity:{badInput:true}}}))
+ act(()=>input().props.onInput({currentTarget:{validity:{badInput:true}}}));act(()=>input().props.onChange({target:{value:'',validity:{badInput:true}}}));act(()=>input().props.onBlur({currentTarget:{validity:{badInput:true}}}))
  expect(api.updateRow).not.toHaveBeenCalled();expect(input().props['aria-invalid']).toBe(true)
+ act(()=>input().props.onBlur({currentTarget:{validity:{badInput:false}}}));expect(api.updateRow).not.toHaveBeenCalled();expect(input().props['aria-invalid']).toBe(true)
+ act(()=>input().props.onInput({currentTarget:{validity:{badInput:false}}}))
  await act(async()=>{input().props.onBlur({currentTarget:{validity:{badInput:false}}});await new Promise(resolve=>setTimeout(resolve,0))})
  expect(api.updateRow).toHaveBeenCalledWith('tasks','r',{amount:''},row.updatedAt);act(()=>tree.unmount())
 })
