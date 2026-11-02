@@ -346,8 +346,9 @@
 :root .shell.harness-workspace .hx-data-toolbar h2 { font-size:14px; font-weight:600; margin:0; }
 :root .shell.harness-workspace .hx-data-toolbar .pill-btn { display:inline-flex; align-items:center; gap:6px; background:var(--hx-hover); color:var(--hx-text); padding:7px 10px; border-radius:7px; font-size:12px; font-weight:500; }
 :root .shell.harness-workspace .hx-data-toolbar .hx-tabs { order:1; margin:0; gap:2px; border-radius:7px; background:var(--hx-hover); padding:3px; }
-:root .shell.harness-workspace .hx-data-toolbar .hx-tabs > button { font-size:12px; font-weight:500; padding:5px 8px; border-radius:5px; border-color:transparent; background:transparent; color:var(--hx-muted); }
-:root .shell.harness-workspace .hx-data-toolbar .hx-tabs > button.on { color:var(--hx-text); background:var(--hx-surface); border-color:var(--hx-border); box-shadow:0 1px 2px #00000006; }
+:root .shell.harness-workspace .hx-data-toolbar .hx-view-tabs > button { font-size:12px; font-weight:500; padding:5px 8px; border-radius:5px; border-color:transparent; background:transparent; color:var(--hx-muted); }
+:root .shell.harness-workspace .hx-data-toolbar .hx-view-tabs > button.on { color:var(--hx-text); background:var(--hx-surface); border-color:var(--hx-border); box-shadow:0 1px 2px #00000006; }
+:root .shell.harness-workspace .hx-data-toolbar .hx-view-tabs > [role="tab"]:focus-visible { outline:2px solid var(--hx-text); outline-offset:2px; }
 :root .shell.harness-workspace .hx-data-toolbar .hx-data-tools { order:2; margin:0 0 0 auto; gap:8px; }
 :root .shell.harness-workspace .hx-data-toolbar .hx-data-tools input { width:180px; font-size:12px; }
 :root .shell.harness-workspace .hx-app-detail .hx-table-wrap { border-color:var(--hx-border); border-radius:12px; }

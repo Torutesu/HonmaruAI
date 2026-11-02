@@ -24,6 +24,73 @@ test('new record labels use the primary table when its title differs from the ap
   expect(newAppRecordLabel('Issues','Issues','件名')).toBe('新規レコード')
   expect(newAppRecordLabel('Sales CRM','Sales CRM')).toBe('新規レコード')
 })
+
+test('view tabs navigate by keyboard without saving until activated', async () => {
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const first={id:'all',type:'table',name:'All',rows:[]}, second={id:'metrics',type:'metrics',name:'Metrics',values:[]}
+  const duplicate={id:'all',type:'table',name:'Duplicate',rows:[]}, mine={id:'mine',type:'table',name:'Mine',rows:[]}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[first,second]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[first,second],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[duplicate,mine],computed:[duplicate,mine],layouts:{}}),
+    savePersonalViews:vi.fn(async (_id, value)=>({...value,revision:value.revision+1})),
+    conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const tabs=()=>tree!.root.findAllByProps({role:'tab'})
+  expect(tree!.root.findByProps({role:'tablist'}).props['aria-label']).toBe('Views')
+  expect(tabs().map(tab=>tab.props.tabIndex)).toEqual([0,-1,-1,-1])
+  expect(tabs()[2].props.disabled).toBe(true)
+  const domTabs=Array.from({length:3},()=>({focus:vi.fn()}))
+  const parentElement={querySelectorAll:vi.fn(()=>domTabs)}
+  const navigate=(key:string,index:number)=>{const preventDefault=vi.fn();tabs()[index].props.onKeyDown({key,currentTarget:Object.assign(domTabs[index===3?2:index],{parentElement}),preventDefault});return preventDefault}
+  expect(navigate('ArrowRight',0)).toHaveBeenCalledOnce()
+  expect(domTabs[1].focus).toHaveBeenCalledOnce()
+  expect(navigate('End',1)).toHaveBeenCalledOnce()
+  expect(domTabs[2].focus).toHaveBeenCalledOnce()
+  expect(navigate('ArrowRight',3)).toHaveBeenCalledOnce()
+  expect(domTabs[0].focus).toHaveBeenCalledOnce()
+  expect(navigate('ArrowLeft',0)).toHaveBeenCalledOnce()
+  expect(domTabs[2].focus).toHaveBeenCalledTimes(2)
+  expect(navigate('Home',3)).toHaveBeenCalledOnce()
+  expect(domTabs[0].focus).toHaveBeenCalledTimes(2)
+  expect(navigate('Tab',0)).not.toHaveBeenCalled()
+  for(const modifier of [{altKey:true},{ctrlKey:true},{metaKey:true},{shiftKey:true},{nativeEvent:{isComposing:true}},{defaultPrevented:true}]){
+    const preventDefault=vi.fn()
+    tabs()[0].props.onKeyDown({key:'ArrowLeft',currentTarget:Object.assign(domTabs[0],{parentElement}),preventDefault,...modifier})
+    expect(preventDefault).not.toHaveBeenCalled()
+  }
+  expect(state.api.savePersonalViews).not.toHaveBeenCalled()
+  await act(async()=>{tabs()[1].props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.savePersonalViews).toHaveBeenCalledOnce()
+  expect(tabs().map(tab=>tab.props.tabIndex)).toEqual([-1,0,-1,-1])
+})
+
+test.each([true,false])('removing a focused view restores focus only when it was lost: %s', async (lostFocus) => {
+  const body={},doc={body,activeElement:body as object,addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'}
+  vi.stubGlobal('document',doc)
+  const first={id:'all',type:'table',name:'All',rows:[]}, mine={id:'mine',type:'table',name:'Mine',rows:[]}
+  const initial={revision:1,activeView:'all',views:[mine],computed:[mine],layouts:{}}
+  let resolveRead:(value:any)=>void=()=>{}
+  const delayed=new Promise(resolve=>{resolveRead=resolve})
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[first]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[first],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(delayed),
+    conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  }
+  const nodes:Record<string,{isConnected:boolean;focus:ReturnType<typeof vi.fn>}>={personal:{isConnected:true,focus:vi.fn()}}
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>{
+    if(element.props.role!=='tab')return null
+    const name=element.props['aria-selected']?'selected':'personal'
+    return nodes[name]??(nodes[name]={isConnected:true,focus:vi.fn()})
+  }});await new Promise(resolve=>setTimeout(resolve,0))})
+  const tabs=tree!.root.findAllByProps({role:'tab'})
+  act(()=>tabs[1].props.onFocus({currentTarget:nodes.personal}))
+  act(()=>tree!.root.findByProps({'aria-label':'データを更新'}).props.onClick())
+  nodes.personal.isConnected=false
+  if(!lostFocus)doc.activeElement={}
+  await act(async()=>{resolveRead({revision:2,activeView:'all',views:[],computed:[],layouts:{}});await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(nodes.selected.focus).toHaveBeenCalledTimes(lostFocus?1:0)
+})
 test('table headings show the record type when the app and table share a name',()=>{
   expect(appTableDisplayName('UI確認用タスク','UI確認用タスク','タスク名')).toBe('タスク')
   expect(appTableDisplayName('Sales CRM','Contacts','Name')).toBe('Contacts')
