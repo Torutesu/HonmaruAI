@@ -180,4 +180,53 @@ describe('a live row menu', () => {
     }
   })
 
+
+  it('recovers focus only when a focused action disappears, and never activates a replacement', async () => {
+    const { act, create } = await import('react-test-renderer')
+    const { vi } = await import('vitest')
+    const body = {}, outside = {}
+    const doc = { activeElement: body, body, hasFocus: () => true, addEventListener: () => {}, removeEventListener: () => {} }
+    vi.stubGlobal('document', doc)
+    vi.stubGlobal('window', { innerWidth: 1000, innerHeight: 700, addEventListener: () => {}, removeEventListener: () => {} })
+    const focus = vi.fn(), selected = vi.fn()
+    const menu = { focus, querySelectorAll: () => [] }
+    const close = () => {}
+    const render = (star: boolean) => <RowMenu at={{ x: 10, y: 10 }} label="Front desk" onClose={close} entries={[
+      ...(star ? [{ kind: 'item' as const, label: 'Star channel', data: 'star', onSelect: selected }] : []),
+      { kind: 'item', label: 'Details', data: 'details', onSelect: selected },
+    ]} />
+    let tree!: ReturnType<typeof create>
+    try {
+      act(() => { tree = create(render(true), { createNodeMock: (el) => el.type === 'ul' ? menu : null }) })
+      const list = tree.root.findByProps({ role: 'menu' })
+      const focused = { isConnected: true }
+      act(() => { list.props.onFocusCapture({ target: focused }) })
+      focused.isConnected = false
+      act(() => { tree.update(render(false)) })
+      expect(focus).toHaveBeenCalledTimes(1)
+      expect(selected).not.toHaveBeenCalled()
+
+      act(() => { tree.update(render(true)) })
+      const movedOutside = { isConnected: true }
+      act(() => { list.props.onFocusCapture({ target: movedOutside }) })
+      act(() => { list.props.onBlurCapture({ target: movedOutside, relatedTarget: outside, currentTarget: { contains: () => false } }) })
+      movedOutside.isConnected = false
+      doc.activeElement = outside
+      act(() => { tree.update(render(false)) })
+      expect(focus).toHaveBeenCalledTimes(1)
+
+      act(() => { tree.update(render(true)) })
+      const blurred = { isConnected: true }
+      act(() => { list.props.onFocusCapture({ target: blurred }) })
+      act(() => { list.props.onBlurCapture({ target: blurred, relatedTarget: null, currentTarget: { contains: () => false } }) })
+      blurred.isConnected = false
+      doc.activeElement = body
+      act(() => { tree.update(render(false)) })
+      expect(focus).toHaveBeenCalledTimes(1)
+    } finally {
+      if (tree) act(() => { tree.unmount() })
+      vi.unstubAllGlobals()
+    }
+  })
+
 })

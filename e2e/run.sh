@@ -125,7 +125,7 @@ else
   npx playwright install --with-deps chromium >/tmp/e2e-browser.log 2>&1 \
     || npx playwright install chromium >>/tmp/e2e-browser.log 2>&1
 fi
-VITE_API_HOST="127.0.0.1:$WORKER_PORT" npm run build >/tmp/e2e-build.log 2>&1
+E2E_FIXTURES=1 VITE_API_HOST="127.0.0.1:$WORKER_PORT" npm run build >/tmp/e2e-build.log 2>&1
 grep -q "127.0.0.1:$WORKER_PORT" dist/assets/*.js || { echo "the backend host did not make it into the build" >&2; exit 1; }
 # --host 127.0.0.1, explicitly. Vite's default is `localhost`, which is a name
 # and not an address: on a machine with IPv6 it can resolve to ::1, and the

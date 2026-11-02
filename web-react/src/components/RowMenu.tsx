@@ -72,6 +72,20 @@ const walkStrip = (e: React.KeyboardEvent<HTMLElement>) => {
 
 function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]; onClose: () => void; onBack?: () => void; level: number; label?: string }) {
   const ref = useRef<HTMLUListElement>(null)
+  const focused = useRef<HTMLElement | null>(null)
+  // A live update can remove the focused action. Return focus to the menu
+  // itself, not another action: a held Enter/Space must not execute it.
+  // A deliberate blur to the page clears the reference before an update.
+  const recoverFocus = () => {
+    const before = focused.current
+    if (!before || before.isConnected || document.activeElement !== document.body || !document.hasFocus()) return
+    focused.current = null
+    ref.current?.focus({ preventScroll: true })
+  }
+  useLayoutEffect(recoverFocus)
+  // If the update happened in a background window, recover only when the
+  // user returns to this window and focus has not moved elsewhere.
+  useEffect(() => { window.addEventListener('focus', recoverFocus); return () => window.removeEventListener('focus', recoverFocus) }, [])
   // Conditional entries can arrive while the menu is open. Keep the same
   // action attached to its DOM node and to an open submenu across updates.
   const [open, setOpen] = useState<string | null>(null)
@@ -116,6 +130,7 @@ function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]
   }, [level])
   useEffect(() => { if (level > 0) items(ref.current)[0]?.focus() }, [level])
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (composing(e)) return
     const list = items(ref.current)
     // Anywhere along a strip is the strip's place in the list.
     const active = document.activeElement as HTMLElement | null
@@ -125,7 +140,12 @@ function List({ entries, onClose, onBack, level, label }: { entries: MenuEntry[]
     else if (e.key === 'ArrowLeft' && onBack) { e.preventDefault(); e.stopPropagation(); onBack() }
   }
   return (
-    <ul ref={ref} role="menu" aria-label={label} className={`row-menu-list${level ? ' sub' : ''}${flip ? ' flip' : ''}`} onKeyDown={onKeyDown}>
+    <ul ref={ref} role="menu" aria-label={label} tabIndex={-1} className={`row-menu-list${level ? ' sub' : ''}${flip ? ' flip' : ''}`} onKeyDown={onKeyDown}
+      onFocusCapture={(e) => { focused.current = e.target as HTMLElement }}
+      onBlurCapture={(e) => {
+        const next = e.relatedTarget as Node | null
+        if (next ? !e.currentTarget.contains(next) : (e.target as HTMLElement).isConnected) focused.current = null
+      }}>
       {entries.map((entry, i) => {
         const key = keys[i]
         if (entry.kind === 'sep') return <li key={key} role="separator" className="row-menu-sep" />
