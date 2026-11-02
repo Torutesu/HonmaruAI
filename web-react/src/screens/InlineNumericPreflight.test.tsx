@@ -36,3 +36,27 @@ test('IME enter does not blur a number field, while ordinary enter does',async()
  act(()=>input().props.onKeyDown({key:'Enter',nativeEvent:{isComposing:true},target:{blur}}));act(()=>input().props.onKeyDown({key:'Enter',nativeEvent:{keyCode:229},target:{blur}}));expect(blur).not.toHaveBeenCalled()
  act(()=>input().props.onKeyDown({key:'Enter',nativeEvent:{},target:{blur}}));expect(blur).toHaveBeenCalledOnce();act(()=>tree.unmount())
 })
+
+test('numeric editor keeps its identity and draft across parent renders',async()=>{
+ const {tree,api}=await renderView(),original=tree.root.findByProps({'aria-label':'Amount'})
+ act(()=>original.props.onChange({target:{value:'9007199254740993'}}))
+ act(()=>tree.update(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={api} appId="tasks" onBack={()=>{}} initialSection="data"/>))
+ const current=tree.root.findByProps({'aria-label':'Amount'})
+ expect(current).toBe(original);expect(current.props.value).toBe('9007199254740993')
+ act(()=>current.props.onBlur({currentTarget:{validity:{badInput:false}}}))
+ expect(api.updateRow).not.toHaveBeenCalled();expect(current.props['aria-invalid']).toBe(true)
+ act(()=>tree.unmount())
+})
+
+test('changing a column type does not change hook order and preserves non-numeric saves',async()=>{
+ const {tree,api,row}=await renderView()
+ const original=await api.app.mock.results[0].value
+ api.app.mockResolvedValue({...original,table:{...original.table,columns:[{id:'amount',name:'Amount',type:'text'},original.table.columns[1]]}})
+ await act(async()=>{tree.root.findByProps({'aria-label':'データを更新'}).props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+ const input=()=>tree.root.findByProps({'aria-label':'Amount'})
+ expect(input().props.type).toBe('text')
+ act(()=>input().props.onChange({target:{value:'abc'}}))
+ await act(async()=>{input().props.onBlur();await new Promise(resolve=>setTimeout(resolve,0))})
+ expect(api.updateRow).toHaveBeenCalledWith('tasks','r',{amount:'abc'},row.updatedAt)
+ act(()=>tree.unmount())
+})
