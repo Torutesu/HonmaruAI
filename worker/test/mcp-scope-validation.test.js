@@ -47,14 +47,33 @@ test('invalid persisted scopes grant no tools and are distinguishable in the key
   }
 });
 
-test('valid empty and unknown requested arrays retain their existing read-only fallback', async () => {
-  for (const scopes of [[], ['not-a-scope']]) {
+test('an explicitly empty array retains its existing read-only fallback', async () => {
+  const response=await postToken({scopes:[]});
+  expect(response.status).toBe(201);
+  const made=await response.json();
+  expect(made.scopes).toEqual(['read']);
+  expect((await rpc(made.token,'tools/list')).result.tools.map(t=>t.name)).not.toContain('request_decision');
+});
+
+test('unsupported or non-string scope elements reject creation without issuing a token', async () => {
+  for (const scopes of [['not-a-scope'], [null], [12], [{}], ['read','future-scope'], ['write', false], ['']]) {
     const response=await postToken({scopes});
-    expect(response.status).toBe(201);
-    const made=await response.json();
-    expect(made.scopes).toEqual(['read']);
-    expect((await rpc(made.token,'tools/list')).result.tools.map(t=>t.name)).not.toContain('request_decision');
+    expect(response.status).toBe(400);
+    expect((await response.json()).message).toBe('Scopes contain an unsupported value.');
   }
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM api_tokens WHERE org_id = ?1').bind(ORG).first()).n).toBe(0);
+});
+
+test('valid and duplicate requested scopes preserve normalized permissions', async () => {
+  const response=await postToken({scopes:['write','read','write']});
+  expect(response.status).toBe(201);
+  expect((await response.json()).scopes).toEqual(['read','write']);
+});
+
+test('internal callers cannot bypass scope validation with a sparse array', async () => {
+  const {createApiToken}=await import('../src/mcp.js');
+  expect(await createApiToken(env.DB,{orgId:ORG,githubId:'scope-user',scopes:new Array(1)})).toMatchObject({status:400});
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM api_tokens WHERE org_id = ?1').bind(ORG).first()).n).toBe(0);
 });
 
 test('an existing stored empty array preserves its read-only fallback', async () => {

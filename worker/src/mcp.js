@@ -96,6 +96,7 @@ const DAY_MS = 86_400_000;
 /// still let in once the workspace requires SSO.
 export async function createApiToken(db, { orgId, githubId, name, scopes, expiresInDays, ssoBacked = false }) {
   if (scopes !== undefined && !Array.isArray(scopes)) return { error: 'Scopes must be an array.', status: 400 };
+  if (scopes && Array.from(scopes).some(scope => typeof scope !== 'string' || !SCOPES.includes(scope))) return { error: 'Scopes contain an unsupported value.', status: 400 };
   const clean = String(name || "").replace(/\s+/g, " ").trim().slice(0, 60) || "Agent";
   const days = expiresInDays === undefined || expiresInDays === null ? TOKEN_DAYS : Number(expiresInDays);
   if (!Number.isInteger(days) || days < 1 || days > MAX_TOKEN_DAYS) return { error: `A token lasts from 1 to ${MAX_TOKEN_DAYS} days.` };
