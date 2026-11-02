@@ -21,8 +21,12 @@ export function AppRecordDialog({appName,tableName=appName,columns,initial={},re
   if(pending.current||confirmDiscard)return
   const current=values(),baseline=record?original.current:values(original.current)
   const changed=record?Object.entries(current).some(([id,value])=>!equalValue(value,baseline[id])):Array.from(new Set([...Object.keys(current),...Object.keys(baseline)])).some(id=>!equalValue(current[id],baseline[id]))
+  // Number() can round distinct input strings to the same IEEE-754 value.
+  // Keep the user's exact numeric text safe when closing, even if saving it
+  // would currently coerce to the original number.
+  const numericTextChanged=columns.some(c=>c.type==='number'&&String(draft[c.id]??'')!==String(original.current[c.id]??''))
   const incomplete=Array.from(form.current?.querySelectorAll<HTMLInputElement>('input')||[]).some(input=>input.validity.badInput)
-  if(changed||incomplete)setConfirmDiscard(true);else onClose()
+  if(changed||numericTextChanged||incomplete)setConfirmDiscard(true);else onClose()
  }
  const submit=async(e:React.FormEvent)=>{e.preventDefault();if(pending.current||confirmDiscard)return;pending.current=true;setBusy(true);setError('');try{await save(values());onClose()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=false;setBusy(false)}}
  const change=(id:string,value:unknown)=>setDraft(d=>({...d,[id]:value}))

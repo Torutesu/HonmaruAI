@@ -123,3 +123,30 @@ test('relation picker searches by label or id, supports keyboard selection and c
  await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});
  expect(save).toHaveBeenCalledWith({customer:null});act(()=>tree!.unmount())
 })
+
+test.each([
+ {original:9007199254740992, entered:'9007199254740993'},
+ {original:1, entered:'1.0000000000000001'},
+ {original:0, entered:'1e-400'},
+ {original:1, entered:'1.0'},
+ {original:1000, entered:'1e3'},
+ {original:1.25, entered:'1.250'},
+])('numeric text $entered is not silently discarded when closing',({original,entered})=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const onClose=vi.fn();let tree:ReturnType<typeof create>
+ const column={id:'count',name:'Count',type:'number' as const}
+ act(()=>{tree=create(<AppRecordDialog appName="Tasks" columns={[column]} record={{id:'r',values:{count:original},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={onClose}/>)})
+ act(()=>tree!.root.findByType('input').props.onChange({target:{value:entered}}))
+ expect(tree!.root.findByType('input').props.value).toBe(entered)
+ act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('キャンセル'))!.props.onClick())
+ expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findAllByType('h2').map(x=>x.children.join(''))).toContain('Discard unsaved record changes?');act(()=>tree!.unmount())
+})
+
+test('returning numeric input exactly to its original displayed text closes without confirmation',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const onClose=vi.fn();let tree:ReturnType<typeof create>
+ const column={id:'count',name:'Count',type:'number' as const}
+ act(()=>{tree=create(<AppRecordDialog appName="Tasks" columns={[column]} record={{id:'r',values:{count:9007199254740992},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={onClose}/>)})
+ act(()=>tree!.root.findByType('input').props.onChange({target:{value:'9007199254740993'}}))
+ act(()=>tree!.root.findByType('input').props.onChange({target:{value:'9007199254740992'}}))
+ act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('キャンセル'))!.props.onClick())
+ expect(onClose).toHaveBeenCalledOnce();expect(tree!.root.findAllByType('h2').map(x=>x.children.join(''))).not.toContain('Discard unsaved record changes?');act(()=>tree!.unmount())
+})
