@@ -5,6 +5,41 @@ import {test,expect,vi,afterEach} from 'vitest'
 import {PersonalViewControls} from './PersonalViewControls'
 import type {PersonalViews} from '../utils/harness'
 afterEach(()=>vi.unstubAllGlobals())
+function personalNameFixture(save=vi.fn().mockResolvedValue(undefined)){
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ const view={id:'personal_one',name:'元のビュー',type:'table' as const};let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<PersonalViewControls personal control="view" view={view} columns={[{id:'name',name:'名前',type:'text'}]} state={{revision:1,activeView:view.id,views:[view],computed:[view],layouts:{}}} save={save} onSelect={vi.fn()} onSettings={vi.fn()}/>)})
+ const open=()=>act(()=>tree!.root.findByProps({'aria-label':'新しいビュー / 編集'}).props.onClick())
+ const key=(nativeEvent:object)=>{const stop=vi.fn();act(()=>tree!.root.findByProps({className:'hx-view-controls'}).props.onKeyDown({key:'Escape',nativeEvent,stopPropagation:stop}));return stop}
+ return {get tree(){return tree!},open,key,save}
+}
+test('IME Escape preserves an unsaved personal view name while ordinary Escape cancels it',()=>{
+ const ui=personalNameFixture();ui.open()
+ act(()=>ui.tree.root.findByType('input').props.onChange({target:{value:'編集中の名前'}}))
+ expect(ui.key({isComposing:true})).not.toHaveBeenCalled()
+ expect(ui.key({keyCode:229})).not.toHaveBeenCalled()
+ expect(ui.tree.root.findByType('input').props.value).toBe('編集中の名前');expect(ui.save).not.toHaveBeenCalled()
+ expect(ui.key({isComposing:false,keyCode:27})).toHaveBeenCalledOnce()
+ expect(ui.tree.root.findAllByProps({role:'dialog'})).toHaveLength(0)
+ ui.open();expect(ui.tree.root.findByType('input').props.value).toBe('元のビュー');expect(ui.save).not.toHaveBeenCalled()
+ act(()=>ui.tree.unmount())
+})
+test('personal view name can be saved after IME Escape',async()=>{
+ const ui=personalNameFixture();ui.open()
+ act(()=>ui.tree.root.findByType('input').props.onChange({target:{value:'新しい名前'}}))
+ ui.key({isComposing:true})
+ await act(async()=>{ui.tree.root.findAllByType('button').find(button=>button.children.includes('名前を保存'))!.props.onClick();await Promise.resolve()})
+ expect(ui.save).toHaveBeenCalledWith(expect.objectContaining({views:[expect.objectContaining({id:'personal_one',name:'新しい名前'})]}))
+ expect(ui.tree.root.findAllByProps({role:'dialog'})).toHaveLength(0)
+ act(()=>ui.tree.unmount())
+})
+test('ordinary Escape cannot close a personal view while saving',async()=>{
+ let finish!:()=>void;const save=vi.fn(()=>new Promise<void>(resolve=>{finish=resolve})),ui=personalNameFixture(save);ui.open()
+ act(()=>ui.tree.root.findAllByType('button').find(button=>button.children.includes('名前を保存'))!.props.onClick())
+ expect(ui.key({isComposing:false})).toHaveBeenCalledOnce();expect(ui.tree.root.findAllByProps({role:'dialog'})).toHaveLength(1)
+ await act(async()=>{finish();await Promise.resolve()});expect(ui.tree.root.findAllByProps({role:'dialog'})).toHaveLength(0)
+ act(()=>ui.tree.unmount())
+})
 test('column order and width save together and rejected drafts remain editable',async()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
  const save=vi.fn().mockRejectedValue(new Error('Conflict'));let tree:ReturnType<typeof create>
