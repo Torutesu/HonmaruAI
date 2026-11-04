@@ -303,3 +303,13 @@ test('concurrent group requests create only one group for the same members', asy
   expect((await env.DB.prepare("SELECT COUNT(DISTINCT channel) n FROM conversation_members WHERE org_id=?1 AND channel LIKE 'g:%'").bind(orgId).first()).n).toBe(1);
   expect((await env.DB.prepare("SELECT COUNT(*) n FROM conversation_members WHERE org_id=?1 AND channel LIKE 'g:%'").bind(orgId).first()).n).toBe(3);
 });
+
+test('retrying a group request after removal does not restore membership', async () => {
+  const expanded = { ...actor, scopes: [...actor.scopes, 'chat:dm'] };
+  const members = (await listMembers(env.DB, orgId, actor.githubId)).filter(member => member.login !== actor.login);
+  const args = { type: 'group', memberRefs: members.map(member => member.ref), requestId: 'removed-group-retry' };
+  const { conversation } = await call('create_conversation', args, expanded);
+  await env.DB.prepare('DELETE FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login=?3').bind(orgId, conversation.id, actor.login).run();
+  await expect(call('create_conversation', args, expanded)).rejects.toThrow('No accessible conversation');
+  expect(await env.DB.prepare('SELECT 1 FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login=?3').bind(orgId, conversation.id, actor.login).first()).toBeNull();
+});

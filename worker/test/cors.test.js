@@ -43,10 +43,14 @@ test("APP_WEB_URL, CORS_ORIGINS, previews and a local Worker are ours; a native 
   expect(native.headers.get("access-control-allow-origin")).toBe("*");
 });
 
-test("what any page may fetch keeps answering any page", async () => {
+test("public health remains readable while MCP browser clients require an explicit origin", async () => {
   expect((await ask("/health", "https://evil.example")).headers.get("access-control-allow-origin")).toBe("*");
   const mcp = await ask("/mcp", "https://inspector.example", { method: "OPTIONS" });
-  expect(mcp.headers.get("access-control-allow-origin")).toBe("*");
+  expect(mcp.status).toBe(403);
+  expect(mcp.headers.get("access-control-allow-origin")).toBeNull();
+  const configured = await ask("/mcp", "https://inspector.example", { method: "OPTIONS" }, undefined, { ...env, MCP_CORS_ORIGINS: "https://inspector.example" });
+  expect(configured.status).toBe(204);
+  expect(configured.headers.get("access-control-allow-origin")).toBe("*");
 });
 
 test("CORS_ENFORCE=off is the way back", async () => {
