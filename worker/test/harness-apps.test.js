@@ -1976,3 +1976,36 @@ test('capability fence detects changed action and gateway timestamps but not ide
  await env.DB.prepare("DELETE FROM hx_gateways WHERE id='g1' AND org_id=?").bind(ORG).run();await insertGateway(1);
  expect(await check()).toBe(true);
 });
+
+test('custom publish refuses a saved source that the preview cannot render',async()=>{
+ const {MAX_PREVIEW_SOURCE}=await import('../src/harness/customApps.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'tracker',sample:false})).json();
+ const path=`/apps/${app.id}/custom`,oversized='x'.repeat(MAX_PREVIEW_SOURCE+1);
+ expect((await send('POST',path,toru,{orgId:ORG,action:'draft',version:app.version,html:'<p>Live</p>'})).status).toBe(200);
+ let current=(await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app;
+ expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:current.version})).status).toBe(200);
+ current=(await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app;
+ expect((await send('POST',path,toru,{orgId:ORG,action:'draft',version:current.version,html:oversized})).status).toBe(200);
+ current=(await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app;
+ expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:current.version})).status).toBe(400);
+ current=(await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app;
+ expect(current.definition.custom.draft).toBe(oversized);expect(current.definition.custom.published).toBe('<p>Live</p>');
+ expect((await send('POST',path,toru,{orgId:ORG,action:'draft',version:current.version,html:'x'.repeat(MAX_PREVIEW_SOURCE)})).status).toBe(200);
+ current=(await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app;
+ expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:current.version})).status).toBe(200);
+});
+
+test('combined automation release rejects an oversized draft without changing the live release',async()=>{
+ const f=await automationReleaseFixture();const {getApp}=await import('../src/harness/apps.js');const {saveCustomRelease,MAX_PREVIEW_SOURCE}=await import('../src/harness/customApps.js');
+ let draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:'<p>Live</p>'},'9101');
+ let current=await getApp(env.DB,ORG,f.app.id);let published=await saveCustomRelease(env.DB,ORG,current,{action:'publish',version:current.version},'9101');
+ current=await getApp(env.DB,ORG,f.app.id);draft=await saveCustomRelease(env.DB,ORG,current,{action:'draft',version:current.version,html:'x'.repeat(MAX_PREVIEW_SOURCE+1)},'9101');
+ let result=await f.release({action:'publish',requestId:'guard_long_source_01',version:draft.version,revision:1,includeSource:true});expect(result.status).toBe(400);
+ current=await getApp(env.DB,ORG,f.app.id);expect(current.version).toBe(draft.version);expect(current.definition.custom.published).toBe('<p>Live</p>');expect(current.definition.custom.draft.length).toBe(MAX_PREVIEW_SOURCE+1);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual({n:0});
+ const alone=await f.release({action:'publish',requestId:'guard_autom_only_01',version:current.version,revision:1,includeSource:false});expect(alone.saved).toBe(true);
+ current=await getApp(env.DB,ORG,f.app.id);expect(current.definition.custom.published).toBe('<p>Live</p>');
+ draft=await saveCustomRelease(env.DB,ORG,current,{action:'draft',version:current.version,html:'x'.repeat(MAX_PREVIEW_SOURCE)},'9101');
+ result=await f.release({action:'publish',requestId:'guard_boundary_src01',version:draft.version,revision:alone.revision,includeSource:true});expect(result.saved).toBe(true);
+ current=await getApp(env.DB,ORG,f.app.id);expect(current.definition.custom.published.length).toBe(MAX_PREVIEW_SOURCE);
+});

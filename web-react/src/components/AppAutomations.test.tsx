@@ -276,3 +276,17 @@ test('an older request cannot clear the pending guard for a newer lookup',async(
  await act(async()=>{finishOld({workflows:[]});await oldPending});act(()=>oldClick());expect(workflows).toHaveBeenCalledTimes(3)
  await act(async()=>{finishNew({workflows:[]});await newPending});expect(tree!.root.findAllByType('button').find(b=>b.children.includes('ワークフローを再読み込み'))!.props['aria-disabled']).toBe(false);act(()=>tree!.unmount())
 })
+
+test.each([[119800,false],[119801,true]])('combined source release of length %s is disabled=%s',async(length,blocked)=>{
+ const api={appAutomations:vi.fn().mockResolvedValue(state),workflows:vi.fn().mockResolvedValue({workflows:[]}),releaseAppAutomations:vi.fn().mockResolvedValue({saved:true})}
+ const item:any={id:'app',version:2,definition:{custom:{draft:'x'.repeat(length),published:'old'}}};let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppAutomations app={item} api={api as any} reload={()=>{}}/>)});
+ const review=tree!.root.findAllByType('label').find(label=>label.children.some(child=>typeof child==='string'&&child.includes('現在の変更を確認')))!;
+ await act(async()=>review.findByType('input').props.onChange({target:{checked:true}}))
+ const source=tree!.root.findAllByType('label').find(label=>label.children.some(child=>typeof child==='string'&&child.includes('保存済みのアプリ画面')))!;
+ await act(async()=>source.findByType('input').props.onChange({target:{checked:true}}))
+ const publish=tree!.root.findAllByType('button').find(b=>b.children.join('')==='確認した内容を公開')!;expect(publish.props.disabled).toBe(blocked)
+ if(blocked)expect(JSON.stringify(tree!.toJSON())).toContain('アプリ画面を同時に公開するには')
+ await act(async()=>source.findByType('input').props.onChange({target:{checked:false}}));expect(tree!.root.findAllByType('button').find(b=>b.children.join('')==='確認した内容を公開')!.props.disabled).toBe(false)
+ act(()=>tree!.unmount())
+})
