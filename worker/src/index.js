@@ -65,6 +65,7 @@ import { finishRemoteMcpOAuth, remoteMcpOAuthClientMetadata } from "./harness/re
 import { handleApps, sweepAppConnections, forgetAppConnections } from "./smitheryApps.js";
 import { requestContext } from "./requestContext.js";
 import { settleCors } from "./cors.js";
+import { handleMcp } from "./mcp.js";
 import { handleGovernance, pruneMessages, expireExports } from "./governance.js";
 import { sealPending, weeklyVerify } from "./auditArchive.js";
 import { pruneAudit, handleOps } from "./auditRetention.js";
@@ -401,6 +402,7 @@ async function handle(request, env, url, ctx) {
     }
     // Browsers send a preflight OPTIONS before a cross-origin POST with custom
     // headers. Answer it with the CORS headers and no body.
+    if (url.pathname === "/mcp" && request.method === "OPTIONS") return handleMcp(request, env, ctx);
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,

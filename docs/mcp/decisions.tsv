@@ -2,3 +2,4 @@ ts	phase	decision	why	evidence	result
 2026-11-04T08:43:30Z	frame	Build hosted MCP connector with user identity and explicit grants	User confirmed internet connector and Slack parity; reuse existing endpoint	docs/mcp/scope.md	open
 2026-11-04T08:46:17Z	design	Select shared application operations; keep browser-only side effects outside MCP	Both candidates found route forwarding would inherit read receipts and session-bound agent behavior	docs/mcp/design-a.md	selected
 2026-11-04T08:46:17Z	baseline	Existing MCP suites pass 33 tests	Establish unchanged behavior before extending grants and tools	/tmp/honmaru-mcp-baseline.log	33 passed
+2026-11-04T08:53:57Z	protocol	Validate one bounded JSON-RPC request and explicit browser origins; preserve legacy grants	Avoid silent batch truncation and unauthorized browser callers while keeping existing clients	/tmp/honmaru-mcp-protocol.log	39 tests passed

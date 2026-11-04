@@ -73,6 +73,8 @@ export const LIMITS = {
   // a card in somebody's feed and a notification on their phone; an agent
   // in a loop must not be able to bury a person.
   mcp: { max: 120, windowSeconds: 300 },
+  "mcp/oauth": { max: 60, windowSeconds: 300 },
+  "mcp/oauth-token": { max: 30, windowSeconds: 300 },
   // A workspace key on the admin API: an HR sync can be busy, so generous.
   "admin-api": { max: 600, windowSeconds: 60 },
   // Asking which sign-in a domain uses answers for a domain, so it is

@@ -1,4 +1,6 @@
 import { sha256Hex } from "./auth.js";
+import { MCP_ALL_SCOPES } from "./mcpScopes.js";
+import { allowedOrigins } from "./cors.js";
 import { HARNESS_TOOLS, HARNESS_TOOL_SCOPE, callHarnessTool } from "./harness/mcpTools.js";
 import { getMode } from "./harness/mode.js";
 import { saveCard, getCard, getUserByGithubId, isMember } from "./db.js";
@@ -31,8 +33,8 @@ import { remoteMcpTools } from "./harness/remoteMcp.js";
 // tool here takes long enough to need one). Auth: a personal access token,
 // one per agent, scoped to one workspace, stored only as its hash.
 
-export const MCP_PROTOCOL = "2025-06-18";
-const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
+export const MCP_PROTOCOL = "2025-11-25";
+const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 export const MAX_TOKENS_PER_PERSON = 10;
 const TOKEN_PREFIX = "hm_";
 
@@ -42,7 +44,7 @@ const TOKEN_PREFIX = "hm_";
 /// `write` asks for decisions; `audit:read` reads the audit log (and only
 /// an admin's token can use it). A token made before scopes had read and
 /// write, and keeps them.
-export const SCOPES = ["read", "write", "execute", "audit:read"];
+export const SCOPES = MCP_ALL_SCOPES;
 const LEGACY_SCOPES = ["read", "write"];
 const TOOL_SCOPE = { request_decision: "write" };
 
@@ -396,10 +398,12 @@ function rpcError(id, code, message) {
 }
 
 async function handleMessage(env, agent, msg, request, ctx = null) {
-  if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
+  if (!msg || Array.isArray(msg) || msg.jsonrpc !== "2.0" || typeof msg.method !== "string" ||
+      (Object.hasOwn(msg, "id") && !(typeof msg.id === "string" || Number.isSafeInteger(msg.id))) ||
+      (msg.params !== undefined && (!msg.params || typeof msg.params !== "object" || Array.isArray(msg.params)))) {
     return rpcError(msg?.id, -32600, "Invalid Request");
   }
-  const isNotification = msg.id === undefined || msg.id === null;
+  if (msg.id === undefined) return null;
   const params = msg.params && typeof msg.params === "object" ? msg.params : {};
   switch (msg.method) {
     case "initialize": {
@@ -412,15 +416,16 @@ async function handleMessage(env, agent, msg, request, ctx = null) {
       });
     }
     case "ping":
-      return isNotification ? null : rpcResult(msg.id, {});
+      return rpcResult(msg.id, {});
     case "tools/list":
       // Only what this token may call.
       return rpcResult(msg.id, { tools: [...TOOLS, ...(await harnessTools(env, agent))]
         .filter((t) => hasScope(agent.scopes, scopeOfTool(t.name)))
-        .map(({ name, title, description, inputSchema }) => ({ name, title, description, inputSchema })) });
+        .map(({ name, title, description, inputSchema, annotations, outputSchema }) => ({ name, title, description, inputSchema, ...(annotations ? { annotations } : {}), ...(outputSchema ? { outputSchema } : {}) })) });
     case "tools/call": {
       const name = typeof params.name === "string" ? params.name : "";
-      const args = params.arguments && typeof params.arguments === "object" ? params.arguments : {};
+      if (params.arguments !== undefined && (!params.arguments || typeof params.arguments !== "object" || Array.isArray(params.arguments))) return rpcError(msg.id, -32602, "Tool arguments must be an object.");
+      const args = params.arguments || {};
       const extra = await harnessTools(env, agent);
       if ([...TOOLS, ...extra].some((t) => t.name === name) && !hasScope(agent.scopes, scopeOfTool(name))) {
         return rpcResult(msg.id, toolError(`This key does not have the ${scopeOfTool(name)} scope. Make a key with it under Studio → API.`));
@@ -436,7 +441,6 @@ async function handleMessage(env, agent, msg, request, ctx = null) {
       }
     }
     default:
-      if (isNotification) return null;
       return rpcError(msg.id, -32601, `Method not found: ${msg.method}`);
   }
 }
@@ -463,41 +467,61 @@ export function serverCard() {
   };
 }
 
-/// The whole endpoint. POST only; a GET (the server-to-client stream) is not
-/// offered, which the transport allows.
-export async function handleMcp(request, env, ctx = null) {
-  if (request.method === "GET" || request.method === "DELETE") {
-    return new Response(null, { status: 405, headers: { allow: "POST", ...MCP_HEADERS } });
+export function mcpOriginAllowed(request, env) {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  if (origin === new URL(request.url).origin || allowedOrigins(env).has(origin)) return true;
+  return String(env.MCP_CORS_ORIGINS || "").split(/[\s,]+/).includes(origin);
+}
+
+async function mcpBody(request) {
+  const maxBytes = 1024 * 1024;
+  if (Number(request.headers.get("content-length")) > maxBytes) return { oversized: true };
+  if (!request.body) return { invalid: true };
+  const reader = request.body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) { await reader.cancel(); return { oversized: true }; }
+    chunks.push(value);
   }
-  if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
-  // Authorization: Bearer hm_… — or, through a gateway that keeps
-  // Authorization for its own sign-in (Smithery), x-honmaru-token: hm_….
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  try { return { value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) }; }
+  catch { return { invalid: true }; }
+}
+
+export async function handleMcp(request, env, ctx = null) {
+  if (!mcpOriginAllowed(request, env)) return new Response(null, { status: 403 });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: {
+    ...MCP_HEADERS, "access-control-allow-methods": "POST, GET, DELETE, OPTIONS",
+    "access-control-allow-headers": "content-type, authorization, x-honmaru-token, mcp-protocol-version, mcp-session-id",
+  } });
+  if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST", ...MCP_HEADERS } });
+  const protocol = request.headers.get("mcp-protocol-version");
+  if (protocol && !SUPPORTED_PROTOCOLS.includes(protocol)) return new Response(JSON.stringify(rpcError(null, -32600, "Unsupported MCP protocol version.")), { status: 400, headers: MCP_HEADERS });
+  if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") return new Response(null, { status: 415, headers: MCP_HEADERS });
   const own = request.headers.get("x-honmaru-token");
   const agent = await resolveApiToken(env.DB, own ? `Bearer ${own.trim()}` : request.headers.get("authorization"));
   if (!agent) {
-    return new Response(JSON.stringify(rpcError(null, -32001, "A Honmaru access token is required: Authorization: Bearer hm_…  (You → Tools → Connect an agent).")), {
+    return new Response(JSON.stringify(rpcError(null, -32001, "A Honmaru access token is required.")), {
       status: 401,
       headers: { ...MCP_HEADERS, "www-authenticate": 'Bearer realm="honmaru"' },
     });
   }
   const held = await agentDenial(env, agent);
-  if (held) {
-    return new Response(JSON.stringify(rpcError(null, -32001, held.body.message)), { status: held.status, headers: MCP_HEADERS });
-  }
+  if (held) return new Response(JSON.stringify(rpcError(null, -32001, held.body.message)), { status: held.status, headers: MCP_HEADERS });
   const limited = await enforceSubject(env, "mcp", `t:${agent.tokenId}`);
   if (limited) return limited;
-  const body = await request.json().catch(() => undefined);
-  if (body === undefined) {
-    return new Response(JSON.stringify(rpcError(null, -32700, "Parse error")), { status: 400, headers: MCP_HEADERS });
-  }
-  const messages = Array.isArray(body) ? body.slice(0, 20) : [body];
-  const replies = [];
-  for (const msg of messages) {
-    const reply = await handleMessage(env, agent, msg, request, ctx);
-    if (reply) replies.push(reply);
-  }
-  // Only notifications and responses: nothing to answer.
-  if (!replies.length) return new Response(null, { status: 202, headers: MCP_HEADERS });
-  return new Response(JSON.stringify(Array.isArray(body) ? replies : replies[0]), { status: 200, headers: MCP_HEADERS });
+  const body = await mcpBody(request);
+  if (body.oversized) return new Response(JSON.stringify(rpcError(null, -32600, "Request is too large.")), { status: 413, headers: MCP_HEADERS });
+  if (body.invalid) return new Response(JSON.stringify(rpcError(null, -32700, "Parse error")), { status: 400, headers: MCP_HEADERS });
+  if (Array.isArray(body.value)) return new Response(JSON.stringify(rpcError(null, -32600, "Send one JSON-RPC message per request.")), { status: 400, headers: MCP_HEADERS });
+  const reply = await handleMessage(env, agent, body.value, request, ctx);
+  if (!reply) return new Response(null, { status: 202, headers: MCP_HEADERS });
+  return new Response(JSON.stringify(reply), { status: 200, headers: MCP_HEADERS });
 }
-
