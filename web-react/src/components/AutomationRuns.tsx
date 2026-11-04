@@ -43,7 +43,11 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
  const orderedDays=groupRunsByStartDay(visibleRuns)
  return <details className="hx-run-history-panel" onToggle={e=>{opened.current=e.currentTarget.open;setIsOpen(opened.current);if(opened.current && runs===null && !busy)void load()}}><summary>{t('Run history')}</summary>
   {busy&&<p role="status">{t('Loading…')}</p>}{error&&<p role="alert">{error}</p>}
-  {safety?.paused_at&&<section className="form-note" role="status"><strong>{safety.pause_reason?.startsWith('budget_ai_')?'AI使用量の概算上限に達したため停止しました':safety.pause_reason?.startsWith('budget_')?'実行上限に達したため自動停止しました':'3回連続の失敗により自動停止しました'}</strong><p>{safety.pause_reason?.startsWith('budget_ai_unpriced')?'単価不明の利用が直近期間から外れるか、上限設定を変更すると次のトリガーから再開します。':safety.pause_reason?.startsWith('budget_ai_')?'AI使用量の概算上限期間が切れると、次のトリガーから自動再開します。':safety.pause_reason?.startsWith('budget_')?'実行上限の期間が切れると自動再開します。':'下の履歴を確認してから再開してください。保留イベントは自動再生されません。'}</p>{canEdit&&!safety.pause_reason?.startsWith('budget_')&&<button type="button" className="pill-btn" disabled={busy} onClick={()=>void resume()}>確認して再開</button>}</section>}
+  {safety?.paused_at&&<section className="form-note" role="status">
+   <strong>{safety.pause_reason?.startsWith('budget_ai_')?t('Paused by estimated AI usage budget'):safety.pause_reason?.startsWith('budget_')?t('Paused by run budget'):t('Paused after three consecutive failures')}</strong>
+   <p>{safety.pause_reason?.startsWith('budget_ai_unpriced')?t('AI usage could not be priced. This workflow can resume after the unpriced usage leaves its rolling window or the limit is changed.'):safety.pause_reason?.startsWith('budget_ai_')?t('This workflow can run on its next trigger after its AI usage budget window resets or the limit is raised.'):safety.pause_reason?.startsWith('budget_')?t('This workflow can run on its next trigger after its run budget window resets or the limit is raised.'):t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>
+   {canEdit&&!safety.pause_reason?.startsWith('budget_')&&<button type="button" className="pill-btn" disabled={busy} onClick={()=>void resume()}>{t('Resume after review')}</button>}
+  </section>}
   {runs?.length===0&&<p>{t('No runs yet.')}</p>}
   {!!runs?.length&&<div className="hx-run-history">
    <div className="hx-run-history-tools"><button type="button" className="pill-btn quiet hx-run-filter" aria-pressed={failedOnly} onClick={()=>setFailedOnly(value=>!value)}>{t('Failed runs only')}</button></div>

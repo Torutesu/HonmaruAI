@@ -261,6 +261,8 @@ const table: Record<string, string> = {
   "rolling 30 days": "直近30日間",
   "Estimated model cost": "モデル費用の概算",
   "Paused by run budget": "実行回数の上限で停止中",
+  "This workflow can run on its next trigger after its AI usage budget window resets or the limit is raised.": "AI使用量の上限期間が更新されるか上限が引き上げられると、次のトリガーから再開できます。",
+  "This workflow can run on its next trigger after its run budget window resets or the limit is raised.": "実行上限の期間が更新されるか上限が引き上げられると、次のトリガーから再開できます。",
   "Review the failed runs below before resuming. Held events will not replay automatically.": "下の実行履歴で失敗内容を確認してから再開してください。保留イベントは自動再生されません。",
   "Resume after review": "確認して再開",
   "Paused after failures": "失敗により停止中",
