@@ -2,6 +2,8 @@ import { getTable } from "./tables.js";
 // Custom UI releases share the app's tenant, ACL, version history and audit trail.
 // Source is never executed in the Worker. The client runs it in an opaque-origin iframe.
 export const MAX_SOURCE = 120000;
+// The preview frame includes runner markup and accepts at most this many source characters.
+export const MAX_PREVIEW_SOURCE = 119800;
 export function validateSource(source) {
   return typeof source === 'string' && source.trim() && source.length <= MAX_SOURCE;
 }
@@ -41,6 +43,7 @@ export async function saveCustomRelease(db, orgId, app, input, by) {
     custom.draft = input.html;
   } else if (input.action === 'publish') {
     if (!validateSource(custom.draft)) return { error: 'Save a draft before publishing.', status: 400 };
+    if (custom.draft.length > MAX_PREVIEW_SOURCE) return { error: `Shorten the draft to ${MAX_PREVIEW_SOURCE} characters or fewer before previewing and publishing.`, status: 400 };
     custom.published = custom.draft;
     custom.publishedBy = String(by);
     custom.publishedAt = new Date().toISOString();

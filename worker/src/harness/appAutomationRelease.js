@@ -6,7 +6,7 @@ import {mayViewWorkflow,unknownApprover,MAX_WORKFLOWS} from './workflows.js';
 import {mayUseApp} from './resourceAccess.js';
 import {nextRunAt} from '../schedule.js';
 import {getTable} from './tables.js';
-import {validateSource} from './customApps.js';
+import {validateSource,MAX_PREVIEW_SOURCE} from './customApps.js';
 
 const conflict=()=>({error:'The app, draft or live automations changed. Review the plan again.',status:409});
 const receipt=row=>({saved:true,releaseId:row.release_id,revision:row.revision,version:row.app_version});
@@ -75,6 +75,7 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
     definition.custom={...definition.custom};
     if(input.action==='publish') {
       if(!validateSource(definition.custom.draft))return {error:'Save valid custom source before publishing.',status:400};
+      if(definition.custom.draft.length>MAX_PREVIEW_SOURCE)return {error:`Shorten the draft to ${MAX_PREVIEW_SOURCE} characters or fewer before previewing and publishing.`,status:400};
       Object.assign(definition.custom,{published:definition.custom.draft,publishedBy:String(by),publishedAt:at});
     } else delete definition.custom.published;
   }
