@@ -212,7 +212,7 @@ export async function callContentTool(env, actor, name, args = {}, request, ctx)
     const upload = await ownUpload(env, actor, args.uploadId);
     if (!['uploaded', 'complete'].includes(upload.state)) throw new McpInputError('Upload bytes have not completed.');
     const file = await readableFile(env, actor, upload.file_id);
-    await env.DB.prepare("UPDATE mcp_file_uploads SET state='complete' WHERE id=?1 AND state='uploaded'").bind(upload.id).run();
+    await env.DB.prepare("UPDATE mcp_file_uploads SET state='complete' WHERE id=?1 AND org_id=?2 AND state='uploaded'").bind(upload.id, actor.orgId).run();
     return mcpResult({ file: fileInfo(file, env, request), fileId: file.id, shared: Boolean(file.message_id) });
   }
   const writing = definition.scope === 'lists:write';
@@ -283,7 +283,7 @@ export async function handleMcpContentUpload(request, env, url, actor) {
     if (['uploaded', 'complete'].includes(upload.state)) return new Response(JSON.stringify({ uploadId: upload.id, uploaded: true }), { headers });
     if (upload.state !== 'pending') throw new McpInputError('Upload already started. Check completion before reserving a replacement.');
     if (Number(request.headers.get('content-length')) !== upload.size || request.headers.get('content-type') !== upload.content_type) throw new McpInputError('Upload headers must match the reservation.');
-    const claimed = await env.DB.prepare("UPDATE mcp_file_uploads SET state='uploading' WHERE id=?1 AND state='pending' AND expires_at>?2").bind(upload.id, Date.now()).run();
+    const claimed = await env.DB.prepare("UPDATE mcp_file_uploads SET state='uploading' WHERE id=?1 AND org_id=?3 AND state='pending' AND expires_at>?2").bind(upload.id, Date.now(), actor.orgId).run();
     if (!claimed.meta?.changes) throw new McpInputError('Upload already started.');
     const { resolved } = await resolveMcpConversation(env, actor, upload.conversation);
     const target = new URL(request.url);
@@ -291,10 +291,10 @@ export async function handleMcpContentUpload(request, env, url, actor) {
     const response = await uploadFile(request, env, target, { orgId: actor.orgId, resolved, login: actor.login });
     const result = await response.json();
     if (!response.ok) {
-      await env.DB.prepare("UPDATE mcp_file_uploads SET state='failed' WHERE id=?1").bind(upload.id).run();
+      await env.DB.prepare("UPDATE mcp_file_uploads SET state='failed' WHERE id=?1 AND org_id=?2").bind(upload.id, actor.orgId).run();
       return new Response(JSON.stringify({ message: result.message }), { status: response.status, headers });
     }
-    await env.DB.prepare("UPDATE mcp_file_uploads SET state='uploaded',file_id=?2 WHERE id=?1 AND state='uploading'").bind(upload.id, result.file.id).run();
+    await env.DB.prepare("UPDATE mcp_file_uploads SET state='uploaded',file_id=?2 WHERE id=?1 AND org_id=?3 AND state='uploading'").bind(upload.id, result.file.id, actor.orgId).run();
     return new Response(JSON.stringify({ uploadId: upload.id, uploaded: true }), { status: 201, headers });
   } catch (error) {
     if (error instanceof McpInputError) return new Response(JSON.stringify({ message: error.message }), { status: 400, headers });

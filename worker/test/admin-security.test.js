@@ -10,6 +10,7 @@ import { listMembers } from "../src/team.js";
 import { cleanKeywords, keywordHit } from "../src/quiet.js";
 import { recipientsOf } from "../src/pushes.js";
 import { parseQuery } from "../src/channels.js";
+import { MCP_CONNECTOR_SCOPES } from "../src/mcpScopes.js";
 
 // Running a workspace a company can trust: where you are signed in, the
 // audit log, guests who see only their channels, API keys that do only
@@ -233,7 +234,8 @@ test("API keys carry scopes: a read key cannot ask, an audit key reads the log",
   await env.DB.prepare("UPDATE api_tokens SET scopes = NULL WHERE name = 'Reader'").run();
   const listed = await (await call(`/tokens?${q({ orgId: ORG })}`, toru)).json();
   expect(listed.tokens.find((t) => t.name === "Reader").scopes).toEqual(["read", "write"]);
-  expect(listed.scopes).toEqual(["read", "write", "execute", "audit:read"]);
+  // The connector's scopes follow the original four; a key may carry them too.
+  expect(listed.scopes).toEqual(["read", "write", "execute", "audit:read", ...MCP_CONNECTOR_SCOPES]);
 });
 
 test("a webhook's deliveries are kept, can be sent again, and its secret replaced", async () => {
