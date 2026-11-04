@@ -1,0 +1,13 @@
+.studio-mcp-connections { margin: 20px 0; padding: 20px; border: 1px solid var(--st-line, var(--bone)); border-radius: 12px; }
+.studio-mcp-connections h3 { margin-top: 0; }
+.studio-mcp-connections form { display: grid; gap: 12px; margin: 16px 0; }
+.studio-mcp-connections label, .mcp-consent label, .mcp-consent label span { display: block; }
+.studio-mcp-connections input, .studio-mcp-connections textarea, .mcp-consent select { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px; color: inherit; background: var(--st-field, var(--mist)); border: 1px solid var(--st-line, var(--bone)); border-radius: 8px; }
+.studio-mcp-connections code, .mcp-consent code { overflow-wrap: anywhere; }
+.studio-mcp-connections summary { cursor: pointer; }
+.studio-mcp-connections details, .studio-mcp-connections .studio-token-row { margin-top: 16px; }
+.mcp-consent { max-width: 620px; margin: auto; overflow-y: auto; }
+.mcp-consent fieldset { margin: 20px 0; border: 1px solid var(--st-line, var(--bone)); border-radius: 8px; }
+.mcp-consent fieldset label { margin: 16px 0; }
+.mcp-consent fieldset span { margin-top: 4px; color: var(--st-dim, var(--slate)); }
+.mcp-consent button { margin: 6px; }

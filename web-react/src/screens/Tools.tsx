@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon, type IconName } from '../components/Icon'
+import { McpConnections } from '../components/McpConnections'
 import { EmojiManager } from '../components/EmojiManager'
 import { UserGroupsManager } from '../components/UserGroupsManager'
 import { AuditLog } from '../components/AuditLog'
@@ -930,6 +931,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
           )}
         </div>
       </div>
+      <McpConnections key={`${httpBase}:${sessionToken}`} httpBase={httpBase} sessionToken={sessionToken} orgId={orgId} />
       <div className="studio-table keys" role="table" aria-label={t('API keys')}>
         <div className="studio-tr head" role="row">
           <span role="columnheader">{t('Name')}</span><span role="columnheader">{t('Permissions')}</span>
