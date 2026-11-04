@@ -43,7 +43,7 @@ Uploads use a tool to reserve a URL, an authenticated raw-byte PUT (up to the ex
 
 ## Deliberate product differences
 
-This covers Slack-like capability families using Honmaru product primitives, not identical Slack APIs. There are no standalone shareable canvases; lists require Harness mode and support its column types. Agent-only conversations are excluded. Sending `@AI` text does not launch a Honmaru agent or fabricate a browser session. Conversation discovery lists existing channel rows and DMs with message history; opening an empty DM returns its ID but it appears in discovery after a message exists. Channel creation and administrative permissions remain the user's existing ones. An AI client can draft and preview message text before calling send_message; there is no connector tool for server-persisted drafts. Administrative/destructive workspace management is outside this connector scope.
+This covers Slack-like capability families using Honmaru product primitives, not identical Slack APIs. There are no standalone shareable canvases; lists require Harness mode and support its column types. Agent-only conversations are excluded. Sending `@AI` text does not launch a Honmaru agent or fabricate a browser session. Archived and deleted business channels are excluded from connector discovery and reads. Conversation discovery lists existing active channel rows and DMs with message history; opening an empty DM returns its ID but it appears in discovery after a message exists. Channel creation and administrative permissions remain the user's existing ones. An AI client can draft and preview message text before calling send_message; there is no connector tool for server-persisted drafts. Administrative/destructive workspace management is outside this connector scope.
 
 ## Verification boundary
 
@@ -53,7 +53,7 @@ Reproduce the official SDK check with `pnpm exec node worker/scripts/prove-mcp-c
 
 ## Final local verification, 2026-11-04
 
-The final implementation, schemas and tests are at `9d703e6819344f4dc2011819e2d3d1bda72ae6bc`. The following evidence was collected before the documentation-only handoff:
+The initial implementation handoff, schemas and tests were at `9d703e6819344f4dc2011819e2d3d1bda72ae6bc`; the later CI storage correction is recorded below. The following evidence was collected before the documentation-only handoff:
 
 - The broad Worker run covered 15 suites: 156 passed and one old CORS assertion failed because it expected arbitrary browser origins to be accepted. The test was updated to assert the new explicit-origin policy. The affected CORS/chat rerun passed 33 tests, including a new regression proving that retrying group creation after removal cannot restore membership. This was not a single all-green 158-test run. Logs: `/tmp/honmaru-mcp-final-regression.log`, `/tmp/honmaru-mcp-final-review.log`.
 - The committed portable runner passed both official SDK 1.32.2 tests at the exact implementation revision above: PAT initialization/discovery/call/revocation and OAuth discovery/PKCE/session-backed consent/code exchange/scoped discovery/call/disconnection. Log: `/tmp/honmaru-mcp-sdk-portable-final.log`. The transport and SDK are real; requests are routed to local `Worker.fetch`, not across the internet.
@@ -62,3 +62,11 @@ The final implementation, schemas and tests are at `9d703e6819344f4dc2011819e2d3
 - Browser inspection rendered the real consent component and repository CSS with a fixture API at 390 × 800. The dark-mode field contrast was corrected and rechecked; all 14 permission checkboxes and Allow/Deny/Back controls remained reachable by scrolling, and removing the sole selected permission disabled Allow. This does not establish a complete browser login-to-consent flow.
 
 No production deployment, production message, named-client acceptance, physical-device push delivery, or real internet OAuth round trip was performed. Claw/ShogunAI compatibility remains subject to their registered-client PKCE configuration and a live deployment check.
+
+## CI storage correction
+
+PR #661's full web integration tests caught a direct `sessionStorage` reference that the focused consent tests had missed. Consent persistence now obtains storage inside a guarded boundary. Missing browser globals and a browser storage getter throwing `SecurityError` no longer crash app initialization, hash changes, exit, or consent completion. A valid request in the current URL still works when storage is unavailable; persistence across a full-page login redirect requires working session storage. Regression tests cover both missing storage and a throwing getter.
+
+The full web suite ran twice (221 files, 1,679 tests). Each run had 1,678 passes and one unrelated 5-second timeout: first `CompactToolbarTitles`, then `Profile.translation` with two workers. The two timed-out files and consent/storage regressions subsequently passed together with one worker: 12 tests across four files, without changing assertions or timeouts. This is combined evidence, not a claim that either full run was entirely green. Logs: `/tmp/honmaru-mcp-full-web-tests.log`, `/tmp/honmaru-mcp-full-web-tests-bounded.log`, `/tmp/honmaru-mcp-web-storage-targeted.log`.
+
+The production web build (`tsc && vite build`) also passed after the storage correction: `/tmp/honmaru-mcp-web-storage-build.log`. No Worker implementation changed in this correction.

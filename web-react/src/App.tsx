@@ -81,9 +81,9 @@ function App() {
 }
 
 function AccountApp() {
-  const [mcpRequest, setMcpRequest] = useState(() => pendingMcpRequest(location.hash, sessionStorage))
+  const [mcpRequest, setMcpRequest] = useState(() => pendingMcpRequest(location.hash))
   useEffect(() => {
-    const change = () => setMcpRequest(pendingMcpRequest(location.hash, sessionStorage))
+    const change = () => setMcpRequest(pendingMcpRequest(location.hash))
     window.addEventListener('hashchange', change)
     return () => window.removeEventListener('hashchange', change)
   }, [])
@@ -567,7 +567,7 @@ function AccountApp() {
 
   if (mcpRequest && sessionToken && userId && (stage === 'app' || stage === 'onboarding')) return <McpConsent
     key={`${sessionToken}:${mcpRequest}`} httpBase={httpBase(host)} sessionToken={sessionToken} requestId={mcpRequest}
-    onExit={() => { clearMcpRequest(sessionStorage); setMcpRequest(''); location.hash = '#/list' }} />
+    onExit={() => { clearMcpRequest(); setMcpRequest(''); location.hash = '#/list' }} />
 
   if (stage === 'welcome') {
     return (

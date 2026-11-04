@@ -36,7 +36,7 @@ export function McpConsent({ httpBase, sessionToken, requestId, onExit }: { http
       if (!response.ok) throw new Error(data.error_description || data.message || 'Could not authorize this connection.')
       const redirect = new URL(data.redirectUrl)
       if (!consent || redirect.origin !== consent.redirectOrigin || !['https:', 'http:'].includes(redirect.protocol)) throw new Error('The callback address changed. Restart from your app.')
-      clearMcpRequest(sessionStorage)
+      clearMcpRequest()
       window.location.assign(redirect.href)
     } catch (error) { if (current === generation.current) { setError(error instanceof Error ? error.message : 'Could not authorize this connection.'); setBusy(false) } }
   }

@@ -17,3 +17,18 @@ test('malformed IDs do not become pending authorization requests', () => {
   store.setItem('honmaru:mcp-consent', '<script>')
   expect(pendingMcpRequest('#/list', store)).toBe('')
 })
+
+test.each(['missing', 'blocked'])('consent works when browser session storage is %s', mode => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+  try {
+    if (mode === 'missing') Reflect.deleteProperty(globalThis, 'sessionStorage')
+    else Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, get() { throw new DOMException('Storage blocked', 'SecurityError') } })
+    const id = `hmreq_${'b'.repeat(64)}`
+    expect(pendingMcpRequest(`#/mcp/consent/${id}`)).toBe(id)
+    expect(pendingMcpRequest('#/list')).toBe('')
+    expect(() => clearMcpRequest()).not.toThrow()
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'sessionStorage', original)
+    else Reflect.deleteProperty(globalThis, 'sessionStorage')
+  }
+})
