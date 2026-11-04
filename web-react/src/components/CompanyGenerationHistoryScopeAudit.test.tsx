@@ -34,6 +34,18 @@ test('late history of one action must not appear under another selected action',
  act(()=>tree.unmount())
 })
 
+test('switching or reselecting an action resets the history disclosure',async()=>{
+ const actions=[{name:'alpha',version:1,draft:'return 1',published:null},{name:'beta',version:1,draft:'return 2',published:null}]
+ const api:any={appActions:vi.fn().mockResolvedValue({actions}),appConnections:vi.fn().mockResolvedValue({connections:[]}),appDatabase:vi.fn().mockResolvedValue({fork:null,version:1,entities:[],migrations:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),actionHistory:vi.fn().mockResolvedValue({versions:[]})}
+ let tree!:ReturnType<typeof create>;await act(async()=>{tree=create(<CompanyApp app={{id:'a',version:1} as any} api={api} canManage reload={()=>{}}/>)})
+ const button=(text:string)=>tree.root.findAllByType('button').find(b=>b.children.join('')===text)!
+ act(()=>button('alpha · 下書き').props.onClick());const alphaDetails=tree.root.findByType('details')
+ await act(async()=>{alphaDetails.props.onToggle({currentTarget:{open:true}});await Promise.resolve()})
+ act(()=>button('beta · 下書き').props.onClick());const betaDetails=tree.root.findByType('details');expect(betaDetails).not.toBe(alphaDetails)
+ act(()=>button('beta · 下書き').props.onClick());expect(tree.root.findByType('details')).not.toBe(betaDetails)
+ act(()=>tree.unmount())
+})
+
 test('late old history cannot replace a newer action history',async()=>{
  let finishOld!:(value:any)=>void;const oldHistory=new Promise(resolve=>{finishOld=resolve})
  const actions=[{name:'alpha',version:1,draft:'return 1',published:null},{name:'beta',version:1,draft:'return 2',published:null}]
