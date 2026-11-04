@@ -162,7 +162,15 @@ test('workspace file search applies audience and current access before paginatio
   await upsertMembership(env.DB, orgId, '7103', 'member');
   await env.DB.prepare("INSERT INTO businesses (org_id,slug,name,private,created_at) VALUES (?1,'other-private','Other private',1,?2)").bind(orgId, now).run();
   await env.DB.prepare("INSERT INTO conversation_members (org_id,channel,login,added_at) VALUES (?1,'g:mine',?2,?3)").bind(orgId, actor.login, now).run();
+  for (const [slug, privateRoom] of [['former-private', 1], ['archived-public', 0], ['archived-private', 1]]) {
+    await env.DB.prepare('INSERT INTO businesses (org_id,slug,name,private,created_at,archived_at) VALUES (?1,?2,?2,?3,?4,?4)').bind(orgId, slug, privateRoom, now).run();
+    await env.DB.prepare('INSERT INTO conversation_members (org_id,channel,login,added_at) VALUES (?1,?2,?3,?4)').bind(orgId, `b:${slug}`, actor.login, now).run();
+  }
+  await env.DB.prepare("DELETE FROM businesses WHERE org_id=?1 AND slug='former-private'").bind(orgId).run();
   const fixtures = [
+    ['00-former-private', 'b:former-private'],
+    ['00-archived-public', 'b:archived-public'],
+    ['00-archived-private', 'b:archived-private'],
     ['01-private-nonmember', 'b:other-private'],
     ['02-other-dm', 'dm:u:three@example.test|u:two@example.test'],
     ['03-other-group', 'g:other'],
@@ -225,4 +233,18 @@ test('workspace file search excludes deleted sources, missing parents and other 
   const next = await run('search_files', { limit: 1, cursor: first.nextCursor });
   expect(next.files.map(file => file.id)).toEqual(['05-own-upload']);
   expect(next.nextCursor).toBeNull();
+});
+
+
+test('file transfer endpoints return forbidden when the connection lacks their scope', async () => {
+  const who = { ...actor, scopes: ['chat:read'] };
+  for (const [path, method, scope] of [
+    ['/mcp/files/f_111111111111111111111111/content', 'GET', 'files:read'],
+    ['/mcp/uploads/11111111-1111-4111-8111-111111111111', 'PUT', 'files:write'],
+  ]) {
+    const url = new URL(path, request.url);
+    const response = await handleMcpContentUpload(new Request(url, { method }), env, url, who);
+    expect(response.status).toBe(403);
+    expect((await response.json()).message).toContain(scope);
+  }
 });

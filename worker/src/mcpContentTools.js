@@ -181,9 +181,9 @@ export async function callContentTool(env, actor, name, args = {}, request, ctx)
       WHERE f.org_id=?1 AND f.id>?3 AND f.name LIKE ?4 ESCAPE '\\' AND (?5 IS NULL OR f.channel=?5)
         AND ${mcpAudienceSql(actor.scopes, 'f')}
         AND (
-          (f.channel LIKE 'b:%' AND (
-            NOT EXISTS (SELECT 1 FROM businesses b WHERE b.org_id=?1 AND 'b:' || b.slug=f.channel AND b.private=1)
-            OR EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id=?1 AND c.channel=f.channel AND c.login=?2)))
+          (f.channel LIKE 'b:%' AND EXISTS (
+            SELECT 1 FROM businesses b WHERE b.org_id=?1 AND 'b:' || b.slug=f.channel AND b.archived_at IS NULL
+              AND (b.private=0 OR EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id=?1 AND c.channel=f.channel AND c.login=?2))))
           OR (f.channel LIKE 'g:%' AND EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id=?1 AND c.channel=f.channel AND c.login=?2))
           OR (f.channel LIKE 'dm:%' AND EXISTS (
             SELECT 1 FROM memberships ms JOIN users u ON u.github_id=ms.user_github_id
@@ -267,18 +267,18 @@ export async function handleMcpContentUpload(request, env, url, actor) {
   const download = /^\/mcp\/files\/(f_[a-f0-9]{24})\/content$/.exec(url.pathname);
   if (!match && !download) return null;
   const headers = { 'cache-control': 'no-store', 'content-type': 'application/json' };
+  const method = download ? 'GET' : 'PUT';
+  if (request.method !== method) return new Response(null, { status: 405, headers: { allow: method } });
+  const scope = download ? 'files:read' : 'files:write';
+  if (!actor.scopes?.includes(scope)) return new Response(JSON.stringify({ message: `This connection requires the ${scope} permission.` }), { status: 403, headers });
   try {
     if (download) {
-      if (request.method !== 'GET') return new Response(null, { status: 405, headers: { allow: 'GET' } });
-      requireMcpScope(actor, 'files:read');
       const row = await readableFile(env, actor, download[1]);
       const object = await getFileObject(env, actor.orgId, row.id);
       if (!object) throw new McpInputError('File content is unavailable.');
       await readableFile(env, actor, row.id);
       return new Response(object.body, { headers: { 'content-type': row.type, 'content-length': String(row.size), 'content-disposition': 'attachment', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store' } });
     }
-    if (request.method !== 'PUT') return new Response(null, { status: 405, headers: { allow: 'PUT' } });
-    requireMcpScope(actor, 'files:write');
     const upload = await ownUpload(env, actor, match[1]);
     if (['uploaded', 'complete'].includes(upload.state)) return new Response(JSON.stringify({ uploadId: upload.id, uploaded: true }), { headers });
     if (upload.state !== 'pending') throw new McpInputError('Upload already started. Check completion before reserving a replacement.');
