@@ -20,6 +20,10 @@ type Dict = Record<string, string>
 // this before falling back to the key itself.
 const en: Dict = {
   'room.automations': 'Automations',
+  'mcp.consent.lede': 'This app will act as you. Allow only the permissions you want it to use. You can disconnect it under Studio, API & Webhooks.',
+  'mcp.connections.lede': 'Connect an MCP-compatible app to Honmaru over the internet. Each connection acts as you with the permissions you approve.',
+  'mcp.register.lede': 'For app developers. Register the exact callback URL your app uses, then configure its OAuth client ID and this MCP endpoint.',
+  'mcp.register.hint': 'Use HTTPS callbacks, or an HTTP loopback address for a local app. Public clients must use PKCE with S256. No client secret is issued.',
   'tidy.blurb': 'Channels with no message, canvas or bookmark — most made by the AI when it filed cards. Archiving hides them from every list; their cards and history stay.',
   'archive.lede': 'It leaves everyone\'s sidebar. Its messages, files and decisions are kept, and it can be restored any time from Archived channels on your profile.',
   'record.channelHint': 'This channel’s story and decisions, written by the AI from what was said. Written again when something new is said.',

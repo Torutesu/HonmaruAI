@@ -2,6 +2,7 @@ import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, expect, test, vi } from 'vitest'
 import { McpConsent } from './McpConsent'
+import { changeLocale, localeReady } from '../utils/i18n'
 const preview = { clientName: 'Claw', clientId: 'client', redirectOrigin: 'https://client.example', scopes: [{ name: 'chat:read', title: 'Read public conversations', description: 'Read public history' }, { name: 'chat:private', title: 'Private channels', description: 'Read private history' }], workspaces: [{ id: 'one', name: 'Team', founder: null }] }
 afterEach(() => vi.unstubAllGlobals())
 test('consent defaults to public read and posts only selected permissions after an explicit click', async () => {
@@ -29,4 +30,18 @@ test('a late consent response cannot redirect after the account screen unmounts'
   act(() => tree.unmount())
   await act(async () => { finish(new Response(JSON.stringify({ redirectUrl: 'https://client.example/callback?code=late' }))) })
   expect(assign).not.toHaveBeenCalled()
+})
+test('the consent page and its permissions read in the person\'s language', async () => {
+  const storage = new Map<string, string>()
+  vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) || null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) })
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(preview))))
+  let tree!: ReturnType<typeof create>
+  try {
+    await act(async () => { changeLocale('ja'); await localeReady(); tree = create(<McpConsent httpBase="https://api.example" sessionToken="session" requestId="request" onExit={() => {}} />) })
+    const text = JSON.stringify(tree.toJSON())
+    expect(text).toContain('Claw を Honmaru に接続')
+    expect(text).toContain('公開チャンネルを読む')
+    expect(text).toContain('選んだ権限を許可')
+    act(() => tree.unmount())
+  } finally { act(() => changeLocale('en')) }
 })
