@@ -40,6 +40,18 @@ describe('a language chosen before its table is here', () => {
       }
     } finally { changeLocale('en') }
   })
+
+  it('translates cancellation outcomes and preserves the execution identity', async () => {
+    const messages=['Execution finished before it could be cancelled.','Cancellation could not be confirmed. Reload execution history to check.','Execution history could not be refreshed. Reload to check the cancellation result.']
+    try {
+      for (const code of ['ja','es','fr','de']) {
+        changeLocale(code); await localeReady()
+        for(const message of messages) expect(t(message),code).not.toBe(message)
+        expect(t('Execution {id}: {message}',{id:'job-1',message:'example'}),code).toContain('job-1')
+        expect(t('Execution {id}: {message}',{id:'job-1',message:'example'}),code).toContain('example')
+      }
+    } finally { changeLocale('en') }
+  })
 })
 
 // A hint that names a key is given the key as this keyboard prints it; a ⌘

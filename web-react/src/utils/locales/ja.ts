@@ -1,6 +1,10 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Execution {id}: {message}': '実行 {id}: {message}',
+  'Execution finished before it could be cancelled.': 'キャンセルする前に実行が終了しました。',
+  'Cancellation could not be confirmed. Reload execution history to check.': 'キャンセルを確認できませんでした。実行履歴を再読み込みして確認してください。',
+  'Execution history could not be refreshed. Reload to check the cancellation result.': '実行履歴を更新できませんでした。再読み込みしてキャンセル結果を確認してください。',
   'The selected node is unavailable. Select another node or reload.': '選択したノードを利用できません。別のノードを選ぶか、再読み込みしてください。',
   'A Mac running the user service must be awake and its user signed in. Last contact does not guarantee availability; reload to check again.': 'Macのユーザーサービスを使う場合は、Macをスリープさせず、ユーザーがログインしている必要があります。最終通信は利用可能を保証しません。再読み込みして確認してください。',
   'No contact recorded': '通信記録なし',

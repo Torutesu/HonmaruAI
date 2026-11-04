@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
-import type { Gateway, GatewayJob } from '../utils/harness'
+import { HarnessApiError, type Gateway, type GatewayJob } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 function lastContact(value: number | null, t: ReturnType<typeof useT>): string {
@@ -24,6 +24,7 @@ export default function HarnessGateways(props: HarnessProps) {
   const setCode=language==='typescript'?setTypeScriptCode:setJavaScriptCode
   const [input, setInput] = useState('21')
   const [revoke, setRevoke] = useState<string | null>(null)
+  const [cancelNotices, setCancelNotices] = useState<Record<string,'already_terminal' | 'cancellation_unconfirmed' | 'refresh_failed'>>({})
   const selectedGateway = nodes.find(n => n.id === gatewayId && !n.revokedAt)
   const { busy, error, act } = useAct()
   // Retain the request ID after ambiguous network failure; a retry cannot run twice.
@@ -46,11 +47,29 @@ export default function HarnessGateways(props: HarnessProps) {
     pending.current = null
     await load()
   })
+  const cancelJob = (id: string) => act('cancel', async () => {
+    const notice = (value: 'already_terminal' | 'cancellation_unconfirmed' | 'refresh_failed' | null) => setCancelNotices(previous => {
+      const next = { ...previous }; if (value) next[id] = value; else delete next[id]; return next
+    })
+    try { await api.cancelExecution(id) }
+    catch (error) {
+      const conflict = error instanceof HarnessApiError && error.status === 409 && ['already_terminal','cancellation_unconfirmed'].includes(error.code || '')
+      const unknown = !(error instanceof HarnessApiError) || error.status >= 500 || error.status === 408
+      if (!conflict && !unknown) throw error
+      try { await load() }
+      catch { notice('refresh_failed'); return }
+      notice(conflict && error instanceof HarnessApiError && error.code === 'already_terminal' ? 'already_terminal' : 'cancellation_unconfirmed')
+      return
+    }
+    try { await load() } catch { notice('refresh_failed'); return }
+    notice(null)
+  })
   return <Shell title={t('Execution nodes')} onClose={props.onClose} actions={<button className="pill-btn" disabled={!!busy} onClick={() => void act('refresh', load)}>{t('Reload')}</button>}>
     <p className="lede">{t('Run isolated jobs on your own machines.')}</p>
     <p className="hx-hint">{t('Code runs without network or host files, with a 60-second limit. Results are visible only to the requester.')}</p>
     <p className="hx-hint">{t('A Mac running the user service must be awake and its user signed in. Last contact does not guarantee availability; reload to check again.')}</p>
     {error && <div className="form-error" role="alert">{error}</div>}
+    {Object.entries(cancelNotices).map(([id, notice]) => <div className="form-error" role="alert" key={id}>{t('Execution {id}: {message}', {id, message:t(notice === 'already_terminal' ? 'Execution finished before it could be cancelled.' : notice === 'cancellation_unconfirmed' ? 'Cancellation could not be confirmed. Reload execution history to check.' : 'Execution history could not be refreshed. Reload to check the cancellation result.')})} <button type="button" className="btn-text" onClick={() => setCancelNotices(previous => { const next = { ...previous }; delete next[id]; return next })}>{t('Dismiss')}</button></div>)}
     {!loaded && <div className="empty">{t('Loading…')}</div>}
     {canManage && <div className="rows"><div className="row static"><div className="row-main">
       <label>{t('Node name')}<input className="hx-cell-input" value={name} maxLength={80} onChange={e => setName(e.target.value)} /></label>
@@ -76,7 +95,7 @@ export default function HarnessGateways(props: HarnessProps) {
     <div className="rows-title">{t('Your execution history')}</div>
     <div className="rows">{jobs.map(j => <div className="row static" key={j.id}><div className="row-main"><span>{t(j.status)} · {new Date(j.createdAt).toLocaleString()}</span>
       {j.result && <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{[j.result.stdout, j.result.stderr, j.result.error].filter(Boolean).join('\n')}</pre>}
-      {['queued', 'running'].includes(j.status) && <button className="btn-text" disabled={!!busy} onClick={() => void act('cancel', async () => { await api.cancelExecution(j.id); await load() })}>{t('Cancel')}</button>}
+      {['queued', 'running'].includes(j.status) && <button className="btn-text" disabled={!!busy} onClick={() => void cancelJob(j.id)}>{t('Cancel')}</button>}
     </div></div>)}</div>
   </Shell>
 }
