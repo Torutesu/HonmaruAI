@@ -109,3 +109,13 @@ test('generating while an existing saved action changes elsewhere keeps the curr
  expect(api.actionChange).toHaveBeenCalledTimes(1)
  act(()=>tree.unmount())
 })
+
+test('repeated submission while generation is pending creates only one request',async()=>{
+ const pending=deferred(),api:any={appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[]}),appDatabase:vi.fn().mockResolvedValue({fork:null,version:1,entities:[],migrations:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),actionChange:vi.fn(()=>pending.promise)}
+ let tree!:ReturnType<typeof create>;await act(async()=>{tree=create(<CompanyApp app={{id:'a',version:1} as any} api={api} canManage reload={()=>{}}/>)})
+ act(()=>tree.root.findByProps({placeholder:'例：入力された売上明細から税抜合計と消費税を計算する'}).props.onChange({target:{value:'request'}}))
+ act(()=>{const form=tree.root.findByType('form');form.props.onSubmit({preventDefault(){}});form.props.onSubmit({preventDefault(){}})})
+ expect(api.actionChange).toHaveBeenCalledOnce()
+ await act(async()=>{pending.resolve({name:'one',code:'return 1'});await pending.promise})
+ act(()=>tree.unmount())
+})
