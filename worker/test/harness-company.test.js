@@ -174,6 +174,15 @@ test('action publication, exact revision, idempotency and app/caller job isolati
  expect((await (await run('actions')).json()).actions[0].published).toBe(draft.code);
  expect(JSON.parse((await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(job.id).first()).payload).code).toBe(draft.code);
 });
+test('an action created or updated elsewhere cannot be overwritten with a stale draft revision',async()=>{
+ const original={action:'draft',name:'report',version:0,code:'return "original"'};
+ expect((await run('actions',original)).status).toBe(200);
+ expect((await run('actions',{...original,code:'return "unseen"'})).status).toBe(409);
+ expect((await run('actions',{...original,version:1,code:'return "external"'})).status).toBe(200);
+ expect((await run('actions',{...original,version:1,code:'return "stale edit"'})).status).toBe(409);
+ const actions=(await (await run('actions')).json()).actions;
+ expect(actions.find(action=>action.name==='report')).toMatchObject({version:2,draft:'return "external"'});
+});
 test('personal exact endpoint proxy refuses unsafe URLs, redirects and revoked connections',async()=>{
  for(const u of ['http://api.github.com/user','https://127.0.0.1/x','https://api.github.com.evil.test/x','https://api.github.com:8443/x','https://api.github.com/user?token=x','https://slack.com/api/chat.postMessage'])expect(connectionEndpoint(u)).toBeNull();
  const conf={action:'save',name:'github',version:0,endpoint:'https://api.github.com/repos/Torutesu/HonmaruAI'};

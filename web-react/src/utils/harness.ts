@@ -197,7 +197,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     mergePreview: (id: string, fork: AppFork) => call<MergeReview>('POST', `/apps/${id}/database`, { action:'merge_preview',forkId:fork.id,revision:fork.revision }),
     databaseChange: (id: string, body: Record<string, unknown>) => call<{operations?: unknown[]; fork?: AppFork; revision?: number; result?: unknown; review?: MergeReview}>('POST', `/apps/${id}/database`, body),
     appActions: (id: string) => call<{actions: AppAction[]}>('GET', `/apps/${id}/actions`),
-    actionChange: (id: string, body: Record<string, unknown>) => call<{name?: string;code?: string;job?: GatewayJob}>('POST', `/apps/${id}/actions`, body),
+    actionChange: (id: string, body: Record<string, unknown>) => call<{name?: string;code?: string;version?:number;job?: GatewayJob}>('POST', `/apps/${id}/actions`, body),
     actionHistory: (id: string, name: string) => call<{versions:Array<{version:number;code:string;createdAt:string}>}>('GET', `/apps/${id}/actions`, undefined, {history:name}),
     actionJob: (id: string, jobId: string) => call<{job: GatewayJob}>('GET', `/apps/${id}/actions`, undefined, {jobId}),
     appConnections: (id: string) => call<{connections: AppConnection[];hosts: string[]}>('GET', `/apps/${id}/connections`),
