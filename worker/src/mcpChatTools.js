@@ -1,15 +1,11 @@
 import { sha256Hex } from './auth.js';
-import { listBusinesses } from './db.js';
 import { getMessage, present, listThread, searchMessages, viewOf, VISIBLE, cleanEmoji } from './channels.js';
 import { resolveMcpConversation, mcpConversationContext, mcpAudienceSql, messageLink } from './mcpConversation.js';
 import { McpInputError, requireMcpScope, mcpResult, validateMcpInput } from './mcpSupport.js';
 import { prepareConversationMessage, acceptConversationMessage } from './conversationOperations.js';
 import { cancelScheduled, scheduleMessage } from './later.js';
-import { createManagedRoom } from './harness/roomCreation.js';
-import { groupFor, MAX_GROUP } from './access.js';
-import { announceTo } from './announce.js';
-import { custom as customEvent } from './agui/events.js';
 import { emitMessage } from './webhooks.js';
+import { createMcpConversation } from './mcpConversationCreation.js';
 
 const id = { type: 'string', minLength: 1, maxLength: 200 };
 const text = { type: 'string', maxLength: 4000 };
@@ -50,7 +46,26 @@ function position(value) {
   if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value[0]) || !Number.isSafeInteger(value[1]) || value[1] < 1) throw new McpInputError('Invalid continuation cursor.');
   return value;
 }
-const decorate = (env, actor, messages) => messages.map(message => ({ ...message, url: messageLink(env, actor.orgId, message.channel, message.id) }));
+function decorate(env, actor, messages, request) {
+  const filesAllowed = actor.scopes.includes('files:read');
+  const quote = value => {
+    if (!value) return value;
+    const { source, ...rest } = value;
+    if (!source) return rest;
+    const { fileName, ...textSource } = source;
+    return { ...rest, ...(!filesAllowed && !source.body?.trim() ? { excerpt: '' } : {}), source: filesAllowed ? source : textSource };
+  };
+  return messages.map(({ files, replyTo, threadParent, ...message }) => ({ ...message,
+    ...(filesAllowed ? { files: (files || []).map(file => {
+      const path = `/mcp/files/${encodeURIComponent(file.id)}/content`;
+      const base = env.MCP_PUBLIC_URL || request?.url;
+      return { id: file.id, name: file.name, contentType: file.type, size: file.size, width: file.width, height: file.height,
+        contentUrl: base ? new URL(path, base).toString() : path, requiresAuthorization: true };
+    }) } : {}),
+    ...(replyTo ? { replyTo: quote(replyTo) } : {}), ...(threadParent ? { threadParent: quote(threadParent) } : {}),
+    url: messageLink(env, actor.orgId, message.channel, message.id),
+  }));
+}
 const liveMessage = `m.deleted_at IS NULL AND (m.parent_id IS NULL OR EXISTS(SELECT 1 FROM channel_messages parent WHERE parent.org_id=m.org_id AND parent.channel=m.channel AND parent.id=m.parent_id AND parent.parent_id IS NULL AND parent.deleted_at IS NULL))`;
 async function accessibleMessage(env, actor, messageId) {
   const context = await mcpConversationContext(env, actor);
@@ -95,7 +110,7 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     const page = decode(args.cursor, name);
     if (page && page.query !== args.query) throw new McpInputError('Cursor does not match this query.');
     const found = await searchMessages(env.DB, actor.orgId, actor.login, context.members, args.query, { limit: size, connectorScopeSql: `${mcpAudienceSql(actor.scopes)} AND ${liveMessage}`, cursor: page ? position(page.position) : null, paged: true });
-    return mcpResult({ messages: decorate(env, actor, found.messages), nextCursor: found.nextCursor ? encode({ kind: name, query: args.query, position: found.nextCursor }) : null });
+    return mcpResult({ messages: decorate(env, actor, found.messages, request), nextCursor: found.nextCursor ? encode({ kind: name, query: args.query, position: found.nextCursor }) : null });
   }
   if (name === 'get_message' || name === 'get_reactions' || name === 'add_reaction' || name === 'remove_reaction') {
     const context = await accessibleMessage(env, actor, args.messageId);
@@ -114,9 +129,9 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
       await broadcastStored(env, actor.orgId, context.resolved.key, context.row, { liveOnly: true });
     }
     const [message] = await present(env.DB, actor.orgId, [context.row], actor.login, context.view, context.members);
-    return mcpResult(name === 'get_message' ? { message: decorate(env, actor, [message])[0] } : { messageId: message.id, reactions: message.reactions });
+    return mcpResult(name === 'get_message' ? { message: decorate(env, actor, [message], request)[0] } : { messageId: message.id, reactions: message.reactions });
   }
-  if (name === 'create_conversation') return createConversation(env, actor, args, request);
+  if (name === 'create_conversation') return createMcpConversation(env, actor, args);
   const context = await resolveMcpConversation(env, actor, args.conversationId);
   if (name === 'read_channel') {
     const page = decode(args.cursor, name);
@@ -129,7 +144,7 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     const selected = rows.slice(0, size);
     const last = selected.at(-1);
     const messages = await present(env.DB, actor.orgId, selected.reverse(), actor.login, context.view, context.members);
-    return mcpResult({ messages: decorate(env, actor, messages), nextCursor: rows.length > size ? encode({ kind: name, conversationId: args.conversationId, position: [last.created_at, last.mcp_rowid] }) : null });
+    return mcpResult({ messages: decorate(env, actor, messages, request), nextCursor: rows.length > size ? encode({ kind: name, conversationId: args.conversationId, position: [last.created_at, last.mcp_rowid] }) : null });
   }
   if (name === 'read_thread') {
     const page = decode(args.cursor, name);
@@ -137,7 +152,7 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     const thread = await listThread(env.DB, actor.orgId, context.resolved.key, args.threadId, actor.login, context.view, context.members, { limit: size, before: page ? position(page.position) : null });
     if (!thread) throw new McpInputError('No accessible thread.');
     const rawCursor = thread.nextCursor ? JSON.parse(atob(thread.nextCursor.replace(/-/g, '+').replace(/_/g, '/'))) : null;
-    return mcpResult({ parent: decorate(env, actor, [thread.parent])[0], replies: decorate(env, actor, thread.replies), nextCursor: rawCursor ? encode({ kind: name, conversationId: args.conversationId, threadId: args.threadId, position: rawCursor }) : null });
+    return mcpResult({ parent: decorate(env, actor, [thread.parent], request)[0], replies: decorate(env, actor, thread.replies, request), nextCursor: rawCursor ? encode({ kind: name, conversationId: args.conversationId, threadId: args.threadId, position: rawCursor }) : null });
   }
   if (name === 'list_scheduled_messages') {
     const page = decode(args.cursor, name); const offset = page?.offset || 0;
@@ -185,25 +200,5 @@ async function send(env, actor, name, args, context, request, ctx) {
   const deliver = async () => { await Promise.all(['live', 'push'].map(kind => deliverAcceptedMessages(env, { kind, orgId: actor.orgId, messageId: out.row.id }))); if (!out.replay) await emitMessage(env, actor.orgId, out.row); };
   if (ctx?.waitUntil) ctx.waitUntil(deliver()); else await deliver();
   const [message] = await present(env.DB, actor.orgId, [out.row], actor.login, context.view, context.members);
-  return mcpResult({ message: decorate(env, actor, [message])[0], replayed: Boolean(out.replay) });
-}
-
-async function createConversation(env, actor, args, request) {
-  const context = await mcpConversationContext(env, actor);
-  const refs = [...new Set(args.memberRefs || [])];
-  const key = `mcp-${await sha256Hex(`${actor.grantId || actor.tokenId}:${args.requestId}`)}`;
-  if (args.type === 'channel') {
-    if (args.private) requireMcpScope(actor, 'chat:private');
-    const result = failResult(await createManagedRoom(env.DB, actor.orgId, actor.githubId, { requestId: key, name: args.name || '', private: Boolean(args.private), color: 'blue', guidelines: '', memberRefs: refs, agentIds: [] }));
-    if (result.created) await announceTo(env, actor.orgId, await Promise.all(context.members.map(async member => ({ to: member.login, event: customEvent('businesses', { businesses: await listBusinesses(env.DB, actor.orgId, { viewer: member.login }) }) }))));
-    return mcpResult({ conversation: { id: result.room.channel, name: result.room.name, type: 'channel', private: Boolean(args.private) }, created: result.created });
-  }
-  requireMcpScope(actor, 'chat:dm');
-  const picked = context.members.filter(member => refs.includes(member.ref) && member.login !== actor.login);
-  if (!picked.length || picked.length !== refs.length || picked.length + 1 > MAX_GROUP || (args.type === 'dm' && picked.length !== 1) || (args.type === 'group' && picked.length < 2)) throw new McpInputError('Select valid workspace members for this conversation.');
-  if (args.type === 'dm') return mcpResult({ conversation: { id: `dm:${picked[0].ref}`, name: picked[0].name, type: 'dm' } });
-  const logins = [actor.login, ...picked.map(member => member.login)];
-  const channel = await groupFor(env.DB, { orgId: actor.orgId, logins, createdBy: actor.login });
-  await announceTo(env, actor.orgId, logins.map(login => ({ to: login, event: customEvent('channel_group', { view: channel, refs: context.members.filter(member => logins.includes(member.login) && member.login !== login).map(member => member.ref) }) })));
-  return mcpResult({ conversation: { id: channel, type: 'group', memberRefs: refs } });
+  return mcpResult({ message: decorate(env, actor, [message], request)[0], replayed: Boolean(out.replay) });
 }

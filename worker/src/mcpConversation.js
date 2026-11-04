@@ -14,6 +14,7 @@ export async function mcpConversationContext(env, actor) {
 
 export async function resolveMcpConversation(env, actor, conversation) {
   const context = await mcpConversationContext(env, actor);
+  if (typeof conversation === 'string' && conversation.startsWith('b:') && !await env.DB.prepare('SELECT 1 FROM businesses WHERE org_id=?1 AND slug=?2 AND archived_at IS NULL').bind(actor.orgId, conversation.slice(2)).first()) throw new McpInputError('No accessible conversation.');
   const resolved = await resolveChannel(env.DB, actor.orgId, context.user, conversation, context.members);
   if (!resolved || resolved.kind === 'agent') throw new McpInputError('No accessible conversation.');
   if (resolved.private) requireMcpScope(actor, 'chat:private');
@@ -32,5 +33,5 @@ export function mcpAudienceSql(scopes, alias = 'm') {
   const publicOnly = `NOT EXISTS (SELECT 1 FROM businesses mb WHERE mb.org_id = ?1 AND 'b:' || mb.slug = ${channel} AND mb.private = 1)`;
   const privateAllowed = scopes.includes('chat:private') ? '1' : publicOnly;
   const dmAllowed = scopes.includes('chat:dm') ? `OR ${channel} LIKE 'dm:%' OR ${channel} LIKE 'g:%'` : '';
-  return `((${channel} LIKE 'b:%' AND ${privateAllowed}) ${dmAllowed})`;
+  return `((${channel} LIKE 'b:%' AND ${privateAllowed} AND EXISTS(SELECT 1 FROM businesses live WHERE live.org_id=?1 AND 'b:'||live.slug=${channel} AND live.archived_at IS NULL)) ${dmAllowed})`;
 }

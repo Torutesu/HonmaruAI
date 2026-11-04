@@ -186,7 +186,7 @@ test('channel and group creation retry without duplicating conversations', async
   const second = await call('create_conversation', args);
   expect(second.conversation.id).toBe(first.conversation.id);
   expect(second.created).toBe(false);
-  await expect(call('create_conversation', { ...args, name: 'Other room' })).rejects.toThrow('different draft');
+  await expect(call('create_conversation', { ...args, name: 'Other room' })).rejects.toThrow('different conversation content');
   const members = await listMembers(env.DB, orgId, actor.githubId);
   const groupArgs = { type: 'group', memberRefs: members.filter(m => m.login !== actor.login).map(m => m.ref), requestId: 'create-group-1' };
   const expanded = { ...actor, scopes: [...actor.scopes, 'chat:dm'] };
@@ -206,7 +206,7 @@ test('cancelling a scheduled message in the web app prevents retry resurrection'
 
 
 test('a valid upload is attached atomically and survives a send retry', async () => {
-  actor.scopes.push('files:write');
+  actor.scopes.push('files:write', 'files:read');
   actor.tokenId = (await createApiToken(env.DB, { orgId, githubId: actor.githubId, name: 'files fixture', scopes: actor.scopes })).id;
   const url = new URL('https://example.com/channels/files?name=hello.txt');
   const response = await uploadFile(new Request(url, { method: 'POST', headers: { 'content-type': 'text/plain', 'content-length': '5' }, body: 'hello' }), env, url, { orgId, resolved: { key: 'b:general' }, login: actor.login });
@@ -245,4 +245,61 @@ test('a corrupt cross-channel reply cannot enter an authorized thread page', asy
   const reply = await seed('b:general', 'private words', { parentId: parent.id });
   await env.DB.prepare('UPDATE channel_messages SET channel=?1 WHERE id=?2').bind('b:private', reply.id).run();
   expect((await call('read_thread', { conversationId: 'b:general', threadId: parent.id })).replies).toEqual([]);
+});
+
+
+test('chat-only results omit attachments and quote filenames across every message surface', async () => {
+  actor.scopes.push('files:write');
+  actor.tokenId = (await createApiToken(env.DB, { orgId, githubId: actor.githubId, name: 'attachment fixture', scopes: actor.scopes })).id;
+  const url = new URL('https://example.com/channels/files?name=secret-file-name.txt');
+  const response = await uploadFile(new Request(url, { method: 'POST', headers: { 'content-type': 'text/plain', 'content-length': '5' }, body: 'hello' }), env, url, { orgId, resolved: { key: 'b:general' }, login: actor.login });
+  const file = (await response.json()).file;
+  const sent = await call('send_message', { conversationId: 'b:general', body: '', requestId: 'scope-file-send', fileIds: [file.id] });
+  const reply = await call('send_message', { conversationId: 'b:general', body: 'needle quote', requestId: 'scope-file-quote', replyToMessageId: sent.message.id });
+  await seed('b:general', 'needle thread', { parentId: sent.message.id });
+  const outputs = [sent, reply,
+    await call('get_message', { messageId: sent.message.id }),
+    await call('read_channel', { conversationId: 'b:general' }),
+    await call('read_thread', { conversationId: 'b:general', threadId: sent.message.id }),
+    await call('search_messages', { query: 'has:file' }),
+    await call('search_messages', { query: 'needle' }),
+  ];
+  expect(JSON.stringify(outputs)).not.toContain('secret-file-name.txt');
+  expect(JSON.stringify(outputs)).not.toContain(file.url);
+  expect(sent.message.files).toBeUndefined();
+  expect(reply.message.replyTo.excerpt).toBe('');
+  expect(reply.message.replyTo.source.fileName).toBeUndefined();
+  const allowed = await call('get_message', { messageId: sent.message.id }, { ...actor, scopes: [...actor.scopes, 'files:read'] });
+  expect(allowed.message.files[0]).toMatchObject({ id: file.id, name: 'secret-file-name.txt', contentUrl: `https://example.com/mcp/files/${file.id}/content`, requiresAuthorization: true });
+  expect(allowed.message.files[0].url).toBeUndefined();
+  expect(allowed.message.files[0].expiresAt).toBeUndefined();
+});
+
+test.each(['deleted', 'archived'])('a %s private business never becomes an accessible virtual channel', async state => {
+  const message = await seed('b:private', 'hidden needle');
+  if (state === 'deleted') await env.DB.prepare('DELETE FROM businesses WHERE org_id=?1 AND slug=?2').bind(orgId, 'private').run();
+  else await env.DB.prepare('UPDATE businesses SET archived_at=?1 WHERE org_id=?2 AND slug=?3').bind(new Date().toISOString(), orgId, 'private').run();
+  await expect(call('read_channel', { conversationId: 'b:private' })).rejects.toThrow('No accessible conversation');
+  await expect(call('get_message', { messageId: message.id })).rejects.toThrow('No accessible conversation');
+  expect((await call('search_messages', { query: 'hidden' })).messages).toEqual([]);
+});
+
+test('DM and group request keys reject changed payloads and cross-kind reuse', async () => {
+  const expanded = { ...actor, scopes: [...actor.scopes, 'chat:dm'] };
+  const members = (await listMembers(env.DB, orgId, actor.githubId)).filter(member => member.login !== actor.login);
+  const args = { type: 'dm', memberRefs: [members[0].ref], requestId: 'stable-dm-request' };
+  const first = await call('create_conversation', args, expanded);
+  expect((await call('create_conversation', args, expanded)).conversation.id).toBe(first.conversation.id);
+  await expect(call('create_conversation', { ...args, memberRefs: [members[1].ref] }, expanded)).rejects.toThrow('different conversation content');
+  await expect(call('create_conversation', { ...args, type: 'group', memberRefs: members.map(member => member.ref) }, expanded)).rejects.toThrow('different conversation content');
+});
+
+test('concurrent group requests create only one group for the same members', async () => {
+  const expanded = { ...actor, scopes: [...actor.scopes, 'chat:dm'] };
+  const members = (await listMembers(env.DB, orgId, actor.githubId)).filter(member => member.login !== actor.login);
+  const args = { type: 'group', memberRefs: members.map(member => member.ref), requestId: 'concurrent-group-1' };
+  const results = await Promise.all([call('create_conversation', args, expanded), call('create_conversation', args, expanded), call('create_conversation', { ...args, requestId: 'concurrent-group-2' }, expanded)]);
+  expect(new Set(results.map(result => result.conversation.id)).size).toBe(1);
+  expect((await env.DB.prepare("SELECT COUNT(DISTINCT channel) n FROM conversation_members WHERE org_id=?1 AND channel LIKE 'g:%'").bind(orgId).first()).n).toBe(1);
+  expect((await env.DB.prepare("SELECT COUNT(*) n FROM conversation_members WHERE org_id=?1 AND channel LIKE 'g:%'").bind(orgId).first()).n).toBe(3);
 });
