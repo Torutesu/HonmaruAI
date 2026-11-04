@@ -34,7 +34,7 @@ import { remoteMcpTools } from "./harness/remoteMcp.js";
 // one per agent, scoped to one workspace, stored only as its hash.
 
 export const MCP_PROTOCOL = "2025-11-25";
-const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 export const MAX_TOKENS_PER_PERSON = 10;
 const TOKEN_PREFIX = "hm_";
 
