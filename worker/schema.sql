@@ -2463,3 +2463,27 @@ CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_receipts_expiry
 -- Durable, independent live and notification preparation for accepted sends.
 CREATE TABLE IF NOT EXISTS channel_message_delivery (org_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('live','push')), business_created_at TEXT, allow_virtual INTEGER NOT NULL DEFAULT 0 CHECK(allow_virtual IN (0,1)), status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','done','failed')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(org_id,message_id,kind));
 CREATE INDEX IF NOT EXISTS idx_channel_message_delivery_due ON channel_message_delivery(kind,status,next_attempt,lease_until);
+CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
+  id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, redirect_uris TEXT NOT NULL,
+  created_at INTEGER NOT NULL, disabled_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS mcp_oauth_clients_owner ON mcp_oauth_clients(owner_id);
+CREATE TABLE IF NOT EXISTS mcp_oauth_requests (
+  id TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, resource TEXT NOT NULL,
+  scopes TEXT NOT NULL, state TEXT NOT NULL, challenge TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS mcp_oauth_grants (
+  id TEXT PRIMARY KEY, client_id TEXT NOT NULL, org_id TEXT NOT NULL, user_id TEXT NOT NULL,
+  membership_since TEXT NOT NULL, scopes TEXT NOT NULL, resource TEXT NOT NULL, sso_backed INTEGER NOT NULL,
+  created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, revoked_at INTEGER, last_used_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS mcp_oauth_grants_user ON mcp_oauth_grants(user_id, org_id);
+CREATE TABLE IF NOT EXISTS mcp_oauth_codes (
+  code_hash TEXT PRIMARY KEY, grant_id TEXT NOT NULL, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL,
+  resource TEXT NOT NULL, challenge TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS mcp_oauth_tokens (
+  token_hash TEXT PRIMARY KEY, grant_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('access','refresh')),
+  expires_at INTEGER NOT NULL, consumed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS mcp_oauth_tokens_grant ON mcp_oauth_tokens(grant_id);
