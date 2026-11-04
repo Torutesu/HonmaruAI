@@ -65,8 +65,9 @@ import { finishRemoteMcpOAuth, remoteMcpOAuthClientMetadata } from "./harness/re
 import { handleApps, sweepAppConnections, forgetAppConnections } from "./smitheryApps.js";
 import { requestContext } from "./requestContext.js";
 import { settleCors } from "./cors.js";
-import { handleMcp } from "./mcp.js";
-import { handleMcpOAuth } from "./mcpOAuth.js";
+import { handleMcp, authenticateMcpRequest } from "./mcp.js";
+import { handleMcpContentUpload } from "./mcpContentTools.js";
+import { handleMcpOAuth, sweepMcpOAuth } from "./mcpOAuth.js";
 import { handleGovernance, pruneMessages, expireExports } from "./governance.js";
 import { sealPending, weeklyVerify } from "./auditArchive.js";
 import { pruneAudit, handleOps } from "./auditRetention.js";
@@ -276,6 +277,7 @@ export default {
     }
     ctx.waitUntil(runScheduledSync(env, ctx));
     // App connections whose person left or whose app was taken away, ended.
+    ctx.waitUntil(sweepMcpOAuth(env).catch(err => console.error("MCP OAuth sweep failed", err?.message)));
     ctx.waitUntil(sweepAppConnections(env).catch((err) => console.error("app sweep failed", err?.message || err)));
     // SSO sign-ins the identity provider no longer stands behind, ended.
     ctx.waitUntil(checkSsoGrants(env, { now: event?.scheduledTime || Date.now(), limit: 200 }).catch((err) => console.error("sso grant check failed", err?.message || err)));
@@ -403,7 +405,7 @@ async function handle(request, env, url, ctx) {
     }
     // Browsers send a preflight OPTIONS before a cross-origin POST with custom
     // headers. Answer it with the CORS headers and no body.
-    if ((url.pathname === "/mcp" || /^\/mcp\/oauth\/(token|revoke)$/.test(url.pathname)) && request.method === "OPTIONS") return handleMcp(request, env, ctx);
+    if ((url.pathname === "/mcp" || /^\/mcp\/(?:oauth\/(?:token|revoke)$|uploads\/|files\/)/.test(url.pathname)) && request.method === "OPTIONS") return handleMcp(request, env, ctx);
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
@@ -415,6 +417,15 @@ async function handle(request, env, url, ctx) {
       });
     }
 
+    if (/^\/mcp\/(uploads|files)\//.test(url.pathname)) {
+      const authentication = await authenticateMcpRequest(request, env);
+      if (authentication.response) return authentication.response;
+      const response = await handleMcpContentUpload(request, env, url, authentication.actor);
+      if (!response) return new Response(null, { status: 404 });
+      const headers = new Headers(response.headers);
+      headers.set("access-control-allow-origin", "*");
+      return new Response(response.body, { status: response.status, headers });
+    }
     const oauthResponse = await handleMcpOAuth(request, env, url);
     if (oauthResponse) return oauthResponse;
 

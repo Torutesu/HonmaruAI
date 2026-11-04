@@ -2514,7 +2514,7 @@ CREATE TABLE IF NOT EXISTS mcp_file_uploads (
 );
 
 CREATE TABLE IF NOT EXISTS mcp_scheduled_authority (
-  scheduled_id TEXT PRIMARY KEY REFERENCES scheduled_messages(id) ON DELETE CASCADE,
+  scheduled_id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   membership_since TEXT NOT NULL,

@@ -361,4 +361,9 @@ CREATE INDEX IF NOT EXISTS mcp_oauth_tokens_grant ON mcp_oauth_tokens(grant_id);
 CREATE TABLE IF NOT EXISTS mcp_content_mutations ( org_id TEXT NOT NULL, actor_id TEXT NOT NULL, connection_id TEXT NOT NULL, request_id TEXT NOT NULL, operation TEXT NOT NULL, payload_hash TEXT NOT NULL, result TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (org_id, actor_id, connection_id, request_id) );
 CREATE TABLE IF NOT EXISTS mcp_file_uploads ( id TEXT PRIMARY KEY, org_id TEXT NOT NULL, actor_id TEXT NOT NULL, connection_id TEXT NOT NULL, conversation TEXT NOT NULL, name TEXT NOT NULL, content_type TEXT NOT NULL, size INTEGER NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','uploading','uploaded','complete','failed')), file_id TEXT, expires_at INTEGER NOT NULL );
 
-CREATE TABLE IF NOT EXISTS mcp_scheduled_authority ( scheduled_id TEXT PRIMARY KEY REFERENCES scheduled_messages(id) ON DELETE CASCADE, org_id TEXT NOT NULL, user_id TEXT NOT NULL, membership_since TEXT NOT NULL, token_id TEXT, grant_id TEXT, CHECK ((token_id IS NULL) != (grant_id IS NULL)) );
+CREATE TABLE IF NOT EXISTS mcp_scheduled_authority ( scheduled_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, user_id TEXT NOT NULL, membership_since TEXT NOT NULL, token_id TEXT, grant_id TEXT, CHECK ((token_id IS NULL) != (grant_id IS NULL)) );
+
+CREATE INDEX IF NOT EXISTS mcp_oauth_requests_expiry ON mcp_oauth_requests(expires_at);
+CREATE INDEX IF NOT EXISTS mcp_oauth_codes_expiry ON mcp_oauth_codes(expires_at);
+CREATE INDEX IF NOT EXISTS mcp_oauth_tokens_expiry ON mcp_oauth_tokens(expires_at);
+CREATE INDEX IF NOT EXISTS mcp_oauth_grants_expiry ON mcp_oauth_grants(expires_at);
