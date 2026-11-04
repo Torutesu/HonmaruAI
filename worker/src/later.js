@@ -23,19 +23,29 @@ function when(raw) {
   return Number.isFinite(t) ? t : NaN;
 }
 
-export async function scheduleMessage(db, { orgId, key, authorLogin, body, parentId, sendAt, alsoChannel = false }) {
+export async function scheduleMessage(db, { orgId, key, authorLogin, body, parentId, sendAt, alsoChannel = false, mcpAuthority = null }) {
   const at = when(sendAt);
+  const text = String(body || "").replace(/\r\n/g, "\n").trim();
+  const id = mcpAuthority?.requestId || crypto.randomUUID();
+  const previous = mcpAuthority ? await db.prepare('SELECT * FROM scheduled_messages WHERE id=?1 AND org_id=?2 AND author_login=?3').bind(id, orgId, authorLogin).first() : null;
+  const agrees = row => row.channel === key && row.body === text && (row.parent_id || null) === (parentId || null) && Date.parse(row.send_at) === at && Boolean(row.also_channel) === Boolean(parentId && alsoChannel);
+  const result = row => ({ scheduled: { id: row.id, body: row.body, sendAt: row.send_at, parentId: row.parent_id || null, ...(row.also_channel ? { alsoChannel: true } : {}) } });
+  if (previous) return agrees(previous) ? result(previous) : { error: 'This requestId was already used with different scheduled message content.' };
   if (!Number.isFinite(at)) return { error: "That time is not a time." };
   if (at < Date.now() + 30000) return { error: "Pick a time at least a minute from now." };
   if (at > Date.now() + MAX_AHEAD_DAYS * 86400000) return { error: `Pick a time within ${MAX_AHEAD_DAYS} days.` };
-  const text = String(body || "").replace(/\r\n/g, "\n").trim();
   if (!text) return { error: "Write something first." };
   if (text.length > 4000) return { error: "That is longer than 4000 characters." };
-  const id = crypto.randomUUID();
-  await db.prepare(
-    `INSERT INTO scheduled_messages (id, org_id, channel, author_login, body, parent_id, send_at, created_at, also_channel)
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO scheduled_messages (id, org_id, channel, author_login, body, parent_id, send_at, created_at, also_channel)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
-  ).bind(id, orgId, key, authorLogin, text, parentId || null, new Date(at).toISOString(), new Date().toISOString(), parentId && alsoChannel ? 1 : 0).run();
+  ).bind(id, orgId, key, authorLogin, text, parentId || null, new Date(at).toISOString(), new Date().toISOString(), parentId && alsoChannel ? 1 : 0);
+  if (mcpAuthority) {
+    await db.batch([insert, db.prepare(`INSERT OR IGNORE INTO mcp_scheduled_authority(scheduled_id,org_id,user_id,membership_since,token_id,grant_id) VALUES (?1,?2,?3,?4,?5,?6)`)
+      .bind(id, orgId, mcpAuthority.userId, mcpAuthority.membershipSince, mcpAuthority.tokenId, mcpAuthority.grantId)]);
+    const saved = await db.prepare('SELECT * FROM scheduled_messages WHERE id=?1 AND org_id=?2 AND author_login=?3').bind(id, orgId, authorLogin).first();
+    if (!saved || !agrees(saved)) return { error: 'This requestId was already used with different scheduled message content.' };
+  } else await insert.run();
   return { scheduled: { id, body: text, sendAt: new Date(at).toISOString(), parentId: parentId || null, ...(parentId && alsoChannel ? { alsoChannel: true } : {}) } };
 }
 
@@ -139,6 +149,14 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
       if (!member) { await done(row); continue; }
       // Nor into a private channel or group they are no longer in.
       if (!mayRead(row.channel, await accessFor(db, row.org_id, row.author_login))) { await done(row); continue; }
+      const mcp = await db.prepare('SELECT * FROM mcp_scheduled_authority WHERE scheduled_id=?1 AND org_id=?2').bind(row.id, row.org_id).first();
+      if (mcp) {
+        const { deliverMcpScheduledMessage } = await import('./mcpScheduled.js');
+        const result = await deliverMcpScheduledMessage(env, row, mcp);
+        await done(row);
+        if (result.sent) sent += 1;
+        continue;
+      }
       // Its own retry key: tried again after the post landed but before it
       // was marked sent, it finds that message rather than saying it twice.
       const out = await postMessage(db, { orgId: row.org_id, key: row.channel, authorLogin: row.author_login, body: row.body, parentId: row.parent_id, alsoChannel: Boolean(row.also_channel), clientId: `tmp-later-${row.id}` });
