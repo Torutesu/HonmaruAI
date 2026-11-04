@@ -47,6 +47,7 @@ export function McpConsent({ httpBase, sessionToken, requestId, onExit }: { http
     {!consent && !error && <p role="status">Loading connection request…</p>}
     {consent && <>
       <p>Callback address <code>{consent.redirectOrigin}</code></p>
+      <p>Client ID <code>{consent.clientId}</code></p>
       <p>App names are supplied by their developer. Check that you recognize the app and callback address.</p>
       <label>Workspace<select value={workspace} onChange={event => setWorkspace(event.target.value)} disabled={busy}>
         {consent.workspaces.map(org => <option key={org.id} value={org.id}>{org.name || org.founder || org.id}</option>)}

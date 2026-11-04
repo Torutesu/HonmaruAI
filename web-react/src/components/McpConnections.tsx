@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import './McpConnections.css'
 
 type Client = { id: string; name: string; redirectUris: string[] }
-type Connection = { id: string; orgId: string; name: string; scopes: string[] }
+type Connection = { id: string; orgId: string; name: string; clientId: string; redirectOrigins: string[]; scopes: string[] }
 type Scope = { name: string; title: string; description: string }
 export function McpConnections({ httpBase, sessionToken, orgId }: { httpBase: string; sessionToken: string; orgId: string }) {
   const [clients, setClients] = useState<Client[]>([])
@@ -45,6 +45,8 @@ export function McpConnections({ httpBase, sessionToken, orgId }: { httpBase: st
     {error && <p role="alert">{error}</p>}
     {connections.filter(connection => connection.orgId === orgId).map(connection => <div key={connection.id} className="studio-token-row">
       <strong>{connection.name}</strong>
+      <p>{connection.redirectOrigins.join(', ')}</p>
+      <p>Client ID <code>{connection.clientId}</code></p>
       <p>{connection.scopes.map(scope => scopes.find(item => item.name === scope)?.title || scope).join(', ')}</p>
       <button className="studio-btn" disabled={busy} onClick={() => void mutate(`connections/${encodeURIComponent(connection.id)}`, 'DELETE')}>Disconnect {connection.name}</button>
     </div>)}

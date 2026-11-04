@@ -21,7 +21,7 @@ const loopback = u => u.protocol === 'http:' && ['127.0.0.1', '[::1]', 'localhos
 function validUrl(raw) {
   try {
     const u = new URL(raw);
-    return !u.username && !u.password && !u.hash && (u.protocol === 'https:' || loopback(u)) ? u.href : null;
+    return !raw.includes('#') && !u.username && !u.password && !u.hash && (u.protocol === 'https:' || loopback(u)) ? u.href : null;
   } catch { return null; }
 }
 export function mcpResource(env, request) {
@@ -74,7 +74,7 @@ async function currentGrant(env, grantId) {
     AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=g.org_id AND (d.purge_started_at IS NOT NULL OR d.due_at<=?3))`)
     .bind(grantId, Date.now(), new Date().toISOString()).first();
   if (!grant || await deactivatedHere(env.DB, grant.org_id, grant.user_id, { fresh: true })) return null;
-  if (!grant.sso_backed && await ssoRequiredFor(env.DB, grant.org_id, grant.user_id)) return null;
+  if (!grant.sso_backed && await ssoRequiredFor(env.DB, grant.org_id, grant.user_id, { fresh: true })) return null;
   return grant;
 }
 export async function resolveMcpGrantActor(env, { grantId }) {
@@ -98,6 +98,21 @@ export async function resolveMcpOAuthToken(env, header, request) {
   if (request && await ipDenial(env, actor.orgId, request.headers.get('CF-Connecting-IP') || '', { fresh: true })) return null;
   await env.DB.prepare('UPDATE mcp_oauth_grants SET last_used_at=?1 WHERE id=?2').bind(Date.now(), actor.grantId).run();
   return actor;
+}
+export async function sweepMcpOAuth(env) {
+  const now = Date.now();
+  for (const table of ['mcp_oauth_requests', 'mcp_oauth_codes', 'mcp_oauth_tokens', 'mcp_oauth_grants']) {
+    await env.DB.prepare(`DELETE FROM ${table} WHERE rowid IN(SELECT rowid FROM ${table} WHERE expires_at<=?1 LIMIT 500)`).bind(now).run();
+  }
+}
+async function recordRevocation(env, request, grant, reason, actor = { type: 'system' }) {
+  if (!grant) return;
+  await audit(env, request, { orgId: grant.org_id, action: 'mcp.connection_revoked', actor,
+    entity: { type: 'mcp_connection', id: grant.id }, details: { clientId: grant.client_id, reason } });
+}
+async function revokeGrant(env, request, grantId, reason) {
+  const grant = await env.DB.prepare('UPDATE mcp_oauth_grants SET revoked_at=?1 WHERE id=?2 AND revoked_at IS NULL RETURNING id,org_id,client_id').bind(Date.now(), grantId).first();
+  await recordRevocation(env, request, grant, reason);
 }
 async function issueTokens(env, grant) {
   const access = random('hmoa_'), refresh = random('hmor_'), now = Date.now();
@@ -127,7 +142,7 @@ async function exchange(env, request, input) {
     const existing = await env.DB.prepare("SELECT t.*,g.client_id,g.resource FROM mcp_oauth_tokens t JOIN mcp_oauth_grants g ON g.id=t.grant_id WHERE t.token_hash=?1 AND t.kind='refresh'").bind(hash).first();
     if (!existing || existing.client_id !== input.client_id || existing.resource !== input.resource) return error('invalid_grant', 'Invalid refresh token.');
     if (existing.consumed_at) {
-      await env.DB.prepare('UPDATE mcp_oauth_grants SET revoked_at=?1 WHERE id=?2').bind(Date.now(), existing.grant_id).run();
+      await revokeGrant(env, request, existing.grant_id, 'refresh_replay');
       return error('invalid_grant', 'Refresh token has already been used. Reconnect this app.');
     }
     const grant = await currentGrant(env, existing.grant_id);
@@ -135,7 +150,7 @@ async function exchange(env, request, input) {
     if (await ipDenial(env, grant.org_id, request.headers.get('CF-Connecting-IP') || '', { fresh: true })) return error('access_denied', 'Workspace network policy denied this request.', 403);
     const consumed = await env.DB.prepare('UPDATE mcp_oauth_tokens SET consumed_at=?1 WHERE token_hash=?2 AND consumed_at IS NULL AND expires_at>?1 RETURNING grant_id').bind(Date.now(), hash).first();
     if (!consumed) {
-      await env.DB.prepare('UPDATE mcp_oauth_grants SET revoked_at=?1 WHERE id=?2').bind(Date.now(), grant.id).run();
+      await revokeGrant(env, request, grant.id, 'refresh_replay');
       return error('invalid_grant', 'Refresh token has already been used. Reconnect this app.');
     }
     return issueTokens(env, grant);
@@ -181,7 +196,8 @@ export async function handleMcpOAuth(request, env, url = new URL(request.url)) {
     if (path === `${PREFIX}/revoke` && request.method === 'POST') {
       const input = await body(request);
       if (typeof input.token !== 'string' || typeof input.client_id !== 'string') return error('invalid_request', 'Token and client_id are required.');
-      await env.DB.prepare('UPDATE mcp_oauth_grants SET revoked_at=?1 WHERE client_id=?2 AND id IN(SELECT grant_id FROM mcp_oauth_tokens WHERE token_hash=?3)').bind(Date.now(), input.client_id, await sha256Hex(input.token)).run();
+      const grant = await env.DB.prepare('UPDATE mcp_oauth_grants SET revoked_at=?1 WHERE client_id=?2 AND revoked_at IS NULL AND id IN(SELECT grant_id FROM mcp_oauth_tokens WHERE token_hash=?3) RETURNING id,org_id,client_id').bind(Date.now(), input.client_id, await sha256Hex(input.token)).first();
+      await recordRevocation(env, request, grant, 'client_revocation');
       return json({});
     }
     const who = await sessionFor(env, request);
@@ -206,11 +222,12 @@ export async function handleMcpOAuth(request, env, url = new URL(request.url)) {
       return row ? json({ revoked: true }) : error('not_found', 'App not found.', 404);
     }
     if (path === `${PREFIX}/connections` && request.method === 'GET') {
-      const rows = await env.DB.prepare(`SELECT g.id,g.org_id,g.scopes,g.created_at,g.last_used_at,g.expires_at,c.name FROM mcp_oauth_grants g JOIN mcp_oauth_clients c ON c.id=g.client_id WHERE g.user_id=?1 AND g.revoked_at IS NULL AND g.expires_at>?2 AND c.disabled_at IS NULL ORDER BY g.created_at DESC LIMIT 100`).bind(String(who.session.github_id), Date.now()).all();
-      return json({ connections: rows.results.map(r => ({ id: r.id, orgId: r.org_id, name: r.name, scopes: parse(r.scopes), createdAt: r.created_at, lastUsedAt: r.last_used_at, expiresAt: r.expires_at })) });
+      const rows = await env.DB.prepare(`SELECT g.id,g.org_id,g.scopes,g.created_at,g.last_used_at,g.expires_at,g.client_id,c.name,c.redirect_uris FROM mcp_oauth_grants g JOIN mcp_oauth_clients c ON c.id=g.client_id WHERE g.user_id=?1 AND g.revoked_at IS NULL AND g.expires_at>?2 AND c.disabled_at IS NULL ORDER BY g.created_at DESC LIMIT 100`).bind(String(who.session.github_id), Date.now()).all();
+      return json({ connections: rows.results.map(r => ({ id: r.id, orgId: r.org_id, name: r.name, clientId: r.client_id, redirectOrigins: [...new Set(parse(r.redirect_uris).map(uri => new URL(uri).origin))], scopes: parse(r.scopes), createdAt: r.created_at, lastUsedAt: r.last_used_at, expiresAt: r.expires_at })) });
     }
     if (path.startsWith(`${PREFIX}/connections/`) && request.method === 'DELETE') {
-      const row = await env.DB.prepare('UPDATE mcp_oauth_grants SET revoked_at=?1 WHERE id=?2 AND user_id=?3 RETURNING id').bind(Date.now(), path.slice(`${PREFIX}/connections/`.length), String(who.session.github_id)).first();
+      const row = await env.DB.prepare('UPDATE mcp_oauth_grants SET revoked_at=?1 WHERE id=?2 AND user_id=?3 RETURNING id,org_id,client_id').bind(Date.now(), path.slice(`${PREFIX}/connections/`.length), String(who.session.github_id)).first();
+      await recordRevocation(env, request, row, 'user_disconnect', { type: 'user', id: who.user.login, name: who.user.name });
       return row ? json({ revoked: true }) : error('not_found', 'Connection not found.', 404);
     }
     const match = new RegExp(`^${PREFIX}/requests/(hmreq_[a-f0-9]{64})$`).exec(path);

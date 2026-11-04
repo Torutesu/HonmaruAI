@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, expect, test } from 'vitest';
-import { handleMcpOAuth, resolveMcpOAuthToken, resolveMcpGrantActor } from '../src/mcpOAuth.js';
+import { handleMcpOAuth, resolveMcpOAuthToken, resolveMcpGrantActor, sweepMcpOAuth } from '../src/mcpOAuth.js';
 import { createSession, upsertUser, upsertMembership } from '../src/db.js';
 const ORG = 'personal:mcp-oauth', resource = 'https://example.com/mcp', verifier = 'a'.repeat(64);
 const configuration = () => ({ ...env, APP_WEB_URL: 'https://app.honmaruai.com', MCP_PUBLIC_URL: resource });
@@ -49,6 +49,8 @@ test('discovery advertises PKCE and registered public clients', async () => {
 test('real-session consent issues a hashed token for selected scopes and workspace', async () => {
   const granted = await token(), who = await actor(granted.access_token);
   expect(who).toMatchObject({ orgId: ORG, login: 'mcp-user', scopes: ['chat:read'], clientId: client.client_id });
+  const connections = await (await call('/mcp/oauth/connections', { token: session })).json();
+  expect(connections.connections).toEqual([expect.objectContaining({ clientId: client.client_id, redirectOrigins: ['https://client.example'] })]);
   expect(await resolveMcpGrantActor(configuration(), { grantId: who.grantId })).toMatchObject({ login: 'mcp-user' });
   const rows = await env.DB.prepare('SELECT * FROM mcp_oauth_tokens').all();
   expect(JSON.stringify(rows)).not.toContain(granted.access_token);
@@ -130,7 +132,32 @@ test('guest conversion, expiry, and audience mismatch fail closed', async () => 
 });
 test('unregistered origins and unsafe redirects are rejected', async () => {
   expect((await call('/mcp/oauth/clients', { method: 'POST', token: session, headers: { origin: 'https://evil.example' }, data: { name: 'Bad app', redirectUris: ['https://client.example/callback'] } })).status).toBe(403);
-  for (const redirect of ['javascript:alert(1)', 'http://example.com/callback', 'https://x.test/cb#fragment', 'https://user:pass@x.test/cb']) {
+  for (const redirect of ['javascript:alert(1)', 'http://example.com/callback', 'https://x.test/cb#fragment', 'https://x.test/cb#', 'https://user:pass@x.test/cb']) {
     expect((await call('/mcp/oauth/clients', { method: 'POST', token: session, data: { name: 'Bad app', redirectUris: [redirect] } })).status).toBe(400);
   }
+});
+
+test('SSO policy storage failures cannot authorize a connector', async () => {
+  const first = await token();
+  const DB = {
+    prepare(sql) {
+      if (sql.includes('FROM org_sso WHERE')) return { bind: () => ({ first: () => Promise.reject(new Error('SSO storage unavailable')) }) };
+      return env.DB.prepare(sql);
+    },
+  };
+  await expect(resolveMcpOAuthToken({ ...configuration(), DB }, `Bearer ${first.access_token}`, new Request(resource))).rejects.toThrow('SSO storage unavailable');
+});
+test('expiry cleanup retains live credentials and consumed refresh replay evidence', async () => {
+  const first = await token();
+  const response = await call('/mcp/oauth/token', { method: 'POST', data: { grant_type: 'refresh_token', client_id: client.client_id, resource, refresh_token: first.refresh_token } });
+  const next = await response.json();
+  const id = await requestId();
+  await env.DB.prepare('UPDATE mcp_oauth_requests SET expires_at=0 WHERE id=?1').bind(id).run();
+  await env.DB.prepare('UPDATE mcp_oauth_codes SET expires_at=0').run();
+  await sweepMcpOAuth(configuration());
+  expect(await env.DB.prepare('SELECT id FROM mcp_oauth_requests WHERE id=?1').bind(id).first()).toBeNull();
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM mcp_oauth_codes').first()).n).toBe(0);
+  expect(await actor(next.access_token)).not.toBeNull();
+  expect((await call('/mcp/oauth/token', { method: 'POST', data: { grant_type: 'refresh_token', client_id: client.client_id, resource, refresh_token: first.refresh_token } })).status).toBe(400);
+  expect(await actor(next.access_token)).toBeNull();
 });
