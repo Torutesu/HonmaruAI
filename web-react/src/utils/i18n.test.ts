@@ -22,6 +22,24 @@ describe('a language chosen before its table is here', () => {
     expect(snapshot()).not.toBe(chosen)
     changeLocale('en')
   })
+
+  it('translates gateway contact information and formats the supplied time', async () => {
+    const values: Record<string, string> = { en: 'Last contact: 12:34', ja: '最終通信: 12:34', es: 'Último contacto: 12:34', fr: 'Dernier contact : 12:34', de: 'Letzter Kontakt: 12:34' }
+    try {
+      for (const code of Object.keys(values)) {
+        changeLocale(code)
+        await localeReady()
+        expect(t('Last contact: {time}', { time: '12:34' }), code).toBe(values[code])
+        if (code !== 'en') {
+          expect(t('No contact recorded'), code).not.toBe('No contact recorded')
+          expect(t('Contact time unavailable'), code).not.toBe('Contact time unavailable')
+          expect(t('The selected node is unavailable. Select another node or reload.'), code).not.toBe('The selected node is unavailable. Select another node or reload.')
+          expect(t('A Mac running the user service must be awake and its user signed in. Last contact does not guarantee availability; reload to check again.'), code)
+            .not.toBe('A Mac running the user service must be awake and its user signed in. Last contact does not guarantee availability; reload to check again.')
+        }
+      }
+    } finally { changeLocale('en') }
+  })
 })
 
 // A hint that names a key is given the key as this keyboard prints it; a ⌘

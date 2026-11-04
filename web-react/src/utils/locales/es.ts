@@ -1,6 +1,11 @@
 // The interface in es: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'The selected node is unavailable. Select another node or reload.': 'El nodo seleccionado no está disponible. Selecciona otro nodo o recarga.',
+  'A Mac running the user service must be awake and its user signed in. Last contact does not guarantee availability; reload to check again.': 'Un Mac que ejecute el servicio de usuario debe estar activo y tener la sesión iniciada. El último contacto no garantiza su disponibilidad; recarga para volver a comprobarlo.',
+  'No contact recorded': 'Sin contacto registrado',
+  'Contact time unavailable': 'Hora de contacto no disponible',
+  'Last contact: {time}': 'Último contacto: {time}',
   'New {name}': 'Nuevo: {name}',
   '{label} ({n} active)': '{label} ({n} activos)',
   'Filter records': 'Filtrar registros',
