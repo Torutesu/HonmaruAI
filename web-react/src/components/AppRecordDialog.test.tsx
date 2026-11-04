@@ -12,6 +12,12 @@ test('a distinct table label names the new record while the app title stays in i
  expect(tree!.root.findByType('p').children.join('')).toBe('UI確認用タスクに新しいレコードを作成します。')
  act(()=>tree!.unmount())
 })
+test('a create title does not change the heading when editing an existing record',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<AppRecordDialog appName="Tasks" createTitle="New task" columns={columns} record={{id:'r',values:{},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={()=>{}}/>)});
+ expect(tree!.root.findByType('h2').children.join('')).toBe('レコード詳細')
+ act(()=>tree!.unmount())
+})
 test('opening and cancelling do not create rows; errors preserve drafts and typed submission',async()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const save=vi.fn().mockRejectedValueOnce(new Error('保存できません')).mockResolvedValue(undefined),onClose=vi.fn();let tree:ReturnType<typeof create>
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} save={save} onClose={onClose}/>)});

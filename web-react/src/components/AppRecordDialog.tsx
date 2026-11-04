@@ -13,7 +13,7 @@ function equalValue(left:unknown,right:unknown):boolean {
  return Array.isArray(left)&&Array.isArray(right)&&left.length===right.length&&left.every((item,index)=>equalValue(item,right[index]))
 }
 
-export function AppRecordDialog({appName,tableName=appName,columns,initial={},record,conversation,members=[],membersReady=true,relationEntities=[],save,onClose}:{appName:string;tableName?:string;columns:Column[];initial?:Record<string,unknown>;record?:Row;conversation?:React.ReactNode;members?:AppPerson[];membersReady?:boolean;relationEntities?:RelationEntity[];save:(values:Record<string,unknown>)=>Promise<void>;onClose:()=>void}) {
+export function AppRecordDialog({appName,tableName=appName,createTitle,columns,initial={},record,conversation,members=[],membersReady=true,relationEntities=[],save,onClose}:{appName:string;tableName?:string;createTitle?:string;columns:Column[];initial?:Record<string,unknown>;record?:Row;conversation?:React.ReactNode;members?:AppPerson[];membersReady?:boolean;relationEntities?:RelationEntity[];save:(values:Record<string,unknown>)=>Promise<void>;onClose:()=>void}) {
  const t=useT()
  const [draft,setDraft]=useState<Record<string,unknown>>(record?.values || initial),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirmDiscard,setConfirmDiscard]=useState(false)
  const pending=useRef(false),form=useRef<HTMLFormElement>(null),original=useRef(record?.values||initial)
@@ -36,7 +36,7 @@ export function AppRecordDialog({appName,tableName=appName,columns,initial={},re
   pending.current=true;setBusy(true);setError('');try{await save(values());onClose()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=false;setBusy(false)}
  }
  const change=(id:string,value:unknown)=>setDraft(d=>({...d,[id]:value}))
- return <Dialog title={record?"レコード詳細":tableName!==appName?`新規${tableName}`:"新規レコード"} lede={record?appName:`${appName}に新しいレコードを作成します。`} className={`hx-record-dialog${conversation?' hx-record-with-chat':''}`} onClose={close} footer={<><button className="dlg-btn" disabled={busy} onClick={close}>キャンセル</button><button className="dlg-btn primary" form="hx-record-form" type="submit" disabled={busy}>{busy?(record?'保存中…':'作成中…'):(record?'保存':'作成')}</button></>}>
+ return <Dialog title={record?"レコード詳細":createTitle??(tableName!==appName?`新規${tableName}`:"新規レコード")} lede={record?appName:`${appName}に新しいレコードを作成します。`} className={`hx-record-dialog${conversation?' hx-record-with-chat':''}`} onClose={close} footer={<><button className="dlg-btn" disabled={busy} onClick={close}>キャンセル</button><button className="dlg-btn primary" form="hx-record-form" type="submit" disabled={busy}>{busy?(record?'保存中…':'作成中…'):(record?'保存':'作成')}</button></>}>
   <div className="hx-record-columns"><form id="hx-record-form" ref={form} onSubmit={e=>void submit(e)} className="hx-record-form">
    {columns.map((c,i)=>c.type==='relation'
     ? <div key={c.id} className="hx-record-field"><span className="dlg-label">{c.name}</span><AppRelationPicker column={c} value={draft[c.id]} rows={relationEntities.find(item=>item.key===c.targetEntity)?.rows} targetColumn={relationEntities.find(item=>item.key===c.targetEntity)?.table.columns[0]} disabled={busy} onChange={value=>change(c.id,value)}/></div>
