@@ -1,6 +1,10 @@
 // The interface in fr: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Execution {id}: {message}': 'Exécution {id} : {message}',
+  'Execution finished before it could be cancelled.': 'L’exécution s’est terminée avant de pouvoir être annulée.',
+  'Cancellation could not be confirmed. Reload execution history to check.': 'L’annulation n’a pas pu être confirmée. Actualisez l’historique pour vérifier.',
+  'Execution history could not be refreshed. Reload to check the cancellation result.': 'L’historique n’a pas pu être actualisé. Rechargez pour vérifier le résultat de l’annulation.',
   'The selected node is unavailable. Select another node or reload.': 'Le nœud sélectionné est indisponible. Choisissez-en un autre ou actualisez.',
   'A Mac running the user service must be awake and its user signed in. Last contact does not guarantee availability; reload to check again.': 'Un Mac exécutant le service utilisateur doit être actif et sa session ouverte. Le dernier contact ne garantit pas sa disponibilité ; actualisez pour vérifier à nouveau.',
   'No contact recorded': 'Aucun contact enregistré',

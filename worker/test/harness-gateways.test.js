@@ -113,6 +113,131 @@ test('cancellation and revocation immediately reject leases and tokens', async (
   expect((await api('POST', '/claim', null, {}, token)).status).toBe(401);
   expect((await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status).toBe('cancelled');
 });
+
+test('cancel reports a conflict when a real finish wins after the authorization read', async () => {
+  const { gateway, token } = await node();
+  const queued = await enqueue(gateway.id);
+  const running = await claim(token);
+  let entered, release;
+  const arrived = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === 'prepare') return statement => {
+        const prepared = target.prepare(statement);
+        if (!statement.startsWith("UPDATE hx_gateway_jobs SET status = 'cancelled', lease_hash = NULL, finished_at = ?2 WHERE id = ?1")) return prepared;
+        return { bind: (...values) => {
+          const bound = prepared.bind(...values);
+          return { run: async () => { entered(); await gate; return bound.run(); } };
+        } };
+      };
+      const value = target[key];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const request = new Request(`https://example.com/gateways/jobs/${queued.id}/cancel`, { method: 'POST', headers: { 'content-type':'application/json', 'x-session-token':member }, body: JSON.stringify({orgId}) });
+  const cancelling = worker.fetch(request, {...env, DB:db}, {waitUntil(){}});
+  try {
+    await Promise.race([arrived,new Promise((_,reject)=>setTimeout(()=>reject(Error('cancel UPDATE was not reached')),5000))]);
+    const finish = await api('POST', `/jobs/${queued.id}/finish`, null, {lease:running.lease,status:'succeeded',stdout:'42',exitCode:0}, token);
+    expect(finish.status).toBe(200);
+  } finally { release(); }
+  const cancelled = await cancelling;
+  expect(cancelled.status).toBe(409);
+  expect((await cancelled.json()).code).toBe('already_terminal');
+  expect((await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status).toBe('succeeded');
+});
+
+test.each(['succeeded','failed','timed_out'])('cancel does not report success after a %s finish', async status => {
+  const { gateway, token } = await node();
+  const queued = await enqueue(gateway.id);
+  const running = await claim(token);
+  expect((await api('POST', `/jobs/${queued.id}/finish`, null, {lease:running.lease,status,stdout:'result',exitCode:status==='succeeded'?0:1}, token)).status).toBe(200);
+  const response = await api('POST', `/jobs/${queued.id}/cancel`, member);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({code:'already_terminal'});
+  expect((await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status).toBe(status);
+});
+
+test('cancel remains idempotent for an already cancelled job and blocks late finish', async () => {
+  const { gateway, token } = await node();
+  const queued = await enqueue(gateway.id);
+  const running = await claim(token);
+  for (let attempt=0;attempt<2;attempt++) {
+    const response = await api('POST', `/jobs/${queued.id}/cancel`, member);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({cancelled:true});
+  }
+  expect((await api('POST', `/jobs/${queued.id}/finish`, null, {lease:running.lease,status:'succeeded'}, token)).status).toBe(409);
+  expect((await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status).toBe('cancelled');
+  expect((await api('POST', `/jobs/${queued.id}/cancel`, other)).status).toBe(404);
+});
+
+test('concurrent cancel and finish report the actual winning terminal state', async () => {
+  const { gateway, token } = await node();
+  const queued = await enqueue(gateway.id);
+  const running = await claim(token);
+  const [cancelled,finished] = await Promise.all([
+    api('POST', `/jobs/${queued.id}/cancel`, member),
+    api('POST', `/jobs/${queued.id}/finish`, null, {lease:running.lease,status:'succeeded',stdout:'42',exitCode:0}, token),
+  ]);
+  const actual=(await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status;
+  if(actual==='cancelled') { expect(cancelled.status).toBe(200); expect((await cancelled.json()).cancelled).toBe(true); expect(finished.status).toBe(409); }
+  else { expect(actual).toBe('succeeded'); expect(finished.status).toBe(200); expect(cancelled.status).toBe(409); expect((await cancelled.json()).code).toBe('already_terminal'); }
+});
+
+test('a cancellation already committed is safe to retry after settlement fails', async () => {
+  const { gateway } = await node();
+  const queued = await enqueue(gateway.id);
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === 'prepare') return statement => {
+        const prepared = target.prepare(statement);
+        if (!statement.startsWith('SELECT a.org_id,a.run_id,d.definition FROM hx_workflow_activations a')) return prepared;
+        return { bind: () => ({ first: async () => { throw Error('synthetic settlement outage'); } }) };
+      };
+      const value = target[key]; return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const request = new Request(`https://example.com/gateways/jobs/${queued.id}/cancel`, {method:'POST',headers:{'content-type':'application/json','x-session-token':member},body:JSON.stringify({orgId})});
+  const first=await worker.fetch(request,{...env,DB:db},{waitUntil(){}});
+  expect(first.status).toBe(500);
+  expect((await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status).toBe('cancelled');
+  const retry=await api('POST', `/jobs/${queued.id}/cancel`, member);
+  expect(retry.status).toBe(200);
+  expect(await retry.json()).toEqual({cancelled:true});
+});
+
+test('a revoked requester receives no result even if an earlier authorization raced the update', async () => {
+  const { gateway } = await node();
+  const queued = await enqueue(gateway.id);
+  let entered, release;
+  const arrived = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const db = new Proxy(env.DB, {
+    get(target,key) {
+      if (key === 'prepare') return statement => {
+        const prepared=target.prepare(statement);
+        if (!statement.startsWith("UPDATE hx_gateway_jobs SET status = 'cancelled', lease_hash = NULL, finished_at = ?2 WHERE id = ?1")) return prepared;
+        return { bind: (...values) => {const bound=prepared.bind(...values);return {run:async()=>{entered();await gate;return bound.run()}}} };
+      };
+      const value=target[key];return typeof value==='function'?value.bind(target):value;
+    },
+  });
+  const request=new Request(`https://example.com/gateways/jobs/${queued.id}/cancel`,{method:'POST',headers:{'content-type':'application/json','x-session-token':member},body:JSON.stringify({orgId})});
+  const cancelling=worker.fetch(request,{...env,DB:db},{waitUntil(){}});
+  try {
+    await Promise.race([arrived,new Promise((_,reject)=>setTimeout(()=>reject(Error('cancel UPDATE was not reached')),5000))]);
+    await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(orgId,'9502').run();
+  } finally { release(); }
+  const response=await cancelling;
+  expect(response.status).toBe(403);
+  const body=await response.json();
+  expect(body).not.toHaveProperty('job');expect(body).not.toHaveProperty('result');expect(body).not.toHaveProperty('cancelled');
+  // Existing TOCTOU: this test also records that the mutation itself can win
+  // after the earlier check. This narrow response fix does not solve it.
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?').bind(queued.id).first()).status).toBe('cancelled');
+});
 test('expiry works without a connected node and membership removal invalidates execution', async () => {
   const { gateway, token } = await node();
   await enqueue(gateway.id);

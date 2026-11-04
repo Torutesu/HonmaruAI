@@ -1,7 +1,7 @@
 import {workflowActivationState} from './workflowActivationState.js';
 import {settleWorkflowProgram,workflowProgramJobAccess,workflowProgramAccessCTE} from './workflowCodeJobs.js';
 import {WorkflowStateInputError} from './workflowState.js';
-import { enqueueExecution, jobView, readExecution } from './executions.js';
+import { enqueueExecution, jobView, readExecution, cancelExecution } from './executions.js';
 import { HARNESS_TOOLS, callHarnessTool } from './mcpTools.js';
 import { mayRunAgent } from './agents.js';
 import { getMode } from './mode.js';
@@ -197,11 +197,11 @@ export async function handleGateways(request, env, url, input) {
       if (!job) return failure('No such execution.', 404);
       if (request.method === 'GET') { const r=await readExecution(db,orgId,me,jobId); return r.error?failure(r.error,r.status):json(r); }
       if (parts[3] === 'cancel' && request.method === 'POST') {
-        const access=await readExecution(db,orgId,me,jobId);
-        if(access.error)return failure(access.error,access.status);
-        await db.prepare("UPDATE hx_gateway_jobs SET status = 'cancelled', lease_hash = NULL, finished_at = ?2 WHERE id = ?1 AND status IN ('queued', 'running')").bind(jobId, now()).run();
-        await settleWorkflowProgram(db,jobId);
-        return json({ cancelled: true });
+        const result=await cancelExecution(db,orgId,me,jobId);
+        if(result.error)return failure(result.error,result.status);
+        if(result.job.status==='cancelled')return json({cancelled:true});
+        const terminal=['succeeded','failed','timed_out'].includes(result.job.status);
+        return json({message:terminal?'Execution finished before it could be cancelled.':'Cancellation could not be confirmed.',code:terminal?'already_terminal':'cancellation_unconfirmed'},409);
       }
       return failure('Method not allowed.', 405);
     }
