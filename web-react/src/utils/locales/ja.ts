@@ -1,6 +1,11 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'The selected node is unavailable. Select another node or reload.': '選択したノードを利用できません。別のノードを選ぶか、再読み込みしてください。',
+  'A Mac running the user service must be awake and its user signed in. Last contact does not guarantee availability; reload to check again.': 'Macのユーザーサービスを使う場合は、Macをスリープさせず、ユーザーがログインしている必要があります。最終通信は利用可能を保証しません。再読み込みして確認してください。',
+  'No contact recorded': '通信記録なし',
+  'Contact time unavailable': '通信日時を確認できません',
+  'Last contact: {time}': '最終通信: {time}',
   'The value for {field} cannot be saved without changing the number. Check the input.': '「{field}」の数値は入力した値のまま保存できません。入力を確認してください。',
   'Enter a complete number before leaving this field.': '数値の入力を完了してから、この欄を離れてください。',
   'New {name}': '新規{name}',
