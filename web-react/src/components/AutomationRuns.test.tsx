@@ -183,12 +183,12 @@ test('execution history distinguishes verified revisions from unknown provenance
 test.each([
  ['en','consecutive_failures','Paused after three consecutive failures','Review the failed runs below before resuming. Held events will not replay automatically.','Resume after review'],
  ['ja','consecutive_failures','3回連続の失敗により自動停止しました','下の実行履歴で失敗内容を確認してから再開してください。保留イベントは自動再生されません。','確認して再開'],
- ['en','budget_daily','Paused by run budget','This workflow can run on its next trigger after its run budget window resets or the limit is raised.',null],
- ['ja','budget_daily','実行回数の上限で停止中','実行上限の期間が更新されるか上限が引き上げられると、次のトリガーから再開できます。',null],
- ['en','budget_ai_24h','Paused by estimated AI usage budget','This workflow can run on its next trigger after its AI usage budget window resets or the limit is raised.',null],
- ['ja','budget_ai_24h','AI使用量の概算上限で停止中','AI使用量の上限期間が更新されるか上限が引き上げられると、次のトリガーから再開できます。',null],
- ['en','budget_ai_unpriced','Paused by estimated AI usage budget','AI usage could not be priced. This workflow can resume after the unpriced usage leaves its rolling window or the limit is changed.',null],
- ['ja','budget_ai_unpriced','AI使用量の概算上限で停止中','AI使用量の単価を判定できませんでした。単価不明の記録が直近期間から外れるか、上限設定を変更すると次のトリガーから再開します。',null],
+ ['en','budget_daily','Paused by run budget','Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.',null],
+ ['ja','budget_daily','実行回数の上限で停止中','使用量の対象期間と上限設定を確認してください。すべての上限の停止条件が解消すると、次のトリガーから実行できます。',null],
+ ['en','budget_ai_24h','Paused by estimated AI usage budget','Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.',null],
+ ['ja','budget_ai_24h','AI使用量の概算上限で停止中','使用量の対象期間と上限設定を確認してください。すべての上限の停止条件が解消すると、次のトリガーから実行できます。',null],
+ ['en','budget_ai_unpriced','Paused by estimated AI usage budget','Some AI usage could not be priced. Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.',null],
+ ['ja','budget_ai_unpriced','AI使用量の概算上限で停止中','AI使用量の一部の単価を判定できませんでした。使用量の対象期間と上限設定を確認してください。すべての上限の停止条件が解消すると、次のトリガーから実行できます。',null],
 ])('safety pause is localized in %s for %s',async(locale,reason,title,description,resumeLabel)=>{
  const storage=new Map<string,string>()
  vi.stubGlobal('localStorage',{getItem:(key:string)=>storage.get(key)||null,setItem:(key:string,value:string)=>storage.set(key,value),removeItem:(key:string)=>storage.delete(key)})
