@@ -1,3 +1,4 @@
+import { prepareConversationMessage, acceptConversationMessage } from './conversationOperations.js';
 import {drainMessageDelivery,messageDeliveryAllowed,discardPendingMessagePushes} from './messageDelivery.js';
 import {externalIdentity,externalReplyGrant} from './harness/externalAssignment.js';
 import {endAssignment} from './harness/agentAssignments.js';
@@ -30,7 +31,6 @@ import { mayUseAgentSource } from "./harness/agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
 import { followupRequest, scheduleFollowup } from "./harness/followups.js";
-import { attachedTexts } from "./dlpFiles.js";
 import { linksIn, readLinks, linksBlock } from "./links.js";
 import { agentInstructionsForTools, agentTools } from "./agentTools.js";
 import { translateMessages, sourceHash } from "./translate.js";
@@ -54,7 +54,7 @@ import { serverText } from "./serverCopy.js";
 import { notifyCard, anyChannelConfigured } from "./notify.js";
 import { custom as customEvent } from "./agui/events.js";
 import {
-  resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity, clientIdOk,
+  resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity,
   viewOf, asksTheAI, asksForDecision, withoutAI, MAX_MESSAGE_CHARS,
   present, referenceMessages, listThread, threadPageRequest, listPins, editMessage, deleteMessage, toggleReaction, setPinned, setPreviewsHidden,
   markRead, markUnreadFrom, markActivitySeen, readThreadsSeenInActivity, readsFor, activityFeed, searchMessages, threadsFor, roomThreads,
@@ -69,7 +69,7 @@ import { channelDetails, setDescription, channelRow } from "./channelDetails.js"
 import { channelJournal, forgetJournalDay, validDay, validZone } from "./journal.js";
 import { settleUsage } from "./ledger.js";
 import { readCapped } from "./media.js";
-import { uploadFile, sendable, dropFiles, MAX_FILES_PER_MESSAGE } from "./files.js";
+import { uploadFile, dropFiles } from "./files.js";
 import { queueMessagePushes, clearDelivered, clearDeliveredMessages } from "./pushes.js";
 import { audit, person } from "./audit.js";
 import { getCanvas, toClientCanvas, listRevisions, getRevision, saveCanvas, draftCanvas } from "./canvas.js";
@@ -1261,34 +1261,14 @@ export async function handleChannels(request, env, url, { route, after }) {
       // to page back to, so a client need not guess it from the count.
       return json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before, beforeId }));
     }
-    const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
-    // An inline reply: the message it answers (postMessage checks it is here).
-    const replyTo = typeof body.replyTo === "string" && body.replyTo ? body.replyTo : null;
-    if (replyTo && body.sendAt) return json({ message: "A scheduled message cannot be a reply yet." }, 400);
-    // A thread reply can go to the conversation as well; anything else is
-    // in the conversation already.
-    const alsoChannel = Boolean(parentId) && body.alsoChannel === true;
-    // The workspace's data rules read it before it is kept, sent now or later.
-    const attached = Array.isArray(body.files) && body.files.length
-      ? await attachedTexts(env, { orgId, key: resolved.key, login: who.user.login, ids: body.files, githubId: who.session.github_id }).catch(() => [])
-      : [];
-    const stopped = await checkOutgoing(env, request, { orgId, login: who.user.login, text: typeof body.body === "string" ? body.body : "", files: attached, ack: body.dlpAck === true, where: body.sendAt ? "scheduled" : parentId ? "reply" : "message" });
-    if (stopped) return stopped;
-    // Written now, sent later.
+    const prepared = await prepareConversationMessage(env, request, { orgId, user: who.user, resolved, body });
+    if (prepared.denied) return prepared.denied;
+    const { parentId, replyTo, alsoChannel } = prepared;
     if (body.sendAt) {
       const sched = await scheduleMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: body.body, parentId, sendAt: body.sendAt, alsoChannel });
       if (sched.error) return json({ message: sched.error }, 400);
       return json({ scheduled: { ...sched.scheduled, channel: view } }, 201);
     }
-    // Files uploaded for this message come with it — yours, uploaded here —
-    // claimed with it in one step (postMessage).
-    const uploads = await sendable(env.DB, { orgId, key: resolved.key, login: who.user.login, ids: body.files });
-    if (uploads.over) return json({ message: `A message can carry at most ${MAX_FILES_PER_MESSAGE} files.`, code: "too_many_files" }, 400);
-    const withFiles = uploads.ids.length > 0;
-    if (body.clientId != null && body.clientId !== "" && (typeof body.clientId !== "string" || !clientIdOk(body.clientId))) {
-      return json({ message: "That send cannot be tried again." }, 400);
-    }
-    const clientId = typeof body.clientId === "string" && body.clientId ? body.clientId : null;
     const tPolicy = Date.now();
     const mode = env.AGENT_RUNNER && env.AGENT_INLINE !== '1' && who.session.token ? await getMode(env.DB,orgId) : null;
     const durableAgentMode = mode === 'harness';
@@ -1300,7 +1280,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       room,mode,row:{kind:'message',author_login:who.user.login,channel:resolved.key,parent_id:parentId,body:typeof body.body==='string'?body.body.replace(/\r\n/g,'\n').trim():''}}) : null;
     const agentRequest = preResponders?.length ? {sessionKey:who.session.token,agentIds:preResponders.map(agent=>agent.id),locale:who.user.locale || 'en'} : null;
     const tRouting = Date.now();
-    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: who.user.login, body: typeof body.body === "string" ? body.body : "", parentId, replyTo, withFiles, files: { login: who.user.login, ...uploads }, clientId, alsoChannel, agentRequest, deliveryTasks: true, deliveryBoundary: resolved.deliveryBoundary });
+    const out = await acceptConversationMessage(env, { orgId, user: who.user, resolved, body, prepared, agentRequest });
     const tWrite = Date.now();
     if (out.error) return json({ message: out.error, ...(out.code ? { code: out.code } : {}) }, out.status || 400);
     // Each committed send has two independent durable tasks. A duplicate

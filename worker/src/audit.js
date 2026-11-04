@@ -19,6 +19,10 @@ import { auditCryptoReady, encryptBody, decryptBody, principalOf } from "./audit
 /// Every action this deployment records: its category, how much it
 /// matters, and a sentence for the screen ({actor} did it to {entity}).
 export const AUDIT_ACTIONS = {
+  "mcp.tool_called": { category: "data", severity: "info", text: "{actor} used an external MCP client" },
+  "mcp.connection_granted": { category: "auth", severity: "notice", text: "{actor} connected an MCP client" },
+  "mcp.connection_revoked": { category: "auth", severity: "notice", text: "{actor} disconnected an MCP client" },
+  "mcp.client_registered": { category: "auth", severity: "notice", text: "{actor} registered an MCP client" },
   "skill.share_delivery_denied": { category: "security", severity: "warning", text: "A Skill share link could not be delivered to {actor}" },
   "skill.import_delivery_denied": { category: "security", severity: "warning", text: "An imported Skill could not be delivered to {actor}" },
   "document.conversion_requested": {category:"files",severity:"info",text:"{actor} requested document conversion"},

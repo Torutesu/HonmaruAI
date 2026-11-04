@@ -418,7 +418,7 @@ export async function listThread(db, orgId, key, parentId, viewerLogin, view, me
     .prepare(
       `SELECT m.*, m.rowid AS thread_rowid, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
-        WHERE m.org_id = ?1 AND m.parent_id = ?2 AND m.deleted_at IS NULL ${older}
+        WHERE m.org_id = ?1 AND m.parent_id = ?2 AND m.channel = (SELECT channel FROM channel_messages WHERE org_id=?1 AND id=?2) AND m.deleted_at IS NULL ${older}
         ORDER BY m.created_at ${page ? "DESC" : "ASC"}, m.rowid ${page ? "DESC" : "ASC"} ${page ? "LIMIT ?3" : ""}`
     )
     .bind(orgId, parentId, ...(page ? [limit, ...boundary] : []))
@@ -645,8 +645,10 @@ async function messageByClientId(db, orgId, authorLogin, clientId, creation = nu
 /// than sent without it.
 const FILES_GONE = "A file in this message is no longer there. Attach it again.";
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, deliveryBoundary = null, assignmentFence = null, workflowNotice = null, creationActorId = null, creationRoomSnapshot = null }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, deliveryBoundary = null, assignmentFence = null, workflowNotice = null, creationActorId = null, creationRoomSnapshot = null, conversationActorId = null, mcpAuthority = null }) {
   const creation = creationActorId !== null;
+  if (mcpAuthority && (!conversationActorId || !['chat:write', 'chat:schedule'].includes(mcpAuthority.scope) || Boolean(mcpAuthority.tokenId) === Boolean(mcpAuthority.grantId))) return { error: 'Invalid connection authority.', status: 403 };
+  if (conversationActorId !== null && (typeof conversationActorId !== 'string' || !conversationActorId || creation || assignmentFence || workflowNotice || roomHookSource || kind !== 'message')) return { error: 'Invalid conversation author.', status: 403 };
   if (creation && (typeof creationActorId !== 'string' || !creationActorId || typeof key !== 'string' || kind !== 'message' || parentId || replyTo || cardId || files || withFiles || assignmentFence || workflowNotice || agentRequest || roomHookSource || deliveryTasks || alsoChannel || onBehalfOf || !clientIdOk(clientId) ||
     (key.startsWith('b:') && (!creationRoomSnapshot || typeof creationRoomSnapshot.createdAt !== 'string' || !creationRoomSnapshot.createdAt || typeof creationRoomSnapshot.private !== 'boolean')))) return {error:'Invalid app source message.',status:403};
   if (!creation && creationRoomSnapshot) return {error:'Invalid app source message.',status:403};
@@ -709,6 +711,19 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
     const sameCreationRoom=creation && key.startsWith('b:') ? ` AND EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?2 AND 'b:'||b.slug=?3 AND b.created_at=?15 AND b.private=?16)` : '';
     const creationLive=creation?` AND ${conversationWriteAuthority('?2','?3','?14')} AND EXISTS(SELECT 1 FROM users WHERE github_id=?14 AND login=?4)${sameCreationRoom}`:'';
     const creationValues=creation?[creationActorId,...(key.startsWith('b:')?[creationRoomSnapshot.createdAt,Number(creationRoomSnapshot.private)]:[])]:[];
+    const actorParam = files?.ids?.length ? '?15' : '?14';
+    const actorLive = conversationActorId ? ` AND ${conversationWriteAuthority('?2', '?3', actorParam)} AND EXISTS(SELECT 1 FROM users WHERE github_id=${actorParam} AND login=?4)` : '';
+    const actorValues = conversationActorId ? [conversationActorId] : [];
+    const grantStart = files?.ids?.length ? 16 : 15;
+    const [source, action, at] = [grantStart, grantStart + 1, grantStart + 2].map(i => `?${i}`);
+    const grantScopes = alias => `EXISTS(SELECT 1 FROM json_each(${alias}.scopes) WHERE value=${action})
+      AND (substr(?3,1,3)!='dm:' AND substr(?3,1,2)!='g:' OR EXISTS(SELECT 1 FROM json_each(${alias}.scopes) WHERE value='chat:dm'))
+      AND (NOT EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?2 AND 'b:'||b.slug=?3 AND b.private=1) OR EXISTS(SELECT 1 FROM json_each(${alias}.scopes) WHERE value='chat:private'))`;
+    const grantLive = !mcpAuthority ? '' : mcpAuthority.grantId
+      ? ` AND EXISTS(SELECT 1 FROM mcp_oauth_grants g JOIN mcp_oauth_clients c ON c.id=g.client_id JOIN memberships member ON member.org_id=g.org_id AND member.user_github_id=g.user_id AND member.created_at=g.membership_since
+          WHERE g.id=${source} AND g.org_id=?2 AND g.user_id=${actorParam} AND g.revoked_at IS NULL AND g.expires_at>${at} AND c.disabled_at IS NULL AND ${grantScopes('g')})`
+      : ` AND EXISTS(SELECT 1 FROM api_tokens token WHERE token.id=${source} AND token.org_id=?2 AND token.github_id=${actorParam} AND token.expires_at>${at} AND ${grantScopes('token')})`;
+    const grantValues = mcpAuthority ? [mcpAuthority.grantId || mcpAuthority.tokenId, mcpAuthority.scope, mcpAuthority.grantId ? Date.now() : new Date().toISOString()] : [];
 
     if (files?.ids?.length) {
       // The message and its files in one step, all or none: its uploads are
@@ -720,22 +735,24 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
       const done = await db.batch([
         claimFiles(db, { orgId, key, login: files.login, messageId: id, ids: files.ids }),
         db.prepare(`INSERT INTO channel_messages (${columns}) SELECT ${marks}
-                    WHERE ${parentLive} AND (SELECT COUNT(*) FROM message_files WHERE org_id = ?2 AND message_id = ?1) = ?${values.length + 1}`)
-          .bind(...values, files.ids.length),
+                    WHERE ${parentLive}${actorLive}${grantLive} AND (SELECT COUNT(*) FROM message_files WHERE org_id = ?2 AND message_id = ?1) = ?${values.length + 1}`)
+          .bind(...values, files.ids.length, ...actorValues, ...grantValues),
         db.prepare("UPDATE message_files SET message_id = NULL WHERE org_id = ?1 AND message_id = ?2 AND NOT EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2)")
           .bind(orgId, id),
         ...(dispatch ? [dispatch] : []),
         ...deliveries,
       ]);
       if (!done[1].meta?.changes) {
+        if (conversationActorId) return { error: 'Conversation access or attachments changed.', status: 403 };
         if (parentId && !(await db.prepare("SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, parentId).first())) {
           return { error: THREAD_GONE, code: "thread_gone" };
         }
         return { error: FILES_GONE, code: "files_gone", status: 409 };
       }
     } else {
-      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}${noticeLive}${creationLive}`).bind(...values,...fenceValues,...noticeValues,...creationValues);
+      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}${noticeLive}${creationLive}${actorLive}${grantLive}`).bind(...values,...fenceValues,...noticeValues,...creationValues,...actorValues,...grantValues);
       const put = dispatch || deliveries.length ? (await db.batch([insert,...(dispatch ? [dispatch] : []),...deliveries]))[0] : await insert.run();
+      if(conversationActorId && !put.meta?.changes)return {error:'Conversation access changed.',status:403};
       if(creation && !put.meta?.changes)return {error:'No such room.',status:403};
       if(workflowNotice && !put.meta?.changes)return {error:'Workflow notice access changed.',code:'notice_changed',status:409};
       if (assignmentFence && !put.meta?.changes)return {error:'Execution access changed.',code:'execution_changed',status:409};
@@ -959,7 +976,7 @@ export async function readsFor(db, orgId, login, members, versioned = false) {
 /// here, as mayRead has it, so it holds before a LIMIT: a guest's search
 /// was cut to its newest 30 matches first, and matches in public channels
 /// they cannot read could fill them and hide every one they can.
-const VISIBLE = `(
+export const VISIBLE = `(
   (m.channel LIKE 'b:%' AND (
      EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id = ?1 AND c.channel = m.channel AND c.login = ?2)
      OR (NOT EXISTS (SELECT 1 FROM businesses b WHERE b.org_id = ?1 AND 'b:' || b.slug = m.channel AND b.private = 1)
@@ -1228,10 +1245,15 @@ function span(value, unit) {
   return null;
 }
 
-export async function searchMessages(db, orgId, login, members, raw, { limit = 30 } = {}) {
+export async function searchMessages(db, orgId, login, members, raw, { limit = 30, connectorScopeSql = null, cursor = null, paged = false } = {}) {
   const q = parseQuery(raw);
   const where = [`m.org_id = ?1`, VISIBLE, `m.deleted_at IS NULL`, `m.kind != 'joined'`];
   const binds = [orgId, login];
+  if (connectorScopeSql) where.push(connectorScopeSql);
+  if (cursor) {
+    binds.push(cursor[0], cursor[1]);
+    where.push("(m.created_at < ?3 OR (m.created_at = ?3 AND m.rowid < ?4))");
+  }
   const add = (sql, value) => { binds.push(value); where.push(sql.replace("?", `?${binds.length}`)); };
   const person = (name) => name === "me" ? members.find((m) => m.login === login) : resolveMentions(`@${name}`, members, { here: false })[0];
   if (q.text) add("m.body LIKE ? ESCAPE '\\'", likeOf(q.text));
@@ -1276,10 +1298,11 @@ export async function searchMessages(db, orgId, login, members, raw, { limit = 3
   const narrowed = q.text || q.phrases.length || q.from || q.in || q.to || q.on || q.during || q.before || q.after || q.hasList.length || q.isList.length;
   if (!narrowed) return { messages: [], query: q };
   const { results } = await db.prepare(
-    `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
-      WHERE ${where.join(" AND ")} ORDER BY m.created_at DESC LIMIT ${Math.max(1, Math.min(50, limit))}`
+    `SELECT m.*, m.rowid AS mcp_rowid, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login
+      WHERE ${where.join(" AND ")} ORDER BY m.created_at DESC, m.rowid DESC LIMIT ${Math.max(1, Math.min(50, limit)) + (paged ? 1 : 0)}`
   ).bind(...binds).all();
-  const rows = results || [];
+  const more = paged && (results || []).length > limit;
+  const rows = paged ? (results || []).slice(0, limit) : results || [];
   const access = await accessFor(db, orgId, login);
   const out = [];
   for (const r of rows) {
@@ -1288,5 +1311,6 @@ export async function searchMessages(db, orgId, login, members, raw, { limit = 3
     const [message] = await present(db, orgId, [r], login, view, members);
     out.push(message);
   }
-  return { messages: out, query: q };
+  const last = rows.at(-1);
+  return { messages: out, query: q, ...(paged ? { nextCursor: more && last ? [last.created_at, last.mcp_rowid] : null } : {}) };
 }

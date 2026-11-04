@@ -1,0 +1,73 @@
+import { env } from 'cloudflare:test';
+import { test, expect } from 'vitest';
+import { Client } from '__SDK_ESM__/client/index.js';
+import { StreamableHTTPClientTransport } from '__SDK_ESM__/client/streamableHttp.js';
+import worker from '../src/index.js';
+import { createSession, upsertUser, upsertMembership } from '../src/db.js';
+
+test('official SDK discovers OAuth, uses PKCE grant, reads tools, and loses access after disconnect', async () => {
+  const orgId = 'personal:sdk-oauth-proof';
+  const configuration = { ...env, MCP_PUBLIC_URL: 'https://example.com/mcp', APP_WEB_URL: 'https://app.honmaruai.com' };
+  await upsertUser(env.DB, { githubId: '99002', login: 'sdk-oauth-user', name: 'SDK OAuth', avatarUrl: null, locale: 'en' });
+  await upsertMembership(env.DB, orgId, '99002', 'admin');
+  const session = await createSession(env.DB, '99002', 'local-test-session');
+  const route = (path, init = {}) => worker.fetch(new Request(`https://example.com${path}`, init), configuration);
+  const authenticated = data => ({ method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': session }, body: JSON.stringify(data) });
+  const registration = await route('/mcp/oauth/clients', authenticated({ name: 'SDK OAuth client', redirectUris: ['https://client.example/callback'] }));
+  expect(registration.status).toBe(201);
+  const registered = await registration.json();
+  let verifier, tokens, authorization;
+  const provider = {
+    redirectUrl: 'https://client.example/callback',
+    clientMetadata: { redirect_uris: ['https://client.example/callback'], token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], scope: 'chat:read' },
+    state: () => 'sdk-oauth-state',
+    clientInformation: () => ({ client_id: registered.client_id, issuer: 'https://example.com' }),
+    tokens: () => tokens,
+    saveTokens: value => { tokens = value; },
+    saveCodeVerifier: value => { verifier = value; },
+    codeVerifier: () => verifier,
+    redirectToAuthorization: value => { authorization = value; },
+  };
+  const makeTransport = () => new StreamableHTTPClientTransport(new URL('https://example.com/mcp'), {
+    authProvider: provider,
+    fetch: async (input, init) => {
+      const request = new Request(input, init);
+      expect(new URL(request.url).origin).toBe('https://example.com');
+      return worker.fetch(request, configuration);
+    },
+  });
+  const transport = makeTransport();
+  const client = new Client({ name: 'honmaru-sdk-oauth-proof', version: '1.0.0' });
+  try {
+    await expect(client.connect(transport)).rejects.toThrow();
+    expect(authorization).toBeInstanceOf(URL);
+    expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(authorization.searchParams.get('resource')).toBe('https://example.com/mcp');
+    const auth = await worker.fetch(new Request(authorization), configuration);
+    expect(auth.status).toBe(302);
+    const id = new URL(auth.headers.get('location')).hash.split('/').pop();
+    const approval = await route(`/mcp/oauth/requests/${id}`, authenticated({ approve: true, orgId, scopes: ['chat:read'] }));
+    expect(approval.status).toBe(200);
+    const callback = new URL((await approval.json()).redirectUrl);
+    expect(callback.origin).toBe('https://client.example');
+    expect(callback.searchParams.get('state')).toBe('sdk-oauth-state');
+    await transport.finishAuth(callback.searchParams.get('code'));
+    expect(tokens.access_token).toBeTruthy();
+    expect(tokens.refresh_token).toBeTruthy();
+    await client.close();
+    await client.connect(makeTransport());
+    const tools = await client.listTools();
+    expect(tools.tools.some(tool => tool.name === 'list_conversations')).toBe(true);
+    expect(tools.tools.some(tool => tool.name === 'send_message')).toBe(false);
+    const listed = await client.callTool({ name: 'list_conversations', arguments: {} });
+    expect(listed.isError).not.toBe(true);
+    const connections = await route('/mcp/oauth/connections', { headers: { 'x-session-token': session } });
+    expect(connections.status).toBe(200);
+    const connection = (await connections.json()).connections.find(item => item.name === 'SDK OAuth client' && item.orgId === orgId);
+    expect(connection).toBeTruthy();
+    const removed = await route(`/mcp/oauth/connections/${connection.id}`, { method: 'DELETE', headers: { 'x-session-token': session } });
+    expect(removed.status).toBe(200);
+    const forbidden = await route('/mcp', { method: 'POST', headers: { authorization: `Bearer ${tokens.access_token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 90, method: 'tools/list' }) });
+    expect(forbidden.status).toBe(401);
+  } finally { await client.close(); }
+});

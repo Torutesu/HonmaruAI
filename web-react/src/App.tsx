@@ -24,6 +24,8 @@ import { getLocale } from './utils/locale'
 import './theme.css'
 import './App.css'
 import {SharedThread} from './screens/SharedThread'
+import { pendingMcpRequest, clearMcpRequest } from './utils/mcpConsentRequest'
+import { McpConsent } from './components/McpConsent'
 import {PublicSkillShare} from './screens/PublicSkillShare'
 
 // The web client talks to the backend over HTTP for auth and WebSocket for the
@@ -79,6 +81,12 @@ function App() {
 }
 
 function AccountApp() {
+  const [mcpRequest, setMcpRequest] = useState(() => pendingMcpRequest(location.hash))
+  useEffect(() => {
+    const change = () => setMcpRequest(pendingMcpRequest(location.hash))
+    window.addEventListener('hashchange', change)
+    return () => window.removeEventListener('hashchange', change)
+  }, [])
   const [stage, setStage] = useState<Stage>('welcome')
   const [restoring, setRestoring] = useState(true)
   // Why the session could not be checked: the server did not answer at all,
@@ -556,6 +564,10 @@ function AccountApp() {
       : restoreError ? 'Could not reach the relay.' : 'Loading…')}</p>
     {restoreError && <button className="btn btn-primary" onClick={() => setRestoreAttempt((value) => value + 1)}>{t('Try again')}</button>}
   </div></div>
+
+  if (mcpRequest && sessionToken && userId && (stage === 'app' || stage === 'onboarding')) return <McpConsent
+    key={`${sessionToken}:${mcpRequest}`} httpBase={httpBase(host)} sessionToken={sessionToken} requestId={mcpRequest}
+    onExit={() => { clearMcpRequest(); setMcpRequest(''); location.hash = '#/list' }} />
 
   if (stage === 'welcome') {
     return (
