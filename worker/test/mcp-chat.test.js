@@ -219,3 +219,30 @@ test('a valid upload is attached atomically and survives a send retry', async ()
   expect(first.message.files.map(f => f.id)).toEqual([file.id]);
   expect((await env.DB.prepare('SELECT message_id FROM message_files WHERE id=?1').bind(file.id).first()).message_id).toBe(first.message.id);
 });
+
+
+test.each(['deleted', 'missing', 'other-channel'])('orphan replies with %s parents cannot be read or reacted to', async parentState => {
+  const visible = await seed('b:general', 'needle visible');
+  const parent = await seed('b:general', 'thread parent');
+  const reply = await seed('b:general', 'needle hidden', { parentId: parent.id, alsoChannel: true });
+  if (parentState === 'deleted') await env.DB.prepare('UPDATE channel_messages SET deleted_at=?1 WHERE id=?2').bind(new Date().toISOString(), parent.id).run();
+  else if (parentState === 'missing') await env.DB.prepare('UPDATE channel_messages SET parent_id=?1 WHERE id=?2').bind('missing-parent', reply.id).run();
+  else await env.DB.prepare('UPDATE channel_messages SET channel=?1 WHERE id=?2').bind('b:private', parent.id).run();
+  for (const name of ['get_message', 'get_reactions', 'add_reaction', 'remove_reaction']) {
+    const args = { messageId: reply.id, ...(name === 'add_reaction' || name === 'remove_reaction' ? { emoji: '👍' } : {}) };
+    await expect(call(name, args)).rejects.toThrow('No accessible message');
+  }
+  const page = await call('read_channel', { conversationId: 'b:general', limit: 1 });
+  expect(page.messages.map(message => message.id)).not.toContain(reply.id);
+  const search = await call('search_messages', { query: 'needle', limit: 1 });
+  expect(search.messages.map(message => message.id)).toEqual([visible.id]);
+  expect(search.nextCursor).toBeNull();
+  expect(await env.DB.prepare('SELECT 1 FROM message_reactions WHERE message_id=?1').bind(reply.id).first()).toBeNull();
+});
+
+test('a corrupt cross-channel reply cannot enter an authorized thread page', async () => {
+  const parent = await seed('b:general', 'parent');
+  const reply = await seed('b:general', 'private words', { parentId: parent.id });
+  await env.DB.prepare('UPDATE channel_messages SET channel=?1 WHERE id=?2').bind('b:private', reply.id).run();
+  expect((await call('read_thread', { conversationId: 'b:general', threadId: parent.id })).replies).toEqual([]);
+});

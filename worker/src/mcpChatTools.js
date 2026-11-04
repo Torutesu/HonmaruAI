@@ -51,10 +51,11 @@ function position(value) {
   return value;
 }
 const decorate = (env, actor, messages) => messages.map(message => ({ ...message, url: messageLink(env, actor.orgId, message.channel, message.id) }));
+const liveMessage = `m.deleted_at IS NULL AND (m.parent_id IS NULL OR EXISTS(SELECT 1 FROM channel_messages parent WHERE parent.org_id=m.org_id AND parent.channel=m.channel AND parent.id=m.parent_id AND parent.parent_id IS NULL AND parent.deleted_at IS NULL))`;
 async function accessibleMessage(env, actor, messageId) {
   const context = await mcpConversationContext(env, actor);
   const row = await getMessage(env.DB, actor.orgId, messageId);
-  if (!row || row.deleted_at) throw new McpInputError('No accessible message.');
+  if (!row || row.deleted_at || !await env.DB.prepare(`SELECT 1 FROM channel_messages m WHERE m.org_id=?1 AND m.id=?2 AND ${liveMessage}`).bind(actor.orgId, messageId).first()) throw new McpInputError('No accessible message.');
   const view = viewOf(row.channel, actor.login, context.members, context.access);
   if (!view) throw new McpInputError('No accessible message.');
   return { ...await resolveMcpConversation(env, actor, view), row };
@@ -93,7 +94,7 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     const context = await mcpConversationContext(env, actor);
     const page = decode(args.cursor, name);
     if (page && page.query !== args.query) throw new McpInputError('Cursor does not match this query.');
-    const found = await searchMessages(env.DB, actor.orgId, actor.login, context.members, args.query, { limit: size, connectorScopeSql: mcpAudienceSql(actor.scopes), cursor: page ? position(page.position) : null, paged: true });
+    const found = await searchMessages(env.DB, actor.orgId, actor.login, context.members, args.query, { limit: size, connectorScopeSql: `${mcpAudienceSql(actor.scopes)} AND ${liveMessage}`, cursor: page ? position(page.position) : null, paged: true });
     return mcpResult({ messages: decorate(env, actor, found.messages), nextCursor: found.nextCursor ? encode({ kind: name, query: args.query, position: found.nextCursor }) : null });
   }
   if (name === 'get_message' || name === 'get_reactions' || name === 'add_reaction' || name === 'remove_reaction') {
@@ -101,10 +102,10 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     if (name === 'add_reaction' || name === 'remove_reaction') {
       const emoji = cleanEmoji(args.emoji);
       if (!emoji) throw new McpInputError('That is not an emoji.');
-      if (name === 'remove_reaction') await env.DB.prepare('DELETE FROM message_reactions WHERE org_id=?1 AND message_id=?2 AND emoji=?3 AND login=?4').bind(actor.orgId, context.row.id, emoji, actor.login).run();
+      if (name === 'remove_reaction') await env.DB.prepare(`DELETE FROM message_reactions WHERE org_id=?1 AND message_id=?2 AND emoji=?3 AND login=?4 AND EXISTS(SELECT 1 FROM channel_messages m WHERE m.org_id=?1 AND m.id=?2 AND ${liveMessage})`).bind(actor.orgId, context.row.id, emoji, actor.login).run();
       else {
         await env.DB.prepare(`INSERT INTO message_reactions(org_id,message_id,emoji,login,created_at)
-          SELECT ?1,?2,?3,?4,?5 WHERE EXISTS(SELECT 1 FROM channel_messages WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL)
+          SELECT ?1,?2,?3,?4,?5 WHERE EXISTS(SELECT 1 FROM channel_messages m WHERE m.org_id=?1 AND m.id=?2 AND ${liveMessage})
           AND (EXISTS(SELECT 1 FROM message_reactions WHERE org_id=?1 AND message_id=?2 AND emoji=?3)
           OR (SELECT COUNT(DISTINCT emoji) FROM message_reactions WHERE org_id=?1 AND message_id=?2)<20) ON CONFLICT DO NOTHING`).bind(actor.orgId, context.row.id, emoji, actor.login, new Date().toISOString()).run();
         if (!await env.DB.prepare('SELECT 1 FROM message_reactions WHERE org_id=?1 AND message_id=?2 AND emoji=?3 AND login=?4').bind(actor.orgId, context.row.id, emoji, actor.login).first()) throw new McpInputError('That message cannot accept another reaction.');
@@ -122,7 +123,7 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     if (page && page.conversationId !== args.conversationId) throw new McpInputError('Cursor belongs to another conversation.');
     const pos = page ? position(page.position) : null;
     const rows = (await env.DB.prepare(`SELECT m.*,m.rowid AS mcp_rowid FROM channel_messages m
-      WHERE m.org_id=?1 AND m.channel=?2 AND m.deleted_at IS NULL AND (m.parent_id IS NULL OR m.also_channel=1)
+      WHERE m.org_id=?1 AND m.channel=?2 AND ${liveMessage} AND (m.parent_id IS NULL OR m.also_channel=1)
       ${pos ? 'AND (m.created_at<?4 OR (m.created_at=?4 AND m.rowid<?5))' : ''}
       ORDER BY m.created_at DESC,m.rowid DESC LIMIT ?3`).bind(actor.orgId, context.resolved.key, size + 1, ...(pos || [])).all()).results || [];
     const selected = rows.slice(0, size);

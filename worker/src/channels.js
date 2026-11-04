@@ -418,7 +418,7 @@ export async function listThread(db, orgId, key, parentId, viewerLogin, view, me
     .prepare(
       `SELECT m.*, m.rowid AS thread_rowid, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name FROM channel_messages m
          LEFT JOIN users u ON u.login = m.author_login
-        WHERE m.org_id = ?1 AND m.parent_id = ?2 AND m.deleted_at IS NULL ${older}
+        WHERE m.org_id = ?1 AND m.parent_id = ?2 AND m.channel = (SELECT channel FROM channel_messages WHERE org_id=?1 AND id=?2) AND m.deleted_at IS NULL ${older}
         ORDER BY m.created_at ${page ? "DESC" : "ASC"}, m.rowid ${page ? "DESC" : "ASC"} ${page ? "LIMIT ?3" : ""}`
     )
     .bind(orgId, parentId, ...(page ? [limit, ...boundary] : []))
