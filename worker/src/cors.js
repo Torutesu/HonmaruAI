@@ -20,7 +20,7 @@ const PREVIEW = /^https:\/\/[a-z0-9-]+\.honmaru-web\.pages\.dev$/;
 
 /// Paths any page may read: fetched by address, or by agents and servers
 /// bringing their own credentials, or public.
-const OPEN = /^\/(?:mcp$|files\/|media\/|\.well-known\/|admin\/v1\/|scim\/|webhooks\/|health$|agents\/join\/|app\/ios$|ResourceTypes|Schemas|ServiceProviderConfig|audit\/public-key$)/;
+const OPEN = /^\/(?:mcp(?:$|\/oauth\/(?:token|revoke)$)|files\/|media\/|\.well-known\/|admin\/v1\/|scim\/|webhooks\/|health$|agents\/join\/|app\/ios$|ResourceTypes|Schemas|ServiceProviderConfig|audit\/public-key$)/;
 
 const originOf = (raw) => {
   try { return new URL(String(raw)).origin; } catch { return null; }

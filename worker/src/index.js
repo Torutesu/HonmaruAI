@@ -66,6 +66,7 @@ import { handleApps, sweepAppConnections, forgetAppConnections } from "./smither
 import { requestContext } from "./requestContext.js";
 import { settleCors } from "./cors.js";
 import { handleMcp } from "./mcp.js";
+import { handleMcpOAuth } from "./mcpOAuth.js";
 import { handleGovernance, pruneMessages, expireExports } from "./governance.js";
 import { sealPending, weeklyVerify } from "./auditArchive.js";
 import { pruneAudit, handleOps } from "./auditRetention.js";
@@ -402,7 +403,7 @@ async function handle(request, env, url, ctx) {
     }
     // Browsers send a preflight OPTIONS before a cross-origin POST with custom
     // headers. Answer it with the CORS headers and no body.
-    if (url.pathname === "/mcp" && request.method === "OPTIONS") return handleMcp(request, env, ctx);
+    if ((url.pathname === "/mcp" || /^\/mcp\/oauth\/(token|revoke)$/.test(url.pathname)) && request.method === "OPTIONS") return handleMcp(request, env, ctx);
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
@@ -413,6 +414,9 @@ async function handle(request, env, url, ctx) {
         },
       });
     }
+
+    const oauthResponse = await handleMcpOAuth(request, env, url);
+    if (oauthResponse) return oauthResponse;
 
     // What lets the phone apps open links to the web app (src/wellKnown.js).
     if (url.pathname.startsWith("/.well-known/")) {

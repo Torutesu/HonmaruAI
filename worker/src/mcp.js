@@ -1,6 +1,7 @@
 import { sha256Hex } from "./auth.js";
 import { MCP_ALL_SCOPES } from "./mcpScopes.js";
 import { allowedOrigins } from "./cors.js";
+import { resolveMcpOAuthToken, mcpResource } from "./mcpOAuth.js";
 import { HARNESS_TOOLS, HARNESS_TOOL_SCOPE, callHarnessTool } from "./harness/mcpTools.js";
 import { getMode } from "./harness/mode.js";
 import { saveCard, getCard, getUserByGithubId, isMember } from "./db.js";
@@ -505,18 +506,9 @@ export async function handleMcp(request, env, ctx = null) {
   const protocol = request.headers.get("mcp-protocol-version");
   if (protocol && !SUPPORTED_PROTOCOLS.includes(protocol)) return new Response(JSON.stringify(rpcError(null, -32600, "Unsupported MCP protocol version.")), { status: 400, headers: MCP_HEADERS });
   if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") return new Response(null, { status: 415, headers: MCP_HEADERS });
-  const own = request.headers.get("x-honmaru-token");
-  const agent = await resolveApiToken(env.DB, own ? `Bearer ${own.trim()}` : request.headers.get("authorization"));
-  if (!agent) {
-    return new Response(JSON.stringify(rpcError(null, -32001, "A Honmaru access token is required.")), {
-      status: 401,
-      headers: { ...MCP_HEADERS, "www-authenticate": 'Bearer realm="honmaru"' },
-    });
-  }
-  const held = await agentDenial(env, agent);
-  if (held) return new Response(JSON.stringify(rpcError(null, -32001, held.body.message)), { status: held.status, headers: MCP_HEADERS });
-  const limited = await enforceSubject(env, "mcp", `t:${agent.tokenId}`);
-  if (limited) return limited;
+  const authentication = await authenticateMcpRequest(request, env);
+  if (authentication.response) return authentication.response;
+  const agent = authentication.actor;
   const body = await mcpBody(request);
   if (body.oversized) return new Response(JSON.stringify(rpcError(null, -32600, "Request is too large.")), { status: 413, headers: MCP_HEADERS });
   if (body.invalid) return new Response(JSON.stringify(rpcError(null, -32700, "Parse error")), { status: 400, headers: MCP_HEADERS });
@@ -524,4 +516,18 @@ export async function handleMcp(request, env, ctx = null) {
   const reply = await handleMessage(env, agent, body.value, request, ctx);
   if (!reply) return new Response(null, { status: 202, headers: MCP_HEADERS });
   return new Response(JSON.stringify(reply), { status: 200, headers: MCP_HEADERS });
+}
+
+export async function authenticateMcpRequest(request, env) {
+  if (!mcpOriginAllowed(request, env)) return { response: new Response(null, { status: 403 }) };
+  const own = request.headers.get("x-honmaru-token");
+  const header = own ? `Bearer ${own.trim()}` : request.headers.get("authorization");
+  const actor = await resolveApiToken(env.DB, header) || await resolveMcpOAuthToken(env, header, request);
+  if (!actor) return { response: new Response(JSON.stringify(rpcError(null, -32001, "A Honmaru access token is required.")), {
+    status: 401, headers: { ...MCP_HEADERS, "www-authenticate": `Bearer realm="honmaru", resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', mcpResource(env, request)).href}"` },
+  }) };
+  const held = await agentDenial(env, actor);
+  if (held) return { response: new Response(JSON.stringify(rpcError(null, -32001, held.body.message)), { status: held.status, headers: MCP_HEADERS }) };
+  const limited = await enforceSubject(env, "mcp", `t:${actor.tokenId}`);
+  return limited ? { response: limited } : { actor };
 }
