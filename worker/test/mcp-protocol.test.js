@@ -38,7 +38,7 @@ test('notifications return no body and cannot invoke a write tool', async () => 
 
 test('rejects malformed envelopes, argument shapes, invalid JSON and oversized input', async () => {
   for (const body of [{ jsonrpc: '2.0', id: null, method: 'ping' }, { jsonrpc: '2.0', id: {}, method: 'ping' }, { jsonrpc: '2.0', id: 1, method: 'ping', params: [] }]) {
-    expect((await (await rpc(body)).json()).error.code).toBe(-32600);
+    expect(await (await rpc(body)).json()).toMatchObject({ jsonrpc: '2.0', id: body.id === 1 ? 1 : null, error: { code: -32600 } });
   }
   expect((await (await rpc({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_playbook', arguments: [] } })).json()).error.code).toBe(-32602);
   expect((await rpc('{')).status).toBe(400);

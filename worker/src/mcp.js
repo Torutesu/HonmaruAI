@@ -394,7 +394,7 @@ function rpcResult(id, result) {
   return { jsonrpc: "2.0", id, result };
 }
 function rpcError(id, code, message) {
-  return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
+  return { jsonrpc: "2.0", id: typeof id === "string" || Number.isSafeInteger(id) ? id : null, error: { code, message } };
 }
 
 async function handleMessage(env, agent, msg, request, ctx = null) {
