@@ -80,12 +80,14 @@ Protocol work belongs in the first slice. Test negotiated versions, Origin handl
 
 Audit calls by client/token, user, workspace, tool, target ID, outcome, and duration. Avoid recording private message bodies or credentials. Apply per-action rate limits so batching and retries cannot multiply writes beyond the intended limits.
 
-## Evidence and limits
+## Historical investigation evidence and limits
 
 - Fresh shallow checkout matched remote main at the SHA above. The maintained checkout was left unchanged.
-- Existing MCP, scope-validation, and Harness tests were inspected. They were not run. Dependency installation failed with `ENOSPC`; temporary installed dependencies were removed.
+- At the initial read-only investigation, existing MCP, scope-validation, and Harness tests were inspected but not run. Dependency installation failed with `ENOSPC`; temporary installed dependencies were removed.
 - Unauthenticated HTTP probes to the documented Worker hostname returned Cloudflare error 1010. Those responses do not prove the deployed MCP or OAuth route behavior.
 - No tokens were minted, production conversations read, messages sent, or application code changed.
 - pstack Investigation/how workflow used two code explorers and a synthesis review. Its configured model families were unavailable in this environment; agents inherited the available parent model.
 - Throughput checkpoint: n/a, read-only investigation.
 - Applied pstack principles: Subtract Before You Add led to extending the existing endpoint and setup UI. Prove It Works kept source evidence separate from client/runtime acceptance.
+
+Implementation and later verification supersede that initial investigation snapshot; see [connector.md](connector.md) and [decisions.tsv](decisions.tsv).

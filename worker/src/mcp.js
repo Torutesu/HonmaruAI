@@ -22,22 +22,6 @@ import { safe } from "./log.js";
 import { isGuest, accessFor } from "./access.js";
 import { remoteMcpTools } from "./harness/remoteMcp.js";
 
-// Any agent can ask a person for a decision.
-//
-// An assistant that lives in a chat app is one more agent doing work. The
-// work that is not an agent's to do — approve the spend, pick the design,
-// sign off the release — has to reach a person, and today it reaches them
-// as a message in a channel, lost among the others. This is the other
-// direction: Claude Code, Cursor, an in-house bot call `request_decision`
-// over MCP, the decision lands in the right person's feed as a card, and
-// the agent reads the answer back with `get_decision`. The team's playbook
-// is readable too, so an agent can follow the rules a team already set
-// before it asks.
-//
-// Transport: MCP's Streamable HTTP, answered as plain JSON (no stream — no
-// tool here takes long enough to need one). Auth: a personal access token,
-// one per agent, scoped to one workspace, stored only as its hash.
-
 export const MCP_PROTOCOL = "2025-11-25";
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 export const MAX_TOKENS_PER_PERSON = 10;
@@ -89,8 +73,6 @@ function toolRegistry(extra = []) {
   return tools;
 }
 
-/// The harness's tools (harness/mcpTools.js), for a workspace in harness
-/// mode only: a simple workspace's agents see the six tools they always did.
 async function harnessTools(env, agent) {
   if ((await getMode(env.DB, agent.orgId).catch(() => "simple")) !== "harness") return [];
   return [...HARNESS_TOOLS, ...(await remoteMcpTools(env.DB, agent.orgId).catch(() => []))];

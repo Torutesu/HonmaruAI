@@ -1,0 +1,47 @@
+import { env } from 'cloudflare:test';
+import { test, expect } from 'vitest';
+import { Client } from '__SDK_ESM__/client/index.js';
+import { StreamableHTTPClientTransport } from '__SDK_ESM__/client/streamableHttp.js';
+import worker from '../src/index.js';
+import { createSession, upsertUser, upsertMembership } from '../src/db.js';
+
+test('official SDK completes HTTP initialization, discovers and calls a tool, then loses access after revoke', async () => {
+  const orgId = 'personal:sdk-proof';
+  await upsertUser(env.DB, { githubId: '99001', login: 'sdk-proof-user', name: 'SDK Proof', avatarUrl: null, locale: 'en' });
+  await upsertMembership(env.DB, orgId, '99001', 'admin');
+  const session = await createSession(env.DB, '99001', 'local-test-session');
+  const route = (path, init = {}) => worker.fetch(new Request(`https://example.com${path}`, init), env);
+  const created = await route('/tokens', { method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': session }, body: JSON.stringify({ orgId, name: 'SDK test', scopes: ['read'] }) });
+  expect(created.status).toBe(201);
+  const grant = await created.json();
+  const trace = [];
+  const transport = new StreamableHTTPClientTransport(new URL('https://example.com/mcp'), {
+    requestInit: { headers: { Authorization: `Bearer ${grant.token}` } },
+    fetch: async (input, init) => {
+      const request = new Request(input, init);
+      const method = request.method === 'POST' ? (await request.clone().json()).method : request.method;
+      const response = await worker.fetch(request, env);
+      trace.push([method, response.status]);
+      return response;
+    },
+  });
+  const client = new Client({ name: 'honmaru-official-sdk-proof', version: '1.0.0' });
+  try {
+    await client.connect(transport);
+    expect(client.getServerVersion().name).toBe('honmaru');
+    const listed = await client.listTools();
+    expect(listed.tools.some(tool => tool.name === 'list_members')).toBe(true);
+    expect(listed.tools.some(tool => tool.name === 'request_decision')).toBe(false);
+    const members = await client.callTool({ name: 'list_members', arguments: {} });
+    expect(members.isError).not.toBe(true);
+    expect(JSON.stringify(members)).toContain('SDK Proof');
+    const revoked = await route(`/tokens/${grant.id}?orgId=${encodeURIComponent(orgId)}`, { method: 'DELETE', headers: { 'x-session-token': session } });
+    expect(revoked.status).toBe(200);
+    await expect(client.listTools()).rejects.toThrow();
+    expect(trace).toContainEqual(['initialize', 200]);
+    expect(trace).toContainEqual(['notifications/initialized', 202]);
+    expect(trace).toContainEqual(['tools/call', 200]);
+    expect(trace).toContainEqual(['tools/list', 401]);
+    console.log('Official MCP SDK 1.32.2 HTTP transport evidence', JSON.stringify(trace));
+  } finally { await client.close(); }
+});

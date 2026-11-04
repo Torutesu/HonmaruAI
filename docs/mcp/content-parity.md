@@ -24,6 +24,6 @@ These tools use explicit connector scopes. Existing decision/Harness keys retain
 
 ## Integration
 
-Apply worker/mcp-content.sql to the existing Worker database. Mount handleMcpContentUpload behind the same authenticated MCP actor and workspace policy checks for PUT /mcp/uploads/:uploadId and GET /mcp/files/:fileId/content. The module never mints or impersonates a web session.
+The normal schema/migration deployment includes worker/mcp-content.sql tables. The Worker entry point mounts handleMcpContentUpload behind the same authenticated MCP actor, origin and workspace policy checks for PUT /mcp/uploads/:uploadId and GET /mcp/files/:fileId/content. The module never mints or impersonates a web session.
 
 Focused verification in worker/test/mcp-content.test.js passed 11 tests on 2026-11-04. The suite exercises real local D1/R2 operations for permissions, workspace file-search audience/access filtering before pagination, live-parent file access, authenticated uploads, concurrent request IDs, and stale canvas/list/record updates. The command was pnpm_config_verify_deps_before_run=false WRANGLER_LOG_PATH=/tmp/honmaru-content-wrangler pnpm exec vitest run test/mcp-content.test.js. This is local Worker evidence, not production deployment or external-client acceptance.
