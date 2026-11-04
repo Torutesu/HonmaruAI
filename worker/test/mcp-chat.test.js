@@ -7,7 +7,8 @@ import { upsertUser, upsertMembership, upsertBusiness } from '../src/db.js';
 import { postMessage } from '../src/channels.js';
 import { listMembers } from '../src/team.js';
 import { createApiToken } from '../src/mcp.js';
-import { runMinuteJobs } from '../src/later.js';
+import { uploadFile } from '../src/files.js';
+import { runMinuteJobs, cancelScheduled } from '../src/later.js';
 import sql from '../mcp-chat.sql?raw';
 
 const orgId = 'personal:mcp-chat';
@@ -192,4 +193,29 @@ test('channel and group creation retry without duplicating conversations', async
   const a = await call('create_conversation', groupArgs, expanded);
   const b = await call('create_conversation', groupArgs, expanded);
   expect(b.conversation.id).toBe(a.conversation.id);
+});
+
+
+test('cancelling a scheduled message in the web app prevents retry resurrection', async () => {
+  const args = { conversationId: 'b:general', body: 'cancel me', requestId: 'cancel-schedule-1', sendAt: new Date(Date.now() + 120000).toISOString() };
+  const first = await call('schedule_message', args);
+  expect(await cancelScheduled(env.DB, orgId, actor.login, first.scheduledMessage.id)).toBe(true);
+  await expect(call('schedule_message', args)).rejects.toThrow('was cancelled');
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM scheduled_messages WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
+});
+
+
+test('a valid upload is attached atomically and survives a send retry', async () => {
+  actor.scopes.push('files:write');
+  actor.tokenId = (await createApiToken(env.DB, { orgId, githubId: actor.githubId, name: 'files fixture', scopes: actor.scopes })).id;
+  const url = new URL('https://example.com/channels/files?name=hello.txt');
+  const response = await uploadFile(new Request(url, { method: 'POST', headers: { 'content-type': 'text/plain', 'content-length': '5' }, body: 'hello' }), env, url, { orgId, resolved: { key: 'b:general' }, login: actor.login });
+  expect(response.status).toBe(201);
+  const file = (await response.json()).file;
+  const args = { conversationId: 'b:general', body: 'attachment', requestId: 'attach-retry-1', fileIds: [file.id] };
+  const first = await call('send_message', args);
+  const second = await call('send_message', args);
+  expect(second.message.id).toBe(first.message.id);
+  expect(first.message.files.map(f => f.id)).toEqual([file.id]);
+  expect((await env.DB.prepare('SELECT message_id FROM message_files WHERE id=?1').bind(file.id).first()).message_id).toBe(first.message.id);
 });

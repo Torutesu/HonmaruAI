@@ -31,6 +31,7 @@ export async function scheduleMessage(db, { orgId, key, authorLogin, body, paren
   const agrees = row => row.channel === key && row.body === text && (row.parent_id || null) === (parentId || null) && Date.parse(row.send_at) === at && Boolean(row.also_channel) === Boolean(parentId && alsoChannel);
   const result = row => ({ scheduled: { id: row.id, body: row.body, sendAt: row.send_at, parentId: row.parent_id || null, ...(row.also_channel ? { alsoChannel: true } : {}) } });
   if (previous) return agrees(previous) ? result(previous) : { error: 'This requestId was already used with different scheduled message content.' };
+  if (mcpAuthority && await db.prepare('SELECT 1 FROM mcp_scheduled_authority WHERE scheduled_id=?1').bind(id).first()) return { error: 'This scheduled request was cancelled. Use a new requestId to schedule another message.' };
   if (!Number.isFinite(at)) return { error: "That time is not a time." };
   if (at < Date.now() + 30000) return { error: "Pick a time at least a minute from now." };
   if (at > Date.now() + MAX_AHEAD_DAYS * 86400000) return { error: `Pick a time within ${MAX_AHEAD_DAYS} days.` };

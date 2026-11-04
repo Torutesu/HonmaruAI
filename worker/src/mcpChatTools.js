@@ -10,7 +10,6 @@ import { groupFor, MAX_GROUP } from './access.js';
 import { announceTo } from './announce.js';
 import { custom as customEvent } from './agui/events.js';
 import { emitMessage } from './webhooks.js';
-import { audit } from './audit.js';
 
 const id = { type: 'string', minLength: 1, maxLength: 200 };
 const text = { type: 'string', maxLength: 4000 };
@@ -61,9 +60,6 @@ async function accessibleMessage(env, actor, messageId) {
   return { ...await resolveMcpConversation(env, actor, view), row };
 }
 const failResult = result => { if (result?.error) throw new McpInputError(result.error); return result; };
-async function auditWrite(env, request, actor, name, target) {
-  await audit(env, request, { orgId: actor.orgId, action: 'mcp.tool_write', actor: { type: 'user', id: actor.login, name: actor.name }, entity: { type: 'message', id: target }, details: { tool: name, tokenId: actor.tokenId, clientId: actor.clientId || null } });
-}
 
 export async function callChatTool(env, actor, name, args = {}, request = null, ctx = null) {
   const tool = CHAT_TOOLS.find(item => item.name === name);
@@ -115,7 +111,6 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
       }
       const { broadcastStored } = await import('./channelRoutes.js');
       await broadcastStored(env, actor.orgId, context.resolved.key, context.row, { liveOnly: true });
-      await auditWrite(env, request, actor, name, context.row.id);
     }
     const [message] = await present(env.DB, actor.orgId, [context.row], actor.login, context.view, context.members);
     return mcpResult(name === 'get_message' ? { message: decorate(env, actor, [message])[0] } : { messageId: message.id, reactions: message.reactions });
@@ -170,7 +165,6 @@ async function send(env, actor, name, args, context, request, ctx) {
     const membership = await env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(actor.orgId, actor.githubId).first();
     const result = failResult(await scheduleMessage(env.DB, { orgId: actor.orgId, key: context.resolved.key, authorLogin: actor.login, body: args.body, parentId: args.threadId, sendAt: args.sendAt,
       mcpAuthority: { requestId: clientId, tokenId: actor.grantId ? null : actor.tokenId, grantId: actor.grantId || null, userId: actor.githubId, membershipSince: membership.created_at } }));
-    await auditWrite(env, request, actor, name, result.scheduled.id);
     return mcpResult({ scheduledMessage: { ...result.scheduled, conversationId: context.view } });
   }
   if (args.fileIds?.length) {
@@ -189,7 +183,6 @@ async function send(env, actor, name, args, context, request, ctx) {
   const { deliverAcceptedMessages } = await import('./channelRoutes.js');
   const deliver = async () => { await Promise.all(['live', 'push'].map(kind => deliverAcceptedMessages(env, { kind, orgId: actor.orgId, messageId: out.row.id }))); if (!out.replay) await emitMessage(env, actor.orgId, out.row); };
   if (ctx?.waitUntil) ctx.waitUntil(deliver()); else await deliver();
-  await auditWrite(env, request, actor, name, out.row.id);
   const [message] = await present(env.DB, actor.orgId, [out.row], actor.login, context.view, context.members);
   return mcpResult({ message: decorate(env, actor, [message])[0], replayed: Boolean(out.replay) });
 }
@@ -202,7 +195,6 @@ async function createConversation(env, actor, args, request) {
     if (args.private) requireMcpScope(actor, 'chat:private');
     const result = failResult(await createManagedRoom(env.DB, actor.orgId, actor.githubId, { requestId: key, name: args.name || '', private: Boolean(args.private), color: 'blue', guidelines: '', memberRefs: refs, agentIds: [] }));
     if (result.created) await announceTo(env, actor.orgId, await Promise.all(context.members.map(async member => ({ to: member.login, event: customEvent('businesses', { businesses: await listBusinesses(env.DB, actor.orgId, { viewer: member.login }) }) }))));
-    await auditWrite(env, request, actor, 'create_conversation', result.room.channel);
     return mcpResult({ conversation: { id: result.room.channel, name: result.room.name, type: 'channel', private: Boolean(args.private) }, created: result.created });
   }
   requireMcpScope(actor, 'chat:dm');
