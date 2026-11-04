@@ -23,7 +23,9 @@ import { isGuest, accessFor } from "./access.js";
 import { remoteMcpTools } from "./harness/remoteMcp.js";
 
 export const MCP_PROTOCOL = "2025-11-25";
-const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
+// 2024-11-05 stays: clients that only know it were answered with it before
+// this connector, and every reply here is a superset they ignore the rest of.
+const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 export const MAX_TOKENS_PER_PERSON = 10;
 const TOKEN_PREFIX = "hm_";
 
@@ -469,6 +471,8 @@ export function serverCard() {
 export function mcpOriginAllowed(request, env) {
   const origin = request.headers.get("origin");
   if (!origin) return true;
+  // The documented way back for browser clients (cors.js) covers /mcp too.
+  if (String(env?.CORS_ENFORCE || "").toLowerCase() === "off") return true;
   if (origin === new URL(request.url).origin || allowedOrigins(env).has(origin)) return true;
   return String(env.MCP_CORS_ORIGINS || "").split(/[\s,]+/).includes(origin);
 }

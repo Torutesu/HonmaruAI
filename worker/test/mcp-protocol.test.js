@@ -16,7 +16,7 @@ const rpc = (body, headers = {}) => worker.fetch(new Request('https://example.co
 }), env);
 
 test('negotiates current transport while retaining older supported clients', async () => {
-  for (const version of ['2025-11-25', '2025-06-18', '2025-03-26']) {
+  for (const version of ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']) {
     const response = await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: version, capabilities: {}, clientInfo: { name: 'test', version: '1' } } });
     expect((await response.json()).result.protocolVersion).toBe(version);
   }

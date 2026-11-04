@@ -195,7 +195,7 @@ async function send(env, actor, name, args, context, request, ctx) {
   const out = failResult(await acceptConversationMessage(env, { orgId: actor.orgId, user: context.user, resolved: context.resolved, body, prepared, conversationActorId: String(actor.githubId), mcpAuthority: { tokenId: actor.grantId ? null : actor.tokenId, grantId: actor.grantId || null, scope: 'chat:write' } }));
   const normalized = args.body.replace(/\r\n/g, '\n').trim();
   const fileIds = (await env.DB.prepare('SELECT id FROM message_files WHERE org_id=?1 AND message_id=?2 ORDER BY id').bind(actor.orgId, out.row.id).all()).results.map(row => row.id);
-  if (out.row.channel !== context.resolved.key || out.row.body !== normalized || (out.row.parent_id || null) !== (args.threadId || null) || (out.row.reply_to_id || null) !== (args.replyToMessageId || null) || JSON.stringify(fileIds) !== JSON.stringify([...(args.fileIds || [])].sort())) throw new McpInputError('This requestId was already used with different message content.');
+  if (out.row.channel !== context.resolved.key || out.row.body !== normalized || (out.row.parent_id || null) !== (args.threadId || null) || (out.row.reply_to_id || null) !== (args.replyToMessageId || null) || JSON.stringify(fileIds) !== JSON.stringify([...new Set(args.fileIds || [])].sort())) throw new McpInputError('This requestId was already used with different message content.');
   const { deliverAcceptedMessages } = await import('./channelRoutes.js');
   const deliver = async () => { await Promise.all(['live', 'push'].map(kind => deliverAcceptedMessages(env, { kind, orgId: actor.orgId, messageId: out.row.id }))); if (!out.replay) await emitMessage(env, actor.orgId, out.row); };
   if (ctx?.waitUntil) ctx.waitUntil(deliver()); else await deliver();

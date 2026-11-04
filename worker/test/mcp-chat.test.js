@@ -220,6 +220,18 @@ test('a valid upload is attached atomically and survives a send retry', async ()
   expect((await env.DB.prepare('SELECT message_id FROM message_files WHERE id=?1').bind(file.id).first()).message_id).toBe(first.message.id);
 });
 
+test('a file named twice is attached once, and the send reports success rather than a reused requestId', async () => {
+  actor.scopes.push('files:write', 'files:read');
+  actor.tokenId = (await createApiToken(env.DB, { orgId, githubId: actor.githubId, name: 'files fixture', scopes: actor.scopes })).id;
+  const url = new URL('https://example.com/channels/files?name=twice.txt');
+  const response = await uploadFile(new Request(url, { method: 'POST', headers: { 'content-type': 'text/plain', 'content-length': '5' }, body: 'twice' }), env, url, { orgId, resolved: { key: 'b:general' }, login: actor.login });
+  const file = (await response.json()).file;
+  const args = { conversationId: 'b:general', body: 'twice', requestId: 'attach-twice-1', fileIds: [file.id, file.id] };
+  const first = await call('send_message', args);
+  expect(first.message.files.map(f => f.id)).toEqual([file.id]);
+  expect((await call('send_message', args)).message.id).toBe(first.message.id);
+});
+
 
 test.each(['deleted', 'missing', 'other-channel'])('orphan replies with %s parents cannot be read or reacted to', async parentState => {
   const visible = await seed('b:general', 'needle visible');

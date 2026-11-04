@@ -55,4 +55,6 @@ test("public health remains readable while MCP browser clients require an explic
 
 test("CORS_ENFORCE=off is the way back", async () => {
   expect((await ask("/me", "https://evil.example", {}, undefined, { ...env, CORS_ENFORCE: "off" })).headers.get("access-control-allow-origin")).toBe("*");
+  // MCP browser clients too, which are otherwise held to an explicit origin.
+  expect((await ask("/mcp", "https://inspector.example", { method: "OPTIONS" }, undefined, { ...env, CORS_ENFORCE: "off" })).status).toBe(204);
 });
