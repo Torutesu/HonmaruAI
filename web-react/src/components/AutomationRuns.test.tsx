@@ -1,7 +1,7 @@
 import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {expect,test,vi} from 'vitest'
-import {t} from '../utils/i18n'
+import {changeLocale,localeReady,t} from '../utils/i18n'
 import {AutomationRuns} from './AutomationRuns'
 const refresh=(tree:any)=>tree.root.findAllByType('button').find((button:any)=>button.props['aria-pressed']===undefined)
 test('execution history loads on demand and exposes failed step details',async()=>{
@@ -109,18 +109,18 @@ test('embedded app history presents a safety pause and resumes with its observed
  const resumeWorkflow=vi.fn().mockResolvedValue({});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow,resumeWorkflow}as any}/>)})
  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
- expect(JSON.stringify(tree.toJSON())).toContain('3回連続の失敗')
- const resume=tree.root.findAllByType('button').find((b:any)=>b.children.includes('確認して再開'))
+ expect(JSON.stringify(tree.toJSON())).toContain(t('Paused after three consecutive failures'))
+ const resume=tree.root.findAllByType('button').find((b:any)=>b.children.includes(t('Resume after review')))
  await act(async()=>resume.props.onClick())
  expect(resumeWorkflow).toHaveBeenCalledWith('wf','seen')
- expect(JSON.stringify(tree.toJSON())).not.toContain('3回連続の失敗')
+ expect(JSON.stringify(tree.toJSON())).not.toContain(t('Paused after three consecutive failures'))
  act(()=>tree.unmount())
 })
 test('embedded history never offers a resume action to a reader',async()=>{
  const workflow=vi.fn().mockResolvedValue({runs:[],workflow:{safety:{generation:'seen',paused_at:'now'}},canEdit:false});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
- expect(JSON.stringify(tree.toJSON())).toContain('3回連続の失敗')
+ expect(JSON.stringify(tree.toJSON())).toContain(t('Paused after three consecutive failures'))
  expect(tree.root.findAllByType('button')).toHaveLength(1)
  act(()=>tree.unmount())
 })
@@ -177,4 +177,46 @@ test('execution history distinguishes verified revisions from unknown provenance
  expect(rendered).toContain(t('Version not recorded'))
  expect(rendered).toContain(t('Original definition snapshot unavailable'))
  act(()=>tree.unmount())
+})
+
+
+test.each([
+ ['en','consecutive_failures','Paused after three consecutive failures','Review the failed runs below before resuming. Held events will not replay automatically.','Resume after review'],
+ ['ja','consecutive_failures','3回連続の失敗により自動停止しました','下の実行履歴で失敗内容を確認してから再開してください。保留イベントは自動再生されません。','確認して再開'],
+ ['en','budget_daily','Paused by run budget','Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.',null],
+ ['ja','budget_daily','実行回数の上限で停止中','使用量の対象期間と上限設定を確認してください。すべての上限の停止条件が解消すると、次のトリガーから実行できます。',null],
+ ['en','budget_ai_24h','Paused by estimated AI usage budget','Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.',null],
+ ['ja','budget_ai_24h','AI使用量の概算上限で停止中','使用量の対象期間と上限設定を確認してください。すべての上限の停止条件が解消すると、次のトリガーから実行できます。',null],
+ ['en','budget_ai_unpriced','Paused by estimated AI usage budget','Some AI usage could not be priced. Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.',null],
+ ['ja','budget_ai_unpriced','AI使用量の概算上限で停止中','AI使用量の一部の単価を判定できませんでした。使用量の対象期間と上限設定を確認してください。すべての上限の停止条件が解消すると、次のトリガーから実行できます。',null],
+])('safety pause is localized in %s for %s',async(locale,reason,title,description,resumeLabel)=>{
+ const storage=new Map<string,string>()
+ vi.stubGlobal('localStorage',{getItem:(key:string)=>storage.get(key)||null,setItem:(key:string,value:string)=>storage.set(key,value),removeItem:(key:string)=>storage.delete(key)})
+ const safety={generation:'observed',paused_at:'now',pause_reason:reason}
+ const workflow=vi.fn().mockResolvedValue({runs:[],workflow:{safety},canEdit:true})
+ const resumeWorkflow=vi.fn().mockResolvedValue({})
+ let tree:any
+ try {
+  await act(async()=>{changeLocale(locale);await localeReady();tree=create(<AutomationRuns workflowId="wf" api={{workflow,resumeWorkflow}as any}/>)})
+  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+  const status=tree.root.findAllByProps({role:'status'}).find((node:any)=>node.type==='section')
+  expect(status.findByType('strong').children.join('')).toBe(title)
+  expect(status.findByType('p').children.join('')).toBe(description)
+  const buttons=status.findAllByType('button')
+  if(resumeLabel){expect(buttons).toHaveLength(1);expect(buttons[0].children.join('')).toBe(resumeLabel);await act(async()=>buttons[0].props.onClick());expect(resumeWorkflow).toHaveBeenCalledWith('wf','observed')}
+  else {expect(buttons).toHaveLength(0);expect(resumeWorkflow).not.toHaveBeenCalled()}
+ } finally {if(tree)act(()=>tree.unmount());changeLocale('en');vi.unstubAllGlobals()}
+})
+
+test('a reader never gets the localized resume action',async()=>{
+ const storage=new Map<string,string>()
+ vi.stubGlobal('localStorage',{getItem:(key:string)=>storage.get(key)||null,setItem:(key:string,value:string)=>storage.set(key,value),removeItem:(key:string)=>storage.delete(key)})
+ let tree:any
+ try {
+  await act(async()=>{changeLocale('ja');await localeReady();tree=create(<AutomationRuns workflowId="wf" api={{workflow:vi.fn().mockResolvedValue({runs:[],workflow:{safety:{generation:'seen',paused_at:'now',pause_reason:'consecutive_failures'}},canEdit:false})}as any}/>)})
+  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+  const status=tree.root.findAllByProps({role:'status'}).find((node:any)=>node.type==='section')
+  expect(status.findByType('strong').children.join('')).toBe('3回連続の失敗により自動停止しました')
+  expect(status.findAllByType('button')).toHaveLength(0)
+ } finally {if(tree)act(()=>tree.unmount());changeLocale('en');vi.unstubAllGlobals()}
 })
