@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { AppView, HarnessApps, HarnessTemplateImport, appTableDisplayName, newAppRecordLabel } from './Harness'
 import { HarnessApiError, harnessApi } from '../utils/harness'
 import { systemCellText } from '../utils/systemColumns'
+import { AppRecordDialog } from '../components/AppRecordDialog'
 
 const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async importOriginal => ({
@@ -15,6 +16,7 @@ vi.mock('../utils/i18n', () => {
   return { useT: () => identity }
 })
 vi.mock('../utils/appPins', () => ({ useAppPins: () => ({ pins: [], toggle: vi.fn() }) }))
+vi.mock('../components/AppRecordDialog',()=>({AppRecordDialog:()=>null}))
 let finish: (value: any) => void
 let tree: ReturnType<typeof create> | undefined
 test('new record labels use the primary table when its title differs from the app',()=>{
@@ -521,6 +523,8 @@ test('the app data viewer keeps one record-create action in the table toolbar', 
   expect(createActions[0].props['aria-label']).toBe('新規タスク')
   expect(tree!.root.findAllByType('h2').some(node => node.children.includes('タスク'))).toBe(true)
   expect(tree!.root.findAllByType('button').some(node => node.children.includes('Add a row'))).toBe(false)
+  act(()=>createActions[0].props.onClick())
+  expect(tree!.root.findByType(AppRecordDialog).props.createTitle).toBe('新規タスク')
 })
 test('a shared personal-looking ID and a legacy collision offer safe personal-only recovery',async()=>{
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
