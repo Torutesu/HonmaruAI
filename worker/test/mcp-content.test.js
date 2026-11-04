@@ -155,3 +155,74 @@ test('concurrent request IDs create one list and changed input never reuses its 
   const replay = await run('create_list', { requestId: input.requestId, columns: input.columns, name: input.name });
   expect(replay.list.name).toBe('Once');
 });
+
+test('workspace file search applies audience and current access before pagination', async () => {
+  const now = new Date().toISOString();
+  await upsertUser(env.DB, { githubId: '7103', login: 'u:three@example.test', name: 'Three', locale: 'en' });
+  await upsertMembership(env.DB, orgId, '7103', 'member');
+  await env.DB.prepare("INSERT INTO businesses (org_id,slug,name,private,created_at) VALUES (?1,'other-private','Other private',1,?2)").bind(orgId, now).run();
+  await env.DB.prepare("INSERT INTO conversation_members (org_id,channel,login,added_at) VALUES (?1,'g:mine',?2,?3)").bind(orgId, actor.login, now).run();
+  const fixtures = [
+    ['01-private-nonmember', 'b:other-private'],
+    ['02-other-dm', 'dm:u:three@example.test|u:two@example.test'],
+    ['03-other-group', 'g:other'],
+    ['04-private', 'b:private'],
+    ['05-dm', 'dm:u:one@example.test|u:two@example.test'],
+    ['06-group', 'g:mine'],
+    ['07-public', 'b:general'],
+    ['08-public', 'b:general'],
+  ];
+  for (const [id, channel] of fixtures) {
+    await env.DB.prepare('INSERT INTO channel_messages (id,org_id,channel,author_login,body,created_at) VALUES (?1,?2,?3,?4,?1,?5)').bind(id, orgId, channel, actor.login, now).run();
+    await env.DB.prepare("INSERT INTO message_files (id,org_id,channel,message_id,uploader,name,type,size,created_at) VALUES (?1,?2,?3,?1,?4,?1,'text/plain',1,?5)").bind(id, orgId, channel, actor.login, now).run();
+  }
+  const cases = [
+    [[], ['07-public', '08-public']],
+    [['chat:private'], ['04-private', '07-public', '08-public']],
+    [['chat:dm'], ['05-dm', '06-group', '07-public', '08-public']],
+    [['chat:private', 'chat:dm'], ['04-private', '05-dm', '06-group', '07-public', '08-public']],
+  ];
+  for (const [scopes, expected] of cases) {
+    const who = { ...actor, scopes: [...actor.scopes, ...scopes] };
+    const found = [];
+    let cursor;
+    do {
+      const result = await run('search_files', { limit: 1, ...(cursor ? { cursor } : {}) }, who);
+      expect(result.files).toHaveLength(1);
+      expect(JSON.stringify(result)).not.toContain('@example.test');
+      found.push(result.files[0].id);
+      cursor = result.nextCursor;
+      expect(found.length).toBeLessThanOrEqual(expected.length);
+    } while (cursor);
+    expect(found).toEqual(expected);
+  }
+  const all = { ...actor, scopes: [...actor.scopes, 'chat:private', 'chat:dm'] };
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel IN ('b:private','g:mine')").bind(orgId).run();
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, '7102').run();
+  expect((await run('search_files', {}, all)).files.map(file => file.id)).toEqual(['07-public', '08-public']);
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, actor.githubId).run();
+  await expect(run('search_files', {}, all)).rejects.toThrow('Workspace access');
+});
+
+test('workspace file search excludes deleted sources, missing parents and other users unshared uploads', async () => {
+  const now = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,body,created_at,deleted_at) VALUES ('gone-parent',?1,'b:general',?2,'deleted',?3,?3)").bind(orgId, actor.login, now).run();
+  const fixtures = [
+    ['01-deleted', null, now],
+    ['02-orphan', 'missing-parent', null],
+    ['03-deleted-parent', 'gone-parent', null],
+    ['04-alive', null, null],
+  ];
+  for (const [id, parent, deleted] of fixtures) {
+    await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,body,created_at,parent_id,deleted_at) VALUES (?1,?2,'b:general',?3,?1,?4,?5,?6)").bind(id, orgId, actor.login, now, parent, deleted).run();
+    await env.DB.prepare("INSERT INTO message_files (id,org_id,channel,message_id,uploader,name,type,size,created_at) VALUES (?1,?2,'b:general',?1,?3,?1,'text/plain',1,?4)").bind(id, orgId, actor.login, now).run();
+  }
+  for (const [id, uploader] of [['00-other-upload', 'u:two@example.test'], ['05-own-upload', actor.login]]) {
+    await env.DB.prepare("INSERT INTO message_files (id,org_id,channel,uploader,name,type,size,created_at) VALUES (?1,?2,'b:general',?3,?1,'text/plain',1,?4)").bind(id, orgId, uploader, now).run();
+  }
+  const first = await run('search_files', { limit: 1 });
+  expect(first.files.map(file => file.id)).toEqual(['04-alive']);
+  const next = await run('search_files', { limit: 1, cursor: first.nextCursor });
+  expect(next.files.map(file => file.id)).toEqual(['05-own-upload']);
+  expect(next.nextCursor).toBeNull();
+});

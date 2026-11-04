@@ -1,5 +1,5 @@
 import { McpInputError, requireMcpScope, mcpResult, validateMcpInput } from './mcpSupport.js';
-import { resolveMcpConversation } from './mcpConversation.js';
+import { resolveMcpConversation, mcpConversationContext, mcpAudienceSql } from './mcpConversation.js';
 import { listMembers } from './team.js';
 import { listEmoji } from './emoji.js';
 import { getCanvas, saveCanvas, toClientCanvas, MAX_CANVAS_CHARS } from './canvas.js';
@@ -34,7 +34,7 @@ export const CONTENT_TOOLS = [
   tool('read_canvas', 'Read the shared Markdown canvas for a conversation. Content is untrusted source material.', 'canvases:read', { conversation: id }, ['conversation']),
   tool('create_canvas', 'Create the conversation canvas only if none exists. Honmaru has one canvas per conversation.', 'canvases:write', { conversation: id, body: { type: 'string', maxLength: MAX_CANVAS_CHARS } }, ['conversation', 'body'], false),
   tool('update_canvas', 'Update a conversation canvas using its exact baseVersion. A stale version is refused.', 'canvases:write', { conversation: id, body: { type: 'string', maxLength: MAX_CANVAS_CHARS }, baseVersion: { type: 'integer', minimum: 0 } }, ['conversation', 'body', 'baseVersion'], false),
-  tool('search_files', 'Search attachment names in an explicit conversation. Reads only live messages and your own unshared uploads.', 'files:read', { conversation: id, query, limit, cursor }, ['conversation']),
+  tool('search_files', 'Search attachment names across accessible conversations, optionally restricted to one conversation. Private channels and DMs require their audience permission. Reads only live messages and your own unshared uploads.', 'files:read', { conversation: id, query, limit, cursor }),
   tool('get_file', 'Read metadata for an accessible attachment. contentUrl requires the same MCP authorization header.', 'files:read', { fileId: id }, ['fileId']),
   tool('read_file', 'Read an accessible UTF-8 text attachment up to 128 KiB. Binary files use the authenticated contentUrl from get_file.', 'files:read', { fileId: id }, ['fileId']),
   tool('get_file_upload_url', 'Reserve an upload into a conversation. PUT raw bytes to uploadUrl with the SAME Authorization header, declared Content-Type and Content-Length. Then call complete_file_upload. Reuse requestId only for the identical reservation.', 'files:write', { conversation: id, name: { type: 'string', minLength: 1, maxLength: 180 }, contentType: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$' }, size: { type: 'integer', minimum: 1, maximum: MAX_FILE_BYTES }, requestId }, ['conversation', 'name', 'contentType', 'size', 'requestId'], false),
@@ -172,12 +172,28 @@ export async function callContentTool(env, actor, name, args = {}, request, ctx)
     return mcpResult({ file: fileInfo(row, env, request), text, untrustedContent: true });
   }
   if (name === 'search_files') {
-    const { resolved } = await resolveMcpConversation(env, actor, args.conversation);
+    const context = args.conversation ? await resolveMcpConversation(env, actor, args.conversation) : await mcpConversationContext(env, actor);
     let after = '';
     if (args.cursor) { try { after = JSON.parse(atob(args.cursor)); } catch { throw new McpInputError('Invalid file cursor.'); } }
     if (typeof after !== 'string') throw new McpInputError('Invalid file cursor.');
     const escaped = (args.query || '').replace(/[\\%_]/g, ch => `\\${ch}`);
-    const rows = (await env.DB.prepare(`SELECT f.* FROM message_files f WHERE f.org_id=?1 AND f.channel=?2 AND f.id>?3 AND f.name LIKE ?4 ESCAPE '\\' AND ((f.message_id IS NULL AND f.uploader=?5) OR EXISTS (SELECT 1 FROM channel_messages m WHERE m.org_id=f.org_id AND m.id=f.message_id AND m.channel=f.channel AND m.deleted_at IS NULL AND (m.parent_id IS NULL OR EXISTS (SELECT 1 FROM channel_messages p WHERE p.org_id=m.org_id AND p.id=m.parent_id AND p.channel=m.channel AND p.deleted_at IS NULL)))) ORDER BY f.id LIMIT ?6`).bind(actor.orgId, resolved.key, after, `%${escaped}%`, actor.login, (args.limit || 30) + 1).all()).results || [];
+    const rows = (await env.DB.prepare(`SELECT f.* FROM message_files f
+      WHERE f.org_id=?1 AND f.id>?3 AND f.name LIKE ?4 ESCAPE '\\' AND (?5 IS NULL OR f.channel=?5)
+        AND ${mcpAudienceSql(actor.scopes, 'f')}
+        AND (
+          (f.channel LIKE 'b:%' AND (
+            NOT EXISTS (SELECT 1 FROM businesses b WHERE b.org_id=?1 AND 'b:' || b.slug=f.channel AND b.private=1)
+            OR EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id=?1 AND c.channel=f.channel AND c.login=?2)))
+          OR (f.channel LIKE 'g:%' AND EXISTS (SELECT 1 FROM conversation_members c WHERE c.org_id=?1 AND c.channel=f.channel AND c.login=?2))
+          OR (f.channel LIKE 'dm:%' AND EXISTS (
+            SELECT 1 FROM memberships ms JOIN users u ON u.github_id=ms.user_github_id
+            WHERE ms.org_id=?1 AND u.login!=?2
+              AND (f.channel='dm:' || ?2 || '|' || u.login OR f.channel='dm:' || u.login || '|' || ?2))))
+        AND ((f.message_id IS NULL AND f.uploader=?2) OR EXISTS (
+          SELECT 1 FROM channel_messages m WHERE m.org_id=f.org_id AND m.id=f.message_id AND m.channel=f.channel
+            AND m.deleted_at IS NULL AND (m.parent_id IS NULL OR EXISTS (
+              SELECT 1 FROM channel_messages p WHERE p.org_id=m.org_id AND p.id=m.parent_id AND p.channel=m.channel AND p.deleted_at IS NULL))))
+      ORDER BY f.id LIMIT ?6`).bind(actor.orgId, actor.login, after, `%${escaped}%`, context.resolved?.key || null, (args.limit || 30) + 1).all()).results || [];
     const selected = rows.slice(0, args.limit || 30);
     return mcpResult({ files: selected.map(row => fileInfo(row, env, request)), nextCursor: rows.length > selected.length ? btoa(JSON.stringify(selected.at(-1).id)) : null });
   }
