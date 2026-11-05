@@ -132,14 +132,22 @@ test("a workflow run persists only the credential source selected at admission",
     // Its unknown source must not be confused with an explicit new-run pin.
     await env.DB.prepare("UPDATE hx_workflow_runs SET credential_source='unknown',status='running',card_id=NULL WHERE id=?1").bind(run.id).run();
     let authorization;
-    fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
-      .reply(200, opts => {
-        authorization = opts.headers?.authorization || opts.headers?.Authorization;
-        return { choices: [{ message: { content: "LEGACY CONTINUED" } }], usage: { prompt_tokens: 4, completion_tokens: 2 } };
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_url, init) => {
+      authorization = init.headers?.Authorization || init.headers?.authorization;
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: "LEGACY CONTINUED" } }],
+        usage: { prompt_tokens: 4, completion_tokens: 2 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    let resumed;
+    try {
+      resumed = await continueRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
+        orgId: credentialOrg, runId: run.id, workflow,
       });
-    const resumed = await continueRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
-      orgId: credentialOrg, runId: run.id, workflow,
-    });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
     expect(resumed.status, JSON.stringify(resumed.log)).toBe("done");
     expect(resumed.log.at(-1).output).toBe("LEGACY CONTINUED");
     expect(authorization).toBe("Bearer sk-workspace-credential-source-test");
