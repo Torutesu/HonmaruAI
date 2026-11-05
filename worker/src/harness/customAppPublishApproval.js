@@ -49,7 +49,7 @@ export async function consumeCustomPublishApproval(db, orgId, app, by, definitio
   const state=await customPublishState(db,orgId,app);
   if(!state.policy.enabled) return {enabled:false};
   const approval=state.approval;
-  if(!approval || approval.status!=="approved" || approval.consumedAt || String(approval.requestedBy)===String(by) || String(approval.reviewerId)===String(by) || Number(approval.draftVersion)!==app.version || approval.sourceHash!==state.sourceHash || approval.scope!==CUSTOM_PUBLISH_SCOPE) return {error:"An independent Owner or Admin must approve this exact saved draft before publishing.",status:409};
+  if(!approval || approval.status!=="approved" || approval.consumedAt || String(approval.reviewerId)===String(by) || Number(approval.draftVersion)!==app.version || approval.sourceHash!==state.sourceHash || approval.scope!==CUSTOM_PUBLISH_SCOPE) return {error:"An independent Owner or Admin must approve this exact saved draft before publishing.",status:409};
   const attemptId=crypto.randomUUID();
   definition.custom={...definition.custom,publishedApprovalId:approval.id,publishedApprovalAttempt:attemptId};
   const update=await db.batch([
