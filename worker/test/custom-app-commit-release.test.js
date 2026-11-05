@@ -181,7 +181,7 @@ test('reviewer membership loss permanently revokes an approval even after access
   vi.stubGlobal('fetch',githubFetch());
   const app=await makeApp();
   const imported=await (await importCommit(app)).json();
-  const request=await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:imported.version});
+  const request=await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:imported.version,commit:imported.commit,sourceHash:imported.commit.sourceHash});
   const approval=(await request.json()).approval;
   expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:imported.version,commitSha,sourceHash:imported.commit.sourceHash})).status).toBe(200);
   await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG,'9103').run();
