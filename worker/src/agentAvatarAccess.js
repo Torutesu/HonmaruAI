@@ -52,8 +52,8 @@ const signedId = (mediaId, agentId, viewerId, rev) => mediaId + "\n" + agentId +
 
 async function agentsForMedia(db, mediaId, agentId = "") {
   const query = agentId
-    ? db.prepare("SELECT id,org_id,scope,owner_login,avatar_url FROM custom_agents WHERE id=?1 AND deleted_at IS NULL AND avatar_url LIKE ?2").bind(agentId, "%/agents/avatar/" + mediaId)
-    : db.prepare("SELECT id,org_id,scope,owner_login,avatar_url FROM custom_agents WHERE deleted_at IS NULL AND avatar_url LIKE ?1").bind("%/agents/avatar/" + mediaId);
+    ? db.prepare("SELECT id,org_id,scope,owner_login,avatar_url FROM custom_agents WHERE id=?1 AND deleted_at IS NULL AND instr(avatar_url, '/agents/avatar/' || ?2)>0").bind(agentId, mediaId)
+    : db.prepare("SELECT id,org_id,scope,owner_login,avatar_url FROM custom_agents WHERE deleted_at IS NULL AND instr(avatar_url, '/agents/avatar/' || ?1)>0").bind(mediaId);
   const { results } = await query.all();
   return (results || []).filter((row) => mediaIdFrom(row.avatar_url) === mediaId);
 }
