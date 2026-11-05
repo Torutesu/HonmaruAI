@@ -1149,7 +1149,10 @@ export async function handleHarness(request, env, url, context = {}) {
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
     if (sub === 'hosting' && parts.length === 3) {
       const canManage = await mayChange(env, orgId, who, app.createdBy);
-      if (request.method === 'GET') return json(await readAppHosting(env.DB, env, orgId, appId));
+      if (request.method === 'GET') {
+        if (!canManage) return json({ message: 'Only its maker or an admin can read app hosting settings.' }, 403);
+        return json(await readAppHosting(env.DB, env, orgId, appId));
+      }
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
       if (!canManage) return json({ message: 'Only its maker or an admin can change app hosting.' }, 403);
       const result = await changeAppHosting(env.DB, env, orgId, app, input || {}, me);

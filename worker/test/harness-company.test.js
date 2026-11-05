@@ -24,6 +24,24 @@ beforeEach(async()=>{
  app=(await (await call('/apps',owner,{name:'Tasks',columns:[{name:'Task',type:'text'}]})).json()).app;
 });
 afterEach(()=>fetchMock.deactivate());
+
+test('public domain attach requires an affirmative confirmation at the API',async()=>{
+ for(const publicDataConfirmed of [undefined,false]){
+  const input={action:'attach',hostname:'tools.example.com',...(publicDataConfirmed===undefined?{}:{publicDataConfirmed})};
+  const response=await run('hosting',input);
+  expect(response.status).toBe(409);
+  expect((await response.json()).message).toMatch(/公開|確認/);
+ }
+});
+
+test('non-managers cannot read app hosting or environment variable names',async()=>{
+ const dataKey=btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
+ const saved=await worker.fetch(new Request(`https://example.com/apps/${app.id}/hosting`,{method:'POST',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,action:'set_env',name:'API_TOKEN',value:'private-value',version:0})}),{...env,DATA_KEY:dataKey});
+ expect(saved.status).toBe(200);
+ const response=await run('hosting',undefined,member);
+ expect(response.status).toBe(403);
+ expect(JSON.stringify(await response.json())).not.toContain('API_TOKEN');
+});
 test('migration replay, conflict, partial failure and private entity ACL',async()=>{
  const operations=[{op:'create_entity',entity:'customers',name:'Customers',columns:[{name:'Name',type:'text'}]},{op:'add_columns',entity:'primary',columns:[{name:'Amount',type:'number'}]}];
  const req={action:'migrate',id:'customers_v1',version:0,operations};
