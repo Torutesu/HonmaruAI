@@ -42,6 +42,7 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
   await addRun("mixed-credentials",{sources:[0,1]});
   await addRun("no-ai-usage");
   await addRun("zero-usage-deployment",{credentialSource:"deployment"});
+  await addRun("legacy-deployment",{credentialSource:"unknown",sources:[0]});
   await addRun("code-only",{credentialSource:"none"});
   await addRun("already-done",{status:"done",sources:[0]});
   await addRun("other-workspace",{orgId:"other",sources:[0]});
@@ -74,6 +75,7 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
   const rows = Object.fromEntries(results.map(row=>[row.id,row]));
   expect(rows.deployment.status).toBe("cancelled");
   expect(rows["zero-usage-deployment"].status).toBe("cancelled");
+  expect(rows["legacy-deployment"].status).toBe("cancelled");
   expect(rows.deployment.finished_at).toBeTruthy();
   expect(JSON.parse(rows.deployment.log).at(-1)).toMatchObject({status:"cancelled",reason:"workspace_budget_exceeded"});
   for (const id of ["workspace-key","mixed-credentials","no-ai-usage","code-only","already-done","other-workspace"]) {
