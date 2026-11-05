@@ -378,3 +378,6 @@ ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
 ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN app_id TEXT;
+
+ALTER TABLE hx_memory_scopes ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE hx_memory_review_audit ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT '';
