@@ -37,10 +37,10 @@ export async function clientAgentAvatarUrl(env, orgId, agent, login) {
   const current = await currentAccess(env.DB, orgId, agent.id, login);
   if (!restricted(agent, current.profile)) return agent.avatarUrl;
   if (!current.member || !await mayAccessAgent(env.DB, orgId, agent, login)) return null;
-  const signed = await signedQuery(env, "a1", orgId, signedId(mediaId, agent.id, login, revision(current)));
+  const viewerId = String(current.member.github_id);\n  const signed = await signedQuery(env, "a1", orgId, signedId(mediaId, agent.id, viewerId, revision(current)));
   if (!signed) return null;
   const url = new URL(agent.avatarUrl);
-  url.search = `agent=${encodeURIComponent(agent.id)}&viewer=${encodeURIComponent(login)}&${signed.query}`;
+  url.search = `agent=${encodeURIComponent(agent.id)}&viewer=${encodeURIComponent(viewerId)}&${signed.query}`;
   return url.toString();
 }
 
