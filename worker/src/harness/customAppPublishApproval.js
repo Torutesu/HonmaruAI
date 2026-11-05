@@ -40,7 +40,7 @@ export async function reviewCustomPublishApproval(db, orgId, app, input, reviewe
   const decision=input.decision;
   if(!["approve","reject"].includes(decision)) return {error:"Choose approve or reject.",status:400};
   const status=decision==="approve"?"approved":"rejected", at=new Date().toISOString();
-  const result=await db.prepare("UPDATE hx_app_publish_approvals SET status=?1,reviewer_id=?2,reviewed_at=?3 WHERE id=?4 AND org_id=?5 AND app_id=?6 AND status='pending' AND draft_version=?7 AND source_hash=?8 AND scope=?9").bind(status,String(reviewerId),at,approval.id,orgId,app.id,app.version,state.sourceHash,CUSTOM_PUBLISH_SCOPE).run();
+  const result=await db.prepare("UPDATE hx_app_publish_approvals SET status=?1,reviewer_id=?2,reviewed_at=?3 WHERE id=?4 AND org_id=?5 AND app_id=?6 AND status='pending' AND draft_version=?7 AND source_hash=?8 AND scope=?9 AND EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=?5 AND m.user_github_id=?2 AND m.role IN ('owner','admin'))").bind(status,String(reviewerId),at,approval.id,orgId,app.id,app.version,state.sourceHash,CUSTOM_PUBLISH_SCOPE).run();
   if(!result.meta?.changes) return {error:"This approval was already reviewed or the draft changed.",status:409};
   return {saved:true,approval:{...approval,status,reviewerId:String(reviewerId),reviewedAt:at}};
 }
