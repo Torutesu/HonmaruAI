@@ -318,4 +318,19 @@ describe('WebSocketClient', () => {
 
     expect(details).toEqual([preference])
   })
+
+  it('forwards versioned personal view changes to the active app only when complete', async () => {
+    const { socket } = await connectedClient()
+    const target = new EventTarget()
+    const details: unknown[] = []
+    target.addEventListener('honmaru:personal-views-changed', event => details.push((event as CustomEvent).detail))
+    vi.stubGlobal('window', target)
+
+    const change = { orgId: 'core-team', appId: 'app_tasks', revision: 7 }
+    socket.emit({ type: 'CUSTOM', name: 'personal_views_changed', value: change })
+    socket.emit({ type: 'CUSTOM', name: 'personal_views_changed', value: { ...change, revision: '7' } })
+    socket.emit({ type: 'CUSTOM', name: 'personal_views_changed', value: { appId: 'app_tasks', revision: 8 } })
+
+    expect(details).toEqual([change])
+  })
 })

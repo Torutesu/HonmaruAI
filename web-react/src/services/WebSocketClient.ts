@@ -491,6 +491,11 @@ export class WebSocketClient {
       // Personal presentation choice: the relay addresses this event to the
       // signed-in user's devices only, never to other workspace members.
       if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('honmaru:display-preference-changed', { detail: event.value }))
+    } else if (event.name === 'personal_views_changed' && typeof event.value?.orgId === 'string' && typeof event.value?.appId === 'string' && Number.isSafeInteger(event.value?.revision)) {
+      // Saved views and column layout are private to this member. The relay
+      // targets the same user's devices; each open App reloads only its own
+      // authorized snapshot when it can do so without interrupting an edit.
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('honmaru:personal-views-changed', { detail: event.value }))
     } else if (event.name === 'reaction' && event.value) {
       this.onReaction?.(event.value.cardId, event.value.emoji, Boolean(event.value.on), event.value.by, event.value.reactions || {})
     }

@@ -359,6 +359,10 @@ export async function handleHarness(request, env, url, context = {}) {
     if (!['GET','PUT'].includes(request.method)) return json({message:'Method not allowed.'},405);
     const r = await personalViews(env.DB,orgId,me,parts[2],request.method === 'PUT' ? input : undefined);
     if (r.error) return fail(r);
+    if (request.method === 'PUT') await announceTo(env, orgId, [{
+      to: who.user.login,
+      event: appActivityEvent('personal_views_changed', { orgId, appId: parts[2], revision: r.revision }),
+    }]);
     const [visibleApp] = await visibleAppLinks(env.DB, orgId, [r.snapshot.app], who.user);
     r.snapshot.app = visibleApp;
     r.snapshot.canCustomize = await mayChange(env, orgId, who, visibleApp.createdBy);

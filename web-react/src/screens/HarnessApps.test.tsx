@@ -701,6 +701,29 @@ test('returning to a visible app reloads another device’s personal view change
   await act(async()=>{documentHandlers.get('visibilitychange')!();await new Promise(resolve=>setTimeout(resolve,0))})
   expect(state.api.personalViews).toHaveBeenCalledTimes(3)
 })
+test('a targeted personal view event reloads only the matching app and newer revision',async()=>{
+  const windowHandlers=new Map<string,(event:any)=>void>()
+  vi.stubGlobal('window',{addEventListener:(name:string,fn:(event:any)=>void)=>windowHandlers.set(name,fn),removeEventListener:(name:string)=>windowHandlers.delete(name)})
+  vi.stubGlobal('document',{visibilityState:'visible',activeElement:null,querySelector:()=>null,addEventListener:vi.fn(),removeEventListener:vi.fn()})
+  const shared={id:'all',type:'table',name:'Shared',rows:[]},mine={id:'personal_new',type:'table',name:'From another device',rows:[]}
+  const initial={revision:1,activeView:'all',views:[],computed:[],layouts:{}}
+  const newer={revision:2,activeView:mine.id,views:[mine],computed:[mine],layouts:{}}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(newer),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const invalidate=windowHandlers.get('honmaru:personal-views-changed')!
+  act(()=>invalidate({detail:{orgId:'team:other',appId:'tasks',revision:2}}))
+  act(()=>invalidate({detail:{orgId:'team:one',appId:'different-app',revision:2}}))
+  act(()=>invalidate({detail:{orgId:'team:one',appId:'tasks',revision:1}}))
+  expect(state.api.personalViews).toHaveBeenCalledTimes(1)
+  await act(async()=>{invalidate({detail:{orgId:'team:one',appId:'tasks',revision:2}});await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(state.api.personalViews).toHaveBeenCalledTimes(2)
+  expect(tree!.root.findAllByProps({role:'tab'}).find(node=>node.props['aria-selected'])?.children).toContain('From another device')
+})
 test('an automatic refresh waits if editing begins while its read is in flight',async()=>{
   const windowHandlers=new Map<string,()=>void>(),documentHandlers=new Map<string,()=>void>()
   vi.stubGlobal('window',{addEventListener:(name:string,fn:()=>void)=>windowHandlers.set(name,fn),removeEventListener:(name:string)=>windowHandlers.delete(name)})
