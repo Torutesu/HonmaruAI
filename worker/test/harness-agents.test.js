@@ -275,6 +275,21 @@ test("Harness creation saves specialty and tier with the private agent, and reje
   expect((await get(`/hx/agents/${agent.id}/profile?${q({ orgId: ORG })}`, toru)).status).toBe(404);
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_agents WHERE agent_id = ?1").bind(agent.id).first()).n).toBe(0);
 });
+test("Harness Markdown import ignores a shared scope and creates the owner profile with the agent", async () => {
+  const imported = await send("POST", "/channels/agents", mika, {
+    orgId: ORG,
+    markdown: ["---", "name: Imported analyst", "handle: imported-analyst", "scope: team", "---", "", "Analyze vendor invoices."].join("\n"),
+  });
+  expect(imported.status).toBe(201);
+  const agent = (await imported.json()).agent;
+  expect(agent).toMatchObject({ name: "Imported analyst", handle: "imported-analyst", instructions: "Analyze vendor invoices.", scope: "personal" });
+
+  const profile = await env.DB.prepare("SELECT access, tier FROM hx_agent_profiles WHERE org_id = ?1 AND agent_id = ?2").bind(ORG, agent.id).first();
+  expect(profile).toMatchObject({ access: "everyone", tier: "standard" });
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_agents WHERE org_id = ?1 AND agent_id = ?2").bind(ORG, agent.id).first()).n).toBe(0);
+  const list = await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json();
+  expect(list.agents.some((visible) => visible.id === agent.id)).toBe(false);
+});
 test("inline persona edits reject concurrent writers and do not overwrite profile fields", async () => {
   const base = { orgId: ORG, id: agentId, expectedInstructions: "You chase invoices." };
   const responses = await Promise.all([
