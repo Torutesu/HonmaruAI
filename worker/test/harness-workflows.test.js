@@ -100,16 +100,19 @@ const overdueFlow = () => ({
 });
 
 test("a workflow run persists only the credential source selected at admission", async () => {
-  await env.DB.prepare("DELETE FROM org_ai_settings WHERE org_id=?1").bind(ORG).run();
+  const credentialOrg = "personal:hxflows-credential-source";
+  const { upsertMembership } = await import("../src/db.js");
+  await upsertMembership(env.DB, credentialOrg, "9301", "admin");
+  await upsertMembership(env.DB, credentialOrg, "9302", "member");
   try {
     const { createWorkflow, continueRun } = await import("../src/harness/workflows.js");
     const { saveAISettings } = await import("../src/orgAI.js");
-    await saveAISettings(env.DB, ORG, { openaiKey: "sk-workspace-credential-source-test" }, "9302");
+    await saveAISettings(env.DB, credentialOrg, { openaiKey: "sk-workspace-credential-source-test" }, "9302");
     const { agent } = await (await send("POST", "/channels/agents", mika, {
-      orgId: ORG, name: "Credential source checker", handle: "credential-source-checker",
+      orgId: credentialOrg, name: "Credential source checker", handle: "credential-source-checker",
       instructions: "Check credential source pinning.", scope: "team",
     })).json();
-    const { workflow } = await createWorkflow(env.DB, ORG, {
+    const { workflow } = await createWorkflow(env.DB, credentialOrg, {
       name: "Credential source snapshot", trigger: { type: "manual" },
       // The approval leaves the run waiting before the Agent step calls a model.
       steps: [
@@ -118,7 +121,7 @@ test("a workflow run persists only the credential source selected at admission",
       ],
     }, "9302");
     const run = await startRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
-      orgId: ORG, workflow, trigger: "manual", startedBy: "9302",
+      orgId: credentialOrg, workflow, trigger: "manual", startedBy: "9302",
     });
     expect(run.status).toBe("waiting");
     expect(run.credentialSource).toBe("workspace");
@@ -135,13 +138,13 @@ test("a workflow run persists only the credential source selected at admission",
         return { choices: [{ message: { content: "LEGACY CONTINUED" } }], usage: { prompt_tokens: 4, completion_tokens: 2 } };
       });
     const resumed = await continueRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
-      orgId: ORG, runId: run.id, workflow,
+      orgId: credentialOrg, runId: run.id, workflow,
     });
     expect(resumed.status, JSON.stringify(resumed.log)).toBe("done");
     expect(resumed.log.at(-1).output).toBe("LEGACY CONTINUED");
     expect(authorization).toBe("Bearer sk-workspace-credential-source-test");
   } finally {
-    await env.DB.prepare("DELETE FROM org_ai_settings WHERE org_id=?1").bind(ORG).run();
+    await env.DB.prepare("DELETE FROM org_ai_settings WHERE org_id=?1").bind(credentialOrg).run();
   }
 });
 
