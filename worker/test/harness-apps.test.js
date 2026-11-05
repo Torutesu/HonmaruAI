@@ -2054,6 +2054,7 @@ test('custom app approval requires a distinct Owner or Admin and can only publis
   expect((await send('POST',path,mika,{orgId:ORG,action:'review',decision:'approve',approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash})).status).toBe(403);
   expect((await approveCustomRelease(path,state)).status).toBe(200);
   expect((await approveCustomRelease(path,state)).status).toBe(409);
+  expect((await requestCustomApproval(path,app.version)).status).toBe(409);
   expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
   expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(200);
   expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
