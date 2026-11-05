@@ -24,6 +24,7 @@ on:
       - "worker/**"
       - ".github/workflows/deploy-worker.yml"
       - ".github/scripts/migrate-columns.cjs"
+      - ".github/scripts/ci-dependency.cjs"
   workflow_dispatch:
     inputs:
       environment:
@@ -47,6 +48,9 @@ concurrency:
 jobs:
   deploy:
     name: Migrate and deploy
+    permissions:
+      actions: read
+      contents: read
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -94,9 +98,25 @@ jobs:
 
       - run: npm ci
 
-      # Deploying code whose tests fail is how a broken relay reaches everyone at
-      # once. The suite runs against real workerd, so this is not a formality.
-      - name: Test
+      # Automatic pushes reuse the full CI run for this exact commit. The helper
+      # fails closed on failure, cancellation, API errors, or a missing run.
+      - name: Wait for matching CI
+        if: github.event_name == 'push'
+        timeout-minutes: 65
+        uses: actions/github-script@v8
+        env:
+          CI_BRANCH: ${{ github.ref_name }}
+          CI_REVISION: ${{ github.sha }}
+        with:
+          script: |
+            const { waitForCiSuccess } = require(process.env.GITHUB_WORKSPACE + '/.github/scripts/ci-dependency.cjs');
+            const run = await waitForCiSuccess({ github, repo: context.repo, revision: process.env.CI_REVISION, branch: process.env.CI_BRANCH });
+            core.info('CI passed: ' + run.html_url);
+
+      # A manual dispatch may have no automatic CI run to reuse. Keep testing
+      # before migrations, including for migrate_only.
+      - name: Test manual dispatch
+        if: github.event_name == 'workflow_dispatch'
         run: npm test
 
       # Every statement is CREATE … IF NOT EXISTS, so this is safe to run on
