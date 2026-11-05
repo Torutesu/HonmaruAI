@@ -128,7 +128,7 @@ export interface HomeData {
 export type MemoryKind = 'context' | 'preference' | 'feedback' | 'reference'
 export interface MemoryEntryInput { title: string; description: string; body: string; kind: MemoryKind; scope?: 'shared' | 'personal' }
 export interface MemoryReview { id: string; memoryId?: string; version: number; verdict: string; evidence: string; by: string; reviewerName: string; at: string }
-export interface AgentMemory { review?: { version: number; evidence: string; by: string; at: string; current: boolean } | null; title?: string; description?: string; body?: string; version?: number; updatedAt?: string; id: string; text: string; source: string; createdAt: string; channel?: string | null; kind?: string; scope?: 'shared' | 'personal' | 'conversation' }
+export interface AgentMemory { review?: { version: number; evidence: string; by: string; at: string; current: boolean } | null; title?: string; description?: string; body?: string; version?: number; updatedAt?: string; id: string; text: string; source: string; createdAt: string; channel?: string | null; kind?: string; scope?: 'shared' | 'personal' | 'conversation'; isOwner?: boolean }
 
 /// One client for every harness route: the session on each call, the
 /// server's own message on a refusal.
