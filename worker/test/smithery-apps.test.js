@@ -561,7 +561,7 @@ test("an unavailable workspace mode never downgrades Harness app grants to Simpl
     orgId: ORG, session: await sessionOf(mika), personal: true, ownAgentsOnly: true, agentId: "agent-mika-private",
   });
   expect(Object.keys(tools).filter((name) => name.startsWith("app"))).toEqual([]);
-  expect(modeReads).toBe(2);
+  expect(modeReads).toBe(3);
   expect(fake.calls).toHaveLength(0);
 });
 
