@@ -20,7 +20,9 @@ const DAY = 86_400_000;
 /// Tables a deletion leaves alone: the audit log's, to its own retention;
 /// the deletion's own bookkeeping; and anonymized upload cleanup identities
 /// which must outlive late storage completions.
-const SPARED = new Set(["audit_events", "audit_seals", "audit_principal_keys", "org_audit_settings", "audit_streams", "workspace_deletions", "workspace_tombstones", "hx_workspace_file_uploads"]);
+// App connection grants cascade from hx_apps. Skipping their standalone purge
+// statement keeps the bounded pass resumable as workspace tables grow.
+const SPARED = new Set(["audit_events", "audit_seals", "audit_principal_keys", "org_audit_settings", "audit_streams", "workspace_deletions", "workspace_tombstones", "hx_workspace_file_uploads", "hx_app_connection_grants"]);
 /// Rows deleted per statement, and statements per workspace per run: the
 /// rest is picked up the next day.
 const BATCH = 2000;
