@@ -557,13 +557,21 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       pending=false;running=true
       void load(true).finally(()=>{running=false;if(live&&pending&&!deferred())refresh()})
     }
+    const personalViewsChanged=(event:Event)=>{
+      const detail=(event as CustomEvent<{orgId?:unknown;appId?:unknown;revision?:unknown}>).detail
+      if(detail?.orgId!==orgId||detail?.appId!==appId||!Number.isSafeInteger(detail.revision))return
+      const snapshot=personalSnapshot.current
+      if(snapshot?.api===api&&snapshot.appId===appId&&Number(detail.revision)<=snapshot.value.revision)return
+      refresh()
+    }
     const retry=()=>{if(pending)queueMicrotask(refresh)}
     retryRefresh.current=retry
     deferAutomaticCommit.current=()=>deferred(true);markAutomaticPending.current=()=>{pending=true}
     window.addEventListener('focus',refresh);window.addEventListener('online',refresh)
+    window.addEventListener('honmaru:personal-views-changed',personalViewsChanged)
     document.addEventListener('visibilitychange',refresh);document.addEventListener('focusout',retry);document.addEventListener('click',retry)
-    return()=>{live=false;retryRefresh.current=()=>{};deferAutomaticCommit.current=()=>false;markAutomaticPending.current=()=>{};window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);document.removeEventListener('visibilitychange',refresh);document.removeEventListener('focusout',retry);document.removeEventListener('click',retry)}
-  },[load])
+    return()=>{live=false;retryRefresh.current=()=>{};deferAutomaticCommit.current=()=>false;markAutomaticPending.current=()=>{};window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);window.removeEventListener('honmaru:personal-views-changed',personalViewsChanged);document.removeEventListener('visibilitychange',refresh);document.removeEventListener('focusout',retry);document.removeEventListener('click',retry)}
+  },[load,api,appId,orgId])
   useEffect(()=>{retryRefresh.current()},[busy,creating,editingRecord,annotationSelection])
 
   const selectSection=(next:AppSection)=>{annotationSection.current=next;setSection(next);onSectionChange?.(next);const hash=appSectionHash(location.hash,appId,orgId,next);if(!floating&&hash&&hash!==location.hash)location.hash=hash}

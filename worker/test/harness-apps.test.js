@@ -759,6 +759,26 @@ test('personal views and column layouts persist across sessions without changing
   expect((await (await get(`${path}?orgId=${ORG}`,mika)).json()).layouts).toEqual(revealed.layouts);
 });
 
+test('personal view changes notify every open device for that user only', async () => {
+  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+  const {createSession}=await import('../src/db.js');
+  const secondDevice=await createSession(env.DB,'9102','personal-views-second-device');
+  const {ws:firstSocket,messages:firstMessages}=await joined(ORG,mika);
+  const {ws:secondSocket,messages:secondMessages}=await joined(ORG,secondDevice);
+  const {ws:otherSocket,messages:otherMessages}=await joined(ORG,toru);
+
+  const path=`/hx/personal-views/${app.id}`;
+  const saved=await send('PUT',path,mika,{orgId:ORG,expectedRevision:0,views:[],layouts:{}});
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toMatchObject({revision:1});
+  const matches=event=>event.name==='personal_views_changed'&&event.value?.appId===app.id;
+  expect(await message(firstMessages,matches)).toMatchObject({value:{orgId:ORG,appId:app.id,revision:1}});
+  expect(await message(secondMessages,matches)).toMatchObject({value:{orgId:ORG,appId:app.id,revision:1}});
+  expect(otherMessages.some(matches)).toBe(false);
+
+  firstSocket.close();secondSocket.close();otherSocket.close();
+});
+
 test('personal view access follows app visibility and current columns', async () => {
  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
  const rendered=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();const id=rendered.table.columns[0].id;
