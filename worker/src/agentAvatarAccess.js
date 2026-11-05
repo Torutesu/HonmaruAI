@@ -64,6 +64,8 @@ export async function clientAgentAvatarUrl(env, orgId, agent, login) {
   if (!safeUrl || !mediaId) return null;
   const current = await currentAccess(env.DB, orgId, agent.id, login);
   const url = safeUrl;
+  url.search = "";
+  url.hash = "";
   url.searchParams.set("agent", agent.id);
   if (!restricted(agent, current.profile)) {
     url.searchParams.set("revision", revision(current));
