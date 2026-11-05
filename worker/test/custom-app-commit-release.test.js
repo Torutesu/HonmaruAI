@@ -101,6 +101,8 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   const domain = new Date().toISOString();
   await env.DB.prepare(`INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at)
     VALUES(?1,?2,'commit-release.example','active','9101',?3,?3)`).bind(ORG, app.id, domain).run();
+  await env.DB.prepare(`INSERT INTO hx_app_domain_public_consents(org_id,app_id,hostname,domain_created_at,confirmed_by,confirmed_at,confirmation_version)
+    VALUES(?1,?2,'commit-release.example',?3,'9101',?3,1)`).bind(ORG,app.id,domain).run();
   const assetUrl = `/app-commit-assets/${app.id}/${commitSha}/${importedBody.commit.assetToken}/app.js`;
   const asset = await call(assetUrl);
   expect(asset.status).toBe(200);
@@ -169,6 +171,8 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
   const at=new Date().toISOString();
   await env.DB.prepare(`INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at)
     VALUES(?1,?2,'max-asset.example','active','9101',?3,?3)`).bind(ORG,app.id,at).run();
+  await env.DB.prepare(`INSERT INTO hx_app_domain_public_consents(org_id,app_id,hostname,domain_created_at,confirmed_by,confirmed_at,confirmation_version)
+    VALUES(?1,?2,'max-asset.example',?3,'9101',?3,1)`).bind(ORG,app.id,at).run();
   const approval=(await (await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:data.version,commit:data.commit,sourceHash:data.commit.sourceHash})).json()).approval;
   expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:data.version,commitSha,sourceHash:data.commit.sourceHash})).status).toBe(200);
   const published=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:data.version,approvalId:approval.id});
