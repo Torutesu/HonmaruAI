@@ -109,3 +109,22 @@ test.each(["running", "waiting"])("App deletion is refused atomically while a ma
   expect(await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=?1 AND app_id=?2").bind(ORG, APP).first())
     .toEqual({ token: "secret-token" });
 });
+
+test.each(["queued", "running"])("App deletion is refused atomically while a custom action is %s", async status => {
+  await env.DB.prepare("INSERT INTO hx_gateways (id,org_id,name,token_hash,created_by,created_at) VALUES ('retention-gateway',?1,'Worker','retention-token-hash',?2,1)")
+    .bind(ORG, USER).run();
+  await env.DB.prepare("INSERT INTO hx_gateway_jobs (id,org_id,gateway_id,created_by,request_id,payload,status,created_at) VALUES ('action-job',?1,'retention-gateway',?2,'request-1','{}',?3,1)")
+    .bind(ORG, USER, status).run();
+  await env.DB.prepare("INSERT INTO hx_app_action_jobs (org_id,app_id,job_id,action_name,action_version,created_by) VALUES (?1,?2,'action-job','publish',1,?3)")
+    .bind(ORG, APP, USER).run();
+
+  const result = await deleteApp(env.DB, ORG, APP);
+  expect(result).toMatchObject({ status: 409 });
+  expect(result.error).toContain("action is still running");
+  expect(await env.DB.prepare("SELECT deleted_at FROM hx_apps WHERE org_id=?1 AND id=?2").bind(ORG, APP).first())
+    .toEqual({ deleted_at: null });
+  expect(await env.DB.prepare("SELECT status FROM hx_gateway_jobs WHERE id='action-job'").first())
+    .toEqual({ status });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM hx_rows WHERE org_id=?1").bind(ORG).first())
+    .toEqual({ count: 2 });
+});
