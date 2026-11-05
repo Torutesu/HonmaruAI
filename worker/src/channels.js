@@ -2,6 +2,7 @@ import {messageDeliveryStatements} from './messageDelivery.js';
 import {conversationWriteAuthority} from './harness/conversationWriteAuthority.js';
 import {workflowNoticeGuard} from './harness/workflowNoticeGuard.js';
 import {workflowEffectAuthority,followupEffectAuthority} from './harness/workflowEffectAuthority.js';
+import {assignmentReplyAuthority} from './harness/agentAssignmentReplyAuthority.js';
 import {agentRequestStatement} from './agentRequestDispatch.js';
 import { roomHookReplyGuard } from './harness/roomHookExecutionGrant.js';
 import { listMembers } from "./team.js";
@@ -709,7 +710,8 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
     const parentLive = "(?9 IS NULL OR EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?2 AND id = ?9 AND deleted_at IS NULL))" + (roomHookSource ? ` AND ${roomHookReplyGuard}` : "");
     const executionLive = assignmentFence ? ` AND EXISTS (SELECT 1 FROM hx_agent_assignments a JOIN channel_messages s ON s.org_id=a.org_id AND s.id=a.source_message_id
       WHERE a.org_id=?2 AND a.id=?14 AND a.generation=?15 AND a.status='running' AND 'agent:'||a.current_agent_id=?4 AND a.channel=?3 AND a.thread_id=?9
-      AND s.channel=a.channel AND s.kind='message' AND COALESCE(s.parent_id,s.id)=a.thread_id AND s.id=?16 AND s.body=?17 AND s.author_login=?18 AND COALESCE(s.parent_id,'')=?19 AND s.deleted_at IS NULL)` : '';
+      AND s.channel=a.channel AND s.kind='message' AND COALESCE(s.parent_id,s.id)=a.thread_id AND s.id=?16 AND s.body=?17 AND s.author_login=?18 AND COALESCE(s.parent_id,'')=?19 AND s.deleted_at IS NULL
+      AND ${assignmentReplyAuthority('a')})` : '';
     const noticeLive=workflowNotice?` AND ${workflowNoticeGuard}`:'';
     const noticeValues=workflowNotice?[workflowNotice.workflowId,workflowNotice.generation||'',workflowNotice.recipientId,workflowNotice.budgetNoticeId||'']:[];
     const fenceValues=assignmentFence?[assignmentFence.assignmentId,assignmentFence.generation,assignmentFence.sourceId,assignmentFence.sourceBody,assignmentFence.sourceAuthor,assignmentFence.sourceParent || '']:[];
