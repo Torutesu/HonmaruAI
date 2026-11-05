@@ -26,7 +26,7 @@ async function currentAccess(db, orgId, agentId, login) {
 
 const restricted = (agent, profile) => agent.scope === "personal" || profile.access !== "everyone";
 const revision = (current) => `${current.profile.updatedAt || ""}:${current.version}:${current.member?.created_at || ""}`;
-const signedId = (mediaId, login, rev) => `${mediaId}\n${login}\n${rev}`;
+const signedId = (mediaId, agentId, login, rev) => `${mediaId}\n${agentId}\n${login}\n${rev}`;
 
 /// The same avatar address is public and cacheable for team-wide agents.
 /// A restricted agent receives a short-lived, viewer-bound address whose ACL
@@ -37,10 +37,10 @@ export async function clientAgentAvatarUrl(env, orgId, agent, login) {
   const current = await currentAccess(env.DB, orgId, agent.id, login);
   if (!restricted(agent, current.profile)) return agent.avatarUrl;
   if (!current.member || !await mayAccessAgent(env.DB, orgId, agent, login)) return null;
-  const signed = await signedQuery(env, "a1", orgId, signedId(mediaId, login, revision(current)));
+  const signed = await signedQuery(env, "a1", orgId, signedId(mediaId, agent.id, login, revision(current)));
   if (!signed) return null;
   const url = new URL(agent.avatarUrl);
-  url.search = `viewer=${encodeURIComponent(login)}&${signed.query}`;
+  url.search = `agent=${encodeURIComponent(agent.id)}&viewer=${encodeURIComponent(login)}&${signed.query}`;
   return url.toString();
 }
 
@@ -56,7 +56,7 @@ export async function authorizeAgentAvatar(env, url, mediaId) {
   if (!restricted(model, current.profile)) return { public: true, agent };
   const login = url.searchParams.get("viewer") || "";
   if (!login || !current.member) return { response: inaccessible() };
-  const boundId = signedId(mediaId, login, revision(current));
+  const boundId = signedId(mediaId, agent.id, login, revision(current));
   if (!await addressHolds(env, url, "a1", agent.org_id, boundId)) return { response: inaccessible() };
   if (!await mayAccessAgent(env.DB, agent.org_id, model, login)) return { response: inaccessible() };
   return { public: false, agent };
