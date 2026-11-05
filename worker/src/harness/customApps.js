@@ -85,8 +85,8 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
         SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9
         WHERE EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND a.version=?3
           AND json_extract(a.definition,'$.custom.draftCommit.sha')=?4
-          AND json_extract(a.definition,'$.custom.draftCommit.sourceHash')=?8)`)
-        .bind(orgId,app.id,version,trusted.commit.sha,asset.path,asset.mimeType,decodeAssetBase64(asset.contentBase64),asset.contentHash,asset.size)
+          AND json_extract(a.definition,'$.custom.draftCommit.sourceHash')=?10)`)
+        .bind(orgId,app.id,version,trusted.commit.sha,asset.path,asset.mimeType,decodeAssetBase64(asset.contentBase64),asset.contentHash,asset.size,trusted.commit.sourceHash)
     ) : []),
     ...(input.action === 'unpublish' ? [
       // changes() refers to the preceding history insertion, so a losing
