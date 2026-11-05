@@ -1,4 +1,5 @@
 import { getSession, getUserByGithubId, isMember } from "./db.js";
+import { getMode } from "./harness/mode.js";
 import { resolveChannel } from "./channels.js";
 import {
   externalResourcePermission,
@@ -17,7 +18,9 @@ const activeGrantSql = `EXISTS(
   SELECT 1 FROM hx_external_resource_grants g
    WHERE g.org_id = ?2 AND g.resource_type = 'thread' AND g.resource_id = ?3
      AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL
-     AND (g.expires_at IS NULL OR g.expires_at > ?5)`;
+     AND (g.expires_at IS NULL OR g.expires_at > ?5)
+     AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id = m.org_id AND member.user_github_id = g.recipient_github_id)
+     AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id = ?2 AND member.user_github_id = ?4))`;
 const liveRootSql = `EXISTS(
   SELECT 1 FROM channel_messages root
    WHERE root.org_id = ?2 AND root.id = ?3 AND root.parent_id IS NULL AND root.deleted_at IS NULL
@@ -249,6 +252,7 @@ export async function handleExternalThreads(request, env, url) {
   try { orgId = decodeURIComponent(rawOrgId); rootId = decodeURIComponent(rawRootId); }
   catch { return fail("Not found.", 404); }
   if (!orgId || !rootId || orgId.length > 200 || rootId.length > 200) return fail("Not found.", 404);
+  if ((await getMode(env.DB, orgId)) !== "harness") return fail("External Thread sharing is unavailable in Simple mode.", 404);
   const actor = await signedIn(request, env);
   if (!actor) return fail("Sign in to continue.", 401);
   if (parts.length === 5 && parts[4] === "shares") return shareThread(request, env, orgId, rootId, actor);
