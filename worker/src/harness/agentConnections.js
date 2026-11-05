@@ -4,7 +4,7 @@ import { EMAIL_AUTH_TOKEN } from '../auth.js';
 
 export const AGENT_CONNECTION_SOURCES = ['notion', 'github'];
 
-const personalGithubAvailable = session => Boolean(session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN);
+const personalGithubAvailable = (session, orgId, workspaceRepo = null) => Boolean(session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(String(workspaceRepo || orgId || '')));
 
 async function grantsFor(db, orgId, agentId, githubId) {
   const { results = [] } = await db.prepare(`SELECT g.source FROM hx_agent_source_grants g
@@ -27,7 +27,7 @@ export async function agentSourceConnections(env, { orgId, agentId, session, can
   const workspaceAvailable = Boolean(workspace?.repo && (workspace?.token || (workspace?.composioUser && env.COMPOSIO_API_KEY)));
   return {
     connections: AGENT_CONNECTION_SOURCES.map(source => {
-      const personalAvailable = source === 'github' ? personalGithubAvailable(session) : available[source] === true;
+      const personalAvailable = source === 'github' ? personalGithubAvailable(session, orgId, workspace?.repo) : available[source] === true;
       const personal = {
         source,
         available: personalAvailable,
@@ -71,7 +71,7 @@ export async function setAgentSourceConnection(env, { orgId, agentId, session, s
   if (!githubId) return { error: 'Sign in again before changing this connection.', status: 401 };
   if (enabled) {
     const available = source === 'github'
-      ? personalGithubAvailable(session)
+      ? personalGithubAvailable(session, orgId, (await getWorkspaceGitHub(env.DB, orgId).catch(() => null))?.repo)
       : (await connectedSources(env, session, orgId).catch(() => ({})))[source] === true;
     if (!available) return { error: `Connect your ${source === 'notion' ? 'Notion' : 'personal GitHub'} connection before allowing the Agent to use it.`, status: 409 };
     const result = await env.DB.prepare(`INSERT INTO hx_agent_source_grants
@@ -100,7 +100,7 @@ export async function agentSourceCredential(env, { orgId, agentId, session, sour
     const shared = await env.DB.prepare("SELECT 1 FROM hx_agent_workspace_source_grants WHERE org_id=?1 AND agent_id=?2 AND source='github'")
       .bind(orgId, agentId).first().catch(() => null);
     if (workspace?.repo && (workspace?.token || (workspace?.composioUser && env.COMPOSIO_API_KEY)) && shared) return 'workspace';
-    if (personalGithubAvailable(session) && (await grantsFor(env.DB, orgId, agentId, githubId)).has(source)) return 'personal';
+    if (personalGithubAvailable(session, orgId, workspace?.repo) && (await grantsFor(env.DB, orgId, agentId, githubId)).has(source)) return 'personal';
     return null;
   }
   const available = await connectedSources(env, session, orgId).catch(() => ({}));

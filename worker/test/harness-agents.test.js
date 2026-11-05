@@ -657,7 +657,7 @@ test("workspace GitHub sharing is admin-only, scoped to the workspace, and keeps
   const crossOrg = await get(`${path}?${q({ orgId: otherOrg })}`, kenji);
   expect([403, 404]).toContain(crossOrg.status);
 
-  expect((await send("DELETE", `${path}?${query}`, toru, { orgId: ORG, source: "github", scope: "workspace" })).status).toBe(200);
+  expect((await call(`${path}?${q({ orgId: ORG, source: "github", scope: "workspace" })}`, { method: "DELETE", headers: headers(toru) })).status).toBe(200);
   expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe(null);
   expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: personalSession, source: "github" })).toBe("personal");
   const personalAfter = await env.DB.prepare("SELECT count(*) AS n FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9202' AND source='github'")
