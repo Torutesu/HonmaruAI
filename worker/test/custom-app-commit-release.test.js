@@ -50,6 +50,7 @@ async function importCommit(app) {
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\\n/g, ' '));
+  await env.DB.exec("CREATE TABLE IF NOT EXISTS hx_app_domain_public_consents (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, hostname TEXT NOT NULL, domain_created_at TEXT NOT NULL, confirmed_by TEXT NOT NULL, confirmed_at TEXT NOT NULL, confirmation_version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(org_id,app_id)); CREATE INDEX IF NOT EXISTS hx_app_domain_public_consents_host ON hx_app_domain_public_consents(hostname,domain_created_at);");
   for (const [id, login] of [['9101', 'toru'], ['9102', 'mika'], ['9103', 'gina']]) {
     await upsertUser(env.DB, { githubId: id, login, name: login, avatarUrl: null, locale: 'en' });
     await upsertMembership(env.DB, ORG, id, 'admin');
