@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
+import './AppSharing.css'
 
 type Visibility = 'private' | 'workspace' | 'public'
 interface Access { visibility: Visibility; internalVisibility?: 'private' | 'workspace'; version: number }
@@ -75,7 +76,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
     finally { setBusy(false) }
   }
   const shareUrl = settings?.share?.url ? new URL(settings.share.url, httpBase).toString() : ''
-  return <section>
+  return <section className="hx-app-sharing">
     <div className="rows-title">{t('Sharing')}</div>
     {error && <div className="form-error" role="alert">{error}</div>}
     {access && <div className="row static"><span className="row-main">
@@ -87,13 +88,13 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
       </select>
       <span className="row-sub">{t('Room links do not grant access. Public links are read-only and expose only fields you select.')}</span>
     </span></div>}
-    {choice === 'public' && settings && <div className="row static"><div className="row-main">
+    {choice === 'public' && settings && <div className="row static hx-public-panel"><div className="row-main">
       <strong>{t('Public app link')}</strong>
       <p className="row-sub">{t('This link is pinned to app version')} {settings.share?.appVersion ?? settings.appVersion}. {t('Anyone with the URL can view the published app and selected fields.')}</p>
       {settings.share?.url && <div className="hx-public-link"><input aria-label={t('Public URL')} readOnly value={shareUrl} onFocus={e => e.currentTarget.select()} /><button type="button" disabled={busy} onClick={() => void navigator.clipboard?.writeText(shareUrl)}>{t('Copy link')}</button><button type="button" disabled={busy} onClick={() => void revoke()}>{t('Revoke')}</button></div>}
-      {!settings.share && <><div className="hx-public-fields" aria-label={t('Public fields')}>{settings.entities.map(entity => <fieldset key={entity.key}><legend>{entity.name}</legend>{entity.fields.map(field => <label key={field.id}><input type="checkbox" checked={(selected[entity.key] || []).includes(field.id)} disabled={!canEdit || busy} onChange={e => setSelected(v => ({ ...v, [entity.key]: e.target.checked ? [...(v[entity.key] || []), field.id] : (v[entity.key] || []).filter(x => x !== field.id) }))} />{field.name}</label>)}</fieldset>)}</div>
+      {!settings.share && <><div className="hx-public-fields" aria-label={t('Public fields')}>{settings.entities.map(entity => <fieldset className="hx-public-entity" key={entity.key}><legend>{entity.name}</legend>{entity.fields.map(field => <label key={field.id}><input type="checkbox" checked={(selected[entity.key] || []).includes(field.id)} disabled={!canEdit || busy} onChange={e => setSelected(v => ({ ...v, [entity.key]: e.target.checked ? [...(v[entity.key] || []), field.id] : (v[entity.key] || []).filter(x => x !== field.id) }))} />{field.name}</label>)}</fieldset>)}</div>
       <label className="hx-public-confirm"><input type="checkbox" checked={confirmed} disabled={!canEdit || busy} onChange={e => setConfirmed(e.target.checked)} />{t('I understand anyone with the link can read these selected fields.')}</label>
-      <button type="button" disabled={!canEdit || busy || !Object.values(selected).some(fields => fields.length) || !confirmed} onClick={() => void publish()}>{t('Create public link')}</button></>}
+      <button className="hx-public-create" type="button" disabled={!canEdit || busy || !Object.values(selected).some(fields => fields.length) || !confirmed} onClick={() => void publish()}>{t('Create public link')}</button></>}
     </div></div>}
   </section>
 }
