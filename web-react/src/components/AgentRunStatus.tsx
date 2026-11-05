@@ -11,17 +11,20 @@ import {formatElapsedDuration} from '../utils/runDuration'
 
 type Api = {httpBase: string; orgId: string; sessionToken: string}
 type AgentFace = AgentLook & {id: string; name: string; handle: string}
-type Assignment = {id: string; generation: number; status: string; startedAt?: string; updatedAt?: string; providerStopStatus?: string; canStop?: boolean; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
+type RunEvent = {id: string; generation: number; type: string; toolName?: string; at: string; agent: AgentFace}
+type Assignment = {id: string; generation: number; status: string; startedAt?: string; updatedAt?: string; providerStopStatus?: string; canStop?: boolean; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]; events: RunEvent[]}
 type Run = {rowId: string; status: string; answered: number; version?: number; assignments?: Assignment[]}
 const activeStatus = (status: string) => ['pending_delivery', 'queued', 'running', 'pending'].includes(status)
 const activeRun = (run: Run) => activeStatus(run.status) || Boolean(run.assignments?.some(assignment => activeStatus(assignment.status)))
 const faceValid = (face: AgentFace) => face && typeof face.id === 'string' && typeof face.name === 'string' && typeof face.handle === 'string'
+const eventTypes = new Set(['started','tool_started','tool_succeeded','tool_failed','handed_off','finished','failed','cancelled','interrupted'])
 function assignmentsFrom(value: unknown): Assignment[] {
   if (!Array.isArray(value)) return []
   return value.filter(assignment => assignment && typeof assignment.id === 'string' && Number.isSafeInteger(assignment.generation) && assignment.generation >= 0 && assignment.generation <= 8 && ['pending','running','finished','failed','cancelled','interrupted'].includes(assignment.status) && faceValid(assignment.agent)).slice(0, 20).map(assignment => ({...assignment,
     ...(typeof assignment.startedAt==='string'&&assignment.startedAt.length<=64?{startedAt:assignment.startedAt}:{}),
     ...(typeof assignment.updatedAt==='string'&&assignment.updatedAt.length<=64?{updatedAt:assignment.updatedAt}:{}),
     hops: (Array.isArray(assignment.hops) ? assignment.hops : []).filter((hop: Assignment['hops'][number]) => hop && typeof hop.id === 'string' && faceValid(hop.from) && faceValid(hop.to) && typeof hop.at === 'string').slice(0, 8),
+    events: (Array.isArray(assignment.events) ? assignment.events : []).filter((event: RunEvent) => event && typeof event.id === 'string' && Number.isSafeInteger(event.generation) && event.generation >= 0 && event.generation <= 8 && eventTypes.has(event.type) && typeof event.at === 'string' && faceValid(event.agent) && (event.toolName === undefined || (typeof event.toolName === 'string' && event.toolName.length <= 100))).slice(0, 80),
   }))
 }
 function RunFace({agent}: {agent: AgentFace}) {
@@ -39,6 +42,7 @@ const labels: Record<string, string> = {
   interrupted: 'Agent execution interrupted; outcome unconfirmed',
   cancelled: 'Agent execution stopped after access changed', no_agents: 'No eligible agent to run',
 }
+const eventLabels: Record<string, string> = {started:'Run started',tool_started:'Tool started',tool_succeeded:'Tool completed',tool_failed:'Tool failed',handed_off:'Task handed off',finished:'Run finished',failed:'Run failed',cancelled:'Run cancelled',interrupted:'Run interrupted'}
 
 export function AgentRunStatus({api, channel, messages}: {api: Api; channel: string; messages: ChannelMessage[]}) {
   const t = useT()
@@ -112,6 +116,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
         {assignment.canStop === true && activeStatus(assignment.status) && <AgentRunStop key={`${scope}:${assignment.id}:${assignment.generation}`} api={api} channel={channel} rowId={run.rowId} assignmentId={assignment.id} generation={assignment.generation} onStopped={() => setRefresh(value => value + 1)}/>}
         {assignment.status === 'cancelled' && ['failed','partial','unavailable','pending','requesting'].includes(assignment.providerStopStatus || '') && <AgentRunStop key={`${scope}:${assignment.id}:${assignment.generation}:provider-retry`} retry api={api} channel={channel} rowId={run.rowId} assignmentId={assignment.id} generation={assignment.generation} onStopped={() => setRefresh(value => value + 1)}/>}
         {assignment.hops.length > 0 && <details className="slk-run-handoffs"><summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Handoff history ({count})', {count: assignment.hops.length})}</summary><ol>{assignment.hops.map(hop => <li key={hop.id}><span className="slk-run-hop-agents"><span title={`@${hop.from.handle}`}><RunFace agent={hop.from}/>{hop.from.name || t('Agent')}</span><span aria-hidden="true">→</span><span title={`@${hop.to.handle}`}><RunFace agent={hop.to}/>{hop.to.name || t('Agent')}</span></span>{Number.isFinite(Date.parse(hop.at)) && <time dateTime={hop.at}>{handoffTime(hop.at)}</time>}</li>)}</ol></details>}
+        {assignment.events.length > 0 && <details className="slk-run-handoffs"><summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Execution timeline ({count})', {count: assignment.events.length})}</summary><ol>{assignment.events.map(event => <li key={event.id}><span>{t(eventLabels[event.type])}{event.toolName ? ` · ${event.toolName}` : ''}</span>{Number.isFinite(Date.parse(event.at)) && <time dateTime={event.at}>{handoffTime(event.at)}</time>}</li>)}</ol></details>}
       </div>)}</div>}
     </li>)}</ul>
     {state.runs.some(run => run.assignments?.some(assignment => assignment.canStop && activeStatus(assignment.status))) && <p>{t('Stopping prevents further work. External operations already started may still finish.')}</p>}

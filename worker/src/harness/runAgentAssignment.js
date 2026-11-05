@@ -4,6 +4,7 @@ import {assignmentOwns,endAssignment} from './agentAssignments.js';
 import {markControlTool,handoffControl} from '../agentToolControl.js';
 import {drainAgentHandoffs} from './agentHandoffDispatch.js';
 import {serverText} from '../serverCopy.js';
+import {appendAgentRunEvent} from './agentRunEvents.js';
 
 export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=null,existing=null,locale='en',publish,registerCancellation=null},execute) {
   let assignment=existing;
@@ -14,6 +15,8 @@ export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=
   }
   if(!assignment)return execute({authorize,tools:{}});
   const identity={orgId,assignmentId:assignment.id,generation:assignment.generation,agentId:agent.id};
+  const record=eventType=>appendAgentRunEvent(env.DB,{orgId,assignmentId:assignment.id,generation:assignment.generation,agentId:agent.id,sourceMessageId:row.id,eventType}).catch(()=>false);
+  await record('started');
   const controller=new AbortController();
   const permitted=async()=>Boolean(!controller.signal.aborted && (!authorize || await authorize(agent.id)) && await assignmentExecutionGrant(env,identity));
   const tools={};
@@ -39,19 +42,25 @@ export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=
   }
   const unregister=registerCancellation?.(identity,controller);
   try {
-    if(!await permitted()) {await endAssignment(env.DB,{...identity,status:'cancelled'});return {cancelled:true};}
+    if(!await permitted()) {if(await endAssignment(env.DB,{...identity,status:'cancelled'}))await record('cancelled');return {cancelled:true};}
     const result=await execute({authorize:permitted,signal:controller.signal,tools,replyFence:{assignmentId:assignment.id,generation:assignment.generation,sourceId:row.id,sourceBody:row.body,sourceAuthor:row.author_login,sourceParent:row.parent_id}});
     if(await assignmentOwns(env.DB,identity)) {
-      if(controller.signal.aborted || !await permitted())await endAssignment(env.DB,{...identity,status:'cancelled'});
-      else if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:result?.interrupted?'interrupted':'finished'});
+      if(controller.signal.aborted || !await permitted()) {if(await endAssignment(env.DB,{...identity,status:'cancelled'}))await record('cancelled');}
+      else if(!await externalAssignmentPending(env.DB,identity)) {
+        const status=result?.interrupted?'interrupted':'finished';
+        if(await endAssignment(env.DB,{...identity,status}))await record(status);
+      }
+    } else {
+      const current=await env.DB.prepare('SELECT generation FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(orgId,assignment.id).first();
+      if(current?.generation>identity.generation)await record('handed_off');
     }
     return result;
   } catch(error) {
     if(controller.signal.aborted) {
-      if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:'cancelled'});
+      if(!await externalAssignmentPending(env.DB,identity) && await endAssignment(env.DB,{...identity,status:'cancelled'}))await record('cancelled');
       return {cancelled:true};
     }
-    if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:'failed'});
+    if(!await externalAssignmentPending(env.DB,identity) && await endAssignment(env.DB,{...identity,status:'failed'}))await record('failed');
     throw error;
   } finally {
     unregister?.();

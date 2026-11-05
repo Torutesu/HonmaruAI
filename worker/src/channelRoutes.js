@@ -6,6 +6,7 @@ import {drainTeammateResults} from './teammateResultDispatch.js';
 import {agentRunSnapshot} from './harness/agentRunSnapshot.js';
 import {stopAssignment} from './harness/agentAssignmentStop.js';
 import {runAgentAssignment} from './harness/runAgentAssignment.js';
+import {appendAgentRunEvent} from './harness/agentRunEvents.js';
 import {drainAgentRequests} from './agentRequestDispatch.js';
 import {agentExecutionAuthorizer} from './agentExecutionGrant.js';
 import { searchRoom } from './roomSearch.js';
@@ -635,7 +636,25 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         ready.agent = await withRoomGuidelines(env.DB, orgId, resolved.key, ready.agent);
         if (signal?.aborted) return {cancelled:true};
         if (authorize && !await authorize()) return;
-        const toolsForTurn = { ...tools, ...ready.skillTools, ...runtimeTools };
+        const rawToolsForTurn = { ...tools, ...ready.skillTools, ...runtimeTools };
+        const toolsForTurn = harness && replyFence ? Object.fromEntries(Object.entries(rawToolsForTurn).map(([name, tool]) => [name, {
+          ...tool,
+          run: async (...args) => {
+            const record = (eventType) => appendAgentRunEvent(env.DB, {
+              orgId, assignmentId: replyFence.assignmentId, sourceMessageId: row.id,
+              generation: replyFence.generation, agentId: agent.id, eventType, tool: name,
+            }).catch(() => false);
+            await record('tool_started');
+            try {
+              const result = await tool.run(...args);
+              await record('tool_succeeded');
+              return result;
+            } catch (error) {
+              await record('tool_failed');
+              throw error;
+            }
+          },
+        }])) : rawToolsForTurn;
         const agentForTurn = {
           ...ready.agent,
           instructions: agentInstructionsForTools(ready.agent.instructions, toolsForTurn),

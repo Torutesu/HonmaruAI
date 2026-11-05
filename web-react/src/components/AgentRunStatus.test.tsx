@@ -170,3 +170,19 @@ test('persists the external cancellation outcome in the visible assignment after
  expect(JSON.stringify(tree.toJSON())).toContain('Retry provider cancellation')
  act(()=>tree.unmount())
 })
+
+test('shows a collapsed execution timeline containing tool names and status only',async()=>{
+ setup()
+ const face={id:'agent',name:'Researcher',handle:'researcher'}
+ const fetch=vi.fn().mockResolvedValue({ok:true,status:200,json:async()=>({available:true,results:[{rowId:'one',status:'finished',answered:1,assignments:[{id:'assignment',generation:0,status:'finished',canStop:false,agent:face,hops:[],events:[{id:'started',generation:0,type:'started',at:'2026-11-06T01:00:00Z',agent:face},{id:'tool',generation:0,type:'tool_succeeded',toolName:'search_web',at:'2026-11-06T01:00:01Z',agent:face},{id:'done',generation:0,type:'finished',at:'2026-11-06T01:00:02Z',agent:face}]}]}]})})
+ vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/> )})
+ const rendered=JSON.stringify(tree.toJSON())
+ expect(rendered).toContain('Execution timeline (3)')
+ expect(rendered).toContain('Tool completed')
+ expect(rendered).toContain('search_web')
+ expect(rendered).not.toContain('arguments')
+ expect(rendered).not.toContain('output')
+ act(()=>tree.unmount())
+})
