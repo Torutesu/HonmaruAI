@@ -103,9 +103,17 @@ test("a workflow run persists only the credential source selected at admission",
   const { createWorkflow } = await import("../src/harness/workflows.js");
   const { saveAISettings } = await import("../src/orgAI.js");
   await saveAISettings(env.DB, ORG, { openaiKey: "sk-workspace-credential-source-test" }, "9302");
+  const { agent } = await (await send("POST", "/channels/agents", mika, {
+    orgId: ORG, name: "Credential source checker", handle: "credential-source-checker",
+    instructions: "Check credential source pinning.", scope: "team",
+  })).json();
   const { workflow } = await createWorkflow(env.DB, ORG, {
     name: "Credential source snapshot", trigger: { type: "manual" },
-    steps: [{ type: "approval", to: "toru", title: "Credential source check" }],
+    // The approval leaves the run waiting before the Agent step calls a model.
+    steps: [
+      { type: "approval", to: "toru", title: "Credential source check" },
+      { type: "agent", agentId: agent.id, prompt: "Check the source." },
+    ],
   }, "9302");
   const run = await startRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
     orgId: ORG, workflow, trigger: "manual", startedBy: "9302",
