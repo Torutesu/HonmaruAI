@@ -66,12 +66,14 @@ test("a routed instruction writes the model's tokens to the team's ledger, and I
   expect(results[0]).toMatchObject({ purpose: "route", provider: "OpenAI", model: "gpt-4o-mini-2024-07-18", input_tokens: 1200, output_tokens: 90, byok: 0, user_github_id: "8801" });
   expect(results[0].usd).toBeCloseTo(1200 * 0.15 / 1e6 + 90 * 0.6 / 1e6, 9);
 
-  const m = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}`, { headers: { "x-session-token": toru } })).json();
+  const m = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&days=14&aiDays=30`, { headers: { "x-session-token": toru } })).json();
   expect(m.ai).toMatchObject({ calls: 1, inputTokens: 1200, outputTokens: 90, byokCalls: 0, jevShare: 0 });
   expect(m.ai.usd).toBeGreaterThan(0);
   expect(m.ai.ourUsd).toBe(m.ai.usd);
   expect(m.ai.byPurpose).toEqual([{ purpose: "route", calls: 1, usd: m.ai.usd }]);
-  expect(m.ai.daily).toHaveLength(14);
+  expect(m.days).toBe(14);
+  expect(m.ai.days).toBe(30);
+  expect(m.ai.daily).toHaveLength(30);
   expect(m.ai.daily.at(-1)).toMatchObject({ day: new Date().toISOString().slice(0, 10), calls: 1, ourUsd: m.ai.ourUsd, byokUsd: 0 });
   expect(m.ai.daily.reduce((sum, day) => sum + day.ourUsd, 0)).toBeCloseTo(m.ai.ourUsd, 8);
 });

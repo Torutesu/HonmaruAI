@@ -57,8 +57,9 @@ const MAX_METRIC_ROWS = 2000;
 /// The numbers a team looks at to know whether the product is working for
 /// it. Over a window of days, from the cards themselves — no counters to
 /// keep in sync, and nothing here that the cards do not already say.
-export async function orgMetrics(db, orgId, { days = 14 } = {}) {
+export async function orgMetrics(db, orgId, { days = 14, aiDays = days } = {}) {
   const span = Math.max(1, Math.min(Number(days) || 14, 90));
+  const aiSpan = Math.max(1, Math.min(Number(aiDays) || span, 180));
   const now = Date.now();
   const since = new Date(now - span * 86400000).toISOString();
   const { results } = await db
@@ -121,7 +122,7 @@ export async function orgMetrics(db, orgId, { days = 14 } = {}) {
     created.push({ day, count: perDay.get(day) || 0 });
   }
   const declined = byAction.get("decline") || 0;
-  const ai = await aiSpend(db, orgId, since, { dailyDays: span, now });
+  const ai = await aiSpend(db, orgId, since, { dailyDays: aiSpan, now });
 
   return {
     ai,

@@ -159,7 +159,7 @@ export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(
     byokCalls: total.byokCalls,
     byPurpose: [...byPurpose.values()].map((p) => ({ ...p, usd: round(p.usd) })).sort((a, b) => b.usd - a.usd),
     byProvider: [...byProvider.values()].map((p) => ({ ...p, usd: round(p.usd) })).sort((a, b) => b.usd - a.usd),
-    ...(days > 0 ? { daily } : {}),
+    ...(days > 0 ? { days, daily } : {}),
     // Of the routing decisions that cost anything, the share System One
     // took without a language model. Null until there was any routing.
     jevShare: jevRoutes + llmRoutes ? round(jevRoutes / (jevRoutes + llmRoutes)) : null,

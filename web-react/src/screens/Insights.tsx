@@ -30,6 +30,7 @@ interface Metrics {
     usd: number
     ourUsd: number
     byokCalls: number
+    days: number
     daily?: Array<{ day: string; calls: number; ourUsd: number; byokUsd: number; usd: number }>
     byPurpose: Array<{ purpose: string; calls: number; usd: number }>
     byProvider: Array<{ provider: string; calls: number; usd: number }>
@@ -71,6 +72,7 @@ function duration(minutes: number | null, t: (k: string, v?: Record<string, stri
 export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose }) => {
   const t = useT()
   const [days, setDays] = useState<7 | 14 | 30>(14)
+  const [aiDays, setAIDays] = useState<30 | 90 | 180>(30)
   const [aiTrendMode, setAITrendMode] = useState<'daily' | 'cumulative'>('daily')
   const [m, setM] = useState<Metrics | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -78,7 +80,7 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
   useEffect(() => {
     let ignore = false
     setM(null)
-    fetch(`${httpBase}/metrics?orgId=${encodeURIComponent(orgId)}&days=${days}`, { headers: { 'x-session-token': sessionToken } })
+    fetch(`${httpBase}/metrics?orgId=${encodeURIComponent(orgId)}&days=${days}&aiDays=${aiDays}`, { headers: { 'x-session-token': sessionToken } })
       .then(async (r) => {
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || t('Could not load the numbers.'))
         return r.json()
@@ -86,7 +88,7 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
       .then((data) => { if (!ignore) setM(data) })
       .catch((err) => { if (!ignore) setError(err instanceof Error ? err.message : String(err)) })
     return () => { ignore = true }
-  }, [httpBase, orgId, sessionToken, days])
+  }, [httpBase, orgId, sessionToken, days, aiDays])
 
   const peak = Math.max(1, ...(m?.created.map((d) => d.count) || [1]))
   let cumulativeAIUsd = 0
@@ -104,7 +106,7 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
         <span className="head-title">{t('Insights')}</span>
       </div>
       <div className="screen-body">
-        <div className="seg" role="tablist" aria-label={t('Window')}>
+        <div className="seg" role="tablist" aria-label={t('Decision and card period')}>
           {([7, 14, 30] as const).map((d) => (
             <button key={d} role="tab" aria-selected={days === d} className={days === d ? 'on' : ''} onClick={() => setDays(d)}>
               {t('{n} days', { n: d })}
@@ -159,7 +161,7 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
               <>
                 <div className="rows-title">{t('What your AI cost')}</div>
                 <div className="rows">
-                  <div className="row static"><span className="row-main">{t('This window, at list price')}<span className="row-sub">{t('{n} calls · {i} tokens in · {o} out', { n: m.ai.calls, i: m.ai.inputTokens.toLocaleString(), o: m.ai.outputTokens.toLocaleString() })}</span></span><span className="row-value">{money(m.ai.usd)}</span></div>
+                  <div className="row static"><span className="row-main">{t('AI list-price estimate for the last {n} days', { n: m.ai.days })}<span className="row-sub">{t('{n} calls · {i} tokens in · {o} out', { n: m.ai.calls, i: m.ai.inputTokens.toLocaleString(), o: m.ai.outputTokens.toLocaleString() })}</span></span><span className="row-value">{money(m.ai.usd)}</span></div>
                   {m.ai.byokCalls > 0 && (
                     <div className="row static"><span className="row-main">{t('On your own keys')}<span className="row-sub">{t('{n} calls the team paid for directly.', { n: m.ai.byokCalls })}</span></span><span className="row-value">{money(m.ai.usd - m.ai.ourUsd)}</span></div>
                   )}
@@ -169,6 +171,13 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
                   <>
                     <div className="rows-title">{t('Workspace AI usage trend')}</div>
                     <p className="hint insights-hint">{t('Recorded deployment-key model usage at estimated list price. Personal keys and provider invoices are not included.')}</p>
+                    <div className="seg" role="tablist" aria-label={t('AI usage period')}>
+                      {([30, 90, 180] as const).map((windowDays) => (
+                        <button key={windowDays} role="tab" aria-selected={aiDays === windowDays} className={aiDays === windowDays ? 'on' : ''} onClick={() => setAIDays(windowDays)}>
+                          {t('{n} days', { n: windowDays })}
+                        </button>
+                      ))}
+                    </div>
                     <div className="seg" role="tablist" aria-label={t('AI usage trend')}>
                       {(['daily', 'cumulative'] as const).map((mode) => (
                         <button key={mode} role="tab" aria-selected={aiTrendMode === mode} className={aiTrendMode === mode ? 'on' : ''} onClick={() => setAITrendMode(mode)}>
@@ -176,7 +185,7 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
                         </button>
                       ))}
                     </div>
-                    <div className="bars" role="img" aria-label={t('Workspace-key AI spend per day over the last {n} days', { n: m.days })}>
+                    <div className="bars" role="img" aria-label={t('Workspace-key AI spend per day over the last {n} days', { n: m.ai.days })}>
                       {aiTrend.map((row) => (
                         <div key={row.day} className="bar" title={`${row.day}: ${money(row.usd)} ${t('estimated')}`}>
                           <i style={{ height: `${aiTrendPeak > 0 ? Math.max(row.usd > 0 ? 2 : 0, (row.usd / aiTrendPeak) * 100) : 0}%` }} className={row.usd === 0 ? 'zero' : ''} />

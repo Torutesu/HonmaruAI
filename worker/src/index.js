@@ -2822,7 +2822,7 @@ async function handle(request, env, url, ctx) {
       if (denied) return denied;
       const guest = await guestRefused(env, request, orgId);
       if (guest) return guest;
-      return json(await orgMetrics(env.DB, orgId, { days: url.searchParams.get("days") }));
+      return json(await orgMetrics(env.DB, orgId, { days: url.searchParams.get("days"), aiDays: url.searchParams.get("aiDays") }));
     }
 
     // Real cards, with their verdicts, in the shape the eval harness reads.
