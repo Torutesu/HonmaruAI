@@ -31,7 +31,9 @@ function trustedAvatarUrl(env, value) {
 }
 
 const mediaIdFrom = (avatarUrl) => {
-  const match = /\/agents\/avatar\/(agent-avatar-[0-9a-f-]{36})$/.exec(String(avatarUrl || ""));
+  let url;
+  try { url = new URL(String(avatarUrl || "")); } catch { return null; }
+  const match = /^\/agents\/avatar\/(agent-avatar-[0-9a-f-]{36})$/.exec(url.pathname);
   return match && MEDIA_ID.test(match[1]) ? match[1] : null;
 };
 
