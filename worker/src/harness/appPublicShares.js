@@ -96,7 +96,7 @@ export async function readPublicAppShare(db,token,origin){
 }
 function publicShell(payload,origin){
  const safe=JSON.stringify(payload).replace(/</g,'\\u003c');
- const runner=JSON.stringify(String(origin||'')+'/custom-app-runner?v=4').replace(/</g,'\\u003c');
+ const runner=JSON.stringify(String(origin||'')+'/custom-app-runner?v=4&public=1').replace(/</g,'\\u003c');
  return `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Published app</title></head><body style="margin:0;font-family:system-ui"><header id="title" style="padding:12px 16px;border-bottom:1px solid #ddd"></header><iframe id="runner" title="Published app" sandbox="allow-scripts" referrerpolicy="no-referrer" style="border:0;width:100%;height:calc(100vh - 52px)"></iframe><script>
 const p=JSON.parse(${safe}),frame=document.getElementById('runner'),renderId=crypto.randomUUID();frame.src=${runner};document.title=p.name;document.getElementById('title').textContent=(p.icon||'📋')+' '+p.name;
 function reply(id,value,error){frame.contentWindow.postMessage({type:'honmaru:result',id,value,error},'*')}
