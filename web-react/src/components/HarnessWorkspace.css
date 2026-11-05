@@ -295,6 +295,14 @@
 
 .hx-company-app { display: grid; gap: 16px; color: var(--hx-text); max-width: 100%; }
 .hx-company-app form, .hx-company-app label { display: grid; gap: 8px; }
+.hx-company-app .hx-hosting-panel { padding: 16px; border: 1px solid var(--hx-border); border-radius: 12px; background: var(--hx-surface); }
+.hx-company-app .hx-hosting-panel h4 { margin: 0 0 8px; color: var(--hx-text); overflow-wrap: anywhere; }
+.hx-company-app .hx-hosting-panel p { color: var(--hx-muted); line-height: 1.55; }
+.hx-company-app .hx-hosting-public-confirm { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--hx-border); border-radius: 10px; background: var(--hx-hover); line-height: 1.5; }
+.hx-company-app .hx-hosting-public-confirm input { width: 18px; height: 18px; min-width: 18px; flex: 0 0 auto; margin-top: 3px; padding: 0; accent-color: var(--hx-action); }
+.hx-company-app .hx-env-list { display: grid; gap: 8px; }
+.hx-company-app .hx-env-list > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--hx-border); border-radius: 10px; background: var(--hx-surface); }
+.hx-company-app .hx-env-list > div > span { color: var(--hx-muted); font-size: 12px; }
 .hx-company-app input, .hx-company-app textarea, .hx-company-app select { box-sizing: border-box; width: 100%; color: var(--hx-text); background: var(--hx-surface); border: 1px solid var(--hx-border); border-radius: 10px; padding: 10px 12px; font: inherit; }
 .hx-company-app textarea { min-height: 100px; resize: vertical; }
 .hx-company-app pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; padding: 12px; background: var(--hx-hover); border-radius: 10px; font-size: 12px; }
