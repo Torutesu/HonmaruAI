@@ -107,6 +107,18 @@ test('Workflow Connection definitions allow only bounded native read-only search
   expect(normalizeSteps([{ type: 'connection', agentId: 'agent-1', source: 'arbitrary', action: 'search', query: 'release' }]).error).toContain('search query');
 });
 
+test('Simple mode does not expose or save Workflow Connection steps', async () => {
+  expect((await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' })).status).toBe(200);
+  const listed = await (await get(`/workflows?${q({ orgId: ORG })}`, mika)).json();
+  expect(listed.steps).not.toContain('connection');
+  const response = await send('POST', '/workflows', mika, {
+    orgId: ORG, name: 'Hidden connection', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', agentId: 'agent-1', source: 'notion', action: 'search', query: 'policy' }],
+  });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ message: 'Workflow Connection steps are available only in Harness mode.' });
+});
+
 test("a row turning overdue runs the workflow: it posts, waits on a person's approval, and goes on when approved", async () => {
   const made = await send("POST", "/workflows", mika, overdueFlow());
   expect(made.status).toBe(201);
@@ -1442,6 +1454,36 @@ test('Workflow Connection search uses the selected Agent grant and records an au
     expect(run).toMatchObject({ status: 'done', log: [expect.objectContaining({ status: 'ok', connection: expect.objectContaining({ source: 'notion', action: 'search', query: 'travel policy', agentId: agent.id, actorId: '9302' }) })] });
     expect(run.log[0].output).toContain('Travel policy');
     expect(run.log[0].output).toContain('Book refundable fares.');
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('Workflow run-log reads hide past Connection output from a member without the Agent source grant', async () => {
+  const agent = await workflowNotionAgent();
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { mayRunAgent } = await import('../src/harness/agents.js');
+  const memberState = await (await get(`/hx/agents/${agent.id}/members?${q({ orgId: ORG })}`, mika)).json();
+  const toruCandidate = memberState.candidates.find(candidate => candidate.name === 'Toru');
+  expect(toruCandidate).toBeTruthy();
+  expect((await send('PUT', `/hx/agents/${agent.id}/members`, mika, { orgId: ORG, ref: toruCandidate.ref, role: 'member', expectedVersion: memberState.version })).status).toBe(200);
+  const agentRow = await env.DB.prepare('SELECT * FROM custom_agents WHERE org_id=?1 AND id=?2').bind(ORG, agent.id).first();
+  expect(await mayRunAgent(env.DB, ORG, agentRow, '9301')).toBe(true);
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Private connection output', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', agentId: agent.id, source: 'notion', action: 'search', query: 'payroll' }],
+  }, '9302');
+  fetchMock.activate();
+  fetchMock.get('https://backend.composio.dev').intercept({ path: '/api/v3/tools/execute/NOTION_SEARCH_NOTION_PAGE', method: 'POST' })
+    .reply(200, { results: [{ response: { data: { results: [{
+      properties: { Title: { type: 'title', title: [{ plain_text: 'Restricted payroll procedure' }] } },
+      url: 'https://notion.so/restricted-payroll-procedure',
+    }] } } }] });
+  try {
+    const run = await startRun({ ...env, COMPOSIO_API_KEY: 'ck-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    expect(run.status).toBe('done');
+    const response = await get(`/workflows/${workflow.id}/runs/${run.id}?${q({ orgId: ORG })}`, toru);
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain('Restricted payroll procedure');
     fetchMock.assertNoPendingInterceptors();
   } finally { fetchMock.deactivate(); }
 });

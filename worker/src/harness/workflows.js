@@ -269,6 +269,9 @@ export async function unknownApprover(db, orgId, steps) {
 }
 
 async function connectionStepsAvailable(db, orgId, steps, ownerId) {
+  if (steps.some(step => step.type === 'connection') && await getMode(db, orgId).catch(() => null) !== 'harness') {
+    return { error: 'Workflow Connection steps are available only in Harness mode.' };
+  }
   for (const step of steps) {
     if (step.type !== 'connection') continue;
     const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
