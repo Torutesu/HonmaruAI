@@ -399,7 +399,7 @@ CREATE TABLE IF NOT EXISTS hx_app_publish_approvals (
   status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','revoked')),
   created_at TEXT NOT NULL,
   reviewed_at TEXT,
-  consumed_at TEXT,
-  UNIQUE(org_id,app_id,draft_version,source_hash,scope,requested_by)
+  consumed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS hx_app_publish_approvals_current ON hx_app_publish_approvals(org_id,app_id,status,draft_version);
+CREATE UNIQUE INDEX IF NOT EXISTS hx_app_publish_approvals_one_open ON hx_app_publish_approvals(org_id,app_id,draft_version,source_hash,scope,requested_by) WHERE status IN ('pending','approved');
