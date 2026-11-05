@@ -17,64 +17,69 @@ async function currentAccess(db, orgId, agentId, login) {
   const [profile, access, member] = await Promise.all([
     getProfile(db, orgId, agentId),
     db.prepare("SELECT version FROM hx_agent_access WHERE org_id=?1 AND agent_id=?2").bind(orgId, agentId).first(),
-    db.prepare(\`SELECT u.github_id, m.created_at FROM users u JOIN memberships m
-      ON m.user_github_id=u.github_id AND m.org_id=?1 AND m.role!='guest'
-      WHERE u.login=?2\`).bind(orgId, login).first(),
+    db.prepare("SELECT u.github_id, m.created_at FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND m.role!='guest' WHERE u.login=?2").bind(orgId, login).first(),
   ]);
   return { profile, version: Number(access?.version || 0), member };
 }
 
 const restricted = (agent, profile) => agent.scope === "personal" || profile.access !== "everyone";
-const revision = (current) => \`\${current.profile.updatedAt || ""}:\${current.version}:\${current.member?.created_at || ""}\`;
-const signedId = (mediaId, agentId, viewerId, rev) => \`\${mediaId}\\n\${agentId}\\n\${viewerId}\\n\${rev}\`;
+const revision = (current) => String(current.profile.updatedAt || "") + ":" + current.version + ":" + String(current.member?.created_at || "");
+const signedId = (mediaId, agentId, viewerId, rev) => mediaId + "\n" + agentId + "\n" + viewerId + "\n" + rev;
 
-/// The same avatar address is public and cacheable for team-wide agents.
-/// A restricted agent receives a short-lived, viewer-bound address whose ACL
-/// and membership revisions are checked again for every image request.
+async function agentsForMedia(db, mediaId, agentId = "") {
+  const query = agentId
+    ? db.prepare("SELECT id,org_id,scope,owner_login,avatar_url FROM custom_agents WHERE id=?1 AND deleted_at IS NULL AND avatar_url LIKE ?2").bind(agentId, "%/agents/avatar/" + mediaId)
+    : db.prepare("SELECT id,org_id,scope,owner_login,avatar_url FROM custom_agents WHERE deleted_at IS NULL AND avatar_url LIKE ?1").bind("%/agents/avatar/" + mediaId);
+  const { results } = await query.all();
+  return (results || []).filter((row) => mediaIdFrom(row.avatar_url) === mediaId);
+}
+
 export async function clientAgentAvatarUrl(env, orgId, agent, login) {
   const mediaId = mediaIdFrom(agent?.avatarUrl);
   if (!mediaId) return null;
   const current = await currentAccess(env.DB, orgId, agent.id, login);
+  const url = new URL(agent.avatarUrl);
+  url.searchParams.set("agent", agent.id);
   if (!restricted(agent, current.profile)) {
-    const url = new URL(agent.avatarUrl);
-    url.search = \`revision=\${encodeURIComponent(revision(current))}\`;
+    url.searchParams.set("revision", revision(current));
     return url.toString();
   }
   if (!current.member || !await mayAccessAgent(env.DB, orgId, agent, login)) return null;
   const viewerId = String(current.member.github_id);
   const signed = await signedQuery(env, "a1", orgId, signedId(mediaId, agent.id, viewerId, revision(current)));
   if (!signed) return null;
-  const url = new URL(agent.avatarUrl);
-  url.search = \`agent=\${encodeURIComponent(agent.id)}&viewer=\${encodeURIComponent(viewerId)}&\${signed.query}\`;
+  url.searchParams.set("viewer", viewerId);
+  for (const [key, value] of new URLSearchParams(signed.query)) url.searchParams.set(key, value);
   return url.toString();
 }
 
-/// Agent avatar bytes are intentionally independent of profile content. The
-/// route returns the same opaque 404 for a missing avatar, stale link, revoked
-/// access, removed membership, or a URL signed for another person.
 export async function authorizeAgentAvatar(env, url, mediaId) {
   const agentId = url.searchParams.get("agent") || "";
-  if (!/^[A-Za-z0-9_-]{1,80}$/.test(agentId)) return { response: inaccessible() };
-  const agent = await env.DB.prepare(\`SELECT id,org_id,scope,owner_login,avatar_url FROM custom_agents
-    WHERE id=?1 AND deleted_at IS NULL AND avatar_url LIKE ?2\`).bind(agentId, \`%/agents/avatar/\${mediaId}\`).first();
-  if (!agent || mediaIdFrom(agent.avatar_url) !== mediaId) return { response: inaccessible() };
-  const model = { id: agent.id, scope: agent.scope, ownerLogin: agent.owner_login };
+  if (agentId && !/^[A-Za-z0-9_-]{1,80}$/.test(agentId)) return { response: inaccessible() };
+  const agents = await agentsForMedia(env.DB, mediaId, agentId);
+  if (!agents.length) return { response: inaccessible() };
+
   const viewerId = url.searchParams.get("viewer") || "";
-  if (!/^[0-9]{1,24}$/.test(viewerId)) {
-    // Legacy/public URLs have no viewer parameter; they remain public only
-    // while the current Agent policy is public.
-    const current = await getProfile(env.DB, agent.org_id, agent.id);
-    return restricted(model, current) ? { response: inaccessible() } : { public: true, agent };
+  if (!viewerId) {
+    for (const agent of agents) {
+      const profile = await getProfile(env.DB, agent.org_id, agent.id);
+      if (restricted(agent, profile)) return { response: inaccessible() };
+    }
+    return { public: true };
   }
+
+  if (!agentId || agents.length !== 1 || !/^[0-9]{1,24}$/.test(viewerId)) return { response: inaccessible() };
+  const agent = agents[0];
+  const model = { id: agent.id, scope: agent.scope, ownerLogin: agent.owner_login };
   const viewer = await env.DB.prepare("SELECT login FROM users WHERE github_id=?1").bind(viewerId).first();
   const login = viewer?.login || "";
   const current = await currentAccess(env.DB, agent.org_id, agent.id, login);
-  if (!restricted(model, current.profile)) return { public: true, agent };
+  if (!restricted(model, current.profile)) return { public: true };
   if (!login || !current.member || String(current.member.github_id) !== viewerId) return { response: inaccessible() };
   const boundId = signedId(mediaId, agent.id, viewerId, revision(current));
   if (!await addressHolds(env, url, "a1", agent.org_id, boundId)) return { response: inaccessible() };
   if (!await mayAccessAgent(env.DB, agent.org_id, model, login)) return { response: inaccessible() };
-  return { public: false, agent };
+  return { public: false };
 }
 
 export { inaccessible as inaccessibleAgentAvatar };
