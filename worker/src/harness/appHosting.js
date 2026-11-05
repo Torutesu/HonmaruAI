@@ -227,16 +227,22 @@ export async function servePublicAppDomain(request, env, url) {
   const json = scriptJson(payload);
   if (json.length > MAX_PUBLIC_SNAPSHOT) return new Response('The app data is too large to publish on a single page.', { status: 413, headers: { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' } });
   const runner = `${url.origin}/custom-app-runner?v=4`;
+  const publishedCommit=definition.custom?.publishedCommit;
+  const commitAssetBase=publishedCommit?.sha&&publishedCommit?.assetToken
+    ?`${url.origin}/app-commit-assets/${encodeURIComponent(domain.appId)}/${encodeURIComponent(publishedCommit.sha)}/${encodeURIComponent(publishedCommit.assetToken)}/`
+    :'';
+  const assetPolicy=`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'self'">`;
+  const assetBase=commitAssetBase?`<base href="${escaped(commitAssetBase)}">`:'';
   const title = escaped(domain.name || 'App');
   const body = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>html,body{margin:0;min-height:100%;font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#172033}header{height:48px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #e2e8f0;background:white}header strong{font-size:14px;font-weight:600}header span{font-size:18px}iframe{display:block;width:100%;height:calc(100dvh - 49px);border:0}</style></head><body><header><span>${escaped(domain.icon || '📋')}</span><strong>${title}</strong></header><iframe id="runner" title="${title}" sandbox="allow-scripts" referrerpolicy="no-referrer" src="${escaped(runner)}"></iframe><script>
 const snapshot=${json};const frame=document.getElementById('runner');let initialized=false;
 function reply(id,value,error){frame.contentWindow.postMessage({type:'honmaru:result',id,value,error},'*')}
-addEventListener('message',event=>{if(event.source!==frame.contentWindow||!event.data)return;const m=event.data;if(m.type==='honmaru:ready'&&!initialized){initialized=true;frame.contentWindow.postMessage({type:'honmaru:init',renderId:crypto.randomUUID(),theme:'system',html:'<meta name="color-scheme" content="light dark"><style>body{background:Canvas;color:CanvasText}</style>'+snapshotHtml},'*');return}if(m.type!=='honmaru:request'||typeof m.id!=='string'||m.id.length>80)return;const args=m.args&&typeof m.args==='object'?m.args:{};if(m.operation==='read'){reply(m.id,{table:snapshot.table,rows:snapshot.rows});return}if(m.operation==='entity'){const entity=snapshot.entities.find(item=>item.key===args.entity);entity?reply(m.id,{table:entity.table,rows:entity.rows}):reply(m.id,undefined,'No such entity.');return}reply(m.id,undefined,'Published apps on this domain are read-only.')});
-const snapshotHtml=${scriptJson(`<meta name="color-scheme" content="light dark"><style>body{background:Canvas;color:CanvasText}</style>${html}`)};
+addEventListener('message',event=>{if(event.source!==frame.contentWindow||!event.data)return;const m=event.data;if(m.type==='honmaru:ready'&&!initialized){initialized=true;frame.contentWindow.postMessage({type:'honmaru:init',renderId:crypto.randomUUID(),theme:'system',html:snapshotHtml},'*');return}if(m.type!=='honmaru:request'||typeof m.id!=='string'||m.id.length>80)return;const args=m.args&&typeof m.args==='object'?m.args:{};if(m.operation==='read'){reply(m.id,{table:snapshot.table,rows:snapshot.rows});return}if(m.operation==='entity'){const entity=snapshot.entities.find(item=>item.key===args.entity);entity?reply(m.id,{table:entity.table,rows:entity.rows}):reply(m.id,undefined,'No such entity.');return}reply(m.id,undefined,'Published apps on this domain are read-only.')});
+const snapshotHtml=${scriptJson(`${assetPolicy}${assetBase}<meta name="color-scheme" content="light dark"><style>body{background:Canvas;color:CanvasText}</style>${html}`)};
 </script></body></html>`;
   return new Response(body, { headers: {
     'content-type': 'text/html; charset=utf-8',
-    'content-security-policy': `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src ${url.origin}; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    'content-security-policy': `default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; frame-src ${url.origin}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'`,
     'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff', 'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()', 'cache-control': 'no-store',
   } });
 }
