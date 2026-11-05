@@ -229,6 +229,28 @@ test('a linked file opens outside listing filters, but never under a different r
  await act(async()=>{renderer!.unmount()})
 })
 
+test('global search scope hides create/upload controls but opens the actual file scope and history',async()=>{
+ const api={
+  list:vi.fn().mockResolvedValue({files:[],next:null}),
+  get:vi.fn().mockResolvedValue({file}),
+  versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),
+  upload:vi.fn().mockResolvedValue({saved:true,version:52}),
+  create:vi.fn(),documentJobs:vi.fn(),createDocument:vi.fn(),
+ } as unknown as WorkspaceFileApi
+ let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<WorkspaceFilesPanel api={api} scope="all" targetFileId={file.id} onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,0))})
+ expect(api.get).toHaveBeenCalledWith(file.id,expect.any(AbortSignal))
+ expect(tree!.root.findAllByProps({'aria-label':'Upload files'})).toHaveLength(0)
+ expect(tree!.root.findAllByProps({'aria-label':'Create document'})).toHaveLength(0)
+ expect(api.create).not.toHaveBeenCalled();expect(api.documentJobs).not.toHaveBeenCalled()
+ expect(api.versions).toHaveBeenCalledWith(file.id,undefined,expect.any(AbortSignal))
+ const replacement=new Blob(['replacement'],{type:'text/plain'})
+ await act(async()=>{tree!.root.findByProps({'aria-label':'Choose a new file version'}).props.onChange({target:{files:[replacement]}})})
+ expect(api.upload).toHaveBeenCalledWith(file.id,51,replacement,expect.any(AbortSignal))
+ act(()=>tree!.unmount())
+})
+
 test('a slow earlier file-link response cannot replace a newer target',async()=>{
  let finishFirst!:(value:{file:WorkspaceFile})=>void
  const api={list:vi.fn().mockResolvedValue({files:[],next:null}),get:vi.fn((id:string)=>id==='first'?new Promise(resolve=>{finishFirst=resolve}):Promise.resolve({file:{...file,id:'second',path:'second.txt'}})),versions:vi.fn().mockResolvedValue({versions:[version(51)]})} as unknown as WorkspaceFileApi

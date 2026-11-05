@@ -37,6 +37,10 @@ async function purgeVersions(db,{orgId,fileId,userId,version,reason,expectedVers
    WHERE v.org_id=?1 AND v.file_id=?2 AND (?4 IS NULL OR v.version=?4) AND p.created_by=?3 AND p.created_at=?5
     AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_versions other WHERE other.org_id=v.org_id AND other.object_key=v.object_key
      AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges gone WHERE gone.org_id=other.org_id AND gone.file_id=other.file_id AND gone.version=other.version))`)
+   .bind(orgId,fileId,userId,version,at),
+  db.prepare(`DELETE FROM hx_workspace_file_search WHERE org_id=?1 AND file_id=?2
+   AND EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=hx_workspace_file_search.org_id AND p.file_id=hx_workspace_file_search.file_id
+    AND p.version=hx_workspace_file_search.version AND p.created_by=?3 AND p.created_at=?5)`)
    .bind(orgId,fileId,userId,version,at)
  ]);
  return results[0].meta.changes;

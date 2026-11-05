@@ -23,7 +23,7 @@ export async function createFileLedger(db,{orgId,fileId,scope,path,createdBy,ori
  const result=origin===null?await insert.run():(await db.batch([insert,db.prepare("INSERT INTO hx_workspace_file_origins(org_id,file_id,source) SELECT ?1,?2,?3 WHERE changes()=1").bind(orgId,fileId,origin)]))[0];
  return {created:result.meta.changes===1};
 }
-export async function appendFileVersion(db,{orgId,fileId,expectedVersion,createdBy,kind='content',objectKey=null,contentHash=null,contentType=null,size=null,restoredFrom=null,stageId=null,at=new Date().toISOString()}) {
+export async function appendFileVersion(db,{orgId,fileId,expectedVersion,createdBy,kind='content',objectKey=null,contentHash=null,contentType=null,size=null,restoredFrom=null,stageId=null,searchText=null,at=new Date().toISOString()}) {
  for(const [name,value] of Object.entries({orgId,fileId,createdBy,at}))required(value,name);
  if(!Number.isSafeInteger(expectedVersion)||expectedVersion<0||expectedVersion>=Number.MAX_SAFE_INTEGER)throw new FileVersionInputError('Expected version is required.');
  if(!['content','deleted'].includes(kind))throw new FileVersionInputError('Invalid version kind.');
@@ -35,6 +35,7 @@ export async function appendFileVersion(db,{orgId,fileId,expectedVersion,created
   if(restoredFrom!==null&&(!Number.isSafeInteger(restoredFrom)||restoredFrom<1||restoredFrom>expectedVersion))throw new FileVersionInputError('Invalid restore version.');
  }
  if(stageId!==null)required(stageId,'upload stage');
+ if(searchText!==null&&(typeof searchText!=='string'||searchText.length>131072||searchText.includes('\u0000')))throw new FileVersionInputError('Invalid searchable file text.');
  const operationId=crypto.randomUUID(),version=expectedVersion+1;
  const results=await db.batch([
   db.prepare(`INSERT INTO hx_workspace_file_versions(org_id,file_id,version,operation_id,kind,object_key,content_hash,content_type,size,created_by,created_login,created_at,restored_from)
@@ -51,7 +52,23 @@ export async function appendFileVersion(db,{orgId,fileId,expectedVersion,created
    .bind(orgId,fileId,version,operationId,kind,objectKey,contentHash,contentType,size,createdBy,at,restoredFrom,expectedVersion,stageId,Date.now()),
   db.prepare(`UPDATE hx_workspace_files SET current_version=?3,updated_at=?4 WHERE org_id=?1 AND id=?2 AND current_version=?5
    AND EXISTS(SELECT 1 FROM hx_workspace_file_versions v WHERE v.org_id=?1 AND v.file_id=?2 AND v.version=?3 AND v.operation_id=?6)`)
-   .bind(orgId,fileId,version,at,expectedVersion,operationId)
+   .bind(orgId,fileId,version,at,expectedVersion,operationId),
+  db.prepare(`DELETE FROM hx_workspace_file_search WHERE org_id=?1 AND file_id=?2
+   AND (?5='deleted' OR ?6 IS NULL)
+   AND EXISTS(SELECT 1 FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version
+    WHERE f.org_id=?1 AND f.id=?2 AND f.current_version=?3 AND v.operation_id=?4)`)
+   .bind(orgId,fileId,version,operationId,kind,searchText),
+  db.prepare(`INSERT INTO hx_workspace_file_search(org_id,file_id,version,body)
+   SELECT ?1,?2,?3,?4 WHERE ?5='content' AND ?4 IS NOT NULL AND EXISTS(
+    SELECT 1 FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version
+    WHERE f.org_id=?1 AND f.id=?2 AND f.current_version=?3 AND v.operation_id=?6 AND v.kind='content'
+     AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=v.org_id AND p.file_id=v.file_id AND p.version=v.version))
+   ON CONFLICT(org_id,file_id) DO UPDATE SET version=excluded.version,body=excluded.body`)
+   .bind(orgId,fileId,version,searchText,kind,operationId),
+  db.prepare(`DELETE FROM hx_workspace_file_search WHERE org_id=?1 AND file_id NOT IN (
+    SELECT s.file_id FROM hx_workspace_file_search s JOIN hx_workspace_files f ON f.org_id=s.org_id AND f.id=s.file_id
+    WHERE s.org_id=?1 ORDER BY f.updated_at DESC,s.file_id LIMIT 256)`)
+   .bind(orgId)
  ]);
  return results[0].meta.changes===1&&results[1].meta.changes===1?{saved:true,version}:{saved:false};
 }

@@ -3,6 +3,16 @@ import {appendFileVersion,readFileVersionContent,FileVersionInputError} from './
 import {fileScopeAuthority} from './fileAuthority.js';
 import {deleteMediaKeys} from '../files.js';
 
+const SEARCHABLE_APPLICATION_TYPES=new Set(['application/json','application/xml','application/yaml']);
+function searchableText(body,contentType) {
+ const type=String(contentType).toLowerCase();
+ if(body.byteLength>128*1024||(!type.startsWith('text/')&&!SEARCHABLE_APPLICATION_TYPES.has(type)))return null;
+ try {
+  const text=new TextDecoder('utf-8',{fatal:true}).decode(body);
+  return text.length<=131072&&!text.includes('\u0000')?text:null;
+ } catch { return null; }
+}
+
 // Internal: not mounted until retention, purge, download and account cleanup
 // are integrated. Each upload gets its own key; never overwrite a prior blob.
 export async function uploadFileVersion(env,{orgId,fileId,userId,expectedVersion,stream,size,contentType='application/octet-stream',restoredFrom=null}) {
@@ -35,7 +45,7 @@ export async function uploadFileVersion(env,{orgId,fileId,userId,expectedVersion
   await env.MEDIA.put(objectKey,body,{httpMetadata:{contentType}});
   const head=await env.MEDIA.head(objectKey);
   if(!head||head.size!==size)throw Error('Stored upload could not be verified.');
-  const result=await appendFileVersion(env.DB,{orgId,fileId,createdBy:userId,expectedVersion,objectKey,contentHash:hash.digest('hex'),contentType,size,stageId,restoredFrom});
+  const result=await appendFileVersion(env.DB,{orgId,fileId,createdBy:userId,expectedVersion,objectKey,contentHash:hash.digest('hex'),contentType,size,stageId,restoredFrom,searchText:searchableText(body,contentType)});
   if(!result.saved){await discardUpload(env,orgId,stageId,objectKey);return result;}
   // This deletion can fail after a successful commit; the cleanup path below
   // checks the authoritative version record before deleting any object.

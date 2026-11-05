@@ -834,6 +834,7 @@ CREATE TABLE IF NOT EXISTS message_files (
 );
 CREATE INDEX IF NOT EXISTS idx_message_files ON message_files(org_id, message_id);
 CREATE INDEX IF NOT EXISTS idx_message_files_unsent ON message_files(message_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_message_files_org_recent ON message_files(org_id, created_at DESC, id);
 
 /* R2 keys whose delete failed, tried again by the cron with backoff until they
    go (files.js deleteMediaKeys / retryMediaDeletions). Without this a refused
@@ -1756,6 +1757,7 @@ CREATE TABLE IF NOT EXISTS hx_rows (
   updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_hx_rows_table ON hx_rows(table_id, position);
+CREATE INDEX IF NOT EXISTS idx_hx_rows_org_recent ON hx_rows(org_id, updated_at DESC, id);
 
 /* An internal app: a table plus the views over it (harness/apps.js). The
    definition is the current version; every earlier one is kept below. */
