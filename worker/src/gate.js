@@ -83,14 +83,16 @@ async function metered(env, githubId, limit) {
 /// The same question, asked for a workspace: a workspace that runs on its
 /// own key is never metered. Every caller that knows the workspace goes
 /// through here.
-export async function allowanceFor(env, orgId, { githubId, userKey }) {
-  let workspaceKey = false;
+export async function allowanceFor(env, orgId, { githubId, userKey, credentialSource }) {
+  let workspaceKey = credentialSource === "workspace";
   let workspaceSettings = null;
   // Only someone signed in may spend a workspace's own key: the route checks
   // membership for a session alone, and a workspace id ("owner/repo") is no
   // secret, so an anonymous caller naming one would bill that team.
-  if (orgId && !userKey && githubId) {
+  if (credentialSource === undefined && orgId && !userKey && githubId) {
     try { workspaceSettings = await loadAISettings(env.DB, orgId); workspaceKey = Boolean(workspaceSettings.openaiKey); } catch { workspaceKey = false; }
+  }
+  if (orgId && !userKey && githubId) {
     // This no-charge guard covers only recorded model usage on the
     // deployment's key. A workspace or member key has its own bill and is
     // deliberately outside this shared deployment budget.
