@@ -2101,3 +2101,17 @@ test('policy off preserves legacy direct custom app publication',async()=>{
   const current=await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json();
   expect(current.app.definition.custom.published).toBe('<h1>Release candidate</h1>');
 });
+
+test('approval write rechecks reviewer role after route authorization preflight',async()=>{
+  const {app,path}=await customApprovalFixture();
+  expect((await requestCustomApproval(path,app.version)).status).toBe(200);
+  const state=await(await get(path,mika)).json();
+  const current=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+  const {reviewCustomPublishApproval}=await import('../src/harness/customAppPublishApproval.js');
+  const result=await reviewCustomPublishApproval(env.DB,ORG,current,{approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash,decision:'approve'},'9101',true);
+  expect(result.status).toBe(409);
+  await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+  const fresh=await(await get(path,mika)).json();
+  expect(fresh.approval.status).toBe('pending');
+});
