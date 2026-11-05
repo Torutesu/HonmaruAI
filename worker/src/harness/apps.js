@@ -234,7 +234,7 @@ export async function createApp(db, { orgId, by, name, tableName, description, i
     const room=await db.prepare('SELECT private,created_at FROM businesses WHERE org_id=? AND slug=?').bind(orgId,String(channel).slice(2)).first();
     if(room){channelCreatedAt=channelCreatedAt||room.created_at;channelPrivateAt=channelPrivateAt??Boolean(room.private);}
   }
-  const count = await db.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id = ?1").bind(orgId).first();
+  const count = await db.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id = ?1 AND deleted_at IS NULL").bind(orgId).first();
   if (Number(count?.n || 0) >= MAX_APPS_PER_ORG) return { error: "This workspace has as many apps as it can hold." };
   const clean = String(name ?? "").trim().slice(0, 80);
   if (!clean) return { error: "Give the app a name." };
@@ -391,6 +391,11 @@ export async function deleteApp(db, orgId, id) {
           SELECT 1 FROM hx_app_automation_bindings b
           JOIN hx_workflow_runs r ON r.org_id=b.org_id AND r.workflow_id=b.workflow_id
           WHERE b.org_id=?2 AND b.app_id=?1 AND r.status IN ('running','waiting')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM hx_app_action_jobs j
+          JOIN hx_gateway_jobs g ON g.org_id=j.org_id AND g.id=j.job_id
+          WHERE j.org_id=?2 AND j.app_id=?1 AND g.status IN ('queued','running')
         )`).bind(id, orgId, deletedAt),
     // Preserve the App, versions, tables, entity links, records and conversation
     // history until workspace deletion. Only stop execution and revoke secrets.
@@ -409,7 +414,7 @@ export async function deleteApp(db, orgId, id) {
     const active = await db.prepare(`SELECT 1 FROM hx_app_automation_bindings b
       JOIN hx_workflow_runs r ON r.org_id=b.org_id AND r.workflow_id=b.workflow_id
       WHERE b.org_id=?1 AND b.app_id=?2 AND r.status IN ('running','waiting') LIMIT 1`).bind(orgId, id).first();
-    if (active) return { error: "An app workflow is still running or waiting for approval. Finish or cancel it before deleting this app.", status: 409 };
+    if (active) return { error: "An app workflow or action is still running, queued, or waiting for approval. Finish or cancel it before deleting this app.", status: 409 };
     return { error: "No such app.", status: 404 };
   }
   return { deleted: true, dataRetained: true, retention: "until_workspace_deletion" };
