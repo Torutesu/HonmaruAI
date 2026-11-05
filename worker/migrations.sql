@@ -382,14 +382,5 @@ CREATE TABLE IF NOT EXISTS hx_app_public_shares (id TEXT PRIMARY KEY, org_id TEX
 CREATE UNIQUE INDEX IF NOT EXISTS hx_app_public_shares_active ON hx_app_public_shares(org_id, app_id) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS hx_app_public_shares_token ON hx_app_public_shares(token_hash, revoked_at);
 
-CREATE TABLE IF NOT EXISTS hx_app_domain_public_consents (
-  org_id TEXT NOT NULL,
-  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
-  hostname TEXT NOT NULL,
-  domain_created_at TEXT NOT NULL,
-  confirmed_by TEXT NOT NULL,
-  confirmed_at TEXT NOT NULL,
-  confirmation_version INTEGER NOT NULL DEFAULT 1,
-  PRIMARY KEY(org_id,app_id)
-);
+CREATE TABLE IF NOT EXISTS hx_app_domain_public_consents (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, hostname TEXT NOT NULL, domain_created_at TEXT NOT NULL, confirmed_by TEXT NOT NULL, confirmed_at TEXT NOT NULL, confirmation_version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(org_id,app_id));
 CREATE INDEX IF NOT EXISTS hx_app_domain_public_consents_host ON hx_app_domain_public_consents(hostname,domain_created_at);
