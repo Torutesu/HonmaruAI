@@ -97,16 +97,32 @@ export async function saveAISettings(db, orgId, { model, openaiKey, typesafeKey,
 /// The provider for one workspace's call. A person's own key first, then
 /// the workspace's, then the deployment's. A workspace key is its own bill,
 /// so the ledger is told it is not ours.
-export async function providerFor(env, orgId, userKey) {
-  const settings = orgId ? await loadAISettings(env.DB, orgId) : {};
+export async function providerFor(env, orgId, userKey, { credentialSource } = {}) {
+  if (credentialSource !== undefined && !["deployment", "workspace"].includes(credentialSource)) return undefined;
+  const settings = credentialSource === "deployment" ? {} : (orgId ? await loadAISettings(env.DB, orgId) : {});
+  if (credentialSource === "workspace" && !settings.openaiKey) return undefined;
   const scoped = {
     ...env,
-    OPENAI_API_KEY: settings.openaiKey || env.OPENAI_API_KEY,
-    OPENAI_MODEL: settings.model || env.OPENAI_MODEL,
+    OPENAI_API_KEY: credentialSource === "deployment" ? env.OPENAI_API_KEY
+      : credentialSource === "workspace" ? settings.openaiKey : settings.openaiKey || env.OPENAI_API_KEY,
+    OPENAI_MODEL: credentialSource === "deployment" ? env.OPENAI_MODEL
+      : credentialSource === "workspace" ? settings.model || env.OPENAI_MODEL : settings.model || env.OPENAI_MODEL,
+    // A workspace-pinned workflow must not silently fall through to the
+    // deployment's OpenRouter key when its own OpenAI key is revoked.
+    OPENROUTER_API_KEY: credentialSource === "workspace" ? undefined : env.OPENROUTER_API_KEY,
+    OPENROUTER_MODEL: credentialSource === "workspace" ? undefined : env.OPENROUTER_MODEL,
   };
   const provider = providerConfig(scoped, userKey);
-  if (provider && !userKey && settings.openaiKey) provider.byok = true;
+  if (provider && !userKey && (credentialSource === "workspace" || (credentialSource === undefined && settings.openaiKey))) provider.byok = true;
+  if (provider && credentialSource === "deployment") provider.byok = false;
   return provider;
+}
+
+/// A workflow records the billing source selected when it is admitted. Only
+/// this nonsecret label is persisted; API keys remain in env/D1 encrypted storage.
+export async function workflowCredentialSource(env, orgId) {
+  const provider = await providerFor(env, orgId);
+  return provider ? (provider.byok ? "workspace" : "deployment") : "none";
 }
 
 /// System One for one workspace: its own key, or the deployment's.
