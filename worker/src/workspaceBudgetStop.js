@@ -12,8 +12,7 @@ export async function cancelDeploymentBudgetWorkflowRuns(db, orgId, at = new Dat
         THEN json_insert(log,'$[#]',json_object('status','cancelled','reason','workspace_budget_exceeded','at',?2))
         ELSE '[]' END,
       finished_at=?2
-    WHERE org_id=?1 AND status='running'
-      AND EXISTS(SELECT 1 FROM hx_workflow_usage u WHERE u.org_id=?1 AND u.run_id=hx_workflow_runs.id AND u.byok=0)
+    WHERE org_id=?1 AND status='running' AND credential_source='deployment'
       AND NOT EXISTS(SELECT 1 FROM hx_workflow_usage u WHERE u.org_id=?1 AND u.run_id=hx_workflow_runs.id AND u.byok=1)
     RETURNING id
   `).bind(orgId, at).all();
