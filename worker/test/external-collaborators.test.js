@@ -9,7 +9,7 @@ import {
 } from "../src/harness/externalCollaborators.js";
 
 const migration = migrationsSql.split("\n").filter((line) =>
-  /^CREATE (TABLE|UNIQUE INDEX|INDEX) IF NOT EXISTS hx_external_resource_grants/.test(line));
+  /^CREATE (?:TABLE|UNIQUE INDEX|INDEX) IF NOT EXISTS (?:hx_external_resource_grants|idx_hx_external_resource_grants_)/.test(line));
 
 beforeAll(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
