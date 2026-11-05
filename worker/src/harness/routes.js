@@ -108,7 +108,7 @@ const fail = (result) => json({ message: result.error, ...(result.fields ? { fie
 const importMayBeSaved = 'A copy may have been created. After access is restored, check the Skill list before retrying.';
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-generation-v2|template-shares|skills|skill-shares|workspace-file-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId, options) {
@@ -138,6 +138,28 @@ export async function handleHarness(request, env, url, context = {}) {
 
   if (url.pathname === '/app-domains/resolve') return servePublicAppDomain(request, env, url);
 
+  if (url.pathname.startsWith('/workspace-file-shares/')) {
+    const parts=url.pathname.split('/').filter(Boolean),token=parts[1];
+    if(parts.length===2&&request.method==='GET'){
+      const ready=await env.DB.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_file_shares','hx_workspace_file_share_revisions','hx_workspace_file_share_items')").first();
+      if(ready.n!==3)return json({message:'This share is unavailable.'},404);
+      const {readPublicFileShare}=await import('./fileShares.js');
+      const result=await readPublicFileShare(env,token),response=json(result||{message:'This share is unavailable.'},result?200:404);
+      response.headers.set('Referrer-Policy','no-referrer');response.headers.set('X-Robots-Tag','noindex, nofollow, noarchive');response.headers.set('X-Content-Type-Options','nosniff');
+      return response;
+    }
+    if(parts.length===4&&parts[2]==='content'&&request.method==='GET'){
+      const ready=await env.DB.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_file_shares','hx_workspace_file_share_revisions','hx_workspace_file_share_items')").first();
+      if(ready.n!==3)return new Response('Not found',{status:404,headers:{'cache-control':'no-store'}});
+      const index=parts[3]==='preview'?Number(url.searchParams.get('index')):Number(parts[3]);
+      const preview=parts[3]==='preview';
+      if(!Number.isSafeInteger(index)||index<0)return new Response('Not found',{status:404,headers:{'cache-control':'no-store'}});
+      const {readPublicFileShareContent}=await import('./fileShares.js');
+      return await readPublicFileShareContent(env,token,index,{preview})||new Response('Not found',{status:404,headers:{'cache-control':'no-store','referrer-policy':'no-referrer','x-robots-tag':'noindex, nofollow, noarchive'}});
+    }
+    return json({message:'This share is unavailable.'},404);
+  }
+
   if (isDocumentNodeRoute(url.pathname)||/^\/hx\/documents(?:\/|$)/.test(url.pathname)) return handleDocuments(request,env,url);
 
   if (/^\/hx\/files(?:\/|$)/.test(url.pathname)) {
@@ -146,6 +168,55 @@ export async function handleHarness(request, env, url, context = {}) {
     const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins')").all();
     if(results.length!==6)return json({message:'Workspace file storage is not ready.'},503);
     const identity={orgId,userId:String(who.session.github_id),headers:CORS_HEADERS};
+    const fileParts=url.pathname.split('/').filter(Boolean);
+    if(fileParts[3]==='shares'){
+      if(await getMode(env.DB,orgId)!=='harness')return json({message:'Public file sharing is available in Harness mode.'},404);
+      const shareTables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_file_shares','hx_workspace_file_share_revisions','hx_workspace_file_share_items','hx_workspace_file_share_requests','hx_workspace_file_share_events')").all();
+      if(shareTables.results.length!==5)return json({message:'Public file sharing is not ready.'},503);
+      let command=null;
+      if(request.method!=='GET'){
+        command=await body(request);
+        if(!command)return json({message:'Invalid JSON body.'},400);
+      }
+      const fileId=decodeURIComponent(fileParts[2]||'');
+      const {listFileShares,createDirectFileShare,copyFileShare,updateFileShare,revokeFileShare}=await import('./fileShares.js');
+      const canWrite=await allowed(env.DB,orgId,identity.userId,'harness.build');
+      if(fileParts.length===4&&request.method==='GET'){
+        const result=await listFileShares(env.DB,{orgId,fileId,userId:identity.userId});
+        return result.error?json({message:result.error},result.status||400):json(result);
+      }
+      if(fileParts.length===4&&request.method==='POST'){
+        if(!canWrite)return json({message:'File sharing requires current file write access.'},403);
+        const result=await createDirectFileShare(env,{...command,orgId,fileId,userId:identity.userId,login:who.user.login});
+        if(result.error)return json({message:result.error},result.status||400);
+        await audit(env,request,{orgId,action:'workspace.file_share_created',actor:person(who.user),entity:{type:'file',id:fileId},details:{shareId:result.share.id,revision:result.share.currentRevision,expiresAt:result.share.expiresAt,allowDownload:result.share.allowDownload,reusable:result.share.reusable}});
+        return json(result,result.replayed?200:201);
+      }
+      if(fileParts.length===6&&request.method==='POST'){
+        const shareId=decodeURIComponent(fileParts[4]),action=fileParts[5];
+        if(action==='copy'){
+          const result=await copyFileShare(env,{orgId,fileId,shareId,userId:identity.userId,login:who.user.login});
+          if(result.error)return json({message:result.error},result.status||400);
+          await audit(env,request,{orgId,action:'workspace.file_share_copied',actor:person(who.user),entity:{type:'file',id:fileId},details:{shareId}});
+          return json(result);
+        }
+        if(action==='update'){
+          if(!canWrite)return json({message:'File sharing requires current file write access.'},403);
+          const result=await updateFileShare(env,{...command,orgId,fileId,shareId,userId:identity.userId,login:who.user.login});
+          if(result.error)return json({message:result.error},result.status||400);
+          await audit(env,request,{orgId,action:'workspace.file_share_updated',actor:person(who.user),entity:{type:'file',id:fileId},details:{shareId,revision:result.share.currentRevision}});
+          return json(result);
+        }
+        if(action==='revoke'||action==='stop'){
+          if(!canWrite)return json({message:'File sharing requires current file write access.'},403);
+          const result=await revokeFileShare(env.DB,{orgId,fileId,shareId,userId:identity.userId,login:who.user.login,action});
+          if(result.error)return json({message:result.error},result.status||400);
+          await audit(env,request,{orgId,action:`workspace.file_share_${action==='stop'?'stopped':'revoked'}`,actor:person(who.user),entity:{type:'file',id:fileId},details:{shareId}});
+          return json(result);
+        }
+      }
+      return json({message:'File share route not found.'},405);
+    }
     if(request.method==='GET' && url.pathname==='/hx/files/scope'){
       const room=await resolveChannel(env.DB,orgId,who.user,url.searchParams.get('channel'));
       if(!room)return json({message:'No such room.'},404);
@@ -1430,7 +1501,7 @@ async function approvalsFor(env, orgId, login, me) {
     .bind(orgId, login)
     .all();
   const pending = (results || []).map((r) => { try { return JSON.parse(r.data); } catch { return null; } }).filter(Boolean);
-  const cards = pending.filter((c) => c.workflowApproval || c.proxyAction || c.proposal || c.agentAccessRequest || String(c.senderUserID || "").startsWith("agent:"));
+  const cards = pending.filter((c) => c.workflowApproval || c.proxyAction || c.proposal || c.agentAccessRequest || c.fileShareApproval || String(c.senderUserID || "").startsWith("agent:"));
   const { results: waiting } = await env.DB
     .prepare(`SELECT r.id, r.workflow_id, r.card_id, r.started_at, w.name FROM hx_workflow_runs r JOIN hx_workflows w ON w.id = r.workflow_id
       WHERE r.org_id = ?1 AND r.status = 'waiting' AND (r.started_by = ?2 OR w.created_by = ?2) ORDER BY r.started_at DESC LIMIT 100`)
@@ -1438,7 +1509,7 @@ async function approvalsFor(env, orgId, login, me) {
     .all();
   return {
     pendingDecisions: pending.length,
-    toDecide: cards.map((c) => ({ id: c.id, title: c.title, summary: c.summary, createdAt: c.createdAt, kind: c.workflowApproval ? "workflow" : c.agentAccessRequest ? "access" : c.proxyAction ? "agent" : c.proposal ? "proposal" : "agent", source: c.sourceDetail || c.sourceApp || null })),
+    toDecide: cards.map((c) => ({ id: c.id, title: c.title, summary: c.summary, createdAt: c.createdAt, kind: c.workflowApproval ? "workflow" : c.fileShareApproval ? "file-share" : c.agentAccessRequest ? "access" : c.proxyAction ? "agent" : c.proposal ? "proposal" : "agent", source: c.sourceDetail || c.sourceApp || null })),
     waitingOnOthers: (await visibleResources(waiting || [], async w => Boolean(await getRun(env.DB, orgId, w.id, { viewerId: me })))).map((w) => ({ runId: w.id, workflowId: w.workflow_id, workflow: w.name, cardId: w.card_id, startedAt: w.started_at })),
   };
 }

@@ -27,6 +27,7 @@ import {SharedThread} from './screens/SharedThread'
 import { pendingMcpRequest, clearMcpRequest } from './utils/mcpConsentRequest'
 import { McpConsent } from './components/McpConsent'
 import {PublicSkillShare} from './screens/PublicSkillShare'
+import {PublicFileShare} from './screens/PublicFileShare'
 
 // The web client talks to the backend over HTTP for auth and WebSocket for the
 // feed. We store one base host and derive both.
@@ -75,6 +76,8 @@ function App() {
   },[])
   const warning=sidebarSessionWarning&&<div className="toasts"><div className="toast error" role="alert" onClick={()=>setSidebarSessionWarning(false)}>{getLocale()==='ja'?'セッションが変わったため未完了のサイドバー変更を破棄しました。進行中の保存は既に反映された可能性があります。':'The session changed and pending sidebar edits were discarded. A request already in progress may have saved.'}</div></div>
   if(hash.startsWith('#/shared/'))return <>{warning}<SharedThread key={hash} httpBase={httpBase(DEFAULT_HOST)} token={hash.slice('#/shared/'.length)}/></>
+  const fileShare=hash.match(/^#\/file-share\/(shr_[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43})$/)
+  if(fileShare)return <>{warning}<PublicFileShare key={hash} httpBase={httpBase(DEFAULT_HOST)} token={fileShare[1]}/></>
   const skillShare=hash.match(/^#\/skill-share\/(skl_[a-f0-9]{64})$/)
   if(skillShare)return <>{warning}<PublicSkillShare key={hash} httpBase={httpBase(DEFAULT_HOST)} token={skillShare[1]}/></>
   return <>{warning}<AccountApp/></>

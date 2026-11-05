@@ -555,7 +555,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   // conversation, the team's decisions and this person's tools too.
   const tools = provider && allowance?.allowed
     ? await agentTools(env, {
-      orgId, session, language: locale, personal: resolved.kind === "agent" && !row.parent_id, fileScope:resolved.key, fileThreadId:row.parent_id,
+      orgId, session, language: locale, personal: resolved.kind === "agent" && !row.parent_id, fileScope:resolved.key, fileThreadId:row.parent_id, fileTurnId:row.id,
       agentId: sourceGrantAgentId,
       agentName: agents.length === 1 ? agents[0].name : null,
       agentLogin: user.login,

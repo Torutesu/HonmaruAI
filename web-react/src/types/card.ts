@@ -70,6 +70,9 @@ export interface DecisionCard {
   // A private approval card that grants one named requester use of one
   // shared team Agent. It does not change room membership.
   agentAccessRequest?: { requestId: string; agentId: string }
+  // A private approval card for an exact public file-share snapshot. The
+  // Worker retains this reference through client updates and settles it once.
+  fileShareApproval?: { requestId: string }
   // Your daily report, drafted in your voice: you read it, change it, and
   // post it to its channel yourself.
   dailyReport?: DailyReport
