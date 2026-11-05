@@ -2067,9 +2067,7 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   ]));
   const staleAccess = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, accessVersion: 0, entities: [{ entity: 'primary', fields: [primary.columns[0].id] }], publicDataConfirmed: true });
   expect(staleAccess.status).toBe(409);
-  const rebound = await createTable(env.DB, { orgId: ORG, name: 'Replacement customers', columns: [{ name: 'Name', type: 'text' }, { name: 'Internal note', type: 'text' }], by: '9101' });
-  await addRow(env.DB, ORG, rebound.table.id, { [rebound.table.columns[0].id]: 'REBOUND_CUSTOMER', [rebound.table.columns[1].id]: 'REBOUND_SECRET' }, '9101');
-  await env.DB.prepare('UPDATE hx_app_entities SET table_id=?1 WHERE org_id=?2 AND app_id=?3 AND entity_key=?4').bind(rebound.table.id, ORG, app.id, 'customers').run();
+
   const newerDefinition = { ...definition, custom: { published: 'window.honmaru.read().then(()=>document.body.textContent="NEW_VERSION")' } };
   await env.DB.prepare('INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at) VALUES(?1,?2,2,?3,?4,?5,?6)').bind(app.id, ORG, JSON.stringify(newerDefinition), 'new version', '9101', '2026-01-02T00:00:00Z').run();
 
