@@ -43,7 +43,6 @@ test('stale text update is rejected after schema migration and target deletion',
 });
 
 test('stale text insert is rejected after schema migration and target deletion',async()=>{
- const rowCountBefore=(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?').bind(app.tableId).first()).n;
  let updated=await request(`/tables/${app.tableId}/rows/${row.id}`,member,{method:'PATCH',body:{values:{task:null},expectedUpdatedAt:row.updatedAt}});
  expect(updated.status).toBe(200);row=(await updated.json()).row;
  const operations=[{op:'convert_column',entity:'primary',column:'task',type:'relation',targetEntity:'primary',multiple:false}];let injected=false;
@@ -56,7 +55,7 @@ test('stale text insert is rejected after schema migration and target deletion',
  const response=await request(`/tables/${app.tableId}/rows`,member,{method:'POST',body:{values:{task:row.id}},db});
  expect(injected).toBe(true);expect(response.status).toBe(409);
  expect(await env.DB.prepare('SELECT id FROM hx_rows WHERE id=?').bind(row.id).first()).toBeNull();
- expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?').bind(app.tableId).first()).n).toBe(rowCountBefore);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?').bind(app.tableId).first()).n).toBe(0);
 });
 
 test('pending record creation is rejected after the owning app is deleted while data is retained',async()=>{
