@@ -679,7 +679,7 @@ test("restricted Agent avatar URLs follow access, membership and revisions in Ha
   expect(privateUrl).not.toContain("toru");
   const allowed = await call(protectedUrl.pathname + protectedUrl.search, { headers: {} }, keyed);
   expect(allowed.status).toBe(200);
-  expect(allowed.headers.get("cache-control")).toBe("private, no-store");
+  expect(allowed.headers.get("cache-control")).toBe("no-store");
 
   await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,kind,body,created_at) VALUES ('avatar-test-message',?1,'b:cafe',?2,'agent','A private reply',?3)")
     .bind(ORG, `agent:${agentId}`, new Date().toISOString()).run();
@@ -687,6 +687,18 @@ test("restricted Agent avatar URLs follow access, membership and revisions in Ha
   const message = (await history.json()).messages.find((row) => row.id === "avatar-test-message");
   expect(message.agent.avatarUrl).toContain("viewer=9201");
   expect((await call(new URL(message.agent.avatarUrl).pathname + new URL(message.agent.avatarUrl).search, { headers: {} }, keyed)).status).toBe(200);
+
+  const noKey = await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) }, { DATA_KEY: undefined, FILE_SIGNING_KEY: undefined });
+  expect((await noKey.json()).agents.find((agent) => agent.id === agentId).avatarUrl).toBeNull();
+
+  await env.DB.prepare("INSERT INTO hx_agent_assignments (id,org_id,source_message_id,initial_agent_id,current_agent_id,channel,thread_id,actor_id,session_key,source_hash,generation,status,visited,hop_limit,created_at,updated_at) VALUES ('avatar-status',?1,'avatar-status-source',?2,?2,'b:cafe','avatar-status-source','9201','session','hash',0,'running','[]',4,?3,?3)")
+    .bind(ORG, agentId, new Date().toISOString()).run();
+  const { decorateAssignmentStatuses } = await import("../src/harness/agentAssignmentStatus.js");
+  const status = await decorateAssignmentStatuses(env.DB, ORG, [{ rowId: "avatar-status-source", status: "running", answered: 0 }],
+    { actorId: "9201", login: "toru", env: keyed });
+  const statusUrl = status[0].assignments[0].agent.avatarUrl;
+  expect(statusUrl).toContain("viewer=9201");
+  expect((await call(new URL(statusUrl).pathname + new URL(statusUrl).search, { headers: {} }, keyed)).status).toBe(200);
 
   const replay = new URL(privateUrl);
   replay.searchParams.set("viewer", "9202");
