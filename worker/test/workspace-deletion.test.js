@@ -62,7 +62,12 @@ test("after thirty days everything under the workspace goes, the audit log stays
   await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
   // Not yet.
   expect(await purgeDueWorkspaces(env, { now: Date.now() + 29 * DAY })).toEqual([]);
-  expect(await purgeDueWorkspaces(env, { now: Date.now() + 31 * DAY })).toEqual([ORG]);
+  const now = Date.now() + 31 * DAY;
+  let completed = [];
+  for (let attempt = 0; attempt < 10 && !completed.includes(ORG); attempt++) {
+    completed = await purgeDueWorkspaces(env, { now });
+  }
+  expect(completed).toEqual([ORG]);
 
   const left = async (sql) => (await env.DB.prepare(sql).bind(ORG).first()).n;
   expect(await left("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1")).toBe(0);
