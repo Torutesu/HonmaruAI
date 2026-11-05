@@ -266,6 +266,15 @@ test("pins: anyone in the channel pins and unpins, and the channel lists them", 
   expect((await list(mika))[0]).toMatchObject({ pinned: false, pinVersion: 2 });
 });
 
+test("content revisions advance on edits and unsends", async () => {
+  const m = await say(mika, "Draft wording");
+  expect(m.contentVersion).toBe(0);
+  const edited = await put("/channels/messages", mika, { orgId: ORG, channel: "b:cafe", messageId: m.id, body: "Approved wording" });
+  expect((await edited.json()).message).toMatchObject({ body: "Approved wording", contentVersion: 1 });
+  const deleted = await del("/channels/messages", mika, { orgId: ORG, channel: "b:cafe", messageId: m.id });
+  expect((await deleted.json()).message).toMatchObject({ body: "", deleted: true, contentVersion: 2 });
+});
+
 test("concurrent pin writes advance atomically and a deleted message cannot be pinned again", async () => {
   const m = await say(mika, "Shared instructions");
   await Promise.all(Array.from({ length: 6 }, () => setPinned(env.DB, { orgId: ORG, id: m.id, login: "toru", pinned: true })));
