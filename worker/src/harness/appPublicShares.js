@@ -45,7 +45,7 @@ export async function revokePublicAppShare(db,orgId,appId,shareId){
  const result=await db.prepare('UPDATE hx_app_public_shares SET revoked_at=?4 WHERE org_id=?1 AND app_id=?2 AND id=?3 AND revoked_at IS NULL').bind(orgId,appId,shareId,at()).run();
  return result.meta?.changes?{revoked:true}:fail('Public link has changed. Reload.',409);
 }
-export async function readPublicAppShare(db,token){
+export async function readPublicAppShare(db,token,origin){
  if(typeof token!=='string'||token.length<40||token.length>100)return fail('Not found.',404);
  const hash=await digest(token);
  const share=await db.prepare(`SELECT s.org_id AS orgId,s.app_id AS appId,s.app_version AS appVersion,s.data_scope AS dataScope,
@@ -64,9 +64,14 @@ export async function readPublicAppShare(db,token){
  const publicDefinition=definition.custom?.published;
  if(typeof publicDefinition!=='string'||publicDefinition.length>120000)return fail('Not found.',404);
  const payload=JSON.stringify({name:share.name,icon:share.icon||'📋',html:publicDefinition,table:{name:table.name,columns:table.columns.filter(c=>fields.includes(c.id)).map(c=>({id:c.id,name:c.name,type:c.type}))},rows}).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
- return {html:publicShell(payload)};
+ return {html:publicShell(payload,origin)};
 }
-function publicShell(payload){
+function publicShell(payload,origin){
  const safe=JSON.stringify(payload).replace(/</g,'\\u003c');
- return `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Published app</title></head><body style="margin:0;font-family:system-ui"><header id="title" style="padding:12px 16px;border-bottom:1px solid #ddd"></header><iframe id="app" title="Published app" sandbox="allow-scripts" referrerpolicy="no-referrer" style="border:0;width:100%;height:calc(100vh - 52px)"></iframe><script>const p=JSON.parse(${safe}),f=document.getElementById('app');document.title=p.name;document.getElementById('title').textContent=(p.icon||'📋')+' '+p.name;f.src='data:text/html;charset=utf-8,'+encodeURIComponent(p.html);addEventListener('message',e=>{if(e.source!==f.contentWindow||!e.data||e.data.type!=='honmaru:request')return;const m=e.data;if(m.operation==='read')f.contentWindow.postMessage({type:'honmaru:result',id:m.id,value:{table:p.table,rows:p.rows}},'*');else f.contentWindow.postMessage({type:'honmaru:result',id:m.id,error:'Published app is read-only.'},'*')});<\/script></body></html>`;
+ const runner=JSON.stringify(String(origin||'')+'/custom-app-runner?v=4').replace(/</g,'\\u003c');
+ return `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Published app</title></head><body style="margin:0;font-family:system-ui"><header id="title" style="padding:12px 16px;border-bottom:1px solid #ddd"></header><iframe id="runner" title="Published app" sandbox="allow-scripts" referrerpolicy="no-referrer" style="border:0;width:100%;height:calc(100vh - 52px)"></iframe><script>
+const p=JSON.parse(${safe}),frame=document.getElementById('runner'),renderId=crypto.randomUUID();frame.src=${runner};document.title=p.name;document.getElementById('title').textContent=(p.icon||'📋')+' '+p.name;
+function reply(id,value,error){frame.contentWindow.postMessage({type:'honmaru:result',id,value,error},'*')}
+addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data)return;const m=e.data;if(m.type==='honmaru:ready'){frame.contentWindow.postMessage({type:'honmaru:init',renderId,theme:'system',html:'<meta name="color-scheme" content="light dark"><style>body{background:Canvas;color:CanvasText}</style>'+p.html},'*');return}if(m.type!=='honmaru:request'||typeof m.id!=='string'||m.id.length>80)return;if(m.operation==='read'){reply(m.id,{table:p.table,rows:p.rows});return}if(m.operation==='entity'&&(!m.args||m.args.entity==='primary')){reply(m.id,{table:p.table,rows:p.rows});return}reply(m.id,undefined,'Published app is read-only.')});
+</script></body></html>`;
 }
