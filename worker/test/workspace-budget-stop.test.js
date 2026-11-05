@@ -67,7 +67,11 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
   await env.DB.prepare("INSERT INTO hx_gateway_jobs (id,org_id,gateway_id,created_by,request_id,payload,status,lease_hash,created_at) VALUES ('app-action','workspace-budget-stop','gw','owner','app-action','{}','running','app-lease',1)").run();
   await env.DB.prepare("INSERT INTO hx_app_action_jobs (org_id,app_id,job_id,action_name,action_version,created_by) VALUES ('workspace-budget-stop','app','app-action','run',1,'owner')").run();
 
-  const allowance = await allowanceFor(env,"workspace-budget-stop",{githubId:"owner"});
+  // A workspace key added after this deployment-pinned run started must not
+  // exempt its next AI step from the shared deployment budget.
+  const { saveAISettings } = await import("../src/orgAI.js");
+  await saveAISettings(env.DB,"workspace-budget-stop",{openaiKey:"sk-workspace-added-mid-run"}, "owner");
+  const allowance = await allowanceFor(env,"workspace-budget-stop",{githubId:"owner",credentialSource:"deployment"});
   expect(allowance.allowed).toBe(false);
   expect(allowance.workspaceBudgetExceeded).toBe(true);
 
