@@ -9,6 +9,15 @@ beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   await env.DB.exec("CREATE TABLE IF NOT EXISTS hx_workflow_activations (org_id TEXT NOT NULL,job_id TEXT PRIMARY KEY REFERENCES hx_gateway_jobs(id) ON DELETE CASCADE,run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE,node_id TEXT NOT NULL,node_owner TEXT NOT NULL,node_attempt INTEGER NOT NULL CHECK(node_attempt>0),UNIQUE(org_id,run_id,node_id,node_attempt))");
   await env.DB.prepare("SELECT estimated_micros FROM hx_workflow_usage LIMIT 0").all().catch(() => env.DB.exec("ALTER TABLE hx_workflow_usage ADD COLUMN estimated_micros INTEGER"));
+  for (const [column,definition] of [
+    ["daily_run_limit","INTEGER NOT NULL DEFAULT 0"],["weekly_run_limit","INTEGER NOT NULL DEFAULT 0"],
+    ["monthly_run_limit","INTEGER NOT NULL DEFAULT 0"],["budget_revision","INTEGER NOT NULL DEFAULT 0"],
+    ["daily_ai_budget_micros","INTEGER NOT NULL DEFAULT 0"],["weekly_ai_budget_micros","INTEGER NOT NULL DEFAULT 0"],
+    ["monthly_ai_budget_micros","INTEGER NOT NULL DEFAULT 0"],["ai_budget_action","TEXT NOT NULL DEFAULT 'warn'"],
+  ]) {
+    const {results=[]}=await env.DB.prepare("PRAGMA table_info(hx_workflow_safety)").all();
+    if(!results.some(item=>item.name===column))await env.DB.exec("ALTER TABLE hx_workflow_safety ADD COLUMN "+column+" "+definition);
+  }
   await upsertUser(env.DB,{githubId:"owner",login:"owner",name:"Owner",locale:"en"});
   await upsertMembership(env.DB,"org","owner","admin");
 });
