@@ -61,6 +61,25 @@ test("an admin picks the model and enters the workspace's own keys; a member can
   expect((await providerFor(env, ORG, "sk-mine-abcdefghijklmnop")).apiKey).toBe("sk-mine-abcdefghijklmnop");
 });
 
+test("workflow provider resolution stays pinned to its admission credential source", async () => {
+  const deploymentEnv = { ...env, OPENAI_API_KEY: "sk-deployment-abcdefghijkl" };
+  const admittedDeployment = await providerFor(deploymentEnv, ORG, undefined, { credentialSource: "deployment" });
+  expect(admittedDeployment).toMatchObject({ apiKey: "sk-deployment-abcdefghijkl", byok: false });
+
+  // A workspace key added after admission cannot switch this run to workspace billing.
+  await put("/orgs/ai", toru, { orgId: ORG, openaiKey: "sk-workspace-abcdefghijkl1234" });
+  const stillDeployment = await providerFor(deploymentEnv, ORG, undefined, { credentialSource: "deployment" });
+  expect(stillDeployment).toMatchObject({ apiKey: "sk-deployment-abcdefghijkl", byok: false });
+
+  const workspacePinned = await providerFor(deploymentEnv, ORG, undefined, { credentialSource: "workspace" });
+  expect(workspacePinned).toMatchObject({ apiKey: "sk-workspace-abcdefghijkl1234", byok: true });
+  // Revoking the selected source fails closed; it never falls through to deployment.
+  await put("/orgs/ai", toru, { orgId: ORG, openaiKey: null });
+  expect(await providerFor(deploymentEnv, ORG, undefined, { credentialSource: "workspace" })).toBeUndefined();
+  expect(await providerFor({ ...env, OPENAI_API_KEY: undefined, OPENROUTER_API_KEY: undefined }, ORG, undefined,
+    { credentialSource: "deployment" })).toBeUndefined();
+});
+
 test("a bad model, a key that is not one, and clearing", async () => {
   expect((await put("/orgs/ai", toru, { orgId: ORG, model: "gpt-9" })).status).toBe(400);
   expect((await put("/orgs/ai", toru, { orgId: ORG, openaiKey: "hello" })).status).toBe(400);
