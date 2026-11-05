@@ -827,7 +827,7 @@ export async function handleHarness(request, env, url, context = {}) {
     const canEdit = agent.owner_login === who.user.login || delegatedRole==='admin' || (!managedProfile&&await allowed(env.DB, orgId, me, "agent.manage_others"));
     // Anyone who may talk to it may add a private grant for their own app
     // connection. Agent-wide settings remain its maker's or an admin's.
-    if (!read && !canEdit && sub !== 'members' && sub !== 'apps' && !(sub === "memory" && request.method === "POST")) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
+    if (!read && !canEdit && sub !== 'members' && sub !== 'apps' && !(sub === "memory" && ["POST", "PUT"].includes(request.method))) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
     if (sub === 'ownership' && request.method==='PUT') {
       const people=await memoryMembers(env.DB,orgId,me);
       const target=people.find(p=>p.ref===input.ref);
@@ -949,7 +949,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "memory") {
       if (parts[4] === "scopes" && request.method === "GET") {
         const members = await memoryMembers(env.DB, orgId, me);
-        const { results } = await env.DB.prepare(`SELECT channel FROM (SELECT s.channel FROM hx_memory_scopes s JOIN hx_agent_memories m ON m.id = s.memory_id AND m.org_id=s.org_id WHERE s.org_id=?1 AND m.agent_id=?2 UNION SELECT channel FROM hx_memory_review_audit WHERE org_id=?1 AND agent_id=?2) WHERE channel != '' ORDER BY channel LIMIT 200`).bind(orgId, agentId).all();
+        const { results } = await env.DB.prepare(`SELECT channel FROM (SELECT s.channel FROM hx_memory_scopes s JOIN hx_agent_memories m ON m.id = s.memory_id AND m.org_id=s.org_id WHERE s.org_id=?1 AND m.agent_id=?2 AND (COALESCE(s.owner_user_id,'')='' OR s.owner_user_id=?3) UNION SELECT h.channel FROM hx_memory_review_audit h WHERE h.org_id=?1 AND h.agent_id=?2 AND (COALESCE(h.owner_user_id,'')='' OR h.owner_user_id=?3)) WHERE channel != '' ORDER BY channel LIMIT 200`).bind(orgId, agentId, me).all();
         const scopes = [];
         for (const entry of results || []) {
           const view = viewOf(entry.channel, who.user.login, members);
@@ -973,7 +973,12 @@ export async function handleHarness(request, env, url, context = {}) {
         if (!room) return json({ message: "No such conversation." }, 404);
         channel = room.key;
       }
-      const context = { channel };
+      const context = { channel, userId: me };
+      const ownsPersonalMemory = async memoryId => {
+        if (!memoryId || memoryId === "*") return false;
+        const row = await env.DB.prepare("SELECT s.owner_user_id FROM hx_memory_scopes s JOIN hx_agent_memories m ON m.id=s.memory_id AND m.org_id=s.org_id WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3").bind(orgId,agentId,memoryId).first();
+        return row?.owner_user_id === me;
+      };
       if (request.method === 'GET' && (parts[5] === 'reviews' || parts[4] === 'reviews')) {
         const r = await memoryReviewHistory(env.DB, orgId, agentId, parts[4] === 'reviews' ? null : parts[4], { ...context, cursor: url.searchParams.get('cursor') });
         return r.error ? fail(r) : json(r);
@@ -987,30 +992,38 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === 'POST' && parts[5] === 'to-skill') {
         if (!canEdit) return json({message:"Only the agent's maker or an admin can convert its memory."},403);
+        if (await ownsPersonalMemory(parts[4])) return json({message:"Personal memories cannot be converted into shared skills."},403);
         const r=await convertMemoryToSkill(env.DB,orgId,agentId,parts[4],input,{channel,by:me});
         if (!r.error && !r.replayed) await audit(env,request,{orgId,action:'agent.memory_converted',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memoryId:parts[4],skillId:r.skill.id,version:input.expectedVersion,keptMemory:r.keptMemory,scope:channel?'conversation':'shared'}});
         return r.error?fail(r):json(r,r.replayed?200:201);
       }
       if (request.method === "POST") {
-        const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context" });
-        if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });
+        if (input.scope !== undefined && !["shared", "personal"].includes(input.scope)) return json({ message: "Invalid memory scope." }, 400);
+        const ownerUserId = input.scope === "personal" ? me : "";
+        const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context", ownerUserId });
+        if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: ownerUserId ? "personal" : channel ? "conversation" : "shared" } });
         return r.error ? fail(r) : json(r, 201);
       }
       if (request.method === "PUT" && parts[5] === 'review') {
-        const r = await reviewMemoryEntry(env.DB, orgId, agentId, parts[4], input, { channel, by: me });
-        if (!r.error) await audit(env, request, { orgId, action: 'agent.memory_reviewed', actor: person(who.user), entity: { type: 'custom_agent', id: agentId }, details: { memoryId: parts[4], version: r.review.version, verdict: input.verdict || 'keep', scope: channel ? 'conversation' : 'shared' } });
+        const personal = await ownsPersonalMemory(parts[4]);
+        if (!canEdit && !personal) return json({ message: "Only the agent's maker or a personal memory owner can review it." }, 403);
+        const r = await reviewMemoryEntry(env.DB, orgId, agentId, parts[4], input, { channel, by: me, userId: me });
+        if (!r.error) await audit(env, request, { orgId, action: 'agent.memory_reviewed', actor: person(who.user), entity: { type: 'custom_agent', id: agentId }, details: { memoryId: parts[4], version: r.review.version, verdict: input.verdict || 'keep', scope: personal ? 'personal' : channel ? 'conversation' : 'shared' } });
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "PUT") {
-        const r = await updateMemoryEntry(env.DB, orgId, agentId, parts[4] || input.id || "", input, { channel, by: me });
-        if (!r.error) await audit(env, request, { orgId, action: "agent.memory_updated", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });
+        const memoryId = parts[4] || input.id || "";
+        if (!canEdit && !await ownsPersonalMemory(memoryId)) return json({ message: "Only the agent's maker or a personal memory owner can edit it." }, 403);
+        const r = await updateMemoryEntry(env.DB, orgId, agentId, memoryId, input, { channel, by: me, userId: me });
+        if (!r.error) await audit(env, request, { orgId, action: "agent.memory_updated", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: r.memory.scope } });
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "DELETE") {
-        if (!canEdit) return json({ message: "Only the agent's maker or an admin can make it forget." }, 403);
         const id = parts[4] || url.searchParams.get("id") || "";
+        const personal = await ownsPersonalMemory(id);
+        if (!canEdit && !personal) return json({ message: "Only the agent's maker or a personal memory owner can forget it." }, 403);
         const r = await deleteAgentMemory(env.DB, orgId, agentId, id, context);
-        if (r.deleted) await audit(env, request, { orgId, action: "agent.memory_deleted", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: id, count: r.deleted, scope: channel ? "conversation" : "shared" } });
+        if (r.deleted) await audit(env, request, { orgId, action: "agent.memory_deleted", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: id, count: r.deleted, scope: personal ? "personal" : channel ? "conversation" : "shared" } });
         return json(r);
       }
     }

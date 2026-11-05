@@ -4,12 +4,13 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { rememberRequest, modelForTier, filterResponders } from "../src/harness/agents.js";
+import { agentMemoryTools } from "../src/harness/memoryReader.js";
 
 // Agents as members (docs/kylon-gap-plan.md): a specialty, a tier, a memory
 // of its own, skills, who may call it, and whether it waits to be named.
 
 const ORG = "personal:hxagents";
-let toru, mika, kenji;
+let toru, mika, kenji, sora;
 const pending = [];
 const ctx = { waitUntil: (p) => pending.push(p) };
 const settle = async () => { while (pending.length) await pending.shift(); };
@@ -28,7 +29,7 @@ let agentId;
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, upsertBusiness } = await import("../src/db.js");
-  for (const [id, login, name, role] of [["9201", "toru", "Toru", "admin"], ["9202", "mika", "Mika", "member"], ["9203", "kenji", "Kenji", "member"]]) {
+  for (const [id, login, name, role] of [["9201", "toru", "Toru", "admin"], ["9202", "mika", "Mika", "member"], ["9203", "kenji", "Kenji", "member"], ["9204", "sora", "Sora", "member"]]) {
     await upsertUser(env.DB, { githubId: id, login, name, avatarUrl: null, locale: "en" });
     await upsertMembership(env.DB, ORG, id, role);
   }
@@ -36,6 +37,7 @@ beforeEach(async () => {
   toru = await createSession(env.DB, "9201", "gho_t");
   mika = await createSession(env.DB, "9202", "gho_m");
   kenji = await createSession(env.DB, "9203", "gho_k");
+  sora = await createSession(env.DB, "9204", "gho_s");
   fetchMock.activate();
   // Everything here is the harness's; a simple workspace's agents are
   // untouched (the last test).
@@ -81,7 +83,7 @@ test('profile audience changes refresh only the affected members without sharing
  expect(response.status).toBe(200);
  expect(events).toHaveLength(1);
  const deliveries=events[0].deliveries;
- expect(deliveries.map(item=>item.to).sort()).toEqual(['kenji','mika','toru']);
+ expect(deliveries.map(item=>item.to).sort()).toEqual(['kenji','mika','sora','toru']);
  expect(deliveries.every(item=>item.event.name==='agent_access_changed'&&item.event.value.agentId===agentId&&Object.keys(item.event.value).sort().join(',')==='agentId,version')).toBe(true);
 });
 
@@ -127,7 +129,7 @@ test("an agent that speaks only when named stays out of a thread it would only b
   const asked = (await sent.json()).message;
   await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, mentionOnly: true });
   await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:ops", body: "and which is the oldest?", parentId: asked.id }, MODEL);
-  const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:ops", messageId: asked.id })}`, mika)).json();
+  const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:ops", messageId: asked.id })}`, sora)).json();
   expect(thread.replies.filter((r) => r.kind === "agent")).toHaveLength(1);
 });
 
@@ -613,7 +615,7 @@ test('deleted memory review log retains discoverable scopes but checks current r
  const base=`/hx/agents/${agentId}/memory`;
  const made=await(await send('POST',base,mika,{orgId:ORG,channel:'b:ops',text:'Retired private memory'})).json();
  const input={orgId:ORG,channel:'b:ops',expectedVersion:0,verdict:'delete',evidence:'Replaced by approved procedure'};
- expect((await send('PUT',`${base}/${made.memory.id}/review`,kenji,input)).status).toBe(403);
+ expect((await send('PUT',`${base}/${made.memory.id}/review`,kenji,input)).status).toBe(404);
  expect((await send('PUT',`${base}/${made.memory.id}/review`,mika,input)).status).toBe(200);
  const logPath=`${base}/reviews?${q({orgId:ORG,channel:'b:ops'})}`;
  const log=await get(logPath,mika);
@@ -638,4 +640,52 @@ test('an active normal request loses authorization when agent access becomes pri
  expect(await authorize(agentId)).toBe(true);
  await send('PUT',`/hx/agents/${agentId}/profile`,mika,{orgId:ORG,access:'private'});
  expect(await authorize(agentId)).toBe(false);
+});
+
+test('personal memories are owner-editable while shared mutations remain maker-only', async () => {
+  const path = `/hx/agents/${agentId}/memory`;
+  const created = await send("POST", path, kenji, { orgId: ORG, title: "Private", description: "", body: "Only Kenji", kind: "context", scope: "personal" });
+  expect(created.status).toBe(201);
+  const memory = (await created.json()).memory;
+  expect(memory).toMatchObject({ scope: "personal", isOwner: true });
+  const ownList = await (await get(`${path}?${q({ orgId: ORG })}`, kenji)).json();
+  expect(ownList.memories.find(item => item.id === memory.id)).toMatchObject({ scope: "personal", isOwner: true });
+  const kenjiTools = agentMemoryTools(env.DB, ORG, agentId, { userId: "9203" });
+  const soraTools = agentMemoryTools(env.DB, ORG, agentId, { userId: "9204" });
+  const ownSearch = JSON.parse(await kenjiTools.search_agent_memory.run({ query: "Only Kenji" }));
+  const otherSearch = JSON.parse(await soraTools.search_agent_memory.run({ query: "Only Kenji" }));
+  expect(ownSearch.memories.map(item => item.id)).toContain(memory.id);
+  expect(otherSearch.memories.map(item => item.id)).not.toContain(memory.id);
+  expect(JSON.parse(await kenjiTools.read_agent_memory.run({ memory_id: memory.id })).body).toBe("Only Kenji");
+  expect(await soraTools.read_agent_memory.run({ memory_id: memory.id })).toBe("Memory unavailable.");
+  const otherList = await (await get(`${path}?${q({ orgId: ORG })}`, sora)).json();
+  expect(otherList.memories.map(item => item.id)).not.toContain(memory.id);
+
+  const otherUpdate = await send("PUT", `${path}/${memory.id}`, sora, { orgId: ORG, id: memory.id, expectedVersion: memory.version, title: "Stolen", description: "", body: "Stolen", kind: "context" });
+  expect(otherUpdate.status).toBe(403);
+  const otherReview = await send("PUT", `${path}/${memory.id}/review`, sora, { orgId: ORG, expectedVersion: memory.version, evidence: "no", verdict: "keep" });
+  expect(otherReview.status).toBe(403);
+  const otherDelete = await call(`${path}?${q({ orgId: ORG, id: memory.id })}`, { method: "DELETE", headers: headers(sora) });
+  expect(otherDelete.status).toBe(403);
+
+  const ownReview = await send("PUT", "/hx/agents/" + agentId + "/memory/" + memory.id + "/review", kenji, { orgId: ORG, expectedVersion: memory.version, evidence: "Reviewed privately", verdict: "keep" });
+  expect(ownReview.status).toBe(200);
+  const ownUpdate = await send("PUT", `${path}/${memory.id}`, kenji, { orgId: ORG, id: memory.id, expectedVersion: memory.version, title: "Private", description: "", body: "Updated privately", kind: "context" });
+  expect(ownUpdate.status).toBe(200);
+  const ownDelete = await call(`${path}?${q({ orgId: ORG, id: memory.id })}`, { method: "DELETE", headers: headers(kenji) });
+  expect(ownDelete.status).toBe(200);
+
+  const shared = (await (await send("POST", path, kenji, { orgId: ORG, title: "Shared", description: "", body: "Shared note", kind: "context", scope: "shared" })).json()).memory;
+  const sharedUpdate = await send("PUT", `${path}/${shared.id}`, kenji, { orgId: ORG, id: shared.id, expectedVersion: shared.version, title: "Shared", description: "", body: "Changed", kind: "context" });
+  expect(sharedUpdate.status).toBe(403);
+  const sharedReview = await send("PUT", "/hx/agents/" + agentId + "/memory/" + shared.id + "/review", kenji, { orgId: ORG, expectedVersion: shared.version, evidence: "not allowed", verdict: "keep" });
+  expect(sharedReview.status).toBe(403);
+  const sharedDelete = await call(`${path}?${q({ orgId: ORG, id: shared.id })}`, { method: "DELETE", headers: headers(kenji) });
+  expect(sharedDelete.status).toBe(403);
+  const makerUpdate = await send("PUT", "/hx/agents/" + agentId + "/memory/" + shared.id, mika, { orgId: ORG, id: shared.id, expectedVersion: shared.version, title: "Shared", description: "", body: "Changed by maker", kind: "context" });
+  expect(makerUpdate.status).toBe(200);
+  const makerReview = await send("PUT", "/hx/agents/" + agentId + "/memory/" + shared.id + "/review", mika, { orgId: ORG, expectedVersion: shared.version + 1, evidence: "maker review", verdict: "keep" });
+  expect(makerReview.status).toBe(200);
+  const makerDelete = await call(`${path}?${q({ orgId: ORG, id: shared.id })}`, { method: "DELETE", headers: headers(mika) });
+  expect(makerDelete.status).toBe(200);
 });

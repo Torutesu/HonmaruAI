@@ -2,6 +2,9 @@
 
 const table: Record<string, string> = {
   'Manage fields': 'フィールドを管理',
+  'Memory sharing': 'メモリの共有範囲',
+  'Shared': '共有',
+  'Shared with people who can use this agent': 'このエージェントを利用できるメンバーと共有',
   'Execution {id}: {message}': '実行 {id}: {message}',
   'Execution finished before it could be cancelled.': 'キャンセルする前に実行が終了しました。',
   'Cancellation could not be confirmed. Reload execution history to check.': 'キャンセルを確認できませんでした。実行履歴を再読み込みして確認してください。',
