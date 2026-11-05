@@ -12,6 +12,9 @@ const call=(path,method='GET',body,session=ownerToken,targetEnv=secureEnv)=>work
  method,headers:{'content-type':'application/json',...(session?{'x-session-token':session}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})
 }),targetEnv);
 const publicRead=(token,init={},targetEnv=secureEnv)=>worker.fetch(new Request(`https://example.test/workspace-file-public-urls/${token}`,init),targetEnv);
+const expectNoStore=response=>{
+ for(const name of ['cache-control','cdn-cache-control','cloudflare-cdn-cache-control'])expect(response.headers.get(name)).toBe('no-store');
+};
 
 async function makeFile({path='media.png',contentType='image/png',bytes='image-one',id=`file-${crypto.randomUUID()}`}={}){
  const now=new Date().toISOString(),objectKey=`org/${encodeURIComponent(orgId)}/workspace-files/${id}/v1`;
@@ -47,11 +50,11 @@ test('media URLs reuse a current-version link, publish later versions, prevent c
  const same=await call(`/hx/files/${file.id}/public-url`,'POST',{});expect(same.status).toBe(200);expect(await same.json()).toMatchObject({url:first.url,reused:true});
  const token1=new URL(first.url).pathname.split('/').at(-1);
  const response=await publicRead(token1);expect(response.status).toBe(200);
- expect(response.headers.get('cache-control')).toBe('no-store');
- expect(response.headers.get('cdn-cache-control')).toBe('no-store');
- expect(response.headers.get('cloudflare-cdn-cache-control')).toBe('no-store');
+ expectNoStore(response);
  expect(new TextDecoder().decode(await response.arrayBuffer())).toBe(file.bytes);
- const head=await publicRead(token1,{method:'HEAD'});expect(head.status).toBe(200);expect(await head.text()).toBe('');
+ const head=await publicRead(token1,{method:'HEAD'});expect(head.status).toBe(200);expectNoStore(head);expect(await head.text()).toBe('');
+ const methodNotAllowed=await publicRead(token1,{method:'POST'});expect(methodNotAllowed.status).toBe(405);expectNoStore(methodNotAllowed);
+ const invalidRange=await publicRead(token1,{headers:{range:'bytes=999-'}});expect(invalidRange.status).toBe(416);expectNoStore(invalidRange);
  expect((await publicRead(token1,{}, {...secureEnv,FILE_SIGNING_KEY:btoa('z'.repeat(32))})).status).toBe(200);
  expect((await publicRead(token1,{}, {...secureEnv,DATA_KEY:btoa('y'.repeat(32))})).status).toBe(404);
 
@@ -62,7 +65,7 @@ test('media URLs reuse a current-version link, publish later versions, prevent c
  expect(new TextDecoder().decode(await (await publicRead(token2)).arrayBuffer())).toBe(second.bytes);
 
  const revoked=await call(`/hx/files/${file.id}/public-url`,'DELETE',{});expect(revoked.status).toBe(200);expect(await revoked.json()).toMatchObject({revoked:true,count:2});
- for(const token of [token1,token2]){const gone=await publicRead(token);expect(gone.status).toBe(404);expect(gone.headers.get('cache-control')).toBe('no-store');expect(gone.headers.get('cdn-cache-control')).toBe('no-store');expect(gone.headers.get('cloudflare-cdn-cache-control')).toBe('no-store');}
+ for(const token of [token1,token2]){const gone=await publicRead(token);expect(gone.status).toBe(404);expectNoStore(gone);}
  const replacement=await call(`/hx/files/${file.id}/public-url`,'POST',{});expect(replacement.status).toBe(201);
  const third=await replacement.json();expect(third.version).toBe(2);expect(third.url).not.toBe(secondResult.url);
  expect(await publicRead(token2).then(x=>x.status)).toBe(404);
@@ -98,7 +101,7 @@ test('an R2 miss is no-store, a purged version loses its URL, and soft-deleting 
  const missing=await makeFile({id:'file-r2-missing',bytes:'will disappear'});
  const missingUrl=await call(`/hx/files/${missing.id}/public-url`,'POST',{});const missingToken=new URL((await missingUrl.json()).url).pathname.split('/').at(-1);
  await env.MEDIA.delete(missing.objectKey);
- const miss=await publicRead(missingToken);expect(miss.status).toBe(404);expect(miss.headers.get('cache-control')).toBe('no-store');
+ const miss=await publicRead(missingToken);expect(miss.status).toBe(404);expectNoStore(miss);
 
  const file=await makeFile({id:'file-purge-rotation',path:'purge.png',bytes:'historical'});
  const first=await call(`/hx/files/${file.id}/public-url`,'POST',{});const token1=new URL((await first.json()).url).pathname.split('/').at(-1);
