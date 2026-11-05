@@ -370,3 +370,9 @@ CREATE INDEX IF NOT EXISTS mcp_oauth_tokens_expiry ON mcp_oauth_tokens(expires_a
 CREATE INDEX IF NOT EXISTS mcp_oauth_grants_expiry ON mcp_oauth_grants(expires_at);
 
 CREATE TABLE IF NOT EXISTS mcp_conversation_requests ( org_id TEXT NOT NULL, user_id TEXT NOT NULL, connection_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, membership_since TEXT NOT NULL, channel TEXT, creation_nonce TEXT, created_at TEXT NOT NULL, PRIMARY KEY (org_id, user_id, connection_id, request_id) );
+
+/* Optional dimensions for admin usage reports. Old calls remain unattributed. */
+ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
+ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
+ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
+ALTER TABLE ai_calls ADD COLUMN app_id TEXT;

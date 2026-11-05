@@ -355,7 +355,11 @@ CREATE TABLE IF NOT EXISTS ai_calls (
   output_tokens  INTEGER NOT NULL DEFAULT 0,
   usd            REAL NOT NULL DEFAULT 0,
   byok           INTEGER NOT NULL DEFAULT 0,
-  created_at     TEXT NOT NULL
+  created_at     TEXT NOT NULL,
+  room_slug      TEXT,
+  agent_id       TEXT,
+  workflow_id    TEXT,
+  app_id         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ai_calls_org ON ai_calls (org_id, created_at);
 

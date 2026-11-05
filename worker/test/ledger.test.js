@@ -101,6 +101,30 @@ test("workspace admins can review workflow model usage without including persona
   expect(member.ai.byAutomation).toBeUndefined();
 });
 
+test("admin usage breakdowns include explicitly attributed rooms and agents only", async () => {
+  const { upsertBusiness } = await import("../src/db.js");
+  await upsertBusiness(env.DB, ORG, { name: "Sales", createdBy: "8801" });
+  await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,owner_login,created_at,updated_at)
+    VALUES(?1,'agent-research','researcher','Researcher','Research carefully.','toru',?2,?2)`).bind(ORG, new Date().toISOString()).run();
+  await env.DB.prepare(`INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at)
+    VALUES('app-crm',?1,'CRM','table-crm','{}','8801',?2,?2)`).bind(ORG, new Date().toISOString()).run();
+  const provider = providerConfig(ENV(), undefined);
+  noteUsage(provider, "agent", { model: "gpt-4o-mini", usage: { prompt_tokens: 100, completion_tokens: 20 } }, { roomSlug: "sales", agentId: "agent-research", appId: "app-crm" });
+  await settleUsage(env.DB, provider, { orgId: ORG, githubId: "8801" });
+  const personal = providerConfig(ENV(), undefined);
+  noteUsage(personal, "agent", { model: "gpt-4o-mini", usage: { prompt_tokens: 300, completion_tokens: 40 } }, { roomSlug: "sales", agentId: "agent-research" });
+  await settleUsage(env.DB, personal, { orgId: ORG, githubId: "8801", byok: true });
+
+  const admin = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&aiDays=30`, { headers: { "x-session-token": toru } })).json();
+  expect(admin.ai.byRoom).toEqual([{ roomSlug: "sales", name: "Sales", calls: 1, inputTokens: 100, outputTokens: 20, usd: expect.any(Number) }]);
+  expect(admin.ai.byAgent).toEqual([{ agentId: "agent-research", name: "Researcher", calls: 1, inputTokens: 100, outputTokens: 20, usd: expect.any(Number) }]);
+  expect(admin.ai.byApp).toEqual([{ appId: "app-crm", name: "CRM", calls: 1, inputTokens: 100, outputTokens: 20, usd: expect.any(Number) }]);
+  const member = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&aiDays=30`, { headers: { "x-session-token": kenji } })).json();
+  expect(member.ai.byRoom).toBeUndefined();
+  expect(member.ai.byAgent).toBeUndefined();
+  expect(member.ai.byApp).toBeUndefined();
+});
+
 test("a call on the person's own key is theirs on the bill; System One's decision counts as its own provider", async () => {
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, written());
   expect((await route({ "x-ai-key": "sk-user" })).status).toBe(200);

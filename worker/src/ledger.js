@@ -38,22 +38,22 @@ export function costOf(model, { input = 0, output = 0 } = {}) {
 /// Note a chat-completions answer on the provider it came from. Providers
 /// made by `providerConfig` carry a `usage` list; anything else is ignored,
 /// so a test's bare `{ endpoint, apiKey, model }` still works.
-export function noteUsage(provider, purpose, data) {
+export function noteUsage(provider, purpose, data, context = null) {
   if (!provider || !Array.isArray(provider.usage)) return;
   const u = data?.usage || {};
   const input = Number(u.prompt_tokens ?? u.input_tokens) || 0;
   const output = Number(u.completion_tokens ?? u.output_tokens) || 0;
   const model = data?.model || provider.model || "unknown";
-  provider.usage.push({ purpose, provider: provider.providerName || "OpenAI", model, input, output, usd: costOf(model, { input, output }) });
+  provider.usage.push({ purpose, provider: provider.providerName || "OpenAI", model, input, output, usd: costOf(model, { input, output }), ...(context ? { context } : {}) });
 }
 
 /// Searches the model ran with the hosted web search tool, which OpenAI
 /// bills per call on top of the tokens: $10 per thousand for a reasoning
 /// model, $25 for the others. One entry per response that searched.
-export function noteSearches(provider, purpose, model, count) {
+export function noteSearches(provider, purpose, model, count, context = null) {
   if (!provider || !Array.isArray(provider.usage) || !(count > 0)) return;
   const each = /^(gpt-5|gpt-6|o\d)/i.test(String(model || "")) ? 0.01 : 0.025;
-  provider.usage.push({ purpose, provider: provider.providerName || "OpenAI", model: "web_search", input: 0, output: 0, usd: Math.round(count * each * 1e6) / 1e6 });
+  provider.usage.push({ purpose, provider: provider.providerName || "OpenAI", model: "web_search", input: 0, output: 0, usd: Math.round(count * each * 1e6) / 1e6, ...(context ? { context } : {}) });
 }
 
 /// A System One answer, in the same list.
@@ -66,7 +66,7 @@ export function jevEntry(purpose, usage, model = "jev-latest") {
 /// Write the notes down and clear them. `extra` carries entries that were
 /// not made through the provider (System One's). Never throws: a ledger
 /// that cannot be written is not a reason to fail the decision it counts.
-export async function settleUsage(db, provider, { orgId, githubId, byok = false } = {}, extra = []) {
+export async function settleUsage(db, provider, { orgId, githubId, byok = false, roomSlug = null, agentId = null, workflowId = null, appId = null } = {}, extra = []) {
   const entries = [...(Array.isArray(provider?.usage) ? provider.usage.splice(0) : []), ...extra.filter(Boolean)];
   if (!db || !orgId || entries.length === 0) return 0;
   // Whose bill: a person's own key (the caller says so) or the workspace's
@@ -75,13 +75,19 @@ export async function settleUsage(db, provider, { orgId, githubId, byok = false 
   const now = new Date().toISOString();
   try {
     const stmt = db.prepare(
-      `INSERT INTO ai_calls (org_id, user_github_id, purpose, provider, model, input_tokens, output_tokens, usd, byok, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+      `INSERT INTO ai_calls (org_id, user_github_id, purpose, provider, model, input_tokens, output_tokens, usd, byok, created_at, room_slug, agent_id, workflow_id, app_id)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
     );
-    await db.batch(entries.map((e) => stmt.bind(
-      orgId, githubId ? String(githubId) : null, e.purpose, e.provider, e.model,
-      e.input, e.output, e.usd, byok || e.byok ? 1 : 0, now,
-    )));
+    const safeContext = (value, limit) => typeof value === "string" && value.trim() && value.length <= limit ? value.trim() : null;
+    await db.batch(entries.map((e) => {
+      const context = e.context || {};
+      return stmt.bind(
+        orgId, githubId ? String(githubId) : null, e.purpose, e.provider, e.model,
+        e.input, e.output, e.usd, byok || e.byok ? 1 : 0, now,
+        safeContext(context.roomSlug ?? roomSlug, 200), safeContext(context.agentId ?? agentId, 128),
+        safeContext(context.workflowId ?? workflowId, 128), safeContext(context.appId ?? appId, 128),
+      );
+    }));
   } catch (err) {
     console.error("ai ledger write failed", err?.message || err);
   }
@@ -90,7 +96,7 @@ export async function settleUsage(db, provider, { orgId, githubId, byok = false 
 
 /// The team's AI spend since a date: totals, by purpose, by provider, and
 /// how much of the routing System One settled without a language model.
-export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(), includeMembers = false, includeAutomations = false } = {}) {
+export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(), includeMembers = false, includeAutomations = false, includeRooms = false, includeAgents = false, includeApps = false } = {}) {
   const days = Math.max(0, Math.min(180, Math.floor(Number(dailyDays) || 0)));
   const today = new Date(now);
   const lastDay = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
@@ -171,6 +177,60 @@ export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(
       usd: round(Number(row.usd) || 0),
     }));
   }
+  let byRoom;
+  if (includeRooms) {
+    const { results: roomRows } = await db.prepare(
+      `SELECT c.room_slug AS roomSlug,b.name,
+              COUNT(*) AS calls,SUM(c.input_tokens) AS input_tokens,
+              SUM(c.output_tokens) AS output_tokens,SUM(MAX(0,c.usd)) AS usd
+         FROM ai_calls c LEFT JOIN businesses b ON b.org_id=c.org_id AND b.slug=c.room_slug
+        WHERE c.org_id=?1 AND c.created_at>=?2 AND c.created_at<=?3 AND c.byok=0 AND c.room_slug IS NOT NULL
+        GROUP BY c.room_slug,b.name
+        ORDER BY SUM(MAX(0,c.usd)) DESC,COALESCE(b.name,c.room_slug) COLLATE NOCASE
+        LIMIT 500`
+    ).bind(orgId, start, end).all();
+    byRoom = (roomRows || []).map((row) => ({
+      roomSlug: String(row.roomSlug), name: row.name || null,
+      calls: Number(row.calls) || 0, inputTokens: Number(row.input_tokens) || 0,
+      outputTokens: Number(row.output_tokens) || 0, usd: round(Number(row.usd) || 0),
+    }));
+  }
+  let byAgent;
+  if (includeAgents) {
+    const { results: agentRows } = await db.prepare(
+      `SELECT c.agent_id AS agentId,a.name,
+              COUNT(*) AS calls,SUM(c.input_tokens) AS input_tokens,
+              SUM(c.output_tokens) AS output_tokens,SUM(MAX(0,c.usd)) AS usd
+         FROM ai_calls c LEFT JOIN custom_agents a ON a.org_id=c.org_id AND a.id=c.agent_id
+        WHERE c.org_id=?1 AND c.created_at>=?2 AND c.created_at<=?3 AND c.byok=0 AND c.agent_id IS NOT NULL
+        GROUP BY c.agent_id,a.name
+        ORDER BY SUM(MAX(0,c.usd)) DESC,COALESCE(a.name,c.agent_id) COLLATE NOCASE
+        LIMIT 500`
+    ).bind(orgId, start, end).all();
+    byAgent = (agentRows || []).map((row) => ({
+      agentId: String(row.agentId), name: row.agentId === "__assistant__" ? "Honmaru AI" : (row.name || null),
+      calls: Number(row.calls) || 0, inputTokens: Number(row.input_tokens) || 0,
+      outputTokens: Number(row.output_tokens) || 0, usd: round(Number(row.usd) || 0),
+    }));
+  }
+  let byApp;
+  if (includeApps) {
+    const { results: appRows } = await db.prepare(
+      `SELECT c.app_id AS appId,a.name,
+              COUNT(*) AS calls,SUM(c.input_tokens) AS input_tokens,
+              SUM(c.output_tokens) AS output_tokens,SUM(MAX(0,c.usd)) AS usd
+         FROM ai_calls c LEFT JOIN hx_apps a ON a.org_id=c.org_id AND a.id=c.app_id
+        WHERE c.org_id=?1 AND c.created_at>=?2 AND c.created_at<=?3 AND c.byok=0 AND c.app_id IS NOT NULL
+        GROUP BY c.app_id,a.name
+        ORDER BY SUM(MAX(0,c.usd)) DESC,COALESCE(a.name,c.app_id) COLLATE NOCASE
+        LIMIT 500`
+    ).bind(orgId, start, end).all();
+    byApp = (appRows || []).map((row) => ({
+      appId: String(row.appId), name: row.name || null,
+      calls: Number(row.calls) || 0, inputTokens: Number(row.input_tokens) || 0,
+      outputTokens: Number(row.output_tokens) || 0, usd: round(Number(row.usd) || 0),
+    }));
+  }
   let byAutomation;
   if (includeAutomations) {
     const { results: automationRows } = await db.prepare(
@@ -208,6 +268,9 @@ export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(
     byProvider: [...byProvider.values()].map((p) => ({ ...p, usd: round(p.usd) })).sort((a, b) => b.usd - a.usd),
     ...(days > 0 ? { days, daily } : {}),
     ...(includeMembers ? { byMember } : {}),
+    ...(includeRooms ? { byRoom } : {}),
+    ...(includeAgents ? { byAgent } : {}),
+    ...(includeApps ? { byApp } : {}),
     ...(includeAutomations ? { byAutomation } : {}),
     // Of the routing decisions that cost anything, the share System One
     // took without a language model. Null until there was any routing.

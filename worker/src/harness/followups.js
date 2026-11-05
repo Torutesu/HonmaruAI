@@ -212,7 +212,8 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       // A maker who is nobody's account here spends nobody's allowance.
       const member = await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2").bind(r.org_id, String(r.created_by)).first();
       const payer = member ? r.created_by : null;
-      const complete = payer ? await completer(env, r.org_id, payer, "followup", { json: false, maxTokens: 800 }) : null;
+      const complete = payer ? await completer(env, r.org_id, payer, "followup", { json: false, maxTokens: 800,
+        usageContext: { roomSlug: r.channel?.startsWith("b:") ? r.channel.slice(2) : null, agentId: r.agent_id || "__assistant__" } }) : null;
       if (complete) {
         const prepared = agentRow
           ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: r.channel || "", userId: r.created_by })

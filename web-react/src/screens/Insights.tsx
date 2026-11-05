@@ -33,6 +33,9 @@ interface Metrics {
     days: number
     daily?: Array<{ day: string; calls: number; ourUsd: number; byokUsd: number; usd: number }>
     byMember?: Array<{ userId: string | null; login: string | null; name: string | null; calls: number; inputTokens: number; outputTokens: number; usd: number }>
+    byRoom?: Array<{ roomSlug: string; name: string | null; calls: number; inputTokens: number; outputTokens: number; usd: number }>
+    byAgent?: Array<{ agentId: string; name: string | null; calls: number; inputTokens: number; outputTokens: number; usd: number }>
+    byApp?: Array<{ appId: string; name: string | null; calls: number; inputTokens: number; outputTokens: number; usd: number }>
     byAutomation?: Array<{ workflowId: string; name: string | null; calls: number; inputTokens: number; outputTokens: number; unpricedCalls: number; usd: number }>
     byPurpose: Array<{ purpose: string; calls: number; usd: number }>
     byProvider: Array<{ provider: string; calls: number; usd: number }>
@@ -216,6 +219,60 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
                       </div>
                     )}
                     <p className="hint insights-hint">{t('Workspace admins can see this breakdown. It includes recorded deployment-key model use and excludes personal API keys.')}</p>
+                  </>
+                )}
+                {m.ai.byRoom && (
+                  <>
+                    <div className="rows-title">{t('AI usage by room')}</div>
+                    {m.ai.byRoom.length === 0 ? (
+                      <p className="hint insights-hint">{t('No room-attributed AI usage is recorded for this period.')}</p>
+                    ) : (
+                      <div className="rows">
+                        {m.ai.byRoom.map((room) => (
+                          <div className="row static" key={room.roomSlug}>
+                            <span className="row-main">{room.name || room.roomSlug}<span className="row-sub">{t('{n} calls · {i} input tokens · {o} output tokens', { n: room.calls, i: room.inputTokens.toLocaleString(), o: room.outputTokens.toLocaleString() })}</span></span>
+                            <span className="row-value">{money(room.usd)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="hint insights-hint">{t('Room totals include only calls with recorded room context; older unattributed calls are not included.')}</p>
+                  </>
+                )}
+                {m.ai.byAgent && (
+                  <>
+                    <div className="rows-title">{t('AI usage by agent')}</div>
+                    {m.ai.byAgent.length === 0 ? (
+                      <p className="hint insights-hint">{t('No agent-attributed AI usage is recorded for this period.')}</p>
+                    ) : (
+                      <div className="rows">
+                        {m.ai.byAgent.map((agent) => (
+                          <div className="row static" key={agent.agentId}>
+                            <span className="row-main">{agent.name || agent.agentId}<span className="row-sub">{t('{n} calls · {i} input tokens · {o} output tokens', { n: agent.calls, i: agent.inputTokens.toLocaleString(), o: agent.outputTokens.toLocaleString() })}</span></span>
+                            <span className="row-value">{money(agent.usd)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="hint insights-hint">{t('Agent totals include only calls with recorded agent context; older unattributed calls are not included.')}</p>
+                  </>
+                )}
+                {m.ai.byApp && (
+                  <>
+                    <div className="rows-title">{t('AI usage by app')}</div>
+                    {m.ai.byApp.length === 0 ? (
+                      <p className="hint insights-hint">{t('No app-attributed AI usage is recorded for this period.')}</p>
+                    ) : (
+                      <div className="rows">
+                        {m.ai.byApp.map((app) => (
+                          <div className="row static" key={app.appId}>
+                            <span className="row-main">{app.name || app.appId}<span className="row-sub">{t('{n} calls · {i} input tokens · {o} output tokens', { n: app.calls, i: app.inputTokens.toLocaleString(), o: app.outputTokens.toLocaleString() })}</span></span>
+                            <span className="row-value">{money(app.usd)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="hint insights-hint">{t('App totals include only calls with recorded app context; older unattributed calls are not included.')}</p>
                   </>
                 )}
                 {m.ai.byAutomation && (

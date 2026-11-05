@@ -791,7 +791,8 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       const authorizeAgent = async () => await authorize() && await mayRunAgent(db, orgId, agentRow, owner)
         && (!step.channel || await mayUseConversation(db, orgId, owner, step.channel))
         && (await Promise.all([...remoteToolsUsed.values()].map(tool => workflowRemoteToolAllowed(db, orgId, tool)))).every(Boolean);
-      const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200 });
+      const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200,
+        usageContext: { roomSlug: step.channel?.startsWith("b:") ? step.channel.slice(2) : null, agentId: agentRow.id, workflowId: workflow.id } });
       if (!complete) return { status: "failed", error: "No AI model, or none left today." };
       const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "", userId: owner, allowPrivate: false });
       const tools = { ...(prepared.skillTools || {}) };

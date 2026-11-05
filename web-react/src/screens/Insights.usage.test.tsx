@@ -25,7 +25,7 @@ test('AI usage chart switches between daily and cumulative deployment-key estima
     medianMinutesToDecide: null, declineRate: null, nudges: 0,
     created: cardDays, bySource: [], byAction: [],
     feedback: { right: 0, wrong: 0, reasons: {} },
-    ai: { calls: 2, inputTokens: 10, outputTokens: 5, usd: 0.5, ourUsd: 0.5, byokCalls: 0, days: 30, daily, byMember: [{ userId: '8801', login: 'toru', name: 'Toru', calls: 2, inputTokens: 10, outputTokens: 5, usd: 0.5 }], byAutomation: [{ workflowId: 'wf-1', name: 'Monthly report', calls: 2, inputTokens: 10, outputTokens: 5, unpricedCalls: 0, usd: 0.5 }], byPurpose: [], byProvider: [], jevShare: null },
+    ai: { calls: 2, inputTokens: 10, outputTokens: 5, usd: 0.5, ourUsd: 0.5, byokCalls: 0, days: 30, daily, byMember: [{ userId: '8801', login: 'toru', name: 'Toru', calls: 2, inputTokens: 10, outputTokens: 5, usd: 0.5 }], byRoom: [{ roomSlug: 'sales', name: 'Sales', calls: 1, inputTokens: 5, outputTokens: 2, usd: 0.2 }], byAgent: [{ agentId: 'agent-1', name: 'Researcher', calls: 1, inputTokens: 5, outputTokens: 2, usd: 0.2 }], byApp: [{ appId: 'app-1', name: 'CRM', calls: 1, inputTokens: 5, outputTokens: 2, usd: 0.2 }], byAutomation: [{ workflowId: 'wf-1', name: 'Monthly report', calls: 2, inputTokens: 10, outputTokens: 5, unpricedCalls: 0, usd: 0.5 }], byPurpose: [], byProvider: [], jevShare: null },
   }
   const fetchStub = vi.fn(async () => ({ ok: true, json: async () => metrics }))
   vi.stubGlobal('fetch', fetchStub)
@@ -35,6 +35,9 @@ test('AI usage chart switches between daily and cumulative deployment-key estima
   })
   expect(JSON.stringify(tree.toJSON())).toContain('AI usage by member')
   expect(JSON.stringify(tree.toJSON())).toContain('Toru')
+  expect(JSON.stringify(tree.toJSON())).toContain('AI usage by room')
+  expect(JSON.stringify(tree.toJSON())).toContain('AI usage by agent')
+  expect(JSON.stringify(tree.toJSON())).toContain('AI usage by app')
   expect(JSON.stringify(tree.toJSON())).toContain('AI usage by automation')
   expect(JSON.stringify(tree.toJSON())).toContain('Monthly report')
 

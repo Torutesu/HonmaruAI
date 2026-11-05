@@ -17,7 +17,7 @@ export function canChatTools(provider) {
   return provider?.providerName === 'OpenRouter' && provider.endpoint === 'https://openrouter.ai/api/v1/chat/completions';
 }
 
-export async function chatTools({provider, instructions, input, tools, authorize = null, onRound = null, deadline = Date.now() + 240000, signal = null}) {
+export async function chatTools({provider, instructions, input, tools, authorize = null, onRound = null, deadline = Date.now() + 240000, signal = null, usageContext = null}) {
   let called = false, calls = 0, rounds = 0;
   const done = (extra = {}) => ({called, answer: null, calls, rounds, ...extra});
   const permitted = async () => !signal?.aborted && (!authorize || await authorize());
@@ -43,7 +43,7 @@ export async function chatTools({provider, instructions, input, tools, authorize
       data = await response.json();
     } catch { return signal?.aborted?done({cancelled:true}):done(); }
     called = true;
-    noteUsage(provider, 'agent', data);
+    noteUsage(provider, 'agent', data, usageContext);
     if (!await permitted()) return done({cancelled: true});
     const message = data?.choices?.[0]?.message;
     const pending = message?.tool_calls;
