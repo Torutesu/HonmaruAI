@@ -368,7 +368,7 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
           // request is in flight. Wait for queued writes and re-read the
           // pending value before retrying, or this GET can issue a duplicate
           // PUT whose late response rolls back a newer device revision.
-          let activeWrite
+          let activeWrite:Promise<unknown>
           do {
             activeWrite=preferenceWrite.current
             await activeWrite.catch(()=>{})
@@ -403,7 +403,7 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
           }
         }
         const latest=preferenceRef.current
-        if(latest.key===preferenceKey&&(latest.revision>revision||preferenceIntent.current!==preferenceIntentAtStart)){
+        if(latest.key===preferenceKey&&(latest.revision>revision||(preferenceIntent.current!==preferenceIntentAtStart&&latest.revision===revision))){
           simple=latest.simple;revision=latest.revision
         }
         if(!acceptServerPreference(simple,revision)){
