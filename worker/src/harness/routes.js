@@ -44,6 +44,7 @@ import { databaseView, previewMigration, applyMigration, generateMigration, fork
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHosting.js';
+import { publicShareSettings, publicShareOptions, createPublicAppShare, revokePublicAppShare, readPublicAppShare } from './appPublicShares.js';
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
@@ -108,7 +109,7 @@ const fail = (result) => json({ message: result.error, ...(result.fields ? { fie
 const importMayBeSaved = 'A copy may have been created. After access is restored, check the Skill list before retrying.';
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-shares|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId, options) {
@@ -137,6 +138,11 @@ export async function handleHarness(request, env, url, context = {}) {
   if (limited) return limited;
 
   if (url.pathname === '/app-domains/resolve') return servePublicAppDomain(request, env, url);
+  if (url.pathname.startsWith('/app-shares/')) {
+    if (request.method !== 'GET' || url.pathname.split('/').filter(Boolean).length !== 2) return new Response('Not found.', { status: 404, headers: { 'cache-control': 'no-store' } });
+    const result = await readPublicAppShare(env.DB, url.pathname.split('/')[2], url.origin);
+    return result.error ? new Response('Not found.', { status: 404, headers: { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' } }) : new Response(result.html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" } });
+  }
 
   if (isDocumentNodeRoute(url.pathname)||/^\/hx\/documents(?:\/|$)/.test(url.pathname)) return handleDocuments(request,env,url);
 
@@ -1117,7 +1123,9 @@ export async function handleHarness(request, env, url, context = {}) {
         const forwarded=await context.dispatch(new Request(new URL('/channels/messages',url.origin),{method:'POST',headers:request.headers,body:JSON.stringify({orgId,channel,parentId:source.threadId,body:input.body,clientId})}));
         if(!forwarded.ok)return forwarded;
         const sent=await forwarded.json();
-        if(sent.message?.body!==input.body.replace(/\r\n/g,'\n').trim())return json({message:'Request ID was already used for a different message.'},409);
+        if(sent.message?.body!==input.body.replace(/\r
+/g,'
+').trim())return json({message:'Request ID was already used for a different message.'},409);
         const marker=await saveAppAnnotation(env.DB,{orgId,appId,tableId:input.tableId||'',rowId:input.rowId||'',messageSource:'channel',messageId:sent.message.id,authorId:me,annotation});
         if(marker.error)return fail(marker);
         return json({threadId:source.threadId,source:true,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
@@ -1317,6 +1325,27 @@ export async function handleHarness(request, env, url, context = {}) {
       const result = await saveCustomRelease(env.DB, orgId, app, input, me);
       if (!result.error) await audit(env, request, { orgId, action: 'app.custom_' + input.action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version } });
       return result.error ? fail(result) : json(result);
+    }
+    if (sub === 'public-shares') {
+      if (app.createdBy !== String(me)) return json({ message: 'Only the app owner can manage a public link.' }, 403);
+      if (request.method === 'GET') {
+        const [settings, options] = await Promise.all([publicShareSettings(env.DB, orgId, appId), publicShareOptions(env.DB, orgId, appId)]);
+        if (options.error) return fail(options);
+        const version = await env.DB.prepare('SELECT MAX(version) AS version FROM hx_app_versions WHERE org_id=?1 AND app_id=?2').bind(orgId, appId).first();
+        return json({ ...settings, ...options, appVersion: Number(version?.version || 0) });
+      }
+      if (request.method === 'POST') {
+        const result = await createPublicAppShare(env.DB, orgId, appId, me, input);
+        if (!result.error) await audit(env, request, { orgId, action: 'app.public_share_created', actor: person(who.user), entity: { type: 'app', id: appId }, details: { shareId: result.share.id, appVersion: result.share.appVersion, fields: result.share.dataScope[0].fields } });
+        return result.error ? fail(result) : json(result, 201);
+      }
+      if (request.method === 'DELETE') {
+        const shareId = url.searchParams.get('shareId');
+        const result = await revokePublicAppShare(env.DB, orgId, appId, shareId);
+        if (!result.error) await audit(env, request, { orgId, action: 'app.public_share_revoked', actor: person(who.user), entity: { type: 'app', id: appId }, details: { shareId } });
+        return result.error ? fail(result) : json(result);
+      }
+      return json({ message: 'Method not allowed.' }, 405);
     }
     if (sub === "access") {
       if (request.method === "GET") return json({ access: await appAccess(env.DB, orgId, appId), canEdit: app.createdBy === String(me) });
