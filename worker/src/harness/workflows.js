@@ -422,10 +422,8 @@ export async function changeWorkflowHook(db, orgId, id, input) {
 
 export async function deleteWorkflow(db, orgId, id) {
   await db.batch([
-    // A v0 follow-up can rely only on its source run log to prove that it
-    // came from an App-record trigger. Preserve that security decision before
-    // deleting the run (and its definition snapshot); otherwise the same
-    // follow-up becomes indistinguishable from a standalone legacy reminder.
+    // Classify v0 App-record follow-ups before deleting their only provenance
+    // source. Otherwise an old follow-up would look like a standalone reminder.
     db.prepare(`UPDATE hx_followups SET source_authority_version = -1
       WHERE org_id = ?1 AND COALESCE(source_authority_version, 0) = 0
         AND id IN (
