@@ -2163,3 +2163,34 @@ test('publisher access loss between publish preflight and D1 batch blocks releas
  const fresh=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
  expect(fresh.definition.custom.published).toBeUndefined();
 });
+
+test('draft save revokes only old approvals atomically before a new-version request can arrive',async()=>{
+ const {app}=await customApprovalFixture();
+ const oldRequest=await requestCustomApproval(`/apps/${app.id}/custom`,app.version);
+ expect(oldRequest.status).toBe(200);
+ const before=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const {getApp}=await import('../src/harness/apps.js');
+ const {requestCustomPublishApproval}=await import('../src/harness/customAppPublishApproval.js');
+ let newRequest;
+ const raceDb={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+   const result=await env.DB.batch(statements);
+   const current=await getApp(env.DB,ORG,app.id);
+   newRequest=await requestCustomPublishApproval(env.DB,ORG,current,'9102');
+   return result;
+ }};
+ const saved=await saveCustomRelease(raceDb,ORG,before,{action:'draft',version:before.version,html:'<h1>Next draft</h1>'},'9102');
+ expect(saved.saved).toBe(true);
+ expect(newRequest.saved).toBe(true);
+ const approvals=await env.DB.prepare("SELECT draft_version AS version,status FROM hx_app_publish_approvals WHERE org_id=?1 AND app_id=?2 ORDER BY draft_version").bind(ORG,app.id).all();
+ expect(approvals.results).toEqual([{version:app.version,status:'revoked'},{version:saved.version,status:'pending'}]);
+});
+
+test('open approval uniqueness is scoped to app version, hash, and publish scope',async()=>{
+ const {app}=await customApprovalFixture();
+ const path=`/apps/${app.id}/custom`;
+ await requestCustomApproval(path,app.version);
+ const current=(await(await get(path,mika)).json());
+ const duplicate=await env.DB.prepare("INSERT OR IGNORE INTO hx_app_publish_approvals(id,org_id,app_id,draft_version,source_hash,scope,requested_by,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,'9101','pending',?7)").bind(crypto.randomUUID(),ORG,app.id,current.draftVersion,current.sourceHash,current.scope,new Date().toISOString()).run();
+ expect(duplicate.meta.changes).toBe(0);
+});
