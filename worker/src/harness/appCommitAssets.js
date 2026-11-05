@@ -34,7 +34,7 @@ export async function servePublishedCommitAsset(request,env,url){
     FROM hx_app_git_assets f
     JOIN hx_apps a ON a.org_id=f.org_id AND a.id=f.app_id
     JOIN hx_app_domains d ON d.org_id=a.org_id AND d.app_id=a.id AND d.status='active'
-    WHERE a.id=?1 AND a.deleted_at IS NULL AND f.commit_sha=?2 AND f.path=?3
+    WHERE a.id=?1 AND f.commit_sha=?2 AND f.path=?3
       AND f.app_version=CAST(json_extract(a.definition,'$.custom.publishedCommit.appVersion') AS INTEGER)
       AND json_extract(a.definition,'$.custom.publishedCommit.sha')=?2
       AND json_extract(a.definition,'$.custom.publishedCommit.assetToken')=?4`).bind(appId,commitSha,path,assetToken).first();
