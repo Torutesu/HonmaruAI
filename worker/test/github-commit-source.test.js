@@ -64,3 +64,70 @@ test('verifies the branch still resolves to the approved full commit SHA', async
   vi.stubGlobal('fetch', vi.fn(async (url) => responseFor(url, 'f'.repeat(40))));
   await expect(verifyGitHubCommitRef('token', { owner: 'acme', repo: 'app', branch: 'main', sha: commitSha })).resolves.toMatchObject({ status: 409 });
 });
+
+
+test('rejects a branch that already moved before import starts', async () => {
+  const fetch = vi.fn(async (url) => String(url).includes('/git/ref/heads/')
+    ? json({ object: { sha: 'e'.repeat(40) } })
+    : responseFor(url));
+  vi.stubGlobal('fetch', fetch);
+  const result = await fetchGitHubCommitSource('token', { owner: 'acme', repo: 'app', branch: 'main', commitSha });
+  expect(result).toMatchObject({ status: 409 });
+  expect(fetch.mock.calls.some(([url]) => String(url).includes('/git/commits/'))).toBe(false);
+});
+
+test('returns a clear missing-asset error without attempting an upstream fetch for that path', async () => {
+  const fetch = vi.fn(async (url) => responseFor(url, commitSha, '<script src="./missing.js"></script>'));
+  vi.stubGlobal('fetch', fetch);
+  const result = await fetchGitHubCommitSource('token', { owner: 'acme', repo: 'app', branch: 'main', commitSha });
+  expect(result).toMatchObject({ status: 400, error: expect.stringContaining('missing.js') });
+  expect(fetch.mock.calls.filter(([url]) => String(url).includes('/git/blobs/'))).toHaveLength(1);
+});
+
+test('recursively captures JavaScript imports, CSS imports, and CSS image references', async () => {
+  const ids = { html: '1'.repeat(40), js: '2'.repeat(40), css: '3'.repeat(40), image: '4'.repeat(40) };
+  const source = {
+    'index.html': '<script src="./src/app.js"></script>',
+    'src/app.js': "import '../styles/site.css';",
+    'styles/site.css': "body{background:url('../assets/logo.png')}",
+  };
+  const image = Uint8Array.from([137, 80, 78, 71]);
+  const blobs = { ...source, 'assets/logo.png': image };
+  const fetch = vi.fn(async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith('/git/ref/heads/main')) return json({ object: { sha: commitSha } });
+    if (path.endsWith('/git/commits/' + commitSha)) return json({ sha: commitSha, tree: { sha: treeSha } });
+    if (path.endsWith('/git/trees/' + treeSha)) return json({ truncated: false, tree: [
+      ['index.html','html'],['src/app.js','js'],['styles/site.css','css'],['assets/logo.png','image'],
+    ].map(([file,key]) => ({ type:'blob',mode:'100644',path:file,sha:ids[key],size:typeof blobs[file]==='string'?new TextEncoder().encode(blobs[file]).length:blobs[file].length })) });
+    for (const [key,sha] of Object.entries(ids)) if (path.endsWith('/git/blobs/' + sha)) {
+      const file = Object.keys(ids).find((candidate) => ids[candidate]===key);
+      const filePath = ({html:'index.html',js:'src/app.js',css:'styles/site.css',image:'assets/logo.png'})[key];
+      const raw = blobs[filePath];
+      const bytes = typeof raw==='string'?new TextEncoder().encode(raw):raw;
+      return json({encoding:'base64',sha,size:bytes.length,content:btoa(String.fromCharCode(...bytes))});
+    }
+    return new Response('',{status:404});
+  });
+  vi.stubGlobal('fetch', fetch);
+  const result = await fetchGitHubCommitSource('token', { owner:'acme',repo:'app',branch:'main',commitSha });
+  expect(result.commit.assets.map((asset)=>asset.path).sort()).toEqual(['assets/logo.png','src/app.js','styles/site.css']);
+  expect(result.assets.find((asset)=>asset.path==='assets/logo.png')).toMatchObject({mimeType:'image/png',size:4});
+});
+
+test('cancels a streamed GitHub tree response once it exceeds the byte cap', async () => {
+  const fetch = vi.fn(async (input) => {
+    if (String(input).includes('/git/trees/')) {
+      const stream = new ReadableStream({ start(controller) {
+        controller.enqueue(new Uint8Array(1_000_000));
+        controller.enqueue(new Uint8Array(600_001));
+        controller.close();
+      } });
+      return new Response(stream, { headers: { 'content-type':'application/json' } });
+    }
+    return responseFor(input);
+  });
+  vi.stubGlobal('fetch', fetch);
+  const result = await fetchGitHubCommitSource('token', { owner:'acme',repo:'app',branch:'main',commitSha });
+  expect(result).toMatchObject({status:502,error:expect.stringContaining('exceeds the size limit')});
+});
