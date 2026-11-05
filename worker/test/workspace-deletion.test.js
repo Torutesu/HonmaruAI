@@ -3,6 +3,8 @@ import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { forgetDeletions, purgeDueWorkspaces } from "../src/workspaceDeletion.js";
+import { createFileLedger, appendFileVersion } from "../src/harness/fileVersionLedger.js";
+import { createDirectFileShare, copyFileShare, readPublicFileShare, readPublicFileShareContent } from "../src/harness/fileShares.js";
 
 // A workspace could not be deleted at all: `workspace.delete` was a
 // permission nothing used. An owner now asks, has thirty days to take it
@@ -74,6 +76,47 @@ test("after thirty days everything under the workspace goes, the audit log stays
   // Nobody else's.
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = 'team:stays'").first()).n).toBe(1);
   expect(await env.MEDIA.get(`org/${encodeURIComponent("team:stays")}/files/f_2`)).not.toBeNull();
+});
+
+test("workspace deletion cascades public snapshots and their events, while tenant-prefix media for another workspace stays", async () => {
+  const fileId = "file-share-deletion";
+  const now = new Date().toISOString();
+  const key1 = `org/${encodeURIComponent(ORG)}/workspace-files/${fileId}/v1`;
+  const key2 = `org/${encodeURIComponent(ORG)}/workspace-files/${fileId}/v2`;
+  const bytes1 = "historical-version";
+  const bytes2 = "current-version";
+  const shareEnv = { ...env, DATA_KEY: btoa("s".repeat(32)) };
+  expect((await createFileLedger(env.DB, { orgId: ORG, fileId, scope: "workspace", path: "assets/logo.png", createdBy: "9501", origin: "human", at: now })).created).toBe(true);
+  await env.MEDIA.put(key1, bytes1, { httpMetadata: { contentType: "image/png" } });
+  expect(await appendFileVersion(env.DB, { orgId: ORG, fileId, expectedVersion: 0, createdBy: "9501", objectKey: key1, contentHash: "a".repeat(64), contentType: "image/png", size: new TextEncoder().encode(bytes1).length, at: now })).toMatchObject({ saved: true, version: 1 });
+  const issued = await createDirectFileShare(shareEnv, { orgId: ORG, fileId, userId: "9501", login: "own", version: 1, expiresIn: "never", allowDownload: true, reusable: true, requestKey: "workspace_delete_share_0001" });
+  expect(issued.error).toBeUndefined();
+  await copyFileShare(shareEnv, { orgId: ORG, fileId, shareId: issued.share.id, userId: "9501", login: "own" });
+  await env.MEDIA.put(key2, bytes2, { httpMetadata: { contentType: "image/png" } });
+  expect(await appendFileVersion(env.DB, { orgId: ORG, fileId, expectedVersion: 1, createdBy: "9501", objectKey: key2, contentHash: "b".repeat(64), contentType: "image/png", size: new TextEncoder().encode(bytes2).length, at: new Date(Date.now() + 1).toISOString() })).toMatchObject({ saved: true, version: 2 });
+  await env.DB.prepare(`INSERT INTO hx_workspace_file_share_requests
+    (org_id,id,file_id,share_id,request_type,requester_id,requester_login,requester_membership,agent_id,channel,turn_id,request_key,card_id,nonce,expected_revision,snapshot_json,snapshot_hash,expires_at,allow_download,status,created_at,decided_by,decided_at)
+    VALUES(?1,'request-delete-test',?2,?3,'create','9501','own','owner','agent','workspace','turn','request-key','card-delete-test','nonce',1,'[]','snapshot-hash',NULL,1,'pending',?4,NULL,NULL)`)
+    .bind(ORG, fileId, issued.share.id, now).run();
+  await env.DB.prepare(`INSERT INTO hx_workspace_file_share_events(org_id,id,share_id,request_id,event,actor_id,actor_login,details_json,created_at)
+    VALUES(?1,'event-delete-test',?2,'request-delete-test','requested','9501','own','{}',?3)`)
+    .bind(ORG, issued.share.id, now).run();
+
+  expect((await readPublicFileShare(shareEnv, issued.token)).share).toMatchObject({ name: "logo.png", version: 1 });
+  const historical = await readPublicFileShareContent(shareEnv, issued.token, 0);
+  expect(historical.status).toBe(200);
+  expect(new TextDecoder().decode(await historical.arrayBuffer())).toBe(bytes1);
+  expect((await env.DB.prepare("SELECT count(*) AS n FROM hx_workspace_file_share_events WHERE org_id=?1").bind(ORG).first()).n).toBeGreaterThan(0);
+
+  await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  expect(await purgeDueWorkspaces(env, { now: Date.now() + 31 * DAY })).toEqual([ORG]);
+  for (const table of ["hx_workspace_files", "hx_workspace_file_versions", "hx_workspace_file_origins", "hx_workspace_file_shares", "hx_workspace_file_share_revisions", "hx_workspace_file_share_items", "hx_workspace_file_share_requests", "hx_workspace_file_share_events"]) {
+    expect((await env.DB.prepare(`SELECT count(*) AS n FROM ${table} WHERE org_id=?1`).bind(ORG).first()).n).toBe(0);
+  }
+  expect(await env.MEDIA.get(key1)).toBeNull();
+  expect(await env.MEDIA.get(key2)).toBeNull();
+  expect(await env.MEDIA.get(`org/${encodeURIComponent("team:stays")}/files/f_2`)).not.toBeNull();
+  expect(await readPublicFileShare(shareEnv, issued.token)).toBeNull();
 });
 
 // The daily job read the due deletions, then went on to delete each one
