@@ -48,10 +48,14 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
     if (!validateSource(custom.draft)) return { error: 'Save a draft before publishing.', status: 400 };
     if (custom.draft.length > MAX_PREVIEW_SOURCE) return { error: `Shorten the draft to ${MAX_PREVIEW_SOURCE} characters or fewer before previewing and publishing.`, status: 400 };
     custom.published = custom.draft;
+    delete custom.publishedCommit;
+    delete custom.publishedCommitApprovalId;
     custom.publishedBy = String(by);
     custom.publishedAt = new Date().toISOString();
   } else if (input.action === 'unpublish') {
     delete custom.published;
+    delete custom.publishedCommit;
+    delete custom.publishedCommitApprovalId;
   } else return { error: 'Unknown release action.', status: 400 };
   const table = await getTable(db, orgId, app.tableId);
   const definition = { ...app.definition, custom };
