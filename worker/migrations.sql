@@ -378,3 +378,7 @@ ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
 ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN app_id TEXT;
+
+CREATE TABLE IF NOT EXISTS hx_external_resource_grants (id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, resource_type TEXT NOT NULL CHECK (resource_type IN ('workspace','room','thread','app','file')), resource_id TEXT NOT NULL CHECK (length(trim(resource_id)) BETWEEN 1 AND 200), recipient_github_id TEXT NOT NULL REFERENCES users(github_id) ON DELETE CASCADE, permission TEXT NOT NULL CHECK (permission IN ('view','edit')), granted_by TEXT NOT NULL REFERENCES users(github_id), granted_at TEXT NOT NULL, expires_at TEXT, revoked_at TEXT, revoked_by TEXT, CHECK (resource_type != 'workspace' OR resource_id = org_id));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_external_resource_grants_active ON hx_external_resource_grants(org_id, resource_type, resource_id, recipient_github_id) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_hx_external_resource_grants_recipient ON hx_external_resource_grants(org_id, recipient_github_id, revoked_at, expires_at);
