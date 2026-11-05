@@ -2129,3 +2129,37 @@ test('requester membership removal permanently revokes an approval',async()=>{
  await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES(?1,'9102','member',?2)").bind(ORG,new Date().toISOString()).run();
  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
 });
+
+test('requester access loss between approval preflight and insert cannot leave a pending request',async()=>{
+ const {app}=await customApprovalFixture();
+ const current=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+ const raceDb={prepare(sql){
+   const statement=env.DB.prepare(sql);
+   if(!sql.startsWith('INSERT INTO hx_app_publish_approvals'))return statement;
+   return {bind(...values){const bound=statement.bind(...values);return {run:async()=>{await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9102'").bind(ORG).run();return bound.run()}}}}
+ }};
+ const {requestCustomPublishApproval}=await import('../src/harness/customAppPublishApproval.js');
+ const result=await requestCustomPublishApproval(raceDb,ORG,current,'9102');
+ expect(result.status).toBe(409);
+ const count=await env.DB.prepare("SELECT COUNT(*) AS count FROM hx_app_publish_approvals WHERE org_id=?1 AND app_id=?2").bind(ORG,app.id).first();
+ expect(count.count).toBe(0);
+});
+
+test('publisher access loss between publish preflight and D1 batch blocks release',async()=>{
+ const {app,path}=await customApprovalFixture();
+ await requestCustomApproval(path,app.version);
+ const state=await(await get(path,mika)).json();
+ expect((await approveCustomRelease(path,state)).status).toBe(200);
+ await env.DB.prepare("INSERT INTO users(github_id,login,locale) VALUES('9105','publisher','en')").run();
+ await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES(?1,'9105','admin',?2)").bind(ORG,new Date().toISOString()).run();
+ const current=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+ const raceDb={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+   await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9105'").bind(ORG).run();
+   return env.DB.batch(statements);
+ }};
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const result=await saveCustomRelease(raceDb,ORG,current,{action:'publish',version:app.version},'9105');
+ expect(result.status).toBe(409);
+ const fresh=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+ expect(fresh.definition.custom.published).toBeUndefined();
+});
