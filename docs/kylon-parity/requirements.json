@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-05",
+  "asOf": "2026-11-06",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1171,6 +1171,20 @@
       "evidence": {
         "verified": "2026-10-31、PR #576（merge c14a0f6）でD1永続化、認可付き一覧、ピン/カード表示、下書き添付メタデータ復元を本番公開。PR #577（merge 233faf0）で範囲矩形のCSSパーセント描画を修正し、Web deploy #41198169985成功。PR #578（merge 25154abc）で淡い点線枠・範囲左下の入力欄をKylonに寄せ、Web deploy #41199862857成功。main CI #41199862881のWorker、Web、E2E、Desktop、Gateway、Core/Mobile各job成功。app.honmaruai.comとhonmaru-web.pages.devは同一assetを配信し、Worker healthはok/encryption.all true。ログイン済みKylon/Honmaruで同じ空アプリを表示し、範囲ドラッグ・注釈入力UIを比較。本番HonmaruのQAアプリへAIを起動しない短い注釈を1件送り、ピン生成、再読込後のピンと本文復元を確認。Kylonの編集はキャンセル。アプリの行データは0件のまま。",
         "remaining": "別ユーザーからの拒否を含む複数ユーザー本番検証、同一ユーザー二台同期、作成元スレッド経由の画面比較が残る。"
+      }
+    },
+    {
+      "id": "KY-099",
+      "category": "Sharing",
+      "requirement": "ワークスペース外の名前付きコラボレーターとリソース単位の権限",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/changelog",
+      "code": "worker/src/harness/externalCollaborators.js, worker/migrations.sql",
+      "acceptance": "名前または検証済みメールで招待した外部ユーザーがワークスペースメンバー化せずサインインでき、Room/Workspace/リンクの対象ごとにThread・File・AppのCan view/Can editを個別設定できる。Threadのゲストは閲覧・返信・アップロード・リアクションができ、送信要求は所有者承認を経る。失効は即時反映され、Workspace/Room/別リソース間のACL隔離、期限、監査履歴、ゲストにAgentが自動返信しないことを検証する。",
+      "evidence": {
+        "verified": "Kylon公式Changelogの2026-10-30項目は、Thread/File/Appを名前またはメールで共有し、Room/Workspace/リンク単位の対象と各人のCan view/Can editを選ぶこと、外部ユーザーはWorkspaceに参加せずサインインすること、Threadゲストの閲覧/返信/アップロード/リアクションと所有者承認付き送信、現時点でAgentは外部ゲストに返信しないことを明記。Files & Sharing docs §Share outside the workspaceは、公開リンクはスナップショットを公開するだけでlive File/Roomのアクセス権を与えないと明記。Honmaruでは既存のグローバルユーザー認証を使い、新規サービスを追加せず、resource-scoped grant/revoke ledgerとhuman-only lookupの基礎を追加。",
+        "remaining": "現段階は永続grant/revokeとfail-closed lookupのみ。メール招待/検証/受諾、Share UI、既存ログインを使った外部アクセス入口、Thread/File/App/Room APIすべてへの認可統合、Thread返信/添付/リアクションと所有者承認キュー、link audienceの公開スナップショット経路、ゲストへのAgent自動返信抑止、複数ユーザー実環境の隔離検証は未実装。既存Simpleモードはこのgrantモデルを参照しない。"
       }
     }
   ]
