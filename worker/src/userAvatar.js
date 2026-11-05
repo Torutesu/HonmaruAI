@@ -80,7 +80,7 @@ export async function handleUserAvatar(request, env, url) {
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
         "cache-control": agentAvatar ? "no-store" : "public, max-age=31536000, immutable",
-        ...(!privateAgent ? { "access-control-allow-origin": "*" } : {}),
+        ...(!agentAvatar ? { "access-control-allow-origin": "*" } : {}),
       },
     });
   }
