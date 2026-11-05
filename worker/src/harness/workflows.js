@@ -392,16 +392,20 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
 
 export async function changeWorkflowHook(db, orgId, id, input) {
   if (!['rotate', 'revoke'].includes(input?.action)) return { error: 'Choose rotate or revoke.', status: 400 };
-  // Require the caller's observed credential, including explicit null when revoked.
-  // It is a compare-and-swap token, never written to the audit log.
+  // Both the observed secret and observed workflow revision are compare-and-swap
+  // tokens. The revision also distinguishes successive revoked states, where
+  // hook_secret remains NULL, and advances monotonically even within one ms.
   if (!Object.hasOwn(input, 'expectedSecret') || !(input.expectedSecret === null ||
     (typeof input.expectedSecret === 'string' && /^[0-9a-f]{48}$/.test(input.expectedSecret)))) {
     return { error: 'Reload the workflow before changing its webhook.', status: 400 };
   }
+  const observedAt = typeof input.expectedUpdatedAt === 'string' ? Date.parse(input.expectedUpdatedAt) : NaN;
+  if (!Number.isFinite(observedAt)) return { error: 'Reload the workflow before changing its webhook.', status: 400 };
+  const updatedAt = new Date(Math.max(Date.now(), observedAt + 1)).toISOString();
   const secret = input.action === 'rotate' ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
   const result = await db.prepare(`UPDATE hx_workflows SET hook_secret=?1, webhook_signature_required=CASE WHEN ?1 IS NULL THEN webhook_signature_required ELSE 1 END, updated_at=?2
-    WHERE org_id=?3 AND id=?4 AND json_extract(trigger,'$.type')='webhook' AND hook_secret IS ?5`)
-    .bind(secret, now(), orgId, id, input.expectedSecret).run();
+    WHERE org_id=?3 AND id=?4 AND json_extract(trigger,'$.type')='webhook' AND hook_secret IS ?5 AND updated_at=?6`)
+    .bind(secret, updatedAt, orgId, id, input.expectedSecret, input.expectedUpdatedAt).run();
   if (!result.meta?.changes) return { error: 'The webhook changed. Reload the workflow and try again.', status: 409 };
   return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }) };
 }

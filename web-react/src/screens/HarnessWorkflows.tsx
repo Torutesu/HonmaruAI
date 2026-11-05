@@ -504,7 +504,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             <p>{t(hookAction === 'rotate' ? 'The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.' : 'The webhook URL will stop accepting events. Existing runs are not cancelled.')}</p>
             <div className="hx-actions">
               <button className="pill-btn danger" disabled={!!busy} onClick={() => act('hook', async () => {
-                const result = await api.changeWorkflowHook(w.id, hookAction, w.hookSecret ?? null)
+                const result = await api.changeWorkflowHook(w.id, hookAction, w.hookSecret ?? null, w.updatedAt || '')
                 setOpen(current => current?.workflow.id === w.id ? { ...current, workflow: result.workflow } : current)
                 setHookAction(null)
               })}>{t(hookAction === 'rotate' ? 'Generate new webhook URL' : 'Revoke webhook')}</button>
@@ -527,7 +527,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
               })}>{t('Replay {count} events', { count: replaySelection.length })}</button>
               <button className="btn-text" disabled={!!busy} onClick={() => setReplaySelection(null)}>{t('Cancel')}</button>
             </div> : !discardSelection && <div className="hx-actions">
-              <button className="pill-btn quiet" disabled={!!busy || !w.enabled || !!w.safety?.paused_at} onClick={() => setReplaySelection(open.held!.events.map(e => e.id))}>{t('Review held events')}</button>
+              <button className="pill-btn quiet" disabled={!!busy} onClick={() => setReplaySelection(open.held!.events.map(e => e.id))}>{t('Review held events')}</button>
               <button className="btn-text danger" disabled={!!busy || !open.held.discardEventIds?.length} onClick={() => setDiscardSelection([...open.held!.discardEventIds!])}>{t('Discard held events')}</button>
             </div>}
             {discardSelection && <div>
