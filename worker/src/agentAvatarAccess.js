@@ -35,7 +35,7 @@ export async function clientAgentAvatarUrl(env, orgId, agent, login) {
   const mediaId = mediaIdFrom(agent?.avatarUrl);
   if (!mediaId) return null;
   const current = await currentAccess(env.DB, orgId, agent.id, login);
-  if (!restricted(agent, current.profile)) return agent.avatarUrl;
+  if (!restricted(agent, current.profile)) {\n    const url = new URL(agent.avatarUrl);\n    url.search = `revision=${encodeURIComponent(revision(current))}`;\n    return url.toString();\n  }
   if (!current.member || !await mayAccessAgent(env.DB, orgId, agent, login)) return null;
   const viewerId = String(current.member.github_id);\n  const signed = await signedQuery(env, "a1", orgId, signedId(mediaId, agent.id, viewerId, revision(current)));
   if (!signed) return null;
