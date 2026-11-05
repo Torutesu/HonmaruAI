@@ -108,7 +108,7 @@ const fail = (result) => json({ message: result.error, ...(result.fields ? { fie
 const importMayBeSaved = 'A copy may have been created. After access is restored, check the Skill list before retrying.';
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-generation-v2|template-shares|skills|skill-shares|workspace-file-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-generation-v2|template-shares|skills|skill-shares|workspace-file-shares|workspace-file-public-urls|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId, options) {
@@ -137,6 +137,15 @@ export async function handleHarness(request, env, url, context = {}) {
   if (limited) return limited;
 
   if (url.pathname === '/app-domains/resolve') return servePublicAppDomain(request, env, url);
+
+  if(url.pathname.startsWith('/workspace-file-public-urls/')){
+    const parts=url.pathname.split('/').filter(Boolean),token=parts[1];
+    if(parts.length===2&&(request.method==='GET'||request.method==='HEAD')){
+      const {servePublicFileUrl}=await import('./filePublicUrls.js');
+      return servePublicFileUrl(request,env,token);
+    }
+    return new Response('Not found',{status:404,headers:{'cache-control':'no-store','referrer-policy':'no-referrer','x-robots-tag':'noindex, nofollow, noarchive','x-content-type-options':'nosniff'}});
+  }
 
   if (url.pathname.startsWith('/workspace-file-shares/')) {
     const parts=url.pathname.split('/').filter(Boolean),token=parts[1];
@@ -169,6 +178,36 @@ export async function handleHarness(request, env, url, context = {}) {
     if(results.length!==6)return json({message:'Workspace file storage is not ready.'},503);
     const identity={orgId,userId:String(who.session.github_id),headers:CORS_HEADERS};
     const fileParts=url.pathname.split('/').filter(Boolean);
+    if(fileParts[3]==='public-url'){
+      if(await getMode(env.DB,orgId)!=='harness')return json({message:'Public media URLs are available in Harness mode.'},404);
+      if(fileParts.length!==4)return json({message:'Public media URL route not found.'},404);
+      const ready=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hx_workspace_file_public_urls'").first();
+      if(!ready)return json({message:'Public media URLs are not ready.'},503);
+      const fileId=decodeURIComponent(fileParts[2]||'');
+      let command=null;
+      if(request.method!=='GET'){
+        command=await body(request);
+        if(!command)return json({message:'Invalid JSON body.'},400);
+      }
+      const {filePublicUrlState,createFilePublicUrl,revokeFilePublicUrls}=await import('./filePublicUrls.js');
+      if(request.method==='GET'){
+        const result=await filePublicUrlState(env,{orgId,fileId,userId:identity.userId,baseUrl:request.url});
+        return result.error?json({message:result.error},result.status||400):json(result);
+      }
+      if(request.method==='POST'){
+        const result=await createFilePublicUrl(env,{orgId,fileId,userId:identity.userId,login:who.user.login,baseUrl:request.url});
+        if(result.error)return json({message:result.error},result.status||400);
+        await audit(env,request,{orgId,action:'workspace.file_public_url_created',actor:person(who.user),entity:{type:'file',id:fileId},details:{version:result.version,contentType:result.contentType,reused:Boolean(result.reused)}});
+        return json(result,result.reused?200:201);
+      }
+      if(request.method==='DELETE'){
+        const result=await revokeFilePublicUrls(env.DB,{orgId,fileId,userId:identity.userId});
+        if(result.error)return json({message:result.error},result.status||400);
+        await audit(env,request,{orgId,action:'workspace.file_public_urls_revoked',actor:person(who.user),entity:{type:'file',id:fileId},details:{count:result.count}});
+        return json(result);
+      }
+      return json({message:'Public media URL method not allowed.'},405);
+    }
     if(fileParts[3]==='shares'){
       if(await getMode(env.DB,orgId)!=='harness')return json({message:'Public file sharing is available in Harness mode.'},404);
       const shareTables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_file_shares','hx_workspace_file_share_revisions','hx_workspace_file_share_items','hx_workspace_file_share_requests','hx_workspace_file_share_events')").all();

@@ -5,6 +5,7 @@ import worker from "../src/index.js";
 import { forgetDeletions, purgeDueWorkspaces } from "../src/workspaceDeletion.js";
 import { createFileLedger, appendFileVersion } from "../src/harness/fileVersionLedger.js";
 import { createDirectFileShare, copyFileShare, readPublicFileShare, readPublicFileShareContent } from "../src/harness/fileShares.js";
+import { createFilePublicUrl, servePublicFileUrl } from "../src/harness/filePublicUrls.js";
 
 // A workspace could not be deleted at all: `workspace.delete` was a
 // permission nothing used. An owner now asks, has thirty days to take it
@@ -117,6 +118,40 @@ test("workspace deletion cascades public snapshots and their events, while tenan
   expect(await env.MEDIA.get(key2)).toBeNull();
   expect(await env.MEDIA.get(`org/${encodeURIComponent("team:stays")}/files/f_2`)).not.toBeNull();
   expect(await readPublicFileShare(shareEnv, issued.token)).toBeNull();
+});
+
+test("workspace deletion removes direct URLs for current and historical media versions", async () => {
+  const fileId = "file-public-url-deletion";
+  const now = new Date().toISOString();
+  const key1 = `org/${encodeURIComponent(ORG)}/workspace-files/${fileId}/v1`;
+  const key2 = `org/${encodeURIComponent(ORG)}/workspace-files/${fileId}/v2`;
+  const secureEnv = { ...env, DATA_KEY: btoa("p".repeat(32)) };
+  const bytes1 = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const bytes2 = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 2]);
+  expect((await createFileLedger(env.DB, { orgId: ORG, fileId, scope: "workspace", path: "assets/photo.png", createdBy: "9501", at: now })).created).toBe(true);
+  await env.MEDIA.put(key1, bytes1, { httpMetadata: { contentType: "image/png" } });
+  expect(await appendFileVersion(env.DB, { orgId: ORG, fileId, expectedVersion: 0, createdBy: "9501", objectKey: key1, contentHash: "a".repeat(64), contentType: "image/png", size: bytes1.length, at: now })).toMatchObject({ saved: true, version: 1 });
+  const historical = await createFilePublicUrl(secureEnv, { orgId: ORG, fileId, userId: "9501", login: "own", baseUrl: "https://example.com" });
+  expect(historical.error).toBeUndefined();
+  await env.MEDIA.put(key2, bytes2, { httpMetadata: { contentType: "image/png" } });
+  expect(await appendFileVersion(env.DB, { orgId: ORG, fileId, expectedVersion: 1, createdBy: "9501", objectKey: key2, contentHash: "b".repeat(64), contentType: "image/png", size: bytes2.length, at: new Date(Date.now() + 1).toISOString() })).toMatchObject({ saved: true, version: 2 });
+  const current = await createFilePublicUrl(secureEnv, { orgId: ORG, fileId, userId: "9501", login: "own", baseUrl: "https://example.com" });
+  expect(current.error).toBeUndefined();
+  const historicalToken = new URL(historical.url).pathname.split("/").at(-1);
+  const currentToken = new URL(current.url).pathname.split("/").at(-1);
+  expect((await servePublicFileUrl(new Request(`https://example.com/workspace-file-public-urls/${historicalToken}`), secureEnv, historicalToken)).status).toBe(200);
+  expect((await servePublicFileUrl(new Request(`https://example.com/workspace-file-public-urls/${currentToken}`), secureEnv, currentToken)).status).toBe(200);
+
+  await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  expect(await purgeDueWorkspaces(env, { now: Date.now() + 31 * DAY })).toEqual([ORG]);
+  for (const table of ["hx_workspace_files", "hx_workspace_file_versions", "hx_workspace_file_public_urls"]) {
+    expect((await env.DB.prepare(`SELECT count(*) AS n FROM ${table} WHERE org_id=?1`).bind(ORG).first()).n).toBe(0);
+  }
+  expect(await env.MEDIA.get(key1)).toBeNull();
+  expect(await env.MEDIA.get(key2)).toBeNull();
+  expect(await env.MEDIA.get(`org/${encodeURIComponent("team:stays")}/files/f_2`)).not.toBeNull();
+  expect((await servePublicFileUrl(new Request(`https://example.com/workspace-file-public-urls/${historicalToken}`), secureEnv, historicalToken)).status).toBe(404);
+  expect((await servePublicFileUrl(new Request(`https://example.com/workspace-file-public-urls/${currentToken}`), secureEnv, currentToken)).status).toBe(404);
 });
 
 // The daily job read the due deletions, then went on to delete each one

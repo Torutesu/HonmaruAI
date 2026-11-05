@@ -42,6 +42,13 @@ async function purgeVersions(db,{orgId,fileId,userId,version,reason,expectedVers
    WHERE v.org_id=?1 AND v.file_id=?2 AND (?4 IS NULL OR v.version=?4) AND p.created_by=?3 AND p.created_at=?5
     AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_versions other WHERE other.org_id=v.org_id AND other.object_key=v.object_key
      AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges gone WHERE gone.org_id=other.org_id AND gone.file_id=other.file_id AND gone.version=other.version))`)
+   .bind(orgId,fileId,userId,version,at),
+  // A permanently published media URL names an immutable version. Purging
+  // that version revokes the URL in the same batch as the purge receipt.
+  db.prepare(`DELETE FROM hx_workspace_file_public_urls WHERE org_id=?1 AND file_id=?2 AND (?4 IS NULL OR version=?4)
+   AND EXISTS(SELECT 1 FROM hx_workspace_file_purges gone
+    WHERE gone.org_id=hx_workspace_file_public_urls.org_id AND gone.file_id=hx_workspace_file_public_urls.file_id
+     AND gone.version=hx_workspace_file_public_urls.version AND gone.created_by=?3 AND gone.created_at=?5)`)
    .bind(orgId,fileId,userId,version,at)
  ]);
  return results[0].meta.changes;
