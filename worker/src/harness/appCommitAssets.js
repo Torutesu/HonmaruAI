@@ -6,14 +6,11 @@ function decodePathSegment(value){
   if(!decoded||decoded==='.'||decoded==='..'||decoded.includes('/')||decoded.includes('\\')||decoded.includes('\0')||!/^[A-Za-z0-9_.@+-]{1,100}$/.test(decoded))return null;
   return decoded;
 }
-function decodeBase64(value){
-  try{
-    const normalized=String(value||'').replace(/\s/g,'');
-    if(!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(normalized))return null;
-    const binary=atob(normalized),bytes=new Uint8Array(binary.length);
-    for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
-    return bytes;
-  }catch{return null;}
+function readBytes(value) {
+  if(value instanceof Uint8Array)return value;
+  if(value instanceof ArrayBuffer)return new Uint8Array(value);
+  if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);
+  return null;
 }
 async function hash(bytes){
   const digest=await crypto.subtle.digest('SHA-256',bytes);
