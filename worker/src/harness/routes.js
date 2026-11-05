@@ -987,7 +987,7 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === 'POST' && parts[5] === 'to-skill') {
         if (!canEdit) return json({message:"Only the agent's maker or an admin can convert its memory."},403);
-        const owner = await env.DB.prepare("SELECT owner_user_id FROM hx_memory_scopes WHERE org_id=?1 AND memory_id=?2").bind(orgId,parts[4]).first();
+        const owner = await env.DB.prepare("SELECT s.owner_user_id FROM hx_memory_scopes s JOIN hx_agent_memories m ON m.id=s.memory_id AND m.org_id=s.org_id WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3").bind(orgId,agentId,parts[4]).first();
         if (owner?.owner_user_id) return json({message:"Personal memories cannot be converted into shared skills."},403);
         const r=await convertMemoryToSkill(env.DB,orgId,agentId,parts[4],input,{channel,by:me});
         if (!r.error && !r.replayed) await audit(env,request,{orgId,action:'agent.memory_converted',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memoryId:parts[4],skillId:r.skill.id,version:input.expectedVersion,keptMemory:r.keptMemory,scope:channel?'conversation':'shared'}});
