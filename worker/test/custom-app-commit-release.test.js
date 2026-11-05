@@ -202,22 +202,44 @@ test('ordinary saved custom app drafts keep the legacy publish route', async () 
   expect(state.app.definition.custom.published).toBe('<main>legacy release</main>');
 });
 
-test('custom domains require explicit public visibility before app rows can be served anonymously', async () => {
+test('custom domain consent is bound to its attachment and exposes only after explicit confirmation', async () => {
   const app=await makeApp();
   const draft=await send('POST',`/apps/${app.id}/custom`,toru,{action:'draft',version:app.version,html:'<main>public app snapshot</main>'});
   const saved=await draft.json();
   expect((await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish',version:saved.version})).status).toBe(200);
-  const attach=await send('POST',`/apps/${app.id}/hosting`,toru,{action:'attach',hostname:'private-data.example',publicDataConfirmed:true});
-  expect(attach.status).toBe(409);
-  expect((await attach.json()).message).toMatch(/公開範囲.*公開/);
+  await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)`).bind(ORG,app.id).run();
 
-  const at=new Date().toISOString();
-  await env.DB.prepare(`INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at)
-    VALUES(?1,?2,'private-data.example','active','9101',?3,?3)`).bind(ORG,app.id,at).run();
-  expect((await call('/app-domains/resolve?host=private-data.example')).status).toBe(404);
+  const hostname='private-data.example';
+  const route=`/apps/${app.id}/hosting`;
+  const domainEnv={...env,CF_ACCOUNT_ID:'test-account',CF_PAGES_PROJECT:'honmaru-web',PAGES_DOMAINS_API_TOKEN:'test-token'};
+  const domainCall=(path,init={})=>worker.fetch(new Request('https://example.com'+path,init),domainEnv);
+  const domainSend=(body,token=toru)=>domainCall(route,{method:'POST',headers:headers(token),body:JSON.stringify({orgId:ORG,...body})});
+  const unconfirmed=await domainSend({action:'attach',hostname});
+  expect(unconfirmed.status).toBe(409);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).toEqual({n:0});
 
-  await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'public',1)`).bind(ORG,app.id).run();
-  const page=await call('/app-domains/resolve?host=private-data.example');
-  expect(page.status).toBe(200);
-  expect(await page.text()).toContain('public app snapshot');
+  vi.stubGlobal('fetch',vi.fn(async input=>{
+    const request=input instanceof Request?input:new Request(String(input));
+    const url=new URL(request.url);
+    if(url.hostname==='api.cloudflare.com'){
+      if(request.method==='GET')return json({success:true,result:[]});
+      if(request.method==='POST')return json({success:true,result:{status:'active',validation_data:{status:'success'},verification_data:{status:'success'}}});
+      if(request.method==='DELETE')return json({success:true,result:{}});
+    }
+    return new Response('Unexpected upstream request.',{status:502});
+  }));
+  const attached=await domainSend({action:'attach',hostname,publicDataConfirmed:true});
+  expect(attached.status).toBe(200);
+  const domain=(await attached.json()).domain;
+  const receipt=await env.DB.prepare('SELECT hostname,domain_created_at AS domainCreatedAt,confirmed_by AS confirmedBy,confirmed_at AS confirmedAt,confirmation_version AS confirmationVersion FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first();
+  expect(receipt).toMatchObject({hostname,confirmedBy:'9101',confirmationVersion:1});
+  expect(receipt.domainCreatedAt).toBe(domain.createdAt);
+  const published=await domainCall(`/app-domains/resolve?host=${hostname}`);
+  expect(published.status).toBe(200);
+  expect(await published.text()).toContain('public app snapshot');
+
+  expect((await domainSend({action:'remove'})).status).toBe(200);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).toEqual({n:0});
+  expect((await domainCall(`/app-domains/resolve?host=${hostname}`)).status).toBe(404);
+  expect((await domainSend({action:'attach',hostname})).status).toBe(409);
 });
