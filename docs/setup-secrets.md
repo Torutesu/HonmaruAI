@@ -527,3 +527,22 @@ Web を開いて右上のベルを押し、ブラウザの許可を出す。別�
 | ベルを押しても何も起きない（iPhone） | Safari のタブではなくホーム画面から開いているか |
 | メールが来ない | 相手に住所があるか、`notifyEmail` がオンか、宛先が共有送信元でも届くアドレス（＝Resend アカウントの持ち主）か。拒否理由は `npx -y wrangler@4 tail --format pretty` にそのまま出る |
 | 通知の言語が違う | Web の ⋯ → Language、iOS は You → Language。`GET /me` の `locale` が真実 |
+# Optional custom App domains
+
+To let the Company Harness attach an App hostname to the existing `honmaru-web`
+Pages project, create a separate Cloudflare API token with **Pages Write**
+for that project and save it as the GitHub Actions repository secret
+`PAGES_DOMAINS_API_TOKEN`. The deploy workflow copies this optional token into
+the production Worker secret of the same name. It does not reuse or expose the
+broader `CLOUDFLARE_API_TOKEN` used by deployment. Without this secret, the
+hosting screen remains available but custom-domain attachment is disabled.
+
+After attachment, the App owner points a subdomain CNAME to the displayed
+`honmaru-web.pages.dev` target. Apex/root domains must be zones using Cloudflare
+nameservers. Honmaru does not edit customer DNS. HTTPS activation follows
+Cloudflare Pages' domain status. A hostname can publish one App; public viewers can read the published
+custom screen and its records, so the UI requires an explicit confirmation.
+App environment values use the existing workspace encryption key and are
+provided only to that App's isolated local gateway action at claim time.
+Staging keeps custom-domain management disabled. This uses the existing
+Cloudflare Pages project and adds no paid provider.
