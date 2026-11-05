@@ -1123,9 +1123,7 @@ export async function handleHarness(request, env, url, context = {}) {
         const forwarded=await context.dispatch(new Request(new URL('/channels/messages',url.origin),{method:'POST',headers:request.headers,body:JSON.stringify({orgId,channel,parentId:source.threadId,body:input.body,clientId})}));
         if(!forwarded.ok)return forwarded;
         const sent=await forwarded.json();
-        if(sent.message?.body!==input.body.replace(/\r
-/g,'
-').trim())return json({message:'Request ID was already used for a different message.'},409);
+        if(sent.message?.body!==input.body.replace(/\r\n/g,'\n').trim())return json({message:'Request ID was already used for a different message.'},409);
         const marker=await saveAppAnnotation(env.DB,{orgId,appId,tableId:input.tableId||'',rowId:input.rowId||'',messageSource:'channel',messageId:sent.message.id,authorId:me,annotation});
         if(marker.error)return fail(marker);
         return json({threadId:source.threadId,source:true,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
@@ -1336,7 +1334,7 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === 'POST') {
         const result = await createPublicAppShare(env.DB, orgId, appId, me, input);
-        if (!result.error) await audit(env, request, { orgId, action: 'app.public_share_created', actor: person(who.user), entity: { type: 'app', id: appId }, details: { shareId: result.share.id, appVersion: result.share.appVersion, fields: result.share.dataScope[0].fields } });
+        if (!result.error) await audit(env, request, { orgId, action: 'app.public_share_created', actor: person(who.user), entity: { type: 'app', id: appId }, details: { shareId: result.share.id, appVersion: result.share.appVersion, fields: result.share.dataScope.map(scope => ({ entity: scope.entity, fields: scope.fields })) } });
         return result.error ? fail(result) : json(result, 201);
       }
       if (request.method === 'DELETE') {
