@@ -1,4 +1,6 @@
 import {hashForAppSource} from '../utils/route'
+import {resolveDraftSuggestion} from '../utils/draftSuggestion'
+import {DraftSuggestion} from './DraftSuggestion'
 import {MessageAppCards} from './MessageAppCards'
 import {renderRich} from './MessageParts'
 import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react'
@@ -44,8 +46,9 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
   // A route suggestion must not replace the user's existing unsent text.
   // Keep it visible as a separate choice, and leave the route intact until
   // they append or dismiss it so a refresh cannot lose the suggestion.
-  const suggestion=initialDraft&&savedDraft&&savedDraft!==initialDraft?initialDraft:''
-  const restoredDraft=savedDraft||initialDraft||''
+  const resolvedDraft=resolveDraftSuggestion(savedDraft,'',initialDraft||'')
+  const restoredDraft=resolvedDraft.draft
+  const suggestion=resolvedDraft.suggestion
   setDraft(restoredDraft);setSuggestedDraft(suggestion)
   const restoredAnnotation=rowId||!restoredDraft?null:api.drafts?.readAnnotation?.(appId,tableId,rowId)||null
   setAnnotationMeta(restoredAnnotation)
@@ -94,11 +97,7 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
   {!rowId&&!source&&<div className="hx-chat-source"><button type="button" disabled={linking||loading} onClick={()=>void findSources()}><Icon name="link" size={14}/>作成元スレッドを引き継ぐ</button>{sources&&<div><p>以後の送信は選択したスレッドへ届きます。元の閲覧権限を維持します。</p>{sources.length?<select aria-label="作成元スレッド" defaultValue="" disabled={linking} onChange={e=>{if(e.target.value)void chooseSource(e.target.value)}}><option value="">スレッドを選択</option>{sources.map(s=><option key={s.id} value={s.id}>{s.channel.startsWith('b:')?'#'+s.channel.slice(2):'元の会話'} · {s.body}</option>)}</select>:<p>アプリに紐づいたルームに選択可能なスレッドがありません。</p>}</div>}</div>}
   {error&&<div className="hx-chat-error" role="alert">{error}<button type="button" onClick={()=>void refresh(epoch.current)}>再読み込み</button></div>}
   {context&&<div className="hx-chat-context">{context}</div>}
-  {suggestedDraft&&<aside className="hx-chat-draft-suggestion" aria-label="今回の調整案">
-   <div><strong>今回の調整案</strong><span>未送信の下書きはそのまま保持しています。</span></div>
-   <p>{suggestedDraft}</p>
-   <footer><button type="button" onClick={appendSuggestedDraft}>既存の下書きに追加</button><button type="button" onClick={dismissSuggestedDraft}>今回は使わない</button></footer>
-  </aside>}
+  <DraftSuggestion draft={suggestedDraft} onAppend={appendSuggestedDraft} onDismiss={dismissSuggestedDraft}/>
   <form className="hx-chat-compose" onSubmit={e=>void send(e)}>{mentions.menu}<textarea ref={box} onSelect={mentions.track} onClick={mentions.track} aria-label="メッセージを入力" placeholder="メッセージを入力… @でメンション" value={draft} maxLength={4000} disabled={sending} rows={3} onChange={e=>{saveDraft(e.target.value);mentions.track()}} onKeyUp={mentions.track} onKeyDown={e=>{if(mentions.onKeyDown(e))return;if(enterKey(e)&&(e.metaKey||e.ctrlKey)){e.preventDefault();e.currentTarget.form?.requestSubmit()}}}/><div><button type="button" className="hx-chat-ai" disabled={sending} onClick={()=>{saveDraft(d=>d.includes('@AI')?d:`@AI ${d}`);box.current?.focus()}}><Icon name="sparkle" size={14}/>AIに聞く</button><span>⌘ / Ctrl + Enter</span><button type="submit" className="hx-chat-send" aria-label="メッセージを送信" disabled={sending||loading||!draft.trim()}><Icon name="send" size={16}/></button></div></form>
  </section>
 }

@@ -23,6 +23,8 @@ import {useThreadPins} from '../utils/threadPins'
 import { HarnessThreadHeader } from './HarnessThreadHeader'
 import { RoomThreadDirectory } from './RoomThreadDirectory'
 import { MessageAppCards } from './MessageAppCards'
+import { DraftSuggestion } from './DraftSuggestion'
+import { resolveDraftSuggestion } from '../utils/draftSuggestion'
 import { AppView } from '../screens/Harness'
 import { harnessApi, type AppConversation } from '../utils/harness'
 import { HarnessRoomResources } from './HarnessRoomResources'
@@ -3010,6 +3012,8 @@ export const ClassicList: React.FC<Props> = ({
   const composerIntentScope=useMemo(()=>({}),[api.orgId,api.httpBase,api.sessionToken,userId,openView,harness,resourceBuild?.kind,threadOpenParent])
   const newThreadMode=useComposerThreadMode<ChannelMessage>(composerIntentScope,root=>{if(openView)void openThread(openView,root)})
   const [threadDraft, setThreadDraft] = useState('')
+  const threadDraftCurrent=useRef(threadDraft);threadDraftCurrent.current=threadDraft
+  const [threadSuggestion,setThreadSuggestion]=useState('')
   /// "Also send to #channel" under the thread's box: for the next reply only.
   const [threadAlso, setThreadAlso] = useState(false)
   /// A thread reply sent to the conversation too, put there as well — or,
@@ -3027,6 +3031,9 @@ export const ClassicList: React.FC<Props> = ({
   // start empty every time the thread was opened, so a half-written reply
   // was gone the moment you looked at something else.
   const threadDraftKey = (parentId: string) => draftKey(`thread:${parentId}`)
+  const threadSuggestionKey = (parentId: string) => draftKey(`thread-suggestion:${parentId}`)
+  const readThreadSuggestion=(parentId:string)=>{try{return localStorage.getItem(threadSuggestionKey(parentId))||''}catch{return ''}}
+  const writeThreadSuggestion=(parentId:string,value:string)=>{try{const key=threadSuggestionKey(parentId);if(value)localStorage.setItem(key,value.slice(0,4000));else localStorage.removeItem(key)}catch{/* Keep the chat usable when storage is unavailable. */}}
   const threadDraftOf = useRef<string | null>(null)
   const pendingAppDraft = useRef<{id:string;body:string}|null>(null)
   const threadParentId = thread?.parent.id || null
@@ -3034,10 +3041,16 @@ export const ClassicList: React.FC<Props> = ({
     if (threadDraftOf.current === threadParentId) return
     threadDraftOf.current = threadParentId
     let kept = ''
+    let suggestion=threadParentId?readThreadSuggestion(threadParentId):''
     try { kept = threadParentId ? localStorage.getItem(threadDraftKey(threadParentId)) || '' : '' } catch { /* none kept */ }
-    const suggestion=pendingAppDraft.current
-    if(suggestion?.id===threadParentId){if(!kept)kept=suggestion.body;pendingAppDraft.current=null}
+    const incoming=pendingAppDraft.current
+    const matchesIncoming=incoming?.id===threadParentId
+    const resolved=resolveDraftSuggestion(kept,suggestion,matchesIncoming?incoming.body:'')
+    if(matchesIncoming)pendingAppDraft.current=null
+    kept=resolved.draft;suggestion=resolved.suggestion
+    if(threadParentId)writeThreadSuggestion(threadParentId,suggestion)
     setThreadDraft(kept)
+    setThreadSuggestion(suggestion)
     setThreadAlso(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadParentId])
@@ -3899,7 +3912,13 @@ export const ClassicList: React.FC<Props> = ({
     if(current?.key!==target.key){choose(target.key,true);return}
     const root=pending.source.messages.find(message=>message.id===pending.source.threadId)!
     pendingSource.current=null;sourceIntent.current++;sourceRoute.current=null
-    if(pending.draft){if(threadDraftOf.current===pending.source.threadId)setThreadDraft(existing=>existing||pending.draft!);else pendingAppDraft.current={id:pending.source.threadId,body:pending.draft}}
+    if(pending.draft){
+      const id=pending.source.threadId
+      if(threadDraftOf.current===id){
+        const resolved=resolveDraftSuggestion(threadDraftCurrent.current,readThreadSuggestion(id),pending.draft)
+        setThreadDraft(resolved.draft);setThreadSuggestion(resolved.suggestion);writeThreadSuggestion(id,resolved.suggestion)
+      }else pendingAppDraft.current={id,body:pending.draft}
+    }
     setSide({kind:'app',id:pending.appId,section:pending.section})
     void openThread(pending.source.channel,{...root,channel:pending.source.channel,kind:root.kind||'message'} as ChannelMessage)
     history.replaceState(history.state,'','#/list')
@@ -5172,6 +5191,14 @@ export const ClassicList: React.FC<Props> = ({
             )}
             <PendingUploads items={threadUploads.items} onRemove={threadUploads.remove} />
             {threadHl.layer}
+            <DraftSuggestion draft={threadSuggestion} onAppend={()=>{
+              if(!threadParentId||!threadSuggestion)return
+              setThreadDraft(previous=>[previous,threadSuggestion].filter(value=>value.trim()).join('\n\n'))
+              writeThreadSuggestion(threadParentId,'');setThreadSuggestion('')
+            }} onDismiss={()=>{
+              if(threadParentId)writeThreadSuggestion(threadParentId,'')
+              setThreadSuggestion('')
+            }}/>
             <textarea
               ref={threadComposer}
               onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); threadUploads.add(files, thread.channel) } }}
