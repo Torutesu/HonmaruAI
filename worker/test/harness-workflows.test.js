@@ -122,6 +122,23 @@ test("a workflow run persists only the credential source selected at admission",
   expect(run.credentialSource).toBe("workspace");
   const stored = await env.DB.prepare("SELECT credential_source FROM hx_workflow_runs WHERE id=?1").bind(run.id).first();
   expect(stored).toEqual({ credential_source: "workspace" });
+
+  // A legacy active run without a provenance column retains dynamic routing.
+  // Its unknown source must not be confused with an explicit pinned source.
+  await env.DB.prepare("UPDATE hx_workflow_runs SET credential_source='unknown',status='running',card_id=NULL WHERE id=?1").bind(run.id).run();
+  let authorization;
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, opts => {
+      authorization = opts.headers?.authorization || opts.headers?.Authorization;
+      return { choices: [{ message: { content: "LEGACY CONTINUED" } }], usage: { prompt_tokens: 4, completion_tokens: 2 } };
+    });
+  const { continueRun } = await import("../src/harness/workflows.js");
+  const resumed = await continueRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
+    orgId: ORG, runId: run.id, workflow,
+  });
+  expect(resumed.status).toBe("done");
+  expect(resumed.log.at(-1).output).toBe("LEGACY CONTINUED");
+  expect(authorization).toBe("Bearer sk-workspace-credential-source-test");
 });
 
 test("a row turning overdue runs the workflow: it posts, waits on a person's approval, and goes on when approved", async () => {
