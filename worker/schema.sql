@@ -1917,7 +1917,7 @@ CREATE TABLE IF NOT EXISTS hx_workflow_runs (
   started_by    TEXT,
   started_at    TEXT NOT NULL,
   finished_at   TEXT,
-  credential_source TEXT NOT NULL DEFAULT 'unknown' CHECK(credential_source IN ('deployment','workspace','none','unknown'))
+  credential_source TEXT NOT NULL DEFAULT 'unknown' CHECK(credential_source IN ('deployment','workspace','none','unknown','unresolved'))
 );
 CREATE INDEX IF NOT EXISTS idx_hx_runs_workflow ON hx_workflow_runs(workflow_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_hx_runs_card ON hx_workflow_runs(org_id, card_id);
