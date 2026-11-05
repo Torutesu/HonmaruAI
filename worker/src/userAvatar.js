@@ -80,7 +80,7 @@ export async function handleUserAvatar(request, env, url) {
         "content-type": IMAGE_TYPES.has(stored) ? stored : "application/octet-stream",
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
-        "cache-control": privateAgent ? "private, no-store" : "public, max-age=31536000, immutable",
+        "cache-control": privateAgent ? "private, no-store" : agentAvatar ? "public, max-age=60, stale-while-revalidate=300" : "public, max-age=31536000, immutable",
         ...(!privateAgent ? { "access-control-allow-origin": "*" } : {}),
       },
     });
