@@ -29,7 +29,7 @@ export async function generateCustomSource(prompt, table, complete, capabilities
   } catch { return { error: 'The model did not return a valid custom app. Please retry.', status: 502 }; }
 }
 
-export async function saveCustomRelease(db, orgId, app, input, by) {
+export async function saveCustomRelease(db, orgId, app, input, by, trusted = {}) {
   if (!Number.isInteger(input.version) || input.version !== app.version) return { error: 'This app changed. Reload before saving.', status: 409 };
   const custom = { ...(app.definition.custom || {}) };
   if (input.action === 'restore') {
@@ -41,6 +41,8 @@ export async function saveCustomRelease(db, orgId, app, input, by) {
   } else if (input.action === 'draft') {
     if (!validateSource(input.html)) return { error: 'HTML source must contain 1–120000 characters.', status: 400 };
     custom.draft = input.html;
+    if (trusted.commit) custom.draftCommit = trusted.commit;
+    else delete custom.draftCommit;
   } else if (input.action === 'publish') {
     if (!validateSource(custom.draft)) return { error: 'Save a draft before publishing.', status: 400 };
     if (custom.draft.length > MAX_PREVIEW_SOURCE) return { error: `Shorten the draft to ${MAX_PREVIEW_SOURCE} characters or fewer before previewing and publishing.`, status: 400 };
@@ -60,7 +62,12 @@ export async function saveCustomRelease(db, orgId, app, input, by) {
     db.prepare('UPDATE hx_apps SET definition = ?1, version = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5 AND version = ?6')
       .bind(JSON.stringify(definition), version, at, app.id, orgId, app.version),
     db.prepare('INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE changes() = 1')
-      .bind(app.id, orgId, version, JSON.stringify({ ...definition, name: app.name, columns: table.columns }), `Custom app: ${input.action}`, String(by), at),
+      .bind(app.id, orgId, version, JSON.stringify({ ...definition, name: app.name, columns: table.columns }), trusted.commit ? `Custom app: GitHub commit ${trusted.commit.owner}/${trusted.commit.repo}@${trusted.commit.sha}` : `Custom app: ${input.action}`, String(by), at),
+    ...((input.action === 'draft' || input.action === 'restore') ? [
+      db.prepare(`UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=?1
+        WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved') AND consumed_at IS NULL
+          AND app_version < ?4`).bind(at,orgId,app.id,version),
+    ] : []),
     ...(input.action === 'unpublish' ? [
       // changes() refers to the preceding history insertion, so a losing
       // source CAS cannot stop another editor's automation release.
