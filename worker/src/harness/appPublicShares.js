@@ -27,8 +27,10 @@ export async function publicShareOptions(db,orgId,appId){
 export async function createPublicAppShare(db,orgId,appId,by,input){
  if(input.publicDataConfirmed!==true)return fail('Confirm that anyone with the link can read the selected fields.',409);
  const app=await getApp(db,orgId,appId);if(!app)return fail('No such app.',404);
- const current=await db.prepare('SELECT MAX(version) AS version FROM hx_app_versions WHERE org_id=?1 AND app_id=?2').bind(orgId,appId).first();
+ const current=await db.prepare('SELECT version,definition FROM hx_app_versions WHERE org_id=?1 AND app_id=?2 ORDER BY version DESC LIMIT 1').bind(orgId,appId).first();
  const version=Number(current?.version||0);if(!version)return fail('Publish a version before making a public link.',409);
+ let pinned;try{pinned=JSON.parse(current.definition||'{}')}catch{return fail('The saved app version is invalid.',409)}
+ if(typeof pinned.custom?.published!=='string'||!pinned.custom.published.trim()||pinned.custom.published.length>120000)return fail('Publish the Custom App before creating a public link.',409);
  if(input.appVersion!==version)return fail('App version changed. Reload before sharing.',409);
  if(!Array.isArray(input.entities)||input.entities.length<1||input.entities.length>10)return fail('Choose at least one public entity.');
  const related=await db.prepare('SELECT entity_key AS key,table_id AS tableId FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(orgId,appId).all();
@@ -87,6 +89,7 @@ export async function readPublicAppShare(db,token,origin){
  const title=typeof versionDefinition.name==='string'?versionDefinition.name:share.name;
  const icon=typeof versionDefinition.icon==='string'?versionDefinition.icon:share.icon||'📋';
  const payload=JSON.stringify({name:title,icon,appVersion:share.appVersion,html:publicDefinition,table:primary.table,rows:primary.rows,entities}).replace(/</g,'\\u003c').replace(/\\u2028/g,'\\u2028').replace(/\\u2029/g,'\\u2029');
+ if(payload.length>1500000)return fail('Public app snapshot exceeds the 1.5 MB page limit.',413);
  return {html:publicShell(payload,origin)};
 }
 function publicShell(payload,origin){
