@@ -57,9 +57,11 @@ const MAX_METRIC_ROWS = 2000;
 /// The numbers a team looks at to know whether the product is working for
 /// it. Over a window of days, from the cards themselves — no counters to
 /// keep in sync, and nothing here that the cards do not already say.
-export async function orgMetrics(db, orgId, { days = 14 } = {}) {
+export async function orgMetrics(db, orgId, { days = 14, aiDays = days, includeAIByMember = false, includeAIByAutomation = false, includeAIByRoom = false, includeAIByAgent = false, includeAIByApp = false } = {}) {
   const span = Math.max(1, Math.min(Number(days) || 14, 90));
-  const since = new Date(Date.now() - span * 86400000).toISOString();
+  const aiSpan = Math.max(1, Math.min(Number(aiDays) || span, 180));
+  const now = Date.now();
+  const since = new Date(now - span * 86400000).toISOString();
   const { results } = await db
     .prepare(
       `SELECT card_id, recipient_user_id, sender_user_id, created_at, decided_at, status, priority, data
@@ -116,11 +118,12 @@ export async function orgMetrics(db, orgId, { days = 14 } = {}) {
   // quiet days missing reads as a busier team than it is.
   const created = [];
   for (let i = span - 1; i >= 0; i -= 1) {
-    const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    const day = new Date(now - i * 86400000).toISOString().slice(0, 10);
     created.push({ day, count: perDay.get(day) || 0 });
   }
   const declined = byAction.get("decline") || 0;
-  const ai = await aiSpend(db, orgId, since);
+  const ai = await aiSpend(db, orgId, since, { dailyDays: aiSpan, now, includeMembers: includeAIByMember, includeAutomations: includeAIByAutomation,
+    includeRooms: includeAIByRoom, includeAgents: includeAIByAgent, includeApps: includeAIByApp });
 
   return {
     ai,

@@ -56,7 +56,7 @@ const COUNTRY = { ja: "JP", en: "US", es: "ES", fr: "FR", de: "DE", ko: "KR", zh
 /// `plain`: the workspace's own model, the search tool bare, no reasoning
 /// settings — nothing a model might refuse — the retry when the full call
 /// is turned down. Our own tools stay.
-export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, webSearch = true, maxOutput = null, mustLook = false, authorize = null, signal = null }) {
+export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, webSearch = true, maxOutput = null, mustLook = false, authorize = null, signal = null, usageContext = null }) {
   const endpoint = provider.endpoint.replace(/\/chat\/completions$/, "/responses");
   const model = plain ? provider.model : agentModelFor(env, provider);
   const reasoning = isReasoningModel(model);
@@ -132,8 +132,8 @@ export async function research({ provider, env, instructions, input, tools = {},
       break;
     }
     called = true;
-    noteUsage(provider, "agent", data);
-    noteSearches(provider, "agent", data.model || model, (Array.isArray(data.output) ? data.output : []).filter((i) => i?.type === "web_search_call").length);
+    noteUsage(provider, "agent", data, usageContext);
+    noteSearches(provider, "agent", data.model || model, (Array.isArray(data.output) ? data.output : []).filter((i) => i?.type === "web_search_call").length, usageContext);
     last = data;
     previous = data.id || null;
     if (signal?.aborted || (authorize && !await authorize())) return cancelled();

@@ -378,6 +378,7 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
       provider, agent: TEAM_AI, request: withoutAI(row.body), transcript, playbook, where, links, env,
       askedBy: user.name || "a teammate", readerLanguage: locale,
       deadline: Date.now() + 25000, onRound: () => progress("agent"),
+      usageContext: { roomSlug: resolved.kind === "business" ? resolved.slug : null, agentId: "__assistant__" },
     });
     if (result.called && allowance.metered) await allowance.consume();
     await say(result.answer || serverText(locale, result.called ? "agent.failedEmpty" : "agent.failedService"));
@@ -644,6 +645,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
           onRound: () => progress(agent, "agent"), authorize, harnessTools: harness, signal,
+          usageContext: { roomSlug: resolved.kind === "business" ? resolved.slug : null, agentId: agent.id },
         });
         if (result.called && allowance.metered) await allowance.consume();
         if (result.cancelled || result.handedOff) return result.cancelled?{cancelled:true}:undefined;

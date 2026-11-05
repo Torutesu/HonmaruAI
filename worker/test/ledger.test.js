@@ -14,6 +14,7 @@ const TEAM = { nodes: [
   { id: "toru", kind: "person", label: "toru · Admin" },
   { id: "kenji", kind: "person", label: "kenji · Engineer" }], edges: [] };
 let toru;
+let kenji;
 const ENV = (over = {}) => ({ ...env, OPENAI_API_KEY: "sk-server", ...over });
 const call = (path, init, over) => worker.fetch(new Request("https://example.com" + path, init), ENV(over), { waitUntil() {} });
 const route = (headers, over) => call("/ai/route", {
@@ -33,6 +34,7 @@ beforeEach(async () => {
   await upsertMembership(env.DB, ORG, "8801", "admin");
   await upsertMembership(env.DB, ORG, "8802", "member");
   toru = await createSession(env.DB, "8801", "gho_toru");
+  kenji = await createSession(env.DB, "8802", "gho_kenji");
   fetchMock.activate();
 });
 afterEach(() => fetchMock.assertNoPendingInterceptors());
@@ -66,11 +68,61 @@ test("a routed instruction writes the model's tokens to the team's ledger, and I
   expect(results[0]).toMatchObject({ purpose: "route", provider: "OpenAI", model: "gpt-4o-mini-2024-07-18", input_tokens: 1200, output_tokens: 90, byok: 0, user_github_id: "8801" });
   expect(results[0].usd).toBeCloseTo(1200 * 0.15 / 1e6 + 90 * 0.6 / 1e6, 9);
 
-  const m = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}`, { headers: { "x-session-token": toru } })).json();
+  const m = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&days=14&aiDays=30`, { headers: { "x-session-token": toru } })).json();
   expect(m.ai).toMatchObject({ calls: 1, inputTokens: 1200, outputTokens: 90, byokCalls: 0, jevShare: 0 });
   expect(m.ai.usd).toBeGreaterThan(0);
   expect(m.ai.ourUsd).toBe(m.ai.usd);
   expect(m.ai.byPurpose).toEqual([{ purpose: "route", calls: 1, usd: m.ai.usd }]);
+  expect(m.days).toBe(14);
+  expect(m.ai.days).toBe(30);
+  expect(m.ai.daily).toHaveLength(30);
+  expect(m.ai.daily.at(-1)).toMatchObject({ day: new Date().toISOString().slice(0, 10), calls: 1, ourUsd: m.ai.ourUsd, byokUsd: 0 });
+  expect(m.ai.daily.reduce((sum, day) => sum + day.ourUsd, 0)).toBeCloseTo(m.ai.ourUsd, 8);
+  expect(m.ai.byMember).toEqual([{ userId: "8801", login: "toru", name: "Toru", calls: 1, inputTokens: 1200, outputTokens: 90, usd: m.ai.ourUsd }]);
+  const memberMetrics = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&aiDays=30`, { headers: { "x-session-token": kenji } })).json();
+  expect(memberMetrics.ai.byMember).toBeUndefined();
+});
+
+test("workspace admins can review workflow model usage without including personal keys", async () => {
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at)
+    VALUES('wf-report',?1,'Monthly report',1,'{}','[]','8801',?2,?2)`).bind(ORG, now).run();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,started_at)
+    VALUES('run-report',?1,'wf-report','schedule','succeeded','[]',?2)`).bind(ORG, now).run();
+  await env.DB.prepare(`INSERT INTO hx_workflow_usage(id,org_id,workflow_id,run_id,step_number,provider,model,input_tokens,output_tokens,byok,created_at,estimated_micros)
+    VALUES('usage-priced',?1,'wf-report','run-report',1,'OpenAI','gpt-4o-mini',100,20,0,?2,1250),
+          ('usage-unknown',?1,'wf-report','run-report',1,'OpenAI','future-model',NULL,NULL,0,?2,NULL),
+          ('usage-personal',?1,'wf-report','run-report',1,'OpenAI','gpt-4o-mini',100,20,1,?2,9000)`)
+    .bind(ORG, now).run();
+
+  const admin = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&aiDays=30`, { headers: { "x-session-token": toru } })).json();
+  expect(admin.ai.byAutomation).toEqual([{ workflowId: 'wf-report', name: 'Monthly report', calls: 2, inputTokens: 100, outputTokens: 20, unpricedCalls: 1, usd: 0.00125 }]);
+  const member = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&aiDays=30`, { headers: { "x-session-token": kenji } })).json();
+  expect(member.ai.byAutomation).toBeUndefined();
+});
+
+test("admin usage breakdowns include explicitly attributed rooms and agents only", async () => {
+  const { upsertBusiness } = await import("../src/db.js");
+  await upsertBusiness(env.DB, ORG, { name: "Sales", createdBy: "8801" });
+  await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,owner_login,created_at,updated_at)
+    VALUES(?1,'agent-research','researcher','Researcher','Research carefully.','toru',?2,?2)`).bind(ORG, new Date().toISOString()).run();
+  await env.DB.prepare(`INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at)
+    VALUES('app-crm',?1,'CRM','table-crm','{}','8801',?2,?2)`).bind(ORG, new Date().toISOString()).run();
+  const provider = providerConfig(ENV(), undefined);
+  noteUsage(provider, "agent", { model: "gpt-4o-mini", usage: { prompt_tokens: 100, completion_tokens: 20 } }, { roomSlug: "sales", agentId: "agent-research", appId: "app-crm" });
+  await settleUsage(env.DB, provider, { orgId: ORG, githubId: "8801" });
+  const personal = providerConfig(ENV(), undefined);
+  noteUsage(personal, "agent", { model: "gpt-4o-mini", usage: { prompt_tokens: 300, completion_tokens: 40 } }, { roomSlug: "sales", agentId: "agent-research" });
+  await settleUsage(env.DB, personal, { orgId: ORG, githubId: "8801", byok: true });
+
+  const admin = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&aiDays=30`, { headers: { "x-session-token": toru } })).json();
+  expect(admin.ai.byRoom).toEqual([{ roomSlug: "sales", name: "Sales", calls: 1, inputTokens: 100, outputTokens: 20, usd: expect.any(Number) }]);
+  expect(admin.ai.byAgent).toEqual([{ agentId: "agent-research", name: "Researcher", calls: 1, inputTokens: 100, outputTokens: 20, usd: expect.any(Number) }]);
+  expect(admin.ai.byApp).toEqual([{ appId: "app-crm", name: "CRM", calls: 1, inputTokens: 100, outputTokens: 20, usd: expect.any(Number) }]);
+  const member = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&aiDays=30`, { headers: { "x-session-token": kenji } })).json();
+  expect(member.ai.byRoom).toBeUndefined();
+  expect(member.ai.byAgent).toBeUndefined();
+  expect(member.ai.byApp).toBeUndefined();
 });
 
 test("a call on the person's own key is theirs on the bill; System One's decision counts as its own provider", async () => {

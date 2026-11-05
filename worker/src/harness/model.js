@@ -8,7 +8,7 @@ import { providerFor } from "../orgAI.js";
 import { allowanceFor } from "../gate.js";
 import { noteUsage, settleUsage } from "../ledger.js";
 
-export async function completer(env, orgId, githubId, purpose, { maxTokens = 900, json = true, timeoutMs = 30000 } = {}) {
+export async function completer(env, orgId, githubId, purpose, { maxTokens = 900, json = true, timeoutMs = 30000, usageContext = null } = {}) {
   const provider = await providerFor(env, orgId).catch(() => null);
   if (!provider) return null;
   const allowance = await allowanceFor(env, orgId, { githubId: String(githubId) });
@@ -20,7 +20,7 @@ export async function completer(env, orgId, githubId, purpose, { maxTokens = 900
     try {
       return await completeWithTools({provider, system, user, tools, fallbackSystem, maxTokens, json, timeoutMs, authorize, requireTool, requiredToolNames,
         onUsage: async data => {
-          noteUsage(provider, purpose, data);
+          noteUsage(provider, purpose, data, usageContext);
           if (!consumed && allowance.metered) { await allowance.consume(); consumed = true; }
           if (recordUsage) await recordUsage(data, {model:provider.model,provider:provider.providerName || "OpenAI",byok:Boolean(provider.byok)});
         },
@@ -35,7 +35,7 @@ export async function completer(env, orgId, githubId, purpose, { maxTokens = 900
     } finally {
       // A call that failed gives its place in the day back (gate.js).
       await release();
-      await settleUsage(env.DB, provider, { orgId, githubId: String(githubId) });
+      await settleUsage(env.DB, provider, { orgId, githubId: String(githubId), ...(usageContext || {}) });
     }
   };
   complete.dispose = release;

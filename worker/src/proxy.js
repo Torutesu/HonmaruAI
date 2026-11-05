@@ -362,6 +362,7 @@ export async function runProxy(env, { orgId, rowId, owner: ownerLogin, locale = 
       provider, agent, request: proxyRequest({ owner: ownerName, asker: askerName, body: row.body }), transcript, playbook: [],
       where: resolved.kind === "business" ? `#${resolved.slug}` : "a direct conversation", askedBy: askerName, readerLanguage: locale,
       tools, env, deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
+      usageContext: { roomSlug: resolved.kind === "business" ? resolved.slug : null, agentId: agent.id },
     });
     if (result.called && allowance.metered) await allowance.consume();
     text = result.answer;
