@@ -1,4 +1,5 @@
 import type { ChannelMessage, ReplyQuote } from '../types/card'
+import { reconcileMessage } from './messageState'
 
 // Discord's inline reply, in the browser: the quote a reply shows of the
 // message it answers. The Worker writes that quote whenever it hands a
@@ -140,8 +141,7 @@ export class ReferenceReads {
 
   receive(source: ChannelMessage): void {
     const key = `${source.channel}:${source.id}`
-    if (this.sources.get(key)?.deleted && !source.deleted) return
-    this.sources.set(key, source)
+    this.sources.set(key, reconcileMessage(this.sources.get(key), source))
     this.events.set(key, (this.events.get(key) || 0) + 1)
   }
 

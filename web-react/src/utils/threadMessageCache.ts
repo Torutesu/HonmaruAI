@@ -1,6 +1,6 @@
 import type { ChannelMessage } from '../types/card'
 import { isTemp, arrive } from './pendingSend'
-import { newerPin } from './messagePin'
+import { reconcileMessage } from './messageState'
 import { refreshQuotes } from './replies'
 
 export type ThreadSnapshot = { parent: ChannelMessage; replies: ChannelMessage[]; more?: boolean; nextCursor?: string | null }
@@ -10,8 +10,13 @@ const FRESH_MS = 60_000
 const keyOf = (channel: string, parentId: string) => JSON.stringify([channel, parentId])
 
 function changed(snapshot: ThreadSnapshot, message: ChannelMessage): ThreadSnapshot | undefined {
-  if (!message.parentId) return message.deleted ? undefined : { ...snapshot, parent: { ...newerPin(snapshot.parent, message), canRenameThread: snapshot.parent.canRenameThread } }
-  return { ...snapshot, replies: refreshQuotes(message.deleted ? snapshot.replies.filter(row => row.id !== message.id) : arrive(snapshot.replies, message), message) }
+  if (!message.parentId) {
+    const parent = reconcileMessage(snapshot.parent, message)
+    return parent.deleted ? undefined : { ...snapshot, parent: { ...parent, canRenameThread: snapshot.parent.canRenameThread } }
+  }
+  const previous = snapshot.replies.find(row => row.id === message.id)
+  const current = reconcileMessage(previous, message)
+  return { ...snapshot, replies: refreshQuotes(current.deleted ? snapshot.replies.filter(row => row.id !== current.id) : arrive(snapshot.replies, current), current) }
 }
 
 // Owned by the account/workspace message cache. Prefetch, visits and reconnects
@@ -38,7 +43,7 @@ export class ThreadMessageCache {
     const key = keyOf(message.channel, message.parentId || message.id)
     // Includes deletions during a first prefetch, before any snapshot exists.
     const changes = this.pending.get(key)?.changes
-    if (!changes?.get(message.id)?.deleted) changes?.set(message.id, message)
+    if (changes) changes.set(message.id, reconcileMessage(changes.get(message.id), message))
     const entry = this.entries.get(key)
     if (!entry) return
     const snapshot = changed(entry.snapshot, message)

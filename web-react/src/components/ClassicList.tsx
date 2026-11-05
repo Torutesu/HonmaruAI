@@ -28,7 +28,7 @@ import { harnessApi, type AppConversation } from '../utils/harness'
 import { HarnessRoomResources } from './HarnessRoomResources'
 import type { ThreadSnapshot } from '../utils/threadMessageCache'
 import { channelMessageCache, mergeLatestMessages } from '../utils/channelMessageCache'
-import { newerPin } from '../utils/messagePin'
+import { reconcileMessage } from '../utils/messageState'
 import { ReadGuard } from '../utils/readGuard'
 import { ReadWrites } from '../utils/readWrites'
 import { toggleReaction } from '../utils/reactions'
@@ -2079,7 +2079,7 @@ export const ClassicList: React.FC<Props> = ({
         return { ...prev, [m.channel]: refreshQuotes(arrive(list, msg), msg) }
       })
       setReplyingTo((prev) => (prev?.quote.id === m.id ? { ...prev, quote: quoteOf(msg) } : prev))
-      setThread((prev) => (prev && prev.parent.id === m.id ? (m.deleted ? null : { ...prev, parent: { ...newerPin(prev.parent, msg), canRenameThread: prev.parent.canRenameThread } }) : prev))
+      setThread((prev) => (prev && prev.parent.id === m.id ? (m.deleted ? null : { ...prev, parent: { ...reconcileMessage(prev.parent, msg), canRenameThread: prev.parent.canRenameThread } }) : prev))
       setActivity((prev) => receiveChannelActivity(prev, msg))
       if (m.kind === 'ai') {
         setThinking((prev) => ({ ...prev, [m.channel]: false }))
@@ -3191,13 +3191,13 @@ export const ClassicList: React.FC<Props> = ({
     setMessages((prev) => {
       const list = prev[channel] || []
       if (msg.deleted && !msg.replyCount) return { ...prev, [channel]: refreshQuotes(list.filter((x) => x.id !== msg.id), msg) }
-      return { ...prev, [channel]: refreshQuotes(list.map((x) => (x.id === msg.id ? newerPin(x, msg) : x)), msg) }
+      return { ...prev, [channel]: refreshQuotes(list.map((x) => (x.id === msg.id ? reconcileMessage(x, msg) : x)), msg) }
     })
     setReplyingTo((prev) => (prev?.quote.id === msg.id ? { ...prev, quote: quoteOf(msg) } : prev))
-    setThread((prev) => (prev && prev.parent.id === msg.id ? { ...prev, parent: { ...newerPin(prev.parent, msg), canRenameThread: prev.parent.canRenameThread } } : prev))
+    setThread((prev) => (prev && prev.parent.id === msg.id ? { ...prev, parent: { ...reconcileMessage(prev.parent, msg), canRenameThread: prev.parent.canRenameThread } } : prev))
     setPins((prev) => {
       if (!prev) return prev
-      const next = newerPin(prev.find(x => x.id === msg.id), msg)
+      const next = reconcileMessage(prev.find(x => x.id === msg.id), msg)
       return next.pinned ? (prev.some(x => x.id === next.id) ? prev.map(x => x.id === next.id ? next : x) : [next, ...prev]) : prev.filter(x => x.id !== next.id)
     })
   }
@@ -3255,9 +3255,10 @@ export const ClassicList: React.FC<Props> = ({
     setEditing(null)
     if (drawn && drawn.body === text) return
     const was = drawn ? { body: drawn.body, editedAt: drawn.editedAt } : null
-    const show = (id: string, on: boolean) => patchMessage(channel, id, (x) => (on
-      ? { ...x, body: text, editedAt: x.editedAt || new Date().toISOString(), editPending: true }
-      : { ...x, ...(was || {}), editPending: false }))
+    const show = (id: string, on: boolean) => patchMessage(channel, id, (x) => {
+      if (on) return { ...x, body: text, editedAt: x.editedAt || new Date().toISOString(), editPending: true }
+      return x.editPending && x.body === text ? { ...x, ...(was || {}), editPending: false } : x
+    })
     if (drawn) show(drawn.id, true)
     // Begun while it was on its way: saved to the server's copy once it has
     // landed — not at all if it did not go.
@@ -3411,7 +3412,7 @@ export const ClassicList: React.FC<Props> = ({
     const snapshot = messageCache.threads.get(channel, parentId) || result
     const back = heldFor(channel, parentId, snapshot.replies)
     setThread(prev => prev && prev.channel === channel && prev.parent.id === parentId
-      ? { channel, more: snapshot.more, nextCursor: snapshot.nextCursor, parent: prev.parent.editPending ? prev.parent : newerPin(prev.parent, snapshot.parent), replies: withHeld(mergeLatestMessages(prev.replies, snapshot.replies, before, false, true), back) }
+      ? { channel, more: snapshot.more, nextCursor: snapshot.nextCursor, parent: reconcileMessage(prev.parent, snapshot.parent), replies: withHeld(mergeLatestMessages(prev.replies, snapshot.replies, before, false, true), back) }
       : prev)
     return true
   }

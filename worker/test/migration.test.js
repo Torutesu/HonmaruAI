@@ -127,8 +127,8 @@ test("thread paging indexes are created after upgrading a pre-thread messages ta
   await env.DB.exec("INSERT INTO channel_messages(id,org_id,channel,body,created_at) VALUES('legacy-root','legacy-org','b:general','Keep this message','2026-01-01')");
   await applyDeploy(env.DB);
   await applyDeploy(env.DB);
-  expect(await env.DB.prepare("SELECT body,parent_id,deleted_at FROM channel_messages WHERE id='legacy-root'").first())
-    .toEqual({body:'Keep this message',parent_id:null,deleted_at:null});
+  expect(await env.DB.prepare("SELECT body,parent_id,deleted_at,content_version FROM channel_messages WHERE id='legacy-root'").first())
+    .toEqual({body:'Keep this message',parent_id:null,deleted_at:null,content_version:0});
   const index = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_channel_thread_page'").first();
   expect(index.sql).toContain("WHERE deleted_at IS NULL");
   const plan = await env.DB.prepare("EXPLAIN QUERY PLAN SELECT id FROM channel_messages WHERE org_id='legacy-org' AND parent_id='legacy-root' AND deleted_at IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 51").all();
