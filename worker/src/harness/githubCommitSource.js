@@ -59,6 +59,12 @@ async function sha256(bytes){
   const digest=await crypto.subtle.digest('SHA-256',bytes);
   return [...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
 }
+function base64FromBytes(bytes){
+  let binary='';
+  for(let offset=0;offset<bytes.length;offset+=0x8000)
+    binary+=String.fromCharCode(...bytes.subarray(offset,Math.min(offset+0x8000,bytes.length)));
+  return btoa(binary);
+}
 function decodeBase64(value){
   if(typeof value!=='string')throw new Error('GitHub returned invalid source content.');
   const encoded=value.replace(/\s/g,'');
@@ -137,7 +143,7 @@ export async function fetchGitHubCommitSource(sessionToken,input){
     const tree=await githubJson(token,`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(commit.tree.sha)}?recursive=1`,1_500_000);
     if(tree?.truncated||!Array.isArray(tree.tree)||tree.tree.length>MAX_TREE_ENTRIES)return {error:'The commit tree is too large to import safely.',status:413};
     const entries=new Map();
-    for(const entry of tree.tree){if(entry?.type==='blob'&&safePath(entry.path)&&SHA.test(String(entry.sha||''))&&Number.isSafeInteger(Number(entry.size))&&Number(entry.size)>=0)entries.set(entry.path,entry);}
+    for(const entry of tree.tree){if(entry?.type==='blob'&&['100644','100755'].includes(entry.mode)&&safePath(entry.path)&&SHA.test(String(entry.sha||''))&&Number.isSafeInteger(Number(entry.size))&&Number(entry.size)>=0)entries.set(entry.path,entry);}
     const root=entries.get('index.html');
     if(!root||Number(root.size)>MAX_HTML_BYTES)return {error:'The commit must contain a root index.html under 119800 bytes.',status:400};
     const rootBytes=await loadBlob(token,owner,repo,root.sha,MAX_HTML_BYTES);
@@ -154,7 +160,7 @@ export async function fetchGitHubCommitSource(sessionToken,input){
       const size=Number(entry.size);if(size>MAX_BUNDLE_BYTES||total+size>MAX_BUNDLE_BYTES)return {error:'The static app bundle exceeds 1.5 MB.',status:413};
       const bytes=await loadBlob(token,owner,repo,entry.sha,MAX_BUNDLE_BYTES);
       const contentHash=await sha256(bytes);total+=bytes.length;
-      assets.set(path,{path,mimeType,contentBase64:btoa(String.fromCharCode(...bytes)),contentHash,size:bytes.length,blobSha:entry.sha});
+      assets.set(path,{path,mimeType,contentBase64:base64FromBytes(bytes),contentHash,size:bytes.length,blobSha:entry.sha});
       if(mimeType==='text/css'||mimeType==='text/javascript'){
         const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
         for(const target of references(path,text)){
@@ -167,7 +173,7 @@ export async function fetchGitHubCommitSource(sessionToken,input){
     const sourceHash=await sha256(new TextEncoder().encode(manifest));
     const latest=await currentBranchSha(token,owner,repo,branch);
     if(latest!==requestedSha)return {error:'The branch moved while importing. Select its current commit and request a new review.',status:409};
-    return {source:html,assets:[...assets.values()],commit:{owner,repo,branch,sha:requestedSha,path:'index.html',htmlHash,sourceHash,assetToken:crypto.randomUUID()}};
+    return {source:html,assets:[...assets.values()],commit:{owner,repo,branch,sha:requestedSha,path:'index.html',htmlHash,sourceHash,assetToken:crypto.randomUUID(),assets:[...assets.values()].map(({path,mimeType,contentHash,size})=>({path,mimeType,contentHash,size}))}};
   }catch(error){return {error:error instanceof Error?error.message:'GitHub source could not be verified.',status:502};}
 }
 
