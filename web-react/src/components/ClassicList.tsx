@@ -3687,7 +3687,7 @@ export const ClassicList: React.FC<Props> = ({
     void client.conversation(sourceAppId).then(result=>{
       if(!currentRequest())return
       const source=result.source
-      if(!source || !source.messages.some(message=>message.id===source.threadId)){fallback();return}
+      if(!source || !source.messages.some(message=>String(message.id)===String(source.threadId))){fallback();return}
       pendingSource.current={appId:sourceAppId,section:sourceAppSection,draft:sourceAppDraft,source};setTick(n=>n+1)
     },fallback)
     return()=>{clearTimeout(timer);if(sourceIntent.current===intent){sourceIntent.current++;pendingSource.current=null;sourceRoute.current=null}}
