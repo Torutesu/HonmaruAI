@@ -44,7 +44,7 @@ export async function createPublicAppShare(db,orgId,appId,by,input){
   const table=await getTable(db,orgId,refs.get(key));if(!table)return fail('App data unavailable.',404);
   const allowed=new Set((table.columns||[]).map(c=>c.id)),fields=[...new Set(selected.fields.map(String))];
   if(fields.some(id=>!allowed.has(id)))return fail('Invalid public field selection.');
-  scope.push({entity:key,fields});
+  scope.push({entity:key,tableId:refs.get(key),fields});
  }
  if(new Set(scope.map(x=>x.entity)).size!==scope.length)return fail('Duplicate public entity.');
  const token=b64url(crypto.getRandomValues(new Uint8Array(32))),id='aps_'+b64url(crypto.getRandomValues(new Uint8Array(12))),tokenHash=await digest(token);
@@ -52,9 +52,9 @@ export async function createPublicAppShare(db,orgId,appId,by,input){
  const dataScope=JSON.stringify(scope),createdAt=at();
  const statements=[
   db.prepare('UPDATE hx_app_public_shares SET revoked_at=?3 WHERE org_id=?1 AND app_id=?2 AND revoked_at IS NULL').bind(orgId,appId,createdAt),
-  db.prepare('INSERT INTO hx_app_public_shares(id,org_id,app_id,token_hash,token_ciphertext,app_version,data_scope,created_by,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)').bind(id,orgId,appId,tokenHash,encrypted,version,dataScope,String(by),createdAt)
+  db.prepare('INSERT INTO hx_app_public_shares(id,org_id,app_id,token_hash,token_ciphertext,app_version,data_scope,created_by,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9 WHERE COALESCE((SELECT version FROM hx_app_access WHERE org_id=?2 AND app_id=?3),0)=?10').bind(id,orgId,appId,tokenHash,encrypted,version,dataScope,String(by),createdAt,Number(input.accessVersion))
  ];
- try{await db.batch(statements)}catch{return fail('A public link changed concurrently. Reload and retry.',409)}
+ try{const result=await db.batch(statements);if(!result?.[1]?.meta?.changes)return fail('Sharing changed. Reload before creating a public link.',409)}catch{return fail('A public link changed concurrently. Reload and retry.',409)}
  return {share:{id,appVersion:version,dataScope:JSON.parse(dataScope),createdAt,url:'/app-shares/'+token}};
 }
 export async function revokePublicAppShare(db,orgId,appId,shareId){
@@ -72,15 +72,13 @@ export async function readPublicAppShare(db,token,origin){
  if(!share)return fail('Not found.',404);
  let scope;let definition;try{scope=JSON.parse(share.dataScope);definition=JSON.parse(share.definition)}catch{return fail('Not found.',404)}
  if(!Array.isArray(scope)||!scope.length||scope.length>10)return fail('Not found.',404);
- const related=await db.prepare('SELECT entity_key AS key,table_id AS tableId FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(share.orgId,share.appId).all();
- const refs=new Map([['primary',share.tableId],...(related.results||[]).map(x=>[x.key,x.tableId])]);
  const entities=[];
  for(const selected of scope){
-  if(!refs.has(selected?.entity)||!Array.isArray(selected.fields)||!selected.fields.length)return fail('Not found.',404);
-  const table=await getTable(db,share.orgId,refs.get(selected.entity));if(!table)return fail('Not found.',404);
+  if(typeof selected?.tableId!=='string'||!Array.isArray(selected.fields)||!selected.fields.length)return fail('Not found.',404);
+  const table=await getTable(db,share.orgId,selected.tableId);if(!table)return fail('Not found.',404);
   const fields=selected.fields;
   const allowed=new Set((table.columns||[]).map(c=>c.id));if(fields.some(x=>!allowed.has(x)))return fail('Not found.',404);
-  const result=await listRows(db,share.orgId,refs.get(selected.entity),{limit:5000});if(result.error)return fail('Unavailable.',503);
+  const result=await listRows(db,share.orgId,selected.tableId,{limit:5000});if(result.error)return fail('Unavailable.',503);
   const rows=(result.rows||[]).map(row=>({values:Object.fromEntries(fields.map(field=>[field,row.values?.[field]??null]))}));
   entities.push({key:selected.entity,table:{name:table.name,columns:table.columns.filter(c=>fields.includes(c.id)).map(c=>({id:c.id,name:c.name,type:c.type}))},rows});
  }
