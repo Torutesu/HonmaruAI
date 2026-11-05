@@ -401,9 +401,7 @@ CREATE TABLE IF NOT EXISTS hx_app_commit_approvals (
   consumed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS hx_app_commit_approvals_current ON hx_app_commit_approvals(org_id,app_id,status,app_version);
-CREATE UNIQUE INDEX IF NOT EXISTS hx_app_commit_approvals_one_open
-  ON hx_app_commit_approvals(org_id,app_id,app_version,repo_owner,repo_name,branch_name,commit_sha,file_path,source_hash,visibility_scope,access_version,domain_scope)
-  WHERE status IN ('pending','approved');
+CREATE UNIQUE INDEX IF NOT EXISTS hx_app_commit_approvals_one_open ON hx_app_commit_approvals(org_id,app_id,app_version,repo_owner,repo_name,branch_name,commit_sha,file_path,source_hash,visibility_scope,access_version,domain_scope) WHERE status IN ('pending','approved');
 CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_reviewer_demotion
 AFTER UPDATE OF role ON memberships
 WHEN OLD.role IN ('owner','admin') AND NEW.role NOT IN ('owner','admin')
