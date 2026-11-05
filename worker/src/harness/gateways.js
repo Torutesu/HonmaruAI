@@ -10,6 +10,7 @@ import { getMode } from './mode.js';
 import { member, json } from './routes.js';
 import { enforceSubject } from '../ratelimit.js';
 import { allowed } from '../permissions.js';
+import { aad, isSealed, openField } from '../secrets.js';
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
@@ -97,7 +98,27 @@ export async function handleGateways(request, env, url, input) {
         .bind(g.id, at, await digest(lease),programCapable?1:0,acpCapable?1:0).first();
       const workflow=row&&await db.prepare('SELECT 1 FROM hx_workflow_activations WHERE org_id=?1 AND job_id=?2').bind(row.org_id,row.id).first();
       const payload=row?JSON.parse(row.payload):null;
-      return json({ job: row ? { ...jobView(row), workflow:Boolean(workflow), payload, lease, timeoutMs: payload?.acp===true?110000:60000 } : null });
+      const appAction=row&&await db.prepare('SELECT app_id AS appId FROM hx_app_action_jobs WHERE org_id=?1 AND job_id=?2').bind(row.org_id,row.id).first();
+      let environment;
+      if(appAction){
+        const {results:vars=[]}=await db.prepare('SELECT name,value FROM hx_app_env_vars WHERE org_id=?1 AND app_id=?2 ORDER BY name').bind(row.org_id,appAction.appId).all();
+        environment={};
+        for(const variable of vars){
+          if(!isSealed(variable.value)){
+            await db.prepare("UPDATE hx_gateway_jobs SET status='failed',result=?2,finished_at=?3,lease_hash=NULL WHERE id=?1 AND status='running' AND lease_hash=?4")
+              .bind(row.id,JSON.stringify({error:'App environment secrets are unavailable.'}),at,await digest(lease)).run();
+            return json({job:null});
+          }
+          const value=await openField(variable.value,aad.appEnvironment(row.org_id,appAction.appId,variable.name));
+          if(typeof value!=='string'){
+            await db.prepare("UPDATE hx_gateway_jobs SET status='failed',result=?2,finished_at=?3,lease_hash=NULL WHERE id=?1 AND status='running' AND lease_hash=?4")
+              .bind(row.id,JSON.stringify({error:'App environment secrets are unavailable.'}),at,await digest(lease)).run();
+            return json({job:null});
+          }
+          environment[variable.name]=value;
+        }
+      }
+      return json({ job: row ? { ...jobView(row), workflow:Boolean(workflow), payload, ...(appAction?{environment}:{}), lease, timeoutMs: payload?.acp===true?110000:60000 } : null });
     }
     if (typeof input?.lease !== 'string' || input.lease.length > 150) return failure('Execution lease required.', 409);
     const leaseHash = await digest(input.lease);

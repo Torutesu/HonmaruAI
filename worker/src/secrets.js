@@ -127,6 +127,7 @@ export const aad = {
   webhook: (id) => `org_webhooks.secret:${id}`,
   lineRoomHook: (orgId, id) => `hx_line_room_hooks.channel_secret:${orgId}:${id}`,
   teammate: (orgId, provider, column) => `ai_teammates.${column}:${orgId}:${provider}`,
+  appEnvironment: (orgId, appId, name) => `hx_app_env_vars.value:${orgId}:${appId}:${name}`,
   appleRefresh: (subject) => `apple_identities.refresh_token:${subject}`,
   remoteMcpHeaders: (orgId, id) => `hx_remote_mcp_servers.auth_headers:${orgId}:${id}`,
   remoteMcpOAuthClient: (orgId, id) => `hx_remote_mcp_servers.oauth_client:${orgId}:${id}`,

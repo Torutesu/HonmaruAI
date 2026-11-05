@@ -3,13 +3,32 @@ import { randomUUID } from 'node:crypto';
 
 export const IMAGE = 'docker.io/library/node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402';
 // Trusted bootstraps run inside the VM. No task code executes on macOS.
-const BOOTSTRAP = `let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>raw+=s);process.stdin.on('end',async()=>{try{const task=JSON.parse(raw);let result;if(task.language==='typescript'){const {stripTypeScriptTypes}=await import('node:module');const code=stripTypeScriptTypes(task.code,{mode:'transform',sourceUrl:'workflow.ts'});const module=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));if(typeof module.default!=='function')throw new Error('TypeScript modules must export a default function.');result=await module.default(task.input);}else{const fn=new (Object.getPrototypeOf(async function(){}).constructor)('input',task.code);result=await fn(task.input);}process.stdout.write(JSON.stringify(result===undefined?null:result));}catch(e){console.error(String(e?.stack||e));process.exitCode=1;}});`;
+const BOOTSTRAP = `let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>raw+=s);process.stdin.on('end',async()=>{try{const task=JSON.parse(raw);const env=Object.freeze(Object.assign(Object.create(null),task.environment||{}));let result;if(task.language==='typescript'){const {stripTypeScriptTypes}=await import('node:module');const code=stripTypeScriptTypes(task.code,{mode:'transform',sourceUrl:'workflow.ts'});const module=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));if(typeof module.default!=='function')throw new Error('TypeScript modules must export a default function.');result=await module.default(task.input,env);}else{const fn=new (Object.getPrototypeOf(async function(){}).constructor)('input','env',task.code);result=await fn(task.input,env);}process.stdout.write(JSON.stringify(result===undefined?null:result));}catch(e){console.error(String(e?.stack||e));process.exitCode=1;}});`;
 
-export function validatePayload(payload) {
+export function validateEnvironment(value) {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid app environment.');
+  const entries=Object.entries(value);
+  if(entries.length>25)throw new Error('Too many app environment values.');
+  const reserved=new Set(['__PROTO__','CONSTRUCTOR','PROTOTYPE','PATH','HOME','PWD','TMPDIR','NODE_OPTIONS']);
+  let total=0;const result={};
+  for(const [name,secret] of entries){
+    if(!/^[A-Z_][A-Z0-9_]{0,63}$/.test(name)||reserved.has(name)||name.startsWith('HONMARU_'))throw new Error('Invalid app environment name.');
+    if(typeof secret!=='string'||!secret.length||secret.length>4000)throw new Error('Invalid app environment value.');
+    total+=secret.length;if(total>12000)throw new Error('App environment values are too large.');
+    result[name]=secret;
+  }
+  return result;
+}
+
+export function validatePayload(payload, { environment } = {}) {
   if (!payload || typeof payload.code !== 'string' || !payload.code.trim()) throw new Error('JavaScript code is required.');
   if(payload.language!==undefined&&!['javascript','typescript'].includes(payload.language))throw new Error('Unsupported execution language.');
   const clean = { code: payload.code, input: payload.input ?? null, ...(payload.language==='typescript'?{language:'typescript'}:{}) };
+  const env=validateEnvironment(environment);
   if (Buffer.byteLength(JSON.stringify(clean)) > 65536) throw new Error('Execution input is too large.');
+  if(Object.keys(env).length)clean.environment=env;
+  if (Buffer.byteLength(JSON.stringify(clean)) > 96000) throw new Error('Execution input is too large.');
   return clean;
 }
 
@@ -29,8 +48,8 @@ function control(binary, args) {
   });
 }
 
-export async function runIsolated(payload, { binary = process.env.HONMARU_CONTAINER_BIN || 'container', timeoutMs = 60000, signal } = {}) {
-  const clean = validatePayload(payload);
+export async function runIsolated(payload, { binary = process.env.HONMARU_CONTAINER_BIN || 'container', timeoutMs = 60000, signal, environment } = {}) {
+  const clean = validatePayload(payload,{environment});
   if (signal?.aborted) return { status: 'failed', stdout: '', stderr: 'Execution cancelled.', exitCode: null };
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60000) throw new Error('Invalid execution timeout.');
   const name = `honmaru-${randomUUID()}`;

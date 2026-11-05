@@ -119,6 +119,20 @@ test('TypeScript language is explicit while legacy JavaScript payloads remain un
  assert.throws(()=>validatePayload({code:'return 42',language:'shell'}));
 });
 
+test('only the trusted claim channel can supply bounded app secrets to the isolated runtime',()=>{
+ assert.deepEqual(validatePayload({code:'return env.KEY',environment:{KEY:'attacker'}}),{code:'return env.KEY',input:null});
+ assert.deepEqual(validatePayload({code:'return env.KEY'},{environment:{KEY:'sealed-secret'}}),{code:'return env.KEY',input:null,environment:{KEY:'sealed-secret'}});
+ assert.throws(()=>validatePayload({code:'return 1'},{environment:{PATH:'host-path'}}));
+ assert.throws(()=>validatePayload({code:'return 1'},{environment:{A:'x'.repeat(4001)}}));
+});
+
+test('claimed app secrets reach the sandbox without becoming part of the job payload',async()=>{
+ const job={id:'job',lease:'lease',payload:{code:'return env.API_TOKEN'},environment:{API_TOKEN:'sealed-secret'}};let options;
+ await processOne(async path=>path==='claim'?{job}:{ok:true},{run:async(_payload,received)=>{options=received;return{status:'succeeded',stdout:'ok',stderr:'',exitCode:0}}});
+ assert.deepEqual(options.environment,{API_TOKEN:'sealed-secret'});
+ assert.equal(job.payload.environment,undefined);
+});
+
 test('assigned workflow jobs use scoped state transport without placing leases in the VM payload',async()=>{
  const calls=[];const payload={code:'await state.get()',context:{workspaceId:'workspace'}};
  await processOne(async(path,body,options)=>{

@@ -70,7 +70,7 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
         })
         : job.workflow===true
           ? await runWorkflow(job.payload,{...options,stateOperation:(operation,params,{signal})=>call(`jobs/${job.id}/state`,{lease:job.lease,operation,params},{signal})})
-          : await run(job.payload,options);
+          : await run(job.payload,{...options,...(job.environment?{environment:job.environment}:{})});
     }
     catch { result = { status: 'failed', stdout: '', stderr: 'The local runtime could not start this execution.', exitCode: null }; }
     if (leaseLost) return true;

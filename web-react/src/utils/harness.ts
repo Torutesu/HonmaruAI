@@ -48,6 +48,7 @@ export interface App {
 }
 export interface AppAction { name: string; version: number; draft?: string; published: string | null; publishedVersion: number | null }
 export interface AppConnection { name: string; version: number; endpoint: string; method: string; enabled: number; hasToken: number }
+export interface AppHosting { configured:boolean; project:string; dnsTarget:string; domain:{hostname:string;status:string;validationStatus:string;verificationStatus:string;errorMessage:string;createdAt:string;updatedAt:string;dnsTarget:string}|null; environment:Array<{name:string;version:number;updatedAt:string;hasValue:boolean}> }
 export interface AppEntity { key: string; table: Table; rows?: Row[] }
 export interface AppFork { id: string; revision: number; mergedAt?: string | null; entities: Array<AppEntity & { rows: Row[] }> }
 export interface MergeReview { forkId: string; revision: number; checksum: string; changes: Array<{entity:string;tableId:string;tableName:string;id:string;operation:'create'|'update'|'remove';before:Record<string,unknown>|null;after:Record<string,unknown>|null}>; conflicts: Array<{entity:string;id:string;reason:string}> }
@@ -202,6 +203,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     actionJob: (id: string, jobId: string) => call<{job: GatewayJob}>('GET', `/apps/${id}/actions`, undefined, {jobId}),
     appConnections: (id: string) => call<{connections: AppConnection[];hosts: string[]}>('GET', `/apps/${id}/connections`),
     connectionChange: (id: string, body: Record<string, unknown>) => call<{data?: unknown}>('POST', `/apps/${id}/connections`, body),
+    appHosting: (id:string) => call<AppHosting>('GET', `/apps/${id}/hosting`),
+    changeAppHosting: (id:string, body:Record<string,unknown>) => call<Partial<AppHosting> & {saved?:boolean;deleted?:boolean;name?:string;version?:number}>('POST', `/apps/${id}/hosting`, body),
     entityRows: (tableId: string) => call<{table: Table; rows: Row[]}>('GET', `/tables/${tableId}`, undefined, {limit:'5000'}),
     deleteApp: (id: string) => call<{ deleted: boolean }>('DELETE', `/apps/${id}`),
     versions: (id: string) => call<{ versions: Array<{ version: number; note: string | null; createdAt: string }> }>('GET', `/apps/${id}/versions`),

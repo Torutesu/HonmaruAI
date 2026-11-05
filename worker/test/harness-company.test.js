@@ -4,10 +4,20 @@ import { beforeEach,afterEach,test,expect } from 'vitest';
 import worker from '../src/index.js';
 import { createSession,upsertUser,upsertMembership } from '../src/db.js';
 import { generateAction,connectionEndpoint } from '../src/harness/appCapabilities.js';
+import { normalizeAppHostname } from '../src/harness/appHosting.js';
 import { applyMigration } from '../src/harness/appDatabase.js';
 const orgId='personal:company';let owner,member,app;
 const call=(path,token,body)=>worker.fetch(new Request('https://example.com'+path+(body?'':`${path.includes('?')?'&':'?'}orgId=${orgId}`),{method:body?'POST':'GET',headers:{'content-type':'application/json','x-session-token':token},...(body?{body:JSON.stringify({orgId,...body})}:{})}),{...env});
 const run=(sub,body,token=owner)=>call(`/apps/${app.id}/${sub}`,token,body);
+test('custom hosts are normalized and reserved or malformed names are rejected',()=>{
+ expect(normalizeAppHostname('Tools.Example.com')).toBe('tools.example.com');
+ expect(normalizeAppHostname('app.honmaruai.com')).toBeNull();
+ expect(normalizeAppHostname('preview.pages.dev')).toBeNull();
+ expect(normalizeAppHostname('localhost')).toBeNull();
+ expect(normalizeAppHostname('https://tools.example.com')).toBeNull();
+ expect(normalizeAppHostname('bad_name.example.com')).toBeNull();
+ expect(normalizeAppHostname(`${'x'.repeat(64)}.example.com`)).toBeNull();
+});
 beforeEach(async()=>{
  for(const [id,role] of [['1','admin'],['2','member']]){await upsertUser(env.DB,{githubId:id,login:'user'+id,name:id});await upsertMembership(env.DB,orgId,id,role);}
  owner=await createSession(env.DB,'1','gho1');member=await createSession(env.DB,'2','gho2');
@@ -225,6 +235,27 @@ test('secrets require encryption, are omitted from responses, and clear on origi
  // This fixture has no DATA_KEY; production must never store plaintext on a missing-key deployment.
  expect(response.status).toBe(503);
  expect((await (await run('connections')).json()).connections).toEqual([]);
+});
+
+test('app environment values are sealed, hidden from reads, and injected only when a node claims the app action',async()=>{
+ await run('actions',{action:'draft',name:'use_secret',version:0,code:'return env.API_TOKEN'});
+ await run('actions',{action:'publish',name:'use_secret',version:1});
+ const g=await (await call('/gateways',owner,{name:'Mac mini'})).json();
+ const queued=await (await run('actions',{action:'run',name:'use_secret',version:2,gatewayId:g.gateway.id,input:null,requestId:'secret-job'})).json();
+ const dataKey=btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
+ const save=await worker.fetch(new Request(`https://example.com/apps/${app.id}/hosting`,{method:'POST',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,action:'set_env',name:'API_TOKEN',value:'vault-only-secret',version:0})}),{...env,DATA_KEY:dataKey});
+ expect(save.status).toBe(200);
+ const stored=await env.DB.prepare('SELECT value FROM hx_app_env_vars WHERE org_id=?1 AND app_id=?2 AND name=?3').bind(orgId,app.id,'API_TOKEN').first();
+ expect(stored.value).not.toContain('vault-only-secret');expect(stored.value.startsWith('enc:v2:')).toBe(true);
+ const listed=await (await call(`/apps/${app.id}/hosting`,owner)).json();
+ expect(listed.environment).toEqual([{name:'API_TOKEN',version:1,updatedAt:expect.any(String),hasValue:true}]);
+ expect(JSON.stringify(listed)).not.toContain('vault-only-secret');
+ const jobRow=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first();
+ expect(JSON.stringify(JSON.parse(jobRow.payload))).not.toContain('vault-only-secret');
+ const {useSecretKey}=await import('../src/secrets.js');useSecretKey({...env,DATA_KEY:dataKey});
+ const {handleGateways}=await import('../src/harness/gateways.js');
+ const claim=await handleGateways(new Request('https://example.com/gateways/claim',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+g.token},body:'{}'}),{...env,DATA_KEY:dataKey},new URL('https://example.com/gateways/claim'),{});
+ expect(await claim.json()).toMatchObject({job:{id:queued.job.id,payload:{code:'return env.API_TOKEN'},environment:{API_TOKEN:'vault-only-secret'}}});
 });
 
 test('agent and MCP calls use published actions and recheck app visibility',async()=>{
