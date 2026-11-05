@@ -4,7 +4,7 @@ import { getTable } from "./tables.js";
 export const MAX_SOURCE = 120000;
 // The preview frame includes runner markup and accepts at most this many source characters.
 export const MAX_PREVIEW_SOURCE = 119800;
-export function validateSource(source) {
+function decodeAssetBase64(value) {\n  const binary=atob(String(value||''));\n  const bytes=new Uint8Array(binary.length);\n  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);\n  return bytes;\n}\nexport function validateSource(source) {
   return typeof source === 'string' && source.trim() && source.length <= MAX_SOURCE;
 }
 export async function generateCustomSource(prompt, table, complete, capabilities = {}) {
@@ -75,12 +75,12 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
     ] : []),
     ...(trusted.commit && Array.isArray(trusted.assets) ? trusted.assets.map(asset =>
       db.prepare(`INSERT OR IGNORE INTO hx_app_git_assets
-        (org_id,app_id,app_version,commit_sha,path,content_type,content_base64,content_hash,size)
+        (org_id,app_id,app_version,commit_sha,path,content_type,content_bytes,content_hash,size)
         SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9
         WHERE EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND a.version=?3
           AND json_extract(a.definition,'$.custom.draftCommit.sha')=?4
           AND json_extract(a.definition,'$.custom.draftCommit.sourceHash')=?8)`)
-        .bind(orgId,app.id,version,trusted.commit.sha,asset.path,asset.mimeType,asset.contentBase64,asset.contentHash,asset.size)
+        .bind(orgId,app.id,version,trusted.commit.sha,asset.path,asset.mimeType,decodeAssetBase64(asset.contentBase64),asset.contentHash,asset.size)
     ) : []),
     ...(input.action === 'unpublish' ? [
       // changes() refers to the preceding history insertion, so a losing
