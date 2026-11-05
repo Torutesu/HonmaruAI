@@ -179,6 +179,7 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     cardId: deleted ? null : (row.card_id || null),
     createdAt: row.created_at,
     editedAt: deleted ? null : (row.edited_at || null),
+    contentVersion: Number(row.content_version || 0),
     deleted,
     parentId: row.parent_id || null,
     replyCount: extra.replyCount || 0,
@@ -464,12 +465,13 @@ export async function editMessage(db, { orgId, id, authorLogin, body }) {
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
   if (!text) return { error: "Write something first.", status: 400 };
   if (text.length > MAX_MESSAGE_CHARS) return { error: `That is longer than ${MAX_MESSAGE_CHARS} characters.`, status: 400 };
-  if (text === row.body) return { row };
+  if (text === row.body) return { row: await getMessage(db, orgId, id) };
   // Under a legal hold, the words as they were are kept for the export.
   const { keepIfHeld } = await import("./governance.js");
   await keepIfHeld(db, orgId, row, "edit");
-  await db.prepare("UPDATE channel_messages SET body = ?3, edited_at = ?4 WHERE org_id = ?1 AND id = ?2")
+  const changed = await db.prepare("UPDATE channel_messages SET body = ?3, edited_at = ?4, content_version = content_version + 1 WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
     .bind(orgId, id, text, new Date().toISOString()).run();
+  if (!changed.meta?.changes) return { error: "No such message.", status: 404 };
   await mirrorIds(db, orgId, [id]);
   return { row: await getMessage(db, orgId, id) };
 }
@@ -493,7 +495,7 @@ export async function deleteMessage(db, { orgId, id, authorLogin, withThread = f
   for (const r of under || []) await keepIfHeld(db, orgId, r, "delete");
   const now = new Date().toISOString();
   const tombstone = (mids) => db.batch(mids.flatMap((mid) => [
-    db.prepare("UPDATE channel_messages SET body = '', deleted_at = ?3, pinned_at = NULL, pinned_by = NULL WHERE org_id = ?1 AND id = ?2")
+    db.prepare("UPDATE channel_messages SET body = '', deleted_at = ?3, pinned_at = NULL, pinned_by = NULL, content_version = content_version + 1 WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
       .bind(orgId, mid, now),
     db.prepare("DELETE FROM message_reactions WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
     // A snapshot may contain this reply. Deleting source content also removes
