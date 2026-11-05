@@ -582,11 +582,17 @@
       "id": "KY-050",
       "category": "Apps",
       "requirement": "独自ドメイン・DNS・環境変数",
-      "status": "missing",
+      "status": "partial",
       "priority": "P2",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "ホスト競合・証明書・秘密値非表示・再デプロイ"
+      "acceptance": "ホスト競合・証明書・秘密値非表示・再デプロイ",
+      "evidence": {
+        "reviewedAt": "2026-11-05",
+        "implementedScope": "PR #679 is merged and deployed. Company Harness apps can use existing Cloudflare Pages hosting, optional custom-domain attachment (when the existing Pages Write token is configured), read-only public serving through the Worker/Pages route, and encrypted per-app environment variables available only to the assigned isolated gateway action. No paid provider or new service was introduced.",
+        "remaining": "Custom-domain host-conflict handling, certificate issuance/renewal verification, secret-masking verification, and redeploy behavior verification remain open. Custom-domain attachment is disabled until a Pages Write token is configured.",
+        "verification": "PR #679 merged 2026-11-05: Worker integration tests (39), Mac gateway tests (16), Pages middleware tests (3), and Web production build passed; authenticated app-detail visual review remains pending."
+      }
     },
     {
       "id": "KY-051",
