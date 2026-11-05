@@ -1327,9 +1327,9 @@ export async function handleHarness(request, env, url, context = {}) {
       return result.error ? fail(result) : json(result);
     }
     if (sub === 'public-shares') {
-      if (app.createdBy !== String(me)) return json({ message: 'Only the app owner can manage a public link.' }, 403);
+      if (request.method !== 'GET' && app.createdBy !== String(me)) return json({ message: 'Only the app owner can manage a public link.' }, 403);
       if (request.method === 'GET') {
-        const [settings, options] = await Promise.all([publicShareSettings(env.DB, orgId, appId), publicShareOptions(env.DB, orgId, appId)]);
+        const [settings, options] = app.createdBy === String(me) ? await Promise.all([publicShareSettings(env.DB, orgId, appId), publicShareOptions(env.DB, orgId, appId)]) : [{ share: null }, { entities: [] }];
         if (options.error) return fail(options);
         const version = await env.DB.prepare('SELECT MAX(version) AS version FROM hx_app_versions WHERE org_id=?1 AND app_id=?2').bind(orgId, appId).first();
         return json({ ...settings, ...options, appVersion: Number(version?.version || 0) });
