@@ -116,8 +116,17 @@ async function attachDomain(db, env, orgId, app, by, rawHostname) {
   }
   const status = String(created.result?.status || 'pending').toLowerCase();
   const allowedStatus = new Set(['initializing','pending','active','deactivated','blocked','error']);
-  await db.prepare('UPDATE hx_app_domains SET status=?3,validation_status=?4,verification_status=?5,error_message=?6,updated_at=?7 WHERE org_id=?1 AND app_id=?2 AND hostname=?8')
-    .bind(orgId, app.id, allowedStatus.has(status) ? status : 'pending', String(created.result?.validation_data?.status || 'pending'), String(created.result?.verification_data?.status || 'pending'), String(created.result?.validation_data?.error_message || created.result?.verification_data?.error_message || ''), at, hostname).run();
+  try {
+    const saved = await db.prepare('UPDATE hx_app_domains SET status=?3,validation_status=?4,verification_status=?5,error_message=?6,updated_at=?7 WHERE org_id=?1 AND app_id=?2 AND hostname=?8')
+      .bind(orgId, app.id, allowedStatus.has(status) ? status : 'pending', String(created.result?.validation_data?.status || 'pending'), String(created.result?.verification_data?.status || 'pending'), String(created.result?.validation_data?.error_message || created.result?.verification_data?.error_message || ''), at, hostname).run();
+    if (!saved.meta?.changes) throw new Error('Domain reservation changed before status persistence.');
+  } catch {
+    // If the provider accepted the hostname but our local state could not
+    // become active, revoke locally first and best-effort detach remotely.
+    await clearReservation();
+    await pagesRequest(env, 'DELETE', hostname);
+    return error('独自ドメインの状態を保存できませんでした。再試行してください。', 503);
+  }
   return readAppHosting(db, env, orgId, app.id);
 }
 
