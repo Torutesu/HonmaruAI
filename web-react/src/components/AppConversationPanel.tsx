@@ -1,4 +1,6 @@
 import {hashForAppSource} from '../utils/route'
+import {resolveDraftSuggestion} from '../utils/draftSuggestion'
+import {DraftSuggestion} from './DraftSuggestion'
 import {MessageAppCards} from './MessageAppCards'
 import {renderRich} from './MessageParts'
 import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react'
@@ -14,6 +16,7 @@ export function mergeMessages(previous:AppMessage[], incoming:AppMessage[]) {
 }
 export function AppConversationPanel({api,appId,tableId,rowId,title,context,onClose,initialDraft,onInitialDraftConsumed,annotationDraft,onAnnotationDraftConsumed,onAnnotationsChange}:{api:HarnessApi;appId:string;tableId?:string;rowId?:string;title:string;context?:string;initialDraft?:string;onInitialDraftConsumed?:()=>void;annotationDraft?:{id:string;text:string;marker:AppAnnotationMeta}|null;onAnnotationDraftConsumed?:(id:string)=>void;onAnnotationsChange?:(annotations:AppAnnotation[])=>void;onClose?:()=>void}) {
  const [messages,setMessages]=useState<AppMessage[]>([]),[draft,setDraft]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(true),[sending,setSending]=useState(false),[hasMore,setHasMore]=useState(false),[older,setOlder]=useState(false)
+ const [suggestedDraft,setSuggestedDraft]=useState('')
  const [annotationMeta,setAnnotationMeta]=useState<AppAnnotationMeta|null>(null)
  const saveDraft:React.Dispatch<React.SetStateAction<string>>=value=>setDraft(previous=>{const next=typeof value==='function'?value(previous):value;api.drafts?.write(next,appId,tableId,rowId);return next})
  const annotationsChanged=useRef(onAnnotationsChange);annotationsChanged.current=onAnnotationsChange
@@ -36,7 +39,29 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
   catch(e){if(generation===epoch.current&&read===readVersion.current){historyLoaded.current=false;setMessages([]);setSource(null);setSources(null);setAIReplies([]);annotationsChanged.current?.([]);setError(e instanceof Error?e.message:String(e))}}
   finally {if(generation===epoch.current)setLoading(false)}
  },[api,appId,tableId,rowId])
- useEffect(()=>{const generation=++epoch.current;sourceRead.current='';setMessages([]);setSource(null);setSources(null);setLinking(false);setAIReplies([]);const restoredDraft=api.drafts?.read(appId,tableId,rowId)||initialDraft||'';const restoredAnnotation=rowId||!restoredDraft?null:api.drafts?.readAnnotation?.(appId,tableId,rowId)||null;setDraft(restoredDraft);setAnnotationMeta(restoredAnnotation);if(restoredDraft)api.drafts?.write(restoredDraft,appId,tableId,rowId);if(initialDraft)onInitialDraftConsumed?.();setError('');setLoading(true);setHasMore(false);setSending(false);setOlder(false);pending.current=false;request.current=null;historyLoaded.current=false;stickToBottom.current=true;scrollAnchor.current=null;void refresh(generation);const interval=setInterval(()=>{if(document.visibilityState==='visible')void refresh(generation)},10000);return()=>{epoch.current++;clearInterval(interval)}},[refresh])
+ useEffect(()=>{
+  const generation=++epoch.current
+  sourceRead.current='';setMessages([]);setSource(null);setSources(null);setLinking(false);setAIReplies([])
+  const savedDraft=api.drafts?.read(appId,tableId,rowId)||''
+  // A route suggestion must not replace the user's existing unsent text.
+  // Keep it visible as a separate choice, and leave the route intact until
+  // they append or dismiss it so a refresh cannot lose the suggestion.
+  const resolvedDraft=resolveDraftSuggestion(savedDraft,'',initialDraft||'')
+  const restoredDraft=resolvedDraft.draft
+  const suggestion=resolvedDraft.suggestion
+  setDraft(restoredDraft);setSuggestedDraft(suggestion)
+  const restoredAnnotation=rowId||!restoredDraft?null:api.drafts?.readAnnotation?.(appId,tableId,rowId)||null
+  setAnnotationMeta(restoredAnnotation)
+  if(restoredDraft)api.drafts?.write(restoredDraft,appId,tableId,rowId)
+  if(initialDraft&&!suggestion)onInitialDraftConsumed?.()
+  setError('');setLoading(true);setHasMore(false);setSending(false);setOlder(false);pending.current=false;request.current=null;historyLoaded.current=false;stickToBottom.current=true;scrollAnchor.current=null
+  void refresh(generation)
+  const interval=setInterval(()=>{if(document.visibilityState==='visible')void refresh(generation)},10000)
+  return()=>{epoch.current++;clearInterval(interval)}
+  // This hydrates once for the keyed app/record conversation. Later route
+  // changes must not reset text a person has already started editing.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[refresh])
  useEffect(()=>{if(!annotationDraft||consumedAnnotation.current===annotationDraft.id)return;consumedAnnotation.current=annotationDraft.id;saveDraft(previous=>[previous.trim(),annotationDraft.text].filter(Boolean).join('\n\n'));setAnnotationMeta(annotationDraft.marker);api.drafts?.writeAnnotation?.(annotationDraft.marker,appId,tableId,rowId);onAnnotationDraftConsumed?.(annotationDraft.id)},[annotationDraft?.id])
  useEffect(()=>{if(!draft.trim()&&annotationMeta){setAnnotationMeta(null);api.drafts?.writeAnnotation?.(null,appId,tableId,rowId)}},[draft,annotationMeta,api,appId,tableId,rowId])
  const send=async(e:React.FormEvent)=>{
@@ -45,6 +70,17 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
   try {await api.postConversation(appId,{tableId,rowId},body,request.current.id,rowId?undefined:annotationMeta||undefined);if(generation!==epoch.current)return;saveDraft('');setAnnotationMeta(null);api.drafts?.writeAnnotation?.(null,appId,tableId,rowId);request.current=null;stickToBottom.current=true;await refresh(generation);list.current?.scrollTo({top:list.current.scrollHeight,behavior:'smooth'})}
   catch(e){if(generation===epoch.current)setError(e instanceof Error?e.message:String(e))}
   finally{if(generation===epoch.current){pending.current=false;setSending(false)}}
+ }
+ const appendSuggestedDraft=()=>{
+  if(!suggestedDraft)return
+  saveDraft(previous=>[previous,suggestedDraft].filter(value=>value.trim()).join('\n\n'))
+  setSuggestedDraft('')
+  onInitialDraftConsumed?.()
+ }
+ const dismissSuggestedDraft=()=>{
+  if(!suggestedDraft)return
+  setSuggestedDraft('')
+  onInitialDraftConsumed?.()
  }
  const loadOlder=async()=>{if(older||!messages.length)return;const generation=epoch.current;setOlder(true);try{const data=await api.conversation(appId,{tableId,rowId},messages[0].id);if(generation===epoch.current){if(list.current)scrollAnchor.current={height:list.current.scrollHeight,top:list.current.scrollTop};stickToBottom.current=false;setMessages(previous=>mergeMessages(previous,data.messages));historyLoaded.current=true;setHasMore(data.hasMore);setError('')}}catch(e){if(generation===epoch.current)setError(e instanceof Error?e.message:String(e))}finally{if(generation===epoch.current)setOlder(false)}}
  return <section className="hx-object-chat" aria-label={rowId?'レコードチャット':'アプリチャット'}>
@@ -61,6 +97,7 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
   {!rowId&&!source&&<div className="hx-chat-source"><button type="button" disabled={linking||loading} onClick={()=>void findSources()}><Icon name="link" size={14}/>作成元スレッドを引き継ぐ</button>{sources&&<div><p>以後の送信は選択したスレッドへ届きます。元の閲覧権限を維持します。</p>{sources.length?<select aria-label="作成元スレッド" defaultValue="" disabled={linking} onChange={e=>{if(e.target.value)void chooseSource(e.target.value)}}><option value="">スレッドを選択</option>{sources.map(s=><option key={s.id} value={s.id}>{s.channel.startsWith('b:')?'#'+s.channel.slice(2):'元の会話'} · {s.body}</option>)}</select>:<p>アプリに紐づいたルームに選択可能なスレッドがありません。</p>}</div>}</div>}
   {error&&<div className="hx-chat-error" role="alert">{error}<button type="button" onClick={()=>void refresh(epoch.current)}>再読み込み</button></div>}
   {context&&<div className="hx-chat-context">{context}</div>}
+  <DraftSuggestion draft={suggestedDraft} onAppend={appendSuggestedDraft} onDismiss={dismissSuggestedDraft}/>
   <form className="hx-chat-compose" onSubmit={e=>void send(e)}>{mentions.menu}<textarea ref={box} onSelect={mentions.track} onClick={mentions.track} aria-label="メッセージを入力" placeholder="メッセージを入力… @でメンション" value={draft} maxLength={4000} disabled={sending} rows={3} onChange={e=>{saveDraft(e.target.value);mentions.track()}} onKeyUp={mentions.track} onKeyDown={e=>{if(mentions.onKeyDown(e))return;if(enterKey(e)&&(e.metaKey||e.ctrlKey)){e.preventDefault();e.currentTarget.form?.requestSubmit()}}}/><div><button type="button" className="hx-chat-ai" disabled={sending} onClick={()=>{saveDraft(d=>d.includes('@AI')?d:`@AI ${d}`);box.current?.focus()}}><Icon name="sparkle" size={14}/>AIに聞く</button><span>⌘ / Ctrl + Enter</span><button type="submit" className="hx-chat-send" aria-label="メッセージを送信" disabled={sending||loading||!draft.trim()}><Icon name="send" size={16}/></button></div></form>
  </section>
 }
