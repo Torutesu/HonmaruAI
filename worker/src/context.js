@@ -35,14 +35,29 @@ export async function connectedSources(env, session, orgId) {
   return sources;
 }
 
-/// The repository and the token to read it with: the workspace's own when
-/// it has connected one, else the person's, for the repository they are in.
-async function githubAccess(env, session, orgId) {
+/// Resolve one credential source without allowing an explicit workspace read
+/// to fall back to the caller. Composio owns OAuth refresh for account-backed
+/// workspace connections; their bearer token never enters this Worker.
+async function githubAccess(env, session, orgId, credentialSource = 'auto') {
   const settings = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);
+  const workspaceRepo = settings?.repo || String(orgId || "");
+  if (credentialSource === 'workspace') {
+    if (settings?.repo && settings.token) return { repo: settings.repo, token: settings.token };
+    if (env.COMPOSIO_API_KEY && settings?.repo && settings.composioUser) return { repo: settings.repo, composioUser: settings.composioUser };
+    return null;
+  }
+  // A personal grant may search the workspace's selected repository, but
+  // must always use the caller's token, never the workspace's credential.
+  if (credentialSource === 'personal') {
+    if (session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(workspaceRepo)) {
+      return { repo: workspaceRepo, token: session.github_access_token };
+    }
+    return null;
+  }
   if (settings?.repo && settings.token) return { repo: settings.repo, token: settings.token };
-  const repo = String(orgId || "");
-  if (session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(repo)) {
-    return { repo, token: session.github_access_token };
+  if (env.COMPOSIO_API_KEY && settings?.repo && settings.composioUser) return { repo: settings.repo, composioUser: settings.composioUser };
+  if (session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(String(orgId || ""))) {
+    return { repo: String(orgId), token: session.github_access_token };
   }
   return null;
 }
@@ -96,12 +111,33 @@ function issueRepo(it) {
 /// Issues and pull requests in the workspace's repository that match, as
 /// the person — their token, their visibility. Only that repository's: a
 /// hit from anywhere else is dropped, whatever the query said.
-export async function searchGithubIssues(session, orgId, query, env) {
+export async function searchGithubIssues(session, orgId, query, env, credentialSource = 'auto') {
   const q = String(query || "").replace(SCOPE_QUALIFIER, " ").replace(/\s+/g, " ").trim().slice(0, 200);
-  const access = env ? await githubAccess(env, session, orgId) : null;
+  const access = env ? await githubAccess(env, session, orgId, credentialSource) : null;
   const repo = access?.repo || String(orgId || "");
-  const token = access?.token || (session?.github_access_token !== EMAIL_AUTH_TOKEN ? session?.github_access_token : null);
-  if (!q || !token || !/^[^/\s:]+\/[^/\s]+$/.test(repo)) return [];
+  if (!q || !/^[^/\s:]+\/[^/\s]+$/.test(repo)) return [];
+  if (access?.composioUser) {
+    // OAuth tokens stay with Composio, which refreshes them. An expired or
+    // revoked connection fails here and returns no hits through the caller's
+    // normal error boundary; this Worker never reads or stores those tokens.
+    const baseQuery = `repo:${repo} ${q}`;
+    const calls = await Promise.all(["is:issue", "is:pull-request"].map(type =>
+      executeTool(env.COMPOSIO_API_KEY, "GITHUB_SEARCH_ISSUES", String(access.composioUser), { q: `${baseQuery} ${type}`, per_page: MAX_HITS })
+    ));
+    const items = calls.flatMap(payload => {
+      const data = payload?.results?.[0]?.response?.data ?? payload?.data?.data ?? payload?.data ?? payload;
+      return Array.isArray(data?.items) ? data.items : [];
+    });
+    return items.filter(it => issueRepo(it) === repo.toLowerCase()).sort((a,b) => String(b.updated_at || "").localeCompare(String(a.updated_at || ""))).slice(0, MAX_HITS).map(it => ({
+      app: "GitHub",
+      title: `#${it.number} ${String(it.title || "").slice(0, 160)}`,
+      url: typeof it.html_url === "string" ? it.html_url : null,
+      snippet: `${it.pull_request ? "pull request" : "issue"} · ${it.state}${it.user?.login ? ` · ${it.user.login}` : ""}`,
+      when: it.updated_at || null,
+    }));
+  }
+  const token = access?.token || (credentialSource !== "workspace" && session?.github_access_token !== EMAIL_AUTH_TOKEN ? session?.github_access_token : null);
+  if (!token) return [];
   const url = new URL("https://api.github.com/search/issues");
   url.searchParams.set("q", `repo:${repo} ${q}`);
   url.searchParams.set("per_page", String(MAX_HITS));

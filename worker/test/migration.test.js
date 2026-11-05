@@ -260,3 +260,11 @@ test('deploy replay installs MCP tables and retains cancelled schedule authority
   expect((await env.DB.prepare('PRAGMA foreign_key_list(mcp_scheduled_authority)').all()).results).toEqual([]);
   expect(await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='mcp_oauth_tokens_expiry'").first()).not.toBeNull();
 });
+
+
+test("a deploy creates workspace Agent source grants from a single migration statement", async () => {
+  await applyDeploy(env.DB);
+  const table = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hx_agent_workspace_source_grants'").first();
+  expect(table).toEqual({ name: "hx_agent_workspace_source_grants" });
+  expect(deployStatements(migrationsSql).some(sql => sql.includes("CREATE TABLE IF NOT EXISTS hx_agent_workspace_source_grants"))).toBe(true);
+});

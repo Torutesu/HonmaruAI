@@ -378,3 +378,5 @@ ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
 ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN app_id TEXT;
+
+CREATE TABLE IF NOT EXISTS hx_agent_workspace_source_grants (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, source TEXT NOT NULL CHECK (source IN ('github')), granted_by TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (org_id, agent_id, source), FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE);
