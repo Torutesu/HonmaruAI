@@ -43,6 +43,7 @@ import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
+import { customPublishState, setCustomPublishPolicy, requestCustomPublishApproval, reviewCustomPublishApproval } from "./customAppPublishApproval.js";
 import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHosting.js';
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
@@ -1295,8 +1296,22 @@ export async function handleHarness(request, env, url, context = {}) {
       return result.error?fail(result):json(result);
     }
     if (sub === "custom") {
-      if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can change custom code." }, 403);
+      if (request.method === 'GET') return json(await customPublishState(env.DB,orgId,app));
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
+      if (input.action === 'policy') {
+        if (!await allowed(env.DB,orgId,who.session.github_id,'harness.delete_others')) return json({message:'Only a workspace Owner or Admin can change the publish approval policy.'},403);
+        if(typeof input.enabled!=='boolean')return json({message:'Choose whether independent approval is required.'},400);
+        const result=await setCustomPublishPolicy(env.DB,orgId,app,input.enabled,me);
+        await audit(env,request,{orgId,action:'app.custom_publish_policy_changed',actor:person(who.user),entity:{type:'app',id:appId},details:{enabled:input.enabled}});
+        return json(result);
+      }
+      if (input.action === 'review') {
+        if (!await allowed(env.DB,orgId,who.session.github_id,'harness.delete_others')) return json({message:'Only a workspace Owner or Admin can review a custom app release.'},403);
+        const result=await reviewCustomPublishApproval(env.DB,orgId,app,input,me,true);
+        if(!result.error)await audit(env,request,{orgId,action:'app.custom_publish_'+input.decision,actor:person(who.user),entity:{type:'app',id:appId},details:{version:app.version,sourceHash:result.approval?.sourceHash,scope:result.approval?.scope}});
+        return result.error?fail(result):json(result);
+      }
+      if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can change custom code." }, 403);
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
         const entities=(await databaseView(env.DB,orgId,app)).entities;
@@ -1313,6 +1328,18 @@ export async function handleHarness(request, env, url, context = {}) {
             return generateCustomSource(prompt,table,guarded,capabilities);
           },authorize);
         return result.error?fail(result):json(result);
+      }
+      if (input.action === 'request_approval') {
+        const result=await requestCustomPublishApproval(env.DB,orgId,app,me);
+        if(!result.error)await audit(env,request,{orgId,action:'app.custom_publish_approval_requested',actor:person(who.user),entity:{type:'app',id:appId},details:{version:result.approval.draftVersion,sourceHash:result.approval.sourceHash,scope:result.approval.scope}});
+        return result.error?fail(result):json(result);
+      }
+      if(input.action==='publish') {
+        const state=await customPublishState(env.DB,orgId,app);
+        if(state.policy.enabled && state.approval?.reviewerId && !await allowed(env.DB,orgId,state.approval.reviewerId,'harness.delete_others')) {
+          await env.DB.prepare("UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=?1 WHERE id=?2 AND status='approved'").bind(new Date().toISOString(),state.approval.id).run();
+          return json({message:'The reviewer no longer has Owner or Admin access. Request a new approval.'},409);
+        }
       }
       const result = await saveCustomRelease(env.DB, orgId, app, input, me);
       if (!result.error) await audit(env, request, { orgId, action: 'app.custom_' + input.action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version } });
