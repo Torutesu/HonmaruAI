@@ -200,3 +200,23 @@ test('ordinary saved custom app drafts keep the legacy publish route', async () 
   const state=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
   expect(state.app.definition.custom.published).toBe('<main>legacy release</main>');
 });
+
+test('custom domains require explicit public visibility before app rows can be served anonymously', async () => {
+  const app=await makeApp();
+  const draft=await send('POST',`/apps/${app.id}/custom`,toru,{action:'draft',version:app.version,html:'<main>public app snapshot</main>'});
+  const saved=await draft.json();
+  expect((await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish',version:saved.version})).status).toBe(200);
+  const attach=await send('POST',`/apps/${app.id}/hosting`,toru,{action:'attach',hostname:'private-data.example',publicDataConfirmed:true});
+  expect(attach.status).toBe(409);
+  expect((await attach.json()).message).toMatch(/公開範囲.*公開/);
+
+  const at=new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at)
+    VALUES(?1,?2,'private-data.example','active','9101',?3,?3)`).bind(ORG,app.id,at).run();
+  expect((await call('/app-domains/resolve?host=private-data.example')).status).toBe(404);
+
+  await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'public',1)`).bind(ORG,app.id).run();
+  const page=await call('/app-domains/resolve?host=private-data.example');
+  expect(page.status).toBe(200);
+  expect(await page.text()).toContain('public app snapshot');
+});
