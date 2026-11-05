@@ -55,7 +55,7 @@ import { announceCards } from '../announce.js';
 import { notifyCard, anyChannelConfigured } from '../notify.js';
 import { handleRemoteMcp } from './remoteMcp.js';
 import { agentAppConnections, setAgentAppGrant } from '../smitheryApps.js';
-import { agentSourceConnections, setAgentSourceConnection } from './agentConnections.js';
+import { agentSourceConnections, setAgentSourceConnection, setAgentSourceShare } from './agentConnections.js';
 import { agentRemoteMcpConnections, setAgentRemoteMcpConnection } from './agentRemoteMcp.js';
 // The harness routes (docs/kylon-gap-plan.md): the workspace's mode, Tables
 // and Apps. Every route asks for a member who is not a guest; building is a
@@ -875,6 +875,24 @@ export async function handleHarness(request, env, url, context = {}) {
         const source = String(input?.source || url.searchParams.get('source') || '');
         if (source) {
           const granted = request.method === 'POST';
+          const shareFlag = input?.shareWithAgent === true || ['1', 'true'].includes(String(url.searchParams.get('shareWithAgent') || '').toLowerCase());
+          if (shareFlag) {
+            const result = await setAgentSourceShare(env, { orgId, agentId, session: who.session, source, enabled: granted });
+            if (result.error) return json({ message: result.error }, result.status || 400);
+            await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
+            await audit(env, request, {
+              orgId,
+              action: granted ? 'agent.native_connection_shared' : 'agent.native_connection_unshared',
+              actor: person(who.user),
+              entity: { type: 'custom_agent', id: agentId },
+              details: { source, audience: 'agent_access' },
+            });
+            return json({
+              connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
+              nativeConnections: result.connections,
+              remoteMcpConnections: await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
+            });
+          }
           const result = await setAgentSourceConnection(env, { orgId, agentId, session: who.session, source, enabled: granted });
           if (result.error) return json({ message: result.error }, result.status || 400);
           await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
