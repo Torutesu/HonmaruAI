@@ -639,3 +639,73 @@ test('an active normal request loses authorization when agent access becomes pri
  await send('PUT',`/hx/agents/${agentId}/profile`,mika,{orgId:ORG,access:'private'});
  expect(await authorize(agentId)).toBe(false);
 });
+
+test("restricted Agent avatar URLs follow access, membership and revisions in Harness and Simple", async () => {
+  const DATA_KEY = btoa("s".repeat(32));
+  const keyed = { DATA_KEY };
+  const image = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  const uploaded = await call(`/channels/agents/avatar?${q({ orgId: ORG, id: agentId })}`, {
+    method: "POST", headers: { ...headers(mika), "content-type": "image/png" }, body: image,
+  }, keyed);
+  expect(uploaded.status).toBe(200);
+
+  const publicList = await (await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) })).json();
+  const publicUrl = publicList.agents.find((agent) => agent.id === agentId).avatarUrl;
+  expect(new URL(publicUrl).searchParams.get("agent")).toBe(agentId);
+  const publicImage = await call(new URL(publicUrl).pathname + new URL(publicUrl).search, { headers: {} });
+  expect(publicImage.status).toBe(200);
+  expect(publicImage.headers.get("cache-control")).toContain("max-age=60");
+
+  expect((await send("PUT", `/hx/agents/${agentId}/profile`, mika, {
+    orgId: ORG, access: "people", people: ["toru"],
+  })).status).toBe(200);
+  const oldPublic = await call(new URL(publicUrl).pathname + new URL(publicUrl).search, { headers: {} });
+  expect(oldPublic.status).toBe(404);
+  expect(oldPublic.headers.get("cache-control")).toBe("no-store");
+
+  const fresh = await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) }, keyed);
+  const privateList = await fresh.json();
+  const privateUrl = privateList.agents.find((agent) => agent.id === agentId).avatarUrl;
+  const protectedUrl = new URL(privateUrl);
+  expect(protectedUrl.searchParams.get("agent")).toBe(agentId);
+  expect(protectedUrl.searchParams.get("viewer")).toBe("9201");
+  expect(privateUrl).not.toContain("toru");
+  const allowed = await call(protectedUrl.pathname + protectedUrl.search, { headers: {} }, keyed);
+  expect(allowed.status).toBe(200);
+  expect(allowed.headers.get("cache-control")).toBe("private, no-store");
+
+  const replay = new URL(privateUrl);
+  replay.searchParams.set("viewer", "9202");
+  expect((await call(replay.pathname + replay.search, { headers: {} }, keyed)).status).toBe(404);
+
+  const profile = await env.DB.prepare("SELECT updated_at FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2").bind(ORG, agentId).first();
+  const access = await env.DB.prepare("SELECT version FROM hx_agent_access WHERE org_id=?1 AND agent_id=?2").bind(ORG, agentId).first();
+  const membership = await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9201'").bind(ORG).first();
+  const mediaId = /agent-avatar-[0-9a-f-]{36}$/.exec(protectedUrl.pathname)[0];
+  const revision = `${profile.updated_at}:${access?.version || 0}:${membership.created_at}`;
+  const { addressMac } = await import("../src/addressSigning.js");
+  const expiredAt = Math.floor(Date.now() / 1000) - 1;
+  const expiredSig = await addressMac(keyed, "a1", ORG, `${mediaId}\n${agentId}\n9201\n${revision}`, expiredAt);
+  const expired = new URL(privateUrl);
+  expired.searchParams.set("e", String(expiredAt));
+  expired.searchParams.set("s", expiredSig);
+  expect((await call(expired.pathname + expired.search, { headers: {} }, keyed)).status).toBe(404);
+
+  // Simple mode still applies the same Agent ACL and gives authorized viewers
+  // a scoped image URL; the visual mode switch does not make the URL public.
+  expect((await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "simple" })).status).toBe(200);
+  const simple = await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) }, keyed);
+  const simpleUrl = new URL((await simple.json()).agents.find((agent) => agent.id === agentId).avatarUrl);
+  expect(simpleUrl.searchParams.get("viewer")).toBe("9201");
+  expect((await call(simpleUrl.pathname + simpleUrl.search, { headers: {} }, keyed)).status).toBe(200);
+
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9201'").bind(ORG).run();
+  expect((await call(simpleUrl.pathname + simpleUrl.search, { headers: {} }, keyed)).status).toBe(404);
+  const revoked = await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, access: "private", people: [] });
+  expect(revoked.status).toBe(200);
+  const denied = await call(protectedUrl.pathname + protectedUrl.search, { headers: {} }, keyed);
+  expect(denied.status).toBe(404);
+  expect(denied.headers.get("cache-control")).toBe("no-store");
+  expect(await denied.text()).not.toContain("Billy");
+  expect(await denied.text()).not.toContain(mediaId);
+});
