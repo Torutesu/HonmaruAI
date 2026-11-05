@@ -2571,7 +2571,7 @@ CREATE TABLE IF NOT EXISTS hx_app_publish_approvals (
   consumed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS hx_app_publish_approvals_current ON hx_app_publish_approvals(org_id,app_id,status,draft_version);
-CREATE UNIQUE INDEX IF NOT EXISTS hx_app_publish_approvals_one_open ON hx_app_publish_approvals(org_id,app_id,draft_version,source_hash,scope,requested_by) WHERE status IN ('pending','approved');
+CREATE UNIQUE INDEX IF NOT EXISTS hx_app_publish_approvals_one_open ON hx_app_publish_approvals(org_id,app_id,draft_version,source_hash,scope) WHERE status IN ('pending','approved');
 
 CREATE TRIGGER IF NOT EXISTS hx_app_publish_revoke_reviewer_demotion AFTER UPDATE OF role ON memberships WHEN OLD.role IN ('owner','admin') AND NEW.role NOT IN ('owner','admin') BEGIN UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=datetime('now') WHERE org_id=OLD.org_id AND reviewer_id=OLD.user_github_id AND status='approved' AND consumed_at IS NULL; END;
 CREATE TRIGGER IF NOT EXISTS hx_app_publish_revoke_access_demotion AFTER UPDATE OF role ON memberships WHEN OLD.role<>'guest' AND NEW.role='guest' BEGIN UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=datetime('now') WHERE org_id=OLD.org_id AND requested_by=OLD.user_github_id AND status IN ('pending','approved') AND consumed_at IS NULL; END;
