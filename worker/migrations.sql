@@ -286,7 +286,6 @@ ALTER TABLE hx_workflow_safety ADD COLUMN monthly_ai_budget_micros INTEGER NOT N
 ALTER TABLE hx_workflow_safety ADD COLUMN ai_budget_action TEXT NOT NULL DEFAULT 'warn';
 ALTER TABLE hx_workflow_usage ADD COLUMN estimated_micros INTEGER CHECK(estimated_micros>=0);
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_usage_window ON hx_workflow_usage(org_id,workflow_id,created_at);
-CREATE INDEX IF NOT EXISTS idx_hx_workflow_usage_org_created ON hx_workflow_usage(org_id,created_at,byok);
 CREATE TABLE IF NOT EXISTS hx_workflow_ai_budget_notices (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, period TEXT NOT NULL CHECK(period IN ('24h','7d','30d')), budget_revision INTEGER NOT NULL, bucket_start TEXT NOT NULL, run_id TEXT NOT NULL, recipient_id TEXT NOT NULL, estimated_micros INTEGER NOT NULL, limit_micros INTEGER NOT NULL, unpriced_calls INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, delivered_at TEXT, last_attempt_at TEXT, UNIQUE(org_id,workflow_id,period,budget_revision,bucket_start));
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_ai_budget_notice_pending ON hx_workflow_ai_budget_notices(delivered_at,last_attempt_at,created_at);
 
@@ -372,6 +371,8 @@ CREATE INDEX IF NOT EXISTS mcp_oauth_grants_expiry ON mcp_oauth_grants(expires_a
 
 CREATE TABLE IF NOT EXISTS mcp_conversation_requests ( org_id TEXT NOT NULL, user_id TEXT NOT NULL, connection_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, membership_since TEXT NOT NULL, channel TEXT, creation_nonce TEXT, created_at TEXT NOT NULL, PRIMARY KEY (org_id, user_id, connection_id, request_id) );
 
+CREATE TABLE IF NOT EXISTS hx_app_domains (org_id TEXT NOT NULL, app_id TEXT NOT NULL UNIQUE REFERENCES hx_apps(id) ON DELETE CASCADE, hostname TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK(status IN ('configuring','initializing','pending','active','deactivated','blocked','error')), validation_status TEXT NOT NULL DEFAULT 'pending', verification_status TEXT NOT NULL DEFAULT 'pending', error_message TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id));
+CREATE TABLE IF NOT EXISTS hx_app_env_vars (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, name TEXT NOT NULL, value TEXT NOT NULL, version INTEGER NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id,name));
 /* Optional dimensions for admin usage reports. Old calls remain unattributed. */
 ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
 ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
