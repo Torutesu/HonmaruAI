@@ -2068,6 +2068,8 @@ test('custom app approval is revoked when the draft version or source hash chang
   expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:changed.version})).status).toBe(409);
   const current=await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json();
   expect(current.app.definition.custom.published).toBeUndefined();
+  const stale=await requestCustomApproval(path,app.version);
+  expect(stale.status).toBe(409);
   const fresh=await requestCustomApproval(path,changed.version);
   expect(fresh.status).toBe(200);
   state=await(await get(path,mika)).json();
