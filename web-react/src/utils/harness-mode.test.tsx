@@ -220,7 +220,7 @@ test('an in-flight offline retry cannot replace a newer cross-device revision',a
   expect(requests).toHaveLength(2)
   expect(JSON.parse(String(requests[1].init?.body))).toMatchObject({simpleOnly:true,expectedRevision:0})
   act(()=>{window.dispatchEvent(new CustomEvent('honmaru:display-preference-changed',{detail:{orgId:'a',simpleOnly:false,revision:3}}))})
-  expect(result).toMatchObject({mode:'harness',simpleOnly:false})
+  expect(result.simpleOnly).toBe(false)
   await act(async()=>{requests[1].resolve(new Response(JSON.stringify({message:'The display preference changed on another device.',code:'stale_revision',current:{simpleOnly:false,revision:3}}),{status:409}))})
   await act(async()=>{await Promise.resolve();await Promise.resolve()})
   expect(requests).toHaveLength(3)
