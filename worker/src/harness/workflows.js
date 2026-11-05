@@ -501,7 +501,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   const id = newId("run");
   const admittedAt=now(),windows=workflowBudgetWindows(Date.parse(admittedAt)),aiWindows=workflowAiBudgetWindows(Date.parse(admittedAt));
   const credentialSource = workflow.steps.some(step => step.type === 'agent')
-    ? await workflowCredentialSource(env, orgId).catch(() => 'unknown')
+    ? await workflowCredentialSource(env, orgId).catch(() => 'unresolved')
     : 'none';
   // Store the definition and the run atomically. An approval always resumes
   // the same steps that were presented when the run started.
