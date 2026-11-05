@@ -12,7 +12,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
   const [choice, setChoice] = useState<Visibility>('workspace')
   const [canEdit, setCanEdit] = useState(false)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
-  const [selected, setSelected] = useState<string[]>([])
+  const [selected, setSelected] = useState<Record<string, string[]>>({})
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -28,7 +28,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
     if (!a.ok) throw new Error(ad.message || String(a.status))
     if (!p.ok) throw new Error(pd.message || String(p.status))
     setAccess(ad.access); setChoice(ad.access.visibility); setCanEdit(ad.canEdit); setSettings(pd)
-    setSelected(pd.share?.dataScope?.find((x: { entity: string }) => x.entity === 'primary')?.fields || [])
+    setSelected(Object.fromEntries((pd.share?.dataScope || []).map((x: { entity: string; fields: string[] }) => [x.entity, x.fields])))
   }
   useEffect(() => {
     const controller = new AbortController()
@@ -48,10 +48,10 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
     finally { setBusy(false) }
   }
   const publish = async () => {
-    if (!settings || !selected.length || !confirmed) return
+    if (!settings || !Object.values(selected).some(fields => fields.length) || !confirmed) return
     setBusy(true); setError('')
     try {
-      const res = await fetch(`${base}/public-shares`, { method: 'POST', headers, body: JSON.stringify({ orgId, appVersion: settings.appVersion, fields: selected, publicDataConfirmed: true }) })
+      const res = await fetch(`${base}/public-shares`, { method: 'POST', headers, body: JSON.stringify({ orgId, appVersion: settings.appVersion, entities: Object.entries(selected).filter(([, fields]) => fields.length).map(([entity, fields]) => ({ entity, fields })), publicDataConfirmed: true }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || String(res.status))
       const url = new URL(data.share.url, httpBase).toString()
@@ -70,7 +70,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
       if (!res.ok) throw new Error(data.message || String(res.status))
       setSettings({ ...settings, share: null }); setChoice(access?.internalVisibility || 'private')
       setAccess(a => a ? { ...a, visibility: a.internalVisibility || 'private' } : a)
-      setSelected([]); setConfirmed(false)
+      setSelected({}); setConfirmed(false)
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(false) }
   }
@@ -91,9 +91,9 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
       <strong>{t('Public app link')}</strong>
       <p className="row-sub">{t('This link is pinned to app version')} {settings.share?.appVersion ?? settings.appVersion}. {t('Anyone with the URL can view the published app and selected fields.')}</p>
       {settings.share?.url && <div className="hx-public-link"><input aria-label={t('Public URL')} readOnly value={shareUrl} onFocus={e => e.currentTarget.select()} /><button type="button" disabled={busy} onClick={() => void navigator.clipboard?.writeText(shareUrl)}>{t('Copy link')}</button><button type="button" disabled={busy} onClick={() => void revoke()}>{t('Revoke')}</button></div>}
-      {!settings.share && <><div className="hx-public-fields" aria-label={t('Public fields')}>{settings.entities.flatMap(entity => entity.key === 'primary' ? entity.fields.map(field => <label key={field.id}><input type="checkbox" checked={selected.includes(field.id)} disabled={!canEdit || busy} onChange={e => setSelected(v => e.target.checked ? [...v, field.id] : v.filter(x => x !== field.id))} />{field.name}</label>) : [])}</div>
+      {!settings.share && <><div className="hx-public-fields" aria-label={t('Public fields')}>{settings.entities.map(entity => <fieldset key={entity.key}><legend>{entity.name}</legend>{entity.fields.map(field => <label key={field.id}><input type="checkbox" checked={(selected[entity.key] || []).includes(field.id)} disabled={!canEdit || busy} onChange={e => setSelected(v => ({ ...v, [entity.key]: e.target.checked ? [...(v[entity.key] || []), field.id] : (v[entity.key] || []).filter(x => x !== field.id) }))} />{field.name}</label>)}</fieldset>)}</div>
       <label className="hx-public-confirm"><input type="checkbox" checked={confirmed} disabled={!canEdit || busy} onChange={e => setConfirmed(e.target.checked)} />{t('I understand anyone with the link can read these selected fields.')}</label>
-      <button type="button" disabled={!canEdit || busy || !selected.length || !confirmed} onClick={() => void publish()}>{t('Create public link')}</button></>}
+      <button type="button" disabled={!canEdit || busy || !Object.values(selected).some(fields => fields.length) || !confirmed} onClick={() => void publish()}>{t('Create public link')}</button></>}
     </div></div>}
   </section>
 }
