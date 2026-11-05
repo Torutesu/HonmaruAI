@@ -2042,7 +2042,7 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   await addRow(env.DB, ORG, relatedMade.table.id, { [relatedMade.table.columns[0].id]: 'Public customer', [relatedMade.table.columns[1].id]: 'RELATED_SECRET' }, '9101');
   await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)").bind(ORG, app.id).run();
 
-  const noCustom = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, entities: [{ entity: 'primary', fields: [primary.columns[0].id] }], publicDataConfirmed: true });
+  const noCustom = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, accessVersion: 1, entities: [{ entity: 'primary', fields: [primary.columns[0].id] }], publicDataConfirmed: true });
   expect(noCustom.status).toBe(409);
   expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_public_shares WHERE app_id=?1').bind(app.id).first()).toEqual({ n: 0 });
 
@@ -2053,7 +2053,7 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
 
   const options = await (await get(`/apps/${app.id}/public-shares?orgId=${ORG}`, toru)).json();
   expect(options.entities.map(x => x.key)).toEqual(['primary', 'customers']);
-  const created = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, entities: [
+  const created = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, accessVersion: 1, entities: [
     { entity: 'primary', fields: [primary.columns[0].id] },
     { entity: 'customers', fields: [relatedMade.table.columns[0].id] },
   ], publicDataConfirmed: true });
@@ -2061,6 +2061,8 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   const { share } = await created.json();
   const token = share.url.split('/').at(-1);
   expect(share.appVersion).toBe(1);
+  const newerDefinition = { ...definition, custom: { published: 'window.honmaru.read().then(()=>document.body.textContent="NEW_VERSION")' } };
+  await env.DB.prepare('INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at) VALUES(?1,?2,2,?3,?4,?5,?6)').bind(app.id, ORG, JSON.stringify(newerDefinition), 'new version', '9101', '2026-01-02T00:00:00Z').run();
 
   const access = await (await get(`/apps/${app.id}/access?orgId=${ORG}`, toru)).json();
   expect(access.access).toMatchObject({ visibility: 'public', internalVisibility: 'private' });
@@ -2078,6 +2080,8 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   expect(html).not.toContain('PRIMARY_SECRET');
   expect(html).not.toContain('RELATED_SECRET');
   expect(html).toContain('window.honmaru.read()');
+  expect(html).not.toContain('NEW_VERSION');
+  expect(html).toContain('custom-app-runner?v=4');
   expect(html).toContain("type:'honmaru:request'");
   expect((await call(`/app-shares/${'a'.repeat(50)}`)).status).toBe(404);
 
