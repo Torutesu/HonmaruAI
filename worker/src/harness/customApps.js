@@ -4,7 +4,13 @@ import { getTable } from "./tables.js";
 export const MAX_SOURCE = 120000;
 // The preview frame includes runner markup and accepts at most this many source characters.
 export const MAX_PREVIEW_SOURCE = 119800;
-function decodeAssetBase64(value) {\n  const binary=atob(String(value||''));\n  const bytes=new Uint8Array(binary.length);\n  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);\n  return bytes;\n}\nexport function validateSource(source) {
+function decodeAssetBase64(value) {
+  const binary=atob(String(value||''));
+  const bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+  return bytes;
+}
+export function validateSource(source) {
   return typeof source === 'string' && source.trim() && source.length <= MAX_SOURCE;
 }
 export async function generateCustomSource(prompt, table, complete, capabilities = {}) {
