@@ -595,7 +595,11 @@ test("an agent can wear a picture instead of its emoji: set by whoever may chang
   const up = await picture(mika, team.id);
   expect(up.status).toBe(200);
   const { agent } = await up.json();
-  expect(agent.avatarUrl).toMatch(/^https:\/\/example\.com\/agents\/avatar\/agent-avatar-[0-9a-f-]{36}$/);
+  const avatarUrl = new URL(agent.avatarUrl);
+  expect(avatarUrl.origin).toBe("https://example.com");
+  expect(avatarUrl.pathname).toMatch(/^\/agents\/avatar\/agent-avatar-[0-9a-f-]{36}$/);
+  expect(avatarUrl.searchParams.get("agent")).toBe(agent.id);
+  expect(avatarUrl.searchParams.has("revision")).toBe(true);
   expect(agent.emoji).toBe("🎨");
   const served = await worker.fetch(new Request(agent.avatarUrl), env);
   expect(served.headers.get("content-type")).toBe("image/png");
@@ -982,12 +986,17 @@ async function assignmentStatusFixture() {
 
 test('assignment status exposes scoped chain metadata with per-viewer stop rights',async()=>{
  const f=await assignmentStatusFixture();
- await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/reviewer.png',ORG,f.target.id).run();
+ await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/agents/avatar/reviewer-avatar',ORG,f.target.id).run();
  const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:f.row.id})}`;
  for(const [token,canStop] of [[mika,true],[kenji,false],[toru,true]]) {
   const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
   const body=await response.json();const a=body.results[0].assignments[0];
-  expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝',avatarUrl:'https://example.com/reviewer.png'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝',avatarUrl:'https://example.com/reviewer.png'}}]});
+  expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝'}}]});
+  const avatar = new URL(a.agent.avatarUrl);
+  expect(avatar.origin).toBe("https://example.com");
+  expect(avatar.pathname).toBe("/agents/avatar/reviewer-avatar");
+  expect(avatar.searchParams.get("agent")).toBe(f.target.id);
+  expect(a.hops[0].to.avatarUrl).toBe(a.agent.avatarUrl);
   expect(Number.isFinite(Date.parse(a.startedAt))).toBe(true);expect(Number.isFinite(Date.parse(a.updatedAt))).toBe(true);
   const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions'])expect(text).not.toContain(value);
  }
