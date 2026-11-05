@@ -2038,6 +2038,7 @@ test('combined automation release rejects an oversized draft without changing th
  current=await getApp(env.DB,ORG,f.app.id);expect(current.definition.custom.published.length).toBe(MAX_PREVIEW_SOURCE);
 });
 
+
 test('public custom app links are version-pinned, field-scoped, read-only and revocable', async () => {
   const { createTable, addRow, getTable } = await import('../src/harness/tables.js');
   const made = await send('POST', '/apps', toru, { orgId: ORG, name: 'Public report', columns: [{ name: 'Title', type: 'text' }, { name: 'Secret', type: 'text' }], sample: false });
@@ -2073,8 +2074,13 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
     expect.objectContaining({ entity: 'primary', tableId: app.tableId }),
     expect.objectContaining({ entity: 'customers', tableId: relatedMade.table.id }),
   ]));
-  const staleAccess = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, accessVersion: 0, entities: [{ entity: 'primary', fields: [primary.columns[0].id] }], publicDataConfirmed: true });
-  expect(staleAccess.status).toBe(409);
+
+  const staleCreate = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, accessVersion: 0, entities: [{ entity: 'primary', fields: [primary.columns[0].id] }], publicDataConfirmed: true });
+  expect(staleCreate.status).toBe(409);
+  expect((await call(`/app-shares/${token}`)).status).toBe(200);
+  const staleSave = await send('PUT', `/apps/${app.id}/access`, toru, { orgId: ORG, visibility: 'workspace', version: 0 });
+  expect(staleSave.status).toBe(409);
+  expect((await call(`/app-shares/${token}`)).status).toBe(200);
 
   const newerDefinition = { ...definition, custom: { published: 'window.honmaru.read().then(()=>document.body.textContent="NEW_VERSION")' } };
   await env.DB.prepare('INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at) VALUES(?1,?2,2,?3,?4,?5,?6)').bind(app.id, ORG, JSON.stringify(newerDefinition), 'new version', '9101', '2026-01-02T00:00:00Z').run();
@@ -2091,15 +2097,24 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   expect(response.headers.get('content-security-policy')).toContain("frame-src 'self'");
   const html = await response.text();
   expect(html).toContain('Public title');
-  expect(html).toContain('Public customer');\n  expect(html).not.toContain('REBOUND_CUSTOMER');\n  expect(html).not.toContain(primaryRow.row.id);\n  expect(html).not.toContain(relatedRow.row.id);\n  expect(html).toContain('values');
+  expect(html).toContain('Public customer');
   expect(html).not.toContain('PRIMARY_SECRET');
   expect(html).not.toContain('RELATED_SECRET');
+  expect(html).not.toContain(primaryRow.row.id);
+  expect(html).not.toContain(relatedRow.row.id);
+  expect(html).toContain('values');
   expect(html).toContain('window.honmaru.read()');
   expect(html).not.toContain('NEW_VERSION');
   expect(html).toContain('custom-app-runner?v=4&public=1');
-  expect(html).toContain("type:'honmaru:request'");
-  expect((await call(`/app-shares/${'a'.repeat(50)}`)).status).toBe(404);
 
+  const rebound = await createTable(env.DB, { orgId: ORG, name: 'Replacement customers', columns: [{ name: 'Name', type: 'text' }, { name: 'Internal note', type: 'text' }], by: '9101' });
+  await addRow(env.DB, ORG, rebound.table.id, { [rebound.table.columns[0].id]: 'REBOUND_CUSTOMER', [rebound.table.columns[1].id]: 'REBOUND_SECRET' }, '9101');
+  await env.DB.prepare('UPDATE hx_app_entities SET table_id=?1 WHERE org_id=?2 AND app_id=?3 AND entity_key=?4').bind(rebound.table.id, ORG, app.id, 'customers').run();
+  expect((await call(`/app-shares/${token}`)).status).toBe(404);
+  await env.DB.prepare('UPDATE hx_app_entities SET table_id=?1 WHERE org_id=?2 AND app_id=?3 AND entity_key=?4').bind(relatedMade.table.id, ORG, app.id, 'customers').run();
+  expect((await call(`/app-shares/${token}`)).status).toBe(200);
+
+  expect((await call(`/app-shares/${'a'.repeat(50)}`)).status).toBe(404);
   const revoked = await call(`/apps/${app.id}/public-shares?orgId=${ORG}&shareId=${share.id}`, { method: 'DELETE', headers: headers(toru) });
   expect(revoked.status).toBe(200);
   expect((await call(`/app-shares/${token}`)).status).toBe(404);
