@@ -2056,7 +2056,8 @@ test('custom app approval requires a distinct Owner or Admin and can only publis
   expect((await approveCustomRelease(path,state)).status).toBe(409);
   expect((await requestCustomApproval(path,app.version)).status).toBe(409);
   expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
-  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(200);
+  const makerPublish=await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version});
+  expect(makerPublish.status,await makerPublish.clone().text()).toBe(200);
   expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
 });
 
@@ -2065,15 +2066,16 @@ test('custom app approval is revoked when the draft version or source hash chang
   expect((await requestCustomApproval(path,app.version)).status).toBe(200);
   let state=await(await get(`${path}?orgId=${ORG}`,mika)).json();
   expect((await approveCustomRelease(path,state)).status).toBe(200);
-  const changed=await send('POST',path,mika,{orgId:ORG,action:'draft',version:app.version,html:'<h1>Edited after approval</h1>'});
-  expect(changed.status).toBe(200);
+  const changedResponse=await send('POST',path,mika,{orgId:ORG,action:'draft',version:app.version,html:'<h1>Edited after approval</h1>'});
+  expect(changedResponse.status).toBe(200);
+  const changed=await changedResponse.json();
   expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:changed.version})).status).toBe(409);
   const current=await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json();
   expect(current.app.definition.custom.published).toBeUndefined();
   const stale=await requestCustomApproval(path,app.version);
   expect(stale.status).toBe(409);
   const fresh=await requestCustomApproval(path,changed.version);
-  expect(fresh.status).toBe(200);
+  expect(fresh.status,await fresh.clone().text()).toBe(200);
   state=await(await get(`${path}?orgId=${ORG}`,mika)).json();
   await approveCustomRelease(path,state);
   const row=await env.DB.prepare("SELECT definition FROM hx_apps WHERE org_id=?1 AND id=?2").bind(ORG,app.id).first();
