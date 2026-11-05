@@ -827,7 +827,7 @@ export async function handleHarness(request, env, url, context = {}) {
     const canEdit = agent.owner_login === who.user.login || delegatedRole==='admin' || (!managedProfile&&await allowed(env.DB, orgId, me, "agent.manage_others"));
     // Anyone who may talk to it may add a private grant for their own app
     // connection. Agent-wide settings remain its maker's or an admin's.
-    if (!read && !canEdit && sub !== 'members' && sub !== 'apps' && !(sub === "memory" && request.method === "POST")) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
+    if (!read && !canEdit && sub !== 'members' && sub !== 'apps' && !(sub === "memory" && ["POST", "PUT"].includes(request.method))) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
     if (sub === 'ownership' && request.method==='PUT') {
       const people=await memoryMembers(env.DB,orgId,me);
       const target=people.find(p=>p.ref===input.ref);
@@ -949,7 +949,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "memory") {
       if (parts[4] === "scopes" && request.method === "GET") {
         const members = await memoryMembers(env.DB, orgId, me);
-        const { results } = await env.DB.prepare(`SELECT channel FROM (SELECT s.channel FROM hx_memory_scopes s JOIN hx_agent_memories m ON m.id = s.memory_id AND m.org_id=s.org_id WHERE s.org_id=?1 AND m.agent_id=?2 AND (COALESCE(s.owner_user_id,'')='' OR s.owner_user_id=?3) UNION SELECT h.channel FROM hx_memory_review_audit h JOIN hx_memory_scopes s ON s.memory_id=h.memory_id AND s.org_id=h.org_id WHERE h.org_id=?1 AND h.agent_id=?2 AND (COALESCE(s.owner_user_id,'')='' OR s.owner_user_id=?3)) WHERE channel != '' ORDER BY channel LIMIT 200`).bind(orgId, agentId, me).all();
+        const { results } = await env.DB.prepare(`SELECT channel FROM (SELECT s.channel FROM hx_memory_scopes s JOIN hx_agent_memories m ON m.id = s.memory_id AND m.org_id=s.org_id WHERE s.org_id=?1 AND m.agent_id=?2 AND (COALESCE(s.owner_user_id,'')='' OR s.owner_user_id=?3) UNION SELECT h.channel FROM hx_memory_review_audit h WHERE h.org_id=?1 AND h.agent_id=?2 AND (COALESCE(h.owner_user_id,'')='' OR h.owner_user_id=?3)) WHERE channel != '' ORDER BY channel LIMIT 200`).bind(orgId, agentId, me).all();
         const scopes = [];
         for (const entry of results || []) {
           const view = viewOf(entry.channel, who.user.login, members);
