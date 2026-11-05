@@ -86,12 +86,17 @@ async function metered(env, githubId, limit) {
 export async function allowanceFor(env, orgId, { githubId, userKey, credentialSource }) {
   let workspaceKey = credentialSource === "workspace";
   let workspaceSettings = null;
+  // A pinned deployment run still needs the current budget limits, but a key
+  // added after admission must not switch its billing source.
+  if (credentialSource !== "workspace" && orgId && !userKey && githubId) {
+    try {
+      workspaceSettings = await loadAISettings(env.DB, orgId);
+      workspaceKey = credentialSource === "deployment" ? false : Boolean(workspaceSettings.openaiKey);
+    } catch { workspaceKey = false; }
+  }
   // Only someone signed in may spend a workspace's own key: the route checks
   // membership for a session alone, and a workspace id ("owner/repo") is no
   // secret, so an anonymous caller naming one would bill that team.
-  if (credentialSource === undefined && orgId && !userKey && githubId) {
-    try { workspaceSettings = await loadAISettings(env.DB, orgId); workspaceKey = Boolean(workspaceSettings.openaiKey); } catch { workspaceKey = false; }
-  }
   if (orgId && !userKey && githubId) {
     // This no-charge guard covers only recorded model usage on the
     // deployment's key. A workspace or member key has its own bill and is
