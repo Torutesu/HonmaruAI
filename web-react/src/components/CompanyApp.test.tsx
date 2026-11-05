@@ -48,3 +48,20 @@ test('database changes require a fresh data preview and apply its checksum',asyn
  expect(reload).toHaveBeenCalledOnce()
  act(()=>tree.unmount())
 })
+
+test('a source-Agent connection grant can be enabled and revoked from the App connection UI',async()=>{
+ let shared=false
+ const connection={name:'repo_api',version:1,endpoint:'https://api.github.com/user',method:'GET',enabled:1,hasToken:1,ownerId:'9101',owned:true,canShare:true}
+ const api:any={appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn(async()=>({connections:[{...connection,shared,grantExists:shared}],hosts:['api.github.com']})),gateways:vi.fn().mockResolvedValue({gateways:[]}),appDatabase:vi.fn().mockResolvedValue({fork:null,version:1,entities:[],migrations:[]}),connectionChange:vi.fn(async(_id:string,input:any)=>{shared=input.action==='grant';return {granted:shared,revoked:!shared}})}
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<CompanyApp app={{id:'app'} as any} api={api} canManage reload={()=>{}}/> )})
+ const button=(name:string)=>tree.root.findAllByType('button').find(item=>item.children.join('')===name)!
+ await act(async()=>button('外部接続').props.onClick())
+ const selected=()=>tree.root.findAllByType('button').find(item=>item.children.join('').startsWith('repo_api'))!
+ await act(async()=>selected().props.onClick())
+ await act(async()=>button('このAppに接続を共有').props.onClick())
+ expect(api.connectionChange).toHaveBeenLastCalledWith('app',{action:'grant',name:'repo_api'})
+ await act(async()=>button('App共有を停止').props.onClick())
+ expect(api.connectionChange).toHaveBeenLastCalledWith('app',{action:'revoke',name:'repo_api'})
+ act(()=>tree.unmount())
+})

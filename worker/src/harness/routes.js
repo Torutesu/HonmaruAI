@@ -41,7 +41,8 @@ import { personalViews } from './personalViews.js';
 import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
-import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
+import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection } from './appCapabilities.js';
+import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHosting.js';
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
@@ -1261,10 +1262,17 @@ export async function handleHarness(request, env, url, context = {}) {
         return respond(await saveAction(env.DB,orgId,appId,input,me),'app.action_'+input.action);
       }
       if (sub === 'connections') {
-        if(request.method==='GET')return json(await connections(env.DB,orgId,appId,me));
+        if(request.method==='GET') {
+          const result=await appConnectionsForViewer(env.DB,orgId,appId,me);
+          return result.error?fail(result):json(result);
+        }
         if(request.method!=='POST')return json({message:'Method not allowed.'},405);
-        if(input.action==='request')return respond(await invokeConnection(env.DB,orgId,appId,me,input),'app.connection_requested');
+        if(input.action==='request')return respond(await invokeAppConnection(env,orgId,appId,me,input),'app.connection_requested');
         if(input.action==='save')return respond(await saveConnection(env.DB,orgId,appId,me,input),'app.connection_saved');
+        if(input.action==='grant'||input.action==='revoke') {
+          const result=await changeAppConnectionGrant(env.DB,orgId,appId,me,input);
+          return respond(result, result.error?null:`app.connection_${input.action==='grant'?'granted':'grant_revoked'}`);
+        }
       }
       return json({message:'Unknown operation.'},400);
     }

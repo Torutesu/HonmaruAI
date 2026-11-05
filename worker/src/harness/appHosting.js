@@ -203,6 +203,7 @@ export async function servePublicAppDomain(request, env, url) {
   if (request.method !== 'GET') return new Response('Method not allowed.', { status: 405, headers: { allow: 'GET', 'cache-control': 'no-store' } });
   const hostname = normalizeAppHostname(url.searchParams.get('host') || '');
   if (!hostname) return new Response('Not found.', { status: 404, headers: { 'cache-control': 'no-store' } });
+  // Resolve a public hostname before its tenant is known. hx_app_domains.hostname is globally UNIQUE, so this lookup selects only that public app; all follow-up reads use the returned orgId.
   const domain = await env.DB.prepare(`SELECT d.org_id AS orgId,d.app_id AS appId,a.name,a.icon,a.table_id AS tableId,a.definition
     FROM hx_app_domains d JOIN hx_apps a ON a.org_id=d.org_id AND a.id=d.app_id
     WHERE d.hostname=?1 AND d.status='active'`).bind(hostname).first();
