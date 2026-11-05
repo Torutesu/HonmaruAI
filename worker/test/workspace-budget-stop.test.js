@@ -22,9 +22,10 @@ beforeEach(async () => {
   await upsertMembership(env.DB,"workspace-budget-stop","owner","admin");
 });
 
-async function addRun(id, {orgId="workspace-budget-stop", status="running", sources=[]}={}) {
-  await env.DB.prepare("INSERT INTO hx_workflow_runs (id,org_id,workflow_id,trigger,status,log,started_at) VALUES (?1,?2,'wf','manual',?3,'[]',?4)")
-    .bind(id,orgId,status,new Date().toISOString()).run();
+async function addRun(id, {orgId="workspace-budget-stop", status="running", sources=[], credentialSource}={}) {
+  const source = credentialSource || (sources.includes(1) ? "workspace" : sources.includes(0) ? "deployment" : "unknown");
+  await env.DB.prepare("INSERT INTO hx_workflow_runs (id,org_id,workflow_id,trigger,status,log,started_at,credential_source) VALUES (?1,?2,'wf','manual',?3,'[]',?4,?5)")
+    .bind(id,orgId,status,new Date().toISOString(),source).run();
   for (const [index,byok] of sources.entries()) {
     await env.DB.prepare("INSERT INTO hx_workflow_usage (id,org_id,workflow_id,run_id,step_number,provider,model,byok,created_at) VALUES (?1,?2,'wf',?3,?4,'OpenAI','gpt-4o-mini',?5,?6)")
       .bind(`${id}-usage-${index}`,orgId,id,index+1,byok,new Date().toISOString()).run();
@@ -40,6 +41,7 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
   await addRun("workspace-key",{sources:[1]});
   await addRun("mixed-credentials",{sources:[0,1]});
   await addRun("no-ai-usage");
+  await addRun("zero-usage-deployment",{credentialSource:"deployment"});
   await addRun("already-done",{status:"done",sources:[0]});
   await addRun("other-workspace",{orgId:"other",sources:[0]});
 
@@ -69,6 +71,7 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
   const {results=[]} = await env.DB.prepare("SELECT id,status,finished_at,log FROM hx_workflow_runs ORDER BY id").all();
   const rows = Object.fromEntries(results.map(row=>[row.id,row]));
   expect(rows.deployment.status).toBe("cancelled");
+  expect(rows["zero-usage-deployment"].status).toBe("cancelled");
   expect(rows.deployment.finished_at).toBeTruthy();
   expect(JSON.parse(rows.deployment.log).at(-1)).toMatchObject({status:"cancelled",reason:"workspace_budget_exceeded"});
   for (const id of ["workspace-key","mixed-credentials","no-ai-usage","already-done","other-workspace"]) {
