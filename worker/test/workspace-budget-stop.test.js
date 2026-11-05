@@ -42,6 +42,7 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
   await addRun("mixed-credentials",{sources:[0,1]});
   await addRun("no-ai-usage");
   await addRun("zero-usage-deployment",{credentialSource:"deployment"});
+  await addRun("code-only",{credentialSource:"none"});
   await addRun("already-done",{status:"done",sources:[0]});
   await addRun("other-workspace",{orgId:"other",sources:[0]});
 
@@ -57,6 +58,7 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
     return lease;
   };
   const deploymentLease = await addProgramJob("deployment-program","deployment");
+  await addProgramJob("code-only-program","code-only");
   await addProgramJob("workspace-key-program","workspace-key");
   await addProgramJob("mixed-program","mixed-credentials");
   // Direct JavaScript/app actions have no deployment-key usage and remain independent.
@@ -74,7 +76,7 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
   expect(rows["zero-usage-deployment"].status).toBe("cancelled");
   expect(rows.deployment.finished_at).toBeTruthy();
   expect(JSON.parse(rows.deployment.log).at(-1)).toMatchObject({status:"cancelled",reason:"workspace_budget_exceeded"});
-  for (const id of ["workspace-key","mixed-credentials","no-ai-usage","already-done","other-workspace"]) {
+  for (const id of ["workspace-key","mixed-credentials","no-ai-usage","code-only","already-done","other-workspace"]) {
     expect(rows[id].status).toBe(id==="already-done"?"done":"running");
   }
   expect(await env.DB.prepare("SELECT status,lease_hash FROM hx_gateway_jobs WHERE id='deployment-program'").first())
@@ -91,7 +93,7 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
   const finish = await handleGateways(finishRequest,env,new URL(finishRequest.url),{lease:deploymentLease,status:"succeeded",stdout:"done"});
   expect(finish.status).toBe(409);
 
-  for (const id of ["workspace-key-program","mixed-program","direct-js","app-action"]) {
+  for (const id of ["workspace-key-program","mixed-program","code-only-program","direct-js","app-action"]) {
     const row = await env.DB.prepare("SELECT status,lease_hash FROM hx_gateway_jobs WHERE id=?1").bind(id).first();
     expect(row.status).toBe("running");
     expect(row.lease_hash).toBeTruthy();
