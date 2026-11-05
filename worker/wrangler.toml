@@ -93,6 +93,7 @@ class_name = "WorkspaceDO"
 [env.staging.vars]
 WORKSPACE_V2 = "*"
 WORKSPACE_DUAL = "*"
+ENABLE_APP_DOMAINS = "0"
 
 [[env.staging.d1_databases]]
 binding = "DB"
