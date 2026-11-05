@@ -84,6 +84,24 @@ test('repeated transient heartbeat failures stop work before the lease becomes u
   assert.equal(aborted, true);
   assert.equal(finished, false);
 });
+test('a budget-cancelled workflow lease aborts the active isolated run', async () => {
+  let aborted = false, finished = false;
+  const call = async path => {
+    if (path === 'claim') return { job: { id: 'workflow-job', lease: 'lease', workflow: true, payload: { code: 'await work()' } } };
+    if (path === 'jobs/workflow-job/heartbeat') throw Object.assign(new Error('Execution is no longer authorized.'), { status: 409 });
+    if (path === 'jobs/workflow-job/finish') finished = true;
+    return { ok: true };
+  };
+  await processOne(call, {
+    heartbeatIntervalMs: 5,
+    heartbeatGraceMs: 40,
+    runWorkflow: async (_payload, { signal }) => new Promise(resolve => {
+      signal.addEventListener('abort', () => { aborted = true; resolve({ status: 'failed', stdout: '', stderr: '', exitCode: null }); }, { once: true });
+    }),
+  });
+  assert.equal(aborted, true);
+  assert.equal(finished, false);
+});
 test('a result whose upload fails is handed in again, without running the code again', async () => {
   const job = { id: 'job', lease: 'lease', payload: { code: 'return input * 2', input: 21 } };
   const result = { status: 'succeeded', stdout: '42', stderr: '', exitCode: 0 };

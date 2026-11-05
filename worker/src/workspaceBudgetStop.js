@@ -21,9 +21,14 @@ export async function cancelDeploymentBudgetWorkflowRuns(db, orgId, at = new Dat
 
   // Persist terminal workflow outcomes so safety counters and run history stay
   // in sync. Cancellation itself is already committed if settlement fails.
-  for (let offset = 0; offset < results.length; offset += 40) {
-    const statements = results.slice(offset, offset + 40)
-      .flatMap(({ id }) => workflowSettlementStatements(db, orgId, id));
+  for (let offset = 0; offset < results.length; offset += 30) {
+    const statements = results.slice(offset, offset + 30).flatMap(({ id }) => [
+      db.prepare(`UPDATE hx_gateway_jobs SET status='cancelled',lease_hash=NULL,finished_at=?3
+        WHERE org_id=?1 AND status IN ('queued','running')
+          AND EXISTS(SELECT 1 FROM hx_workflow_activations a WHERE a.org_id=?1 AND a.run_id=?2 AND a.job_id=hx_gateway_jobs.id)`)
+        .bind(orgId, id, Date.parse(at)),
+      ...workflowSettlementStatements(db, orgId, id),
+    ]);
     await db.batch(statements);
   }
   return results.length;
