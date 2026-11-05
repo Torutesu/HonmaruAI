@@ -209,6 +209,7 @@ test('virtual files are bounded canonical relative paths with no payload authori
  assert.throws(()=>validateFiles([{path:'a',base64:'eA=='} ,{path:'a/b',base64:'eA=='}]),/Conflicting/);
  assert.throws(()=>validateFiles([{path:'a',base64:'eA=='} ,{path:'a',base64:'eA=='}]),/Duplicate/);
  assert.throws(()=>validateFiles([{path:'a',base64:'!!!!'}]),/encoding/);
+ assert.throws(()=>validateFiles([{path:'a',base64:'Zh=='}]),/encoding/);
  assert.throws(()=>validateFiles(Array.from({length:9},(_,i)=>({path:'f'+i,base64:''}))),/files/);
  assert.throws(()=>validateFiles([{path:'a',base64:Buffer.alloc(256*1024+1).toString('base64')}]),/large/);
  const args=containerArgs('honmaru-12345678-1234-1234-1234-123456789abc');

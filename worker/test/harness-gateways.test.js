@@ -414,6 +414,7 @@ test('execution accepts only bounded virtual file bundles and keeps request idem
   [{path:'/absolute',base64:'eA=='}],
   [{path:'a\\\\b',base64:'eA=='}],
   [{path:'a',base64:'!!!!'}],
+  [{path:'a',base64:'Zh=='}],
   [{path:'a',base64:'eA==',mount:'/host'}],
   Array.from({length:9},(_,i)=>({path:'f'+i,base64:''})),
   [{path:'large',base64:Buffer.alloc(256*1024+1).toString('base64')}],

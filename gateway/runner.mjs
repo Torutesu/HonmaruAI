@@ -41,7 +41,9 @@ export function validateFiles(files) {
     if(kinds.get(path)==='directory')throw new Error('Conflicting execution file paths.');
     kinds.set(path,'file');
     if(file.base64.length>4*Math.ceil(256*1024/3)||file.base64.length%4!==0||!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.base64))throw new Error('Invalid execution file encoding.');
-    const size=file.base64.length/4*3-(file.base64.endsWith('==')?2:file.base64.endsWith('=')?1:0);
+    const decoded=Buffer.from(file.base64,'base64');
+    if(decoded.toString('base64')!==file.base64)throw new Error('Invalid execution file encoding.');
+    const size=decoded.length;
     if(size>256*1024)throw new Error('Execution file is too large or invalid.');
     total+=size;if(total>1024*1024)throw new Error('Execution files are too large.');
   }
