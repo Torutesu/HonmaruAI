@@ -2158,15 +2158,11 @@ test('custom domains require explicit whole-app consent bound to each attachment
     ...env, CF_ACCOUNT_ID: 'test-account', CF_PAGES_PROJECT: 'honmaru-web',
     PAGES_DOMAINS_API_TOKEN: 'test-pages-token', ENABLE_APP_DOMAINS: '1',
   };
-  const domainCall = async (path, token, { method = 'GET', body } = {}, requestEnv = envForDomain) => {
-    const response = await worker.fetch(new Request(`https://example.com${path}`, {
-      method,
-      headers: { 'content-type': 'application/json', ...(token ? { 'x-session-token': token } : {}) },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    }), requestEnv, ctx);
-    while (pending.length) await pending.shift();
-    return response;
-  };
+  const domainCall = async (path, token, { method = 'GET', body } = {}, requestEnv = envForDomain) => worker.fetch(new Request(`https://example.com${path}`, {
+    method,
+    headers: { 'content-type': 'application/json', ...(token ? { 'x-session-token': token } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  }), requestEnv);
   const route = `/apps/${app.id}/hosting?orgId=${ORG}`;
   const body = (action, publicDataConfirmed) => ({ orgId: ORG, action, hostname, ...(publicDataConfirmed === undefined ? {} : { publicDataConfirmed }) });
 
