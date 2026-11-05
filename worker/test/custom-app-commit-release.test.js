@@ -113,7 +113,13 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
 
 test('HTTP publish rejects branch movement after independent approval', async () => {
   let branch = commitSha;
-  vi.stubGlobal('fetch', githubFetch({ get branch() { return branch; } }));
+  vi.stubGlobal('fetch', githubFetch({ branch: undefined }));
+  const ghFetch = vi.mocked(fetch);
+  ghFetch.mockImplementation((input) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/git/ref/heads/main')) return Promise.resolve(json({ object: { sha: branch } }));
+    return githubFetch()(input);
+  });
   const app = await makeApp();
   const imported = await (await importCommit(app)).json();
   const request = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'request_commit_approval', version: imported.version });
