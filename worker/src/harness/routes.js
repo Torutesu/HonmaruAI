@@ -43,6 +43,7 @@ import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
+import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHosting.js';
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
@@ -107,7 +108,7 @@ const fail = (result) => json({ message: result.error, ...(result.fields ? { fie
 const importMayBeSaved = 'A copy may have been created. After access is restored, check the Skill list before retrying.';
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId, options) {
@@ -134,6 +135,8 @@ export async function handleHarness(request, env, url, context = {}) {
   if (request.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   const limited = await enforce(env, request, (isGatewayNodeRoute(url.pathname)||isDocumentNodeRoute(url.pathname)) ? "gateway/edge" : "team");
   if (limited) return limited;
+
+  if (url.pathname === '/app-domains/resolve') return servePublicAppDomain(request, env, url);
 
   if (isDocumentNodeRoute(url.pathname)||/^\/hx\/documents(?:\/|$)/.test(url.pathname)) return handleDocuments(request,env,url);
 
@@ -1144,6 +1147,20 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     const app = await getApp(env.DB, orgId, appId);
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    if (sub === 'hosting' && parts.length === 3) {
+      const canManage = await mayChange(env, orgId, who, app.createdBy);
+      if (request.method === 'GET') return json(await readAppHosting(env.DB, env, orgId, appId));
+      if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
+      if (!canManage) return json({ message: 'Only its maker or an admin can change app hosting.' }, 403);
+      const result = await changeAppHosting(env.DB, env, orgId, app, input || {}, me);
+      if (result.error) return fail(result);
+      await audit(env, request, { orgId, action: `app.hosting_${input.action}`, actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: {
+        ...(result.domain ? { hostname: result.domain.hostname, status: result.domain.status } : {}),
+        ...(result.name ? { variable: result.name } : {}),
+        ...(input.action === 'remove' ? { removed: true } : {}),
+      } });
+      return json(result);
+    }
     const withGuidedGeneration=async(prompt,makeComplete,generate,finalCheck=null)=>{
       const guidelines=await prepareAppGuidelines(env.DB,orgId,who.user,appId,prompt);
       if(!guidelines)return {error:'The source or your access changed. Reload and try again.',status:403};
