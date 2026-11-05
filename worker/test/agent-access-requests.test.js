@@ -10,7 +10,10 @@ import schemaSql from '../schema.sql?raw';
 const ORG='agent-access-requests';
 // Line comments go first: each statement is replayed on one line, where a
 // `--` would otherwise swallow everything after it.
-const agentAccessRequestSql=schemaSql.slice(schemaSql.indexOf('CREATE TABLE IF NOT EXISTS hx_agent_access_requests (')).replace(/--[^\n]*/g,'');
+const accessRequestStart=schemaSql.indexOf('CREATE TABLE IF NOT EXISTS hx_agent_access_requests (');
+const accessRequestEnd=schemaSql.indexOf('/* Row-change trigger receipts',accessRequestStart);
+const agentAccessRequestSql=schemaSql.slice(accessRequestStart,accessRequestEnd).replace(/--[^\n]*/g,'');
+const customAppApprovalTriggerSql=(schemaSql.match(/CREATE TRIGGER IF NOT EXISTS hx_app_publish_revoke_[\s\S]*?END;/g)||[]).join('\n');
 function splitSqlStatements(sql){
  const statements=[];let current='',trigger=false;
  for(const part of sql.split(';')){
@@ -47,6 +50,7 @@ const request=(agentId='team-agent',requestKey='access-request-key-0001',request
 
 test('the additive access-request migration can be replayed safely',async()=>{
  for(const sql of splitSqlStatements(agentAccessRequestSql)) await env.DB.exec(sql.replace(/\n/g,' '));
+ for(const sql of splitSqlStatements(customAppApprovalTriggerSql)) await env.DB.exec(sql.replace(/\n/g,' '));
  expect(await env.DB.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('hx_agent_access_requests','hx_agent_access_request_approvers')").first()).toMatchObject({n:2});
 });
 
