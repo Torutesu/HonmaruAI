@@ -238,7 +238,7 @@ const publicRun = (r, revisions) => {
   }
   return {
   id: r.id, workflowId: r.workflow_id, definitionRevision: matchingRevision(snapshot, r.started_at, revisions), definitionSnapshotAvailable, trigger: r.trigger, status: r.status,
-  credentialSource: ['deployment','workspace'].includes(r.credential_source) ? r.credential_source : 'unknown',
+  credentialSource: ['deployment','workspace','none'].includes(r.credential_source) ? r.credential_source : 'unknown',
   input: parse(r.input, null), log: parse(r.log, []), nextStep: r.next_step, cardId: r.card_id,
   startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
   };
