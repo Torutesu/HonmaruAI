@@ -1,7 +1,7 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { AppView, HarnessApps, HarnessTemplateImport, appTableDisplayName, newAppRecordLabel, shouldShowRecordCount } from './Harness'
+import { AppView, HarnessApps, HarnessTemplateImport, appTableDisplayName, newAppRecordLabel, shouldShowRecordCount, appCustomizeSourceHash } from './Harness'
 import { HarnessApiError, harnessApi } from '../utils/harness'
 import { systemCellText } from '../utils/systemColumns'
 import { parseRoute } from '../utils/route'
@@ -34,6 +34,16 @@ test('record counts stay useful without showing an empty unfiltered count',()=>{
   expect(shouldShowRecordCount(0,'invoice',0)).toBe(true)
   expect(shouldShowRecordCount(0,'',1)).toBe(true)
   expect(shouldShowRecordCount(4,'',0)).toBe(true)
+})
+
+test('app customization returns its readable creation thread and fails closed when unavailable',async()=>{
+  const source={threadId:'123',channel:'b:ops',messages:[{id:123,body:'Create a tracker',createdAt:'2026-11-05T00:00:00Z'}]}
+  const api={conversation:vi.fn().mockResolvedValue({source})}
+  expect(await appCustomizeSourceHash(api as any,'tasks','team:one')).toBe('#/apps/tasks/team%3Aone?source=1')
+  api.conversation.mockResolvedValueOnce({source:{...source,messages:[]}}).mockResolvedValueOnce({source:null}).mockRejectedValueOnce(new Error('Source is private'))
+  expect(await appCustomizeSourceHash(api as any,'tasks','team:one')).toBeNull()
+  expect(await appCustomizeSourceHash(api as any,'tasks','team:one')).toBeNull()
+  expect(await appCustomizeSourceHash(api as any,'tasks','team:one')).toBeNull()
 })
 
 test.each(['filter','group'] as const)('personal-view %s adjustment opens the app conversation as an unsent private-view draft',async kind=>{
@@ -896,6 +906,28 @@ test('a shared template can be inspected and imported from its link', async () =
   expect(location.hash).toBe('#/apps/imported/team%3Aone')
 })
 
+test('Customize app opens the readable creation thread without sending a message',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  location.hash='#/apps/tasks/team%3Aone?section=data'
+  const view={id:'all',type:'table',name:'All',rows:[]}
+  const source={threadId:'123',channel:'b:ops',messages:[{id:123,body:'Create a tracker',createdAt:'2026-11-05T00:00:00Z'}]}
+  state.api={app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[view],canCustomize:true}),personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[],source}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),postConversation:vi.fn()}
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  await act(async()=>{tree!.root.findAllByType('button').find(button=>button.children.includes('Customize app'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(location.hash).toBe('#/apps/tasks/team%3Aone?source=1')
+  expect(state.api.postConversation).not.toHaveBeenCalled()
+})
+
+test('Customize app falls back to the editor when its creation thread is missing or unreadable',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  location.hash='#/apps/tasks/team%3Aone?section=data'
+  const view={id:'all',type:'table',name:'All',rows:[]}
+  state.api={app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[view],canCustomize:true}),personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[],source:null}),conversationNotifications:vi.fn().mockResolvedValue({items:[]})}
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  await act(async()=>{tree!.root.findAllByType('button').find(button=>button.children.includes('Customize app'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  expect(location.hash).toBe('#/apps/tasks/team%3Aone?section=custom')
+})
+
 test('revoked app access clears the previously visible data while a temporary error retains it',async()=>{
   const handlers=new Map<string,()=>void>()
   vi.stubGlobal('window',{addEventListener:(name:string,fn:()=>void)=>handlers.set(name,fn),removeEventListener:(name:string)=>handlers.delete(name)})
@@ -939,7 +971,7 @@ test('a stale annotation result cannot replace the chat draft after changing sec
   await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
   act(()=>tree!.root.findByProps({'aria-label':'注釈'}).props.onClick())
   const staleSelect=tree!.root.findByType(AppAnnotationLayer).props.onSelect
-  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('Customize app'))!.props.onClick())
+  await act(async()=>{tree!.root.findAllByType('button').find(node=>node.children.includes('Customize app'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
   await act(async()=>staleSelect({target:'Old field',x:10,y:20}))
   expect(tree!.root.findAllByProps({'aria-label':'どのように修正しますか？'})).toHaveLength(0)
   expect(state.api.drafts.writeAnnotation).not.toHaveBeenCalled()
