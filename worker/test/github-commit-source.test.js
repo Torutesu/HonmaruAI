@@ -141,7 +141,7 @@ test('accepts wrapped base64 content from GitHub blobs', async () => {
     if(path.endsWith('/git/trees/'+treeSha))return json({truncated:false,tree:[{type:'blob',mode:'100644',path:'index.html',sha:rootBlob,size:new TextEncoder().encode(html).length}]});
     if(path.endsWith('/git/blobs/'+rootBlob)){
       const encoded=base64(html);
-      return json({encoding:'base64',sha:rootBlob,size:new TextEncoder().encode(html).length,content:encoded.replace(/(.{8})/g,'$1\\n')});
+      return json({encoding:'base64',sha:rootBlob,size:new TextEncoder().encode(html).length,content:encoded.match(/.{1,8}/g).join(String.fromCharCode(10))});
     }
     return new Response('',{status:404});
   });
