@@ -21,6 +21,7 @@ test('AI uses only this record and conversation, emits one reply and notificatio
  const saved=await appConversation(env.DB,org,'9301',app.id,input,true);
  await appConversation(env.DB,org,'9301',app.id,{...input,body:'Later question must not be included',requestId:'later_question_req'},true);
  await Promise.all([replyToApp(env,org,user,app.id,input,saved.messageId,{makeCompleter:completer}),replyToApp(env,org,user,app.id,input,saved.messageId,{makeCompleter:completer})]);
+ expect(completer).toHaveBeenCalledWith(env,org,'9301','app_conversation_reply',expect.objectContaining({usageContext:{appId:app.id}}));
  expect(complete).toHaveBeenCalledTimes(1);expect(complete.mock.calls[0][1]).toContain('Only this record');expect(complete.mock.calls[0][1]).not.toContain('Unrelated app discussion');expect(complete.mock.calls[0][1]).not.toContain('Later question');
  const history=await appConversation(env.DB,org,'9301',app.id,input);expect(history.messages.at(-1)).toMatchObject({body:'A focused answer',authorName:'AI'});
  const notifications=await appNotifications(env.DB,org,'9301',app.id,{});expect(notifications.items).toHaveLength(1);expect(notifications.items[0].kind).toBe('ai');

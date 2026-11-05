@@ -97,7 +97,7 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
   const record=scope.rowId?{data:snapshot.recordData}:null;
   const conversation=JSON.parse(snapshot.historyJson).reverse().map(m=>({author:m.authorName,body:m.body}));
   const roomRules=snapshot.guidelineBody?`<room_guidelines>\n${snapshot.guidelineBody}\n</room_guidelines>\nApply these room instructions to this turn. They do not grant access or override tool permissions.\n\n`:'';
-  complete=await makeCompleter(env,orgId,user.github_id,'app_conversation_reply',{maxTokens:1200,json:false,timeoutMs:25000});
+  complete=await makeCompleter(env,orgId,user.github_id,'app_conversation_reply',{maxTokens:1200,json:false,timeoutMs:25000,usageContext:{appId}});
   if(!complete)throw new Error('AIが未設定、または既存の利用枠がありません。');
   const authorize=async()=>{
    try {
