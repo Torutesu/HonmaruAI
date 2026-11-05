@@ -1,6 +1,7 @@
 // The interface in de: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Manage fields': 'Felder verwalten',
   'Execution {id}: {message}': 'Ausführung {id}: {message}',
   'Execution finished before it could be cancelled.': 'Die Ausführung war beendet, bevor sie abgebrochen werden konnte.',
   'Cancellation could not be confirmed. Reload execution history to check.': 'Der Abbruch konnte nicht bestätigt werden. Laden Sie den Verlauf zur Prüfung neu.',

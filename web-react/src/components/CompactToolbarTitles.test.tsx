@@ -15,10 +15,11 @@ test('compact viewer icon controls retain their labels and expose titles',()=>{
   let tree:ReturnType<typeof create>
   act(()=>{tree=create(<><AppViewControls view={view} columns={columns} canEdit save={save}/><PersonalViewControls view={view} columns={columns} personal={false} control="fields" state={{revision:0,views:[],computed:[],layouts:{}}} save={save} onSelect={()=>{}} onSettings={()=>{}}/><AppDataMenu wrapText={false} save={save}/></>)})
   const button=(text:string)=>tree!.root.findAllByType('button').find(item=>item.children.includes(text))!
-  expect(button('Fields').props.title).toBe('Fields')
+  expect(button('Fields').props.title).toBe('Manage fields')
+  expect(button('Fields').props.children).toContain('Fields')
   expect(button('Filter records').props.title).toBe('Filter records')
   expect(button('Group records').props.title).toBe('Group records')
-  for(const label of ['Fields','Filter records','Group records'])expect(button(label).props['aria-label']).toBe(label)
+  for(const label of ['Fields','Filter records','Group records'])expect(button(label).props['aria-label']).toBe(label==='Fields'?'Manage fields':label)
   const menu=tree!.root.findByProps({'aria-label':'More data viewer actions'})
   expect(menu.props.title).toBe('More data viewer actions')
   expect(menu.props['aria-label']).toBe('More data viewer actions')
