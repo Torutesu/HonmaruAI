@@ -30,6 +30,7 @@ export async function generateCustomSource(prompt, table, complete, capabilities
 }
 
 export async function saveCustomRelease(db, orgId, app, input, by, trusted = {}) {
+  const nextVersion = app.version + 1;
   if (!Number.isInteger(input.version) || input.version !== app.version) return { error: 'This app changed. Reload before saving.', status: 409 };
   const custom = { ...(app.definition.custom || {}) };
   if (input.action === 'restore') {
@@ -41,7 +42,7 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
   } else if (input.action === 'draft') {
     if (!validateSource(input.html)) return { error: 'HTML source must contain 1–120000 characters.', status: 400 };
     custom.draft = input.html;
-    if (trusted.commit) custom.draftCommit = { ...trusted.commit, appVersion: version };
+    if (trusted.commit) custom.draftCommit = { ...trusted.commit, appVersion: nextVersion };
     else delete custom.draftCommit;
   } else if (input.action === 'publish') {
     if (!validateSource(custom.draft)) return { error: 'Save a draft before publishing.', status: 400 };
@@ -55,7 +56,7 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
   const table = await getTable(db, orgId, app.tableId);
   const definition = { ...app.definition, custom };
   const at = new Date().toISOString();
-  const version = app.version + 1;
+  const version = nextVersion;
   const stoppedRelease = crypto.randomUUID();
   // Both statements run in a D1 transaction; the snapshot is inserted only when CAS won.
   const result = await db.batch([
