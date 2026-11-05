@@ -154,7 +154,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
   const [error, setError] = useState('')
   const [history, setHistory] = useState<Array<{version: number; note: string | null}>>([])
   const [publishGate,setPublishGate]=useState<{policy:{enabled:boolean};draftVersion:number;sourceHash:string;scope:string;approval:null|{id:string;status:string;requestedBy:string;reviewerId:string|null;sourceHash:string;draftVersion:number;scope:string}}|null>(null)
-  useEffect(()=>{let active=true;api.customPublishState(app.id).then(state=>{if(active)setPublishGate(state)}).catch(e=>{if(active)setError(e instanceof Error?e.message:String(e))});return()=>{active=false}},[api,app.id,app.version,app.definition.custom?.draft])
+  useEffect(()=>{if(typeof api.customPublishState!=='function')return;let active=true;api.customPublishState(app.id).then(state=>{if(active)setPublishGate(state)}).catch(e=>{if(active)setError(e instanceof Error?e.message:String(e))});return()=>{active=false}},[api,app.id,app.version,app.definition.custom?.draft])
   useLayoutEffect(()=>{
     activeScope.current=scope
     const draft=app.definition.custom?.draft||''
