@@ -231,7 +231,10 @@ export async function servePublicAppDomain(request, env, url) {
   const commitAssetBase=publishedCommit?.sha&&publishedCommit?.assetToken
     ?`${url.origin}/app-commit-assets/${encodeURIComponent(domain.appId)}/${encodeURIComponent(publishedCommit.sha)}/${encodeURIComponent(publishedCommit.assetToken)}/`
     :'';
-  const assetPolicy=`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'self'">`;
+  // The sandboxed srcdoc has an opaque origin, so 'self' cannot authorize
+  // captured assets. Permit only this app/commit/token path from this origin.
+  const assetSource=commitAssetBase||"'self'";
+  const assetPolicy=`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' ${assetSource}; style-src 'unsafe-inline' ${assetSource}; img-src ${assetSource} data:; font-src ${assetSource} data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri ${assetSource}">`;
   const assetBase=commitAssetBase?`<base href="${escaped(commitAssetBase)}">`:'';
   const title = escaped(domain.name || 'App');
   const body = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>html,body{margin:0;min-height:100%;font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#172033}header{height:48px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #e2e8f0;background:white}header strong{font-size:14px;font-weight:600}header span{font-size:18px}iframe{display:block;width:100%;height:calc(100dvh - 49px);border:0}</style></head><body><header><span>${escaped(domain.icon || '📋')}</span><strong>${title}</strong></header><iframe id="runner" title="${title}" sandbox="allow-scripts" referrerpolicy="no-referrer" src="${escaped(runner)}"></iframe><script>
