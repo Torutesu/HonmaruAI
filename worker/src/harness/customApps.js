@@ -68,6 +68,15 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
         WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved') AND consumed_at IS NULL
           AND app_version < ?4`).bind(at,orgId,app.id,version),
     ] : []),
+    ...(trusted.commit && Array.isArray(trusted.assets) ? trusted.assets.map(asset =>
+      db.prepare(`INSERT OR IGNORE INTO hx_app_git_assets
+        (org_id,app_id,app_version,commit_sha,path,content_type,content_base64,content_hash,size)
+        SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9
+        WHERE EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND a.version=?3
+          AND json_extract(a.definition,'$.custom.draftCommit.sha')=?4
+          AND json_extract(a.definition,'$.custom.draftCommit.sourceHash')=?8)`)
+        .bind(orgId,app.id,version,trusted.commit.sha,asset.path,asset.mimeType,asset.contentBase64,asset.contentHash,asset.size)
+    ) : []),
     ...(input.action === 'unpublish' ? [
       // changes() refers to the preceding history insertion, so a losing
       // source CAS cannot stop another editor's automation release.
