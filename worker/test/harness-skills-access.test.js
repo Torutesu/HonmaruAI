@@ -421,6 +421,53 @@ test('a skill ownership change between read and write blocks the former owner fr
   }
 });
 
+test('Skill share revocation rechecks the live owner after the route preflight', async () => {
+  const created = await request('POST', '/skills', owner, {
+    name: 'Transferable procedure', description: 'Shared for a partner handoff.', body: 'Follow the current handoff steps.', visibility: 'workspace',
+  });
+  expect(created.status).toBe(201);
+  const { skill } = await created.json();
+  const issued = await request('POST', `/skills/${skill.id}/shares`, owner, { expiresInDays: 7, confirmAnyoneWithLink: true });
+  expect(issued.status).toBe(201);
+  const { share } = await issued.json();
+  expect((await request('GET', `/skills/${skill.id}/shares`, owner)).status).toBe(200);
+
+  let ownershipTransferred = false;
+  const raceDb = {
+    prepare(sql) {
+      const statement = env.DB.prepare(sql);
+      if (!sql.startsWith('UPDATE hx_skill_shares AS sh SET revoked_at=')) return statement;
+      return {
+        bind(...values) {
+          const bound = statement.bind(...values);
+          return {
+            run: async () => {
+              if (!ownershipTransferred) {
+                ownershipTransferred = true;
+                await env.DB.prepare('UPDATE hx_skills SET owner_id=?2 WHERE org_id=?3 AND id=?1')
+                  .bind(skill.id, '9402', orgId).run();
+              }
+              return bound.run();
+            },
+          };
+        },
+      };
+    },
+  };
+  const raceEnv = new Proxy(env, { get(target, key, receiver) { return key === 'DB' ? raceDb : Reflect.get(target, key, receiver); } });
+  const revokeWithRace = worker.fetch(new Request(`https://example.com/skills/${skill.id}/shares/${share.id}/revoke?orgId=${orgId}`, {
+    method: 'POST', headers: { 'x-session-token': owner, 'content-type': 'application/json' }, body: JSON.stringify({ orgId }),
+  }), raceEnv, { waitUntil() {} });
+  const raced = await revokeWithRace;
+  expect(ownershipTransferred).toBe(true);
+  expect(raced.status).toBe(409);
+  expect((await env.DB.prepare('SELECT revoked_at FROM hx_skill_shares WHERE id=?1').bind(share.id).first()).revoked_at).toBeNull();
+
+  const currentOwner = await request('POST', `/skills/${skill.id}/shares/${share.id}/revoke`, member, {});
+  expect(currentOwner.status).toBe(200);
+  expect((await env.DB.prepare('SELECT revoked_at FROM hx_skill_shares WHERE id=?1').bind(share.id).first()).revoked_at).toBeTruthy();
+});
+
 test('a new skill owner may edit and share while the creator attribution remains unchanged',async()=>{
   const skill=await create();
   await env.DB.prepare('UPDATE hx_skills SET owner_id=?2 WHERE id=?1').bind(skill.id,'9402').run();
