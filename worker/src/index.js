@@ -50,6 +50,7 @@ import { handleHarness } from "./harness/routes.js";
 import { runDueWorkflows, handleWorkflowHook } from "./harness/workflows.js";
 import { runDueFollowups } from "./harness/followups.js";
 import { handleChannels, broadcastStored, deliverAcceptedMessages, watchTeammateRuns, caller } from "./channelRoutes.js";
+import { handleExternalThreads } from "./externalThreads.js";
 import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from "./audit.js";
 import { shredPerson } from "./auditCrypto.js";
 import { allowed, ensureOwner, soleOwnerships } from "./permissions.js";
@@ -523,6 +524,11 @@ async function handle(request, env, url, ctx) {
     // Routines, the playbook, agent tokens and the MCP endpoint.
     const automated = await handleAutomation(request, env, url, ctx);
     if (automated) return automated;
+
+    // Explicitly scoped outside-collaborator Thread endpoints. They do not
+    // enter the workspace channel router or trigger agent dispatch.
+    const externalThread = await handleExternalThreads(request, env, url);
+    if (externalThread) return externalThread;
 
     // Channels: talking, and turning what was said into a decision through
     // /ai/route itself, called in-process with the caller's own session.
