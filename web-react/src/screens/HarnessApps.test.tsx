@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { AppView, HarnessApps, HarnessTemplateImport, appTableDisplayName, newAppRecordLabel } from './Harness'
 import { HarnessApiError, harnessApi } from '../utils/harness'
 import { systemCellText } from '../utils/systemColumns'
+import { parseRoute } from '../utils/route'
 import { AppRecordDialog } from '../components/AppRecordDialog'
 
 const state = vi.hoisted(() => ({ api: null as any }))
@@ -25,6 +26,33 @@ test('new record labels use the primary table when its title differs from the ap
   expect(newAppRecordLabel('Contacts','Contacts','名前')).toBe('新規レコード')
   expect(newAppRecordLabel('Issues','Issues','件名')).toBe('新規レコード')
   expect(newAppRecordLabel('Sales CRM','Sales CRM')).toBe('新規レコード')
+})
+
+test.each(['filter','group'] as const)('personal-view %s adjustment opens the app conversation as an unsent private-view draft',async kind=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+  const shared={id:'all',type:'table',name:'All',rows:[]},mine={id:'mine',type:'table',name:'My tasks',rows:[]}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'},{id:'state',name:'Status',type:'select',options:['Open','Done']}]},rows:[],views:[shared],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValue({revision:1,activeView:'mine',views:[mine],computed:[mine],layouts:{}}),
+    savePersonalViews:vi.fn(async (_id,value)=>({...value,revision:value.revision+1})),updateApp:vi.fn(),
+    conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const action=kind==='filter'?'フィルター':'グループ化', adjustment=kind==='filter'?'フィルターを調整':'グループ化を調整'
+  const trigger=tree!.root.findAllByType('button').find(button=>button.props['aria-label']===action)!
+  act(()=>trigger.props.onClick({currentTarget:{focus:vi.fn()}}))
+  const adjust=tree!.root.findAllByType('button').find(button=>button.children.includes(adjustment))!
+  act(()=>adjust.props.onClick())
+  const route=parseRoute(location.hash)
+  expect(route).toMatchObject({appSource:true,appSourceSection:'data',appId:'tasks',appOrg:'team:one'})
+  expect(route.appDraft).toContain('個人ビュー「My tasks」')
+  expect(route.appDraft).toContain('共有ビューは変更しない')
+  expect(state.api.savePersonalViews).not.toHaveBeenCalled()
+  expect(state.api.updateApp).not.toHaveBeenCalled()
+  act(()=>tree!.root.findAllByType('button').find(button=>button.props['aria-label']===action)!.props.onClick({currentTarget:{focus:vi.fn()}}))
+  const directEdit=kind==='filter'?'条件を直接編集':'グループを直接編集'
+  act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes(directEdit))!.props.onClick())
+  expect(kind==='filter'?tree!.root.findAllByType('button').some(button=>button.children.includes('条件を追加')):tree!.root.findAllByProps({'aria-label':'グループ化するフィールド'}).length===1).toBe(true)
 })
 
 test('view tabs navigate by keyboard without saving until activated', async () => {
