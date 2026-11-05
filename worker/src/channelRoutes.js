@@ -78,6 +78,7 @@ import {
   listAgents, saveAgent, deleteAgent, toClientAgent, agentsHere, channelAgents, agentChannels, agentTalkFilter, addChannelAgent, removeChannelAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, respondingAgents, playbookFor, setAgentAvatar, MAX_CALLED,
 } from "./customAgents.js";
 import { readImage } from "./userAvatar.js";
+import { clientAgentAvatarUrl } from "./agentAvatarAccess.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 import { searchTermsFor } from "./ask.js";
 import { searchDecisions } from "./insights.js";
@@ -85,6 +86,12 @@ import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, me
 import {
   MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, recordingUrl, minutesBetween,
 } from "./jam.js";
+
+async function clientAgentForViewer(env, orgId, agent, members, login, options = {}) {
+  const client = toClientAgent(agent, members, login, options);
+  client.avatarUrl = await clientAgentAvatarUrl(env, orgId, agent, login);
+  return client;
+}
 
 // The routes for talking in a channel, and for turning what was said into
 // a decision. The decision goes through `/ai/route` itself — the same
@@ -1035,7 +1042,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const members = await listMembers(env.DB, orgId, who.session.github_id);
     out.agent.viewerRole=(await explicitAgentRoles(env.DB,orgId,[out.agent.id],who.user.login)).get(out.agent.id)||null;
     out.agent.managedProfile=!!await env.DB.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,out.agent.id).first();
-    return json({ agent: toClientAgent(out.agent, members, who.user.login, { isAdmin }) });
+    return json({ agent: await clientAgentForViewer(env, orgId, out.agent, members, who.user.login, { isAdmin }) });
   }
 
   // Agents the team writes: "@hayao" answers as its Markdown instructions
@@ -1051,7 +1058,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const members = await listMembers(env.DB, orgId, who.session.github_id);
     const isAdmin = await allowed(env.DB, orgId, who.session.github_id, "agent.manage_others");
     const login = who.user.login;
-    const list = async () => (await listAgents(env.DB, orgId, login)).map((a) => toClientAgent(a, members, login, { isAdmin }));
+    const list = async () => Promise.all((await listAgents(env.DB, orgId, login)).map((a) => clientAgentForViewer(env, orgId, a, members, login, { isAdmin })));
     if (request.method === "GET") return json({ agents: await list(), presets: presetsFor(who.user.locale || url.searchParams.get("locale") || "en"), privateCreation: await getMode(env.DB, orgId) === "harness" });
     const limited = await enforce(env, request, "chat");
     if (limited) return limited;
@@ -1077,7 +1084,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     }
     out.agent.viewerRole=(await explicitAgentRoles(env.DB,orgId,[out.agent.id],login)).get(out.agent.id)||null;
     out.agent.managedProfile=!!await env.DB.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,out.agent.id).first();
-    return json({ agent: toClientAgent(out.agent, members, login, { isAdmin }), agents: await list() }, out.created ? 201 : 200);
+    return json({ agent: await clientAgentForViewer(env, orgId, out.agent, members, login, { isAdmin }), agents: await list() }, out.created ? 201 : 200);
   }
 
   // User groups: `@sales` names everyone in it. Listed, made and changed by
