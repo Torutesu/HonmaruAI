@@ -647,7 +647,9 @@ test('personal memories are owner-editable while shared mutations remain maker-o
   expect(created.status).toBe(201);
   const memory = (await created.json()).memory;
   expect(memory).toMatchObject({ scope: "personal", isOwner: true });
-  const otherList = await (await get(`${path}?${q({ orgId: ORG })}`, mika)).json();
+  const ownList = await (await get(`${path}?${q({ orgId: ORG })}`, kenji)).json();
+  expect(ownList.memories.find(item => item.id === memory.id)).toMatchObject({ scope: "personal", isOwner: true });
+  const otherList = await (await get(`${path}?${q({ orgId: ORG })}`, sora)).json();
   expect(otherList.memories.map(item => item.id)).not.toContain(memory.id);
 
   const otherUpdate = await send("PUT", `${path}/${memory.id}`, sora, { orgId: ORG, id: memory.id, expectedVersion: memory.version, title: "Stolen", description: "", body: "Stolen", kind: "context" });
@@ -673,4 +675,8 @@ test('personal memories are owner-editable while shared mutations remain maker-o
   expect(sharedDelete.status).toBe(403);
   const makerUpdate = await send("PUT", "/hx/agents/" + agentId + "/memory/" + shared.id, mika, { orgId: ORG, id: shared.id, expectedVersion: shared.version, title: "Shared", description: "", body: "Changed by maker", kind: "context" });
   expect(makerUpdate.status).toBe(200);
+  const makerReview = await send("PUT", "/hx/agents/" + agentId + "/memory/" + shared.id + "/review", mika, { orgId: ORG, expectedVersion: shared.version + 1, evidence: "maker review", verdict: "keep" });
+  expect(makerReview.status).toBe(200);
+  const makerDelete = await call(`${path}?${q({ orgId: ORG, id: shared.id })}`, { method: "DELETE", headers: headers(mika) });
+  expect(makerDelete.status).toBe(200);
 });
