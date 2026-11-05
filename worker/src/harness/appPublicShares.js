@@ -51,7 +51,7 @@ export async function createPublicAppShare(db,orgId,appId,by,input){
  const encrypted=await sealField(token,context(orgId,appId),orgId);if(!isSealed(encrypted))return fail('Secure link storage is unavailable.',503);
  const dataScope=JSON.stringify(scope),createdAt=at();
  const statements=[
-  db.prepare('UPDATE hx_app_public_shares SET revoked_at=?3 WHERE org_id=?1 AND app_id=?2 AND revoked_at IS NULL').bind(orgId,appId,createdAt),
+  db.prepare('UPDATE hx_app_public_shares SET revoked_at=?3 WHERE org_id=?1 AND app_id=?2 AND revoked_at IS NULL AND COALESCE((SELECT version FROM hx_app_access WHERE org_id=?1 AND app_id=?2),0)=?4').bind(orgId,appId,createdAt,Number(input.accessVersion)),
   db.prepare('INSERT INTO hx_app_public_shares(id,org_id,app_id,token_hash,token_ciphertext,app_version,data_scope,created_by,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9 WHERE COALESCE((SELECT version FROM hx_app_access WHERE org_id=?2 AND app_id=?3),0)=?10').bind(id,orgId,appId,tokenHash,encrypted,version,dataScope,String(by),createdAt,Number(input.accessVersion))
  ];
  try{const result=await db.batch(statements);if(!result?.[1]?.meta?.changes)return fail('Sharing changed. Reload before creating a public link.',409)}catch{return fail('A public link changed concurrently. Reload and retry.',409)}
@@ -72,9 +72,11 @@ export async function readPublicAppShare(db,token,origin){
  if(!share)return fail('Not found.',404);
  let scope;let definition;try{scope=JSON.parse(share.dataScope);definition=JSON.parse(share.definition)}catch{return fail('Not found.',404)}
  if(!Array.isArray(scope)||!scope.length||scope.length>10)return fail('Not found.',404);
+ const related=await db.prepare('SELECT entity_key AS key,table_id AS tableId FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(share.orgId,share.appId).all();
+ const attached=new Map([['primary',share.tableId],...(related.results||[]).map(x=>[x.key,x.tableId])]);
  const entities=[];
  for(const selected of scope){
-  if(typeof selected?.tableId!=='string'||!Array.isArray(selected.fields)||!selected.fields.length)return fail('Not found.',404);
+  if(typeof selected?.tableId!=='string'||attached.get(selected?.entity)!==selected.tableId||!Array.isArray(selected.fields)||!selected.fields.length)return fail('Not found.',404);
   const table=await getTable(db,share.orgId,selected.tableId);if(!table)return fail('Not found.',404);
   const fields=selected.fields;
   const allowed=new Set((table.columns||[]).map(c=>c.id));if(fields.some(x=>!allowed.has(x)))return fail('Not found.',404);
