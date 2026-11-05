@@ -12,14 +12,15 @@ const inaccessible = () => new Response("not found", { status: 404, headers: {
 function trustedAvatarUrl(env, value) {
   let url;
   try { url = new URL(String(value || "")); } catch { return null; }
-  const localHttp = url.protocol === "http:" && /^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/i.test(url.hostname);
+  const localHttp = url.protocol === "http:" && /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(url.hostname);
   if (url.protocol !== "https:" && !localHttp) return null;
   if (url.username || url.password) return null;
   const allowed = new Set();
   const addOrigin = (raw) => {
     try {
       const candidate = new URL(String(raw || ""));
-      if (candidate.protocol === "https:" || (candidate.protocol === "http:" && /^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/i.test(candidate.hostname))) allowed.add(candidate.origin);
+      const candidateLocal = candidate.protocol === "http:" && /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(candidate.hostname);
+      if (candidate.protocol === "https:" || candidateLocal) allowed.add(candidate.origin);
     } catch { /* invalid config fails closed */ }
   };
   addOrigin(currentOrigin());
@@ -56,8 +57,9 @@ async function agentsForMedia(db, mediaId, agentId = "") {
 }
 
 export async function clientAgentAvatarUrl(env, orgId, agent, login) {
-  const mediaId = mediaIdFrom(agent?.avatarUrl);
-  if (!mediaId) return null;
+  const safeUrl = trustedAvatarUrl(env, agent?.avatarUrl);
+  const mediaId = mediaIdFrom(safeUrl?.toString());
+  if (!safeUrl || !mediaId) return null;
   const current = await currentAccess(env.DB, orgId, agent.id, login);
   const url = safeUrl;
   url.searchParams.set("agent", agent.id);
