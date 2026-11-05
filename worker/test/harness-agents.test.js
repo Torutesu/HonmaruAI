@@ -706,6 +706,7 @@ test("restricted Agent avatar URLs follow access, membership and revisions in Ha
   const denied = await call(protectedUrl.pathname + protectedUrl.search, { headers: {} }, keyed);
   expect(denied.status).toBe(404);
   expect(denied.headers.get("cache-control")).toBe("no-store");
-  expect(await denied.text()).not.toContain("Billy");
-  expect(await denied.text()).not.toContain(mediaId);
+  const deniedBody = await denied.text();
+  expect(deniedBody).not.toContain("Billy");
+  expect(deniedBody).not.toContain(mediaId);
 });
