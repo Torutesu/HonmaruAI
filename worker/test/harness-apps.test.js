@@ -666,6 +666,14 @@ test('custom runner has no external capabilities or authentication data', async 
   expect(policy).toContain('sandbox allow-scripts');
   expect(policy).not.toContain('allow-same-origin');
   expect(await response.text()).toContain('e.source===child.contentWindow');
+  const publicRunner = await call('/custom-app-runner?v=4&public=1');
+  const publicPolicy = publicRunner.headers.get('content-security-policy');
+  expect(publicPolicy).toContain("connect-src 'none'");
+  expect(publicPolicy).toContain("img-src data:");
+  expect(publicPolicy).toContain("frame-src 'none'");
+  expect(publicPolicy).toContain("form-action 'none'");
+  expect(publicPolicy).toContain("navigate-to 'none'");
+  expect(publicPolicy).toContain('sandbox allow-scripts');
 });
 
 test('pins synchronize across sessions and remain per-user', async () => {
@@ -2088,7 +2096,7 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   expect(html).not.toContain('RELATED_SECRET');
   expect(html).toContain('window.honmaru.read()');
   expect(html).not.toContain('NEW_VERSION');
-  expect(html).toContain('custom-app-runner?v=4');
+  expect(html).toContain('custom-app-runner?v=4&public=1');
   expect(html).toContain("type:'honmaru:request'");
   expect((await call(`/app-shares/${'a'.repeat(50)}`)).status).toBe(404);
 
