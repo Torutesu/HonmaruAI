@@ -2115,3 +2115,15 @@ test('approval write rechecks reviewer role after route authorization preflight'
   const fresh=await(await get(path,mika)).json();
   expect(fresh.approval.status).toBe('pending');
 });
+
+test('requester membership removal permanently revokes an approval',async()=>{
+ const {app,path}=await customApprovalFixture();
+ await requestCustomApproval(path,app.version);
+ const state=await(await get(path,mika)).json();
+ expect((await approveCustomRelease(path,state)).status).toBe(200);
+ await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9102'").bind(ORG).run();
+ const revoked=await env.DB.prepare("SELECT status FROM hx_app_publish_approvals WHERE id=?1").bind(state.approval.id).first();
+ expect(revoked.status).toBe('revoked');
+ await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES(?1,'9102','member',?2)").bind(ORG,new Date().toISOString()).run();
+ expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
+});
