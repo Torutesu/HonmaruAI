@@ -99,6 +99,23 @@ const overdueFlow = () => ({
   ],
 });
 
+test("a workflow run persists only the credential source selected at admission", async () => {
+  const { createWorkflow } = await import("../src/harness/workflows.js");
+  const { saveAISettings } = await import("../src/orgAI.js");
+  await saveAISettings(env.DB, ORG, { openaiKey: "sk-workspace-credential-source-test" }, "9302");
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: "Credential source snapshot", trigger: { type: "manual" },
+    steps: [{ type: "approval", to: "toru", title: "Credential source check" }],
+  }, "9302");
+  const run = await startRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
+    orgId: ORG, workflow, trigger: "manual", startedBy: "9302",
+  });
+  expect(run.status).toBe("waiting");
+  expect(run.credentialSource).toBe("workspace");
+  const stored = await env.DB.prepare("SELECT credential_source FROM hx_workflow_runs WHERE id=?1").bind(run.id).first();
+  expect(stored).toEqual({ credential_source: "workspace" });
+});
+
 test("a row turning overdue runs the workflow: it posts, waits on a person's approval, and goes on when approved", async () => {
   const made = await send("POST", "/workflows", mika, overdueFlow());
   expect(made.status).toBe(201);
