@@ -71,7 +71,7 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
 
   const state = await (await get(`/apps/${app.id}/custom?orgId=${ORG}`, toru)).json();
   const requested = await send('POST', `/apps/${app.id}/custom`, toru, {
-    action: 'request_commit_approval', version: importedBody.version,
+    action: 'request_commit_approval', version: importedBody.version, commit: importedBody.commit, sourceHash: importedBody.commit.sourceHash,
   });
   expect(requested.status).toBe(200);
   const approval = (await requested.json()).approval;
@@ -122,7 +122,7 @@ test('HTTP publish rejects branch movement after independent approval', async ()
   });
   const app = await makeApp();
   const imported = await (await importCommit(app)).json();
-  const request = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'request_commit_approval', version: imported.version });
+  const request = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'request_commit_approval', version: imported.version, commit: imported.commit, sourceHash: imported.commit.sourceHash });
   const approval = (await request.json()).approval;
   const review = await send('POST', `/apps/${app.id}/custom`, gina, {
     action: 'review_commit_approval', decision: 'approve', approvalId: approval.id, version: imported.version,
@@ -138,7 +138,7 @@ test('HTTP publish rejects a changed visibility scope and stale app revision', a
   vi.stubGlobal('fetch', githubFetch());
   const app = await makeApp();
   const imported = await (await importCommit(app)).json();
-  const request = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'request_commit_approval', version: imported.version });
+  const request = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'request_commit_approval', version: imported.version, commit: imported.commit, sourceHash: imported.commit.sourceHash });
   const approval = (await request.json()).approval;
   expect((await send('POST', `/apps/${app.id}/custom`, gina, {
     action: 'review_commit_approval', decision: 'approve', approvalId: approval.id, version: imported.version,
@@ -158,7 +158,7 @@ test('HTTP publish rejects a changed visibility scope and stale app revision', a
 
 
 test('stores and serves a maximum-size static asset as a D1 BLOB without base64 row expansion', async () => {
-  vi.stubGlobal('fetch',githubFetch({js:'x'.repeat(1_500_000)}));
+  vi.stubGlobal('fetch',githubFetch({html:'<script src="./app.js"></script>',js:'x'.repeat(1_500_000),css:''}));
   const app=await makeApp();
   const imported=await importCommit(app);
   expect(imported.status).toBe(200);
@@ -168,7 +168,7 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
   const at=new Date().toISOString();
   await env.DB.prepare(`INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at)
     VALUES(?1,?2,'max-asset.example','active','9101',?3,?3)`).bind(ORG,app.id,at).run();
-  const approval=(await (await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:data.version})).json()).approval;
+  const approval=(await (await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:data.version,commit:data.commit,sourceHash:data.commit.sourceHash})).json()).approval;
   expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:data.version,commitSha,sourceHash:data.commit.sourceHash})).status).toBe(200);
   expect((await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:data.version,approvalId:approval.id})).status).toBe(200);
   const served=await call(`/app-commit-assets/${app.id}/${commitSha}/${data.commit.assetToken}/app.js`);
