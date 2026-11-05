@@ -11,6 +11,14 @@ export const MAX_COLUMNS = 40;
 export const MAX_ROWS = 5000;
 export const MAX_TABLES_PER_ORG = 200;
 
+const liveAppTableGuard = (org, table) => `NOT EXISTS(
+  SELECT 1 FROM hx_apps removed
+  WHERE removed.org_id=${org} AND removed.deleted_at IS NOT NULL
+    AND (removed.table_id=${table} OR EXISTS(
+      SELECT 1 FROM hx_app_entities entity
+      WHERE entity.org_id=removed.org_id AND entity.app_id=removed.id AND entity.table_id=${table}
+    ))
+)`;
 const newId = (prefix) => `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 const now = () => new Date().toISOString();
 
@@ -275,7 +283,7 @@ export async function addRow(db, orgId, tableId, values, by, validation) {
   const schemaParam = 8 + relationGuard.binds.length;
   const inserted = await db
     .prepare(`INSERT INTO hx_rows (id, table_id, org_id, data, position, created_by, updated_by, created_at, updated_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7 WHERE (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?2 AND org_id=?3 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2})`)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7 WHERE (${relationGuard.sql}) AND ${liveAppTableGuard('?3','?2')} AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?2 AND org_id=?3 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2})`)
     .bind(id, tableId, orgId, JSON.stringify(storedValues), Number(count?.p || 0) + 1, String(by), at, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt)
     .run();
   if (!inserted.meta?.changes) return { error: 'The table schema or a linked record changed before this record could be saved. Reload and try again.', status: 409 };
@@ -302,7 +310,7 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
   const at = new Date(Math.max(Date.now(), Date.parse(before.updatedAt) + 1)).toISOString();
   const schemaParam = 8 + relationGuard.binds.length;
   const changed = await db
-    .prepare(`UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 AND (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?5 AND org_id=?6 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) RETURNING *`)
+    .prepare(`UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 AND (${relationGuard.sql}) AND ${liveAppTableGuard('?6','?5')} AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?5 AND org_id=?6 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) RETURNING *`)
     .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt)
     .first();
   if (!changed) return rowConflict();
@@ -319,7 +327,7 @@ export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt) {
   if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) return rowConflict();
   if (await hasAppRelationsToRow(db, orgId, tableId, rowId)) return { error: 'This record is linked from another app record. Remove that link before deleting it.', status: 409 };
   const relationGuard = await appRelationDeleteGuard(db, orgId, tableId, 5);
-  const deleted = await db.prepare(`DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 AND (${relationGuard.sql}) RETURNING id`).bind(rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds).first();
+  const deleted = await db.prepare(`DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 AND (${relationGuard.sql}) AND ${liveAppTableGuard('?3','?2')} RETURNING id`).bind(rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds).first();
   if (!deleted) {
     if (await hasAppRelationsToRow(db, orgId, tableId, rowId)) return { error: 'This record is linked from another app record. Remove that link before deleting it.', status: 409 };
     return rowConflict();

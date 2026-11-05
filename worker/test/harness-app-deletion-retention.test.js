@@ -20,17 +20,17 @@ async function seedApp() {
     .bind(TABLE, ORG, USER, at).run();
   await env.DB.prepare("INSERT INTO hx_tables (id,org_id,name,columns,created_by,created_at,updated_at) VALUES (?1,?2,'Related records','[]',?3,?4,?4)")
     .bind(ENTITY_TABLE, ORG, USER, at).run();
-  await env.DB.prepare("INSERT INTO hx_apps (id,org_id,name,description,icon,table_id,version,definition,created_by,created_at,updated_at) VALUES (?1,?2,'Records','retention fixture','grid',?3,2,'{\\"views\\":[]}',?4,?5,?5)")
+  await env.DB.prepare("INSERT INTO hx_apps (id,org_id,name,description,icon,table_id,version,definition,created_by,created_at,updated_at) VALUES (?1,?2,'Records','retention fixture','grid',?3,2,'{\"views\":[]}',?4,?5,?5)")
     .bind(APP, ORG, TABLE, USER, at).run();
   await env.DB.prepare("INSERT INTO hx_app_access (org_id,app_id,visibility,version) VALUES (?1,?2,'workspace',1)")
     .bind(ORG, APP).run();
-  await env.DB.prepare("INSERT INTO hx_app_versions (app_id,org_id,version,definition,note,created_by,created_at) VALUES (?1,?2,1,'{\\"views\\":[]}','original',?3,?4)")
+  await env.DB.prepare("INSERT INTO hx_app_versions (app_id,org_id,version,definition,note,created_by,created_at) VALUES (?1,?2,1,'{\"views\":[]}','original',?3,?4)")
     .bind(APP, ORG, USER, at).run();
   await env.DB.prepare("INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) VALUES (?1,?2,'related',?3)")
     .bind(ORG, APP, ENTITY_TABLE).run();
-  await env.DB.prepare("INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES (?1,?2,?3,'{\\"title\\":\\"Primary\\"}',0,?4,?4,?5,?5)")
+  await env.DB.prepare("INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES (?1,?2,?3,'{\"title\":\"Primary\"}',0,?4,?4,?5,?5)")
     .bind("retention-row-primary", TABLE, ORG, USER, at).run();
-  await env.DB.prepare("INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES (?1,?2,?3,'{\\"parent\\":\\"retention-row-primary\\"}',0,?4,?4,?5,?5)")
+  await env.DB.prepare("INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES (?1,?2,?3,'{\"parent\":\"retention-row-primary\"}',0,?4,?4,?5,?5)")
     .bind("retention-row-related", ENTITY_TABLE, ORG, USER, at).run();
   await env.DB.prepare("INSERT INTO hx_app_links (app_id,org_id,channel,created_by,created_at) VALUES (?1,?2,'b:ops',?3,?4)")
     .bind(APP, ORG, USER, at).run();
@@ -38,9 +38,9 @@ async function seedApp() {
     .bind(ORG, APP, USER).run();
   await env.DB.prepare("INSERT INTO hx_app_env_vars (org_id,app_id,name,value,version,updated_by,updated_at) VALUES (?1,?2,'API_KEY','secret-value',1,?3,?4)")
     .bind(ORG, APP, USER, at).run();
-  await env.DB.prepare("INSERT INTO hx_workflows (id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at) VALUES (?1,?2,'Managed automation',1,'{\\"type\\":\\"manual\\"}','[]',?3,?4,?4)")
+  await env.DB.prepare("INSERT INTO hx_workflows (id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at) VALUES (?1,?2,'Managed automation',1,'{\"type\":\"manual\"}','[]',?3,?4,?4)")
     .bind(WORKFLOW, ORG, USER, at).run();
-  await env.DB.prepare("INSERT INTO hx_app_automation_state (org_id,app_id,revision,draft,published,release_id,published_at,updated_at,updated_by) VALUES (?1,?2,1,'{\\"items\\":[]}','{\\"items\\":[{\\"key\\":\\"main\\",\\"enabled\\":true}]}','release-1',?3,?3,?4)")
+  await env.DB.prepare("INSERT INTO hx_app_automation_state (org_id,app_id,revision,draft,published,release_id,published_at,updated_at,updated_by) VALUES (?1,?2,1,'{\"items\":[]}','{\"items\":[{\"key\":\"main\",\"enabled\":true}]}','release-1',?3,?3,?4)")
     .bind(ORG, APP, at, USER).run();
   await env.DB.prepare("INSERT INTO hx_app_automation_bindings (org_id,app_id,declaration_key,workflow_id,applied,release_id) VALUES (?1,?2,'main',?3,'{}','release-1')")
     .bind(ORG, APP, WORKFLOW).run();
@@ -92,7 +92,7 @@ test("App deletion retains its database, entity relations, history and room link
 });
 
 test.each(["running", "waiting"])("App deletion is refused atomically while a managed run is %s", async status => {
-  await env.DB.prepare("INSERT INTO hx_workflow_runs (id,org_id,workflow_id,trigger,status,log,next_step,started_by,started_at) VALUES ('active-run',?1,?2,'{\\"type\\":\\"manual\\"}',?3,'[]',0,?4,?5)")
+  await env.DB.prepare("INSERT INTO hx_workflow_runs (id,org_id,workflow_id,trigger,status,log,next_step,started_by,started_at) VALUES ('active-run',?1,?2,'{\"type\":\"manual\"}',?3,'[]',0,?4,?5)")
     .bind(ORG, WORKFLOW, status, USER, at).run();
 
   const result = await deleteApp(env.DB, ORG, APP);
