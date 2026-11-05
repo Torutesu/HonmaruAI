@@ -409,8 +409,12 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
 /// The agents a person can call, for the @ menu and for colouring a
 /// mention: the team's, their own, and any added to a channel they can
 /// read — with those channels, as they see them.
-async function callableAgents(db, orgId, login, members) {
-  const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope });
+async function callableAgents(env, db, orgId, login, members) {
+  const face = async (a) => ({
+    id: a.id, handle: a.handle, name: a.name, emoji: a.emoji,
+    avatarUrl: await clientAgentAvatarUrl(env, orgId, a, login),
+    description: a.description, scope: a.scope,
+  });
   const own = await listAgents(db, orgId, login);
   const ownIds = new Set(own.map((agent) => agent.id));
   const placed = await agentChannels(db, orgId);
@@ -429,12 +433,12 @@ async function callableAgents(db, orgId, login, members) {
       || (await filterResponders(db, orgId, login, [agent], { channel: visible[0].key })).length > 0;
     if (callable) channelsOf.set(agent.id, { agent, views: visible.map(({ view }) => view) });
   }
-  const out = own.map((a) => ({ ...face(a), channels: channelsOf.get(a.id)?.views || [] }));
+  const out = await Promise.all(own.map(async (a) => ({ ...await face(a), channels: channelsOf.get(a.id)?.views || [] })));
   const handles = new Set(own.map((a) => a.handle));
   for (const { agent, views } of channelsOf.values()) {
     if (out.some((a) => a.id === agent.id) || handles.has(agent.handle)) continue;
     // Callable only where it was added.
-    out.push({ ...face(agent), channels: views, placed: true });
+    out.push({ ...await face(agent), channels: views, placed: true });
   }
   return out;
 }
@@ -886,7 +890,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       }))),
       maxChars: MAX_MESSAGE_CHARS,
       // The agents you can call here: the team's and your own.
-      agents: await callableAgents(env.DB, orgId, who.user.login, members),
+      agents: await callableAgents(env, env.DB, orgId, who.user.login, members),
       // Where you are up to in each conversation, from whichever device.
       reads: Object.fromEntries(Object.entries(positions).map(([key,state])=>[key,state.lastReadAt])),
       readVersions: Object.fromEntries(Object.entries(positions).map(([key,state])=>[key,state.readVersion])),
