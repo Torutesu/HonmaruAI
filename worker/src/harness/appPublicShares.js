@@ -27,6 +27,8 @@ export async function publicShareOptions(db,orgId,appId){
 export async function createPublicAppShare(db,orgId,appId,by,input){
  if(input.publicDataConfirmed!==true)return fail('Confirm that anyone with the link can read the selected fields.',409);
  const app=await getApp(db,orgId,appId);if(!app)return fail('No such app.',404);
+ const access=await db.prepare('SELECT visibility,version FROM hx_app_access WHERE org_id=?1 AND app_id=?2').bind(orgId,appId).first();
+ if(!Number.isSafeInteger(input.accessVersion)||Number(input.accessVersion)!==Number(access?.version||0))return fail('Sharing changed. Reload before creating a public link.',409);
  const current=await db.prepare('SELECT version,definition FROM hx_app_versions WHERE org_id=?1 AND app_id=?2 ORDER BY version DESC LIMIT 1').bind(orgId,appId).first();
  const version=Number(current?.version||0);if(!version)return fail('Publish a version before making a public link.',409);
  let pinned;try{pinned=JSON.parse(current.definition||'{}')}catch{return fail('The saved app version is invalid.',409)}
