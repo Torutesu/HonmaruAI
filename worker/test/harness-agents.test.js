@@ -9,7 +9,7 @@ import { rememberRequest, modelForTier, filterResponders } from "../src/harness/
 // of its own, skills, who may call it, and whether it waits to be named.
 
 const ORG = "personal:hxagents";
-let toru, mika, kenji;
+let toru, mika, kenji, sora;
 const pending = [];
 const ctx = { waitUntil: (p) => pending.push(p) };
 const settle = async () => { while (pending.length) await pending.shift(); };
@@ -28,7 +28,7 @@ let agentId;
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership, upsertBusiness } = await import("../src/db.js");
-  for (const [id, login, name, role] of [["9201", "toru", "Toru", "admin"], ["9202", "mika", "Mika", "member"], ["9203", "kenji", "Kenji", "member"]]) {
+  for (const [id, login, name, role] of [["9201", "toru", "Toru", "admin"], ["9202", "mika", "Mika", "member"], ["9203", "kenji", "Kenji", "member"], ["9204", "sora", "Sora", "member"]]) {
     await upsertUser(env.DB, { githubId: id, login, name, avatarUrl: null, locale: "en" });
     await upsertMembership(env.DB, ORG, id, role);
   }
@@ -36,6 +36,7 @@ beforeEach(async () => {
   toru = await createSession(env.DB, "9201", "gho_t");
   mika = await createSession(env.DB, "9202", "gho_m");
   kenji = await createSession(env.DB, "9203", "gho_k");
+  sora = await createSession(env.DB, "9204", "gho_s");
   fetchMock.activate();
   // Everything here is the harness's; a simple workspace's agents are
   // untouched (the last test).
@@ -127,7 +128,7 @@ test("an agent that speaks only when named stays out of a thread it would only b
   const asked = (await sent.json()).message;
   await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, mentionOnly: true });
   await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:ops", body: "and which is the oldest?", parentId: asked.id }, MODEL);
-  const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:ops", messageId: asked.id })}`, mika)).json();
+  const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:ops", messageId: asked.id })}`, sora)).json();
   expect(thread.replies.filter((r) => r.kind === "agent")).toHaveLength(1);
 });
 
@@ -638,4 +639,38 @@ test('an active normal request loses authorization when agent access becomes pri
  expect(await authorize(agentId)).toBe(true);
  await send('PUT',`/hx/agents/${agentId}/profile`,mika,{orgId:ORG,access:'private'});
  expect(await authorize(agentId)).toBe(false);
+});
+
+test('personal memories are owner-editable while shared mutations remain maker-only', async () => {
+  const path = `/hx/agents/${agentId}/memory`;
+  const created = await send("POST", path, kenji, { orgId: ORG, title: "Private", description: "", body: "Only Kenji", kind: "context", scope: "personal" });
+  expect(created.status).toBe(201);
+  const memory = (await created.json()).memory;
+  expect(memory).toMatchObject({ scope: "personal", isOwner: true });
+  const otherList = await (await get(`${path}?${q({ orgId: ORG })}`, mika)).json();
+  expect(otherList.memories.map(item => item.id)).not.toContain(memory.id);
+
+  const otherUpdate = await send("PUT", `${path}/${memory.id}`, sora, { orgId: ORG, id: memory.id, expectedVersion: memory.version, title: "Stolen", description: "", body: "Stolen", kind: "context" });
+  expect(otherUpdate.status).toBe(403);
+  const otherReview = await send("PUT", `${path}/${memory.id}/review`, sora, { orgId: ORG, expectedVersion: memory.version, evidence: "no", verdict: "keep" });
+  expect(otherReview.status).toBe(403);
+  const otherDelete = await call(`${path}?${q({ orgId: ORG, id: memory.id })}`, { method: "DELETE", headers: headers(sora) });
+  expect(otherDelete.status).toBe(403);
+
+  const ownReview = await send("PUT", "/hx/agents/" + agentId + "/memory/" + memory.id + "/review", kenji, { orgId: ORG, expectedVersion: memory.version, evidence: "Reviewed privately", verdict: "keep" });
+  expect(ownReview.status).toBe(200);
+  const ownUpdate = await send("PUT", `${path}/${memory.id}`, kenji, { orgId: ORG, id: memory.id, expectedVersion: memory.version, title: "Private", description: "", body: "Updated privately", kind: "context" });
+  expect(ownUpdate.status).toBe(200);
+  const ownDelete = await call(`${path}?${q({ orgId: ORG, id: memory.id })}`, { method: "DELETE", headers: headers(kenji) });
+  expect(ownDelete.status).toBe(200);
+
+  const shared = (await (await send("POST", path, kenji, { orgId: ORG, title: "Shared", description: "", body: "Shared note", kind: "context", scope: "shared" })).json()).memory;
+  const sharedUpdate = await send("PUT", `${path}/${shared.id}`, kenji, { orgId: ORG, id: shared.id, expectedVersion: shared.version, title: "Shared", description: "", body: "Changed", kind: "context" });
+  expect(sharedUpdate.status).toBe(403);
+  const sharedReview = await send("PUT", "/hx/agents/" + agentId + "/memory/" + shared.id + "/review", kenji, { orgId: ORG, expectedVersion: shared.version, evidence: "not allowed", verdict: "keep" });
+  expect(sharedReview.status).toBe(403);
+  const sharedDelete = await call(`${path}?${q({ orgId: ORG, id: shared.id })}`, { method: "DELETE", headers: headers(kenji) });
+  expect(sharedDelete.status).toBe(403);
+  const makerUpdate = await send("PUT", "/hx/agents/" + agentId + "/memory/" + shared.id, mika, { orgId: ORG, id: shared.id, expectedVersion: shared.version, title: "Shared", description: "", body: "Changed by maker", kind: "context" });
+  expect(makerUpdate.status).toBe(200);
 });
