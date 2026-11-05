@@ -14,6 +14,8 @@ import { parseKeywords, keywordHit } from "./quiet.js";
 import { messageLanguage } from "./translate.js";
 import { mirrorIds } from "./store/mirror.js";
 import { mayAccessAgent } from "./harness/agents.js";
+import { clientAgentAvatarUrl } from "./agentAvatarAccess.js";
+import { mediaEnv } from "./mediaToken.js";
 
 // Channels you can talk in.
 //
@@ -282,7 +284,7 @@ async function agentsOf(db, orgId, rows) {
   const out = new Map();
   if (!ids.length) return out;
   const { results } = await db.prepare(
-    `SELECT id, handle, name, emoji, avatar_url FROM custom_agents WHERE org_id = ?1 AND id IN (${ids.slice(0, 90).map((_, i) => `?${i + 2}`).join(", ")})`
+    `SELECT id, handle, name, emoji, avatar_url, scope, owner_login FROM custom_agents WHERE org_id = ?1 AND id IN (${ids.slice(0, 90).map((_, i) => `?${i + 2}`).join(", ")})`
   ).bind(orgId, ...ids.slice(0, 90)).all().catch(() => ({ results: [] }));
   for (const r of results || []) out.set(`agent:${r.id}`, r);
   return out;
@@ -353,7 +355,14 @@ export async function present(db, orgId, rows, viewerLogin, view, members) {
     const x = extras.get(r.id) || {};
     const replyRefs = (x.replyLogins || []).map((l) => (l === "ai" || String(l).startsWith("agent:") ? l : members.find((m) => m.login === l)?.ref)).filter(Boolean).slice(0, 5);
     const own = await Promise.all((files.get(r.id) || []).map((f) => toFile(db, f, now)));
-    return toMessage(r, viewerLogin, typeof view === "function" ? view(r) : view, members, { ...x, replyRefs, files: own, agent: agents.get(r.author_login) || null, original: originals.get(r.reply_to_id) || null, threadParent: r.also_channel ? originals.get(r.parent_id) || null : null });
+    const sourceAgent = agents.get(r.author_login) || null;
+    const agent = sourceAgent ? {
+      ...sourceAgent,
+      avatar_url: null,
+      avatarUrl: await clientAgentAvatarUrl(mediaEnv() || { DB: db }, orgId,
+        { ...sourceAgent, ownerLogin: sourceAgent.owner_login }, viewerLogin),
+    } : null;
+    return toMessage(r, viewerLogin, typeof view === "function" ? view(r) : view, members, { ...x, replyRefs, files: own, agent, original: originals.get(r.reply_to_id) || null, threadParent: r.also_channel ? originals.get(r.parent_id) || null : null });
   }));
 }
 
