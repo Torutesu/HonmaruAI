@@ -37,7 +37,7 @@ beforeEach(async()=>{
  await setMode(env.DB,orgId,'harness','url-owner');
 });
 
-test('media URLs reuse a current-version link, publish later versions, expose one-day immutable cache headers, and rotate on file-wide revoke',async()=>{
+test('media URLs reuse a current-version link, publish later versions, prevent caching, and rotate on file-wide revoke',async()=>{
  const file=await makeFile({bytes:'image-version-1'});
  const noKey=await call(`/hx/files/${file.id}/public-url`,'POST',{},ownerToken,{...secureEnv,DATA_KEY:undefined});
  expect(noKey.status).toBe(503);
@@ -47,8 +47,9 @@ test('media URLs reuse a current-version link, publish later versions, expose on
  const same=await call(`/hx/files/${file.id}/public-url`,'POST',{});expect(same.status).toBe(200);expect(await same.json()).toMatchObject({url:first.url,reused:true});
  const token1=new URL(first.url).pathname.split('/').at(-1);
  const response=await publicRead(token1);expect(response.status).toBe(200);
- expect(response.headers.get('cache-control')).toBe('public, max-age=86400, s-maxage=86400, immutable');
- expect(response.headers.get('cdn-cache-control')).toBe('public, max-age=86400, immutable');
+ expect(response.headers.get('cache-control')).toBe('no-store');
+ expect(response.headers.get('cdn-cache-control')).toBe('no-store');
+ expect(response.headers.get('cloudflare-cdn-cache-control')).toBe('no-store');
  expect(new TextDecoder().decode(await response.arrayBuffer())).toBe(file.bytes);
  const head=await publicRead(token1,{method:'HEAD'});expect(head.status).toBe(200);expect(await head.text()).toBe('');
  expect((await publicRead(token1,{}, {...secureEnv,FILE_SIGNING_KEY:btoa('z'.repeat(32))})).status).toBe(200);
@@ -61,7 +62,7 @@ test('media URLs reuse a current-version link, publish later versions, expose on
  expect(new TextDecoder().decode(await (await publicRead(token2)).arrayBuffer())).toBe(second.bytes);
 
  const revoked=await call(`/hx/files/${file.id}/public-url`,'DELETE',{});expect(revoked.status).toBe(200);expect(await revoked.json()).toMatchObject({revoked:true,count:2});
- for(const token of [token1,token2]){const gone=await publicRead(token);expect(gone.status).toBe(404);expect(gone.headers.get('cache-control')).toBe('no-store');}
+ for(const token of [token1,token2]){const gone=await publicRead(token);expect(gone.status).toBe(404);expect(gone.headers.get('cache-control')).toBe('no-store');expect(gone.headers.get('cdn-cache-control')).toBe('no-store');expect(gone.headers.get('cloudflare-cdn-cache-control')).toBe('no-store');}
  const replacement=await call(`/hx/files/${file.id}/public-url`,'POST',{});expect(replacement.status).toBe(201);
  const third=await replacement.json();expect(third.version).toBe(2);expect(third.url).not.toBe(secondResult.url);
  expect(await publicRead(token2).then(x=>x.status)).toBe(404);
