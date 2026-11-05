@@ -11,13 +11,14 @@ import { joined, message } from "./helpers.js";
 // in either mode.
 
 const ORG = "personal:harness";
-let toru, mika, guest, outsider;
-const call = (path, init) => worker.fetch(new Request("https://example.com" + path, init), { ...env });
+let toru, mika, guest, outsider, testDataKey = null;
+const call = (path, init) => worker.fetch(new Request("https://example.com" + path, init), { ...env, ...(testDataKey ? { DATA_KEY: testDataKey } : {}) });
 const headers = (token) => ({ "content-type": "application/json", "x-session-token": token });
 const get = (path, token) => call(path, { headers: headers(token) });
 const send = (method, path, token, body) => call(path, { method, headers: headers(token), body: JSON.stringify(body) });
 
 beforeEach(async () => {
+  testDataKey = null;
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "9101", login: "toru", name: "Toru", avatarUrl: null, locale: "ja" });
@@ -666,6 +667,14 @@ test('custom runner has no external capabilities or authentication data', async 
   expect(policy).toContain('sandbox allow-scripts');
   expect(policy).not.toContain('allow-same-origin');
   expect(await response.text()).toContain('e.source===child.contentWindow');
+  const publicRunner = await call('/custom-app-runner?v=4&public=1');
+  const publicPolicy = publicRunner.headers.get('content-security-policy');
+  expect(publicPolicy).toContain("connect-src 'none'");
+  expect(publicPolicy).toContain("img-src data:");
+  expect(publicPolicy).toContain("frame-src 'none'");
+  expect(publicPolicy).toContain("form-action 'none'");
+  expect(publicPolicy).toContain("navigate-to 'none'");
+  expect(publicPolicy).toContain('sandbox allow-scripts');
 });
 
 test('pins synchronize across sessions and remain per-user', async () => {
@@ -2028,4 +2037,216 @@ test('combined automation release rejects an oversized draft without changing th
  draft=await saveCustomRelease(env.DB,ORG,current,{action:'draft',version:current.version,html:'x'.repeat(MAX_PREVIEW_SOURCE)},'9101');
  result=await f.release({action:'publish',requestId:'guard_boundary_src01',version:draft.version,revision:alone.revision,includeSource:true});expect(result.saved).toBe(true);
  current=await getApp(env.DB,ORG,f.app.id);expect(current.definition.custom.published.length).toBe(MAX_PREVIEW_SOURCE);
+});
+
+
+test('public custom app links are version-pinned, field-scoped, read-only and revocable', async () => {
+  testDataKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
+  const { createTable, addRow, getTable } = await import('../src/harness/tables.js');
+  const made = await send('POST', '/apps', toru, { orgId: ORG, name: 'Public report', columns: [{ name: 'Title', type: 'text' }, { name: 'Secret', type: 'text' }], sample: false });
+  expect(made.status).toBe(201);
+  const { app } = await made.json();
+  const primary = await getTable(env.DB, ORG, app.tableId);
+  const relatedMade = await createTable(env.DB, { orgId: ORG, name: 'Customers', columns: [{ name: 'Name', type: 'text' }, { name: 'Internal note', type: 'text' }], by: '9101' });
+  await env.DB.prepare('INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES(?1,?2,?3,?4)').bind(ORG, app.id, 'customers', relatedMade.table.id).run();
+  const primaryRow = await addRow(env.DB, ORG, app.tableId, { [primary.columns[0].id]: 'Public title', [primary.columns[1].id]: 'PRIMARY_SECRET' }, '9101');
+  const relatedRow = await addRow(env.DB, ORG, relatedMade.table.id, { [relatedMade.table.columns[0].id]: 'Public customer', [relatedMade.table.columns[1].id]: 'RELATED_SECRET' }, '9101');
+  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)").bind(ORG, app.id).run();
+
+  const noCustom = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, accessVersion: 1, entities: [{ entity: 'primary', fields: [primary.columns[0].id] }], publicDataConfirmed: true });
+  expect(noCustom.status).toBe(409);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_public_shares WHERE app_id=?1').bind(app.id).first()).toEqual({ n: 0 });
+
+  const version = await env.DB.prepare('SELECT definition FROM hx_app_versions WHERE org_id=?1 AND app_id=?2 AND version=1').bind(ORG, app.id).first();
+  const definition = JSON.parse(version.definition);
+  definition.custom = { published: 'window.honmaru.read().then(({rows})=>document.body.textContent=rows[0].values.title)' };
+  await env.DB.prepare('UPDATE hx_app_versions SET definition=?1 WHERE org_id=?2 AND app_id=?3 AND version=1').bind(JSON.stringify(definition), ORG, app.id).run();
+
+  const options = await (await get(`/apps/${app.id}/public-shares?orgId=${ORG}`, toru)).json();
+  expect(options.entities.map(x => x.key)).toEqual(['primary', 'customers']);
+  const created = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, accessVersion: 1, entities: [
+    { entity: 'primary', fields: [primary.columns[0].id] },
+    { entity: 'customers', fields: [relatedMade.table.columns[0].id] },
+  ], publicDataConfirmed: true });
+  expect(created.status).toBe(201);
+  const { share } = await created.json();
+  const token = share.url.split('/').at(-1);
+  const capturedLogs = [];
+  const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => capturedLogs.push(args.join(' ')));
+  try {
+    const publicRead = await call(`/app-shares/${token}`);
+    expect(publicRead.status).toBe(200);
+  } finally {
+    logSpy.mockRestore();
+  }
+  expect(capturedLogs.join('\\n')).toContain('GET /app-shares/:token');
+  expect(capturedLogs.join('\\n')).not.toContain(token);
+  expect(share.appVersion).toBe(1);
+  expect(share.dataScope).toEqual(expect.arrayContaining([
+    expect.objectContaining({ entity: 'primary', tableId: app.tableId }),
+    expect.objectContaining({ entity: 'customers', tableId: relatedMade.table.id }),
+  ]));
+
+  const staleCreate = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, accessVersion: 0, entities: [{ entity: 'primary', fields: [primary.columns[0].id] }], publicDataConfirmed: true });
+  expect(staleCreate.status).toBe(409);
+  expect((await call(`/app-shares/${token}`)).status).toBe(200);
+  const staleSave = await send('PUT', `/apps/${app.id}/access`, toru, { orgId: ORG, visibility: 'workspace', version: 0 });
+  expect(staleSave.status).toBe(409);
+  expect((await call(`/app-shares/${token}`)).status).toBe(200);
+
+  const newerDefinition = { ...definition, custom: { published: 'window.honmaru.read().then(()=>document.body.textContent="NEW_VERSION")' } };
+  await env.DB.prepare('INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at) VALUES(?1,?2,2,?3,?4,?5,?6)').bind(app.id, ORG, JSON.stringify(newerDefinition), 'new version', '9101', '2026-01-02T00:00:00Z').run();
+
+  const access = await (await get(`/apps/${app.id}/access?orgId=${ORG}`, toru)).json();
+  expect(access.access).toMatchObject({ visibility: 'private', version: 1 });
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(404);
+
+  const response = await call(`/app-shares/${token}`);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+  expect(response.headers.get('content-security-policy')).toContain("connect-src 'none'");
+  expect(response.headers.get('content-security-policy')).toContain("frame-src 'self'");
+  const html = await response.text();
+  expect(html).toContain('Public title');
+  expect(html).toContain('Public customer');
+  expect(html).not.toContain('PRIMARY_SECRET');
+  expect(html).not.toContain('RELATED_SECRET');
+  expect(html).not.toContain(primaryRow.row.id);
+  expect(html).not.toContain(relatedRow.row.id);
+  expect(html).toContain('values');
+  expect(html).toContain('window.honmaru.read()');
+  expect(html).not.toContain('NEW_VERSION');
+  expect(html).toContain('custom-app-runner?v=4&public=1');
+
+  const rebound = await createTable(env.DB, { orgId: ORG, name: 'Replacement customers', columns: [{ name: 'Name', type: 'text' }, { name: 'Internal note', type: 'text' }], by: '9101' });
+  await addRow(env.DB, ORG, rebound.table.id, { [rebound.table.columns[0].id]: 'REBOUND_CUSTOMER', [rebound.table.columns[1].id]: 'REBOUND_SECRET' }, '9101');
+  await env.DB.prepare('UPDATE hx_app_entities SET table_id=?1 WHERE org_id=?2 AND app_id=?3 AND entity_key=?4').bind(rebound.table.id, ORG, app.id, 'customers').run();
+  expect((await call(`/app-shares/${token}`)).status).toBe(404);
+  await env.DB.prepare('UPDATE hx_app_entities SET table_id=?1 WHERE org_id=?2 AND app_id=?3 AND entity_key=?4').bind(relatedMade.table.id, ORG, app.id, 'customers').run();
+  expect((await call(`/app-shares/${token}`)).status).toBe(200);
+
+  expect((await call(`/app-shares/${'a'.repeat(50)}`)).status).toBe(404);
+  const revoked = await call(`/apps/${app.id}/public-shares?orgId=${ORG}&shareId=${share.id}`, { method: 'DELETE', headers: headers(toru) });
+  expect(revoked.status).toBe(200);
+  expect((await call(`/app-shares/${token}`)).status).toBe(404);
+  const after = await (await get(`/apps/${app.id}/access?orgId=${ORG}`, toru)).json();
+  expect(after.access.visibility).toBe('private');
+});
+
+test('custom domains require explicit whole-app consent bound to each attachment', async () => {
+  const made = await send('POST', '/apps', toru, {
+    orgId: ORG, name: 'Domain report', columns: [{ name: 'Name', type: 'text' }], sample: false,
+  });
+  expect(made.status).toBe(201);
+  const { app } = await made.json();
+  const { getTable, addRow } = await import('../src/harness/tables.js');
+  const { getApp } = await import('../src/harness/apps.js');
+  const { saveCustomRelease } = await import('../src/harness/customApps.js');
+  const table = await getTable(env.DB, ORG, app.tableId);
+  await addRow(env.DB, ORG, app.tableId, { [table.columns[0].id]: 'FULL_DOMAIN_RECORD' }, '9101');
+  let current = await getApp(env.DB, ORG, app.id);
+  await saveCustomRelease(env.DB, ORG, current, { action: 'draft', version: current.version, html: '<main>WHOLE_APP_UI</main>' }, '9101');
+  current = await getApp(env.DB, ORG, app.id);
+  await saveCustomRelease(env.DB, ORG, current, { action: 'publish', version: current.version }, '9101');
+  const policy = await send('PUT', `/apps/${app.id}/access`, toru, { orgId: ORG, visibility: 'private', version: 0 });
+  expect(policy.status).toBe(200);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(404);
+
+  const hostname = 'whole-app.example.com';
+  const envForDomain = {
+    ...env, CF_ACCOUNT_ID: 'test-account', CF_PAGES_PROJECT: 'honmaru-web',
+    PAGES_DOMAINS_API_TOKEN: 'test-pages-token', ENABLE_APP_DOMAINS: '1',
+  };
+  const domainCall = async (path, token, { method = 'GET', body } = {}, requestEnv = envForDomain) => worker.fetch(new Request(`https://example.com${path}`, {
+    method,
+    headers: { 'content-type': 'application/json', ...(token ? { 'x-session-token': token } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  }), requestEnv);
+  const route = `/apps/${app.id}/hosting?orgId=${ORG}`;
+  const body = (action, publicDataConfirmed) => ({ orgId: ORG, action, hostname, ...(publicDataConfirmed === undefined ? {} : { publicDataConfirmed }) });
+
+  // An active hostname without this attachment's receipt must fail closed.
+  const attachedAt = '2026-01-01T00:00:00.000Z';
+  await env.DB.prepare("INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at) VALUES(?1,?2,?3,'active','9101',?4,?4)")
+    .bind(ORG, app.id, hostname, attachedAt).run();
+  expect((await domainCall(`/app-domains/resolve?host=${hostname}`)).status).toBe(404);
+  await env.DB.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).run();
+
+  const originalFetch = globalThis.fetch;
+  const providerCalls = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.url);
+    if (url.hostname === 'api.cloudflare.com') {
+      providerCalls.push({ method: init.method, url: url.pathname });
+      const result = init.method === 'POST'
+        ? { status: 'active', validation_data: { status: 'active' }, verification_data: { status: 'active' } }
+        : init.method === 'GET' ? [] : {};
+      return new Response(JSON.stringify({ success: true, result }), { headers: { 'content-type': 'application/json' } });
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    const unconfirmed = await domainCall(route, toru, { method: 'POST', body: body('attach', false) });
+    expect(unconfirmed.status).toBe(409);
+    expect(providerCalls).toHaveLength(0);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+
+    const attached = await domainCall(route, toru, { method: 'POST', body: body('attach', true) });
+    expect(attached.status).toBe(200);
+    const receipt = await env.DB.prepare('SELECT hostname,domain_created_at AS domainCreatedAt,confirmed_by AS confirmedBy,confirmed_at AS confirmedAt,confirmation_version AS confirmationVersion FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first();
+    expect(receipt).toMatchObject({ hostname, confirmedBy: '9101', confirmationVersion: 1 });
+    const activeDomain = await env.DB.prepare('SELECT created_at AS createdAt FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first();
+    expect(receipt.domainCreatedAt).toBe(activeDomain.createdAt);
+    expect(receipt.confirmedAt).toBeTruthy();
+
+    const publicResponse = await domainCall(`/app-domains/resolve?host=${hostname}`);
+    expect(publicResponse.status).toBe(200);
+    const html = await publicResponse.text();
+    expect(html).toContain('WHOLE_APP_UI');
+    expect(html).toContain('FULL_DOMAIN_RECORD');
+    expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(404);
+
+    const removed = await domainCall(route, toru, { method: 'POST', body: body('remove') });
+    expect(removed.status).toBe(200);
+    expect((await domainCall(`/app-domains/resolve?host=${hostname}`)).status).toBe(404);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+
+    // A provider success followed by failed local activation must revoke the
+    // receipt, remove the configuring reservation, and best-effort detach.
+    const failingDb = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === 'prepare') return sql => {
+          const statement = target.prepare(sql);
+          if (sql.startsWith('UPDATE hx_app_domains SET status=?3')) {
+            return { bind: (...values) => {
+              statement.bind(...values);
+              return { run: async () => { throw new Error('simulated local status write failure'); } };
+            } };
+          }
+          return statement;
+        };
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    providerCalls.length = 0;
+    const activationFailure = await domainCall(route, toru, { method: 'POST', body: body('attach', true) }, { ...envForDomain, DB: failingDb });
+    expect(activationFailure.status).toBe(503);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+    expect(providerCalls.map(call => call.method)).toEqual(['GET', 'POST', 'DELETE']);
+
+    // Reattaching even the same hostname cannot reuse the previous receipt.
+    const reattachWithoutConsent = await domainCall(route, toru, { method: 'POST', body: body('attach', false) });
+    expect(reattachWithoutConsent.status).toBe(409);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+    const reattached = await domainCall(route, toru, { method: 'POST', body: body('attach', true) });
+    expect(reattached.status).toBe(200);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 1 });
+    expect((await domainCall(`/app-domains/resolve?host=${hostname}`)).status).toBe(200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

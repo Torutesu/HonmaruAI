@@ -27,9 +27,9 @@ export function logJSON(fields) {
 /// are the same route, and a per-org route name makes that impossible to see.
 export function routeLabel(method, pathname) {
   const collapsed = pathname
-    // Never log the share-token path segment, even when a malformed URL has
-    // an extra suffix or an encoded character and therefore fails validation.
-    .replace(/^(\/(?:template|skill)-shares\/)[^/]+/i, "$1:token")
+    // Never log bearer share tokens, even when a malformed URL has an extra
+    // suffix or encoded character and therefore fails route validation.
+    .replace(/^(\/(?:template|skill|app)-shares\/)[^/]+/i, "$1:token")
     .replace(/^\/orgs\/[^/]+\/[^/]+/, "/orgs/:owner/:repo")
     .replace(/\/cards\/[^/]+/, "/cards/:id")
     .replace(/^\/media\/[^/]+$/, "/media/:id")
