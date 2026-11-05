@@ -7,7 +7,7 @@ export function managedAutomationGuard(org='?1',workflow='?2',release='?3') {
       JOIN hx_apps a ON a.org_id=b.org_id AND a.id=b.app_id
       JOIN hx_workflows w ON w.org_id=b.org_id AND w.id=b.workflow_id
       WHERE b.org_id=${org} AND b.workflow_id=${workflow} AND b.release_id=${release} AND s.release_id=b.release_id
-        AND s.published IS NOT NULL AND w.enabled=1
+        AND s.published IS NOT NULL AND w.enabled=1 AND a.deleted_at IS NULL
         AND (json_type(a.definition,'$.custom') IS NULL OR length(json_extract(a.definition,'$.custom.published'))>0)
         AND EXISTS(SELECT 1 FROM json_each(s.published,'$.items') item
           WHERE json_extract(item.value,'$.key')=b.declaration_key AND json_extract(item.value,'$.enabled')=1)))`;

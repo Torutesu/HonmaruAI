@@ -16,7 +16,7 @@ const sourceTable="COALESCE(json_extract(d.definition,'$.trigger.tableId'),json_
 const sourceTableAuthority=`(${sourceTable} IS NULL OR (EXISTS(SELECT 1 FROM hx_tables t WHERE t.org_id=r.org_id AND t.id=${sourceTable})
  AND NOT EXISTS(SELECT 1 FROM hx_apps app LEFT JOIN hx_app_access access ON access.org_id=app.org_id AND access.app_id=app.id
   WHERE app.org_id=r.org_id AND (app.table_id=${sourceTable} OR EXISTS(SELECT 1 FROM hx_app_entities entity WHERE entity.org_id=r.org_id AND entity.app_id=app.id AND entity.table_id=${sourceTable}))
-   AND COALESCE(access.visibility,'workspace')!='workspace' AND app.created_by!=json_extract(d.definition,'$.createdBy'))))`;
+   AND (app.deleted_at IS NOT NULL OR (COALESCE(access.visibility,'workspace')!='workspace' AND app.created_by!=json_extract(d.definition,'$.createdBy'))))))`;
 // Source access is checked inside the same SQL statement as the lease and CAS.
 // Unsourced workflows still require current workspace membership.
 export const workflowStateAuthority=`${sourceTableAuthority} AND ${managedAutomationGuard('r.org_id','r.workflow_id',"json_extract(d.definition,'$.automationReleaseId')")} AND (json_type(d.definition,'$.safetyGeneration') IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_safety safety WHERE safety.org_id=r.org_id AND safety.workflow_id=r.workflow_id AND safety.generation=json_extract(d.definition,'$.safetyGeneration') AND safety.paused_at IS NULL)) AND EXISTS(SELECT 1 FROM hx_workflows w

@@ -206,7 +206,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     appHosting: (id:string) => call<AppHosting>('GET', `/apps/${id}/hosting`),
     changeAppHosting: (id:string, body:Record<string,unknown>) => call<Partial<AppHosting> & {saved?:boolean;deleted?:boolean;name?:string;version?:number}>('POST', `/apps/${id}/hosting`, body),
     entityRows: (tableId: string) => call<{table: Table; rows: Row[]}>('GET', `/tables/${tableId}`, undefined, {limit:'5000'}),
-    deleteApp: (id: string) => call<{ deleted: boolean }>('DELETE', `/apps/${id}`),
+    deleteApp: (id: string) => call<{ deleted: boolean; dataRetained: boolean; retention: 'until_workspace_deletion' }>('DELETE', `/apps/${id}`),
     versions: (id: string) => call<{ versions: Array<{ version: number; note: string | null; createdAt: string }> }>('GET', `/apps/${id}/versions`),
     restore: (id: string, version: number) => call<{ app: App }>('POST', `/apps/${id}/versions`, { version }),
     link: (id: string, channel: string) => call<{ linked: boolean }>('POST', `/apps/${id}/links`, { channel }),

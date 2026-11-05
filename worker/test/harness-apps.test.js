@@ -1229,7 +1229,7 @@ test('deleting an app disables its managed workflow while retaining the ownershi
  const {deleteApp}=await import('../src/harness/apps.js');
  const binding=await env.DB.prepare('SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
  const workflow=await getWorkflow(env.DB,ORG,binding.workflow_id);
- expect(await deleteApp(env.DB,ORG,f.app.id)).toEqual({deleted:true});
+ expect(await deleteApp(env.DB,ORG,f.app.id)).toMatchObject({deleted:true,dataRetained:true,retention:'until_workspace_deletion'});
  expect(await getWorkflow(env.DB,ORG,workflow.id)).toMatchObject({enabled:false});
  expect(await env.DB.prepare('SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual(binding);
  expect(await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9101'})).toBeNull();

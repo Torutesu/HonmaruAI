@@ -13,6 +13,7 @@ import type { PersonalViews } from '../utils/harness'
 import { AppViewControls } from '../components/AppViewControls'
 import { HarnessAppPreview } from '../components/HarnessAppPreview'
 import { HarnessAppMenu } from '../components/HarnessAppMenu'
+import { AppDeleteConfirm } from '../components/AppDeleteConfirm'
 import { useAppPins } from '../utils/appPins'
 import { HarnessAppIcon } from '../components/HarnessAppIcon'
 import { CompanyApp } from '../components/CompanyApp'
@@ -795,13 +796,10 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
 
       <div className="rows">
         {confirmDelete ? (
-          <div className="row static">
-            <span className="row-main">{t('Delete this app and all its rows?')}</span>
-            <span className="team-confirm">
-              <button className="pill-btn" onClick={() => act('delete', async () => { await api.deleteApp(app.id); onBack() })}>{t('Delete')}</button>
-              <button className="btn-text" onClick={() => setConfirmDelete(false)}>{t('Keep')}</button>
-            </span>
-          </div>
+          <AppDeleteConfirm
+            onDelete={() => act('delete', async () => { await api.deleteApp(app.id); onBack() })}
+            onKeep={() => setConfirmDelete(false)}
+          />
         ) : (
           <button className="row" onClick={() => setConfirmDelete(true)}><span className="row-main hx-danger">{t('Delete app')}</span></button>
         )}

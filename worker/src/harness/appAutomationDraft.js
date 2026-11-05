@@ -16,7 +16,7 @@ export async function saveAutomationDraft(db,orgId,app,input,by) {
   const scope=await validateAutomationAppScope(db,orgId,app.id,normalized.automations);
   if(scope)return scope;
   const row=await db.prepare(`INSERT INTO hx_app_automation_state(org_id,app_id,revision,draft,updated_at,updated_by)
-    SELECT ?1,?2,?3+1,?4,?5,?6 WHERE EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?7)
+    SELECT ?1,?2,?3+1,?4,?5,?6 WHERE EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?7 AND deleted_at IS NULL)
       AND ((?3=0 AND NOT EXISTS(SELECT 1 FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2))
         OR EXISTS(SELECT 1 FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2 AND revision=?3))
     ON CONFLICT(org_id,app_id) DO UPDATE SET revision=excluded.revision,draft=excluded.draft,updated_at=excluded.updated_at,updated_by=excluded.updated_by

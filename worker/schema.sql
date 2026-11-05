@@ -1771,7 +1771,8 @@ CREATE TABLE IF NOT EXISTS hx_apps (
   definition    TEXT NOT NULL,
   created_by    TEXT NOT NULL,
   created_at    TEXT NOT NULL,
-  updated_at    TEXT NOT NULL
+  updated_at    TEXT NOT NULL,
+  deleted_at    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_hx_apps_org ON hx_apps(org_id);
 

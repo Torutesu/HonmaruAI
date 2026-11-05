@@ -5,7 +5,7 @@ import { readableConversation } from './conversationAccess.js';
 export async function appAccess(db, orgId, appId) {
   const row = await db.prepare(`SELECT a.created_by, p.visibility, p.version FROM hx_apps a
     LEFT JOIN hx_app_access p ON p.org_id = a.org_id AND p.app_id = a.id
-    WHERE a.org_id = ?1 AND a.id = ?2`).bind(orgId, appId).first();
+    WHERE a.org_id = ?1 AND a.id = ?2 AND a.deleted_at IS NULL`).bind(orgId, appId).first();
   return row ? { ownerId: row.created_by, visibility: row.visibility || 'workspace', version: row.version || 0 } : null;
 }
 
@@ -37,7 +37,7 @@ export async function mayReadAppRows(db, orgId, appId, tableId, userId) {
     JOIN hx_tables t ON t.org_id=target.org_id AND t.id=target.table_id
     JOIN memberships m ON m.org_id=target.org_id AND m.user_github_id=?4
     LEFT JOIN hx_app_access policy ON policy.org_id=target.org_id AND policy.app_id=target.id
-    WHERE target.org_id=?1 AND target.id=?2 AND target.table_id=?3
+    WHERE target.org_id=?1 AND target.id=?2 AND target.table_id=?3 AND target.deleted_at IS NULL
       AND LOWER(COALESCE(m.role,'guest'))!='guest'
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?1)
@@ -48,7 +48,7 @@ export async function mayReadAppRows(db, orgId, appId, tableId, userId) {
           SELECT 1 FROM hx_app_entities e WHERE e.org_id=linked.org_id AND e.app_id=linked.id AND e.table_id=?3))
         AND COALESCE(p.visibility,'workspace')!='workspace' AND linked.created_by IS NOT ?4)
       AND NOT EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?1 AND e.table_id=?3
-        AND NOT EXISTS(SELECT 1 FROM hx_apps linked WHERE linked.org_id=e.org_id AND linked.id=e.app_id))`)
+        AND NOT EXISTS(SELECT 1 FROM hx_apps linked WHERE linked.org_id=e.org_id AND linked.id=e.app_id AND linked.deleted_at IS NULL))`)
     .bind(orgId, appId, tableId, String(userId)).first();
   return Boolean(row);
 }
