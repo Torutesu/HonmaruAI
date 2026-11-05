@@ -175,3 +175,28 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
   expect(served.status).toBe(200);
   expect((await served.arrayBuffer()).byteLength).toBe(1_500_000);
 });
+
+
+test('reviewer membership loss permanently revokes an approval even after access is restored', async () => {
+  vi.stubGlobal('fetch',githubFetch());
+  const app=await makeApp();
+  const imported=await (await importCommit(app)).json();
+  const request=await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:imported.version});
+  const approval=(await request.json()).approval;
+  expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:imported.version,commitSha,sourceHash:imported.commit.sourceHash})).status).toBe(200);
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG,'9103').run();
+  await upsertMembership(env.DB,ORG,'9103','admin');
+  const publish=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:imported.version,approvalId:approval.id});
+  expect(publish.status).toBe(409);
+});
+
+test('ordinary saved custom app drafts keep the legacy publish route', async () => {
+  const app=await makeApp();
+  const draft=await send('POST',`/apps/${app.id}/custom`,toru,{action:'draft',version:app.version,html:'<main>legacy release</main>'});
+  expect(draft.status).toBe(200);
+  const saved=await draft.json();
+  const published=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish',version:saved.version});
+  expect(published.status).toBe(200);
+  const state=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+  expect(state.app.definition.custom.published).toBe('<main>legacy release</main>');
+});
