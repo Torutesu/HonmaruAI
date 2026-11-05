@@ -1146,7 +1146,11 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({...r,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
     }
     const app = await getApp(env.DB, orgId, appId);
-    if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    // Workspace Admins may manage links on an otherwise private app, but this
+    // narrow route never returns the app definition, name, rows, or table data.
+    const canManagePrivateLinks = sub === 'links' && ['POST', 'DELETE'].includes(request.method)
+      && await mayChange(env, orgId, who, app?.createdBy);
+    if (!app || (!(await mayUseApp(env.DB, orgId, appId, me)) && !canManagePrivateLinks)) return json({ message: "No such app." }, 404);
     if (sub === 'hosting' && parts.length === 3) {
       const canManage = await mayChange(env, orgId, who, app.createdBy);
       if (request.method === 'GET') {
