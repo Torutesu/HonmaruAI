@@ -286,6 +286,7 @@ ALTER TABLE hx_workflow_safety ADD COLUMN monthly_ai_budget_micros INTEGER NOT N
 ALTER TABLE hx_workflow_safety ADD COLUMN ai_budget_action TEXT NOT NULL DEFAULT 'warn';
 ALTER TABLE hx_workflow_usage ADD COLUMN estimated_micros INTEGER CHECK(estimated_micros>=0);
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_usage_window ON hx_workflow_usage(org_id,workflow_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_usage_org_created ON hx_workflow_usage(org_id,created_at,byok);
 CREATE TABLE IF NOT EXISTS hx_workflow_ai_budget_notices (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, period TEXT NOT NULL CHECK(period IN ('24h','7d','30d')), budget_revision INTEGER NOT NULL, bucket_start TEXT NOT NULL, run_id TEXT NOT NULL, recipient_id TEXT NOT NULL, estimated_micros INTEGER NOT NULL, limit_micros INTEGER NOT NULL, unpriced_calls INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, delivered_at TEXT, last_attempt_at TEXT, UNIQUE(org_id,workflow_id,period,budget_revision,bucket_start));
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_ai_budget_notice_pending ON hx_workflow_ai_budget_notices(delivered_at,last_attempt_at,created_at);
 

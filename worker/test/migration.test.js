@@ -43,6 +43,12 @@ test("a deploy leaves both user indexes in place", async () => {
   expect(names).toContain("idx_users_login");
 });
 
+test("workflow usage dashboards have an organization and time-window index", async () => {
+  await applyDeploy(env.DB);
+  const { results } = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='hx_workflow_usage'").all();
+  expect(results.map((row) => row.name)).toContain("idx_hx_workflow_usage_org_created");
+});
+
 test("a deploy and membership writes canonicalize role casing and whitespace", async () => {
   await applyDeploy(env.DB);
   await env.DB.prepare("INSERT OR REPLACE INTO memberships(org_id,user_github_id,role,created_at) VALUES('legacy-role-org','legacy-guest',' Guest ','2026-01-01')").run();
