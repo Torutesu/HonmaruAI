@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 import './AppSharing.css'
 
-type Visibility = 'private' | 'workspace' | 'public'
-interface Access { visibility: Visibility; internalVisibility?: 'private' | 'workspace'; version: number }
+type Visibility = 'private' | 'workspace'
+interface Access { visibility: Visibility; version: number }
 interface Field { id: string; name: string; type?: string }
 interface PublicShare { id: string; appVersion: number; dataScope: { entity: string; fields: string[] }[]; url: string | null; createdAt: string }
 interface PublicSettings { share: PublicShare | null; entities: { key: string; name: string; fields: Field[] }[]; appVersion: number }
@@ -56,8 +56,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || String(res.status))
       const url = new URL(data.share.url, httpBase).toString()
-      setSettings({ ...settings, share: { ...data.share, url } }); setChoice('public'); setConfirmed(false)
-      setAccess(a => a ? { ...a, visibility: 'public' } : a)
+      setSettings({ ...settings, share: { ...data.share, url } }); setConfirmed(false)
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(false) }
   }
@@ -69,8 +68,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
       const res = await fetch(`${base}/public-shares?${query}`, { method: 'DELETE', headers })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || String(res.status))
-      setSettings({ ...settings, share: null }); setChoice(access?.internalVisibility || 'private')
-      setAccess(a => a ? { ...a, visibility: a.internalVisibility || 'private' } : a)
+      setSettings({ ...settings, share: null })
       setSelected({}); setConfirmed(false)
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(false) }
@@ -81,14 +79,13 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
     {error && <div className="form-error" role="alert">{error}</div>}
     {access && <div className="row static"><span className="row-main">
       <select aria-label={t('App visibility')} value={choice} disabled={!canEdit || busy} onChange={e => {
-        const value = e.target.value as Visibility; setChoice(value)
-        if (value !== 'public') void save(value)
+        const value = e.target.value as Visibility; setChoice(value); void save(value)
       }}>
-        <option value="workspace">{t('Workspace members')}</option><option value="private">{t('Only me')}</option><option value="public">{t('Anyone with the link')}</option>
+        <option value="workspace">{t('Workspace members')}</option><option value="private">{t('Only me')}</option>
       </select>
       <span className="row-sub">{t('Room links do not grant access. Public links are read-only and expose only fields you select.')}</span>
     </span></div>}
-    {choice === 'public' && settings && <div className="row static hx-public-panel"><div className="row-main">
+    {canEdit && settings && <div className="row static hx-public-panel"><div className="row-main">
       <strong>{t('Public app link')}</strong>
       <p className="row-sub">{t('This link is pinned to app version')} {settings.share?.appVersion ?? settings.appVersion}. {t('Anyone with the URL can view the published app and selected fields.')}</p>
       {settings.share?.url && <div className="hx-public-link"><input aria-label={t('Public URL')} readOnly value={shareUrl} onFocus={e => e.currentTarget.select()} /><button type="button" disabled={busy} onClick={() => void navigator.clipboard?.writeText(shareUrl)}>{t('Copy link')}</button><button type="button" disabled={busy} onClick={() => void revoke()}>{t('Revoke')}</button></div>}

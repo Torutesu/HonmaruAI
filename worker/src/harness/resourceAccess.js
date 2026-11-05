@@ -7,9 +7,9 @@ export async function appAccess(db, orgId, appId) {
     LEFT JOIN hx_app_access p ON p.org_id = a.org_id AND p.app_id = a.id
     WHERE a.org_id = ?1 AND a.id = ?2`).bind(orgId, appId).first();
   if (!row) return null;
-  const internalVisibility = row.visibility || 'workspace';
-  const share = await db.prepare('SELECT id FROM hx_app_public_shares WHERE org_id=?1 AND app_id=?2 AND revoked_at IS NULL').bind(orgId, appId).first();
-  return { ownerId: row.created_by, visibility: share ? 'public' : internalVisibility, internalVisibility, version: row.version || 0, publicShareId: share?.id || null };
+  // Bearer-link publication is a separate, field-scoped capability and must
+  // never change the app's internal workspace/private access policy.
+  return { ownerId: row.created_by, visibility: row.visibility || 'workspace', version: row.version || 0 };
 }
 
 export async function mayUseApp(db, orgId, appId, userId) {
@@ -17,7 +17,7 @@ export async function mayUseApp(db, orgId, appId, userId) {
   const member = await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2 AND role != 'guest'").bind(orgId, String(userId)).first();
   if (!member) return false;
   const access = await appAccess(db, orgId, appId);
-  return Boolean(access && ((access.internalVisibility || access.visibility) === 'workspace' || access.ownerId === String(userId)));
+  return Boolean(access && (access.visibility === 'workspace' || access.ownerId === String(userId)));
 }
 
 export async function mayUseTable(db, orgId, tableId, userId) {

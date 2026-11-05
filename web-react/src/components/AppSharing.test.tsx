@@ -33,7 +33,6 @@ test('public link creation requires selected fields and explicit confirmation', 
     .mockResolvedValueOnce(response({ share: { id: 'share-1', appVersion: 4, dataScope: [{ entity: 'primary', fields: ['title'] }], url: '/app-shares/token', createdAt: 'now' } }, 201))
   vi.stubGlobal('fetch', fetcher)
   await act(async () => { tree = create(<AppSharing {...props} />) })
-  await act(async () => { tree!.root.findByType('select').props.onChange({ target: { value: 'public' } }) })
   let boxes = tree!.root.findAllByType('input').filter(input => input.props.type === 'checkbox')
   expect(tree!.root.findAllByType('button').find(button => button.children.includes('Create public link'))!.props.disabled).toBe(true)
   await act(async () => { boxes[0].props.onChange({ target: { checked: true } }) })

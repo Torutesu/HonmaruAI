@@ -2098,7 +2098,7 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   await env.DB.prepare('INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at) VALUES(?1,?2,2,?3,?4,?5,?6)').bind(app.id, ORG, JSON.stringify(newerDefinition), 'new version', '9101', '2026-01-02T00:00:00Z').run();
 
   const access = await (await get(`/apps/${app.id}/access?orgId=${ORG}`, toru)).json();
-  expect(access.access).toMatchObject({ visibility: 'public', internalVisibility: 'private' });
+  expect(access.access).toMatchObject({ visibility: 'private', version: 1 });
   expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(404);
 
   const response = await call(`/app-shares/${token}`);
@@ -2132,4 +2132,100 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   expect((await call(`/app-shares/${token}`)).status).toBe(404);
   const after = await (await get(`/apps/${app.id}/access?orgId=${ORG}`, toru)).json();
   expect(after.access.visibility).toBe('private');
+});
+
+test('custom domains require explicit whole-app consent bound to each attachment', async () => {
+  const made = await send('POST', '/apps', toru, {
+    orgId: ORG, name: 'Domain report', columns: [{ name: 'Name', type: 'text' }], sample: false,
+  });
+  expect(made.status).toBe(201);
+  const { app } = await made.json();
+  const { getTable, addRow } = await import('../src/harness/tables.js');
+  const { getApp } = await import('../src/harness/apps.js');
+  const { saveCustomRelease } = await import('../src/harness/customApps.js');
+  const table = await getTable(env.DB, ORG, app.tableId);
+  await addRow(env.DB, ORG, app.tableId, { [table.columns[0].id]: 'FULL_DOMAIN_RECORD' }, '9101');
+  let current = await getApp(env.DB, ORG, app.id);
+  await saveCustomRelease(env.DB, ORG, current, { action: 'draft', version: current.version, html: '<main>WHOLE_APP_UI</main>' }, '9101');
+  current = await getApp(env.DB, ORG, app.id);
+  await saveCustomRelease(env.DB, ORG, current, { action: 'publish', version: current.version }, '9101');
+  const policy = await send('PUT', `/apps/${app.id}/access`, toru, { orgId: ORG, visibility: 'private', version: 0 });
+  expect(policy.status).toBe(200);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(404);
+
+  const hostname = 'whole-app.example.com';
+  const envForDomain = {
+    ...env, CF_ACCOUNT_ID: 'test-account', CF_PAGES_PROJECT: 'honmaru-web',
+    PAGES_DOMAINS_API_TOKEN: 'test-pages-token', ENABLE_APP_DOMAINS: '1',
+  };
+  const domainCall = async (path, token, { method = 'GET', body } = {}) => {
+    const response = await worker.fetch(new Request(`https://example.com${path}`, {
+      method,
+      headers: { 'content-type': 'application/json', ...(token ? { 'x-session-token': token } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    }), envForDomain, ctx);
+    while (pending.length) await pending.shift();
+    return response;
+  };
+  const route = `/apps/${app.id}/hosting?orgId=${ORG}`;
+  const body = (action, publicDataConfirmed) => ({ orgId: ORG, action, hostname, ...(publicDataConfirmed === undefined ? {} : { publicDataConfirmed }) });
+
+  // An active hostname without this attachment's receipt must fail closed.
+  const attachedAt = '2026-01-01T00:00:00.000Z';
+  await env.DB.prepare("INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at) VALUES(?1,?2,?3,'active','9101',?4,?4)")
+    .bind(ORG, app.id, hostname, attachedAt).run();
+  expect((await domainCall(`/app-domains/resolve?host=${hostname}`)).status).toBe(404);
+  await env.DB.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).run();
+
+  const originalFetch = globalThis.fetch;
+  const providerCalls = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.url);
+    if (url.hostname === 'api.cloudflare.com') {
+      providerCalls.push({ method: init.method, url: url.pathname });
+      const result = init.method === 'POST'
+        ? { status: 'active', validation_data: { status: 'active' }, verification_data: { status: 'active' } }
+        : init.method === 'GET' ? [] : {};
+      return new Response(JSON.stringify({ success: true, result }), { headers: { 'content-type': 'application/json' } });
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    const unconfirmed = await domainCall(route, toru, { method: 'POST', body: body('attach', false) });
+    expect(unconfirmed.status).toBe(409);
+    expect(providerCalls).toHaveLength(0);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+
+    const attached = await domainCall(route, toru, { method: 'POST', body: body('attach', true) });
+    expect(attached.status).toBe(200);
+    const receipt = await env.DB.prepare('SELECT hostname,domain_created_at AS domainCreatedAt,confirmed_by AS confirmedBy,confirmed_at AS confirmedAt,confirmation_version AS confirmationVersion FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first();
+    expect(receipt).toMatchObject({ hostname, confirmedBy: '9101', confirmationVersion: 1 });
+    const activeDomain = await env.DB.prepare('SELECT created_at AS createdAt FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first();
+    expect(receipt.domainCreatedAt).toBe(activeDomain.createdAt);
+    expect(receipt.confirmedAt).toBeTruthy();
+
+    const publicResponse = await domainCall(`/app-domains/resolve?host=${hostname}`);
+    expect(publicResponse.status).toBe(200);
+    const html = await publicResponse.text();
+    expect(html).toContain('WHOLE_APP_UI');
+    expect(html).toContain('FULL_DOMAIN_RECORD');
+    expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(404);
+
+    const removed = await domainCall(route, toru, { method: 'POST', body: body('remove') });
+    expect(removed.status).toBe(200);
+    expect((await domainCall(`/app-domains/resolve?host=${hostname}`)).status).toBe(404);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+
+    // Reattaching even the same hostname cannot reuse the previous receipt.
+    const reattachWithoutConsent = await domainCall(route, toru, { method: 'POST', body: body('attach', false) });
+    expect(reattachWithoutConsent.status).toBe(409);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+    const reattached = await domainCall(route, toru, { method: 'POST', body: body('attach', true) });
+    expect(reattached.status).toBe(200);
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 1 });
+    expect((await domainCall(`/app-domains/resolve?host=${hostname}`)).status).toBe(200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
