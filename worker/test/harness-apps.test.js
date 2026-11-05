@@ -2158,12 +2158,12 @@ test('custom domains require explicit whole-app consent bound to each attachment
     ...env, CF_ACCOUNT_ID: 'test-account', CF_PAGES_PROJECT: 'honmaru-web',
     PAGES_DOMAINS_API_TOKEN: 'test-pages-token', ENABLE_APP_DOMAINS: '1',
   };
-  const domainCall = async (path, token, { method = 'GET', body } = {}) => {
+  const domainCall = async (path, token, { method = 'GET', body } = {}, requestEnv = envForDomain) => {
     const response = await worker.fetch(new Request(`https://example.com${path}`, {
       method,
       headers: { 'content-type': 'application/json', ...(token ? { 'x-session-token': token } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
-    }), envForDomain, ctx);
+    }), requestEnv, ctx);
     while (pending.length) await pending.shift();
     return response;
   };
@@ -2216,6 +2216,31 @@ test('custom domains require explicit whole-app consent bound to each attachment
     expect(removed.status).toBe(200);
     expect((await domainCall(`/app-domains/resolve?host=${hostname}`)).status).toBe(404);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+
+    // A provider success followed by failed local activation must revoke the
+    // receipt, remove the configuring reservation, and best-effort detach.
+    const failingDb = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === 'prepare') return sql => {
+          const statement = target.prepare(sql);
+          if (sql.startsWith('UPDATE hx_app_domains SET status=?3')) {
+            return { bind: (...values) => {
+              const bound = statement.bind(...values);
+              return { run: async () => { throw new Error('simulated local status write failure'); } };
+            } };
+          }
+          return statement;
+        };
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    providerCalls.length = 0;
+    const activationFailure = await domainCall(route, toru, { method: 'POST', body: body('attach', true) }, { ...envForDomain, DB: failingDb });
+    expect(activationFailure.status).toBe(503);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
+    expect(providerCalls.map(call => call.method)).toEqual(['GET', 'POST', 'DELETE']);
 
     // Reattaching even the same hostname cannot reuse the previous receipt.
     const reattachWithoutConsent = await domainCall(route, toru, { method: 'POST', body: body('attach', false) });
