@@ -184,6 +184,8 @@
   padding: calc(16px + env(safe-area-inset-top)) 20px calc(20px + env(safe-area-inset-bottom));
   box-shadow: -10px 0 40px rgba(0,0,0,0.12);
 }
+.palette-file-sheet { display: flex; padding: 0; overflow: hidden; }
+.palette-file-sheet .hx-files-panel { width: min(100%, 520px); height: 100%; }
 .sheet-title {
   font-size: 18px; font-weight: 600; color: #202020;
   display: flex; align-items: center; justify-content: space-between;

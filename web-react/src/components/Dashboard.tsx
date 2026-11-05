@@ -14,6 +14,8 @@ import { WorkspaceSwitcher, workspaceLabel, type Workspace } from './WorkspaceSw
 import { Inbox } from './Inbox'
 import { Palette } from './Palette'
 import type { PaletteAction } from './Palette'
+import { WorkspaceFilesPanel } from './WorkspaceFilesPanel'
+import { workspaceFileApi } from '../utils/workspaceFiles'
 import { Icon } from './Icon'
 import { CreateDecision } from './CreateDecision'
 import { RecordSheet } from './RecordSheet'
@@ -28,7 +30,6 @@ import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
 import { bringForward, pageShowing } from '../utils/desktop'
 import { useRoute, useDesktop, useMinWidth, hashForCard, hashForMode, hashForScreen, hashForView, hashForWorkflow, hashForApp } from '../utils/route'
-import { openFileConversation } from '../utils/fileConversation'
 import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import { reconnectWatch, wakeWatch } from '../utils/resync'
 import { needsLocalizing } from '../utils/language'
@@ -303,6 +304,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // Harness starts in chat; explicit conversation and tool links still work.
   const [harnessNewRequest, setHarnessNewRequest] = useState(0)
   const [harnessHomeRequest, setHarnessHomeRequest] = useState(0)
+  const [paletteFile, setPaletteFile] = useState<{id:string;scope:string}|null>(null)
+  const paletteFilesApi = useMemo(() => workspaceFileApi(relayHttpUrl, orgId, sessionToken), [relayHttpUrl, orgId, sessionToken])
   const landedHome = useRef(false)
   useEffect(() => {
     if (workspaceMode !== 'harness' || landedHome.current) return
@@ -806,10 +809,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       setTimeout(() => window.dispatchEvent(new CustomEvent('honmaru:open-message', { detail: target })), 150)
     }
     else if (action.kind === 'appRecord') navigate(hashForApp(action.appId, orgId, { tableId: action.tableId, rowId: action.rowId }, 'data'))
-    else if (action.kind === 'file') {
-      if (action.scope !== 'workspace') void openFileConversation(action.fileId).then(navigate).catch(() => navigate(hashForScreen('harness')))
-      else navigate(hashForScreen('harness'))
-    }
+    else if (action.kind === 'file') setPaletteFile({id:action.fileId,scope:action.scope})
   }, [navigate, mode, screen, orgId])
 
   // A toast that stays until clicked is a banner. Errors clear themselves.
@@ -1353,6 +1353,13 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           onClose={() => setPalette(false)}
         />
       )}
+
+      {paletteFile && <>
+        <div className="scrim palette-file-scrim" onClick={() => setPaletteFile(null)} />
+        <div className="sheet sheet-side palette-file-sheet" role="dialog" aria-modal="true" aria-label={t('Files')}>
+          <WorkspaceFilesPanel api={paletteFilesApi} scope={paletteFile.scope} targetFileId={paletteFile.id} allOriginsInFolders onClose={() => setPaletteFile(null)} onAttachments={() => setPaletteFile(null)} />
+        </div>
+      </>}
 
       {panel === 'compose' && (
         <div className="sheet sheet-bottom sheet-compose" role="dialog" aria-modal="true" aria-label={t('Tell your AI')}>
