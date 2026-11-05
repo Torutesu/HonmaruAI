@@ -57,7 +57,7 @@ test("Simple-only display preference syncs to the same member, not the workspace
 
   const { ws: mikaSocket, messages: mikaMessages } = await joined(ORG, mika);
   const { ws: toruSocket, messages: toruMessages } = await joined(ORG, toru);
-  const saved = await send("PUT", "/hx/display-preference", mika, { orgId: ORG, simpleOnly: true });
+  const saved = await send("PUT", "/hx/display-preference", mika, { orgId: ORG, simpleOnly: true, expectedRevision: 0 });
   expect(saved.status).toBe(200);
   expect(await saved.json()).toMatchObject({ simpleOnly: true, revision: 1 });
   const changed = await message(mikaMessages, event => event.name === "display_preference_changed");
@@ -66,10 +66,10 @@ test("Simple-only display preference syncs to the same member, not the workspace
   expect((await (await get(`/orgs/mode?orgId=${ORG}`, mika)).json())).toMatchObject({ mode: "harness", simpleOnly: true, revision: 1 });
   expect((await (await get(`/orgs/mode?orgId=${ORG}`, toru)).json())).toMatchObject({ mode: "harness", simpleOnly: false, revision: 0 });
 
-  const invalid = await send("PUT", "/hx/display-preference", mika, { orgId: ORG, simpleOnly: "true" });
+  const invalid = await send("PUT", "/hx/display-preference", mika, { orgId: ORG, simpleOnly: "true", expectedRevision: 0 });
   expect(invalid.status).toBe(400);
-  expect((await send("PUT", "/hx/display-preference", outsider, { orgId: ORG, simpleOnly: true })).status).toBe(403);
-  expect((await send("PUT", "/hx/display-preference", guest, { orgId: ORG, simpleOnly: true })).status).toBe(200);
+  expect((await send("PUT", "/hx/display-preference", outsider, { orgId: ORG, simpleOnly: true, expectedRevision: 0 })).status).toBe(403);
+  expect((await send("PUT", "/hx/display-preference", guest, { orgId: ORG, simpleOnly: true, expectedRevision: 0 })).status).toBe(200);
   expect((await (await get(`/orgs/mode?orgId=${ORG}`, mika)).json()).mode).toBe("harness");
   mikaSocket.close();
   toruSocket.close();
