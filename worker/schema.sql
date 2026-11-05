@@ -2363,6 +2363,20 @@ CREATE TABLE IF NOT EXISTS hx_agent_handoff_dispatch (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_agent_handoff_dispatch_due ON hx_agent_handoff_dispatch(status,next_attempt,lease_until);
 
+CREATE TABLE IF NOT EXISTS hx_agent_run_events (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  assignment_id TEXT NOT NULL,
+  source_message_id TEXT NOT NULL,
+  generation INTEGER NOT NULL CHECK(generation BETWEEN 0 AND 8),
+  agent_id TEXT NOT NULL,
+  event_type TEXT NOT NULL CHECK(event_type IN ('started','tool_started','tool_succeeded','tool_failed','handed_off','finished','failed','cancelled','interrupted')),
+  tool_name TEXT,
+  created_at TEXT NOT NULL,
+  CHECK((event_type IN ('tool_started','tool_succeeded','tool_failed') AND tool_name IS NOT NULL) OR (event_type NOT IN ('tool_started','tool_succeeded','tool_failed') AND tool_name IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_run_events_source ON hx_agent_run_events(org_id,source_message_id,assignment_id,generation,created_at,id);
+
 CREATE TABLE IF NOT EXISTS hx_agent_request_dispatch (org_id TEXT NOT NULL, message_id TEXT NOT NULL, session_key TEXT NOT NULL, agent_ids TEXT NOT NULL, source_hash TEXT NOT NULL, locale TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,message_id));
 CREATE INDEX IF NOT EXISTS idx_hx_agent_request_dispatch_due ON hx_agent_request_dispatch(status,next_attempt,lease_until);
 

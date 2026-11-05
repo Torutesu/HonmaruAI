@@ -2,6 +2,8 @@ import {env} from 'cloudflare:test';
 import {beforeEach, expect, test} from 'vitest';
 import schema from '../schema.sql?raw';
 import {beginAssignment, commitHandoff, claimHandoff, assignmentOwns, endAssignment} from '../src/harness/agentAssignments.js';
+import {appendAgentRunEvent} from '../src/harness/agentRunEvents.js';
+import {decorateAssignmentStatuses} from '../src/harness/agentAssignmentStatus.js';
 const row = {id:'request', channel:'b:room', author_login:'alice', parent_id:null, kind:'message', body:'Research and review'};
 const origin = {orgId:'org',row,agentId:'researcher',actorId:'person',sessionKey:'h1:session'};
 beforeEach(async () => {
@@ -12,6 +14,31 @@ beforeEach(async () => {
 const start = async (extra={}) => (await beginAssignment(env.DB,{...origin,...extra})).assignment;
 const move = (assignment, extra={}) => ({orgId:'org',assignmentId:assignment.id,generation:0,sourceAgentId:'researcher',targetAgentId:'reviewer',operationId:'operation-1',brief:'Check the evidence',messageBody:'Handing off to @reviewer: Check the evidence',...extra});
 const owns = (a,generation=0,agentId='researcher') => assignmentOwns(env.DB,{orgId:'org',assignmentId:a.id,generation,agentId});
+
+test('run history stores only bounded event and tool-name metadata for the authorized assignment agent',async()=>{
+  const a=await start();
+  expect(await appendAgentRunEvent(env.DB,{orgId:'org',assignmentId:a.id,sourceMessageId:row.id,generation:0,agentId:'researcher',eventType:'tool_started',tool:'search_web',at:'2026-11-06T01:02:03.000Z'})).toBe(true);
+  expect(await appendAgentRunEvent(env.DB,{orgId:'org',assignmentId:a.id,sourceMessageId:row.id,generation:0,agentId:'other',eventType:'tool_started',tool:'search_web'})).toBe(false);
+  expect(await appendAgentRunEvent(env.DB,{orgId:'org',assignmentId:a.id,sourceMessageId:row.id,generation:0,agentId:'researcher',eventType:'tool_succeeded',tool:'run:secret args'})).toBe(false);
+  const rows=(await env.DB.prepare('SELECT * FROM hx_agent_run_events WHERE org_id=?1 AND assignment_id=?2').bind('org',a.id).all()).results;
+  expect(rows).toHaveLength(1);expect(rows[0]).toMatchObject({event_type:'tool_started',tool_name:'search_web',agent_id:'researcher'});
+  expect(Object.keys(rows[0])).toEqual(['id','org_id','assignment_id','source_message_id','generation','agent_id','event_type','tool_name','created_at']);
+});
+
+test('run history retains the newest 80 events per assignment in chronological order',async()=>{
+  const a=await start();
+  for(let i=0;i<85;i++) {
+    const at=new Date(Date.UTC(2026,10,6,0,0,i)).toISOString();
+    expect(await appendAgentRunEvent(env.DB,{orgId:'org',assignmentId:a.id,sourceMessageId:row.id,generation:0,agentId:'researcher',eventType:'tool_succeeded',tool:'search_web',at})).toBe(true);
+  }
+  const finishedAt=new Date(Date.UTC(2026,10,6,0,1,25)).toISOString();
+  expect(await appendAgentRunEvent(env.DB,{orgId:'org',assignmentId:a.id,sourceMessageId:row.id,generation:0,agentId:'researcher',eventType:'finished',at:finishedAt})).toBe(true);
+  const [snapshot]=await decorateAssignmentStatuses(env.DB,'org',[{rowId:row.id}]);
+  expect(snapshot.assignments[0].events).toHaveLength(80);
+  expect(snapshot.assignments[0].events[0].at).toBe(new Date(Date.UTC(2026,10,6,0,0,6)).toISOString());
+  expect(snapshot.assignments[0].events.at(-1)).toMatchObject({type:'finished',at:finishedAt});
+  expect(snapshot.assignments[0].events.map(event=>event.at)).toEqual([...snapshot.assignments[0].events.map(event=>event.at)].sort());
+});
 
 test('independent requested agents have independent assignments and retries never restart one',async()=>{
   const first=await beginAssignment(env.DB,origin),again=await beginAssignment(env.DB,origin);

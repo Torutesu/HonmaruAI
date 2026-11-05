@@ -982,14 +982,17 @@ async function assignmentStatusFixture() {
 
 test('assignment status exposes scoped chain metadata with per-viewer stop rights',async()=>{
  const f=await assignmentStatusFixture();
+ await env.DB.prepare("INSERT INTO hx_agent_run_events(id,org_id,assignment_id,source_message_id,generation,agent_id,event_type,tool_name,created_at) VALUES ('timeline-tool',?1,?2,?3,0,?4,'tool_succeeded','search_web','2026-11-06T01:02:03.000Z')").bind(ORG,f.assignmentId,f.row.id,f.source.id).run();
+ await env.DB.prepare("INSERT INTO hx_agent_run_events(id,org_id,assignment_id,source_message_id,generation,agent_id,event_type,tool_name,created_at) VALUES ('timeline-finish',?1,?2,?3,0,?4,'finished',NULL,'2026-11-06T01:02:04.000Z')").bind(ORG,f.assignmentId,f.row.id,f.source.id).run();
  await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/reviewer.png',ORG,f.target.id).run();
  const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:f.row.id})}`;
  for(const [token,canStop] of [[mika,true],[kenji,false],[toru,true]]) {
   const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
   const body=await response.json();const a=body.results[0].assignments[0];
   expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝',avatarUrl:'https://example.com/reviewer.png'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝',avatarUrl:'https://example.com/reviewer.png'}}]});
+  expect(a.events).toMatchObject([{id:'timeline-tool',generation:0,type:'tool_succeeded',toolName:'search_web',agent:{id:f.source.id}},{id:'timeline-finish',type:'finished'}]);
   expect(Number.isFinite(Date.parse(a.startedAt))).toBe(true);expect(Number.isFinite(Date.parse(a.updatedAt))).toBe(true);
-  const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions'])expect(text).not.toContain(value);
+  const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions','arguments','output','secret'])expect(text).not.toContain(value);
  }
  const mixed=await call(`${url}&messageId=foreign`,{headers:headers(mika)},f.over);expect(mixed.status).toBe(404);
 });

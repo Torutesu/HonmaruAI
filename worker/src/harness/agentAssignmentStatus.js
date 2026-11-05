@@ -18,6 +18,20 @@ export async function decorateAssignmentStatuses(db,orgId,results,{actorId=null,
     LEFT JOIN custom_agents s ON s.org_id=h.org_id AND s.id=h.source_agent_id
     LEFT JOIN custom_agents t ON t.org_id=h.org_id AND t.id=h.target_agent_id
     WHERE a.org_id=?1 AND a.source_message_id IN (${marks}) ORDER BY h.source_generation,h.operation_id LIMIT 3200`).bind(orgId,...rowIds).all();
+  const {results:eventRows}=await db.prepare(`SELECT e.id,e.assignment_id,e.generation,e.event_type,e.tool_name,e.created_at,e.agent_id,c.name,c.handle,c.emoji,c.avatar_url
+    FROM (SELECT e0.*,ROW_NUMBER() OVER (PARTITION BY e0.assignment_id ORDER BY e0.created_at DESC,e0.id DESC) AS event_rank
+      FROM hx_agent_run_events e0
+      JOIN hx_agent_assignments a ON a.org_id=e0.org_id AND a.id=e0.assignment_id AND a.source_message_id=e0.source_message_id
+      WHERE e0.org_id=?1 AND e0.source_message_id IN (${marks})) e
+    LEFT JOIN custom_agents c ON c.org_id=e.org_id AND c.id=e.agent_id
+    WHERE e.event_rank<=80
+    ORDER BY e.assignment_id,e.created_at,e.id`).bind(orgId,...rowIds).all();
+  const eventGroups=new Map();
+  for(const e of eventRows){
+    const group=eventGroups.get(e.assignment_id)||[];
+    if(group.length<80)group.push({id:e.id,generation:e.generation,type:e.event_type,...(e.tool_name?{toolName:e.tool_name}:{}),at:e.created_at,agent:face(e.agent_id,e.name,e.handle,e.emoji,e.avatar_url)});
+    eventGroups.set(e.assignment_id,group);
+  }
   const chains=new Map();
   for(const h of hops) {
     const chain=chains.get(h.assignment_id)||[];
@@ -27,7 +41,7 @@ export async function decorateAssignmentStatuses(db,orgId,results,{actorId=null,
   const grouped=new Map();
   for(const a of assignments) {
     const group=grouped.get(a.source_message_id)||[];
-    if(group.length<20)group.push({id:a.id,generation:a.generation,status:a.status,startedAt:a.created_at,updatedAt:a.updated_at,...(a.remote_stop_status?{providerStopStatus:a.remote_stop_status}:{}),canStop:['running','pending'].includes(a.status) && (canManage || a.actor_id===String(actorId)),agent:face(a.current_agent_id,a.name,a.handle,a.emoji,a.avatar_url),hops:chains.get(a.id)||[]});
+    if(group.length<20)group.push({id:a.id,generation:a.generation,status:a.status,startedAt:a.created_at,updatedAt:a.updated_at,...(a.remote_stop_status?{providerStopStatus:a.remote_stop_status}:{}),canStop:['running','pending'].includes(a.status) && (canManage || a.actor_id===String(actorId)),agent:face(a.current_agent_id,a.name,a.handle,a.emoji,a.avatar_url),hops:chains.get(a.id)||[],events:eventGroups.get(a.id)||[]});
     grouped.set(a.source_message_id,group);
   }
   return results.map(result=>grouped.has(result.rowId)?{...result,assignments:grouped.get(result.rowId)}:result);
