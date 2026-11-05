@@ -41,9 +41,9 @@ test('memory creation sends selected kind and conversation without changing lega
  try {
   const api=harnessApi('https://example.test','org','test')
   await api.remember('agent','A preference','dm:other','preference')
-  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({orgId:'org',text:'A preference',channel:'dm:other',kind:'preference'})
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({orgId:'org',text:'A preference',channel:'dm:other',kind:'preference',scope:'shared'})
   await api.remember('agent','Legacy')
-  expect(JSON.parse(fetcher.mock.calls[1][1].body).kind).toBe('context')
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({kind:'context',scope:'shared'})
  } finally {vi.unstubAllGlobals()}
 })
 
@@ -136,5 +136,19 @@ test('empty saved search distinguishes no matches from an agent with no memories
  expect(JSON.stringify(tree.toJSON())).not.toContain('No memories yet.')
  act(()=>tree.update(<AgentMemoryList {...props} filtered loading/>))
  expect(JSON.stringify(tree.toJSON())).not.toContain('No memories match these filters.')
+ act(()=>tree.unmount())
+})
+
+test('personal memories can be managed by their owner without granting shared edit rights',()=>{
+ const shared={...memories[1],id:'shared',scope:'shared' as const}
+ const personal={...memories[1],id:'personal',scope:'personal' as const,isOwner:true}
+ const edit=vi.fn(),forget=vi.fn(),review=vi.fn(),convert=vi.fn()
+ let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<AgentMemoryList memories={[shared,personal]} canEdit={false} busy={false} onForget={forget} onEdit={edit} onReview={review} onConvert={convert}/>)})
+ const buttons=tree.root.findAllByType('button')
+ expect(buttons.map(button=>button.children.join(''))).toEqual(['Review memory','Edit memory','Forget'])
+ act(()=>buttons.find(button=>button.children.includes('Edit memory'))!.props.onClick())
+ expect(edit).toHaveBeenCalledWith(personal)
+ expect(convert).not.toHaveBeenCalled()
  act(()=>tree.unmount())
 })
