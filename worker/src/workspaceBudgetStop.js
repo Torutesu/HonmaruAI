@@ -4,15 +4,9 @@
 export async function cancelWorkspaceGatewayJobs(db, orgId, at = Date.now()) {
   if (!db || typeof orgId !== "string" || !orgId) return 0;
   const { results = [] } = await db.prepare(
-    "SELECT id FROM hx_gateway_jobs WHERE org_id=?1 AND status IN ('queued','running') ORDER BY id"
-  ).bind(orgId).all();
+    "UPDATE hx_gateway_jobs SET status='cancelled',lease_hash=NULL,finished_at=?2 WHERE org_id=?1 AND status IN ('queued','running') RETURNING id"
+  ).bind(orgId, at).all();
   if (!results.length) return 0;
-
-  const update = await db.prepare(
-    "UPDATE hx_gateway_jobs SET status='cancelled',lease_hash=NULL,finished_at=?2 WHERE org_id=?1 AND status IN ('queued','running')"
-  ).bind(orgId, at).run();
-  const cancelled = Number(update.meta?.changes) || 0;
-  if (!cancelled) return 0;
 
   // Workflow-program jobs need their durable workflow run settled as cancelled.
   // Keep budget denial fail-closed even if this best-effort history update fails.
@@ -22,5 +16,5 @@ export async function cancelWorkspaceGatewayJobs(db, orgId, at = Date.now()) {
   } catch (error) {
     console.error('workspace budget workflow settlement failed', error?.message || error);
   }
-  return cancelled;
+  return results.length;
 }
