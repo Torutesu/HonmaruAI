@@ -2185,16 +2185,18 @@ export async function handleChannels(request, env, url, { route, after }) {
     const guest = placesAgents ? await isGuest(env.DB, orgId, ctx.who.session.github_id) : true;
     const here = placesAgents ? await channelAgents(env.DB, orgId, ctx.resolved.key) : [];
     const nameOf = (login) => ctx.members.find((m) => m.login === login)?.name || null;
-    const custom = here.map((a) => ({
-      kind: "custom", id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope,
+    const custom = await Promise.all(here.map(async (a) => ({
+      kind: "custom", id: a.id, handle: a.handle, name: a.name, emoji: a.emoji,
+      avatarUrl: await clientAgentAvatarUrl(env, orgId, a, ctx.who.user.login), description: a.description, scope: a.scope,
       owner: nameOf(a.addedBy), canRemove: !guest && canInvite && (!managed || participant.role === 'admin' || roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role !== 'admin'),
       ...(managed ? {roomRole:roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role || 'member',canChangeRole:Boolean(participant?.eligible && participant.role==='admin')} : {}),
-    }));
+    })));
     const hereIds = new Set(here.map((a) => a.id));
     const hereHandles = new Set(here.map((a) => a.handle));
-    let addable = guest || !canInvite ? [] : (await listAgents(env.DB, orgId, ctx.who.user.login))
+    let addable = guest || !canInvite ? [] : await Promise.all((await listAgents(env.DB, orgId, ctx.who.user.login))
       .filter((a) => !hereIds.has(a.id) && !hereHandles.has(a.handle))
-      .map((a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope }));
+      .map(async (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji,
+        avatarUrl: await clientAgentAvatarUrl(env, orgId, a, ctx.who.user.login), description: a.description, scope: a.scope })));
     if (managed && addable.length) {
       const plans = await roomAgentAccessPlans(env.DB,orgId,addable.map(a=>a.id),roomState.members,ctx.who.session.github_id);
       addable = addable.map(agent=>{
