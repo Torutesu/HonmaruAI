@@ -1,6 +1,6 @@
 // Two sandboxes: the outer frame's frame-src 'none' also prevents the generated
 // inner document navigating to an external URL to leak its read-only snapshot.
-export function customRunner() {
+export function customRunner({ publicMode = false } = {}) {
   const html = `<!doctype html><meta name="color-scheme" content="light dark"><style>html,body,iframe{margin:0;width:100%;height:100%;border:0}iframe{display:block}</style><body><script>
 let child=null,renderId=null,rendered=false;
 addEventListener('message', e=>{
@@ -22,7 +22,7 @@ parent.postMessage({type:'honmaru:ready'},'*');
 </script>`;
   return new Response(html, { headers: {
     'content-type': 'text/html; charset=utf-8',
-    'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts",
+    'content-security-policy': publicMode ? "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none'; sandbox allow-scripts" : "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts",
     'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff',
     'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()',
     'cache-control': 'public, max-age=300',
