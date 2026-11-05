@@ -986,7 +986,7 @@ async function assignmentStatusFixture() {
 
 test('assignment status exposes scoped chain metadata with per-viewer stop rights',async()=>{
  const f=await assignmentStatusFixture();
- await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/agents/avatar/reviewer-avatar',ORG,f.target.id).run();
+ await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/agents/avatar/agent-avatar-00000000-0000-0000-0000-000000000000',ORG,f.target.id).run();
  const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:f.row.id})}`;
  for(const [token,canStop] of [[mika,true],[kenji,false],[toru,true]]) {
   const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
@@ -994,7 +994,7 @@ test('assignment status exposes scoped chain metadata with per-viewer stop right
   expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝'}}]});
   const avatar = new URL(a.agent.avatarUrl);
   expect(avatar.origin).toBe("https://example.com");
-  expect(avatar.pathname).toBe("/agents/avatar/reviewer-avatar");
+  expect(avatar.pathname).toBe("/agents/avatar/agent-avatar-00000000-0000-0000-0000-000000000000");
   expect(avatar.searchParams.get("agent")).toBe(f.target.id);
   expect(a.hops[0].to.avatarUrl).toBe(a.agent.avatarUrl);
   expect(Number.isFinite(Date.parse(a.startedAt))).toBe(true);expect(Number.isFinite(Date.parse(a.updatedAt))).toBe(true);
