@@ -2071,6 +2071,16 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   expect(created.status).toBe(201);
   const { share } = await created.json();
   const token = share.url.split('/').at(-1);
+  const capturedLogs = [];
+  const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => capturedLogs.push(args.join(' ')));
+  try {
+    const publicRead = await call(`/app-shares/${token}`);
+    expect(publicRead.status).toBe(200);
+  } finally {
+    logSpy.mockRestore();
+  }
+  expect(capturedLogs.join('\\n')).toContain('GET /app-shares/:token');
+  expect(capturedLogs.join('\\n')).not.toContain(token);
   expect(share.appVersion).toBe(1);
   expect(share.dataScope).toEqual(expect.arrayContaining([
     expect.objectContaining({ entity: 'primary', tableId: app.tableId }),
