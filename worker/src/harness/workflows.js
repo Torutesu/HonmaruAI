@@ -422,6 +422,22 @@ export async function changeWorkflowHook(db, orgId, id, input) {
 
 export async function deleteWorkflow(db, orgId, id) {
   await db.batch([
+    // A v0 follow-up can rely only on its source run log to prove that it
+    // came from an App-record trigger. Preserve that security decision before
+    // deleting the run (and its definition snapshot); otherwise the same
+    // follow-up becomes indistinguishable from a standalone legacy reminder.
+    db.prepare(`UPDATE hx_followups SET source_authority_version = -1
+      WHERE org_id = ?1 AND COALESCE(source_authority_version, 0) = 0
+        AND id IN (
+          SELECT json_extract(entry.value, '$.output')
+          FROM hx_workflow_runs run
+          JOIN hx_workflow_run_definitions definition
+            ON definition.org_id = run.org_id AND definition.run_id = run.id
+          JOIN json_each(run.log) entry
+          WHERE run.org_id = ?1 AND run.workflow_id = ?2
+            AND json_extract(definition.definition, '$.trigger.type') = 'app_record_change'
+            AND json_extract(entry.value, '$.type') = 'followup'
+        )`).bind(orgId, id),
     db.prepare("DELETE FROM hx_workflow_runs WHERE workflow_id = ?1 AND org_id = ?2").bind(id, orgId),
     db.prepare("DELETE FROM hx_workflows WHERE id = ?1 AND org_id = ?2").bind(id, orgId),
   ]);
