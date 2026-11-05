@@ -18,7 +18,6 @@ export function displayLayout(columns:Column[], layout?:PersonalViews['layouts']
 const defaultAppColumnWidth=180
 const minAppColumnWidth=80
 const maxAppColumnWidth=600
-const appRowActionsWidth=80
 export function fitTableColumns(columns:Column[],savedWidths:Record<string,number>,availableWidth:number) {
   const available=Number.isFinite(availableWidth)?Math.max(0,Math.floor(availableWidth)):0
   const fixed=new Map<string,number>()
@@ -29,12 +28,21 @@ export function fitTableColumns(columns:Column[],savedWidths:Record<string,numbe
     else flexible.push(column)
   }
   const fixedWidth=[...fixed.values()].reduce((sum,width)=>sum+width,0)
-  const remaining=available-fixedWidth-appRowActionsWidth
-  const flexWidth=flexible.length?Math.max(defaultAppColumnWidth,Math.min(maxAppColumnWidth,Math.floor(remaining/flexible.length))):defaultAppColumnWidth
-  const widths=Object.fromEntries(columns.map(column=>[column.id,fixed.get(column.id)??flexWidth]))
-  const contentWidth=Object.values(widths).reduce((sum,width)=>sum+width,0)+appRowActionsWidth
-  const width=Math.max(available,contentWidth)
-  return {width,widths,actionsWidth:appRowActionsWidth,spacerWidth:width-contentWidth}
+  const remaining=available-fixedWidth
+  const flexWidth=flexible.length?Math.max(defaultAppColumnWidth,Math.min(maxAppColumnWidth,Math.floor(remaining/flexible.length))):0
+  const widths:Record<string,number>={}
+  let remainingFlexible=flexible.length
+  let remainingWidth=remaining
+  for(const column of columns){
+    const saved=fixed.get(column.id)
+    if(saved!==undefined){widths[column.id]=saved;continue}
+    const width=remainingFlexible===1?Math.max(defaultAppColumnWidth,Math.min(maxAppColumnWidth,remainingWidth)):flexWidth
+    widths[column.id]=width
+    remainingWidth-=width
+    remainingFlexible--
+  }
+  const width=Object.values(widths).reduce((sum,value)=>sum+value,0)
+  return {width,widths}
 }
 export function systemDateFormatter() {
   return new Intl.DateTimeFormat('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})
