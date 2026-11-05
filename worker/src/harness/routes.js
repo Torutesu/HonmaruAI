@@ -1011,8 +1011,12 @@ export async function handleHarness(request, env, url, context = {}) {
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "DELETE") {
-        if (!canEdit) return json({ message: "Only the agent's maker or an admin can make it forget." }, 403);
         const id = parts[4] || url.searchParams.get("id") || "";
+        if (!canEdit) {
+          if (!id || id === "*") return json({ message: "Only the agent's maker or an admin can forget shared memories." }, 403);
+          const own = await env.DB.prepare("SELECT 1 AS allowed FROM hx_agent_memories m JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND s.owner_user_id=?4").bind(orgId,agentId,id,me).first();
+          if (!own) return json({ message: "Only the owner can forget a personal memory." }, 403);
+        }
         const r = await deleteAgentMemory(env.DB, orgId, agentId, id, context);
         if (r.deleted) await audit(env, request, { orgId, action: "agent.memory_deleted", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: id, count: r.deleted, scope: channel ? "conversation" : "shared" } });
         return json(r);
