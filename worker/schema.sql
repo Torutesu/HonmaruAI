@@ -2606,7 +2606,7 @@ CREATE TABLE IF NOT EXISTS hx_app_git_assets (
   commit_sha TEXT NOT NULL,
   path TEXT NOT NULL,
   content_type TEXT NOT NULL,
-  content_base64 TEXT NOT NULL,
+  content_bytes BLOB NOT NULL,
   content_hash TEXT NOT NULL,
   size INTEGER NOT NULL CHECK(size>=0),
   PRIMARY KEY(org_id,app_id,app_version,commit_sha,path)
