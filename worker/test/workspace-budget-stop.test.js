@@ -19,10 +19,10 @@ beforeEach(async () => {
     if(!results.some(item=>item.name===column))await env.DB.exec("ALTER TABLE hx_workflow_safety ADD COLUMN "+column+" "+definition);
   }
   await upsertUser(env.DB,{githubId:"owner",login:"owner",name:"Owner",locale:"en"});
-  await upsertMembership(env.DB,"org","owner","admin");
+  await upsertMembership(env.DB,"workspace-budget-stop","owner","admin");
 });
 
-async function addRun(id, {orgId="org", status="running", sources=[]}={}) {
+async function addRun(id, {orgId="workspace-budget-stop", status="running", sources=[]}={}) {
   await env.DB.prepare("INSERT INTO hx_workflow_runs (id,org_id,workflow_id,trigger,status,log,started_at) VALUES (?1,?2,'wf','manual',?3,'[]',?4)")
     .bind(id,orgId,status,new Date().toISOString()).run();
   for (const [index,byok] of sources.entries()) {
@@ -33,8 +33,8 @@ async function addRun(id, {orgId="org", status="running", sources=[]}={}) {
 
 test("workspace deployment budget cancels only exclusively deployment-key workflow runs", async () => {
   const at = new Date().toISOString();
-  await env.DB.prepare("INSERT INTO org_ai_settings (org_id,daily_budget_micros,updated_at) VALUES ('org',1000000,?1)").bind(at).run();
-  await env.DB.prepare("INSERT INTO ai_calls (org_id,purpose,provider,model,usd,byok,created_at) VALUES ('org','agent','openai','gpt-4o-mini',2,0,?1)").bind(at).run();
+  await env.DB.prepare("INSERT INTO org_ai_settings (org_id,daily_budget_micros,budget_action,updated_at) VALUES ('workspace-budget-stop',1000000,'pause',?1)").bind(at).run();
+  await env.DB.prepare("INSERT INTO ai_calls (org_id,purpose,provider,model,usd,byok,created_at) VALUES ('workspace-budget-stop','agent','openai','gpt-4o-mini',2,0,?1)").bind(at).run();
 
   await addRun("deployment",{sources:[0]});
   await addRun("workspace-key",{sources:[1]});
@@ -45,12 +45,12 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
 
   const nodeToken = "hgw_" + "x".repeat(64);
   const tokenHash = await sha256(nodeToken);
-  await env.DB.prepare("INSERT INTO hx_gateways (id,org_id,name,token_hash,created_by,created_at) VALUES ('gw','org','Node',?1,'owner',1)").bind(tokenHash).run();
+  await env.DB.prepare("INSERT INTO hx_gateways (id,org_id,name,token_hash,created_by,created_at) VALUES ('gw','workspace-budget-stop','Node',?1,'owner',1)").bind(tokenHash).run();
   const addProgramJob = async (jobId,runId) => {
     const lease = "lease-" + jobId, leaseHash = await sha256(lease), now = Date.now();
-    await env.DB.prepare("INSERT INTO hx_gateway_jobs (id,org_id,gateway_id,created_by,request_id,payload,status,lease_hash,lease_until,deadline,created_at,started_at) VALUES (?1,'org','gw','owner',?1,'{\"workflowProgram\":1}','running',?2,?3,?4,?5,?5)")
+    await env.DB.prepare("INSERT INTO hx_gateway_jobs (id,org_id,gateway_id,created_by,request_id,payload,status,lease_hash,lease_until,deadline,created_at,started_at) VALUES (?1,'workspace-budget-stop','gw','owner',?1,'{\"workflowProgram\":1}','running',?2,?3,?4,?5,?5)")
       .bind(jobId,leaseHash,now+60000,now+120000,now).run();
-    await env.DB.prepare("INSERT INTO hx_workflow_activations (org_id,job_id,run_id,node_id,node_owner,node_attempt) VALUES ('org',?1,?2,'program','owner',1)")
+    await env.DB.prepare("INSERT INTO hx_workflow_activations (org_id,job_id,run_id,node_id,node_owner,node_attempt) VALUES ('workspace-budget-stop',?1,?2,'program','owner',1)")
       .bind(jobId,runId).run();
     return lease;
   };
@@ -58,11 +58,11 @@ test("workspace deployment budget cancels only exclusively deployment-key workfl
   await addProgramJob("workspace-key-program","workspace-key");
   await addProgramJob("mixed-program","mixed-credentials");
   // Direct JavaScript/app actions have no deployment-key usage and remain independent.
-  await env.DB.prepare("INSERT INTO hx_gateway_jobs (id,org_id,gateway_id,created_by,request_id,payload,status,lease_hash,created_at) VALUES ('direct-js','org','gw','owner','direct-js','{}','running','lease',1)").run();
-  await env.DB.prepare("INSERT INTO hx_gateway_jobs (id,org_id,gateway_id,created_by,request_id,payload,status,lease_hash,created_at) VALUES ('app-action','org','gw','owner','app-action','{}','running','app-lease',1)").run();
-  await env.DB.prepare("INSERT INTO hx_app_action_jobs (org_id,app_id,job_id,action_name,action_version,created_by) VALUES ('org','app','app-action','run',1,'owner')").run();
+  await env.DB.prepare("INSERT INTO hx_gateway_jobs (id,org_id,gateway_id,created_by,request_id,payload,status,lease_hash,created_at) VALUES ('direct-js','workspace-budget-stop','gw','owner','direct-js','{}','running','lease',1)").run();
+  await env.DB.prepare("INSERT INTO hx_gateway_jobs (id,org_id,gateway_id,created_by,request_id,payload,status,lease_hash,created_at) VALUES ('app-action','workspace-budget-stop','gw','owner','app-action','{}','running','app-lease',1)").run();
+  await env.DB.prepare("INSERT INTO hx_app_action_jobs (org_id,app_id,job_id,action_name,action_version,created_by) VALUES ('workspace-budget-stop','app','app-action','run',1,'owner')").run();
 
-  const allowance = await allowanceFor(env,"org",{githubId:"owner"});
+  const allowance = await allowanceFor(env,"workspace-budget-stop",{githubId:"owner"});
   expect(allowance.allowed).toBe(false);
   expect(allowance.workspaceBudgetExceeded).toBe(true);
 
