@@ -632,17 +632,17 @@ test('deleted memory review log retains discoverable scopes but checks current r
 test("workspace GitHub sharing is admin-only, scoped to the workspace, and keeps personal grants separate", async () => {
   const path = `/hx/agents/${agentId}/apps`;
   const query = q({ orgId: ORG });
-  expect((await send("POST", `${path}?${query}`, mika, { source: "github", scope: "workspace" })).status).toBe(403);
-  expect((await send("POST", `${path}?${query}`, toru, { source: "github", scope: "workspace" })).status).toBe(409);
+  expect((await send("POST", `${path}?${query}`, mika, { orgId: ORG, source: "github", scope: "workspace" })).status).toBe(403);
+  expect((await send("POST", `${path}?${query}`, toru, { orgId: ORG, source: "github", scope: "workspace" })).status).toBe(409);
 
   await env.DB.prepare("INSERT INTO org_github (org_id,repo,token,composio_user,connected_by,updated_at) VALUES (?1,'torutesu/honmaruai','workspace-super-secret',NULL,'9201',?2)")
     .bind(ORG, new Date().toISOString()).run();
   await env.DB.prepare("UPDATE sessions SET github_access_token='personal-token' WHERE token=?1").bind(mika).run();
-  await send("POST", `${path}?${query}`, mika, { source: "github" }); // member-level grant still works with their own credential
+  await send("POST", `${path}?${query}`, mika, { orgId: ORG, source: "github" }); // member-level grant still works with their own credential
   const personalBefore = await env.DB.prepare("SELECT count(*) AS n FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9202' AND source='github'")
     .bind(ORG, agentId).first();
   expect(personalBefore.n).toBe(1);
-  const adminGrant = await send("POST", `${path}?${query}`, toru, { source: "github", scope: "workspace" });
+  const adminGrant = await send("POST", `${path}?${query}`, toru, { orgId: ORG, source: "github", scope: "workspace" });
   expect(adminGrant.status).toBe(200);
   const body = await adminGrant.json();
   expect(JSON.stringify(body)).not.toContain("workspace-super-secret");
@@ -657,12 +657,20 @@ test("workspace GitHub sharing is admin-only, scoped to the workspace, and keeps
   const crossOrg = await get(`${path}?${q({ orgId: otherOrg })}`, kenji);
   expect([403, 404]).toContain(crossOrg.status);
 
-  expect((await send("DELETE", `${path}?${query}`, toru, { source: "github", scope: "workspace" })).status).toBe(200);
+  expect((await send("DELETE", `${path}?${query}`, toru, { orgId: ORG, source: "github", scope: "workspace" })).status).toBe(200);
   expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe(null);
   expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: personalSession, source: "github" })).toBe("personal");
   const personalAfter = await env.DB.prepare("SELECT count(*) AS n FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9202' AND source='github'")
     .bind(ORG, agentId).first();
   expect(personalAfter.n).toBe(1);
+
+  await env.DB.prepare("UPDATE org_github SET token=NULL,composio_user='9201' WHERE org_id=?1").bind(ORG).run();
+  const oauthGrant = await send("POST", `${path}?${query}`, toru, { orgId: ORG, source: "github", scope: "workspace" }, { COMPOSIO_API_KEY: "ck_test" });
+  expect(oauthGrant.status).toBe(200);
+  const oauthBody = await oauthGrant.json();
+  expect(JSON.stringify(oauthBody)).not.toContain("9201");
+  expect(oauthBody.nativeConnections.find(row => row.source === "github")).toMatchObject({ workspaceAvailable: true, workspaceEnabled: true });
+  expect(await agentSourceCredential({ ...env, COMPOSIO_API_KEY: "ck_test" }, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe("workspace");
 });
 
 test('an active normal request loses authorization when agent access becomes private', async()=>{
