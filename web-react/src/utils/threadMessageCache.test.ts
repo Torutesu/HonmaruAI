@@ -55,6 +55,12 @@ it('preserves live edits, arrivals, quote changes and deletions even during the 
   cache.change({ ...message('1', 'root'), deleted: true })
   expect(cache.get('b:a', 'root')!.replies.map(row => row.id)).toEqual(['3', '4'])
 })
+it('keeps the latest parent edit when a delayed pin response updates its thread snapshot', () => {
+  const cache = new ThreadMessageCache()
+  cache.remember('b:a', { ...message('root'), body: 'Current', contentVersion: 3, pinVersion: 1 }, [])
+  cache.change({ ...message('root'), body: 'Old', contentVersion: 2, pinned: true, pinVersion: 2 })
+  expect(cache.get('b:a', 'root')?.parent).toMatchObject({ body: 'Current', contentVersion: 3, pinned: true, pinVersion: 2 })
+})
 it('cannot restore a deleted parent and discards denied/deleted snapshots', async () => {
   const cache = new ThreadMessageCache(), response = deferred<ReturnType<typeof ok>>()
   const task = cache.load('b:a', 'root', () => response.promise)
