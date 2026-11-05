@@ -2038,8 +2038,8 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   const primary = await getTable(env.DB, ORG, app.tableId);
   const relatedMade = await createTable(env.DB, { orgId: ORG, name: 'Customers', columns: [{ name: 'Name', type: 'text' }, { name: 'Internal note', type: 'text' }], by: '9101' });
   await env.DB.prepare('INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES(?1,?2,?3,?4)').bind(ORG, app.id, 'customers', relatedMade.table.id).run();
-  await addRow(env.DB, ORG, app.tableId, { [primary.columns[0].id]: 'Public title', [primary.columns[1].id]: 'PRIMARY_SECRET' }, '9101');
-  await addRow(env.DB, ORG, relatedMade.table.id, { [relatedMade.table.columns[0].id]: 'Public customer', [relatedMade.table.columns[1].id]: 'RELATED_SECRET' }, '9101');
+  const primaryRow = await addRow(env.DB, ORG, app.tableId, { [primary.columns[0].id]: 'Public title', [primary.columns[1].id]: 'PRIMARY_SECRET' }, '9101');
+  const relatedRow = await addRow(env.DB, ORG, relatedMade.table.id, { [relatedMade.table.columns[0].id]: 'Public customer', [relatedMade.table.columns[1].id]: 'RELATED_SECRET' }, '9101');
   await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)").bind(ORG, app.id).run();
 
   const noCustom = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, accessVersion: 1, entities: [{ entity: 'primary', fields: [primary.columns[0].id] }], publicDataConfirmed: true });
@@ -2061,6 +2061,15 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   const { share } = await created.json();
   const token = share.url.split('/').at(-1);
   expect(share.appVersion).toBe(1);
+  expect(share.dataScope).toEqual(expect.arrayContaining([
+    expect.objectContaining({ entity: 'primary', tableId: app.tableId }),
+    expect.objectContaining({ entity: 'customers', tableId: relatedMade.table.id }),
+  ]));
+  const staleAccess = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, accessVersion: 0, entities: [{ entity: 'primary', fields: [primary.columns[0].id] }], publicDataConfirmed: true });
+  expect(staleAccess.status).toBe(409);
+  const rebound = await createTable(env.DB, { orgId: ORG, name: 'Replacement customers', columns: [{ name: 'Name', type: 'text' }, { name: 'Internal note', type: 'text' }], by: '9101' });
+  await addRow(env.DB, ORG, rebound.table.id, { [rebound.table.columns[0].id]: 'REBOUND_CUSTOMER', [rebound.table.columns[1].id]: 'REBOUND_SECRET' }, '9101');
+  await env.DB.prepare('UPDATE hx_app_entities SET table_id=?1 WHERE org_id=?2 AND app_id=?3 AND entity_key=?4').bind(rebound.table.id, ORG, app.id, 'customers').run();
   const newerDefinition = { ...definition, custom: { published: 'window.honmaru.read().then(()=>document.body.textContent="NEW_VERSION")' } };
   await env.DB.prepare('INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at) VALUES(?1,?2,2,?3,?4,?5,?6)').bind(app.id, ORG, JSON.stringify(newerDefinition), 'new version', '9101', '2026-01-02T00:00:00Z').run();
 
@@ -2076,7 +2085,7 @@ test('public custom app links are version-pinned, field-scoped, read-only and re
   expect(response.headers.get('content-security-policy')).toContain("frame-src 'self'");
   const html = await response.text();
   expect(html).toContain('Public title');
-  expect(html).toContain('Public customer');
+  expect(html).toContain('Public customer');\n  expect(html).not.toContain('REBOUND_CUSTOMER');\n  expect(html).not.toContain(primaryRow.row.id);\n  expect(html).not.toContain(relatedRow.row.id);\n  expect(html).toContain('values');
   expect(html).not.toContain('PRIMARY_SECRET');
   expect(html).not.toContain('RELATED_SECRET');
   expect(html).toContain('window.honmaru.read()');
