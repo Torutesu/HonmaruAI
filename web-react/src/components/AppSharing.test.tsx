@@ -7,7 +7,7 @@ let tree: ReactTestRenderer | undefined
 afterEach(() => { act(() => tree?.unmount()); vi.unstubAllGlobals() })
 const props = { httpBase: 'https://test.local', orgId: 'org', sessionToken: 'session', appId: 'app' }
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
-const settings = { share: null, appVersion: 4, entities: [{ key: 'primary', name: 'Tasks', fields: [{ id: 'title', name: 'Title' }, { id: 'secret', name: 'Secret' }] }] }
+const settings = { share: null, appVersion: 4, entities: [{ key: 'primary', name: 'Tasks', fields: [{ id: 'title', name: 'Title' }, { id: 'secret', name: 'Secret' }] }, { key: 'customers', name: 'Customers', fields: [{ id: 'company', name: 'Company' }] }] }
 
 test('sharing sends the displayed version and preserves private selection on a conflict', async () => {
   const fetcher = vi.fn().mockResolvedValueOnce(response({ access: { visibility: 'private', version: 3 }, canEdit: true })).mockResolvedValueOnce(response(settings))
@@ -39,8 +39,10 @@ test('public link creation requires selected fields and explicit confirmation', 
   await act(async () => { boxes[0].props.onChange({ target: { checked: true } }) })
   expect(tree!.root.findAllByType('button').find(button => button.children.includes('Create public link'))!.props.disabled).toBe(true)
   boxes = tree!.root.findAllByType('input').filter(input => input.props.type === 'checkbox')
-  await act(async () => { boxes[1].props.onChange({ target: { checked: true } }) })
+  await act(async () => { boxes[2].props.onChange({ target: { checked: true } }) })
+  boxes = tree!.root.findAllByType('input').filter(input => input.props.type === 'checkbox')
+  await act(async () => { boxes[3].props.onChange({ target: { checked: true } }) })
   await act(async () => { tree!.root.findAllByType('button').find(button => button.children.includes('Create public link'))!.props.onClick() })
-  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({ orgId: 'org', appVersion: 4, accessVersion: 2, entities: [{ entity: 'primary', fields: ['title'] }], publicDataConfirmed: true })
+  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({ orgId: 'org', appVersion: 4, accessVersion: 2, entities: [{ entity: 'primary', fields: ['title'] }, { entity: 'customers', fields: ['company'] }], publicDataConfirmed: true })
   expect(tree!.root.findByProps({ 'aria-label': 'Public URL' }).props.value).toBe('https://test.local/app-shares/token')
 })
