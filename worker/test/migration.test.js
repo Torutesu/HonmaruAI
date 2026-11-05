@@ -246,7 +246,7 @@ test('follow-up origin migration preserves existing standalone reservations',asy
  await env.DB.exec("CREATE TABLE hx_followups (id TEXT PRIMARY KEY,org_id TEXT NOT NULL,channel TEXT NOT NULL,thread_id TEXT,agent_id TEXT,instruction TEXT NOT NULL,due_at TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'scheduled',created_by TEXT NOT NULL,created_at TEXT NOT NULL,done_at TEXT,result TEXT)");
  await env.DB.exec("INSERT INTO hx_followups(id,org_id,channel,instruction,due_at,created_by,created_at) VALUES ('existing','org','b:ops','Keep this reminder','2099-01-01','user','2026-01-01')");
  await applyDeploy(env.DB);
- expect(await env.DB.prepare('SELECT instruction,status,origin_workflow_id,origin_release_id FROM hx_followups WHERE id=?1').bind('existing').first()).toEqual({instruction:'Keep this reminder',status:'scheduled',origin_workflow_id:null,origin_release_id:null});
+ expect(await env.DB.prepare('SELECT instruction,status,origin_workflow_id,origin_release_id,source_app_id,source_entity_id,source_table_id,source_authority_version FROM hx_followups WHERE id=?1').bind('existing').first()).toEqual({instruction:'Keep this reminder',status:'scheduled',origin_workflow_id:null,origin_release_id:null,source_app_id:null,source_entity_id:null,source_table_id:null,source_authority_version:0});
  await applyDeploy(env.DB);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_followups WHERE id=?1').bind('existing').first()).n).toBe(1);
 });

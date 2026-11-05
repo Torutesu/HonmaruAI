@@ -1938,7 +1938,11 @@ CREATE TABLE IF NOT EXISTS hx_followups (
   done_at       TEXT,
   result        TEXT,
   origin_workflow_id TEXT,
-  origin_release_id TEXT
+  origin_release_id TEXT,
+  source_app_id TEXT,
+  source_entity_id TEXT,
+  source_table_id TEXT,
+  source_authority_version INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_hx_followups_due ON hx_followups(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_hx_followups_channel ON hx_followups(org_id, channel, status);

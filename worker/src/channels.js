@@ -1,6 +1,7 @@
 import {messageDeliveryStatements} from './messageDelivery.js';
 import {conversationWriteAuthority} from './harness/conversationWriteAuthority.js';
 import {workflowNoticeGuard} from './harness/workflowNoticeGuard.js';
+import {workflowEffectAuthority,followupEffectAuthority} from './harness/workflowEffectAuthority.js';
 import {agentRequestStatement} from './agentRequestDispatch.js';
 import { roomHookReplyGuard } from './harness/roomHookExecutionGrant.js';
 import { listMembers } from "./team.js";
@@ -647,7 +648,7 @@ async function messageByClientId(db, orgId, authorLogin, clientId, creation = nu
 /// than sent without it.
 const FILES_GONE = "A file in this message is no longer there. Attach it again.";
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, deliveryBoundary = null, assignmentFence = null, workflowNotice = null, creationActorId = null, creationRoomSnapshot = null, conversationActorId = null, mcpAuthority = null }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, deliveryBoundary = null, assignmentFence = null, workflowNotice = null, creationActorId = null, creationRoomSnapshot = null, conversationActorId = null, mcpAuthority = null, workflowFence = null, followupFence = null }) {
   const creation = creationActorId !== null;
   if (mcpAuthority && (!conversationActorId || !['chat:write', 'chat:schedule'].includes(mcpAuthority.scope) || Boolean(mcpAuthority.tokenId) === Boolean(mcpAuthority.grantId))) return { error: 'Invalid connection authority.', status: 403 };
   if (conversationActorId !== null && (typeof conversationActorId !== 'string' || !conversationActorId || creation || assignmentFence || workflowNotice || roomHookSource || kind !== 'message')) return { error: 'Invalid conversation author.', status: 403 };
@@ -658,6 +659,8 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   if(workflowNotice && (kind!=='ai'||authorLogin!=='__workflow'||!parentId||files||withFiles||assignmentFence||agentRequest||roomHookSource||typeof workflowNotice.workflowId!=='string'||typeof workflowNotice.generation!=='string'||typeof workflowNotice.recipientId!=='string'))return {error:'Invalid workflow notice.',status:403};
   if (roomHookSource && (!parentId || kind !== 'agent' || !authorLogin?.startsWith('agent:'))) return {error:'Invalid webhook reply.',status:403};
   if(assignmentFence && (kind!=='agent' || !parentId || files?.ids?.length || withFiles || typeof assignmentFence.assignmentId!=='string' || !Number.isSafeInteger(assignmentFence.generation) || typeof assignmentFence.sourceId!=='string' || typeof assignmentFence.sourceBody!=='string' || typeof assignmentFence.sourceAuthor!=='string'))return {error:'Invalid execution reply.',status:403};
+  if (workflowFence && (typeof workflowFence.runId !== 'string' || !workflowFence.runId || typeof workflowFence.ownerId !== 'string' || !workflowFence.ownerId || files?.ids?.length || withFiles || creation || assignmentFence || workflowNotice || conversationActorId || mcpAuthority || followupFence)) return {error:'Invalid workflow effect authority.',status:403};
+  if (followupFence && (typeof followupFence.id !== 'string' || !followupFence.id || typeof followupFence.ownerId !== 'string' || !followupFence.ownerId || files?.ids?.length || withFiles || creation || assignmentFence || workflowNotice || conversationActorId || mcpAuthority || workflowFence)) return {error:'Invalid follow-up effect authority.',status:403};
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
   const remembered = clientIdOk(clientId) ? clientId : null;
   // A picture on its own is something said. A retry of one has had its
@@ -726,6 +729,18 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
           WHERE g.id=${source} AND g.org_id=?2 AND g.user_id=${actorParam} AND g.revoked_at IS NULL AND g.expires_at>${at} AND c.disabled_at IS NULL AND ${grantScopes('g')})`
       : ` AND EXISTS(SELECT 1 FROM api_tokens token WHERE token.id=${source} AND token.org_id=?2 AND token.github_id=${actorParam} AND token.expires_at>${at} AND ${grantScopes('token')})`;
     const grantValues = mcpAuthority ? [mcpAuthority.grantId || mcpAuthority.tokenId, mcpAuthority.scope, mcpAuthority.grantId ? Date.now() : new Date().toISOString()] : [];
+    const workflowFenceStart = values.length + fenceValues.length + noticeValues.length + creationValues.length + actorValues.length + grantValues.length + 1;
+    const workflowFenceLive = workflowFence ? ` AND ${workflowEffectAuthority({
+      org: '?2', runId: `?${workflowFenceStart}`, ownerId: `?${workflowFenceStart + 1}`,
+      channel: '?3', agentId: workflowFence.agentId ? `?${workflowFenceStart + 2}` : null,
+    })}` : '';
+    const workflowFenceValues = workflowFence ? [workflowFence.runId, String(workflowFence.ownerId), ...(workflowFence.agentId ? [workflowFence.agentId] : [])] : [];
+    const followupFenceStart = workflowFenceStart + workflowFenceValues.length;
+    const followupFenceLive = followupFence ? ` AND ${followupEffectAuthority({
+      org: '?2', followupId: `?${followupFenceStart}`, ownerId: `?${followupFenceStart + 1}`, channel: '?3',
+      agentId: followupFence.agentId ? `?${followupFenceStart + 2}` : null,
+    })}` : '';
+    const followupFenceValues = followupFence ? [followupFence.id, String(followupFence.ownerId), ...(followupFence.agentId ? [followupFence.agentId] : [])] : [];
 
     if (files?.ids?.length) {
       // The message and its files in one step, all or none: its uploads are
@@ -752,12 +767,14 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
         return { error: FILES_GONE, code: "files_gone", status: 409 };
       }
     } else {
-      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}${noticeLive}${creationLive}${actorLive}${grantLive}`).bind(...values,...fenceValues,...noticeValues,...creationValues,...actorValues,...grantValues);
+      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}${noticeLive}${creationLive}${actorLive}${grantLive}${workflowFenceLive}${followupFenceLive}`).bind(...values,...fenceValues,...noticeValues,...creationValues,...actorValues,...grantValues,...workflowFenceValues,...followupFenceValues);
       const put = dispatch || deliveries.length ? (await db.batch([insert,...(dispatch ? [dispatch] : []),...deliveries]))[0] : await insert.run();
       if(conversationActorId && !put.meta?.changes)return {error:'Conversation access changed.',status:403};
       if(creation && !put.meta?.changes)return {error:'No such room.',status:403};
       if(workflowNotice && !put.meta?.changes)return {error:'Workflow notice access changed.',code:'notice_changed',status:409};
       if (assignmentFence && !put.meta?.changes)return {error:'Execution access changed.',code:'execution_changed',status:409};
+      if (workflowFence && !put.meta?.changes)return {error:'Workflow source, Agent, or conversation access changed.',code:'workflow_access_changed',status:409};
+      if (followupFence && !put.meta?.changes)return {error:'Follow-up source, Agent, or conversation access changed.',code:'followup_access_changed',status:409};
       if (parentId && !put.meta?.changes) return roomHookSource ? {error:"Webhook access changed.",code:"webhook_revoked",status:403} : { error: THREAD_GONE, code: "thread_gone" };
     }
   } catch (err) {
