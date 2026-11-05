@@ -604,8 +604,10 @@ export async function handleHarness(request, env, url, context = {}) {
         return r.error ? fail(r) : json({ ...r, hookUrl: hookUrl(url, r.workflow) });
       }
       if (request.method === "DELETE") {
+        const deleted = await deleteWorkflow(env.DB, orgId, wfId);
+        if(deleted.error)return fail(deleted);
         await audit(env, request, { orgId, action: "workflow.deleted", actor: person(who.user), entity: { type: "workflow", id: wfId, name: wf.name } });
-        return json(await deleteWorkflow(env.DB, orgId, wfId));
+        return json(deleted);
       }
       return null;
     }

@@ -374,6 +374,23 @@ test('admin editors cannot redirect a workflow to an app they cannot access',asy
   expect((await (await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika)).json()).workflow.trigger.type).toBe('manual');
 });
 
+test('deleting a workflow is refused while an approval is waiting and keeps its run history',async()=>{
+ const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Keep pending approval',trigger:{type:'manual'},steps:[{type:'approval',to:'toru',title:'Review this'}]});
+ expect(created.status).toBe(201);
+ const {workflow}=await created.json();
+ const started=await send('POST',`/workflows/${workflow.id}/run`,mika,{orgId:ORG});
+ expect(started.status).toBe(201);
+ const {run}=await started.json();
+ expect(run.status).toBe('waiting');
+
+ const deleted=await send('DELETE',`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika,{});
+ expect(deleted.status,await deleted.clone().text()).toBe(409);
+ expect((await deleted.json()).message).toMatch(/running or approval-waiting run/);
+ const current=await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika);
+ expect(current.status).toBe(200);
+ expect((await current.json()).runs).toEqual([expect.objectContaining({id:run.id,status:'waiting'})]);
+});
+
 test("row event filters use strict scalar types, treat missing separately from null, and ignore duplicate delivery", async () => {
   const make = async (name, where) => {
     const result = await send("POST", "/workflows", mika, {
