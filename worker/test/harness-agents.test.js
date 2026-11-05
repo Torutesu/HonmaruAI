@@ -692,6 +692,14 @@ test("restricted Agent avatar URLs follow access, membership and revisions in Ha
   replay.searchParams.set("viewer", "9202");
   expect((await call(replay.pathname + replay.search, { headers: {} }, keyed)).status).toBe(404);
 
+  const otherOrg = "personal:avatar-replay";
+  const { upsertMembership } = await import("../src/db.js");
+  await upsertMembership(env.DB, otherOrg, "9201", "member");
+  await env.DB.prepare("UPDATE custom_agents SET org_id=?3,scope='personal',owner_login='toru' WHERE org_id=?1 AND id=?2").bind(ORG, agentId, otherOrg).run();
+  expect((await call(protectedUrl.pathname + protectedUrl.search, { headers: {} }, keyed)).status).toBe(404);
+  await env.DB.prepare("UPDATE custom_agents SET org_id=?3,scope='team',owner_login='mika' WHERE org_id=?1 AND id=?2").bind(otherOrg, agentId, ORG).run();
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9201'").bind(otherOrg).run();
+
   const profile = await env.DB.prepare("SELECT updated_at FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2").bind(ORG, agentId).first();
   const access = await env.DB.prepare("SELECT version FROM hx_agent_access WHERE org_id=?1 AND agent_id=?2").bind(ORG, agentId).first();
   const membership = await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9201'").bind(ORG).first();
