@@ -694,8 +694,10 @@ test("restricted Agent avatar URLs follow access, membership and revisions in Ha
   await env.DB.prepare("INSERT INTO hx_agent_assignments (id,org_id,source_message_id,initial_agent_id,current_agent_id,channel,thread_id,actor_id,session_key,source_hash,generation,status,visited,hop_limit,created_at,updated_at) VALUES ('avatar-status',?1,'avatar-status-source',?2,?2,'b:cafe','avatar-status-source','9201','session','hash',0,'running','[]',4,?3,?3)")
     .bind(ORG, agentId, new Date().toISOString()).run();
   const { decorateAssignmentStatuses } = await import("../src/harness/agentAssignmentStatus.js");
-  const status = await decorateAssignmentStatuses(env.DB, ORG, [{ rowId: "avatar-status-source", status: "running", answered: 0 }],
-    { actorId: "9201", login: "toru", env: keyed });
+  const { requestContext } = await import("../src/requestContext.js");
+  const status = await requestContext.run({ origin: "https://example.com" }, () =>
+    decorateAssignmentStatuses(env.DB, ORG, [{ rowId: "avatar-status-source", status: "running", answered: 0 }],
+      { actorId: "9201", login: "toru", env: keyed }));
   const statusUrl = status[0].assignments[0].agent.avatarUrl;
   expect(statusUrl).toContain("viewer=9201");
   expect((await call(new URL(statusUrl).pathname + new URL(statusUrl).search, { headers: {} }, keyed)).status).toBe(200);
