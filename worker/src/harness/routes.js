@@ -1338,7 +1338,7 @@ export async function handleHarness(request, env, url, context = {}) {
       if(input.action==='publish') {
         const state=await customPublishState(env.DB,orgId,app);
         if(state.policy.enabled && state.approval?.reviewerId && !await allowed(env.DB,orgId,state.approval.reviewerId,'harness.delete_others')) {
-          await env.DB.prepare("UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=?1 WHERE id=?2 AND status='approved'").bind(new Date().toISOString(),state.approval.id).run();
+          await env.DB.prepare("UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=?1 WHERE org_id=?2 AND app_id=?3 AND id=?4 AND status='approved'").bind(new Date().toISOString(),orgId,appId,state.approval.id).run();
           return json({message:'The reviewer no longer has Owner or Admin access. Request a new approval.'},409);
         }
       }
