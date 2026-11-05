@@ -2,6 +2,7 @@ import { isPro } from "./entitlements.js";
 import { countAIUse, reserveAIUse, releaseAIUse } from "./db.js";
 import { loadAISettings } from "./orgAI.js";
 import { workspaceAIBudgetExceeded, workspaceAIBudgetStatus } from "./workspaceAIBudget.js";
+import { cancelDeploymentBudgetWorkflowRuns } from "./workspaceBudgetStop.js";
 
 export const FREE_DAILY_ROUTES = 3;
 
@@ -95,7 +96,11 @@ export async function allowanceFor(env, orgId, { githubId, userKey }) {
     // deliberately outside this shared deployment budget.
     if (!workspaceKey) {
       try {
-        if (workspaceAIBudgetExceeded(await workspaceAIBudgetStatus(env.DB, orgId, Date.now(), workspaceSettings))) return DENIED_WORKSPACE_BUDGET;
+        if (workspaceAIBudgetExceeded(await workspaceAIBudgetStatus(env.DB, orgId, Date.now(), workspaceSettings))) {
+          try { await cancelDeploymentBudgetWorkflowRuns(env.DB, orgId); }
+          catch (err) { console.error("workspace budget workflow stop failed", err?.message || err); }
+          return DENIED_WORKSPACE_BUDGET;
+        }
       } catch (err) {
         // If the deployment-key budget cannot be read, do not silently send
         // another request under the deployment's API key.
