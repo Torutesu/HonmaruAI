@@ -95,7 +95,10 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   const published = await send('POST', `/apps/${app.id}/custom`, toru, {
     action: 'publish_commit', version: importedBody.version, approvalId: approval.id,
   });
-  expect(published.status, await published.clone().text()).toBe(200);
+  const releaseState=await env.DB.prepare(`SELECT a.version,json_extract(a.definition,'$.custom.publishedCommitApprovalId') AS publishedApproval,
+    p.status AS approvalStatus,p.consumed_at AS consumedAt FROM hx_apps a JOIN hx_app_commit_approvals p ON p.org_id=a.org_id AND p.app_id=a.id
+    WHERE a.org_id=?1 AND a.id=?2 AND p.id=?3`).bind(ORG,app.id,approval.id).first();
+  expect(published.status, `${await published.clone().text()} state=${JSON.stringify(releaseState)}`).toBe(200);
   expect((await published.json()).commit.sha).toBe(commitSha);
 
   const domain = new Date().toISOString();
@@ -176,7 +179,10 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
   const approval=(await (await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:data.version,commit:data.commit,sourceHash:data.commit.sourceHash})).json()).approval;
   expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:data.version,commitSha,sourceHash:data.commit.sourceHash})).status).toBe(200);
   const published=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:data.version,approvalId:approval.id});
-  expect(published.status, await published.clone().text()).toBe(200);
+  const releaseState=await env.DB.prepare(`SELECT a.version,json_extract(a.definition,'$.custom.publishedCommitApprovalId') AS publishedApproval,
+    p.status AS approvalStatus,p.consumed_at AS consumedAt FROM hx_apps a JOIN hx_app_commit_approvals p ON p.org_id=a.org_id AND p.app_id=a.id
+    WHERE a.org_id=?1 AND a.id=?2 AND p.id=?3`).bind(ORG,app.id,approval.id).first();
+  expect(published.status, `${await published.clone().text()} state=${JSON.stringify(releaseState)}`).toBe(200);
   const served=await call(`/app-commit-assets/${app.id}/${commitSha}/${data.commit.assetToken}/app.js`);
   expect(served.status).toBe(200);
   expect((await served.arrayBuffer()).byteLength).toBe(1_500_000);
@@ -239,6 +245,13 @@ test('custom domain consent is bound to its attachment and exposes only after ex
   const receipt=await env.DB.prepare('SELECT hostname,domain_created_at AS domainCreatedAt,confirmed_by AS confirmedBy,confirmed_at AS confirmedAt,confirmation_version AS confirmationVersion FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first();
   expect(receipt).toMatchObject({hostname,confirmedBy:'9101',confirmationVersion:1});
   expect(receipt.domainCreatedAt).toBe(domain.createdAt);
+  const resolverCandidate=await env.DB.prepare(`SELECT d.status,d.hostname,d.created_at AS createdAt,c.domain_created_at AS consentCreatedAt,
+    c.confirmation_version AS consentVersion,json_extract(a.definition,'$.custom.published') AS published
+    FROM hx_app_domains d JOIN hx_app_domain_public_consents c ON c.org_id=d.org_id AND c.app_id=d.app_id AND c.hostname=d.hostname
+      AND c.domain_created_at=d.created_at AND c.confirmation_version=1 JOIN hx_apps a ON a.org_id=d.org_id AND a.id=d.app_id
+    WHERE d.hostname=?1`).bind(hostname).first();
+  expect(resolverCandidate, 'resolver eligibility diagnostic').toBeTruthy();
+  expect(resolverCandidate.status).toBe('active');
   const published=await domainCall(`/app-domains/resolve?host=${hostname}`);
   expect(published.status, await published.clone().text()).toBe(200);
   expect(await published.text()).toContain('public app snapshot');
