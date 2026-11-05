@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 105127)
-Total output lines: 6532
-
 import {appActivityReadFailed} from '../utils/appActivityStatus'
 import {workspaceFileForThread} from '../utils/workspaceFileThread'
 import {workspaceFileViewKey} from '../utils/workspaceFileView'
@@ -3236,7 +3233,323 @@ export const ClassicList: React.FC<Props> = ({
     const key = `${m.id}|${emoji}`
     if (reacting.current.has(key) || isTemp(m)) return
     reacting.current.add(key)
-    // Adding one (not taking yours back) make…5127 tokens truncated…ivityItems((prev) => prev && prev.map((i) => (i.unread && keys.has(activityKey(i)) ? { ...i, unread: false } : i)))
+    // Adding one (not taking yours back) makes it a recent one.
+    if (!m.reactions?.some((r) => r.emoji === emoji && r.mine)) rememberEmoji(emoji)
+    const me = members.find((x) => x.mine)?.ref
+    const pending = (x: ChannelMessage, on: boolean) => ({ ...x, reactionsPending: on ? [...new Set([...(x.reactionsPending || []), emoji])] : (x.reactionsPending || []).filter((e) => e !== emoji) })
+    patchMessage(channel, m.id, (x) => pending({ ...x, reactions: toggleReaction(x.reactions, emoji, me) }, true))
+    void act('POST', '/channels/reactions', channel, { messageId: m.id, emoji }).then((done) => {
+      reacting.current.delete(key)
+      // The server's copy is drawn already (act); if it did not go, back.
+      if (!done) patchMessage(channel, m.id, (x) => pending({ ...x, reactions: toggleReaction(x.reactions, emoji, me) }, false))
+    })
+  }
+  /// An edit shows the moment Save is pressed — faded until the server has
+  /// it — and is put back as it was, with why, if the server does not (#248).
+  const saveEdit = async (channel: string) => {
+    if (!editing) return
+    const text = editing.text.trim()
+    if (!text) return
+    const drawn = [...(messagesRef.current[channel] || []), ...(thread ? [thread.parent, ...thread.replies] : [])]
+      .find((x) => x.id === editing.id || drawnAs.current.get(x.id) === editing.id)
+    setEditing(null)
+    if (drawn && drawn.body === text) return
+    const was = drawn ? { body: drawn.body, editedAt: drawn.editedAt } : null
+    const show = (id: string, on: boolean) => patchMessage(channel, id, (x) => {
+      if (on) return { ...x, body: text, editedAt: x.editedAt || new Date().toISOString(), editPending: true }
+      return x.editPending && x.body === text ? { ...x, ...(was || {}), editPending: false } : x
+    })
+    if (drawn) show(drawn.id, true)
+    // Begun while it was on its way: saved to the server's copy once it has
+    // landed — not at all if it did not go.
+    const id = isTemp(editing) ? await landedId(editing.id) : editing.id
+    if (!id) { if (drawn) show(drawn.id, false); setProblem(t('That did not save.')); return }
+    // The server's copy may have taken the temporary one's place meanwhile.
+    if (drawn && id !== drawn.id) show(id, true)
+    // Saved: act draws the server's copy, which is not pending.
+    const done = await act('PUT', '/channels/messages', channel, { messageId: id, body: text })
+    if (!done && drawn) show(id, false)
+  }
+  /// The message an edit is open on. Begun on one of yours still on its way,
+  /// it stays open on the server's copy that took its place.
+  const editingThis = (m: ChannelMessage) => Boolean(editing && (editing.id === m.id || editing.id === drawnAs.current.get(m.id)))
+  /// Delete a message, after asking in the app — not the browser's own box,
+  /// unstyled and in the browser's language. ⇧ skips the question, as in
+  /// Discord; somebody else's words in the thread go only when you say so
+  /// outright, so that one is always asked. `others`: the server found
+  /// replies from others that this page did not know of.
+  const [deleting, setDeleting] = useState<null | { channel: string; m: ChannelMessage; others?: boolean; busy?: boolean; error?: string | null }>(null)
+  /// The question was answered and the server is deleting: it can no longer
+  /// be taken back. A ref, for Esc — the dialog keeps the onClose it opened
+  /// with — and for a second click before the button is drawn disabled.
+  const deleteBusy = useRef(false)
+  const deleteCancel = useRef<HTMLButtonElement>(null)
+  /// Messages the server is deleting right now. A second press of the key
+  /// before it answers is not a second delete: the server would say "No
+  /// such message" of one that went as asked, and focus would be let go.
+  const unsending = useRef(new Set<string>())
+  const remove = (channel: string, m: ChannelMessage, skipConfirm = false) => {
+    // Picked by a key before the server answered the send: deleted once it
+    // has landed, under the id the server gave it — or, never landed, given up.
+    if (isTemp(m)) {
+      void landedId(m.id).then((id) => { if (id) remove(channel, { ...m, id }, skipConfirm); else discard(m) })
+      return
+    }
+    if (unsending.current.has(m.id)) return
+    if (!skipsDeleteConfirm(skipConfirm, m, myRef)) { setDeleting({ channel, m }); return }
+    // Nobody was asked, so nobody said others' replies may go: the server
+    // is asked without them, and when it finds some the question is asked
+    // after all — with the warning that names them.
+    void unsend(channel, m, false).then((r) => {
+      // (Never over a question already open about another message.)
+      if (r.others) { setDeleting((cur) => cur ?? { channel, m, others: true }); return }
+      if (r.gone) return
+      // Still here: focus stays on it rather than waiting for it to go.
+      dropKeyReturn('delete')
+      if (r.error) setProblem(r.error)
+    })
+  }
+  /// Ask the server to delete it. `withThread` lets other people's replies
+  /// go with it, and is only said once the question that names them was
+  /// answered: without it the server refuses (`others`) rather than take
+  /// them. It is the server that knows who replied — replyRefs leaves out
+  /// anyone who has since left, and is behind when a live event was missed.
+  const unsend = async (channel: string, m: ChannelMessage, withThread: boolean): Promise<{ gone: boolean; others?: boolean; error?: string }> => {
+    if (unsending.current.has(m.id)) return { gone: false }
+    unsending.current.add(m.id)
+    setProblem(null)
+    let res: Response | null = null
+    let data: { message?: unknown; code?: string } = {}
+    try {
+      res = await fetch(`${api.httpBase}/channels/messages`, {
+        method: 'DELETE',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: api.orgId, channel, messageId: m.id, withThread }),
+      })
+      data = await res.json().catch(() => ({}))
+    } catch {
+      res = null
+    }
+    unsending.current.delete(m.id)
+    if (res?.status === 409 && data.code === 'thread_has_replies') return { gone: false, others: true }
+    setEditing((cur) => (cur?.id === m.id ? null : cur))
+    if (!res?.ok) return { gone: false, error: (typeof data.message === 'string' && data.message) || t('That did not work. Try again.') }
+    if (data.message && typeof data.message === 'object') replaceMessage(channel, data.message as ChannelMessage)
+    messageCache.threads.change({ ...m, channel, deleted: true })
+    // Gone here at once, and its thread with it.
+    if (m.alsoChannel) setMessages((prev) => (prev[channel] ? { ...prev, [channel]: prev[channel].filter((x) => x.id !== m.id) } : prev))
+    if (!m.parentId) {
+      setMessages((prev) => (prev[channel] ? { ...prev, [channel]: withoutThread(prev[channel], m.id) } : prev))
+      setThread((prev) => (prev && prev.parent.id === m.id ? null : prev))
+    }
+    return { gone: true }
+  }
+  const confirmDelete = async () => {
+    if (!deleting || deleteBusy.current) return
+    const { channel, m } = deleting
+    deleteBusy.current = true
+    setDeleting({ ...deleting, busy: true, error: null })
+    // Their replies go only when the question on show named them.
+    const r = await unsend(channel, m, Boolean(deleting.others) || othersReplied(m, myRef))
+    deleteBusy.current = false
+    // Only the question that was answered is closed, or told what went
+    // wrong — it stays open to say so, and to be answered again. Others
+    // replied and it had not said so: nothing went, and now it does.
+    setDeleting((cur) => {
+      if (cur?.m.id !== m.id) return cur
+      if (r.gone) return null
+      if (r.others) return { ...cur, busy: false, others: true, error: t('Others replied in this thread, so nothing was deleted. Delete again to delete their replies too.') }
+      return { ...cur, busy: false, error: r.error || t('That did not work. Try again.') }
+    })
+    // The buttons are live again, and focus left them when they were not:
+    // back to Cancel, where it was when the question opened.
+    if (!r.gone) requestAnimationFrame(() => deleteCancel.current?.focus())
+  }
+  /// Not while it is being deleted: the question would look withdrawn, and
+  /// the message would go all the same.
+  const cancelDelete = () => {
+    if (deleteBusy.current) return
+    dropKeyReturn('delete')
+    setDeleting(null)
+  }
+
+  /// A message a key acted on (see logKeys): focus goes back to it when the
+  /// edit box or the picker the key opened closes, and to the one beside it
+  /// once it is deleted — never taken from wherever you went meanwhile.
+  const keyReturn = useRef<{ kind: 'edit' | 'react' | 'delete'; row: HTMLElement; near: HTMLElement | null } | null>(null)
+  const dropKeyReturn = (kind: 'edit' | 'react' | 'delete') => { if (keyReturn.current?.kind === kind) keyReturn.current = null }
+  /// The message the arrow keys last picked: the one whose letters work.
+  const keyPicked = useRef<HTMLElement | null>(null)
+  // After every render: what closes it, or takes the message away, is any
+  // of several states (the edit, the picker, the list, the thread).
+  useEffect(() => {
+    const r = keyReturn.current
+    if (!r || deleting) return
+    const active = document.activeElement
+    const lost = !active || active === document.body || r.row.contains(active)
+    if (r.row.isConnected) {
+      if (r.kind === 'delete' || (r.kind === 'edit' ? editing : pickerFor)) return
+      keyReturn.current = null
+      if (lost) r.row.focus({ preventScroll: true })
+      return
+    }
+    keyReturn.current = null
+    if (lost && r.near?.isConnected) {
+      keyPicked.current = r.near
+      r.near.focus({ preventScroll: true })
+      r.near.scrollIntoView({ block: 'nearest' })
+    }
+  })
+  const togglePin = (channel: string, m: ChannelMessage) => void act('POST', '/channels/pins', channel, { messageId: m.id, pinned: !m.pinned })
+  const refreshThread = async (channel: string, parentId: string, ask: number, before: ChannelMessage[], force = false) => {
+    const result = await loadThread(channel, parentId, force)
+    if (ask !== threadAsk.current || cacheScope.current !== messageCache || result === 'obsolete') return false
+    if (result === 'denied') { setThread(null); setProblem(t('That did not work. Try again.')); return false }
+    if (!result) {
+      setThread(prev => prev && prev.channel === channel && prev.parent.id === parentId ? { ...prev, loading: false, failed: true } : prev)
+      return false
+    }
+    const snapshot = messageCache.threads.get(channel, parentId) || result
+    const back = heldFor(channel, parentId, snapshot.replies)
+    setThread(prev => prev && prev.channel === channel && prev.parent.id === parentId
+      ? { channel, more: snapshot.more, nextCursor: snapshot.nextCursor, parent: reconcileMessage(prev.parent, snapshot.parent), replies: withHeld(mergeLatestMessages(prev.replies, snapshot.replies, before, false, true), back) }
+      : prev)
+    return true
+  }
+  const loadOlderThread = async (channel: string, parentId: string) => {
+    const ask = threadAsk.current
+    const before = thread?.replies || []
+    setThread(previous => previous?.parent.id === parentId ? { ...previous, loadingOlder: true, olderFailed: false } : previous)
+    const result = await messageCache.threads.loadOlder(channel, parentId, cursor => readThreadPage(channel, parentId, cursor))
+    if (ask !== threadAsk.current || cacheScope.current !== messageCache || result === 'obsolete') return
+    if (result === 'denied') { setThread(null); return }
+    const log = document.querySelector<HTMLElement>('.slk-thread-pane .slk-thread-log, .slk-inbox-thread .slk-thread-log')
+    const anchor = log ? { height: log.scrollHeight, top: log.scrollTop } : null
+    setThread(previous => previous?.channel === channel && previous.parent.id === parentId ? result
+      ? { ...previous, ...result, channel, loadingOlder: false, olderFailed: false, replies: withHeld(mergeLatestMessages(previous.replies, result.replies, before, false, true), heldFor(channel, parentId, result.replies)) }
+      : { ...previous, loadingOlder: false, olderFailed: true } : previous)
+    if (result && log && anchor) requestAnimationFrame(() => { if (log.isConnected && ask === threadAsk.current) log.scrollTop = anchor.top + log.scrollHeight - anchor.height })
+  }
+  const showThreadReference = async (channel: string, parentId: string, id: string) => {
+    if (cacheScope.current !== messageCache || threadOwner.current !== messageCache) return
+    const ask = ++referenceAsk.current
+    setThreadReference({ id })
+    const readReferences = referenceRead()
+    const query = new URLSearchParams({ orgId: api.orgId, channel, messageId: parentId, reference: id })
+    const response = await fetch(`${api.httpBase}/channels/thread?${query}`, { headers: authHeaders }).catch(() => null)
+    const data = response?.ok ? await response.json().catch(() => null) : null
+    if (ask !== referenceAsk.current || cacheScope.current !== messageCache) return
+    const message = data?.reference
+    const available = message?.id === id && message.channel === channel && !message.deleted
+    if (available) readReferences([message])
+    setThreadReference({ id, message: available ? message : undefined, failed: !available })
+  }
+  const openThread = async (channel: string, m: ChannelMessage, force = false): Promise<void> => {
+    // A reply shown in the conversation opens the thread it is in.
+    if (m.parentId) {
+      const head = (messagesRef.current[channel] || []).find((x) => x.id === m.parentId)
+      return openThread(channel, head || { id: m.parentId, channel, kind: m.threadParent?.kind || 'message', body: m.threadParent?.excerpt || '', authorName: m.threadParent?.authorName || null, authorRef: m.threadParent?.authorRef || null, createdAt: m.createdAt } as ChannelMessage, force)
+    }
+    setDetailId(null)
+    setProfile(null)
+    const ask = ++threadAsk.current
+    const same = threadOwner.current === messageCache && thread?.channel === channel && thread.parent.id === m.id
+    threadOwner.current = messageCache
+    if (!same) holdFrom(m.id)
+    const cached = messageCache.threads.get(channel, m.id)
+    const kept = cached?.replies || []
+    const before = same ? thread.replies : kept
+    const replies = withHeld(keepTemps(kept, same ? thread.replies : undefined), heldFor(channel, m.id, kept))
+    setThread({ channel, more: cached?.more, nextCursor: cached?.nextCursor, parent: cached?.parent || m, replies, loading: force || !messageCache.threads.fresh(channel, m.id) })
+    // Preserve the object destination for reload, without replacing a newer route.
+    if(harness && (location.hash==='#/list' || (thread && location.hash===hashForThread(thread.parent.id,api.orgId)))){
+      const hash=hashForThread(m.id,api.orgId)
+      localThreadRoute.current={hash,client:resourceClient}
+      history.replaceState(history.state,'',hash)
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    }
+    await refreshThread(channel, m.id, ask, before, force)
+    if (ask !== threadAsk.current || cacheScope.current !== messageCache) return
+    requestAnimationFrame(() => threadComposer.current?.focus())
+    markThreadRead(channel, m.id)
+  }
+  /// A thread shown in Activity: loaded whole, read, and the message you
+  /// picked picked out in it.
+  const threadInActivity = useRef(false)
+  // Leaving Activity leaves its thread behind: it is not the one a
+  // conversation opened.
+  useEffect(() => {
+    if (!activityOpen && threadInActivity.current) { threadInActivity.current = false; setThread(null) }
+  }, [activityOpen])
+  const showThreadIn = async (channel: string, parentId: string, focusId: string) => {
+    const ask = ++threadAsk.current
+    const cached = messageCache.threads.get(channel, parentId)
+    const kept = cached?.replies || []
+    const same = threadOwner.current === messageCache && thread?.channel === channel && thread.parent.id === parentId
+    threadOwner.current = messageCache
+    const before = same ? thread.replies : kept
+    const head = cached?.parent || threadItems?.find(item => item.parent.channel === channel && item.parent.id === parentId)?.parent
+      || messagesRef.current[channel]?.find(row => row.id === parentId)
+      || { id: parentId, channel, kind: 'message', body: '', createdAt: '' } as ChannelMessage
+    threadInActivity.current = true
+    setThread({ channel, more: cached?.more, nextCursor: cached?.nextCursor, parent: head, replies: withHeld(keepTemps(kept, same ? thread.replies : undefined), heldFor(channel, parentId, kept)), loading: !messageCache.threads.fresh(channel, parentId) })
+    if (!await refreshThread(channel, parentId, ask, before)) return
+    markThreadRead(channel, parentId)
+    requestAnimationFrame(() => {
+      if (ask !== threadAsk.current || cacheScope.current !== messageCache) return
+      const id = focusId === parentId ? `thread-${focusId}` : focusId
+      const el = document.querySelector(`.slk-inbox-thread #${CSS.escape(`msg-${id}`)}, .slk-thread-pane #${CSS.escape(`msg-${id}`)}`)
+      if (el) { el.scrollIntoView({ block: 'center' }); setFlash(id); setTimeout(() => setFlash(null), 1600) }
+      else if (focusId !== parentId) void showThreadReference(channel, parentId, focusId)
+    })
+  }
+  /// Read this thread, here and on every other device: Threads stops
+  /// calling it unread.
+  const markThreadRead = (channel: string, parentId: string, upTo?: string) => {
+    // Read up to the newest reply on screen, not the server's now: one that
+    // lands while this is on its way stays new.
+    const seenUpTo = upTo || threadItems?.find((x) => x.parent.id === parentId)?.lastReplyAt || new Date().toISOString()
+    threadReadTo.current = { parentId, at: seenUpTo }
+    // Its notifications on this computer come down with it.
+    closeThreadNotifications(parentId, thread?.parent.id === parentId ? thread.replies.map((r) => r.id) : [])
+    setThreadItems((prev) => prev && prev.map((x) => (x.parent.id === parentId ? { ...x, unread: false } : x)))
+    // Its replies, and its first message where it named you, in Activity too.
+    setActivityItems((prev) => prev && prev.map((i) => (i.unread && (i.message.parentId === parentId || (i.message.id === parentId && i.type !== 'reaction')) ? { ...i, unread: false } : i)))
+    void readWrites.run(`${api.orgId}:t:${parentId}`, async latest=>{
+    const response=await fetch(`${api.httpBase}/channels/read`, {
+      method: 'POST', headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: api.orgId, channel, thread: parentId, at: seenUpTo }),
+    })
+    if(response.ok){const state=await response.json();if(latest()&&readPositions.accept(`t:${parentId}`,state.lastReadAt,state.readVersion))readGuard.readThread(parentId,state.lastReadAt)}
+    }).catch(() => {})
+  }
+  /// How far the open thread was last read, so a reply arriving while it
+  /// is in front of you is read once, not on every redraw.
+  const threadReadTo = useRef<{ parentId: string; at: string } | null>(null)
+  // A thread open in front of you is read as things arrive in it, and again
+  // the moment you come back to it — as a conversation is. Opening it was
+  // the only read before: a reply that came while you watched stayed new,
+  // its notification stayed up, and the phone was told a minute later.
+  useEffect(() => {
+    if (!thread || !looking) return
+    const parentId = thread.parent.id
+    const newest = thread.replies.reduce((max, r) => (!r.mine && r.createdAt > max ? r.createdAt : max), '')
+    if (!newest) return
+    const done = threadReadTo.current
+    if (done && done.parentId === parentId && done.at >= newest) return
+    const timer = setTimeout(() => markThreadRead(thread.channel, parentId, newest), 600)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread?.parent.id, thread?.replies.length, looking])
+  // Read on another device (or another tab): the same here, at once —
+  // the conversation, the thread, the Activity items — and this browser's
+  // notifications for it come down.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ items?: string[]; threads?: Array<{ thread: string; lastReadAt: string; readVersion?:number }>; view?: string; thread?: string | null; lastReadAt?: string; readVersion?:number; unread?: boolean }>).detail || {}
+      if (Array.isArray(d.items)) {
+        const keys = new Set(d.items)
+        setActivityItems((prev) => prev && prev.map((i) => (i.unread && keys.has(activityKey(i)) ? { ...i, unread: false } : i)))
         if (Array.isArray(d.threads)) threadsReadTo(d.threads)
         closeMessageNotifications(messageIdsOf(d.items))
         return
