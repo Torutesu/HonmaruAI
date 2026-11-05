@@ -20,6 +20,17 @@ test('changing the action preserves its execution condition and discards obsolet
  act(()=>tree.unmount())
 })
 
+test('connection actions are limited to Notion and GitHub read-only search',()=>{
+ const onChange=vi.fn();let tree:any
+ act(()=>{tree=create(<StepEditor step={{type:'connection',agentId:'a1',source:'notion',action:'search',query:'policy'}} onChange={onChange} onRemove={()=>{}} tables={[]} agents={[{id:'a1',handle:'policy',name:'Policy Agent'}]}/>)})
+ const selects=tree.root.findAllByType('select')
+ expect(selects.some((node:any)=>node.props['aria-label']==='Agent')).toBe(true)
+ const connection=selects.find((node:any)=>node.props['aria-label']==='Connection')
+ expect(connection.findAllByType('option').map((node:any)=>node.props.value)).toEqual(['notion','github'])
+ expect(tree.root.findAllByType('textarea').some((node:any)=>node.props['aria-label']==='Search query')).toBe(true)
+ act(()=>tree.unmount())
+})
+
 test('app automation program editing uses the source editor without converting to a form step',async()=>{
  const step={type:'code' as const,code:'console.log("saved");',gatewayId:'mini'};
  const onChange=vi.fn(),api:any={gateways:vi.fn().mockResolvedValue({gateways:[{id:'mini',name:'Mac mini',revokedAt:null}]})};let tree:any;
