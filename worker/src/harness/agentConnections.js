@@ -23,12 +23,27 @@ async function currentAgentAccess(db, orgId, agentId, githubId) {
 }
 
 async function activeNotionShare(db, orgId, agentId) {
-  return db.prepare(`SELECT s.owner_github_id FROM hx_agent_source_shares s
+  const share = await db.prepare(`SELECT s.owner_github_id,s.owner_membership_since,s.created_at FROM hx_agent_source_shares s
     JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=s.owner_github_id
       AND m.created_at=s.owner_membership_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
     JOIN custom_agents a ON a.org_id=s.org_id AND a.id=s.agent_id AND a.deleted_at IS NULL
     WHERE s.org_id=?1 AND s.agent_id=?2 AND s.source='notion'`)
     .bind(orgId, agentId).first();
+  if (!share) return null;
+  let ownerCanAccess;
+  try {
+    ownerCanAccess = await currentAgentAccess(db, orgId, agentId, share.owner_github_id);
+  } catch {
+    // An ACL read failure must deny use without destroying the saved grant.
+    return null;
+  }
+  if (ownerCanAccess) return share;
+  // Drop an obsolete share only if it is still the exact row just checked;
+  // a concurrent re-share must survive this cleanup.
+  await db.prepare(`DELETE FROM hx_agent_source_shares WHERE org_id=?1 AND agent_id=?2 AND source='notion'
+    AND owner_github_id=?3 AND owner_membership_since=?4 AND created_at=?5`)
+    .bind(orgId, agentId, String(share.owner_github_id), share.owner_membership_since, share.created_at).run().catch(() => {});
+  return null;
 }
 
 /// Resolve the connection identity an authorized caller may use for this
