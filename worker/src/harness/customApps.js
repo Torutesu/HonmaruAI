@@ -41,7 +41,7 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
   } else if (input.action === 'draft') {
     if (!validateSource(input.html)) return { error: 'HTML source must contain 1–120000 characters.', status: 400 };
     custom.draft = input.html;
-    if (trusted.commit) custom.draftCommit = trusted.commit;
+    if (trusted.commit) custom.draftCommit = { ...trusted.commit, appVersion: version };
     else delete custom.draftCommit;
   } else if (input.action === 'publish') {
     if (!validateSource(custom.draft)) return { error: 'Save a draft before publishing.', status: 400 };
