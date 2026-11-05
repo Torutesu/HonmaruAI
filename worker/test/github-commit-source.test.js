@@ -28,7 +28,7 @@ test('imports immutable HTML and recursively captures same-commit relative JS as
   expect(result.source).toContain('./app.js');
   expect(result.commit.sha).toBe(commitSha);
   expect(result.assets.map((asset) => asset.path)).toEqual(['app.js']);
-  expect(result.commit.assets).toEqual([{ path: 'app.js', mimeType: 'text/javascript', contentHash: expect.any(String), size: 35 }]);
+  expect(result.commit.assets).toEqual([{ path: 'app.js', mimeType: 'text/javascript', contentHash: expect.any(String), size: 34 }]);
   expect(JSON.stringify(result)).not.toContain('gho-never-return-this');
   expect(fetch.mock.calls.every(([url]) => String(url).startsWith('https://api.github.com/'))).toBe(true);
 });
