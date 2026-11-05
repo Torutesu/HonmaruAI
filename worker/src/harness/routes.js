@@ -1393,9 +1393,11 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(result);
       }
       if (request.method === "DELETE") {
-        const channel = url.searchParams.get("channel");
-        if (!channel) return json({ message: 'channel is required' }, 400);
-        const result = await unlinkApp(env.DB, orgId, appId, channel);
+        const requested = url.searchParams.get("channel");
+        if (!requested) return json({ message: 'channel is required' }, 400);
+        const room = await readableConversation(env.DB, orgId, me, requested);
+        if (!room) return json({ message: 'No such room.' }, 404);
+        const result = await unlinkApp(env.DB, orgId, appId, room.key);
         if (result.error) return fail(result);
         await audit(env, request, { orgId, action: 'app.room_unlinked', actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: {} });
         return json(result);
