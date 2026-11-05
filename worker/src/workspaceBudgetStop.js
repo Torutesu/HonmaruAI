@@ -1,8 +1,8 @@
 import { workflowSettlementStatements } from "./harness/workflowSafety.js";
 
-// Cancel only active workflows whose recorded provider usage is exclusively
-// from the deployment key. Mixed-credential runs remain untouched because
-// their current credential cannot be proven from historical usage alone.
+// Cancel deployment-pinned active workflows, even before the first AI call.
+// For legacy runs without an admission-time pin, infer deployment source only
+// from exclusively deployment-key usage; ambiguous history fails open.
 export async function cancelDeploymentBudgetWorkflowRuns(db, orgId, at = new Date().toISOString()) {
   if (!db || typeof orgId !== "string" || !orgId) return 0;
   const { results = [] } = await db.prepare(`
@@ -12,7 +12,11 @@ export async function cancelDeploymentBudgetWorkflowRuns(db, orgId, at = new Dat
         THEN json_insert(log,'$[#]',json_object('status','cancelled','reason','workspace_budget_exceeded','at',?2))
         ELSE '[]' END,
       finished_at=?2
-    WHERE org_id=?1 AND status='running' AND credential_source='deployment'
+    WHERE org_id=?1 AND status='running'
+      AND (credential_source='deployment' OR (
+        credential_source='unknown'
+        AND EXISTS(SELECT 1 FROM hx_workflow_usage u WHERE u.org_id=?1 AND u.run_id=hx_workflow_runs.id AND u.byok=0)
+      ))
       AND NOT EXISTS(SELECT 1 FROM hx_workflow_usage u WHERE u.org_id=?1 AND u.run_id=hx_workflow_runs.id AND u.byok=1)
     RETURNING id
   `).bind(orgId, at).all();
