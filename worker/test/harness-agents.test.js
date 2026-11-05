@@ -683,7 +683,7 @@ test("restricted Agent avatar URLs follow access, membership and revisions in Ha
 
   await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,kind,body,created_at) VALUES ('avatar-test-message',?1,'b:cafe',?2,'agent','A private reply',?3)")
     .bind(ORG, `agent:${agentId}`, new Date().toISOString()).run();
-  const history = await get(`/channels/messages?${q({ orgId: ORG, channel: "b:cafe" })}`, toru);
+  const history = await call(`/channels/messages?${q({ orgId: ORG, channel: "b:cafe" })}`, { headers: headers(toru) }, keyed);
   const message = (await history.json()).messages.find((row) => row.id === "avatar-test-message");
   expect(message.agent.avatarUrl).toContain("viewer=9201");
   expect((await call(new URL(message.agent.avatarUrl).pathname + new URL(message.agent.avatarUrl).search, { headers: {} }, keyed)).status).toBe(200);
