@@ -11,18 +11,19 @@ import './WorkspaceFilesPanel.css'
 import {WorkspaceFilePreview} from './WorkspaceFilePreview'
 import {workspaceFilePreviewKind} from '../utils/workspaceFilePreview'
 import {WorkspaceFileUpload} from './WorkspaceFileUpload'
+import {FilePublicUrlControls} from './FilePublicUrlControls'
 
-export function RoomFilesPanel({api,channel,targetFileId,inlinePreview=false,preferenceKey,allOriginsInFolders=false,onClose,onAttachments}:{api:WorkspaceFileApi;channel:string;targetFileId?:string;inlinePreview?:boolean;preferenceKey?:string;allOriginsInFolders?:boolean;onClose:()=>void;onAttachments:()=>void}){
+export function RoomFilesPanel({api,channel,targetFileId,inlinePreview=false,preferenceKey,allOriginsInFolders=false,enablePublicMediaUrls=false,onClose,onAttachments}:{api:WorkspaceFileApi;channel:string;targetFileId?:string;inlinePreview?:boolean;preferenceKey?:string;allOriginsInFolders?:boolean;enablePublicMediaUrls?:boolean;onClose:()=>void;onAttachments:()=>void}){
  const t=useT(),[scope,setScope]=useState<string|null>(null),[error,setError]=useState(''),[revision,setRevision]=useState(0)
  useEffect(()=>{let live=true;const controller=new AbortController();setScope(null);setError('')
   api.resolveScope(channel,controller.signal).then(result=>{if(live)setScope(result.scope)}).catch(error=>{if(live)setError(String(error.message||error))})
   return()=>{live=false;controller.abort()}
  },[api,channel,revision])
- if(scope)return <WorkspaceFilesPanel key={`${scope}:${preferenceKey}`} api={api} scope={scope} targetFileId={targetFileId} inlinePreview={inlinePreview} preferenceKey={preferenceKey} allOriginsInFolders={allOriginsInFolders} onClose={onClose} onAttachments={onAttachments}/>
+ if(scope)return <WorkspaceFilesPanel key={`${scope}:${preferenceKey}`} api={api} scope={scope} targetFileId={targetFileId} inlinePreview={inlinePreview} preferenceKey={preferenceKey} allOriginsInFolders={allOriginsInFolders} enablePublicMediaUrls={enablePublicMediaUrls} onClose={onClose} onAttachments={onAttachments}/>
  return <aside className="hx-room-resource slk-pane hx-files-panel" aria-label={t('Files')}><header><strong>{t('Files')}</strong><button onClick={onClose} aria-label={t('Close resources')}><Icon name="x" size={16}/></button></header><div className="hx-files-state" role={error?'alert':'status'}>{error||t('Loading…')}{error&&<button onClick={()=>setRevision(value=>value+1)}>{t('Retry')}</button>}</div><footer><button onClick={onAttachments}>{t('Message attachments')}</button></footer></aside>
 }
 
-export function WorkspaceFilesPanel({api,scope,targetFileId,inlinePreview=false,preferenceKey,allOriginsInFolders=false,onClose,onAttachments}:{api:WorkspaceFileApi;scope:string;targetFileId?:string;inlinePreview?:boolean;preferenceKey?:string;allOriginsInFolders?:boolean;onClose:()=>void;onAttachments:()=>void}){
+export function WorkspaceFilesPanel({api,scope,targetFileId,inlinePreview=false,preferenceKey,allOriginsInFolders=false,enablePublicMediaUrls=false,onClose,onAttachments}:{api:WorkspaceFileApi;scope:string;targetFileId?:string;inlinePreview?:boolean;preferenceKey?:string;allOriginsInFolders?:boolean;enablePublicMediaUrls?:boolean;onClose:()=>void;onAttachments:()=>void}){
  const [saved]=useState(()=>readWorkspaceFileView(preferenceKey))
  const [showShares,setShowShares]=useState(false)
  const t=useT(),[query,setQuery]=useState(saved.search),[search,setSearch]=useState(saved.search),[revision,setRevision]=useState(0)
@@ -150,6 +151,7 @@ function WorkspaceFileHistory({api,file,inlinePreview,refreshRevision,onBack,onC
    {externalMessage&&<p role="status">{externalMessage}</p>}
   </section>}
   {error&&<div role="alert"><p>{error}</p><button onClick={()=>setRevision(value=>value+1)}>{t('Retry')}</button></div>}
+  {current&&enablePublicMediaUrls&&<FilePublicUrlControls api={api} file={file} current={current} enabled/>}
   {!versions&&!error?<p role="status">{t('Loading…')}</p>:versions?.map(version=><div className="hx-file-version" key={version.version}><span><b>v{version.version}{version.isCurrent?` · ${t('Current version')}`:''}</b><small>{new Date(version.createdAt).toLocaleString()}</small>{version.kind==='deleted'&&<small>{t('Deleted')}</small>}{version.purged&&<small>{t('Permanently deleted')}</small>}</span>{version.kind==='content'&&!version.purged&&<div className="hx-file-version-actions">{workspaceFilePreviewKind(version.contentType||'',file.path)&&<button onClick={()=>setPreview(version)} aria-label={`${t('Preview')} v${version.version}`}>{t('Preview')}</button>}{!version.isCurrent&&<button disabled={busy} onClick={()=>void restore(version)} aria-label={`${t('Restore')} v${version.version}`}>{t('Restore')}</button>}<button disabled={busy} onClick={()=>void download(version.version)} aria-label={`${t('Download')} v${version.version}`}><Icon name="download" size={16}/></button></div>}</div>)}
   <div className="hx-files-pagination">{before!==undefined&&<button onClick={()=>setBefore(undefined)}>{t('Latest versions')}</button>}{versions?.length===50&&versions[versions.length-1].version>1&&<button onClick={()=>setBefore(versions[versions.length-1].version)}>{t('Older versions')}</button>}</div>
  </div>

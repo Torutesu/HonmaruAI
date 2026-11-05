@@ -77,6 +77,9 @@ test("public file bearer tokens never appear in route labels", () => {
   expect(routeLabel("GET", `/hx/public-file-shares/${token}`)).toBe("GET /hx/public-file-shares/:token");
   expect(routeLabel("GET", `/hx/public-file-shares/${token}/download`)).toBe("GET /hx/public-file-shares/:token/download");
   expect(routeLabel("GET", `/hx/public-file-shares/${token}%2Fextra`)).toBe("GET /hx/public-file-shares/:token");
+  const publicMedia = `fpu_${"a".repeat(43)}.${"b".repeat(43)}`;
+  expect(routeLabel("GET", `/workspace-file-public-urls/${publicMedia}`)).toBe("GET /workspace-file-public-urls/:token");
+  expect(safe(`GET /workspace-file-public-urls/${publicMedia}`)).toBe("GET /workspace-file-public-urls/[redacted]");
 });
 
 test("public file bearer tokens are redacted from route labels and arbitrary messages", () => {

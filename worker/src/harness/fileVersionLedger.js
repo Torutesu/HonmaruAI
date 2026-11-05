@@ -51,7 +51,15 @@ export async function appendFileVersion(db,{orgId,fileId,expectedVersion,created
    .bind(orgId,fileId,version,operationId,kind,objectKey,contentHash,contentType,size,createdBy,at,restoredFrom,expectedVersion,stageId,Date.now()),
   db.prepare(`UPDATE hx_workspace_files SET current_version=?3,updated_at=?4 WHERE org_id=?1 AND id=?2 AND current_version=?5
    AND EXISTS(SELECT 1 FROM hx_workspace_file_versions v WHERE v.org_id=?1 AND v.file_id=?2 AND v.version=?3 AND v.operation_id=?6)`)
-   .bind(orgId,fileId,version,at,expectedVersion,operationId)
+   .bind(orgId,fileId,version,at,expectedVersion,operationId),
+  // Deleting a file takes down every permanent URL. A restore does not
+  // silently revive links that a user expected to be gone.
+  db.prepare(`DELETE FROM hx_workspace_file_public_urls WHERE org_id=?1 AND file_id=?2 AND ?5='deleted'
+   AND EXISTS(SELECT 1 FROM hx_workspace_file_versions deleted JOIN hx_workspace_files f
+    ON f.org_id=deleted.org_id AND f.id=deleted.file_id
+    WHERE deleted.org_id=?1 AND deleted.file_id=?2 AND deleted.operation_id=?4
+     AND deleted.kind='deleted' AND f.current_version=deleted.version)`)
+   .bind(orgId,fileId,version,operationId,kind)
  ]);
  return results[0].meta.changes===1&&results[1].meta.changes===1?{saved:true,version}:{saved:false};
 }

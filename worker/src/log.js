@@ -9,7 +9,7 @@
 // exists to protect is worse than no log. Everything here is either an id, a
 // route, or a number.
 
-const REDACT = /(?:gho_|ghp_|sk-|Bearer\s+)\S+|(?:tpl_|skl_|app_)[a-f0-9]{64}|\/hx\/public-file-shares\/[A-Za-z0-9_-]{40,60}(?:%2F[^\s]*)?|(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/gi;
+const REDACT = /(?:gho_|ghp_|sk-|Bearer\s+)\S+|(?:tpl_|skl_|app_)[a-f0-9]{64}|\/hx\/public-file-shares\/[A-Za-z0-9_-]{40,60}(?:%2F[^\s]*)?|fpu_[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}|(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/gi;
 
 export function safe(message) {
   return String(message ?? "").replace(REDACT, "[redacted]").slice(0, 500);
@@ -31,6 +31,7 @@ export function routeLabel(method, pathname) {
     // an extra suffix or an encoded character and therefore fails validation.
     .replace(/^(\/(?:template|skill|app)-shares\/)[^/]+/i, "$1:token")
     .replace(/^(\/hx\/public-file-shares\/)[^/]+/i, "$1:token")
+    .replace(/^(\/workspace-file-public-urls\/)[^/]+/i, "$1:token")
     .replace(/^\/orgs\/[^/]+\/[^/]+/, "/orgs/:owner/:repo")
     .replace(/\/cards\/[^/]+/, "/cards/:id")
     .replace(/^\/media\/[^/]+$/, "/media/:id")
