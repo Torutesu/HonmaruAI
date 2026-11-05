@@ -18,28 +18,40 @@ export async function publicShareSettings(db,orgId,appId){
 }
 export async function publicShareOptions(db,orgId,appId){
  const app=await getApp(db,orgId,appId);if(!app)return fail('No such app.',404);
- const table=await getTable(db,orgId,app.tableId);if(!table)return fail('App data unavailable.',404);
- return {entities:[{key:'primary',name:table.name,fields:(table.columns||[]).map(c=>({id:c.id,name:c.name,type:c.type}))}]};
+ const related=await db.prepare('SELECT entity_key AS key,table_id AS tableId FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 ORDER BY entity_key').bind(orgId,appId).all();
+ const refs=[{key:'primary',tableId:app.tableId},...(related.results||[]).filter(x=>x.key!=='primary'&&x.tableId!==app.tableId)];
+ const entities=[];
+ for(const ref of refs){const table=await getTable(db,orgId,ref.tableId);if(table)entities.push({key:ref.key,name:table.name,fields:(table.columns||[]).map(c=>({id:c.id,name:c.name,type:c.type}))})}
+ return {entities};
 }
 export async function createPublicAppShare(db,orgId,appId,by,input){
  if(input.publicDataConfirmed!==true)return fail('Confirm that anyone with the link can read the selected fields.',409);
  const app=await getApp(db,orgId,appId);if(!app)return fail('No such app.',404);
- const table=await getTable(db,orgId,app.tableId);if(!table)return fail('App data unavailable.',404);
  const current=await db.prepare('SELECT MAX(version) AS version FROM hx_app_versions WHERE org_id=?1 AND app_id=?2').bind(orgId,appId).first();
  const version=Number(current?.version||0);if(!version)return fail('Publish a version before making a public link.',409);
  if(input.appVersion!==version)return fail('App version changed. Reload before sharing.',409);
- if(!Array.isArray(input.fields)||input.fields.length<1||input.fields.length>50)return fail('Choose at least one public field.');
- const allowed=new Set((table.columns||[]).map(c=>c.id));
- const fields=[...new Set(input.fields.map(String))];if(fields.some(id=>!allowed.has(id)))return fail('Invalid public field selection.');
+ if(!Array.isArray(input.entities)||input.entities.length<1||input.entities.length>10)return fail('Choose at least one public entity.');
+ const related=await db.prepare('SELECT entity_key AS key,table_id AS tableId FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(orgId,appId).all();
+ const refs=new Map([['primary',app.tableId],...(related.results||[]).map(x=>[x.key,x.tableId])]);
+ const scope=[];
+ for(const selected of input.entities){
+  const key=String(selected?.entity||'');
+  if(!refs.has(key)||!Array.isArray(selected.fields)||selected.fields.length<1||selected.fields.length>50)return fail('Invalid public entity or fields.');
+  const table=await getTable(db,orgId,refs.get(key));if(!table)return fail('App data unavailable.',404);
+  const allowed=new Set((table.columns||[]).map(c=>c.id)),fields=[...new Set(selected.fields.map(String))];
+  if(fields.some(id=>!allowed.has(id)))return fail('Invalid public field selection.');
+  scope.push({entity:key,fields});
+ }
+ if(new Set(scope.map(x=>x.entity)).size!==scope.length)return fail('Duplicate public entity.');
  const token=b64url(crypto.getRandomValues(new Uint8Array(32))),id='aps_'+b64url(crypto.getRandomValues(new Uint8Array(12))),tokenHash=await digest(token);
  const encrypted=await sealField(token,context(orgId,appId),orgId);if(!isSealed(encrypted))return fail('Secure link storage is unavailable.',503);
- const scope=JSON.stringify([{entity:'primary',fields}]),createdAt=at();
+ const dataScope=JSON.stringify(scope),createdAt=at();
  const statements=[
   db.prepare('UPDATE hx_app_public_shares SET revoked_at=?3 WHERE org_id=?1 AND app_id=?2 AND revoked_at IS NULL').bind(orgId,appId,createdAt),
-  db.prepare('INSERT INTO hx_app_public_shares(id,org_id,app_id,token_hash,token_ciphertext,app_version,data_scope,created_by,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)').bind(id,orgId,appId,tokenHash,encrypted,version,scope,String(by),createdAt)
+  db.prepare('INSERT INTO hx_app_public_shares(id,org_id,app_id,token_hash,token_ciphertext,app_version,data_scope,created_by,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)').bind(id,orgId,appId,tokenHash,encrypted,version,dataScope,String(by),createdAt)
  ];
  try{await db.batch(statements)}catch{return fail('A public link changed concurrently. Reload and retry.',409)}
- return {share:{id,appVersion:version,dataScope:JSON.parse(scope),createdAt,url:'/app-shares/'+token}};
+ return {share:{id,appVersion:version,dataScope:JSON.parse(dataScope),createdAt,url:'/app-shares/'+token}};
 }
 export async function revokePublicAppShare(db,orgId,appId,shareId){
  const result=await db.prepare('UPDATE hx_app_public_shares SET revoked_at=?4 WHERE org_id=?1 AND app_id=?2 AND id=?3 AND revoked_at IS NULL').bind(orgId,appId,shareId,at()).run();
@@ -55,15 +67,26 @@ export async function readPublicAppShare(db,token,origin){
    WHERE s.token_hash=?1 AND s.revoked_at IS NULL`).bind(hash).first();
  if(!share)return fail('Not found.',404);
  let scope;let definition;try{scope=JSON.parse(share.dataScope);definition=JSON.parse(share.definition)}catch{return fail('Not found.',404)}
- const fields=scope?.find(x=>x.entity==='primary')?.fields;
- if(!Array.isArray(fields)||!fields.length)return fail('Not found.',404);
- const table=await getTable(db,share.orgId,share.tableId);if(!table)return fail('Not found.',404);
- const allowed=new Set((table.columns||[]).map(c=>c.id));if(fields.some(x=>!allowed.has(x)))return fail('Not found.',404);
- const result=await listRows(db,share.orgId,share.tableId,{limit:5000});if(result.error)return fail('Unavailable.',503);
- const rows=(result.rows||[]).map(row=>Object.fromEntries(fields.map(field=>[field,row.values?.[field]??null])));
- const publicDefinition=definition.custom?.published;
+ if(!Array.isArray(scope)||!scope.length||scope.length>10)return fail('Not found.',404);
+ const related=await db.prepare('SELECT entity_key AS key,table_id AS tableId FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(share.orgId,share.appId).all();
+ const refs=new Map([['primary',share.tableId],...(related.results||[]).map(x=>[x.key,x.tableId])]);
+ const entities=[];
+ for(const selected of scope){
+  if(!refs.has(selected?.entity)||!Array.isArray(selected.fields)||!selected.fields.length)return fail('Not found.',404);
+  const table=await getTable(db,share.orgId,refs.get(selected.entity));if(!table)return fail('Not found.',404);
+  const fields=selected.fields;
+  const allowed=new Set((table.columns||[]).map(c=>c.id));if(fields.some(x=>!allowed.has(x)))return fail('Not found.',404);
+  const result=await listRows(db,share.orgId,refs.get(selected.entity),{limit:5000});if(result.error)return fail('Unavailable.',503);
+  const rows=(result.rows||[]).map(row=>({values:Object.fromEntries(fields.map(field=>[field,row.values?.[field]??null]))}));
+  entities.push({key:selected.entity,table:{name:table.name,columns:table.columns.filter(c=>fields.includes(c.id)).map(c=>({id:c.id,name:c.name,type:c.type}))},rows});
+ }
+ const primary=entities.find(x=>x.key==='primary')||entities[0];
+ const versionDefinition=definition;
+ const publicDefinition=versionDefinition.custom?.published;
  if(typeof publicDefinition!=='string'||publicDefinition.length>120000)return fail('Not found.',404);
- const payload=JSON.stringify({name:share.name,icon:share.icon||'📋',html:publicDefinition,table:{name:table.name,columns:table.columns.filter(c=>fields.includes(c.id)).map(c=>({id:c.id,name:c.name,type:c.type}))},rows}).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
+ const title=typeof versionDefinition.name==='string'?versionDefinition.name:share.name;
+ const icon=typeof versionDefinition.icon==='string'?versionDefinition.icon:share.icon||'📋';
+ const payload=JSON.stringify({name:title,icon,appVersion:share.appVersion,html:publicDefinition,table:primary.table,rows:primary.rows,entities}).replace(/</g,'\\u003c').replace(/\\u2028/g,'\\u2028').replace(/\\u2029/g,'\\u2029');
  return {html:publicShell(payload,origin)};
 }
 function publicShell(payload,origin){
@@ -72,6 +95,6 @@ function publicShell(payload,origin){
  return `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Published app</title></head><body style="margin:0;font-family:system-ui"><header id="title" style="padding:12px 16px;border-bottom:1px solid #ddd"></header><iframe id="runner" title="Published app" sandbox="allow-scripts" referrerpolicy="no-referrer" style="border:0;width:100%;height:calc(100vh - 52px)"></iframe><script>
 const p=JSON.parse(${safe}),frame=document.getElementById('runner'),renderId=crypto.randomUUID();frame.src=${runner};document.title=p.name;document.getElementById('title').textContent=(p.icon||'📋')+' '+p.name;
 function reply(id,value,error){frame.contentWindow.postMessage({type:'honmaru:result',id,value,error},'*')}
-addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data)return;const m=e.data;if(m.type==='honmaru:ready'){frame.contentWindow.postMessage({type:'honmaru:init',renderId,theme:'system',html:'<meta name="color-scheme" content="light dark"><style>body{background:Canvas;color:CanvasText}</style>'+p.html},'*');return}if(m.type!=='honmaru:request'||typeof m.id!=='string'||m.id.length>80)return;if(m.operation==='read'){reply(m.id,{table:p.table,rows:p.rows});return}if(m.operation==='entity'&&(!m.args||m.args.entity==='primary')){reply(m.id,{table:p.table,rows:p.rows});return}reply(m.id,undefined,'Published app is read-only.')});
+addEventListener('message',e=>{if(e.source!==frame.contentWindow||!e.data)return;const m=e.data;if(m.type==='honmaru:ready'){frame.contentWindow.postMessage({type:'honmaru:init',renderId,theme:'system',html:'<meta name="color-scheme" content="light dark"><style>body{background:Canvas;color:CanvasText}</style>'+p.html},'*');return}if(m.type!=='honmaru:request'||typeof m.id!=='string'||m.id.length>80)return;if(m.operation==='read'){reply(m.id,{table:p.table,rows:p.rows});return}if(m.operation==='entity'){const entity=p.entities.find(item=>item.key===m.args?.entity);if(entity){reply(m.id,{table:entity.table,rows:entity.rows});return}reply(m.id,undefined,'No such public entity.');return}reply(m.id,undefined,'Published app is read-only.')});
 </script></body></html>`;
 }
