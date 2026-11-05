@@ -164,6 +164,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
   },[scope])
   useEffect(()=>{
     let active=true
+    if(typeof api.customCommitState!=='function')return()=>{active=false}
     api.customCommitState(app.id).then(state=>{if(active)setCommitState(state)}).catch(e=>{if(active)setError(e instanceof Error?e.message:String(e))})
     return()=>{active=false}
   },[api,app.id,app.version,app.definition.custom?.draft])
