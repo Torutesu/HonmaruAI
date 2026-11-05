@@ -155,6 +155,8 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
   const [history, setHistory] = useState<Array<{version: number; note: string | null}>>([])
   const [commitState,setCommitState]=useState<Awaited<ReturnType<typeof api.customCommitState>>|null>(null)
   const [gitOwner,setGitOwner]=useState(''),[gitRepo,setGitRepo]=useState(''),[gitBranch,setGitBranch]=useState('main'),[gitSha,setGitSha]=useState('')
+  const [hosting,setHosting]=useState<Awaited<ReturnType<typeof api.appHosting>>|null>(null)
+  const [domainHostname,setDomainHostname]=useState(''),[publicDataConfirmed,setPublicDataConfirmed]=useState(false),[hostingError,setHostingError]=useState('')
   useLayoutEffect(()=>{
     activeScope.current=scope
     const draft=app.definition.custom?.draft||''
@@ -168,6 +170,12 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
     api.customCommitState(app.id).then(state=>{if(active)setCommitState(state)}).catch(e=>{if(active)setError(e instanceof Error?e.message:String(e))})
     return()=>{active=false}
   },[api,app.id,app.version,app.definition.custom?.draft])
+  useEffect(()=>{
+    let active=true
+    if(typeof api.appHosting!=='function')return()=>{active=false}
+    api.appHosting(app.id).then(state=>{if(active){setHosting(state);setDomainHostname(state.domain?.hostname||'')}}).catch(e=>{if(active)setHostingError(e instanceof Error?e.message:String(e))})
+    return()=>{active=false}
+  },[api,app.id,app.version])
   useEffect(()=>{
     if(remote.current.scope!==scope)return
     const draft=app.definition.custom?.draft||'',previous=remote.current.draft
@@ -231,6 +239,19 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
         </div>}
         {commitState.approval?.status==='approved'&&<p>承認者本人以外の作成者またはOwner/Adminが公開できます。ブランチが移動すると、この承認は使用できません。</p>}
       </div>}
+    </section>
+    <section className="hx-commit-release" aria-label="カスタムドメイン公開">
+      <h3>独自ドメインで公開</h3>
+      <p>公開済みカスタムアプリを独自ドメインに接続できます。接続すると、そのドメインを知っている人はカスタム画面と全レコードを閲覧できます。アプリのワークスペース内共有設定とは別の公開許可です。</p>
+      {hostingError&&<p role="alert" className="form-error">{hostingError}</p>}
+      {hosting?.domain
+        ? <div><p role="status">{hosting.domain.hostname} · {hosting.domain.status}</p><button type="button" className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>{await api.changeAppHosting(app.id,{action:'remove'});setHosting(await api.appHosting(app.id));setPublicDataConfirmed(false)})}>独自ドメインを解除</button></div>
+        : <div className="hx-form-grid">
+          <label>完全なホスト名<input aria-label="独自ドメインのホスト名" value={domainHostname} onChange={e=>setDomainHostname(e.target.value)} placeholder="app.example.com" /></label>
+          <label className="hx-domain-confirm"><input type="checkbox" aria-label="全レコードの公開を確認" checked={publicDataConfirmed} onChange={e=>setPublicDataConfirmed(e.target.checked)} />このドメインではカスタム画面と全レコードを誰でも閲覧できます。公開してよいことを確認しました。</label>
+          <button type="button" className="pill-btn" disabled={busy||!hosting?.configured||!domainHostname.trim()||!publicDataConfirmed||!app.definition.custom?.published} onClick={()=>void run(async()=>{await api.changeAppHosting(app.id,{action:'attach',hostname:domainHostname.trim(),publicDataConfirmed:true});setHosting(await api.appHosting(app.id));setPublicDataConfirmed(false)})}>独自ドメインを追加</button>
+          {hosting&&!hosting.configured&&<p role="status">独自ドメイン管理はこの環境で設定されていません。</p>}
+        </div>}
     </section>
     <div className="hx-actions">
       <button className="pill-btn quiet" disabled={!html || busy} onClick={() => setPreview(v => !v)}>{preview ? 'プレビューを閉じる' : 'プレビュー'}</button>
