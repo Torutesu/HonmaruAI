@@ -326,6 +326,7 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
   const [snapshot, setSnapshot] = useState({ scope: '', mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false, error:'' })
   const [preference, setPreference] = useState({ key: preferenceKey, simple: readPreference(), revision:0 })
   const preferenceRef=useRef(preference)
+  const preferenceIntent=useRef(0)
   const [preferenceError,setPreferenceError]=useState(false)
   const preferenceWrite=useRef(Promise.resolve())
   const applyPreference=useCallback((simple:boolean,revision?:number)=>{
@@ -333,12 +334,18 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
     const next={key:preferenceKey,simple,revision:revision??(current.key===preferenceKey?current.revision:0)}
     preferenceRef.current=next;setPreference(next)
   },[preferenceKey])
+  const acceptServerPreference=useCallback((simple:boolean,revision:number)=>{
+    const current=preferenceRef.current
+    if(current.key===preferenceKey&&revision<current.revision)return false
+    savePreference(simple,revision);applyPreference(simple,revision);return true
+  },[preferenceKey,applyPreference])
   const simpleOnly = preference.key === preferenceKey ? preference.simple : readPreference()
   const current = snapshot.scope === scope ? snapshot : { mode: 'simple' as WorkspaceMode, canEdit: false, loaded: false, error:'' }
   const [retryCount,setRetryCount]=useState(0)
   const retry=useCallback(()=>setRetryCount(value=>value+1),[])
   useEffect(() => {
     let live = true
+    const preferenceIntentAtStart=preferenceIntent.current
     setSnapshot({ scope, mode: 'simple', canEdit: false, loaded: false, error:'' })
     if (!orgId || !sessionToken) return
     if(offline){setSnapshot({scope,mode:offlineMode(),canEdit:false,loaded:false,error:''});return}
@@ -357,11 +364,53 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
         // it could belong to somebody else on a shared device.
         const pending=readPendingPreference()
         if(pending!==null){
-          const wanted=pending
-          try{const saved=await api.setDisplayPreference(wanted);if(!live||controller.signal.aborted)return;simple=saved.simpleOnly;revision=saved.revision;savePendingPreference(null);setPreferenceError(false)}
-          catch{simple=wanted;savePendingPreference(wanted);if(live&&!controller.signal.aborted)setPreferenceError(true)}
+          // A user toggle may already be writing while the initial workspace
+          // request is in flight. Wait for queued writes and re-read the
+          // pending value before retrying, or this GET can issue a duplicate
+          // PUT whose late response rolls back a newer device revision.
+          let activeWrite
+          do {
+            activeWrite=preferenceWrite.current
+            await activeWrite.catch(()=>{})
+          } while(activeWrite!==preferenceWrite.current)
+          if(!live||controller.signal.aborted)return
+          if(readPendingPreference()!==null){
+            const write=preferenceWrite.current.catch(()=>{}).then(async()=>{
+              const wanted=readPendingPreference()
+              if(wanted===null)return null
+              const saved=await api.setDisplayPreference(wanted)
+              if(!live||controller.signal.aborted)return null
+              if(acceptServerPreference(saved.simpleOnly,saved.revision)){
+                savePendingPreference(null);setPreferenceError(false);return saved
+              }
+              savePendingPreference(null);setPreferenceError(false)
+              const latest=preferenceRef.current
+              return {simpleOnly:latest.simple,revision:latest.revision}
+            })
+            preferenceWrite.current=write.then(()=>undefined,()=>undefined)
+            try{
+              const saved=await write
+              if(!live||controller.signal.aborted)return
+              if(saved){simple=saved.simpleOnly;revision=saved.revision}
+            }catch{
+              const latest=preferenceRef.current
+              if(latest.key===preferenceKey&&latest.revision>revision){
+                simple=latest.simple;revision=latest.revision;savePendingPreference(null);setPreferenceError(false)
+              }else{
+                simple=readPreference();savePendingPreference(simple);setPreferenceError(true)
+              }
+            }
+          }
         }
-        savePreference(simple,revision);rememberMode(d.mode);applyPreference(simple,revision)
+        const latest=preferenceRef.current
+        if(latest.key===preferenceKey&&(latest.revision>revision||preferenceIntent.current!==preferenceIntentAtStart)){
+          simple=latest.simple;revision=latest.revision
+        }
+        if(!acceptServerPreference(simple,revision)){
+          const currentPreference=preferenceRef.current
+          simple=currentPreference.simple;revision=currentPreference.revision
+        }
+        rememberMode(d.mode)
         setSnapshot({ scope, mode: d.mode, canEdit: d.canEdit === true, loaded: true,error:'' })
       })
       .catch(()=>{if(!controller.signal.aborted)fail()}).finally(()=>clearTimeout(timer))
@@ -393,16 +442,19 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
       const detail=(event as CustomEvent<{orgId:string;simpleOnly:boolean;revision:number}>).detail
       if(detail?.orgId!==orgId||typeof detail.simpleOnly!=='boolean'||!Number.isSafeInteger(detail.revision))return
       const current=preferenceRef.current
-      const pending=readPendingPreference()
-      if((current.key===preferenceKey&&detail.revision<current.revision)||(pending!==null&&pending!==detail.simpleOnly))return
-      savePreference(detail.simpleOnly,detail.revision);savePendingPreference(null);setPreferenceError(false)
-      applyPreference(detail.simpleOnly,detail.revision)
+      if(current.key===preferenceKey&&detail.revision<=current.revision)return
+      // Revisions are the cross-device ordering authority. A stale local
+      // pending value must not suppress a newer server event.
+      preferenceIntent.current++
+      savePendingPreference(null);setPreferenceError(false)
+      acceptServerPreference(detail.simpleOnly,detail.revision)
       window.dispatchEvent(new CustomEvent('hx-simple',{detail:{key:preferenceKey,simple:detail.simpleOnly,revision:detail.revision}}))
     }
     window.addEventListener('honmaru:display-preference-changed',onRemote)
     return()=>window.removeEventListener('honmaru:display-preference-changed',onRemote)
-  },[orgId,preferenceKey,applyPreference])
+  },[orgId,preferenceKey,acceptServerPreference])
   const setSimpleOnly = useCallback((simple: boolean) => {
+    const intent=++preferenceIntent.current
     savePreference(simple,preferenceRef.current.key===preferenceKey?preferenceRef.current.revision:0)
     savePendingPreference(simple)
     applyPreference(simple)
@@ -411,12 +463,15 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
     const write=preferenceWrite.current.catch(()=>{}).then(async()=>{
       const wanted=readPreference()
       const saved=await harnessApi(httpBase,orgId,sessionToken).setDisplayPreference(wanted)
-      if(readPreference()===saved.simpleOnly){savePreference(saved.simpleOnly,saved.revision);savePendingPreference(null);setPreferenceError(false);applyPreference(saved.simpleOnly,saved.revision);window.dispatchEvent(new CustomEvent('hx-simple',{detail:{key:preferenceKey,simple:saved.simpleOnly,revision:saved.revision}}))}
+      if(readPreference()===saved.simpleOnly&&acceptServerPreference(saved.simpleOnly,saved.revision)){
+        savePendingPreference(null);setPreferenceError(false)
+        window.dispatchEvent(new CustomEvent('hx-simple',{detail:{key:preferenceKey,simple:saved.simpleOnly,revision:saved.revision}}))
+      }
       return saved
-    }).catch(error=>{const latest=readPreference();savePendingPreference(latest);setPreferenceError(true);throw error})
+    }).catch(error=>{if(preferenceIntent.current===intent){const latest=readPreference();savePendingPreference(latest);setPreferenceError(true)}throw error})
     preferenceWrite.current=write.then(()=>undefined,()=>undefined)
     return write
-  },[httpBase,orgId,sessionToken,preferenceKey,offline,applyPreference])
+  },[httpBase,orgId,sessionToken,preferenceKey,offline,applyPreference,acceptServerPreference])
   const setMode = useCallback(async (next: WorkspaceMode) => {
     const d = await harnessApi(httpBase, orgId, sessionToken).setMode(next)
     if (!isMode(d.mode)) throw new Error('Invalid workspace mode.')
