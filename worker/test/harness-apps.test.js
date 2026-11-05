@@ -2150,7 +2150,7 @@ test('publisher access loss between publish preflight and D1 batch blocks releas
  await requestCustomApproval(path,app.version);
  const state=await(await get(path,mika)).json();
  expect((await approveCustomRelease(path,state)).status).toBe(200);
- await env.DB.prepare("INSERT INTO users(github_id,login,locale) VALUES('9105','publisher','en')").run();
+ await env.DB.prepare("INSERT INTO users(github_id,login,locale,created_at) VALUES('9105','publisher','en',?1)").bind(new Date().toISOString()).run();
  await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES(?1,'9105','admin',?2)").bind(ORG,new Date().toISOString()).run();
  const current=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
  const raceDb={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
