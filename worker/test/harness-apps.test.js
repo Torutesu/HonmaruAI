@@ -2225,7 +2225,7 @@ test('custom domains require explicit whole-app consent bound to each attachment
           const statement = target.prepare(sql);
           if (sql.startsWith('UPDATE hx_app_domains SET status=?3')) {
             return { bind: (...values) => {
-              const bound = statement.bind(...values);
+              statement.bind(...values);
               return { run: async () => { throw new Error('simulated local status write failure'); } };
             } };
           }
