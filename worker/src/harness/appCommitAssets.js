@@ -30,7 +30,7 @@ export async function servePublishedCommitAsset(request,env,url){
   if(!appId||!assetToken||!SHA.test(commitSha)||pathParts.some(part=>!part))return notFound();
   const path=pathParts.join('/');
   if(path.length>240||pathParts.length>12)return notFound();
-  const row=await env.DB.prepare(`SELECT f.content_type AS contentType,f.content_base64 AS contentBase64,f.content_hash AS contentHash,f.size
+  const row=await env.DB.prepare(`SELECT f.content_type AS contentType,f.content_bytes AS contentBytes,f.content_hash AS contentHash,f.size
     FROM hx_app_git_assets f
     JOIN hx_apps a ON a.org_id=f.org_id AND a.id=f.app_id
     JOIN hx_app_domains d ON d.org_id=a.org_id AND d.app_id=a.id AND d.status='active'
@@ -39,7 +39,7 @@ export async function servePublishedCommitAsset(request,env,url){
       AND json_extract(a.definition,'$.custom.publishedCommit.sha')=?2
       AND json_extract(a.definition,'$.custom.publishedCommit.assetToken')=?4`).bind(appId,commitSha,path,assetToken).first();
   if(!row||!ALLOWED_TYPES.has(row.contentType)||row.size<0||row.size>1_500_000)return notFound();
-  const bytes=decodeBase64(row.contentBase64);
+  const bytes=readBytes(row.contentBytes);
   if(!bytes||bytes.length!==Number(row.size)||await hash(bytes)!==row.contentHash)return notFound();
   return new Response(bytes,{headers:{
     'content-type':row.contentType,
