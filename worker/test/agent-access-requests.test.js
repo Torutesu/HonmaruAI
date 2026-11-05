@@ -11,6 +11,22 @@ const ORG='agent-access-requests';
 // Line comments go first: each statement is replayed on one line, where a
 // `--` would otherwise swallow everything after it.
 const agentAccessRequestSql=schemaSql.slice(schemaSql.indexOf('CREATE TABLE IF NOT EXISTS hx_agent_access_requests (')).replace(/--[^\n]*/g,'');
+function splitSqlStatements(sql){
+ const statements=[];let current='',trigger=false;
+ for(const part of sql.split(';')){
+  if(current)current+=';';
+  current+=part;
+  if(!trigger && /\\bCREATE\\s+(?:TEMP(?:ORARY)?\\s+)?TRIGGER\\b/i.test(current))trigger=true;
+  if(trigger){
+   if(part.trim()==='END'){statements.push(current.trim());current='';trigger=false}
+  }else{
+   if(current.trim())statements.push(current.trim());
+   current='';
+  }
+ }
+ if(current.trim())statements.push(current.trim());
+ return statements;
+}
 beforeEach(async()=>{
  for(const [id,login,role] of [['owner','owner','member'],['requester','requester','member'],['admin','agent-admin','member'],['guest','guest','guest']]){
   await upsertUser(env.DB,{githubId:id,login,name:login,locale:'en'});
@@ -30,7 +46,7 @@ const request=(agentId='team-agent',requestKey='access-request-key-0001',request
  createAgentAccessRequest(env.DB,ORG,{agentId,requesterId,requestKey});
 
 test('the additive access-request migration can be replayed safely',async()=>{
- for(const sql of agentAccessRequestSql.split(';').map(part=>part.trim()).filter(Boolean)) await env.DB.exec(sql.replace(/\n/g,' '));
+ for(const sql of splitSqlStatements(agentAccessRequestSql)) await env.DB.exec(sql.replace(/\n/g,' '));
  expect(await env.DB.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('hx_agent_access_requests','hx_agent_access_request_approvers')").first()).toMatchObject({n:2});
 });
 
