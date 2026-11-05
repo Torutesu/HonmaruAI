@@ -2248,7 +2248,7 @@ test('custom domains require explicit whole-app consent bound to each attachment
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 0 });
     const reattached = await domainCall(route, toru, { method: 'POST', body: body('attach', true) });
     expect(reattached.status).toBe(200);
-    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 1 });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG, app.id).first()).toEqual({ n: 1 });
     expect((await domainCall(`/app-domains/resolve?host=${hostname}`)).status).toBe(200);
   } finally {
     globalThis.fetch = originalFetch;
