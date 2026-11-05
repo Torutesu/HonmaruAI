@@ -188,13 +188,13 @@ const publicApp = (row) => row && ({
 });
 
 export async function getApp(db, orgId, id) {
-  return publicApp(await db.prepare("SELECT * FROM hx_apps WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first());
+  return publicApp(await db.prepare("SELECT * FROM hx_apps WHERE id = ?1 AND org_id = ?2 AND deleted_at IS NULL").bind(id, orgId).first());
 }
 
 export async function listApps(db, orgId, { channel } = {}) {
   const sql = channel
-    ? "SELECT a.* FROM hx_apps a JOIN hx_app_links l ON l.app_id = a.id WHERE a.org_id = ?1 AND l.channel = ?2 ORDER BY a.created_at ASC"
-    : "SELECT * FROM hx_apps WHERE org_id = ?1 ORDER BY created_at ASC";
+    ? "SELECT a.* FROM hx_apps a JOIN hx_app_links l ON l.app_id = a.id WHERE a.org_id = ?1 AND a.deleted_at IS NULL AND l.channel = ?2 ORDER BY a.created_at ASC"
+    : "SELECT * FROM hx_apps WHERE org_id = ?1 AND deleted_at IS NULL ORDER BY created_at ASC";
   const stmt = db.prepare(sql);
   const { results } = await (channel ? stmt.bind(orgId, channel) : stmt.bind(orgId)).all();
   const apps = (results || []).map(publicApp);
@@ -379,19 +379,40 @@ export async function restoreVersion(db, orgId, id, version, by) {
 export async function deleteApp(db, orgId, id) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
-  await db.batch([
-    // Keep bindings as tombstones: a deleted app must never turn its runs
-    // into standalone workflows. Stop scheduling in the same transaction.
-    db.prepare("UPDATE hx_workflows SET enabled=0,next_run_at=NULL WHERE org_id=?2 AND id IN (SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?2 AND app_id=?1)").bind(id,orgId),
-    db.prepare("DELETE FROM hx_app_links WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId),
-    db.prepare("DELETE FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId),
-    db.prepare("DELETE FROM hx_rows WHERE org_id=?2 AND table_id IN (SELECT table_id FROM hx_app_entities WHERE org_id=?2 AND app_id=?1)").bind(id,orgId),
-    db.prepare("DELETE FROM hx_tables WHERE org_id=?2 AND id IN (SELECT table_id FROM hx_app_entities WHERE org_id=?2 AND app_id=?1)").bind(id,orgId),
-    db.prepare("DELETE FROM hx_apps WHERE id = ?1 AND org_id = ?2").bind(id, orgId),
-    db.prepare("DELETE FROM hx_rows WHERE table_id = ?1 AND org_id = ?2").bind(app.tableId, orgId),
-    db.prepare("DELETE FROM hx_tables WHERE id = ?1 AND org_id = ?2").bind(app.tableId, orgId),
+  const deletedAt = now();
+  const results = await db.batch([
+    // The conditional tombstone is the deletion fence. Run admission is fenced
+    // by managedAutomationGuard's deleted_at check, so either an active run
+    // wins first and this update affects nothing, or the tombstone wins and no
+    // new run can be admitted.
+    db.prepare(`UPDATE hx_apps SET deleted_at=?3
+      WHERE id=?1 AND org_id=?2 AND deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM hx_app_automation_bindings b
+          JOIN hx_workflow_runs r ON r.org_id=b.org_id AND r.workflow_id=b.workflow_id
+          WHERE b.org_id=?2 AND b.app_id=?1 AND r.status IN ('running','waiting')
+        )`).bind(id, orgId, deletedAt),
+    // Preserve the App, versions, tables, entity links, records and conversation
+    // history until workspace deletion. Only stop execution and revoke secrets.
+    db.prepare(`UPDATE hx_workflows SET enabled=0,next_run_at=NULL
+      WHERE org_id=?2 AND id IN (
+        SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?2 AND app_id=?1
+      ) AND EXISTS (SELECT 1 FROM hx_apps WHERE id=?1 AND org_id=?2 AND deleted_at=?3)`).bind(id, orgId, deletedAt),
+    db.prepare(`UPDATE hx_app_connections SET enabled=0,token=NULL
+      WHERE org_id=?2 AND app_id=?1
+        AND EXISTS (SELECT 1 FROM hx_apps WHERE id=?1 AND org_id=?2 AND deleted_at=?3)`).bind(id, orgId, deletedAt),
+    db.prepare(`UPDATE hx_app_env_vars SET value=''
+      WHERE org_id=?2 AND app_id=?1
+        AND EXISTS (SELECT 1 FROM hx_apps WHERE id=?1 AND org_id=?2 AND deleted_at=?3)`).bind(id, orgId, deletedAt),
   ]);
-  return { deleted: true };
+  if (!results?.[0]?.meta?.changes) {
+    const active = await db.prepare(`SELECT 1 FROM hx_app_automation_bindings b
+      JOIN hx_workflow_runs r ON r.org_id=b.org_id AND r.workflow_id=b.workflow_id
+      WHERE b.org_id=?1 AND b.app_id=?2 AND r.status IN ('running','waiting') LIMIT 1`).bind(orgId, id).first();
+    if (active) return { error: "An app workflow is still running or waiting for approval. Finish or cancel it before deleting this app.", status: 409 };
+    return { error: "No such app.", status: 404 };
+  }
+  return { deleted: true, dataRetained: true, retention: "until_workspace_deletion" };
 }
 
 export async function linkApp(db, orgId, id, channel, by) {
