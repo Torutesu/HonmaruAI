@@ -20,13 +20,6 @@ const activeGrantSql = `EXISTS(
      AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL
      AND (g.expires_at IS NULL OR g.expires_at > ?5)
      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id = ?2 AND member.user_github_id = ?4))`;
-const liveRootSql = `EXISTS(
-  SELECT 1 FROM channel_messages root
-   WHERE root.org_id = ?2 AND root.id = ?3 AND root.parent_id IS NULL AND root.deleted_at IS NULL
-     AND root.channel = channel_messages.channel
-     AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
-       WHERE tombstone.org_id = root.org_id AND tombstone.channel = root.channel AND tombstone.deleted_at IS NOT NULL))`;
-
 async function signedIn(request, env) {
   const session = await getSession(env.DB, request.headers.get("x-session-token"));
   if (!session) return null;
@@ -181,14 +174,14 @@ async function requestSend(env, orgId, rootId, user, body) {
          AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL))
        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
          AND g.resource_type='thread' AND g.resource_id=?3 AND g.recipient_github_id=?4
-         AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?6)
+         AND g.revoked_at IS NULL AND g.permission='view' AND (g.expires_at IS NULL OR g.expires_at>?6)
          AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=?4))`)
     .bind(id, orgId, rootId, user.github_id, body, now).run();
   if (put.meta?.changes) return { id, created: true };
   const existing = await env.DB.prepare(`SELECT r.id FROM hx_external_thread_send_requests r
       JOIN hx_external_resource_grants g ON g.org_id=r.org_id AND g.resource_type='thread'
         AND g.resource_id=r.root_message_id AND g.recipient_github_id=r.guest_github_id
-        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?5)
+        AND g.revoked_at IS NULL AND g.permission='view' AND (g.expires_at IS NULL OR g.expires_at>?5)
         AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=r.org_id AND member.user_github_id=r.guest_github_id)
      WHERE r.org_id=?1 AND r.root_message_id=?2 AND r.guest_github_id=?3 AND r.status='pending'`)
     .bind(orgId, rootId, user.github_id, body, now).first();
