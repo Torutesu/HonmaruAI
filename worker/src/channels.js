@@ -360,7 +360,7 @@ export async function present(db, orgId, rows, viewerLogin, view, members) {
       ...sourceAgent,
       avatar_url: null,
       avatarUrl: await clientAgentAvatarUrl(mediaEnv() || { DB: db }, orgId,
-        { ...sourceAgent, ownerLogin: sourceAgent.owner_login }, viewerLogin),
+        { ...sourceAgent, avatarUrl: sourceAgent.avatar_url || null, ownerLogin: sourceAgent.owner_login }, viewerLogin),
     } : null;
     return toMessage(r, viewerLogin, typeof view === "function" ? view(r) : view, members, { ...x, replyRefs, files: own, agent, original: originals.get(r.reply_to_id) || null, threadParent: r.also_channel ? originals.get(r.parent_id) || null : null });
   }));
