@@ -11,7 +11,7 @@ export function memoryFields(input) {
 }
 export function memoryEntry(row) {
   return { id: row.id, text: row.text, source: row.source, createdBy: row.created_by, createdAt: row.created_at,
-    channel: row.channel || null, scope: row.owner_user_id ? "personal" : (row.channel ? "conversation" : "shared"), kind: row.kind || "context", title: row.title ?? row.text.slice(0, 120),
+    channel: row.channel || null, scope: row.owner_user_id ? "personal" : (row.channel ? "conversation" : "shared"), isOwner: Boolean(row.owner_user_id), kind: row.kind || "context", title: row.title ?? row.text.slice(0, 120),
     description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at,
     review: row.reviewed_at ? { version: row.reviewed_version, evidence: row.review_evidence, by: row.reviewed_by, at: row.reviewed_at, current: row.reviewed_version === (row.version ?? 0) } : null };
 }
