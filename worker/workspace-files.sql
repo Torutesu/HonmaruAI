@@ -81,3 +81,8 @@ CREATE INDEX IF NOT EXISTS hx_workspace_file_share_events_share ON hx_workspace_
 CREATE TRIGGER IF NOT EXISTS hx_workspace_file_share_revision_immutable BEFORE UPDATE ON hx_workspace_file_share_revisions BEGIN SELECT RAISE(ABORT,'File share revisions are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS hx_workspace_file_share_item_immutable BEFORE UPDATE ON hx_workspace_file_share_items BEGIN SELECT RAISE(ABORT,'File share snapshot items are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS hx_workspace_file_share_event_immutable BEFORE UPDATE ON hx_workspace_file_share_events BEGIN SELECT RAISE(ABORT,'File share events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS hx_workspace_file_share_events_linked BEFORE INSERT ON hx_workspace_file_share_events
+ WHEN NEW.share_id IS NULL OR NOT EXISTS(SELECT 1 FROM hx_workspace_file_shares s WHERE s.org_id=NEW.org_id AND s.id=NEW.share_id)
+ BEGIN SELECT RAISE(ABORT,'File share events require a live share'); END;
+CREATE TRIGGER IF NOT EXISTS hx_workspace_file_share_events_purge AFTER DELETE ON hx_workspace_file_shares
+ BEGIN DELETE FROM hx_workspace_file_share_events WHERE org_id=OLD.org_id AND share_id=OLD.id; END;
