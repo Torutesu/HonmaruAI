@@ -605,12 +605,20 @@ test("an agent can wear a picture instead of its emoji: set by whoever may chang
   expect(served.headers.get("content-type")).toBe("image/png");
   expect(new Uint8Array(await served.arrayBuffer())).toEqual(PNG);
 
-  // Everywhere the agent shows: the list, the @ menu's overview, and what it writes.
-  expect((await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl).toBe(agent.avatarUrl);
-  expect((await (await get(`/channels?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl).toBe(agent.avatarUrl);
+  // Every serializer returns the same media bound to this Agent, with a fresh revision.
+  const expectScoped = (value) => {
+    const scoped = new URL(value);
+    expect(scoped.origin).toBe(avatarUrl.origin);
+    expect(scoped.pathname).toBe(avatarUrl.pathname);
+    expect(scoped.searchParams.get("agent")).toBe(team.id);
+    expect(scoped.searchParams.has("revision")).toBe(true);
+  };
+  expectScoped((await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl);
+  expectScoped((await (await get(`/channels?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl);
   const asked = await (await send("POST", "/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "@hayao which colour for the sign?" })).json();
   const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: asked.message.id })}`, kenji)).json();
-  expect(thread.replies[0]).toMatchObject({ kind: "agent", agent: { id: team.id, avatarUrl: agent.avatarUrl } });
+  expect(thread.replies[0]).toMatchObject({ kind: "agent", agent: { id: team.id } });
+  expectScoped(thread.replies[0].agent.avatarUrl);
 
   // Nobody else's personal agent, no guest, no SVG.
   expect((await picture(mika, mine.id)).status).toBe(404);
