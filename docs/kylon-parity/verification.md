@@ -1,5 +1,11 @@
 # 検証記録
 
+### 2026-11-05 — KY-042 personal-view suggestions (production release)
+
+- PR [#675](https://github.com/Torutesu/HonmaruAI/pull/675) added the personal-view adjustment route, and PR [#676](https://github.com/Torutesu/HonmaruAI/pull/676) fixed a draft collision in app chat and the source thread. The new suggestion appears separately while preserving an existing unsent draft; it remains available until the user appends or dismisses it. No app settings are changed by opening the route. Exact-head CI passed all nine jobs; Web deployment [run 41972220196](https://github.com/Torutesu/HonmaruAI/actions/runs/41972220196) succeeded.
+- The authenticated production Mac app showed a personal-view filter suggestion card while preserving the existing composer draft. Dismissing the suggestion left the composer text intact and returned the UI to the original shared `タスク一覧` view. No filters, groups, columns, records, or app settings were saved. Kylon's descending `状態` sort remained untouched per user instruction.
+- Both `app.honmaruai.com` and `honmaru-web.pages.dev` served `index-MLNbjttn.js`. The main push CI was still running at the time of this verification; PR CI was fully green. No paid service was added and Simple mode remains available. KY-042 is still partial: full Kylon parity and cross-device synchronization remain open.
+
 2026-10-16、ローカルの `codex/kylon-parity`。本番へのデプロイ・DB移行は未実施。
 
 - Worker: `npm test -- --run` — 190 files / 1,220 tests passed。
