@@ -27,5 +27,5 @@ export async function agentRunSnapshot(env, orgId, rowIds, viewer) {
   // A D1 failure must propagate, not manufacture current stop rights from a
   // previous response or report the assignment cancelled.
   results = await decorateAgentRequestStatuses(env.DB, orgId, results);
-  return {available, results: await decorateAssignmentStatuses(env.DB, orgId, results, viewer)};
+  return {available, results: await decorateAssignmentStatuses(env.DB, orgId, results, { ...viewer, env })};
 }
