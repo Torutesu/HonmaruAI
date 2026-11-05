@@ -1,3 +1,13 @@
+.shell.harness-workspace .hx-app-sharing select {
+  min-height: 38px;
+  padding: 7px 34px 7px 10px;
+  border: 1px solid var(--hx-border);
+  border-radius: 8px;
+  background: var(--hx-surface);
+  color: var(--hx-text);
+  font: inherit;
+  font-size: 13px;
+}
 .shell.harness-workspace .hx-app-sharing .hx-public-panel {
   display: block;
   margin: 12px 0 18px;
