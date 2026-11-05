@@ -115,7 +115,7 @@ export async function searchGithubIssues(session, orgId, query, env, credentialS
   const q = String(query || "").replace(SCOPE_QUALIFIER, " ").replace(/\s+/g, " ").trim().slice(0, 200);
   const access = env ? await githubAccess(env, session, orgId, credentialSource) : null;
   const repo = access?.repo || String(orgId || "");
-  if (!q || !/^[^/\\s:]+\\/[^/\\s]+$/.test(repo)) return [];
+  if (!q || !/^[^/\s:]+\/[^/\s]+$/.test(repo)) return [];
   if (access?.composioUser) {
     // OAuth tokens stay with Composio, which refreshes them. An expired or
     // revoked connection fails here and returns no hits through the caller's
