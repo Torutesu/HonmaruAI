@@ -654,7 +654,7 @@ test("restricted Agent avatar URLs follow access, membership and revisions in Ha
   expect(new URL(publicUrl).searchParams.get("agent")).toBe(agentId);
   const publicImage = await call(new URL(publicUrl).pathname + new URL(publicUrl).search, { headers: {} });
   expect(publicImage.status).toBe(200);
-  expect(publicImage.headers.get("cache-control")).toContain("max-age=60");
+  expect(publicImage.headers.get("cache-control")).toBe("no-store");
 
   expect((await send("PUT", `/hx/agents/${agentId}/profile`, mika, {
     orgId: ORG, access: "people", people: ["toru"],
