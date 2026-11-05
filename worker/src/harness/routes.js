@@ -753,7 +753,7 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(result, 201);
       }
       if (request.method === 'POST' && parts.length === 5 && parts[4] === 'revoke') {
-        const result = await revokeSkillShare(env.DB, orgId, skillId, parts[3]);
+        const result = await revokeSkillShare(env.DB, orgId, skillId, parts[3], me, who.membershipSince);
         if (!result.error) await audit(env, request, { orgId, action: 'skill.share_revoked', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: parts[3] } });
         return result.error ? fail(result) : json(result);
       }
