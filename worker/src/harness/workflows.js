@@ -643,6 +643,16 @@ export async function replayWorkflowEvents(env, orgId, workflow, eventIds, start
   return { runs, skipped: eventIds.length - runs.length };
 }
 
+function workflowConnectionActorId(startedBy, workflowId, ownerId) {
+  if (startedBy == null) return String(ownerId);
+  const actor = String(startedBy);
+  if (/^\d+$/.test(actor)) return actor;
+  // A workflow's own row-write receipt is a system actor; it uses its maker's
+  // grant. Other non-human workflow identities cannot inherit that authority.
+  if (actor === `workflow:${workflowId}`) return String(ownerId);
+  return null;
+}
+
 /// Run steps from where the run stands until it finishes, fails, or waits.
 export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   const db = env.DB;
@@ -735,8 +745,8 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
     }
     if (step.type === 'connection' && entry.status === 'ok') {
-      const actorId = run.startedBy && /^\d+$/.test(String(run.startedBy)) ? String(run.startedBy) : String(workflow.createdBy);
-      const stillAllowed = await authorize() && await workflowConnectionPrincipal(env, {
+      const actorId = workflowConnectionActorId(run.startedBy, workflow.id, workflow.createdBy);
+      const stillAllowed = actorId && await authorize() && await workflowConnectionPrincipal(env, {
         orgId, agentId: step.agentId, source: step.source, ownerId: workflow.createdBy, actorId,
       });
       if (!stillAllowed) entry = { status: 'failed', error: 'Connection access changed before the search result could be recorded; the result was discarded.' };
@@ -866,7 +876,8 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       // Native Harness Connections expose only the bounded Notion/GitHub
       // search operations here. Writes are intentionally not inferred from
       // provider metadata and require a separately classified/approved API.
-      const actorId = runActor && /^\d+$/.test(String(runActor)) ? String(runActor) : String(owner);
+      const actorId = workflowConnectionActorId(runActor, workflow.id, owner);
+      if (!actorId) return { status: 'failed', error: 'The Workflow run actor is not a human connection principal.' };
       const allowed = async () => await authorize() && await workflowConnectionPrincipal(env, {
         orgId, agentId: step.agentId, source: step.source, ownerId: owner, actorId,
       });

@@ -1488,6 +1488,20 @@ test('Workflow run-log reads hide past Connection output from a member without t
   } finally { fetchMock.deactivate(); }
 });
 
+test('Workflow Connection fails closed for an unrecognized nonnumeric run actor', async () => {
+  const agent = await workflowNotionAgent();
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Unknown actor lookup', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', agentId: agent.id, source: 'notion', action: 'search', query: 'policy' }],
+  }, '9302');
+  const run = await startRun({ ...env, COMPOSIO_API_KEY: 'ck-test' }, {
+    orgId: ORG, workflow, trigger: 'manual', startedBy: 'unrecognized-login',
+  });
+  expect(run.status).toBe('failed');
+  expect(run.log[0]).toMatchObject({ status: 'failed', error: 'The Workflow run actor is not a human connection principal.' });
+});
+
 test('Workflow Connection discards provider results when the selected Agent grant is revoked in flight', async () => {
   const agent = await workflowNotionAgent();
   const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
