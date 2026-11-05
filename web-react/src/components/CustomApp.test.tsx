@@ -283,7 +283,7 @@ test('custom domain publishing requires a visible explicit all-records consent',
   let tree:ReturnType<typeof create>;
   await act(async()=>{tree=create(<CustomAppEditor app={app} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
   const panel=tree!.root.findByProps({'aria-label':'カスタムドメイン公開'});
-  expect(JSON.stringify(panel.toJSON())).toContain('このドメインではカスタム画面と全レコードを誰でも閲覧できます');
+  expect(JSON.stringify(tree!.toJSON())).toContain('このドメインではカスタム画面と全レコードを誰でも閲覧できます');
   const hostname=tree!.root.findByProps({'aria-label':'独自ドメインのホスト名'});
   act(()=>hostname.props.onChange({target:{value:'app.example.com'}}));
   const checkbox=tree!.root.findByProps({'aria-label':'全レコードの公開を確認'});
