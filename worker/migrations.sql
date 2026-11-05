@@ -373,7 +373,6 @@ CREATE TABLE IF NOT EXISTS mcp_conversation_requests ( org_id TEXT NOT NULL, use
 
 CREATE TABLE IF NOT EXISTS hx_app_domains (org_id TEXT NOT NULL, app_id TEXT NOT NULL UNIQUE REFERENCES hx_apps(id) ON DELETE CASCADE, hostname TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK(status IN ('configuring','initializing','pending','active','deactivated','blocked','error')), validation_status TEXT NOT NULL DEFAULT 'pending', verification_status TEXT NOT NULL DEFAULT 'pending', error_message TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id));
 CREATE TABLE IF NOT EXISTS hx_app_domain_public_consents (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, hostname TEXT NOT NULL, domain_created_at TEXT NOT NULL, confirmed_by TEXT NOT NULL, confirmed_at TEXT NOT NULL, confirmation_version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(org_id,app_id));
-CREATE INDEX IF NOT EXISTS hx_app_domain_public_consents_host ON hx_app_domain_public_consents(hostname,domain_created_at);
 CREATE TABLE IF NOT EXISTS hx_app_env_vars (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, name TEXT NOT NULL, value TEXT NOT NULL, version INTEGER NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id,name));
 /* Optional dimensions for admin usage reports. Old calls remain unattributed. */
 ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
