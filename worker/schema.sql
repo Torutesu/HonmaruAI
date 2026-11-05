@@ -2547,3 +2547,16 @@ CREATE TABLE IF NOT EXISTS mcp_conversation_requests (
   created_at TEXT NOT NULL,
   PRIMARY KEY (org_id, user_id, connection_id, request_id)
 );
+
+
+/* Workspace owners/admins may share the workspace GitHub connection with an Agent.
+   This grant is separate from personal per-member grants. */
+CREATE TABLE IF NOT EXISTS hx_agent_workspace_source_grants (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('github')),
+  granted_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id, source),
+  FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
+);

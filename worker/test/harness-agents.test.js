@@ -4,6 +4,7 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { rememberRequest, modelForTier, filterResponders } from "../src/harness/agents.js";
+import { agentSourceCredential } from "../src/harness/agentConnections.js";
 
 // Agents as members (docs/kylon-gap-plan.md): a specialty, a tier, a memory
 // of its own, skills, who may call it, and whether it waits to be named.
@@ -625,6 +626,40 @@ test('deleted memory review log retains discoverable scopes but checks current r
  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=? AND channel='b:ops' AND login='mika'").bind(ORG).run();
  expect((await get(logPath,mika)).status).toBe(404);
  expect((await(await get(`${base}/scopes?${q({orgId:ORG})}`,mika)).json()).scopes).toEqual([]);
+});
+
+
+test("workspace GitHub sharing is admin-only, scoped to the workspace, and keeps personal grants separate", async () => {
+  const path = `/hx/agents/${agentId}/apps`;
+  const query = q({ orgId: ORG });
+  expect((await send("POST", `${path}?${query}`, mika, { source: "github", scope: "workspace" })).status).toBe(403);
+  expect((await send("POST", `${path}?${query}`, toru, { source: "github", scope: "workspace" })).status).toBe(409);
+
+  await env.DB.prepare("INSERT INTO org_github (org_id,repo,token,composio_user,connected_by,updated_at) VALUES (?1,'torutesu/honmaruai','workspace-super-secret',NULL,'9201',?2)")
+    .bind(ORG, new Date().toISOString()).run();
+  await env.DB.prepare("UPDATE sessions SET github_access_token='personal-token' WHERE token=?1").bind(mika).run();
+  await send("POST", `${path}?${query}`, mika, { source: "github" }); // member-level grant still works with their own credential
+  const personalBefore = await env.DB.prepare("SELECT count(*) AS n FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9202' AND source='github'")
+    .bind(ORG, agentId).first();
+  expect(personalBefore.n).toBe(1);
+  const adminGrant = await send("POST", `${path}?${query}`, toru, { source: "github", scope: "workspace" });
+  expect(adminGrant.status).toBe(200);
+  const body = await adminGrant.json();
+  expect(JSON.stringify(body)).not.toContain("workspace-super-secret");
+  const shared = body.nativeConnections.find(row => row.source === "github");
+  expect(shared).toMatchObject({ workspaceAvailable: true, workspaceEnabled: true });
+  const memberSession = { github_id: "9203", github_access_token: "personal-kenji" };
+  expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe("workspace");
+
+  const otherOrg = "personal:other-org";
+  const crossOrg = await get(`${path}?${q({ orgId: otherOrg })}`, kenji);
+  expect([403, 404]).toContain(crossOrg.status);
+
+  expect((await send("DELETE", `${path}?${query}`, toru, { source: "github", scope: "workspace" })).status).toBe(200);
+  expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe(null);
+  const personalAfter = await env.DB.prepare("SELECT count(*) AS n FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9202' AND source='github'")
+    .bind(ORG, agentId).first();
+  expect(personalAfter.n).toBe(1);
 });
 
 test('an active normal request loses authorization when agent access becomes private', async()=>{

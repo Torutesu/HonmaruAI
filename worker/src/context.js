@@ -37,9 +37,12 @@ export async function connectedSources(env, session, orgId) {
 
 /// The repository and the token to read it with: the workspace's own when
 /// it has connected one, else the person's, for the repository they are in.
-async function githubAccess(env, session, orgId) {
-  const settings = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);
-  if (settings?.repo && settings.token) return { repo: settings.repo, token: settings.token };
+async function githubAccess(env, session, orgId, credentialSource = 'auto') {
+  if (credentialSource !== 'personal') {
+    const settings = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);
+    if (settings?.repo && settings.token) return { repo: settings.repo, token: settings.token };
+  }
+  if (credentialSource === 'workspace') return null;
   const repo = String(orgId || "");
   if (session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(repo)) {
     return { repo, token: session.github_access_token };
@@ -96,9 +99,9 @@ function issueRepo(it) {
 /// Issues and pull requests in the workspace's repository that match, as
 /// the person — their token, their visibility. Only that repository's: a
 /// hit from anywhere else is dropped, whatever the query said.
-export async function searchGithubIssues(session, orgId, query, env) {
+export async function searchGithubIssues(session, orgId, query, env, credentialSource = 'auto') {
   const q = String(query || "").replace(SCOPE_QUALIFIER, " ").replace(/\s+/g, " ").trim().slice(0, 200);
-  const access = env ? await githubAccess(env, session, orgId) : null;
+  const access = env ? await githubAccess(env, session, orgId, credentialSource) : null;
   const repo = access?.repo || String(orgId || "");
   const token = access?.token || (session?.github_access_token !== EMAIL_AUTH_TOKEN ? session?.github_access_token : null);
   if (!q || !token || !/^[^/\s:]+\/[^/\s]+$/.test(repo)) return [];
