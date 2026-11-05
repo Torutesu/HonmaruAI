@@ -19,7 +19,6 @@ const activeGrantSql = `EXISTS(
    WHERE g.org_id = ?2 AND g.resource_type = 'thread' AND g.resource_id = ?3
      AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL
      AND (g.expires_at IS NULL OR g.expires_at > ?5)
-     AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id = m.org_id AND member.user_github_id = g.recipient_github_id)
      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id = ?2 AND member.user_github_id = ?4))`;
 const liveRootSql = `EXISTS(
   SELECT 1 FROM channel_messages root
@@ -117,6 +116,7 @@ async function readThread(env, orgId, rootId, user) {
       ON g.org_id = m.org_id AND g.resource_type = 'thread' AND g.resource_id = ?3
      AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL
      AND (g.expires_at IS NULL OR g.expires_at > ?5)
+     AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id = m.org_id AND member.user_github_id = g.recipient_github_id)
     JOIN channel_messages root ON root.org_id = m.org_id AND root.id = ?3
       AND root.parent_id IS NULL AND root.deleted_at IS NULL AND root.channel = m.channel
     LEFT JOIN users u ON u.login = m.author_login
@@ -181,13 +181,15 @@ async function requestSend(env, orgId, rootId, user, body) {
          AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL))
        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
          AND g.resource_type='thread' AND g.resource_id=?3 AND g.recipient_github_id=?4
-         AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?6))`)
+         AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?6)
+         AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=?4))`)
     .bind(id, orgId, rootId, user.github_id, body, now).run();
   if (put.meta?.changes) return { id, created: true };
   const existing = await env.DB.prepare(`SELECT r.id FROM hx_external_thread_send_requests r
       JOIN hx_external_resource_grants g ON g.org_id=r.org_id AND g.resource_type='thread'
         AND g.resource_id=r.root_message_id AND g.recipient_github_id=r.guest_github_id
         AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?5)
+        AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=r.org_id AND member.user_github_id=r.guest_github_id)
      WHERE r.org_id=?1 AND r.root_message_id=?2 AND r.guest_github_id=?3 AND r.status='pending'`)
     .bind(orgId, rootId, user.github_id, body, now).first();
   return existing ? { id: existing.id, created: false } : null;
@@ -213,7 +215,8 @@ async function decideRequest(env, orgId, rootId, id, owner, action) {
      WHERE org_id=?3 AND root_message_id=?4 AND id=?5 AND status='pending'
        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?3
          AND g.resource_type='thread' AND g.resource_id=?4 AND g.recipient_github_id=guest_github_id
-         AND g.granted_by=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?1))`)
+         AND g.granted_by=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?1)
+         AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?3 AND member.user_github_id=guest_github_id))`)
       .bind(now, owner.user.github_id, orgId, rootId, id).run();
     return result.meta?.changes ? { rejected: true } : null;
   }
@@ -232,7 +235,8 @@ async function decideRequest(env, orgId, rootId, id, owner, action) {
            AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
          AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
            AND g.resource_type='thread' AND g.resource_id=?3 AND g.recipient_github_id=r.guest_github_id
-           AND g.granted_by=?5 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8))`)
+           AND g.granted_by=?5 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8)
+           AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=r.guest_github_id))`)
       .bind(messageId, orgId, rootId, id, owner.user.github_id, owner.user.github_id, now, now),
     env.DB.prepare(`UPDATE hx_external_thread_send_requests
         SET status='approved', decided_at=?1, decided_by=?2, message_id=?3
