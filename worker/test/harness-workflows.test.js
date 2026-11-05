@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 42802)
-Total output lines: 2251
-
 import { env } from "cloudflare:test";
 import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, expect, test } from "vitest";
@@ -698,7 +695,953 @@ test("held payload preview is scoped to the editor and exact workflow and never 
     steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'No preview effects', Status: 'Draft' } }],
   })).json());
   const a = await make('Payload preview'), b = await make('Other preview');
-  const input = { note: '<script>untrusted()</script>', amount: 12, i…17802 tokens truncated… = await import('../src/harness/followups.js');
+  const input = { note: '<script>untrusted()</script>', amount: 12, items: ['one', 'two'] };
+  const held = await (await signedWebhook(a.hookUrl, a.workflow.hookSecret, input)).json();
+  const path = `/workflows/${a.workflow.id}/webhook/events/${held.eventId}?${q({ orgId: ORG })}`;
+  expect((await get(path, mika)).status).toBe(403);
+  expect((await (await get(path, toru)).json()).event.input).toEqual(input);
+  expect((await get(path.replace(a.workflow.id,b.workflow.id),toru)).status).toBe(404);
+  const summary = await (await get(`/workflows/${a.workflow.id}?${q({orgId:ORG})}`,toru)).json();
+  expect(summary.held.events[0].input).toBeUndefined();
+  expect(summary.runs).toHaveLength(0);
+  await env.DB.prepare("UPDATE hx_workflow_held_events SET expires_at='2000-01-01T00:00:00Z' WHERE id=?1 AND org_id=?2").bind(held.eventId,ORG).run();
+  expect((await get(path,toru)).status).toBe(404);
+});
+
+test("scheduled expiry cleanup removes old payloads across workspaces and preserves unexpired events", async () => {
+  const made = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Expiry sweep', enabled: false, trigger: { type: 'webhook' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'No run', Status: 'Draft' } }],
+  })).json();
+  await env.DB.prepare(`INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at)
+    SELECT 'wf_other_expiry','other:expiry',name,enabled,trigger,steps,created_by,created_at,updated_at FROM hx_workflows WHERE id=?1 AND org_id=?2`)
+    .bind(made.workflow.id, ORG).run();
+  const at = new Date().toISOString(), future = new Date(Date.now()+86400000).toISOString();
+  for (const [id,org,wf,expires] of [['expired_here',ORG,made.workflow.id,'2000-01-01T00:00:00Z'],['expired_elsewhere','other:expiry','wf_other_expiry','2000-01-01T00:00:00Z'],['future_elsewhere','other:expiry','wf_other_expiry',future]]) {
+    await env.DB.prepare('INSERT INTO hx_workflow_held_events(id,org_id,workflow_id,input,received_at,expires_at) VALUES(?1,?2,?3,?4,?5,?6)')
+      .bind(id,org,wf,'{}',at,expires).run();
+  }
+  expect(await runDueWorkflows(env)).toBe(0);
+  expect((await env.DB.prepare('SELECT id FROM hx_workflow_held_events ORDER BY id').all()).results).toEqual([{id:'future_elsewhere'}]);
+});
+
+test("discard removes only reviewed pending events in the authorized workflow", async () => {
+  const make = async name => (await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name, enabled: false, trigger: { type: 'webhook' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'Not executed', Status: 'Draft' } }],
+  })).json()).workflow;
+  const a = await make('Discard target'), b = await make('Other workflow');
+  const at = new Date().toISOString(), expires = new Date(Date.now()+86400000).toISOString();
+  for (const [id,wf,runId] of [['reviewed',a,null],['new_arrival',a,null],['already_dispatched',a,'existing_run'],['other_workflow',b,null]]) {
+    await env.DB.prepare('INSERT INTO hx_workflow_held_events(id,org_id,workflow_id,input,received_at,expires_at,run_id) VALUES(?1,?2,?3,?4,?5,?6,?7)')
+      .bind(id,ORG,wf.id,'{}',at,expires,runId).run();
+  }
+  const discard = (token, eventIds) => send('POST', `/workflows/${a.id}/webhook/discard`, token, { orgId: ORG, eventIds });
+  expect((await discard(mika, ['reviewed'])).status).toBe(403);
+  expect((await discard(toru, [])).status).toBe(400);
+  expect((await discard(toru, ['reviewed','reviewed'])).status).toBe(400);
+  expect(await (await discard(toru, ['reviewed','already_dispatched','other_workflow'])).json()).toEqual({ discarded: 1 });
+  const { results } = await env.DB.prepare('SELECT id FROM hx_workflow_held_events ORDER BY id').all();
+  expect(results.map(x=>x.id)).toEqual(['already_dispatched','new_arrival','other_workflow']);
+  expect(await (await discard(toru, ['reviewed'])).json()).toEqual({ discarded: 0 });
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs').first()).n).toBe(0);
+});
+
+test("a paused workflow can run manually without resuming its schedule", async () => {
+  const made = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Explicit trial while paused', enabled: false,
+    trigger: { type: 'schedule', cadence: 'daily', hour: 9, timezone: 'UTC' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'Manual trial', Status: 'Draft' } }],
+  })).json();
+  const response = await send('POST', `/workflows/${made.workflow.id}/run`, toru, { orgId: ORG, text: 'Run once' });
+  expect(response.status).toBe(201);
+  expect((await response.json()).run).toMatchObject({ trigger: 'manual', status: 'done' });
+  const detail = await (await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, toru)).json();
+  expect(detail.workflow.enabled).toBe(false);
+  expect(detail.workflow.nextRunAt).toBeNull();
+  expect(await runDueWorkflows(env, { now: new Date(Date.now() + 86400000) })).toBe(0);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE workflow_id=?1').bind(made.workflow.id).first()).n).toBe(1);
+});
+
+test("a scheduled workflow runs when its time comes, once, and a manual one when asked", async () => {
+  const { workflow } = await (await send("POST", "/workflows", mika, {
+    orgId: ORG, name: "Monday nudge",
+    trigger: { type: "schedule", cadence: "weekly", weekday: 1, hour: 9, timezone: "UTC" },
+    steps: [{ type: "post", channel: "b:ops", text: "Weekly: check the invoice tracker." }],
+  })).json();
+  expect(Date.parse(workflow.nextRunAt)).toBeGreaterThan(Date.now());
+  const after = new Date(Date.parse(workflow.nextRunAt) + 60000);
+  expect(await runDueWorkflows(env, { now: after })).toBe(1);
+  expect(await runDueWorkflows(env, { now: after })).toBe(0);
+  expect((await messages(mika)).filter((m) => m.body === "Weekly: check the invoice tracker.")).toHaveLength(1);
+
+  const run = (await (await send("POST", `/workflows/${workflow.id}/run`, mika, { orgId: ORG, text: "now please" })).json()).run;
+  expect(run).toMatchObject({ trigger: "manual", status: "done", input: { text: "now please" } });
+});
+
+test("a follow-up is listed where it was made, may be cancelled, and posts when due", async () => {
+  const made = await (await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "Check whether Acme paid", minutes: 60 })).json();
+  const other = await (await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "Never mind this one", minutes: 60 })).json();
+  expect((await (await get(`/followups?${q({ orgId: ORG, channel: "b:ops" })}`, toru)).json()).followups).toHaveLength(2);
+  expect((await call(`/followups/${other.followup.id}?${q({ orgId: ORG })}`, { method: "DELETE", headers: headers(toru) })).status).toBe(200);
+  expect(await runDueFollowups(env, { now: new Date(Date.now() + 2 * 3600000) })).toBe(1);
+  expect((await messages(mika)).map((m) => m.body)).toContain("⏰ Follow-up: Check whether Acme paid");
+  expect((await (await get(`/followups?${q({ orgId: ORG, status: "done" })}`, toru)).json()).followups.map((f) => f.id)).toEqual([made.followup.id]);
+  expect((await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "past", dueAt: "2020-01-01T00:00:00Z" })).status).toBe(400);
+});
+
+test("a follow-up made by an account from SSO or the directory is answered by the AI, on its maker's allowance", async () => {
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  const { scheduleFollowup } = await import("../src/harness/followups.js");
+  const makers = ["sso:personal:hxflows:aaaa", "scim:personal:hxflows:bbbb"];
+  for (const [i, id] of makers.entries()) {
+    await upsertUser(env.DB, { githubId: id, login: `u:maker${i}@corp.example`, name: `Maker ${i}`, avatarUrl: null, locale: "en" });
+    await upsertMembership(env.DB, ORG, id, "member", i ? "scim" : "sso");
+    const made = await scheduleFollowup(env.DB, { orgId: ORG, channel: "b:ops", instruction: `Say the test phrase ${i}`, dueAt: new Date(Date.now() + 60_000).toISOString(), by: id });
+    expect(made.followup).toBeTruthy();
+  }
+  // Nobody's account: a synthetic maker gets the reminder and spends nothing.
+  await env.DB.prepare(`INSERT INTO hx_followups (id, org_id, channel, instruction, due_at, status, created_by, created_at)
+    VALUES ('fu_synthetic', ?1, 'b:ops', 'Synthetic', ?2, 'scheduled', 'workflow:wf_1', ?2)`).bind(ORG, new Date(Date.now() + 60_000).toISOString()).run();
+  fetchMock.activate();
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, { choices: [{ message: { content: "FOLLOWUP COMPLETE" } }], usage: { prompt_tokens: 5, completion_tokens: 3 } }).times(2);
+  try {
+    await runDueFollowups({ ...env, OPENAI_API_KEY: "sk-test" }, { now: new Date(Date.now() + 2 * 60_000) });
+    fetchMock.assertNoPendingInterceptors();
+  } finally {
+    fetchMock.deactivate();
+  }
+  const { results } = await env.DB.prepare("SELECT created_by, status, result FROM hx_followups WHERE org_id = ?1 ORDER BY created_by").bind(ORG).all();
+  const byMaker = Object.fromEntries(results.map((r) => [r.created_by, r]));
+  for (const id of makers) expect(byMaker[id]).toMatchObject({ status: "done", result: "FOLLOWUP COMPLETE" });
+  expect(byMaker["workflow:wf_1"].result).not.toBe("FOLLOWUP COMPLETE");
+});
+
+test("asked in the chat, an agent schedules its own follow-up in the thread", async () => {
+  const agent = (await (await send("POST", "/channels/agents", mika, { orgId: ORG, name: "Billy", handle: "billy", instructions: "You chase invoices.", scope: "team" })).json()).agent;
+  const sent = await (await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:ops", body: "@billy follow up in 2 days: check whether Acme paid" })).json();
+  const { followups } = await (await get(`/followups?${q({ orgId: ORG, channel: "b:ops" })}`, mika)).json();
+  expect(followups).toEqual([expect.objectContaining({ agentId: agent.id, instruction: "check whether Acme paid", threadId: sent.message.id })]);
+  expect(Date.parse(followups[0].dueAt) - Date.now()).toBeGreaterThan(47 * 3600000);
+});
+
+test("templates, steps and follow-up sentences are read strictly", () => {
+  expect(render("{{row.Client}} owes {{row.amount}}{{row.missing}}", { row: { client: "Acme", amount: 5 } })).toBe("Acme owes 5");
+  expect(render("{{steps.1.output}}", { steps: { 1: { output: "ok" } } })).toBe("ok");
+  expect(normalizeSteps([{ type: "rm -rf" }]).error).toBeTruthy();
+  expect(normalizeSteps([]).error).toBeTruthy();
+  expect(followupRequest("follow up in 3 days: chase Acme")).toEqual({ minutes: 4320, text: "chase Acme" });
+  expect(followupRequest("2時間後にフォローして: 見積の返事")).toEqual({ minutes: 120, text: "見積の返事" });
+  expect(followupRequest("follow up later")).toBeNull();
+});
+
+test("the harness's home answers in one call: what waits on me, the apps' numbers, the agents' roles, how each workflow last ran", async () => {
+  const { workflow } = await (await send("POST", "/workflows", mika, overdueFlow())).json();
+  const row = (await (await send("POST", `/tables/${invoices}/rows`, mika, { orgId: ORG, values: { Client: "Acme", Amount: 4800, Status: "Sent" } })).json()).row;
+  await send("PATCH", `/tables/${invoices}/rows/${row.id}`, mika, { orgId: ORG, values: { Status: "Overdue" } });
+  const agent = (await (await send("POST", "/channels/agents", mika, { orgId: ORG, name: "Billy", handle: "billy", instructions: "You chase invoices.", scope: "team" })).json()).agent;
+  expect((await (await get(`/harness/home?${q({ orgId: ORG })}`, toru)).json()).agents).toEqual([]);
+  await send("PUT", "/channels/agents", mika, { orgId: ORG, id: agent.id, scope: "team" });
+  await send("PUT", `/hx/agents/${agent.id}/profile`, mika, { orgId: ORG, specialty: "Accounts receivable" });
+  await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "Check Acme", minutes: 60 });
+
+  const home = await (await get(`/harness/home?${q({ orgId: ORG })}`, toru)).json();
+  expect(home.mode).toBe("harness");
+  expect(home.approvals.toDecide).toEqual([expect.objectContaining({ title: "Send Acme a reminder?", kind: "workflow" })]);
+  expect(home.approvals.pendingDecisions).toBe(1);
+  expect(home.apps).toEqual([expect.objectContaining({ name: "Invoice tracker", rows: 1, headline: { label: "Open invoices", value: 1 } })]);
+  expect(home.agents).toEqual([expect.objectContaining({ handle: "billy", specialty: "Accounts receivable", tier: "standard" })]);
+  expect(home.workflows).toEqual([expect.objectContaining({ id: workflow.id, trigger: "row", lastRun: expect.objectContaining({ status: "waiting" }) })]);
+  expect(home.followups.map((f) => f.instruction)).toEqual(["Check Acme"]);
+});
+
+test("approval resumes the frozen definition even after its workflow is edited", async () => {
+  const { createWorkflow, startRun, updateWorkflow, settleWorkflowApproval } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Frozen', trigger: { type: 'manual' }, steps: [
+      { type: 'approval', to: 'toru', title: 'Approve original?' },
+      { type: 'post', channel: 'b:ops', text: 'Original approved action' },
+    ],
+  }, '9302');
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+  expect(run.status).toBe('waiting');
+  await updateWorkflow(env.DB, ORG, workflow.id, { steps: [{ type: 'post', channel: 'b:ops', text: 'Replacement' }] });
+  const done = await settleWorkflowApproval(env, ORG, {
+    id: run.cardId, workflowApproval: { runId: run.id }, recipientUserID: 'toru',
+    decision: { action: 'approve', actorUserID: 'toru' },
+  });
+  expect(done.status).toBe('done');
+  expect((await messages(mika)).map(m => m.body)).toContain('Original approved action');
+  expect((await messages(mika)).map(m => m.body)).not.toContain('Replacement');
+});
+
+test("deferred posts cannot enter a room after the owner loses access", async () => {
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Access recheck', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Forbidden' }],
+  }, '9302');
+  await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = 'ops'").bind(ORG).run();
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual' });
+  expect(run.status).toBe('failed');
+  expect(run.log[0].error).toBe('Conversation access required.');
+});
+
+test('private follow-ups are hidden in lists and home and cannot be cancelled by outsiders', async () => {
+  const made = await send('POST', '/followups', mika, { orgId: ORG, channel: 'b:ops', instruction: 'Confidential', minutes: 60 });
+  expect(made.status).toBe(201);
+  const { followup } = await made.json();
+  await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = 'ops'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO conversation_members (org_id, channel, login, added_by, added_at) VALUES (?1, 'b:ops', 'mika', 'mika', ?2)").bind(ORG, new Date().toISOString()).run();
+  expect((await (await get(`/followups?${q({ orgId: ORG })}`, toru)).json()).followups).toEqual([]);
+  expect((await (await get(`/harness/home?${q({ orgId: ORG })}`, toru)).json()).followups).toEqual([]);
+  expect((await call(`/followups/${followup.id}?${q({ orgId: ORG })}`, { method: 'DELETE', headers: headers(toru) })).status).toBe(404);
+  expect((await (await get(`/followups?${q({ orgId: ORG })}`, mika)).json()).followups).toHaveLength(1);
+});
+
+test('run history retains its original room restrictions after the workflow is edited', async () => {
+  const { createWorkflow, startRun, updateWorkflow, getRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: 'Private output', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Private result' }] }, '9302');
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual' });
+  await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = 'ops'").bind(ORG).run();
+  expect((await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, toru)).status).toBe(404);
+  await updateWorkflow(env.DB, ORG, workflow.id, { steps: [{ type: 'approval', to: 'toru', title: 'Public' }] });
+  expect(await getRun(env.DB, ORG, run.id, { viewerId: '9301' })).toBeNull();
+});
+
+test('natural language generation refuses unavailable AI instead of silently making a substitute', async () => {
+  const response = await send('POST', '/workflows/generate', mika, { orgId: ORG, prompt: 'Every day post a reminder', channel: 'b:ops', useModel: false });
+  expect(response.status).toBe(503);
+  expect((await (await get(`/workflows?${q({ orgId: ORG })}`, mika)).json()).workflows).toEqual([]);
+});
+
+test('generated workflows are paused and reject inaccessible resources and unsupported steps', async () => {
+  const { workflowFromPrompt } = await import('../src/harness/workflowGeneration.js');
+  const spec = { name: 'Daily reminder', trigger: { type: 'schedule', cadence: 'daily', hour: 9, minute: 15, timezone: 'Asia/Tokyo' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Check tasks' }], enabled: true };
+  const made = await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'Every day at 9:15 remind us', complete: async () => JSON.stringify(spec) });
+  expect(made.workflow.enabled).toBe(false);
+  const saved = (await (await send('POST', '/workflows', mika, { orgId: ORG, ...made.workflow })).json()).workflow;
+  expect(saved.enabled).toBe(false);
+  expect(saved.nextRunAt).toBeNull();
+  expect(saved.steps[0].text).toBe('Check tasks');
+  expect((await messages(mika)).some(message => message.body === 'Check tasks')).toBe(false);
+  expect((await send('POST', `/workflows/${saved.id}/run`, mika, { orgId: ORG })).status).toBe(201);
+  expect((await messages(mika)).some(message => message.body === 'Check tasks')).toBe(true);
+  expect((await (await get(`/workflows/${saved.id}?${q({ orgId: ORG })}`, mika)).json()).workflow.enabled).toBe(false);
+  spec.steps[0].channel = 'b:nonexistent';
+  expect((await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'Post', complete: async () => JSON.stringify(spec) })).status).toBe(403);
+  spec.steps = [{ type: 'shell', command: 'echo unsafe' }];
+  expect((await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'Run', complete: async () => JSON.stringify(spec) })).error).toBeTruthy();
+});
+
+test('generation validates malformed output, invalid schedules and foreign rooms', async () => {
+  const { workflowFromPrompt } = await import('../src/harness/workflowGeneration.js');
+  expect((await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'do something', complete: async () => 'not json' })).error).toBeTruthy();
+  expect((await workflowFromPrompt(env.DB, ORG, '9302', { prompt: 'daily', complete: async () => JSON.stringify({ name: 'bad', trigger: { type: 'schedule', cadence: 'daily', hour: 99 }, steps: [{ type: 'post', channel: 'b:ops', text: 'hello' }] }) })).error).toBeTruthy();
+  expect((await send('POST', '/workflows/generate', mika, { orgId: ORG, prompt: 'Post', channel: 'b:foreign', useModel: false })).status).toBe(403);
+  expect((await send('POST', '/apps/generate', mika, { orgId: ORG, prompt: 'Tracker', channel: 'b:foreign', useModel: false })).status).toBe(403);
+});
+
+test('natural-language workflow generation receives the current room guidelines', async () => {
+  const { workflowFromPrompt } = await import('../src/harness/workflowGeneration.js');
+  const rule = 'Send only the agreed operations summary.';
+  await env.DB.prepare('INSERT INTO hx_room_guidelines(org_id,channel,body,version,updated_by,updated_at) VALUES(?,?,?,1,?,?)')
+    .bind(ORG, 'b:ops', rule, '9301', new Date().toISOString()).run();
+  let requestText = '';
+  const spec = { name: 'Guided reminder', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Daily summary' }] };
+  const result = await workflowFromPrompt(env.DB, ORG, '9302', {
+    prompt: 'Post the daily summary', channel: 'b:ops',
+    complete: async (_system, request) => { requestText = request; return JSON.stringify(spec); },
+  });
+  expect(result.workflow.name).toBe('Guided reminder');
+  expect(requestText).toContain('Current room guidelines (revision 1)');
+  expect(requestText).toContain(rule);
+});
+
+test('an app generated in an agent DM resolves the room and remains private', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, { orgId: ORG, name: 'Builder', handle: 'builder', instructions: 'Build apps.', scope: 'personal' })).json();
+  const room = `ag:${agent.id}`;
+  const response = await send('POST', '/apps/generate', mika, { orgId: ORG, prompt: 'Task tracker', channel: room, useModel: false });
+  expect(response.status).toBe(201);
+  const { app } = await response.json();
+  const listed = await (await get(`/apps?${q({ orgId: ORG, channel: room })}`, mika)).json();
+  expect(listed.apps.map(a => a.id)).toContain(app.id);
+  expect(listed.apps.find(a => a.id === app.id).channels).toEqual([`${room}|mika`]);
+  expect((await get(`/apps/${app.id}?${q({ orgId: ORG })}`, toru)).status).toBe(404);
+
+  const direct = await send('POST', '/apps', mika, { orgId: ORG, name: 'Direct agent app', channel: room, columns: [{ name: 'Title', type: 'text' }] });
+  expect(direct.status).toBe(201);
+  const { app: directApp } = await direct.json();
+  expect(await env.DB.prepare('SELECT channel FROM hx_app_links WHERE org_id=?1 AND app_id=?2').bind(ORG, directApp.id).first()).toEqual({ channel: `${room}|mika` });
+  expect(await env.DB.prepare('SELECT visibility FROM hx_app_access WHERE org_id=?1 AND app_id=?2').bind(ORG, directApp.id).first()).toEqual({ visibility: 'private' });
+
+  const unlinked = await send('POST', '/apps', mika, { orgId: ORG, name: 'Agent chat link', columns: [{ name: 'Title', type: 'text' }] });
+  const { app: unlinkedApp } = await unlinked.json();
+  expect((await send('POST', `/apps/${unlinkedApp.id}/links`, mika, { orgId: ORG, channel: room })).status).toBe(200);
+  expect(await env.DB.prepare('SELECT channel FROM hx_app_links WHERE org_id=?1 AND app_id=?2').bind(ORG, unlinkedApp.id).first()).toEqual({ channel: `${room}|mika` });
+});
+
+test("an approval goes only to someone in this workspace, checked when saved and again when it runs", async () => {
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  // Zed has an account, in another workspace; Kai is here until removed.
+  await upsertUser(env.DB, { githubId: "9304", login: "zed", name: "Zed", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, "personal:elsewhere", "9304", "admin");
+  await upsertUser(env.DB, { githubId: "9303", login: "kai", name: "Kai", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, ORG, "9303", "member");
+  const flow = (to) => ({ orgId: ORG, name: `Ask ${to}`, trigger: { type: "manual" }, steps: [{ type: "approval", to, title: "Secret plan", summary: "Only for us" }] });
+
+  const refused = await send("POST", "/workflows", mika, flow("zed"));
+  expect(refused.status).toBe(400);
+  expect((await refused.json()).message).toMatch(/zed/);
+  const { workflow: viaTemplate } = await (await send("POST", "/workflows", mika, flow("{{input.who}}"))).json();
+  expect((await send("PUT", `/workflows/${viaTemplate.id}`, mika, { orgId: ORG, steps: flow("@zed").steps })).status).toBe(400);
+  const { workflow: toKai } = await (await send("POST", "/workflows", mika, flow("kai"))).json();
+
+  const outsider = (await (await send("POST", `/workflows/${viaTemplate.id}/run`, mika, { orgId: ORG, input: { who: "zed" } })).json()).run;
+  expect(outsider).toMatchObject({ status: "failed", cardId: null });
+  expect(outsider.log[0]).toMatchObject({ status: "failed", error: "Nobody by that name here." });
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '9303'").bind(ORG).run();
+  const removed = (await (await send("POST", `/workflows/${toKai.id}/run`, mika, { orgId: ORG })).json()).run;
+  expect(removed.status).toBe("failed");
+  // Nothing was saved or queued for either of them.
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1").bind(ORG).first()).n).toBe(0);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM notification_jobs").first()).n).toBe(0);
+
+  // A member named through the template still gets the approval.
+  const member = (await (await send("POST", `/workflows/${viaTemplate.id}/run`, mika, { orgId: ORG, input: { who: "toru" } })).json()).run;
+  expect(member.status).toBe("waiting");
+  expect((await (await get(`/approvals?${q({ orgId: ORG })}`, toru)).json()).toDecide).toEqual([expect.objectContaining({ title: "Secret plan", kind: "workflow" })]);
+});
+
+test("a decision on a run's first approval, replayed, does not answer its second", async () => {
+  const { createWorkflow, startRun, settleWorkflowApproval, getRun } = await import("../src/harness/workflows.js");
+  const { getCard } = await import("../src/db.js");
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: "Two gates", trigger: { type: "manual" }, steps: [
+      { type: "approval", to: "toru", title: "Approve A?" },
+      { type: "approval", to: "toru", title: "Approve B?" },
+      { type: "post", channel: "b:ops", text: "Reached the final step" },
+    ],
+  }, "9302");
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: "manual", startedBy: "9302" });
+  const decided = (card) => ({ ...card, status: "approved", decision: { action: "approve", actorUserID: "toru", decidedAt: new Date().toISOString() } });
+  const first = await getCard(env.DB, ORG, run.cardId);
+  const atSecond = await settleWorkflowApproval(env, ORG, decided(first));
+  expect(atSecond).toMatchObject({ status: "waiting", nextStep: 2 });
+  expect(atSecond.cardId).not.toBe(first.id);
+  // The first card is kept as it was, beside the second.
+  expect((await getCard(env.DB, ORG, first.id)).title).toBe("Approve A?");
+  expect((await getCard(env.DB, ORG, atSecond.cardId)).title).toBe("Approve B?");
+
+  expect(await settleWorkflowApproval(env, ORG, decided(first))).toBeNull();
+  expect(await getRun(env.DB, ORG, run.id)).toMatchObject({ status: "waiting", nextStep: 2, cardId: atSecond.cardId });
+  expect((await messages(mika)).map((m) => m.body)).not.toContain("Reached the final step");
+
+  const done = await settleWorkflowApproval(env, ORG, decided(await getCard(env.DB, ORG, atSecond.cardId)));
+  expect(done.status).toBe("done");
+  expect((await messages(mika)).map((m) => m.body)).toContain("Reached the final step");
+});
+
+test("a workflow's approval card has a priority every client reads, and old ones are repaired", async () => {
+  const { createWorkflow, startRun } = await import("../src/harness/workflows.js");
+  const { getCard, saveCard } = await import("../src/db.js");
+  const { PRIORITIES } = await import("../src/agui/validate.js");
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: "Gate", trigger: { type: "manual" }, steps: [{ type: "approval", to: "toru", title: "Go?" }] }, "9302");
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: "manual", startedBy: "9302" });
+  expect(PRIORITIES.has((await getCard(env.DB, ORG, run.cardId)).priority)).toBe(true);
+
+  await saveCard(env.DB, ORG, { id: "wf-run_old", recipientUserID: "toru", senderUserID: "toru", type: "approval", title: "Old", summary: "", status: "pending", priority: "normal", createdAt: new Date().toISOString(), workflowApproval: { runId: "run_old" } });
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  expect((await getCard(env.DB, ORG, "wf-run_old")).priority).toBe("medium");
+  expect((await env.DB.prepare("SELECT priority FROM cards WHERE card_id = 'wf-run_old'").first()).priority).toBe("medium");
+});
+
+test("a workflow's follow-up is scheduled with its maker's access, and checked again when due", async () => {
+  const { createWorkflow, startRun } = await import("../src/harness/workflows.js");
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: "Chase later", trigger: { type: "manual" }, steps: [{ type: "followup", channel: "b:ops", text: "Did {{input.text}} pay?", minutes: 60 }],
+  }, "9302");
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Acme" }, startedBy: "9302" });
+  expect(run.status).toBe("done");
+  const { followups } = await (await get(`/followups?${q({ orgId: ORG, channel: "b:ops" })}`, mika)).json();
+  expect(followups).toEqual([expect.objectContaining({ id: run.log[0].output, instruction: "Did Acme pay?", createdBy: "9302" })]);
+  expect(await runDueFollowups(env, { now: new Date(Date.now() + 2 * 3600000) })).toBe(1);
+  expect((await messages(mika)).map((m) => m.body)).toContain("⏰ Follow-up: Did Acme pay?");
+
+  // Its maker gone from the workspace, the next one is never posted.
+  const again = await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Globex" }, startedBy: "9302" });
+  expect(again.status).toBe("done");
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '9302'").bind(ORG).run();
+  expect(await runDueFollowups(env, { now: new Date(Date.now() + 2 * 3600000) })).toBe(0);
+  expect((await messages(toru)).map((m) => m.body)).not.toContain("⏰ Follow-up: Did Globex pay?");
+  expect((await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Initech" } })).status).toBe("failed");
+});
+
+test("what starts a run is kept whole: a large webhook body still renders, and one too large to keep fails before any step", async () => {
+  const { createWorkflow, startRun, continueRun, getRun, MAX_INPUT } = await import("../src/harness/workflows.js");
+  const made = await (await send("POST", "/workflows", mika, {
+    orgId: ORG, name: "Customer hook", trigger: { type: "webhook" },
+    steps: [{ type: "post", channel: "b:ops", text: "Customer: {{input.customer}}" }],
+  })).json();
+  const body = JSON.stringify({ customer: "Acme \"東京\"", padding: "x".repeat(25000) });
+  const hooked = await (await signedWebhook(made.hookUrl, made.workflow.hookSecret, body)).json();
+  expect(hooked.status).toBe("done");
+  expect((await messages(mika)).map((m) => m.body)).toContain("Customer: Acme \"東京\"");
+  expect((await getRun(env.DB, ORG, hooked.runId)).input.customer).toBe("Acme \"東京\"");
+
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: "Big", trigger: { type: "manual" }, steps: [{ type: "post", channel: "b:ops", text: "Got {{input.customer}}" }] }, "9302");
+  const huge = await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { customer: "Initech", padding: "x".repeat(MAX_INPUT) } });
+  expect(huge).toMatchObject({ status: "failed", input: null });
+  expect(huge.log).toEqual([expect.objectContaining({ step: 1, status: "failed", error: expect.stringMatching(/over/) })]);
+  expect((await messages(mika)).map((m) => m.body)).not.toContain("Got Initech");
+
+  // A run whose stored input no longer reads as JSON fails rather than
+  // going on as though nothing had started it.
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_at)
+    VALUES ('run_cut', ?1, ?2, 'webhook', 'running', '{"customer":"Globex","padding":"xx', '[]', 0, ?3)`).bind(ORG, workflow.id, new Date().toISOString()).run();
+  const cut = await continueRun(env, { orgId: ORG, runId: "run_cut", workflow });
+  expect(cut.status).toBe("failed");
+  expect(cut.log[0]).toMatchObject({ status: "failed", error: "What started this run can no longer be read." });
+  expect((await messages(mika)).some((m) => m.body.startsWith("Got "))).toBe(false);
+});
+
+test.each(['workflow', 'followup'])('%s reads an installed skill through its execution entry and records both model rounds', async kind => {
+  const agent = (await (await send('POST','/channels/agents',mika,{orgId:ORG,name:'Procedure helper',handle:'procedure',instructions:'Follow the installed procedure.',scope:'team'})).json()).agent;
+  const skill = (await (await send('POST','/skills',mika,{orgId:ORG,name:'Release procedure',description:'Review a release',body:'CHECK THE FINAL RELEASE RESULT',visibility:'workspace'})).json()).skill;
+  expect((await send('POST',`/hx/agents/${agent.id}/skills`,mika,{orgId:ORG,skillId:skill.id})).status).toBe(200);
+  const bodies=[];
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,opts=>{
+    bodies.push(JSON.parse(opts.body));
+    return {choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'read-procedure',type:'function',function:{name:'read_installed_skill',arguments:JSON.stringify({skill_id:skill.id})}}]}}],usage:{prompt_tokens:10,completion_tokens:4}};
+  });
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,opts=>{
+    bodies.push(JSON.parse(opts.body));
+    return {choices:[{message:{content:'PROCEDURE VERIFIED'}}],usage:{prompt_tokens:20,completion_tokens:6}};
+  });
+  try {
+    const modelEnv={...env,OPENAI_API_KEY:'sk-test'};
+    if(kind==='workflow') {
+      const {createWorkflow,startRun}=await import('../src/harness/workflows.js');
+      const {workflow}=await createWorkflow(env.DB,ORG,{name:'Review release',trigger:{type:'manual'},steps:[{type:'agent',agentId:agent.id,channel:'b:ops',prompt:'Review the release'}]},'9302');
+      const result=await startRun(modelEnv,{orgId:ORG,workflow,trigger:'manual',startedBy:'9302'});
+      expect(result.status).toBe('done');
+      expect(result.log[0].output).toBe('PROCEDURE VERIFIED');
+      expect(result.usage).toMatchObject({calls:2,inputTokens:30,outputTokens:10,unknownCalls:0,steps:[{stepNumber:1,calls:2,inputTokens:30,outputTokens:10}]});
+    } else {
+      const {scheduleFollowup}=await import('../src/harness/followups.js');
+      const {followup}=await scheduleFollowup(env.DB,{orgId:ORG,channel:'b:ops',agentId:agent.id,instruction:'Review the release',dueAt:new Date(Date.now()+60000).toISOString(),by:'9302'});
+      await runDueFollowups(modelEnv,{now:new Date(Date.now()+120000)});
+      expect(await env.DB.prepare('SELECT status,result FROM hx_followups WHERE id=?').bind(followup.id).first()).toMatchObject({status:'done',result:'PROCEDURE VERIFIED'});
+    }
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  expect(bodies[0].messages[0].content).toContain(skill.id);
+  expect(bodies[0].messages[0].content).not.toContain('CHECK THE FINAL RELEASE RESULT');
+  expect(bodies[1].messages.find(m=>m.role==='tool').content).toContain('CHECK THE FINAL RELEASE RESULT');
+  const {results:calls}=await env.DB.prepare('SELECT purpose,input_tokens,output_tokens,user_github_id FROM ai_calls WHERE org_id=? ORDER BY id').bind(ORG).all();
+  expect(calls).toEqual([
+    {purpose:kind==='workflow'?'workflow_agent':'followup',input_tokens:10,output_tokens:4,user_github_id:'9302'},
+    {purpose:kind==='workflow'?'workflow_agent':'followup',input_tokens:20,output_tokens:6,user_github_id:'9302'},
+  ]);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_reservations').first()).n).toBe(0);
+});
+
+test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools and discards access revoked in flight', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Policy reviewer', handle: 'policy-reviewer', instructions: 'Review workspace policy.', scope: 'team',
+  })).json();
+  const server = await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+    { name: 'delete_record', title: 'Delete record', inputSchema: { type: 'object', properties: { id: { type: 'string' } } }, annotations: { destructiveHint: true } },
+    { name: 'read_unapproved', title: 'Read unapproved', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
+  ], ['search_policy', 'delete_record']);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Check policy source', trigger: { type: 'manual' },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Find the key policy and summarize it.' }],
+  }, '9302');
+  const requests = [];
+  const remote = fetchMock.get('https://workflow-mcp.example.com');
+  const message = opts => JSON.parse(opts.body);
+  let remoteToolName = null;
+  let requestAborted = false;
+  fetchMock.activate();
+  remote.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'initialize' })
+    .reply(opts => ({ statusCode: 200, data: { jsonrpc: '2.0', id: message(opts).id, result: { protocolVersion: '2025-06-18' } }, responseOptions: { headers: { 'mcp-session-id': 'workflow-session' } } }));
+  remote.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'notifications/initialized' }).reply(202, null);
+  remote.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'tools/call' })
+    .reply(opts => ({ statusCode: 200, data: { jsonrpc: '2.0', id: message(opts).id, result: { content: [{ type: 'text', text: 'Workspace policy: keep all keys private.' }] } } }));
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    const body = JSON.parse(opts.body);
+    requests.push(body);
+    if (requests.length === 1) {
+      const names = (body.tools || []).map(tool => tool.function.name);
+      remoteToolName = names.find(name => name.startsWith('mcp_'));
+      return {
+        choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'policy-search', type: 'function', function: { name: remoteToolName, arguments: JSON.stringify({ query: 'API keys' }) } }] } }],
+        usage: { prompt_tokens: 10, completion_tokens: 4 },
+      };
+    }
+    return { choices: [{ message: { content: 'The policy says never share keys.' } }], usage: { prompt_tokens: 20, completion_tokens: 6 } };
+  }).times(2);
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    expect(result.status).toBe('done');
+    expect(result.log[0].output).toBe('The policy says never share keys.');
+    const offered = requests[0].tools.map(tool => tool.function.name);
+    expect(offered).toEqual([remoteToolName]);
+    expect(requests[1].messages.find(message => message.role === 'tool').content).toContain('Workspace policy: keep all keys private.');
+    expect(requests[1].messages.find(message => message.role === 'tool').content).not.toContain('delete_record');
+    expect(requests[1].messages.find(message => message.role === 'tool').content).not.toContain('read_unapproved');
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_agent_remote_mcp_grants WHERE org_id=?1').bind(ORG).first()).n).toBe(0);
+    expect((await messages(mika)).map(message => message.body)).toContain('The policy says never share keys.');
+    expect(result.usage).toMatchObject({ calls: 2, inputTokens: 30, outputTokens: 10, unknownCalls: 0 });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+
+  // A changed workspace allowlist during the next provider round invalidates
+  // the private MCP context and aborts that request before it can be posted.
+  await env.DB.prepare('UPDATE hx_remote_mcp_servers SET allowed_tools=?1 WHERE org_id=?2 AND id=?3')
+    .bind(JSON.stringify(['search_policy', 'delete_record']), ORG, server.id).run();
+  const { workflow: secondWorkflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Check policy source again', trigger: { type: 'manual' },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Find the key policy and summarize it.' }],
+  }, '9302');
+  const priorMessages = await messages(mika);
+  let abortedFetch = false;
+  const secondRequests = [];
+  fetchMock.activate();
+  interceptWorkflowRemoteMcp();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(async opts => {
+    const body = JSON.parse(opts.body);
+    secondRequests.push(body);
+    if (secondRequests.length === 1) {
+      const name = body.tools.find(tool => tool.function.name.startsWith('mcp_')).function.name;
+      return { statusCode: 200, data: { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'policy-search-again', type: 'function', function: { name, arguments: JSON.stringify({ query: 'API keys' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 4 } } };
+    }
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Workflow model request was not aborted after the Remote MCP allowlist changed.')), 10_000);
+      opts.signal.addEventListener('abort', () => { abortedFetch = true; clearTimeout(timeout); reject(new Error('Workflow model request aborted after the Remote MCP allowlist changed.')); }, { once: true });
+      setTimeout(() => env.DB.prepare('UPDATE hx_remote_mcp_servers SET allowed_tools=?1 WHERE org_id=?2 AND id=?3')
+        .bind('[]', ORG, server.id).run().catch(error => { clearTimeout(timeout); reject(error); }), 10);
+    });
+  }).times(2);
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow: secondWorkflow, trigger: 'manual', startedBy: '9302' });
+    expect(result.status).toBe('failed');
+    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
+    expect(abortedFetch).toBe(true);
+    expect(await messages(mika)).toHaveLength(priorMessages.length);
+    expect(result.usage).toMatchObject({ calls: 2, unknownCalls: 1, unpricedCalls: 1 });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('a Workflow Agent discards a read-only Remote MCP result when its source App is revoked during the tool call', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'App source reviewer', handle: 'app-source-reviewer', instructions: 'Review the changed record.', scope: 'team',
+  })).json();
+  await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+  ], ['search_policy']);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Review app record with policy',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Review the changed record and policy.' }],
+  }, '9302');
+  const requests = [];
+  let remoteToolName = null;
+  fetchMock.activate();
+  interceptWorkflowRemoteMcp(async () => {
+    await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
+      ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, sourceApp.id).run();
+  });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(opts => {
+    const body = JSON.parse(opts.body);
+    requests.push(body);
+    const names = (body.tools || []).map(tool => tool.function.name);
+    remoteToolName = names.find(name => name.startsWith('mcp_'));
+    return { statusCode: 200, data: {
+      choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'source-policy-search', type: 'function', function: { name: remoteToolName, arguments: JSON.stringify({ query: 'record policy' }) } }] } }],
+      usage: { prompt_tokens: 10, completion_tokens: 4 },
+    } };
+  }).times(1);
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, {
+      orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+      input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'private' } }], totalCount: 1, truncated: false },
+    });
+    expect(remoteToolName).toBeTruthy();
+    expect(result.status).toBe('failed');
+    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
+    expect(requests).toHaveLength(1);
+    expect((await messages(mika)).some(message => message.body.includes('Workspace policy: keep all keys private.'))).toBe(false);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('Workflow Agent steps do not receive Remote MCP tools in Simple mode', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Simple reviewer', handle: 'simple-reviewer', instructions: 'Review the prompt.', scope: 'team',
+  })).json();
+  await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+  ], ['search_policy']);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Simple mode check', trigger: { type: 'manual' },
+    steps: [{ type: 'agent', agentId: agent.id, prompt: 'Review the release.' }],
+  }, '9302');
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
+  let requestBody;
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    requestBody = JSON.parse(opts.body);
+    return { choices: [{ message: { content: 'Simple stays simple.' } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    expect(result.status).toBe('done');
+    expect(requestBody.tools || []).toEqual([]);
+    expect(result.log[0].output).toBe('Simple stays simple.');
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('an app record workflow stops its Agent after its maker loses app access during the model turn', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, {
+    orgId: ORG, template: 'invoices', sample: false,
+  })).json()).app;
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'App reviewer', handle: 'app-reviewer', instructions: 'Review the record.', scope: 'team',
+  })).json();
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Review app record',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Review the changed record.' }],
+  }, '9302');
+  let requestBody;
+  let requestAborted = false;
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(async opts => {
+    requestBody = JSON.parse(opts.body);
+    return await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Provider request was not aborted after source access was removed.')), 10000);
+      opts.signal.addEventListener('abort', () => {
+        requestAborted = true;
+        clearTimeout(timeout);
+        reject(new Error('Provider request aborted after source access was removed.'));
+      }, { once: true });
+      setTimeout(() => {
+        env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
+          ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, sourceApp.id).run().catch(error => {
+            clearTimeout(timeout);
+            reject(error);
+          });
+      }, 10);
+    });
+  });
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, {
+      orgId: ORG,
+      workflow,
+      trigger: 'app_record_change',
+      input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { status: 'review' } }] },
+      startedBy: '9302',
+    });
+    expect(result.status).toBe('failed');
+    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
+    expect((await messages(mika)).map(message => message.body)).not.toContain('This private app reply must not be published.');
+    expect(requestAborted).toBe(true);
+    expect(result.usage).toMatchObject({ calls: 1, unknownCalls: 1, unpricedCalls: 1 });
+    expect(requestBody.messages.some(message => message.content?.includes('Review the changed record.'))).toBe(true);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('an app record post is fenced atomically when source access is revoked before message insertion', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Post current app record',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'post', channel: 'b:ops', text: 'Source data: {{row.Status}}' }],
+  }, '9302');
+  const fenced = revokeSourceBeforeWrite(env.DB, sourceApp.id, /^INSERT INTO channel_messages\b/);
+  const result = await startRun({ ...env, DB: fenced.db }, {
+    orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'PRIVATE-CANARY' } }], totalCount: 1, truncated: false },
+  });
+  expect(fenced.wasRevoked()).toBe(true);
+  expect(result.status).toBe('failed');
+  expect((await messages(mika)).some(message => message.body.includes('PRIVATE-CANARY'))).toBe(false);
+});
+
+test('an app record approval is fenced atomically when source access is revoked before card insertion', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Approve current app record',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'approval', to: 'toru', title: 'Review {{row.Status}}?' }],
+  }, '9302');
+  const fenced = revokeSourceBeforeWrite(env.DB, sourceApp.id, /^INSERT INTO cards\b/);
+  const result = await startRun({ ...env, DB: fenced.db }, {
+    orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'PRIVATE-CANARY' } }], totalCount: 1, truncated: false },
+  });
+  expect(fenced.wasRevoked()).toBe(true);
+  expect(result.status).toBe('failed');
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM cards WHERE org_id=?1 AND card_id=?2').bind(ORG, `wf-${result.id}-1`).first()).n).toBe(0);
+});
+
+test('an app record follow-up is fenced when source access is revoked before scheduling', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Schedule app record follow-up',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'followup', channel: 'b:ops', text: 'Check {{row.Status}}', minutes: 60 }],
+  }, '9302');
+  const fenced = revokeSourceBeforeWrite(env.DB, sourceApp.id, /^INSERT INTO hx_followups\b/);
+  const result = await startRun({ ...env, DB: fenced.db }, {
+    orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'PRIVATE-CANARY' } }], totalCount: 1, truncated: false },
+  });
+  expect(fenced.wasRevoked()).toBe(true);
+  expect(result.status).toBe('failed');
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_followups WHERE org_id=?1').bind(ORG).first()).n).toBe(0);
+});
+
+test('a scheduled app record follow-up fails closed after its source App access is revoked', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Check an app record later',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'followup', channel: 'b:ops', text: 'Check {{row.Status}}', minutes: 60 }],
+  }, '9302');
+  const result = await startRun(env, {
+    orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'PRIVATE-CANARY' } }], totalCount: 1, truncated: false },
+  });
+  expect(result.status).toBe('done');
+  const followupId = result.log[0].output;
+  expect(await env.DB.prepare('SELECT source_app_id,source_entity_id,source_table_id FROM hx_followups WHERE id=?1').bind(followupId).first())
+    .toEqual({ source_app_id: sourceApp.id, source_entity_id: 'primary', source_table_id: sourceApp.tableId });
+  await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
+    ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, sourceApp.id).run();
+  await env.DB.prepare('UPDATE hx_followups SET due_at=?1 WHERE id=?2').bind(new Date(Date.now() - 1_000).toISOString(),followupId).run();
+  await runDueFollowups(env, { now: new Date() });
+  const stored = await env.DB.prepare('SELECT status,result FROM hx_followups WHERE id=?1').bind(followupId).first();
+  expect(stored.status).toBe('failed');
+  expect(stored.result).toMatch(/source app, entity, or table/i);
+  expect((await messages(mika)).some(message => message.body.includes('PRIVATE-CANARY'))).toBe(false);
+});
+
+test('follow-up provenance keeps standalone and non-App legacy rows while rejecting known App-trigger legacy rows', async () => {
+  const { followupSourceAuthority } = await import('../src/harness/appRecordSourceAuthority.js');
+  const standaloneId = 'legacy_standalone_followup';
+  await env.DB.prepare(`INSERT INTO hx_followups(id,org_id,channel,instruction,due_at,status,created_by,created_at)
+    VALUES(?1,?2,'b:ops','Standalone',?3,'scheduled','9302',?3)`)
+    .bind(standaloneId, ORG, new Date(Date.now() + 60_000).toISOString()).run();
+  const isAuthorized = id => env.DB.prepare(`SELECT 1 AS allowed FROM hx_followups f WHERE f.org_id=?1 AND f.id=?2 AND ${followupSourceAuthority('f')}`).bind(ORG, id).first();
+  expect(await isAuthorized(standaloneId)).toEqual({ allowed: 1 });
+
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const appWorkflow = (await createWorkflow(env.DB, ORG, {
+    name: 'Legacy app follow-up source',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'followup', channel: 'b:ops', text: 'App follow-up', minutes: 60 }],
+  }, '9302')).workflow;
+  const appRun = await startRun(env, {
+    orgId: ORG, workflow: appWorkflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'legacy-row', data: {} }], totalCount: 1, truncated: false },
+  });
+  const appFollowupId = appRun.log[0].output;
+  await env.DB.prepare('UPDATE hx_followups SET source_app_id=NULL,source_entity_id=NULL,source_table_id=NULL,source_authority_version=0 WHERE id=?1').bind(appFollowupId).run();
+  expect(await isAuthorized(appFollowupId)).toBeNull();
+
+  // Deleting a workflow removes the run log used to classify legacy v0
+  // follow-ups. That must not turn an App-sourced reminder into a standalone
+  // one after a later access change.
+  const { deleteWorkflow } = await import('../src/harness/workflows.js');
+  await deleteWorkflow(env.DB, ORG, appWorkflow.id);
+  expect(await env.DB.prepare('SELECT 1 FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2').bind(ORG, appWorkflow.id).first()).toBeNull();
+  expect(await isAuthorized(appFollowupId)).toBeNull();
+  expect((await env.DB.prepare('SELECT source_authority_version FROM hx_followups WHERE org_id=?1 AND id=?2').bind(ORG, appFollowupId).first()).source_authority_version).toBe(-1);
+
+  const manualWorkflow = (await createWorkflow(env.DB, ORG, {
+    name: 'Legacy manual follow-up source', trigger: { type: 'manual' },
+    steps: [{ type: 'followup', channel: 'b:ops', text: 'Manual follow-up', minutes: 60 }],
+  }, '9302')).workflow;
+  const manualRun = await startRun(env, { orgId: ORG, workflow: manualWorkflow, trigger: 'manual', startedBy: '9302', input: { text: 'legacy' } });
+  const manualFollowupId = manualRun.log[0].output;
+  await env.DB.prepare('UPDATE hx_followups SET source_authority_version=0 WHERE id=?1').bind(manualFollowupId).run();
+  expect(await isAuthorized(manualFollowupId)).toEqual({ allowed: 1 });
+});
+
+test('a workflow Agent grant revoked during its model turn prevents publishing the reply', async () => {
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
+  const { agent } = await (await send('POST', '/channels/agents', toru, {
+    orgId: ORG, name: 'Restricted reviewer', handle: 'restricted-reviewer', instructions: 'Review the release.', scope: 'team',
+  })).json();
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'harness' });
+  await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at)
+    VALUES (?1,?2,'people','["mika"]','now')
+    ON CONFLICT(org_id,agent_id) DO UPDATE SET access='people',people='["mika"]'`).bind(ORG, agent.id).run();
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Restricted review', trigger: { type: 'manual' },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Review the release' }],
+  }, '9302');
+  let requestBody;
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, async opts => {
+    requestBody = JSON.parse(opts.body);
+    await env.DB.prepare("UPDATE hx_agent_profiles SET people='[\"toru\"]' WHERE org_id=?1 AND agent_id=?2").bind(ORG, agent.id).run();
+    return { choices: [{ message: { content: 'This reply must not be published.' } }], usage: { prompt_tokens: 10, completion_tokens: 4 } };
+  });
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, {
+      orgId: ORG, workflow, trigger: 'manual', startedBy: '9302',
+    });
+    expect(result.status).toBe('failed');
+    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
+    expect((await messages(mika)).map(message => message.body)).not.toContain('This reply must not be published.');
+    expect(requestBody.messages.some(message => message.content?.includes('Review the release'))).toBe(true);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('a personal-agent follow-up reads connected sources before reporting and never exposes write tools', async () => {
+  const agent = (await (await send('POST', '/channels/agents', mika, { orgId: ORG, name: 'Invoice checker', handle: 'invoice-checker', instructions: 'Check the invoice status.', scope: 'personal' })).json()).agent;
+  const channel = `ag:${agent.id}|mika`;
+  await env.DB.prepare(`INSERT INTO org_apps (org_id,server,name,description,verified,allow_writes,added_by,added_at)
+    VALUES (?1,'linear','Linear','Issue tracker',1,1,'9301',?2)`).bind(ORG, new Date().toISOString()).run();
+  await env.DB.prepare(`INSERT INTO app_connections (id,org_id,user_github_id,server,status,created_at,updated_at)
+    VALUES ('connection-mika',?1,'9302','linear','connected',?2,?2)`).bind(ORG, new Date().toISOString()).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_app_grants (org_id,agent_id,user_github_id,server,created_at)
+    VALUES (?1,?2,'9302','linear',?3)`).bind(ORG, agent.id, new Date().toISOString()).run();
+  const { followup } = await (await import('../src/harness/followups.js')).scheduleFollowup(env.DB, {
+    orgId: ORG, channel, agentId: agent.id, instruction: 'Check whether invoice INV-7 is paid',
+    dueAt: new Date(Date.now() + 60_000).toISOString(), by: '9302',
+  });
+  expect(followup).toBeTruthy();
+  const bodies = [];
+  fetchMock.activate();
+  fetchMock.get('https://api.smithery.ai').intercept({ path: '/tokens', method: 'POST' })
+    .reply(200, { token: 'short-lived-test-token' });
+  fetchMock.get('https://api.smithery.ai').intercept({ path: '/connect/honmaru-test/connection-mika/.tools', method: 'GET' })
+    .reply(200, { tools: [
+      { name: 'search_issues', description: 'Search issues', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+      { name: 'create_issue', description: 'Create issue', inputSchema: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] } },
+    ] });
+  fetchMock.get('https://api.smithery.ai').intercept({ path: '/connect/honmaru-test/connection-mika/.tools/search_issues', method: 'POST' })
+    .reply(200, { content: [{ type: 'text', text: 'INV-7 status: paid; https://linear.app/acme/issue/INV-7' }] });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    const body = JSON.parse(opts.body); bodies.push(body);
+    expect(body.tool_choice).toBe('required');
+    expect(body.tools.map(tool => tool.function.name)).toContain('app1_search_issues');
+    expect(body.tools.map(tool => tool.function.name)).not.toContain('app1_create_issue');
+    return { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'search-invoice', type: 'function', function: { name: 'app1_search_issues', arguments: JSON.stringify({ query: 'INV-7' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    bodies.push(JSON.parse(opts.body));
+    return { choices: [{ message: { content: 'Invoice INV-7 is paid (Linear issue INV-7: https://linear.app/acme/issue/INV-7).' } }], usage: { prompt_tokens: 20, completion_tokens: 8 } };
+  });
+  try {
+    const modelEnv = { ...env, OPENAI_API_KEY: 'sk-test', SMITHERY_API_KEY: 'sk-smithery-test', SMITHERY_NAMESPACE: 'honmaru-test' };
+    await runDueFollowups(modelEnv, { now: new Date(Date.now() + 120_000) });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1].messages.at(-1)).toMatchObject({ role: 'tool', content: expect.stringContaining('INV-7 status: paid') });
+  expect(await env.DB.prepare('SELECT status,result FROM hx_followups WHERE id=?').bind(followup.id).first())
+    .toMatchObject({ status: 'done', result: expect.stringContaining('https://linear.app/acme/issue/INV-7') });
+});
+
+test('a personal-agent follow-up drops native-source results if its grant is revoked before the model responds', async () => {
+  const agent = (await (await send('POST', '/channels/agents', mika, { orgId: ORG, name: 'Payroll checker', handle: 'payroll-checker', instructions: 'Check the policy.', scope: 'personal' })).json()).agent;
+  const at = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('9302',?1,?2)").bind(at, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('9302','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), at).run();
+  const grant = await call(`/hx/agents/${agent.id}/apps`, {
+    method: 'POST', headers: headers(mika), body: JSON.stringify({ orgId: ORG, source: 'notion' }),
+  }, { COMPOSIO_API_KEY: 'ck-test' });
+  expect(grant.status).toBe(200);
+
+  const followupId = 'fu_native_grant_revoke';
+  await env.DB.prepare(`INSERT INTO hx_followups (id,org_id,channel,agent_id,instruction,due_at,status,created_by,created_at)
+    VALUES (?1,?2,?3,?4,'Check the payroll policy',?5,'scheduled','9302',?6)`)
+    .bind(followupId, ORG, `ag:${agent.id}|mika`, agent.id, new Date(Date.now() + 60_000).toISOString(), at).run();
+
+  fetchMock.activate();
+  fetchMock.get('https://backend.composio.dev').intercept({ path: '/api/v3/tools/execute/NOTION_SEARCH_NOTION_PAGE', method: 'POST' })
+    .reply(200, { results: [{ response: { data: { results: [{
+      properties: { Title: { type: 'title', title: [{ plain_text: 'Private payroll policy' }] }, Notes: { type: 'rich_text', rich_text: [{ plain_text: 'Confidential details.' }] } },
+      url: 'https://notion.so/private-payroll-policy',
+    }] } } }] });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, {
+    choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'private-search', type: 'function', function: { name: 'search_notion', arguments: JSON.stringify({ query: 'payroll policy' }) } }] } }],
+    usage: { prompt_tokens: 10, completion_tokens: 3 },
+  });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, async () => {
+    await env.DB.prepare("DELETE FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9302' AND source='notion'").bind(ORG, agent.id).run();
+    return { choices: [{ message: { content: 'Private payroll policy: confidential details.' } }], usage: { prompt_tokens: 20, completion_tokens: 8 } };
+  });
+  try {
+    const ran = await runDueFollowups({ ...env, OPENAI_API_KEY: 'sk-test', COMPOSIO_API_KEY: 'ck-test' }, { now: new Date(Date.now() + 120_000) });
+    expect(ran).toBe(0);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  expect(await env.DB.prepare('SELECT status,result FROM hx_followups WHERE id=?1').bind(followupId).first())
+    .toMatchObject({ status: 'failed', result: 'The follow-up did not receive a result. No completion was posted.' });
+  expect((await messages(mika)).some(message => /Private payroll policy|confidential details/i.test(message.body))).toBe(false);
+});
+
+test("a follow-up with no model result fails instead of posting its instruction as a completed answer", async () => {
+  const made = await (await send("POST", "/followups", mika, { orgId: ORG, channel: "b:ops", instruction: "Verify the invoice payment", minutes: 1 })).json();
+  fetchMock.activate();
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(503, "Unavailable");
+  try {
+    expect(await runDueFollowups({ ...env, OPENAI_API_KEY: "sk-test" }, { now: new Date(Date.now() + 120000) })).toBe(0);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  const result = await env.DB.prepare("SELECT status, result FROM hx_followups WHERE org_id = ?1 AND id = ?2").bind(ORG, made.followup.id).first();
+  expect(result.status).toBe("failed");
+  expect(result.result).toContain("did not receive a result");
+  expect((await messages(mika)).some(m => m.body.includes("Verify the invoice payment"))).toBe(false);
+});
+
+test("follow-up agent filtering happens before the workspace limit and preserves conversation access", async () => {
+  const at = "2026-10-01T00:00:00Z";
+  const insert = env.DB.prepare("INSERT INTO hx_followups (id,org_id,channel,agent_id,instruction,due_at,status,created_by,created_at) VALUES (?1,?2,?3,?4,'history',?5,'failed','maker',?5)");
+  await env.DB.batch(Array.from({ length: 201 }, (_, i) => insert.bind(`other_${i}`, ORG, 'b:ops', 'other-agent', at)));
+  await env.DB.batch([
+    insert.bind('target_visible', ORG, 'b:ops', 'target-agent', '2026-10-02T00:00:00Z'),
+    insert.bind('target_hidden', ORG, 'b:not-accessible', 'target-agent', '2026-10-02T00:00:00Z'),
+  ]);
+  const response = await get(`/followups?${q({ orgId: ORG, status: 'failed', agentId: 'target-agent' })}`, mika);
+  expect(response.status).toBe(200);
+  expect((await response.json()).followups.map(f => f.id)).toEqual(['target_visible']);
+});
+
+test("follow-up history pages use visible records and stable tied-date ordering", async () => {
+  const insert = env.DB.prepare("INSERT INTO hx_followups (id,org_id,channel,agent_id,instruction,due_at,status,created_by,created_at) VALUES (?1,?2,?3,'paged-agent','history','2026-10-01T00:00:00Z','failed','maker','2026-10-01T00:00:00Z')");
+  await env.DB.batch(Array.from({length:55},(_,i)=>insert.bind(`visible_${String(i).padStart(3,'0')}`,ORG,'b:ops')));
+  await env.DB.batch(Array.from({length:201},(_,i)=>insert.bind(`hidden_${i}`,ORG,'b:not-accessible')));
+  const query={orgId:ORG,status:'failed',agentId:'paged-agent',paged:'1'};
+  const first=await (await get(`/followups?${q(query)}`,mika)).json();
+  expect(first.followups).toHaveLength(50);
+  expect(first.nextCursor).not.toContain('hidden_');
+  const { followupHistory } = await import('../src/harness/followups.js');
   expect(await followupHistory(null, 'another-workspace', { agentId: 'paged-agent', status: 'failed', viewerId: 'maker', cursor: first.nextCursor })).toMatchObject({ status: 400 });
   const second=await (await get(`/followups?${q({...query,cursor:first.nextCursor})}`,mika)).json();
   expect(second.followups).toHaveLength(5);
