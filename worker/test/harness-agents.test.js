@@ -650,6 +650,8 @@ test("workspace GitHub sharing is admin-only, scoped to the workspace, and keeps
   expect(shared).toMatchObject({ workspaceAvailable: true, workspaceEnabled: true });
   const memberSession = { github_id: "9203", github_access_token: "personal-kenji" };
   expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe("workspace");
+  const personalSession = { github_id: "9202", github_access_token: "personal-token" };
+  expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: personalSession, source: "github" })).toBe("workspace");
 
   const otherOrg = "personal:other-org";
   const crossOrg = await get(`${path}?${q({ orgId: otherOrg })}`, kenji);
@@ -657,6 +659,7 @@ test("workspace GitHub sharing is admin-only, scoped to the workspace, and keeps
 
   expect((await send("DELETE", `${path}?${query}`, toru, { source: "github", scope: "workspace" })).status).toBe(200);
   expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe(null);
+  expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: personalSession, source: "github" })).toBe("personal");
   const personalAfter = await env.DB.prepare("SELECT count(*) AS n FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9202' AND source='github'")
     .bind(ORG, agentId).first();
   expect(personalAfter.n).toBe(1);
