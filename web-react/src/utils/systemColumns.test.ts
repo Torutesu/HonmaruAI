@@ -19,13 +19,16 @@ test('unresized table columns fill the data view while explicitly saved widths s
  const tasks=[{id:'title',name:'Task',type:'text' as const},{id:'owner',name:'Owner',type:'person' as const},{id:'due',name:'Due',type:'date' as const},{id:'state',name:'State',type:'select' as const}]
  const fresh=fitTableColumns(tasks,{},1280)
  expect(fresh.width).toBe(1280)
- expect(fresh.widths).toEqual({title:300,owner:300,due:300,state:300})
- expect(fresh.spacerWidth).toBe(0)
+ expect(fresh.widths).toEqual({title:320,owner:320,due:320,state:320})
+ expect(fresh.width).toBe(Object.values(fresh.widths).reduce((sum,width)=>sum+width,0))
+ expect(fresh).not.toHaveProperty('spacerWidth')
  const adjusted=fitTableColumns(tasks,{title:240},1280)
- expect(adjusted.widths).toEqual({title:240,owner:320,due:320,state:320})
+ expect(adjusted.widths).toEqual({title:240,owner:346,due:346,state:348})
+ expect(adjusted.width).toBe(1280)
  const saved=fitTableColumns(tasks,{title:240,owner:180,due:180,state:180},1280)
  expect(saved.widths).toEqual({title:240,owner:180,due:180,state:180})
- expect(saved.spacerWidth).toBe(420)
+ expect(saved.width).toBe(780)
+ expect(saved).not.toHaveProperty('spacerWidth')
 })
 test('system cells use row metadata rather than editable values and handle absent dates',()=>{
  const row={id:'row_real',values:{'$row.id':'spoof'},createdAt:'2026-10-18T00:00:00Z',updatedAt:'invalid'}

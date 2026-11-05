@@ -358,7 +358,8 @@
 :root .shell.harness-workspace .hx-data-toolbar .hx-view-tabs > button.on { color:var(--hx-text); background:var(--hx-surface); border-color:var(--hx-border); box-shadow:0 1px 2px #00000006; }
 :root .shell.harness-workspace .hx-data-toolbar .hx-view-tabs > [role="tab"]:focus-visible { outline:2px solid var(--hx-text); outline-offset:2px; }
 :root .shell.harness-workspace .hx-data-toolbar .hx-data-tools { order:2; margin:0 0 0 auto; gap:8px; }
-:root .shell.harness-workspace .hx-data-toolbar .hx-data-tools input { width:180px; font-size:12px; }
+:root .shell.harness-workspace .hx-data-toolbar .hx-data-tools > input[type="search"] { display:none; width:180px; font-size:12px; }
+:root .shell.harness-workspace .hx-data-toolbar .hx-data-tools.hx-search-expanded > input[type="search"] { display:block; }
 :root .shell.harness-workspace .hx-app-detail .hx-table-wrap { border-color:var(--hx-border); border-radius:12px; }
 :root .shell.harness-workspace .hx-app-detail .hx-table th { height:40px; box-sizing:border-box; background:var(--hx-surface); padding:10px 16px; font-size:12px; font-weight:500; border-color:var(--hx-border); }
 :root .shell.harness-workspace .hx-app-detail .hx-table td { height:40px; padding:4px 10px; border-color:var(--hx-hover); }
@@ -439,7 +440,9 @@
 .hx-column-setting button:disabled { opacity:.25; }
 .hx-personal-table { table-layout:fixed; }
 .hx-personal-table td,.hx-personal-table th { overflow:hidden; text-overflow:ellipsis; }
-.hx-personal-table .hx-table-spacer { padding:0; border-left:0; border-right:0; }
+.hx-personal-table td:last-child { position:relative; overflow:visible; }
+.hx-personal-table tbody tr:hover .hx-record-menu-trigger,
+.hx-personal-table tbody tr:focus-within .hx-record-menu-trigger { opacity:1; pointer-events:auto; }
 .hx-personal-badge { font-size:10px; margin-left:5px; }
 
 .hx-view-popover-footer { display:flex; justify-content:flex-end; gap:8px; margin:14px 0; }
@@ -530,7 +533,10 @@
 :root .shell.harness-workspace .hx-tabs .hx-view-popover { left:0; right:auto; }
 @media(max-width:719px) { :root .shell.harness-workspace .hx-tabs .hx-view-popover { left:16px; right:16px; } }
 
-.hx-record-actions { display:flex; align-items:center; justify-content:center; gap:4px; }
+.hx-personal-table .hx-record-actions { position:absolute; z-index:5; top:50%; right:4px; display:flex; align-items:center; justify-content:center; transform:translateY(-50%); }
+.hx-record-menu-trigger { display:grid; place-items:center; width:28px; height:28px; padding:0; border:1px solid transparent; border-radius:6px; background:var(--hx-surface); color:var(--hx-muted); opacity:0; pointer-events:none; cursor:pointer; transition:opacity .12s,background-color .12s,color .12s; }
+.hx-record-menu-trigger:hover { background:var(--hx-hover); color:var(--hx-text); }
+.hx-record-menu-trigger:focus-visible { opacity:1; pointer-events:auto; outline:2px solid var(--hx-accent); outline-offset:2px; }
 .hx-record-title { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; padding:0; background:none; color:inherit; border:0; font:inherit; text-align:left; cursor:pointer; }
 .hx-record-title svg { flex-shrink:0; color:var(--hx-muted); }
 .hx-record-title:hover { color:var(--hx-accent); }
@@ -794,8 +800,9 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 
 .hx-floating-app:has(.hx-app-fullscreen) .hx-floating-resize { display:none; }
 
-.hx-floating-search { display:none !important; }
-.hx-floating-search-query { display:none; }
+.hx-floating-search { display:inline-flex !important; }
+.hx-floating-search-query { display:block; }
+.hx-data-tools .hx-floating-search-query { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:1px solid var(--hx-border); border-radius:6px; padding:5px 8px; background:var(--hx-hover); color:var(--hx-muted); font:inherit; font-size:12px; cursor:pointer; }
 /* Keep a focused compact control mounted while ResizeObserver moves focus. */
 .hx-floating-search:focus { display:inline-flex !important; }
 .hx-floating-search-query:focus { display:block; }
@@ -809,7 +816,7 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
  .hx-data-tools.hx-search-expanded > input[type=search] { display:block; width:120px !important; }
  .hx-data-tools .hx-floating-search-query { display:block; flex:0 1 140px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:1px solid var(--hx-border); border-radius:6px; padding:5px 8px; background:var(--hx-hover); color:var(--hx-text); font:inherit; font-size:12px; cursor:pointer; }
  .hx-data-tools .hx-floating-search-query:focus-visible { outline:2px solid var(--hx-accent); outline-offset:2px; }
- .hx-data-tools > span { display:none; }
+ .hx-data-tools > .hx-record-count { display:block; font-size:11px; }
 }
 /* Floating reference panels use a single neutral frame, not the full app canvas. */
 :root .shell.harness-workspace .hx-floating-app > .hx-app-detail,

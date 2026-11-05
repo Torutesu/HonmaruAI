@@ -1,7 +1,7 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { AppView, HarnessApps, HarnessTemplateImport, appTableDisplayName, newAppRecordLabel } from './Harness'
+import { AppView, HarnessApps, HarnessTemplateImport, appTableDisplayName, newAppRecordLabel, shouldShowRecordCount } from './Harness'
 import { HarnessApiError, harnessApi } from '../utils/harness'
 import { systemCellText } from '../utils/systemColumns'
 import { parseRoute } from '../utils/route'
@@ -26,6 +26,14 @@ test('new record labels use the primary table when its title differs from the ap
   expect(newAppRecordLabel('Contacts','Contacts','名前')).toBe('新規レコード')
   expect(newAppRecordLabel('Issues','Issues','件名')).toBe('新規レコード')
   expect(newAppRecordLabel('Sales CRM','Sales CRM')).toBe('新規レコード')
+})
+
+test('record counts stay useful without showing an empty unfiltered count',()=>{
+  expect(shouldShowRecordCount(0,'',0)).toBe(false)
+  expect(shouldShowRecordCount(0,'  ',0)).toBe(false)
+  expect(shouldShowRecordCount(0,'invoice',0)).toBe(true)
+  expect(shouldShowRecordCount(0,'',1)).toBe(true)
+  expect(shouldShowRecordCount(4,'',0)).toBe(true)
 })
 
 test.each(['filter','group'] as const)('personal-view %s adjustment opens the app conversation as an unsent private-view draft',async kind=>{
@@ -202,11 +210,12 @@ test.each(['table','board','calendar'] as const)('record search finds system IDs
   const view={id:'main',type,name:'Main',dateColumn:'due',rows:[alpha,beta],lanes:[{key:null,rows:[alpha,beta]}],days:[{date:today,rows:[alpha]}],undated:[beta]}
   state.api={
     app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'},{id:'due',name:'Due',type:'date'}]},rows:[alpha,beta,excluded],views:[view],canCustomize:false}),
-    // Search already includes hidden normal columns; system fields follow the same rule.
-    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{main:{order:['title','due','$row.id','$row.createdAt','$row.updatedAt'],hidden:['due','$row.id','$row.createdAt','$row.updatedAt'],widths:{}}}}),
+    // Even if every field is listed as hidden, the title remains visible to host row actions.
+    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{main:{order:['title','due','$row.id','$row.createdAt','$row.updatedAt'],hidden:['title','due','$row.id','$row.createdAt','$row.updatedAt'],widths:{}}}}),
     conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
   }
   await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  if(type==='table')expect(tree!.root.findAllByProps({className:'hx-record-menu-trigger'})).toHaveLength(2)
   const search=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
   const visible=(id:string)=>type==='table'?tree!.root.findAllByProps({'data-row':id}).length:tree!.root.findAllByProps({'aria-label':`${id===alpha.id?'Alpha':'Beta'}の詳細を開く`}).length
   for(const query of ['abc-123','2026-10-09T08:07',systemCellText(alpha,'$row.createdAt'),'2026-10-12T11:10',systemCellText(alpha,'$row.updatedAt')]){
