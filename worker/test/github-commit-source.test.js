@@ -101,7 +101,6 @@ test('recursively captures JavaScript imports, CSS imports, and CSS image refere
       ['index.html','html'],['src/app.js','js'],['styles/site.css','css'],['assets/logo.png','image'],
     ].map(([file,key]) => ({ type:'blob',mode:'100644',path:file,sha:ids[key],size:typeof blobs[file]==='string'?new TextEncoder().encode(blobs[file]).length:blobs[file].length })) });
     for (const [key,sha] of Object.entries(ids)) if (path.endsWith('/git/blobs/' + sha)) {
-      const file = Object.keys(ids).find((candidate) => ids[candidate]===key);
       const filePath = ({html:'index.html',js:'src/app.js',css:'styles/site.css',image:'assets/logo.png'})[key];
       const raw = blobs[filePath];
       const bytes = typeof raw==='string'?new TextEncoder().encode(raw):raw;
@@ -130,4 +129,43 @@ test('cancels a streamed GitHub tree response once it exceeds the byte cap', asy
   vi.stubGlobal('fetch', fetch);
   const result = await fetchGitHubCommitSource('token', { owner:'acme',repo:'app',branch:'main',commitSha });
   expect(result).toMatchObject({status:502,error:expect.stringContaining('exceeds the size limit')});
+});
+
+
+test('accepts wrapped base64 content from GitHub blobs', async () => {
+  const html='<p>Wrapped encoding</p>';
+  const fetch=vi.fn(async (input)=>{
+    const path=new URL(String(input)).pathname;
+    if(path.endsWith('/git/ref/heads/main'))return json({object:{sha:commitSha}});
+    if(path.endsWith('/git/commits/'+commitSha))return json({sha:commitSha,tree:{sha:treeSha}});
+    if(path.endsWith('/git/trees/'+treeSha))return json({truncated:false,tree:[{type:'blob',mode:'100644',path:'index.html',sha:rootBlob,size:new TextEncoder().encode(html).length}]});
+    if(path.endsWith('/git/blobs/'+rootBlob)){
+      const encoded=base64(html);
+      return json({encoding:'base64',sha:rootBlob,size:new TextEncoder().encode(html).length,content:encoded.replace(/(.{8})/g,'$1\\n')});
+    }
+    return new Response('',{status:404});
+  });
+  vi.stubGlobal('fetch',fetch);
+  const result=await fetchGitHubCommitSource('token',{owner:'acme',repo:'app',branch:'main',commitSha});
+  expect(result.source).toBe(html);
+});
+
+test('rejects an oversized referenced JavaScript asset before downloading its blob', async () => {
+  const html='<script src="./bundle.js"></script>';
+  const huge='f'.repeat(40);
+  const fetch=vi.fn(async(input)=>{
+    const path=new URL(String(input)).pathname;
+    if(path.endsWith('/git/ref/heads/main'))return json({object:{sha:commitSha}});
+    if(path.endsWith('/git/commits/'+commitSha))return json({sha:commitSha,tree:{sha:treeSha}});
+    if(path.endsWith('/git/trees/'+treeSha))return json({truncated:false,tree:[
+      {type:'blob',mode:'100644',path:'index.html',sha:rootBlob,size:new TextEncoder().encode(html).length},
+      {type:'blob',mode:'100644',path:'bundle.js',sha:huge,size:1_500_001},
+    ]});
+    if(path.endsWith('/git/blobs/'+rootBlob))return json({encoding:'base64',sha:rootBlob,size:new TextEncoder().encode(html).length,content:base64(html)});
+    return new Response('',{status:404});
+  });
+  vi.stubGlobal('fetch',fetch);
+  const result=await fetchGitHubCommitSource('token',{owner:'acme',repo:'app',branch:'main',commitSha});
+  expect(result).toMatchObject({status:413,error:expect.stringContaining('bundle exceeds')});
+  expect(fetch.mock.calls.some(([url])=>String(url).endsWith('/git/blobs/'+huge))).toBe(false);
 });
