@@ -1,4 +1,4 @@
-vi.mock('../utils/i18n',()=>({useT:()=>(key:string)=>key==='Fields'?'フィールド':key}))
+vi.mock('../utils/i18n',()=>({useT:()=>(key:string)=>key==='Fields'?'フィールド':key==='Manage fields'?'フィールドを管理':key}))
 import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {test,expect,vi,afterEach} from 'vitest'
@@ -13,6 +13,16 @@ function personalNameFixture(save=vi.fn().mockResolvedValue(undefined)){
  const key=(nativeEvent:object)=>{const stop=vi.fn();act(()=>tree!.root.findByProps({className:'hx-view-controls'}).props.onKeyDown({key:'Escape',nativeEvent,stopPropagation:stop}));return stop}
  return {get tree(){return tree!},open,key,save}
 }
+test('field settings keep the compact label and expose a descriptive accessible name',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<PersonalViewControls personal={false} control="fields" view={{id:'v',name:'All',type:'table'}} columns={[{id:'name',name:'名前',type:'text'}]} state={{revision:0,views:[],computed:[],layouts:{}}} save={vi.fn().mockResolvedValue(undefined)} onSelect={vi.fn()} onSettings={vi.fn()}/>)} )
+ const button=tree!.root.findByProps({'aria-label':'フィールドを管理'})
+ expect(button.props.title).toBe('フィールドを管理')
+ expect(button.children).toContain('フィールド')
+ act(()=>tree!.unmount())
+})
+
 test('IME Escape preserves an unsaved personal view name while ordinary Escape cancels it',()=>{
  const ui=personalNameFixture();ui.open()
  act(()=>ui.tree.root.findByType('input').props.onChange({target:{value:'編集中の名前'}}))
