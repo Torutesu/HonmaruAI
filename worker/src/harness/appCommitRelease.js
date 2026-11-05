@@ -23,11 +23,9 @@ export async function customCommitState(db, orgId, app) {
   const { results = [] } = await db.prepare(
     'SELECT id,app_version AS appVersion,repo_owner AS owner,repo_name AS repo,branch_name AS branch,commit_sha AS commitSha,file_path AS path,source_hash AS sourceHash,visibility_scope AS visibility,access_version AS accessVersion,domain_scope AS domainScope,requested_by AS requestedBy,reviewer_id AS reviewerId,status,created_at AS createdAt,reviewed_at AS reviewedAt FROM hx_app_commit_approvals WHERE org_id=?1 AND app_id=?2 ORDER BY created_at DESC LIMIT 1'
   ).bind(orgId, app.id).all();
-  return {
-    commit: app.definition?.custom?.draftCommit || null,
-    scope,
-    approval: results[0] || null,
-  };
+  const rawCommit=app.definition?.custom?.draftCommit||null;
+  const commit=rawCommit?(({assetToken,...visible})=>visible)(rawCommit):null;
+  return { commit, scope, approval: results[0] || null };
 }
 
 function sameCommit(draft, commit) {
@@ -44,7 +42,7 @@ export async function requestCustomCommitApproval(db, orgId, app, by, input) {
     return err('Import and save the exact GitHub commit before requesting approval.', 409);
   }
   const actualHash = await hashSource(currentHtml);
-  if (actualHash !== commit.sourceHash) return err('The imported source changed. Import the commit again.', 409);
+  if (actualHash !== commit.htmlHash || !await assetManifestMatches(db,orgId,app.id,commit)) return err('The imported source bundle changed. Import the commit again.', 409);
   const scope = await commitPublishScope(db, orgId, app.id);
   if (!scope) return err('No such app.', 404);
   const id = crypto.randomUUID();
@@ -96,8 +94,8 @@ export async function publishApprovedCustomCommit(db, orgId, app, input, by, sco
   const custom = app.definition?.custom || {};
   const commit = custom.draftCommit;
   const draft = custom.draft;
-  if (!commit || !validateSource(draft) || await hashSource(draft) !== commit.sourceHash) {
-    return err('The saved draft no longer matches its pinned GitHub commit.', 409);
+  if (!commit || !validateSource(draft) || await hashSource(draft) !== commit.htmlHash || !await assetManifestMatches(db,orgId,app.id,commit)) {
+    return err('The saved draft bundle no longer matches its pinned GitHub commit.', 409);
   }
   if (draft.length > MAX_PREVIEW_SOURCE) return err(`Shorten the imported source to ${MAX_PREVIEW_SOURCE} characters before publishing.`, 400);
   const approvalId = String(input.approvalId || '');
@@ -144,7 +142,16 @@ export async function publishApprovedCustomCommit(db, orgId, app, input, by, sco
   return { saved: true, version, commit, approvalId };
 }
 
-export async function hashSource(source) {
+export async function assetManifestMatches(db,orgId,appId,commit){
+  const expected=Array.isArray(commit?.assets)?[...commit.assets].sort((a,b)=>a.path.localeCompare(b.path)):[];
+  const {results=[]}=await db.prepare(`SELECT path,content_type AS mimeType,content_hash AS contentHash,size
+    FROM hx_app_git_assets WHERE org_id=?1 AND app_id=?2 AND app_version=?3 AND commit_sha=?4 ORDER BY path`)
+    .bind(orgId,appId,commit.appVersion,commit.sha).all();
+  if(results.length!==expected.length)return false;
+  return results.every((row,index)=>row.path===expected[index].path&&row.mimeType===expected[index].mimeType&&row.contentHash===expected[index].contentHash&&Number(row.size)===Number(expected[index].size));
+}
+
+async function hashSource(source) {
   const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(source||'')));
   return [...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
 }
