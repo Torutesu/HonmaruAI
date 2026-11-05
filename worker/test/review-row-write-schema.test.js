@@ -55,10 +55,11 @@ test('stale text insert is rejected after schema migration and target deletion',
  const response=await request(`/tables/${app.tableId}/rows`,member,{method:'POST',body:{values:{task:row.id}},db});
  expect(injected).toBe(true);expect(response.status).toBe(409);
  expect(await env.DB.prepare('SELECT id FROM hx_rows WHERE id=?').bind(row.id).first()).toBeNull();
- expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?').bind(app.tableId).first()).n).toBe(0);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?').bind(app.tableId).first()).n).toBe(rowCountBefore);
 });
 
 test('pending record creation is rejected after the owning app is deleted while data is retained',async()=>{
+ const rowCountBefore=(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?').bind(app.tableId).first()).n;
  let injected=false;
  const db=new Proxy(env.DB,{get(target,prop){if(prop==='prepare')return sql=>{const stmt=target.prepare(sql);if(!sql.startsWith('INSERT INTO hx_rows (id, table_id')||injected)return stmt;return {bind(...values){const bound=stmt.bind(...values);return {run:async()=>{
   injected=true;

@@ -97,7 +97,7 @@ test.each(["running", "waiting"])("App deletion is refused atomically while a ma
 
   const result = await deleteApp(env.DB, ORG, APP);
   expect(result).toMatchObject({ status: 409 });
-  expect(result.error).toContain("still running or waiting");
+  expect(result.error).toContain("still running, queued, or waiting");
   expect(await env.DB.prepare("SELECT deleted_at FROM hx_apps WHERE org_id=?1 AND id=?2").bind(ORG, APP).first())
     .toEqual({ deleted_at: null });
   expect(await env.DB.prepare("SELECT enabled FROM hx_workflows WHERE org_id=?1 AND id=?2").bind(ORG, WORKFLOW).first())
