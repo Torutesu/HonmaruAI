@@ -82,6 +82,35 @@ test("edit implies view; revocation takes effect immediately and keeps grant his
     .bind(grant.id).first()).toMatchObject({ revoked_by: owner });
 });
 
+test("regrant replaces the active permission without erasing the earlier grant", async () => {
+  const suffix = crypto.randomUUID();
+  const orgId = `external-org-${suffix}`;
+  const owner = `external-owner-${suffix}`;
+  const guest = `external-guest-${suffix}`;
+  await workspace(orgId);
+  await identity(owner);
+  await identity(guest);
+  const first = await grantExternalResource(env.DB, {
+    orgId, resourceType: "room", resourceId: "b:planning",
+    recipientGithubId: guest, permission: "view", grantedBy: owner,
+  });
+  const second = await grantExternalResource(env.DB, {
+    orgId, resourceType: "room", resourceId: "b:planning",
+    recipientGithubId: guest, permission: "edit", grantedBy: owner,
+  });
+
+  expect(await externalResourcePermission(env.DB, {
+    orgId, resourceType: "room", resourceId: "b:planning", githubId: guest,
+  })).toBe("edit");
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_external_resource_grants WHERE org_id = ?1 AND resource_type = 'room' AND resource_id = 'b:planning'")
+    .bind(orgId).first()).toMatchObject({ n: 2 });
+  expect(await env.DB.prepare("SELECT id, revoked_at FROM hx_external_resource_grants WHERE id IN (?1, ?2) ORDER BY id")
+    .bind(first.id, second.id).all()).toMatchObject({ results: expect.arrayContaining([
+      expect.objectContaining({ id: first.id, revoked_at: expect.any(String) }),
+      expect.objectContaining({ id: second.id, revoked_at: null }),
+    ]) });
+});
+
 test("expired grants and malformed or cross-workspace scopes fail closed", async () => {
   const suffix = crypto.randomUUID();
   const orgId = `external-org-${suffix}`;
