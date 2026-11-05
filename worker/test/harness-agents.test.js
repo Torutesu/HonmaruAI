@@ -83,7 +83,7 @@ test('profile audience changes refresh only the affected members without sharing
  expect(response.status).toBe(200);
  expect(events).toHaveLength(1);
  const deliveries=events[0].deliveries;
- expect(deliveries.map(item=>item.to).sort()).toEqual(['kenji','mika','toru']);
+ expect(deliveries.map(item=>item.to).sort()).toEqual(['kenji','mika','sora','toru']);
  expect(deliveries.every(item=>item.event.name==='agent_access_changed'&&item.event.value.agentId===agentId&&Object.keys(item.event.value).sort().join(',')==='agentId,version')).toBe(true);
 });
 
