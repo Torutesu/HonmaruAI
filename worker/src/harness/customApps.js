@@ -77,8 +77,10 @@ export async function saveCustomRelease(db, orgId, app, input, by) {
       db.prepare("UPDATE hx_app_automation_bindings SET applied=json_set(applied,'$.enabled',json('false')),release_id=?3 WHERE org_id=?1 AND app_id=?2 AND EXISTS(SELECT 1 FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2 AND release_id=?3)")
         .bind(orgId,app.id,stoppedRelease),
     ] : []),
+    ...(['draft','restore'].includes(input.action) ? [
+      db.prepare("UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=?1 WHERE org_id=?2 AND app_id=?3 AND draft_version<?4 AND status IN ('pending','approved') AND consumed_at IS NULL AND EXISTS (SELECT 1 FROM hx_apps WHERE org_id=?2 AND id=?3 AND version=?4)").bind(at,orgId,app.id,version),
+    ] : []),
   ]);
   if (!result[0]?.meta?.changes) return { error: 'This app changed. Reload before saving.', status: 409 };
-  if(input.action==='draft'||input.action==='restore') await db.prepare("UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=?1 WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved')").bind(at,orgId,app.id).run();
   return { saved: true, version };
 }
