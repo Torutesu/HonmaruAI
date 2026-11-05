@@ -30,13 +30,9 @@ jobs:
   # The Worker suite runs against real workerd, so a pass here means the relay,
   # the gate and the connectors behave the way they will in production — not the
   # way a mock was told to.
-  worker_shards:
-    name: Worker shard ${{ matrix.shard }}/4
+  worker:
+    name: Worker
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: worker
@@ -49,22 +45,7 @@ jobs:
           cache: npm
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
-      - run: npm test -- --shard=${{ matrix.shard }}/4
-
-  worker:
-    name: Worker
-    needs: worker_shards
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require all Worker shards to pass
-        env:
-          SHARD_RESULT: ${{ needs.worker_shards.result }}
-        run: |
-          if [ "$SHARD_RESULT" != "success" ]; then
-            echo "Worker shards completed with result: $SHARD_RESULT"
-            exit 1
-          fi
+      - run: npm test
 
   # The reference relay imports the Worker's AG-UI layer rather than keeping its
   # own copy, so a change over there can break it. Nothing ran these tests
