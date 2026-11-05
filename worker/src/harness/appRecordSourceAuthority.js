@@ -31,8 +31,10 @@ export function followupSourceAuthority(alias = 'f') {
       AND EXISTS(SELECT 1 FROM json_each(legacy_run.log) legacy_entry WHERE json_extract(legacy_entry.value,'$.output')=${alias}.id))`;
   // Version 0 identifies rows that predate persisted provenance. Preserve
   // standalone/known non-App legacy reminders, but fail closed if a retained
-  // run log proves the reminder came from an App-record trigger. New rows use
-  // v1, where null provenance explicitly means they were not App-sourced.
+  // run log proves the reminder came from an App-record trigger. Deletion
+  // paths may mark unclassifiable App-sourced legacy rows with -1; every
+  // unknown version fails closed. New rows use v1, where null provenance
+  // explicitly means they were not App-sourced.
   return `((COALESCE(${alias}.source_authority_version,0)=1 AND (
       (${noSource}) OR (${alias}.source_app_id IS NOT NULL AND ${alias}.source_entity_id IS NOT NULL AND ${alias}.source_table_id IS NOT NULL
         AND ${appRecordSourceAuthority(`${alias}.org_id`, `${alias}.source_app_id`, `${alias}.source_entity_id`, `${alias}.source_table_id`, `${alias}.created_by`)})))
