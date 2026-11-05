@@ -914,6 +914,7 @@ export async function handleHarness(request, env, url, context = {}) {
         const granted = request.method === 'POST';
         const result = await setAgentAppGrant(env.DB, { orgId, agentId, githubId: me, server, granted });
         if (result.error) return json({ message: result.error }, result.status || 400);
+        await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
         await audit(env, request, {
           orgId,
           action: granted ? 'agent.connection_granted' : 'agent.connection_revoked',
