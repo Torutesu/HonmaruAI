@@ -77,6 +77,7 @@ export async function externalResourcePermission(db, {
       WHERE org_id = ?1 AND resource_type = ?2 AND resource_id = ?3
         AND recipient_github_id = ?4 AND revoked_at IS NULL
         AND (expires_at IS NULL OR expires_at > ?5)
+        AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id = ?1 AND member.user_github_id = ?4)
       ORDER BY granted_at DESC LIMIT 1`
   ).bind(scope.orgId, scope.resourceType, scope.resourceId, scope.recipientId, now).first();
   return PERMISSIONS.has(String(row?.permission || "")) ? row.permission : null;
