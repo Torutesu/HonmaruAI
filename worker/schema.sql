@@ -9,8 +9,7 @@ CREATE TABLE IF NOT EXISTS hx_app_public_shares (
   data_scope TEXT NOT NULL DEFAULT '[]',
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  revoked_at TEXT,
-  FOREIGN KEY (org_id, app_id) REFERENCES hx_apps(org_id, id) ON DELETE CASCADE
+  revoked_at TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS hx_app_public_shares_active ON hx_app_public_shares(org_id, app_id) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS hx_app_public_shares_token ON hx_app_public_shares(token_hash, revoked_at);
