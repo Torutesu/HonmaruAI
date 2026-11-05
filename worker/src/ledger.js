@@ -90,15 +90,21 @@ export async function settleUsage(db, provider, { orgId, githubId, byok = false 
 
 /// The team's AI spend since a date: totals, by purpose, by provider, and
 /// how much of the routing System One settled without a language model.
-export async function aiSpend(db, orgId, since) {
+export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now() } = {}) {
+  const days = Math.max(0, Math.min(180, Math.floor(Number(dailyDays) || 0)));
+  const today = new Date(now);
+  const lastDay = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const firstDay = lastDay - Math.max(0, days - 1) * 86400000;
+  const start = days > 0 ? new Date(firstDay).toISOString() : since;
+  const end = new Date(now).toISOString();
   const { results } = await db
     .prepare(
       `SELECT purpose, provider, byok, COUNT(*) AS calls,
               SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(usd) AS usd
-         FROM ai_calls WHERE org_id = ?1 AND created_at >= ?2
+         FROM ai_calls WHERE org_id = ?1 AND created_at >= ?2 AND created_at <= ?3
         GROUP BY purpose, provider, byok`
     )
-    .bind(orgId, since)
+    .bind(orgId, start, end)
     .all();
   const rows = results || [];
   const total = { calls: 0, inputTokens: 0, outputTokens: 0, usd: 0, byokCalls: 0, byokUsd: 0 };
@@ -123,6 +129,26 @@ export async function aiSpend(db, orgId, since) {
     }
   }
   const round = (n) => Math.round(n * 1e8) / 1e8;
+  let daily = [];
+  if (days > 0) {
+    // Match the UTC day buckets Kylon shows in its usage chart. Keep empty
+    // days so quiet workspaces do not look more active than they were.
+    const { results: dayRows } = await db.prepare(
+      `SELECT substr(created_at,1,10) AS day, COUNT(*) AS calls,
+              SUM(CASE WHEN byok=0 THEN MAX(0,usd) ELSE 0 END) AS our_usd,
+              SUM(CASE WHEN byok!=0 THEN MAX(0,usd) ELSE 0 END) AS byok_usd
+         FROM ai_calls WHERE org_id=?1 AND created_at>=?2 AND created_at<=?3
+        GROUP BY substr(created_at,1,10)`
+    ).bind(orgId, start, end).all();
+    const byDay = new Map((dayRows || []).map((row) => [row.day, row]));
+    daily = Array.from({ length: days }, (_, index) => {
+      const day = new Date(firstDay + index * 86400000).toISOString().slice(0, 10);
+      const row = byDay.get(day);
+      const ourUsd = Number(row?.our_usd) || 0;
+      const byokUsd = Number(row?.byok_usd) || 0;
+      return { day, calls: Number(row?.calls) || 0, ourUsd: round(ourUsd), byokUsd: round(byokUsd), usd: round(ourUsd + byokUsd) };
+    });
+  }
   return {
     calls: total.calls,
     inputTokens: total.inputTokens,
@@ -133,6 +159,7 @@ export async function aiSpend(db, orgId, since) {
     byokCalls: total.byokCalls,
     byPurpose: [...byPurpose.values()].map((p) => ({ ...p, usd: round(p.usd) })).sort((a, b) => b.usd - a.usd),
     byProvider: [...byProvider.values()].map((p) => ({ ...p, usd: round(p.usd) })).sort((a, b) => b.usd - a.usd),
+    ...(days > 0 ? { daily } : {}),
     // Of the routing decisions that cost anything, the share System One
     // took without a language model. Null until there was any routing.
     jevShare: jevRoutes + llmRoutes ? round(jevRoutes / (jevRoutes + llmRoutes)) : null,

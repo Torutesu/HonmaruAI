@@ -30,6 +30,7 @@ interface Metrics {
     usd: number
     ourUsd: number
     byokCalls: number
+    daily?: Array<{ day: string; calls: number; ourUsd: number; byokUsd: number; usd: number }>
     byPurpose: Array<{ purpose: string; calls: number; usd: number }>
     byProvider: Array<{ provider: string; calls: number; usd: number }>
     jevShare: number | null
@@ -70,6 +71,7 @@ function duration(minutes: number | null, t: (k: string, v?: Record<string, stri
 export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose }) => {
   const t = useT()
   const [days, setDays] = useState<7 | 14 | 30>(14)
+  const [aiTrendMode, setAITrendMode] = useState<'daily' | 'cumulative'>('daily')
   const [m, setM] = useState<Metrics | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -87,6 +89,12 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
   }, [httpBase, orgId, sessionToken, days])
 
   const peak = Math.max(1, ...(m?.created.map((d) => d.count) || [1]))
+  let cumulativeAIUsd = 0
+  const aiTrend = (m?.ai?.daily || []).map((row) => {
+    cumulativeAIUsd += row.ourUsd
+    return { day: row.day, usd: aiTrendMode === 'cumulative' ? cumulativeAIUsd : row.ourUsd }
+  })
+  const aiTrendPeak = Math.max(0, ...aiTrend.map((row) => row.usd))
   const wrongTotal = m ? Object.values(m.feedback.reasons).reduce((s, n) => s + n, 0) : 0
 
   return (
@@ -157,6 +165,27 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
                   )}
                   <div className="row static"><span className="row-main">{t('Decided by Jev without a language model')}<span className="row-sub">{t('System One answers routing at a fraction of a cent; the model is only asked when it is unsure.')}</span></span><span className="row-value">{m.ai.jevShare === null ? '—' : `${Math.round(m.ai.jevShare * 100)}%`}</span></div>
                 </div>
+                {aiTrend.length > 0 && (
+                  <>
+                    <div className="rows-title">{t('Workspace AI usage trend')}</div>
+                    <p className="hint insights-hint">{t('Recorded deployment-key model usage at estimated list price. Personal keys and provider invoices are not included.')}</p>
+                    <div className="seg" role="tablist" aria-label={t('AI usage trend')}>
+                      {(['daily', 'cumulative'] as const).map((mode) => (
+                        <button key={mode} role="tab" aria-selected={aiTrendMode === mode} className={aiTrendMode === mode ? 'on' : ''} onClick={() => setAITrendMode(mode)}>
+                          {t(mode === 'daily' ? 'Daily' : 'Cumulative')}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="bars" role="img" aria-label={t('Workspace-key AI spend per day over the last {n} days', { n: m.days })}>
+                      {aiTrend.map((row) => (
+                        <div key={row.day} className="bar" title={`${row.day}: ${money(row.usd)} ${t('estimated')}`}>
+                          <i style={{ height: `${aiTrendPeak > 0 ? Math.max(row.usd > 0 ? 2 : 0, (row.usd / aiTrendPeak) * 100) : 0}%` }} className={row.usd === 0 ? 'zero' : ''} />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="bars-axis"><span>{aiTrend[0]?.day.slice(5)}</span><span>{aiTrend[aiTrend.length - 1]?.day.slice(5)}</span></div>
+                  </>
+                )}
                 {m.ai.byPurpose.length > 0 && (
                   <BarList rows={m.ai.byPurpose.map((p) => ({ label: `${t(PURPOSE_WORD[p.purpose] || p.purpose)} · ${money(p.usd)}`, count: p.calls }))} />
                 )}

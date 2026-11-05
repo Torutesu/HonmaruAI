@@ -71,6 +71,9 @@ test("a routed instruction writes the model's tokens to the team's ledger, and I
   expect(m.ai.usd).toBeGreaterThan(0);
   expect(m.ai.ourUsd).toBe(m.ai.usd);
   expect(m.ai.byPurpose).toEqual([{ purpose: "route", calls: 1, usd: m.ai.usd }]);
+  expect(m.ai.daily).toHaveLength(14);
+  expect(m.ai.daily.at(-1)).toMatchObject({ day: new Date().toISOString().slice(0, 10), calls: 1, ourUsd: m.ai.ourUsd, byokUsd: 0 });
+  expect(m.ai.daily.reduce((sum, day) => sum + day.ourUsd, 0)).toBeCloseTo(m.ai.ourUsd, 8);
 });
 
 test("a call on the person's own key is theirs on the bill; System One's decision counts as its own provider", async () => {
