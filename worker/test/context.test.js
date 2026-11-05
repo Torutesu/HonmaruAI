@@ -133,6 +133,30 @@ test("workspace GitHub OAuth search runs through Composio, which owns token refr
   expect(calls.every(call => JSON.stringify(call).includes("personal-token-must-not-be-sent") === false)).toBe(true);
 });
 
+test("a personal Agent grant keeps the workspace repo but uses only the member token", async () => {
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  await env.DB.prepare("INSERT INTO org_github (org_id,repo,token,composio_user,connected_by,updated_at) VALUES (?1,'acme/ops','workspace-token',NULL,'9001',?2)")
+    .bind("personal:ctx", new Date().toISOString()).run();
+  let authorization;
+  let askedQuery;
+  fetchMock.get("https://api.github.com")
+    .intercept({ path: /^\/search\/issues/, method: "GET" })
+    .reply(200, opts => {
+      authorization = opts.headers.authorization;
+      askedQuery = new URL("https://api.github.com" + opts.path).searchParams.get("q");
+      return { items: [] };
+    });
+  await searchGithubIssues(
+    { github_id: "9002", github_access_token: "personal-token" },
+    "personal:ctx",
+    "bug",
+    env,
+    "personal",
+  );
+  expect(authorization).toBe("Bearer personal-token");
+  expect(askedQuery).toBe("repo:acme/ops bug");
+});
+
 test("GitHub issues are searched as the person, in the workspace's repository", async () => {
   let asked;
   fetchMock.get("https://api.github.com")

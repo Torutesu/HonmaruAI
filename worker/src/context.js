@@ -39,15 +39,25 @@ export async function connectedSources(env, session, orgId) {
 /// to fall back to the caller. Composio owns OAuth refresh for account-backed
 /// workspace connections; their bearer token never enters this Worker.
 async function githubAccess(env, session, orgId, credentialSource = 'auto') {
-  if (credentialSource !== 'personal') {
-    const settings = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);
+  const settings = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);
+  const workspaceRepo = settings?.repo || String(orgId || "");
+  if (credentialSource === 'workspace') {
     if (settings?.repo && settings.token) return { repo: settings.repo, token: settings.token };
     if (env.COMPOSIO_API_KEY && settings?.repo && settings.composioUser) return { repo: settings.repo, composioUser: settings.composioUser };
+    return null;
   }
-  if (credentialSource === 'workspace') return null;
-  const repo = String(orgId || "");
-  if (session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(repo)) {
-    return { repo, token: session.github_access_token };
+  // A personal grant may search the workspace's selected repository, but
+  // must always use the caller's token, never the workspace's credential.
+  if (credentialSource === 'personal') {
+    if (session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(workspaceRepo)) {
+      return { repo: workspaceRepo, token: session.github_access_token };
+    }
+    return null;
+  }
+  if (settings?.repo && settings.token) return { repo: settings.repo, token: settings.token };
+  if (env.COMPOSIO_API_KEY && settings?.repo && settings.composioUser) return { repo: settings.repo, composioUser: settings.composioUser };
+  if (session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(String(orgId || ""))) {
+    return { repo: String(orgId), token: session.github_access_token };
   }
   return null;
 }
