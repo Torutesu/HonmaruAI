@@ -78,6 +78,7 @@ import {
   listAgents, saveAgent, deleteAgent, toClientAgent, agentsHere, channelAgents, agentChannels, agentTalkFilter, addChannelAgent, removeChannelAgent, presetsFor, agentsCalled, requestFor, askAgent, contextFor, respondingAgents, playbookFor, setAgentAvatar, MAX_CALLED,
 } from "./customAgents.js";
 import { readImage } from "./userAvatar.js";
+import { clientAgentAvatarUrl } from "./agentAvatarAccess.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 import { searchTermsFor } from "./ask.js";
 import { searchDecisions } from "./insights.js";
@@ -85,6 +86,12 @@ import { accessFor, audienceOf, groupFor, groupsOf, addMembers, removeMember, me
 import {
   MAX_RECORDING_BYTES, recordingType, transcribe, jamNotes, recordingMessage, serveRecording, recordingUrl, minutesBetween,
 } from "./jam.js";
+
+async function clientAgentForViewer(env, orgId, agent, members, login, options = {}) {
+  const client = toClientAgent(agent, members, login, options);
+  client.avatarUrl = await clientAgentAvatarUrl(env, orgId, agent, login);
+  return client;
+}
 
 // The routes for talking in a channel, and for turning what was said into
 // a decision. The decision goes through `/ai/route` itself — the same
@@ -402,8 +409,12 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
 /// The agents a person can call, for the @ menu and for colouring a
 /// mention: the team's, their own, and any added to a channel they can
 /// read — with those channels, as they see them.
-async function callableAgents(db, orgId, login, members) {
-  const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope });
+async function callableAgents(env, db, orgId, login, members) {
+  const face = async (a) => ({
+    id: a.id, handle: a.handle, name: a.name, emoji: a.emoji,
+    avatarUrl: await clientAgentAvatarUrl(env, orgId, a, login),
+    description: a.description, scope: a.scope,
+  });
   const own = await listAgents(db, orgId, login);
   const ownIds = new Set(own.map((agent) => agent.id));
   const placed = await agentChannels(db, orgId);
@@ -422,12 +433,12 @@ async function callableAgents(db, orgId, login, members) {
       || (await filterResponders(db, orgId, login, [agent], { channel: visible[0].key })).length > 0;
     if (callable) channelsOf.set(agent.id, { agent, views: visible.map(({ view }) => view) });
   }
-  const out = own.map((a) => ({ ...face(a), channels: channelsOf.get(a.id)?.views || [] }));
+  const out = await Promise.all(own.map(async (a) => ({ ...await face(a), channels: channelsOf.get(a.id)?.views || [] })));
   const handles = new Set(own.map((a) => a.handle));
   for (const { agent, views } of channelsOf.values()) {
     if (out.some((a) => a.id === agent.id) || handles.has(agent.handle)) continue;
     // Callable only where it was added.
-    out.push({ ...face(agent), channels: views, placed: true });
+    out.push({ ...await face(agent), channels: views, placed: true });
   }
   return out;
 }
@@ -478,12 +489,20 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const taskText = requestOverride ?? row.body;
   locale = await loadCopy(env, locale || "en", { orgId });
   const parentId = row.parent_id || (resolved.kind === "agent" ? null : row.id);
-  const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji || null, avatarUrl: a.avatarUrl || a.avatar_url || null });
+  const face = async (a, login) => {
+    const scoped = { ...a, avatarUrl: a.avatarUrl || a.avatar_url || null, ownerLogin: a.ownerLogin || a.owner_login };
+    return { id: a.id, handle: a.handle, name: a.name, emoji: a.emoji || null,
+      avatarUrl: await clientAgentAvatarUrl(env, orgId, scoped, login) };
+  };
   const progress = async (agent, step) => {
     try {
-      const payload = (view) => customEvent("channel_ai_progress", { channel: view, parentId, messageId: row.id, step, agent: face(agent) });
-      if (resolved.kind === "business" && !resolved.logins) await announceEvents(env, orgId, [payload(resolved.key)]);
-      else await announceTo(env, orgId, resolved.logins.map((login) => ({ to: login, event: payload(viewOf(resolved.key, login, members)) })));
+      const payload = async (view, login) => customEvent("channel_ai_progress", {
+        channel: view, parentId, messageId: row.id, step, agent: await face(agent, login),
+      });
+      if (resolved.kind === "business" && !resolved.logins) await announceEvents(env, orgId, [await payload(resolved.key, null)]);
+      else await announceTo(env, orgId, await Promise.all(resolved.logins.map(async (login) => ({
+        to: login, event: await payload(viewOf(resolved.key, login, members), login),
+      }))));
     } catch (err) {
       console.error("agent progress failed", safe(err?.message));
     }
@@ -879,7 +898,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       }))),
       maxChars: MAX_MESSAGE_CHARS,
       // The agents you can call here: the team's and your own.
-      agents: await callableAgents(env.DB, orgId, who.user.login, members),
+      agents: await callableAgents(env, env.DB, orgId, who.user.login, members),
       // Where you are up to in each conversation, from whichever device.
       reads: Object.fromEntries(Object.entries(positions).map(([key,state])=>[key,state.lastReadAt])),
       readVersions: Object.fromEntries(Object.entries(positions).map(([key,state])=>[key,state.readVersion])),
@@ -1035,7 +1054,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const members = await listMembers(env.DB, orgId, who.session.github_id);
     out.agent.viewerRole=(await explicitAgentRoles(env.DB,orgId,[out.agent.id],who.user.login)).get(out.agent.id)||null;
     out.agent.managedProfile=!!await env.DB.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,out.agent.id).first();
-    return json({ agent: toClientAgent(out.agent, members, who.user.login, { isAdmin }) });
+    return json({ agent: await clientAgentForViewer(env, orgId, out.agent, members, who.user.login, { isAdmin }) });
   }
 
   // Agents the team writes: "@hayao" answers as its Markdown instructions
@@ -1051,7 +1070,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const members = await listMembers(env.DB, orgId, who.session.github_id);
     const isAdmin = await allowed(env.DB, orgId, who.session.github_id, "agent.manage_others");
     const login = who.user.login;
-    const list = async () => (await listAgents(env.DB, orgId, login)).map((a) => toClientAgent(a, members, login, { isAdmin }));
+    const list = async () => Promise.all((await listAgents(env.DB, orgId, login)).map((a) => clientAgentForViewer(env, orgId, a, members, login, { isAdmin })));
     if (request.method === "GET") return json({ agents: await list(), presets: presetsFor(who.user.locale || url.searchParams.get("locale") || "en"), privateCreation: await getMode(env.DB, orgId) === "harness" });
     const limited = await enforce(env, request, "chat");
     if (limited) return limited;
@@ -1077,7 +1096,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     }
     out.agent.viewerRole=(await explicitAgentRoles(env.DB,orgId,[out.agent.id],login)).get(out.agent.id)||null;
     out.agent.managedProfile=!!await env.DB.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,out.agent.id).first();
-    return json({ agent: toClientAgent(out.agent, members, login, { isAdmin }), agents: await list() }, out.created ? 201 : 200);
+    return json({ agent: await clientAgentForViewer(env, orgId, out.agent, members, login, { isAdmin }), agents: await list() }, out.created ? 201 : 200);
   }
 
   // User groups: `@sales` names everyone in it. Listed, made and changed by
@@ -1223,7 +1242,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const rows = await Promise.all(rowIds.map(id => getMessage(env.DB, orgId, id)));
     if (rows.some(row => !row || row.deleted_at || row.channel !== access.resolved.key || row.kind !== 'message')) return json({message: 'No such message.'}, 404);
     try {
-      return json(await agentRunSnapshot(env,orgId,rowIds,{actorId:access.who.session.github_id,canManage:await allowed(env.DB,orgId,access.who.session.github_id,'agent.manage_others')}));
+      return json(await agentRunSnapshot(env,orgId,rowIds,{actorId:access.who.session.github_id,login:access.who.user.login,canManage:await allowed(env.DB,orgId,access.who.session.github_id,'agent.manage_others')}));
     } catch {
       return json({message: 'Execution status unavailable.'}, 503);
     }
@@ -2174,16 +2193,18 @@ export async function handleChannels(request, env, url, { route, after }) {
     const guest = placesAgents ? await isGuest(env.DB, orgId, ctx.who.session.github_id) : true;
     const here = placesAgents ? await channelAgents(env.DB, orgId, ctx.resolved.key) : [];
     const nameOf = (login) => ctx.members.find((m) => m.login === login)?.name || null;
-    const custom = here.map((a) => ({
-      kind: "custom", id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope,
+    const custom = await Promise.all(here.map(async (a) => ({
+      kind: "custom", id: a.id, handle: a.handle, name: a.name, emoji: a.emoji,
+      avatarUrl: await clientAgentAvatarUrl(env, orgId, a, ctx.who.user.login), description: a.description, scope: a.scope,
       owner: nameOf(a.addedBy), canRemove: !guest && canInvite && (!managed || participant.role === 'admin' || roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role !== 'admin'),
       ...(managed ? {roomRole:roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role || 'member',canChangeRole:Boolean(participant?.eligible && participant.role==='admin')} : {}),
-    }));
+    })));
     const hereIds = new Set(here.map((a) => a.id));
     const hereHandles = new Set(here.map((a) => a.handle));
-    let addable = guest || !canInvite ? [] : (await listAgents(env.DB, orgId, ctx.who.user.login))
+    let addable = guest || !canInvite ? [] : await Promise.all((await listAgents(env.DB, orgId, ctx.who.user.login))
       .filter((a) => !hereIds.has(a.id) && !hereHandles.has(a.handle))
-      .map((a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope }));
+      .map(async (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji,
+        avatarUrl: await clientAgentAvatarUrl(env, orgId, a, ctx.who.user.login), description: a.description, scope: a.scope })));
     if (managed && addable.length) {
       const plans = await roomAgentAccessPlans(env.DB,orgId,addable.map(a=>a.id),roomState.members,ctx.who.session.github_id);
       addable = addable.map(agent=>{

@@ -595,18 +595,30 @@ test("an agent can wear a picture instead of its emoji: set by whoever may chang
   const up = await picture(mika, team.id);
   expect(up.status).toBe(200);
   const { agent } = await up.json();
-  expect(agent.avatarUrl).toMatch(/^https:\/\/example\.com\/agents\/avatar\/agent-avatar-[0-9a-f-]{36}$/);
+  const avatarUrl = new URL(agent.avatarUrl);
+  expect(avatarUrl.origin).toBe("https://example.com");
+  expect(avatarUrl.pathname).toMatch(/^\/agents\/avatar\/agent-avatar-[0-9a-f-]{36}$/);
+  expect(avatarUrl.searchParams.get("agent")).toBe(agent.id);
+  expect(avatarUrl.searchParams.has("revision")).toBe(true);
   expect(agent.emoji).toBe("🎨");
   const served = await worker.fetch(new Request(agent.avatarUrl), env);
   expect(served.headers.get("content-type")).toBe("image/png");
   expect(new Uint8Array(await served.arrayBuffer())).toEqual(PNG);
 
-  // Everywhere the agent shows: the list, the @ menu's overview, and what it writes.
-  expect((await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl).toBe(agent.avatarUrl);
-  expect((await (await get(`/channels?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl).toBe(agent.avatarUrl);
+  // Every serializer returns the same media bound to this Agent, with a fresh revision.
+  const expectScoped = (value) => {
+    const scoped = new URL(value);
+    expect(scoped.origin).toBe(avatarUrl.origin);
+    expect(scoped.pathname).toBe(avatarUrl.pathname);
+    expect(scoped.searchParams.get("agent")).toBe(team.id);
+    expect(scoped.searchParams.has("revision")).toBe(true);
+  };
+  expectScoped((await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl);
+  expectScoped((await (await get(`/channels?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl);
   const asked = await (await send("POST", "/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "@hayao which colour for the sign?" })).json();
   const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: asked.message.id })}`, kenji)).json();
-  expect(thread.replies[0]).toMatchObject({ kind: "agent", agent: { id: team.id, avatarUrl: agent.avatarUrl } });
+  expect(thread.replies[0]).toMatchObject({ kind: "agent", agent: { id: team.id } });
+  expectScoped(thread.replies[0].agent.avatarUrl);
 
   // Nobody else's personal agent, no guest, no SVG.
   expect((await picture(mika, mine.id)).status).toBe(404);
@@ -982,12 +994,17 @@ async function assignmentStatusFixture() {
 
 test('assignment status exposes scoped chain metadata with per-viewer stop rights',async()=>{
  const f=await assignmentStatusFixture();
- await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/reviewer.png',ORG,f.target.id).run();
+ await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/agents/avatar/agent-avatar-00000000-0000-0000-0000-000000000000',ORG,f.target.id).run();
  const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:f.row.id})}`;
  for(const [token,canStop] of [[mika,true],[kenji,false],[toru,true]]) {
   const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
   const body=await response.json();const a=body.results[0].assignments[0];
-  expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝',avatarUrl:'https://example.com/reviewer.png'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝',avatarUrl:'https://example.com/reviewer.png'}}]});
+  expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝'}}]});
+  const avatar = new URL(a.agent.avatarUrl);
+  expect(avatar.origin).toBe("https://example.com");
+  expect(avatar.pathname).toBe("/agents/avatar/agent-avatar-00000000-0000-0000-0000-000000000000");
+  expect(avatar.searchParams.get("agent")).toBe(f.target.id);
+  expect(a.hops[0].to.avatarUrl).toBe(a.agent.avatarUrl);
   expect(Number.isFinite(Date.parse(a.startedAt))).toBe(true);expect(Number.isFinite(Date.parse(a.updatedAt))).toBe(true);
   const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions'])expect(text).not.toContain(value);
  }

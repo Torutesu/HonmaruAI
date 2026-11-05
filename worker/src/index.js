@@ -348,7 +348,7 @@ export default {
     if (url.pathname === "/custom-app-runner" && request.method === "GET") return customRunner();
     const route = routeLabel(request.method, url.pathname);
     try {
-      const response = await requestContext.run({ ip: request.headers.get("cf-connecting-ip") || null }, () => handle(request, env, url, ctx));
+      const response = await requestContext.run({ ip: request.headers.get("cf-connecting-ip") || null, origin: url.origin }, () => handle(request, env, url, ctx));
       logJSON({ requestId, route, status: response.status, ms: Date.now() - startedAt });
       // A 101 carries the client end of the socket pair on a property, not in
       // the body. Rebuilding it to add a header would hand back a response with

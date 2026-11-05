@@ -1,5 +1,6 @@
 import { getSession } from "./db.js";
 import { enforce } from "./ratelimit.js";
+import { authorizeAgentAvatar, inaccessibleAgentAvatar } from "./agentAvatarAccess.js";
 
 // A person's own photo: the face beside everything they write, in every
 // list, pane and call. A GitHub account arrives with one; anyone can upload
@@ -63,19 +64,23 @@ export async function readImage(request) {
 /// POST /me/avatar (the image as the body) · DELETE /me/avatar ·
 /// GET /users/avatar/:id, and an agent's picture: GET /agents/avatar/:id.
 export async function handleUserAvatar(request, env, url) {
-  const serve = url.pathname.match(/^\/users\/avatar\/(user-avatar-[0-9a-f-]{36})$/)
-    || url.pathname.match(/^\/agents\/avatar\/(agent-avatar-[0-9a-f-]{36})$/);
-  if (serve && request.method === "GET") {
-    const object = await env.MEDIA.get(serve[1]);
-    if (!object) return new Response("not found", { status: 404 });
+  const userAvatar = url.pathname.match(/^\/users\/avatar\/(user-avatar-[0-9a-f-]{36})$/);
+  const agentAvatar = url.pathname.match(/^\/agents\/avatar\/(agent-avatar-[0-9a-f-]{36})$/);
+  if ((userAvatar || agentAvatar) && request.method === "GET") {
+    const agentAccess = agentAvatar ? await authorizeAgentAvatar(env, url, agentAvatar[1]) : null;
+    if (agentAccess?.response) return agentAccess.response;
+    const mediaId = userAvatar?.[1] || agentAvatar?.[1];
+    const object = await env.MEDIA.get(mediaId);
+    if (!object) return agentAvatar ? inaccessibleAgentAvatar() : new Response("not found", { status: 404 });
     const stored = bare(object.httpMetadata?.contentType);
     return new Response(object.body, {
       status: 200,
       headers: {
         "content-type": IMAGE_TYPES.has(stored) ? stored : "application/octet-stream",
         "x-content-type-options": "nosniff",
-        "cache-control": "public, max-age=31536000, immutable",
-        "access-control-allow-origin": "*",
+        "referrer-policy": "no-referrer",
+        "cache-control": agentAvatar ? "no-store" : "public, max-age=31536000, immutable",
+        ...(!agentAvatar ? { "access-control-allow-origin": "*" } : {}),
       },
     });
   }
