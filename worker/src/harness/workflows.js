@@ -639,6 +639,10 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     return getRun(db, orgId, runId);
   }
   const authorize = async () => {
+    // Budget cancellation and other terminal transitions must fence an
+    // in-flight Agent model request before it can use tools or publish output.
+    if (!await db.prepare("SELECT 1 FROM hx_workflow_runs WHERE org_id=?1 AND id=?2 AND status='running'")
+      .bind(orgId, runId).first()) return false;
     if (!await managedAutomationMayRun(db, orgId, workflow.id, workflow.automationReleaseId)
       || !await workflowSourceMayRun(db, orgId, workflow.id, workflow.createdBy)) return false;
     // App/record triggers carry the maker's access into the run. Recheck that
