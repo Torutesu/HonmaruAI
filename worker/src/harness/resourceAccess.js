@@ -65,7 +65,7 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
   const update = input.version === 0
     ? db.prepare('INSERT OR IGNORE INTO hx_app_access (org_id, app_id, visibility, version) VALUES (?1, ?2, ?3, 1)').bind(orgId, appId, input.visibility)
     : db.prepare('UPDATE hx_app_access SET visibility = ?3, version = version + 1 WHERE org_id = ?1 AND app_id = ?2 AND version = ?4').bind(orgId, appId, input.visibility, input.version);
-  const results = await db.batch([update, db.prepare('UPDATE hx_app_public_shares SET revoked_at=?3 WHERE org_id=?1 AND app_id=?2 AND revoked_at IS NULL').bind(orgId, appId, new Date().toISOString())]);
+  const results = await db.batch([update, db.prepare('UPDATE hx_app_public_shares SET revoked_at=?3 WHERE org_id=?1 AND app_id=?2 AND revoked_at IS NULL AND changes() = 1').bind(orgId, appId, new Date().toISOString())]);
   if (!results?.[0]?.meta?.changes) return { error: 'Sharing changed. Reload before saving.', status: 409 };
   return { access: await appAccess(db, orgId, appId) };
 }
