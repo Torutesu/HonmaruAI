@@ -137,7 +137,7 @@ test("a workflow run persists only the credential source selected at admission",
     const resumed = await continueRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
       orgId: ORG, runId: run.id, workflow,
     });
-    expect(resumed.status).toBe("done");
+    expect(resumed.status, JSON.stringify(resumed.log)).toBe("done");
     expect(resumed.log.at(-1).output).toBe("LEGACY CONTINUED");
     expect(authorization).toBe("Bearer sk-workspace-credential-source-test");
   } finally {
