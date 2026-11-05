@@ -174,7 +174,7 @@ export async function fetchGitHubCommitSource(sessionToken,input){
     const latest=await currentBranchSha(token,owner,repo,branch);
     if(latest!==requestedSha)return {error:'The branch moved while importing. Select its current commit and request a new review.',status:409};
     return {source:html,assets:[...assets.values()],commit:{owner,repo,branch,sha:requestedSha,path:'index.html',htmlHash,sourceHash,assetToken:crypto.randomUUID(),assets:[...assets.values()].map(({path,mimeType,contentHash,size})=>({path,mimeType,contentHash,size}))}};
-  }catch(error){return {error:error instanceof Error?error.message:'GitHub source could not be verified.',status:502};}
+  }catch(error){\n    const message=error instanceof Error?error.message:'GitHub source could not be verified.';\n    const invalidSourcePath=/escapes the repository root|External, absolute, and query-based assets are not supported|A GitHub asset path is invalid/.test(message);\n    return {error:message,status:invalidSourcePath?400:502};\n  }
 }
 
 export async function verifyGitHubCommitRef(sessionToken,commit){
