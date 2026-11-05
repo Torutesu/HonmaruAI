@@ -378,3 +378,4 @@ ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
 ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN app_id TEXT;
+ALTER TABLE hx_workflow_runs ADD COLUMN credential_source TEXT NOT NULL DEFAULT 'unknown';
