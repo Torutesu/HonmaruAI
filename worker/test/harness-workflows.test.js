@@ -100,45 +100,49 @@ const overdueFlow = () => ({
 });
 
 test("a workflow run persists only the credential source selected at admission", async () => {
-  const { createWorkflow } = await import("../src/harness/workflows.js");
-  const { saveAISettings } = await import("../src/orgAI.js");
-  await saveAISettings(env.DB, ORG, { openaiKey: "sk-workspace-credential-source-test" }, "9302");
-  const { agent } = await (await send("POST", "/channels/agents", mika, {
-    orgId: ORG, name: "Credential source checker", handle: "credential-source-checker",
-    instructions: "Check credential source pinning.", scope: "team",
-  })).json();
-  const { workflow } = await createWorkflow(env.DB, ORG, {
-    name: "Credential source snapshot", trigger: { type: "manual" },
-    // The approval leaves the run waiting before the Agent step calls a model.
-    steps: [
-      { type: "approval", to: "toru", title: "Credential source check" },
-      { type: "agent", agentId: agent.id, prompt: "Check the source." },
-    ],
-  }, "9302");
-  const run = await startRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
-    orgId: ORG, workflow, trigger: "manual", startedBy: "9302",
-  });
-  expect(run.status).toBe("waiting");
-  expect(run.credentialSource).toBe("workspace");
-  const stored = await env.DB.prepare("SELECT credential_source FROM hx_workflow_runs WHERE id=?1").bind(run.id).first();
-  expect(stored).toEqual({ credential_source: "workspace" });
-
-  // A legacy active run without a provenance column retains dynamic routing.
-  // Its unknown source must not be confused with an explicit pinned source.
-  await env.DB.prepare("UPDATE hx_workflow_runs SET credential_source='unknown',status='running',card_id=NULL WHERE id=?1").bind(run.id).run();
-  let authorization;
-  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
-    .reply(200, opts => {
-      authorization = opts.headers?.authorization || opts.headers?.Authorization;
-      return { choices: [{ message: { content: "LEGACY CONTINUED" } }], usage: { prompt_tokens: 4, completion_tokens: 2 } };
+  await env.DB.prepare("DELETE FROM org_ai_settings WHERE org_id=?1").bind(ORG).run();
+  try {
+    const { createWorkflow, continueRun } = await import("../src/harness/workflows.js");
+    const { saveAISettings } = await import("../src/orgAI.js");
+    await saveAISettings(env.DB, ORG, { openaiKey: "sk-workspace-credential-source-test" }, "9302");
+    const { agent } = await (await send("POST", "/channels/agents", mika, {
+      orgId: ORG, name: "Credential source checker", handle: "credential-source-checker",
+      instructions: "Check credential source pinning.", scope: "team",
+    })).json();
+    const { workflow } = await createWorkflow(env.DB, ORG, {
+      name: "Credential source snapshot", trigger: { type: "manual" },
+      // The approval leaves the run waiting before the Agent step calls a model.
+      steps: [
+        { type: "approval", to: "toru", title: "Credential source check" },
+        { type: "agent", agentId: agent.id, prompt: "Check the source." },
+      ],
+    }, "9302");
+    const run = await startRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
+      orgId: ORG, workflow, trigger: "manual", startedBy: "9302",
     });
-  const { continueRun } = await import("../src/harness/workflows.js");
-  const resumed = await continueRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
-    orgId: ORG, runId: run.id, workflow,
-  });
-  expect(resumed.status).toBe("done");
-  expect(resumed.log.at(-1).output).toBe("LEGACY CONTINUED");
-  expect(authorization).toBe("Bearer sk-workspace-credential-source-test");
+    expect(run.status).toBe("waiting");
+    expect(run.credentialSource).toBe("workspace");
+    const stored = await env.DB.prepare("SELECT credential_source FROM hx_workflow_runs WHERE id=?1").bind(run.id).first();
+    expect(stored).toEqual({ credential_source: "workspace" });
+
+    // A legacy active run without provenance retains dynamic provider routing.
+    // Its unknown source must not be confused with an explicit new-run pin.
+    await env.DB.prepare("UPDATE hx_workflow_runs SET credential_source='unknown',status='running',card_id=NULL WHERE id=?1").bind(run.id).run();
+    let authorization;
+    fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
+      .reply(200, opts => {
+        authorization = opts.headers?.authorization || opts.headers?.Authorization;
+        return { choices: [{ message: { content: "LEGACY CONTINUED" } }], usage: { prompt_tokens: 4, completion_tokens: 2 } };
+      });
+    const resumed = await continueRun({ ...env, OPENAI_API_KEY: "sk-deployment-credential-source-test" }, {
+      orgId: ORG, runId: run.id, workflow,
+    });
+    expect(resumed.status).toBe("done");
+    expect(resumed.log.at(-1).output).toBe("LEGACY CONTINUED");
+    expect(authorization).toBe("Bearer sk-workspace-credential-source-test");
+  } finally {
+    await env.DB.prepare("DELETE FROM org_ai_settings WHERE org_id=?1").bind(ORG).run();
+  }
 });
 
 test("a row turning overdue runs the workflow: it posts, waits on a person's approval, and goes on when approved", async () => {
