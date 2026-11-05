@@ -49,12 +49,16 @@ export async function consumeCustomPublishApproval(db, orgId, app, by, definitio
   const state=await customPublishState(db,orgId,app);
   if(!state.policy.enabled) return {enabled:false};
   const approval=state.approval;
-  if(!approval || approval.status!=="approved" || String(approval.requestedBy)===String(by) || Number(approval.draftVersion)!==app.version || approval.sourceHash!==state.sourceHash || approval.scope!==CUSTOM_PUBLISH_SCOPE) return {error:"An independent Owner or Admin must approve this exact saved draft before publishing.",status:409};
+  if(!approval || approval.status!=="approved" || approval.consumedAt || String(approval.requestedBy)===String(by) || String(approval.reviewerId)===String(by) || Number(approval.draftVersion)!==app.version || approval.sourceHash!==state.sourceHash || approval.scope!==CUSTOM_PUBLISH_SCOPE) return {error:"An independent Owner or Admin must approve this exact saved draft before publishing.",status:409};
+  const attemptId=crypto.randomUUID();
+  definition.custom={...definition.custom,publishedApprovalId:approval.id,publishedApprovalAttempt:attemptId};
   const update=await db.batch([
     db.prepare("UPDATE hx_apps SET definition=?1,version=?2,updated_at=?3 WHERE id=?4 AND org_id=?5 AND version=?6 AND json_extract(definition,'$.custom.draft')=?7 AND EXISTS (SELECT 1 FROM hx_app_publish_policies p WHERE p.org_id=?5 AND p.app_id=?4 AND p.enabled=1) AND EXISTS (SELECT 1 FROM hx_app_publish_approvals a WHERE a.id=?8 AND a.org_id=?5 AND a.app_id=?4 AND a.draft_version=?6 AND a.source_hash=?9 AND a.scope=?10 AND a.status='approved' AND a.consumed_at IS NULL AND a.reviewer_id IS NOT NULL AND a.reviewer_id<>a.requested_by AND a.reviewer_id<>?11 AND EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=a.org_id AND m.user_github_id=a.reviewer_id AND m.role IN ('owner','admin'))) AND EXISTS (SELECT 1 FROM memberships actor WHERE actor.org_id=?5 AND actor.user_github_id=?11 AND actor.role IN ('member','owner','admin') AND (?11=(SELECT created_by FROM hx_apps WHERE id=?4 AND org_id=?5) OR actor.role IN ('owner','admin')))")
       .bind(JSON.stringify(definition),version,at,app.id,orgId,app.version,app.definition.custom.draft,approval.id,state.sourceHash,CUSTOM_PUBLISH_SCOPE,String(by)),
-    db.prepare("UPDATE hx_app_publish_approvals SET consumed_at=?1 WHERE org_id=?2 AND app_id=?3 AND id=?4 AND status='approved' AND consumed_at IS NULL AND changes()=1").bind(at,orgId,app.id,approval.id),
-    db.prepare("INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at) SELECT ?1,?2,?3,?4,'Custom app: publish',?5,?6 WHERE changes()=1").bind(app.id,orgId,version,JSON.stringify({...definition,name:app.name,columns:table.columns}),String(by),at)
+    db.prepare("UPDATE hx_app_publish_approvals SET consumed_at=?1 WHERE org_id=?2 AND app_id=?3 AND id=?4 AND status='approved' AND consumed_at IS NULL AND EXISTS (SELECT 1 FROM hx_apps WHERE org_id=?2 AND id=?3 AND version=?5 AND json_extract(definition,'$.custom.publishedApprovalAttempt')=?6)")
+      .bind(at,orgId,app.id,approval.id,version,attemptId),
+    db.prepare("INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at) SELECT ?1,?2,?3,?4,'Custom app: publish',?5,?6 WHERE EXISTS (SELECT 1 FROM hx_app_publish_approvals WHERE id=?7 AND org_id=?2 AND app_id=?1 AND status='approved' AND consumed_at=?6) AND EXISTS (SELECT 1 FROM hx_apps WHERE org_id=?2 AND id=?1 AND version=?3 AND json_extract(definition,'$.custom.publishedApprovalAttempt')=?8)")
+      .bind(app.id,orgId,version,JSON.stringify({...definition,name:app.name,columns:table.columns}),String(by),at,approval.id,attemptId)
   ]);
   if(!update[0]?.meta?.changes) return {error:"This app or approval changed. Reload before publishing.",status:409};
   return {enabled:true,saved:true,version};
