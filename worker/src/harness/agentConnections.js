@@ -33,10 +33,10 @@ export async function agentSourceConnections(env, { orgId, agentId, session, can
         available: personalAvailable,
         enabled: personalAvailable && grants.has(source),
       };
-      return source === 'github' ? {
+      return source === 'github' && workspaceAvailable ? {
         ...personal,
-        workspaceAvailable,
-        workspaceEnabled: workspaceAvailable && workspaceGrants.has(source),
+        workspaceAvailable: true,
+        workspaceEnabled: workspaceGrants.has(source),
         canManageWorkspace: canManageWorkspace === true,
       } : personal;
     }),
