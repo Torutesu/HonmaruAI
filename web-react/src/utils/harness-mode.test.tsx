@@ -186,3 +186,21 @@ test('a targeted preference event updates another signed-in device immediately',
   act(()=>{window.dispatchEvent(new CustomEvent('honmaru:display-preference-changed',{detail:{orgId:'a',simpleOnly:false,revision:2}}))})
   expect(result.mode).toBe('simple')
 })
+
+test('a newer device revision wins over a delayed startup retry for an older local toggle',async()=>{
+  act(()=>{tree=create(<Probe/>)})
+  let write!:Promise<unknown>
+  act(()=>{write=result.setSimpleOnly(true)})
+  await act(async()=>{await Promise.resolve()})
+  expect(requests).toHaveLength(2)
+  await answer(0,'harness',false,false,0)
+  await act(async()=>{await Promise.resolve();await Promise.resolve()})
+  const duplicateStartupWrite=requests[2]
+  await answerPreference(1,true,1)
+  await act(async()=>{await write;await Promise.resolve();await Promise.resolve()})
+  act(()=>{window.dispatchEvent(new CustomEvent('honmaru:display-preference-changed',{detail:{orgId:'a',simpleOnly:false,revision:3}}))})
+  if(duplicateStartupWrite) await answerPreference(2,true,2)
+  await act(async()=>{await Promise.resolve();await Promise.resolve()})
+  expect(duplicateStartupWrite).toBeUndefined()
+  expect(result).toMatchObject({mode:'simple',workspaceMode:'harness',simpleOnly:false})
+})
