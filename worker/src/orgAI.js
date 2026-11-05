@@ -98,23 +98,27 @@ export async function saveAISettings(db, orgId, { model, openaiKey, typesafeKey,
 /// the workspace's, then the deployment's. A workspace key is its own bill,
 /// so the ledger is told it is not ours.
 export async function providerFor(env, orgId, userKey, { credentialSource } = {}) {
-  if (credentialSource !== undefined && (!["deployment", "workspace"].includes(credentialSource) || userKey)) return undefined;
-  const settings = credentialSource === "deployment" ? {} : (orgId ? await loadAISettings(env.DB, orgId) : {});
-  if (credentialSource === "workspace" && !settings.openaiKey) return undefined;
+  // Runs created before provenance was persisted keep their historical dynamic
+  // provider behavior. New runs use explicit pins; an unresolved/none source
+  // fails closed instead of guessing.
+  const source = credentialSource === "unknown" ? undefined : credentialSource;
+  if (source !== undefined && (!["deployment", "workspace"].includes(source) || userKey)) return undefined;
+  const settings = source === "deployment" ? {} : (orgId ? await loadAISettings(env.DB, orgId) : {});
+  if (source === "workspace" && !settings.openaiKey) return undefined;
   const scoped = {
     ...env,
-    OPENAI_API_KEY: credentialSource === "deployment" ? env.OPENAI_API_KEY
-      : credentialSource === "workspace" ? settings.openaiKey : settings.openaiKey || env.OPENAI_API_KEY,
-    OPENAI_MODEL: credentialSource === "deployment" ? env.OPENAI_MODEL
-      : credentialSource === "workspace" ? settings.model || env.OPENAI_MODEL : settings.model || env.OPENAI_MODEL,
+    OPENAI_API_KEY: source === "deployment" ? env.OPENAI_API_KEY
+      : source === "workspace" ? settings.openaiKey : settings.openaiKey || env.OPENAI_API_KEY,
+    OPENAI_MODEL: source === "deployment" ? env.OPENAI_MODEL
+      : source === "workspace" ? settings.model || env.OPENAI_MODEL : settings.model || env.OPENAI_MODEL,
     // A workspace-pinned workflow must not silently fall through to the
     // deployment's OpenRouter key when its own OpenAI key is revoked.
-    OPENROUTER_API_KEY: credentialSource === "workspace" ? undefined : env.OPENROUTER_API_KEY,
-    OPENROUTER_MODEL: credentialSource === "workspace" ? undefined : env.OPENROUTER_MODEL,
+    OPENROUTER_API_KEY: source === "workspace" ? undefined : env.OPENROUTER_API_KEY,
+    OPENROUTER_MODEL: source === "workspace" ? undefined : env.OPENROUTER_MODEL,
   };
   const provider = providerConfig(scoped, userKey);
-  if (provider && !userKey && (credentialSource === "workspace" || (credentialSource === undefined && settings.openaiKey))) provider.byok = true;
-  if (provider && credentialSource === "deployment") provider.byok = false;
+  if (provider && !userKey && (source === "workspace" || (source === undefined && settings.openaiKey))) provider.byok = true;
+  if (provider && source === "deployment") provider.byok = false;
   return provider;
 }
 
