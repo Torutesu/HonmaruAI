@@ -1,11 +1,11 @@
 import { getTable, listRows } from './tables.js';
-import { appAccess } from './resourceAccess.js';
 import { aad, isSealed, openField, sealField } from '../secrets.js';
 
 const MAX_ENV_VARS = 25;
 const MAX_ENV_VALUE = 4000;
 const MAX_ENV_TOTAL = 12000;
 const MAX_PUBLIC_SNAPSHOT = 1_500_000;
+const PUBLIC_DOMAIN_CONFIRMATION_VERSION = 1;
 const RESERVED_HOSTS = new Set(['app.honmaruai.com', 'www.honmaruai.com', 'honmaruai.com', 'honmaru-web.pages.dev']);
 const error = (message, status = 400) => ({ error: message, status });
 const now = () => new Date().toISOString();
@@ -74,8 +74,6 @@ async function attachDomain(db, env, orgId, app, by, rawHostname) {
   const hostname = normalizeAppHostname(rawHostname);
   if (!hostname) return error('完全なホスト名を入力してください（例: tools.example.com）。', 400);
   if (!app.definition?.custom?.published) return error('独自ドメインを公開する前にカスタムアプリを公開してください。', 409);
-  const access = await appAccess(db, orgId, app.id);
-  if (access?.visibility !== 'public') return error('独自ドメインで公開する前に、アプリの公開範囲を「公開」に設定してください。ドメイン上のデータはアクセスできる人に表示されます。', 409);
   const existing = await db.prepare('SELECT hostname,status FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(orgId, app.id).first();
   if (existing) return error('このアプリにはすでに独自ドメインが設定されています。先に現在のドメインを解除してください。', 409);
   const occupied = await db.prepare('SELECT app_id FROM hx_app_domains WHERE hostname=?1').bind(hostname).first();
@@ -85,26 +83,37 @@ async function attachDomain(db, env, orgId, app, by, rawHostname) {
   // cannot attach one public host to two apps.
   const at = now();
   try {
-    await db.prepare("INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at) VALUES(?1,?2,?3,'configuring',?4,?5,?5)")
-      .bind(orgId, app.id, hostname, String(by), at).run();
+    await db.batch([
+      db.prepare("INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at) VALUES(?1,?2,?3,'configuring',?4,?5,?5)")
+        .bind(orgId, app.id, hostname, String(by), at),
+      db.prepare("INSERT INTO hx_app_domain_public_consents(org_id,app_id,hostname,domain_created_at,confirmed_by,confirmed_at,confirmation_version) VALUES(?1,?2,?3,?4,?5,?6,?7)")
+        .bind(orgId, app.id, hostname, at, String(by), at, PUBLIC_DOMAIN_CONFIRMATION_VERSION),
+    ]);
   } catch {
     return error('このホスト名またはアプリにはすでに独自ドメインが設定されています。', 409);
   }
 
+  const clearReservation = () => db.batch([
+    db.prepare('DELETE FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2 AND hostname=?3 AND domain_created_at=?4')
+      .bind(orgId, app.id, hostname, at),
+    db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3 AND created_at=?4')
+      .bind(orgId, app.id, hostname, at),
+  ]);
+
   const listed = await pagesRequest(env, 'GET');
   if (listed.error) {
-    await db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3').bind(orgId, app.id, hostname).run();
+    await clearReservation();
     return listed;
   }
   const providerDomain = (Array.isArray(listed.result) ? listed.result : []).find(item => String(item.name || '').toLowerCase() === hostname);
   if (providerDomain) {
-    await db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3').bind(orgId, app.id, hostname).run();
+    await clearReservation();
     return error('このホスト名はCloudflare Pagesですでに使用されています。', 409);
   }
 
   const created = await pagesRequest(env, 'POST', null, { name: hostname });
   if (created.error) {
-    await db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3').bind(orgId, app.id, hostname).run();
+    await clearReservation();
     return created;
   }
   const status = String(created.result?.status || 'pending').toLowerCase();
@@ -132,11 +141,13 @@ async function refreshDomain(db, env, orgId, appId) {
 }
 
 async function removeDomain(db, env, orgId, appId) {
-  const existing = await db.prepare('SELECT hostname FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(orgId, appId).first();
+  const existing = await db.prepare('SELECT hostname,created_at AS createdAt FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(orgId, appId).first();
   if (!existing) return readAppHosting(db, env, orgId, appId);
+  await db.prepare('DELETE FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2 AND hostname=?3 AND domain_created_at=?4')
+    .bind(orgId, appId, existing.hostname, existing.createdAt).run();
   const result = await pagesRequest(env, 'DELETE', existing.hostname);
   if (result.error && result.status !== 404) return result;
-  await db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3').bind(orgId, appId, existing.hostname).run();
+  await db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3 AND created_at=?4').bind(orgId, appId, existing.hostname, existing.createdAt).run();
   return readAppHosting(db, env, orgId, appId);
 }
 
@@ -207,9 +218,12 @@ export async function servePublicAppDomain(request, env, url) {
   const hostname = normalizeAppHostname(url.searchParams.get('host') || '');
   if (!hostname) return new Response('Not found.', { status: 404, headers: { 'cache-control': 'no-store' } });
   const domain = await env.DB.prepare(`SELECT d.org_id AS orgId,d.app_id AS appId,a.name,a.icon,a.table_id AS tableId,a.definition
-    FROM hx_app_domains d JOIN hx_apps a ON a.org_id=d.org_id AND a.id=d.app_id
-    LEFT JOIN hx_app_access policy ON policy.org_id=a.org_id AND policy.app_id=a.id
-    WHERE d.hostname=?1 AND d.status='active' AND COALESCE(policy.visibility,'workspace')='public'`).bind(hostname).first();
+    FROM hx_app_domains d
+    JOIN hx_app_domain_public_consents consent ON consent.org_id=d.org_id AND consent.app_id=d.app_id
+      AND consent.hostname=d.hostname AND consent.domain_created_at=d.created_at
+      AND consent.confirmation_version=?2
+    JOIN hx_apps a ON a.org_id=d.org_id AND a.id=d.app_id
+    WHERE d.hostname=?1 AND d.status='active'`).bind(hostname, PUBLIC_DOMAIN_CONFIRMATION_VERSION).first();
   if (!domain) return new Response('No published app is available at this domain.', { status: 404, headers: { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' } });
   let definition;
   try { definition = JSON.parse(domain.definition || '{}'); } catch { definition = {}; }
