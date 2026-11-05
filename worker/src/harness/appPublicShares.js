@@ -36,7 +36,7 @@ export async function createPublicAppShare(db,orgId,appId,by,input){
  if(input.appVersion!==version)return fail('App version changed. Reload before sharing.',409);
  if(!Array.isArray(input.entities)||input.entities.length<1||input.entities.length>10)return fail('Choose at least one public entity.');
  const related=await db.prepare('SELECT entity_key AS key,table_id AS tableId FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(orgId,appId).all();
- const refs=new Map([['primary',app.tableId],...(related.results||[]).map(x=>[x.key,x.tableId])]);
+ const refs=new Map([['primary',app.tableId],...(related.results||[]).filter(x=>x.key!=='primary'&&x.tableId!==app.tableId).map(x=>[x.key,x.tableId])]);
  const scope=[];
  for(const selected of input.entities){
   const key=String(selected?.entity||'');
@@ -73,7 +73,7 @@ export async function readPublicAppShare(db,token,origin){
  let scope;let definition;try{scope=JSON.parse(share.dataScope);definition=JSON.parse(share.definition)}catch{return fail('Not found.',404)}
  if(!Array.isArray(scope)||!scope.length||scope.length>10)return fail('Not found.',404);
  const related=await db.prepare('SELECT entity_key AS key,table_id AS tableId FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(share.orgId,share.appId).all();
- const attached=new Map([['primary',share.tableId],...(related.results||[]).map(x=>[x.key,x.tableId])]);
+ const attached=new Map([['primary',share.tableId],...(related.results||[]).filter(x=>x.key!=='primary'&&x.tableId!==share.tableId).map(x=>[x.key,x.tableId])]);
  const entities=[];
  for(const selected of scope){
   if(typeof selected?.tableId!=='string'||attached.get(selected?.entity)!==selected.tableId||!Array.isArray(selected.fields)||!selected.fields.length)return fail('Not found.',404);
