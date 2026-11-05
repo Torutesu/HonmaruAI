@@ -8,8 +8,8 @@ import { providerFor } from "../orgAI.js";
 import { allowanceFor } from "../gate.js";
 import { noteUsage, settleUsage } from "../ledger.js";
 
-export async function completer(env, orgId, githubId, purpose, { maxTokens = 900, json = true, timeoutMs = 30000, usageContext = null } = {}) {
-  const provider = await providerFor(env, orgId).catch(() => null);
+export async function completer(env, orgId, githubId, purpose, { maxTokens = 900, json = true, timeoutMs = 30000, usageContext = null, credentialSource } = {}) {
+  const provider = await providerFor(env, orgId, undefined, { credentialSource }).catch(() => null);
   if (!provider) return null;
   const allowance = await allowanceFor(env, orgId, { githubId: String(githubId) });
   if (!allowance.allowed) return null;
