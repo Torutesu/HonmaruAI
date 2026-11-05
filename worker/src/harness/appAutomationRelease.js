@@ -84,7 +84,7 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   const guard='EXISTS(SELECT 1 FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2 AND release_id=?3)';
   const statements=[db.prepare(`UPDATE hx_app_automation_state SET published=?4,release_id=?5,published_at=?6,revision=revision+1,updated_at=?6,updated_by=?7
     WHERE org_id=?1 AND app_id=?2 AND revision=?3
-      AND EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?8)
+      AND EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?8 AND deleted_at IS NULL)
       AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?7 AND role!='guest')
       AND (?12=1 OR (SELECT COUNT(*) FROM hx_workflows WHERE org_id=?1)+?10<=?11)
       AND NOT EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?1 AND id IN (SELECT value FROM json_each(?13)))
@@ -93,7 +93,7 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
           OR w.trigger!=json_extract(snapshot.value,'$.trigger') OR w.steps!=json_extract(snapshot.value,'$.steps') OR w.created_by!=json_extract(snapshot.value,'$.created_by')
           OR w.webhook_signature_required!=json_extract(snapshot.value,'$.webhook_signature_required'))`)
     .bind(orgId,app.id,plan.revision,published,releaseId,at,String(by),app.version,JSON.stringify(snapshots),added,MAX_WORKFLOWS,stopping?1:0,JSON.stringify(missing))];
-  statements.push(db.prepare(`UPDATE hx_apps SET version=?4,updated_at=?5,definition=?6 WHERE org_id=?1 AND id=?2 AND ${guard}`).bind(orgId,app.id,releaseId,version,at,JSON.stringify(definition)));
+  statements.push(db.prepare(`UPDATE hx_apps SET version=?4,updated_at=?5,definition=?6 WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL AND ${guard}`).bind(orgId,app.id,releaseId,version,at,JSON.stringify(definition)));
   statements.push(db.prepare(`INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at)
     SELECT ?2,?1,?4,?5,?6,?7,?8 WHERE ${guard}`).bind(orgId,app.id,releaseId,version,JSON.stringify({name:app.name,columns:table.columns,...definition,automationRelease:releaseId}),'Automations: '+input.action,String(by),at));
   for(const item of desired) {
