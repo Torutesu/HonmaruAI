@@ -1,5 +1,6 @@
 import { addressHolds, signedQuery } from "./addressSigning.js";
 import { getProfile, mayAccessAgent } from "./harness/agents.js";
+import { currentOrigin } from "./requestContext.js";
 
 const MEDIA_ID = /^agent-avatar-[0-9a-f-]{36}$/;
 const inaccessible = () => new Response("not found", { status: 404, headers: {
@@ -7,6 +8,26 @@ const inaccessible = () => new Response("not found", { status: 404, headers: {
   "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff",
 } });
+
+function trustedAvatarUrl(env, value) {
+  let url;
+  try { url = new URL(String(value || "")); } catch { return null; }
+  const localHttp = url.protocol === "http:" && /^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/i.test(url.hostname);
+  if (url.protocol !== "https:" && !localHttp) return null;
+  if (url.username || url.password) return null;
+  const allowed = new Set();
+  const addOrigin = (raw) => {
+    try {
+      const candidate = new URL(String(raw || ""));
+      if (candidate.protocol === "https:" || (candidate.protocol === "http:" && /^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/i.test(candidate.hostname))) allowed.add(candidate.origin);
+    } catch { /* invalid config fails closed */ }
+  };
+  addOrigin(currentOrigin());
+  addOrigin(env?.APP_WEB_URL);
+  addOrigin(env?.API_ORIGIN);
+  for (const raw of String(env?.AGENT_AVATAR_ORIGINS || "").split(",")) addOrigin(raw.trim());
+  return allowed.has(url.origin) ? url : null;
+}
 
 const mediaIdFrom = (avatarUrl) => {
   const match = /\/agents\/avatar\/(agent-avatar-[0-9a-f-]{36})$/.exec(String(avatarUrl || ""));
@@ -38,7 +59,7 @@ export async function clientAgentAvatarUrl(env, orgId, agent, login) {
   const mediaId = mediaIdFrom(agent?.avatarUrl);
   if (!mediaId) return null;
   const current = await currentAccess(env.DB, orgId, agent.id, login);
-  const url = new URL(agent.avatarUrl);
+  const url = safeUrl;
   url.searchParams.set("agent", agent.id);
   if (!restricted(agent, current.profile)) {
     url.searchParams.set("revision", revision(current));
