@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 47627)
-Total output lines: 3054
-
 import {maintainDocumentJobs} from './harness/documentMaintenance.js';
 import {retryWorkflowNotices} from './harness/workflowNoticeDelivery.js';
 import {drainAgentHandoffs} from './harness/agentHandoffDispatch.js';
@@ -676,7 +673,1718 @@ async function handle(request, env, url, ctx) {
     if (url.pathname === "/invites/email" && request.method === "POST") {
       const limited = await enforce(env, request, "oauth/token");
       if (limited) return limited;
-      con…27627 tokens truncated… }, 400);
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      if (!isMailConfigured(env)) return json({ message: "This deployment cannot send email yet. Share the code instead." }, 503);
+      const body = await request.json().catch(() => ({}));
+      const to = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to) || to.length > 254) return json({ message: "That is not an email address." }, 400);
+      if (!body.orgId || !(await isMember(env.DB, body.orgId, session.github_id))) {
+        return json({ message: "You are not a member of this organization." }, 403);
+      }
+      { const held = await policyDenial(env, session, body.orgId); if (held) return json(held.body, held.status); }
+      const minted = await createInvite(env, { orgId: body.orgId, createdBy: session.github_id, role: body.role, channels: body.channels });
+      if (minted.error) return json({ message: minted.error }, 400);
+      const sender = await getUserByGithubId(env.DB, session.github_id);
+      const mail = composeInviteEmail({
+        inviter: sender?.name || sender?.login || null,
+        team: await teamName(env.DB, body.orgId),
+        code: minted.code,
+        url: minted.link,
+        days: 7,
+        locale: await loadCopy(env, sender?.locale || localeFromRequest(request) || "en", { orgId: body.orgId }),
+      });
+      const sent = await sendMail(env, { to, subject: mail.subject, text: mail.text });
+      if (!sent.ok) {
+        // A code nobody received is a door left open for nothing.
+        await env.DB.prepare("DELETE FROM invites WHERE code = ?1").bind(minted.code).run();
+        return json({ message: "We could not send the invitation. Try again in a moment." }, 502);
+      }
+      await audit(env, request, { orgId: body.orgId, action: "invite.email_sent", actor: await actorOf(env, session), entity: { type: "invite", id: minted.ref, name: minted.role }, details: { role: minted.role, domain: to.split("@")[1] } });
+      return json({ ok: true, ref: minted.ref, role: minted.role, to });
+    }
+
+    if (url.pathname === "/invites/accept" && request.method === "POST") {
+      // Redeeming or minting a code grants org membership, so both are guessable
+      // surfaces and both get the same budget as the other credential routes.
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      const result = await acceptInvite(env, { code: body.code || body.link, userId: session.github_id });
+      if (result.error) return json({ message: result.error }, result.orgId ? 403 : 400);
+      if (result.pending) {
+        await audit(env, request, { orgId: result.orgId, action: "member.invite_held", actor: await actorOf(env, session), details: { role: result.role } });
+        const { mailOwners } = await import("./owners.js");
+        await mailOwners(env, result.orgId, { subject: "Someone is waiting to join", text: "Someone from outside your company used an invitation. Approve or decline them on the team screen." }).catch(() => {});
+        return json({ ...result, message: "An admin of this workspace needs to approve you. You will be let in once they do." }, 202);
+      }
+      // "member.joined" is recorded where the invitation is spent (auth.js),
+      // the same for every way in.
+      return json(result);
+    }
+
+    // Start a team. The one workspace a sign-up hands out is enough for
+    // one person; the second business, the side project, the client you
+    // work with, each want a room of their own with a name on the door.
+    if (url.pathname === "/orgs" && request.method === "POST") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      const result = await createTeam(env.DB, { name: body.name, createdBy: session.github_id });
+      if (result.error) return json({ message: result.error }, 400);
+      await audit(env, request, { orgId: result.orgId, action: "workspace.created", actor: await actorOf(env, session), entity: { type: "workspace", id: result.orgId, name: result.name || null } });
+      return json(result);
+    }
+
+    // Name, or rename, the team. Admins of it, and never a repository.
+    // What this workspace runs its AI on. Everyone in it may read the
+    // status; an admin may change it. Keys never come back out.
+    if (url.pathname === "/orgs/ai" && (request.method === "GET" || request.method === "PUT")) {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = request.method === "PUT" ? await request.json().catch(() => null) : null;
+      if (request.method === "PUT" && (!body || typeof body !== "object")) return json({ message: "Invalid JSON body." }, 400);
+      const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
+      if (!orgId || typeof orgId !== "string") return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
+      const canEdit = membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.ai_settings");
+      if (request.method === "PUT") {
+        if (!canEdit) return json({ message: "Only an admin of this workspace can change what its AI runs on." }, 403);
+        const result = await saveAISettings(env.DB, orgId, {
+          model: body.model, openaiKey: body.openaiKey, typesafeKey: body.typesafeKey, geminiKey: body.geminiKey,
+        }, session.github_id);
+        if (result.error) return json({ message: result.error }, 400);
+        // What changed, never the key itself.
+        await audit(env, request, { orgId, action: "workspace.ai_settings_changed", actor: await actorOf(env, session), details: {
+          model: body.model ?? undefined,
+          openaiKey: body.openaiKey === undefined ? undefined : (body.openaiKey ? "set" : "removed"),
+          typesafeKey: body.typesafeKey === undefined ? undefined : (body.typesafeKey ? "set" : "removed"),
+          geminiKey: body.geminiKey === undefined ? undefined : (body.geminiKey ? "set" : "removed"),
+        } });
+      }
+      return json({ orgId, canEdit, ...(await aiStatus(env, orgId)) });
+    }
+    if (url.pathname === "/orgs/ai/budget" && request.method === "PUT") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)) return json({ message: "Invalid JSON body." }, 400);
+      const orgId = body.orgId;
+      if (!orgId || typeof orgId !== "string") return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
+      const canEdit = membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.ai_settings");
+      if (!canEdit) return json({ message: "Only an admin of this workspace can change its AI usage limit." }, 403);
+      const result = await saveWorkspaceAIBudget(env.DB, orgId, body, session.github_id);
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      await audit(env, request, { orgId, action: "workspace.ai_budget_changed", actor: await actorOf(env, session), details: {
+        dailyLimitUsd: body.dailyLimitUsd, weeklyLimitUsd: body.weeklyLimitUsd, monthlyLimitUsd: body.monthlyLimitUsd, action: body.action,
+      } });
+      return json({ orgId, canEdit, ...(await aiStatus(env, orgId)) });
+    }
+    // AI teammates (teammates.js): an admin sets one up and turns it on;
+    // anyone in the workspace sees whether it is there and what it has
+    // spent this month. Keys never come back out.
+    if (url.pathname === "/teammates" && (request.method === "GET" || request.method === "PUT")) {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = request.method === "PUT" ? await request.json().catch(() => null) : null;
+      if (request.method === "PUT" && (!body || typeof body !== "object")) return json({ message: "Invalid JSON body." }, 400);
+      const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
+      const provider = (request.method === "GET" ? url.searchParams.get("provider") : body.provider) || "claude";
+      if (!orgId || typeof orgId !== "string") return json({ message: "orgId is required" }, 400);
+      if (!PROVIDERS[provider]) return json({ message: "Unknown teammate." }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
+      const canEdit = membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.ai_settings");
+      if (request.method === "PUT") {
+        if (!canEdit) return json({ message: "Only an admin of this workspace can set up AI teammates." }, 403);
+        const me = await getUserByGithubId(env.DB, session.github_id);
+        const org = await env.DB.prepare("SELECT name FROM orgs WHERE id = ?1").bind(orgId).first().catch(() => null);
+        const members = await listMembers(env.DB, orgId, session.github_id).catch(() => []);
+        const before = await loadTeammate(env.DB, orgId, provider);
+        const result = await saveTeammate(env, orgId, provider, body, { login: me?.login || String(session.github_id), workspaceName: org?.name || "Workspace", members });
+        if (result.error) return json({ message: result.error }, 400);
+        // What changed, never a key.
+        await audit(env, request, { orgId, action: "workspace.teammate_changed", actor: await actorOf(env, session), entity: { type: "teammate", id: provider, name: PROVIDERS[provider].name }, details: {
+          enabled: Boolean(result.teammate?.enabled), wasEnabled: Boolean(before?.enabled),
+          apiKey: body.apiKey === undefined ? undefined : (body.apiKey ? "set" : "removed"),
+          githubToken: body.githubToken === undefined ? undefined : (body.githubToken ? "set" : "removed"),
+          repos: body.repos === undefined ? undefined : result.teammate?.repos,
+          channels: body.channels === undefined ? undefined : (result.teammate?.channels === null ? "all" : result.teammate?.channels?.length),
+          monthlyLimit: body.monthlyLimit !== undefined ? body.monthlyLimit : body.monthlyLimitUsd,
+          account: body.account === undefined ? undefined : (body.account ? "set" : "removed"),
+          tools: body.tools === undefined ? undefined : (result.teammate?.tools || []).map((t) => t.name),
+        } });
+      }
+      const t = await loadTeammate(env.DB, orgId, provider);
+      return json({ orgId, canEdit, teammate: toClientTeammate(t, provider, await spentThisMonth(env.DB, orgId, provider)) });
+    }
+    // The workspace's mark. Anyone can see it (the id is unguessable, like a
+    // card's video); its admins set and remove it.
+    const iconMatch = url.pathname.match(/^\/orgs\/icon\/([^/]+)$/);
+    if (iconMatch && request.method === "GET") {
+      return serveOrgIcon(decodeURIComponent(iconMatch[1]), env);
+    }
+    if (url.pathname === "/orgs/icon" && (request.method === "POST" || request.method === "DELETE")) {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
+      if (!membershipIsOurs(orgId) || !(await allowed(env.DB, orgId, session.github_id, "workspace.icon"))) return json({ message: "Only an admin of this workspace can change its logo." }, 403);
+      if (request.method === "DELETE") {
+        await removeOrgIcon(env, orgId);
+        await audit(env, request, { orgId, action: "workspace.icon_changed", actor: await actorOf(env, session), details: { removed: true } });
+        return json({ orgId, icon: null });
+      }
+      const result = await uploadOrgIcon(request, env, orgId);
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      await audit(env, request, { orgId, action: "workspace.icon_changed", actor: await actorOf(env, session) });
+      return json({ orgId, icon: iconUrl(url.origin, result.mediaId) });
+    }
+    // The workspace's own emoji. Its members list, add and use them; the
+    // pictures are served like the logo, by an id only members are given.
+    const emojiImg = url.pathname.match(/^\/emoji\/img\/([^/]+)$/);
+    if (emojiImg && request.method === "GET") {
+      return serveEmoji(decodeURIComponent(emojiImg[1]), env);
+    }
+    if (url.pathname === "/emoji" && ["GET", "POST", "DELETE"].includes(request.method)) {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
+      if (request.method === "GET") return json({ orgId, emoji: await listEmoji(env.DB, orgId, url.origin) });
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (request.method === "POST") {
+        if (await isGuest(env.DB, orgId, session.github_id)) return json({ message: "A guest cannot add emoji." }, 403);
+        const result = await addEmoji(request, env, { orgId, login: user?.login || null, name: url.searchParams.get("name"), origin: url.origin });
+        if (result.error) return json({ message: result.error }, result.status || 400);
+        await audit(env, request, { orgId, action: "emoji.added", actor: person(user), entity: { type: "emoji", id: result.emoji?.name, name: `:${result.emoji?.name}:` } });
+        return json({ orgId, emoji: result.emoji }, 201);
+      }
+      const name = url.searchParams.get("name") || "";
+      const result = await removeEmoji(env, { orgId, name, login: user?.login || null, isAdmin: await allowed(env.DB, orgId, session.github_id, "emoji.remove_others") });
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      await audit(env, request, { orgId, action: "emoji.removed", actor: person(user), entity: { type: "emoji", id: name, name: `:${name}:` } });
+      return json({ orgId, ...result });
+    }
+    // Deleting the workspace: an owner, signed in within the hour, typing its
+    // name. Thirty days to take it back (workspaceDeletion.js).
+    if ((url.pathname === "/orgs/delete" && (request.method === "POST" || request.method === "GET")) || (url.pathname === "/orgs/delete/cancel" && request.method === "POST")) {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = request.method === "GET" ? { orgId: url.searchParams.get("orgId") } : await request.json().catch(() => ({}));
+      const orgId = typeof body.orgId === "string" ? body.orgId : "";
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const { memberGate, reauthDenial } = await import("./policy.js");
+      const refused = await memberGate(env, session, orgId);
+      if (refused) return refused;
+      if (!(await allowed(env.DB, orgId, session.github_id, "workspace.delete"))) return json({ message: "Only an owner can delete the workspace." }, 403);
+      if (request.method === "GET") {
+        const { deletionDue } = await import("./workspaceDeletion.js");
+        return json({ dueAt: await deletionDue(env.DB, orgId) });
+      }
+      const stale = await reauthDenial(env, session, orgId, { owner: true });
+      if (stale) return json(stale.body, stale.status);
+      const { scheduleDeletion, cancelDeletion, GRACE_DAYS } = await import("./workspaceDeletion.js");
+      const actor = await actorOf(env, session);
+      if (url.pathname === "/orgs/delete/cancel") {
+        const outcome = await cancelDeletion(env, request, { orgId, actor });
+        if (outcome === "cancelled") return json({ cancelled: true });
+        if (outcome === "started") return json({ message: "This workspace is already being deleted and can no longer be kept.", code: "deletion-started" }, 409);
+        return json({ message: "This workspace is not being deleted." }, 409);
+      }
+      const name = (await env.DB.prepare("SELECT name FROM orgs WHERE id = ?1").bind(orgId).first().catch(() => null))?.name || orgId;
+      if (String(body.confirm || "").trim() !== name) return json({ message: `Type the workspace's name, ${name}, to delete it.`, code: "confirm-name", name }, 400);
+      const dueAt = await scheduleDeletion(env, request, { orgId, by: session.github_id, actor });
+      return json({ dueAt, graceDays: GRACE_DAYS }, 202);
+    }
+    if (url.pathname === "/orgs/name" && request.method === "PUT") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (body.orgId) {
+        const { memberGate } = await import("./policy.js");
+        const refused = await memberGate(env, session, body.orgId);
+        if (refused) return refused;
+      }
+      const result = await renameTeam(env.DB, { orgId: body.orgId, actorId: session.github_id, name: body.name });
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      await audit(env, request, { orgId: body.orgId, action: "workspace.renamed", actor: await actorOf(env, session), entity: { type: "workspace", id: body.orgId, name: result.name || null } });
+      return json(result);
+    }
+
+    // Who is here, and what is still out. Both scoped to one org and both
+    // requiring membership of it — the team is not public, and neither is the
+    // list of ways into it.
+    if (url.pathname === "/members" && request.method === "GET") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      // A workspace made before owners existed is given one the first time
+      // anyone looks at who is in it.
+      const assigned = await ensureOwner(env.DB, orgId);
+      if (assigned) {
+        const owner = await getUserByGithubId(env.DB, assigned).catch(() => null);
+        await audit(env, request, { orgId, action: "owner.assigned", actor: { type: "system" }, entity: { type: "user", id: owner?.login || null, name: owner?.name || null } });
+      }
+      return json({
+        members: await listMembersForClient(env.DB, orgId, session.github_id),
+        // An offer to hand the workspace on, when one is standing.
+        ownerTransfer: await transferFor(env.DB, orgId, session.github_id),
+        // Whether this list is ours to change. A repository-backed org's
+        // members are its collaborators, so the screen shows them and says
+        // where they are actually decided rather than offering a button that
+        // the next org-graph load would undo.
+        editable: membershipIsOurs(orgId),
+        // What the team calls itself, and whether this person may change it.
+        name: await teamName(env.DB, orgId),
+        canRename: await canRename(env.DB, orgId, session.github_id),
+        // And its mark, when it has one.
+        icon: iconUrl(url.origin, (await getOrgIcon(env.DB, orgId))?.mediaId),
+      });
+    }
+
+    if (url.pathname === "/members/departure" && request.method === "GET") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId"), ref = url.searchParams.get("ref");
+      if (!orgId || !ref) return json({ message: "orgId and ref are required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      if (ref !== await memberRef(orgId, String(session.github_id))) {
+        const recent = await requireRecentAuth(env, request, orgId);
+        if (recent) return recent;
+      }
+      const result = await previewMemberDeparture(env, { orgId, actorId: session.github_id, ref });
+      if (result.error) return json({ message: result.error, code: result.code }, result.status || 400);
+      return json(result);
+    }
+
+    if (url.pathname === "/members" && request.method === "DELETE") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      // Removing someone else is an admin action; leaving is not.
+      const leaving = !body.userId && body.ref && body.ref === await memberRef(body.orgId, String(session.github_id));
+      if (!leaving && !(body.userId && String(body.userId) === String(session.github_id))) {
+        const again = await requireRecentAuth(env, request, body.orgId);
+        if (again) return again;
+      }
+      const result = await removeMember(env, {
+        orgId: body.orgId,
+        actorId: session.github_id,
+        // `ref` is what a client holds; `userId` is what the server itself
+        // has, and the iOS build in the field still sends it.
+        targetId: body.userId,
+        ref: body.ref,
+        transferTo: body.transferTo,
+        previewVersion: body.previewVersion,
+      });
+      if (result.error) return json({ message: result.error, code: result.code }, result.status || 400);
+      // Out of the table is not out of the room. A socket is authorized once,
+      // at join, so the one they are already holding keeps receiving this
+      // org's cards until something else drops it.
+      await evictMember(env, body.orgId, result.login);
+      const removedName = (await getUserByLogin(env.DB, result.login).catch(() => null))?.name || null;
+      await audit(env, request, result.left
+        ? { orgId: body.orgId, action: "member.left", actor: await actorOf(env, session), details: result.handoff || {} }
+        : { orgId: body.orgId, action: "member.removed", actor: await actorOf(env, session), entity: { type: "user", id: result.login, name: removedName }, details: result.handoff || {} });
+      return json(result);
+    }
+
+    // An admin changes someone's role — a guest made a member, a member an
+    // admin — or which channels a guest is in.
+    if (url.pathname === "/members/role" && request.method === "PUT") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      const again = await requireRecentAuth(env, request, body.orgId);
+      if (again) return again;
+      const result = await changeRole(env, { orgId: body.orgId, actorId: session.github_id, ref: body.ref, role: body.role, channels: body.channels });
+      if (result.error) {
+        if (result.status === 403) await audit(env, request, { orgId: body.orgId, action: "security.permission_denied", actor: await actorOf(env, session), entity: { type: "resource", id: "member_role", name: "a member's role" }, outcome: "denied" });
+        return json({ message: result.error, code: result.code }, result.status || 400);
+      }
+      const actor = await actorOf(env, session);
+      const entity = { type: "user", id: result.login, name: result.name };
+      if (result.from !== result.to) await audit(env, request, { orgId: body.orgId, action: "member.role_changed", actor, entity, details: { from: result.from, to: result.to } });
+      // Owners are critical, and every owner hears about it.
+      if (result.from !== result.to && (result.to === "owner" || result.from === "owner")) {
+        const added = result.to === "owner";
+        await audit(env, request, { orgId: body.orgId, action: added ? "owner.added" : "owner.removed", actor, entity });
+        const name = (await teamName(env.DB, body.orgId)) || "your workspace";
+        await mailOwners(env, body.orgId, {
+          subject: added ? `${result.name} is now an owner of ${name}` : `${result.name} is no longer an owner of ${name}`,
+          text: `${actor?.name || "An owner"} ${added ? "made" : "took owner away from"} ${result.name}${added ? " an owner" : ""} of ${name}.`,
+        });
+      }
+      if (result.channels) await audit(env, request, { orgId: body.orgId, action: "member.channels_changed", actor, entity, details: { channels: result.channels } });
+      if (result.from !== result.to) await evictMember(env, body.orgId, result.login);
+      return json({ ok: true, role: result.to, channels: result.channels || null });
+    }
+
+    if (url.pathname === "/invites" && request.method === "GET") {
+      const limited = await enforce(env, request, "team");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ invites: await listInvites(env, { orgId, viewerId: session.github_id }) });
+    }
+
+    if (url.pathname === "/invites" && request.method === "DELETE") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      const result = await revokeInvite(env, {
+        orgId: body.orgId,
+        viewerId: session.github_id,
+        code: body.code,
+        ref: body.ref,
+      });
+      if (result.error) return json({ message: result.error }, result.status || 400);
+      await audit(env, request, { orgId: body.orgId, action: "invite.revoked", actor: await actorOf(env, session), entity: { type: "invite", id: body.ref || null, name: null } });
+      return json(result);
+    }
+
+    // What the iPhone app should be on. The newest version comes from the
+    // App Store itself; this says only the oldest one the service still
+    // works with (IOS_MIN_VERSION), and where to get it if the lookup
+    // cannot say (IOS_APP_STORE_URL). No sign-in: a build too old to sign
+    // in is exactly the one that needs to hear it.
+    if (url.pathname === "/app/ios" && request.method === "GET") {
+      const version = (v) => (typeof v === "string" && /^\d+(\.\d+){0,3}$/.test(v.trim()) ? v.trim() : null);
+      const store = typeof env.IOS_APP_STORE_URL === "string" && /^https:\/\/apps\.apple\.com\//.test(env.IOS_APP_STORE_URL) ? env.IOS_APP_STORE_URL : null;
+      return new Response(JSON.stringify({ minimumVersion: version(env.IOS_MIN_VERSION), storeUrl: store }), {
+        headers: { "content-type": "application/json", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" },
+      });
+    }
+
+    if (url.pathname === "/health" && request.method === "GET") {
+      const sealed = encryptionReady(env);
+      return json({
+        // Where encryption is required (production), not ok without it: the
+        // deploy's check fails rather than serving plaintext.
+        ok: sealed.all || !requiresEncryption(env),
+        encryption: sealed,
+        githubOAuth: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+        githubOAuthWeb: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.GITHUB_WEB_REDIRECT_URI),
+        aiRouting: Boolean(env.OPENAI_API_KEY || env.OPENROUTER_API_KEY),
+        systemOne: Boolean(env.TYPESAFE_API_KEY),
+        aiModel: env.OPENAI_API_KEY
+          ? env.OPENAI_MODEL || "gpt-4o-mini"
+          : env.OPENROUTER_API_KEY
+            ? env.OPENROUTER_MODEL || "inclusionai/ling-3.0-flash:free"
+            : "fallback",
+        push: isConfigured(env),
+        // Android phones (FCM), beside iPhones (`push`, APNs).
+        fcm: isFcmConfigured(env),
+        webPush: isWebPushConfigured(env),
+        email: isMailConfigured(env),
+        // Invite links and notification links need the web's own address.
+        inviteLinks: Boolean(inviteLink(env, "probe")),
+        // What still stands between a stranger and a working account. None
+        // of this is secret: it is whether a thing is set, not what it is.
+        // Mail from the shared Resend sender reaches only the Resend
+        // account's own address, so until a domain is verified nobody else
+        // can receive a sign-in code.
+        mailSender: env.NOTIFY_EMAIL_FROM && !/resend\.dev/i.test(env.NOTIFY_EMAIL_FROM) ? "verified" : "shared",
+        connectors: Boolean(env.COMPOSIO_API_KEY),
+        billing: Boolean(env.REVENUECAT_SECRET_KEY),
+        githubOAuthNative: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+        // Where the web app is: the phone app opens a Jam there, in its own
+        // web view. Public already — every invite link carries it.
+        webUrl: env.APP_WEB_URL ? String(env.APP_WEB_URL).replace(/\/$/, "") : null,
+      });
+    }
+    if (url.pathname === "/agui/tools" && request.method === "GET") {
+      return json(toolManifest());
+    }
+    if (url.pathname === "/ai/route" && request.method === "POST") {
+      const limited = await enforce(env, request, "ai/route");
+      if (limited) return limited;
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      // The whole body becomes a prompt. An instruction is a sentence or a
+      // paragraph; anything longer is not one, and on a paid, unmetered tier
+      // it is somebody else's model context on our key.
+      if (typeof body.text !== "string" || !body.text.trim()) {
+        return json({ message: "text is required." }, 400);
+      }
+      if (body.text.length > MAX_INSTRUCTION_CHARS) {
+        return json({ message: `That instruction is too long (over ${MAX_INSTRUCTION_CHARS} characters).` }, 400);
+      }
+      if (typeof body.senderContext === "string" && body.senderContext.length > MAX_INSTRUCTION_CHARS) {
+        return json({ message: "senderContext is too long." }, 400);
+      }
+      const userKey = request.headers.get("x-ai-key") || undefined;
+      // The route is usable without a session (guests), but only a session can
+      // be metered — and an unmetered guest must not spend our AI budget.
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const allowance = await allowanceFor(env, body.organization?.orgId || body.orgId, {
+        githubId: session ? String(session.github_id) : null,
+        userKey,
+      });
+
+            // Build the org from real memberships when we can, so routing sees the
+      // whole team (and cannot be spoofed by the client). Fall back to whatever
+      // the client sent only when there is no session/org to look up.
+      let organization = body.organization;
+      let teamContext;
+      let lookups;
+      const routeOrgId = body.organization?.orgId || body.orgId;
+      // A mention is a choice: "@Kenji, approve the price" is for Kenji.
+      // One mention names the recipient outright; several leave it to the
+      // router, which then sees the whole member list.
+      const mentions = Array.isArray(body.mentions) ? body.mentions.filter((m) => typeof m === "string" && m.trim()).slice(0, 10) : [];
+      if (mentions.length > 1) body.memberReferences = true;
+      const chosenId = body.recipientUserID !== undefined
+        ? body.recipientUserID
+        : (mentions.length === 1 ? (mentions[0].startsWith("member:") ? mentions[0] : `member:${mentions[0]}`) : undefined);
+      if (chosenId !== undefined && (typeof chosenId !== "string" || !chosenId.trim())) {
+        return json({ message: "Choose a workspace member." }, 400);
+      }
+      if ((chosenId !== undefined || body.memberReferences === true) && (!session || !routeOrgId)) {
+        return json({ message: "Sign in to a workspace before choosing a teammate." }, 401);
+      }
+      let routeMembers = [];
+      let chosenMember;
+      if (session && routeOrgId) {
+        // Naming an org is not belonging to it. Everything else that reads an
+        // organization checks this; this route did not, and it answers with a
+        // recipient and an agent route built from that org's real membership
+        // rows — so any signed-in account could name a team it had no part in
+        // (a repository org is just "owner/repo") and be told, by name, who is
+        // on it. The reply is small; the list it is drawn from is not public.
+        //
+        // Through authorizeOrgAccess rather than the membership table alone,
+        // for the reason that function documents: the table is written when
+        // somebody loads the org graph, so a GitHub account routing before it
+        // has ever done so is a member GitHub knows about and this database
+        // does not. Asking GitHub is what the socket does on join.
+        const allowed = await authorizeOrgAccess(env, session, routeOrgId);
+        if (!allowed.ok) return json({ message: "not a member of this org" }, 403);
+        if (chosenId !== undefined || body.memberReferences === true) {
+          routeMembers = await listMembers(env.DB, routeOrgId, session.github_id);
+          if (chosenId !== undefined) {
+            chosenMember = routeMembers.find(m => chosenId === `member:${m.ref}` || chosenId === m.login);
+            if (!chosenMember) return json({ message: "That recipient is not a current member of this workspace." }, 400);
+          }
+        }
+        const nodes = await listOrgNodes(env.DB, routeOrgId);
+        if (nodes.length) {
+          organization = { ...(body.organization || {}), orgId: routeOrgId, nodes };
+        }
+        // The org's businesses, so the router can file the card under one.
+        // From the table, never the client: a slug the router returns must be
+        // one the feed can filter by.
+        const businesses = await listBusinesses(env.DB, routeOrgId, { viewer: session ? (await getUserByGithubId(env.DB, session.github_id))?.login || null : null });
+        if (businesses.length) organization = { ...(organization || {}), orgId: routeOrgId, businesses };
+        // What the team is carrying and what it decided lately. The router
+        // used to see roles and nothing else — "their priorities and current
+        // situation", which the product promises to weigh, were never in the
+        // prompt. Two queries, both bounded, both optional: a failure here is
+        // a card routed the old way, not a card not routed.
+        // What the sender could open themselves, and nothing of the team's for
+        // a guest.
+        const routeAccess = await cardAccess(env, request, routeOrgId);
+        try {
+          const [load, recent, playbook] = routeAccess.guest ? [[], [], []] : await Promise.all([
+            recipientLoad(env.DB, routeOrgId),
+            recentDecisions(env.DB, routeOrgId, { access: routeAccess }),
+            // The rules this team has set, the ones that bear on this
+            // instruction first.
+            relevantMemories(env.DB, routeOrgId, body.text),
+          ]);
+          if (load.length || recent.length || playbook.length) teamContext = { load, recent, playbook };
+        } catch (err) {
+          console.error("team context failed", err?.message || err);
+        }
+        // And the one thing the model may look up before it writes: what
+        // this team already decided about the same thing.
+        const lookupOrg = routeOrgId;
+        lookups = { searchDecisions: (query) => searchDecisions(env.DB, lookupOrg, query, { access: routeAccess }) };
+        // And the person's own connected tools, when they have them.
+        try {
+          const routeSession = await getSession(env.DB, request.headers.get("x-session-token"));
+          const sources = await connectedSources(env, routeSession, lookupOrg);
+          Object.assign(lookups, lookupsFor(env, routeSession, lookupOrg, sources));
+        } catch (err) {
+          console.error("connected sources failed", err?.message || err);
+        }
+      }
+
+      if (chosenMember) {
+        // The sender too, so the card names them as they go by here rather
+        // than by a name made from their login.
+        const self = routeMembers.find((m) => m.mine && m.login !== chosenMember.login);
+        organization = { ...organization, nodes: [{ id: chosenMember.login, kind: "person",
+          role: chosenMember.title || chosenMember.role, label: `${chosenMember.name} · ${chosenMember.title || chosenMember.role}` },
+          ...(self ? [{ id: self.login, kind: "person", role: self.title || self.role, label: `${self.name} · ${self.title || self.role}` }] : [])], edges: [] };
+      }
+      // The sender's own "how I work", from the workspace's stored row when
+      // the client did not carry it — a browser that never wrote one locally
+      // still routes with what the phone saved.
+      let senderContext = typeof body.senderContext === "string" ? body.senderContext : undefined;
+      if (!senderContext && session && routeOrgId) {
+        try {
+          const user = await getUserByGithubId(env.DB, session.github_id);
+          const stored = user ? (await loadContexts(env.DB, routeOrgId))[user.login] : undefined;
+          if (typeof stored?.text === "string" && stored.text.trim()) senderContext = stored.text;
+        } catch (err) {
+          console.error("stored context failed", err?.message || err);
+        }
+      }
+      const routeProvider = allowance.allowed ? await providerFor(env, routeOrgId, userKey) : undefined;
+      // The router's own words on the card ("Approval needed") when it has no
+      // model to write them, in the reader's language.
+      if (typeof body.readerLanguage === "string") await loadCopy(env, body.readerLanguage, { orgId: routeOrgId });
+      const result = await routeInstruction({
+        text: body.text,
+        sender: body.sender,
+        organization,
+        priorityOverride: body.priorityOverride,
+        readerLanguage: body.readerLanguage,
+        senderContext,
+        teamContext,
+        lookups,
+        // No provider means the local keyword router — the graceful degradation.
+        openRouter: routeProvider,
+        // System One decides for a fraction of a cent, allowance or not; the
+        // language model is the second opinion, within the allowance. But
+        // only for someone signed in: a guest is unmetered, and unmetered
+        // must mean spending nothing, however little.
+        systemOne: session ? await jevFor(env, routeOrgId) : undefined,
+      });
+      if (chosenMember) {
+        result.recipientUserID = chosenMember.login;
+        result.routingReason = serverText(typeof body.readerLanguage === "string" ? body.readerLanguage : "en", "route.selectedByYou");
+        // The name this person goes by here, not the one a client made up
+        // from the login.
+        const me = routeMembers.find((m) => m.mine);
+        result.agentRoute = `${me?.name || body.sender?.name || "You"} → ${chosenMember.name}`;
+      }
+      if (body.memberReferences === true) {
+        const recipient = routeMembers.find(m => m.login === result.recipientUserID);
+        if (!recipient) return json({ message: "Choose a current workspace member." }, 400);
+        result.recipientUserID = recipient.mine ? recipient.login : `member:${recipient.ref}`;
+      }
+      // Only a model that actually answered is billable — including one whose
+      // answer we then rejected, which still comes back as routedBy "fallback".
+      // A provider outage never burns someone's three.
+      const modelAnswered = allowance.allowed && result.aiCalled === true;
+      if (modelAnswered && allowance.metered) await allowance.consume();
+      // The bill, by team: the model's tokens and System One's, whoever paid.
+      if (session && routeOrgId) {
+        await settleUsage(env.DB, routeProvider, { orgId: routeOrgId, githubId: session.github_id, byok: Boolean(userKey) },
+          result.systemOneUsage ? [jevEntry("route", result.systemOneUsage)] : []);
+      }
+      // Internal to the meter. Stripped so the wire format is unchanged.
+      delete result.aiCalled;
+      delete result.systemOneUsage;
+
+      return json(allowance.quotaExceeded ? { ...result, quotaExceeded: true } : result);
+    }
+    if (url.pathname === "/oauth/github/config" && request.method === "GET") {
+      if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+        return json({ message: "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET as Worker secrets" }, 503);
+      }
+      // The app comes back through its own URL scheme; the web through a page
+      // on its own origin. Each is a callback URL registered on the GitHub
+      // OAuth app, and the web one is offered only where it has been set.
+      if (url.searchParams.get("client") === "web") {
+        if (!env.GITHUB_WEB_REDIRECT_URI) {
+          return json({ message: "GitHub sign-in on the web is not set up on this deployment (GITHUB_WEB_REDIRECT_URI)." }, 503);
+        }
+        return json({ clientId: env.GITHUB_CLIENT_ID, redirectUri: env.GITHUB_WEB_REDIRECT_URI, scope: env.GITHUB_OAUTH_SCOPE || "repo" });
+      }
+      return json({
+        clientId: env.GITHUB_CLIENT_ID,
+        redirectUri: env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback",
+        scope: env.GITHUB_OAUTH_SCOPE || "repo",
+      });
+    }
+    // Minted here, spent on the callback. The client puts it on the authorize
+    // URL as `state` and refuses a callback that comes back with a different
+    // one; we refuse a code that arrives without a nonce we issued.
+    if (url.pathname === "/oauth/github/state" && request.method === "GET") {
+      const limited = await enforce(env, request, "oauth/state");
+      if (limited) return limited;
+      return json({ state: await createOAuthState(env.DB) });
+    }
+    if (url.pathname === "/oauth/github/token" && request.method === "POST") {
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      const { code, state, redirectUri } = await request.json().catch(() => ({}));
+      // The redirect the code was issued for. GitHub checks it against the
+      // authorize step, and we check it against the two we registered, so a
+      // caller cannot exchange a code through an address of their own.
+      const appRedirect = env.GITHUB_REDIRECT_URI || "tiktokforwork://oauth/callback";
+      const allowedRedirects = new Set([appRedirect, env.GITHUB_WEB_REDIRECT_URI].filter(Boolean));
+      const redirect = typeof redirectUri === "string" && redirectUri ? redirectUri : appRedirect;
+      if (!allowedRedirects.has(redirect)) return json({ message: "That is not a sign-in address this deployment knows." }, 400);
+      if (!(await consumeOAuthState(env.DB, state))) {
+        return json({ message: "This sign-in has expired. Try again." }, 400);
+      }
+      const ghRes = await fetch("https://github.com/login/oauth/access_token", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+          client_id: env.GITHUB_CLIENT_ID,
+          client_secret: env.GITHUB_CLIENT_SECRET,
+          code,
+          redirect_uri: redirect,
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data = await ghRes.json();
+      if (!data.access_token) {
+        return json({ message: data.error_description || "token exchange failed" }, 400);
+      }
+      const userRes = await fetch("https://api.github.com/user", {
+        headers: { authorization: `Bearer ${data.access_token}`, "user-agent": "tiktokforwork" },
+        signal: AbortSignal.timeout(20_000),
+      });
+      const ghUser = await userRes.json();
+      if (!ghUser?.id) return json({ message: "GitHub did not identify this token" }, 502);
+      // The user row used to appear only when someone loaded the org graph,
+      // which happens after the socket connects — so the relay could not name
+      // the person who had just signed in. Identity is established here, where
+      // it is first known.
+      // Seeded from the device's language on first sign-in only: upsertUser
+      // keeps a stored locale when none is passed, and an explicit choice made
+      // through PUT /me is the only thing that changes it after that.
+      const existing = await getUserByGithubId(env.DB, ghUser.id);
+      await upsertUser(env.DB, {
+        githubId: ghUser.id, login: ghUser.login, name: ghUser.name,
+        avatarUrl: ghUser.avatar_url, locale: existing ? undefined : localeFromRequest(request),
+      });
+      const sessionToken = await createSession(env.DB, String(ghUser.id), data.access_token);
+      await signedIn(env, request, sessionToken, String(ghUser.id), "github");
+      // The GitHub token is not handed back. It carries `repo` scope — every
+      // repository this person can reach, code included — and the app does six
+      // things with it, all of which now go through /github. A session cannot
+      // be replayed against api.github.com; an access token can.
+      // The workspaces this account already belongs to, so a returning person
+      // lands in one instead of the repository picker.
+      const orgs = (await listUserOrgs(env.DB, String(ghUser.id)).catch(() => [])).map((o) => o?.id).filter(Boolean);
+      return json({ tokenType: "bearer", sessionToken, login: ghUser.login, orgs });
+    }
+    if (url.pathname === "/media" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const limited = await enforce(env, request, "media");
+      if (limited) return limited;
+      // A workspace named is one the caller belongs to; the video is then
+      // kept under it. An app that names none gets the bare id, as before.
+      const orgId = url.searchParams.get("orgId") || null;
+      if (orgId) {
+        const { memberGate } = await import("./policy.js");
+        const refused = await memberGate(env, session, orgId);
+        if (refused) return refused;
+      }
+      return uploadMedia(request, env, url, { orgId });
+    }
+    // A card's video, by a signed address for someone who may read the card.
+    if (url.pathname === "/media/video" && request.method === "POST") {
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object" || typeof body.cardId !== "string") return json({ message: "Invalid JSON body." }, 400);
+      const who = await caller(env, request, body.orgId);
+      if (who.denied) return who.denied;
+      const out = await cardVideoUrl(env, { orgId: body.orgId, login: who.user.login, cardId: body.cardId });
+      return out ? json(out) : json({ message: "No such video." }, 404);
+    }
+    // New addresses for files whose addresses ran out (mediaToken.js).
+    if (url.pathname === "/media/urls" && request.method === "POST") {
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") return json({ message: "Invalid JSON body." }, 400);
+      const who = await caller(env, request, body.orgId);
+      if (who.denied) return who.denied;
+      return json({ files: await freshFileUrls(env, { orgId: body.orgId, login: who.user.login, ids: body.ids }) });
+    }
+    const mediaMatch = url.pathname.match(/^\/media\/([^/]+)$/);
+    if (mediaMatch && (request.method === "GET" || request.method === "HEAD")) {
+      return serveMedia(mediaMatch[1], env, request, url);
+    }
+    // The businesses an organization runs. Read by the feed for its filter
+    // chips and by the router for its enum; written when someone names a new
+    // one — from here, or by tagging a card with a name nobody has typed
+    // before. `orgId` is a query or body field rather than a path segment
+    // because a personal org id is not "owner/repo".
+    // The room is told only the public channels, and whether there are
+    // private ones — a member of one asks again for their own list. With a
+    // guest in the workspace not even those: a guest reads only the public
+    // channels they were let into, so everyone asks for their own list.
+    const tellRoom = async (orgId) => {
+      const guests = await hasGuests(env.DB, orgId);
+      return announceEvents(env, orgId, [customEvent("businesses", {
+        businesses: guests ? [] : await listBusinesses(env.DB, orgId),
+        partial: guests || await hasPrivateBusinesses(env.DB, orgId),
+      })]);
+    };
+    const viewerLogin = async () => {
+      const s = await getSession(env.DB, request.headers.get("x-session-token"));
+      return s ? (await getUserByGithubId(env.DB, s.github_id))?.login || null : null;
+    };
+    if (url.pathname === "/businesses" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      return json({ businesses: await listBusinesses(env.DB, orgId, { viewer: await viewerLogin() }) });
+    }
+    if (url.pathname === "/businesses" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      if (!businessSlug(body.name)) return json({ message: "A business needs a name." }, 400);
+      const me = await getUserByGithubId(env.DB, session.github_id);
+      if (await isGuest(env.DB, body.orgId, session.github_id)) return json({ message: "A guest cannot create channels." }, 403);
+      if (body.private === true) {
+        // A private channel is made, never found: a name already taken —
+        // public or private, seen or not — is somebody else's channel.
+        const members = await listMembers(env.DB, body.orgId, session.github_id);
+        const refs = Array.isArray(body.members) ? body.members.map(String) : [];
+        if(refs.some(ref=>!members.some(member=>member.ref===ref)))return json({message:"Selected members changed. Reload and choose the members again."},409);
+        const chosen=members.filter(m=>m.userId===String(session.github_id) || refs.includes(m.ref));
+        const created=await createPrivateBusiness(env.DB,body.orgId,{name:body.name,actorId:session.github_id,actorLogin:me?.login,members:chosen});
+        if (!created) return json({message:"That channel name is unavailable or workspace membership changed. Choose another name or reload and choose the members again."},409);
+        const {business,logins}=created;
+        await tellMembers(env, body.orgId, logins);
+        await tellRoom(body.orgId);
+        await audit(env, request, { orgId: body.orgId, action: "channel.created", actor: person(me), entity: { type: "channel", id: business.slug, name: `#${business.name}` }, details: { private: true } });
+        return json({ business: { ...business, private: true }, businesses: await listBusinesses(env.DB, body.orgId, { viewer: me.login }) });
+      }
+      const existed = await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, businessSlug(body.name)).first();
+      const business = await upsertBusiness(env.DB, body.orgId, { name: body.name, createdBy: String(session.github_id) });
+        if (!business) return json({message:"A channel by that name already exists."},409);
+      if (!existed && business) await audit(env, request, { orgId: body.orgId, action: "channel.created", actor: person(me), entity: { type: "channel", id: business.slug, name: `#${business.name}` } });
+      // Everyone with the workspace open sees the new channel now.
+      await tellRoom(body.orgId);
+      return json({ business, businesses: await listBusinesses(env.DB, body.orgId, { viewer: me?.login || null }) });
+    }
+    // A channel's new name. Any member: a channel is the team's, like a
+    // card is.
+    if (url.pathname === "/businesses" && request.method === "PUT") {
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId || !body.slug) return json({ message: "orgId and slug are required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      const who = await viewerLogin();
+      // A private channel is its members' to rename; to anybody else it is
+      // not there.
+      if (!(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ message: "A channel needs a name, and this one must exist." }, 400);
+      const before = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
+      if (typeof body.name !== 'string' || !body.name.trim()) return json({message:"A channel needs a name, and this one must exist."},400);
+      const renamingSession = await getSession(env.DB, request.headers.get("x-session-token"));
+      const change = await archiveManagedRoom(env.DB, body.orgId, `b:${String(body.slug)}`, {actorId:renamingSession.github_id,name:body.name.trim().slice(0,120),version:body.version});
+      if (change.error) return json({message:change.error},change.status);
+      const renamed = change.managed ? {slug:String(body.slug),name:body.name.trim().slice(0,120)} : await renameBusiness(env.DB, body.orgId, String(body.slug), body.name);
+      if (!renamed) return json({ message: "A channel needs a name, and this one must exist." }, 400);
+      if (before?.name !== renamed.name) {
+        const session = await getSession(env.DB, request.headers.get("x-session-token"));
+        const me = await getUserByGithubId(env.DB, session.github_id);
+        await audit(env, request, { orgId: body.orgId, action: "channel.renamed", actor: person(me), entity: { type: "channel", id: renamed.slug, name: `#${renamed.name}` }, details: { from: before?.name || null } });
+      }
+      await tellRoom(body.orgId);
+      return json({ business: renamed, businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }) });
+    }
+    // Channels nobody talks in: no message from a person, no canvas, no
+    // bookmark — most of them made when cards were filed under names the
+    // AI made up, before it only chose among the team's own channels. The
+    // candidates to tidy away, with how many cards each holds.
+    if (url.pathname === "/businesses/unused" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      // The candidates to delete, for someone who may delete them: not a guest.
+      const guest = await guestRefused(env, request, orgId);
+      if (guest) return guest;
+      const who = await viewerLogin();
+      const visible = (await listBusinesses(env.DB, orgId, { viewer: who })).filter((b) => !b.private);
+      const unused = [];
+      for (const b of visible) {
+        const key = `b:${b.slug}`;
+        const talk = await env.DB.prepare(
+          `SELECT (SELECT COUNT(*) FROM channel_messages WHERE org_id = ?1 AND channel = ?2 AND kind = 'message' AND deleted_at IS NULL)
+                + (SELECT COUNT(*) FROM channel_canvases WHERE org_id = ?1 AND channel = ?2)
+                + (SELECT COUNT(*) FROM channel_bookmarks WHERE org_id = ?1 AND channel = ?2) AS n,
+                  (SELECT COUNT(*) FROM cards WHERE org_id = ?1 AND json_extract(data, '$.business') = ?3) AS cards`
+        ).bind(orgId, key, b.slug).first().catch(() => null);
+        if (talk && Number(talk.n) === 0) unused.push({ slug: b.slug, name: b.name, createdAt: b.createdAt, cards: Number(talk.cards) || 0 });
+      }
+      return json({ channels: unused });
+    }
+    // Archive channels: out of every list, their cards and history kept.
+    // Anyone but a guest, as deleting one is.
+    if (url.pathname === "/businesses/archive" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId || !Array.isArray(body.slugs)) return json({ message: "orgId and slugs are required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      if (await isGuest(env.DB, body.orgId, session.github_id)) return json({ message: "A guest cannot archive channels." }, 403);
+      const who = await viewerLogin();
+      const me = await getUserByGithubId(env.DB, session.github_id);
+      const now = new Date().toISOString();
+      let archived = 0;
+      for (const slug of body.slugs.map(String).slice(0, 100)) {
+        const row = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2 AND archived_at IS NULL").bind(body.orgId, slug).first();
+        if (!row) continue;
+        const change = await archiveManagedRoom(env.DB, body.orgId, `b:${slug}`, {actorId:session.github_id, archived:true});
+        if (change.error) return json({message:change.error},change.status);
+        if (!change.managed) {
+          if (!(await canTouchChannel(env.DB, body.orgId, slug, who))) continue;
+          const updated = await env.DB.prepare("UPDATE businesses SET archived_at = ?3 WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)").bind(body.orgId, slug, now).run();
+          if (!updated.meta?.changes) return json({message:"Room roles changed. Reload before saving."},409);
+        }
+        await audit(env, request, { orgId: body.orgId, action: "channel.archived", actor: person(me), entity: { type: "channel", id: slug, name: `#${row.name}` } });
+        archived += 1;
+      }
+      if (archived) await tellRoom(body.orgId);
+      return json({ archived, businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }) });
+    }
+    // The archived channels you may see — a private one only to its members —
+    // newest first, so one archived by mistake can be brought back.
+    if (url.pathname === "/businesses/archived" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const who = await viewerLogin();
+      const { results } = await env.DB.prepare(
+        "SELECT slug, name, COALESCE(private, 0) AS private, archived_at FROM businesses WHERE org_id = ?1 AND archived_at IS NOT NULL ORDER BY archived_at DESC LIMIT 200"
+      ).bind(orgId).all();
+      const channels = [];
+      for (const r of results || []) {
+        if (r.private && !(await canTouchChannel(env.DB, orgId, r.slug, who))) continue;
+        channels.push({ slug: r.slug, name: r.name, private: Boolean(r.private), archivedAt: r.archived_at });
+      }
+      return json({ channels });
+    }
+    // Bring an archived channel back, with everything it held. Whoever may
+    // archive one may restore it.
+    if (url.pathname === "/businesses/unarchive" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId || !body.slug) return json({ message: "orgId and slug are required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      if (await isGuest(env.DB, body.orgId, session.github_id)) return json({ message: "A guest cannot restore channels." }, 403);
+      const who = await viewerLogin();
+      const slug = String(body.slug);
+      const row = await env.DB.prepare("SELECT name FROM businesses WHERE org_id = ?1 AND slug = ?2 AND archived_at IS NOT NULL").bind(body.orgId, slug).first();
+      if (!row) return json({ message: "That channel is not archived." }, 404);
+      const change = await archiveManagedRoom(env.DB, body.orgId, `b:${slug}`, {actorId:session.github_id, archived:false});
+      if (change.error) return json({message:change.error},change.status);
+      if (!change.managed) {
+        if (!(await canTouchChannel(env.DB, body.orgId, slug, who))) return json({ message: "That channel is not archived." }, 404);
+        const updated = await env.DB.prepare("UPDATE businesses SET archived_at = NULL WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)").bind(body.orgId, slug).run();
+        if (!updated.meta?.changes) return json({message:"Room roles changed. Reload before saving."},409);
+      }
+      const me = await getUserByGithubId(env.DB, session.github_id);
+      await audit(env, request, { orgId: body.orgId, action: "channel.unarchived", actor: person(me), entity: { type: "channel", id: slug, name: `#${row.name}` } });
+      await tellRoom(body.orgId);
+      return json({ restored: true, businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }) });
+    }
+    if (url.pathname === "/businesses" && request.method === "DELETE") {
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId || !body.slug) return json({ message: "orgId and slug are required" }, 400);
+      const denied = await requireMember(env, request, body.orgId);
+      if (denied) return denied;
+      const who = await viewerLogin();
+      const managed = (await roomRoleState(env.DB, body.orgId, `b:${String(body.slug)}`, {includeArchived:true}))?.managed;
+      if (!managed && !(await canTouchChannel(env.DB, body.orgId, String(body.slug), who))) return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: 0 });
+      const gone = await env.DB.prepare("SELECT name,private,created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(body.orgId, String(body.slug)).first();
+      let wasPrivate = Boolean(gone?.private);
+      let insiders = wasPrivate ? await membersOf(env.DB, body.orgId, `b:${body.slug}`) : [];
+      // Public Simple channels retain their unfile behavior. A private room
+      // keeps a closed tombstone and its cards, including in Simple mode.
+      const deletingSession = await getSession(env.DB, request.headers.get("x-session-token"));
+      const deletion = await deleteManagedRoom(env.DB, body.orgId, `b:${String(body.slug)}`, {actorId:deletingSession.github_id,version:body.version});
+      if (deletion.error) return json({message:deletion.error}, deletion.status);
+      if(deletion.managed){wasPrivate=deletion.wasPrivate;insiders=wasPrivate?deletion.formerMembers:[];}
+      let unfiled=[];
+      if (!deletion.managed) {
+        const removed=await removeBusiness(env.DB, body.orgId, body.slug,{actorId:deletingSession.github_id,createdAt:gone?.created_at,wasPrivate});
+        if (!removed) return json({message:"Room roles changed. Reload before deleting."},409);
+        unfiled=removed.unfiled;
+        if(wasPrivate)insiders=removed.formerMembers;
+      }
+      // Deleted managed rooms and private legacy rooms retain tombstones.
+      // A managed public Jam can include people without membership rows, so
+      // evict everyone before later audit/list refreshes can fail. A legacy
+      // public slug can be recreated immediately and must not evict its Jam.
+      if(deletion.managed || wasPrivate)await evictRoomJam(env,body.orgId,`b:${body.slug}`);
+      if (gone) {
+        const session = await getSession(env.DB, request.headers.get("x-session-token"));
+        const me = await getUserByGithubId(env.DB, session.github_id);
+        await audit(env, request, { orgId: body.orgId, action: "channel.deleted", actor: person(me), entity: { type: "channel", id: String(body.slug), name: `#${gone.name}` }, details: { private: wasPrivate, unfiled: unfiled.length } });
+      }
+      await tellRoom(body.orgId);
+      if (wasPrivate) {
+        await tellMembers(env, body.orgId, insiders);
+      }
+      if (unfiled.length) await announceCards(env, body.orgId, unfiled, { isNew: false });
+      return json({ businesses: await listBusinesses(env.DB, body.orgId, { viewer: who }), unfiled: unfiled.length });
+    }
+
+    // The record: every decision, per business, as it stands right now.
+    // JSON for the client, Markdown (?format=md) for pasting anywhere else.
+    if (url.pathname === "/record" && request.method === "GET") {
+      const orgId = url.searchParams.get("orgId");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      const me = await getUserByGithubId(env.DB, session.github_id);
+      const locale = normalizeLocale(url.searchParams.get("locale")) || me?.locale || "en";
+      // ?channel=b:slug: that channel only, with its context written out.
+      const wanted = String(url.searchParams.get("channel") || "");
+      const channel = /^b:[^\s]+$/.test(wanted) ? wanted.slice(2) : null;
+      const record = await buildRecord(env.DB, orgId, { locale, viewer: me?.login || null, channel });
+      let context = null;
+      if (channel && record.businesses.length) {
+        const { channelContext } = await import("./channelContext.js");
+        context = await channelContext(env, { orgId, key: `b:${channel}`, locale, viewer: me?.login || null, githubId: session.github_id, refresh: url.searchParams.get("refresh") === "1" })
+          .catch((err) => { console.error("channel context failed", err?.message || err); return null; });
+      }
+      if (channel && !record.businesses.length) return json({ message: "No such channel." }, 404);
+      if (url.searchParams.get("format") === "md") {
+        return new Response(recordToMarkdown(record, locale, { context: context?.markdown || null }), {
+          headers: { "content-type": "text/markdown; charset=utf-8", "access-control-allow-origin": "*" },
+        });
+      }
+      return json(context ? { ...record, context: context.markdown, contextAt: context.generatedAt, contextNote: context.noModel ? "noModel" : context.quota ? "quota" : null } : record);
+    }
+
+    // What this account can spend, and what there is to buy. Read by the
+    // plan screen; also what tells the feed how many free routes are left.
+    if (url.pathname === "/billing/redeem" && request.method === "POST") {
+      const headers = { "cache-control": "no-store" };
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "Please sign in." }, 401, headers);
+      const retryAfter = await limitRedemption(env, request, session.github_id);
+      if (retryAfter) return json({ message: "Too many attempts. Try again shortly." }, 429,
+        { ...headers, "retry-after": String(retryAfter) });
+      if (!complimentaryAvailable(env)) return json({ message: "Code redemption is unavailable right now." }, 503, headers);
+      const code = await readRedemptionCode(request);
+      if (!(await redeemComplimentaryAccess(env, session.github_id, code))) {
+        return json({ message: "This code is not valid." }, 400, headers);
+      }
+      const status = await billingStatus(env, session.github_id);
+      if (status.complimentarySyncPending) {
+        return json({ ...status, message: "Free access is saved. iOS activation is pending; refresh your plan to retry." }, 503, headers);
+      }
+      return json(status, 200, headers);
+    }
+
+    if (url.pathname === "/billing/status" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const orgId = url.searchParams.get("orgId") || "";
+      if (orgId && !(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      if (orgId) { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
+      return json(await billingStatus(env, session.github_id, orgId || undefined), 200, { "cache-control": "no-store" });
+    }
+
+    // Who am I, and how do I want to be told. The locale here is the language
+    // every notification to this person is written in, whichever channel
+    // carries it — set explicitly by the app's language toggle or the browser,
+    // seeded from Accept-Language on the first sign-in.
+    if (url.pathname === "/me" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user) return json({ message: "unknown user" }, 409);
+      const lang = await loadCopy(env, user.locale || "en");
+      return json({
+        login: user.login,
+        userId: user.github_id,
+        orgId: await primaryOrgId(env.DB, session.github_id),
+        name: user.name,
+        handle: user.handle || null,
+        avatarUrl: user.avatar_url || null,
+        locale: user.locale || "en",
+        email: user.email || null,
+        ...(await emailCapability(env, user)),
+        aliases: parseAliases(user.aliases),
+        notifyEmail: Number(user.notify_email ?? 1) !== 0,
+        pushWhileActive: Boolean(user.push_while_active),
+        translateMessages: Number(user.translate_messages ?? 1) !== 0,
+        ...quietFields(user),
+        supportedLocales: SUPPORTED_LOCALES,
+        // The words of the notification a browser tab shows by itself, in
+        // this person's language — which the page's own tables may not have.
+        notificationCopy: {
+          locale: lang,
+          newDecision: t(lang, "tabNewDecision"),
+          from: t(lang, "tabFrom", { name: "{name}" }),
+        },
+        // What the router will assume you decide, and what you may change it
+        // to. This is the description, not the standing: an admin who says
+        // they are a designer is still an admin.
+        role: url.searchParams.get("orgId")
+          ? await ownTitle(env.DB, url.searchParams.get("orgId"), session.github_id)
+          : null,
+        assignableRoles: SELF_ASSIGNABLE_ROLES,
+        // Where this person works. Without it a client that has lost its
+        // stored orgId — a second browser, a cleared cache, a sign-in on a
+        // borrowed laptop — had nothing to ask and fell back to a placeholder
+        // nobody is a member of, so the relay refused the socket and the feed
+        // never arrived.
+        orgs: await (async () => {
+          const orgs = await listUserOrgs(env.DB, session.github_id);
+          const icons = await iconsFor(env.DB, orgs.map((o) => o.id));
+          return orgs.map((o) => ({ ...o, icon: iconUrl(url.origin, icons[o.id]) }));
+        })(),
+      });
+    }
+    // How this person works, as the router should know it — stored per
+    // person, per workspace, on the server. The same row the app's relay
+    // writes (`context_updated`), so a phone and a browser see one answer.
+    // Nothing here crosses a workspace: the row is read by (org, login) and
+    // only for an org the caller belongs to.
+    if (url.pathname === "/me/context" && (request.method === "GET" || request.method === "PUT")) {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = request.method === "PUT" ? await request.json().catch(() => null) : null;
+      if (request.method === "PUT" && (!body || typeof body !== "object")) {
+        return json({ message: "Invalid JSON body." }, 400);
+      }
+      const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
+      if (!orgId || typeof orgId !== "string" || !orgId.trim()) return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) {
+        return json({ message: "not a member of this org" }, 403);
+      }
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user) return json({ message: "unknown user" }, 409);
+      if (request.method === "PUT") {
+        if (typeof body.text !== "string") return json({ message: "text must be a string" }, 400);
+        if (body.text.length > MAX_INSTRUCTION_CHARS) return json({ message: "That context is too long." }, 400);
+        const existing = await loadContexts(env.DB, orgId);
+        const isNew = !(user.login in existing);
+        const context = { ...(existing[user.login] || {}), text: body.text };
+        await saveContext(env.DB, orgId, user.login, context);
+        // Tell the workspace's open sockets, as the relay would have.
+        await announceEvents(env, orgId, contextEvents(user.login, context, { isNew }));
+        return json({ orgId, text: body.text });
+      }
+      const contexts = await loadContexts(env.DB, orgId);
+      const mine = contexts[user.login];
+      // `saved`: whether any text was ever kept, an empty one included. An
+      // empty one was cleared on purpose, on some device; a browser's older
+      // copy must not be sent up over it as if it had never been saved.
+      return json({ orgId, text: typeof mine?.text === "string" ? mine.text : "", saved: typeof mine?.text === "string" });
+    }
+    if (url.pathname === "/me" && request.method === "PUT") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (body.locale !== undefined) {
+        if (!normalizeLocale(body.locale)) return json({ message: "locale must be a language tag like en or ja-JP" }, 400);
+        await setUserLocale(env.DB, session.github_id, body.locale);
+      }
+      if (body.notifyEmail !== undefined) {
+        await setUserNotifyEmail(env.DB, session.github_id, Boolean(body.notifyEmail));
+      }
+      // "Pause notifications": minutes from now, a time, or null to resume.
+      if (body.pauseMinutes !== undefined || body.pausedUntil !== undefined) {
+        const until = pauseUntil(body.pauseMinutes !== undefined ? Number(body.pauseMinutes) || null : body.pausedUntil);
+        await env.DB.prepare("UPDATE users SET notify_paused_until = ?2 WHERE github_id = ?1").bind(String(session.github_id), until).run();
+      }
+      // The hours notifications may come.
+      if (body.notifySchedule !== undefined) {
+        await env.DB.prepare("UPDATE users SET notify_schedule = ?2 WHERE github_id = ?1").bind(String(session.github_id), JSON.stringify(cleanSchedule(body.notifySchedule))).run();
+      }
+      // Words that notify you wherever they are said.
+      if (body.notifyKeywords !== undefined) {
+        await env.DB.prepare("UPDATE users SET notify_keywords = ?2 WHERE github_id = ?1").bind(String(session.github_id), JSON.stringify(cleanKeywords(body.notifyKeywords))).run();
+      }
+      // Push the phone even while at the app on another device.
+      if (body.pushWhileActive !== undefined) {
+        await env.DB.prepare("UPDATE users SET push_while_active = ?2 WHERE github_id = ?1").bind(String(session.github_id), body.pushWhileActive ? 1 : 0).run();
+      }
+      // Messages in another language, shown in yours. On by default.
+      if (body.translateMessages !== undefined) {
+        await env.DB.prepare("UPDATE users SET translate_messages = ?2 WHERE github_id = ?1").bind(String(session.github_id), body.translateMessages ? 1 : 0).run();
+      }
+      // What you are called, and the username @ finds you by.
+      if (body.name !== undefined) {
+        const name = cleanName(body.name);
+        if (!name) return json({ message: `A name is 1 to ${MAX_NAME_CHARS} characters.` }, 400);
+        await setUserName(env.DB, session.github_id, name);
+      }
+      if (body.handle !== undefined) {
+        const checked = checkHandle(body.handle);
+        if (checked.error) return json({ message: checked.error, field: "handle" }, 400);
+        const taken = await setUserHandle(env.DB, session.github_id, checked.handle);
+        if (taken.error) return json({ message: taken.error, field: "handle" }, 409);
+      }
+      if (body.aliases !== undefined) {
+        const aliases = normalizeAliases(body.aliases);
+        if (!aliases) return json({ message: "aliases must be a list of names" }, 400);
+        await setUserAliases(env.DB, session.github_id, aliases);
+      }
+      // Where email falls back to. A GitHub account has none unless it says
+      // so here; an email account's address is its login and cannot change.
+      const current = body.email !== undefined ? await getUserByGithubId(env.DB, session.github_id) : null;
+      const unchanged = typeof body.email === "string" && body.email.trim().toLowerCase() === String(current?.email || "");
+      if (body.email !== undefined && !unchanged) {
+        // Whether a workspace requires its SSO of someone is read from their
+        // address. An address one of their workspaces holds to SSO stays put:
+        // moving it elsewhere and signing in with a code there was a way
+        // round the requirement, and past the company switching them off.
+        if (await ssoHoldsEmail(env, session.github_id)) {
+          return json({ message: "Your company manages this address through its single sign-on." }, 403);
+        }
+        const result = await setUserEmail(env.DB, session.github_id, body.email);
+        if (result.error) return json({ message: result.error }, 400);
+      }
+      // What you do, as the router understands it. Scoped to one org because
+      // that is where it lives, and it changes no standing — see setOwnTitle.
+      let role;
+      if (body.role !== undefined) {
+        if (!body.orgId) return json({ message: "orgId is required to set a role" }, 400);
+        const { memberGate } = await import("./policy.js");
+        const refused = await memberGate(env, session, body.orgId);
+        if (refused) return refused;
+        const result = await setOwnTitle(env.DB, body.orgId, session.github_id, body.role);
+        if (result.error) return json({ message: result.error }, 400);
+        role = result.role;
+      }
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      return json({
+        ok: true,
+        locale: user?.locale || "en",
+        email: user?.email || null,
+        notifyEmail: Number(user?.notify_email ?? 1) !== 0,
+        pushWhileActive: Boolean(user?.push_while_active),
+        ...quietFields(user),
+        aliases: parseAliases(user?.aliases),
+        name: user?.name || null,
+        handle: user?.handle || null,
+        ...(role ? { role } : {}),
+      });
+    }
+
+    // Web Push. The public key is what a browser subscribes with; the
+    // subscription it gets back is posted here, bound to the person on the
+    // session — never to a login the browser claims.
+    if (url.pathname === "/push/vapid" && request.method === "GET") {
+      if (!isWebPushConfigured(env)) return json({ message: "Web push is not configured on this deployment." }, 503);
+      return json({ publicKey: env.VAPID_PUBLIC_KEY });
+    }
+    if (url.pathname === "/push/subscriptions" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      const subscription = parseSubscription(body);
+      if (!subscription) return json({ message: "A push subscription with endpoint and keys is required." }, 400);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user?.login) return json({ message: "unknown user" }, 409);
+      await registerSubscription(env.DB, {
+        ...subscription,
+        githubId: session.github_id,
+        login: user.login,
+        userAgent: (request.headers.get("user-agent") || "").slice(0, 200),
+      });
+      return json({ ok: true });
+    }
+    if (url.pathname === "/push/subscriptions" && request.method === "DELETE") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      // Yours, not anyone's. The endpoint is high-entropy, but the query was
+      // keyed on it alone, so a signed-in account that learned another's could
+      // unsubscribe them.
+      if (typeof body.endpoint === "string") await removeSubscription(env.DB, body.endpoint, session.github_id);
+      return json({ ok: true });
+    }
+    // Registered after the user grants permission, and re-registered on every
+    // launch — APNs and FCM both reissue tokens, and a stale one is a silent
+    // no-op. `platform` says which service the token is for: "ios" (APNs, and
+    // what an older iPhone app means by saying nothing) or "android" (FCM).
+    if (url.pathname === "/devices" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.deviceToken) return json({ message: "deviceToken is required" }, 400);
+      const platform = body.platform === undefined || body.platform === null ? "ios" : body.platform;
+      if (platform !== "ios" && platform !== "android") {
+        return json({ message: "platform is ios or android." }, 400);
+      }
+      // Shape-checked here rather than trusted: an iPhone's token ends up in
+      // the path of a request to Apple, signed with our provider token, and an
+      // Android one in a message sent as our Firebase project.
+      if (platform === "ios" && !isDeviceToken(body.deviceToken)) {
+        return json({ message: "That is not an APNs device token." }, 400);
+      }
+      if (platform === "android" && !isFcmToken(body.deviceToken)) {
+        return json({ message: "That is not an FCM registration token." }, 400);
+      }
+      // Which app the token is for, and from which APNs environment: the
+      // Expo build is a different bundle id from the App Store app, and a
+      // development build's token only works against the sandbox. Only apps
+      // this deployment sends for; an iPhone that names no app keeps the
+      // deployment's topic, and goes through the gateway it says its token
+      // is from (apns.js targetFor).
+      const { allowedAppIds } = await import("./apns.js");
+      const appId = typeof body.appId === "string" && body.appId ? body.appId : null;
+      if (appId && platform === "ios" && !allowedAppIds(env).includes(appId)) {
+        return json({ message: "That app is not one this server sends to." }, 400);
+      }
+      if (body.environment !== undefined && body.environment !== null && !["production", "sandbox"].includes(body.environment)) {
+        return json({ message: "environment is production or sandbox." }, 400);
+      }
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (!user?.login) return json({ message: "unknown user" }, 409);
+      await registerDevice(env.DB, {
+        deviceToken: body.deviceToken,
+        githubId: session.github_id,
+        login: user.login,
+        environment: body.environment,
+        platform,
+        appId: platform === "ios" ? appId : null,
+      });
+      return json({ ok: true });
+    }
+    if (url.pathname === "/devices" && request.method === "DELETE") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (typeof body.deviceToken === "string") await removeDevice(env.DB, body.deviceToken, session.github_id);
+      return json({ ok: true });
+    }
+    // Everything we hold about the caller, as a download. Deletion without
+    // export is half of what a person is owed — GDPR/APPI portability is the
+    // other half.
+    if (url.pathname === "/account/export" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      const data = await exportAccount(env.DB, session.github_id, user?.login || null);
+      // What was said in a workspace whose rules refuse this request — from
+      // outside its networks, or without its SSO — stays in the workspace;
+      // the export says which were left out and why.
+      const { policyDenial } = await import("./policy.js");
+      const withheld = [];
+      for (const m of data.memberships || []) {
+        const held = await policyDenial(env, session, m.org_id);
+        if (held) withheld.push({ orgId: m.org_id, code: held.body?.code || "session-policy" });
+      }
+      // A workspace this person has left keeps what was said in it, and what
+      // happened to their cards after they went: only the workspaces they are
+      // in now are exported.
+      const current = new Set((data.memberships || []).map((m) => m.org_id));
+      const former = new Set();
+      for (const rows of Object.values(data)) {
+        if (!Array.isArray(rows)) continue;
+        for (const r of rows) if (r && typeof r === "object" && r.org_id != null && !current.has(r.org_id)) former.add(r.org_id);
+      }
+      for (const orgId of former) withheld.push({ orgId, code: "not-a-member" });
+      if (withheld.length) {
+        const out = new Set(withheld.map((w) => w.orgId));
+        for (const [key, rows] of Object.entries(data)) {
+          if (Array.isArray(rows)) data[key] = rows.filter((r) => !r || typeof r !== "object" || !out.has(r.org_id));
+        }
+        data.withheld = withheld;
+      }
+      if (!(await auditEverywhere(env, request, session.github_id, { action: "data.account_exported", actor: person(user) }))) {
+        return json({ message: "The audit log could not be written, so nothing was exported. Try again shortly.", code: "audit-unavailable" }, 503);
+      }
+      return new Response(JSON.stringify(data, null, 2), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "content-disposition": `attachment; filename="honmaru-export-${new Date().toISOString().slice(0, 10)}.json"`,
+        },
+      });
+    }
+    if (url.pathname === "/account" && request.method === "DELETE") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      // Nobody walks away from a workspace other people are still in and that
+      // nobody else holds: it could never be run again.
+      const holding = await soleOwnerships(env.DB, session.github_id);
+      if (holding.length) {
+        return json({
+          message: "You are the only owner of a workspace other people are in. Make someone else an owner of it first.",
+          code: "last-owner",
+          workspaces: holding.map((w) => ({ id: w.orgId, name: w.name })),
+        }, 409, { "cache-control": "no-store" });
+      }
+      // Where they were, before the rows saying so are deleted. A socket is
+      // authorized once, at join, so a deleted account's open connection would
+      // otherwise go on receiving its old team's cards.
+      const wasIn = await listUserOrgs(env.DB, session.github_id);
+      if (!(await prepareComplimentaryDeletion(env, session.github_id))) {
+        return json({ message: "Account deletion could not finish. Please try again shortly." }, 503,
+          { "cache-control": "no-store" });
+      }
+      // Finish workspace storage cleanup while membership and login still
+      // exist, so a failed RPC can be retried without orphaning personal data.
+      if (env.WORKSPACE && user?.login) {
+        try {
+          for (const org of wasIn) {
+            await env.WORKSPACE.get(env.WORKSPACE.idFromName(org.id)).forgetAccount({ login: user.login });
+          }
+        } catch {
+          return json({ message: "Account deletion could not finish. Please try again shortly." }, 503,
+            { "cache-control": "no-store" });
+        }
+      }
+      // Their app connections, here and at Smithery, before the rows that
+      // say whose they were are gone.
+      await forgetAppConnections(env, { githubId: session.github_id }).catch((err) => console.error("app connections not ended", err?.message || err));
+      // Their Sign in with Apple authorization for the app, which Apple asks
+      // to end with the account (src/apple.js). Apple saying no, or not
+      // answering, is logged and does not keep the account alive.
+      await import("./apple.js")
+        .then(({ revokeAppleTokens }) => revokeAppleTokens(env, session.github_id))
+        .catch((err) => console.error("apple tokens not revoked", err?.message || err));
+      await deleteAccount(env.DB, session.github_id, user?.login || null);
+      // Their entries in every audit log become unreadable: the rows stay and
+      // still verify, and who they were goes with the key.
+      const shredded = await shredPerson(env, user?.login || null).catch((err) => {
+        console.error("audit shred failed", err?.message || err);
+        return [];
+      });
+      for (const s of shredded) {
+        await audit(env, null, { orgId: s.orgId, action: "audit.principal_shredded", actor: { type: "system" }, details: { principal: s.principal } });
+      }
+      for (const org of wasIn) await evictMember(env, org.id, user?.login || null);
+      return json({ ok: true });
+    }
+    const orgGraphMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/graph$/);
+    if (orgGraphMatch && request.method === "GET") {
+      const [, owner, repo] = orgGraphMatch;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const orgId = `${owner}/${repo}`;
+      // An email account has no GitHub token, so this call would return a 401
+      // and we would hand back GitHub's wording for a problem that is ours to
+      // explain. The limitation is real — a repo-backed org's membership comes
+      // from GitHub — so say that, at the point where we still know why.
+      if (!isGitHubSession(session)) {
+        return json({
+          message: "This organization's members come from a GitHub repository. Sign in with GitHub to view them.",
+        }, 400);
+      }
+      let collaborators;
+      try {
+        collaborators = await fetchCollaborators(session.github_access_token, owner, repo);
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+      const graph = buildOrgGraph(collaborators, { owner, repo });
+      // With GitHub's door closed by an owner, the list only updates the
+      // members already in; it brings nobody new.
+      const { governanceOf, githubAutoJoin } = await import("./governance.js");
+      const opens = githubAutoJoin(await governanceOf(env.DB, orgId));
+      for (const c of collaborators) {
+        if (!opens && !(await isMember(env.DB, orgId, c.id))) continue;
+        // No locale: the graph knows who is on the team, not what they read.
+        await upsertUser(env.DB, { githubId: c.id, login: c.login, name: c.login, avatarUrl: c.avatar_url });
+        await upsertMembership(env.DB, orgId, c.id, roleName(c.permissions));
+        await upsertAgent(env.DB, orgId, c.id, `${c.login}'s AI`);
+      }
+      // GitHub has just told us who the collaborators are. Anyone in the table
+      // who is not on that list is not one any more — and until this line, that
+      // never became false anywhere: the relay trusts this table, so being
+      // removed from the repository did not remove you from the organization.
+      // This is the moment we have the authoritative answer, so it is the
+      // moment to act on it.
+      const pruned = await retainMemberships(env.DB, orgId, collaborators.map((c) => c.id));
+      // And out of the room, not only out of the table. A socket is authorized
+      // once, at join, so somebody removed from the repository kept receiving
+      // this org's cards on the connection they already had — the table said
+      // they were gone and the open socket never asked it again.
+      for (const login of pruned.logins) {
+        await evictMember(env, orgId, login);
+        // Their pending decisions go back to whoever asked for them. GitHub
+        // removing somebody orphans a card exactly the way leaving does.
+        await returnOrphanedCards(env, orgId, login);
+      }
+      return json(graph);
+    }
+    const cardEventsMatch = url.pathname.match(/^\/orgs\/([^/]+)\/([^/]+)\/cards\/([^/]+)\/events$/);
+    if (cardEventsMatch && request.method === "GET") {
+      const [, owner, repo, cardId] = cardEventsMatch;
+      const orgId = `${owner}/${repo}`;
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      // A card gone leaves its history to the members, not to a guest.
+      { const card = await getCard(env.DB, orgId, cardId);
+        if (card ? await hiddenCard(env, request, orgId, card) : (await cardAccess(env, request, orgId)).guest) return json({ message: "no such card" }, 404); }
+      return json({ events: await withActorNames(env.DB, await listCardEvents(env.DB, orgId, cardId)) });
+    }
+    if (url.pathname === "/connectors" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+
+      let accounts = [];
+      try {
+        accounts = await listConnectedAccounts(env.COMPOSIO_API_KEY, String(session.github_id));
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+      const active = new Set(
+        accounts
+          .filter((a) => String(a.status).toUpperCase() === "ACTIVE")
+          .map((a) => (typeof a.toolkit === "string" ? a.toolkit : a.toolkit?.slug))
+      );
+      // What this person has connected, remembered, so the cron syncs them
+      // between visits. Both clients load this list on the Tools screen.
+      try {
+        await rememberConnections(env.DB, session.github_id, availableConnectors(env).map((c) => c.id), active);
+      } catch (err) {
+        console.error("remembering connections failed", err?.message || err);
+      }
+      // Where this person's pulls land. Each person's tools are their own,
+      // and so is the workspace they feed — named, so the screen can say so.
+      const pullOrg = await ingestWorkspaceOf(env.DB, session.github_id);
+      return json({
+        connectors: availableConnectors(env).map((c) => ({
+          id: c.id, label: c.label, status: active.has(c.id) ? "active" : "none",
+        })),
+        pullsInto: pullOrg ? { orgId: pullOrg, name: await teamName(env.DB, pullOrg).catch(() => null) } : null,
+      });
+    }
+
+    // Whether the GitHub sync this deployment advertises can actually run here.
+    //
+    // The Tools screen listed it as "Always on · Built in" for everybody, and
+    // for most people it is neither: syncing a decision to an Issue needs a
+    // repository to put it in and a GitHub token to write with, and an email
+    // account in the `personal:` workspace it was given at sign-up has
+    // neither. Saying so is the whole of this route — it is separate from
+    // GET /connectors because that one refuses outright without a Composio
+    // key, and this answer does not depend on Composio at all.
+    // Connect your GitHub: the same journey as Gmail or Slack — a page
+    // opens, GitHub asks, you say yes — hosted by Composio.
+    if (url.pathname === "/connectors/github/connect" && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+      try {
+        const link = await githubConnectLink(env, session.github_id);
+        if (link.error) return json({ message: link.error }, 503);
+        return json(link);
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+    }
+    // The repositories your connected GitHub can write to — to pick one for
+    // the workspace.
+    if (url.pathname === "/connectors/github/repos" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+      if (!(await myGithubAccount(env, session.github_id))) return json({ message: "Connect your GitHub first." }, 409);
+      try {
+        return json({ repos: await listMyRepositories(env, session.github_id) });
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+    }
+
+    // GitHub, for any workspace. A repository workspace syncs as the person's
+    // own account from the phone (`builtIn`); any workspace can name a
+    // repository and hold a token, and then the Worker writes the issues.
+    if (url.pathname === "/connectors/github" && (request.method === "GET" || request.method === "PUT" || request.method === "DELETE")) {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = request.method === "GET" ? null : await request.json().catch(() => ({}));
+      const orgId = request.method === "GET" ? (url.searchParams.get("orgId") || "") : String(body?.orgId || "");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
+      { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
+      const isAdmin = (membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.integrations")) || orgId.includes("/");
+      // Connecting with your own GitHub is yours to do as a member — it is
+      // your credential, and the issues are written as you. A pasted token
+      // and a disconnect are the workspace's, so an admin's (or the person
+      // who connected it).
+      // Never a guest's; and a member's own GitHub connects a repository only
+      // where none is, or replaces their own — not one an admin chose.
+      const current = request.method === "GET" ? null : await getWorkspaceGitHub(env.DB, orgId);
+      const guest = membershipIsOurs(orgId) && await isGuest(env.DB, orgId, session.github_id);
+      const canEdit = !guest && (isAdmin || Boolean(env.COMPOSIO_API_KEY) || isGitHubSession(session));
+      if (request.method !== "GET") {
+        if (!canEdit) return json({ message: "Only an admin of this workspace can connect its repository." }, 403);
+        if (!isAdmin && current && String(current.connectedBy) !== String(session.github_id)) {
+          return json({ message: "Only an admin, or whoever connected it, can change this repository." }, 403);
+        }
+        if (request.method === "DELETE") {
+          await disconnectWorkspaceGitHub(env.DB, orgId);
+        } else {
+          // A token they entered; else their GitHub connected through the
+          // OAuth journey; else a GitHub sign-in's own token.
+          const token = typeof body.token === "string" && body.token.trim()
+            ? body.token.trim()
+            : null;
+          let result;
+          if (token) {
+            if (!isAdmin) return json({ message: "Only an admin of this workspace can connect it with a token." }, 403);
+            result = await connectWorkspaceGitHub(env, { orgId, repo: String(body.repo || "").trim(), token, byGithubId: session.github_id });
+          } else if (env.COMPOSIO_API_KEY && (await myGithubAccount(env, session.github_id))) {
+            result = await connectWorkspaceGitHubAs(env, { orgId, repo: String(body.repo || "").trim(), githubId: session.github_id });
+          } else if (isGitHubSession(session)) {
+            result = await connectWorkspaceGitHub(env, { orgId, repo: String(body.repo || "").trim(), token: session.github_access_token, byGithubId: session.github_id });
+          } else {
+            return json({ message: "Connect your GitHub first, or enter a token." }, 400);
+          }
+          if (result.error) return json({ message: result.error }, 400);
+        }
+      }
+      return json(await githubStatus(env, { session, orgId, canEdit, isGitHubSession: isGitHubSession(session) }));
+    }
+
+    const connectMatch = url.pathname.match(/^\/connectors\/([^/]+)\/connect$/);
+    if (connectMatch && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+
+      const connector = connectorById(connectMatch[1]);
+      if (!connector) return json({ message: "unknown connector" }, 404);
+      const authConfig = authConfigFor(env, connector);
+      // Nothing to send them to. Said plainly rather than passing a null to
+      // Composio, which answers with something about a malformed request.
+      if (!authConfig) {
+        return json({ message: `${connector.label} is not set up on this deployment yet.` }, 503);
+      }
+
+      try {
+        const link = await createConnectLink(
+          env.COMPOSIO_API_KEY, String(session.github_id), authConfig
+        );
+        return json({ redirectUrl: link.redirect_url, connectedAccountId: link.connected_account_id });
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+    }
+
+    if (url.pathname === "/connectors/notion/databases" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+      try {
+        // filter_property:"object" + filter_value:"database" is what the live
+        // API needs to return only databases; a bare filter_value lets pages
+        // through (README, Notion verified 2026-08-10).
+        const payload = await executeTool(
+          env.COMPOSIO_API_KEY, "NOTION_SEARCH_NOTION_PAGE",
+          String(session.github_id),
+          { query: "", filter_value: "database", filter_property: "object" }
+        );
+        const rows = payload?.data?.results ?? payload?.data?.databases ?? [];
+        const databases = rows.map((d) => ({
+          id: d.id,
+          // A database title is a rich-text array, never a plain string.
+          title: Array.isArray(d.title)
+            ? d.title.map((t) => t.plain_text || "").join("").trim() || "Untitled"
+            : (d.title || "Untitled"),
+        }));
+        return json({ databases });
+      } catch (err) {
+        return json({ message: err.message }, 502);
+      }
+    }
+
+    if (url.pathname === "/connectors/notion/config" && request.method === "PUT") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (typeof body.databaseId !== "string" || !body.databaseId) return json({ message: "databaseId is required" }, 400);
+      // Beside what the connector already remembers (that it is connected),
+      // not instead of it: this used to drop the `connected` flag, and the
+      // person disappeared from the cron until the next time they opened Tools.
+      const existing = await getConnectorConfig(env.DB, session.github_id, "notion");
+      await setConnectorConfig(env.DB, session.github_id, "notion", { ...(existing || {}), databaseId: body.databaseId });
+      return json({ ok: true });
+    }
+
+    if (url.pathname === "/connectors/notion/config" && request.method === "GET") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      // Chosen-nothing is a normal state, not a 404: the app persists locally but
+      // must be able to recover the server's truth on a fresh install or a second
+      // device. Always return the same key the PUT accepts, null when unset, so
+      // the client reads one field and never special-cases a status code.
+      const config = await getConnectorConfig(env.DB, session.github_id, "notion");
+      return json({ databaseId: config?.databaseId ?? null });
+    }
+
+    const syncMatch = url.pathname === "/connectors/sync"
+      || url.pathname.match(/^\/connectors\/([^/]+)\/sync$/);
+    if (syncMatch && request.method === "POST") {
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session) return json({ message: "invalid session" }, 401);
+      if (!env.COMPOSIO_API_KEY) return json({ message: "connector not configured" }, 503);
+      const limited = await enforce(env, request, "connectors/sync");
+      if (limited) return limited;
+
+      const body = await request.json().catch(() => ({}));
+      if (!body.orgId) return json({ message: "orgId is required" }, 400);
 
       // Membership is checked here for the same reason the relay checks it on
       // join: this route writes cards into an organization. Without it, any
