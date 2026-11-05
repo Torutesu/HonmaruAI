@@ -10,6 +10,7 @@ import { holdWorkflowEvent } from './workflowHeld.js';
 import { WORKFLOW_WEBHOOK_REPLAY_TTL_MS, verifyWorkflowWebhook } from './workflowWebhookSignature.js';
 import { mayUseConversation } from './conversationAccess.js';
 import { getMode } from './mode.js';
+import { workflowCredentialSource } from '../orgAI.js';
 import { callRemoteMcpTool, remoteMcpTools } from './remoteMcp.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
@@ -237,6 +238,7 @@ const publicRun = (r, revisions) => {
   }
   return {
   id: r.id, workflowId: r.workflow_id, definitionRevision: matchingRevision(snapshot, r.started_at, revisions), definitionSnapshotAvailable, trigger: r.trigger, status: r.status,
+  credentialSource: ['deployment','workspace'].includes(r.credential_source) ? r.credential_source : 'unknown',
   input: parse(r.input, null), log: parse(r.log, []), nextStep: r.next_step, cardId: r.card_id,
   startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
   };
@@ -498,6 +500,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   if(safety?.paused_at)return {status:'paused',reason:safety.pause_reason};
   const id = newId("run");
   const admittedAt=now(),windows=workflowBudgetWindows(Date.parse(admittedAt)),aiWindows=workflowAiBudgetWindows(Date.parse(admittedAt));
+  const credentialSource = await workflowCredentialSource(env, orgId).catch(() => 'unknown');
   // Store the definition and the run atomically. An approval always resumes
   // the same steps that were presented when the run started.
   const automationReleaseId=await managedAutomationRelease(env.DB,orgId,workflow.id);
@@ -508,8 +511,8 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   const tooLarge = stored !== null && stored.length > MAX_INPUT;
   const failed = tooLarge ? [{ step: 1, type: workflow.steps[0]?.type, at: now(), status: "failed", error: `What started this run is over ${MAX_INPUT} characters.` }] : [];
   const created = await env.DB.batch([
-    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at, finished_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at, finished_at, credential_source)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?30
       WHERE (?12 IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_held_events h JOIN hx_workflows w ON w.id=h.workflow_id AND w.org_id=h.org_id
         WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
       AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))
@@ -526,7 +529,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
           AND (s.monthly_ai_budget_micros=0 OR ((SELECT COALESCE(SUM(u.estimated_micros),0) FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27)<s.monthly_ai_budget_micros AND NOT EXISTS(SELECT 1 FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27 AND u.estimated_micros IS NULL))))))
       AND ${managedAutomationGuard('?2','?3','?14')}
       AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
-      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null,rowEventHash),
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null,rowEventHash,credentialSource),
     env.DB.prepare(`INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at)
       SELECT ?1,?2,json_set(?3,'$.definitionRevision',(
         SELECT MAX(h.revision) FROM hx_workflow_revisions h WHERE h.org_id=?2 AND h.workflow_id=json_extract(?3,'$.id')
@@ -687,7 +690,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
         }
         if (!entry) entry = step.when && !await authorize() ? {status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'}
           : step.type==='code' ? await enqueueWorkflowProgram(db,{orgId,runId})
-          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, authorize });
+          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, authorize, credentialSource: run.credentialSource });
       }
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
@@ -770,7 +773,7 @@ async function workflowAgentRemoteTools(env, { orgId, agentRow, owner, reservedN
   return tools;
 }
 
-async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, authorize }) {
+async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, authorize, credentialSource }) {
   const db = env.DB;
   if (step.channel && !(await mayUseConversation(db, orgId, owner, step.channel))) {
     return { status: "failed", error: "Conversation access required." };
@@ -791,7 +794,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       const authorizeAgent = async () => await authorize() && await mayRunAgent(db, orgId, agentRow, owner)
         && (!step.channel || await mayUseConversation(db, orgId, owner, step.channel))
         && (await Promise.all([...remoteToolsUsed.values()].map(tool => workflowRemoteToolAllowed(db, orgId, tool)))).every(Boolean);
-      const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200,
+      const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200, credentialSource,
         usageContext: { roomSlug: step.channel?.startsWith("b:") ? step.channel.slice(2) : null, agentId: agentRow.id, workflowId: workflow.id } });
       if (!complete) return { status: "failed", error: "No AI model, or none left today." };
       const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "", userId: owner, allowPrivate: false });
