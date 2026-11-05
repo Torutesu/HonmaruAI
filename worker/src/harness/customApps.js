@@ -1,4 +1,5 @@
 import { getTable } from "./tables.js";
+import { consumeCustomPublishApproval } from "./customAppPublishApproval.js";
 // Custom UI releases share the app's tenant, ACL, version history and audit trail.
 // Source is never executed in the Worker. The client runs it in an opaque-origin iframe.
 export const MAX_SOURCE = 120000;
@@ -52,6 +53,11 @@ export async function saveCustomRelease(db, orgId, app, input, by) {
   } else return { error: 'Unknown release action.', status: 400 };
   const table = await getTable(db, orgId, app.tableId);
   const definition = { ...app.definition, custom };
+  if (input.action === "publish") {
+    const at = new Date().toISOString();
+    const gated = await consumeCustomPublishApproval(db,orgId,app,by,definition,app.version+1,at,table);
+    if (gated.enabled || gated.error) return gated;
+  }
   const at = new Date().toISOString();
   const version = app.version + 1;
   const stoppedRelease = crypto.randomUUID();
