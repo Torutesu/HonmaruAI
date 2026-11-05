@@ -656,6 +656,13 @@ test("restricted Agent avatar URLs follow access, membership and revisions in Ha
   expect(publicImage.status).toBe(200);
   expect(publicImage.headers.get("cache-control")).toBe("no-store");
 
+  const storedAvatar = new URL(publicUrl).origin + new URL(publicUrl).pathname;
+  const mediaIdFromPublic = /agent-avatar-[0-9a-f-]{36}$/.exec(new URL(publicUrl).pathname)[0];
+  await env.DB.prepare("UPDATE custom_agents SET avatar_url=?3 WHERE org_id=?1 AND id=?2").bind(ORG, agentId, "https://evil.example/agents/avatar/" + mediaIdFromPublic).run();
+  const external = await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) });
+  expect((await external.json()).agents.find((agent) => agent.id === agentId).avatarUrl).toBeNull();
+  await env.DB.prepare("UPDATE custom_agents SET avatar_url=?3 WHERE org_id=?1 AND id=?2").bind(ORG, agentId, storedAvatar).run();
+
   expect((await send("PUT", `/hx/agents/${agentId}/profile`, mika, {
     orgId: ORG, access: "people", people: ["toru"],
   })).status).toBe(200);
