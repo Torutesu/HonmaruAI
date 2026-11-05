@@ -378,3 +378,54 @@ ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
 ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN app_id TEXT;
+
+CREATE TABLE IF NOT EXISTS hx_app_commit_approvals (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  app_version INTEGER NOT NULL CHECK(app_version>0),
+  repo_owner TEXT NOT NULL,
+  repo_name TEXT NOT NULL,
+  branch_name TEXT NOT NULL,
+  commit_sha TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  visibility_scope TEXT NOT NULL CHECK(visibility_scope IN ('workspace','private')),
+  access_version INTEGER NOT NULL DEFAULT 0,
+  domain_scope TEXT NOT NULL DEFAULT '',
+  requested_by TEXT NOT NULL,
+  reviewer_id TEXT,
+  status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','revoked','published')),
+  created_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  consumed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS hx_app_commit_approvals_current ON hx_app_commit_approvals(org_id,app_id,status,app_version);
+CREATE UNIQUE INDEX IF NOT EXISTS hx_app_commit_approvals_one_open
+  ON hx_app_commit_approvals(org_id,app_id,app_version,repo_owner,repo_name,branch_name,commit_sha,file_path,source_hash,visibility_scope,access_version,domain_scope)
+  WHERE status IN ('pending','approved');
+CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_reviewer_demotion
+AFTER UPDATE OF role ON memberships
+WHEN OLD.role IN ('owner','admin') AND NEW.role NOT IN ('owner','admin')
+BEGIN
+  UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=datetime('now')
+  WHERE org_id=OLD.org_id AND reviewer_id=OLD.user_github_id AND status='approved' AND consumed_at IS NULL;
+END;
+CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_reviewer_removal
+AFTER DELETE ON memberships WHEN OLD.role IN ('owner','admin')
+BEGIN
+  UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=datetime('now')
+  WHERE org_id=OLD.org_id AND reviewer_id=OLD.user_github_id AND status='approved' AND consumed_at IS NULL;
+END;
+CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_requester_demotion
+AFTER UPDATE OF role ON memberships WHEN OLD.role<>'guest' AND NEW.role='guest'
+BEGIN
+  UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=datetime('now')
+  WHERE org_id=OLD.org_id AND requested_by=OLD.user_github_id AND status IN ('pending','approved') AND consumed_at IS NULL;
+END;
+CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_requester_removal
+AFTER DELETE ON memberships
+BEGIN
+  UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=datetime('now')
+  WHERE org_id=OLD.org_id AND requested_by=OLD.user_github_id AND status IN ('pending','approved') AND consumed_at IS NULL;
+END;
