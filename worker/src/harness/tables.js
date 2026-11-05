@@ -33,7 +33,12 @@ export function normalizeColumns(input, existing = [], { allowRelations = false 
   for (const raw of input) {
     const name = String(raw?.name ?? "").trim().slice(0, 60);
     if (!name) return { error: "Every column needs a name." };
-    const type = COLUMN_TYPES.includes(raw?.type) ? raw.type : "text";
+    // Preserve the historical default when a type is omitted, but reject an
+    // explicit unknown type instead of silently storing it as plain text.
+    if (raw?.type !== undefined && !COLUMN_TYPES.includes(raw.type)) {
+      return { error: `Column ${name} uses an unsupported type.` };
+    }
+    const type = raw?.type ?? "text";
     let id = typeof raw?.id === "string" && known.has(raw.id) && !taken.has(raw.id) ? raw.id : null;
     if (id) taken.add(id);
     else id = columnId(name, taken);

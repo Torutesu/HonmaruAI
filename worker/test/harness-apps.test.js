@@ -6,6 +6,11 @@ import { computeView, normalizeDefinition, specFromPrompt } from "../src/harness
 import { coerce, normalizeColumns } from "../src/harness/tables.js";
 import { joined, message } from "./helpers.js";
 
+test("column schemas reject explicit unsupported types while retaining omitted-type legacy defaults", () => {
+  expect(normalizeColumns([{ name: "Name" }]).columns).toMatchObject([{ name: "Name", type: "text" }]);
+  expect(normalizeColumns([{ name: "Date", type: "timestamp" }])).toEqual({ error: "Column Date uses an unsupported type." });
+});
+
 // The harness (docs/kylon-gap-plan.md): a workspace's mode, its Tables, and
 // the Apps built on them. Simple stays the default; the harness routes answer
 // in either mode.
