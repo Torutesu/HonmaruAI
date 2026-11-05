@@ -41,6 +41,12 @@ async function makeApp() {
   expect(response.status).toBe(201);
   return (await response.json()).app;
 }
+async function readReleaseState(appId, approvalId) {
+  return env.DB.prepare(`SELECT a.version,json_extract(a.definition,'$.custom.publishedCommitApprovalId') AS publishedApproval,
+    p.status AS approvalStatus,p.consumed_at AS consumedAt FROM hx_apps a JOIN hx_app_commit_approvals p ON p.org_id=a.org_id AND p.app_id=a.id
+    WHERE a.org_id=?1 AND a.id=?2 AND p.id=?3`).bind(ORG,appId,approvalId).first();
+}
+
 async function importCommit(app) {
   const result = await send('POST', `/apps/${app.id}/custom`, toru, {
     action: 'import_commit', owner: 'acme', repo: 'static-app', branch: 'main', commitSha,
@@ -92,14 +98,21 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   expect(review.status).toBe(200);
   expect((await review.json()).approval.status).toBe('approved');
 
+  const beforeRelease=await readReleaseState(app.id,approval.id);
   const published = await send('POST', `/apps/${app.id}/custom`, toru, {
     action: 'publish_commit', version: importedBody.version, approvalId: approval.id,
   });
-  const releaseState=await env.DB.prepare(`SELECT a.version,json_extract(a.definition,'$.custom.publishedCommitApprovalId') AS publishedApproval,
-    p.status AS approvalStatus,p.consumed_at AS consumedAt FROM hx_apps a JOIN hx_app_commit_approvals p ON p.org_id=a.org_id AND p.app_id=a.id
-    WHERE a.org_id=?1 AND a.id=?2 AND p.id=?3`).bind(ORG,app.id,approval.id).first();
+  const releaseState=await readReleaseState(app.id,approval.id);
+  if(published.status===409) expect(releaseState).toEqual(beforeRelease);
   expect(published.status, `${await published.clone().text()} state=${JSON.stringify(releaseState)}`).toBe(200);
   expect((await published.json()).commit.sha).toBe(commitSha);
+  expect(releaseState).toMatchObject({version:importedBody.version+1,publishedApproval:approval.id,approvalStatus:'published'});
+  expect(releaseState.consumedAt).toBeTruthy();
+  const replay=await send('POST', `/apps/${app.id}/custom`, toru, {
+    action:'publish_commit',version:importedBody.version+1,approvalId:approval.id,
+  });
+  expect(replay.status).toBe(409);
+  expect(await readReleaseState(app.id,approval.id)).toEqual(releaseState);
 
   const domain = new Date().toISOString();
   await env.DB.prepare(`INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at)
@@ -136,8 +149,10 @@ test('HTTP publish rejects branch movement after independent approval', async ()
   });
   expect(review.status).toBe(200);
   branch = 'f'.repeat(40);
+  const beforeRelease=await readReleaseState(app.id,approval.id);
   const publish = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'publish_commit', version: imported.version, approvalId: approval.id });
   expect(publish.status).toBe(409);
+  expect(await readReleaseState(app.id,approval.id)).toEqual(beforeRelease);
 });
 
 test('HTTP publish rejects a changed visibility scope and stale app revision', async () => {
@@ -152,14 +167,18 @@ test('HTTP publish rejects a changed visibility scope and stale app revision', a
   })).status).toBe(200);
 
   await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)`).bind(ORG, app.id).run();
+  const beforeScopeReject=await readReleaseState(app.id,approval.id);
   const changedScope = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'publish_commit', version: imported.version, approvalId: approval.id });
   expect(changedScope.status).toBe(409);
+  expect(await readReleaseState(app.id,approval.id)).toEqual(beforeScopeReject);
 
   const current = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
   const edited = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'draft', version: current.app.version, html: '<p>edited</p>' });
   expect(edited.status).toBe(200);
+  const beforeStaleReject=await readReleaseState(app.id,approval.id);
   const stale = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'publish_commit', version: imported.version, approvalId: approval.id });
   expect(stale.status).toBe(409);
+  expect(await readReleaseState(app.id,approval.id)).toEqual(beforeStaleReject);
 });
 
 
@@ -178,11 +197,13 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
     VALUES(?1,?2,'max-asset.example',?3,'9101',?3,1)`).bind(ORG,app.id,at).run();
   const approval=(await (await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:data.version,commit:data.commit,sourceHash:data.commit.sourceHash})).json()).approval;
   expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:data.version,commitSha,sourceHash:data.commit.sourceHash})).status).toBe(200);
+  const beforeRelease=await readReleaseState(app.id,approval.id);
   const published=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:data.version,approvalId:approval.id});
-  const releaseState=await env.DB.prepare(`SELECT a.version,json_extract(a.definition,'$.custom.publishedCommitApprovalId') AS publishedApproval,
-    p.status AS approvalStatus,p.consumed_at AS consumedAt FROM hx_apps a JOIN hx_app_commit_approvals p ON p.org_id=a.org_id AND p.app_id=a.id
-    WHERE a.org_id=?1 AND a.id=?2 AND p.id=?3`).bind(ORG,app.id,approval.id).first();
+  const releaseState=await readReleaseState(app.id,approval.id);
+  if(published.status===409) expect(releaseState).toEqual(beforeRelease);
   expect(published.status, `${await published.clone().text()} state=${JSON.stringify(releaseState)}`).toBe(200);
+  expect(releaseState).toMatchObject({version:data.version+1,publishedApproval:approval.id,approvalStatus:'published'});
+  expect(releaseState.consumedAt).toBeTruthy();
   const served=await call(`/app-commit-assets/${app.id}/${commitSha}/${data.commit.assetToken}/app.js`);
   expect(served.status).toBe(200);
   expect((await served.arrayBuffer()).byteLength).toBe(1_500_000);
