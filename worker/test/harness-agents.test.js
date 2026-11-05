@@ -4,6 +4,7 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { rememberRequest, modelForTier, filterResponders } from "../src/harness/agents.js";
+import { agentMemoryTools } from "../src/harness/memoryReader.js";
 
 // Agents as members (docs/kylon-gap-plan.md): a specialty, a tier, a memory
 // of its own, skills, who may call it, and whether it waits to be named.
@@ -649,6 +650,14 @@ test('personal memories are owner-editable while shared mutations remain maker-o
   expect(memory).toMatchObject({ scope: "personal", isOwner: true });
   const ownList = await (await get(`${path}?${q({ orgId: ORG })}`, kenji)).json();
   expect(ownList.memories.find(item => item.id === memory.id)).toMatchObject({ scope: "personal", isOwner: true });
+  const kenjiTools = agentMemoryTools(env.DB, ORG, agentId, { userId: "9203" });
+  const soraTools = agentMemoryTools(env.DB, ORG, agentId, { userId: "9204" });
+  const ownSearch = JSON.parse(await kenjiTools.search_agent_memory.run({ query: "Only Kenji" }));
+  const otherSearch = JSON.parse(await soraTools.search_agent_memory.run({ query: "Only Kenji" }));
+  expect(ownSearch.memories.map(item => item.id)).toContain(memory.id);
+  expect(otherSearch.memories.map(item => item.id)).not.toContain(memory.id);
+  expect(JSON.parse(await kenjiTools.read_agent_memory.run({ memory_id: memory.id })).body).toBe("Only Kenji");
+  expect(await soraTools.read_agent_memory.run({ memory_id: memory.id })).toBe("Memory unavailable.");
   const otherList = await (await get(`${path}?${q({ orgId: ORG })}`, sora)).json();
   expect(otherList.memories.map(item => item.id)).not.toContain(memory.id);
 
