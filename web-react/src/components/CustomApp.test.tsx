@@ -243,7 +243,7 @@ test('Git commit editor disables stale approvals after the API reports a publish
   let tree:ReturnType<typeof create>;
   await act(async()=>{tree=create(<CustomAppEditor app={editorApp} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
   const publish=tree!.root.findAllByType('button').find(button=>button.children.join('')==='承認済みGitHub commitを公開')!;
-  await act(async()=>{await publish.props.onClick()});
+  await act(async()=>{publish.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
   expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({action:'publish_commit',version:3,approvalId:'approval-1'}));
   expect(tree!.root.findAllByProps({role:'alert'}).some(node=>String(node.children.join('')).includes('publish scope'))).toBe(true);
   act(()=>tree!.unmount());
@@ -265,7 +265,7 @@ test('Git commit editor imports through its API action and publishes only after 
   const sha=tree!.root.findByProps({ 'aria-label':'GitHub commit SHA' });
   act(()=>{owner.props.onChange({target:{value:'acme'}});repo.props.onChange({target:{value:'static-app'}});branch.props.onChange({target:{value:'main'}});sha.props.onChange({target:{value:'a'.repeat(40)}})});
   const importButton=tree!.root.findAllByType('button').find(button=>button.children.join('')==='commitのHTMLと静的アセットを取り込む')!;
-  await act(async()=>{await importButton.props.onClick()});
+  await act(async()=>{importButton.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
   expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({action:'import_commit',owner:'acme',repo:'static-app',branch:'main',commitSha:'a'.repeat(40)}));
   expect(reload).toHaveBeenCalled();
   const publish=tree!.root.findAllByType('button').find(button=>button.children.join('')==='承認済みGitHub commitを公開')!;
