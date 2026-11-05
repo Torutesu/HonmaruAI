@@ -95,7 +95,7 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   const published = await send('POST', `/apps/${app.id}/custom`, toru, {
     action: 'publish_commit', version: importedBody.version, approvalId: approval.id,
   });
-  expect(published.status).toBe(200);
+  expect(published.status, await published.clone().text()).toBe(200);
   expect((await published.json()).commit.sha).toBe(commitSha);
 
   const domain = new Date().toISOString();
@@ -171,7 +171,8 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
     VALUES(?1,?2,'max-asset.example','active','9101',?3,?3)`).bind(ORG,app.id,at).run();
   const approval=(await (await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:data.version,commit:data.commit,sourceHash:data.commit.sourceHash})).json()).approval;
   expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:data.version,commitSha,sourceHash:data.commit.sourceHash})).status).toBe(200);
-  expect((await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:data.version,approvalId:approval.id})).status).toBe(200);
+  const published=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:data.version,approvalId:approval.id});
+  expect(published.status, await published.clone().text()).toBe(200);
   const served=await call(`/app-commit-assets/${app.id}/${commitSha}/${data.commit.assetToken}/app.js`);
   expect(served.status).toBe(200);
   expect((await served.arrayBuffer()).byteLength).toBe(1_500_000);
@@ -235,7 +236,7 @@ test('custom domain consent is bound to its attachment and exposes only after ex
   expect(receipt).toMatchObject({hostname,confirmedBy:'9101',confirmationVersion:1});
   expect(receipt.domainCreatedAt).toBe(domain.createdAt);
   const published=await domainCall(`/app-domains/resolve?host=${hostname}`);
-  expect(published.status).toBe(200);
+  expect(published.status, await published.clone().text()).toBe(200);
   expect(await published.text()).toContain('public app snapshot');
 
   expect((await domainSend({action:'remove'})).status).toBe(200);
