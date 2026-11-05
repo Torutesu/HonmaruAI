@@ -11,13 +11,14 @@ import { joined, message } from "./helpers.js";
 // in either mode.
 
 const ORG = "personal:harness";
-let toru, mika, guest, outsider;
-const call = (path, init) => worker.fetch(new Request("https://example.com" + path, init), { ...env });
+let toru, mika, guest, outsider, testDataKey = null;
+const call = (path, init) => worker.fetch(new Request("https://example.com" + path, init), { ...env, ...(testDataKey ? { DATA_KEY: testDataKey } : {}) });
 const headers = (token) => ({ "content-type": "application/json", "x-session-token": token });
 const get = (path, token) => call(path, { headers: headers(token) });
 const send = (method, path, token, body) => call(path, { method, headers: headers(token), body: JSON.stringify(body) });
 
 beforeEach(async () => {
+  testDataKey = null;
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "9101", login: "toru", name: "Toru", avatarUrl: null, locale: "ja" });
@@ -2040,6 +2041,7 @@ test('combined automation release rejects an oversized draft without changing th
 
 
 test('public custom app links are version-pinned, field-scoped, read-only and revocable', async () => {
+  testDataKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
   const { createTable, addRow, getTable } = await import('../src/harness/tables.js');
   const made = await send('POST', '/apps', toru, { orgId: ORG, name: 'Public report', columns: [{ name: 'Title', type: 'text' }, { name: 'Secret', type: 'text' }], sample: false });
   expect(made.status).toBe(201);
