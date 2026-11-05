@@ -151,7 +151,7 @@ export async function assetManifestMatches(db,orgId,appId,commit){
   return results.every((row,index)=>row.path===expected[index].path&&row.mimeType===expected[index].mimeType&&row.contentHash===expected[index].contentHash&&Number(row.size)===Number(expected[index].size));
 }
 
-async function hashSource(source) {
+export async function hashSource(source) {
   const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(source||'')));
   return [...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
 }
