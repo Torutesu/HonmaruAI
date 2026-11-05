@@ -2824,7 +2824,7 @@ async function handle(request, env, url, ctx) {
       if (guest) return guest;
       const session = await getSession(env.DB, request.headers.get("x-session-token"));
       const includeAIByMember = Boolean(session && membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.ai_settings"));
-      return json(await orgMetrics(env.DB, orgId, { days: url.searchParams.get("days"), aiDays: url.searchParams.get("aiDays"), includeAIByMember }));
+      return json(await orgMetrics(env.DB, orgId, { days: url.searchParams.get("days"), aiDays: url.searchParams.get("aiDays"), includeAIByMember, includeAIByAutomation: includeAIByMember }));
     }
 
     // Real cards, with their verdicts, in the shape the eval harness reads.

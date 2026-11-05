@@ -83,6 +83,24 @@ test("a routed instruction writes the model's tokens to the team's ledger, and I
   expect(memberMetrics.ai.byMember).toBeUndefined();
 });
 
+test("workspace admins can review workflow model usage without including personal keys", async () => {
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at)
+    VALUES('wf-report',?1,'Monthly report',1,'{}','[]','8801',?2,?2)`).bind(ORG, now).run();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,started_at)
+    VALUES('run-report',?1,'wf-report','schedule','succeeded','[]',?2)`).bind(ORG, now).run();
+  await env.DB.prepare(`INSERT INTO hx_workflow_usage(id,org_id,workflow_id,run_id,step_number,provider,model,input_tokens,output_tokens,byok,created_at,estimated_micros)
+    VALUES('usage-priced',?1,'wf-report','run-report',1,'OpenAI','gpt-4o-mini',100,20,0,?2,1250),
+          ('usage-unknown',?1,'wf-report','run-report',1,'OpenAI','future-model',NULL,NULL,0,?2,NULL),
+          ('usage-personal',?1,'wf-report','run-report',1,'OpenAI','gpt-4o-mini',100,20,1,?2,9000)`)
+    .bind(ORG, now).run();
+
+  const admin = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&aiDays=30`, { headers: { "x-session-token": toru } })).json();
+  expect(admin.ai.byAutomation).toEqual([{ workflowId: 'wf-report', name: 'Monthly report', calls: 2, inputTokens: 100, outputTokens: 20, unpricedCalls: 1, usd: 0.00125 }]);
+  const member = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&aiDays=30`, { headers: { "x-session-token": kenji } })).json();
+  expect(member.ai.byAutomation).toBeUndefined();
+});
+
 test("a call on the person's own key is theirs on the bill; System One's decision counts as its own provider", async () => {
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, written());
   expect((await route({ "x-ai-key": "sk-user" })).status).toBe(200);

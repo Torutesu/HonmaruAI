@@ -90,7 +90,7 @@ export async function settleUsage(db, provider, { orgId, githubId, byok = false 
 
 /// The team's AI spend since a date: totals, by purpose, by provider, and
 /// how much of the routing System One settled without a language model.
-export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(), includeMembers = false } = {}) {
+export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(), includeMembers = false, includeAutomations = false } = {}) {
   const days = Math.max(0, Math.min(180, Math.floor(Number(dailyDays) || 0)));
   const today = new Date(now);
   const lastDay = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
@@ -171,6 +171,31 @@ export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(
       usd: round(Number(row.usd) || 0),
     }));
   }
+  let byAutomation;
+  if (includeAutomations) {
+    const { results: automationRows } = await db.prepare(
+      `SELECT u.workflow_id AS workflowId,w.name,
+              COUNT(*) AS calls,SUM(COALESCE(u.input_tokens,0)) AS input_tokens,
+              SUM(COALESCE(u.output_tokens,0)) AS output_tokens,
+              SUM(CASE WHEN u.estimated_micros IS NULL THEN 1 ELSE 0 END) AS unpriced_calls,
+              SUM(CASE WHEN u.estimated_micros IS NULL THEN 0 ELSE MAX(0,u.estimated_micros) END) AS estimated_micros
+         FROM hx_workflow_usage u LEFT JOIN hx_workflows w
+           ON w.org_id=u.org_id AND w.id=u.workflow_id
+        WHERE u.org_id=?1 AND u.created_at>=?2 AND u.created_at<=?3 AND u.byok=0
+        GROUP BY u.workflow_id,w.name
+        ORDER BY estimated_micros DESC,COALESCE(w.name,u.workflow_id) COLLATE NOCASE
+        LIMIT 500`
+    ).bind(orgId, start, end).all();
+    byAutomation = (automationRows || []).map((row) => ({
+      workflowId: String(row.workflowId),
+      name: row.name || null,
+      calls: Number(row.calls) || 0,
+      inputTokens: Number(row.input_tokens) || 0,
+      outputTokens: Number(row.output_tokens) || 0,
+      unpricedCalls: Number(row.unpriced_calls) || 0,
+      usd: round((Number(row.estimated_micros) || 0) / 1_000_000),
+    }));
+  }
   return {
     calls: total.calls,
     inputTokens: total.inputTokens,
@@ -183,6 +208,7 @@ export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(
     byProvider: [...byProvider.values()].map((p) => ({ ...p, usd: round(p.usd) })).sort((a, b) => b.usd - a.usd),
     ...(days > 0 ? { days, daily } : {}),
     ...(includeMembers ? { byMember } : {}),
+    ...(includeAutomations ? { byAutomation } : {}),
     // Of the routing decisions that cost anything, the share System One
     // took without a language model. Null until there was any routing.
     jevShare: jevRoutes + llmRoutes ? round(jevRoutes / (jevRoutes + llmRoutes)) : null,

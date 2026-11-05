@@ -33,6 +33,7 @@ interface Metrics {
     days: number
     daily?: Array<{ day: string; calls: number; ourUsd: number; byokUsd: number; usd: number }>
     byMember?: Array<{ userId: string | null; login: string | null; name: string | null; calls: number; inputTokens: number; outputTokens: number; usd: number }>
+    byAutomation?: Array<{ workflowId: string; name: string | null; calls: number; inputTokens: number; outputTokens: number; unpricedCalls: number; usd: number }>
     byPurpose: Array<{ purpose: string; calls: number; usd: number }>
     byProvider: Array<{ provider: string; calls: number; usd: number }>
     jevShare: number | null
@@ -215,6 +216,24 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
                       </div>
                     )}
                     <p className="hint insights-hint">{t('Workspace admins can see this breakdown. It includes recorded deployment-key model use and excludes personal API keys.')}</p>
+                  </>
+                )}
+                {m.ai.byAutomation && (
+                  <>
+                    <div className="rows-title">{t('AI usage by automation')}</div>
+                    {m.ai.byAutomation.length === 0 ? (
+                      <p className="hint insights-hint">{t('No workflow AI usage is recorded for this period.')}</p>
+                    ) : (
+                      <div className="rows">
+                        {m.ai.byAutomation.map((automation) => (
+                          <div className="row static" key={automation.workflowId}>
+                            <span className="row-main">{automation.name || t('Deleted automation')}<span className="row-sub">{t('{n} calls · {i} input tokens · {o} output tokens', { n: automation.calls, i: automation.inputTokens.toLocaleString(), o: automation.outputTokens.toLocaleString() })}{automation.unpricedCalls ? ` · ${t('{n} unpriced calls', { n: automation.unpricedCalls })}` : ''}</span></span>
+                            <span className="row-value">{money(automation.usd)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="hint insights-hint">{t('This estimate covers recorded workflow model calls only. Calls without a known token price are excluded.')}</p>
                   </>
                 )}
               </>
