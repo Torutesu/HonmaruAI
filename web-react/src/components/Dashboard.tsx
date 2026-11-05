@@ -27,7 +27,8 @@ import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
 import { bringForward, pageShowing } from '../utils/desktop'
-import { useRoute, useDesktop, useMinWidth, hashForCard, hashForMode, hashForScreen, hashForView, hashForWorkflow } from '../utils/route'
+import { useRoute, useDesktop, useMinWidth, hashForCard, hashForMode, hashForScreen, hashForView, hashForWorkflow, hashForApp } from '../utils/route'
+import { openFileConversation } from '../utils/fileConversation'
 import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import { reconnectWatch, wakeWatch } from '../utils/resync'
 import { needsLocalizing } from '../utils/language'
@@ -804,7 +805,12 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       navigate(hashForMode('classic'))
       setTimeout(() => window.dispatchEvent(new CustomEvent('honmaru:open-message', { detail: target })), 150)
     }
-  }, [navigate, mode, screen])
+    else if (action.kind === 'appRecord') navigate(hashForApp(action.appId, orgId, { tableId: action.tableId, rowId: action.rowId }, 'data'))
+    else if (action.kind === 'file') {
+      if (action.scope !== 'workspace') void openFileConversation(action.fileId).then(navigate).catch(() => navigate(hashForScreen('harness')))
+      else navigate(hashForScreen('harness'))
+    }
+  }, [navigate, mode, screen, orgId])
 
   // A toast that stays until clicked is a banner. Errors clear themselves.
   useEffect(() => {
