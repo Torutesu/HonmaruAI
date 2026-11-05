@@ -186,7 +186,15 @@ test("the purge deletes the icon, emoji, agents' pictures and Jam recordings kep
   const staying = await keptByName("team:stays", "02");
   await env.MEDIA.put("jam/rec-old", "audio");
   await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
-  expect(await purgeDueWorkspaces(env, { now: Date.now() + 31 * DAY })).toEqual([ORG]);
+  const purgeNow = Date.now() + 31 * DAY;
+  const completed = [];
+  // New tenant tables may take more than one bounded purge run. Keep the
+  // production per-run statement budget and continue until this test reaches
+  // its completion condition.
+  for (let attempt = 0; attempt < 10 && !completed.includes(ORG); attempt++) {
+    completed.push(...await purgeDueWorkspaces(env, { now: purgeNow }));
+  }
+  expect(completed).toEqual([ORG]);
   for (const key of going) expect(await env.MEDIA.get(key)).toBeNull();
   for (const key of staying) expect(await env.MEDIA.get(key)).not.toBeNull();
   expect(await env.MEDIA.get("jam/rec-old")).not.toBeNull();

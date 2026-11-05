@@ -2547,3 +2547,33 @@ CREATE TABLE IF NOT EXISTS mcp_conversation_requests (
   created_at TEXT NOT NULL,
   PRIMARY KEY (org_id, user_id, connection_id, request_id)
 );
+
+CREATE TABLE IF NOT EXISTS hx_app_publish_policies (
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,app_id)
+);
+CREATE TABLE IF NOT EXISTS hx_app_publish_approvals (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  draft_version INTEGER NOT NULL,
+  source_hash TEXT NOT NULL,
+  scope TEXT NOT NULL CHECK(scope='custom-app.publish'),
+  requested_by TEXT NOT NULL,
+  reviewer_id TEXT,
+  status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','revoked')),
+  created_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  consumed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS hx_app_publish_approvals_current ON hx_app_publish_approvals(org_id,app_id,status,draft_version);
+CREATE UNIQUE INDEX IF NOT EXISTS hx_app_publish_approvals_one_open ON hx_app_publish_approvals(org_id,app_id,draft_version,source_hash,scope) WHERE status IN ('pending','approved');
+
+CREATE TRIGGER IF NOT EXISTS hx_app_publish_revoke_reviewer_demotion AFTER UPDATE OF role ON memberships WHEN OLD.role IN ('owner','admin') AND NEW.role NOT IN ('owner','admin') BEGIN UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=datetime('now') WHERE org_id=OLD.org_id AND reviewer_id=OLD.user_github_id AND status='approved' AND consumed_at IS NULL; END;
+CREATE TRIGGER IF NOT EXISTS hx_app_publish_revoke_access_demotion AFTER UPDATE OF role ON memberships WHEN OLD.role<>'guest' AND NEW.role='guest' BEGIN UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=datetime('now') WHERE org_id=OLD.org_id AND requested_by=OLD.user_github_id AND status IN ('pending','approved') AND consumed_at IS NULL; END;
+CREATE TRIGGER IF NOT EXISTS hx_app_publish_revoke_reviewer_removal AFTER DELETE ON memberships WHEN OLD.role IN ('owner','admin') BEGIN UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=datetime('now') WHERE org_id=OLD.org_id AND reviewer_id=OLD.user_github_id AND status='approved' AND consumed_at IS NULL; END;
+CREATE TRIGGER IF NOT EXISTS hx_app_publish_revoke_requester_removal AFTER DELETE ON memberships BEGIN UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=datetime('now') WHERE org_id=OLD.org_id AND requested_by=OLD.user_github_id AND status IN ('pending','approved') AND consumed_at IS NULL; END;

@@ -189,6 +189,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     updateApp: (id: string, patch: Record<string, unknown>) => call<{ app: App }>('PUT', `/apps/${id}`, patch),
     generateCustom: (id: string, prompt: string) => call<{ html: string }>('POST', `/apps/${id}/custom`, { action: 'generate', prompt }),
     saveCustom: (id: string, action: 'draft' | 'publish' | 'unpublish' | 'restore', version: number, html?: string, restoreVersion?: number) => call('POST', `/apps/${id}/custom`, { action, version, html, restoreVersion }),
+    customPublishState: (id:string) => call<{policy:{enabled:boolean};draftVersion:number;sourceHash:string;scope:string;approval:null|{id:string;status:string;requestedBy:string;reviewerId:string|null;sourceHash:string;draftVersion:number;scope:string}}>('GET', `/apps/${id}/custom`),
+    customPublish: (id:string, input:Record<string,unknown>) => call('POST', `/apps/${id}/custom`, input),
     generateAppAutomation: (id: string, prompt: string, timezone: string) => call<{automation:AutomationBundle['items'][number]}>('POST', `/apps/${id}/automations`, {action:'generate',prompt,timezone}),
     appAutomations: (id: string, stateOnly = false) => call<AppAutomationState>('GET', `/apps/${id}/automations`, undefined, stateOnly ? {stateOnly:'1'} : {}),
     saveAppAutomations: (id: string, version: number, revision: number, automations: AutomationBundle) => call<{saved:boolean;revision:number}>('PUT', `/apps/${id}/automations`, {version,revision,automations}),

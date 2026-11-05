@@ -2029,3 +2029,170 @@ test('combined automation release rejects an oversized draft without changing th
  result=await f.release({action:'publish',requestId:'guard_boundary_src01',version:draft.version,revision:alone.revision,includeSource:true});expect(result.saved).toBe(true);
  current=await getApp(env.DB,ORG,f.app.id);expect(current.definition.custom.published.length).toBe(MAX_PREVIEW_SOURCE);
 });
+
+
+async function customApprovalFixture() {
+  const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'tracker',sample:false})).json();
+  const path=`/apps/${app.id}/custom`;
+  const draft=await (await send('POST',path,mika,{orgId:ORG,action:'draft',version:app.version,html:'<h1>Release candidate</h1>'})).json();
+  await send('POST',path,toru,{orgId:ORG,action:'policy',enabled:true});
+  return {app:{...app,version:draft.version},path};
+}
+async function requestCustomApproval(path, version) {
+  return send('POST',path,mika,{orgId:ORG,action:'request_approval',version});
+}
+async function approveCustomRelease(path, state, reviewer=toru, token=reviewer) {
+  return send('POST',path,token,{orgId:ORG,action:'review',decision:'approve',approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash});
+}
+
+test('custom app approval requires a distinct Owner or Admin and can only publish once', async()=>{
+  const {app,path}=await customApprovalFixture();
+  await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=?1 AND user_github_id='9102'").bind(ORG).run();
+  const requested=await requestCustomApproval(path,app.version);
+  expect(requested.status).toBe(200);
+  const state=await(await get(`${path}?orgId=${ORG}`,mika)).json();
+  expect((await send('POST',path,mika,{orgId:ORG,action:'review',decision:'approve',approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash})).status).toBe(403);
+  expect((await approveCustomRelease(path,state)).status).toBe(200);
+  expect((await approveCustomRelease(path,state)).status).toBe(409);
+  expect((await requestCustomApproval(path,app.version)).status).toBe(409);
+  expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
+  const makerPublish=await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version});
+  expect(makerPublish.status,await makerPublish.clone().text()).toBe(200);
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
+});
+
+test('custom app approval is revoked when the draft version or source hash changes',async()=>{
+  const {app,path}=await customApprovalFixture();
+  expect((await requestCustomApproval(path,app.version)).status).toBe(200);
+  let state=await(await get(`${path}?orgId=${ORG}`,mika)).json();
+  expect((await approveCustomRelease(path,state)).status).toBe(200);
+  const changedResponse=await send('POST',path,mika,{orgId:ORG,action:'draft',version:app.version,html:'<h1>Edited after approval</h1>'});
+  expect(changedResponse.status).toBe(200);
+  const changed=await changedResponse.json();
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:changed.version})).status).toBe(409);
+  const current=await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json();
+  expect(current.app.definition.custom.published).toBeUndefined();
+  const stale=await requestCustomApproval(path,app.version);
+  expect(stale.status).toBe(409);
+  const fresh=await requestCustomApproval(path,changed.version);
+  expect(fresh.status,await fresh.clone().text()).toBe(200);
+  state=await(await get(`${path}?orgId=${ORG}`,mika)).json();
+  await approveCustomRelease(path,state);
+  const row=await env.DB.prepare("SELECT definition FROM hx_apps WHERE org_id=?1 AND id=?2").bind(ORG,app.id).first();
+  const definition=JSON.parse(row.definition);definition.custom.draft='<h1>DB tampered</h1>';
+  await env.DB.prepare("UPDATE hx_apps SET definition=?1 WHERE org_id=?2 AND id=?3").bind(JSON.stringify(definition),ORG,app.id).run();
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:changed.version})).status).toBe(409);
+});
+
+test('publish is blocked and approval revoked when reviewer loses admin access',async()=>{
+  const {app,path}=await customApprovalFixture();
+  await requestCustomApproval(path,app.version);
+  const state=await(await get(`${path}?orgId=${ORG}`,mika)).json();
+  expect((await approveCustomRelease(path,state)).status).toBe(200);
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+  await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+  const denied=await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version});
+  expect(denied.status).toBe(409);
+  expect((await get(`${path}?orgId=${ORG}`,mika)).status).toBe(200);
+  const current=await(await get(`${path}?orgId=${ORG}`,mika)).json();
+  expect(current.approval.status).toBe('revoked');
+});
+
+test('policy off preserves legacy direct custom app publication',async()=>{
+  const {app,path}=await customApprovalFixture();
+  await send('POST',path,toru,{orgId:ORG,action:'policy',enabled:false});
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(200);
+  const current=await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json();
+  expect(current.app.definition.custom.published).toBe('<h1>Release candidate</h1>');
+});
+
+test('approval write rechecks reviewer role after route authorization preflight',async()=>{
+  const {app,path}=await customApprovalFixture();
+  expect((await requestCustomApproval(path,app.version)).status).toBe(200);
+  const state=await(await get(`${path}?orgId=${ORG}`,mika)).json();
+  const current=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+  const {reviewCustomPublishApproval}=await import('../src/harness/customAppPublishApproval.js');
+  const result=await reviewCustomPublishApproval(env.DB,ORG,current,{approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash,decision:'approve'},'9101',true);
+  expect(result.status).toBe(409);
+  await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+  const fresh=await(await get(`${path}?orgId=${ORG}`,mika)).json();
+  expect(fresh.approval.status).toBe('pending');
+});
+
+test('requester membership removal permanently revokes an approval',async()=>{
+ const {app,path}=await customApprovalFixture();
+ await requestCustomApproval(path,app.version);
+ const state=await(await get(`${path}?orgId=${ORG}`,mika)).json();
+ expect((await approveCustomRelease(path,state)).status).toBe(200);
+ await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9102'").bind(ORG).run();
+ const revoked=await env.DB.prepare("SELECT status FROM hx_app_publish_approvals WHERE id=?1").bind(state.approval.id).first();
+ expect(revoked.status).toBe('revoked');
+ await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES(?1,'9102','member',?2)").bind(ORG,new Date().toISOString()).run();
+ expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
+});
+
+test('requester access loss between approval preflight and insert cannot leave a pending request',async()=>{
+ const {app}=await customApprovalFixture();
+ const current=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+ const raceDb={prepare(sql){
+   const statement=env.DB.prepare(sql);
+   if(!sql.startsWith('INSERT OR IGNORE INTO hx_app_publish_approvals'))return statement;
+   return {bind(...values){const bound=statement.bind(...values);return {run:async()=>{await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9102'").bind(ORG).run();return bound.run()}}}}
+ }};
+ const {requestCustomPublishApproval}=await import('../src/harness/customAppPublishApproval.js');
+ const result=await requestCustomPublishApproval(raceDb,ORG,current,'9102');
+ expect(result.status).toBe(409);
+ const count=await env.DB.prepare("SELECT COUNT(*) AS count FROM hx_app_publish_approvals WHERE org_id=?1 AND app_id=?2").bind(ORG,app.id).first();
+ expect(count.count).toBe(0);
+});
+
+test('publisher access loss between publish preflight and D1 batch blocks release',async()=>{
+ const {app,path}=await customApprovalFixture();
+ await requestCustomApproval(path,app.version);
+ const state=await(await get(`${path}?orgId=${ORG}`,mika)).json();
+ expect((await approveCustomRelease(path,state)).status).toBe(200);
+ await env.DB.prepare("INSERT INTO users(github_id,login,locale,created_at) VALUES('9105','publisher','en',?1)").bind(new Date().toISOString()).run();
+ await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES(?1,'9105','admin',?2)").bind(ORG,new Date().toISOString()).run();
+ const current=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+ const raceDb={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+   await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9105'").bind(ORG).run();
+   return env.DB.batch(statements);
+ }};
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const result=await saveCustomRelease(raceDb,ORG,current,{action:'publish',version:app.version},'9105');
+ expect(result.status).toBe(409);
+ const fresh=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+ expect(fresh.definition.custom.published).toBeUndefined();
+});
+
+test('draft save revokes only old approvals atomically before a new-version request can arrive',async()=>{
+ const {app}=await customApprovalFixture();
+ const oldRequest=await requestCustomApproval(`/apps/${app.id}/custom`,app.version);
+ expect(oldRequest.status).toBe(200);
+ const before=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const {getApp}=await import('../src/harness/apps.js');
+ const {requestCustomPublishApproval}=await import('../src/harness/customAppPublishApproval.js');
+ let newRequest;
+ const raceDb={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+   const result=await env.DB.batch(statements);
+   const current=await getApp(env.DB,ORG,app.id);
+   newRequest=await requestCustomPublishApproval(env.DB,ORG,current,'9102');
+   return result;
+ }};
+ const saved=await saveCustomRelease(raceDb,ORG,before,{action:'draft',version:before.version,html:'<h1>Next draft</h1>'},'9102');
+ expect(saved.saved).toBe(true);
+ expect(newRequest.saved).toBe(true);
+ const approvals=await env.DB.prepare("SELECT draft_version AS version,status FROM hx_app_publish_approvals WHERE org_id=?1 AND app_id=?2 ORDER BY draft_version").bind(ORG,app.id).all();
+ expect(approvals.results).toEqual([{version:app.version,status:'revoked'},{version:saved.version,status:'pending'}]);
+});
+
+test('open approval uniqueness is scoped to app version, hash, and publish scope',async()=>{
+ const {app}=await customApprovalFixture();
+ const path=`/apps/${app.id}/custom`;
+ await requestCustomApproval(path,app.version);
+ const current=(await(await get(`${path}?orgId=${ORG}`,mika)).json());
+ const duplicate=await env.DB.prepare("INSERT OR IGNORE INTO hx_app_publish_approvals(id,org_id,app_id,draft_version,source_hash,scope,requested_by,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,'9101','pending',?7)").bind(crypto.randomUUID(),ORG,app.id,current.draftVersion,current.sourceHash,current.scope,new Date().toISOString()).run();
+ expect(duplicate.meta.changes).toBe(0);
+});
