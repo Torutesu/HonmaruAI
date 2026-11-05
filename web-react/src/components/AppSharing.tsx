@@ -48,10 +48,10 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
     finally { setBusy(false) }
   }
   const publish = async () => {
-    if (!settings || !Object.values(selected).some(fields => fields.length) || !confirmed) return
+    if (!settings || !access || !Object.values(selected).some(fields => fields.length) || !confirmed) return
     setBusy(true); setError('')
     try {
-      const res = await fetch(`${base}/public-shares`, { method: 'POST', headers, body: JSON.stringify({ orgId, appVersion: settings.appVersion, entities: Object.entries(selected).filter(([, fields]) => fields.length).map(([entity, fields]) => ({ entity, fields })), publicDataConfirmed: true }) })
+      const res = await fetch(`${base}/public-shares`, { method: 'POST', headers, body: JSON.stringify({ orgId, appVersion: settings.appVersion, accessVersion: access.version, entities: Object.entries(selected).filter(([, fields]) => fields.length).map(([entity, fields]) => ({ entity, fields })), publicDataConfirmed: true }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || String(res.status))
       const url = new URL(data.share.url, httpBase).toString()
