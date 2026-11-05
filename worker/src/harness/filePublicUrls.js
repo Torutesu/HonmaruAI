@@ -51,7 +51,7 @@ async function validToken(env,row,token,signatureBytes){
 function publicPath(base,token){
  try{return new URL(`/workspace-file-public-urls/${encodeURIComponent(token)}`,base).href;}catch{return null;}
 }
-function safeFailure(message,status=404){return new Response(message,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-robots-tag':'noindex, nofollow, noarchive'}});}
+function safeFailure(message,status=404){return new Response(message,{status,headers:{'cache-control':'no-store','cdn-cache-control':'no-store','cloudflare-cdn-cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-robots-tag':'noindex, nofollow, noarchive'}});}
 function safeFilename(name){
  return encodeURIComponent(basename(name)).replace(/['()*]/g,c=>`%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
@@ -164,8 +164,11 @@ function responseHeaders(row,{range=null,status=200}={}){
   'content-type':row.content_type,
   'content-disposition':`inline; filename*=UTF-8''${safeFilename(row.path)}`,
   'content-length':String(range?range.length:row.size),
-  'cache-control':'public, max-age=86400, s-maxage=86400, immutable',
-  'cdn-cache-control':'public, max-age=86400, immutable',
+  // These are bearer URLs. Do not let a browser or shared cache retain bytes
+  // after revoke, version purge, deletion, or key rotation.
+  'cache-control':'no-store',
+  'cdn-cache-control':'no-store',
+  'cloudflare-cdn-cache-control':'no-store',
   'x-content-type-options':'nosniff',
   'content-security-policy':"default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
   'cross-origin-resource-policy':'cross-origin',
@@ -179,11 +182,11 @@ function responseHeaders(row,{range=null,status=200}={}){
 }
 
 export async function servePublicFileUrl(request,env,token){
- if(request.method!=='GET'&&request.method!=='HEAD')return new Response('Method not allowed',{status:405,headers:{'allow':'GET, HEAD','cache-control':'no-store'}});
+ if(request.method!=='GET'&&request.method!=='HEAD')return new Response('Method not allowed',{status:405,headers:{'allow':'GET, HEAD','cache-control':'no-store','cdn-cache-control':'no-store','cloudflare-cdn-cache-control':'no-store'}});
  const row=await activePublicUrl(env,token);if(!row)return safeFailure('Not found');
  if(!env.MEDIA)return safeFailure('Not found');
  const range=request.headers.has('if-range')?null:byteRange(request.headers.get('range'),row.size);
- if(range===UNSATISFIABLE)return new Response(null,{status:416,headers:{'cache-control':'no-store','content-range':`bytes */${row.size}`,'x-content-type-options':'nosniff'}});
+ if(range===UNSATISFIABLE)return new Response(null,{status:416,headers:{'cache-control':'no-store','cdn-cache-control':'no-store','cloudflare-cdn-cache-control':'no-store','content-range':`bytes */${row.size}`,'x-content-type-options':'nosniff'}});
  const object=request.method==='HEAD'?await env.MEDIA.head(row.object_key):await env.MEDIA.get(row.object_key,range?{range}:undefined);
  if(!object||object.size!==row.size){await object?.body?.cancel?.().catch(()=>{});return safeFailure('Not found');}
  const stillActive=await activePublicUrl(env,token);
