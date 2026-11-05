@@ -47,7 +47,7 @@ export interface App {
   template: string | null; version: number; channels?: string[]; createdBy: string; updatedAt: string
 }
 export interface AppAction { name: string; version: number; draft?: string; published: string | null; publishedVersion: number | null }
-export interface AppConnection { name: string; version: number; endpoint: string; method: string; enabled: number; hasToken: number }
+export interface AppConnection { name: string; version: number; endpoint: string; method: string; enabled: number; hasToken: number; ownerId?: string; ownerName?: string; owned?: boolean; shared?: boolean; grantExists?: boolean; canShare?: boolean; sourceAgentName?: string }
 export interface AppHosting { configured:boolean; project:string; dnsTarget:string; domain:{hostname:string;status:string;validationStatus:string;verificationStatus:string;errorMessage:string;createdAt:string;updatedAt:string;dnsTarget:string}|null; environment:Array<{name:string;version:number;updatedAt:string;hasValue:boolean}> }
 export interface AppEntity { key: string; table: Table; rows?: Row[] }
 export interface AppFork { id: string; revision: number; mergedAt?: string | null; entities: Array<AppEntity & { rows: Row[] }> }

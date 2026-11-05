@@ -2029,3 +2029,132 @@ test('combined automation release rejects an oversized draft without changing th
  result=await f.release({action:'publish',requestId:'guard_boundary_src01',version:draft.version,revision:alone.revision,includeSource:true});expect(result.saved).toBe(true);
  current=await getApp(env.DB,ORG,f.app.id);expect(current.definition.custom.published.length).toBe(MAX_PREVIEW_SOURCE);
 });
+
+async function makeDirectAgentApp(agentProfile=null,agentOwnerLogin='toru') {
+ const at=new Date().toISOString(),agentId='agent_conn_source',threadId='app-source-agent-thread',channel=`ag:${agentId}|toru`;
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,?,'agent-conn','Connection Agent','','team',?,?,?)").bind(ORG,agentId,agentOwnerLogin,at,at).run();
+ if(agentProfile)await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at) VALUES(?,?,?,?,'9101',?)").bind(ORG,agentId,agentProfile.access,JSON.stringify(agentProfile.people),at).run();
+ await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at,parent_id) VALUES(?,?,?,'toru','message','Build an app from this Agent thread',?,NULL)").bind(threadId,ORG,channel,at).run();
+ const response=await send('POST','/apps',toru,{orgId:ORG,name:'Agent sourced app',tableName:'Agent sourced app',sourceThreadId:threadId,columns:[{name:'Title',type:'text'}]});
+ expect(response.status,JSON.stringify(await response.clone().json())).toBe(201);
+ const {app}=await response.json();
+ await env.DB.prepare("UPDATE hx_app_access SET visibility='workspace',version=version+1 WHERE org_id=? AND app_id=?").bind(ORG,app.id).run();
+ return {app,agentId};
+}
+
+test('App connection grant lists only metadata, decrypts as its owner, and revocation stops later calls',async()=>{
+ const {app}=await makeDirectAgentApp();
+ const {useSecretKey,isSealed}=await import('../src/secrets.js');
+ const keyEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ const fetch=vi.fn(async(_url,init)=>new Response(JSON.stringify({viewer:'authorized'}),{headers:{'content-type':'application/json'}}));
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const saved=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'repo_api',version:0,endpoint:'https://api.github.com/user',method:'GET',token:'OWNER_ONLY_SYNTHETIC_TOKEN'});
+  expect(saved.status,JSON.stringify(await saved.clone().json())).toBe(200);
+  const stored=await env.DB.prepare('SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by=\'9101\' AND name=\'repo_api\'').bind(ORG,app.id).first();
+  expect(isSealed(stored.token)).toBe(true);
+  const grant=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'grant',name:'repo_api'});
+  expect(grant.status,JSON.stringify(await grant.clone().json())).toBe(200);
+  const reauthorized=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'repo_api',version:1,endpoint:'https://api.github.com/user',method:'GET',token:'OWNER_ROTATED_SYNTHETIC_TOKEN'});
+  expect(reauthorized.status,JSON.stringify(await reauthorized.clone().json())).toBe(200);
+  const collision=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'save',name:'repo_api',version:0,endpoint:'https://api.github.com/user/repos',method:'GET'});
+  expect(collision.status).toBe(409);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connections WHERE org_id=? AND app_id=? AND name='repo_api'").bind(ORG,app.id).first()).toEqual({n:1});
+  const listing=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,mika);
+  const listed=await listing.json();expect(listing.status).toBe(200);
+  expect(listed.connections).toContainEqual(expect.objectContaining({name:'repo_api',version:2,owned:false,shared:true,ownerId:'9101',ownerName:'Toru',hasToken:1}));
+  expect(JSON.stringify(listed)).not.toContain('OWNER_ONLY_SYNTHETIC_TOKEN');expect(JSON.stringify(listed)).not.toContain('OWNER_ROTATED_SYNTHETIC_TOKEN');
+  const invoked=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'request',name:'repo_api',version:2});
+  expect(invoked.status,JSON.stringify(await invoked.clone().json())).toBe(200);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch.mock.calls[0][1].headers.authorization).toBe('Bearer OWNER_ROTATED_SYNTHETIC_TOKEN');
+  expect(JSON.stringify(await invoked.json())).toContain('authorized');
+  const revoked=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'revoke',name:'repo_api'});
+  expect(revoked.status).toBe(200);
+  const blocked=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'request',name:'repo_api',version:1});
+  expect(blocked.status).toBe(404);expect(fetch).toHaveBeenCalledTimes(1);
+ } finally {vi.unstubAllGlobals();useSecretKey({});}
+});
+
+test('shared connection rechecks App and both source-Agent ACLs and discards a revoked in-flight result',async()=>{
+ const {app,agentId}=await makeDirectAgentApp({access:'people',people:['toru','mika']},'mika');
+ const {useSecretKey}=await import('../src/secrets.js');
+ const keyEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ const save=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'repo_api',version:0,endpoint:'https://api.github.com/user',method:'GET',token:'IN_FLIGHT_OWNER_TOKEN'});
+ expect(save.status).toBe(200);
+ const grant=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'grant',name:'repo_api'});
+ expect(grant.status).toBe(200);
+ const reauthorized=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'repo_api',version:1,endpoint:'https://api.github.com/user',method:'GET',token:'IN_FLIGHT_ROTATED_TOKEN'});
+ expect(reauthorized.status).toBe(200);
+ let fetchCalls=0;
+ const fetch=vi.fn(async()=>{fetchCalls++;await env.DB.prepare("UPDATE hx_agent_profiles SET people='[\"mika\"]' WHERE org_id=? AND agent_id=?").bind(ORG,agentId).run();return new Response(JSON.stringify({private:'should be discarded'}),{headers:{'content-type':'application/json'}})});
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const invoked=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'request',name:'repo_api',version:2});
+  expect(fetchCalls).toBe(1);expect(invoked.status).toBe(403);
+  expect(JSON.stringify(await invoked.json())).not.toContain('should be discarded');
+  await env.DB.prepare("UPDATE hx_agent_profiles SET people='[\"toru\",\"mika\"]' WHERE org_id=? AND agent_id=?").bind(ORG,agentId).run();
+  await env.DB.prepare("UPDATE hx_app_access SET visibility='private',version=version+1 WHERE org_id=? AND app_id=?").bind(ORG,app.id).run();
+  const appDenied=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'request',name:'repo_api',version:2});
+  expect(appDenied.status).toBe(404);expect(fetchCalls).toBe(1);
+  await env.DB.prepare("UPDATE hx_app_access SET visibility='workspace',version=version+1 WHERE org_id=? AND app_id=?").bind(ORG,app.id).run();
+  const changedEndpoint=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'repo_api',version:2,endpoint:'https://api.github.com/user/repos',method:'GET',token:'AFTER_ENDPOINT_CHANGE_TOKEN'});
+  expect(changedEndpoint.status).toBe(200);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).toEqual({n:0});
+  const blocked=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'request',name:'repo_api',version:3});
+  expect(blocked.status).toBe(404);expect(fetchCalls).toBe(1);
+ } finally {vi.unstubAllGlobals();useSecretKey({});}
+});
+
+test('a connection changed between grant read and insert cannot leave a dormant old-scope grant',async()=>{
+ const {app}=await makeDirectAgentApp();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','repo_api',1,'https://api.github.com/user','GET',NULL,1)").bind(ORG,app.id).run();
+ let raced=false;
+ const racingDb=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('INSERT INTO hx_app_connection_grants'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!raced){raced=true;await db.prepare("UPDATE hx_app_connections SET version=version+1,endpoint='https://api.github.com/user/repos' WHERE org_id=? AND app_id=? AND created_by='9101' AND name='repo_api'").bind(ORG,app.id).run()}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const {changeAppConnectionGrant}=await import('../src/harness/appConnectionGrants.js');
+ const result=await changeAppConnectionGrant(racingDb,ORG,app.id,'9101',{action:'grant',name:'repo_api'});
+ expect(raced).toBe(true);expect(result).toMatchObject({error:'Connection changed while sharing. Reload and try again.',status:409});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).toEqual({n:0});
+ await env.DB.prepare("UPDATE hx_app_connections SET version=version+1,endpoint='https://api.github.com/user' WHERE org_id=? AND app_id=? AND created_by='9101' AND name='repo_api'").bind(ORG,app.id).run();
+ const {invokeAppConnection}=await import('../src/harness/appConnectionGrants.js');
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const denied=await invokeAppConnection({DB:env.DB},ORG,app.id,'9102',{name:'repo_api',version:3});
+  expect(denied.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('apps without a direct source Agent cannot grant an owner connection to visitors',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','repo_api',1,'https://api.github.com/user','GET',NULL,1)").bind(ORG,app.id).run();
+ const denied=await send('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'grant',name:'repo_api'});
+ expect(denied.status).toBe(403);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).toEqual({n:0});
+});
+
+test('a shared connection stops working after its owner leaves and rejoins the workspace',async()=>{
+ const {app}=await makeDirectAgentApp();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','repo_api',1,'https://api.github.com/user','GET',NULL,1)").bind(ORG,app.id).run();
+ expect((await send('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'grant',name:'repo_api'})).status).toBe(200);
+ await env.DB.prepare("UPDATE memberships SET created_at='2030-01-01T00:00:00.000Z' WHERE org_id=? AND user_github_id='9101'").bind(ORG).run();
+ const listed=await (await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,mika)).json();
+ expect(listed.connections).toEqual([]);
+ const {invokeAppConnection}=await import('../src/harness/appConnectionGrants.js');
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const denied=await invokeAppConnection({DB:env.DB},ORG,app.id,'9102',{name:'repo_api',version:1});
+  expect(denied.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});

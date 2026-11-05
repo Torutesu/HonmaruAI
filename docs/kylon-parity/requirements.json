@@ -611,13 +611,14 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/appCapabilities.js",
+      "code": "worker/src/harness/appConnectionGrants.js",
       "acceptance": "ブラウザに資格情報を渡さずserver proxyで毎回再認可",
       "evidence": {
-        "reviewedAt": "2026-10-18",
+        "reviewedAt": "2026-11-05",
         "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
-        "implementedScope": "Personal app-scoped exact endpoint/method grants with encrypted credentials and host approval are implemented.",
-        "remaining": "Organization-shared grants and OAuth refresh remain incomplete.",
+        "implementationBase": "0c24e52156fc06d47a7c4c1e5d96a57e7952206a",
+        "implementedScope": "The main baseline supports personal App-scoped exact endpoint/method connections with encrypted credentials. This local increment adds explicit grants for existing allowlisted native connections sourced from a direct Agent DM. Visitor calls recheck membership, current App visibility, source-Agent access for visitor and owner, grant/version, and exact endpoint/method; credentials are decrypted server-side using the owner identity and never returned. Same-target reauthorization preserves grants; endpoint/method changes, disable, or explicit revoke remove them.",
+        "remaining": "Source-Agent resolution for group/business conversation sources, grants for connections owned by a different member, and OAuth refresh remain incomplete. Remote MCP grants and arbitrary URL proxying are outside this native-connection slice.",
         "verification": "docs/kylon-parity/verification.md"
       }
     },

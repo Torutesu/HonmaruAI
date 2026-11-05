@@ -62,7 +62,6 @@ export async function readActionJob(db,orgId,appId,by,id) {
 // Only documented public API origins. No user-hosted URL, DNS rebinding or redirects.
 // Each exact URL/method is approved by the connection owner. Code cannot select
 // a path, method, query or header. Write bodies are shown for separate host approval.
-// Connections are never shared across people.
 export const CONNECTION_HOSTS=['api.github.com','api.notion.com','slack.com','www.googleapis.com','sheets.googleapis.com','api.open-meteo.com'];
 export function connectionEndpoint(raw, method='GET') {
   try {
@@ -104,8 +103,27 @@ export async function saveConnection(db,orgId,appId,by,input) {
   if(token&&!isSealed(token))return err('Encrypted credential storage is unavailable.',503);
   const enabled=input.enabled===false?0:1,version=input.version+1;
   const stmt=old?db.prepare('UPDATE hx_app_connections SET version=?5,endpoint=?6,token=?7,enabled=?8,method=?10 WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4 AND version=?9').bind(orgId,appId,String(by),input.name,version,endpoint,token,enabled,input.version,method)
-    :db.prepare('INSERT OR IGNORE INTO hx_app_connections (org_id,app_id,created_by,name,version,endpoint,token,enabled,method) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9 WHERE (SELECT COUNT(*) FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3)<20').bind(orgId,appId,String(by),input.name,version,endpoint,token,enabled,method);
-  const r=await stmt.run();return r.meta?.changes?{saved:true,version}:err('Connection changed or limit reached.',409);
+    :db.prepare(`INSERT OR IGNORE INTO hx_app_connections (org_id,app_id,created_by,name,version,endpoint,token,enabled,method)
+      SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9
+      WHERE (SELECT COUNT(*) FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3)<20
+        AND NOT EXISTS(SELECT 1 FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND name=?4)`)
+      .bind(orgId,appId,String(by),input.name,version,endpoint,token,enabled,method);
+  const updateGrantVersion=old?db.prepare(`UPDATE hx_app_connection_grants SET connection_version=?5
+    WHERE org_id=?1 AND app_id=?2 AND connection_owner_id=?3 AND connection_name=?4
+      AND connection_version=?8 AND endpoint=?6 AND method=?7
+      AND EXISTS(SELECT 1 FROM hx_app_connections c WHERE c.org_id=?1 AND c.app_id=?2
+        AND c.created_by=?3 AND c.name=?4 AND c.version=?5 AND c.endpoint=?6 AND c.method=?7 AND c.enabled=1)`)
+    .bind(orgId,appId,String(by),input.name,version,endpoint,method,input.version):null;
+  const deleteOldGrant=old?db.prepare(`DELETE FROM hx_app_connection_grants WHERE org_id=?1 AND app_id=?2
+    AND connection_owner_id=?3 AND connection_name=?4 AND (endpoint!=?5 OR method!=?6 OR ?8=0)
+    AND EXISTS(SELECT 1 FROM hx_app_connections c WHERE c.org_id=?1 AND c.app_id=?2
+      AND c.created_by=?3 AND c.name=?4 AND c.version=?7 AND c.endpoint=?5 AND c.method=?6 AND c.enabled=?8)`)
+    .bind(orgId,appId,String(by),input.name,endpoint,method,version,enabled):null;
+  // D1 executes this batch atomically. A matching endpoint/method keeps a grant
+  // through credential rotation; changing its scope or disabling it revokes it.
+  const results=await db.batch([stmt,...(updateGrantVersion?[updateGrantVersion,deleteOldGrant]:[])]);
+  const r=results[0];
+  return r.meta?.changes?{saved:true,version}:err('Connection changed or limit reached.',409);
 }
 export async function invokeConnection(db,orgId,appId,by,input) {
   const row=await db.prepare('SELECT * FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4 AND enabled=1').bind(orgId,appId,String(by),String(input.name||'')).first();
