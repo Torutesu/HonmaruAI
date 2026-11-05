@@ -303,7 +303,7 @@ export async function handleHarness(request, env, url, context = {}) {
   }
 
   const aiConversationRequest=parts[0]==='apps' && parts[2]==='conversation' && parts.length===3 && request.method==='POST' && typeof input?.body==='string' && asksAppAI(input.body);
-  const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && parts.length === 3 && request.method === 'POST') || (parts[0] === 'apps' && parts[2] === 'conversation-notifications' && parts.length === 3) });
+  const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && request.method === 'POST' && (parts.length === 3 || (parts.length === 5 && parts[4] === 'revoke'))) || (parts[0] === 'apps' && parts[2] === 'conversation-notifications' && parts.length === 3) });
   if (who.denied) return who.denied;
   const me = who.session.github_id;
   if (url.pathname === "/remote-mcp" || url.pathname.startsWith("/remote-mcp/")) {
