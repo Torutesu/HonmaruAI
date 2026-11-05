@@ -56,7 +56,7 @@ const COUNTRY = { ja: "JP", en: "US", es: "ES", fr: "FR", de: "DE", ko: "KR", zh
 /// `plain`: the workspace's own model, the search tool bare, no reasoning
 /// settings — nothing a model might refuse — the retry when the full call
 /// is turned down. Our own tools stay.
-export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, webSearch = true, maxOutput = null, mustLook = false, authorize = null, signal = null, usageContext = null }) {
+export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, onToolTrace = null, webSearch = true, maxOutput = null, mustLook = false, authorize = null, signal = null, usageContext = null }) {
   const endpoint = provider.endpoint.replace(/\/chat\/completions$/, "/responses");
   const model = plain ? provider.model : agentModelFor(env, provider);
   const reasoning = isReasoningModel(model);
@@ -150,27 +150,44 @@ export async function research({ provider, env, instructions, input, tools = {},
       let output;
       if (calls > MAX_FUNCTION_CALLS) output = "Tool budget spent. Answer now from what you have.";
       else {
+        const stepIndex = calls - 1;
+        const startedAtMs = Date.now();
+        let traceStatus = 'completed';
+        const trace = async (phase, status = null) => {
+          if (!onToolTrace) return;
+          const finishedAtMs = phase === 'finish' ? Date.now() : null;
+          try {
+            await onToolTrace({phase,stepIndex,toolName:call.name,status,
+              ...(phase === 'start' ? {startedAt:new Date(startedAtMs).toISOString()} : {
+                finishedAt:new Date(finishedAtMs).toISOString(),durationMs:Math.max(0,finishedAtMs-startedAtMs),
+              })});
+          } catch { /* a trace outage never changes the agent's work */ }
+        };
+        await trace('start');
         const tool = tools[call.name];
         let args = {};
         try { args = JSON.parse(call.arguments || "{}"); } catch { /* the tool says so below */ }
         try {
-          if (signal?.aborted || (authorize && !await authorize())) return { type: "function_call_output", call_id: call.call_id, output: "Access changed. Execution stopped." };
+          if (signal?.aborted || (authorize && !await authorize())) { traceStatus='interrupted'; return { type: "function_call_output", call_id: call.call_id, output: "Access changed. Execution stopped." }; }
           const cancelledTool=Symbol('cancelled tool');
           let result;
-          if(!tool)result=`No tool named ${call.name}.`;
+          if(!tool) {traceStatus='failed';result=`No tool named ${call.name}.`;}
           else if(signal) {
             const operation=Promise.resolve().then(()=>tool.run(args,{signal}));
             operation.catch(()=>{});
             result=await raceSignal(operation,signal,cancelledTool);
           } else result=await tool.run(args);
-          if(result===cancelledTool)return {cancelled:true};
-          if(signal?.aborted)return {cancelled:true};
+          if(result===cancelledTool) {traceStatus='interrupted';return {cancelled:true};}
+          if(signal?.aborted) {traceStatus='interrupted';return {cancelled:true};}
           const operationId = isControlTool(tool) ? handoffOperation(result) : null;
-          if (operationId) return {handedOff: {operationId}};
+          if (operationId) {traceStatus='handed_off';return {handedOff: {operationId}};}
           output = typeof result === "string" ? result : JSON.stringify(result) ?? String(result);
         } catch (err) {
-          if(signal?.aborted)return {cancelled:true};
+          if(signal?.aborted) {traceStatus='interrupted';return {cancelled:true};}
+          traceStatus='failed';
           output = `The tool failed: ${String(err?.message || err).slice(0, 200)}`;
+        } finally {
+          await trace('finish',traceStatus);
         }
         if (call.name === "read_url" && typeof args.url === "string" && !/^(Could not|No )/.test(output)) {
           note(read, args.url, (output.match(/^Title: (.+)$/m) || [])[1] || "");

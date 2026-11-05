@@ -443,7 +443,7 @@ Research — whenever the request needs facts from outside this chat (anything c
 /// helpers: `called` is whether a model was paid for. `tools` are the
 /// function tools it may call while researching (see agentResearch.js);
 /// `env` names the research model.
-export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, authorize = null, harnessTools = false, signal = null, usageContext = null }) {
+export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, onToolTrace = null, authorize = null, harnessTools = false, signal = null, usageContext = null }) {
   if (!provider) return { called: false, answer: null };
   if (signal?.aborted || (authorize && !await authorize())) return { called: false, answer: null, cancelled: true };
   const today = new Date().toISOString().slice(0, 10);
@@ -464,7 +464,7 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
   if (harnessTools && canChatTools(provider) && Object.keys(tools).length) {
     const instructions = agent.researchInstructions && tools.read_installed_skill
       ? `${RULES}\n\nToday is ${today}.\n\nYou are ${agent.name} (@${agent.handle}).\n\n<agent_instructions>\n${agent.researchInstructions}\n</agent_instructions>` : system;
-    const out = await chatTools({provider, instructions, input: user, tools, authorize, onRound, deadline, signal, usageContext});
+    const out = await chatTools({provider, instructions, input: user, tools, authorize, onRound, onToolTrace, deadline, signal, usageContext});
     return {...out, answer: out.answer ? forChat(out.answer).slice(0, MAX_ANSWER) : null};
   }
   if (canResearch(provider)) {
@@ -473,7 +473,7 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
     const mustLook = /Transcript: could not be read/.test(links);
     const researchSystem = agent.researchInstructions && tools.read_installed_skill
       ? `${RULES}\n\nToday is ${today}.\n\nYou are ${agent.name} (@${agent.handle}).\n\n<agent_instructions>\n${agent.researchInstructions}\n</agent_instructions>` : system;
-    const opts = { provider, env, instructions: researchSystem, input: user, tools, language: readerLanguage, deadline, onRound, mustLook, authorize, signal, usageContext };
+    const opts = { provider, env, instructions: researchSystem, input: user, tools, language: readerLanguage, deadline, onRound, onToolTrace, mustLook, authorize, signal, usageContext };
     let out = await runResearch(opts);
     // The retry keeps our own tools — reading a page is what most answers
     // need — and drops only what a plain model might refuse.

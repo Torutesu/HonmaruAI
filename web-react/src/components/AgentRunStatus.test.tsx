@@ -93,6 +93,36 @@ test('durable assignment metadata remains visible when the old source job has no
  act(()=>tree.unmount());
 });
 
+test('loads the bounded tool trace only after expansion and renders metadata without tool payloads',async()=>{
+ setup();const requests:string[]=[];
+ const fetch=vi.fn().mockImplementation(async(url:string)=>{
+  requests.push(url);
+  if(url.includes('/steps?'))return {ok:true,json:async()=>({steps:[{generation:0,stepIndex:0,agent:{id:'agent',name:'Researcher',handle:'research'},toolName:'search_items',status:'completed',startedAt:'2026-10-24T00:00:00.000Z',finishedAt:'2026-10-24T00:00:00.020Z',durationMs:20}]})};
+  return {ok:true,json:async()=>({available:true,results:[{rowId:'one',status:'finished',answered:1,assignments:[{id:'assignment',generation:0,status:'finished',agent:{id:'agent',name:'Researcher',handle:'research'},hops:[] }]}]})};
+ });
+ vi.stubGlobal('fetch',fetch);let tree!:ReturnType<typeof create>;
+ await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>) });
+ expect(requests.some(url=>url.includes('/steps?'))).toBe(false);
+ const disclosure=tree.root.findAllByType('details').find(node=>node.props.className==='slk-run-tool-trace');expect(disclosure).toBeTruthy();
+ await act(async()=>{disclosure!.props.onToggle({currentTarget:{open:true}})});
+ const rendered=JSON.stringify(tree.toJSON());expect(rendered).toContain('search_items');expect(rendered).toContain('Completed');expect(rendered).toContain('Researcher');
+ expect(fetch.mock.calls.map(args=>String(args[0])).some(url=>url.includes('assignmentId=assignment')&&url.includes('generation=0'))).toBe(true);
+ expect(requests.join(' ')).not.toMatch(/arguments|output|secret/);
+ act(()=>tree.unmount());
+});
+
+test('removes the execution-step affordance after a successful empty trace read',async()=>{
+ setup();const fetch=vi.fn().mockImplementation(async(url:string)=>{
+  if(url.includes('/steps?'))return {ok:true,json:async()=>({steps:[]})};
+  return {ok:true,json:async()=>({available:true,results:[{rowId:'one',status:'finished',answered:0,assignments:[{id:'assignment',generation:0,status:'finished',agent:{id:'agent',name:'Researcher',handle:'research'},hops:[]}]}]})};
+ });vi.stubGlobal('fetch',fetch);
+ let tree!:ReturnType<typeof create>;await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>) });
+ const disclosure=tree.root.findAllByType('details').find(node=>node.props.className==='slk-run-tool-trace');expect(disclosure).toBeTruthy();
+ await act(async()=>{disclosure!.props.onToggle({currentTarget:{open:true}})});
+ expect(tree.root.findAllByProps({className:'slk-run-tool-trace'})).toHaveLength(0);
+ act(()=>tree.unmount());
+});
+
 test('uses agent identity images and emoji in assignments and handoff history', async () => {
  setup()
  const from = {id: 'research', name: 'Researcher', handle: 'research', emoji: '🔎'}

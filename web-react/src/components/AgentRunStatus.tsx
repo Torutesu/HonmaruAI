@@ -12,6 +12,7 @@ import {formatElapsedDuration} from '../utils/runDuration'
 type Api = {httpBase: string; orgId: string; sessionToken: string}
 type AgentFace = AgentLook & {id: string; name: string; handle: string}
 type Assignment = {id: string; generation: number; status: string; startedAt?: string; updatedAt?: string; providerStopStatus?: string; canStop?: boolean; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
+type ToolStep = {generation:number; stepIndex:number; agent:AgentFace; toolName:string; status:'running'|'completed'|'failed'|'interrupted'|'handed_off'; startedAt:string; finishedAt?:string; durationMs?:number}
 type Run = {rowId: string; status: string; answered: number; version?: number; assignments?: Assignment[]}
 const activeStatus = (status: string) => ['pending_delivery', 'queued', 'running', 'pending'].includes(status)
 const activeRun = (run: Run) => activeStatus(run.status) || Boolean(run.assignments?.some(assignment => activeStatus(assignment.status)))
@@ -32,6 +33,43 @@ function handoffTime(at: string): string {
   const options = {dateStyle: 'medium', timeStyle: 'short'} as const
   try { return formatDate(new Date(at), getLocale(), options) }
   catch { return formatDate(new Date(at), 'en', options) }
+}
+function toolStepsFrom(value: unknown): ToolStep[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(step => step && Number.isSafeInteger(step.generation) && step.generation >= 0 && step.generation <= 8
+    && Number.isSafeInteger(step.stepIndex) && step.stepIndex >= 0 && step.stepIndex < 16 && faceValid(step.agent)
+    && typeof step.toolName === 'string' && step.toolName.length > 0 && step.toolName.length <= 80
+    && ['running','completed','failed','interrupted','handed_off'].includes(step.status)
+    && typeof step.startedAt === 'string' && step.startedAt.length <= 64).slice(0,144).map(step => ({...step,
+      ...(typeof step.finishedAt==='string'&&step.finishedAt.length<=64?{finishedAt:step.finishedAt}:{}),
+      ...(Number.isSafeInteger(step.durationMs)&&step.durationMs>=0&&step.durationMs<=600000?{durationMs:step.durationMs}:{}),
+    }))
+}
+function ToolTrace({api,channel,rowId,assignment}: {api:Api; channel:string; rowId:string; assignment:Assignment}) {
+  const t=useT()
+  const scope=JSON.stringify([api.httpBase,api.orgId,api.sessionToken,channel,rowId,assignment.id,assignment.generation])
+  const [state,setState]=useState<{scope:string; status:'idle'|'loading'|'ready'|'empty'|'unavailable'; steps:ToolStep[]}>({scope,status:'idle',steps:[]})
+  useEffect(()=>{setState({scope,status:'idle',steps:[]})},[scope])
+  const load=async()=>{
+    if(state.scope===scope&&state.status!=='idle')return
+    setState({scope,status:'loading',steps:[]})
+    const query=new URLSearchParams({orgId:api.orgId,channel,messageId:rowId,assignmentId:assignment.id,generation:String(assignment.generation)})
+    try {
+      const response=await fetch(`${api.httpBase}/channels/agent-runs/steps?${query}`,{headers:{'x-session-token':api.sessionToken},signal:AbortSignal.timeout(10000)})
+      if(!response.ok)throw new Error('unavailable')
+      const steps=toolStepsFrom((await response.json()).steps)
+      setState({scope,status:steps.length?'ready':'empty',steps})
+    } catch { setState({scope,status:'unavailable',steps:[]}) }
+  }
+  if(state.scope===scope&&state.status==='empty')return null
+  const statuses:Record<ToolStep['status'],string>={running:'In progress',completed:'Completed',failed:'Tool returned an error',interrupted:'Interrupted; outcome unconfirmed',handed_off:'Handed off'}
+  return <details className="slk-run-tool-trace" onToggle={event=>{if(event.currentTarget.open)void load()}}>
+    <summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Worked for · execution steps')}</summary>
+    {state.scope!==scope||state.status==='idle'||state.status==='loading'?<p role="status">{t('Loading execution steps…')}</p>:state.status==='unavailable'?<p className="slk-run-unavailable" role="status">{t('Execution steps unavailable')}</p>:<ol>{state.steps.map(step=>{
+      const duration=formatElapsedDuration(step.startedAt,step.status==='running'?null:step.finishedAt||null,getLocale())
+      return <li key={`${step.generation}:${step.stepIndex}`}><span className="slk-run-tool-agent">{step.agent.name||t('Agent')}</span><code>{step.toolName}</code><span className="slk-run-tool-status">{t(statuses[step.status])}</span>{duration&&<span className="slk-run-duration">{duration}</span>}</li>
+    })}</ol>}
+  </details>
 }
 const labels: Record<string, string> = {
   pending: 'Agent handoff awaiting delivery', pending_delivery: 'Agent queue acknowledgement pending', queued: 'Agent execution queued', running: 'Agent execution running',
@@ -111,6 +149,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
         })()}
         {assignment.canStop === true && activeStatus(assignment.status) && <AgentRunStop key={`${scope}:${assignment.id}:${assignment.generation}`} api={api} channel={channel} rowId={run.rowId} assignmentId={assignment.id} generation={assignment.generation} onStopped={() => setRefresh(value => value + 1)}/>}
         {assignment.status === 'cancelled' && ['failed','partial','unavailable','pending','requesting'].includes(assignment.providerStopStatus || '') && <AgentRunStop key={`${scope}:${assignment.id}:${assignment.generation}:provider-retry`} retry api={api} channel={channel} rowId={run.rowId} assignmentId={assignment.id} generation={assignment.generation} onStopped={() => setRefresh(value => value + 1)}/>}
+        <ToolTrace api={api} channel={channel} rowId={run.rowId} assignment={assignment}/>
         {assignment.hops.length > 0 && <details className="slk-run-handoffs"><summary><span className="slk-handoff-disclosure"><Icon name="chevron-right" size={12}/></span>{t('Handoff history ({count})', {count: assignment.hops.length})}</summary><ol>{assignment.hops.map(hop => <li key={hop.id}><span className="slk-run-hop-agents"><span title={`@${hop.from.handle}`}><RunFace agent={hop.from}/>{hop.from.name || t('Agent')}</span><span aria-hidden="true">→</span><span title={`@${hop.to.handle}`}><RunFace agent={hop.to}/>{hop.to.name || t('Agent')}</span></span>{Number.isFinite(Date.parse(hop.at)) && <time dateTime={hop.at}>{handoffTime(hop.at)}</time>}</li>)}</ol></details>}
       </div>)}</div>}
     </li>)}</ul>

@@ -64,6 +64,23 @@ test("a tool that throws, or one that does not exist, is told to the model rathe
   ]);
 });
 
+test('tool traces contain ordered names and coarse outcomes without arguments, outputs, or exception text',async()=>{
+  const traces=[];
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,{id:'trace-1',output:[
+    {type:'function_call',call_id:'secret-call',name:'boom',arguments:'{"query":"secret-input"}'},
+    {type:'function_call',call_id:'second-call',name:'lookup',arguments:'{"token":"secret-token"}'},
+  ]});
+  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,{id:'trace-2',output_text:'Done',output:[]});
+  const out=await research({provider:provider(),env:{},instructions:'i',input:'q',onToolTrace:event=>traces.push(event),tools:{
+    boom:{description:'d',parameters:{},run:async()=>{throw new Error('secret exception');}},
+    lookup:{description:'d',parameters:{},run:async()=> 'secret result'},
+  }});
+  expect(out.answer).toBe('Done');
+  expect(traces.filter(event=>event.phase==='start').map(event=>[event.stepIndex,event.toolName])).toEqual([[0,'boom'],[1,'lookup']]);
+  expect(traces.filter(event=>event.phase==='finish').map(event=>[event.stepIndex,event.status])).toEqual([[0,'failed'],[1,'completed']]);
+  expect(JSON.stringify(traces)).not.toMatch(/secret-input|secret-token|secret exception|secret result|arguments|output/);
+});
+
 test("each web search is on the ledger at OpenAI's per-call price, beside the tokens", async () => {
   const p = provider();
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, {

@@ -266,6 +266,10 @@ export default {
       ctx.waitUntil(deliverStreams(env, { now: event?.scheduledTime || Date.now() }).catch((err) => console.error("audit streams failed", err?.message || err)));
       return;
     }
+    if (event?.cron === "*/15 * * * *") {
+      ctx.waitUntil(import("./harness/agentToolTrace.js").then(({pruneAgentToolTraces}) => pruneAgentToolTraces(env.DB, {now: event?.scheduledTime || Date.now()}))
+        .catch(() => console.error("agent tool trace retention failed")));
+    }
     // The bill: today's D1 rows against the warning and stop lines. Past
     // the stop line, the work below that nobody is waiting on waits for
     // tomorrow (spendGuard.js); what people do keeps working.

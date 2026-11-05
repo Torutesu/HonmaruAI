@@ -1976,6 +1976,14 @@ body.slk-resizing iframe { pointer-events: none; }
 
 .classic.slk .slk-handoff-disclosure { display: inline-flex; }
 .classic.slk .slk-run-handoffs[open] > summary .slk-handoff-disclosure { transform: rotate(90deg); }
+.classic.slk .slk-run-tool-trace { flex-basis: 100%; margin: 6px 0 0 26px; }
+.classic.slk .slk-run-tool-trace summary { cursor: pointer; display: flex; align-items: center; gap: 5px; font-size: 11px; }
+.classic.slk .slk-run-tool-trace[open] > summary .slk-handoff-disclosure { transform: rotate(90deg); }
+.classic.slk .slk-run-tool-trace ol { border-left: 1px solid var(--slk-line); list-style: none; margin: 8px 0 0 4px; padding: 0 0 0 12px; }
+.classic.slk .slk-run-tool-trace li { align-items: center; display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 4px 0; }
+.classic.slk .slk-run-tool-trace code { color: var(--slk-ink); font-size: 11px; overflow-wrap: anywhere; }
+.classic.slk .slk-run-tool-agent, .classic.slk .slk-run-tool-status { color: var(--slk-dim); font-size: 11px; }
+.classic.slk .slk-run-tool-agent { color: var(--slk-ink); }
 
 .classic.slk .slk-run-stop { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .classic.slk .slk-run-stop button { padding: 3px 8px; border: 1px solid var(--slk-line); border-radius: 5px; background: var(--slk-bg); color: var(--slk-ink); font: inherit; cursor: pointer; }

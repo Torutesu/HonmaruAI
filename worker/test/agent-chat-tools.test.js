@@ -64,8 +64,10 @@ test('Harness askAgent uses tools while Simple retains the ordinary request',asy
  const base={provider:provider(),agent:{name:'Agent',handle:'agent',instructions:''},request:'task',transcript:[],tools:{lookup:tool(async()=>'found')}};
  reply({tool_calls:[call('one','lookup')]});reply({content:'**Done**'});
  expect((await askAgent({...base,harnessTools:true})).answer).toBe('*Done*');
+ const simpleTrace=[];
  reply({content:'Simple'},body=>expect(body.tools).toBeUndefined());
- expect((await askAgent(base)).answer).toBe('Simple');
+ expect((await askAgent({...base,onToolTrace:event=>simpleTrace.push(event)})).answer).toBe('Simple');
+ expect(simpleTrace).toEqual([]);
 });
 test('expired deadline does not start a model request',async()=>{
  expect(await run({deadline:Date.now()-1})).toMatchObject({called:false,rounds:0,answer:null});
@@ -106,11 +108,21 @@ test('progress callback cannot bypass revocation before the next model request',
  expect(out.cancelled).toBe(true);
 });
 
+test('tool errors are traced without saving arguments, outputs, or raw error text',async()=>{
+ const traces=[];
+ reply({tool_calls:[call('one','boom','{"token":"secret-token"}'),call('two','missing')]});reply({content:'Done'});
+ const out=await run({onToolTrace:event=>traces.push(event),tools:{boom:tool(async()=>{throw new Error('secret exception')})}});
+ expect(out.answer).toBe('Done');expect(traces.filter(event=>event.phase==='start').map(event=>event.toolName)).toEqual(['boom','missing']);
+ expect(traces.filter(event=>event.phase==='finish').map(event=>event.status)).toEqual(['failed','failed']);
+ expect(JSON.stringify(traces)).not.toMatch(/secret-token|secret exception|The tool failed|arguments|output/);
+});
+
 test('a hanging tool reaches its deadline without replay, siblings or an inferred answer',async()=>{
- let started=0,siblings=0,clock=Date.now();
+ let started=0,siblings=0,clock=Date.now();const traces=[];
  vi.spyOn(Date,'now').mockImplementation(()=>clock);
  const deadline=clock+11000;
  reply({content:'Everything finished',tool_calls:[call('one','hang'),call('two','write')]},()=>{clock=deadline-50;});
- const out=await run({deadline,tools:{hang:tool(async()=>{started++;return new Promise(()=>{});}),write:tool(async()=>siblings++)}});
+ const out=await run({deadline,onToolTrace:event=>traces.push(event),tools:{hang:tool(async()=>{started++;return new Promise(()=>{});}),write:tool(async()=>siblings++)}});
  expect(out).toMatchObject({called:true,answer:null,interrupted:true});expect(started).toBe(1);expect(siblings).toBe(0);
+ expect(traces.filter(event=>event.phase==='finish').map(event=>event.status)).toEqual(['interrupted']);
 });

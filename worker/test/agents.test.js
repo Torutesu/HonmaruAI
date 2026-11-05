@@ -937,6 +937,8 @@ test('a Harness model handoff queues and executes the target once while suppress
   expect(JSON.stringify(replies)).not.toContain('stale source answer');
   const assignment=await env.DB.prepare('SELECT * FROM hx_agent_assignments WHERE org_id=?1 AND source_message_id=?2').bind(ORG,message.id).first();
   expect(assignment).toMatchObject({current_agent_id:target.id,generation:1,status:'finished'});
+  const steps=(await env.DB.prepare('SELECT generation,agent_id,step_index,tool_name,status FROM hx_agent_tool_steps WHERE org_id=?1 AND assignment_id=?2 ORDER BY generation,step_index').bind(ORG,assignment.id).all()).results;
+  expect(steps).toEqual([{generation:0,agent_id:source.id,step_index:0,tool_name:'handoff_to_agent',status:'handed_off'}]);
 });
 
 test('handoff delivery retries a lost acknowledgement and cancels after source edits',async()=>{
@@ -992,6 +994,33 @@ test('assignment status exposes scoped chain metadata with per-viewer stop right
   const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions'])expect(text).not.toContain(value);
  }
  const mixed=await call(`${url}&messageId=foreign`,{headers:headers(mika)},f.over);expect(mixed.status).toBe(404);
+});
+
+test('tool trace reads bind to the source, org, generation, Harness mode, and every current agent ACL',async()=>{
+ const f=await assignmentStatusFixture();
+ const {claimHandoff}=await import('../src/harness/agentAssignments.js');
+ const {setMode}=await import('../src/harness/mode.js');
+ const {saveProfile}=await import('../src/harness/agents.js');
+ await claimHandoff(env.DB,{orgId:ORG,operationId:'status-hop'});
+ await env.DB.prepare(`INSERT INTO hx_agent_tool_steps(org_id,assignment_id,generation,agent_id,step_index,tool_name,status,started_at,finished_at,duration_ms)
+   VALUES (?1,?2,0,?3,0,'lookup','completed','2026-10-24T00:00:00.000Z','2026-10-24T00:00:00.012Z',12),
+          (?1,?2,1,?4,0,'verify','interrupted','2026-10-24T00:00:01.000Z','2026-10-24T00:00:02.000Z',1000)`)
+   .bind(ORG,f.assignmentId,f.source.id,f.target.id).run();
+ const url=({orgId=ORG,messageId=f.row.id,assignmentId=f.assignmentId,generation=1,channel='b:cafe'}={})=>`/channels/agent-runs/steps?${q({orgId,channel,messageId,assignmentId,generation})}`;
+ const visible=await call(url(),{headers:headers(mika)},f.over);expect(visible.status).toBe(200);
+ const body=await visible.json();expect(body.steps.map(step=>[step.generation,step.agent.id,step.toolName,step.status])).toEqual([[0,f.source.id,'lookup','completed'],[1,f.target.id,'verify','interrupted']]);
+ expect(JSON.stringify(body)).not.toMatch(/Private handoff brief|source_hash|session_key|token|arguments|output/);
+ expect((await call(url({messageId:'other-source'}),{headers:headers(mika)},f.over)).status).toBe(404);
+ expect((await call(url({assignmentId:'other-assignment'}),{headers:headers(mika)},f.over)).status).toBe(404);
+ expect((await call(url({generation:0}),{headers:headers(mika)},f.over)).status).toBe(404);
+ expect((await call(url({orgId:'other-org'}),{headers:headers(mika)},f.over)).status).not.toBe(200);
+ await saveProfile(env.DB,ORG,f.target.id,{access:'people',people:['toru']},'8801');
+ expect((await call(url(),{headers:headers(mika)},f.over)).status).toBe(404);
+ expect((await call(url(),{headers:headers(toru)},f.over)).status).toBe(200);
+ await saveProfile(env.DB,ORG,f.source.id,{access:'people',people:['toru']},'8801');
+ expect((await call(url(),{headers:headers(mika)},f.over)).status).toBe(404);
+ await setMode(env.DB,ORG,'simple','8801');
+ expect((await call(url(),{headers:headers(toru)},f.over)).status).toBe(404);
 });
 
 test('only the requester or agent manager can stop the observed assignment generation',async()=>{

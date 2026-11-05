@@ -6,6 +6,7 @@ import {drainTeammateResults} from './teammateResultDispatch.js';
 import {agentRunSnapshot} from './harness/agentRunSnapshot.js';
 import {stopAssignment} from './harness/agentAssignmentStop.js';
 import {runAgentAssignment} from './harness/runAgentAssignment.js';
+import {startAgentToolTrace,finishAgentToolTrace,readAgentToolTrace,validAgentToolTraceScope} from './harness/agentToolTrace.js';
 import {drainAgentRequests} from './agentRequestDispatch.js';
 import {agentExecutionAuthorizer} from './agentExecutionGrant.js';
 import { searchRoom } from './roomSearch.js';
@@ -25,7 +26,7 @@ import { searchThread } from "./threadSearch.js";
 import { previewThreadShare, threadSharePolicy, setThreadSharePolicy, storeThreadShare, readThreadShare, revokeOwnThreadShare } from "./threadShares.js";
 import { appActivity, readAppActivity, appActivityProof, appActivityDeliveryKeys } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
-import { prepareAgent, rememberRequest, addAgentMemory, filterResponders } from "./harness/agents.js";
+import { prepareAgent, rememberRequest, addAgentMemory, filterResponders, mayAccessAgent } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
 import { mayUseAgentSource } from "./harness/agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
@@ -640,11 +641,16 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           ...ready.agent,
           instructions: agentInstructionsForTools(ready.agent.instructions, toolsForTurn),
         };
+        const onToolTrace = durableExecution && harness && replyFence && typeof replyFence.assignmentId === 'string' && Number.isSafeInteger(replyFence.generation)
+          ? event => event?.phase === 'start'
+            ? startAgentToolTrace(env.DB,{orgId,assignmentId:replyFence.assignmentId,generation:replyFence.generation,agentId:agent.id,stepIndex:event.stepIndex,toolName:event.toolName,startedAt:event.startedAt})
+            : finishAgentToolTrace(env.DB,{orgId,assignmentId:replyFence.assignmentId,generation:replyFence.generation,stepIndex:event.stepIndex,status:event.status,finishedAt:event.finishedAt,durationMs:event.durationMs})
+          : null;
         const result = await askAgent({
           provider: ready.provider, agent: agentForTurn, request: requestFor(taskText, agent), transcript, playbook, where, research, links, tools: toolsForTurn, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
-          onRound: () => progress(agent, "agent"), authorize, harnessTools: harness, signal,
+          onRound: () => progress(agent, "agent"), onToolTrace, authorize, harnessTools: harness, signal,
           usageContext: { roomSlug: resolved.kind === "business" ? resolved.slug : null, agentId: agent.id },
         });
         if (result.called && allowance.metered) await allowance.consume();
@@ -1227,6 +1233,32 @@ export async function handleChannels(request, env, url, { route, after }) {
     } catch {
       return json({message: 'Execution status unavailable.'}, 503);
     }
+  }
+
+  if (path === '/channels/agent-runs/steps' && request.method === 'GET') {
+    const orgId=url.searchParams.get('orgId'), channel=url.searchParams.get('channel'), sourceMessageId=url.searchParams.get('messageId');
+    const assignmentId=url.searchParams.get('assignmentId'), generationText=url.searchParams.get('generation');
+    const generation=/^(0|[1-8])$/.test(generationText || '')?Number(generationText):NaN;
+    const scope={orgId,assignmentId,sourceMessageId,generation};
+    if(!validAgentToolTraceScope(scope)||typeof channel!=='string'||channel.length<1||channel.length>200)return json({message:'Invalid execution trace.'},400);
+    if(await getMode(env.DB,orgId)!=='harness')return json({message:'No such execution trace.'},404);
+    const access=await inChannel(env,request,{orgId,channel});
+    if(access.denied)return access.denied;
+    const row=await getMessage(env.DB,orgId,sourceMessageId);
+    if(!row||row.deleted_at||row.kind!=='message'||row.channel!==access.resolved.key)return json({message:'No such execution trace.'},404);
+    try {
+      const assignment=await env.DB.prepare(`SELECT id,current_agent_id,generation FROM hx_agent_assignments
+        WHERE org_id=?1 AND id=?2 AND source_message_id=?3 AND channel=?4 AND generation=?5`)
+        .bind(orgId,assignmentId,sourceMessageId,access.resolved.key,generation).first();
+      if(!assignment)return json({message:'No such execution trace.'},404);
+      const steps=await readAgentToolTrace(env.DB,{orgId,assignmentId,generation});
+      const agentIds=[...new Set([assignment.current_agent_id,...steps.map(step=>step.agent.id)])];
+      for(const agentId of agentIds) {
+        const agent=await env.DB.prepare(`SELECT id,scope,owner_login FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL`).bind(orgId,agentId).first();
+        if(!agent||!await mayAccessAgent(env.DB,orgId,{...agent,ownerLogin:agent.owner_login},access.who.user.login))return json({message:'No such execution trace.'},404);
+      }
+      return json({steps});
+    } catch { return json({message:'Execution trace unavailable.'},503); }
   }
 
   if (path === "/channels/messages" && (request.method === "GET" || request.method === "POST")) {

@@ -84,6 +84,14 @@ test("a deploy recreates app annotation storage and its screen index", async () 
   expect(index).toBeTruthy();
 });
 
+test('a deploy creates durable, bounded agent tool-step history',async()=>{
+  await applyDeploy(env.DB);
+  const table=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hx_agent_tool_steps'").first();
+  const index=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_hx_agent_tool_steps_retention'").first();
+  expect(table).toBeTruthy();expect(index).toBeTruthy();
+  await expect(applyDeploy(env.DB)).resolves.not.toThrow();
+});
+
 test("a deploy onto a database predating the auth columns still succeeds", async () => {
   // Production: users exists without email/password columns. schema.sql is a
   // no-op for the table, so anything depending on those columns has to come

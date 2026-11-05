@@ -1,5 +1,6 @@
 // Persistence only: callers must resolve current origin/room/agent authority.
 // There is deliberately no public HTTP entry point into this state machine.
+import {closeOpenAgentToolTraces} from './agentToolTrace.js';
 export const MAX_HANDOFF_HOPS = 8;
 const conflict = () => ({error: 'The assignment changed or is no longer running.', status: 409});
 const idOk = value => typeof value === 'string' && value.length > 0 && value.length <= 100;
@@ -87,5 +88,7 @@ export async function endAssignment(db, {orgId, assignmentId, generation, agentI
   const result = await db.prepare(`UPDATE hx_agent_assignments SET status=?5,updated_at=?6
     WHERE org_id=?1 AND id=?2 AND generation=?3 AND current_agent_id=?4 AND status IN ('running','pending')`)
     .bind(orgId,assignmentId,generation,agentId,status,new Date().toISOString()).run();
-  return Boolean(result.meta?.changes);
+  const changed=Boolean(result.meta?.changes);
+  if(changed)await closeOpenAgentToolTraces(db,{orgId,assignmentId,generation}).catch(()=>{});
+  return changed;
 }

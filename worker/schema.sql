@@ -2348,6 +2348,15 @@ CREATE TABLE IF NOT EXISTS hx_agent_assignments (
   UNIQUE(org_id,source_message_id,initial_agent_id)
 );
 CREATE INDEX IF NOT EXISTS idx_hx_agent_assignments_source ON hx_agent_assignments(org_id,source_message_id);
+CREATE TABLE IF NOT EXISTS hx_agent_tool_steps (
+  org_id TEXT NOT NULL, assignment_id TEXT NOT NULL, generation INTEGER NOT NULL CHECK(generation BETWEEN 0 AND 8),
+  agent_id TEXT NOT NULL, step_index INTEGER NOT NULL CHECK(step_index BETWEEN 0 AND 15),
+  tool_name TEXT NOT NULL CHECK(length(tool_name) BETWEEN 1 AND 80),
+  status TEXT NOT NULL CHECK(status IN ('running','completed','failed','interrupted','handed_off')),
+  started_at TEXT NOT NULL, finished_at TEXT, duration_ms INTEGER CHECK(duration_ms IS NULL OR duration_ms BETWEEN 0 AND 600000),
+  PRIMARY KEY(org_id,assignment_id,generation,step_index)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_tool_steps_retention ON hx_agent_tool_steps(started_at);
 CREATE TABLE IF NOT EXISTS hx_agent_handoffs (
   org_id TEXT NOT NULL, operation_id TEXT NOT NULL, assignment_id TEXT NOT NULL,
   source_generation INTEGER NOT NULL, source_agent_id TEXT NOT NULL, target_agent_id TEXT NOT NULL,
