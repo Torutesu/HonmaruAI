@@ -32,6 +32,7 @@ interface Metrics {
     byokCalls: number
     days: number
     daily?: Array<{ day: string; calls: number; ourUsd: number; byokUsd: number; usd: number }>
+    byMember?: Array<{ userId: string | null; login: string | null; name: string | null; calls: number; inputTokens: number; outputTokens: number; usd: number }>
     byPurpose: Array<{ purpose: string; calls: number; usd: number }>
     byProvider: Array<{ provider: string; calls: number; usd: number }>
     jevShare: number | null
@@ -197,6 +198,24 @@ export const Insights: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
                 )}
                 {m.ai.byPurpose.length > 0 && (
                   <BarList rows={m.ai.byPurpose.map((p) => ({ label: `${t(PURPOSE_WORD[p.purpose] || p.purpose)} · ${money(p.usd)}`, count: p.calls }))} />
+                )}
+                {m.ai.byMember && (
+                  <>
+                    <div className="rows-title">{t('AI usage by member')}</div>
+                    {m.ai.byMember.length === 0 ? (
+                      <p className="hint insights-hint">{t('No workspace-key AI usage is recorded for this period.')}</p>
+                    ) : (
+                      <div className="rows">
+                        {m.ai.byMember.map((member) => (
+                          <div className="row static" key={member.userId || member.login || 'unknown'}>
+                            <span className="row-main">{member.name || member.login || t('Unknown member')}<span className="row-sub">{t('{n} calls · {i} input tokens · {o} output tokens', { n: member.calls, i: member.inputTokens.toLocaleString(), o: member.outputTokens.toLocaleString() })}</span></span>
+                            <span className="row-value">{money(member.usd)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="hint insights-hint">{t('Workspace admins can see this breakdown. It includes recorded deployment-key model use and excludes personal API keys.')}</p>
+                  </>
                 )}
               </>
             )}

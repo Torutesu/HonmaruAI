@@ -14,6 +14,7 @@ const TEAM = { nodes: [
   { id: "toru", kind: "person", label: "toru · Admin" },
   { id: "kenji", kind: "person", label: "kenji · Engineer" }], edges: [] };
 let toru;
+let kenji;
 const ENV = (over = {}) => ({ ...env, OPENAI_API_KEY: "sk-server", ...over });
 const call = (path, init, over) => worker.fetch(new Request("https://example.com" + path, init), ENV(over), { waitUntil() {} });
 const route = (headers, over) => call("/ai/route", {
@@ -33,6 +34,7 @@ beforeEach(async () => {
   await upsertMembership(env.DB, ORG, "8801", "admin");
   await upsertMembership(env.DB, ORG, "8802", "member");
   toru = await createSession(env.DB, "8801", "gho_toru");
+  kenji = await createSession(env.DB, "8802", "gho_kenji");
   fetchMock.activate();
 });
 afterEach(() => fetchMock.assertNoPendingInterceptors());
@@ -76,6 +78,9 @@ test("a routed instruction writes the model's tokens to the team's ledger, and I
   expect(m.ai.daily).toHaveLength(30);
   expect(m.ai.daily.at(-1)).toMatchObject({ day: new Date().toISOString().slice(0, 10), calls: 1, ourUsd: m.ai.ourUsd, byokUsd: 0 });
   expect(m.ai.daily.reduce((sum, day) => sum + day.ourUsd, 0)).toBeCloseTo(m.ai.ourUsd, 8);
+  expect(m.ai.byMember).toEqual([{ userId: "8801", login: "toru", name: "Toru", calls: 1, inputTokens: 1200, outputTokens: 90, usd: m.ai.ourUsd }]);
+  const memberMetrics = await (await call(`/metrics?orgId=${encodeURIComponent(ORG)}&aiDays=30`, { headers: { "x-session-token": kenji } })).json();
+  expect(memberMetrics.ai.byMember).toBeUndefined();
 });
 
 test("a call on the person's own key is theirs on the bill; System One's decision counts as its own provider", async () => {

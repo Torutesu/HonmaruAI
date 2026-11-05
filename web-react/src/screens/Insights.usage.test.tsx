@@ -25,7 +25,7 @@ test('AI usage chart switches between daily and cumulative deployment-key estima
     medianMinutesToDecide: null, declineRate: null, nudges: 0,
     created: cardDays, bySource: [], byAction: [],
     feedback: { right: 0, wrong: 0, reasons: {} },
-    ai: { calls: 2, inputTokens: 10, outputTokens: 5, usd: 0.5, ourUsd: 0.5, byokCalls: 0, days: 30, daily, byPurpose: [], byProvider: [], jevShare: null },
+    ai: { calls: 2, inputTokens: 10, outputTokens: 5, usd: 0.5, ourUsd: 0.5, byokCalls: 0, days: 30, daily, byMember: [{ userId: '8801', login: 'toru', name: 'Toru', calls: 2, inputTokens: 10, outputTokens: 5, usd: 0.5 }], byPurpose: [], byProvider: [], jevShare: null },
   }
   const fetchStub = vi.fn(async () => ({ ok: true, json: async () => metrics }))
   vi.stubGlobal('fetch', fetchStub)
@@ -33,6 +33,8 @@ test('AI usage chart switches between daily and cumulative deployment-key estima
   await act(async () => {
     tree = create(<Insights httpBase="https://synthetic.invalid" orgId="org" sessionToken="session" onClose={vi.fn()} />)
   })
+  expect(JSON.stringify(tree.toJSON())).toContain('AI usage by member')
+  expect(JSON.stringify(tree.toJSON())).toContain('Toru')
 
   const chart = () => tree.root.findByProps({ role: 'img', 'aria-label': 'Workspace-key AI spend per day over the last 30 days' })
   const bars = () => chart().findAllByProps({ className: 'bar' })

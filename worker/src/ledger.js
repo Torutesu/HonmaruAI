@@ -90,7 +90,7 @@ export async function settleUsage(db, provider, { orgId, githubId, byok = false 
 
 /// The team's AI spend since a date: totals, by purpose, by provider, and
 /// how much of the routing System One settled without a language model.
-export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now() } = {}) {
+export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(), includeMembers = false } = {}) {
   const days = Math.max(0, Math.min(180, Math.floor(Number(dailyDays) || 0)));
   const today = new Date(now);
   const lastDay = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
@@ -149,6 +149,28 @@ export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(
       return { day, calls: Number(row?.calls) || 0, ourUsd: round(ourUsd), byokUsd: round(byokUsd), usd: round(ourUsd + byokUsd) };
     });
   }
+  let byMember;
+  if (includeMembers) {
+    const { results: memberRows } = await db.prepare(
+      `SELECT c.user_github_id AS userId,u.login,u.name,
+              COUNT(*) AS calls,SUM(c.input_tokens) AS input_tokens,
+              SUM(c.output_tokens) AS output_tokens,SUM(MAX(0,c.usd)) AS usd
+         FROM ai_calls c LEFT JOIN users u ON u.github_id=c.user_github_id
+        WHERE c.org_id=?1 AND c.created_at>=?2 AND c.created_at<=?3 AND c.byok=0
+        GROUP BY c.user_github_id
+        ORDER BY SUM(MAX(0,c.usd)) DESC,COALESCE(u.login,c.user_github_id,'') COLLATE NOCASE
+        LIMIT 500`
+    ).bind(orgId, start, end).all();
+    byMember = (memberRows || []).map((row) => ({
+      userId: row.userId == null ? null : String(row.userId),
+      login: row.login || null,
+      name: row.name || row.login || null,
+      calls: Number(row.calls) || 0,
+      inputTokens: Number(row.input_tokens) || 0,
+      outputTokens: Number(row.output_tokens) || 0,
+      usd: round(Number(row.usd) || 0),
+    }));
+  }
   return {
     calls: total.calls,
     inputTokens: total.inputTokens,
@@ -160,6 +182,7 @@ export async function aiSpend(db, orgId, since, { dailyDays = 0, now = Date.now(
     byPurpose: [...byPurpose.values()].map((p) => ({ ...p, usd: round(p.usd) })).sort((a, b) => b.usd - a.usd),
     byProvider: [...byProvider.values()].map((p) => ({ ...p, usd: round(p.usd) })).sort((a, b) => b.usd - a.usd),
     ...(days > 0 ? { days, daily } : {}),
+    ...(includeMembers ? { byMember } : {}),
     // Of the routing decisions that cost anything, the share System One
     // took without a language model. Null until there was any routing.
     jevShare: jevRoutes + llmRoutes ? round(jevRoutes / (jevRoutes + llmRoutes)) : null,
