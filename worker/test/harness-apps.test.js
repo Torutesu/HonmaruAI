@@ -232,7 +232,10 @@ test('workspace admins can manage links on a private app without reading the app
 
   const deniedHiddenRoom = await send('POST', `/apps/${app.id}/links`, toru, { orgId: ORG, channel: 'b:hidden-admin-link' });
   expect(deniedHiddenRoom.status).toBe(404);
-  expect(await env.DB.prepare('SELECT channel FROM hx_app_links WHERE app_id=?1 AND org_id=?2').bind(app.id, ORG).all()).toMatchObject({ results: [] });
+  await env.DB.prepare("INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?1,?2,'b:hidden-admin-link','9102',?3)").bind(app.id, ORG, at).run();
+  const deniedHiddenUnlink = await send('DELETE', `/apps/${app.id}/links?orgId=${encodeURIComponent(ORG)}&channel=b%3Ahidden-admin-link`, toru, { orgId: ORG });
+  expect(deniedHiddenUnlink.status).toBe(404);
+  expect(await env.DB.prepare('SELECT channel FROM hx_app_links WHERE app_id=?1 AND org_id=?2 ORDER BY channel').bind(app.id, ORG).all()).toMatchObject({ results: [{ channel: 'b:hidden-admin-link' }] });
 });
 
 
