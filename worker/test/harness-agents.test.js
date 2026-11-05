@@ -697,7 +697,7 @@ test("restricted Agent avatar URLs follow access, membership and revisions in Ha
   const { requestContext } = await import("../src/requestContext.js");
   const status = await requestContext.run({ origin: "https://example.com" }, () =>
     decorateAssignmentStatuses(env.DB, ORG, [{ rowId: "avatar-status-source", status: "running", answered: 0 }],
-      { actorId: "9201", login: "toru", env: keyed }));
+      { actorId: "9201", login: "toru", env: { ...keyed, DB: env.DB } }));
   const statusUrl = status[0].assignments[0].agent.avatarUrl;
   expect(statusUrl).toContain("viewer=9201");
   expect((await call(new URL(statusUrl).pathname + new URL(statusUrl).search, { headers: {} }, keyed)).status).toBe(200);
