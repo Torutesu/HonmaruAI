@@ -411,10 +411,13 @@ export async function deleteApp(db, orgId, id) {
         AND EXISTS (SELECT 1 FROM hx_apps WHERE id=?1 AND org_id=?2 AND deleted_at=?3)`).bind(id, orgId, deletedAt),
   ]);
   if (!results?.[0]?.meta?.changes) {
-    const active = await db.prepare(`SELECT 1 FROM hx_app_automation_bindings b
+    const activeWorkflow = await db.prepare(`SELECT 1 FROM hx_app_automation_bindings b
       JOIN hx_workflow_runs r ON r.org_id=b.org_id AND r.workflow_id=b.workflow_id
       WHERE b.org_id=?1 AND b.app_id=?2 AND r.status IN ('running','waiting') LIMIT 1`).bind(orgId, id).first();
-    if (active) return { error: "An app workflow or action is still running, queued, or waiting for approval. Finish or cancel it before deleting this app.", status: 409 };
+    const activeAction = await db.prepare(`SELECT 1 FROM hx_app_action_jobs j
+      JOIN hx_gateway_jobs g ON g.org_id=j.org_id AND g.id=j.job_id
+      WHERE j.org_id=?1 AND j.app_id=?2 AND g.status IN ('queued','running') LIMIT 1`).bind(orgId, id).first();
+    if (activeWorkflow || activeAction) return { error: "An app workflow or action is still running, queued, or waiting for approval. Finish or cancel it before deleting this app.", status: 409 };
     return { error: "No such app.", status: 404 };
   }
   return { deleted: true, dataRetained: true, retention: "until_workspace_deletion" };
