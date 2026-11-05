@@ -2084,6 +2084,7 @@ test('publish is blocked and approval revoked when reviewer loses admin access',
   const state=await(await get(path,mika)).json();
   expect((await approveCustomRelease(path,state)).status).toBe(200);
   await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+  await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
   const denied=await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version});
   expect(denied.status).toBe(409);
   expect((await get(path,mika)).status).toBe(200);
