@@ -42,6 +42,42 @@ export async function cancelExecution(db, orgId, me, jobId) {
   await settleWorkflowProgram(db,jobId);
   return readExecution(db, orgId, me, jobId);
 }
+const MAX_FILE_COUNT = 8;
+const MAX_FILE_BYTES = 256 * 1024;
+const MAX_FILES_BYTES = 1024 * 1024;
+const MAX_JOB_BYTES = 1600000;
+function validateExecutionFiles(files) {
+  if (files === undefined) return undefined;
+  if (!Array.isArray(files) || files.length > MAX_FILE_COUNT) throw new Error('Invalid execution files.');
+  const seen = new Set(), kinds = new Map();
+  let total = 0;
+  for (const file of files) {
+    if (!file || typeof file !== 'object' || Array.isArray(file) ||
+        Object.keys(file).sort().join(',') !== 'base64,path' ||
+        typeof file.path !== 'string' || typeof file.base64 !== 'string') throw new Error('Invalid execution file.');
+    const path = file.path;
+    if (!path || path.length > 240 || path.startsWith('/') || path.includes('\\') || path.includes(':') ||
+        /[\u0000-\u001f\u007f]/.test(path) || path.endsWith('/')) throw new Error('Invalid execution file path.');
+    const parts = path.split('/');
+    if (parts.some(part => !part || part === '.' || part === '..' || part.startsWith('.'))) throw new Error('Invalid execution file path.');
+    if (seen.has(path)) throw new Error('Duplicate execution file path.');
+    seen.add(path);
+    for (let i=1;i<parts.length;i++) {
+      const parent=parts.slice(0,i).join('/');
+      if (seen.has(parent)) throw new Error('Conflicting execution file paths.');
+      kinds.set(parent,'directory');
+    }
+    if (kinds.get(path)==='directory') throw new Error('Conflicting execution file paths.');
+    kinds.set(path,'file');
+    if (file.base64.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.base64)) throw new Error('Invalid execution file encoding.');
+    const size = file.base64.length / 4 * 3 - (file.base64.endsWith('==') ? 2 : file.base64.endsWith('=') ? 1 : 0);
+    if (size > MAX_FILE_BYTES) throw new Error('Execution file is too large or invalid.');
+    total += size;
+    if (total > MAX_FILES_BYTES) throw new Error('Execution files are too large.');
+  }
+  return files;
+}
+
 export async function enqueueExecution(db, orgId, me, input, appAction = null) {
   me = String(me);
     if (!(await allowed(db, orgId, me, 'harness.build'))) return error('Execution is not allowed.', 403);
@@ -49,8 +85,11 @@ export async function enqueueExecution(db, orgId, me, input, appAction = null) {
     if (!gateway) return error('No such execution node.', 404);
     if (typeof input.code !== 'string' || !input.code.trim()) return error('JavaScript code is required.');
     if(input.language!==undefined&&!['javascript','typescript'].includes(input.language))return error('Unsupported execution language.');
-    const payload = JSON.stringify({ code: input.code, input: input.input ?? null, ...(input.language==='typescript'?{language:'typescript'}:{}) });
-    if (new TextEncoder().encode(payload).length > 65536) return error('Execution input is too large.', 413);
+    let files;
+    try { files = validateExecutionFiles(input.files); } catch (e) { return error(e.message, 400); }
+    const payload = JSON.stringify({ code: input.code, input: input.input ?? null, ...(input.language==='typescript'?{language:'typescript'}:{}), ...(files?.length?{files}:{}) });
+    const baseBytes = new TextEncoder().encode(JSON.stringify({ code: input.code, input: input.input ?? null, ...(input.language==='typescript'?{language:'typescript'}:{}) })).length;
+    if (baseBytes > 65536 || new TextEncoder().encode(payload).length > MAX_JOB_BYTES) return error('Execution input is too large.', 413);
     const requestId = input.requestId || id();
     if (typeof requestId !== 'string' || !/^[\w-]{1,80}$/.test(requestId)) return error('Invalid request ID.');
     const previous = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id = ?1 AND created_by = ?2 AND request_id = ?3').bind(orgId, me, requestId).first();

@@ -399,3 +399,27 @@ test('node state endpoint uses an assigned workflow activation and refuses unrel
  await api('POST',`/jobs/${queued.id}/cancel`,member,{});
  expect((await call('state.get')).status).toBe(409);
 });
+
+test('execution accepts only bounded virtual file bundles and keeps request idempotency bound to their content',async()=>{
+ const {gateway,token}=await node();
+ const files=[{path:'src/input.txt',base64:Buffer.from('hello').toString('base64')}];
+ const response=await api('POST','/jobs',member,{gatewayId:gateway.id,requestId:'virtual-files',code:'return 1',input:{n:1},files});
+ expect(response.status).toBe(201);
+ const job=(await response.json()).job;
+ const stored=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?').bind(job.id).first();
+ expect(JSON.parse(stored.payload).files).toEqual(files);
+ expect((await api('POST','/jobs',member,{gatewayId:gateway.id,requestId:'virtual-files',code:'return 1',input:{n:1},files:[{...files[0],base64:'d29ybGQ='}]})).status).toBe(409);
+ for(const invalid of [
+  [{path:'../escape',base64:'eA=='}],
+  [{path:'/absolute',base64:'eA=='}],
+  [{path:'a\\\\b',base64:'eA=='}],
+  [{path:'a',base64:'!!!!'}],
+  [{path:'a',base64:'eA==',mount:'/host'}],
+  Array.from({length:9},(_,i)=>({path:'f'+i,base64:''})),
+  [{path:'large',base64:Buffer.alloc(256*1024+1).toString('base64')}],
+ ]) {
+  const r=await api('POST','/jobs',member,{gatewayId:gateway.id,code:'return 1',files:invalid});
+  expect(r.status).toBe(400);
+ }
+ expect(await claim(token)).toMatchObject({payload:{files}});
+});

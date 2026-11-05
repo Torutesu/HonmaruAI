@@ -1,6 +1,8 @@
 import { test } from 'node:test';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import assert from 'node:assert/strict';
-import { containerArgs, validatePayload, IMAGE } from '../runner.mjs';
+import { containerArgs, validatePayload, validateFiles, runIsolated, IMAGE } from '../runner.mjs';
 import { gatewayClient, processOne } from '../client.mjs';
 import { runAcp } from '../acp.mjs';
 const token = `hgw_${'a'.repeat(72)}`;
@@ -195,4 +197,47 @@ test('ACP configuration is resolved locally and permission requests default to r
  assert.equal(result.status,'succeeded');
  assert.equal(JSON.parse(result.stdout).text,'reject');
  await assert.rejects(runAcp({agentKey:'../attacker',prompt:'Do the task'}, {acpAgents:{}}),/Unknown local ACP agent/);
+});
+
+test('virtual files are bounded canonical relative paths with no payload authority overrides',()=>{
+ const files=[{path:'src/main.js',base64:Buffer.from('return 42').toString('base64')}];
+ assert.deepEqual(validatePayload({code:'return 42',files,command:'sh',image:'evil',mounts:['/'],environment:{PATH:'/tmp'}}),{code:'return 42',input:null,files});
+ assert.throws(()=>validateFiles([{path:'../secret',base64:'eA=='}]),/path/);
+ assert.throws(()=>validateFiles([{path:'/etc/passwd',base64:'eA=='}]),/path/);
+ assert.throws(()=>validateFiles([{path:'a\\\\b',base64:'eA=='}]),/path/);
+ assert.throws(()=>validateFiles([{path:'a',base64:'eA==',target:'/tmp'}]),/file/);
+ assert.throws(()=>validateFiles([{path:'a',base64:'eA=='} ,{path:'a/b',base64:'eA=='}]),/Conflicting/);
+ assert.throws(()=>validateFiles([{path:'a',base64:'eA=='} ,{path:'a',base64:'eA=='}]),/Duplicate/);
+ assert.throws(()=>validateFiles([{path:'a',base64:'!!!!'}]),/encoding/);
+ assert.throws(()=>validateFiles(Array.from({length:9},(_,i)=>({path:'f'+i,base64:''}))),/files/);
+ assert.throws(()=>validateFiles([{path:'a',base64:Buffer.alloc(256*1024+1).toString('base64')}]),/large/);
+ const args=containerArgs('honmaru-12345678-1234-1234-1234-123456789abc');
+ assert.equal(args[args.indexOf('--tmpfs')+1],'/tmp:size=16M,mode=1777');
+ assert.ok(!args.some(a=>a.includes('/Users')||a==='--volume'||a==='--mount'));
+});
+
+test('each virtual-file run removes its isolated tmpfs after success, failure, and cancellation',async()=>{
+ for(const mode of ['success','failure','cancel']){
+  const controls=[];let taskJson='', activeChild;
+  const spawnProcess=(_binary,args,options)=>{
+   if(args[0]==='delete') throw Error('delete is managed through controlProcess');
+   const child=new EventEmitter();activeChild=child;child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();
+   child.kill=()=>{setImmediate(()=>child.emit('close',137));};
+   child.stdin.on('data',chunk=>taskJson+=chunk.toString());
+   child.stdin.on('end',()=>{
+    setImmediate(()=>{
+     if(mode==='cancel') signalController.abort();
+     else child.emit('close',mode==='success'?0:1);
+    });
+   });
+   return child;
+  };
+  const signalController=new AbortController();
+  const controlProcess=async(_binary,args)=>{controls.push(args);if(args[0]==='kill')setImmediate(()=>activeChild.emit('close',137));};
+  const signal=mode==='cancel'?signalController.signal:undefined;
+  const result=await runIsolated({code:'return 1',files:[{path:'input.txt',base64:'eA=='}]}, {spawnProcess,controlProcess,signal});
+  assert.equal(result.status,mode==='success'?'succeeded':'failed');
+  assert.deepEqual(controls.at(-1)?.slice(0,2),['delete','--force']);
+  assert.ok(taskJson.includes('"files":[{"path":"input.txt","base64":"eA=="}]'));
+ }
 });
