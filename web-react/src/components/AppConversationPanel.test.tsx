@@ -66,6 +66,24 @@ test('adjustment context seeds an unsent draft and refresh preserves the users e
  act(()=>tree!.unmount())
 })
 
+test('an adjustment suggestion stays separate from an existing unsent app draft until chosen',async()=>{
+ vi.stubGlobal('document',{visibilityState:'visible'})
+ const consumed=vi.fn(),values=new Map([['app','Existing unsent reply']])
+ const drafts={read:(app:string)=>values.get(app)||'',write:(text:string,app:string)=>{if(text)values.set(app,text);else values.delete(app)}}
+ const api:any={drafts,conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false}),postConversation:vi.fn()};let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App" initialDraft="Adjust only my personal view:" onInitialDraftConsumed={consumed}/>)})
+ expect(tree!.root.findByType('textarea').props.value).toBe('Existing unsent reply')
+ expect(JSON.stringify(tree!.toJSON())).toContain('Adjust only my personal view:')
+ expect(consumed).not.toHaveBeenCalled()
+ const append=tree!.root.findAllByType('button').find(button=>button.children.includes('既存の下書きに追加'))!
+ act(()=>append.props.onClick())
+ expect(tree!.root.findByType('textarea').props.value).toBe('Existing unsent reply\n\nAdjust only my personal view:')
+ expect(values.get('app')).toBe('Existing unsent reply\n\nAdjust only my personal view:')
+ expect(consumed).toHaveBeenCalledTimes(1)
+ expect(JSON.stringify(tree!.toJSON())).not.toContain('今回の調整案')
+ act(()=>tree!.unmount())
+})
+
 test('seed consumption does not reset edited text when the parent removes the seed',async()=>{
  vi.stubGlobal('document',{visibilityState:'visible'})
  const consumed=vi.fn(),api:any={conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false}),postConversation:vi.fn()};let tree:ReturnType<typeof create>
@@ -78,7 +96,7 @@ test('seed consumption does not reset edited text when the parent removes the se
  act(()=>tree!.unmount())
 })
 
-test('app and record drafts survive closing, win over suggestions and clear only after successful send',async()=>{
+test('app and record drafts survive closing, suggestions stay separate and drafts clear only after successful send',async()=>{
  vi.stubGlobal('document',{visibilityState:'visible'})
  const values=new Map<string,string>(),drafts={read:(app:string,table?:string,row?:string)=>values.get(JSON.stringify([app,table,row]))||'',write:(text:string,app:string,table?:string,row?:string)=>values.set(JSON.stringify([app,table,row]),text)}
  const api:any={drafts,conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false}),postConversation:vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({})};let tree:ReturnType<typeof create>

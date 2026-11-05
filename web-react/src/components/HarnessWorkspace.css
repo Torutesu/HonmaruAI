@@ -554,6 +554,15 @@
 .hx-chat-send:disabled { opacity:.35; cursor:default; }
 .hx-chat-error { padding:10px 16px; font-size:12px; color:var(--hx-text); }
 .hx-chat-error button { margin-left:8px; background:none; color:inherit; border:0; text-decoration:underline; cursor:pointer; }
+.hx-chat-draft-suggestion { margin:10px 14px 0; padding:12px; border:1px solid var(--hx-border); border-left:3px solid var(--hx-action); border-radius:12px; background:var(--hx-surface); color:var(--hx-text); }
+.hx-chat-draft-suggestion>div { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.hx-chat-draft-suggestion strong { font-size:12px; font-weight:600; }
+.hx-chat-draft-suggestion span { color:var(--hx-muted); font-size:11px; }
+.hx-chat-draft-suggestion p { margin:8px 0 10px; font-size:12px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; }
+.hx-chat-draft-suggestion footer { display:flex; flex-wrap:wrap; gap:8px; }
+.hx-chat-draft-suggestion button { border:1px solid var(--hx-border); border-radius:8px; padding:6px 10px; background:transparent; color:inherit; font:inherit; font-size:11px; cursor:pointer; }
+.hx-chat-draft-suggestion button:first-child { border-color:var(--hx-action); color:var(--hx-action); }
+.hx-chat-draft-suggestion button:hover { background:var(--hx-hover); }
 .hx-record-columns { display:flex; flex-direction:column; min-width:0; }
 .hx-record-with-chat { width:min(1040px,100%); }
 .hx-record-with-chat .hx-record-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,360px); gap:20px; }
