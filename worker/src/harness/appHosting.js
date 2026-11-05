@@ -180,7 +180,10 @@ async function deleteEnvironment(db, orgId, appId, input) {
 }
 
 export async function changeAppHosting(db, env, orgId, app, input, by) {
-  if (input.action === 'attach') return attachDomain(db, env, orgId, app, by, input.hostname);
+  if (input.action === 'attach') {
+    if (input.publicDataConfirmed !== true) return error('公開前に、アプリのカスタム画面と全レコードが誰でも閲覧できることを確認してください。', 409);
+    return attachDomain(db, env, orgId, app, by, input.hostname);
+  }
   if (input.action === 'refresh') return refreshDomain(db, env, orgId, app.id);
   if (input.action === 'remove') return removeDomain(db, env, orgId, app.id);
   if (input.action === 'set_env') return updateEnvironment(db, orgId, app.id, input, by);
