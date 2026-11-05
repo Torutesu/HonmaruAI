@@ -274,3 +274,24 @@ test('Git commit editor imports through its API action and publishes only after 
   expect(reload).toHaveBeenCalledTimes(2);
   act(()=>tree!.unmount());
 });
+
+test('custom domain publishing requires a visible explicit all-records consent', async () => {
+  const hosting={configured:true,project:'honmaru-web',dnsTarget:'',domain:null,environment:[]};
+  const changeAppHosting=vi.fn().mockResolvedValue({saved:true});
+  const api={customCommitState:vi.fn().mockResolvedValue(commitState('none')),appHosting:vi.fn().mockResolvedValue(hosting),changeAppHosting} as any;
+  const app={...editorApp,definition:{custom:{draft:'<main>release</main>',published:'<main>release</main>'}}};
+  let tree:ReturnType<typeof create>;
+  await act(async()=>{tree=create(<CustomAppEditor app={app} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
+  const panel=tree!.root.findByProps({'aria-label':'カスタムドメイン公開'});
+  expect(panel.findAll(n=>typeof n.children[0]==='string'&&n.children.join('').includes('全レコードを誰でも閲覧できます'))).toHaveLength(1);
+  const hostname=tree!.root.findByProps({'aria-label':'独自ドメインのホスト名'});
+  act(()=>hostname.props.onChange({target:{value:'app.example.com'}}));
+  const checkbox=tree!.root.findByProps({'aria-label':'全レコードの公開を確認'});
+  const attach=tree!.root.findAllByType('button').find(button=>button.children.join('')==='独自ドメインを追加')!;
+  expect(attach.props.disabled).toBe(true);
+  act(()=>checkbox.props.onChange({target:{checked:true}}));
+  expect(attach.props.disabled).toBe(false);
+  await act(async()=>{await attach.props.onClick()});
+  expect(changeAppHosting).toHaveBeenCalledWith('app',{action:'attach',hostname:'app.example.com',publicDataConfirmed:true});
+  act(()=>tree!.unmount());
+});
