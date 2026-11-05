@@ -26,7 +26,7 @@ export async function requestCustomPublishApproval(db, orgId, app, by) {
   if (!state.policy.enabled) return {error:"Approval policy is disabled.",status:409};
   if (!state.sourceHash || !(app.definition.custom?.draft||"").trim()) return {error:"Save a custom app draft before requesting approval.",status:400};
   const existing=state.approval;
-  if(existing?.status==="pending") return {error:"An approval request already exists for this draft.",status:409};
+  if(existing?.status==="pending" || existing?.status==="approved"&&!existing.consumedAt) return {error:"An approval request already exists for this draft.",status:409};
   const at=new Date().toISOString(), id=crypto.randomUUID();
   await db.prepare("INSERT INTO hx_app_publish_approvals(id,org_id,app_id,draft_version,source_hash,scope,requested_by,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,'pending',?8)").bind(id,orgId,app.id,app.version,state.sourceHash,CUSTOM_PUBLISH_SCOPE,String(by),at).run();
   return {saved:true,approval:{id,draftVersion:app.version,sourceHash:state.sourceHash,scope:CUSTOM_PUBLISH_SCOPE,status:"pending",requestedBy:String(by),createdAt:at}};
