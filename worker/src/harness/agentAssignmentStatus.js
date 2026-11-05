@@ -19,11 +19,13 @@ export async function decorateAssignmentStatuses(db,orgId,results,{actorId=null,
     LEFT JOIN custom_agents t ON t.org_id=h.org_id AND t.id=h.target_agent_id
     WHERE a.org_id=?1 AND a.source_message_id IN (${marks}) ORDER BY h.source_generation,h.operation_id LIMIT 3200`).bind(orgId,...rowIds).all();
   const {results:eventRows}=await db.prepare(`SELECT e.id,e.assignment_id,e.generation,e.event_type,e.tool_name,e.created_at,e.agent_id,c.name,c.handle,c.emoji,c.avatar_url
-    FROM hx_agent_run_events e
-    JOIN hx_agent_assignments a ON a.org_id=e.org_id AND a.id=e.assignment_id AND a.source_message_id=e.source_message_id
+    FROM (SELECT e0.*,ROW_NUMBER() OVER (PARTITION BY e0.assignment_id ORDER BY e0.created_at DESC,e0.id DESC) AS event_rank
+      FROM hx_agent_run_events e0
+      JOIN hx_agent_assignments a ON a.org_id=e0.org_id AND a.id=e0.assignment_id AND a.source_message_id=e0.source_message_id
+      WHERE e0.org_id=?1 AND e0.source_message_id IN (${marks})) e
     LEFT JOIN custom_agents c ON c.org_id=e.org_id AND c.id=e.agent_id
-    WHERE e.org_id=?1 AND e.source_message_id IN (${marks})
-    ORDER BY e.created_at,e.id LIMIT 4000`).bind(orgId,...rowIds).all();
+    WHERE e.event_rank<=80
+    ORDER BY e.assignment_id,e.created_at,e.id`).bind(orgId,...rowIds).all();
   const eventGroups=new Map();
   for(const e of eventRows){
     const group=eventGroups.get(e.assignment_id)||[];
