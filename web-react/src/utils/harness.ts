@@ -170,7 +170,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     home: () => call<HomeData>('GET', '/harness/home'),
     getMode: (signal?:AbortSignal) => call<{ mode: WorkspaceMode; canEdit: boolean; simpleOnly?: boolean; revision?: number }>('GET', '/orgs/mode',undefined,undefined,signal),
     setMode: (mode: WorkspaceMode) => call<{ mode: WorkspaceMode; canEdit: boolean }>('PUT', '/orgs/mode', { mode }),
-    setDisplayPreference: (simpleOnly: boolean) => call<{ simpleOnly: boolean; revision: number }>('PUT', '/hx/display-preference', { simpleOnly }),
+    setDisplayPreference: (simpleOnly: boolean, expectedRevision: number) => call<{ simpleOnly: boolean; revision: number }>('PUT', '/hx/display-preference', { simpleOnly, expectedRevision }),
 
     templates: () => call<{ templates: Template[] }>('GET', '/apps/templates'),
     templateShares: (id: string) => call<{ shares: TemplateShare[]; canManage: boolean }>('GET', `/apps/${id}/template-shares`),
@@ -375,10 +375,14 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
           } while(activeWrite!==preferenceWrite.current)
           if(!live||controller.signal.aborted)return
           if(readPendingPreference()!==null){
+            const retryIntent=preferenceIntent.current
             const write=preferenceWrite.current.catch(()=>{}).then(async()=>{
+              if(preferenceIntent.current!==retryIntent)return null
               const wanted=readPendingPreference()
               if(wanted===null)return null
-              const saved=await api.setDisplayPreference(wanted)
+              const base=preferenceRef.current
+              const expectedRevision=base.key===preferenceKey?base.revision:revision
+              const saved=await api.setDisplayPreference(wanted,expectedRevision)
               if(!live||controller.signal.aborted)return null
               if(acceptServerPreference(saved.simpleOnly,saved.revision)){
                 savePendingPreference(null);setPreferenceError(false);return saved
@@ -392,12 +396,33 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
               const saved=await write
               if(!live||controller.signal.aborted)return
               if(saved){simple=saved.simpleOnly;revision=saved.revision}
-            }catch{
-              const latest=preferenceRef.current
-              if(latest.key===preferenceKey&&latest.revision>revision){
-                simple=latest.simple;revision=latest.revision;savePendingPreference(null);setPreferenceError(false)
-              }else{
-                simple=readPreference();savePendingPreference(simple);setPreferenceError(true)
+            }catch(error){
+              let reconciled=false
+              if(error instanceof HarnessApiError && error.status===409){
+                try{
+                  const server=await api.getMode()
+                  const serverRevision=Number.isSafeInteger(server.revision)&&Number(server.revision)>=0?Number(server.revision):null
+                  if(typeof server.simpleOnly==='boolean'&&serverRevision!==null&&serverRevision>=preferenceRef.current.revision){
+                    const latest=preferenceRef.current
+                    if(preferenceIntent.current===preferenceIntentAtStart){
+                      simple=server.simpleOnly;revision=serverRevision
+                      acceptServerPreference(simple,revision);savePendingPreference(null)
+                    }else{
+                      simple=latest.simple;revision=serverRevision
+                      savePreference(simple,revision);applyPreference(simple,revision)
+                      if(readPendingPreference()!==null)savePendingPreference(simple)
+                    }
+                    setPreferenceError(false);reconciled=true
+                  }
+                }catch{}
+              }
+              if(!reconciled){
+                const latest=preferenceRef.current
+                if(latest.key===preferenceKey&&latest.revision>revision){
+                  simple=latest.simple;revision=latest.revision;savePendingPreference(null);setPreferenceError(false)
+                }else{
+                  simple=readPreference();savePendingPreference(simple);setPreferenceError(true)
+                }
               }
             }
           }
@@ -461,14 +486,38 @@ export function useWorkspaceMode(httpBase: string, orgId: string, sessionToken: 
     window.dispatchEvent(new CustomEvent('hx-simple', { detail: { key: preferenceKey, simple } }))
     if(offline)return Promise.resolve({simpleOnly:simple,revision:preferenceRef.current.revision,pending:true})
     const write=preferenceWrite.current.catch(()=>{}).then(async()=>{
+      if(preferenceIntent.current!==intent)return null
       const wanted=readPreference()
-      const saved=await harnessApi(httpBase,orgId,sessionToken).setDisplayPreference(wanted)
+      const base=preferenceRef.current
+      const expectedRevision=base.key===preferenceKey?base.revision:0
+      const saved=await harnessApi(httpBase,orgId,sessionToken).setDisplayPreference(wanted,expectedRevision)
       if(readPreference()===saved.simpleOnly&&acceptServerPreference(saved.simpleOnly,saved.revision)){
         savePendingPreference(null);setPreferenceError(false)
         window.dispatchEvent(new CustomEvent('hx-simple',{detail:{key:preferenceKey,simple:saved.simpleOnly,revision:saved.revision}}))
       }
       return saved
-    }).catch(error=>{if(preferenceIntent.current===intent){const latest=readPreference();savePendingPreference(latest);setPreferenceError(true)}throw error})
+    }).catch(async error=>{
+      let reconciled=false
+      if(error instanceof HarnessApiError && error.status===409){
+        try{
+          const server=await harnessApi(httpBase,orgId,sessionToken).getMode()
+          const serverRevision=Number.isSafeInteger(server.revision)&&Number(server.revision)>=0?Number(server.revision):null
+          if(typeof server.simpleOnly==='boolean'&&serverRevision!==null&&serverRevision>=preferenceRef.current.revision){
+            const latest=preferenceRef.current
+            if(preferenceIntent.current===intent){
+              acceptServerPreference(server.simpleOnly,serverRevision)
+              savePendingPreference(null)
+            }else{
+              savePreference(latest.simple,serverRevision);applyPreference(latest.simple,serverRevision)
+              if(readPendingPreference()!==null)savePendingPreference(latest.simple)
+            }
+            setPreferenceError(false);reconciled=true
+          }
+        }catch{}
+      }
+      if(!reconciled&&preferenceIntent.current===intent){const latest=readPreference();savePendingPreference(latest);setPreferenceError(true)}
+      throw error
+    })
     preferenceWrite.current=write.then(()=>undefined,()=>undefined)
     return write
   },[httpBase,orgId,sessionToken,preferenceKey,offline,applyPreference,acceptServerPreference])

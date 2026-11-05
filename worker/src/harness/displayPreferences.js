@@ -7,16 +7,31 @@ export async function getDisplayPreference(db, orgId, userId) {
   return { simpleOnly: row?.simpleOnly === 1, revision: Number(row?.revision || 0) };
 }
 
-export async function setDisplayPreference(db, orgId, userId, simpleOnly, now = new Date().toISOString()) {
+export async function setDisplayPreference(db, orgId, userId, simpleOnly, expectedRevision, now = new Date().toISOString()) {
   if (typeof simpleOnly !== 'boolean') return { error: 'simpleOnly must be true or false.', status: 400 };
-  const row = await db.prepare(`INSERT INTO hx_user_display_preferences
-      (org_id,user_id,simple_only,revision,updated_at)
-    VALUES (?1,?2,?3,1,?4)
-    ON CONFLICT(org_id,user_id) DO UPDATE SET
-      simple_only=excluded.simple_only,
-      revision=hx_user_display_preferences.revision+1,
-      updated_at=excluded.updated_at
-    RETURNING simple_only AS simpleOnly,revision`)
-    .bind(orgId,String(userId),simpleOnly ? 1 : 0,now).first();
-  return { simpleOnly: row?.simpleOnly === 1, revision: Number(row?.revision || 0) };
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) return { error: 'expectedRevision must be a non-negative integer.', status: 400 };
+
+  // D1 batches are atomic. A missing preference is revision 0; seed it only
+  // for that expected revision, then update existing rows only on an exact
+  // revision match. Concurrent device writes cannot both win the same base.
+  const [inserted, updated] = await db.batch([
+    db.prepare(`INSERT OR IGNORE INTO hx_user_display_preferences
+        (org_id,user_id,simple_only,revision,updated_at)
+      SELECT ?1,?2,?3,1,?4 WHERE ?5=0
+      RETURNING simple_only AS simpleOnly,revision`)
+      .bind(orgId,String(userId),simpleOnly ? 1 : 0,now,expectedRevision),
+    db.prepare(`UPDATE hx_user_display_preferences SET
+        simple_only=?3,revision=revision+1,updated_at=?4
+      WHERE org_id=?1 AND user_id=?2 AND revision=?5
+      RETURNING simple_only AS simpleOnly,revision`)
+      .bind(orgId,String(userId),simpleOnly ? 1 : 0,now,expectedRevision),
+  ]);
+  const row = updated?.results?.[0] || inserted?.results?.[0];
+  if (row) return { simpleOnly: row.simpleOnly === 1, revision: Number(row.revision || 0) };
+  return {
+    error: 'The display preference changed on another device.',
+    code: 'stale_revision',
+    status: 409,
+    current: await getDisplayPreference(db, orgId, userId),
+  };
 }

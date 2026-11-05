@@ -276,8 +276,11 @@ export async function handleHarness(request, env, url, context = {}) {
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
     if (typeof input?.simpleOnly !== 'boolean') return json({ message: 'simpleOnly must be true or false.' }, 400);
-    const preference = await setDisplayPreference(env.DB, orgId, who.session.github_id, input.simpleOnly);
-    if (preference.error) return fail(preference);
+    if (!Number.isSafeInteger(input?.expectedRevision) || input.expectedRevision < 0) return json({ message: 'expectedRevision must be a non-negative integer.' }, 400);
+    const preference = await setDisplayPreference(env.DB, orgId, who.session.github_id, input.simpleOnly, input.expectedRevision);
+    if (preference.error) return preference.status === 409
+      ? json({ message: preference.error, code: preference.code, current: preference.current }, preference.status)
+      : fail(preference);
     await announceTo(env, orgId, [{
       to: who.user.login,
       event: appActivityEvent('display_preference_changed', { orgId, ...preference }),
