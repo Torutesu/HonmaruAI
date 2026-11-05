@@ -57,7 +57,7 @@ export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel
       LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
       LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
       WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4 AND COALESCE(d.version,0)=?5 AND (COALESCE(s.owner_user_id,'')='' OR s.owner_user_id=?10)`)
-      .bind(orgId,agentId,id,channel,input.expectedVersion,reviewEvidence.trim(),String(by),stamp,reviewId));
+      .bind(orgId,agentId,id,channel,input.expectedVersion,reviewEvidence.trim(),String(by),stamp,reviewId,userId));
     statements.splice(1,0,db.prepare("UPDATE hx_memory_review_audit SET owner_user_id=COALESCE((SELECT owner_user_id FROM hx_memory_scopes WHERE org_id=?1 AND memory_id=?2),'') WHERE org_id=?1 AND id=?3").bind(orgId,id,reviewId),);
     statements.push(db.prepare(`INSERT INTO hx_memory_reviews (memory_id,org_id,reviewed_version,evidence,reviewed_by,reviewed_at)
       SELECT memory_id,org_id,reviewed_version,evidence,reviewed_by,reviewed_at FROM hx_memory_review_history WHERE org_id=?1 AND id=?2
