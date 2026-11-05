@@ -1330,6 +1330,7 @@ export async function handleHarness(request, env, url, context = {}) {
         return result.error?fail(result):json(result);
       }
       if (input.action === 'request_approval') {
+        if(!Number.isInteger(input.version)||input.version!==app.version)return json({message:'The app changed. Reload before requesting approval.'},409);
         const result=await requestCustomPublishApproval(env.DB,orgId,app,me);
         if(!result.error)await audit(env,request,{orgId,action:'app.custom_publish_approval_requested',actor:person(who.user),entity:{type:'app',id:appId},details:{version:result.approval.draftVersion,sourceHash:result.approval.sourceHash,scope:result.approval.scope}});
         return result.error?fail(result):json(result);
