@@ -73,7 +73,6 @@ export async function handleUserAvatar(request, env, url) {
     const object = await env.MEDIA.get(mediaId);
     if (!object) return agentAvatar ? inaccessibleAgentAvatar() : new Response("not found", { status: 404 });
     const stored = bare(object.httpMetadata?.contentType);
-    const privateAgent = Boolean(agentAvatar && !agentAccess.public);
     return new Response(object.body, {
       status: 200,
       headers: {
