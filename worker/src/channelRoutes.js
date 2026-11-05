@@ -1242,7 +1242,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const rows = await Promise.all(rowIds.map(id => getMessage(env.DB, orgId, id)));
     if (rows.some(row => !row || row.deleted_at || row.channel !== access.resolved.key || row.kind !== 'message')) return json({message: 'No such message.'}, 404);
     try {
-      return json(await agentRunSnapshot(env,orgId,rowIds,{actorId:access.who.session.github_id,canManage:await allowed(env.DB,orgId,access.who.session.github_id,'agent.manage_others')}));
+      return json(await agentRunSnapshot(env,orgId,rowIds,{actorId:access.who.session.github_id,login:access.who.user.login,canManage:await allowed(env.DB,orgId,access.who.session.github_id,'agent.manage_others')}));
     } catch {
       return json({message: 'Execution status unavailable.'}, 503);
     }
