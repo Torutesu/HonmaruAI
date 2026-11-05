@@ -79,5 +79,6 @@ export async function saveCustomRelease(db, orgId, app, input, by) {
     ] : []),
   ]);
   if (!result[0]?.meta?.changes) return { error: 'This app changed. Reload before saving.', status: 409 };
+  if(input.action==='draft'||input.action==='restore') await db.prepare("UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=?1 WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved')").bind(at,orgId,app.id).run();
   return { saved: true, version };
 }
