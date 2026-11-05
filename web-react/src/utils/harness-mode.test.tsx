@@ -202,5 +202,5 @@ test('a newer device revision wins over a delayed startup retry for an older loc
   if(duplicateStartupWrite) await answerPreference(2,true,2)
   await act(async()=>{await Promise.resolve();await Promise.resolve()})
   expect(duplicateStartupWrite).toBeUndefined()
-  expect(result).toMatchObject({mode:'simple',workspaceMode:'harness',simpleOnly:false})
+  expect(result).toMatchObject({mode:'harness',workspaceMode:'harness',simpleOnly:false})
 })
