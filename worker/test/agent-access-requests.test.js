@@ -19,7 +19,7 @@ function splitSqlStatements(sql){
  for(const part of sql.split(';')){
   if(current)current+=';';
   current+=part;
-  if(!trigger && /\\bCREATE\\s+(?:TEMP(?:ORARY)?\\s+)?TRIGGER\\b/i.test(current))trigger=true;
+  if(!trigger && /\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(current))trigger=true;
   if(trigger){
    if(part.trim()==='END'){statements.push(current.trim());current='';trigger=false}
   }else{
