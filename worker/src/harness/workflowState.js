@@ -21,7 +21,7 @@ const sourceTableAuthority=`(${sourceTable} IS NULL OR (EXISTS(SELECT 1 FROM hx_
 // The frozen event payload must still refer to the exact current entity/table
 // mapping. Table-only checks allowed a running program to continue after an
 // App entity had been rebound to another table.
-const appRecordSourceAuthority=`(json_extract(d.definition,'$.trigger.type')!='app_record_change' OR (
+const appRecordSourceAuthority=`(json_extract(d.definition,'$.trigger.type') IS NOT 'app_record_change' OR (
  json_extract(r.input,'$.records[0].appId')=json_extract(d.definition,'$.trigger.appId')
  AND json_extract(r.input,'$.records[0].entityId')=json_extract(d.definition,'$.trigger.entityId')
  AND ${appRecordSourceSql('r.org_id',"json_extract(d.definition,'$.trigger.appId')","json_extract(d.definition,'$.trigger.entityId')","json_extract(r.input,'$.tableId')","json_extract(d.definition,'$.createdBy')")}))`;

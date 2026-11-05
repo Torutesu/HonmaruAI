@@ -649,7 +649,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     return true;
   };
   if (!await authorize()) {
-    const failedLog=[...run.log,{step:run.nextStep+1,type:workflow.steps[run.nextStep]?.type,at:now(),status:'failed',error:'Workflow source or execution access changed while awaiting approval.'}];
+    const failedLog=[...run.log,{step:run.nextStep+1,type:workflow.steps[run.nextStep]?.type,at:now(),status:'failed',error:'The automation was stopped, its release changed, or its source access was removed.'}];
     await db.batch([db.prepare("UPDATE hx_workflow_runs SET status='failed',log=?1,finished_at=?2 WHERE id=?3 AND org_id=?4 AND status='running'").bind(JSON.stringify(failedLog),now(),runId,orgId),...workflowSettlementStatements(db,orgId,runId)]);
     await tryWorkflowNotice(env,orgId,workflow.id);
     return getRun(db,orgId,runId);

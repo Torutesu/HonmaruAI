@@ -13,7 +13,7 @@ export const sourceTableAuthority = `(json_extract(d.definition,'$.trigger.type'
     WHERE app.org_id=r.org_id AND app.created_by!=json_extract(d.definition,'$.createdBy')
       AND COALESCE(access.visibility,'workspace')!='workspace' AND (app.table_id=${sourceTable} OR EXISTS(
         SELECT 1 FROM hx_app_entities entity WHERE entity.org_id=app.org_id AND entity.app_id=app.id AND entity.table_id=${sourceTable})))))`;
-export const runSourceAuthority = `(${sourceTableAuthority} AND (json_extract(d.definition,'$.trigger.type')!='app_record_change' OR (
+export const runSourceAuthority = `(${sourceTableAuthority} AND (json_extract(d.definition,'$.trigger.type') IS NOT 'app_record_change' OR (
   json_extract(r.input,'$.records[0].appId')=json_extract(d.definition,'$.trigger.appId')
   AND json_extract(r.input,'$.records[0].entityId')=json_extract(d.definition,'$.trigger.entityId')
   AND ${appRecordSourceSql('r.org_id',"json_extract(d.definition,'$.trigger.appId')","json_extract(d.definition,'$.trigger.entityId')","json_extract(r.input,'$.tableId')","json_extract(d.definition,'$.createdBy')")})))`;
@@ -52,7 +52,7 @@ export function workflowEffectAuthority({ org, runId, ownerId, status = 'running
       AND ${sourceSnapshot.appId}=json_extract(d.definition,'$.trigger.appId')
       AND ${sourceSnapshot.entityId}=json_extract(d.definition,'$.trigger.entityId')
       AND ${sourceSnapshot.tableId}=json_extract(r.input,'$.tableId'))
-    OR (json_extract(d.definition,'$.trigger.type')!='app_record_change'
+    OR (json_extract(d.definition,'$.trigger.type') IS NOT 'app_record_change'
       AND ${sourceSnapshot.appId} IS NULL AND ${sourceSnapshot.entityId} IS NULL AND ${sourceSnapshot.tableId} IS NULL))`));
   return checks.join(' AND ');
 }
@@ -74,7 +74,7 @@ export function workflowApprovalClaimAuthority({ org, runId, recipientLogin }) {
       AND EXISTS(SELECT 1 FROM users recipient JOIN memberships member
         ON member.org_id=${org} AND member.user_github_id=recipient.github_id
         WHERE recipient.login=${recipientLogin} AND LOWER(COALESCE(member.role,'guest'))!='guest')
-      AND (json_extract(d.definition,'$.trigger.type')!='app_record_change' OR (
+      AND (json_extract(d.definition,'$.trigger.type') IS NOT 'app_record_change' OR (
         json_extract(r.input,'$.records[0].appId')=json_extract(d.definition,'$.trigger.appId')
         AND json_extract(r.input,'$.records[0].entityId')=json_extract(d.definition,'$.trigger.entityId')
         AND ${appRecordSourceSql('r.org_id',"json_extract(d.definition,'$.trigger.appId')","json_extract(d.definition,'$.trigger.entityId')","json_extract(r.input,'$.tableId')","json_extract(d.definition,'$.createdBy')")})))`;
@@ -104,7 +104,7 @@ export function workflowFollowupScheduleAuthority({ org, runId, ownerId, channel
       AND json_extract(r.input,'$.records[0].appId')=${sourceSnapshot.appId}
       AND json_extract(r.input,'$.records[0].entityId')=${sourceSnapshot.entityId}
       AND ${appRecordSourceSql('r.org_id',sourceSnapshot.appId,sourceSnapshot.entityId,sourceSnapshot.tableId,ownerId)})
-    OR (json_extract(d.definition,'$.trigger.type')!='app_record_change'
+    OR (json_extract(d.definition,'$.trigger.type') IS NOT 'app_record_change'
       AND ${sourceSnapshot.appId} IS NULL AND ${sourceSnapshot.entityId} IS NULL AND ${sourceSnapshot.tableId} IS NULL))`);
   return `EXISTS(SELECT 1 FROM hx_workflow_runs r JOIN hx_workflow_run_definitions d
     ON d.org_id=r.org_id AND d.run_id=r.id
