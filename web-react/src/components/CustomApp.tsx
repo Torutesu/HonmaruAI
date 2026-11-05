@@ -153,6 +153,8 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [history, setHistory] = useState<Array<{version: number; note: string | null}>>([])
+  const [commitState,setCommitState]=useState<Awaited<ReturnType<typeof api.customCommitState>>|null>(null)
+  const [gitOwner,setGitOwner]=useState(''),[gitRepo,setGitRepo]=useState(''),[gitBranch,setGitBranch]=useState('main'),[gitSha,setGitSha]=useState('')
   useLayoutEffect(()=>{
     activeScope.current=scope
     const draft=app.definition.custom?.draft||''
@@ -160,6 +162,11 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
     setHtml(draft);setPrompt('');setPreview(Boolean(draft));setGenerated(null);setRemoteChanged(false);setBusy(false);setError('');setHistory([]);setShownScope(scope)
     return()=>{if(activeScope.current===scope)activeScope.current=null}
   },[scope])
+  useEffect(()=>{
+    let active=true
+    api.customCommitState(app.id).then(state=>{if(active)setCommitState(state)}).catch(e=>{if(active)setError(e instanceof Error?e.message:String(e))})
+    return()=>{active=false}
+  },[api,app.id,app.version,app.definition.custom?.draft])
   useEffect(()=>{
     if(remote.current.scope!==scope)return
     const draft=app.definition.custom?.draft||'',previous=remote.current.draft
@@ -189,10 +196,45 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
     {remoteConflict&&<section aria-label="保存済みコードの変更"><p role="status">保存済みのコードが変更されました。編集中のコードは保持しています。保存前に内容を確認してください。</p><label>現在保存されているコード<textarea className="hx-code-editor" aria-label="現在保存されているコード" value={currentRemote} readOnly rows={6}/></label><div className="hx-actions"><button type="button" className="pill-btn quiet" onClick={()=>{if(!window.confirm('編集中のコードを破棄して、現在保存されているコードを使いますか？'))return;htmlRef.current=currentRemote;editGeneration.current++;remote.current={scope,draft:currentRemote,generation:editGeneration.current};setHtml(currentRemote);setPreview(false);setRemoteChanged(false)}}>保存済みコードを使う</button><button type="button" className="pill-btn quiet" onClick={()=>{if(!window.confirm('編集中のコードを保持します。次に保存すると現在保存されているコードを上書きします。続けますか？'))return;setRemoteChanged(false)}}>編集中のコードで続ける</button></div></section>}
     <details className="hx-custom-source"><summary>コードを編集</summary><label>HTML / CSS / JavaScript<textarea className="hx-code-editor" aria-label="カスタムアプリのソース" value={html} maxLength={119800} spellCheck={false} onChange={e => {htmlRef.current=e.target.value;editGeneration.current++;setHtml(e.target.value); setPreview(false) }} /></label></details>
     {generated!==null&&<section aria-label="生成結果を確認"><p role="status">生成中に入力またはアプリの状態が変更されたため、現在のコードは変更していません。生成結果を確認して選択してください。</p>{generated.contextGeneration!==contextGeneration.current&&<p role="status">生成時のバージョン {generated.version} からアプリの状態が変更されています。現在の状態に合うか確認してください。</p>}<label>生成開始時の編集中コード<textarea className="hx-code-editor" aria-label="生成開始時の編集中コード" value={generated.startingHtml} readOnly rows={6}/></label><label>送信した依頼<textarea aria-label="生成時の依頼" value={generated.prompt} readOnly rows={2}/></label><label>生成結果<textarea className="hx-code-editor" aria-label="生成されたコード" value={generated.html} readOnly rows={6}/></label><div className="hx-actions"><button type="button" className="pill-btn" onClick={()=>{const warning=generated.contextGeneration!==contextGeneration.current?`生成時のバージョン ${generated.version} からアプリの状態が変更されています。`:'';if(!window.confirm(`${warning}生成結果で編集中のコードを置き換えます。現在のコードは自動保存されません。続けますか？`))return;htmlRef.current=generated.html;editGeneration.current++;setHtml(generated.html);setGenerated(null);setPreview(true)}}>生成結果を採用</button><button type="button" className="pill-btn quiet" onClick={()=>setGenerated(null)}>生成結果を破棄し、現在のコードを残す</button></div></section>}
+    <section className="hx-commit-release" aria-label="GitHubコミット公開">
+      <h3>GitHubコミットから公開</h3>
+      <p>接続中のGitHubアカウントから、固定したcommitのHTMLと静的アセットだけを取り込みます。公開範囲と保存済みバンドルに別のOwner/Adminの承認が必要です。ビルドやGitHubへの書き込みは行いません。</p>
+      <div className="hx-form-grid">
+        <label>Owner<input aria-label="GitHub owner" value={gitOwner} onChange={e=>setGitOwner(e.target.value)} /></label>
+        <label>Repository<input aria-label="GitHub repository" value={gitRepo} onChange={e=>setGitRepo(e.target.value)} /></label>
+        <label>Branch<input aria-label="GitHub branch" value={gitBranch} onChange={e=>setGitBranch(e.target.value)} /></label>
+        <label>Full commit SHA<input aria-label="GitHub commit SHA" value={gitSha} onChange={e=>setGitSha(e.target.value)} /></label>
+      </div>
+      <button type="button" className="pill-btn quiet" disabled={busy||!gitOwner.trim()||!gitRepo.trim()||!gitBranch.trim()||!gitSha.trim()} onClick={()=>void run(async()=>{
+        await api.customCommit(app.id,{action:'import_commit',owner:gitOwner.trim(),repo:gitRepo.trim(),branch:gitBranch.trim(),commitSha:gitSha.trim()})
+        await reload()
+        setCommitState(await api.customCommitState(app.id))
+      })}>commitのHTMLと静的アセットを取り込む</button>
+      {commitState?.commit&&<div className="hx-commit-review" aria-label="GitHub commit approval">
+        <p>固定commit: <code>{commitState.commit.owner}/{commitState.commit.repo}@{commitState.commit.sha}</code> · {commitState.commit.assets.length} assets · SHA-256 {commitState.commit.sourceHash.slice(0,12)}…</p>
+        <p>対象バージョン v{commitState.commit.appVersion} · 公開範囲 {commitState.scope?.visibility||'unknown'}{commitState.scope?.domainScope ? ' · domain '+commitState.scope.domainScope : ''}</p>
+        {(!commitState.approval||['rejected','revoked'].includes(commitState.approval.status))&&<button type="button" className="pill-btn" disabled={busy||changed||remoteConflict} onClick={()=>void run(async()=>{
+          await api.customCommit(app.id,{action:'request_commit_approval',version:app.version})
+          setCommitState(await api.customCommitState(app.id))
+        })}>このcommitの承認を依頼</button>}
+        {commitState.approval&&<p role="status">承認状態: {commitState.approval.status} · v{commitState.approval.appVersion} · {commitState.approval.visibility}</p>}
+        {commitState.approval?.status==='pending'&&<div className="hx-actions">
+          <button type="button" className="pill-btn" disabled={busy} onClick={()=>void run(async()=>{
+            await api.customCommit(app.id,{action:'review_commit_approval',decision:'approve',approvalId:commitState.approval?.id,version:app.version,commitSha:commitState.approval?.commitSha,sourceHash:commitState.approval?.sourceHash})
+            setCommitState(await api.customCommitState(app.id))
+          })}>Owner/Adminとして承認</button>
+          <button type="button" className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>{
+            await api.customCommit(app.id,{action:'review_commit_approval',decision:'reject',approvalId:commitState.approval?.id,version:app.version,commitSha:commitState.approval?.commitSha,sourceHash:commitState.approval?.sourceHash})
+            setCommitState(await api.customCommitState(app.id))
+          })}>却下</button>
+        </div>}
+        {commitState.approval?.status==='approved'&&<p>承認者本人以外の作成者またはOwner/Adminが公開できます。ブランチが移動すると、この承認は使用できません。</p>}
+      </div>}
+    </section>
     <div className="hx-actions">
       <button className="pill-btn quiet" disabled={!html || busy} onClick={() => setPreview(v => !v)}>{preview ? 'プレビューを閉じる' : 'プレビュー'}</button>
       <button className="pill-btn" disabled={busy || remoteConflict || !html || !changed} onClick={() => {if(remoteConflict)return;void run(async () => { await api.saveCustom(app.id, 'draft', app.version, html); if(activeScope.current===scope)await reload() })}}>下書きを保存</button>
-      <button className="pill-btn" disabled={busy || remoteConflict || changed || !html || html.length > MAX_PREVIEW_SOURCE || html === app.definition.custom?.published} onClick={() => {if(remoteConflict||html.length > MAX_PREVIEW_SOURCE)return;void run(async () => { await api.saveCustom(app.id, 'publish', app.version); if(activeScope.current===scope)await reload() })}}>保存した下書きを公開</button>
+      <button className="pill-btn" disabled={busy || remoteConflict || changed || !html || html.length > MAX_PREVIEW_SOURCE || html === app.definition.custom?.published || Boolean(commitState?.commit && commitState.approval?.status!=='approved')} onClick={() => {if(remoteConflict||html.length > MAX_PREVIEW_SOURCE)return;void run(async () => { if(commitState?.commit){await api.customCommit(app.id,{action:'publish_commit',version:app.version,approvalId:commitState.approval?.id})}else{await api.saveCustom(app.id, 'publish', app.version)} if(activeScope.current===scope)await reload();setCommitState(await api.customCommitState(app.id)) })}}>{commitState?.commit?'承認済みGitHub commitを公開':'保存した下書きを公開'}</button>
       {app.definition.custom?.published && <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'unpublish', app.version); if(activeScope.current===scope)await reload() })}>公開を停止</button>}
     </div>
     {html.length > MAX_PREVIEW_SOURCE && <p role="alert" className="form-error">プレビューして公開するには、コードを119800文字以下に短くしてください。下書きは保持されます。</p>}
