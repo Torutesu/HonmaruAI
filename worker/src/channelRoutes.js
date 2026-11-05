@@ -489,12 +489,20 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const taskText = requestOverride ?? row.body;
   locale = await loadCopy(env, locale || "en", { orgId });
   const parentId = row.parent_id || (resolved.kind === "agent" ? null : row.id);
-  const face = (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji || null, avatarUrl: a.avatarUrl || a.avatar_url || null });
+  const face = async (a, login) => {
+    const scoped = { ...a, avatarUrl: a.avatarUrl || a.avatar_url || null, ownerLogin: a.ownerLogin || a.owner_login };
+    return { id: a.id, handle: a.handle, name: a.name, emoji: a.emoji || null,
+      avatarUrl: await clientAgentAvatarUrl(env, orgId, scoped, login) };
+  };
   const progress = async (agent, step) => {
     try {
-      const payload = (view) => customEvent("channel_ai_progress", { channel: view, parentId, messageId: row.id, step, agent: face(agent) });
-      if (resolved.kind === "business" && !resolved.logins) await announceEvents(env, orgId, [payload(resolved.key)]);
-      else await announceTo(env, orgId, resolved.logins.map((login) => ({ to: login, event: payload(viewOf(resolved.key, login, members)) })));
+      const payload = async (view, login) => customEvent("channel_ai_progress", {
+        channel: view, parentId, messageId: row.id, step, agent: await face(agent, login),
+      });
+      if (resolved.kind === "business" && !resolved.logins) await announceEvents(env, orgId, [await payload(resolved.key, null)]);
+      else await announceTo(env, orgId, await Promise.all(resolved.logins.map(async (login) => ({
+        to: login, event: await payload(viewOf(resolved.key, login, members), login),
+      }))));
     } catch (err) {
       console.error("agent progress failed", safe(err?.message));
     }
