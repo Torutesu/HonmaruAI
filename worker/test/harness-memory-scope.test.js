@@ -290,3 +290,13 @@ test('personal review evidence stays with its owner after deletion', async () =>
   expect(own.reviews.map(review => review.evidence)).toContain('Reviewed by owner');
   expect(other.reviews.map(review => review.evidence)).not.toContain('Reviewed by owner');
 });
+
+test('memory continuation cursors are bound to the owner identity', async () => {
+  for (let i = 0; i < 51; i++) {
+    await addAgentMemory(env.DB, org, agent, `Cursor-only ${i}`, { ownerUserId: 'cursor-owner' });
+  }
+  const first = await memoryPage(env.DB, org, agent, { userId: 'cursor-owner' });
+  expect(first.nextCursor).toBeTruthy();
+  const reused = await memoryPage(env.DB, org, agent, { userId: 'other-owner', cursor: first.nextCursor });
+  expect(reused).toMatchObject({ error: 'Invalid memory cursor.', status: 400 });
+});
