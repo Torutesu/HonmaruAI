@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-31",
+  "asOf": "2026-11-05",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -473,7 +473,12 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "共有/個人ビュー、列順・幅・選択・表示切替・wrap設定、system列、並べ替え、table/board/calendar、フィルターとグループ編集をユーザー別に保存し復元。Relation列は表示名検索と複数リンクの含む/含まないを検証。全操作の完全一致は引き続き検証対象"
+      "acceptance": "共有/個人ビュー、列順・幅・選択・表示切替・wrap設定、system列、並べ替え、table/board/calendar、フィルターとグループ編集をユーザー別に保存し復元。Relation列は表示名検索と複数リンクの含む/含まないを検証。全操作の完全一致は引き続き検証対象",
+      "evidence": {
+        "release": "PR #675 (c2c07fa3) added a personal-view adjustment route; PR #676 (384051236a) preserves an existing unsent app/source-thread draft while displaying a separate view-adjustment suggestion. PR exact-head CI passed all nine jobs. Web deploy run 41972220196 succeeded and both app.honmaruai.com and honmaru-web.pages.dev served index-MLNbjttn.js.",
+        "verified": "On 2026-11-05, the authenticated production Mac app showed the filter-adjustment suggestion for the personal view while retaining the existing composer text. Dismissing the suggestion removed only the candidate; the original draft remained, and the original shared table view was restored. No filters, groups, columns, records, or app settings were saved or changed. Kylon's QA table descending status sort was left unchanged per user instruction. Simple mode remains available; no paid service was added.",
+        "remaining": "KY-042 remains partial. Worker/Web tests cover same-user live notification and reload of the matching App; authenticated two-device production verification and exact Kylon interaction parity remain open, including the remaining relation-filter and table/board/calendar comparisons. The main push CI was still running at the time of this ledger update."
+      }
     },
     {
       "id": "KY-043",
