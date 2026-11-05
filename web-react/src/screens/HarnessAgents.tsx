@@ -121,6 +121,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [memoryScopes, setMemoryScopes] = useState<Array<{ channel: string; label: string }>>([])
   const [remember, setRemember] = useState('')
   const [memoryKind, setMemoryKind] = useState<MemoryKind>('context')
+  const [memorySharing, setMemorySharing] = useState<'shared'|'personal'>('shared')
   const [people, setPeople] = useState('')
   const [saved, setSaved] = useState(false)
   const { busy, error, act } = useAct()
@@ -332,8 +333,9 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
             <span className="row-sub">{t('Memory for this agent. Memories added in chat stay in that conversation: “@{handle} remember that …”.', { handle: agent.handle })}</span>
             <span className="playbook-add-foot hx-memory-compose">
               <MemoryKindSelect value={memoryKind} onChange={setMemoryKind} disabled={busy !== null} />
+              <select className="hx-cell-select" aria-label={t('Memory sharing')} value={memorySharing} disabled={busy !== null} onChange={event => setMemorySharing(event.target.value as 'shared'|'personal')}><option value="shared">{t('Shared')}</option><option value="personal">{t('Only me')}</option></select>
               <input className="hx-cell-input" value={remember} onChange={(e) => setRemember(e.target.value)} placeholder={t('e.g. Acme pays on the 25th')} aria-label={t('Remember')} />
-              <button className="pill-btn" disabled={busy !== null || !remember.trim()} onClick={() => act('remember', async () => { await api.remember(agent.id, remember, memoryChannel, memoryKind); setRemember(''); const page = await api.memoryPage(agent.id, memoryChannel, undefined, memorySearch); setMemories(page.memories); setMemoryCursor(page.nextCursor) })}>{t('Remember')}</button>
+              <button className="pill-btn" disabled={busy !== null || !remember.trim()} onClick={() => act('remember', async () => { await api.remember(agent.id, remember, memoryChannel, memoryKind, memorySharing); setRemember(''); const page = await api.memoryPage(agent.id, memoryChannel, undefined, memorySearch); setMemories(page.memories); setMemoryCursor(page.nextCursor) })}>{t('Remember')}</button>
             </span>
           </span>
         </div>
