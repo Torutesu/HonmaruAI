@@ -615,7 +615,7 @@ test('deleted memory review log retains discoverable scopes but checks current r
  const base=`/hx/agents/${agentId}/memory`;
  const made=await(await send('POST',base,mika,{orgId:ORG,channel:'b:ops',text:'Retired private memory'})).json();
  const input={orgId:ORG,channel:'b:ops',expectedVersion:0,verdict:'delete',evidence:'Replaced by approved procedure'};
- expect((await send('PUT',`${base}/${made.memory.id}/review`,kenji,input)).status).toBe(403);
+ expect((await send('PUT',`${base}/${made.memory.id}/review`,kenji,input)).status).toBe(404);
  expect((await send('PUT',`${base}/${made.memory.id}/review`,mika,input)).status).toBe(200);
  const logPath=`${base}/reviews?${q({orgId:ORG,channel:'b:ops'})}`;
  const log=await get(logPath,mika);
