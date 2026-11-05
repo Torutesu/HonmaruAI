@@ -155,3 +155,23 @@ test('HTTP publish rejects a changed visibility scope and stale app revision', a
   const stale = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'publish_commit', version: imported.version, approvalId: approval.id });
   expect(stale.status).toBe(409);
 });
+
+
+test('stores and serves a maximum-size static asset as a D1 BLOB without base64 row expansion', async () => {
+  vi.stubGlobal('fetch',githubFetch({js:'x'.repeat(1_500_000)}));
+  const app=await makeApp();
+  const imported=await importCommit(app);
+  expect(imported.status).toBe(200);
+  const data=await imported.json();
+  const stored=await env.DB.prepare('SELECT length(content_bytes) AS bytes FROM hx_app_git_assets WHERE org_id=?1 AND app_id=?2 AND path=\'app.js\'').bind(ORG,app.id).first();
+  expect(stored).toEqual({bytes:1_500_000});
+  const at=new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at)
+    VALUES(?1,?2,'max-asset.example','active','9101',?3,?3)`).bind(ORG,app.id,at).run();
+  const approval=(await (await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:data.version})).json()).approval;
+  expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:data.version,commitSha,sourceHash:data.commit.sourceHash})).status).toBe(200);
+  expect((await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:data.version,approvalId:approval.id})).status).toBe(200);
+  const served=await call(`/app-commit-assets/${app.id}/${commitSha}/${data.commit.assetToken}/app.js`);
+  expect(served.status).toBe(200);
+  expect((await served.arrayBuffer()).byteLength).toBe(1_500_000);
+});
