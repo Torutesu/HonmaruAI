@@ -2029,3 +2029,61 @@ test('combined automation release rejects an oversized draft without changing th
  result=await f.release({action:'publish',requestId:'guard_boundary_src01',version:draft.version,revision:alone.revision,includeSource:true});expect(result.saved).toBe(true);
  current=await getApp(env.DB,ORG,f.app.id);expect(current.definition.custom.published.length).toBe(MAX_PREVIEW_SOURCE);
 });
+
+test('public custom app links are version-pinned, field-scoped, read-only and revocable', async () => {
+  const { createTable, addRow, getTable } = await import('../src/harness/tables.js');
+  const made = await send('POST', '/apps', toru, { orgId: ORG, name: 'Public report', columns: [{ name: 'Title', type: 'text' }, { name: 'Secret', type: 'text' }], sample: false });
+  expect(made.status).toBe(201);
+  const { app } = await made.json();
+  const primary = await getTable(env.DB, ORG, app.tableId);
+  const relatedMade = await createTable(env.DB, { orgId: ORG, name: 'Customers', columns: [{ name: 'Name', type: 'text' }, { name: 'Internal note', type: 'text' }], by: '9101' });
+  await env.DB.prepare('INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES(?1,?2,?3,?4)').bind(ORG, app.id, 'customers', relatedMade.table.id).run();
+  await addRow(env.DB, ORG, app.tableId, { [primary.columns[0].id]: 'Public title', [primary.columns[1].id]: 'PRIMARY_SECRET' }, '9101');
+  await addRow(env.DB, ORG, relatedMade.table.id, { [relatedMade.table.columns[0].id]: 'Public customer', [relatedMade.table.columns[1].id]: 'RELATED_SECRET' }, '9101');
+  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)").bind(ORG, app.id).run();
+
+  const noCustom = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, entities: [{ entity: 'primary', fields: [primary.columns[0].id] }], publicDataConfirmed: true });
+  expect(noCustom.status).toBe(409);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_public_shares WHERE app_id=?1').bind(app.id).first()).toEqual({ n: 0 });
+
+  const version = await env.DB.prepare('SELECT definition FROM hx_app_versions WHERE org_id=?1 AND app_id=?2 AND version=1').bind(ORG, app.id).first();
+  const definition = JSON.parse(version.definition);
+  definition.custom = { published: 'window.honmaru.read().then(({rows})=>document.body.textContent=rows[0].values.title)' };
+  await env.DB.prepare('UPDATE hx_app_versions SET definition=?1 WHERE org_id=?2 AND app_id=?3 AND version=1').bind(JSON.stringify(definition), ORG, app.id).run();
+
+  const options = await (await get(`/apps/${app.id}/public-shares?orgId=${ORG}`, toru)).json();
+  expect(options.entities.map(x => x.key)).toEqual(['primary', 'customers']);
+  const created = await send('POST', `/apps/${app.id}/public-shares`, toru, { orgId: ORG, appVersion: 1, entities: [
+    { entity: 'primary', fields: [primary.columns[0].id] },
+    { entity: 'customers', fields: [relatedMade.table.columns[0].id] },
+  ], publicDataConfirmed: true });
+  expect(created.status).toBe(201);
+  const { share } = await created.json();
+  const token = share.url.split('/').at(-1);
+  expect(share.appVersion).toBe(1);
+
+  const access = await (await get(`/apps/${app.id}/access?orgId=${ORG}`, toru)).json();
+  expect(access.access).toMatchObject({ visibility: 'public', internalVisibility: 'private' });
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(404);
+
+  const response = await call(`/app-shares/${token}`);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+  expect(response.headers.get('content-security-policy')).toContain("connect-src 'none'");
+  expect(response.headers.get('content-security-policy')).toContain("frame-src 'self'");
+  const html = await response.text();
+  expect(html).toContain('Public title');
+  expect(html).toContain('Public customer');
+  expect(html).not.toContain('PRIMARY_SECRET');
+  expect(html).not.toContain('RELATED_SECRET');
+  expect(html).toContain('window.honmaru.read()');
+  expect(html).toContain("type:'honmaru:request'");
+  expect((await call(`/app-shares/${'a'.repeat(50)}`)).status).toBe(404);
+
+  const revoked = await call(`/apps/${app.id}/public-shares?orgId=${ORG}&shareId=${share.id}`, { method: 'DELETE', headers: headers(toru) });
+  expect(revoked.status).toBe(200);
+  expect((await call(`/app-shares/${token}`)).status).toBe(404);
+  const after = await (await get(`/apps/${app.id}/access?orgId=${ORG}`, toru)).json();
+  expect(after.access.visibility).toBe('private');
+});
