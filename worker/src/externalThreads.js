@@ -60,15 +60,16 @@ async function manageableRoot(db, orgId, rootId, user) {
 // mutation. The initial route check provides a safe response shape; this SQL
 // fence prevents a concurrent membership, role, Room, Agent, or root change
 // from leaving a grant or approval behind after that check.
-function threadManagerFence(orgId, rootId, user, firstParameter) {
+function threadManagerFence(orgId, rootId, user, expectedChannel, firstParameter) {
   const p = (offset) => `?${firstParameter + offset}`;
-  const org = p(0), rootIdParam = p(1), userId = p(2), login = p(3);
+  const org = p(0), rootIdParam = p(1), userId = p(2), login = p(3), channel = p(4);
   return {
     sql: `EXISTS (
       SELECT 1 FROM channel_messages managedRoot
       JOIN memberships managerMembership ON managerMembership.org_id=managedRoot.org_id
         AND managerMembership.user_github_id=${userId}
       WHERE managedRoot.org_id=${org} AND managedRoot.id=${rootIdParam}
+        AND managedRoot.channel=${channel}
         AND managedRoot.parent_id IS NULL AND managedRoot.deleted_at IS NULL
         AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
           WHERE tombstone.org_id=managedRoot.org_id AND tombstone.channel=managedRoot.channel
@@ -85,11 +86,16 @@ function threadManagerFence(orgId, rootId, user, firstParameter) {
               WHERE roomMember.org_id=managedRoot.org_id AND roomMember.channel=managedRoot.channel
                 AND roomUser.github_id=${userId})
           ))
-          OR (managedRoot.channel LIKE 'g:%' AND EXISTS(SELECT 1 FROM conversation_members roomMember
+          OR (managedRoot.channel LIKE 'g:%' AND length(managedRoot.channel)=18
+            AND substr(managedRoot.channel,3) NOT GLOB '*[^0-9a-f]*'
+            AND EXISTS(SELECT 1 FROM conversation_members roomMember
             JOIN users roomUser ON roomUser.login=roomMember.login
             WHERE roomMember.org_id=managedRoot.org_id AND roomMember.channel=managedRoot.channel
               AND roomUser.github_id=${userId}))
-          OR (managedRoot.channel LIKE 'dm:%' AND instr('|'||substr(managedRoot.channel,4)||'|','|'||${login}||'|')>0)
+          OR (managedRoot.channel LIKE 'dm:%' AND instr(managedRoot.channel,'|')>4
+            AND instr(substr(managedRoot.channel,instr(managedRoot.channel,'|')+1),'|')=0
+            AND (substr(managedRoot.channel,4,instr(managedRoot.channel,'|')-4)=${login}
+              OR substr(managedRoot.channel,instr(managedRoot.channel,'|')+1)=${login}))
           OR (managedRoot.channel LIKE 'ag:%' AND EXISTS(
             SELECT 1 FROM custom_agents agent
             LEFT JOIN hx_agent_profiles profile ON profile.org_id=agent.org_id AND profile.agent_id=agent.id
@@ -110,7 +116,7 @@ function threadManagerFence(orgId, rootId, user, firstParameter) {
             )))
         )
     )`,
-    bindings: [orgId, rootId, user.github_id, user.login],
+    bindings: [orgId, rootId, user.github_id, user.login, expectedChannel],
   };
 }
 
@@ -158,8 +164,8 @@ async function shareThread(request, env, orgId, rootId, actor) {
         return fail("Expiry must be a future timestamp", 400);
       }
       const id = `xg_${crypto.randomUUID().replaceAll("-", "")}`;
-      const updateFence = threadManagerFence(orgId, rootId, actor.user, 6);
-      const insertFence = threadManagerFence(orgId, rootId, actor.user, 9);
+      const updateFence = threadManagerFence(orgId, rootId, actor.user, root.channel, 6);
+      const insertFence = threadManagerFence(orgId, rootId, actor.user, root.channel, 9);
       const [revoked, inserted] = await env.DB.batch([
         env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
           WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4
@@ -183,7 +189,7 @@ async function shareThread(request, env, orgId, rootId, actor) {
   const now = new Date().toISOString();
   let revoked = 0;
   if (typeof input.grantId === "string" && input.grantId) {
-    const fence = threadManagerFence(orgId, rootId, actor.user, 6);
+    const fence = threadManagerFence(orgId, rootId, actor.user, root.channel, 6);
     const results = await env.DB.batch([
       env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
         WHERE id=?3 AND org_id=?4 AND resource_type='thread' AND resource_id=?5
@@ -194,14 +200,14 @@ async function shareThread(request, env, orgId, rootId, actor) {
           AND guest_github_id=(SELECT recipient_github_id FROM hx_external_resource_grants WHERE id=?5)
           AND EXISTS(SELECT 1 FROM hx_external_resource_grants changed WHERE changed.id=?5
             AND changed.revoked_at=?1 AND changed.revoked_by=?2)
-          AND ${threadManagerFence(orgId,rootId,actor.user,6).sql}`)
+          AND ${threadManagerFence(orgId,rootId,actor.user,root.channel,6).sql}`)
         .bind(now,actor.user.github_id,orgId,rootId,input.grantId,...fence.bindings),
     ]);
     revoked = Number(results?.[0]?.meta?.changes || 0);
   } else {
     const recipient = await resolveRecipient(env.DB, orgId, input.email, actor.user.github_id);
     if (!recipient) return fail("Recipient not found.", 404);
-    const fence = threadManagerFence(orgId,rootId,actor.user,6);
+    const fence = threadManagerFence(orgId,rootId,actor.user,root.channel,6);
     const results = await env.DB.batch([
       env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
         WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4
@@ -212,9 +218,9 @@ async function shareThread(request, env, orgId, rootId, actor) {
           AND EXISTS(SELECT 1 FROM hx_external_resource_grants changed WHERE changed.org_id=?3
             AND changed.resource_type='thread' AND changed.resource_id=?4
             AND changed.recipient_github_id=?5 AND changed.revoked_at=?1 AND changed.revoked_by=?2)
-          AND ${threadManagerFence(orgId,rootId,actor.user,6).sql}`)
+          AND ${threadManagerFence(orgId,rootId,actor.user,root.channel,6).sql}`)
         .bind(now,actor.user.github_id,orgId,rootId,recipient.github_id,
-          ...threadManagerFence(orgId,rootId,actor.user,6).bindings),
+          ...threadManagerFence(orgId,rootId,actor.user,root.channel,6).bindings),
     ]);
     revoked = Number(results?.[0]?.meta?.changes || 0);
   }
@@ -278,7 +284,7 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
     const code = randomInviteToken();
     const id = inviteId();
     try {
-      const fence = threadManagerFence(orgId,rootId,actor.user,11);
+      const fence = threadManagerFence(orgId,rootId,actor.user,root.channel,11);
       const inserted = await env.DB.prepare(`INSERT INTO hx_external_thread_invites
           (id,org_id,resource_type,resource_id,invited_email,permission,access_expires_at,token_hash,created_by,created_at,expires_at)
         SELECT ?1,?2,'thread',?3,?4,?5,?6,?7,?8,?9,?10 WHERE ${fence.sql}`)
@@ -300,7 +306,7 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
     // Whichever transaction wins, the invite cannot be left revoked with a
     // live grant: a later redemption sees revoked_at; an earlier one exposes
     // created_grant_id to the following statement in this same batch.
-    const fence = threadManagerFence(orgId,rootId,actor.user,6);
+    const fence = threadManagerFence(orgId,rootId,actor.user,root.channel,6);
     const results = await env.DB.batch([
       env.DB.prepare(`UPDATE hx_external_thread_invites SET revoked_at=?1,revoked_by=?2
         WHERE id=?3 AND org_id=?4 AND resource_id=?5 AND revoked_at IS NULL AND ${fence.sql}`)
@@ -315,7 +321,7 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
         WHERE org_id=?3 AND root_message_id=?4
           AND guest_github_id=(SELECT redeemed_by FROM hx_external_thread_invites
             WHERE id=?5 AND org_id=?3 AND resource_id=?4 AND revoked_at=?1 AND revoked_by=?2)
-          AND status='pending' AND ${threadManagerFence(orgId,rootId,actor.user,6).sql}`)
+          AND status='pending' AND ${threadManagerFence(orgId,rootId,actor.user,root.channel,6).sql}`)
         .bind(now,actor.user.github_id,orgId,rootId,inviteRef,...fence.bindings),
     ]);
     return json({ revoked: Number(results?.[0]?.meta?.changes || 0) > 0 });
@@ -739,10 +745,10 @@ async function pendingRequests(env, orgId, rootId, owner) {
     ORDER BY r.requested_at, r.id`).bind(orgId, rootId, owner.user.github_id, new Date().toISOString()).all();
 }
 
-async function decideRequest(env, orgId, rootId, id, owner, action) {
+async function decideRequest(env, orgId, rootId, id, owner, action, channel) {
   const now = new Date().toISOString();
   if (action === "reject") {
-    const fence = threadManagerFence(orgId,rootId,owner.user,6);
+    const fence = threadManagerFence(orgId,rootId,owner.user,channel,6);
     const result = await env.DB.prepare(`UPDATE hx_external_thread_send_requests
        SET status='rejected', decided_at=?1, decided_by=?2
      WHERE org_id=?3 AND root_message_id=?4 AND id=?5 AND status='pending'
@@ -756,8 +762,8 @@ async function decideRequest(env, orgId, rootId, id, owner, action) {
   }
 
   const messageId = keyId();
-  const insertFence = threadManagerFence(orgId,rootId,owner.user,9);
-  const updateFence = threadManagerFence(orgId,rootId,owner.user,7);
+  const insertFence = threadManagerFence(orgId,rootId,owner.user,channel,9);
+  const updateFence = threadManagerFence(orgId,rootId,owner.user,channel,7);
   const [insert, update] = await env.DB.batch([
     env.DB.prepare(`INSERT INTO channel_messages
         (id, org_id, channel, author_login, kind, body, created_at, parent_id)
@@ -844,7 +850,7 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
     if (action !== "approve" && action !== "reject") return fail("Not found.", 404);
     const input = await request.json().catch(() => ({}));
     if (typeof input.requestId !== "string" || !input.requestId) return fail("requestId is required.", 400);
-    const decided = await decideRequest(env, orgId, rootId, input.requestId, actor, action);
+    const decided = await decideRequest(env, orgId, rootId, input.requestId, actor, action, manageable.channel);
     if (decided?.approved) {
       const message = await getMessage(env.DB, orgId, decided.messageId);
       const requestRow = await env.DB.prepare(
