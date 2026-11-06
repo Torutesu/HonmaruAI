@@ -1,10 +1,18 @@
 import { env } from "cloudflare:test";
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { purgeDueWorkspaces } from "../src/workspaceDeletion.js";
 
+const emptyTableNames = Array.from({ length: 210 }, (_, index) =>
+  `purge_budget_empty_${String(index).padStart(3, "0")}`);
+
+afterEach(async () => {
+  // Always clean up, including when the assertion below fails, so the test
+  // cannot increase the workspace-table scan cost for later tests in this DB.
+  await env.DB.exec(emptyTableNames.map(name => `DROP TABLE IF EXISTS ${name}`).join("; "));
+});
+
 test("empty org-scoped tables do not exhaust the bounded workspace purge budget", async () => {
-  const emptyTables = Array.from({ length: 210 }, (_, index) =>
-    `CREATE TABLE purge_budget_empty_${String(index).padStart(3, "0")} (org_id TEXT)`);
+  const emptyTables = emptyTableNames.map(name => `CREATE TABLE ${name} (org_id TEXT)`);
   await env.DB.exec(emptyTables.join("; "));
 
   const orgId = "team:going";
