@@ -30,6 +30,7 @@ export function routeLabel(method, pathname) {
     // Never log the share-token path segment, even when a malformed URL has
     // an extra suffix or an encoded character and therefore fails validation.
     .replace(/^(\/(?:template|skill)-shares\/)[^/]+/i, "$1:token")
+    .replace(/^(\/hx\/public-file-shares\/)[^/]+/i, "$1:token")
     .replace(/^\/orgs\/[^/]+\/[^/]+/, "/orgs/:owner/:repo")
     .replace(/\/cards\/[^/]+/, "/cards/:id")
     .replace(/^\/media\/[^/]+$/, "/media/:id")
