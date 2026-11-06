@@ -1,6 +1,6 @@
 import { actions, runAction, readActionJob } from './appCapabilities.js';
 import { listApps } from './apps.js';
-import { mayUseApp, visibleResources } from './resourceAccess.js';
+import { mayUseApp, mayEditApp, visibleResources } from './resourceAccess.js';
 import { enqueueExecution, listExecutionNodes, readExecution, cancelExecution } from './executions.js';
 import { getMode } from './mode.js';
 
@@ -26,6 +26,7 @@ export async function callExecutionTool(env, agent, name, args = {}) {
     }
     case 'run_app_action': case 'get_app_execution': {
       if(!(await mayUseApp(env.DB,agent.orgId,String(args.appId||''),agent.githubId)))result={error:'No such app.'};
+      else if(name==='run_app_action'&&!(await mayEditApp(env.DB,agent.orgId,String(args.appId||''),agent.githubId)))result={error:'You can view this app but cannot run its actions.'};
       else result=name==='run_app_action'?await runAction(env.DB,agent.orgId,args.appId,args,String(agent.githubId)):await readActionJob(env.DB,agent.orgId,args.appId,String(agent.githubId),args.jobId);
       break;
     }

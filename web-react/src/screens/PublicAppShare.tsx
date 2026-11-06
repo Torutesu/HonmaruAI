@@ -30,7 +30,10 @@ export function PublicAppShare({ httpBase, token }: { httpBase: string; token: s
     const load = async () => {
       try {
         if (!/^app_[a-f0-9]{64}$/.test(token)) { setState('missing'); return; }
+        let sessionToken = '';
+        try { sessionToken = localStorage.getItem('sessionToken') || ''; } catch { /* anonymous link access remains available */ }
         const response = await fetch(`${httpBase}/app-shares/${token}`, {
+          ...(sessionToken ? { headers: { 'x-session-token': sessionToken } } : {}),
           credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer', signal: controller.signal,
         });
         if (response.status === 404) { setState('missing'); return; }
