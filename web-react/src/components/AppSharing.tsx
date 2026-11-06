@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 
 type Visibility = 'private' | 'workspace' | 'room'
@@ -19,12 +19,12 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const headers = { 'content-type': 'application/json', 'x-session-token': sessionToken }
-  const loadShares = async (signal?: AbortSignal) => {
+  const loadShares = useCallback(async (signal?: AbortSignal) => {
     const res = await fetch(`${httpBase}/apps/${appId}/public-shares?${new URLSearchParams({ orgId })}`, { headers, signal })
     const data = await res.json()
     if (!res.ok) throw new Error(data.message || String(res.status))
     setShares(data.shares || [])
-  }
+  }, [httpBase, orgId, sessionToken, appId])
   useEffect(() => {
     const controller = new AbortController()
     setAccess(null); setCanEdit(false); setError('')
@@ -34,7 +34,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
       .catch(err => { if (!controller.signal.aborted) setError(String(err.message)) })
     // Public link inventory is restricted to app owners and workspace admins.\n    // The access response controls the UI; the server remains authoritative.\n    
     return () => controller.abort()
-  }, [httpBase, orgId, sessionToken, appId])
+  }, [httpBase, orgId, sessionToken, appId, loadShares])
   const save = async (visibility: Visibility, channel?: string) => {
     if (!access) return
     setBusy(true); setError('')
