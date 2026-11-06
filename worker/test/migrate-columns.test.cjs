@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { migrateColumns } = require('./migrate-columns.cjs');
+const { migrateColumns } = require('../../.github/scripts/migrate-columns.cjs');
 const internal = { status: 1, stderr: 'internal error; reference = e_test [code: 7500]' };
 async function run(results, statements = ['ALTER TABLE x ADD COLUMN y TEXT;']) {
   const calls = [], waits = [];
@@ -48,7 +48,7 @@ test('inspection errors preserve duplicate handling and ambiguous SQL is execute
 });
 
 test('batched PRAGMA results align with their requested tables and missing results fall back',()=>{
- const {columnInspection,existingColumns}=require('./migrate-columns.cjs');
+ const {columnInspection,existingColumns}=require('../../.github/scripts/migrate-columns.cjs');
  const plan=columnInspection(['ALTER TABLE users ADD COLUMN email TEXT;','ALTER TABLE rooms ADD COLUMN name TEXT;','ALTER TABLE users ADD COLUMN alias TEXT;']);
  assert.deepEqual(plan.tables,['users','rooms']);
  assert.equal(plan.sql,'PRAGMA table_info("users"); PRAGMA table_info("rooms");');
