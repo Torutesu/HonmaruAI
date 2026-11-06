@@ -172,7 +172,7 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
   }
   if (inviteRef && request.method === "DELETE") {
     const now = new Date().toISOString();
-    const existing = await env.DB.prepare(`SELECT redeemed_by FROM hx_external_thread_invites
+    const existing = await env.DB.prepare(`SELECT redeemed_by,created_grant_id FROM hx_external_thread_invites
       WHERE id=?1 AND org_id=?2 AND resource_id=?3 AND revoked_at IS NULL`).bind(inviteRef,orgId,rootId).first();
     if (!existing) return json({ revoked: false });
     await env.DB.batch([
@@ -180,8 +180,8 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
         WHERE id=?3 AND org_id=?4 AND resource_id=?5 AND revoked_at IS NULL`)
         .bind(now,actor.user.github_id,inviteRef,orgId,rootId),
       env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
-        WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL`)
-        .bind(now,actor.user.github_id,orgId,rootId,existing.redeemed_by || ""),
+        WHERE id=?3 AND org_id=?4 AND resource_type='thread' AND resource_id=?5 AND revoked_at IS NULL`)
+        .bind(now,actor.user.github_id,existing.created_grant_id || "",orgId,rootId),
     ]);
     if (existing.redeemed_by) {
       await env.DB.prepare(`UPDATE hx_external_thread_send_requests
@@ -246,9 +246,14 @@ export async function redeemExternalThreadInvite(env, { token, userId }) {
         AND EXISTS(SELECT 1 FROM channel_messages root WHERE root.org_id=i.org_id AND root.id=i.resource_id
           AND root.parent_id IS NULL AND root.deleted_at IS NULL)`)
     .bind(grantId,String(userId),now,invite.id,redemptionId);
-  const results = await env.DB.batch([claim,previous,insert]);
+  const rememberGrant = env.DB.prepare(`UPDATE hx_external_thread_invites SET created_grant_id=?1
+    WHERE id=?2 AND redemption_id=?3 AND redeemed_by=?4 AND EXISTS(
+      SELECT 1 FROM hx_external_resource_grants g WHERE g.id=?1 AND g.org_id=?5 AND g.resource_type='thread'
+        AND g.resource_id=?6 AND g.recipient_github_id=?4 AND g.revoked_at IS NULL)`)
+    .bind(grantId,invite.id,redemptionId,String(userId),invite.org_id,invite.resource_id);
+  const results = await env.DB.batch([claim,previous,insert,rememberGrant]);
   if (!(results?.[0]?.meta?.changes > 0)) return deny;
-  if (results?.[2]?.meta?.changes > 0) {
+  if (results?.[2]?.meta?.changes > 0 && results?.[3]?.meta?.changes > 0) {
     return { redeemed: true, orgId: invite.org_id, resourceType: "thread", resourceId: invite.resource_id, permission: invite.permission };
   }
   return { redeemed: true, alreadyMember: true, orgId: invite.org_id };
