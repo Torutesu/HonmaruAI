@@ -81,8 +81,10 @@ test("owners can list only active named grants and revoke them without adding me
   expect((await call(path, sessions.guest)).status).toBe(404);
   expect((await call(`/external/threads/${orgId}/missing/shares`, sessions.owner)).status).toBe(404);
 
-  await env.DB.prepare("UPDATE hx_external_resource_grants SET expires_at=?1 WHERE org_id=?2 AND resource_type='thread' AND resource_id=?3 AND recipient_github_id=?4 AND revoked_at IS NULL")
-    .bind(new Date(Date.now()-60_000).toISOString(),orgId,rootId,ids.guest).run();
+  const grantedAt = new Date(Date.now() - 60_000).toISOString();
+  const expiredAt = new Date(Date.now() - 30_000).toISOString();
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET granted_at=?1, expires_at=?2 WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL")
+    .bind(grantedAt, expiredAt, orgId, rootId, ids.guest).run();
   expect((await (await call(path,sessions.owner)).json()).shares).toEqual([]);
 
   const second = await call(path, sessions.owner, "POST", { email, permission: "view" });
