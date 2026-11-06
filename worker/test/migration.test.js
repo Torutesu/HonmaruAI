@@ -171,6 +171,7 @@ test("schema.sql builds no index on a column migrations.sql adds", () => {
 test("schema replay succeeds before the memory owner column migration and backfills audit scope after ALTER", async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   await env.DB.exec("DROP TRIGGER IF EXISTS hx_memory_review_audit_scope_insert");
+  await env.DB.exec("DROP TRIGGER IF EXISTS hx_memory_review_audit_insert");
   await env.DB.exec("DROP TABLE hx_memory_review_audit_scope");
   await env.DB.exec("DROP TABLE hx_memory_scopes");
   await env.DB.exec("CREATE TABLE hx_memory_scopes (memory_id TEXT PRIMARY KEY REFERENCES hx_agent_memories(id) ON DELETE CASCADE, org_id TEXT NOT NULL, channel TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT 'context')");
@@ -182,6 +183,8 @@ test("schema replay succeeds before the memory owner column migration and backfi
   await expect(applyDeploy(env.DB)).resolves.not.toThrow();
   const columns = await env.DB.prepare("PRAGMA table_info(hx_memory_scopes)").all();
   expect(columns.results.map(row => row.name)).toContain("user_github_id");
+  expect(await env.DB.prepare("SELECT id,memory_id,agent_id,channel FROM hx_memory_review_audit WHERE id='legacy-review'").first())
+    .toEqual({ id: "legacy-review", memory_id: "legacy-memory", agent_id: "legacy-agent", channel: "b:ops" });
   expect(await env.DB.prepare("SELECT memory_scope,channel,user_github_id FROM hx_memory_review_audit_scope WHERE audit_id='legacy-review'").first())
     .toEqual({ memory_scope: "conversation", channel: "b:ops", user_github_id: null });
 
