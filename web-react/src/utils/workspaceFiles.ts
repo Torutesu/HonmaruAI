@@ -42,6 +42,7 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   shareRequests:(fileId?:string,signal?:AbortSignal)=>json<{requests:PublicFileShareRequest[]}>('/hx/files/share-requests','GET',undefined,fileId?{fileId}:{},signal),
   requestPublicShare:(id:string,version:number,expiresIn:number,allowDownload:boolean)=>json<{requestId:string;status:string;fileId:string;version:number;contentHash:string;expiresAt:string;allowDownload:boolean}>(
    `${path(id)}/share-requests`,'POST',{version,requestKey:crypto.randomUUID().replaceAll('-',''),expiresIn,allowDownload}),
+  declinePublicShare:(requestId:string)=>json<{requestId:string;status:'declined';decisionAt:string}>('/hx/files/share-requests/decline','POST',{requestId}),
   approvePublicShare:async(requestId:string)=>{
    const result=await json<{shareId:string;url:string;expiresAt:string;allowDownload:boolean}>('/hx/files/share-requests/approve','POST',{requestId})
    const fallback=typeof window==='undefined'?'https://localhost':window.location.origin
@@ -56,5 +57,5 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
  }
 }
 type WorkspaceFileApiBase=ReturnType<typeof workspaceFileApi>
-type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'revokePublicShare'
+type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'declinePublicShare'|'revokePublicShare'
 export type WorkspaceFileApi = Omit<WorkspaceFileApiBase,ShareApiMethods> & Partial<Pick<WorkspaceFileApiBase,ShareApiMethods>>
