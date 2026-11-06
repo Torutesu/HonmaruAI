@@ -1379,7 +1379,7 @@ export async function handleHarness(request, env, url, context = {}) {
         const { results: rooms = [] } = await env.DB.prepare('SELECT channel FROM hx_app_links WHERE org_id=?1 AND app_id=?2 ORDER BY channel').bind(orgId, appId).all();
         const custom = app.definition?.custom;
         const canPublicShare = typeof custom?.published === 'string' && !custom.publishedCommit && !custom.publishedCommitApprovalId;
-        return json({ access, canEdit: app.createdBy === String(me), rooms: rooms.map(row => row.channel), canPublicShare });
+        return json({ access, canEdit: app.createdBy === String(me), canManage: await mayChange(env, orgId, who, app.createdBy), rooms: rooms.map(row => row.channel), canPublicShare });
       }
       if (request.method === "PUT") {
         const result = await setAppAccess(env.DB, orgId, appId, me, input);
