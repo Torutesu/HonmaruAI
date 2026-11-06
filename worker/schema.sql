@@ -2296,14 +2296,48 @@ CREATE TABLE IF NOT EXISTS hx_memory_review_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_scope ON hx_memory_review_audit(org_id,agent_id,channel,reviewed_at,id);
 CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_memory ON hx_memory_review_audit(org_id,memory_id,reviewed_at,id);
+
+/* The audit survives memory deletion. Keep only scope metadata, never body text.
+   Rows without a recovered scope are legacy and are hidden by the history reader. */
+CREATE TABLE IF NOT EXISTS hx_memory_review_audit_scope (
+  audit_id TEXT PRIMARY KEY REFERENCES hx_memory_review_audit(id) ON DELETE CASCADE,
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  memory_scope TEXT NOT NULL CHECK(memory_scope IN ('shared','conversation','person')),
+  channel TEXT NOT NULL DEFAULT '',
+  user_github_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_scope_owner
+  ON hx_memory_review_audit_scope(org_id,agent_id,user_github_id,channel,audit_id);
+
 INSERT OR IGNORE INTO hx_memory_review_audit (id,memory_id,org_id,agent_id,channel,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
 SELECT h.id,h.memory_id,h.org_id,m.agent_id,COALESCE(s.channel,''),h.reviewed_version,h.verdict,h.evidence,h.reviewed_by,h.reviewed_at
 FROM hx_memory_review_history h JOIN hx_agent_memories m ON m.id=h.memory_id AND m.org_id=h.org_id
 LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id;
-CREATE TRIGGER IF NOT EXISTS hx_memory_review_audit_insert AFTER INSERT ON hx_memory_review_history
+/* Backfill the recoverable legacy scope before replacing the trigger.
+   Deleted legacy memories have no source for an owner and remain undiscoverable. */
+INSERT OR IGNORE INTO hx_memory_review_audit_scope (audit_id,org_id,agent_id,memory_scope,channel,user_github_id)
+SELECT a.id,a.org_id,a.agent_id,
+  CASE WHEN s.user_github_id IS NOT NULL THEN 'person' WHEN COALESCE(s.channel,'')<>'' THEN 'conversation' ELSE 'shared' END,
+  COALESCE(s.channel,''),s.user_github_id
+FROM hx_memory_review_audit a
+JOIN hx_agent_memories m ON m.id=a.memory_id AND m.org_id=a.org_id AND m.agent_id=a.agent_id
+LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id;
+
+/* The CREATE TABLE statements run before migrations.sql, even on old DBs. Drop
+   the old trigger explicitly so deployed databases pick up the scope snapshot. */
+DROP TRIGGER IF EXISTS hx_memory_review_audit_insert;
+CREATE TRIGGER hx_memory_review_audit_insert AFTER INSERT ON hx_memory_review_history
 BEGIN
   INSERT INTO hx_memory_review_audit (id,memory_id,org_id,agent_id,channel,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
   SELECT NEW.id,NEW.memory_id,NEW.org_id,m.agent_id,COALESCE(s.channel,''),NEW.reviewed_version,NEW.verdict,NEW.evidence,NEW.reviewed_by,NEW.reviewed_at
+  FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+  WHERE m.id=NEW.memory_id AND m.org_id=NEW.org_id;
+
+  INSERT OR IGNORE INTO hx_memory_review_audit_scope (audit_id,org_id,agent_id,memory_scope,channel,user_github_id)
+  SELECT NEW.id,NEW.org_id,m.agent_id,
+    CASE WHEN s.user_github_id IS NOT NULL THEN 'person' WHEN COALESCE(s.channel,'')<>'' THEN 'conversation' ELSE 'shared' END,
+    COALESCE(s.channel,''),s.user_github_id
   FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
   WHERE m.id=NEW.memory_id AND m.org_id=NEW.org_id;
 END;
