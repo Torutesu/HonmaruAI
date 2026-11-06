@@ -198,9 +198,6 @@ CREATE TABLE IF NOT EXISTS hx_member_departures (org_id TEXT NOT NULL, user_id T
 ALTER TABLE hx_skills ADD COLUMN owner_id TEXT;
 
 CREATE TABLE IF NOT EXISTS hx_room_access (org_id TEXT NOT NULL, channel TEXT NOT NULL, version INTEGER NOT NULL, mutation_id TEXT, PRIMARY KEY (org_id,channel));
-Warning: truncated output (original token count: 3567)
-Total output lines: 100
-
 CREATE TABLE IF NOT EXISTS hx_room_roles (org_id TEXT NOT NULL, channel TEXT NOT NULL, subject_kind TEXT NOT NULL CHECK(subject_kind IN ('person','agent')), subject_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','member')), member_since TEXT NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,channel,subject_kind,subject_id));
 
 ALTER TABLE hx_room_access ADD COLUMN deleted_at TEXT;
@@ -243,7 +240,29 @@ CREATE INDEX IF NOT EXISTS idx_teammate_result_pending ON ai_teammate_result_dis
 ALTER TABLE ai_teammate_runs ADD COLUMN assignment_id TEXT;
 ALTER TABLE ai_teammate_runs ADD COLUMN assignment_generation INTEGER;
 ALTER TABLE ai_teammate_runs ADD COLUMN assignment_agent_id TEXT;
-ALTER TABLE ai_teammate_result_dispatch ADD COLUMN assignment_id T…567 tokens truncated…T NULL, status TEXT NOT NULL, claim_id TEXT NOT NULL, PRIMARY KEY(org_id,run_id));
+ALTER TABLE ai_teammate_result_dispatch ADD COLUMN assignment_id TEXT;
+ALTER TABLE ai_teammate_result_dispatch ADD COLUMN assignment_generation INTEGER;
+ALTER TABLE ai_teammate_result_dispatch ADD COLUMN assignment_agent_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_teammate_runs_assignment ON ai_teammate_runs(org_id,assignment_id,assignment_generation,status);
+CREATE INDEX IF NOT EXISTS idx_teammate_result_assignment ON ai_teammate_result_dispatch(org_id,assignment_id,assignment_generation,status);
+
+CREATE TABLE IF NOT EXISTS hx_app_automation_state (org_id TEXT NOT NULL, app_id TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, draft TEXT NOT NULL, published TEXT, release_id TEXT, published_at TEXT, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, PRIMARY KEY(org_id,app_id));
+
+CREATE TABLE IF NOT EXISTS hx_app_automation_bindings (org_id TEXT NOT NULL, app_id TEXT NOT NULL, declaration_key TEXT NOT NULL, workflow_id TEXT NOT NULL, applied TEXT NOT NULL, release_id TEXT NOT NULL, PRIMARY KEY(org_id,app_id,declaration_key), UNIQUE(org_id,workflow_id));
+
+CREATE TABLE IF NOT EXISTS hx_app_automation_releases (org_id TEXT NOT NULL, app_id TEXT NOT NULL, request_id TEXT NOT NULL, request TEXT NOT NULL, release_id TEXT NOT NULL, revision INTEGER NOT NULL, app_version INTEGER NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id,request_id));
+
+ALTER TABLE hx_followups ADD COLUMN origin_workflow_id TEXT;
+ALTER TABLE hx_followups ADD COLUMN origin_release_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_hx_runs_active ON hx_workflow_runs(org_id, workflow_id) WHERE status IN ('running','waiting');
+
+CREATE TABLE IF NOT EXISTS hx_workflow_safety (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, failure_streak INTEGER NOT NULL DEFAULT 0, paused_at TEXT, pause_reason TEXT, PRIMARY KEY(org_id,workflow_id));
+ALTER TABLE hx_workflow_safety ADD COLUMN daily_run_limit INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hx_workflow_safety ADD COLUMN weekly_run_limit INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hx_workflow_safety ADD COLUMN monthly_run_limit INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hx_workflow_safety ADD COLUMN budget_revision INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS hx_workflow_outcomes (org_id TEXT NOT NULL, run_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, status TEXT NOT NULL, claim_id TEXT NOT NULL, PRIMARY KEY(org_id,run_id));
 CREATE TABLE IF NOT EXISTS hx_workflow_safety_notices (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, run_id TEXT NOT NULL, recipient_id TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT, PRIMARY KEY(org_id,workflow_id,generation));
 
 ALTER TABLE hx_workflow_safety_notices ADD COLUMN read_at TEXT;
@@ -279,9 +298,6 @@ ALTER TABLE hx_workflow_state_versions ADD COLUMN metadata TEXT NOT NULL DEFAULT
 
 ALTER TABLE hx_agent_assignments ADD COLUMN remote_stop_status TEXT;
 ALTER TABLE hx_agent_assignments ADD COLUMN remote_stop_updated_at TEXT;
-Warning: truncated output (original token count: 4820)
-Total output lines: 100
-
 
 CREATE TRIGGER IF NOT EXISTS hx_workflow_state_immutable BEFORE UPDATE ON hx_workflow_state_versions BEGIN SELECT RAISE(ABORT,'Workflow state versions are immutable'); END;
 
@@ -312,7 +328,48 @@ CREATE TABLE IF NOT EXISTS hx_agent_source_grants (org_id TEXT NOT NULL, agent_i
 CREATE TABLE IF NOT EXISTS hx_agent_remote_mcp_grants (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, created_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,user_github_id,server_id), FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
 
 ALTER TABLE hx_remote_mcp_servers ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'headers' CHECK(auth_mode IN ('headers','oauth'));
-ALTER TABLE hx_remote_mcp_servers…1820 tokens truncated…uted. */
+ALTER TABLE hx_remote_mcp_servers ADD COLUMN oauth_registration TEXT NOT NULL DEFAULT 'auto' CHECK(oauth_registration IN ('auto','manual'));
+ALTER TABLE hx_remote_mcp_servers ADD COLUMN oauth_client TEXT;
+CREATE TABLE IF NOT EXISTS hx_remote_mcp_oauth_credentials (org_id TEXT NOT NULL, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, credential TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,server_id,user_github_id));
+CREATE INDEX IF NOT EXISTS hx_remote_mcp_oauth_user ON hx_remote_mcp_oauth_credentials(org_id,user_github_id,server_id);
+CREATE TABLE IF NOT EXISTS hx_remote_mcp_oauth_states (state_hash TEXT PRIMARY KEY, org_id TEXT NOT NULL, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, code_verifier TEXT NOT NULL, issuer TEXT NOT NULL, token_endpoint TEXT NOT NULL, client_id TEXT NOT NULL, resource TEXT NOT NULL, scope TEXT, require_issuer INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+ALTER TABLE hx_remote_mcp_oauth_states ADD COLUMN client_secret TEXT NOT NULL DEFAULT '';
+ALTER TABLE hx_remote_mcp_oauth_states ADD COLUMN token_auth_method TEXT NOT NULL DEFAULT 'none';
+ALTER TABLE hx_remote_mcp_oauth_states ADD COLUMN redirect_uri TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS hx_remote_mcp_oauth_states_expiry ON hx_remote_mcp_oauth_states(expires_at);
+
+CREATE TABLE IF NOT EXISTS hx_workspace_file_origins (org_id TEXT NOT NULL, file_id TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('human','agent')), PRIMARY KEY(org_id,file_id), FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE);
+
+CREATE TABLE IF NOT EXISTS hx_app_annotations (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, table_id TEXT NOT NULL DEFAULT '', row_id TEXT NOT NULL DEFAULT '', message_source TEXT NOT NULL CHECK(message_source IN ('app','channel')), message_id TEXT NOT NULL, target TEXT NOT NULL, x REAL NOT NULL CHECK(x BETWEEN 0 AND 100), y REAL NOT NULL CHECK(y BETWEEN 0 AND 100), section TEXT NOT NULL CHECK(section IN ('overview','data')), author_id TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(org_id,app_id,message_source,message_id));
+CREATE INDEX IF NOT EXISTS idx_hx_app_annotations_screen ON hx_app_annotations(org_id,app_id,table_id,row_id,section,created_at);
+
+-- Durable, independent live and notification preparation for accepted sends.
+CREATE TABLE IF NOT EXISTS channel_message_delivery (org_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('live','push')), business_created_at TEXT, allow_virtual INTEGER NOT NULL DEFAULT 0 CHECK(allow_virtual IN (0,1)), status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','done','failed')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(org_id,message_id,kind));
+CREATE INDEX IF NOT EXISTS idx_channel_message_delivery_due ON channel_message_delivery(kind,status,next_attempt,lease_until);
+
+CREATE TABLE IF NOT EXISTS mcp_oauth_clients ( id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, redirect_uris TEXT NOT NULL, created_at INTEGER NOT NULL, disabled_at INTEGER );
+CREATE INDEX IF NOT EXISTS mcp_oauth_clients_owner ON mcp_oauth_clients(owner_id);
+CREATE TABLE IF NOT EXISTS mcp_oauth_requests ( id TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, resource TEXT NOT NULL, scopes TEXT NOT NULL, state TEXT NOT NULL, challenge TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER );
+CREATE TABLE IF NOT EXISTS mcp_oauth_grants ( id TEXT PRIMARY KEY, client_id TEXT NOT NULL, org_id TEXT NOT NULL, user_id TEXT NOT NULL, membership_since TEXT NOT NULL, scopes TEXT NOT NULL, resource TEXT NOT NULL, sso_backed INTEGER NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, revoked_at INTEGER, last_used_at INTEGER );
+CREATE INDEX IF NOT EXISTS mcp_oauth_grants_user ON mcp_oauth_grants(user_id, org_id);
+CREATE TABLE IF NOT EXISTS mcp_oauth_codes ( code_hash TEXT PRIMARY KEY, grant_id TEXT NOT NULL, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, resource TEXT NOT NULL, challenge TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at INTEGER );
+CREATE TABLE IF NOT EXISTS mcp_oauth_tokens ( token_hash TEXT PRIMARY KEY, grant_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('access','refresh')), expires_at INTEGER NOT NULL, consumed_at INTEGER );
+CREATE INDEX IF NOT EXISTS mcp_oauth_tokens_grant ON mcp_oauth_tokens(grant_id);
+CREATE TABLE IF NOT EXISTS mcp_content_mutations ( org_id TEXT NOT NULL, actor_id TEXT NOT NULL, connection_id TEXT NOT NULL, request_id TEXT NOT NULL, operation TEXT NOT NULL, payload_hash TEXT NOT NULL, result TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (org_id, actor_id, connection_id, request_id) );
+CREATE TABLE IF NOT EXISTS mcp_file_uploads ( id TEXT PRIMARY KEY, org_id TEXT NOT NULL, actor_id TEXT NOT NULL, connection_id TEXT NOT NULL, conversation TEXT NOT NULL, name TEXT NOT NULL, content_type TEXT NOT NULL, size INTEGER NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','uploading','uploaded','complete','failed')), file_id TEXT, expires_at INTEGER NOT NULL );
+
+CREATE TABLE IF NOT EXISTS mcp_scheduled_authority ( scheduled_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, user_id TEXT NOT NULL, membership_since TEXT NOT NULL, token_id TEXT, grant_id TEXT, CHECK ((token_id IS NULL) != (grant_id IS NULL)) );
+
+CREATE INDEX IF NOT EXISTS mcp_oauth_requests_expiry ON mcp_oauth_requests(expires_at);
+CREATE INDEX IF NOT EXISTS mcp_oauth_codes_expiry ON mcp_oauth_codes(expires_at);
+CREATE INDEX IF NOT EXISTS mcp_oauth_tokens_expiry ON mcp_oauth_tokens(expires_at);
+CREATE INDEX IF NOT EXISTS mcp_oauth_grants_expiry ON mcp_oauth_grants(expires_at);
+
+CREATE TABLE IF NOT EXISTS mcp_conversation_requests ( org_id TEXT NOT NULL, user_id TEXT NOT NULL, connection_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, membership_since TEXT NOT NULL, channel TEXT, creation_nonce TEXT, created_at TEXT NOT NULL, PRIMARY KEY (org_id, user_id, connection_id, request_id) );
+
+CREATE TABLE IF NOT EXISTS hx_app_domains (org_id TEXT NOT NULL, app_id TEXT NOT NULL UNIQUE REFERENCES hx_apps(id) ON DELETE CASCADE, hostname TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK(status IN ('configuring','initializing','pending','active','deactivated','blocked','error')), validation_status TEXT NOT NULL DEFAULT 'pending', verification_status TEXT NOT NULL DEFAULT 'pending', error_message TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id));
+CREATE TABLE IF NOT EXISTS hx_app_env_vars (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, name TEXT NOT NULL, value TEXT NOT NULL, version INTEGER NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id,name));
+/* Optional dimensions for admin usage reports. Old calls remain unattributed. */
 ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
 ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
@@ -341,9 +398,10 @@ CREATE INDEX IF NOT EXISTS hx_file_share_requests_source_turn ON hx_file_share_r
 CREATE TABLE IF NOT EXISTS hx_external_resource_grants (id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, resource_type TEXT NOT NULL CHECK (resource_type IN ('workspace','room','thread','app','file')), resource_id TEXT NOT NULL CHECK (length(trim(resource_id)) BETWEEN 1 AND 200), recipient_github_id TEXT NOT NULL REFERENCES users(github_id) ON DELETE CASCADE, permission TEXT NOT NULL CHECK (permission IN ('view','edit')), granted_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, granted_at TEXT NOT NULL, expires_at TEXT CHECK (expires_at IS NULL OR expires_at > granted_at), revoked_at TEXT, revoked_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, CHECK (resource_type != 'workspace' OR resource_id = org_id));
 CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_external_resource_grants_active ON hx_external_resource_grants(org_id, resource_type, resource_id, recipient_github_id) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_hx_external_resource_grants_recipient ON hx_external_resource_grants(org_id, recipient_github_id, revoked_at, expires_at);
-CREATE TABLE IF NOT EXISTS hx_external_thread_invites (id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, resource_type TEXT NOT NULL CHECK(resource_type='thread'), resource_id TEXT NOT NULL CHECK(length(trim(resource_id)) BETWEEN 1 AND 200), invited_email TEXT NOT NULL CHECK(length(invited_email) BETWEEN 3 AND 254), permission TEXT NOT NULL CHECK(permission IN ('view','edit')), access_expires_at TEXT, token_hash TEXT NOT NULL UNIQUE, created_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL CHECK(expires_at > created_at), redeemed_at TEXT, redeemed_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, created_grant_id TEXT REFERENCES hx_external_resource_grants(id) ON DELETE SET NULL, redemption_id TEXT UNIQUE, revoked_at TEXT, revoked_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, CHECK(access_expires_at IS NULL OR access_expires_at > created_at));
-CREATE INDEX IF NOT EXISTS idx_hx_external_thread_invites_active ON hx_external_thread_invites(org_id,resource_id,expires_at) WHERE redeemed_at IS NULL AND revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS hx_external_thread_send_requests (id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, root_message_id TEXT NOT NULL, guest_github_id TEXT NOT NULL REFERENCES users(github_id) ON DELETE CASCADE, body TEXT NOT NULL CHECK (length(trim(body)) BETWEEN 1 AND 4000), status TEXT NOT NULL CHECK (status IN ('pending','approved','rejected','cancelled')), requested_at TEXT NOT NULL, decided_at TEXT, decided_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, message_id TEXT);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_external_thread_send_requests_pending ON hx_external_thread_send_requests(org_id, root_message_id, guest_github_id) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_hx_external_thread_send_requests_owner ON hx_external_thread_send_requests(org_id, root_message_id, status, requested_at);
+
+CREATE TABLE IF NOT EXISTS hx_external_thread_invites (id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, resource_type TEXT NOT NULL CHECK(resource_type='thread'), resource_id TEXT NOT NULL CHECK(length(trim(resource_id)) BETWEEN 1 AND 200), invited_email TEXT NOT NULL CHECK(length(invited_email) BETWEEN 3 AND 254), permission TEXT NOT NULL CHECK(permission IN ('view','edit')), access_expires_at TEXT, token_hash TEXT NOT NULL UNIQUE, created_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL CHECK(expires_at > created_at), redeemed_at TEXT, redeemed_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, created_grant_id TEXT REFERENCES hx_external_resource_grants(id) ON DELETE SET NULL, redemption_id TEXT UNIQUE, revoked_at TEXT, revoked_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, CHECK(access_expires_at IS NULL OR access_expires_at > created_at));
+CREATE INDEX IF NOT EXISTS idx_hx_external_thread_invites_active ON hx_external_thread_invites(org_id,resource_id,expires_at) WHERE redeemed_at IS NULL AND revoked_at IS NULL;
