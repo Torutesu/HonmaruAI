@@ -178,9 +178,6 @@ ALTER TABLE join_requests ADD COLUMN invited_by TEXT;
 /* A scheduled message held by the cron run sending it (schema.sql). */
 ALTER TABLE scheduled_messages ADD COLUMN lease_until TEXT;
 CREATE TABLE IF NOT EXISTS channel_thread_details (org_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, title TEXT NOT NULL, version INTEGER NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (org_id, message_id));
-Warning: truncated output (original token count: 6988)
-Total output lines: 180
-
 
 CREATE TABLE IF NOT EXISTS channel_thread_pins (org_id TEXT NOT NULL, user_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, created_at TEXT NOT NULL, PRIMARY KEY (org_id,user_id,message_id));
 CREATE TABLE IF NOT EXISTS channel_thread_shares ( id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, created_by TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, snapshot TEXT NOT NULL, digest TEXT NOT NULL, access_digest TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT );
@@ -261,7 +258,54 @@ ALTER TABLE hx_followups ADD COLUMN origin_release_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_hx_runs_active ON hx_workflow_runs(org_id, workflow_id) WHERE status IN ('running','waiting');
 
 CREATE TABLE IF NOT EXISTS hx_workflow_safety (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, failure_streak INTEGER NOT NULL DEFAULT 0, paused_at TEXT, pause_reason TEXT, PRIMARY KEY(org_id,workflow_id));
-ALT…1988 tokens truncated…FERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE, CHECK((kind='deleted' AND object_key IS NULL AND content_hash IS NULL AND content_type IS NULL AND size IS NULL AND restored_from IS NULL) OR (kind='content' AND object_key IS NOT NULL AND content_hash IS NOT NULL AND content_type IS NOT NULL AND size>=0)), CHECK(restored_from IS NULL OR (restored_from>0 AND restored_from<version)) );
+ALTER TABLE hx_workflow_safety ADD COLUMN daily_run_limit INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hx_workflow_safety ADD COLUMN weekly_run_limit INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hx_workflow_safety ADD COLUMN monthly_run_limit INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hx_workflow_safety ADD COLUMN budget_revision INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS hx_workflow_outcomes (org_id TEXT NOT NULL, run_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, status TEXT NOT NULL, claim_id TEXT NOT NULL, PRIMARY KEY(org_id,run_id));
+CREATE TABLE IF NOT EXISTS hx_workflow_safety_notices (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, run_id TEXT NOT NULL, recipient_id TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT, PRIMARY KEY(org_id,workflow_id,generation));
+
+ALTER TABLE hx_workflow_safety_notices ADD COLUMN read_at TEXT;
+
+CREATE TABLE IF NOT EXISTS hx_workflow_sources (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, channel TEXT NOT NULL, thread_id TEXT NOT NULL, created_by TEXT NOT NULL, PRIMARY KEY(org_id,workflow_id));
+
+ALTER TABLE hx_workflow_safety_notices ADD COLUMN last_attempt_at TEXT;
+
+CREATE TABLE IF NOT EXISTS hx_workflow_generation_jobs (org_id TEXT NOT NULL, user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, lease_token TEXT NOT NULL, lease_until INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('running','failed','complete')), generated TEXT, workflow_id TEXT, PRIMARY KEY(org_id,user_id,request_id), CHECK(status != 'complete' OR (workflow_id IS NOT NULL AND generated IS NOT NULL)));
+
+CREATE TABLE IF NOT EXISTS hx_workflow_usage (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, step_number INTEGER NOT NULL CHECK(step_number>0), provider TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER CHECK(input_tokens>=0), output_tokens INTEGER CHECK(output_tokens>=0), byok INTEGER NOT NULL CHECK(byok IN (0,1)), created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_usage_run ON hx_workflow_usage(org_id,run_id,step_number);
+
+ALTER TABLE hx_workflow_safety ADD COLUMN daily_ai_budget_micros INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hx_workflow_safety ADD COLUMN weekly_ai_budget_micros INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hx_workflow_safety ADD COLUMN monthly_ai_budget_micros INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hx_workflow_safety ADD COLUMN ai_budget_action TEXT NOT NULL DEFAULT 'warn';
+ALTER TABLE hx_workflow_usage ADD COLUMN estimated_micros INTEGER CHECK(estimated_micros>=0);
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_usage_window ON hx_workflow_usage(org_id,workflow_id,created_at);
+CREATE TABLE IF NOT EXISTS hx_workflow_ai_budget_notices (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, period TEXT NOT NULL CHECK(period IN ('24h','7d','30d')), budget_revision INTEGER NOT NULL, bucket_start TEXT NOT NULL, run_id TEXT NOT NULL, recipient_id TEXT NOT NULL, estimated_micros INTEGER NOT NULL, limit_micros INTEGER NOT NULL, unpriced_calls INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, delivered_at TEXT, last_attempt_at TEXT, UNIQUE(org_id,workflow_id,period,budget_revision,bucket_start));
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_ai_budget_notice_pending ON hx_workflow_ai_budget_notices(delivered_at,last_attempt_at,created_at);
+
+CREATE TABLE IF NOT EXISTS hx_workflow_node_checkpoints (org_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, node_id TEXT NOT NULL, fingerprint TEXT NOT NULL, effect INTEGER NOT NULL CHECK(effect IN (0,1)), status TEXT NOT NULL CHECK(status IN ('running','unknown','done')), owner TEXT NOT NULL, attempt INTEGER NOT NULL CHECK(attempt>0), lease_until INTEGER NOT NULL, result TEXT, PRIMARY KEY(org_id,run_id,node_id), CHECK(status!='done' OR result IS NOT NULL));
+
+CREATE TABLE IF NOT EXISTS hx_workflow_state_versions (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL REFERENCES hx_workflows(id) ON DELETE CASCADE, revision INTEGER NOT NULL CHECK(revision>0), run_id TEXT NOT NULL, state TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}', validation_status TEXT NOT NULL CHECK(validation_status IN ('pending','passed','failed')), created_at INTEGER NOT NULL, PRIMARY KEY(org_id,workflow_id,revision));
+
+CREATE TABLE IF NOT EXISTS hx_workflow_revisions (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL REFERENCES hx_workflows(id) ON DELETE CASCADE, revision INTEGER NOT NULL CHECK(revision>0), definition TEXT NOT NULL, recorded_at TEXT NOT NULL, PRIMARY KEY(org_id,workflow_id,revision)); INSERT OR IGNORE INTO hx_workflow_revisions(org_id,workflow_id,revision,definition,recorded_at) SELECT org_id,id,1,json_object('name',name,'enabled',enabled,'trigger',json(trigger),'steps',json(steps),'createdBy',created_by),updated_at FROM hx_workflows WHERE NOT EXISTS(SELECT 1 FROM hx_workflow_revisions h WHERE h.org_id=hx_workflows.org_id AND h.workflow_id=hx_workflows.id);
+CREATE TRIGGER IF NOT EXISTS hx_workflow_revision_insert AFTER INSERT ON hx_workflows BEGIN INSERT INTO hx_workflow_revisions(org_id,workflow_id,revision,definition,recorded_at) VALUES(NEW.org_id,NEW.id,1,json_object('name',NEW.name,'enabled',NEW.enabled,'trigger',json(NEW.trigger),'steps',json(NEW.steps),'createdBy',NEW.created_by),NEW.updated_at); END;
+CREATE TRIGGER IF NOT EXISTS hx_workflow_revision_update AFTER UPDATE OF name,enabled,trigger,steps,created_by ON hx_workflows WHEN OLD.name IS NOT NEW.name OR OLD.enabled IS NOT NEW.enabled OR OLD.trigger IS NOT NEW.trigger OR OLD.steps IS NOT NEW.steps OR OLD.created_by IS NOT NEW.created_by BEGIN INSERT INTO hx_workflow_revisions(org_id,workflow_id,revision,definition,recorded_at) SELECT NEW.org_id,NEW.id,COALESCE(MAX(revision),0)+1,json_object('name',NEW.name,'enabled',NEW.enabled,'trigger',json(NEW.trigger),'steps',json(NEW.steps),'createdBy',NEW.created_by),strftime('%Y-%m-%dT%H:%M:%fZ','now') FROM hx_workflow_revisions WHERE org_id=NEW.org_id AND workflow_id=NEW.id; END;
+CREATE TRIGGER IF NOT EXISTS hx_workflow_revision_immutable BEFORE UPDATE ON hx_workflow_revisions BEGIN SELECT RAISE(ABORT,'Workflow revisions are immutable'); END;
+
+ALTER TABLE hx_workflow_state_versions ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
+
+ALTER TABLE hx_agent_assignments ADD COLUMN remote_stop_status TEXT;
+ALTER TABLE hx_agent_assignments ADD COLUMN remote_stop_updated_at TEXT;
+
+CREATE TRIGGER IF NOT EXISTS hx_workflow_state_immutable BEFORE UPDATE ON hx_workflow_state_versions BEGIN SELECT RAISE(ABORT,'Workflow state versions are immutable'); END;
+
+CREATE TABLE IF NOT EXISTS hx_workflow_activations (org_id TEXT NOT NULL, job_id TEXT PRIMARY KEY REFERENCES hx_gateway_jobs(id) ON DELETE CASCADE, run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, node_id TEXT NOT NULL, node_owner TEXT NOT NULL, node_attempt INTEGER NOT NULL CHECK(node_attempt>0), UNIQUE(org_id,run_id,node_id,node_attempt));
+
+-- Workspace file history, staged transfers and lifecycle recovery.
+CREATE TABLE IF NOT EXISTS hx_workspace_files ( org_id TEXT NOT NULL, id TEXT NOT NULL, scope TEXT NOT NULL, path TEXT NOT NULL, created_by TEXT NOT NULL, created_login TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, current_version INTEGER NOT NULL DEFAULT 0 CHECK(current_version>=0), PRIMARY KEY(org_id,id), UNIQUE(org_id,scope,path) );
+CREATE TABLE IF NOT EXISTS hx_workspace_file_versions ( org_id TEXT NOT NULL, file_id TEXT NOT NULL, version INTEGER NOT NULL CHECK(version>0), operation_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('content','deleted')), object_key TEXT, content_hash TEXT, content_type TEXT, size INTEGER, created_by TEXT NOT NULL, created_login TEXT NOT NULL, created_at TEXT NOT NULL, restored_from INTEGER, PRIMARY KEY(org_id,file_id,version), UNIQUE(org_id,operation_id), FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE, CHECK((kind='deleted' AND object_key IS NULL AND content_hash IS NULL AND content_type IS NULL AND size IS NULL AND restored_from IS NULL) OR (kind='content' AND object_key IS NOT NULL AND content_hash IS NOT NULL AND content_type IS NOT NULL AND size>=0)), CHECK(restored_from IS NULL OR (restored_from>0 AND restored_from<version)) );
 CREATE INDEX IF NOT EXISTS hx_workspace_files_listing ON hx_workspace_files(org_id,path,id);
 CREATE TABLE IF NOT EXISTS hx_workspace_file_purges ( org_id TEXT NOT NULL, file_id TEXT NOT NULL, version INTEGER NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, reason TEXT NOT NULL, PRIMARY KEY(org_id,file_id,version), FOREIGN KEY(org_id,file_id,version) REFERENCES hx_workspace_file_versions(org_id,file_id,version) ON DELETE CASCADE );
 CREATE TRIGGER IF NOT EXISTS hx_workspace_file_version_immutable BEFORE UPDATE ON hx_workspace_file_versions WHEN NOT (NEW.created_by='deleted-user' AND NEW.created_login='deleted-user' AND NOT EXISTS(SELECT 1 FROM users WHERE github_id=OLD.created_by) AND NEW.org_id IS OLD.org_id AND NEW.file_id IS OLD.file_id AND NEW.version IS OLD.version AND NEW.operation_id IS OLD.operation_id AND NEW.kind IS OLD.kind AND NEW.object_key IS OLD.object_key AND NEW.content_hash IS OLD.content_hash AND NEW.content_type IS OLD.content_type AND NEW.size IS OLD.size AND NEW.created_at IS OLD.created_at AND NEW.restored_from IS OLD.restored_from) BEGIN SELECT RAISE(ABORT,'File versions are immutable'); END;
