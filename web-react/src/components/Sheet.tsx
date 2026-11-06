@@ -118,7 +118,7 @@ export const MessageSheet: React.FC<MessageMenuActions & {
 
 /// A press held on a touch screen: `fn` after half a second, unless the
 /// finger moved (that was a scroll) or lifted first (that was a tap).
-export function longPress(fn: (() => void) | undefined): React.HTMLAttributes<HTMLElement> {
+export function longPress(fn: (() => void) | undefined, options: { allowButton?: boolean } = {}): React.HTMLAttributes<HTMLElement> {
   if (!fn) return {}
   let timer: ReturnType<typeof setTimeout> | null = null
   let x = 0
@@ -129,7 +129,7 @@ export function longPress(fn: (() => void) | undefined): React.HTMLAttributes<HT
       const target = e.target as HTMLElement
       // Not over something that is its own control: a player's bar is
       // inside its video or audio, and a held scrubber is not a held message.
-      if (target.closest('button, a, input, textarea, video, audio, [contenteditable="true"]')) return
+      if (target.closest(`${options.allowButton ? '' : 'button, '}a, input, textarea, video, audio, [contenteditable="true"]`)) return
       x = e.touches[0]?.clientX ?? 0
       y = e.touches[0]?.clientY ?? 0
       stop()
