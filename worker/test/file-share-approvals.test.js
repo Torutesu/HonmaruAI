@@ -72,7 +72,7 @@ test('the review queue returns authorized file snapshot metadata but never the t
  const queueRequest=new Request('https://honmaru.test/hx/files/share-requests?orgId='+orgId);
  const response=await handleFileShareRoutes(queueRequest,env,new URL(queueRequest.url),{orgId,userId:ownerId,login:'share-owner'});
  const result=await response.json();
- expect(result.requests[0]).toMatchObject({fileId,filePath:'report.txt',scope:'workspace',version:1,contentType:'text/plain',size:17,status:'approved',shareId:published.shareId});
+ expect(result.requests[0]).toMatchObject({fileId,filePath:'report.txt',scope:'workspace',version:1,currentVersion:1,contentType:'text/plain',size:17,status:'approved',shareId:published.shareId});
  expect(JSON.stringify(result)).not.toContain(token);
  const hidden=await handleFileShareRoutes(queueRequest,env,new URL(queueRequest.url),{orgId,userId:otherId,login:'share-other'});
  expect((await hidden.json()).requests).toEqual([]);
