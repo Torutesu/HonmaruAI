@@ -103,6 +103,16 @@ describe('longPress', () => {
     expect(fn).toHaveBeenCalledTimes(1)
   })
 
+
+  it('allows an explicitly opted-in navigation button to receive a held press', () => {
+    const button = el('button', article)
+    expect(held(button)).not.toHaveBeenCalled()
+    const fn = vi.fn()
+    longPress(fn, { allowButton: true }).onTouchStart!(touch(button))
+    vi.advanceTimersByTime(500)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
   it('is nothing at all when there is nothing to open', () => {
     expect(longPress(undefined)).toEqual({})
   })
