@@ -383,6 +383,7 @@ CREATE TABLE IF NOT EXISTS hx_external_resource_grants (id TEXT PRIMARY KEY, org
 CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_external_resource_grants_active ON hx_external_resource_grants(org_id, resource_type, resource_id, recipient_github_id) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_hx_external_resource_grants_recipient ON hx_external_resource_grants(org_id, recipient_github_id, revoked_at, expires_at);
 
+-- Membership pauses a separate guest grant permanently; removal never revives it, and owners can revoke or re-share it explicitly.
 ALTER TABLE hx_external_resource_grants ADD COLUMN suspended_at TEXT;
 UPDATE hx_external_resource_grants SET suspended_at=COALESCE(suspended_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE revoked_at IS NULL AND suspended_at IS NULL AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=hx_external_resource_grants.org_id AND m.user_github_id=hx_external_resource_grants.recipient_github_id);
 CREATE TRIGGER IF NOT EXISTS hx_external_resource_grants_suspend_on_membership AFTER INSERT ON memberships BEGIN UPDATE hx_external_resource_grants SET suspended_at=COALESCE(suspended_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE org_id=NEW.org_id AND recipient_github_id=NEW.user_github_id AND revoked_at IS NULL; END;
