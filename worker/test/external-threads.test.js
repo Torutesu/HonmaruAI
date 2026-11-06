@@ -434,6 +434,8 @@ test("view guests may read attachment ranges and react but cannot upload, attach
     body: "View guests cannot attach", files: [pendingFile.id],
   });
   expect(attach.status).toBe(403);
+  const replyDenied = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: "View grants cannot reply" });
+  expect(replyDenied.status).toBe(403);
 
   const thread = await (await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).json();
   const reply = thread.thread.replies.find(message => message.id === messageId);
