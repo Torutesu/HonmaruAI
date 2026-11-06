@@ -15,6 +15,10 @@ export function memoryEntry(row) {
     description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at,
     review: row.reviewed_at ? { version: row.reviewed_version, evidence: row.review_evidence, by: row.reviewed_by, at: row.reviewed_at, current: row.reviewed_version === (row.version ?? 0) } : null };
 }
+async function memoryVisibleTo(db, orgId, agentId, id, channel, userId) {
+  const row = await db.prepare(`SELECT s.user_github_id FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4`).bind(orgId,agentId,id,channel).first();
+  return !!row && (!row.user_github_id || String(row.user_github_id) === String(userId || ''));
+}
 export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel = "", by = null, reviewEvidence, userId = null } = {}) {
   const fields = memoryFields(input);
   if (fields.error) return fields;
@@ -99,7 +103,8 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
   return { memories, nextCursor: results.length > 50 ? JSON.stringify([...scope,last.createdAt,last.id]) : null };
 }
 
-export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel = '', by } = {}) {
+export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel = '', by, userId = null } = {}) {
+  if (!await memoryVisibleTo(db, orgId, agentId, id, channel, userId)) return {error:'No such memory.',status:404};
   if (input?.verdict !== undefined && !['keep','update','delete'].includes(input.verdict)) return { error: 'Invalid memory review verdict.', status: 400 };
   if (!Number.isSafeInteger(input?.expectedVersion) || input.expectedVersion < 0
     || typeof input.evidence !== 'string' || !input.evidence.trim() || input.evidence.length > 2000
@@ -111,7 +116,7 @@ export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel
       WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4`).bind(orgId,agentId,id,channel).first();
     if (!row) return {error:'No such memory.',status:404};
     const current = memoryEntry(row);
-    return updateMemoryEntry(db,orgId,agentId,id,{title:current.title,description:current.description,body:current.body,kind:current.kind,...input},{channel,by,reviewEvidence:input.evidence});
+    return updateMemoryEntry(db,orgId,agentId,id,{title:current.title,description:current.description,body:current.body,kind:current.kind,...input},{channel,by,reviewEvidence:input.evidence,userId});
   }
   const stamp = new Date().toISOString(), reviewId = crypto.randomUUID();
   if (input.verdict === 'delete') {
@@ -147,24 +152,24 @@ export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel
   return { review: { version: results[0].reviewed_version, evidence: results[0].evidence, by: results[0].reviewed_by, at: results[0].reviewed_at } };
 }
 
-export async function memoryReviewHistory(db, orgId, agentId, memoryId = null, {channel='',cursor}={}) {
-  const scope=[orgId,agentId,memoryId,channel];
+export async function memoryReviewHistory(db, orgId, agentId, memoryId = null, {channel='',cursor,userId=null}={}) {
+  const scope=[orgId,agentId,memoryId,channel,userId?String(userId):''];
   let after=null;
   if(cursor) {
     try {
       const value=JSON.parse(cursor);
-      if(!Array.isArray(value)||value.length!==6||JSON.stringify(value.slice(0,4))!==JSON.stringify(scope)
-        ||typeof value[4]!=='string'||value[4].length>40||!Number.isFinite(Date.parse(value[4]))
-        ||typeof value[5]!=='string'||!value[5]||value[5].length>100) throw new Error();
-      after=value.slice(4);
+      if(!Array.isArray(value)||value.length!==7||JSON.stringify(value.slice(0,5))!==JSON.stringify(scope)
+        ||typeof value[5]!=='string'||value[5].length>40||!Number.isFinite(Date.parse(value[5]))
+        ||typeof value[6]!=='string'||!value[6]||value[6].length>100) throw new Error();
+      after=value.slice(5);
     } catch {return {error:'Invalid review history cursor.',status:400};}
   }
   const {results=[]}=await db.prepare(`SELECT h.*, COALESCE(u.name,u.login,h.reviewed_by) AS reviewer_name
     FROM hx_memory_review_audit h LEFT JOIN users u ON u.github_id=h.reviewed_by
-    WHERE h.org_id=?1 AND h.agent_id=?2 AND (?3 IS NULL OR h.memory_id=?3) AND h.channel=?4
+    WHERE h.org_id=?1 AND h.agent_id=?2 AND (?3 IS NULL OR h.memory_id=?3) AND h.channel=?4 AND EXISTS (SELECT 1 FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id WHERE m.org_id=h.org_id AND m.agent_id=h.agent_id AND m.id=h.memory_id AND (s.user_github_id IS NULL OR s.user_github_id=?7))
       AND (?5 IS NULL OR h.reviewed_at < ?5 OR (h.reviewed_at = ?5 AND h.id < ?6))
     ORDER BY h.reviewed_at DESC,h.id DESC LIMIT 51`)
-    .bind(orgId,agentId,memoryId,channel,after?.[0]||null,after?.[1]||null).all();
+    .bind(orgId,agentId,memoryId,channel,after?.[0]||null,after?.[1]||null,userId?String(userId):'').all();
   const reviews=results.slice(0,50).map(r=>({id:r.id,memoryId:r.memory_id,version:r.reviewed_version,verdict:r.verdict,evidence:r.evidence,by:r.reviewed_by,reviewerName:r.reviewer_name,at:r.reviewed_at}));
   const last=reviews[reviews.length-1];
   return {reviews,nextCursor:results.length>50?JSON.stringify([...scope,last.at,last.id]):null};
