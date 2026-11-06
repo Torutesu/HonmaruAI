@@ -51,8 +51,8 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
       </select>
       <span className="row-sub">{t('Sharing applies to this app and its records. Room links do not change access.')}</span>
     </span></div>}
-    {access && people.length > 0 && <div className="app-sharing-people" aria-label={t('People with app access')}>
-      <div className="rows-title">{t('Person access')}</div>
+    {access && people.length > 0 && <section className="app-sharing-people" aria-labelledby={`app-sharing-people-title-${appId}`}>
+      <h3 className="rows-title" id={`app-sharing-people-title-${appId}`}>{t('Person access')}</h3>
       <label className="app-sharing-filter">{t('Find a person')}
         <input type="search" value={filter} onChange={event => setFilter(event.target.value)} placeholder={t('Name or username')} />
       </label>
@@ -68,6 +68,6 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
       </div>
       {matchingPeople.length > MAX_PEOPLE && <div className="row-sub">{t('Showing {{shown}} of {{count}} people.', { shown: MAX_PEOPLE, count: matchingPeople.length })}</div>}
       <p className="row-sub">{t('No access overrides workspace visibility for this person.')}</p>
-    </div>}
+    </section>}
   </section>
 }

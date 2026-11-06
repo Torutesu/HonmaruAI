@@ -215,7 +215,7 @@
 
 .hx-template-sharing { margin-top: 20px; }
 .app-sharing-people { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hx-border, var(--bone)); }
-.app-sharing-people .rows-title { margin-top: 10px; }
+.app-sharing-people > .rows-title { margin: 10px 0 8px; font-size: 13px; font-weight: 650; }
 .app-sharing-filter { display: grid; gap: 6px; max-width: 440px; margin: 8px 0 12px; color: var(--hx-muted, var(--ash)); font-size: 12px; }
 .app-sharing-filter input {
   box-sizing: border-box; width: 100%; min-width: 0; min-height: 38px; padding: 8px 11px;
@@ -230,7 +230,7 @@
 .app-sharing-person { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--hx-border, var(--bone)); }
 .app-sharing-person:last-child { border-bottom: 0; }
 .app-sharing-person .row-main { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
-.app-sharing-person .row-sub { margin: 0; }
+.app-sharing-person .row-main > :first-child, .app-sharing-person .row-sub { margin: 0; overflow-wrap: anywhere; }
 .app-sharing-person select {
   box-sizing: border-box; flex: 0 1 280px; width: min(100%, 280px); min-width: 180px; min-height: 36px; padding: 6px 10px;
   border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-input);
