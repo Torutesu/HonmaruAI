@@ -130,7 +130,8 @@ function AccountApp() {
   const [invite, setInvite] = useState<InvitePeek | null>(null)
   const [pendingExternalInviteToken, setPendingExternalInviteToken] = useState<string | null>(() => {
     const match = location.hash.match(/^#\/external-invite\/([a-f0-9]{64})$/i)
-    return match?.[1]?.toLowerCase() || null
+    if (match?.[1]) return match[1].toLowerCase()
+    try { return sessionStorage.getItem('externalThreadInviteToken') } catch { return null }
   })
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null)
   useEffect(() => {
@@ -255,6 +256,7 @@ function AccountApp() {
         if (externalInviteRef.current === inviteToken) return
         externalInviteRef.current = inviteToken
         setPendingExternalInviteToken(inviteToken)
+        try { sessionStorage.setItem('externalThreadInviteToken', inviteToken) } catch { /* private mode */ }
         setPending((current) => ({ ...current, externalInviteToken: inviteToken }))
         const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
         const token = localStorage.getItem('sessionToken')
