@@ -3,6 +3,7 @@ export type FileOrigin='human'|'agent'|'unknown'
 export type WorkspaceFile = {id:string;scope:string;path:string;origin?:FileOrigin;createdBy:string;createdAt:string;updatedAt:string;version:number;deleted:boolean;contentType:string|null;size:number|null}
 export type FileCursor = {path:string;id:string;updatedAt?:string}
 export type FileVersion = {version:number;kind:'content'|'deleted';contentType:string|null;size:number|null;createdBy:string;createdAt:string;restoredFrom:number|null;currentVersion:number;isCurrent:boolean;purged:boolean}
+export type PublicFileShareRequest={id:string;fileId:string;filePath:string;scope:string;version:number;contentHash:string;contentType:string;size:number;expiresAt:string;allowDownload:boolean;status:'pending'|'approved'|'declined'|'stale'|'cancelled';createdAt:string;requesterLogin:string;decisionAt:string|null;shareId:string|null;revokedAt:string|null;revokedBy:string|null}
 export type FileSearch = {scope:string;origin?:FileOrigin;query?:string;directory?:string;type?:'image'|'video'|'media'|'pdf'|'doc'|'html';createdBy?:string;since?:string;until?:string;includeDeleted?:boolean;directOnly?:boolean;order?:'path'|'recent';cursor?:FileCursor;limit?:number}
 export class WorkspaceFileError extends Error {
  constructor(message:string,readonly status:number){super(message);this.name='WorkspaceFileError'}
@@ -12,7 +13,7 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
  const url=(route:string,query:Record<string,string>={})=>`${base.replace(/\/$/,'')}${route}?${new URLSearchParams({...query,orgId})}`
  async function response(route:string,method:string,body?:BodyInit,query?:Record<string,string>,contentType='application/json',signal?:AbortSignal){
   const result=await fetch(url(route,query),{method,headers:{'x-session-token':sessionToken,...(body===undefined?{}:{'content-type':contentType})},body,signal})
-  if(!result.ok){const error=await result.json().catch(()=>null);throw new WorkspaceFileError(typeof error?.message==='string'?error.message:`File request failed (${result.status}).`,result.status)}
+  if(!result.ok){const error=await result.json().catch(()=>null);throw new WorkspaceFileError(typeof error?.message==='string'?error.message:typeof error?.error==='string'?error.error:`File request failed (${result.status}).`,result.status)}
   return result
  }
  async function json<T>(route:string,method:string,body?:Record<string,unknown>,query?:Record<string,string>,signal?:AbortSignal):Promise<T>{
@@ -38,6 +39,11 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
    const result=await response(`${path(id)}/content`,'PUT',file,{expectedVersion:String(expectedVersion),size:String(file.size)},file.type||'application/octet-stream',signal)
    return result.json() as Promise<{saved:true;version:number}>
   },
+  shareRequests:(fileId?:string,signal?:AbortSignal)=>json<{requests:PublicFileShareRequest[]}>('/hx/files/share-requests','GET',undefined,fileId?{fileId}:{},signal),
+  requestPublicShare:(id:string,version:number,expiresIn:number,allowDownload:boolean)=>json<{requestId:string;status:string;fileId:string;version:number;contentHash:string;expiresAt:string;allowDownload:boolean}>(
+   `${path(id)}/share-requests`,'POST',{version,requestKey:crypto.randomUUID().replaceAll('-',''),expiresIn,allowDownload}),
+  approvePublicShare:(requestId:string)=>json<{shareId:string;url:string;expiresAt:string;allowDownload:boolean}>('/hx/files/share-requests/approve','POST',{requestId}),
+  revokePublicShare:(shareId:string)=>json<{shareId:string;revokedAt:string}>(`/hx/files/shares/${encodeURIComponent(shareId)}/revoke`,'POST',{}),
   versions:(id:string,before?:number,signal?:AbortSignal)=>json<{versions:FileVersion[]}>(`${path(id)}/versions`,'GET',undefined,before===undefined?{}:{before:String(before)},signal),
   download:async(id:string,version:number,signal?:AbortSignal)=>(await response(`${path(id)}/versions/${version}/content`,'GET',undefined,undefined,'application/json',signal)).blob(),
   remove:(id:string,expectedVersion:number)=>json<{saved:true;version:number}>(path(id),'DELETE',{expectedVersion}),
