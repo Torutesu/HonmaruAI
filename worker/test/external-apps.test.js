@@ -13,7 +13,11 @@ const tag = () => crypto.randomUUID().replaceAll("-", "");
 const context = { waitUntil() {} };
 const grantMigration = migrationsSql.split("\n").filter((line) =>
   /^CREATE TABLE IF NOT EXISTS hx_external_resource_grants /.test(line) ||
-  /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_resource_grants_/.test(line)
+  /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_resource_grants_/.test(line) ||
+  /^CREATE TABLE IF NOT EXISTS hx_external_app_invites /.test(line) ||
+  /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_app_invites_/.test(line) ||
+  /^CREATE TABLE IF NOT EXISTS hx_external_app_send_requests /.test(line) ||
+  /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_app_send_requests_/.test(line)
 );
 
 async function setup() {
@@ -162,4 +166,117 @@ test("workspace purge and tombstones deny linked table metadata and conversation
     .bind(f.orgId, now, f.ownerId).run();
   expect((await call(tablePath, f.sessions.guest)).status).toBe(404);
   expect((await call(conversationPath, f.sessions.guest)).status).toBe(404);
+});
+
+test("App invite managers can list, issue, redeem, update, and revoke an exact guest grant", async () => {
+  const f = await setup();
+  const guestId = `external-app-invitee-${tag()}`;
+  await upsertUser(env.DB, { githubId: guestId, login: guestId, name: "Invitee", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3")
+    .bind("invitee@example.com", new Date().toISOString(), guestId).run();
+  const session = await createSession(env.DB, guestId, "external-app-guest-test");
+  const sharing = `/external/apps/${f.orgId}/${f.app.id}/sharing`;
+  const created = await call(sharing, f.sessions.owner, "POST", {
+    email: "Invitee@Example.com", permission: "view",
+    expiresAt: new Date(Date.now() + 86400000).toISOString(),
+  });
+  expect(created.status).toBe(201);
+  const invite = (await created.json()).invite;
+  expect(invite.inviteUrl).toContain("/#/external-invite/");
+  const stored = await env.DB.prepare("SELECT token_hash FROM hx_external_app_invites WHERE id=?1").bind(invite.id).first();
+  expect(stored.token_hash).not.toBe(invite.token);
+  expect((await call(sharing, f.sessions.owner)).status).toBe(200);
+  expect((await call(sharing, f.sessions.member, "POST", { email: "blocked@example.com", permission: "view" })).status).toBe(404);
+
+  const redeemed = await call("/external/invites/redeem", session, "POST", { token: invite.token });
+  expect(redeemed.status).toBe(200);
+  expect(await redeemed.json()).toMatchObject({ ok: true, resourceType: "app", orgId: f.orgId, appId: f.app.id });
+  expect((await call(`/external/apps/${f.orgId}/${f.app.id}`, session)).status).toBe(200);
+
+  const updated = await call(`${sharing}/${guestId}`, f.sessions.owner, "PATCH", { permission: "edit", expiresAt: null });
+  expect(updated.status).toBe(200);
+  const revoked = await call(`${sharing}/${guestId}`, f.sessions.owner, "DELETE");
+  expect(revoked.status).toBe(200);
+  expect((await call(`/external/apps/${f.orgId}/${f.app.id}`, session)).status).toBe(404);
+});
+
+test("view guests can request App conversation sends for owner approval only", async () => {
+  const f = await setup();
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET permission='view' WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(f.orgId, f.app.id, f.guestId).run();
+  const appPath = `/external/apps/${f.orgId}/${f.app.id}`;
+  const requested = await call(`${appPath}/conversation`, f.sessions.guest, "POST", { body: "Please approve this note.", requestSend: true });
+  expect(requested.status).toBe(201);
+  const queuePath = `/external/apps/${f.orgId}/${f.app.id}/sharing/requests`;
+  const queue = await call(queuePath, f.sessions.owner);
+  expect((await queue.json()).requests).toMatchObject([{ id: (await requested.clone().json()).requestId, body: "Please approve this note." }]);
+  const requestId = (await requested.json()).requestId;
+  const approved = await call(`${queuePath}/${requestId}`, f.sessions.owner, "POST", { decision: "approve" });
+  expect(approved.status).toBe(200);
+  const conversation = await call(`${appPath}/conversation`, f.sessions.guest);
+  expect((await conversation.json()).messages).toMatchObject([{ body: "Please approve this note.", authorName: "Guest" }]);
+
+  const second = await call(`${appPath}/conversation`, f.sessions.guest, "POST", { body: "Please reject this note.", requestSend: true });
+  expect(second.status).toBe(201);
+  const rejected = await call(`${queuePath}/${(await second.json()).requestId}`, f.sessions.owner, "POST", { decision: "reject" });
+  expect(rejected.status).toBe(200);
+});
+
+test("external App row writes honor exact edit grants, linked table scope, and declared columns", async () => {
+  const f = await setup();
+  const appPath = `/external/apps/${f.orgId}/${f.app.id}`;
+  const primaryRows = `${appPath}/tables/${f.app.tableId}/rows`;
+  const linkedRows = `${appPath}/tables/${f.linkedTable.id}/rows`;
+  const unlinkedRows = `${appPath}/tables/${f.unlinkedTable.id}/rows`;
+  const otherAppRows = `/external/apps/${f.orgId}/${f.otherApp.id}/tables/${f.otherApp.tableId}/rows`;
+
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET permission='view' WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(f.orgId, f.app.id, f.guestId).run();
+  expect((await call(primaryRows, f.sessions.guest, "POST", { values: { title: "view blocked" } })).status).toBe(403);
+
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET permission='edit' WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(f.orgId, f.app.id, f.guestId).run();
+  expect((await call(unlinkedRows, f.sessions.guest, "POST", { values: { private: "blocked" } })).status).toBe(404);
+  expect((await call(otherAppRows, f.sessions.guest, "POST", { values: { name: "blocked" } })).status).toBe(404);
+  expect((await call(`${primaryRows}/${f.linkedRowId}`, f.sessions.guest, "PATCH", { values: { title: "cross table" } })).status).toBe(404);
+
+  const deniedField = await call(primaryRows, f.sessions.guest, "POST", { values: { title: "allowed", hidden: "must not store" } });
+  expect(deniedField.status).toBe(400);
+  const created = await call(primaryRows, f.sessions.guest, "POST", { values: { title: "guest record" } });
+  expect(created.status).toBe(201);
+  const createdRow = (await created.json()).row;
+  expect(createdRow.values).toEqual({ title: "guest record" });
+  const deniedUpdate = await call(`${primaryRows}/${createdRow.id}`, f.sessions.guest, "PATCH", {
+    values: { unexpected: "must not store" }, expectedUpdatedAt: createdRow.updatedAt,
+  });
+  expect(deniedUpdate.status).toBe(400);
+  const updated = await call(`${primaryRows}/${createdRow.id}`, f.sessions.guest, "PATCH", {
+    values: { title: "updated guest record" }, expectedUpdatedAt: createdRow.updatedAt,
+  });
+  expect(updated.status).toBe(200);
+  const updatedRow = (await updated.json()).row;
+  expect(updatedRow.values).toEqual({ title: "updated guest record" });
+
+  await revokeExternalResource(env.DB, {
+    orgId: f.orgId, resourceType: "app", resourceId: f.app.id,
+    recipientGithubId: f.guestId, revokedBy: f.ownerId,
+  });
+  expect((await call(`${primaryRows}/${createdRow.id}`, f.sessions.guest, "DELETE", {
+    expectedUpdatedAt: (await updated.json().row).updatedAt,
+  })).status).toBe(404);
+});
+
+test("external App guests are told when a published Custom App runtime is not supported", async () => {
+  const f = await setup();
+  await env.DB.prepare("UPDATE hx_apps SET definition=?1 WHERE org_id=?2 AND id=?3")
+    .bind(JSON.stringify({ custom: { published: true, html: "<p>custom</p>" } }), f.orgId, f.app.id).run();
+  const appPath = `/external/apps/${f.orgId}/${f.app.id}`;
+  const appResponse = await call(appPath, f.sessions.guest);
+  expect(appResponse.status).toBe(409);
+  expect(await appResponse.json()).toMatchObject({ code: "CUSTOM_APP_GUEST_UNSUPPORTED" });
+  const managerResponse = await call(`${appPath}/sharing`, f.sessions.owner);
+  expect((await managerResponse.json()).customUnsupported).toBe(true);
+  expect((await call(`${appPath}/sharing`, f.sessions.owner, "POST", {
+    email: "custom-guest@example.com", permission: "view",
+  })).status).toBe(409);
 });
