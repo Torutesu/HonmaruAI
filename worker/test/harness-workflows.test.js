@@ -1880,8 +1880,9 @@ test('workflow seven-day summary uses detail ACL before calculating counts, medi
 
  const adminDetail=await(await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,toru)).json();
  const ownerDetail=await(await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika)).json();
- expect(adminDetail.runs.map(run=>run.id).sort()).toEqual(['visible-fast','visible-slow']);
- expect(ownerDetail.runs.map(run=>run.id).sort()).toEqual(['private-app-run','visible-fast','visible-slow']);
+ // Run history keeps visible records; the 168-hour bound applies to summary metrics.
+ expect(adminDetail.runs.map(run=>run.id).sort()).toEqual(['outside-window','visible-fast','visible-slow']);
+ expect(ownerDetail.runs.map(run=>run.id).sort()).toEqual(['outside-window','private-app-run','visible-fast','visible-slow']);
  expect(adminDetail.summary).toMatchObject({timezone:'UTC',windowHours:168,runCount:2,failedCount:1,completedDurationCount:2,typicalDurationMs:5_000,usage:{calls:2,estimatedMicros:357,trackedRuns:2},truncated:false});
  expect(ownerDetail.summary).toMatchObject({runCount:3,failedCount:1,completedDurationCount:3,typicalDurationMs:3_000,usage:{calls:3,estimatedMicros:988011},truncated:false});
 });
