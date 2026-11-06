@@ -72,7 +72,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
     <div className="rows-title">{t('Sharing')}</div>
     {error && <div className="form-error" role="alert">{error}</div>}
     {access && <div className="row static"><span className="row-main">
-      <select aria-label={t('App visibility')} value={access.visibility} disabled={!canManage || busy} onChange={e => void save(e.target.value as Visibility, room)}>
+      <select aria-label={t('App visibility')} value={access.visibility} disabled={!canEdit || busy} onChange={e => void save(e.target.value as Visibility, room)}>
         <option value="workspace">{t('Workspace members')}</option><option value="private">{t('Only me')}</option><option value="room">{t('Selected room')}</option>
       </select>
       {access.visibility === 'room' && <select aria-label={t('Room')} value={room} disabled={!canEdit || busy || !rooms.length} onChange={e => { setRoom(e.target.value); void save('room', e.target.value) }}>
@@ -83,8 +83,8 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
     {canPublicShare && <div className="row static"><span className="row-main">
       <strong>{t('Anyone with a link')}</strong>
       <span className="row-sub">{t('Anyone with the link can read the published app and its current records. The link expires and can be revoked.')}</span>
-      <label><input type="checkbox" checked={consent} disabled={!canEdit || busy} onChange={e => setConsent(e.target.checked)} />{t('I confirm this app and its current records may be read by anyone with the link.')}</label>
-      <select aria-label={t('Link expiry')} value={expiresInDays} disabled={!canEdit || busy} onChange={e => setExpiresInDays(Number(e.target.value))}>
+      <label><input type="checkbox" checked={consent} disabled={!canManage || busy} onChange={e => setConsent(e.target.checked)} />{t('I confirm this app and its current records may be read by anyone with the link.')}</label>
+      <select aria-label={t('Link expiry')} value={expiresInDays} disabled={!canManage || busy} onChange={e => setExpiresInDays(Number(e.target.value))}>
         {[1,7,30,90].map(days => <option key={days} value={days}>{days} {t('days')}</option>)}
       </select>
       <button className="pill-btn" disabled={!canManage || busy || !consent} onClick={() => void createShare()}>{t('Create link')}</button>
