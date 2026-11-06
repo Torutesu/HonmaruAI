@@ -396,6 +396,37 @@ test('an app record run stops if its entity is remapped while the agent is answe
     expect(providerCalls).toBe(1);
     const posted = await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?1 AND body='Sensitive result from the old table.'").bind(ORG).first();
     expect(posted.n).toBe(0);
+
+    // A second run captures no source Table, then the App acquires a valid
+    // mapping before the trigger's fresh entity lookup. Null must still fail
+    // closed instead of being treated like an omitted config-time check.
+    await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(invoices, ORG, invoicesAppId).run();
+    let sourceLookups = 0;
+    const racingDb = {
+      prepare(sql) {
+        const statement = env.DB.prepare(sql);
+        if (sql !== 'SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2') return statement;
+        return { bind(...args) {
+          const bound = statement.bind(...args);
+          return { async first() {
+            const row = await bound.first();
+            if (args[1] === invoicesAppId && sourceLookups++ === 0) {
+              await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(replacement.tableId, ORG, invoicesAppId).run();
+              return row && { ...row, table_id: null };
+            }
+            return row;
+          } };
+        } };
+      },
+      batch(statements) { return env.DB.batch(statements); },
+    };
+    const missingSource = await startRun({ ...env, DB: racingDb, OPENAI_API_KEY: 'sk-test' }, {
+      orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+      input: { totalCount: 1, truncated: false, records: [{ event: 'update', appId: invoicesAppId, entityId: 'primary', recordId: 'record-without-source-table', data: { status: 'Overdue' } }] },
+    });
+    expect(missingSource.status).toBe('failed');
+    expect(sourceLookups).toBe(2);
+    expect(providerCalls).toBe(1);
   } finally { fetchMock.deactivate(); }
 });
 
