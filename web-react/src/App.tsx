@@ -129,7 +129,7 @@ function AccountApp() {
   // An invitation the URL carried: what it opens, and a word once it did.
   const [invite, setInvite] = useState<InvitePeek | null>(null)
   const [pendingExternalInviteToken, setPendingExternalInviteToken] = useState<string | null>(() => {
-    const match = location.hash.match(/^#\\/external-invite\\/([a-f0-9]{64})$/i)
+    const match = location.hash.match(/^#\/external-invite\/([a-f0-9]{64})$/i)
     return match?.[1]?.toLowerCase() || null
   })
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null)
@@ -249,7 +249,7 @@ function AccountApp() {
   useEffect(() => {
     if (restoring) return
     const onHash = () => {
-      const external = location.hash.match(/^#\\/external-invite\\/([a-f0-9]{64})$/i)
+      const external = location.hash.match(/^#\/external-invite\/([a-f0-9]{64})$/i)
       if (external) {
         const inviteToken = external[1].toLowerCase()
         if (externalInviteRef.current === inviteToken) return
