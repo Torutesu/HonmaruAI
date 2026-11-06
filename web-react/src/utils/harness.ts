@@ -108,7 +108,7 @@ export interface Skill { sourceScope?: { agentId: string; channel: string | null
 export interface SkillShareLink { id: string; createdAt: string; expiresAt: string; revokedAt: string | null; fileCount: number; totalBytes: number }
 export interface SharedSkillInfo { name: string; description: string; metadata: Record<string, unknown>; fileCount: number; totalBytes: number; expiresAt: string }
 export interface AgentRoleState { version: number; scope: 'team' | 'personal'; canManage: boolean; canAddMembers?: boolean; members: Array<{ref: string; name: string; role: 'admin' | 'member'; owner: boolean; mine?: boolean}>; candidates: Array<{ref: string; name: string}> }
-export interface AgentPeerRoleState { version:number; scope:'team'|'personal'; canManage:boolean; members:Array<{agentId:string;name:string;role:'admin'|'member'}>; candidates:Array<{id:string;name:string}> }
+export interface AgentPeerRoleState { version:number; scope:'team'|'personal'; managed:boolean; canManage:boolean; members:Array<{agentId:string;name:string;role:'admin'|'member'}>; candidates:Array<{id:string;name:string}> }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
 export interface AgentAppConnection { server: string; name: string; description: string; iconUrl: string | null; verified: boolean; allowWrites: boolean; connectedAt: string; granted: boolean }
 export interface AgentNativeConnection { source: 'notion' | 'github'; available: boolean; enabled: boolean }
