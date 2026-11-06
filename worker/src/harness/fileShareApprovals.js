@@ -25,10 +25,10 @@ export async function proposePublicFileShare(env,{orgId,fileId,version,userId,lo
   FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=?3
   WHERE f.org_id=?1 AND f.id=?2 AND v.kind='content'`).bind(orgId,fileId,version).first();
  if(!current||current.current_version!==version||current.content_hash!==source.contentHash)return {error:'Only the current unchanged file version can be proposed.',status:409};
- const pending=await env.DB.prepare(`SELECT id,status,expires_at AS expiresAt FROM hx_file_share_requests
-  WHERE org_id=?1 AND file_id=?2 AND file_version=?3 AND requester_id=?4 AND status='pending' AND content_hash=?5
-  ORDER BY created_at DESC LIMIT 1`).bind(orgId,fileId,version,String(userId),source.contentHash).first();
- if(pending)return {requestId:pending.id,status:pending.status,fileId,version,contentHash:source.contentHash,expiresAt:pending.expiresAt,allowDownload:Boolean(allowDownload),created:false};
+ const pending=await env.DB.prepare(`SELECT id,status,expires_at AS expiresAt,allow_download AS allowDownload FROM hx_file_share_requests
+  WHERE org_id=?1 AND file_id=?2 AND file_version=?3 AND requester_id=?4 AND status='pending' AND content_hash=?5 AND file_scope=?6
+  ORDER BY created_at DESC LIMIT 1`).bind(orgId,fileId,version,String(userId),source.contentHash,current.scope).first();
+ if(pending)return {requestId:pending.id,status:pending.status,fileId,version,contentHash:source.contentHash,expiresAt:pending.expiresAt,allowDownload:Boolean(pending.allowDownload),created:false};
  const requestId=id('fshare_req'),createdAt=iso();
  const result=await env.DB.prepare(`INSERT OR IGNORE INTO hx_file_share_requests
   (org_id,id,file_id,file_scope,file_version,content_hash,content_type,size,requester_id,requester_login,request_key,expires_at,allow_download,status,created_at)
