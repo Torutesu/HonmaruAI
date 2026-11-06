@@ -25,7 +25,7 @@ export function ExternalGuestThread({httpBase,orgId,rootId,sessionToken}:{httpBa
         const value=await response.json().catch(()=>({}))
         if(!live||controller.signal.aborted)return
         if(!response.ok){
-          if(response.status===404)setData(null)
+          if([401,403,404].includes(response.status))setData(null)
           throw new Error(response.status===404?t('This Thread is unavailable or access has expired.'):value.message||t('Could not load this Thread.'))
         }
         setData(value)
