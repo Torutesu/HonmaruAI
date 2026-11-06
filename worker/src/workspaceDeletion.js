@@ -141,6 +141,11 @@ export async function purgeWorkspace(env, orgId, { budget = BATCHES_PER_RUN } = 
     }
   }
   for (const table of await workspaceTables(env.DB)) {
+    // Empty workspace-scoped tables are common (and may be numerous). Probe
+    // before consuming the bounded mutation budget so they cannot starve a
+    // later table that actually contains this workspace's rows.
+    const first = await env.DB.prepare(`SELECT rowid FROM ${table} WHERE org_id = ?1 LIMIT 1`).bind(orgId).first();
+    if (!first) continue;
     for (;;) {
       if (left-- <= 0) return false;
       const out = await env.DB.prepare(`DELETE FROM ${table} WHERE rowid IN (SELECT rowid FROM ${table} WHERE org_id = ?1 LIMIT ${BATCH})`).bind(orgId).run();

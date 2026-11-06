@@ -1,4 +1,5 @@
 import {currentIp} from '../requestContext.js';
+import {handleFileShareRoutes,servePublicFileShare} from './fileShareApprovals.js';
 import {annotationProofRequiresIp} from './appReplyRequestProof.js';
 import {appActivityProof,visibleAppNotifications} from './appActivity.js';
 import { prepareAppGuidelines } from './appGuidelinesFence.js';
@@ -138,6 +139,11 @@ export async function handleHarness(request, env, url, context = {}) {
 
   if (url.pathname === '/app-domains/resolve') return servePublicAppDomain(request, env, url);
 
+  if (/^\/hx\/public-file-shares\//.test(url.pathname)) {
+    const tokenValue=url.pathname.slice('/hx/public-file-shares/'.length);
+    return servePublicFileShare(request,env,tokenValue);
+  }
+
   if (isDocumentNodeRoute(url.pathname)||/^\/hx\/documents(?:\/|$)/.test(url.pathname)) return handleDocuments(request,env,url);
 
   if (/^\/hx\/files(?:\/|$)/.test(url.pathname)) {
@@ -146,6 +152,8 @@ export async function handleHarness(request, env, url, context = {}) {
     const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins')").all();
     if(results.length!==6)return json({message:'Workspace file storage is not ready.'},503);
     const identity={orgId,userId:String(who.session.github_id),headers:CORS_HEADERS};
+    const shareRoute=await handleFileShareRoutes(request,env,url,{orgId,userId:identity.userId,login:who.user.login});
+    if(shareRoute)return shareRoute;
     if(request.method==='GET' && url.pathname==='/hx/files/scope'){
       const room=await resolveChannel(env.DB,orgId,who.user,url.searchParams.get('channel'));
       if(!room)return json({message:'No such room.'},404);

@@ -268,3 +268,67 @@ test('changing file type clears pagination and clearing the filter restores all 
  expect(vi.mocked(api.list).mock.calls.at(-1)?.[0].type).toBeUndefined()
  act(()=>renderer!.unmount())
 })
+
+
+test('file detail request flows through human approval queue to public link revocation',async()=>{
+ let queueState:any=null
+ const api={
+  list:vi.fn().mockResolvedValue({files:[file],next:null}),
+  versions:vi.fn().mockResolvedValue({versions:[version(51)]}),
+  requestPublicShare:vi.fn().mockImplementation(async(fileId:string,versionNumber:number,expiresIn:number,allowDownload:boolean)=>{
+   queueState={id:'request-1',fileId,filePath:file.path,scope:file.scope,version:versionNumber,currentVersion:versionNumber,contentHash:'a'.repeat(64),contentType:'text/plain',size:1,expiresAt:new Date(Date.now()+86400000).toISOString(),allowDownload,status:'pending',createdAt:new Date().toISOString(),requesterLogin:'maker',decisionAt:null,shareId:null,revokedAt:null,revokedBy:null}
+   return {requestId:'request-1',status:'pending',fileId,version:versionNumber,contentHash:'a'.repeat(64),expiresAt:queueState.expiresAt,allowDownload}
+  }),
+  shareRequests:vi.fn().mockImplementation(async()=>({requests:queueState?[queueState]:[]})),
+  approvePublicShare:vi.fn().mockImplementation(async()=>{
+   queueState={...queueState,status:'approved',shareId:'share-1',decisionAt:new Date().toISOString()}
+   return {shareId:'share-1',url:'/hx/public-file-shares/opaque-token',expiresAt:queueState.expiresAt,allowDownload:false}
+  }),
+  revokePublicShare:vi.fn().mockImplementation(async()=>{
+   queueState={...queueState,revokedAt:new Date().toISOString(),revokedBy:'maker'}
+   return {shareId:'share-1',revokedAt:queueState.revokedAt}
+  }),
+ } as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})
+ const requestButton=renderer!.root.findAllByType('button').find(button=>button.children.includes('Request approval'))
+ expect(requestButton).toBeTruthy()
+ await act(async()=>{requestButton!.props.onClick();await Promise.resolve()})
+ expect(api.requestPublicShare).toHaveBeenCalledWith('file',51,604800,false)
+ expect(JSON.stringify(renderer!.toJSON())).toContain('Approval request submitted.')
+ await act(async()=>{renderer!.root.findByProps({className:'hx-files-share-open'}).props.onClick();await Promise.resolve()})
+ expect(api.shareRequests).toHaveBeenCalled()
+ const approveButton=renderer!.root.findAllByType('button').find(button=>button.children.includes('Approve and create link'))
+ expect(approveButton).toBeTruthy()
+ await act(async()=>{approveButton!.props.onClick();await Promise.resolve()})
+ expect(api.approvePublicShare).toHaveBeenCalledWith('request-1')
+ expect(JSON.stringify(renderer!.toJSON())).toContain('https://localhost/hx/public-file-shares/opaque-token')
+ const revokeButton=renderer!.root.findAllByType('button').find(button=>button.children.includes('Revoke link'))
+ expect(revokeButton).toBeTruthy()
+ await act(async()=>{revokeButton!.props.onClick();await Promise.resolve()})
+ expect(api.revokePublicShare).toHaveBeenCalledWith('share-1')
+ expect(JSON.stringify(renderer!.toJSON())).toContain('Revoked')
+ await act(async()=>renderer!.unmount())
+})
+
+
+test('pending public share can be declined without revealing a URL',async()=>{
+ const request={id:'request-decline',fileId:'file',filePath:file.path,scope:'workspace',version:51,currentVersion:51,contentHash:'b'.repeat(64),contentType:'text/plain',size:1,expiresAt:new Date(Date.now()+86400000).toISOString(),allowDownload:false,status:'pending',createdAt:new Date().toISOString(),requesterLogin:'agent',decisionAt:null,shareId:null,revokedAt:null,revokedBy:null}
+ let declined=false
+ const api={
+  list:vi.fn().mockResolvedValue({files:[file],next:null}),
+  shareRequests:vi.fn().mockImplementation(async()=>({requests:[{...request,status:declined?'declined':'pending'}]})),
+  declinePublicShare:vi.fn().mockImplementation(async()=>{declined=true;return {requestId:request.id,status:'declined',decisionAt:new Date().toISOString()}}),
+ } as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ await act(async()=>{renderer!.root.findByProps({className:'hx-files-share-open'}).props.onClick();await Promise.resolve()})
+ const decline=renderer!.root.findAllByType('button').find(button=>button.children.includes('Decline request'))
+ expect(decline).toBeTruthy()
+ await act(async()=>{decline!.props.onClick();await Promise.resolve()})
+ expect(api.declinePublicShare).toHaveBeenCalledWith(request.id)
+ expect(JSON.stringify(renderer!.toJSON())).toContain('Declined')
+ expect(JSON.stringify(renderer!.toJSON())).not.toContain('/hx/public-file-shares/')
+ await act(async()=>renderer!.unmount())
+})
