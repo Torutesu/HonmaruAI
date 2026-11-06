@@ -983,22 +983,26 @@ async function assignmentStatusFixture() {
 test('assignment status is hidden from room readers without current grants to each Agent in the handoff',async()=>{
  const f=await assignmentStatusFixture();
  await env.DB.prepare("UPDATE hx_agent_profiles SET access='people',people='[\"mika\"]' WHERE org_id=?1 AND agent_id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
+ await env.DB.prepare("UPDATE custom_agents SET owner_login='mika' WHERE org_id=?1 AND id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
  await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/reviewer.png',ORG,f.target.id).run();
  const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:f.row.id})}`;
- for(const [token,canStop] of [[mika,true],[toru,true]]) {
+ for(const [token,canStop] of [[mika,true]]) {
   const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
   const body=await response.json();const a=body.results[0].assignments[0];
   expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝',avatarUrl:'https://example.com/reviewer.png'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝',avatarUrl:'https://example.com/reviewer.png'}}]});
   expect(Number.isFinite(Date.parse(a.startedAt))).toBe(true);expect(Number.isFinite(Date.parse(a.updatedAt))).toBe(true);
   const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions'])expect(text).not.toContain(value);
  }
- const hidden=await call(url,{headers:headers(kenji)},f.over);expect(hidden.status).toBe(200);
- const hiddenBody=await hidden.json();expect(hiddenBody.results).toEqual([{rowId:f.row.id,status:'unknown',answered:0}]);
- const hiddenText=JSON.stringify(hiddenBody);
- for(const value of [f.assignmentId,f.source.id,f.target.id,'Reviewer','Private handoff brief'])expect(hiddenText).not.toContain(value);
+ const assertHidden=async(token)=> {
+  const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
+  const body=await response.json();expect(body.results).toEqual([{rowId:f.row.id,status:'unknown',answered:0}]);
+  const text=JSON.stringify(body);
+  for(const value of [f.assignmentId,f.source.id,f.target.id,'Reviewer','Private handoff brief'])expect(text).not.toContain(value);
+ };
+ await assertHidden(kenji);
+ await assertHidden(toru); // Workspace Admin does not override an Agent's independent read grant.
  await send('PUT','/orgs/mode',toru,{orgId:ORG,mode:'simple'});
- const hiddenInSimple=await call(url,{headers:headers(kenji)},f.over);
- expect((await hiddenInSimple.json()).results).toEqual([{rowId:f.row.id,status:'unknown',answered:0}]);
+ await assertHidden(kenji);
  const mixed=await call(`${url}&messageId=foreign`,{headers:headers(mika)},f.over);expect(mixed.status).toBe(404);
 });
 
