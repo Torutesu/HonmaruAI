@@ -124,6 +124,7 @@ test('external guests can search Unicode reactions without seeing cached workspa
  const add=tree.root.findAllByProps({'aria-label':'Add reaction'})[0]
  act(()=>add.props.onClick())
  expect(tree.root.findAllByProps({role:'dialog'})).toHaveLength(1)
+ expect(JSON.stringify(tree.toJSON())).toContain('Workspace custom emoji are unavailable in guest threads. Unicode emoji are supported.')
  expect(JSON.stringify(tree.toJSON())).not.toContain(':private_mark:')
  expect(JSON.stringify(tree.toJSON())).not.toContain(customUrl)
  const search=tree.root.findByProps({'data-emoji-search':true})
