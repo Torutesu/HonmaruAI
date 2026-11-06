@@ -3494,6 +3494,12 @@ const table: Record<string, string> = {
   'App resource': 'アプリ',
   'Connection resource': '連携',
   'Member resource': 'メンバー',
+  'A message can carry at most 10 files.': '1件のメッセージに添付できるファイルは最大10件です。',
+  'Could not upload this file.': 'ファイルをアップロードできませんでした。',
+  'Files uploaded. Attach them to your reply before sending.': 'ファイルをアップロードしました。送信前に返信へ添付してください。',
+  'Could not download this file.': 'ファイルをダウンロードできませんでした。',
+  'Could not update this reaction.': 'リアクションを更新できませんでした。',
+
 }
 
 export default table
