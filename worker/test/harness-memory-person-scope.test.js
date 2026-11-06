@@ -14,7 +14,7 @@ beforeEach(async () => {
     await upsertUser(env.DB, { githubId: id, login, name: login, avatarUrl: null, locale: "en" });
     await upsertMembership(env.DB, ORG, id, "member");
   }
-  await env.DB.prepare("INSERT INTO custom_agents (id,org_id,name,handle,instructions,scope,owner_login,created_by,created_at,updated_at) VALUES (?1,?2,'Memory agent','memory-agent','Use memory','team','person-a','9212',datetime('now'),datetime('now'))")
+  await env.DB.prepare("INSERT INTO custom_agents (id,org_id,name,handle,instructions,scope,owner_login,created_by_login,created_at,updated_at) VALUES (?1,?2,'Memory agent','memory-agent','Use memory','team','person-a','9212',datetime('now'),datetime('now'))")
     .bind("agent-person-scope", ORG).run();
   agentId = "agent-person-scope";
 });
