@@ -9,13 +9,14 @@ vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text, t: (text: 
 const props = { httpBase: 'https://example.test', orgId: 'one', sessionToken: 'test', onClose: () => {} }
 const workflow = { id: 'wf_one', name: 'Billing', enabled: true, trigger: { type: 'webhook' }, steps: [], hookSecret: 'a'.repeat(48), hookUrl: 'https://example.test/hook?secret=old', webhookSignatureRequired: true }
 const aiBudget={revision:0,action:'warn' as const,'24h':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false},'7d':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false},'30d':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false}}
+const emptySummary={windowStart:'2026-10-17T00:00:00.000Z',windowEnd:'2026-10-24T00:00:00.000Z',timezone:'UTC' as const,windowHours:168,runCount:0,failedCount:0,completedDurationCount:0,typicalDurationMs:null,usage:{trackedRuns:0,calls:0,inputTokens:0,outputTokens:0,unknownCalls:0,unpricedCalls:0,estimatedMicros:0},truncated:false}
 let tree: ReturnType<typeof create>
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ agents: [] }) }))
   state.api = {
     workflowNotices: vi.fn().mockResolvedValue({items:[]}),
     workflows: vi.fn().mockResolvedValue({ workflows: [workflow] }), tables: vi.fn().mockResolvedValue({ tables: [] }),
-    workflow: vi.fn().mockResolvedValue({ workflow, runs: [], canEdit: true }),
+    workflow: vi.fn().mockResolvedValue({ workflow, runs: [], summary:emptySummary, canEdit: true }),
     changeWorkflowHook: vi.fn().mockResolvedValue({ workflow: { ...workflow, hookSecret: undefined, hookUrl: undefined } }),
   }
 })
@@ -25,6 +26,17 @@ async function open() {
   await act(async () => { tree = create(<HarnessWorkflows {...props} />) })
   await act(async () => { tree.root.findByProps({ 'data-workflow': workflow.id }).props.onClick() })
 }
+test('workflow detail shows a rolling median and labels provider token estimates clearly',async()=>{
+ state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[],summary:{...emptySummary,runCount:2,failedCount:1,completedDurationCount:2,typicalDurationMs:5000,usage:{...emptySummary.usage,calls:2,trackedRuns:2,estimatedMicros:1234}}});
+ await open();
+ const text=JSON.stringify(tree.toJSON());
+ expect(text).toContain('Last 7 days');
+ expect(text).toContain('Typical duration');
+ expect(text).toContain('Median of {count} completed runs');
+ expect(text).toContain('Estimated AI usage');
+ expect(text).toContain('This is not provider credits or an invoice');
+ expect(text).toContain('$0.001234');
+});
 test('workflow history shows elapsed time without inventing duration for unfinished runs',async()=>{
  state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[
   {id:'done-run',status:'done',trigger:'manual',startedAt:'2026-10-24T09:00:00Z',finishedAt:'2026-10-24T09:01:10Z',log:[]},
