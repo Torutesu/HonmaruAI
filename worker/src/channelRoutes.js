@@ -14,6 +14,7 @@ import { createManagedRoom } from './harness/roomCreation.js';
 import { addManagedRoomAgent, changeManagedRoomMembers, publicRooms, joinPublicRoom, removeRoomSubject, roomRoleState, setRoomRole } from './harness/roomRoles.js';
 import { explicitAgentRoles } from './harness/agentRoles.js';
 import { requestableAgentOptions, roomAgentAccessPlans } from './harness/agentAccessRequests.js';
+import { attachDraftEditsToMessage, consumeDraftEditContext, draftEditPrompt } from './draftEdits.js';
 import { announceAgentAccessChanged } from './harness/agentAccessEvents.js';
 import { roomResponses } from "./harness/roomResponses.js";
 import { threadPins, setThreadPin } from "./threadPins.js";
@@ -25,7 +26,7 @@ import { searchThread } from "./threadSearch.js";
 import { previewThreadShare, threadSharePolicy, setThreadSharePolicy, storeThreadShare, readThreadShare, revokeOwnThreadShare } from "./threadShares.js";
 import { appActivity, readAppActivity, appActivityProof, appActivityDeliveryKeys } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
-import { prepareAgent, rememberRequest, addAgentMemory, filterResponders } from "./harness/agents.js";
+import { prepareAgent, rememberRequest, addAgentMemory, listAgentMemories, filterResponders } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
 import { mayUseAgentSource } from "./harness/agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
@@ -285,6 +286,9 @@ export async function decideFromMessage(env, { orgId, session, user, resolved, r
       priority: routed.priority || "medium",
       routingReason: routed.routingReason || "",
       agentRoute: routed.agentRoute || "",
+      // Only a direct conversation with a custom Agent has a trustworthy
+      // stable origin. Never infer identity from the router's display text.
+      ...(resolved.kind === "agent" ? { sourceAgentId: resolved.agent.id } : {}),
       createdAt: now,
       sourceInstruction: instruction.slice(0, 1000),
       ...(resolved.kind === "business" ? { business: resolved.slug } : (routed.business ? { business: routed.business } : {})),
@@ -496,6 +500,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
   const workspaceMode = await getMode(env.DB, orgId).catch(() => null);
   const harness = workspaceMode === "harness";
+  const isDirectSourceAgent = resolved.kind === 'agent' && agents.length === 1 && agents[0].id === resolved.agent?.id;
   const [transcript, playbook] = provider && allowance?.allowed
     ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }), row.parent_id ? [] : playbookFor(env.DB, orgId, taskText)])
     : [[], []];
@@ -608,7 +613,9 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       await progress(agent, "agent");
       const t = await teammateForAgent(env.DB, orgId, agent).catch(() => null);
       try {
-        return await runTeammate(env, { orgId, user, requesterId:session.github_id, resolved, row, members, locale, agent, t, authorize, roomHookSource, replyFence, taskText, signal, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) });
+        const edits = resolved.kind === 'agent' && resolved.agent?.id === agent.id
+          ? await consumeDraftEditContext(env.DB,{orgId,messageId:row.id,agentId:agent.id}) : [];
+        return await runTeammate(env, { orgId, user, requesterId:session.github_id, resolved, row, members, locale, agent, t, authorize, roomHookSource, replyFence, taskText: taskText + draftEditPrompt(edits), signal, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) });
       } catch(err) {
         if(replyFence)throw err;
         console.error("teammate failed",safe(err?.message));
@@ -621,11 +628,14 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     try {
       // "@agent remember …": kept in the agent's own memory, no model
       // needed (harness/agents.js).
-      const remember = harness && requestOverride == null ? rememberRequest(requestFor(taskText, agent)) : null;
+      const remember = requestOverride == null && (harness || isDirectSourceAgent) ? rememberRequest(requestFor(taskText, agent)) : null;
       // "@agent follow up in 3 days: …": it comes back to this thread then.
       const later = harness && requestOverride == null && !remember ? followupRequest(requestFor(taskText, agent)) : null;
       if (remember) {
-        const kept = await addAgentMemory(env.DB, orgId, agent.id, remember, { by: session.github_id, channel: resolved.key });
+        const kept = await addAgentMemory(env.DB, orgId, agent.id, remember, {
+          by: session.github_id,
+          ...(isDirectSourceAgent ? { scope: 'person', userId: session.github_id, kind: 'preference' } : { channel: resolved.key }),
+        });
         text = kept.error || serverText(locale, "agent.remembered", { text: kept.memory.text });
       } else if (later) {
         const dueAt = new Date(Date.now() + later.minutes * 60000).toISOString();
@@ -644,8 +654,19 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           ...ready.agent,
           instructions: agentInstructionsForTools(ready.agent.instructions, toolsForTurn),
         };
+        const edits = resolved.kind === 'agent' && resolved.agent?.id === agent.id
+          ? await consumeDraftEditContext(env.DB,{orgId,messageId:row.id,agentId:agent.id}) : [];
+        let savedPreferences = [];
+        if (isDirectSourceAgent && !harness) {
+          savedPreferences = (await listAgentMemories(env.DB,orgId,agent.id,{ userId: session.github_id }))
+            .filter((memory) => memory.scope === 'person' && memory.kind === 'preference')
+            .slice(0,8);
+        }
+        const savedPreferenceContext = savedPreferences.length
+          ? `\n\nPersonal writing preferences this user previously asked you to remember:\n${savedPreferences.map((memory) => `- ${String(memory.text).slice(0,500)}`).join('\n')}`
+          : '';
         const result = await askAgent({
-          provider: ready.provider, agent: agentForTurn, request: requestFor(taskText, agent), transcript, playbook, where, research, links, tools: toolsForTurn, env,
+          provider: ready.provider, agent: agentForTurn, request: requestFor(taskText + savedPreferenceContext + draftEditPrompt(edits), agent), transcript, playbook, where, research, links, tools: toolsForTurn, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
           onRound: () => progress(agent, "agent"), authorize, harnessTools: harness, signal,
@@ -1301,6 +1322,11 @@ export async function handleChannels(request, env, url, { route, after }) {
       const [message] = await present(env.DB, orgId, [out.row], who.user.login, view, members);
       return json({ message });
     }
+    // A changed draft travels with the member's next message to that exact
+    // direct Agent. Bind it before inline or durable execution can begin.
+    if (resolved.kind === 'agent') await attachDraftEditsToMessage(env.DB, {
+      orgId, githubId: who.session.github_id, agentId: resolved.agent.id, messageId: out.row.id,
+    }).catch((err) => console.error('draft edit attach failed', safe(err?.message)));
     // A message to an agent is the agent's to do: it never becomes a card
     // for a person, whatever else it says.
     //
@@ -2527,3 +2553,4 @@ export async function deliverAcceptedMessages(env, options) {
     console.log(JSON.stringify({ event: 'message_delivery', kind: options.kind, taskMs: Date.now() - started, commitToDeliveryMs: Date.now() - Date.parse(row.created_at) }));
   }, options).catch(() => console.error('message delivery sweep failed'));
 }
+
