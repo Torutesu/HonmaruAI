@@ -54,7 +54,7 @@ export async function shareExternalThread(api: Client, threadId: string, input: 
   }
 }
 
-export async function revokeExternalThreadShare(api: Client, threadId: string, email: string): Promise<boolean> {
-  const value = await request<{ revoked?: boolean }>(api, threadId, 'DELETE', { email })
+export async function revokeExternalThreadShare(api: Client, threadId: string, grantId: string): Promise<boolean> {
+  const value = await request<{ revoked?: boolean }>(api, threadId, 'DELETE', { grantId })
   return value.revoked === true
 }
