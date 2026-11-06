@@ -28,3 +28,5 @@
 .hx-external-guest-thread-upload li{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--bone);border-radius:8px;padding:8px 10px;background:var(--signal-white)}
 .hx-external-guest-thread-upload li span{overflow-wrap:anywhere}
 .hx-external-guest-thread-upload li button{justify-self:auto}
+
+.hx-external-guest-thread-picker-note{margin:0 0 8px;color:var(--ash);font-size:12px;line-height:1.4}
