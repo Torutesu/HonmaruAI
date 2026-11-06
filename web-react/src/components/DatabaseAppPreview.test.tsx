@@ -32,7 +32,7 @@ test('shows an explicit empty state and opens the data viewer',()=>{
   const browse=tree.root.findByProps({'aria-label':'Open data'})
   act(()=>browse.props.onClick())
   expect(onBrowseData).toHaveBeenCalledTimes(1)
-  const phone=tree.root.findByProps({'aria-label':'モバイル表示'})
+  const phone=tree.root.findByProps({'aria-label':'Phone preview'})
   act(()=>phone.props.onClick())
   expect(tree.root.findByProps({'data-viewport':'phone'})).toBeTruthy()
 })
