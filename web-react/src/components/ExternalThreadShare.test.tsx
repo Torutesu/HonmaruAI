@@ -33,14 +33,14 @@ test('creates and copies a named expiring invite link, and lists pending invites
  Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}})
  let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<ExternalThreadShare api={api} threadId="root" onClose={()=>{}}/>);await flush()})
- const email=tree.root.findAllByType('input').find(input=>input.props.type==='email')!
+ const email=tree.root.findAllByType('form')[1].findByType('input')
  act(()=>email.props.onChange({target:{value:'guest@example.com'}}))
  const selects=tree.root.findAllByType('select')
  act(()=>selects.find(select=>select.props['aria-label']==='Invite permission')!.props.onChange({target:{value:'edit'}}))
  act(()=>selects.find(select=>select.props['aria-label']==='Invite expiry')!.props.onChange({target:{value:'7d'}}))
  await act(async()=>{tree.root.findAllByType('form')[1].props.onSubmit({preventDefault(){}});await flush()})
- const inviteRequest=fetch.mock.calls.find(([url,init])=>init?.method==='POST')
- if(!inviteRequest)throw new Error(`Invite request missing; calls=${JSON.stringify(fetch.mock.calls)}`)
+ const inviteRequest=fetch.mock.calls.find(([url,init])=>String(url).includes('/invites')&&init?.method==='POST')
+ expect(inviteRequest).toBeDefined()
  expect(JSON.parse(inviteRequest![1].body)).toMatchObject({email:'guest@example.com',permission:'edit'})
  expect(JSON.stringify(tree.toJSON())).toContain('guest@example.com')
  expect(JSON.stringify(tree.toJSON())).toContain('https://app.example/#/external-invite/secret')
