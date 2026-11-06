@@ -103,14 +103,14 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
       {loading&&<p role="status">{t('Loading…')}</p>}
       {!loading&&!error&&!shares.length&&<p className="row-sub">{t('No one outside this workspace has access.')}</p>}
       {shares.map(share=><article className="hx-external-thread-grant" key={share.id} data-share-id={share.id}>
-        <div className="hx-external-thread-person"><strong>{share.recipient.name}</strong><span>{share.recipient.email}</span><small>{t('Expires')}: {expires(share.expiresAt)}</small></div>
+        <div className="hx-external-thread-person"><strong>{share.recipient.name}</strong><span>{share.recipient.email}</span><small>{t('Expires')}: {expires(share.expiresAt)}</small>{share.recipientIsMember&&<small>{t('Workspace member')}</small>}{share.suspended&&<small role="status">{t('External access is paused')}</small>}</div>
         <label className="hx-external-thread-permission">{t('Permission')}
-          <select aria-label={t('Permission for {email}').replace('{email}',share.recipient.email)} value={drafts[share.id]||share.permission} disabled={busy} onChange={event=>setDrafts(current=>({...current,[share.id]:event.target.value as 'view'|'edit'}))}>
+          <select aria-label={t('Permission for {email}').replace('{email}',share.recipient.email)} value={drafts[share.id]||share.permission} disabled={busy||Boolean(share.suspended||share.recipientIsMember)} onChange={event=>setDrafts(current=>({...current,[share.id]:event.target.value as 'view'|'edit'}))}>
             <option value="view">{t('Can view')}</option><option value="edit">{t('Can edit')}</option>
           </select>
         </label>
         <div className="hx-external-thread-grant-actions">
-          <button type="button" className="btn-text" disabled={busy||(drafts[share.id]||share.permission)===share.permission} onClick={()=>update(share)}>{t('Save')}</button>
+          <button type="button" className="btn-text" disabled={busy||Boolean(share.suspended||share.recipientIsMember)||(drafts[share.id]||share.permission)===share.permission} onClick={()=>update(share)}>{t('Save')}</button>
           <button type="button" className="btn-text" disabled={busy} onClick={()=>revoke(share)}>{t('Revoke access')}</button>
         </div>
       </article>)}
