@@ -639,3 +639,21 @@ test('an active normal request loses authorization when agent access becomes pri
  await send('PUT',`/hx/agents/${agentId}/profile`,mika,{orgId:ORG,access:'private'});
  expect(await authorize(agentId)).toBe(false);
 });
+
+test("ordinary Agent callers create person memory by default and cannot publish shared memory", async () => {
+  const base = `/hx/agents/${agentId}/memory`;
+  const privateResponse = await send("POST", base, kenji, { orgId: ORG, text: "Kenji private workflow detail" });
+  expect(privateResponse.status).toBe(201);
+  const privateMemory = (await privateResponse.json()).memory;
+  expect(privateMemory.scope).toBe("person");
+  const kenjiRows = (await (await get(`${base}?${q({ orgId: ORG })}`, kenji)).json()).memories;
+  const mikaRows = (await (await get(`${base}?${q({ orgId: ORG })}`, mika)).json()).memories;
+  expect(kenjiRows.map((memory) => memory.id)).toContain(privateMemory.id);
+  expect(mikaRows.map((memory) => memory.id)).not.toContain(privateMemory.id);
+
+  const deniedShared = await send("POST", base, kenji, { orgId: ORG, text: "Unauthorized shared instruction", scope: "shared" });
+  expect(deniedShared.status).toBe(403);
+  const ownerShared = await send("POST", base, mika, { orgId: ORG, text: "Approved shared instruction", scope: "shared" });
+  expect(ownerShared.status).toBe(201);
+  expect((await ownerShared.json()).memory.scope).toBe("shared");
+});
