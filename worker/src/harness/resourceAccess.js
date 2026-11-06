@@ -61,7 +61,7 @@ export async function appPeopleAccess(db, orgId, appId) {
 
 export async function mayUseTable(db, orgId, tableId, userId) {
   if (!userId) return false;
-  const member = await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2 AND role != 'guest'").bind(orgId, String(userId)).first();
+  const member = await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2 AND LOWER(COALESCE(role,'guest')) != 'guest'").bind(orgId, String(userId)).first();
   if (!member) return false;
   const table = await db.prepare('SELECT id FROM hx_tables WHERE org_id = ?1 AND id = ?2').bind(orgId, tableId).first();
   if (!table) return false;
