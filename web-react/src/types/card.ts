@@ -178,6 +178,7 @@ export interface ChannelMessage {
   /// in the thread under the message that called it.
   kind: 'message' | 'ai' | 'agent' | 'joined'
   body: string
+  automationOfferId?: string
   /// The language it is written in; null when there is nothing to
   /// translate. A reader in another language sees it translated.
   lang?: string | null

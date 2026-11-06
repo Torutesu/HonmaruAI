@@ -405,7 +405,7 @@ test('room guidelines accompany app generation and app replies only while the so
  const made=await generateApp(env,new Request('https://test/apps/generate'),org,who,{prompt:'Create an internal tracker',requestId:'guided_app_generation_001',sourceThreadId:root.id},{
   makeCompleter:async()=>async(_system,prompt)=>{generationPrompt=prompt;return JSON.stringify({name:'Guided tracker',columns:[{name:'Title',type:'text'}]});},
  });
- expect(generationPrompt).toContain('Current room guidelines (revision 1)');
+ expect(generationPrompt).toContain('Current authoritative Room rules (revision 1):');
  expect(generationPrompt).toContain(rule);
  const appActionPrompt=await withAppRoomGuidelinesRequest(env.DB,org,who.user,made.app.id,'Add an approved action');
  expect(appActionPrompt).toContain(rule);

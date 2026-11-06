@@ -74,6 +74,7 @@ import { useCustomEmoji, loadCustomEmoji, customEmojiUrl } from '../utils/custom
 import { messageContextEntries, messageMenuTriggers, type MessageMenuActions } from '../utils/messageMenu'
 import { rememberEmoji, useQuickReactions } from '../utils/emojiSearch'
 import { DailyReportDraft } from './DailyReport'
+import { RecurringAutomationOffer } from './RecurringAutomationOffer'
 import { MessageActions, CardActions, Reactions, EmojiPicker, EmojiPickerAt, EmojiGlyph, ComposerEmojiButton, FormatBar, bulletOnSpace, continueBlock, renderRich, LinkCards, SlashMenu, SchedulePicker, parseScheduleCommand, TypingLine, ReplyQuoteLine, ThreadReplyLine, ReplyingBar, UnsentNote } from './MessageParts'
 import { heard as heardTyping, said, expire, nextExpiry as nextTypingExpiry, typistsIn, typedIn, stoppedIn, sendTyping } from '../utils/typing'
 import type { Typist, TypingEvent, Outgoing as TypingOut, Place, Signal } from '../utils/typing'
@@ -2973,7 +2974,12 @@ export const ClassicList: React.FC<Props> = ({
     const tr = knownTranslation(m)
     // A "translation" that is the message itself — give or take
     // punctuation — was yours already.
-    return !translateOff && !m.deleted && tr !== null && !sameWords(tr, m.body) && !originals.has(m.id) ? { text: tr, translated: true } : { text: m.body, translated: false }
+    const value=!translateOff && !m.deleted && tr !== null && !sameWords(tr, m.body) && !originals.has(m.id) ? tr : m.body
+    return { text: value, translated: value !== m.body }
+  }
+  const recurringOffer = (m: ChannelMessage) => {
+    const offerId=m.automationOfferId||null
+    return offerId&&harness&&api.orgId?<RecurringAutomationOffer key={offerId} api={api} offerId={offerId} onOpenWorkflow={onWorkflow}/>:null
   }
   const displayQuote = (quote: ReplyQuote, channel: string) => {
     const current = referenceUpdates.current.get(`${channel}:${quote.id}`)
@@ -5383,6 +5389,7 @@ export const ClassicList: React.FC<Props> = ({
             out.push(block(m.id, { joined: false, at: m.createdAt, app: 'ai', name: t('Your AI'), badge: t('AI'), msgId: m.id, pinned: m.pinned, mentionsMe: callsMe(m), tools: toolsFor(thread.view!, m), onHold: holdFor(thread.view!, m), onMenu: menuFor(thread.view!, m) },
               <>
                 <div className="slk-text">{rich(shownBody(m).text)}</div>
+                {recurringOffer(m)}
                 {translationNote(m)}
                 {card && attachment(card)}
                 {jams[thread.view!]?.messageId === m.id && jamCard(thread.view!, jams[thread.view!])}
@@ -5405,6 +5412,7 @@ export const ClassicList: React.FC<Props> = ({
             }, (
               <>
                 {words(thread.view!, m)}
+                {recurringOffer(m)}
                 {m.cardId && <button className="slk-made" onClick={() => openCard(m.cardId!)}>{t('→ Decision')}</button>}
                 {underneath(thread.view!, m)}
               </>

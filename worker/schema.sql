@@ -638,7 +638,8 @@ CREATE TABLE IF NOT EXISTS channel_messages (
   also_channel  INTEGER NOT NULL DEFAULT 0,
   /* Said by an agent for a person who was mentioned (proxy.js): whose
      agent it is, so it reads as theirs and never as them. */
-  on_behalf_of  TEXT
+  on_behalf_of  TEXT,
+  automation_offer_id TEXT
 );
 /* The index for `client_id` is in migrations.sql, after the ALTER that adds
    it, for the same reason as `ref` above. */
@@ -2586,3 +2587,21 @@ CREATE TABLE IF NOT EXISTS hx_file_share_audit (
  action TEXT NOT NULL CHECK(action IN ('proposed','approved','declined','revoked','expired','stale')),details TEXT NOT NULL,created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS hx_file_share_audit_request ON hx_file_share_audit(org_id,request_id,id);
+CREATE TABLE IF NOT EXISTS hx_recurring_automation_offers (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  login TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  source_message_id TEXT NOT NULL,
+  source_root_hash TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  prompt_hash TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('offered','declined','created')),
+  workflow_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(org_id,channel,user_github_id,prompt_hash)
+);
+CREATE INDEX IF NOT EXISTS hx_recurring_automation_offers_member ON hx_recurring_automation_offers(org_id,user_github_id,created_at DESC);
