@@ -2101,7 +2101,7 @@ test('member app permissions override workspace sharing and fence reads, writes,
   expect((await grant('9104','view')).status).toBe(200);
   expect((await get(`/apps/${app.id}?orgId=${ORG}`, outsider)).status).toBe(200);
   expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, outsider)).status).toBe(200);
-  expect((await send('PUT', `/tables/${app.tableId}?orgId=${ORG}`, outsider, { columns: [{ name: 'Name', type: 'text' }] })).status).toBe(403);
+  expect((await send('PUT', `/tables/${app.tableId}?orgId=${ORG}`, outsider, { orgId: ORG, columns: [{ name: 'Name', type: 'text' }] })).status).toBe(403);
   expect((await send('POST', `/tables/${app.tableId}/rows`, outsider, { orgId: ORG, values: { Name: 'blocked' } })).status).toBe(403);
 
   const { callHarnessTool } = await import('../src/harness/mcpTools.js');
