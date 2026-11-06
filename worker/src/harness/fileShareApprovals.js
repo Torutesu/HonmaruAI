@@ -7,6 +7,14 @@ const iso=()=>new Date().toISOString();
 const token=()=>randomBytes(32).toString('base64url');
 const digest=value=>createHash('sha256').update(value).digest('hex');
 const validId=value=>typeof value==='string'&&value.length>0&&value.length<=200&&!/[\u0000-\u001f\u007f]/.test(value);
+function safeDownloadFilename(path){
+ const basename=String(path||'').split(/[\\/]/).filter(Boolean).at(-1)||'shared-file';
+ const value=basename.normalize('NFC').replace(/[\u0000-\u001f\u007f"\\/]/g,'_').replace(/^\.+$/,'file').slice(0,180).trim()||'shared-file';
+ const fallback=value.replace(/[^\x20-\x7e]/g,'_').replace(/["\\]/g,'_')||'shared-file';
+ const encoded=encodeURIComponent(value).replace(/['()*]/g,char=>'%'+char.charCodeAt(0).toString(16).toUpperCase());
+ return {fallback,encoded};
+}
+
 export const FILE_SHARE_EXPIRY_CHOICES=[86400,604800,2592000];
 
 export function normalizedShareExpiry(seconds,now=Date.now()){
@@ -159,7 +167,7 @@ export async function servePublicFileShare(request,env,tokenValue){
  const json=(status=404)=>new Response('Not found.',{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer'}});
  if(request.method!=='GET'||typeof tokenValue!=='string'||!/^[A-Za-z0-9_-]{40,60}$/.test(tokenValue))return json();
  const hash=digest(tokenValue),now=iso();
- const row=await env.DB.prepare(`SELECT s.file_id,s.file_version,s.content_hash,s.allow_download,s.expires_at,v.object_key,v.content_type,v.size
+ const row=await env.DB.prepare(`SELECT s.file_id,s.file_version,s.content_hash,s.allow_download,s.expires_at,v.object_key,v.content_type,v.size,f.path AS file_path
   FROM hx_public_file_shares s JOIN hx_workspace_files f ON f.org_id=s.org_id AND f.id=s.file_id
   JOIN hx_workspace_file_versions v ON v.org_id=s.org_id AND v.file_id=s.file_id AND v.version=s.file_version
   WHERE s.token_hash=?1 AND s.revoked_at IS NULL AND s.expires_at>?2
@@ -172,9 +180,9 @@ export async function servePublicFileShare(request,env,tokenValue){
  if(object.size!==row.size||row.size>25*1024*1024){await object.body.cancel().catch(()=>{});return json();}
  const bytes=await object.arrayBuffer();
  if(bytes.byteLength!==row.size||digest(new Uint8Array(bytes))!==row.content_hash)return json(410);
- const disposition=row.allow_download?'attachment':'inline';
+ const disposition=row.allow_download?'attachment':'inline',filename=safeDownloadFilename(row.file_path);
  return new Response(bytes,{headers:{'content-type':row.content_type,'content-length':String(row.size),
-  'content-disposition':`${disposition}; filename="shared-file-v${row.file_version}"`,
+  'content-disposition':`${disposition}; filename="${filename.fallback}"; filename*=UTF-8''${filename.encoded}`,
   'cache-control':'no-store, no-cache, must-revalidate','x-content-type-options':'nosniff',
   'referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; sandbox",
   'x-robots-tag':'noindex, nofollow'}});
