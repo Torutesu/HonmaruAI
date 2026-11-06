@@ -155,6 +155,8 @@ const table: Record<string, string> = {
   "No completed runs": "完了した実行はありません",
   "Median of {count} completed runs": "完了した{count}回の実行時間の中央値",
   "Estimated AI usage": "AI使用量の推定",
+  "Recorded on {count} runs": "{count}回の実行で記録",
+  "{count} calls with unknown token usage": "トークン使用量不明の呼び出し {count}件",
   "{count} failed runs": "失敗 {count}回",
   "Provider-reported token estimate only. This is not provider credits or an invoice; unpriced and unreported usage is excluded.": "プロバイダー報告トークンからの推定値です。プロバイダークレジットや請求額ではありません。価格不明・未報告の使用量は含まれません。",
   "No runs in the last 7 days.": "過去7日間の実行はありません。",
