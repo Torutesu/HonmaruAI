@@ -719,3 +719,23 @@ test('saving a loaded workflow without editing preserves zero and false values',
  await act(async()=>{await button('Save workflow').props.onClick()})
  expect(state.api.updateWorkflow).toHaveBeenCalledWith(workflow.id,expect.objectContaining({steps:[{type:'add_row',tableId:'tasks',values:{quantity:0,approved:false}}]}))
 })
+
+test('guided setup previews and refines before saving a paused workflow', async () => {
+ const proposed={id:'preview',name:'Daily summary',enabled:false,trigger:{type:'manual'},steps:[{type:'send_message',channel:'b:ops',text:'Summarize tasks'}]}
+ state.api.previewWorkflow=vi.fn().mockResolvedValue({workflow:proposed})
+ state.api.createWorkflow=vi.fn().mockResolvedValue({workflow:{...proposed,id:'saved'},hookUrl:null})
+ state.api.workflow.mockResolvedValue({workflow:{...proposed,id:'saved'},runs:[],summary:emptySummary,canEdit:true})
+ await act(async()=>{tree=create(<HarnessWorkflows {...props}/>)})
+ await act(async()=>button('Set up an automation').props.onClick())
+ await act(async()=>tree.root.findByProps({id:'workflow-prompt'}).props.onChange({target:{value:'Summarize tasks every morning'}}))
+ await act(async()=>button('Build preview').props.onClick())
+ expect(state.api.previewWorkflow).toHaveBeenCalledWith('Summarize tasks every morning')
+ expect(state.api.createWorkflow).not.toHaveBeenCalled()
+ expect(JSON.stringify(tree.toJSON())).toContain('Nothing has been saved or run yet.')
+ await act(async()=>tree.root.findByProps({id:'workflow-refinement'}).props.onChange({target:{value:'Post it in ops'}}))
+ await act(async()=>button('Refine proposal').props.onClick())
+ expect(state.api.previewWorkflow).toHaveBeenCalledTimes(2)
+ expect(state.api.createWorkflow).not.toHaveBeenCalled()
+ await act(async()=>button('Save paused automation').props.onClick())
+ expect(state.api.createWorkflow).toHaveBeenCalledWith(expect.objectContaining({enabled:false,name:'Daily summary',steps:proposed.steps}))
+})
