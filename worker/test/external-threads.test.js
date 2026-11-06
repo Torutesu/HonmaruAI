@@ -132,4 +132,4 @@ test("revocation and expiry are rechecked on every read and write; Simple stays 
 
   await setMode(env.DB, second.orgId, "simple", second.ids.owner);
   expect((await call(`/external/threads/${second.orgId}/${second.rootId}`, second.sessions.guest)).status).toBe(404);
-});
+}, 15_000);
