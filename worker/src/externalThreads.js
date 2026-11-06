@@ -103,16 +103,24 @@ async function shareThread(request, env, orgId, rootId, actor) {
     return json({ shared: true, grant: { id: grant.id, permission, expiresAt: grant.expiresAt },
       recipient: { name: recipient.name || recipient.login, email: recipient.email } }, 201);
   }
-  const recipient = await resolveRecipient(env.DB, orgId, input.email, actor.user.github_id, { allowMember: true });
-  if (!recipient) return fail("Recipient not found.", 404);
+  let recipientGithubId = null;
+  if (typeof input.grantId === "string" && input.grantId.length <= 200) {
+    recipientGithubId = (await env.DB.prepare(`SELECT recipient_github_id FROM hx_external_resource_grants
+      WHERE id=?1 AND org_id=?2 AND resource_type='thread' AND resource_id=?3 AND revoked_at IS NULL`)
+      .bind(input.grantId,orgId,rootId).first())?.recipient_github_id || null;
+  } else {
+    const recipient = await resolveRecipient(env.DB, orgId, input.email, actor.user.github_id, { allowMember: true });
+    recipientGithubId = recipient?.github_id || null;
+  }
+  if (!recipientGithubId) return json({ revoked: false });
   const revoked = await revokeExternalResource(env.DB, {
     orgId, resourceType: "thread", resourceId: rootId,
-    recipientGithubId: recipient.github_id, revokedBy: actor.user.github_id,
+    recipientGithubId, revokedBy: actor.user.github_id,
   });
   await env.DB.prepare(`UPDATE hx_external_thread_send_requests
       SET status = 'cancelled', decided_at = ?1, decided_by = ?2
     WHERE org_id = ?3 AND root_message_id = ?4 AND guest_github_id = ?5 AND status = 'pending'`)
-    .bind(new Date().toISOString(), actor.user.github_id, orgId, rootId, recipient.github_id).run();
+    .bind(new Date().toISOString(), actor.user.github_id, orgId, rootId, recipientGithubId).run();
   return json({ revoked: revoked > 0 });
 }
 
