@@ -276,7 +276,7 @@ test('file detail request flows through human approval queue to public link revo
   list:vi.fn().mockResolvedValue({files:[file],next:null}),
   versions:vi.fn().mockResolvedValue({versions:[version(51)]}),
   requestPublicShare:vi.fn().mockImplementation(async(fileId:string,versionNumber:number,expiresIn:number,allowDownload:boolean)=>{
-   queueState={id:'request-1',fileId,filePath:file.path,scope:file.scope,version:versionNumber,contentHash:'a'.repeat(64),contentType:'text/plain',size:1,expiresAt:new Date(Date.now()+86400000).toISOString(),allowDownload,status:'pending',createdAt:new Date().toISOString(),requesterLogin:'maker',decisionAt:null,shareId:null,revokedAt:null,revokedBy:null}
+   queueState={id:'request-1',fileId,filePath:file.path,scope:file.scope,version:versionNumber,currentVersion:versionNumber,contentHash:'a'.repeat(64),contentType:'text/plain',size:1,expiresAt:new Date(Date.now()+86400000).toISOString(),allowDownload,status:'pending',createdAt:new Date().toISOString(),requesterLogin:'maker',decisionAt:null,shareId:null,revokedAt:null,revokedBy:null}
    return {requestId:'request-1',status:'pending',fileId,version:versionNumber,contentHash:'a'.repeat(64),expiresAt:queueState.expiresAt,allowDownload}
   }),
   shareRequests:vi.fn().mockImplementation(async()=>({requests:queueState?[queueState]:[]})),
