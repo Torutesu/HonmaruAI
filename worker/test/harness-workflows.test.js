@@ -683,6 +683,9 @@ test("deferred posts cannot enter a room after the owner loses access", async ()
   const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual' });
   expect(run.status).toBe('failed');
   expect(run.log[0].error).toBe('Conversation access required.');
+  expect(run.log[0].authorization).toEqual(expect.arrayContaining([
+    expect.objectContaining({ actorId: '9302', resourceType: 'conversation', resourceId: 'b:ops', outcome: 'denied' }),
+  ]));
 });
 
 test('private follow-ups are hidden in lists and home and cannot be cancelled by outsiders', async () => {
@@ -850,6 +853,11 @@ test("a workflow's follow-up is scheduled with its maker's access, and checked a
   }, "9302");
   const run = await startRun(env, { orgId: ORG, workflow, trigger: "manual", input: { text: "Acme" }, startedBy: "9302" });
   expect(run.status).toBe("done");
+  expect(run.log[0].authorization).toEqual(expect.arrayContaining([
+    expect.objectContaining({ actorId: '9302', resourceType: 'workflow', resourceId: workflow.id, outcome: 'allowed' }),
+    expect.objectContaining({ actorId: '9302', resourceType: 'conversation', resourceId: 'b:ops', outcome: 'allowed' }),
+  ]));
+  expect(Object.keys(run.log[0].authorization[0]).sort()).toEqual(['actorId', 'checkedAt', 'outcome', 'resourceId', 'resourceType']);
   const { followups } = await (await get(`/followups?${q({ orgId: ORG, channel: "b:ops" })}`, mika)).json();
   expect(followups).toEqual([expect.objectContaining({ id: run.log[0].output, instruction: "Did Acme pay?", createdBy: "9302" })]);
   expect(await runDueFollowups(env, { now: new Date(Date.now() + 2 * 3600000) })).toBe(1);
@@ -1132,6 +1140,11 @@ test('a workflow Agent grant revoked during its model turn prevents publishing t
     });
     expect(result.status).toBe('failed');
     expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
+    expect(result.log[0].authorization).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: '9302', resourceType: 'agent', resourceId: agent.id, outcome: 'allowed' }),
+      expect.objectContaining({ actorId: '9302', resourceType: 'agent', resourceId: agent.id, outcome: 'denied' }),
+    ]));
+    expect(result.log[0].authorization.every(event => Object.keys(event).sort().join(',') === 'actorId,checkedAt,outcome,resourceId,resourceType')).toBe(true);
     expect((await messages(mika)).map(message => message.body)).not.toContain('This reply must not be published.');
     expect(requestBody.messages.some(message => message.content?.includes('Review the release'))).toBe(true);
     fetchMock.assertNoPendingInterceptors();

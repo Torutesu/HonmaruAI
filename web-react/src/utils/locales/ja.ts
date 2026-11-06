@@ -3272,6 +3272,17 @@ const table: Record<string, string> = {
   'Allow this Agent to read {count} workspace-approved tools in your private conversations.': 'ご本人との個別会話で、このAgentにワークスペースが許可した読み取り専用ツール{count}件の利用を許可します。',
   'This server has no workspace-approved tools marked read-only. A workspace admin can refresh its tool list in Tools → Apps.': 'このサーバーには、ワークスペースが許可した読み取り専用ツールがありません。管理者は「ツール → アプリ」でツール一覧を再取得できます。',
   'Allow {agent} to use read-only tools from {server}': '{agent}に{server}の読み取り専用ツールの利用を許可',
+  'Access checks': 'アクセス権の確認',
+  'Actor ID': '実行主体ID',
+  'Resource': '対象',
+  'Denied': '拒否',
+  'Workflow resource': 'ワークフロー',
+  'Conversation resource': '会話',
+  'Agent resource': 'エージェント',
+  'Table resource': 'テーブル',
+  'App resource': 'アプリ',
+  'Connection resource': '連携',
+  'Member resource': 'メンバー',
 }
 
 export default table
