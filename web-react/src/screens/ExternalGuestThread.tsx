@@ -134,7 +134,7 @@ export function ExternalGuestThread({httpBase,orgId,rootId,sessionToken}:{httpBa
           {(message.reactions||[]).filter(reaction=>!CUSTOM_EMOJI.test(reaction.emoji)).map(reaction=><button type="button" key={reaction.emoji} className={`slk-reaction${reaction.mine?' mine':''}`} aria-pressed={reaction.mine} aria-label={t('React with {emoji}',{emoji:reaction.emoji})} data-reaction-emoji={reaction.emoji} onClick={()=>void react(message.id,reaction.emoji)}><EmojiGlyph emoji={reaction.emoji}/><span className="slk-reaction-count">{reaction.count}</span></button>)}
           <button type="button" className="slk-reaction add" aria-label={t('Add reaction')} aria-expanded={pickerFor===message.id} onClick={()=>setPickerFor(current=>current===message.id?null:message.id)}><Icon name="smile" size={14}/><span aria-hidden="true">+</span></button>
         </div>
-        {pickerFor===message.id&&<div className="hx-external-guest-thread-picker"><EmojiPicker allowWorkspaceEmoji={false} onPick={emoji=>{setPickerFor(null);void react(message.id,emoji)}} onClose={()=>setPickerFor(null)}/></div>}
+        {pickerFor===message.id&&<div className="hx-external-guest-thread-picker"><p className="hx-external-guest-thread-picker-note">{t('Workspace custom emoji are unavailable in guest threads. Unicode emoji are supported.')}</p><EmojiPicker allowWorkspaceEmoji={false} onPick={emoji=>{setPickerFor(null);void react(message.id,emoji)}} onClose={()=>setPickerFor(null)}/></div>}
       </li>)}</ol>}
       {notice&&<p role="status">{notice}</p>}
       {data&&<form onSubmit={send}>
