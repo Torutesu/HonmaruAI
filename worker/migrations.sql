@@ -387,10 +387,4 @@ CREATE INDEX IF NOT EXISTS hx_public_file_shares_file ON hx_public_file_shares(o
 CREATE TABLE IF NOT EXISTS hx_file_share_audit ( org_id TEXT NOT NULL,id INTEGER PRIMARY KEY AUTOINCREMENT,request_id TEXT NOT NULL,share_id TEXT,actor_id TEXT NOT NULL, action TEXT NOT NULL CHECK(action IN ('proposed','approved','declined','revoked','expired','stale')),details TEXT NOT NULL,created_at TEXT NOT NULL );
 CREATE INDEX IF NOT EXISTS hx_file_share_audit_request ON hx_file_share_audit(org_id,request_id,id);
 
-ALTER TABLE hx_file_share_requests ADD COLUMN requester_membership TEXT;
-ALTER TABLE hx_file_share_requests ADD COLUMN source_agent_id TEXT;
-ALTER TABLE hx_file_share_requests ADD COLUMN source_message_id TEXT;
-ALTER TABLE hx_file_share_requests ADD COLUMN source_scope TEXT;
-ALTER TABLE hx_file_share_requests ADD COLUMN source_turn_hash TEXT;
-ALTER TABLE hx_file_share_requests ADD COLUMN source_session_created_at TEXT;
 CREATE INDEX IF NOT EXISTS hx_file_share_requests_source_turn ON hx_file_share_requests(org_id,source_message_id,source_agent_id);
