@@ -534,6 +534,18 @@ test('memory conversion preserves full content, installs atomically and replays 
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills WHERE org_id=?').bind(orgId).first()).n).toBe(1);
 });
 
+test('person-scoped memory conversion audit records person scope without exposing the owner identity',async()=>{
+  const {addAgentMemory}=await import('../src/harness/agents.js');
+  const {memory}=await addAgentMemory(env.DB,orgId,agentId,'Private person memory',{by:'9401',scope:'person',userId:'9401'});
+  const path=`/hx/agents/${agentId}/memory/${memory.id}/to-skill`;
+  const response=await request('POST',path,owner,{expectedVersion:memory.version,requestId:'person-audit-conversion',keepEntry:true});
+  expect(response.status).toBe(201);
+  const event=await env.DB.prepare("SELECT body FROM audit_events WHERE org_id=? AND action='agent.memory_converted' ORDER BY seq DESC LIMIT 1").bind(orgId).first();
+  const details=JSON.parse(event.body).details;
+  expect(details.scope).toBe('person');
+  expect(JSON.stringify(details)).not.toContain('9401');
+});
+
 test('conversion keeps legacy memory on request and rejects stale or repeated versions',async()=>{
   const {addAgentMemory}=await import('../src/harness/agents.js');
   const {memory}=await addAgentMemory(env.DB,orgId,agentId,'Legacy instructions',{by:'9401'});
