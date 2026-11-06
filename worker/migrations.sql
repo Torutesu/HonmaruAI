@@ -380,15 +380,7 @@ ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN app_id TEXT;
 
 
-CREATE TABLE IF NOT EXISTS hx_file_share_requests (
- org_id TEXT NOT NULL,id TEXT NOT NULL,file_id TEXT NOT NULL,file_scope TEXT NOT NULL,file_version INTEGER NOT NULL,
- content_hash TEXT NOT NULL,content_type TEXT NOT NULL,size INTEGER NOT NULL,requester_id TEXT NOT NULL,requester_login TEXT NOT NULL,
- request_key TEXT NOT NULL,expires_at TEXT NOT NULL,allow_download INTEGER NOT NULL DEFAULT 0 CHECK(allow_download IN (0,1)),
- requester_membership TEXT,source_agent_id TEXT,source_message_id TEXT,source_scope TEXT,source_turn_hash TEXT,source_session_created_at TEXT,
- status TEXT NOT NULL CHECK(status IN ('pending','approved','declined','stale','cancelled')),approver_id TEXT,approver_login TEXT,
- decision_at TEXT,created_at TEXT NOT NULL,PRIMARY KEY(org_id,id),UNIQUE(org_id,requester_id,request_key),
- FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE
-);
+CREATE TABLE IF NOT EXISTS hx_file_share_requests ( org_id TEXT NOT NULL,id TEXT NOT NULL,file_id TEXT NOT NULL,file_scope TEXT NOT NULL,file_version INTEGER NOT NULL, content_hash TEXT NOT NULL,content_type TEXT NOT NULL,size INTEGER NOT NULL,requester_id TEXT NOT NULL,requester_login TEXT NOT NULL, request_key TEXT NOT NULL,expires_at TEXT NOT NULL,allow_download INTEGER NOT NULL DEFAULT 0 CHECK(allow_download IN (0,1)), requester_membership TEXT,source_agent_id TEXT,source_message_id TEXT,source_scope TEXT,source_turn_hash TEXT,source_session_created_at TEXT, status TEXT NOT NULL CHECK(status IN ('pending','approved','declined','stale','cancelled')),approver_id TEXT,approver_login TEXT, decision_at TEXT,created_at TEXT NOT NULL,PRIMARY KEY(org_id,id),UNIQUE(org_id,requester_id,request_key), FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE );
 CREATE INDEX IF NOT EXISTS hx_file_share_requests_file ON hx_file_share_requests(org_id,file_id,created_at DESC);
 CREATE TABLE IF NOT EXISTS hx_public_file_shares (
  org_id TEXT NOT NULL,id TEXT NOT NULL,request_id TEXT NOT NULL,file_id TEXT NOT NULL,file_scope TEXT NOT NULL,file_version INTEGER NOT NULL,
