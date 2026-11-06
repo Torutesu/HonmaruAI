@@ -57,20 +57,20 @@ test('refreshes async replies while visible and removes Thread content after acc
 
 test('does not poll while hidden and aborts an in-flight fetch on unmount',async()=>{
  vi.useFakeTimers()
- const previousVisibility=Object.getOwnPropertyDescriptor(document,'visibilityState')
- Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'})
+ let onVisibility:(()=>void)|undefined
+ const doc={visibilityState:'hidden',addEventListener:vi.fn((_name:string,listener:()=>void)=>{onVisibility=listener}),removeEventListener:vi.fn()}
+ vi.stubGlobal('document',doc)
  const fetch=vi.fn().mockImplementation(()=>new Promise(()=>{}))
  vi.stubGlobal('fetch',fetch)
  let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<ExternalGuestThread {...props}/>);await vi.advanceTimersByTimeAsync(10000)})
  expect(fetch).not.toHaveBeenCalled()
- Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
- await act(async()=>{document.dispatchEvent(new Event('visibilitychange'));await Promise.resolve()})
+ doc.visibilityState='visible'
+ await act(async()=>{onVisibility?.();await Promise.resolve()})
  expect(fetch).toHaveBeenCalledTimes(1)
  const signal=fetch.mock.calls[0][1].signal as AbortSignal
  act(()=>tree.unmount())
  expect(signal.aborted).toBe(true)
- if(previousVisibility)Object.defineProperty(document,'visibilityState',previousVisibility)
- else delete (document as any).visibilityState
+ expect(doc.removeEventListener).toHaveBeenCalled()
  vi.useRealTimers()
 })
