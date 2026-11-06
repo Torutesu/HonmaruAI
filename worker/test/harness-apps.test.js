@@ -536,6 +536,8 @@ test('personal app grants inherit defaults, enforce deny precedence, and make vi
   const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
   const { workflow } = await createWorkflow(env.DB,ORG,{name:'View-only write',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{company:'Blocked'}}]},'9103');
   expect(await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).toMatchObject({status:'failed',log:[expect.objectContaining({error:'Table access required.'})]});
+  const { workflow: ownerWorkflow } = await createWorkflow(env.DB,ORG,{name:'Owner write',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{company:'Owner action'}}]},'9102');
+  expect((await send('POST',`/workflows/${ownerWorkflow.id}/run`,guest,{orgId:ORG})).status).toBe(403);
 
   const edit=await send('PUT',accessPath,mika,{orgId:ORG,visibility:'private',version:1,people:[{userId:'9103',permission:'edit'}]});
   expect(edit.status).toBe(200);
@@ -543,6 +545,7 @@ test('personal app grants inherit defaults, enforce deny precedence, and make vi
   expect((await send('PUT',`/apps/${app.id}`,guest,{orgId:ORG,name:'Edited by collaborator'})).status).toBe(200);
   expect((await callHarnessTool(env,{orgId:ORG,githubId:'9103'},'add_row',{tableId:app.tableId,values:{company:'Allowed by MCP'}})).isError).not.toBe(true);
   expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).status).toBe('done');
+  expect((await send('POST',`/workflows/${ownerWorkflow.id}/run`,guest,{orgId:ORG})).status).toBe(201);
 
   const deny=await send('PUT',accessPath,mika,{orgId:ORG,visibility:'workspace',version:2,people:[{userId:'9103',permission:'none'}]});
   expect(deny.status).toBe(200);

@@ -669,6 +669,10 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({ workflow: { ...r.workflow, hookUrl: hookUrl(url, r.workflow) } });
     }
     if (sub === "run" && request.method === "POST") {
+      for (const step of wf.steps || []) {
+        if (!['add_row','update_row'].includes(step.type) || !step.tableId) continue;
+        if (!await mayEditTable(env.DB,orgId,step.tableId,me)) return json({ message: 'Edit access to every target app is required to run this workflow.' }, 403);
+      }
       // Pausing stops automatic triggers; an explicit manual run does not
       // enable the workflow or replay its queued webhook deliveries.
       const run = await startRun(env, { orgId, workflow: wf, trigger: "manual", input: input.input && typeof input.input === "object" ? input.input : { text: String(input.text || "") }, startedBy: me });
