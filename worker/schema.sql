@@ -1955,6 +1955,9 @@ CREATE TABLE IF NOT EXISTS hx_workflow_run_definitions (run_id TEXT PRIMARY KEY 
 
 CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, room_channel TEXT, PRIMARY KEY (org_id, app_id));
 
+CREATE TABLE IF NOT EXISTS hx_app_public_share_requests (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, app_id TEXT NOT NULL, requester_id TEXT NOT NULL, requester_login TEXT NOT NULL, agent_id TEXT NOT NULL, room_channel TEXT NOT NULL, source_message_id TEXT NOT NULL, source_thread_id TEXT, source_hash TEXT NOT NULL, app_version INTEGER NOT NULL, access_version INTEGER NOT NULL, assets_hash TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','approved','declined','stale')), created_at TEXT NOT NULL, reviewed_by TEXT, reviewed_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_hx_app_public_share_requests_app ON hx_app_public_share_requests(org_id,app_id,status,created_at);
+
 CREATE TABLE IF NOT EXISTS hx_skill_access (org_id TEXT NOT NULL, skill_id TEXT NOT NULL REFERENCES hx_skills(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, PRIMARY KEY (org_id, skill_id));
 
 CREATE TABLE IF NOT EXISTS hx_gateways (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen_at INTEGER, revoked_at INTEGER);

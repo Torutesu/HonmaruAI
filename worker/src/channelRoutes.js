@@ -4,6 +4,7 @@ import {externalIdentity,externalReplyGrant} from './harness/externalAssignment.
 import {endAssignment} from './harness/agentAssignments.js';
 import {drainTeammateResults} from './teammateResultDispatch.js';
 import {agentRunSnapshot} from './harness/agentRunSnapshot.js';
+import { publicAppShareAgentTools } from './harness/appShareApproval.js';
 import {stopAssignment} from './harness/agentAssignmentStop.js';
 import {runAgentAssignment} from './harness/runAgentAssignment.js';
 import {drainAgentRequests} from './agentRequestDispatch.js';
@@ -636,6 +637,11 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         if (signal?.aborted) return {cancelled:true};
         if (authorize && !await authorize()) return;
         const toolsForTurn = { ...tools, ...ready.skillTools, ...runtimeTools };
+        Object.assign(toolsForTurn, publicAppShareAgentTools(env, {
+          kind: resolved.kind, mode: harness ? 'harness' : 'simple', orgId,
+          userId: String(session.github_id), login: user.login, agentId: agent.id, agentScope: agent.scope,
+          channel: resolved.key, sourceMessageId: row.id, sourceThreadId: parentId, sourceBody: row.body,
+        }));
         const agentForTurn = {
           ...ready.agent,
           instructions: agentInstructionsForTools(ready.agent.instructions, toolsForTurn),
