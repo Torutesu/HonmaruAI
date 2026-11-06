@@ -311,3 +311,23 @@ test('file detail request flows through human approval queue to public link revo
  expect(JSON.stringify(renderer!.toJSON())).toContain('Revoked')
  await act(async()=>renderer!.unmount())
 })
+
+
+test('pending public share can be declined without revealing a URL',async()=>{
+ const request={id:'request-decline',fileId:'file',filePath:file.path,scope:'workspace',version:51,currentVersion:51,contentHash:'b'.repeat(64),contentType:'text/plain',size:1,expiresAt:new Date(Date.now()+86400000).toISOString(),allowDownload:false,status:'pending',createdAt:new Date().toISOString(),requesterLogin:'agent',decisionAt:null,shareId:null,revokedAt:null,revokedBy:null}
+ const api={
+  list:vi.fn().mockResolvedValue({files:[file],next:null}),
+  shareRequests:vi.fn().mockResolvedValue({requests:[request]}),
+  declinePublicShare:vi.fn().mockResolvedValue({requestId:request.id,status:'declined',decisionAt:new Date().toISOString()}),
+ } as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ await act(async()=>{renderer!.root.findByProps({className:'hx-files-share-open'}).props.onClick();await Promise.resolve()})
+ const decline=renderer!.root.findAllByType('button').find(button=>button.children.includes('Decline request'))
+ expect(decline).toBeTruthy()
+ await act(async()=>{decline!.props.onClick();await Promise.resolve()})
+ expect(api.declinePublicShare).toHaveBeenCalledWith(request.id)
+ expect(JSON.stringify(renderer!.toJSON())).toContain('Declined')
+ expect(JSON.stringify(renderer!.toJSON())).not.toContain('/hx/public-file-shares/')
+ await act(async()=>renderer!.unmount())
+})
