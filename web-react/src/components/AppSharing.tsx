@@ -3,7 +3,7 @@ import { useT } from '../utils/i18n'
 
 interface Access { visibility: 'private' | 'workspace'; version: number }
 interface PersonAccess { userId: string; login: string; name: string; permission: 'none' | 'view' | 'edit'; explicit: boolean; canOverride?: boolean; role?: 'owner' | 'admin' | 'member' | 'guest' }
-interface AccessResponse { access: Access; people?: PersonAccess[]; canEdit?: boolean }
+interface AccessResponse { access: Access; people?: PersonAccess[]; canEdit?: boolean; message?: string }
 const MAX_PEOPLE = 100
 export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase: string; orgId: string; sessionToken: string; appId: string }) {
   const t = useT()
