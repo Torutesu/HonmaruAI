@@ -25,6 +25,13 @@ async function appPermission(db, orgId, appId, userId) {
   if (access.visibility === 'room') return (await mayUseConversation(db, orgId, userId, access.roomChannel)) ? 'edit' : 'none';
   return 'none';
 }
+export async function explicitlyDeniedAppMember(db,orgId,appId,userId) {
+  if (!userId) return false;
+  const member=await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'guest'))!='guest'").bind(orgId,String(userId)).first();
+  if(!member)return false;
+  const grant=await db.prepare("SELECT 1 AS denied FROM hx_app_member_permissions WHERE org_id=?1 AND app_id=?2 AND user_github_id=?3 AND membership_since=?4 AND permission='none'").bind(orgId,appId,String(userId),String(member.created_at||'')).first();
+  return Boolean(grant);
+}
 export async function mayUseApp(db, orgId, appId, userId) {
   return (await appPermission(db, orgId, appId, userId)) !== 'none';
 }

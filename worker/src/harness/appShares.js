@@ -1,3 +1,4 @@
+import { explicitlyDeniedAppMember } from './resourceAccess.js';
 import { renderApp } from './apps.js';
 
 const tokenHash = async token => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))), byte => byte.toString(16).padStart(2, '0')).join('');
@@ -50,7 +51,7 @@ export async function revokeAppShare(db, orgId, appId, shareId) {
 // An anyone-link is a separate, read-only bearer grant. It intentionally works
 // without a workspace identity, so per-member overrides cannot identify its
 // reader; revoke or expire the link to withdraw this independent grant.
-export async function readAppShare(db, token) {
+export async function readAppShare(db, token, viewerId = null) {
   if (!validToken(token)) return { error: 'This app link is unavailable.', status: 404 };
   const row = await db.prepare(`SELECT s.org_id AS orgId,s.app_id AS appId,s.app_version AS appVersion,
       s.access_version AS accessVersion,s.expires_at AS expiresAt,s.revoked_at AS revokedAt,
@@ -58,6 +59,9 @@ export async function readAppShare(db, token) {
     FROM hx_app_public_shares s JOIN hx_apps a ON a.org_id=s.org_id AND a.id=s.app_id
     WHERE s.token_hash=?1`).bind(await tokenHash(token)).first();
   if (!row || row.revokedAt || row.expiresAt <= now() || Number(row.version) !== Number(row.appVersion)) return { error: 'This app link is unavailable.', status: 404 };
+  // The bearer token remains public, but an authenticated current workspace
+  // member's explicit per-App deny takes precedence over that broader grant.
+  if (await explicitlyDeniedAppMember(db,row.orgId,row.appId,viewerId)) return { error: 'This app link is unavailable.', status: 404 };
   const current = await db.prepare('SELECT COALESCE((SELECT version FROM hx_app_access WHERE org_id=?1 AND app_id=?2),0) AS version').bind(row.orgId,row.appId).first();
   if (Number(current?.version || 0) !== Number(row.accessVersion)) return { error: 'This app link is unavailable.', status: 404 };
   let definition;

@@ -2049,8 +2049,11 @@ test('anyone links publish only inline Custom Apps and exact revocation hides a 
   expect(issued.token).toMatch(/^app_[a-f0-9]{64}$/);
   const inventory=await (await get(`/apps/${app.id}/public-shares?orgId=${ORG}`,mika)).json();
   expect(inventory.shares[0]).not.toHaveProperty('token');
+  const denyLink=await send('PUT',`/apps/${app.id}/member-permissions`,toru,{orgId:ORG,userId:'9101',permission:'none',version:0});
+  expect(denyLink.status).toBe(200);
   const publicRead=await call(`/app-shares/${issued.token}`);
   expect(publicRead.status).toBe(200);
+  expect((await call(`/app-shares/${issued.token}`,{headers:headers(toru)})).status).toBe(404);
   expect(publicRead.headers.get('cache-control')).toContain('no-store');
   expect(await publicRead.json()).toMatchObject({app:{id:app.id,version:published.version},html:'<h1>Public read-only</h1>'});
   expect((await call(`/app-shares/${issued.token}`,{method:'POST'})).status).toBe(404);
@@ -2102,4 +2105,6 @@ test('member app permissions override workspace sharing and fence reads, writes,
   await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id=?2").bind(ORG,'9101').run();
   const { mayUseApp } = await import('../src/harness/resourceAccess.js');
   expect(await mayUseApp(env.DB,ORG,app.id,'9101')).toBe(false);
+  await env.DB.prepare("UPDATE memberships SET role='member',created_at='2099-01-01T00:00:00.000Z' WHERE org_id=?1 AND user_github_id=?2").bind(ORG,'9101').run();
+  expect(await mayUseApp(env.DB,ORG,app.id,'9101')).toBe(true);
 });

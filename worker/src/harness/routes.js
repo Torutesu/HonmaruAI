@@ -24,7 +24,7 @@ import { createRoomHook, listRoomHooks, changeRoomHook } from './roomHooks.js';
 import {readRoomVisualImage} from './roomVisualImage.js';
 import {roomRoleState} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
-import {listBusinesses} from '../db.js';
+import {getSession, listBusinesses} from '../db.js';
 import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnership } from './agentRoles.js';
 import { announceAgentAccessChanged } from './agentAccessEvents.js';
 import { memoryPage, memoryReviewHistory, reviewMemoryEntry, updateMemoryEntry } from './memoryEntries.js';
@@ -145,7 +145,9 @@ export async function handleHarness(request, env, url, context = {}) {
   const publicAppSharePath = url.pathname.match(/^\/app-shares\/([^/]+)$/);
   if (publicAppSharePath) {
     if (request.method !== 'GET') return json({ message: 'This app link is unavailable.' }, 404);
-    const result = await readAppShare(env.DB, publicAppSharePath[1]);
+    const token=request.headers.get('x-session-token');
+    const viewer=token?await getSession(env.DB,token):null;
+    const result = await readAppShare(env.DB, publicAppSharePath[1], viewer?.github_id || null);
     return result.error ? fail(result) : json(result);
   }
 
