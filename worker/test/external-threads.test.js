@@ -231,3 +231,12 @@ test("invitation email mismatch, expiry, revoke, and new workspace membership ca
   const expiredSession=await createSession(env.DB,expiredId,"external-invite-test");
   expect((await call("/external/invites/redeem",expiredSession,"POST",{token:expiredToken})).status).toBe(404);
 });
+
+test("external invitations accept normal email addresses and reject malformed whitespace", async () => {
+  const {orgId,rootId,sessions}=await setup();
+  const path=`/external/threads/${orgId}/${rootId}/invites`;
+  expect((await call(path,sessions.owner,"POST",{email:"guest@example.test",permission:"view"})).status).toBe(201);
+  for(const email of ["guest @example.test","guest@example .test","not-an-email",`${"a".repeat(250)}@x.io`]) {
+    expect((await call(path,sessions.owner,"POST",{email,permission:"view"})).status).toBe(400);
+  }
+});
