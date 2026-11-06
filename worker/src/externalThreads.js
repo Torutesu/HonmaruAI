@@ -233,8 +233,10 @@ export async function redeemExternalThreadInvite(env, { token, userId }) {
     return result.meta?.changes ? { redeemed: true, alreadyMember: true, orgId: invite.org_id } : deny;
   }
   const previous = env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
-    WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL`)
-    .bind(now,invite.created_by,invite.org_id,invite.resource_id,String(userId));
+    WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL
+      AND EXISTS(SELECT 1 FROM hx_external_thread_invites i WHERE i.id=?6 AND i.redemption_id=?7)
+      AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?3 AND m.user_github_id=?5)`)
+    .bind(now,invite.created_by,invite.org_id,invite.resource_id,String(userId),invite.id,redemptionId);
   const insert = env.DB.prepare(`INSERT INTO hx_external_resource_grants
       (id,org_id,resource_type,resource_id,recipient_github_id,permission,granted_by,granted_at,expires_at)
     SELECT ?1,i.org_id,'thread',i.resource_id,?2,i.permission,i.created_by,?3,i.access_expires_at
