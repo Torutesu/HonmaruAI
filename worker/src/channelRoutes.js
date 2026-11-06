@@ -374,8 +374,11 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
       console.error("ai links failed", safe(err?.message));
     }
     const where = resolved.kind === "business" ? `#${resolved.slug}` : "a direct conversation";
+    // Room guidelines are per-turn instructions for every assistant entrypoint,
+    // including @AI replies; they never change the room or Simple-mode settings.
+    const agent = await withRoomGuidelines(env.DB, orgId, resolved.key, TEAM_AI);
     const result = await askAgent({
-      provider, agent: TEAM_AI, request: withoutAI(row.body), transcript, playbook, where, links, env,
+      provider, agent, request: withoutAI(row.body), transcript, playbook, where, links, env,
       askedBy: user.name || "a teammate", readerLanguage: locale,
       deadline: Date.now() + 25000, onRound: () => progress("agent"),
       usageContext: { roomSlug: resolved.kind === "business" ? resolved.slug : null, agentId: "__assistant__" },

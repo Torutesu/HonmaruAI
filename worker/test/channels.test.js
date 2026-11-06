@@ -121,6 +121,11 @@ test("@AI turns a message into a decision written from the conversation, and say
 });
 
 test("@AI asked a question answers it in the thread and makes no card", async () => {
+  const savedGuidelines = await call(`/hx/rooms/guidelines?${q({ orgId: ORG, channel: "b:cafe" })}`, {
+    method: "PUT", headers: headers(toru),
+    body: JSON.stringify({ orgId: ORG, channel: "b:cafe", body: "Cite the source for each number.", version: 0 }),
+  });
+  expect(savedGuidelines.status).toBe(200);
   await post("/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "The roaster quote came in: +8% from Friday, same beans" });
   let prompt;
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(200, (opts) => {
@@ -130,6 +135,7 @@ test("@AI asked a question answers it in the thread and makes no card", async ()
   const res = await post("/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "@AI 今の話を要約して" }, { OPENAI_API_KEY: "sk-test", OPENAI_MODEL: "gpt-4o-mini" });
   const { message, deciding } = await res.json();
   expect(deciding).toBe(false);
+  expect(prompt.messages.find((m) => m.role === "system").content).toContain("Cite the source for each number.");
   const { results } = await env.DB.prepare("SELECT data FROM cards WHERE org_id = ?1").bind(ORG).all();
   expect(results).toHaveLength(0);
   expect(prompt.messages.find((m) => m.role === "user").content).toContain("The roaster quote came in");
