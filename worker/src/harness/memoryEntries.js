@@ -89,7 +89,7 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
       after = value.slice(6);
     } catch { return { error: 'Invalid memory cursor.', status: 400 }; }
   }
-  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at, r.reviewed_version, r.evidence AS review_evidence, r.reviewed_by, r.reviewed_at
+  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, d.title, d.description, d.body, d.version, d.updated_at, r.reviewed_version, r.evidence AS review_evidence, r.reviewed_by, r.reviewed_at
     FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
     LEFT JOIN hx_memory_reviews r ON r.memory_id=m.id AND r.org_id=m.org_id
@@ -111,7 +111,7 @@ export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel
     || typeof input.evidence !== 'string' || !input.evidence.trim() || input.evidence.length > 2000
     || !by) return { error: 'A memory version and review evidence are required.', status: 400 };
   if (input.verdict === 'update') {
-    const row = await db.prepare(`SELECT m.*,s.channel,s.kind,d.title,d.description,d.body,d.version FROM hx_agent_memories m
+    const row = await db.prepare(`SELECT m.*,s.channel,s.kind,s.user_github_id,d.title,d.description,d.body,d.version FROM hx_agent_memories m
       LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
       LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
       WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4`).bind(orgId,agentId,id,channel).first();
