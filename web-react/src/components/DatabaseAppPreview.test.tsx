@@ -13,6 +13,7 @@ const rows=[{id:'r1',updatedAt:'2026-11-06T00:00:00.000Z',values:{name:'Laptop f
 
 test('shows populated database rows in desktop table and phone cards',()=>{
   const tree=create(<AppViewportPreview><DatabaseAppPreview app={app} table={table} rows={rows}/></AppViewportPreview>)
+  expect(tree.root.findAllByProps({className:'hx-database-preview-browse'})).toHaveLength(0)
   const desktop=tree.root.findByProps({'aria-label':'Desktop preview'})
   const phone=tree.root.findByProps({'aria-label':'Phone preview'})
   expect(desktop.props['aria-pressed']).toBe(true)
