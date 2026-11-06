@@ -13,7 +13,11 @@ const tag = () => crypto.randomUUID().replaceAll("-", "");
 const context = { waitUntil() {} };
 const grantMigration = migrationsSql.split("\n").filter((line) =>
   /^CREATE TABLE IF NOT EXISTS hx_external_resource_grants /.test(line) ||
-  /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_resource_grants_/.test(line)
+  /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_resource_grants_/.test(line) ||
+  /^CREATE TABLE IF NOT EXISTS hx_external_app_invites /.test(line) ||
+  /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_app_invites_/.test(line) ||
+  /^CREATE TABLE IF NOT EXISTS hx_external_app_send_requests /.test(line) ||
+  /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_app_send_requests_/.test(line)
 );
 
 async function setup() {
