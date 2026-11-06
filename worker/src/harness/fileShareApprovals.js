@@ -161,7 +161,7 @@ export async function handleFileShareRoutes(request,env,url,{orgId,userId,login}
    const result=await revokePublicFileShare(env,{orgId,shareId:decodeURIComponent(parts[3]),userId,login});
    return json(result,result.error?result.status||400:200);
   }
-  if(request.method==='POST'&&parts.length===5&&parts[2]==='files'&&parts[4]==='share-requests'){
+  if(request.method==='POST'&&parts.length===4&&parts[2]==='files'&&parts[3]==='share-requests'){
    const fileId=decodeURIComponent(parts[3]),body=await request.json().catch(()=>null);
    const result=await proposePublicFileShare(env,{orgId,fileId,version:body?.version,userId,login,
     requestKey:body?.requestKey,expiresIn:body?.expiresIn,allowDownload:body?.allowDownload===true});
