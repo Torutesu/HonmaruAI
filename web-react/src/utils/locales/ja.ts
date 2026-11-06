@@ -1272,6 +1272,7 @@ const table: Record<string, string> = {
   '1 mention of you': 'あなたへのメンション1件',
   'Insert emoji': '絵文字を挿入',
   'Add reaction': 'リアクションを追加',
+  'Workspace custom emoji are unavailable in guest threads. Unicode emoji are supported.': 'ゲスト用スレッドではワークスペース独自の絵文字は利用できません。Unicode絵文字をお使いください。',
   'React with {emoji}': '{emoji} でリアクション',
   'Unpin': 'ピン留めを外す',
   'Pin to channel': 'チャンネルにピン留め',
