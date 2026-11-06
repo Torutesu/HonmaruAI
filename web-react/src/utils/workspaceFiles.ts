@@ -42,7 +42,11 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   shareRequests:(fileId?:string,signal?:AbortSignal)=>json<{requests:PublicFileShareRequest[]}>('/hx/files/share-requests','GET',undefined,fileId?{fileId}:{},signal),
   requestPublicShare:(id:string,version:number,expiresIn:number,allowDownload:boolean)=>json<{requestId:string;status:string;fileId:string;version:number;contentHash:string;expiresAt:string;allowDownload:boolean}>(
    `${path(id)}/share-requests`,'POST',{version,requestKey:crypto.randomUUID().replaceAll('-',''),expiresIn,allowDownload}),
-  approvePublicShare:(requestId:string)=>json<{shareId:string;url:string;expiresAt:string;allowDownload:boolean}>('/hx/files/share-requests/approve','POST',{requestId}),
+  approvePublicShare:async(requestId:string)=>{
+   const result=await json<{shareId:string;url:string;expiresAt:string;allowDownload:boolean}>('/hx/files/share-requests/approve','POST',{requestId})
+   const fallback=typeof window==='undefined'?'https://localhost':window.location.origin
+   return {...result,url:new URL(result.url,new URL(base||fallback,fallback).origin).toString()}
+  },
   revokePublicShare:(shareId:string)=>json<{shareId:string;revokedAt:string}>(`/hx/files/shares/${encodeURIComponent(shareId)}/revoke`,'POST',{}),
   versions:(id:string,before?:number,signal?:AbortSignal)=>json<{versions:FileVersion[]}>(`${path(id)}/versions`,'GET',undefined,before===undefined?{}:{before:String(before)},signal),
   download:async(id:string,version:number,signal?:AbortSignal)=>(await response(`${path(id)}/versions/${version}/content`,'GET',undefined,undefined,'application/json',signal)).blob(),
