@@ -1761,11 +1761,7 @@ test('combined schema check enforces database management and every linked app AC
  expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
 });
 
-test.each([
- ['action','before dispatch'],['connection','before dispatch'],['gateway','before dispatch'],
- ['action','during model'],['connection','during model'],['gateway','during model'],
- ['action','during cleanup'],['connection','during cleanup'],['gateway','during cleanup'],
-])('custom generation rejects a %s changed %s',async(kind,phase)=>{
+const runCustomGenerationRace=async(kind,phase)=>{
  const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
  const at='2026-01-01T00:00:00Z';
  await env.DB.prepare("INSERT INTO hx_app_actions(org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES(?,?,'calculate',1,'return 1;','return 1;',1,?)").bind(ORG,app.id,at).run();
@@ -1799,7 +1795,14 @@ test.each([
   expect(response.status).toBe(404);
   expect(JSON.stringify(await response.json())).not.toContain('Sensitive generated result');
  } finally {vi.unstubAllGlobals()}
-});
+};
+
+test.each(test.each([
+ ['action','before dispatch'],['connection','before dispatch'],['gateway','before dispatch'],
+['connection','during model'],['gateway','during model'],
+ ['action','during cleanup'],['connection','during cleanup'],['gateway','during cleanup'],
+)('custom generation rejects a %s changed %s',runCustomGenerationRace);
+test('custom generation rejects an action changed during model',()=>runCustomGenerationRace('action','during model'),15000);
 
 test('custom capability snapshot checks exact visible values and ignores unrelated records',async()=>{
  const {mayGenerateFromSchema}=await import('../src/harness/generationAccess.js');
