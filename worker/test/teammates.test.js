@@ -326,7 +326,7 @@ test.each(['finish','stop','signout','publication_retry'])('a handed-off externa
   expect(response.status).toBe(200);expect(await response.json()).toEqual({stopped:true,remoteStop:'requested'});expect(stopEvent).toEqual({events:[{type:'user.interrupt'}]});
   expect(await env.DB.prepare('SELECT remote_stop_status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({remote_stop_status:'requested'});
   const {agentRunSnapshot}=await import('../src/harness/agentRunSnapshot.js');
-  expect((await agentRunSnapshot(env,ORG,[row.id],{actorId:'9702'})).results[0].assignments[0]).toMatchObject({status:'cancelled',providerStopStatus:'requested'});
+  expect((await agentRunSnapshot(env,ORG,[row.id],{actorId:'9702',login:'mika'})).results[0].assignments[0]).toMatchObject({status:'cancelled',providerStopStatus:'requested'});
   const retry=await send('POST','/channels/agent-runs/stop',mika,{orgId:ORG,channel:'b:cafe',messageId:row.id,assignmentId:begun.assignment.id,generation:1});
   expect(await retry.json()).toEqual({stopped:true,remoteStop:'requested'});
  }
