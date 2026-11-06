@@ -268,7 +268,7 @@ async function unavailableProgramNode(db,orgId,steps) {
   return node?null:{error:'Choose an available execution node in this workspace.'};
 }
 
-export export async function mayEditWorkflow(db, orgId, workflow, viewerId) {
+export async function mayEditWorkflow(db, orgId, workflow, viewerId) {
   if (!workflow || !viewerId) return false;
   if (workflow.trigger?.tableId && !(await mayEditTable(db,orgId,workflow.trigger.tableId,viewerId))) return false;
   if (workflow.trigger?.type === 'app_record_change' && !(await mayEditApp(db,orgId,workflow.trigger.appId,viewerId))) return false;
