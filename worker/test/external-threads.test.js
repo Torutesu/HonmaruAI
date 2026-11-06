@@ -177,12 +177,13 @@ test("membership transition pauses external Thread access, keeps the grant visib
 
   await upsertMembership(env.DB,orgId,ids.guest,"member");
   const listed=await call(path,sessions.owner);
-  expect((await listed.json()).shares).toMatchObject([{
+  const shares=(await listed.json()).shares;
+  expect(shares).toMatchObject([{
     recipient:{email},recipientIsMember:true,suspended:true,permission:"edit",
   }]);
   expect((await call(`/external/threads/${orgId}/${rootId}`,sessions.guest)).status).toBe(404);
 
-  expect((await call(path,sessions.owner,"DELETE",{email})).status).toBe(200);
+  expect((await call(path,sessions.owner,"DELETE",{grantId:shares[0].id})).status).toBe(200);
   await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,ids.guest).run();
   expect((await call(`/external/threads/${orgId}/${rootId}`,sessions.guest)).status).toBe(404);
   expect(await env.DB.prepare("SELECT suspended_at,revoked_at FROM hx_external_resource_grants WHERE org_id=?1 AND resource_id=?2 AND recipient_github_id=?3").bind(orgId,rootId,ids.guest).first())
