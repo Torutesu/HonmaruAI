@@ -635,7 +635,14 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
  :root .shell.harness-workspace .hx-thread-app .slk-thread-pane .slk-thread-log{min-width:0}
 }
 @media(max-width:1100px){
- :root .shell.harness-workspace .classic.slk.slk.hx-thread-app > .hx-app-pane{z-index:36}
+ /* Keep the source conversation in view when an App is opened from its
+    thread. On narrow screens, stack the two panes instead of covering the
+    thread with an absolute App panel. */
+ :root .shell.harness-workspace .classic.slk.slk.hx-thread-app{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;align-items:stretch}
+ :root .shell.harness-workspace .classic.slk.slk.hx-thread-app > .slk-main{display:none}
+ :root .shell.harness-workspace .classic.slk.slk.hx-thread-app > .slk-thread-pane{position:relative;inset:auto;order:1;flex:0 0 min(55vh,620px);min-height:320px;width:auto!important;max-width:none;border-left:0;animation:none}
+ :root .shell.harness-workspace .classic.slk.slk.hx-thread-app > .hx-app-pane{position:relative;inset:auto;order:2;flex:0 0 min(70vh,760px);width:auto;min-width:0;min-height:460px;z-index:auto;margin:6px}
+ :root .shell.harness-workspace .classic.slk.slk.hx-thread-app > .hx-app-pane .hx-app-detail{min-height:100%}
 }
 
 /* Room roots and their conversations share the same hierarchy as the chat UI. */
