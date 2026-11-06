@@ -178,6 +178,9 @@
 :root .shell.harness-workspace .screen .hx-seg button.on { background: var(--hx-hover); color: var(--hx-accent); }
 :root .shell.harness-workspace .screen .row .row-main, :root .shell.harness-workspace .screen .hx-persona-text { color: var(--hx-text); }
 :root .shell.harness-workspace .screen .row { box-sizing: border-box; }
+Warning: truncated output (original token count: 5229)
+Total output lines: 180
+
 .hx-chat-group { margin: 0 0 12px; padding: 0; list-style: none; }
 :root .shell.harness-workspace .screen .hx-persona-text .md { white-space: normal; }
 .hx-profile-card { border: 1px solid var(--hx-border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
@@ -259,15 +262,7 @@
 :root .shell.harness-workspace .hx-data-tools span { margin-left:auto; color:var(--hx-muted); font-size:12px; }
 :root .shell.harness-workspace .hx-generation { border:1px solid var(--hx-hover); border-radius:16px; padding:24px; margin-bottom:24px; }
 :root .shell.harness-workspace .hx-generation textarea { margin-top:12px; }
-:root .shell.harness-workspace .hx-flow-diagram { display:flex; flex-direction:column; align-items:center; padding:24px; background:var(--hx-hover); border-radius:16px; margin-bottom:24px; }
-:root .shell.harness-workspace .hx-flow-node { width:min(100%,520px); display:flex; flex-direction:column; gap:10px; background:var(--hx-surface); border:1px solid var(--hx-hover); border-radius:14px; padding:20px; overflow-wrap:anywhere; }
-:root .shell.harness-workspace .hx-flow-node small { color:var(--hx-muted); }
-:root .shell.harness-workspace .hx-flow-node strong { font-size:14px; white-space:pre-wrap; }
-:root .shell.harness-workspace .hx-flow-node span { font-size:12px; color:var(--hx-muted); }
-:root .shell.harness-workspace .hx-flow-connector { color:var(--hx-subtle); padding:10px; }
-@media(max-width:1100px) { :root .shell.harness-workspace .hx-app-pane.slk-pane { position:absolute; inset:0; width:auto; min-width:0; z-index:35; margin:6px; } }
-:root .shell.harness-workspace .hx-app-pane .hx-app-detail { position:static; inset:auto; min-width:0; width:100%; }
-@media(min-width:1101px) {
+:root .shell.harness-workspace .hx-flow-diagram { display:flex; flex-direction:column; align-items:center; padding:24px; background:var(--hx-hover); border-radius:16px; margin-…229 tokens truncated…x) {
   :root .shell.harness-workspace .classic.slk.slk:has(.hx-app-pane) .slk-side { width:clamp(260px,22vw,320px); flex-basis:clamp(260px,22vw,320px); }
   :root .shell.harness-workspace .hx-app-pane.slk-pane { width:clamp(420px,42vw,1100px); }
   .classic:has(.hx-app-pane) .hx-chat-filters { padding-left:12px; padding-right:12px; gap:2px; }
@@ -924,3 +919,71 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-annotation-card header button { border:0; background:transparent; color:var(--hx-muted); font-size:18px; cursor:pointer; }
 .hx-annotation-card p { margin:0; overflow-wrap:anywhere; white-space:pre-wrap; font-size:12px; line-height:1.5; }
 .hx-annotation-card footer { color:var(--hx-muted); }
+
+
+/* Pinned GitHub release review: use the Harness surface roles in both themes. */
+.hx-commit-release {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid var(--hx-border);
+  border-radius: 14px;
+  background: var(--hx-hover);
+  color: var(--hx-text);
+}
+.hx-commit-release h3 { margin: 0; font-size: 15px; }
+.hx-commit-release > p { max-width: 78ch; margin: 0; color: var(--hx-muted); font-size: 12px; line-height: 1.6; }
+.hx-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.hx-form-grid label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--hx-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+.hx-form-grid input {
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--hx-border);
+  border-radius: 9px;
+  background: var(--hx-surface);
+  color: var(--hx-text);
+  font: inherit;
+  font-size: 13px;
+}
+.hx-form-grid input:focus-visible {
+  outline: 2px solid var(--hx-accent);
+  outline-offset: 2px;
+}
+.hx-commit-review {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--hx-border);
+  border-radius: 11px;
+  background: var(--hx-surface);
+}
+.hx-commit-review p { margin: 0; color: var(--hx-muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.hx-commit-review code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--hx-chip-surface);
+  color: var(--hx-text);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.hx-commit-review [role="status"] { color: var(--hx-text); font-weight: 650; }
+.hx-commit-review .hx-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.hx-commit-review button:disabled { cursor: not-allowed; opacity: .55; }
+@media (max-width: 620px) {
+  .hx-commit-release { padding: 14px; }
+  .hx-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .hx-commit-review .hx-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+}
