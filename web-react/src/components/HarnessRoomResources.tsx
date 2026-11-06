@@ -27,7 +27,19 @@ export function HarnessRoomResources({ api, channel, kind, onClose, onCreate, on
   return <aside className="hx-room-resource slk-pane" aria-label={t(apps ? 'Apps' : 'Automations')}>
     <header><strong>{count === null ? t(apps ? 'Apps' : 'Automations') : t(apps ? '{n} apps' : '{n} workflows', { n: count })}</strong><button onClick={onClose} aria-label={t('Close resources')}><Icon name="x" size={16} /></button></header>
     {error ? <div className="hx-resource-empty" role="alert"><p>{error}</p><button onClick={() => setRetry(n => n + 1)}>{t('Retry')}</button></div> : !data ? <p className="hx-resource-loading" role="status">{t('Loading…')}</p> : count === 0 ? <div className="hx-resource-empty"><span className="hx-resource-symbol"><Icon name={apps ? 'grid' : 'zap'} size={18} /></span><h2>{t(apps ? 'No apps in this room yet' : 'No automations in this room yet')}</h2><p>{t(apps ? 'Apps are small tools your agents build for this room: dashboards, trackers and forms.' : 'Automations do work on a schedule or when something happens in this room.')}</p><button onClick={onCreate}>{t(apps ? 'Build an app' : 'Set up an automation')}</button></div> : <div className="hx-resource-items">
-      {apps ? data.apps.map(app => <button key={app.id} className="hx-resource-item" onClick={() => onOpenApp?.(app.id)}><span className="hx-resource-symbol"><HarnessAppIcon icon={app.icon} /></span><span><b>{app.name}</b><small>{app.description}</small></span><Icon name="chevron-right" size={14} /></button>) : data.workflows.map(flow => <button key={flow.id} className="hx-resource-item" onClick={() => onOpenWorkflow?.(flow.id)}><span className="hx-resource-symbol"><Icon name="zap" size={18} /></span><span><b>{flow.name}</b><small>{t(flow.enabled ? 'On' : 'off')} · {t(flow.trigger.type)}{flow.nextRunAt ? ` · ${new Date(flow.nextRunAt).toLocaleString()}` : ''}</small></span><Icon name="chevron-right" size={14} /></button>)}
+      {apps ? data.apps.map(app => <button key={app.id} className="hx-resource-item" onClick={() => onOpenApp?.(app.id)}><span className="hx-resource-symbol"><HarnessAppIcon icon={app.icon} /></span><span><b>{app.name}</b><small>{app.description}</small></span><Icon name="chevron-right" size={14} /></button>) : data.workflows.map(flow => {
+        const paused = Boolean(flow.safety?.paused_at)
+        const state = paused ? 'Paused' : flow.enabled ? 'On' : 'Off'
+        const timestamp = flow.enabled && !paused ? flow.nextRunAt : flow.lastRunAt
+        const timing = timestamp && Number.isFinite(Date.parse(timestamp))
+          ? t(flow.enabled && !paused ? 'Next run {when}' : 'Last run {when}', { when: new Date(timestamp).toLocaleString() })
+          : t(flow.trigger.type === 'schedule' ? 'Schedule configured' : 'No upcoming run')
+        return <button key={flow.id} className="hx-resource-item hx-workflow-resource-item" onClick={() => onOpenWorkflow?.(flow.id)}>
+          <span className={`hx-resource-symbol hx-workflow-resource-icon${paused ? ' is-paused' : flow.enabled ? ' is-on' : ''}`}><Icon name="zap" size={18} /></span>
+          <span className="hx-resource-item-copy"><b>{flow.name}</b><small className="hx-workflow-resource-meta"><span className={`hx-workflow-state${paused ? ' is-paused' : flow.enabled ? ' is-on' : ''}`}><i aria-hidden="true" />{t(state)}</span><span>{t(flow.trigger.type)}</span></small><small className="hx-workflow-resource-timing">{timing}</small></span>
+          <Icon name="chevron-right" size={14} />
+        </button>
+      })}
       <button className="hx-resource-create" onClick={onCreate}><Icon name="plus" size={15} />{t(apps ? 'Build an app' : 'Set up an automation')}</button>
     </div>}
     <footer><button onClick={() => apps ? onOpenApp?.() : onOpenWorkflow?.()}>{t(apps ? 'Manage all apps' : 'Manage all workflows')}</button>{!apps && <button onClick={onLegacy}>{t('Room schedules')}</button>}</footer>
