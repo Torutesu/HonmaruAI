@@ -4,6 +4,8 @@ export type ExternalThreadGrant = {
   recipient: { name: string; email: string }
   grantedAt: string
   expiresAt: string | null
+  recipientIsMember?: boolean
+  suspended?: boolean
 }
 
 export type ExternalThreadShareInput = {
