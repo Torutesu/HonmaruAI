@@ -2,9 +2,11 @@ import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {afterEach,expect,test,vi} from 'vitest'
 import {HarnessThreadHeader} from './HarnessThreadHeader'
+import {ExternalThreadShare} from './ExternalThreadShare'
 import {RowMenu} from './RowMenu'
 vi.mock('../utils/useThreadNotifications',()=>({useThreadNotifications:()=>({muted:false,busy:false,error:'',toggle:()=>{}})}))
 vi.mock('./RowMenu',()=>({RowMenu:()=>null}))
+vi.mock('./ExternalThreadShare',()=>({ExternalThreadShare:(props:any)=><div data-testid='external-thread-share' data-thread={props.threadId}/> }))
 vi.mock('./Dialog',()=>({Dialog:({children,footer}:any)=><section>{children}{footer}</section>}))
 const api={httpBase:'https://api.example',orgId:'team:test',sessionToken:'token'}
 const parent:any={id:'root',body:'Original request',threadTitle:'Title',threadTitleVersion:1,canRenameThread:true}
@@ -42,4 +44,16 @@ test('thread copy excludes login query parameters and shows the link when clipbo
  await act(async()=>tree!.root.findByProps({'aria-label':'スレッドのリンクをコピー'}).props.onClick())
  expect(writeText).toHaveBeenCalledWith('https://app.example/#/t/root/team%3Atest');expect(tree!.root.findByProps({'aria-label':'スレッドのリンク'}).props.value).toBe('https://app.example/#/t/root/team%3Atest')
  expect(JSON.stringify(tree!.toJSON())).toContain('コピーできませんでした');act(()=>tree!.unmount())
+})
+
+test('named collaborators are separate from public snapshot sharing',()=>{
+ globals();let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<HarnessThreadHeader api={api} channel="b:general" parent={parent} room="general" onClose={()=>{}} onParent={()=>{}}/>)})
+ act(()=>tree!.root.findByProps({'aria-label':'その他のスレッド操作'}).props.onClick({currentTarget:{getBoundingClientRect:()=>({left:0,bottom:0})}}))
+ const entries=tree!.root.findByType(RowMenu).props.entries
+ expect(entries.map((entry:any)=>entry.label)).toContain('外部ユーザーと共有')
+ expect(entries.map((entry:any)=>entry.label)).toContain('公開リンクを管理')
+ act(()=>entries.find((entry:any)=>entry.label==='外部ユーザーと共有').onSelect())
+ expect(tree!.root.findByType(ExternalThreadShare).props.threadId).toBe(parent.id)
+ act(()=>tree!.unmount())
 })

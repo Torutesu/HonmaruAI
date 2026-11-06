@@ -1,0 +1,71 @@
+.hx-external-thread-share-form {
+  display: grid;
+  gap: 14px;
+}
+.hx-external-thread-share-form > label,
+.hx-external-thread-share-options > label,
+.hx-external-thread-permission {
+  display: grid;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 13px;
+}
+.hx-external-thread-share-form input,
+.hx-external-thread-share-form select,
+.hx-external-thread-permission select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--bone);
+  border-radius: var(--radius-input);
+  background: var(--signal-white);
+  color: var(--ink);
+  padding: 9px 10px;
+}
+.hx-external-thread-share-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.hx-external-thread-grants {
+  display: grid;
+  gap: 8px;
+  margin-top: 22px;
+}
+.hx-external-thread-grants h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.hx-external-thread-grant {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--bone);
+}
+.hx-external-thread-person {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.hx-external-thread-person span,
+.hx-external-thread-person small {
+  overflow-wrap: anywhere;
+  color: var(--ash);
+  font-size: 12px;
+}
+.hx-external-thread-grant-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hx-external-thread-share .form-error {
+  margin: 12px 0 0;
+}
+@media (max-width: 600px) {
+  .hx-external-thread-share-options { grid-template-columns: 1fr; }
+  .hx-external-thread-grant { grid-template-columns: minmax(0, 1fr) auto; }
+  .hx-external-thread-permission { grid-column: 1 / -1; }
+  .hx-external-thread-grant-actions { grid-column: 1 / -1; justify-content: flex-end; }
+}

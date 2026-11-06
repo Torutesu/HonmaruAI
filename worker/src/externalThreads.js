@@ -62,11 +62,29 @@ async function resolveRecipient(db, orgId, email, actorId) {
 }
 
 async function shareThread(request, env, orgId, rootId, actor) {
-  if (request.method !== "POST" && request.method !== "DELETE") return fail("Method not allowed.", 405);
-  const input = await request.json().catch(() => null);
-  if (!input) return fail("Invalid JSON body.", 400);
+  if (!["GET", "POST", "DELETE"].includes(request.method)) return fail("Method not allowed.", 405);
   const root = await manageableRoot(env.DB, orgId, rootId, actor.user);
   if (!root) return fail("Thread not found or cannot be shared.", 404);
+  if (request.method === "GET") {
+    const now = new Date().toISOString();
+    const { results = [] } = await env.DB.prepare(`SELECT g.id,g.permission,g.granted_at,g.expires_at,
+        u.name,u.login,u.email
+      FROM hx_external_resource_grants g
+      JOIN users u ON u.github_id=g.recipient_github_id
+      WHERE g.org_id=?1 AND g.resource_type='thread' AND g.resource_id=?2
+        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?3)
+        AND NOT EXISTS(SELECT 1 FROM memberships member
+          WHERE member.org_id=g.org_id AND member.user_github_id=g.recipient_github_id)
+      ORDER BY lower(COALESCE(u.name,u.login)),g.granted_at,g.id`)
+      .bind(orgId,rootId,now).all();
+    return json({ shares: results.map(row => ({
+      id: row.id, permission: row.permission,
+      recipient: { name: row.name || row.login, email: row.email },
+      grantedAt: row.granted_at, expiresAt: row.expires_at || null,
+    })) });
+  }
+  const input = await request.json().catch(() => null);
+  if (!input) return fail("Invalid JSON body.", 400);
   if (request.method === "POST") {
     const recipient = await resolveRecipient(env.DB, orgId, input.email, actor.user.github_id);
     if (!recipient) return fail("A verified account outside this Workspace is required.", 404);
