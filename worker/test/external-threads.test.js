@@ -240,3 +240,29 @@ test("external invitations accept normal email addresses and reject malformed wh
     expect((await call(path,sessions.owner,"POST",{email,permission:"view"})).status).toBe(400);
   }
 });
+
+
+test("revoking an older invitation leaves a later explicit re-share active", async () => {
+  const {orgId,rootId,sessions}=await setup();
+  const email=`guest-${suffix()}@example.test`;
+  const path=`/external/threads/${orgId}/${rootId}`;
+  const invited=await (await call(`${path}/invites`,sessions.owner,"POST",{email,permission:"edit"})).json();
+  const token=invited.inviteUrl?.match(/external-invite\/([a-f0-9]{64})$/i)?.[1]||invited.token;
+  const guestId=`external-guest-${suffix()}`;
+  await upsertUser(env.DB,{githubId:guestId,login:guestId,name:"Guest",avatarUrl:null,locale:"en"});
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3").bind(email,new Date().toISOString(),guestId).run();
+  const guestSession=await createSession(env.DB,guestId,"external-invite-test");
+  expect((await call("/external/invites/redeem",guestSession,"POST",{token})).status).toBe(200);
+  const original=await env.DB.prepare("SELECT created_grant_id FROM hx_external_thread_invites WHERE id=?1").bind(invited.invitationId).first();
+  expect(original.created_grant_id).toEqual(expect.any(String));
+
+  expect((await call(`${path}/shares`,sessions.owner,"POST",{email,permission:"view"})).status).toBe(201);
+  const active=await env.DB.prepare("SELECT id,permission FROM hx_external_resource_grants WHERE org_id=?1 AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL").bind(orgId,rootId,guestId).first();
+  expect(active).toMatchObject({permission:"view"});
+  expect(active.id).not.toBe(original.created_grant_id);
+
+  expect((await call(`${path}/invites/${invited.invitationId}`,sessions.owner,"DELETE")).status).toBe(200);
+  expect(await env.DB.prepare("SELECT id FROM hx_external_resource_grants WHERE org_id=?1 AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL").bind(orgId,rootId,guestId).first())
+    .toMatchObject({id:active.id});
+  expect((await call(`${path.replace("/external/threads/","/external/threads/")}`,guestSession)).status).toBe(200);
+});
