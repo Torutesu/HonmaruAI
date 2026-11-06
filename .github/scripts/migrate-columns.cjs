@@ -1,6 +1,3 @@
-const { spawnSync } = require('node:child_process');
-const { readFileSync } = require('node:fs');
-
 // Inspect names, never user data. Unsupported/failed inspection falls back to
 // the original per-statement migration; only proven existing columns are skipped.
 function columnInspection(statements) {
@@ -57,6 +54,8 @@ async function migrateColumns({ statements, execute, inspect, wait = ms => new P
 }
 module.exports = { migrateColumns, existingColumns, columnInspection };
 if (require.main === module) {
+  const { spawnSync } = require('node:child_process');
+  const { readFileSync } = require('node:fs');
   const [database, ...flags] = process.argv.slice(2);
   if (!database || !(flags.length === 0 || flags.length === 2 && flags[0] === '--env' && flags[1] === 'staging')) {
     console.error('Usage: node migrate-columns.cjs <database> [--env staging]'); process.exitCode = 1;
