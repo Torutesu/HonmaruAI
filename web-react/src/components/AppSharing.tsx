@@ -4,6 +4,7 @@ import { useT } from '../utils/i18n'
 type Visibility = 'private' | 'workspace' | 'room'
 interface Access { visibility: Visibility; version: number; roomChannel?: string | null }
 interface Share { id: string; createdAt: string; expiresAt: string; revokedAt: string | null }
+interface ApprovalRequest { id: string; requesterLogin: string; agentId: string; roomChannel: string; appVersion: number; accessVersion: number; status: 'pending' | 'approved' | 'declined' | 'stale'; createdAt: string }
 export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }: { httpBase: string; orgId: string; sessionToken: string; appId: string; appVersion: number }) {
   const t = useT()
   const [access, setAccess] = useState<Access | null>(null)
@@ -13,6 +14,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
   const [canManage, setCanManage] = useState(false)
   const [canPublicShare, setCanPublicShare] = useState(false)
   const [shares, setShares] = useState<Share[]>([])
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([])
   const [expiresInDays, setExpiresInDays] = useState(7)
   const [consent, setConsent] = useState(false)
   const [createdUrl, setCreatedUrl] = useState('')
@@ -25,16 +27,32 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
     if (!res.ok) throw new Error(data.message || String(res.status))
     setShares(data.shares || [])
   }, [httpBase, orgId, sessionToken, appId])
+  const loadApprovalRequests = useCallback(async (signal?: AbortSignal) => {
+    const res = await fetch(`${httpBase}/apps/${appId}/public-share-approvals?${new URLSearchParams({ orgId })}`, { headers, signal })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.message || String(res.status))
+    setApprovalRequests(data.requests || [])
+  }, [httpBase, orgId, sessionToken, appId])
   useEffect(() => {
     const controller = new AbortController()
     setAccess(null); setCanEdit(false); setError('')
     fetch(`${httpBase}/apps/${appId}/access?${new URLSearchParams({ orgId })}`, { headers: { 'x-session-token': sessionToken }, signal: controller.signal })
       .then(async res => { const data = await res.json(); if (!res.ok) throw new Error(data.message || String(res.status)); return data })
-      .then(data => { if (!controller.signal.aborted) { setAccess(data.access); setRooms(data.rooms || []); setRoom(data.access?.roomChannel || data.rooms?.[0] || ''); setCanEdit(Boolean(data.canEdit)); setCanManage(Boolean(data.canManage)); setCanPublicShare(Boolean(data.canPublicShare)); if(data.canManage) void loadShares(controller.signal).catch(err => { if (!controller.signal.aborted) setError(String(err.message)) }) } })
+      .then(data => { if (!controller.signal.aborted) { setAccess(data.access); setRooms(data.rooms || []); setRoom(data.access?.roomChannel || data.rooms?.[0] || ''); setCanEdit(Boolean(data.canEdit)); setCanManage(Boolean(data.canManage)); setCanPublicShare(Boolean(data.canPublicShare)); if(data.canManage) { void loadShares(controller.signal).catch(err => { if (!controller.signal.aborted) setError(String(err.message)) }); void loadApprovalRequests(controller.signal).catch(err => { if (!controller.signal.aborted) setError(String(err.message)) }) } } })
       .catch(err => { if (!controller.signal.aborted) setError(String(err.message)) })
     // Public link inventory is restricted to app owners and workspace admins.\n    // The access response controls the UI; the server remains authoritative.\n    
     return () => controller.abort()
-  }, [httpBase, orgId, sessionToken, appId, loadShares])
+  }, [httpBase, orgId, sessionToken, appId, loadShares, loadApprovalRequests])
+  const reviewApprovalRequest = async (requestId: string, decision: 'approve' | 'decline') => {
+    setBusy(true); setError('')
+    try {
+      const res = await fetch(`${httpBase}/apps/${appId}/public-share-approvals?${new URLSearchParams({ orgId })}`, { method: 'POST', headers, body: JSON.stringify({ orgId, requestId, decision }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || String(res.status))
+      await loadApprovalRequests()
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setBusy(false) }
+  }
   const save = async (visibility: Visibility, channel?: string) => {
     if (!access) return
     setBusy(true); setError('')
@@ -79,6 +97,17 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
         {rooms.map(channel => <option key={channel} value={channel}>{channel}</option>)}
       </select>}
       <span className="row-sub">{t('Sharing applies to this app and its records. Room access is checked against current membership.')}</span>
+    </span></div>}
+    {canManage && approvalRequests.length > 0 && <div className="row static"><span className="row-main">
+      <strong>{t('Agent link approval requests')}</strong>
+      <span className="row-sub">{t('Approving authorizes link creation for the exact published revision. No link is created until you create one below.')}</span>
+      {approvalRequests.map(request => <div key={request.id} className="row-sub">
+        <span>{request.agentId} · #{request.roomChannel} · v{request.appVersion} · {request.requesterLogin} · {t(request.status)}</span>
+        {request.status === 'pending' && <span>
+          <button className="pill-btn" disabled={busy} onClick={() => reviewApprovalRequest(request.id, 'approve')}>{t('Approve')}</button>
+          <button className="pill-btn" disabled={busy} onClick={() => reviewApprovalRequest(request.id, 'decline')}>{t('Decline')}</button>
+        </span>}
+      </div>)}
     </span></div>}
     {canPublicShare && <div className="row static"><span className="row-main">
       <strong>{t('Anyone with a link')}</strong>

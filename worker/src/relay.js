@@ -1114,7 +1114,14 @@ export class OrgRelay {
   /// never able to fail it.
   async afterDecision(orgId, card, actorLogin, actorGithubId) {
     try {
-      if (card?.agentAccessRequest) {
+      if (card?.appPublicShareRequest && ['approve','decline'].includes(card.decision?.action)) {
+        const request = card.appPublicShareRequest;
+        const actor = actorGithubId || (await getUserByLogin(this.db, actorLogin).catch(() => null))?.github_id;
+        if (actor) {
+          const result = await reviewPublicAppShareApproval(this.db, orgId, request.appId, request.requestId, String(actor), card.decision.action, this.env);
+          if (result.error) console.error('public App link approval could not be settled', result.error);
+        }
+      } else if (card?.agentAccessRequest) {
         const settled=await settleAgentAccessRequest(this.db, orgId, card);
         if (settled?.settled && settled.action === 'approve') {
           try {

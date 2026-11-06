@@ -44,6 +44,7 @@ import { databaseView, previewMigration, applyMigration, generateMigration, fork
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { createAppShare, listAppShares, revokeAppShare, readAppShare } from "./appShares.js";
+import { listPublicAppShareApprovals, reviewPublicAppShareApproval } from './appShareApproval.js';
 import { fetchGitHubCommitSource, verifyGitHubCommitRef } from './githubCommitSource.js';
 import { commitPublishScope, customCommitState, requestCustomCommitApproval, reviewCustomCommitApproval, publishApprovedCustomCommit, hashSource } from './appCommitRelease.js';
 import { servePublishedCommitAsset } from './appCommitAssets.js';
@@ -1393,6 +1394,16 @@ export async function handleHarness(request, env, url, context = {}) {
         return result.error ? fail(result) : json(result);
       }
       return json({ message: "Method not allowed." }, 405);
+    }
+    if (sub === 'public-share-approvals') {
+      if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: 'Only its maker or a workspace admin can review this request.' }, 403);
+      if (request.method === 'GET' && parts.length === 3) return json(await listPublicAppShareApprovals(env.DB, orgId, appId));
+      if (request.method === 'POST' && parts.length === 3) {
+        const result = await reviewPublicAppShareApproval(env.DB, orgId, appId, input.requestId, me, input.decision, env);
+        if (!result.error) await audit(env, request, { orgId, action: 'app.public_share_request_' + result.status, actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: { requestId: result.requestId, tokenCreated: false } });
+        return result.error ? fail(result) : json(result);
+      }
+      return json({ message: 'Method not allowed.' }, 405);
     }
     if (sub === 'public-shares') {
       if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: 'Only its maker or an admin can share this app.' }, 403);
