@@ -1,7 +1,6 @@
 import { isPro } from "./entitlements.js";
 import { countAIUse, reserveAIUse, releaseAIUse } from "./db.js";
-import { loadAISettings } from "./orgAI.js";
-import { workspaceAIBudgetExceeded, workspaceAIBudgetStatus } from "./workspaceAIBudget.js";
+import { workspaceBudgetAdmission } from "./workspaceAIBudget.js";
 
 export const FREE_DAILY_ROUTES = 3;
 
@@ -84,26 +83,19 @@ async function metered(env, githubId, limit) {
 /// through here.
 export async function allowanceFor(env, orgId, { githubId, userKey }) {
   let workspaceKey = false;
-  let workspaceSettings = null;
   // Only someone signed in may spend a workspace's own key: the route checks
   // membership for a session alone, and a workspace id ("owner/repo") is no
   // secret, so an anonymous caller naming one would bill that team.
   if (orgId && !userKey && githubId) {
-    try { workspaceSettings = await loadAISettings(env.DB, orgId); workspaceKey = Boolean(workspaceSettings.openaiKey); } catch { workspaceKey = false; }
-    // This no-charge guard covers only recorded model usage on the
-    // deployment's key. A workspace or member key has its own bill and is
-    // deliberately outside this shared deployment budget.
-    if (!workspaceKey) {
-      try {
-        if (workspaceAIBudgetExceeded(await workspaceAIBudgetStatus(env.DB, orgId, Date.now(), workspaceSettings))) return DENIED_WORKSPACE_BUDGET;
-      } catch (err) {
-        // If the deployment-key budget cannot be read, do not silently send
-        // another request under the deployment's API key.
-        console.error("workspace AI budget check failed", err?.message || err);
-        return { ...DENIED_WORKSPACE_BUDGET, workspaceBudgetExceeded: false, workspaceBudgetCheckUnavailable: true,
-          message: "The workspace AI usage limit could not be checked. Try again shortly.", messageKey: "agent.workspaceBudgetCheckUnavailable" };
-      }
-    }
+    const budget = await workspaceBudgetAdmission(env.DB, orgId);
+    workspaceKey = budget.source === 'workspace-key';
+    if (!budget.allowed) return {
+      ...DENIED_WORKSPACE_BUDGET,
+      workspaceBudgetExceeded: budget.reason === 'workspace_ai_budget',
+      workspaceBudgetCheckUnavailable: budget.reason === 'workspace_ai_budget_unavailable',
+      message: budget.message,
+      ...(budget.reason === 'workspace_ai_budget_unavailable' ? { messageKey: 'agent.workspaceBudgetCheckUnavailable' } : {}),
+    };
   }
   return checkAIAllowance(env, { githubId, userKey, workspaceKey });
 }

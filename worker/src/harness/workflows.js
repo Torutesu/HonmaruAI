@@ -12,6 +12,7 @@ import { mayUseConversation } from './conversationAccess.js';
 import { getMode } from './mode.js';
 import { callRemoteMcpTool, remoteMcpTools } from './remoteMcp.js';
 import { createWorkflowAuthorizationTrace, publicWorkflowAuthorizationEvents } from './workflowAuthorizationTrace.js';
+import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
 //
@@ -504,6 +505,10 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   if(!safety)return null;
   if(safety.pause_reason?.startsWith('budget_'))safety=await recoverWorkflowBudgetPause(env.DB,orgId,workflow.id,safety);
   if(safety?.paused_at)return {status:'paused',reason:safety.pause_reason};
+  if (await getMode(env.DB, orgId) === 'harness') {
+    const budget = await workspaceBudgetAdmission(env.DB, orgId);
+    if (!budget.allowed) return { status: 'paused', reason: budget.reason };
+  }
   const id = newId("run");
   const admittedAt=now(),windows=workflowBudgetWindows(Date.parse(admittedAt)),aiWindows=workflowAiBudgetWindows(Date.parse(admittedAt));
   // Store the definition and the run atomically. An approval always resumes

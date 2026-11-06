@@ -1,3 +1,5 @@
+import { aad, openField } from './secrets.js';
+
 // A workspace-wide guard for model usage that is paid by this deployment.
 // Amounts use the ledger's estimated list prices, never provider invoices or
 // Kylon credits. BYOK calls and external-tool charges are intentionally out
@@ -44,6 +46,40 @@ export async function workspaceAIBudgetStatus(db, orgId, now = Date.now(), saved
 export function workspaceAIBudgetExceeded(status) {
   if (!status || status.action !== 'pause') return false;
   return WINDOWS.some(([key]) => status.periods?.[key]?.exhausted);
+}
+
+// Harness side effects that can continue work after a model request has
+// already reached the workspace's pause threshold share the same stop. This
+// does not estimate or meter external-provider/connector charges. A workspace
+// OpenAI key remains the workspace's own bill and bypasses this deployment
+// budget, matching allowanceFor.
+export async function workspaceBudgetAdmission(db, orgId, now = Date.now()) {
+  if (!db || !orgId) return { allowed: true };
+  try {
+    const settings = await db.prepare(`SELECT openai_key,daily_budget_micros,weekly_budget_micros,monthly_budget_micros,
+      budget_action,budget_revision FROM org_ai_settings WHERE org_id=?1`).bind(orgId).first();
+    if (settings?.openai_key) {
+      let workspaceKey = null;
+      try { workspaceKey = await openField(settings.openai_key, aad.aiKey(orgId, 'openai_key'), orgId); } catch {}
+      if (workspaceKey) return { allowed: true, source: 'workspace-key' };
+    }
+    const status = await workspaceAIBudgetStatus(db, orgId, now, settings || {});
+    if (!workspaceAIBudgetExceeded(status)) return { allowed: true, status };
+    return {
+      allowed: false,
+      reason: 'workspace_ai_budget',
+      status: 409,
+      message: "The workspace's estimated AI usage limit has been reached. An admin can raise the limit; the window also clears as older usage ages out.",
+    };
+  } catch (err) {
+    console.error('workspace AI budget admission check failed', err?.message || err);
+    return {
+      allowed: false,
+      reason: 'workspace_ai_budget_unavailable',
+      status: 503,
+      message: 'The workspace AI usage limit could not be checked. Try again shortly.',
+    };
+  }
 }
 
 export async function saveWorkspaceAIBudget(db, orgId, input, byGithubId, now = new Date().toISOString()) {

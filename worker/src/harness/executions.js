@@ -5,6 +5,7 @@ import { mayUseConversation } from './conversationAccess.js';
 import {settleWorkflowProgram} from './workflowCodeJobs.js';
 import { mayRunAgent } from './agents.js';
 import { getMode } from './mode.js';
+import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
 export const jobView = row => row && ({ id: row.id, gatewayId: row.gateway_id, status: row.status, createdAt: row.created_at, startedAt: row.started_at, finishedAt: row.finished_at, result: row.result ? JSON.parse(row.result) : null });
 const id = () => crypto.randomUUID();
 const now = () => Date.now();
@@ -59,6 +60,10 @@ export async function enqueueExecution(db, orgId, me, input, appAction = null) {
       const current=await readExecution(db,orgId,me,previous.id);
       return current.error?current:success(current);
     }
+    if (await getMode(db, orgId) === 'harness') {
+      const budget = await workspaceBudgetAdmission(db, orgId);
+      if (!budget.allowed) return error(budget.message, budget.status);
+    }
     const jobIdNew = id();
     const insert = db.prepare(`INSERT OR IGNORE INTO hx_gateway_jobs (id, org_id, gateway_id, created_by, request_id, payload, status, created_at)
       SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'queued', ?7 WHERE (SELECT COUNT(*) FROM hx_gateway_jobs WHERE org_id = ?2 AND status IN ('queued', 'running')) < 100
@@ -86,6 +91,10 @@ export async function enqueueAcpExecution(db, orgId, me, input) {
   // Keep the Simple experience usable even if an administrator enabled this
   // teammate's Harness-only tools earlier. No Workspace data is offered here.
   const workspaceTools = input.workspaceTools === true && await getMode(db, orgId) === 'harness';
+  if (workspaceTools) {
+    const budget = await workspaceBudgetAdmission(db, orgId);
+    if (!budget.allowed) return error(budget.message, budget.status);
+  }
   let acpAgentId = '';
   if (workspaceTools) {
     acpAgentId = String(input.agentId || '');
