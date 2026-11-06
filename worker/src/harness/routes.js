@@ -993,7 +993,7 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === "POST") {
         const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context", scope: input.scope || "shared", userId: me });
-        if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });
+        if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: r.memory.scope } });
         return r.error ? fail(r) : json(r, 201);
       }
       if (request.method === "PUT" && parts[5] === 'review') {
