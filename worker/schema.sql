@@ -2547,3 +2547,27 @@ CREATE TABLE IF NOT EXISTS mcp_conversation_requests (
   created_at TEXT NOT NULL,
   PRIMARY KEY (org_id, user_id, connection_id, request_id)
 );
+
+
+CREATE TABLE IF NOT EXISTS hx_file_share_requests (
+ org_id TEXT NOT NULL,id TEXT NOT NULL,file_id TEXT NOT NULL,file_scope TEXT NOT NULL,file_version INTEGER NOT NULL,
+ content_hash TEXT NOT NULL,content_type TEXT NOT NULL,size INTEGER NOT NULL,requester_id TEXT NOT NULL,requester_login TEXT NOT NULL,
+ request_key TEXT NOT NULL,expires_at TEXT NOT NULL,allow_download INTEGER NOT NULL DEFAULT 0 CHECK(allow_download IN (0,1)),
+ status TEXT NOT NULL CHECK(status IN ('pending','approved','declined','stale','cancelled')),approver_id TEXT,approver_login TEXT,
+ decision_at TEXT,created_at TEXT NOT NULL,PRIMARY KEY(org_id,id),UNIQUE(org_id,requester_id,request_key),
+ FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS hx_file_share_requests_file ON hx_file_share_requests(org_id,file_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS hx_public_file_shares (
+ org_id TEXT NOT NULL,id TEXT NOT NULL,request_id TEXT NOT NULL,file_id TEXT NOT NULL,file_scope TEXT NOT NULL,file_version INTEGER NOT NULL,
+ content_hash TEXT NOT NULL,token_hash TEXT NOT NULL UNIQUE,expires_at TEXT NOT NULL,allow_download INTEGER NOT NULL CHECK(allow_download IN (0,1)),
+ created_by TEXT NOT NULL,created_login TEXT NOT NULL,created_at TEXT NOT NULL,revoked_at TEXT,revoked_by TEXT,
+ PRIMARY KEY(org_id,id),UNIQUE(org_id,request_id),FOREIGN KEY(org_id,request_id) REFERENCES hx_file_share_requests(org_id,id) ON DELETE CASCADE,
+ FOREIGN KEY(org_id,file_id,file_version) REFERENCES hx_workspace_file_versions(org_id,file_id,version) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS hx_public_file_shares_file ON hx_public_file_shares(org_id,file_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS hx_file_share_audit (
+ org_id TEXT NOT NULL,id INTEGER PRIMARY KEY AUTOINCREMENT,request_id TEXT NOT NULL,share_id TEXT,actor_id TEXT NOT NULL,
+ action TEXT NOT NULL CHECK(action IN ('proposed','approved','revoked','expired','stale')),details TEXT NOT NULL,created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hx_file_share_audit_request ON hx_file_share_audit(org_id,request_id,id);
