@@ -3,6 +3,7 @@ export type FileOrigin='human'|'agent'|'unknown'
 export type WorkspaceFile = {id:string;scope:string;path:string;origin?:FileOrigin;createdBy:string;createdAt:string;updatedAt:string;version:number;deleted:boolean;contentType:string|null;size:number|null}
 export type FileCursor = {path:string;id:string;updatedAt?:string}
 export type FileVersion = {version:number;kind:'content'|'deleted';contentType:string|null;size:number|null;createdBy:string;createdAt:string;restoredFrom:number|null;currentVersion:number;isCurrent:boolean;purged:boolean}
+export type ExternalFileGrant={id:string;recipientGithubId:string;recipientLogin:string;recipientEmail:string;permission:'view';grantedAt:string;expiresAt:string|null;revokedAt:string|null;revokedBy:string|null}
 export type PublicFileShareRequest={id:string;fileId:string;filePath:string;scope:string;version:number;currentVersion:number;contentHash:string;contentType:string;size:number;expiresAt:string;allowDownload:boolean;status:'pending'|'approved'|'declined'|'stale'|'cancelled';createdAt:string;requesterLogin:string;decisionAt:string|null;shareId:string|null;revokedAt:string|null;revokedBy:string|null}
 export type FileSearch = {scope:string;origin?:FileOrigin;query?:string;directory?:string;type?:'image'|'video'|'media'|'pdf'|'doc'|'html';createdBy?:string;since?:string;until?:string;includeDeleted?:boolean;directOnly?:boolean;order?:'path'|'recent';cursor?:FileCursor;limit?:number}
 export class WorkspaceFileError extends Error {
@@ -49,6 +50,10 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
    return {...result,url:new URL(result.url,new URL(base||fallback,fallback).origin).toString()}
   },
   revokePublicShare:(shareId:string)=>json<{shareId:string;revokedAt:string}>(`/hx/files/shares/${encodeURIComponent(shareId)}/revoke`,'POST',{}),
+  externalGrants:(id:string,signal?:AbortSignal)=>json<{canManage:boolean;grants:ExternalFileGrant[]}>(`${path(id)}/external-grants`,'GET',undefined,undefined,signal),
+  grantExternal:(id:string,email:string,expiresInDays:number)=>json<{grant:ExternalFileGrant;redemptionPath:string}>(`${path(id)}/external-grants`,'POST',{email,expiresInDays}),
+  revokeExternal:(id:string,recipientGithubId:string)=>json<{revoked:boolean;recipientGithubId:string}>(`${path(id)}/external-grants/${encodeURIComponent(recipientGithubId)}`,'DELETE',{}),
+  externalLink:(id:string)=>`${typeof window==='undefined'?'':window.location.origin}/#/external-file/${encodeURIComponent(orgId)}/${encodeURIComponent(id)}`,
   versions:(id:string,before?:number,signal?:AbortSignal)=>json<{versions:FileVersion[]}>(`${path(id)}/versions`,'GET',undefined,before===undefined?{}:{before:String(before)},signal),
   download:async(id:string,version:number,signal?:AbortSignal)=>(await response(`${path(id)}/versions/${version}/content`,'GET',undefined,undefined,'application/json',signal)).blob(),
   remove:(id:string,expectedVersion:number)=>json<{saved:true;version:number}>(path(id),'DELETE',{expectedVersion}),
@@ -57,5 +62,5 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
  }
 }
 type WorkspaceFileApiBase=ReturnType<typeof workspaceFileApi>
-type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'declinePublicShare'|'revokePublicShare'
+type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'declinePublicShare'|'revokePublicShare'|'externalGrants'|'grantExternal'|'revokeExternal'|'externalLink'
 export type WorkspaceFileApi = Omit<WorkspaceFileApiBase,ShareApiMethods> & Partial<Pick<WorkspaceFileApiBase,ShareApiMethods>>

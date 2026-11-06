@@ -29,6 +29,7 @@ import { McpConsent } from './components/McpConsent'
 import {PublicSkillShare} from './screens/PublicSkillShare'
 import {ExternalGuestThread} from './screens/ExternalGuestThread'
 import {externalThreadAccessFromInvite,externalThreadHash} from './utils/externalThreadInvite'
+import {ExternalSharedFile} from './screens/ExternalSharedFile'
 
 // The web client talks to the backend over HTTP for auth and WebSocket for the
 // feed. We store one base host and derive both.
@@ -76,6 +77,7 @@ function App() {
     return()=>window.removeEventListener('beforeunload',beforeUnload)
   },[])
   const warning=sidebarSessionWarning&&<div className="toasts"><div className="toast error" role="alert" onClick={()=>setSidebarSessionWarning(false)}>{getLocale()==='ja'?'セッションが変わったため未完了のサイドバー変更を破棄しました。進行中の保存は既に反映された可能性があります。':'The session changed and pending sidebar edits were discarded. A request already in progress may have saved.'}</div></div>
+  if(hash.startsWith('#/external-file/')){const pieces=hash.slice('#/external-file/'.length).split('/');try{if(pieces.length===2)return <>{warning}<ExternalSharedFile key={hash} httpBase={httpBase(DEFAULT_HOST)} orgId={decodeURIComponent(pieces[0])} fileId={decodeURIComponent(pieces[1])}/></>}catch{return <>{warning}<p role="alert">Invalid file link.</p></>}}
   if(hash.startsWith('#/shared/'))return <>{warning}<SharedThread key={hash} httpBase={httpBase(DEFAULT_HOST)} token={hash.slice('#/shared/'.length)}/></>
   const skillShare=hash.match(/^#\/skill-share\/(skl_[a-f0-9]{64})$/)
   if(skillShare)return <>{warning}<PublicSkillShare key={hash} httpBase={httpBase(DEFAULT_HOST)} token={skillShare[1]}/></>

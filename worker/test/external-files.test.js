@@ -21,6 +21,8 @@ async function setup() {
   await env.DB.exec(filesSql.replace(/\n/g, " "));
   await upsertUser(env.DB, { githubId: ownerId, login: ownerId, name: "Owner" });
   await upsertUser(env.DB, { githubId: guestId, login: guestId, name: "Guest" });
+  await env.DB.prepare("UPDATE users SET email = ?1, email_verified_at = ?2 WHERE github_id = ?3")
+    .bind(`${guestId}@example.test`, new Date().toISOString(), guestId).run();
   await upsertMembership(env.DB, orgId, ownerId, "member");
   await env.DB.prepare("INSERT INTO orgs (id, name, created_at) VALUES (?1, ?2, ?3)")
     .bind(orgId, orgId, new Date().toISOString()).run();
@@ -67,17 +69,25 @@ test("an exact external file grant reads only its metadata, versions and content
   await share("view");
   const metadata = await call(filePath(), fixture.guestSession);
   expect(metadata.status).toBe(200);
-  expect(await metadata.json()).toMatchObject({
+  const metadataBody = await metadata.json();
+  expect(metadataBody).toMatchObject({
     permission: "view",
-    file: { id: fixture.fileId, path: "plans/launch.txt", version: 1, contentType: "text/plain", size: bytes.byteLength, deleted: false },
+    file: { id: fixture.fileId, path: "launch.txt", version: 1, contentType: "text/plain", size: bytes.byteLength, deleted: false },
   });
+  expect(metadataBody.file).not.toHaveProperty("scope");
+  expect(metadataBody.file).not.toHaveProperty("createdBy");
+  expect(metadataBody.file.path).not.toContain("/");
+  expect(JSON.stringify(metadataBody)).not.toContain(fixture.ownerId);
 
   const versions = await call(`${filePath()}/versions`, fixture.guestSession);
   expect(versions.status).toBe(200);
-  expect(await versions.json()).toMatchObject({
+  const versionBody = await versions.json();
+  expect(versionBody).toMatchObject({
     permission: "view",
     versions: [{ version: 1, kind: "content", isCurrent: true, purged: false }],
   });
+  expect(versionBody.versions[0]).not.toHaveProperty("createdBy");
+  expect(JSON.stringify(versionBody)).not.toContain(fixture.ownerId);
 
   const content = await call(`${filePath()}/versions/1/content`, fixture.guestSession);
   expect(content.status).toBe(200);

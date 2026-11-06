@@ -559,6 +559,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const tools = provider && allowance?.allowed
     ? await agentTools(env, {
       orgId, session, language: locale, personal: resolved.kind === "agent" && !row.parent_id, fileScope:resolved.key, fileThreadId:row.parent_id,
+      fileProposalAgentId: agents.length === 1 ? agents[0].id : null, sourceMessageId: row.id, managedRoom: harness && ['business','group'].includes(resolved.kind) && (resolved.kind==='business' ? (await roomRoleState(env.DB,orgId,resolved.key))?.managed===true : true),
       agentId: sourceGrantAgentId,
       agentName: agents.length === 1 ? agents[0].name : null,
       agentLogin: user.login,
