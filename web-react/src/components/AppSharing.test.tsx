@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { AppSharing } from './AppSharing'
 
-vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
+vi.mock('../utils/i18n', () => ({ useT: () => (text: string, vars?: Record<string, string | number>) => Object.entries(vars || {}).reduce((out, [name, value]) => out.replaceAll(`{${name}}`, String(value)), text) }))
 let tree: ReactTestRenderer | undefined
 let requests: Array<{ url: string; init?: RequestInit }> = []
 let manager = true
