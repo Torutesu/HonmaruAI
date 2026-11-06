@@ -2617,3 +2617,16 @@ CREATE TABLE IF NOT EXISTS hx_app_git_assets (
 CREATE INDEX IF NOT EXISTS hx_app_git_assets_commit ON hx_app_git_assets(org_id,app_id,commit_sha,app_version);
 CREATE TRIGGER IF NOT EXISTS hx_app_git_assets_immutable
 BEFORE UPDATE ON hx_app_git_assets BEGIN SELECT RAISE(ABORT,'Git commit assets are immutable'); END;
+
+CREATE TABLE IF NOT EXISTS hx_app_member_permissions (
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  user_github_id TEXT NOT NULL,
+  membership_since TEXT NOT NULL,
+  permission TEXT NOT NULL CHECK(permission IN ('none','view','edit')),
+  version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY(org_id,app_id,user_github_id)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_app_member_permissions_subject ON hx_app_member_permissions(org_id,user_github_id,app_id);

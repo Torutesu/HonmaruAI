@@ -51,7 +51,7 @@ import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHos
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
-import { appAccess, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { appAccess, mayUseApp, mayEditApp, mayUseTable, mayEditTable, mayReadAppRows, setAppAccess, listAppMemberPermissions, setAppMemberPermission, clearAppMemberPermission, visibleResources, visibleAppLinks } from './resourceAccess.js';
 import { mayUseConversation, readableConversation } from './conversationAccess.js';
 import { listMembers as memoryMembers } from '../team.js';
 import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans } from './agentAccessRequests.js';
@@ -86,7 +86,7 @@ import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill,
 import { skillMarkdown } from "./skillMarkdown.js";
 import { generateWorkflow } from './workflowCreation.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, mayEditWorkflow, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange, onRowDelete } from "./workflows.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
@@ -512,6 +512,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return null;
     }
     if (!(await mayUseTable(env.DB, orgId, tableId, me))) return json({ message: "No such table." }, 404);
+    if (sub === "rows" && request.method !== "GET" && !(await mayEditTable(env.DB, orgId, tableId, me))) return json({ message: "You can view this table but cannot edit its records." }, 403);
     if (sub === "contract" && request.method === "GET") {
       const table = await getTable(env.DB, orgId, tableId);
       return table ? json(tableContract(table)) : json({ message: "No such table." }, 404);
@@ -533,6 +534,7 @@ export async function handleHarness(request, env, url, context = {}) {
       const table = await getTable(env.DB, orgId, tableId);
       if (!table) return json({ message: "No such table." }, 404);
       if (request.method === "PUT") {
+        if (!(await mayEditTable(env.DB, orgId, tableId, me))) return json({ message: "You can view this table but cannot change its schema." }, 403);
         const r = await updateTable(env.DB, orgId, tableId, input);
         return r.error ? fail(r) : json(r);
       }
@@ -667,6 +669,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({ workflow: { ...r.workflow, hookUrl: hookUrl(url, r.workflow) } });
     }
     if (sub === "run" && request.method === "POST") {
+      if (!(await mayEditWorkflow(env.DB,orgId,wf,me))) return json({ message: "You can view this workflow but cannot run its write steps." },403);
       // Pausing stops automatic triggers; an explicit manual run does not
       // enable the workflow or replay its queued webhook deliveries.
       const run = await startRun(env, { orgId, workflow: wf, trigger: "manual", input: input.input && typeof input.input === "object" ? input.input : { text: String(input.text || "") }, startedBy: me });
@@ -1165,7 +1168,21 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({...r,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
     }
     const app = await getApp(env.DB, orgId, appId);
-    if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    const canManageApp = app ? await mayChange(env, orgId, who, app.createdBy) : false;
+    if (!app || (!(await mayUseApp(env.DB, orgId, appId, me)) && !canManageApp)) return json({ message: "No such app." }, 404);
+    if (sub === 'member-permissions') {
+      if (!canManageApp) return json({ message: 'Only the app owner or a workspace admin can manage member access.' }, 403);
+      if (request.method === 'GET') return json({ permissions: await listAppMemberPermissions(env.DB,orgId,appId), canManage: true });
+      const adminOverride = app.createdBy !== String(me);
+      const result = request.method === 'PUT'
+        ? await setAppMemberPermission(env.DB,orgId,appId,me,input || {},adminOverride)
+        : request.method === 'DELETE'
+          ? await clearAppMemberPermission(env.DB,orgId,appId,me,{userId:input?.userId||url.searchParams.get('userId'),version:Number(input?.version??url.searchParams.get('version'))},adminOverride)
+          : null;
+      if (!result) return json({ message: 'Method not allowed.' },405);
+      if (!result.error) await audit(env,request,{orgId,action:'app.member_access_changed',actor:person(who.user),entity:{type:'app',id:appId},details:{userId:input?.userId||url.searchParams.get('userId'),permission:input?.permission||'inherit'}});
+      return result.error ? fail(result) : json(result);
+    }
     if (sub === 'hosting' && parts.length === 3) {
       const canManage = await mayChange(env, orgId, who, app.createdBy);
       if (request.method === 'GET') {
@@ -1256,7 +1273,7 @@ export async function handleHarness(request, env, url, context = {}) {
           return json({actions:canManage?result.actions:result.actions.filter(a=>a.published).map(({draft,...a})=>a)});
         }
         if (request.method !== 'POST') return json({message:'Method not allowed.'},405);
-        if(input.action==='run')return respond(await runAction(env.DB,orgId,appId,input,me),'app.action_requested');
+        if(input.action==='run'){if(!(await mayEditApp(env.DB,orgId,appId,me)))return json({message:'You can view this app but cannot run its actions.'},403);return respond(await runAction(env.DB,orgId,appId,input,me),'app.action_requested');}
         if(!canManage)return json({message:'Only its maker or an admin can publish server actions.'},403);
         if(input.action==='generate')return respond(await withGuidedGeneration(input.prompt,()=>completer(env,orgId,me,'app_action_generate',{maxTokens:6000,usageContext:{appId}}),(prompt,complete)=>generateAction(prompt,complete)));
         return respond(await saveAction(env.DB,orgId,appId,input,me),'app.action_'+input.action);
@@ -1264,7 +1281,7 @@ export async function handleHarness(request, env, url, context = {}) {
       if (sub === 'connections') {
         if(request.method==='GET')return json(await connections(env.DB,orgId,appId,me));
         if(request.method!=='POST')return json({message:'Method not allowed.'},405);
-        if(input.action==='request')return respond(await invokeConnection(env.DB,orgId,appId,me,input),'app.connection_requested');
+        if(input.action==='request'){if(!(await mayEditApp(env.DB,orgId,appId,me)))return json({message:'You can view this app but cannot run its connections.'},403);return respond(await invokeConnection(env.DB,orgId,appId,me,input),'app.connection_requested');}
         if(input.action==='save')return respond(await saveConnection(env.DB,orgId,appId,me,input),'app.connection_saved');
       }
       return json({message:'Unknown operation.'},400);

@@ -10,27 +10,82 @@ export async function appAccess(db, orgId, appId) {
   return row ? { ownerId: row.created_by, visibility: row.room_channel ? 'room' : (row.visibility || 'workspace'), roomChannel: row.room_channel || null, version: row.version || 0 } : null;
 }
 
-export async function mayUseApp(db, orgId, appId, userId) {
-  if (!userId) return false;
-  const member = await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2 AND role != 'guest'").bind(orgId, String(userId)).first();
-  if (!member) return false;
+async function appPermission(db, orgId, appId, userId) {
+  if (!userId) return 'none';
+  const member = await db.prepare("SELECT created_at FROM memberships WHERE org_id = ?1 AND user_github_id = ?2 AND LOWER(COALESCE(role,'guest')) != 'guest'").bind(orgId, String(userId)).first();
+  if (!member) return 'none';
   const access = await appAccess(db, orgId, appId);
-  if (!access) return false;
-  if (access.visibility === 'workspace') return true;
-  if (access.visibility === 'room') return await mayUseConversation(db, orgId, userId, access.roomChannel);
-  return access.ownerId === String(userId);
+  if (!access) return 'none';
+  if (access.ownerId === String(userId)) return 'edit';
+  const grant = await db.prepare(`SELECT permission FROM hx_app_member_permissions
+    WHERE org_id=?1 AND app_id=?2 AND user_github_id=?3 AND membership_since=?4`)
+    .bind(orgId, appId, String(userId), String(member.created_at || '')).first();
+  if (grant && ['none','view','edit'].includes(grant.permission)) return grant.permission;
+  if (access.visibility === 'workspace') return 'edit';
+  if (access.visibility === 'room') return (await mayUseConversation(db, orgId, userId, access.roomChannel)) ? 'edit' : 'none';
+  return 'none';
+}
+export async function mayUseApp(db, orgId, appId, userId) {
+  return (await appPermission(db, orgId, appId, userId)) !== 'none';
+}
+export async function mayEditApp(db, orgId, appId, userId) {
+  return (await appPermission(db, orgId, appId, userId)) === 'edit';
+}
+export async function listAppMemberPermissions(db, orgId, appId) {
+  const { results = [] } = await db.prepare(`SELECT u.github_id AS userId, COALESCE(u.name,u.login,u.github_id) AS name,
+    u.login, m.role, m.created_at AS membershipSince, p.permission, p.version
+    FROM memberships m JOIN users u ON u.github_id=m.user_github_id
+    LEFT JOIN hx_app_member_permissions p ON p.org_id=m.org_id AND p.app_id=?2 AND p.user_github_id=m.user_github_id AND p.membership_since=m.created_at
+    WHERE m.org_id=?1 AND LOWER(COALESCE(m.role,'guest'))!='guest' ORDER BY COALESCE(u.name,u.login,u.github_id)`)
+    .bind(orgId, appId).all();
+  return results;
+}
+export async function setAppMemberPermission(db, orgId, appId, actorId, input, adminOverride = false) {
+  const app = await appAccess(db, orgId, appId);
+  if (!app) return { error: 'No such app.', status: 404 };
+  if (app.ownerId !== String(actorId) && !adminOverride) return { error: 'Only the app owner or a workspace admin can change member access.', status: 403 };
+  const userId = String(input.userId || '');
+  const permission = String(input.permission || '');
+  if (!userId || userId.length > 120 || !['none','view','edit'].includes(permission)) return { error: 'Choose a workspace member and a valid permission.', status: 400 };
+  if (userId === String(app.ownerId)) return { error: 'The app owner always has edit access.', status: 400 };
+  const member = await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'guest'))!='guest'").bind(orgId,userId).first();
+  if (!member) return { error: 'This person is no longer a workspace member.', status: 409 };
+  const current = await db.prepare('SELECT version FROM hx_app_member_permissions WHERE org_id=?1 AND app_id=?2 AND user_github_id=?3 AND membership_since=?4').bind(orgId,appId,userId,String(member.created_at||'')).first();
+  const version = Number(input.version ?? 0);
+  if (!Number.isSafeInteger(version) || version < 0 || version !== Number(current?.version || 0)) return { error: 'Member access changed. Reload before saving.', status: 409 };
+  const result = await db.prepare(`INSERT INTO hx_app_member_permissions (org_id,app_id,user_github_id,membership_since,permission,version,updated_by,updated_at)
+    VALUES (?1,?2,?3,?4,?5,1,?6,datetime('now'))
+    ON CONFLICT(org_id,app_id,user_github_id) DO UPDATE SET membership_since=excluded.membership_since,permission=excluded.permission,version=hx_app_member_permissions.version+1,updated_by=excluded.updated_by,updated_at=datetime('now')
+    WHERE hx_app_member_permissions.version=?7 OR hx_app_member_permissions.membership_since!=excluded.membership_since`)
+    .bind(orgId,appId,userId,String(member.created_at||''),permission,String(actorId),version).run();
+  if (!result.meta?.changes) return { error: 'Member access changed. Reload before saving.', status: 409 };
+  return { permissions: await listAppMemberPermissions(db,orgId,appId) };
+}
+export async function clearAppMemberPermission(db, orgId, appId, actorId, input, adminOverride = false) {
+  const app = await appAccess(db,orgId,appId);
+  if (!app) return { error:'No such app.',status:404 };
+  if (app.ownerId !== String(actorId) && !adminOverride) return { error:'Only the app owner or a workspace admin can change member access.',status:403 };
+  const userId=String(input.userId||'');
+  const member=await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'guest'))!='guest'").bind(orgId,userId).first();
+  if(!member)return {error:'This person is no longer a workspace member.',status:409};
+  const result=await db.prepare('DELETE FROM hx_app_member_permissions WHERE org_id=?1 AND app_id=?2 AND user_github_id=?3 AND membership_since=?4 AND version=?5')
+    .bind(orgId,appId,userId,String(member.created_at||''),Number(input.version)).run();
+  if(!result.meta?.changes)return {error:'Member access changed. Reload before saving.',status:409};
+  return {permissions:await listAppMemberPermissions(db,orgId,appId)};
 }
 
-export async function mayUseTable(db, orgId, tableId, userId) {
+async function mayAccessTable(db, orgId, tableId, userId, edit) {
   if (!userId) return false;
   const member = await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2 AND role != 'guest'").bind(orgId, String(userId)).first();
   if (!member) return false;
   const table = await db.prepare('SELECT id FROM hx_tables WHERE org_id = ?1 AND id = ?2').bind(orgId, tableId).first();
   if (!table) return false;
   const { results } = await db.prepare('SELECT id FROM hx_apps WHERE org_id = ?1 AND table_id = ?2 UNION SELECT app_id AS id FROM hx_app_entities WHERE org_id = ?1 AND table_id = ?2').bind(orgId, tableId).all();
-  for (const app of results || []) if (!(await mayUseApp(db, orgId, app.id, userId))) return false;
+  for (const app of results || []) if (!((edit ? await mayEditApp(db, orgId, app.id, userId) : await mayUseApp(db, orgId, app.id, userId)))) return false;
   return true;
 }
+export async function mayUseTable(db, orgId, tableId, userId) { return mayAccessTable(db,orgId,tableId,userId,false); }
+export async function mayEditTable(db, orgId, tableId, userId) { return mayAccessTable(db,orgId,tableId,userId,true); }
 
 // Recheck a rendered app and its primary table together after reading rows.
 // Every app linked to the table must remain visible, as with mayUseTable; a

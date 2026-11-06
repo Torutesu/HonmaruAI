@@ -1,7 +1,7 @@
 import {FILE_WRITE_TOOLS,callFileWriteTool} from './fileWriteTools.js';
 import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
 import { EXECUTION_TOOLS, callExecutionTool } from './executionTools.js';
-import { mayUseApp, mayUseTable, mayReadAppRows, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { mayUseApp, mayEditApp, mayUseTable, mayEditTable, mayReadAppRows, visibleResources, visibleAppLinks } from './resourceAccess.js';
 // The harness over MCP (docs/kylon-gap-plan.md): what Kylon's Tools API and
 // workspace CLI give an outside agent — the workspace's apps, tables,
 // workflows and follow-ups — offered only by a workspace in harness mode.
@@ -9,7 +9,7 @@ import { mayUseApp, mayUseTable, mayReadAppRows, visibleResources, visibleAppLin
 
 import { listApps, renderApp } from "./apps.js";
 import { listTables, listRows, addRow, updateRow } from "./tables.js";
-import { listWorkflows, getWorkflow, startRun } from "./workflows.js";
+import { listWorkflows, getWorkflow, startRun, mayEditWorkflow } from "./workflows.js";
 import { listFollowups, scheduleFollowup } from "./followups.js";
 import { onRowChange } from "./workflows.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
@@ -141,14 +141,14 @@ export async function callHarnessTool(env, agent, name, args) {
       return pageResult({}, rows, r.offset, r.total);
     }
     case "add_row": {
-      if (!(await mayUseTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
+      if (!(await mayEditTable(db, orgId, String(args.tableId || ""), by))) return err("This member cannot edit that table.");
       const r = await addRow(db, orgId, String(args.tableId || ""), args.values, by);
       if (r.error) return err(r.error);
       await onRowChange(env, { orgId, table: r.table, before: null, row: r.row, by });
       return out({ row: presentRow(r.row), rowVersions: { [r.row.id]: r.row.updatedAt } });
     }
     case "update_row": {
-      if (!(await mayUseTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
+      if (!(await mayEditTable(db, orgId, String(args.tableId || ""), by))) return err("This member cannot edit that table.");
       const r = await updateRow(db, orgId, String(args.tableId || ""), String(args.rowId || ""), args.values, by, args.expectedUpdatedAt);
       if (r.error) return err(r.error);
       await onRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by });
@@ -160,6 +160,7 @@ export async function callHarnessTool(env, agent, name, args) {
       const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by });
       if (!wf) return err("No such workflow.");
       if (!wf.enabled) return err("This workflow is off.");
+      if (!(await mayEditWorkflow(db,orgId,wf,by))) return err("You can view this workflow but cannot run its write steps.");
       const run = await startRun(env, { orgId, workflow: wf, trigger: "manual", input: { text: String(args.text || "") }, startedBy: by });
       if (!run) return err("This automation is no longer available in its current published release.");
       if (run.status === 'skipped'||run.status==='paused') return out({ status: run.status, reason: run.reason });

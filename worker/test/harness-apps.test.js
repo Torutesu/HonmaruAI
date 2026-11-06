@@ -2067,3 +2067,32 @@ test('Database Apps cannot receive an anyone link even with exposure confirmatio
   expect(result.status).toBe(409);
   expect((await result.json()).message).toContain('published inline Custom App');
 });
+
+
+test('member app permissions override workspace sharing and fence reads, writes, workflows, and MCP', async () => {
+  const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Member ACL', columns: [{ name: 'Name', type: 'text' }] })).json();
+  const path = `/apps/${app.id}/member-permissions`;
+  const grant = async (permission, version = 0) => send('PUT', path, toru, { orgId: ORG, userId: '9101', permission, version });
+  expect((await grant('view')).status).toBe(200);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(200);
+  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, toru)).status).toBe(200);
+  expect((await send('POST', `/tables/${app.tableId}/rows`, toru, { orgId: ORG, values: { Name: 'blocked' } })).status).toBe(403);
+
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  const principal = { orgId: ORG, githubId: '9101' };
+  expect((await callHarnessTool(env, principal, 'read_app', { appId: app.id })).isError).toBeFalsy();
+  expect((await callHarnessTool(env, principal, 'add_row', { tableId: app.tableId, values: { Name: 'blocked' } })).isError).toBe(true);
+
+  const { createWorkflow, mayEditWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: 'ACL write', trigger: { type: 'manual' }, steps: [{ type: 'add_row', tableId: app.tableId, values: { Name: 'workflow' } }] }, '9101');
+  expect(await mayEditWorkflow(env.DB, ORG, workflow, '9101')).toBe(false);
+
+  expect((await grant('none', 1)).status).toBe(200);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
+  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, toru)).status).toBe(404);
+  expect((await callHarnessTool(env, principal, 'read_app', { appId: app.id })).isError).toBe(true);
+
+  await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id=?2").bind(ORG,'9101').run();
+  const { mayUseApp } = await import('../src/harness/resourceAccess.js');
+  expect(await mayUseApp(env.DB,ORG,app.id,'9101')).toBe(false);
+});

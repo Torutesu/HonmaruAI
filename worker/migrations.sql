@@ -397,3 +397,17 @@ ALTER TABLE hx_app_access ADD COLUMN room_channel TEXT;
 
 CREATE TABLE IF NOT EXISTS hx_app_public_shares (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, app_version INTEGER NOT NULL, access_version INTEGER NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT);
 CREATE INDEX IF NOT EXISTS idx_hx_app_public_shares_app ON hx_app_public_shares(org_id,app_id,created_at);
+
+
+CREATE TABLE IF NOT EXISTS hx_app_member_permissions (
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  user_github_id TEXT NOT NULL,
+  membership_since TEXT NOT NULL,
+  permission TEXT NOT NULL CHECK(permission IN ('none','view','edit')),
+  version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY(org_id,app_id,user_github_id)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_app_member_permissions_subject ON hx_app_member_permissions(org_id,user_github_id,app_id);

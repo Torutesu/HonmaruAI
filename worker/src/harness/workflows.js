@@ -5,7 +5,7 @@ import {workflowSourceMayRun} from './workflowSourceAuthority.js';
 import {tryWorkflowNotice} from './workflowNoticeDelivery.js';
 import {ensureWorkflowSafety,readWorkflowSafety,workflowBudgetStatus,workflowBudgetWindows,workflowAiBudgetWindows,workflowBudgetReason,recoverWorkflowBudgetPause,pauseWorkflowForBudget,workflowSettlementStatements} from './workflowSafety.js';
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
-import { mayUseApp, mayUseTable } from './resourceAccess.js';
+import { mayUseApp, mayEditApp, mayUseTable, mayEditTable } from './resourceAccess.js';
 import { holdWorkflowEvent } from './workflowHeld.js';
 import { WORKFLOW_WEBHOOK_REPLAY_TTL_MS, verifyWorkflowWebhook } from './workflowWebhookSignature.js';
 import { mayUseConversation } from './conversationAccess.js';
@@ -268,7 +268,17 @@ async function unavailableProgramNode(db,orgId,steps) {
   return node?null:{error:'Choose an available execution node in this workspace.'};
 }
 
-export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
+export export async function mayEditWorkflow(db, orgId, workflow, viewerId) {
+  if (!workflow || !viewerId) return false;
+  if (workflow.trigger?.tableId && !(await mayEditTable(db,orgId,workflow.trigger.tableId,viewerId))) return false;
+  if (workflow.trigger?.type === 'app_record_change' && !(await mayEditApp(db,orgId,workflow.trigger.appId,viewerId))) return false;
+  for (const step of workflow.steps || []) {
+    if (step.tableId && !(await mayEditTable(db,orgId,step.tableId,viewerId))) return false;
+    if (step.appId && !(await mayEditApp(db,orgId,step.appId,viewerId))) return false;
+  }
+  return true;
+}
+async function mayViewWorkflow(db, orgId, workflow, viewerId) {
   if (!workflow) return false;
   if(workflow.id){
     const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,workflow.id).first();
