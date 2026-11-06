@@ -110,6 +110,31 @@ export async function approvePublicFileShare(env,{orgId,requestId,userId,login})
  return {shareId,url:`/hx/public-file-shares/${raw}`,expiresAt:request.expires_at,allowDownload:Boolean(request.allow_download)};
 }
 
+export async function declinePublicFileShare(env,{orgId,requestId,userId,login}){
+ if(!validId(orgId)||!validId(requestId)||!validId(userId)||!validId(login))return {error:'Invalid decline.',status:400};
+ const request=await env.DB.prepare(`SELECT r.id,f.created_by,f.scope
+  FROM hx_file_share_requests r JOIN hx_workspace_files f ON f.org_id=r.org_id AND f.id=r.file_id
+  WHERE r.org_id=?1 AND r.id=?2 AND r.status='pending'`).bind(orgId,requestId).first();
+ if(!request)return {error:'Pending share request is unavailable.',status:404};
+ const permission=await env.DB.prepare(`SELECT 1 AS ok WHERE ${fileDeleteAuthority('?1','?2','?3','?4')}`)
+  .bind(orgId,request.created_by,String(userId),request.scope).first();
+ if(!permission)return {error:'Only the file owner or a current room/workspace administrator can decline this share.',status:403};
+ const at=iso();
+ const results=await env.DB.batch([
+  env.DB.prepare(`UPDATE hx_file_share_requests SET status='declined',approver_id=?3,approver_login=?4,decision_at=?5
+   WHERE org_id=?1 AND id=?2 AND status='pending' AND EXISTS(
+    SELECT 1 FROM hx_workspace_files f WHERE f.org_id=hx_file_share_requests.org_id
+     AND f.id=hx_file_share_requests.file_id AND ${fileDeleteAuthority('f.org_id','f.created_by','?3','f.scope')})`)
+    .bind(orgId,requestId,String(userId),login,at),
+  env.DB.prepare(`INSERT INTO hx_file_share_audit(org_id,request_id,share_id,actor_id,action,details,created_at)
+   SELECT ?1,?2,NULL,?3,'declined','{}',?4 WHERE EXISTS(
+    SELECT 1 FROM hx_file_share_requests WHERE org_id=?1 AND id=?2 AND status='declined' AND decision_at=?4)`)
+    .bind(orgId,requestId,String(userId),at),
+ ]);
+ if(results[0]?.meta?.changes!==1)return {error:'Request changed before the decline was recorded.',status:409};
+ return {requestId,status:'declined',decisionAt:at};
+}
+
 export async function revokePublicFileShare(env,{orgId,shareId,userId,login}){
  const row=await env.DB.prepare(`SELECT s.*,f.created_by AS file_creator,f.scope AS current_scope
   FROM hx_public_file_shares s JOIN hx_workspace_files f ON f.org_id=s.org_id AND f.id=s.file_id
@@ -162,6 +187,11 @@ export async function handleFileShareRoutes(request,env,url,{orgId,userId,login}
   if(request.method==='GET'&&parts.length===3&&parts[2]==='share-requests'){
    const requests=await listPublicFileShareRequests(env.DB,{orgId,fileId:url.searchParams.get('fileId'),userId});
    return json({requests});
+  }
+  if(request.method==='POST'&&parts.length===4&&parts[2]==='share-requests'&&parts[3]==='decline'){
+   const body=await request.json().catch(()=>null);
+   const result=await declinePublicFileShare(env,{orgId,requestId:body?.requestId,userId,login});
+   return json(result,result.error?result.status||400:200);
   }
   if(request.method==='POST'&&parts.length===4&&parts[2]==='share-requests'&&parts[3]==='approve'){
    const body=await request.json().catch(()=>null);
