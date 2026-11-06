@@ -996,6 +996,9 @@ test('assignment status is hidden from room readers without current grants to ea
  const hiddenBody=await hidden.json();expect(hiddenBody.results).toEqual([{rowId:f.row.id,status:'unknown',answered:0}]);
  const hiddenText=JSON.stringify(hiddenBody);
  for(const value of [f.assignmentId,f.source.id,f.target.id,'Reviewer','Private handoff brief'])expect(hiddenText).not.toContain(value);
+ await send('PUT','/orgs/mode',toru,{orgId:ORG,mode:'simple'});
+ const hiddenInSimple=await call(url,{headers:headers(kenji)},f.over);
+ expect((await hiddenInSimple.json()).results).toEqual([{rowId:f.row.id,status:'unknown',answered:0}]);
  const mixed=await call(`${url}&messageId=foreign`,{headers:headers(mika)},f.over);expect(mixed.status).toBe(404);
 });
 
