@@ -178,9 +178,6 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     createTemplateShare: (id: string, version: number, expiresInDays: number) => call<{ share: TemplateShare; token: string }>('POST', `/apps/${id}/template-shares`, { version, expiresInDays }),
     revokeTemplateShare: (id: string, shareId: string) => call<{ revoked: boolean }>('POST', `/apps/${id}/template-shares/${encodeURIComponent(shareId)}/revoke`, {}),
     sharedTemplate: (token: string, signal?: AbortSignal) => call<{ snapshot: SharedTemplate; expiresAt: string }>('GET', `/template-shares/${encodeURIComponent(token)}`, undefined, undefined, signal),
-Warning: truncated output (original token count: 5687)
-Total output lines: 180
-
     importSharedTemplate: (token: string, name?: string) => call<{ app: App; sourceVersion: number; expiresAt: string }>('POST', `/template-shares/${encodeURIComponent(token)}/import`, name ? { name } : {}),
     apps: (channel?: string) => call<{ apps: App[] }>('GET', '/apps', undefined, channel ? { channel } : {}),
     app: (id: string) => call<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize: boolean }>('GET', `/apps/${id}`),
@@ -246,7 +243,32 @@ Total output lines: 180
 
     followups: (channel?: string, status = 'scheduled', agentId?: string) => call<{ followups: Followup[] }>('GET', '/followups', undefined, { ...(channel ? { channel } : {}), ...(agentId ? { agentId } : {}), status }),
     followupHistory: (agentId: string, status: string, cursor?: string) => call<{ followups: Followup[]; nextCursor: string | null }>('GET', '/followups', undefined, { agentId, status, paged: '1', ...(cursor ? { cursor } : {}) }),
-    cancelFollowup: (id: string) => call<{ cancelled: boolean }>('DELETE', `/…687 tokens truncated…State>('GET', `/hx/agents/${agentId}/members`),
+    cancelFollowup: (id: string) => call<{ cancelled: boolean }>('DELETE', `/followups/${id}`),
+    approvals: () => call<{
+      toDecide: Array<{ id: string; title: string; summary?: string; kind: string; source: string | null; createdAt: string }>
+      waitingOnOthers: Array<{ runId: string; workflowId: string; workflow: string; cardId: string; startedAt: string }>
+    }>('GET', '/approvals'),
+
+    skills: () => call<{ skills: Skill[] }>('GET', '/skills'),
+    previewSkillImport: (input: SkillImportInput) => call<{ draft: SkillDraft }>('POST', '/skills/preview-import', typeof input === 'string' ? { markdown: input } : input),
+    exportSkillPackage: async (id: string) => {
+      const response = await fetch(withOrg(`/skills/${encodeURIComponent(id)}/export`, { format: 'zip' }), { headers })
+      if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.message || `${response.status}`) }
+      return response.blob()
+    },
+    exportSkill: (id: string) => call<{ filename: string; markdown: string }>('GET', `/skills/${id}/export`),
+    setSkillAccess: (id: string, visibility: 'workspace' | 'private', version: number) => call('PUT', `/skills/${id}/access`, { visibility, version }),
+    createSkill: (s: { files?: SkillFile[]; name: string; description?: string; body: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private' }) => call<{ skill: Skill }>('POST', '/skills', s),
+    skillShares: (id: string) => call<{ shares: SkillShareLink[] }>('GET', `/skills/${encodeURIComponent(id)}/shares`),
+    createSkillShare: (id: string, expiresInDays: number) => call<{ token: string; share: SkillShareLink }>('POST', `/skills/${encodeURIComponent(id)}/shares`, { expiresInDays, confirmAnyoneWithLink: true }),
+    revokeSkillShare: (id: string, shareId: string) => call<{ revoked: boolean }>('POST', `/skills/${encodeURIComponent(id)}/shares/${encodeURIComponent(shareId)}/revoke`),
+    sharedSkill: (token: string, signal?: AbortSignal) => call<{ share: SharedSkillInfo }>('GET', `/skill-shares/${encodeURIComponent(token)}`, undefined, undefined, signal),
+    skillShareImportAgents: (token: string) => call<{ agents: Array<{id:string;name:string}> }>('GET', `/skill-shares/${encodeURIComponent(token)}/import-agents`),
+    importSkillShare: (token: string, name?: string, agentId?: string) => call<{skill:Skill;installedOnAgent:boolean}>('POST', `/skill-shares/${encodeURIComponent(token)}/import`, { ...(name?.trim()?{name:name.trim()}:{}), ...(agentId?{agentId}:{}) }),
+    updateSkill: (id: string, s: Partial<Skill>) => call<{ skill: Skill }>('PUT', `/skills/${id}`, s as Record<string, unknown>),
+    deleteSkill: (id: string) => call<{ deleted: boolean }>('DELETE', `/skills/${id}`),
+
+    agentMembers: (agentId: string) => call<AgentRoleState>('GET', `/hx/agents/${agentId}/members`),
     agentApps: (agentId: string) => call<AgentConnectionState>('GET', `/hx/agents/${agentId}/apps`),
     setAgentApp: (agentId: string, server: string, granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { server } : undefined, granted ? undefined : { server }),
     setAgentNativeSource: (agentId: string, source: AgentNativeConnection['source'], granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { source } : undefined, granted ? undefined : { source }),
