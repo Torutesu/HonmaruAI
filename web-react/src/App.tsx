@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { ReauthDialog } from './components/ReauthDialog'
 import { DlpDialog } from './components/DlpDialog'
 import { Dashboard } from './components/Dashboard'
+import { ExternalGuestApp } from './components/ExternalGuestApp'
 import { Welcome } from './screens/Welcome'
 import { SignIn } from './screens/SignIn'
 import { Otp } from './screens/Otp'
@@ -83,6 +84,8 @@ function App() {
   let guestSession=''
   try { guestSession=localStorage.getItem('sessionToken')||'' } catch { /* private mode */ }
   if(guestThread&&guestSession)return <>{warning}<ExternalGuestThread key={hash} httpBase={httpBase(localStorage.getItem('host')||DEFAULT_HOST)} orgId={decodeURIComponent(guestThread[1])} rootId={decodeURIComponent(guestThread[2])} sessionToken={guestSession}/></>
+  const guestApp=hash.match(/^#\/external-app\/([^/]+)\/([^/]+)$/)
+  if(guestApp&&guestSession)return <>{warning}<ExternalGuestApp key={hash} httpBase={httpBase(localStorage.getItem('host')||DEFAULT_HOST)} orgId={decodeURIComponent(guestApp[1])} appId={decodeURIComponent(guestApp[2])} sessionToken={guestSession}/></>
   return <>{warning}<AccountApp/></>
 }
 
@@ -275,6 +278,13 @@ function AccountApp() {
           })
             .then(async (response) => {
               const data = await response.json().catch(() => ({}))
+              if (response.ok && data.resourceType === 'app' && data.orgId && data.appId) {
+                setPendingExternalInviteToken(null)
+                setPending((current) => ({ ...current, externalInviteToken: '' }))
+                try { sessionStorage.removeItem('externalThreadInviteToken') } catch { /* private mode */ }
+                location.hash = `#/external-app/${encodeURIComponent(data.orgId)}/${encodeURIComponent(data.appId)}`
+                return
+              }
               clear()
               setPendingExternalInviteToken(null)
               setPending((current) => ({ ...current, externalInviteToken: '' }))
@@ -448,6 +458,7 @@ function AccountApp() {
   ) => {
     let noticeAfter: { text: string; error?: boolean } | null = inviteNotice ? { text: inviteNotice.message, error: inviteNotice.error } : null
     let redeemedThread: ReturnType<typeof externalThreadAccessFromInvite> = null
+    let redeemedApp: { orgId: string; appId: string } | null = null
     const inviteToken = pendingExternalInviteToken || pending.externalInviteToken
     if (inviteToken && !alreadyRedeemed) {
       try {
@@ -457,9 +468,10 @@ function AccountApp() {
           body: JSON.stringify({ token: inviteToken }),
         })
         const data = await response.json().catch(() => ({}))
-        if (response.ok) redeemedThread = externalThreadAccessFromInvite(data)
+        if (response.ok && data.resourceType === 'app' && data.orgId && data.appId) redeemedApp = { orgId: data.orgId, appId: data.appId }
+        else if (response.ok) redeemedThread = externalThreadAccessFromInvite(data)
         noticeAfter = response.ok
-          ? { text: data.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
+          ? { text: redeemedApp ? t('The App invitation was accepted.') : data.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
           : { text: t('This invitation is not valid, or has expired.'), error: true }
       } catch {
         noticeAfter = { text: t('Could not verify this invitation yet. Open its link again after signing in.'), error: true }
@@ -473,6 +485,10 @@ function AccountApp() {
     }
     await finishAuth(token, uid, org, firstTime)
     if (noticeAfter) setNotice(noticeAfter)
+    if (redeemedApp) {
+      history.replaceState(null, '', location.pathname + location.search + `#/external-app/${encodeURIComponent(redeemedApp.orgId)}/${encodeURIComponent(redeemedApp.appId)}`)
+      window.dispatchEvent(new Event('honmaru:session-ready'))
+    }
     const externalThread = inviteNotice?.externalThread || redeemedThread
     if (externalThread) {
       history.replaceState(null, '', location.pathname + location.search + externalThreadHash(externalThread))
