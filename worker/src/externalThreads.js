@@ -1,6 +1,8 @@
 import { getSession, getUserByGithubId, isMember } from "./db.js";
 import { getMode } from "./harness/mode.js";
 import { resolveChannel } from "./channels.js";
+import { sha256Hex } from "./auth.js";
+import { enforce } from "./ratelimit.js";
 import {
   externalResourcePermission,
   grantExternalResource,
@@ -96,6 +98,157 @@ async function shareThread(request, env, orgId, rootId, actor) {
     WHERE org_id = ?3 AND root_message_id = ?4 AND guest_github_id = ?5 AND status = 'pending'`)
     .bind(new Date().toISOString(), actor.user.github_id, orgId, rootId, recipient.github_id).run();
   return json({ revoked: revoked > 0 });
+}
+
+
+const inviteId = () => `xti_${crypto.randomUUID().replaceAll("-", "")}`;
+function randomInviteToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+function externalInviteLink(env, token) {
+  if (!env.APP_WEB_URL) return null;
+  try {
+    const url = new URL(env.APP_WEB_URL);
+    url.hash = `#/external-invite/${token}`;
+    return url.toString();
+  } catch { return null; }
+}
+function validInviteEmail(email) {
+  return typeof email === "string" && email.length <= 254 && /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(email);
+}
+
+async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef = null) {
+  const root = await manageableRoot(env.DB, orgId, rootId, actor.user);
+  if (!root) return fail("Thread not found or cannot be shared.", 404);
+  if (inviteRef && request.method !== "DELETE") return fail("Method not allowed.", 405);
+  if (!inviteRef && request.method === "GET") {
+    const now = new Date().toISOString();
+    const { results = [] } = await env.DB.prepare(`SELECT id, invited_email, permission, created_at, expires_at, access_expires_at
+      FROM hx_external_thread_invites
+      WHERE org_id=?1 AND resource_id=?2 AND redeemed_at IS NULL AND revoked_at IS NULL
+        AND expires_at>?3 AND (access_expires_at IS NULL OR access_expires_at>?3)
+      ORDER BY created_at DESC,id LIMIT 100`).bind(orgId,rootId,now).all();
+    return json({ invitations: results.map(row => ({
+      id: row.id, email: row.invited_email, permission: row.permission,
+      createdAt: row.created_at, expiresAt: row.expires_at,
+      accessExpiresAt: row.access_expires_at || null,
+    })) });
+  }
+  if (!inviteRef && request.method === "POST") {
+    const limited = await enforce(env, request, "team");
+    if (limited) return limited;
+    const input = await request.json().catch(() => null);
+    if (!input) return fail("Invalid JSON body.", 400);
+    const email = typeof input.email === "string" ? input.email.trim().toLowerCase() : "";
+    if (!validInviteEmail(email)) return fail("Enter a valid email address.", 400);
+    const permission = input.permission === "edit" || input.permission === "view" ? input.permission : null;
+    if (!permission) return fail("Permission must be view or edit.", 400);
+    const now = new Date();
+    const nowIso = now.toISOString();
+    let accessExpiresAt = input.accessExpiresAt == null ? null : String(input.accessExpiresAt);
+    if (accessExpiresAt && (!Number.isFinite(Date.parse(accessExpiresAt)) || Date.parse(accessExpiresAt) <= now.getTime())) {
+      return fail("Access expiry must be a future timestamp.", 400);
+    }
+    if (accessExpiresAt) accessExpiresAt = new Date(accessExpiresAt).toISOString();
+    const lifetimeEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = accessExpiresAt && Date.parse(accessExpiresAt) < lifetimeEnd.getTime()
+      ? accessExpiresAt : lifetimeEnd.toISOString();
+    const code = randomInviteToken();
+    const id = inviteId();
+    try {
+      await env.DB.prepare(`INSERT INTO hx_external_thread_invites
+          (id,org_id,resource_type,resource_id,invited_email,permission,access_expires_at,token_hash,created_by,created_at,expires_at)
+        VALUES (?1,?2,'thread',?3,?4,?5,?6,?7,?8,?9,?10)`)
+        .bind(id,orgId,rootId,email,permission,accessExpiresAt,await sha256Hex(code),actor.user.github_id,nowIso,expiresAt).run();
+    } catch (error) {
+      console.error("external Thread invitation create failed", error?.message || error);
+      return fail("Could not create this invitation.", 503);
+    }
+    // No account lookup or email is sent here. The inviter shares this one-time
+    // URL with the named address; redemption proves the address through OTP.
+    return json({ invited: true, invitationId: id, inviteUrl: externalInviteLink(env, code), expiresAt }, 201);
+  }
+  if (inviteRef && request.method === "DELETE") {
+    const now = new Date().toISOString();
+    const existing = await env.DB.prepare(`SELECT redeemed_by FROM hx_external_thread_invites
+      WHERE id=?1 AND org_id=?2 AND resource_id=?3 AND revoked_at IS NULL`).bind(inviteRef,orgId,rootId).first();
+    if (!existing) return json({ revoked: false });
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE hx_external_thread_invites SET revoked_at=?1,revoked_by=?2
+        WHERE id=?3 AND org_id=?4 AND resource_id=?5 AND revoked_at IS NULL`)
+        .bind(now,actor.user.github_id,inviteRef,orgId,rootId),
+      env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
+        WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL`)
+        .bind(now,actor.user.github_id,orgId,rootId,existing.redeemed_by || ""),
+    ]);
+    if (existing.redeemed_by) {
+      await env.DB.prepare(`UPDATE hx_external_thread_send_requests
+        SET status='cancelled',decided_at=?1,decided_by=?2
+        WHERE org_id=?3 AND root_message_id=?4 AND guest_github_id=?5 AND status='pending'`)
+        .bind(now,actor.user.github_id,orgId,rootId,existing.redeemed_by).run();
+    }
+    return json({ revoked: true });
+  }
+  return fail("Method not allowed.", 405);
+}
+
+/** Redeem a link only after the signed-in identity has proved its email address. */
+export async function redeemExternalThreadInvite(env, { token, userId }) {
+  const deny = { error: "This invitation is not valid, or has expired.", status: 404 };
+  if (typeof token !== "string" || !/^[a-f0-9]{64}$/i.test(token) || !userId) return deny;
+  const tokenHash = await sha256Hex(token.toLowerCase());
+  const now = new Date().toISOString();
+  const invite = await env.DB.prepare(`SELECT i.* FROM hx_external_thread_invites i
+    WHERE i.token_hash=?1 AND i.redeemed_at IS NULL AND i.revoked_at IS NULL
+      AND i.expires_at>?2 AND (i.access_expires_at IS NULL OR i.access_expires_at>?2)`)
+    .bind(tokenHash,now).first();
+  if (!invite || (await getMode(env.DB,invite.org_id)) !== "harness") return deny;
+  const person = await env.DB.prepare("SELECT github_id,email,email_verified_at FROM users WHERE github_id=?1")
+    .bind(String(userId)).first();
+  if (!person?.email_verified_at || String(person.email || "").trim().toLowerCase() !== invite.invited_email) return deny;
+  const inviter = await getUserByGithubId(env.DB,invite.created_by);
+  if (!inviter || !(await manageableRoot(env.DB,invite.org_id,invite.resource_id,inviter))) return deny;
+  const member = await isMember(env.DB,invite.org_id,String(userId));
+  const redemptionId = `xtr_${crypto.randomUUID().replaceAll("-", "")}`;
+  const grantId = `xg_${crypto.randomUUID().replaceAll("-", "")}`;
+  const claim = env.DB.prepare(`UPDATE hx_external_thread_invites
+      SET redeemed_at=?1,redeemed_by=?2,redemption_id=?3
+    WHERE id=?4 AND token_hash=?5 AND redeemed_at IS NULL AND revoked_at IS NULL
+      AND expires_at>?1 AND (access_expires_at IS NULL OR access_expires_at>?1)
+      AND invited_email=?6
+      AND EXISTS(SELECT 1 FROM channel_messages root WHERE root.org_id=?7 AND root.id=?8
+        AND root.parent_id IS NULL AND root.deleted_at IS NULL
+        AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone WHERE tombstone.org_id=root.org_id
+          AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL))
+      AND EXISTS(SELECT 1 FROM memberships grantor WHERE grantor.org_id=?7 AND grantor.user_github_id=created_by)
+      AND EXISTS(SELECT 1 FROM channel_messages root JOIN users grantor ON grantor.github_id=created_by
+        WHERE root.org_id=?7 AND root.id=?8 AND
+          (root.author_login=grantor.login OR EXISTS(SELECT 1 FROM memberships rolecheck
+            WHERE rolecheck.org_id=?7 AND rolecheck.user_github_id=created_by AND lower(rolecheck.role) IN ('owner','admin'))))`)
+    .bind(now,String(userId),redemptionId,invite.id,tokenHash,invite.invited_email,invite.org_id,invite.resource_id);
+  if (member) {
+    const result = await claim.run();
+    return result.meta?.changes ? { redeemed: true, alreadyMember: true, orgId: invite.org_id } : deny;
+  }
+  const previous = env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
+    WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL`)
+    .bind(now,invite.created_by,invite.org_id,invite.resource_id,String(userId));
+  const insert = env.DB.prepare(`INSERT INTO hx_external_resource_grants
+      (id,org_id,resource_type,resource_id,recipient_github_id,permission,granted_by,granted_at,expires_at)
+    SELECT ?1,i.org_id,'thread',i.resource_id,?2,i.permission,i.created_by,?3,i.access_expires_at
+      FROM hx_external_thread_invites i
+      WHERE i.id=?4 AND i.redemption_id=?5 AND i.redeemed_by=?2 AND i.revoked_at IS NULL
+        AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=i.org_id AND m.user_github_id=?2)
+        AND EXISTS(SELECT 1 FROM channel_messages root WHERE root.org_id=i.org_id AND root.id=i.resource_id
+          AND root.parent_id IS NULL AND root.deleted_at IS NULL)`)
+    .bind(grantId,String(userId),now,invite.id,redemptionId);
+  const results = await env.DB.batch([claim,previous,insert]);
+  if (!(results?.[0]?.meta?.changes > 0)) return deny;
+  if (results?.[2]?.meta?.changes > 0) {
+    return { redeemed: true, orgId: invite.org_id, resourceType: "thread", resourceId: invite.resource_id, permission: invite.permission };
+  }
+  return { redeemed: true, alreadyMember: true, orgId: invite.org_id };
 }
 
 async function readThread(env, orgId, rootId, user) {
@@ -241,6 +394,13 @@ async function decideRequest(env, orgId, rootId, id, owner, action) {
 }
 
 export async function handleExternalThreads(request, env, url) {
+  if (url.pathname === "/external/invites/redeem" && request.method === "POST") {
+    const actor = await signedIn(request,env);
+    if (!actor) return fail("Sign in to continue.",401);
+    const input = await request.json().catch(() => ({}));
+    const redeemed = await redeemExternalThreadInvite(env,{token:input.token,userId:actor.user.github_id});
+    return redeemed.error ? fail(redeemed.error,redeemed.status) : json(redeemed);
+  }
   if (!url.pathname.startsWith("/external/threads/")) return null;
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts.length < 4) return fail("Not found.", 404);
@@ -253,6 +413,12 @@ export async function handleExternalThreads(request, env, url) {
   const actor = await signedIn(request, env);
   if (!actor) return fail("Sign in to continue.", 401);
   if (parts.length === 5 && parts[4] === "shares") return shareThread(request, env, orgId, rootId, actor);
+  if (parts.length === 5 && parts[4] === "invites") return manageThreadInvites(request,env,orgId,rootId,actor);
+  if (parts.length === 6 && parts[4] === "invites" && request.method === "DELETE") {
+    let inviteRef;
+    try { inviteRef = decodeURIComponent(parts[5]); } catch { return fail("Not found.",404); }
+    return manageThreadInvites(request,env,orgId,rootId,actor,inviteRef);
+  }
   const root = await rootFor(env.DB, orgId, rootId);
   if (!root) return fail("Thread not found.", 404);
 
