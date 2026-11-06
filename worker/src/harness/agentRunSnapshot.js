@@ -2,7 +2,6 @@ import {decorateAssignmentStatuses} from './agentAssignmentStatus.js';
 import {decorateAgentRequestStatuses} from '../agentRequestDispatch.js';
 
 async function restrictedRunRows(db,orgId,rowIds,viewer) {
-  if(viewer.canManage)return new Set();
   const marks=rowIds.map((_,i)=>`?${i+2}`).join(',');
   const [dispatch,assignments]=await Promise.all([
     db.prepare(`SELECT message_id,agent_ids FROM hx_agent_request_dispatch WHERE org_id=?1 AND message_id IN (${marks})`).bind(orgId,...rowIds).all(),
