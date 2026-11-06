@@ -4,7 +4,7 @@ import {afterEach,expect,test,vi} from 'vitest'
 import {ExternalGuestThread} from './ExternalGuestThread'
 const ok=(value:any,status=200)=>({ok:status>=200&&status<300,status,json:async()=>value})
 const thread=(permission:'view'|'edit')=>({permission,thread:{parent:{id:'root',body:'Shared context',authorName:'Owner',mine:false,createdAt:'2026-11-06T00:00:00Z',parentId:null},replies:[]}})
-afterEach(()=>vi.unstubAllGlobals())
+afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers()})
 const props={httpBase:'https://api.example',orgId:'org/one',rootId:'root one',sessionToken:'session'}
 
 test('loads an exact shared Thread and sends an edit reply',async()=>{
