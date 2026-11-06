@@ -134,10 +134,10 @@ async function appEntityTable(db, orgId, appId, entityId) {
   return (await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId, appId, entityId).first())?.table_id || null;
 }
 
-async function validAppRecordTrigger(db, orgId, trigger) {
+async function validAppRecordTrigger(db, orgId, trigger, expectedTableId = undefined) {
   if (trigger.type !== 'app_record_change') return true;
   const tableId=await appEntityTable(db, orgId, trigger.appId, trigger.entityId);
-  if(!tableId)return false;
+  if(!tableId || (expectedTableId !== undefined && tableId !== expectedTableId))return false;
   const table=await getTable(db,orgId,tableId);
   return Boolean(table&&Object.keys(trigger.when?.where||{}).every(key=>table.columns.some(column=>column.id===key||column.name.toLowerCase()===key.toLowerCase())));
 }
@@ -745,7 +745,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     return getRun(db, orgId, runId);
   }
   if (workflow.trigger?.type === 'app_record_change' &&
-    (!(await validAppRecordTrigger(db, orgId, workflow.trigger)) || !(await mayUseApp(db, orgId, workflow.trigger.appId, workflow.createdBy)))) {
+    (!(await validAppRecordTrigger(db, orgId, workflow.trigger, sourceTable)) || !(await mayUseApp(db, orgId, workflow.trigger.appId, workflow.createdBy)))) {
     await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = 'failed', finished_at = ?1 WHERE id = ?2 AND org_id = ?3").bind(now(), runId, orgId),...workflowSettlementStatements(db,orgId,runId)]);
     await tryWorkflowNotice(env,orgId,workflow.id);
     return getRun(db, orgId, runId);
@@ -758,7 +758,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     // Agent is answering cannot publish data read under the old grant.
     if (sourceTable && !(await mayUseTable(db, orgId, sourceTable, workflow.createdBy))) return false;
     if (workflow.trigger?.type === 'app_record_change'
-      && (!(await validAppRecordTrigger(db, orgId, workflow.trigger))
+      && (!(await validAppRecordTrigger(db, orgId, workflow.trigger, sourceTable))
         || !(await mayUseApp(db, orgId, workflow.trigger.appId, workflow.createdBy)))) return false;
     return true;
   };
