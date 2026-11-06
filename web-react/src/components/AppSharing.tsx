@@ -29,9 +29,9 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
     setAccess(null); setCanEdit(false); setError('')
     fetch(`${httpBase}/apps/${appId}/access?${new URLSearchParams({ orgId })}`, { headers: { 'x-session-token': sessionToken }, signal: controller.signal })
       .then(async res => { const data = await res.json(); if (!res.ok) throw new Error(data.message || String(res.status)); return data })
-      .then(data => { if (!controller.signal.aborted) { setAccess(data.access); setRooms(data.rooms || []); setRoom(data.access?.roomChannel || data.rooms?.[0] || ''); setCanEdit(Boolean(data.canEdit)); setCanPublicShare(Boolean(data.canPublicShare)) } })
+      .then(data => { if (!controller.signal.aborted) { setAccess(data.access); setRooms(data.rooms || []); setRoom(data.access?.roomChannel || data.rooms?.[0] || ''); setCanEdit(Boolean(data.canManage)); setCanPublicShare(Boolean(data.canPublicShare)) } })
       .catch(err => { if (!controller.signal.aborted) setError(String(err.message)) })
-    void loadShares(controller.signal).catch(err => { if (!controller.signal.aborted && !String(err.message).includes('403')) setError(String(err.message)) })
+    // Public link inventory is restricted to app owners and workspace admins.\n    // The access response controls the UI; the server remains authoritative.\n    
     return () => controller.abort()
   }, [httpBase, orgId, sessionToken, appId])
   const save = async (visibility: Visibility, channel?: string) => {
