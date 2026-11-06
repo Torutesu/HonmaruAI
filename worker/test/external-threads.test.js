@@ -1,8 +1,9 @@
 import { env } from "cloudflare:test";
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { createSession, upsertMembership, upsertUser } from "../src/db.js";
 import { hashPassword, newSaltHex } from "../src/auth.js";
 import { setMode } from "../src/harness/mode.js";
+import { fetchMock } from "./helpers/fetch-mock.js";
 import schemaSql from "../schema.sql?raw";
 import migrationsSql from "../migrations.sql?raw";
 
@@ -19,6 +20,7 @@ const grantMigrations = [
 
 async function setup() {
   const tag = suffix();
+  await flushBackground();
   const orgId = `external-thread-${tag}`;
   const ids = {
     owner: `external-owner-${tag}`,
@@ -58,14 +60,18 @@ async function setup() {
   return { orgId, rootId, ids, sessions };
 }
 
-const context = { waitUntil() {} };
-async function call(path, token, method = "GET", body = undefined) {
+const context = { tasks: [], waitUntil(task) { this.tasks.push(Promise.resolve(task)); } };
+afterEach(() => fetchMock.deactivate());
+async function flushBackground() {
+  while (context.tasks.length) await Promise.all(context.tasks.splice(0));
+}
+async function call(path, token, method = "GET", body = undefined, extra = {}) {
   const response = await import("../src/index.js").then(({ default: worker }) => worker.fetch(
     new Request(`https://example.com${path}`, {
       method,
       headers: { "x-session-token": token, ...(body === undefined ? {} : { "content-type": "application/json" }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    }), env, context,
+    }), { ...env, ...extra }, context,
   ));
   return response;
 }
@@ -78,6 +84,17 @@ test("external Thread route is registered and requires a signed-in session", asy
 
 test("a verified non-member can read and reply only to an explicitly shared Thread", async () => {
   const { orgId, rootId, ids, sessions } = await setup();
+  const privateBody = "UNSHARED CHANNEL SECRET 9d68a";
+  await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES (?1, ?2, 'b:private-room', ?3, 'message', ?4, ?5)")
+    .bind(`unshared-${rootId}`, orgId, ids.owner, privateBody, new Date(Date.now() - 5_000).toISOString()).run();
+  let aiPrompt;
+  fetchMock.activate();
+  fetchMock.get("https://api.openai.com")
+    .intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, (opts) => {
+      aiPrompt = JSON.parse(opts.body);
+      return { choices: [{ message: { content: "I can summarize the shared launch thread." } }] };
+    });
   const share = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", {
     email: `guest-${orgId.split("-").at(-1)}@example.test`, permission: "view",
   });
@@ -90,17 +107,27 @@ test("a verified non-member can read and reply only to an explicitly shared Thre
   expect((await call(`/channels/messages?orgId=${orgId}&channel=b%3Aprivate-room`, sessions.guest)).status).toBe(403);
 
   expect((await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: "send without approval" })).status).toBe(403);
-  const request = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: "Please confirm the launch date.", requestSend: true });
+  const request = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: `@${ids.owner} @AI summarize the launch plan`, requestSend: true });
   expect(request.status).toBe(201);
   const sendRequest = await request.json();
   expect((await call(`/external/threads/${orgId}/${rootId}/requests`, sessions.editor)).status).toBe(404);
   const pending = await call(`/external/threads/${orgId}/${rootId}/requests`, sessions.owner);
-  expect((await pending.json()).requests).toMatchObject([{ id: sendRequest.requestId, body: "Please confirm the launch date." }]);
-  const approved = await call(`/external/threads/${orgId}/${rootId}/requests/approve`, sessions.owner, "POST", { requestId: sendRequest.requestId });
+  expect((await pending.json()).requests).toMatchObject([{ id: sendRequest.requestId, body: `@${ids.owner} @AI summarize the launch plan` }]);
+  const approved = await call(`/external/threads/${orgId}/${rootId}/requests/approve`, sessions.owner, "POST", { requestId: sendRequest.requestId }, { OPENAI_API_KEY: "sk-test", OPENAI_MODEL: "gpt-4o-mini" });
   expect(approved.status).toBe(200);
+  const approvedMessage = await approved.json();
+  await flushBackground();
+  expect(aiPrompt.messages.find((message) => message.role === "user").content).not.toContain(privateBody);
+  expect(JSON.stringify(aiPrompt.messages)).not.toContain(privateBody);
 
   const refreshed = await (await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).json();
-  expect(refreshed.thread.replies).toMatchObject([{ body: "Please confirm the launch date.", authorName: "guest", mine: true }]);
+  expect(refreshed.thread.replies).toMatchObject([
+    { body: `@${ids.owner} @AI summarize the launch plan`, authorName: "guest", mine: true },
+    { kind: "ai", parentId: rootId, body: "I can summarize the shared launch thread." },
+  ]);
+  expect(refreshed.thread.replies.every((reply) => !String(reply.body).includes(privateBody))).toBe(true);
+  expect(await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2").bind(orgId, approvedMessage.messageId).all())
+    .toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
   expect(await env.DB.prepare("SELECT count(*) AS n FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND kind='agent'").bind(orgId, rootId).first()).toMatchObject({ n: 0 });
 });
 
@@ -119,8 +146,12 @@ test("sharing authority is resource-owner/Admin scoped and grants do not cross w
   await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES (?1, ?2, 'b:other-room', ?3, 'message', 'Other workspace', ?4)")
     .bind(otherRootId, otherOrgId, ids.owner, new Date().toISOString()).run();
   expect((await call(`/external/threads/${otherOrgId}/${otherRootId}`, sessions.guest)).status).toBe(404);
-  const reply = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: "Approved edit" });
+  const reply = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: `@${ids.owner} Approved edit` });
   expect(reply.status).toBe(201);
+  const replyBody = await reply.json();
+  await flushBackground();
+  expect(await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2").bind(orgId, replyBody.messageId).all())
+    .toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
 });
 
 test("revocation and expiry are rechecked on every read and write; Simple stays closed", async () => {
