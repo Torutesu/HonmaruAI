@@ -23,7 +23,7 @@ export function DatabaseAppPreview({ app, table, rows, renderCell, onBrowseData 
   return <section className="hx-database-app-preview" aria-label={t('{app} data preview',{app:app.name})}>
     <header className="hx-database-preview-header">
       <div className="hx-database-preview-title"><span><HarnessAppIcon icon={app.icon} size={18} /></span><div><strong>{app.name}</strong><small>{table.name}</small></div></div>
-      <button type="button" className="hx-database-preview-browse" aria-label={t("Open data")} onClick={onBrowseData}><Icon name="list-check" size={14} />{t("Open data")}</button>
+      {onBrowseData&&<button type="button" className="hx-database-preview-browse" aria-label={t("Open data")} onClick={onBrowseData}><Icon name="list-check" size={14} />{t("Open data")}</button>}
     </header>
     <div className="hx-database-preview-meta"><span>{t('{n} records',{n:rows.length})}</span><span>{t('{n} fields',{n:table.columns.length})}</span></div>
     <div className="hx-database-preview-table-wrap">
