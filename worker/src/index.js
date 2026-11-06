@@ -522,7 +522,7 @@ async function handle(request, env, url, ctx) {
     if (harnessed) return harnessed;
     // A verified external collaborator's exact Thread route. The handler
     // authenticates the session and rechecks the resource grant on each call.
-    const externalThread = await handleExternalThreads(request, env, url);
+    const externalThread = await handleExternalThreads(request, env, url, ctx);
     if (externalThread) return externalThread;
 
     // Routines, the playbook, agent tokens and the MCP endpoint.
