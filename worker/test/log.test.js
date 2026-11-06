@@ -71,3 +71,17 @@ test("a server-side failure is a clean 500 carrying the request id", async () =>
   const body = await res.json();
   expect(JSON.stringify(body)).not.toMatch(/at |\.js:/);
 });
+
+test("public file bearer tokens never appear in route labels", () => {
+  const token = "pf_" + "ab".repeat(32);
+  expect(routeLabel("GET", `/hx/public-file-shares/${token}`)).toBe("GET /hx/public-file-shares/:token");
+  expect(routeLabel("GET", `/hx/public-file-shares/${token}/download`)).toBe("GET /hx/public-file-shares/:token/download");
+  expect(routeLabel("GET", `/hx/public-file-shares/${token}%2Fextra`)).toBe("GET /hx/public-file-shares/:token");
+});
+
+test("public file bearer tokens are redacted from route labels and arbitrary messages", () => {
+  const token = "A".repeat(42) + "_";
+  expect(safe(`requested /hx/public-file-shares/${token}`)).toBe("requested [redacted]");
+  expect(safe(token)).toBe("[redacted]");
+  expect(safe(`/hx/public-file-shares/${token}%2Fextra`)).toBe("[redacted]");
+});
