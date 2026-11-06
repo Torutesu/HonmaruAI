@@ -554,6 +554,22 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 CREATE INDEX IF NOT EXISTS idx_memories_org ON memories(org_id, updated_at);
 
+/* Style observations a person explicitly asked their own drafts to remember.
+   The table stores only fixed, non-content style signals, never the drafts. */
+CREATE TABLE IF NOT EXISTS hx_user_draft_style_preferences (
+  org_id TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  source_app TEXT NOT NULL DEFAULT 'general',
+  preference_key TEXT NOT NULL,
+  preference_text TEXT NOT NULL,
+  source_card_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, user_github_id, source_app, preference_key),
+  FOREIGN KEY (org_id, user_github_id) REFERENCES memberships(org_id, user_github_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_hx_user_draft_style_preferences_user
+  ON hx_user_draft_style_preferences(org_id, user_github_id, source_app, updated_at DESC);
+
 /* What the AI has proposed on its own, so a declined proposal is never
    made twice and nobody is proposed to more than once a week. */
 CREATE TABLE IF NOT EXISTS proposals (
@@ -2605,3 +2621,32 @@ CREATE TABLE IF NOT EXISTS hx_recurring_automation_offers (
   UNIQUE(org_id,channel,user_github_id,prompt_hash)
 );
 CREATE INDEX IF NOT EXISTS hx_recurring_automation_offers_member ON hx_recurring_automation_offers(org_id,user_github_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS hx_agent_draft_edit_pending (
+  org_id TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  card_id TEXT NOT NULL,
+  removed_text TEXT NOT NULL DEFAULT '',
+  added_text TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,user_github_id,agent_id,card_id),
+  FOREIGN KEY(org_id,user_github_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE,
+  FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS hx_agent_draft_edit_context (
+  org_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  card_id TEXT NOT NULL,
+  removed_text TEXT NOT NULL DEFAULT '',
+  added_text TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,message_id,agent_id,card_id),
+  FOREIGN KEY(org_id,user_github_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE,
+  FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE
+);
+
