@@ -141,8 +141,14 @@ test("@claude in a thread starts a session with the repo, vault and budget, and 
   expect(session.initial_events[0].content[0].text).toContain("the login page sends people to a 404");
   expect(session.initial_events[0].content[0].text).toContain("#cafe");
   const replies = await thread(mika, posted.id);
-  expect(replies.map((m) => m.body)).toEqual(["On it. I'll answer here when I'm done.", "Fixed the login redirect. PR: https://github.com/acme/app/pull/7"]);
+  expect(replies.map((m) => m.body)).toEqual(["Fixed the login redirect. PR: https://github.com/acme/app/pull/7"]);
   expect(replies.every((m) => m.kind === "agent" && m.authorName === "Claude")).toBe(true);
+  const completion = replies[0];
+  const pushed = await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2").bind(ORG, completion.id).all();
+  expect(pushed.results).toEqual([{ login: "mika", reason: "thread" }]);
+  const activity = await (await get(`/channels/activity?${q({ orgId: ORG })}`, mika)).json();
+  expect(activity.items.map((item) => item.message.id)).toContain(completion.id);
+  expect(activity.items.some((item) => item.message.body.includes("On it. I'll answer"))).toBe(false);
   const run = await env.DB.prepare("SELECT * FROM ai_teammate_runs WHERE org_id = ?1").bind(ORG).first();
   expect(run).toMatchObject({ status: "idle", cost_cents: 123, remote_id: "sesn_1", last_event_at: "2026-09-30T10:00:06Z" });
   const spent = (await (await get(`/teammates?${q({ orgId: ORG, provider: "claude" })}`, toru)).json()).teammate.spentThisMonth;
@@ -164,7 +170,7 @@ test("@claude in a thread starts a session with the repo, vault and budget, and 
   await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@claude also add a test", parentId: posted.id });
   expect(followUp.events[0]).toMatchObject({ type: "user.message", content: [{ type: "text", text: "Mika: also add a test" }] });
   const after = (await thread(mika, posted.id)).map((m) => m.body);
-  expect(after.slice(-2)).toEqual(["Picking this up where we left off.", "Added a test to the PR."]);
+  expect(after.slice(-1)).toEqual(["Added a test to the PR."]);
   expect(Number((await env.DB.prepare("SELECT cost_cents FROM ai_teammate_runs WHERE org_id = ?1").bind(ORG).first()).cost_cents)).toBe(180);
 });
 
@@ -203,7 +209,9 @@ test("a run still working is left for the minute cron, which posts it once", asy
   });
   // The request looks once, and leaves it working.
   const posted = (await (await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@claude why did last night's deploy fail?" }, { TEAMMATE_WATCH_MS: "0" })).json()).message;
-  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual(["On it. I'll answer here when I'm done."]);
+  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual([]);
+  const activityWhileRunning = await (await get(`/channels/activity?${q({ orgId: ORG })}`, mika)).json();
+  expect(activityWhileRunning.items.some((item) => item.message.body.includes("On it. I'll answer"))).toBe(false);
   // Everything it has said so far is still there for the look that finds it done.
   anthropic().intercept({ path: (p) => p.startsWith("/v1/sessions/sesn_2/events?") && !p.includes("created_at"), method: "GET" }).reply(200, {
     data: [
@@ -217,7 +225,78 @@ test("a run still working is left for the minute cron, which posts it once", asy
   await watchTeammateRuns(env);
   await watchTeammateRuns(env);
   const replies = (await thread(mika, posted.id)).map((m) => m.body);
-  expect(replies).toEqual(["On it. I'll answer here when I'm done.", "Looking at the logs.\n\nThe migration timed out on the orders table."]);
+  expect(replies).toEqual(["Looking at the logs.\n\nThe migration timed out on the orders table."]);
+});
+
+test.each(["simple", "harness"])('%s agent completion keeps mention/read preferences without a progress reply', async (mode) => {
+  await launch();
+  const { setMode } = await import("../src/harness/mode.js");
+  const { setChannelPref } = await import("../src/people.js");
+  await setMode(env.DB, ORG, mode, "9701");
+  await setChannelPref(env.DB, { orgId: ORG, login: "mika", key: "b:cafe", level: "mentions" });
+  await setChannelPref(env.DB, { orgId: ORG, login: "toru", key: "b:cafe", level: "mentions" });
+  anthropic().intercept({ path: "/v1/sessions?beta=true", method: "POST" }).reply(200, { id: `sesn_${mode}`, type: "session", status: "running" });
+  anthropic().intercept({ path: (path) => path.startsWith(`/v1/sessions/sesn_${mode}/events?`), method: "GET" }).reply(200, {
+    data: [
+      { id: "answer", type: "agent.message", processed_at: "2026-11-07T10:00:05Z", content: [{ type: "text", text: "@Toru the deployment is healthy." }] },
+      { id: "done", type: "session.status_idle", processed_at: "2026-11-07T10:00:06Z", stop_reason: { type: "end_turn" } },
+    ], next_page: null,
+  });
+  anthropic().intercept({ path: `/v1/sessions/sesn_${mode}?beta=true`, method: "GET" }).reply(200, { id: `sesn_${mode}`, status: "idle", usage: { list_cost: { amount: "10", currency: "USD" } } });
+
+  const posted = (await (await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@claude check deployment" })).json()).message;
+  const replies = await thread(mika, posted.id);
+  expect(replies.map((reply) => reply.body)).toEqual(["@Toru the deployment is healthy."]);
+  const completion = replies[0];
+  const queue = await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2 ORDER BY login").bind(ORG, completion.id).all();
+  // Mika's mentions-only preference suppresses the ordinary thread reply;
+  // Toru is still notified because the final reply explicitly names him.
+  expect(queue.results).toEqual([{ login: "toru", reason: "mention" }]);
+  const activityForMika = await (await get(`/channels/activity?${q({ orgId: ORG })}`, mika)).json();
+  const activityForToru = await (await get(`/channels/activity?${q({ orgId: ORG })}`, toru)).json();
+  expect(activityForMika.items.some((item) => item.message.id === completion.id && item.type === "reply")).toBe(true);
+  expect(activityForToru.items.some((item) => item.message.id === completion.id && item.type === "mention")).toBe(true);
+  expect(activityForMika.items.some((item) => item.message.body.includes("On it. I'll answer"))).toBe(false);
+});
+
+test("a Harness DM uses live progress, while only the final reply creates Activity and direct notifications", async () => {
+  await launch();
+  const { setMode } = await import("../src/harness/mode.js");
+  const { setChannelPref } = await import("../src/people.js");
+  await setMode(env.DB, ORG, "harness", "9701");
+  await setChannelPref(env.DB, { orgId: ORG, login: "mika", key: "dm:mika|toru", level: "mute" });
+  await setChannelPref(env.DB, { orgId: ORG, login: "toru", key: "dm:mika|toru", level: "mentions" });
+  const { memberRef } = await import("../src/team.js");
+  const toruRef = await memberRef(ORG, "9701");
+  const events = [];
+  const relay = { idFromName: (name) => name, get: () => ({ fetch: async (_url, init) => {
+    const body = JSON.parse(init.body);
+    events.push(...(body.events || (body.deliveries || []).map((item) => item.event)));
+    return new Response("ok");
+  } }) };
+  anthropic().intercept({ path: "/v1/sessions?beta=true", method: "POST" }).reply(200, { id: "sesn_harness_dm", type: "session", status: "running" });
+  anthropic().intercept({ path: (path) => path.startsWith("/v1/sessions/sesn_harness_dm/events?"), method: "GET" }).reply(200, {
+    data: [
+      { id: "answer", type: "agent.message", processed_at: "2026-11-07T10:00:05Z", content: [{ type: "text", text: "@Toru I found the cause." }] },
+      { id: "done", type: "session.status_idle", processed_at: "2026-11-07T10:00:06Z", stop_reason: { type: "end_turn" } },
+    ], next_page: null,
+  });
+  anthropic().intercept({ path: "/v1/sessions/sesn_harness_dm?beta=true", method: "GET" }).reply(200, { id: "sesn_harness_dm", status: "idle", usage: { list_cost: { amount: "10", currency: "USD" } } });
+
+  const response = await send("POST", "/channels/messages", mika, { orgId: ORG, channel: `dm:${toruRef}`, body: "@claude investigate the alert" }, { ORG_RELAY: relay });
+  expect(response.status).toBe(201);
+  const root = (await response.json()).message;
+  const replies = await env.DB.prepare("SELECT id, body, kind FROM channel_messages WHERE org_id=?1 AND channel='dm:mika|toru' AND parent_id=?2 ORDER BY created_at").bind(ORG, root.id).all();
+  expect(replies.results).toHaveLength(1);
+  expect(replies.results[0]).toMatchObject({ body: "@Toru I found the cause.", kind: "agent" });
+  expect(events.some((event) => event.name === "channel_ai_progress" && event.value?.step === "agent")).toBe(true);
+  expect(events.some((event) => event.name === "channel_message" && event.value?.message?.parentId === root.id && event.value?.message?.body.includes("On it. I'll answer"))).toBe(false);
+  const queue = await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2 ORDER BY login").bind(ORG, replies.results[0].id).all();
+  expect(queue.results).toEqual([{ login: "toru", reason: "direct" }]);
+  const activityForMika = await (await get(`/channels/activity?${q({ orgId: ORG })}`, mika)).json();
+  const activityForToru = await (await get(`/channels/activity?${q({ orgId: ORG })}`, toru)).json();
+  expect(activityForMika.items.some((item) => item.message.id === replies.results[0].id && item.type === "reply")).toBe(true);
+  expect(activityForToru.items.some((item) => item.message.id === replies.results[0].id && item.type === "mention")).toBe(true);
 });
 
 test("outside its channels, past its limit, or switched off, Claude says so and starts nothing", async () => {

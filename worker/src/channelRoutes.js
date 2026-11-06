@@ -735,7 +735,9 @@ async function runTeammate(env, { orgId, user, requesterId, resolved, row, membe
     return say("teammate.failed");
   }
   if (started.refused) return say(started.refused === "limit" ? "teammate.limit" : started.refused === "busy" ? "teammate.busy" : "teammate.notHere");
-  await say(started.continued ? "teammate.continued" : "teammate.started");
+  // `runAgents` has already published the live channel_ai_progress event for
+  // this agent. Do not persist a second "started/continued" Agent reply:
+  // ordinary message rows participate in Activity, push and DM banners.
   await watchTeammateRuns(env, { ids: [started.run.id], deadline, signal });
   if(signal?.aborted)return {cancelled:true};
   return {deferred:Boolean(started.run.assignment_id)};

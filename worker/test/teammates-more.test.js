@@ -71,10 +71,7 @@ test("Devin: set up with its organization, @devin starts a session capped in ACU
   expect(made.tags).toEqual(["honmaruai"]);
   expect(made.prompt).toContain("Run the tests first.");
   expect(made.prompt).toContain("the login page 404s, fix it");
-  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual([
-    "On it. I'll answer here when I'm done.",
-    "Fixed the redirect.\n\nhttps://github.com/acme/app/pull/9",
-  ]);
+  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual(["Fixed the redirect.\n\nhttps://github.com/acme/app/pull/9"]);
   expect((await teammate("devin")).spentThisMonth).toBe(2.5);
 
   // A follow-up: just after it is handed on, Devin still reads as waiting,
@@ -87,7 +84,7 @@ test("Devin: set up with its organization, @devin starts a session capped in ACU
   devin().intercept({ path: "/v3/organizations/org-abc/sessions/devin-1", method: "GET" }).reply(200, { session_id: "devin-1", status: "running", status_detail: "waiting_for_user", acus_consumed: 2.5, pull_requests: [] });
   await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@devin also add a test", parentId: posted.id }, { TEAMMATE_WATCH_MS: "0" });
   expect(followed).toEqual({ message: "Mika: also add a test" });
-  expect((await thread(mika, posted.id)).map((m) => m.body).slice(-1)).toEqual(["Picking this up where we left off."]);
+  expect((await thread(mika, posted.id)).map((m) => m.body).slice(-1)).toEqual(["@devin also add a test"]);
   // The cron, later: answered.
   devin().intercept({ path: "/v3/organizations/org-abc/sessions/devin-1/messages?first=200&after=c2", method: "GET" }).reply(200, {
     items: [
@@ -112,10 +109,7 @@ test("Devin: out of its allowance, it says so", async () => {
   devin().intercept({ path: "/v3/organizations/org-abc/sessions/devin-2/messages?first=200", method: "GET" }).reply(200, { items: [{ source: "devin", message: "Looking into it." }], end_cursor: "x", has_next_page: false });
   devin().intercept({ path: "/v3/organizations/org-abc/sessions/devin-2", method: "GET" }).reply(200, { status: "suspended", status_detail: "usage_limit_exceeded", acus_consumed: 100, pull_requests: [] });
   const posted = (await (await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@devin rewrite the billing module" })).json()).message;
-  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual([
-    "On it. I'll answer here when I'm done.",
-    "Looking into it.\n\nI stopped because I reached this month's spending limit. An admin can raise it in Studio → AI teammates.",
-  ]);
+  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual(["Looking into it.\n\nI stopped because I reached this month's spending limit. An admin can raise it in Studio → AI teammates."]);
 });
 
 test("stopping a Devin assignment terminates only its exact provider session", async () => {
@@ -156,10 +150,7 @@ test("Cursor: needs a repository, @cursor starts an agent that opens a PR, and e
   const posted = (await (await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@cursor the login page 404s" })).json()).message;
   expect(made).toMatchObject({ repos: [{ url: "https://github.com/acme/app" }], autoCreatePR: true, model: { id: "composer-2" } });
   expect(made.prompt.text).toContain("the login page 404s");
-  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual([
-    "On it. I'll answer here when I'm done.",
-    "Fixed the redirect.\n\nhttps://github.com/acme/app/pull/3",
-  ]);
+  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual(["Fixed the redirect.\n\nhttps://github.com/acme/app/pull/3"]);
   expect((await teammate("cursor")).spentThisMonth).toBe(1);
 
   // Still busy with the last run: said so, nothing counted.
@@ -171,7 +162,7 @@ test("Cursor: needs a repository, @cursor starts an agent that opens a PR, and e
   cursor().intercept({ path: "/v1/agents/bc-1/runs", method: "POST" }).reply(202, { run: { id: "run-2", status: "CREATING" } });
   cursor().intercept({ path: "/v1/agents/bc-1/runs/run-2", method: "GET" }).reply(200, { id: "run-2", status: "FINISHED", result: "Fixed the signup page too, same PR.", git: { branches: [{ prUrl: "https://github.com/acme/app/pull/3" }] } });
   await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@cursor and the signup page", parentId: posted.id });
-  expect((await thread(mika, posted.id)).map((m) => m.body).slice(-2)).toEqual(["Picking this up where we left off.", "Fixed the signup page too, same PR.\n\nhttps://github.com/acme/app/pull/3"]);
+  expect((await thread(mika, posted.id)).map((m) => m.body).slice(-1)).toEqual(["Fixed the signup page too, same PR.\n\nhttps://github.com/acme/app/pull/3"]);
   expect((await teammate("cursor")).spentThisMonth).toBe(2);
   // The month's two tasks are used.
   const again = (await (await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@cursor one more thing" })).json()).message;
@@ -222,7 +213,7 @@ test("Codex: through GitHub, @codex opens a draft pull request, asks Codex there
   expect(pr).toMatchObject({ base: "main", draft: true, head: ref.ref.replace("refs/heads/", "") });
   expect(asked.body.startsWith("@codex ")).toBe(true);
   expect(asked.body).toContain("the login page 404s");
-  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual(["On it. I'll answer here when I'm done."]);
+  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual([]);
 
   // Codex answers on the pull request; the cron brings it back once.
   github().intercept({ path: "/repos/acme/app/issues/42/comments?per_page=100&page=1", method: "GET" }).reply(200, [
@@ -232,10 +223,7 @@ test("Codex: through GitHub, @codex opens a draft pull request, asks Codex there
   ]);
   await watchTeammateRuns(env);
   await watchTeammateRuns(env);
-  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual([
-    "On it. I'll answer here when I'm done.",
-    "Fixed the redirect and pushed to this pull request.\n\nhttps://github.com/acme/app/pull/42",
-  ]);
+  expect((await thread(mika, posted.id)).map((m) => m.body)).toEqual(["Fixed the redirect and pushed to this pull request.\n\nhttps://github.com/acme/app/pull/42"]);
   expect((await teammate("codex")).spentThisMonth).toBe(1);
 
   // A follow-up is another @codex comment; only what came after it is posted.
@@ -248,6 +236,6 @@ test("Codex: through GitHub, @codex opens a draft pull request, asks Codex there
   ]);
   await send("POST", "/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@codex add a test", parentId: posted.id });
   expect(again).toEqual({ body: "@codex Mika: add a test" });
-  expect((await thread(mika, posted.id)).map((m) => m.body).slice(-2)).toEqual(["Picking this up where we left off.", "Added a test in https://github.com/acme/app/pull/42."]);
+  expect((await thread(mika, posted.id)).map((m) => m.body).slice(-1)).toEqual(["Added a test in https://github.com/acme/app/pull/42."]);
   expect((await teammate("codex")).spentThisMonth).toBe(2);
 });
