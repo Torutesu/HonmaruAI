@@ -5,7 +5,7 @@ import {AgentPeerAccessDialog} from './AgentPeerAccessDialog'
 import type {AgentPeerRoleState} from '../utils/harness'
 vi.mock('./Dialog',()=>({Dialog:({children,footer}:any)=><section>{children}{footer}</section>}))
 vi.mock('../utils/i18n',()=>({useT:()=> (s:string)=>s}))
-const state:AgentPeerRoleState={version:7,scope:'team',canManage:true,members:[{agentId:'worker',name:'Worker',role:'member'}],candidates:[{id:'worker',name:'Worker'},{id:'reviewer',name:'Reviewer'}]}
+const state:AgentPeerRoleState={version:7,scope:'team',managed:true,canManage:true,members:[{agentId:'worker',name:'Worker',role:'member'}],candidates:[{id:'worker',name:'Worker'},{id:'reviewer',name:'Reviewer'}]}
 test('managed Agent admins can assign an eligible peer using the loaded access version',async()=>{
  const load=vi.fn().mockResolvedValue(state),save=vi.fn().mockResolvedValue({version:8});let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<AgentPeerAccessDialog load={load} save={save} onClose={vi.fn()}/>)})
