@@ -17,8 +17,11 @@ export function memoryEntry(row) {
     review: row.reviewed_at ? { version: row.reviewed_version, evidence: row.review_evidence, by: row.reviewed_by, at: row.reviewed_at, current: row.reviewed_version === (row.version ?? 0) } : null };
 }
 async function memoryVisibleTo(db, orgId, agentId, id, channel, userId) {
-  const row = await db.prepare(`SELECT s.user_github_id FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4`).bind(orgId,agentId,id,channel).first();
-  return !!row && (!row.user_github_id || String(row.user_github_id) === String(userId || ''));
+  // Direct helper callers predating person scopes have no human identity. Keep
+  // their shared/room behavior; HTTP routes always provide the authenticated ID.
+  if (!userId) return true;
+  const row = await db.prepare(`SELECT s.user_github_id FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3`).bind(orgId,agentId,id).first();
+  return !row || !row.user_github_id || String(row.user_github_id) === String(userId);
 }
 export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel = "", by = null, reviewEvidence, userId = null } = {}) {
   const fields = memoryFields(input);
@@ -105,11 +108,11 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
 }
 
 export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel = '', by, userId = null } = {}) {
-  if (!await memoryVisibleTo(db, orgId, agentId, id, channel, userId)) return {error:'No such memory.',status:404};
   if (input?.verdict !== undefined && !['keep','update','delete'].includes(input.verdict)) return { error: 'Invalid memory review verdict.', status: 400 };
   if (!Number.isSafeInteger(input?.expectedVersion) || input.expectedVersion < 0
     || typeof input.evidence !== 'string' || !input.evidence.trim() || input.evidence.length > 2000
     || !by) return { error: 'A memory version and review evidence are required.', status: 400 };
+  if (!await memoryVisibleTo(db, orgId, agentId, id, channel, userId)) return {error:'No such memory.',status:404};
   if (input.verdict === 'update') {
     const row = await db.prepare(`SELECT m.*,s.channel,s.kind,s.user_github_id,d.title,d.description,d.body,d.version FROM hx_agent_memories m
       LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
