@@ -49,12 +49,12 @@ test('shows a workspace member paused grant and still lets the owner revoke it',
  let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<ExternalThreadShare api={api} threadId="root" onClose={()=>{}}/>);await Promise.resolve()})
  expect(JSON.stringify(tree.toJSON())).toContain('Workspace member')
- expect(JSON.stringify(tree.toJSON())).toContain('External access is paused')
+ expect(JSON.stringify(tree.toJSON())).toContain('External grant is paused while this person is a workspace member.')
  expect(tree.root.findAllByType('select')[0].props.disabled).toBe(true)
  const revoke=tree.root.findAllByType('button').find(button=>button.children.includes('Revoke access'))!
  expect(revoke.props.disabled).toBe(false)
  await act(async()=>{revoke.props.onClick();await Promise.resolve();await Promise.resolve()})
  expect(fetch.mock.calls.map(call=>call[1].method)).toEqual(['GET','DELETE','GET'])
- expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({email:'ari@example.com'})
+ expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({grantId:'grant-1'})
  act(()=>tree.unmount())
 })
