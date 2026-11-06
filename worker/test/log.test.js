@@ -24,6 +24,13 @@ test("routes collapse ids so lines group", () => {
   expect(routeLabel("GET", `/skill-shares/${fake}%2Fextra`)).toBe("GET /skill-shares/:token");
   expect(routeLabel("GET", `/skill-shares/%73kl_${"ef".repeat(32)}`)).toBe("GET /skill-shares/:token");
   expect(routeLabel("GET", `/template-shares/tpl_${"ab".repeat(32)}extra`)).toBe("GET /template-shares/:token");
+  const fileShareToken = `shr_${"a".repeat(43)}.${"b".repeat(43)}`;
+  expect(routeLabel("GET", `/workspace-file-shares/${fileShareToken}`)).toBe("GET /workspace-file-shares/:token");
+  expect(routeLabel("GET", `/workspace-file-shares/${fileShareToken}/content/0`)).toBe("GET /workspace-file-shares/:token/content/0");
+  const mediaUrlToken = `fpu_${"c".repeat(43)}.${"d".repeat(43)}`;
+  expect(routeLabel("GET", `/workspace-file-public-urls/${mediaUrlToken}`)).toBe("GET /workspace-file-public-urls/:token");
+  expect(safe(`public media URL ${mediaUrlToken}`)).toBe("public media URL [redacted]");
+  expect(safe(`file-share request failed for ${fileShareToken}`)).toBe("file-share request failed for [redacted]");
   expect(routeLabel("GET", `/other/${fake}extra`)).toBe("GET /other/[redacted]extra");
 });
 

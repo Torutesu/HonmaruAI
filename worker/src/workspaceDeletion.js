@@ -20,7 +20,12 @@ const DAY = 86_400_000;
 /// Tables a deletion leaves alone: the audit log's, to its own retention;
 /// the deletion's own bookkeeping; and anonymized upload cleanup identities
 /// which must outlive late storage completions.
-const SPARED = new Set(["audit_events", "audit_seals", "audit_principal_keys", "org_audit_settings", "audit_streams", "workspace_deletions", "workspace_tombstones", "hx_workspace_file_uploads"]);
+const SPARED = new Set(["audit_events", "audit_seals", "audit_principal_keys", "org_audit_settings", "audit_streams", "workspace_deletions", "workspace_tombstones", "hx_workspace_file_uploads",
+  // File-history, public URL, and public-share rows cascade from hx_workspace_files.
+  // Share events have no FK; a delete trigger removes them with their share.
+  // Skipping these tables keeps cleanup under the per-workspace statement cap.
+  "hx_workspace_file_versions", "hx_workspace_file_purges", "hx_workspace_file_origins", "hx_workspace_file_public_urls",
+  "hx_workspace_file_shares", "hx_workspace_file_share_revisions", "hx_workspace_file_share_items", "hx_workspace_file_share_requests", "hx_workspace_file_share_events"]);
 /// Rows deleted per statement, and statements per workspace per run: the
 /// rest is picked up the next day.
 const BATCH = 2000;
@@ -147,7 +152,9 @@ export async function purgeWorkspace(env, orgId, { budget = BATCHES_PER_RUN } = 
       if (!(out?.meta?.changes >= BATCH)) break;
     }
   }
-  // Its objects: files, videos, exports.
+  // Its objects: files, videos, exports. Public-share snapshots reference
+  // immutable file-version objects already constrained to this tenant prefix,
+  // so this also removes every current and historical version they expose.
   if (env.MEDIA) {
     const prefix = `org/${encodeURIComponent(orgId)}/`;
     for (;;) {

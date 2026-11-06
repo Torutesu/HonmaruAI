@@ -112,6 +112,11 @@ export function validateIncomingCard(card) {
     if (typeof card.decision !== "object" || card.decision === null) return "decision must be an object.";
     if (!ACTIONS.has(card.decision.action)) return `Unknown decision action: ${card.decision.action}`;
   }
+  if (card.fileShareApproval !== undefined) {
+    const ref = card.fileShareApproval;
+    if (typeof ref !== "object" || ref === null || Array.isArray(ref)
+      || typeof ref.requestId !== "string" || !ref.requestId || ref.requestId.length > 128) return "fileShareApproval must contain a request id.";
+  }
   // Who the sender named with an @: member refs, a handful at most. The relay
   // resolves them against the real member list; here they only have to be
   // short strings.

@@ -21,6 +21,11 @@ async function purgeVersions(db,{orgId,fileId,userId,version,reason,expectedVers
     AND (?4 IS NOT NULL OR (f.current_version=?7 AND EXISTS(SELECT 1 FROM hx_workspace_file_versions current WHERE current.org_id=f.org_id AND current.file_id=f.id AND current.version=f.current_version AND current.kind='deleted')))
     AND ${fileScopeAuthority('f.org_id','f.scope','?3')}
     AND ${fileDeleteAuthority('f.org_id','f.created_by','?3','f.scope')}
+    AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_share_items shared
+     JOIN hx_workspace_file_shares s ON s.org_id=shared.org_id AND s.id=shared.share_id AND s.current_revision=shared.revision AND s.status='active'
+     JOIN hx_workspace_file_share_revisions revision ON revision.org_id=shared.org_id AND revision.share_id=shared.share_id AND revision.revision=shared.revision
+     WHERE shared.org_id=v.org_id AND shared.file_id=v.file_id AND shared.version=v.version
+      AND (revision.expires_at IS NULL OR revision.expires_at>?5))
     AND NOT EXISTS(SELECT 1 FROM message_holds h WHERE h.org_id=f.org_id AND h.released_at IS NULL
      AND ((h.kind='channel' AND h.target=f.scope) OR (h.kind='person' AND (
       h.target IN (f.created_login,v.created_login)
@@ -37,6 +42,13 @@ async function purgeVersions(db,{orgId,fileId,userId,version,reason,expectedVers
    WHERE v.org_id=?1 AND v.file_id=?2 AND (?4 IS NULL OR v.version=?4) AND p.created_by=?3 AND p.created_at=?5
     AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_versions other WHERE other.org_id=v.org_id AND other.object_key=v.object_key
      AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges gone WHERE gone.org_id=other.org_id AND gone.file_id=other.file_id AND gone.version=other.version))`)
+   .bind(orgId,fileId,userId,version,at),
+  // A permanently published media URL names an immutable version. Purging
+  // that version revokes the URL in the same batch as the purge receipt.
+  db.prepare(`DELETE FROM hx_workspace_file_public_urls WHERE org_id=?1 AND file_id=?2 AND (?4 IS NULL OR version=?4)
+   AND EXISTS(SELECT 1 FROM hx_workspace_file_purges gone
+    WHERE gone.org_id=hx_workspace_file_public_urls.org_id AND gone.file_id=hx_workspace_file_public_urls.file_id
+     AND gone.version=hx_workspace_file_public_urls.version AND gone.created_by=?3 AND gone.created_at=?5)`)
    .bind(orgId,fileId,userId,version,at)
  ]);
  return results[0].meta.changes;

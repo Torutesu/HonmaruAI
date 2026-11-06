@@ -3,10 +3,12 @@ import {getMode} from './mode.js';
 import {fileScopeAuthority} from './fileAuthority.js';
 import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
 import {FILE_WRITE_TOOLS,callFileWriteTool} from './fileWriteTools.js';
+import {requestAgentFileShare} from './fileShares.js';
+import {announceCards} from '../announce.js';
 
 // Follow the existing own-agent write boundary. The canonical conversation
 // scope comes from resolveChannel, never from model arguments.
-export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,fileScope,taint}){
+export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,fileScope,fileTurnId,agentId,taint}){
  if(!personal||!ownAgentsOnly||!session?.github_id||typeof fileScope!=='string'||!fileScope.startsWith('ag:'))return {};
  if(await getMode(env.DB,orgId)!=='harness')return {};
  const ready=await env.DB.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='hx_workspace_file_origins'").first();
@@ -18,7 +20,7 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
  const owner=await current();
  if(!owner)return {};
  const user=await env.DB.prepare('SELECT login,name FROM users WHERE github_id=?').bind(userId).first();
- const actor={orgId,githubId:userId,login:user.login,name:user.name,agentName:owner.name,source:'conversation'};
+ const actor={orgId,githubId:userId,login:user.login,name:user.name,agentId,agentName:owner.name,source:'conversation'};
  const fileTools=Object.fromEntries([...FILE_READ_TOOLS,...FILE_WRITE_TOOLS].map(tool=>{
   const {scope:unused,...properties}=tool.inputSchema.properties;
   return [tool.name,{
@@ -43,7 +45,32 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
    },
   }];
  }));
- return {...fileTools,...await documentAgentTools(env,{actor,fileScope,current,taint,fileUrl:fileId=>conversationFileUrl(env.APP_WEB_URL,{orgId,fileScope,fileId})})};
+ const publicShareTool={
+  request_file_public_share:{
+   description:'Request approval to publish an exact immutable snapshot of a file in this private Agent conversation. No public URL exists until the owner approves. For a new share, give fileId, version, requestKey, and any expiry/download settings. For an existing reusable share, also give shareId to request an update; its current expiry and download setting are preserved. Never claim the link is ready before approval.',
+   parameters:{type:'object',properties:{
+    fileId:{type:'string',description:'File in this Agent conversation.'},version:{type:'integer',description:'Current immutable file version to publish.'},
+    assets:{type:'array',items:{type:'object',properties:{fileId:{type:'string'},version:{type:'integer'}},required:['fileId','version'],additionalProperties:false},description:'Optional exact asset file versions in the same conversation.'},
+    expiresIn:{type:'string',enum:['24h','7d','30d','never'],description:'Requested expiry for a new share; omitted update requests preserve the existing expiry.'},
+    allowDownload:{type:'boolean',description:'Whether viewers may download the published content; omitted update requests preserve the existing setting.'},
+    reusable:{type:'boolean',description:'Whether the same URL can be updated to later approved snapshots.'},
+    requestKey:{type:'string',description:'Unique idempotency key for this approval request.'},shareId:{type:'string',description:'Existing active reusable share ID when requesting an update.'},
+   },required:['fileId','version','requestKey'],additionalProperties:false},strict:false,
+   run:async(args={})=>{
+    if(!await current())return JSON.stringify({error:'This agent conversation is no longer available.'});
+    if(!args||typeof args!=='object'||Array.isArray(args)||!Array.isArray(args.assets||[]))return JSON.stringify({error:'Invalid public share request.'});
+    const refs=[args.fileId,...(args.assets||[]).map(item=>item?.fileId)];
+    for(const id of refs){const found=typeof id==='string'&&await env.DB.prepare('SELECT 1 FROM hx_workspace_files WHERE org_id=?1 AND id=?2 AND scope=?3').bind(orgId,id,fileScope).first();if(!found)return JSON.stringify({error:'A file or asset is not in this conversation.'});}
+    const result=await requestAgentFileShare(env,{orgId,userId:userId,login:user.login,agentId:actor.agentId,agentName:actor.agentName,
+     channel:fileScope,turnId:fileTurnId,fileId:args.fileId,version:args.version,assets:args.assets||[],expiresIn:args.expiresIn,
+     allowDownload:args.allowDownload,reusable:args.reusable,requestKey:args.requestKey,shareId:args.shareId||null});
+    if(result.error)return JSON.stringify({error:result.error});
+    if(result.created&&result.card)await announceCards(env,orgId,[result.card]);
+    return JSON.stringify({request:result.request,approvalPending:result.request?.status==='pending',message:'Approval requested. A public URL is created only after approval.'});
+   },
+  },
+ };
+ return {...fileTools,...publicShareTool,...await documentAgentTools(env,{actor,fileScope,current,taint,fileUrl:fileId=>conversationFileUrl(env.APP_WEB_URL,{orgId,fileScope,fileId})})};
 }
 
 // Keep links on the configured app deployment, without inherited URL secrets.
