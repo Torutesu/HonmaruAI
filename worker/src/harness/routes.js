@@ -877,7 +877,7 @@ export async function handleHarness(request, env, url, context = {}) {
             .bind(orgId,candidate.id).first();
           if(record&&await mayAccessAgent(env.DB,orgId,{...record,ownerLogin:record.owner_login},who.user.login))candidates.push({id:record.id,name:record.name});
         }
-        return json({version:state.version,canManage,members:state.members,candidates:canManage?candidates:[]});
+        return json({version:state.version,scope:state.scope,managed:state.managed,canManage,members:state.members,candidates:canManage?candidates:[]});
       }
       if(request.method==='PUT') {
         if(!canManage)return json({message:'Only an agent admin can assign another Agent.'},403);
