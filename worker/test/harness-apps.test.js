@@ -206,6 +206,39 @@ test("room links require app authority and room access, and hidden room names ar
   expect((await send("DELETE", `/apps/${memberApp.id}/links?orgId=${encodeURIComponent(ORG)}&channel=b%3Ashared`, mika, { orgId: ORG })).status).toBe(200);
 });
 
+test('workspace admins can manage links on a private app without reading the app or hidden rooms', async () => {
+  const at = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'shared-admin-link','Shared room',0,'9101',?2)").bind(ORG, at).run();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'hidden-admin-link','Hidden room',1,'9102',?2)").bind(ORG, at).run();
+
+  const created = await send('POST', '/apps', mika, { orgId: ORG, name: 'Maker private tracker', columns: [{ name: 'Secret', type: 'text' }] });
+  expect(created.status).toBe(201);
+  const { app } = await created.json();
+  expect((await send('PUT', `/apps/${app.id}/access`, mika, { orgId: ORG, visibility: 'private', version: 0 })).status).toBe(200);
+
+  // The workspace Admin can manage room navigation metadata, but remains
+  // unable to read the private app itself or its data.
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
+  const linked = await send('POST', `/apps/${app.id}/links`, toru, { orgId: ORG, channel: 'b:shared-admin-link' });
+  expect(linked.status).toBe(200);
+  expect(await linked.json()).toEqual({ linked: true });
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
+  expect(await env.DB.prepare('SELECT channel FROM hx_app_links WHERE app_id=?1 AND org_id=?2').bind(app.id, ORG).first()).toEqual({ channel: 'b:shared-admin-link' });
+
+  const removed = await send('DELETE', `/apps/${app.id}/links?orgId=${encodeURIComponent(ORG)}&channel=b%3Ashared-admin-link`, toru, { orgId: ORG });
+  expect(removed.status).toBe(200);
+  expect(await removed.json()).toEqual({ unlinked: true });
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
+
+  const deniedHiddenRoom = await send('POST', `/apps/${app.id}/links`, toru, { orgId: ORG, channel: 'b:hidden-admin-link' });
+  expect(deniedHiddenRoom.status).toBe(404);
+  await env.DB.prepare("INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?1,?2,'b:hidden-admin-link','9102',?3)").bind(app.id, ORG, at).run();
+  const deniedHiddenUnlink = await send('DELETE', `/apps/${app.id}/links?orgId=${encodeURIComponent(ORG)}&channel=b%3Ahidden-admin-link`, toru, { orgId: ORG });
+  expect(deniedHiddenUnlink.status).toBe(404);
+  expect(await env.DB.prepare('SELECT channel FROM hx_app_links WHERE app_id=?1 AND org_id=?2 ORDER BY channel').bind(app.id, ORG).all()).toMatchObject({ results: [{ channel: 'b:hidden-admin-link' }] });
+});
+
+
 test('shared app templates are pinned, sanitized, expiring and revocable bearer links', async () => {
   const made = await send('POST', '/apps', mika, {
     orgId: ORG, name: 'Partner pipeline', tableName: 'Deals', description: 'Sales overview', icon: '💼',
