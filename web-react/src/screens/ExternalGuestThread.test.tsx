@@ -33,3 +33,44 @@ test('view-only guests submit a reply request for owner approval',async()=>{
  expect(JSON.stringify(tree.toJSON())).toContain('Your reply request was sent to the Thread owner.')
  act(()=>tree.unmount())
 })
+
+
+test('refreshes async replies while visible and removes Thread content after access is revoked',async()=>{
+ vi.useFakeTimers()
+ const reply={id:'reply-ai',body:'The AI finished the answer',authorName:'Honmaru AI',mine:false,createdAt:'2026-11-06T00:02:00Z',parentId:'root'}
+ const updated={...thread('edit'),thread:{...thread('edit').thread,replies:[reply]}}
+ const fetch=vi.fn().mockResolvedValueOnce(ok(thread('edit'))).mockResolvedValueOnce(ok(updated)).mockResolvedValueOnce(ok({message:'not found'},404))
+ vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<ExternalGuestThread {...props}/>);await Promise.resolve();await Promise.resolve()})
+ expect(JSON.stringify(tree.toJSON())).toContain('Shared context')
+ await act(async()=>{await vi.advanceTimersByTimeAsync(5000)})
+ expect(JSON.stringify(tree.toJSON())).toContain('The AI finished the answer')
+ await act(async()=>{await vi.advanceTimersByTimeAsync(5000)})
+ expect(JSON.stringify(tree.toJSON())).not.toContain('The AI finished the answer')
+ expect(JSON.stringify(tree.toJSON())).not.toContain('Shared context')
+ expect(JSON.stringify(tree.toJSON())).toContain('This Thread is unavailable or access has expired.')
+ expect(tree.root.findAllByType('form')).toHaveLength(0)
+ act(()=>tree.unmount())
+ vi.useRealTimers()
+})
+
+test('does not poll while hidden and aborts an in-flight fetch on unmount',async()=>{
+ vi.useFakeTimers()
+ const previousVisibility=Object.getOwnPropertyDescriptor(document,'visibilityState')
+ Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'})
+ const fetch=vi.fn().mockImplementation(()=>new Promise(()=>{}))
+ vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<ExternalGuestThread {...props}/>);await vi.advanceTimersByTimeAsync(10000)})
+ expect(fetch).not.toHaveBeenCalled()
+ Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'})
+ await act(async()=>{document.dispatchEvent(new Event('visibilitychange'));await Promise.resolve()})
+ expect(fetch).toHaveBeenCalledTimes(1)
+ const signal=fetch.mock.calls[0][1].signal as AbortSignal
+ act(()=>tree.unmount())
+ expect(signal.aborted).toBe(true)
+ if(previousVisibility)Object.defineProperty(document,'visibilityState',previousVisibility)
+ else delete (document as any).visibilityState
+ vi.useRealTimers()
+})
