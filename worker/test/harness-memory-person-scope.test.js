@@ -58,5 +58,12 @@ test("person memories stay private across list, page, search, read, edit, review
   expect((await memoryReviewHistory(env.DB, ORG, agentId, personalId, { userId: "9213" })).reviews).toHaveLength(0);
   expect((await deleteAgentMemory(env.DB, ORG, agentId, personalId, { userId: "9213" })).deleted).toBe(0);
   expect((await listAgentMemories(env.DB, ORG, agentId, { userId: "9212" })).map(m => m.id)).toContain(personalId);
+  expect((await reviewMemoryEntry(env.DB, ORG, agentId, personalId, {
+    expectedVersion: 1, evidence: "Owner confirms retained scope", verdict: "keep"
+  }, { userId: "9212", by: "9212" })).review).toBeDefined();
+  expect((await memoryReviewHistory(env.DB, ORG, agentId, personalId, { userId: "9212" })).reviews).toHaveLength(1);
+  expect((await memoryReviewHistory(env.DB, ORG, agentId, personalId, { userId: "9213" })).reviews).toHaveLength(0);
   expect((await deleteAgentMemory(env.DB, ORG, agentId, personalId, { userId: "9212" })).deleted).toBe(1);
+  expect((await memoryReviewHistory(env.DB, ORG, agentId, personalId, { userId: "9212" })).reviews).toHaveLength(1);
+  expect((await memoryReviewHistory(env.DB, ORG, agentId, personalId, { userId: "9213" })).reviews).toHaveLength(0);
 });
