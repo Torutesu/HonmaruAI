@@ -13,6 +13,7 @@ export function memoryEntry(row) {
   return { id: row.id, text: row.text, source: row.source, createdBy: row.created_by, createdAt: row.created_at,
     channel: row.channel || null, kind: row.kind || "context", title: row.title ?? row.text.slice(0, 120),
     description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at,
+    scope: row.user_github_id ? "person" : (row.channel ? "conversation" : "shared"),
     review: row.reviewed_at ? { version: row.reviewed_version, evidence: row.review_evidence, by: row.reviewed_by, at: row.reviewed_at, current: row.reviewed_version === (row.version ?? 0) } : null };
 }
 async function memoryVisibleTo(db, orgId, agentId, id, channel, userId) {
