@@ -1784,6 +1784,43 @@ test('workflow rollback is maker/admin-only, compare-and-swap protected, and aud
  expect((await env.DB.prepare("SELECT action FROM audit_events WHERE org_id=?1 AND action='workflow.revision_restored'").bind(ORG).all()).results).toHaveLength(1);
 });
 
+test('workflow summary returns an explicit zero-data state with its rolling UTC window',async()=>{
+ const {workflow}=await(await send('POST','/workflows',mika,{orgId:ORG,name:'Empty summary',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'No runs'}]})).json();
+ const detail=await(await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika)).json();
+ expect(detail.summary).toMatchObject({timezone:'UTC',windowHours:168,runCount:0,failedCount:0,completedDurationCount:0,typicalDurationMs:null,usage:{trackedRuns:0,calls:0,estimatedMicros:0},truncated:false});
+ expect(Date.parse(detail.summary.windowEnd)-Date.parse(detail.summary.windowStart)).toBe(168*60*60*1000);
+});
+
+test('workflow seven-day summary uses detail ACL before calculating counts, median duration and AI usage',async()=>{
+ const {workflow}=await (await send('POST','/workflows',mika,{orgId:ORG,name:'Seven day summary',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Done'}]})).json();
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)").bind(ORG,invoicesAppId).run();
+ const now=Date.now(),iso=value=>new Date(value).toISOString();
+ const addRun=async(id,ago,duration,status='done',input=null)=>{
+  const started=iso(now-ago),finished=iso(now-ago+duration);
+  await env.DB.prepare("INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at,finished_at) VALUES(?1,?2,?3,'manual',?4,?5,'[]',0,'9302',?6,?7)")
+   .bind(id,ORG,workflow.id,status,input===null?null:JSON.stringify(input),started,finished).run();
+ };
+ const addUsage=async(id,micros)=>{
+  await env.DB.prepare("INSERT INTO hx_workflow_usage(id,org_id,workflow_id,run_id,step_number,provider,model,input_tokens,output_tokens,byok,created_at,estimated_micros) VALUES(?1,?2,?3,?4,1,'test','known-model',100,100,0,?5,?6)")
+   .bind('usage-'+id,ORG,workflow.id,id,iso(now),micros).run();
+ };
+ await addRun('visible-fast',10_000,1_000);
+ await addRun('visible-slow',20_000,9_000,'failed');
+ await addRun('private-app-run',5_000,3_000,'done',{records:[{appId:invoicesAppId}]});
+ await addRun('outside-window',8*24*60*60*1000,7_000);
+ await addUsage('visible-fast',123);
+ await addUsage('visible-slow',234);
+ await addUsage('private-app-run',987654);
+ await addUsage('outside-window',54321);
+
+ const adminDetail=await(await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,toru)).json();
+ const ownerDetail=await(await get(`/workflows/${workflow.id}?${q({orgId:ORG})}`,mika)).json();
+ // Run history keeps visible records; the 168-hour bound applies to summary metrics.
+ expect(adminDetail.runs.map(run=>run.id).sort()).toEqual(['outside-window','visible-fast','visible-slow']);
+ expect(ownerDetail.runs.map(run=>run.id).sort()).toEqual(['outside-window','private-app-run','visible-fast','visible-slow']);
+ expect(adminDetail.summary).toMatchObject({timezone:'UTC',windowHours:168,runCount:2,failedCount:1,completedDurationCount:2,typicalDurationMs:5_000,usage:{calls:2,estimatedMicros:357,trackedRuns:2},truncated:false});
+ expect(ownerDetail.summary).toMatchObject({runCount:3,failedCount:1,completedDurationCount:3,typicalDurationMs:3_000,usage:{calls:3,estimatedMicros:988011},truncated:false});
+});
 test('legacy workflow runs show only an exact revision that existed when their snapshot started',async()=>{
  const {createWorkflow,listRuns,getRun}=await import('../src/harness/workflows.js');
  const {workflow}=await createWorkflow(env.DB,ORG,{name:'Legacy history',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Stable'}]},'9302');

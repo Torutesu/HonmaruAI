@@ -85,6 +85,18 @@
 .hx-run-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; margin: 4px 0 8px; padding: 8px; background: var(--mist); border-radius: var(--radius-input); }
 .hx-run-detail time { font-size: 11px; color: var(--ash); }
 .hx-run-history-panel > summary { cursor: pointer; }
+.hx-run-summary { margin: 10px 0 18px; padding: 16px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-card); background: var(--hx-surface, var(--signal-white)); }
+.hx-run-summary > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.hx-run-summary h3 { margin: 0; color: var(--hx-text, var(--ink)); font-size: 14px; font-weight: 650; }
+.hx-run-summary header p, .hx-run-summary-note { margin: 4px 0 0; color: var(--hx-muted, var(--ash)); font-size: 11px; line-height: 1.5; }
+.hx-run-summary > header > span { color: var(--hx-muted, var(--ash)); font-size: 12px; white-space: nowrap; }
+.hx-run-summary-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.hx-run-summary-metrics > div { display: grid; gap: 4px; min-width: 0; }
+.hx-run-summary-metrics span { color: var(--hx-muted, var(--ash)); font-size: 11px; }
+.hx-run-summary-metrics strong { color: var(--hx-text, var(--ink)); font-size: 20px; font-weight: 650; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.hx-run-summary-metrics small { color: var(--hx-muted, var(--ash)); font-size: 11px; }
+.hx-run-summary-note { margin-top: 12px; }
+@media (max-width: 520px) { .hx-run-summary { padding: 12px; } .hx-run-summary-metrics { gap: 8px; } .hx-run-summary-metrics strong { font-size: 17px; } }
 .hx-run-history-tools { display: flex; justify-content: flex-end; margin: 10px 0 6px; }
 .hx-run-filter[aria-pressed="true"] { border-color: color-mix(in srgb, #d14343 48%, var(--hx-border, var(--bone))); color: var(--hx-danger, #c04444); background: color-mix(in srgb, #d14343 8%, var(--hx-surface, var(--signal-white))); }
 .hx-run-filter:focus-visible,

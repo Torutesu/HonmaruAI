@@ -82,7 +82,7 @@ import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill,
 import { skillMarkdown } from "./skillMarkdown.js";
 import { generateWorkflow } from './workflowCreation.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, workflowRunSummary, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange, onRowDelete } from "./workflows.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
@@ -596,7 +596,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return json(result);
     }
     if (!sub) {
-      if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), canEdit: mine,
+      if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), summary: await workflowRunSummary(env.DB, orgId, wfId, me), canEdit: mine,
         ...(mine && wf.trigger.type === 'webhook' ? { held: await heldWorkflowSummary(env.DB, orgId, wfId) } : {}) });
       if (!mine) return json({ message: "Only its maker or an admin can change this workflow." }, 403);
       if (request.method === "PUT") {
