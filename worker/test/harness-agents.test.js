@@ -639,3 +639,60 @@ test('an active normal request loses authorization when agent access becomes pri
  await send('PUT',`/hx/agents/${agentId}/profile`,mika,{orgId:ORG,access:'private'});
  expect(await authorize(agentId)).toBe(false);
 });
+
+
+test("ordinary Agent callers create person memory by default and cannot publish shared memory", async () => {
+  const base = `/hx/agents/${agentId}/memory`;
+  const privateResponse = await send("POST", base, kenji, { orgId: ORG, text: "Kenji private workflow detail" });
+  expect(privateResponse.status).toBe(201);
+  const privateMemory = (await privateResponse.json()).memory;
+  expect(privateMemory.scope).toBe("person");
+  const kenjiRows = (await (await get(`${base}?${q({ orgId: ORG })}`, kenji)).json()).memories;
+  const mikaRows = (await (await get(`${base}?${q({ orgId: ORG })}`, mika)).json()).memories;
+  expect(kenjiRows.map((memory) => memory.id)).toContain(privateMemory.id);
+  expect(mikaRows.map((memory) => memory.id)).not.toContain(privateMemory.id);
+
+  const deniedShared = await send("POST", base, kenji, { orgId: ORG, text: "Unauthorized shared instruction", scope: "shared" });
+  expect(deniedShared.status).toBe(403);
+  const ownerShared = await send("POST", base, mika, { orgId: ORG, text: "Approved shared instruction", scope: "shared" });
+  expect(ownerShared.status).toBe(201);
+  expect((await ownerShared.json()).memory.scope).toBe("shared");
+});
+
+
+test("person memory owners can edit, review, and delete only their own entry", async () => {
+  const base = `/hx/agents/${agentId}/memory`;
+  const madeResponse = await send("POST", base, kenji, {
+    orgId: ORG, title: "Private note", description: "", body: "Kenji's private detail", kind: "reference",
+  });
+  expect(madeResponse.status).toBe(201);
+  const { memory } = await madeResponse.json();
+  expect(memory.scope).toBe("person");
+
+  const item = `${base}/${memory.id}`;
+  expect((await send("PUT", item, toru, {
+    orgId: ORG, title: "Changed", description: "", body: "Leaked edit", kind: "reference", expectedVersion: 1,
+  })).status).toBe(403);
+  expect((await call(`${item}?${q({ orgId: ORG })}`, { method: "DELETE", headers: headers(toru) })).status).toBe(404);
+  expect((await get(`${base}?${q({ orgId: ORG })}`, kenji)).status).toBe(200);
+
+  const edited = await send("PUT", item, kenji, {
+    orgId: ORG, title: "Private note", description: "", body: "Updated private detail", kind: "reference", expectedVersion: 1,
+  });
+  expect(edited.status).toBe(200);
+  expect((await edited.json()).memory).toMatchObject({ scope: "person", body: "Updated private detail", version: 2 });
+
+  const review = await send("PUT", `${item}/review`, kenji, {
+    orgId: ORG, expectedVersion: 2, verdict: "keep", evidence: "Still useful",
+  });
+  expect(review.status).toBe(200);
+
+  const removed = await call(`${item}?${q({ orgId: ORG })}`, { method: "DELETE", headers: headers(kenji) });
+  expect(removed.status).toBe(200);
+  expect((await removed.json()).deleted).toBe(1);
+  const history = await get(`${item}/reviews?${q({ orgId: ORG })}`, kenji);
+  expect(history.status).toBe(200);
+  expect((await history.json()).reviews).toEqual([expect.objectContaining({ verdict: "keep", evidence: "Still useful" })]);
+  expect((await get(`${item}/reviews?${q({ orgId: ORG })}`, toru)).status).toBe(200);
+  expect((await (await get(`${item}/reviews?${q({ orgId: ORG })}`, toru)).json()).reviews).toEqual([]);
+});
