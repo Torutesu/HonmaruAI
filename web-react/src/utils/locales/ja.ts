@@ -2638,6 +2638,8 @@ const table: Record<string, string> = {
   "Public link approvals": "公開リンクの承認",
   "Approval request submitted. Review it under Public link approvals.": "承認申請を送信しました。「公開リンクの承認」から内容を確認できます。",
   "Could not request approval.": "承認を申請できませんでした。",
+  "Approval action is unavailable.": "承認操作を利用できません。",
+  "Revoke action is unavailable.": "失効操作を利用できません。",
   "Only the current version is shared. Any file change invalidates its public link.": "現在のバージョンだけを共有します。ファイルを変更すると公開リンクは無効になります。",
   "Link expires": "リンクの有効期限",
   "1 day": "1日",
