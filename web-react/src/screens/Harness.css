@@ -255,3 +255,22 @@
 .hx-skill-import-success p { margin: 0; color: var(--hx-muted, var(--ash)); }
 .hx-skill-import-success div { flex: 1; min-width: 180px; }
 @media (max-width: 560px) { .hx-skill-share-link-row { align-items: stretch; flex-direction: column; } .hx-skill-share-link-row .pill-btn { align-self: flex-start; } .hx-skill-import-success { align-items: flex-start; } }
+
+
+/* Guided workflow setup: a conversation, a readable proposed plan, and an explicit save step. */
+.hx-guided-setup { display: flex; flex-direction: column; gap: 12px; }
+.hx-guided-thread { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow: auto; }
+.hx-guided-message { max-width: min(720px, 92%); border: 1px solid var(--bone); border-radius: var(--radius-card); padding: 10px 12px; background: var(--signal-white); }
+.hx-guided-message.you { align-self: flex-end; background: var(--mist); }
+.hx-guided-message p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hx-plan-preview { border: 1px solid var(--bone); border-radius: var(--radius-card); padding: 14px; background: var(--signal-white); }
+.hx-plan-preview > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid var(--bone); padding-bottom: 10px; }
+.hx-plan-preview > header span:first-child, .hx-plan-trigger small { display: block; color: var(--ash); font-size: 12px; }
+.hx-plan-preview h3 { margin: 3px 0 0; font-size: 17px; }
+.hx-paused-badge { border-radius: var(--radius-pill); padding: 3px 9px; color: var(--ash); background: var(--mist); font-size: 12px; white-space: nowrap; }
+.hx-plan-trigger { display: grid; gap: 3px; padding: 10px 0; }
+.hx-plan-preview ol { margin: 0; padding-left: 24px; display: grid; gap: 8px; }
+.hx-plan-preview li { padding: 8px 10px; border: 1px solid var(--bone); border-radius: var(--radius-input); display: grid; gap: 3px; overflow-wrap: anywhere; }
+.hx-plan-preview li > span, .hx-plan-preview li > small { color: var(--ash); font-size: 12px; }
+.hx-plan-preview li > strong { font-weight: 600; }
+.hx-plan-preview > .row-sub { margin: 10px 0 0; }

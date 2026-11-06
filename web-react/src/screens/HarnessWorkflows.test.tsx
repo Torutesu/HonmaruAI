@@ -688,9 +688,9 @@ test('refresh failure clears stale run details and reports the error',async()=>{
 test('manual setup focuses the builder instead of stacking the generation form above it',async()=>{
  await act(async()=>{tree=create(<HarnessWorkflows {...props}/>)});
  await act(async()=>{button('Set up an automation').props.onClick()});
- expect(tree.root.findAllByProps({className:'hx-generation'})).toHaveLength(1);
+ expect(tree.root.findAll(node=>node.props.className?.split(' ').includes('hx-generation'))).toHaveLength(1);
  await act(async()=>{button('Manual setup').props.onClick()});
- expect(tree.root.findAllByProps({className:'hx-generation'})).toHaveLength(0);
+ expect(tree.root.findAll(node=>node.props.className?.split(' ').includes('hx-generation'))).toHaveLength(0);
  expect(tree.root.findAllByProps({className:'hx-builder'})).toHaveLength(1);
 });
 test('workflow detail edits UTC run limits and displays usage with the saved revision',async()=>{
@@ -718,4 +718,24 @@ test('saving a loaded workflow without editing preserves zero and false values',
  expect(fields).toContain('0');expect(fields).toContain('false')
  await act(async()=>{await button('Save workflow').props.onClick()})
  expect(state.api.updateWorkflow).toHaveBeenCalledWith(workflow.id,expect.objectContaining({steps:[{type:'add_row',tableId:'tasks',values:{quantity:0,approved:false}}]}))
+})
+
+test('guided setup previews and refines before saving a paused workflow', async () => {
+ const proposed={id:'preview',name:'Daily summary',enabled:false,trigger:{type:'manual'},steps:[{type:'send_message',channel:'b:ops',text:'Summarize tasks'}]}
+ state.api.previewWorkflow=vi.fn().mockResolvedValue({workflow:proposed})
+ state.api.createWorkflow=vi.fn().mockResolvedValue({workflow:{...proposed,id:'saved'},hookUrl:null})
+ state.api.workflow.mockResolvedValue({workflow:{...proposed,id:'saved'},runs:[],summary:emptySummary,canEdit:true})
+ await act(async()=>{tree=create(<HarnessWorkflows {...props}/>)})
+ await act(async()=>button('Set up an automation').props.onClick())
+ await act(async()=>tree.root.findByProps({id:'workflow-prompt'}).props.onChange({target:{value:'Summarize tasks every morning'}}))
+ await act(async()=>button('Build preview').props.onClick())
+ expect(state.api.previewWorkflow).toHaveBeenCalledWith('Summarize tasks every morning')
+ expect(state.api.createWorkflow).not.toHaveBeenCalled()
+ expect(JSON.stringify(tree.toJSON())).toContain('Nothing has been saved or run yet.')
+ await act(async()=>tree.root.findByProps({id:'workflow-refinement'}).props.onChange({target:{value:'Post it in ops'}}))
+ await act(async()=>button('Refine proposal').props.onClick())
+ expect(state.api.previewWorkflow).toHaveBeenCalledTimes(2)
+ expect(state.api.createWorkflow).not.toHaveBeenCalled()
+ await act(async()=>button('Save paused automation').props.onClick())
+ expect(state.api.createWorkflow).toHaveBeenCalledWith(expect.objectContaining({enabled:false,name:'Daily summary',steps:proposed.steps}))
 })

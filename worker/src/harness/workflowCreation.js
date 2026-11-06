@@ -113,3 +113,34 @@ export async function generateWorkflow(env,request,orgId,who,input,{makeComplete
   await release();throw error;
  }
 }
+
+
+/**
+ * Generate an in-memory workflow proposal for the guided setup UI.
+ * This path deliberately creates no workflow, run, source thread, or job;
+ * the member must explicitly save the reviewed proposal before it exists.
+ */
+export async function previewWorkflow(env, request, orgId, who, input, {makeCompleter = completer} = {}) {
+ const by=String(who.session.github_id),login=who.user.login;
+ const prompt=typeof input.prompt==='string'?input.prompt.trim():'';
+ if(!prompt||prompt.length>4000)return {error:'Describe the automation in 1–4000 characters.',status:400};
+ let channel=null;
+ if(input.channel){
+  const room=await resolveChannel(env.DB,orgId,who.user,input.channel);
+  if(!room||!await mayUseConversation(env.DB,orgId,by,room.key))return {error:'No such room.',status:403};
+  channel=room.key;
+ }
+ const denied=await checkOutgoing(env,request,{orgId,login,text:prompt,ack:input.dlpAck===true,where:'workflow generation'});
+ if(denied)return {response:denied};
+ const tables=await visibleResources(await listTables(env.DB,orgId),t=>mayUseTable(env.DB,orgId,t.id,by));
+ const agents=[];
+ for(const agent of await listAgents(env.DB,orgId,login))if(await mayAccessAgent(env.DB,orgId,agent,login))agents.push({id:agent.id,name:agent.name});
+ const complete=input.useModel===false?null:await makeCompleter(env,orgId,by,'workflow_generate',{maxTokens:2400});
+ const made=await workflowFromPrompt(env.DB,orgId,by,{prompt,channel,timezone:input.timezone,complete,tables,agents});
+ if(made.error)return made;
+ const member=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=? AND user_github_id=? AND role!='guest'").bind(orgId,by).first();
+ if(!member||(channel&&!await mayUseConversation(env.DB,orgId,by,channel))||!await mayViewWorkflow(env.DB,orgId,made.workflow,by)){
+  return {error:'The automation resources are no longer accessible.',status:403};
+ }
+ return {workflow:{...made.workflow,enabled:false},source:made.source,preview:true};
+}
