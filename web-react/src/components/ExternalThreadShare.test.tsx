@@ -40,3 +40,21 @@ test('adds an email recipient with a named permission and expiry',async()=>{
  expect(JSON.stringify(tree.toJSON())).toContain('Bea')
  act(()=>tree.unmount())
 })
+
+
+test('shows a workspace member paused grant and still lets the owner revoke it',async()=>{
+ const memberGrant={...grant,recipientIsMember:true,suspended:true}
+ const fetch=vi.fn().mockResolvedValueOnce(ok({shares:[memberGrant]})).mockResolvedValueOnce(ok({revoked:true})).mockResolvedValueOnce(ok({shares:[]}))
+ vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<ExternalThreadShare api={api} threadId="root" onClose={()=>{}}/>);await Promise.resolve()})
+ expect(JSON.stringify(tree.toJSON())).toContain('Workspace member')
+ expect(JSON.stringify(tree.toJSON())).toContain('External access is paused')
+ expect(tree.root.findAllByType('select')[0].props.disabled).toBe(true)
+ const revoke=tree.root.findAllByType('button').find(button=>button.children.includes('Revoke access'))!
+ expect(revoke.props.disabled).toBe(false)
+ await act(async()=>{revoke.props.onClick();await Promise.resolve();await Promise.resolve()})
+ expect(fetch.mock.calls.map(call=>call[1].method)).toEqual(['GET','DELETE','GET'])
+ expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({email:'ari@example.com'})
+ act(()=>tree.unmount())
+})
