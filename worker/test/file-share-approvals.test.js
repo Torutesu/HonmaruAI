@@ -5,6 +5,7 @@ import {upsertUser,upsertMembership} from '../src/db.js';
 import {createFileLedger} from '../src/harness/fileVersionLedger.js';
 import {uploadFileVersion} from '../src/harness/fileUpload.js';
 import {proposePublicFileShare,approvePublicFileShare,revokePublicFileShare,servePublicFileShare} from '../src/harness/fileShareApprovals.js';
+import {handleFileShareRoutes} from '../src/harness/fileShareApprovals.js';
 
 const orgId='share-org',fileId='public-report',ownerId='share-owner',otherId='share-other';
 const upload=(expectedVersion=0,text='approved snapshot')=>uploadFileVersion(env,{orgId,fileId,userId:ownerId,expectedVersion,
@@ -22,6 +23,25 @@ beforeEach(async()=>{
  await upsertMembership(env.DB,orgId,otherId,'member');
  await createFileLedger(env.DB,{orgId,fileId,scope:'workspace',path:'report.txt',createdBy:ownerId});
  await upload();
+});
+
+
+test('proposal route passes the path file ID to the approval request and rejects malformed IDs',async()=>{
+ const request=new Request('https://honmaru.test/hx/files/public-report/share-requests?orgId='+orgId,{
+  method:'POST',headers:{'content-type':'application/json'},
+  body:JSON.stringify({version:1,requestKey:crypto.randomUUID().replaceAll('-',''),expiresIn:86400,allowDownload:false}),
+ });
+ const response=await handleFileShareRoutes(request,env,new URL(request.url),{orgId,userId:ownerId,login:'share-owner'});
+ expect(response.status).toBe(201);
+ const result=await response.json();expect(result.fileId).toBe(fileId);
+ const stored=await env.DB.prepare('SELECT file_id FROM hx_file_share_requests WHERE id=?').bind(result.requestId).first();
+ expect(stored.file_id).toBe(fileId);
+
+ const malformed=new Request('https://honmaru.test/hx/files/%E0%A4%A/share-requests?orgId='+orgId,{
+  method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({version:1,requestKey:'malformed-path-request-key',expiresIn:86400}),
+ });
+ const rejected=await handleFileShareRoutes(malformed,env,new URL(malformed.url),{orgId,userId:ownerId,login:'share-owner'});
+ expect(rejected.status).toBe(400);
 });
 
 test('Agent proposal creates no token; only the file owner can approve and the published snapshot can be revoked',async()=>{
