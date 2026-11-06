@@ -236,11 +236,17 @@ test('review audit retains scope and evidence after removal without copying the 
  await reviewMemoryEntry(env.DB,org,agent,made.memory.id,{expectedVersion:0,evidence:'Legacy evidence'},{channel:'b:legacy-audit',by:'reviewer'});
  await env.DB.prepare('DELETE FROM hx_memory_review_audit WHERE memory_id=?').bind(made.memory.id).run();
  const {default:schema}=await import('../schema.sql?raw');
+ const {default:migrations}=await import('../migrations.sql?raw');
+ const deployBackfills=migrations.split('\n').filter(line=>/^INSERT OR IGNORE INTO hx_memory_review_audit(?:_scope)?\\s/.test(line));
+ expect(deployBackfills).toHaveLength(2);
+ for(const sql of deployBackfills) await env.DB.exec(sql);
  await env.DB.exec(schema.replace(/\n/g,' '));
- await env.DB.exec(schema.replace(/\n/g,' '));
+ for(const sql of deployBackfills) await env.DB.exec(sql);
  const {results}=await env.DB.prepare('SELECT * FROM hx_memory_review_audit WHERE memory_id=?').bind(made.memory.id).all();
  expect(results).toHaveLength(1);
  expect(results[0]).toMatchObject({channel:'b:legacy-audit',agent_id:agent,evidence:'Legacy evidence'});
+ expect(await env.DB.prepare('SELECT memory_scope,channel,user_github_id FROM hx_memory_review_audit_scope WHERE audit_id=?').bind(results[0].id).first())
+  .toEqual({memory_scope:'conversation',channel:'b:legacy-audit',user_github_id:null});
  });
 
 test('delete review removes only the checked version and retains its scoped audit',async()=>{
