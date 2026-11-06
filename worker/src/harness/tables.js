@@ -257,7 +257,7 @@ export async function getRow(db, orgId, tableId, rowId) {
   return publicRow(await db.prepare("SELECT * FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3").bind(rowId, tableId, orgId).first());
 }
 
-export async function addRow(db, orgId, tableId, values, by, validation) {
+export async function addRow(db, orgId, tableId, values, by, validation, writeGuard) {
   const observed = await tableForWrite(db, orgId, tableId);
   if (!observed) return { error: "No such table.", status: 404 };
   const {table}=observed;
@@ -273,10 +273,12 @@ export async function addRow(db, orgId, tableId, values, by, validation) {
   const id = newId("row");
   const at = now();
   const schemaParam = 8 + relationGuard.binds.length;
+  const accessParam = schemaParam + 3;
+  const accessGuardSql = writeGuard ? writeGuard.sql(accessParam) : "1=1";
   const inserted = await db
     .prepare(`INSERT INTO hx_rows (id, table_id, org_id, data, position, created_by, updated_by, created_at, updated_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7 WHERE (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?2 AND org_id=?3 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2})`)
-    .bind(id, tableId, orgId, JSON.stringify(storedValues), Number(count?.p || 0) + 1, String(by), at, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7 WHERE (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?2 AND org_id=?3 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) AND (${accessGuardSql})`)
+    .bind(id, tableId, orgId, JSON.stringify(storedValues), Number(count?.p || 0) + 1, String(by), at, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt, ...(writeGuard?.binds || []))
     .run();
   if (!inserted.meta?.changes) return { error: 'The table schema or a linked record changed before this record could be saved. Reload and try again.', status: 409 };
   return { table, row: await getRow(db, orgId, tableId, id) };
@@ -284,7 +286,7 @@ export async function addRow(db, orgId, tableId, values, by, validation) {
 
 /// Change some values of a row; the others stay. Returns the row before and
 /// after, so a caller can tell what changed (Workflows trigger on it).
-export async function updateRow(db, orgId, tableId, rowId, values, by, expectedUpdatedAt, validation) {
+export async function updateRow(db, orgId, tableId, rowId, values, by, expectedUpdatedAt, validation, writeGuard) {
   const observed = await tableForWrite(db, orgId, tableId);
   if (!observed) return { error: "No such table.", status: 404 };
   const {table}=observed;
@@ -301,9 +303,11 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
   // Strictly advance even when two writes happen within the same millisecond.
   const at = new Date(Math.max(Date.now(), Date.parse(before.updatedAt) + 1)).toISOString();
   const schemaParam = 8 + relationGuard.binds.length;
+  const accessParam = schemaParam + 3;
+  const accessGuardSql = writeGuard ? writeGuard.sql(accessParam) : "1=1";
   const changed = await db
-    .prepare(`UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 AND (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?5 AND org_id=?6 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) RETURNING *`)
-    .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt)
+    .prepare(`UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 AND (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?5 AND org_id=?6 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) AND (${accessGuardSql}) RETURNING *`)
+    .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt, ...(writeGuard?.binds || []))
     .first();
   if (!changed) return rowConflict();
   return { table, before, row: publicRow(changed) };
@@ -311,7 +315,7 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
 
 const rowConflict = () => ({ error: "This row changed. Reload the app before trying again.", status: 409 });
 
-export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt) {
+export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt, writeGuard) {
   const table = await getTable(db, orgId, tableId);
   if (!table) return { error: "No such row.", status: 404 };
   const before = await getRow(db, orgId, tableId, rowId);
@@ -319,7 +323,9 @@ export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt) {
   if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) return rowConflict();
   if (await hasAppRelationsToRow(db, orgId, tableId, rowId)) return { error: 'This record is linked from another app record. Remove that link before deleting it.', status: 409 };
   const relationGuard = await appRelationDeleteGuard(db, orgId, tableId, 5);
-  const deleted = await db.prepare(`DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 AND (${relationGuard.sql}) RETURNING id`).bind(rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds).first();
+  const accessParam = 5 + relationGuard.binds.length;
+  const accessGuardSql = writeGuard ? writeGuard.sql(accessParam) : "1=1";
+  const deleted = await db.prepare(`DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 AND (${relationGuard.sql}) AND (${accessGuardSql}) RETURNING id`).bind(rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds, ...(writeGuard?.binds || [])).first();
   if (!deleted) {
     if (await hasAppRelationsToRow(db, orgId, tableId, rowId)) return { error: 'This record is linked from another app record. Remove that link before deleting it.', status: 409 };
     return rowConflict();
