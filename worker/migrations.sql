@@ -379,3 +379,17 @@ ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN app_id TEXT;
 ALTER TABLE hx_memory_scopes ADD COLUMN user_github_id TEXT;
+
+/* Durable ownership for review audit rows. Legacy rows are populated from the
+   still-existing memory by schema.sql; deleted legacy rows stay unscoped and
+   are hidden rather than guessed. */
+CREATE TABLE IF NOT EXISTS hx_memory_review_audit_scope (
+  audit_id TEXT PRIMARY KEY REFERENCES hx_memory_review_audit(id) ON DELETE CASCADE,
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  memory_scope TEXT NOT NULL CHECK(memory_scope IN ('shared','conversation','person')),
+  channel TEXT NOT NULL DEFAULT '',
+  user_github_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_scope_owner
+  ON hx_memory_review_audit_scope(org_id,agent_id,user_github_id,channel,audit_id);
