@@ -6,6 +6,7 @@ import { createSession,upsertUser,upsertMembership } from '../src/db.js';
 import { generateAction,connectionEndpoint } from '../src/harness/appCapabilities.js';
 import { normalizeAppHostname } from '../src/harness/appHosting.js';
 import { applyMigration } from '../src/harness/appDatabase.js';
+import { setDisplayPreference } from '../src/harness/displayPreferences.js';
 const orgId='personal:company';let owner,member,app;
 const call=(path,token,body)=>worker.fetch(new Request('https://example.com'+path+(body?'':`${path.includes('?')?'&':'?'}orgId=${orgId}`),{method:body?'POST':'GET',headers:{'content-type':'application/json','x-session-token':token},...(body?{body:JSON.stringify({orgId,...body})}:{})}),{...env});
 const run=(sub,body,token=owner)=>call(`/apps/${app.id}/${sub}`,token,body);
@@ -393,4 +394,27 @@ test('transaction-time guard prevents partial merge when production changes afte
  const fresh=await (await run('database',{action:'merge_preview',...req})).json();
  expect((await run('database',{action:'merge_apply',...req,checksum:fresh.checksum})).status).toBe(200);
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows').first()).n).toBe(3);
+});
+
+
+test('display preference compare-and-set rejects an older request that reaches the database after revision 3',async()=>{
+ const get=await call('/orgs/mode',owner);
+ expect(await (await get.json()).revision).toBe(0);
+ let injected=false;
+ const racingDb={
+  prepare:(...args)=>env.DB.prepare(...args),
+  batch:async statements=>{
+   if(!injected){
+    injected=true;
+    expect(await setDisplayPreference(env.DB,orgId,'1',false,0,'remote-1')).toMatchObject({simpleOnly:false,revision:1});
+    expect(await setDisplayPreference(env.DB,orgId,'1',true,1,'remote-2')).toMatchObject({simpleOnly:true,revision:2});
+    expect(await setDisplayPreference(env.DB,orgId,'1',false,2,'remote-3')).toMatchObject({simpleOnly:false,revision:3});
+   }
+   return env.DB.batch(statements);
+  },
+ };
+ const stale=await worker.fetch(new Request('https://example.com/hx/display-preference',{method:'PUT',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,simpleOnly:true,expectedRevision:0})}),{...env,DB:racingDb});
+ expect(stale.status).toBe(409);
+ expect(await stale.json()).toMatchObject({code:'stale_revision',current:{simpleOnly:false,revision:3}});
+ expect(await (await (await call('/orgs/mode',owner)).json())).toMatchObject({simpleOnly:false,revision:3});
 });
