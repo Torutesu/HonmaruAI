@@ -423,6 +423,7 @@ test("view guests may read attachment ranges and react but cannot upload, attach
   await flushBackground();
   const revoked = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "DELETE", { grantId });
   expect(revoked.status).toBe(200);
+  // Revoking the edit grant leaves no active grant, so range metadata is hidden too.
   expect((await call(`/external/threads/${orgId}/${rootId}/files/${file.id}`, sessions.guest, "GET", undefined, {}, { range: "bytes=0-5" })).status).toBe(404);
   const viewGrant = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", { email, permission: "view" });
   expect(viewGrant.status).toBe(201);
@@ -433,6 +434,8 @@ test("view guests may read attachment ranges and react but cannot upload, attach
     body: "View guests cannot attach", files: [pendingFile.id],
   });
   expect(attach.status).toBe(403);
+  const replyDenied = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: "View grants cannot reply" });
+  expect(replyDenied.status).toBe(403);
 
   const thread = await (await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).json();
   const reply = thread.thread.replies.find(message => message.id === messageId);
@@ -461,4 +464,25 @@ test("view guests may read attachment ranges and react but cannot upload, attach
   expect(reaction.status).toBe(200);
   const refreshed = await (await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).json();
   expect(refreshed.thread.parent.reactions).toEqual([{ emoji: "👀", count: 1, mine: true }]);
+});
+test("external Thread guests never receive or create workspace shortcode reactions", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const email = `guest-${orgId.split("-").at(-1)}@example.test`;
+  const share = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", { email, permission: "edit" });
+  expect(share.status).toBe(201);
+
+  await env.DB.prepare(`INSERT INTO message_reactions (org_id,message_id,emoji,login,created_at)
+    VALUES (?1,?2,':private_mark:',?3,?4)`).bind(orgId, rootId, ids.owner, new Date().toISOString()).run();
+  const read = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest);
+  expect(read.status).toBe(200);
+  const body = await read.text();
+  expect(body).not.toContain(":private_mark:");
+  expect(body).not.toContain("private_mark");
+
+  const toggle = await call(`/external/threads/${orgId}/${rootId}/reactions`, sessions.guest, "POST", {
+    messageId: rootId, emoji: ":private_mark:",
+  });
+  expect(toggle.status).toBe(400);
+  expect(await env.DB.prepare(`SELECT 1 FROM message_reactions WHERE org_id=?1 AND message_id=?2 AND login=?3 AND emoji=':private_mark:'`)
+    .bind(orgId, rootId, ids.guest).first()).toBeNull();
 });
