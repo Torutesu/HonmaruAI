@@ -66,6 +66,32 @@ async function call(path, token, method = "GET", body = undefined) {
   return response;
 }
 
+test("owners can list only active named grants and revoke them without adding membership", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const email = `guest-${orgId.split("-").at(-1)}@example.test`;
+  expect((await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner)).status).toBe(200);
+  const created = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", { email, permission: "edit" });
+  expect(created.status).toBe(201);
+  const path = `/external/threads/${orgId}/${rootId}/shares`;
+  const listed = await call(path, sessions.owner);
+  expect((await listed.json()).shares).toMatchObject([{
+    permission: "edit", recipient: { name: "guest", email }, expiresAt: null,
+  }]);
+  expect((await call(path, sessions.editor)).status).toBe(404);
+  expect((await call(path, sessions.guest)).status).toBe(404);
+  expect((await call(`/external/threads/${orgId}/missing/shares`, sessions.owner)).status).toBe(404);
+
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET expires_at=?1 WHERE org_id=?2 AND resource_type='thread' AND resource_id=?3 AND recipient_github_id=?4 AND revoked_at IS NULL")
+    .bind(new Date(Date.now()-60_000).toISOString(),orgId,rootId,ids.guest).run();
+  expect((await (await call(path,sessions.owner)).json()).shares).toEqual([]);
+
+  const second = await call(path, sessions.owner, "POST", { email, permission: "view" });
+  expect(second.status).toBe(201);
+  expect((await call(path,sessions.owner,"DELETE",{email})).status).toBe(200);
+  expect((await (await call(path,sessions.owner)).json()).shares).toEqual([]);
+  expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,ids.guest).first()).toBeNull();
+});
+
 test("a verified non-member can read and reply only to an explicitly shared Thread", async () => {
   const { orgId, rootId, ids, sessions } = await setup();
   const share = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", {
