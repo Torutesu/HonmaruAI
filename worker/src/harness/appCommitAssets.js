@@ -4,8 +4,8 @@ const READ_CHUNK_BYTES=64*1024;
 
 function decodePathSegment(value){
   let decoded;try{decoded=decodeURIComponent(value);}catch{return null;}
-  if(!decoded||decoded==='.'||decoded==='..'||decoded.includes('/')||decoded.includes('\\\\')||decoded.includes('\\0')||!/^[A-Za-z0-9_.@+-]{1,100}$/.test(decoded))return null;
   if(!decoded||decoded==='.'||decoded==='..'||decoded.includes('/')||decoded.includes('\\')||decoded.includes('\0')||!/^[A-Za-z0-9_.@+-]{1,100}$/.test(decoded))return null;
+  return decoded;
 }
 function readBytes(value) {
   if(value instanceof Uint8Array)return value;
