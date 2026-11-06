@@ -2079,11 +2079,14 @@ test('member app permissions override workspace sharing and fence reads, writes,
   expect((await grant('view')).status).toBe(200);
   expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(200);
   expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, toru)).status).toBe(200);
+  expect((await get(`/tables/${app.tableId}/rows?orgId=${ORG}`, toru)).status).toBe(200);
+  expect((await send('PUT', `/tables/${app.tableId}?orgId=${ORG}`, toru, { columns: [{ name: 'Name', type: 'text' }] })).status).toBe(403);
   expect((await send('POST', `/tables/${app.tableId}/rows`, toru, { orgId: ORG, values: { Name: 'blocked' } })).status).toBe(403);
 
   const { callHarnessTool } = await import('../src/harness/mcpTools.js');
   const principal = { orgId: ORG, githubId: '9101' };
   expect((await callHarnessTool(env, principal, 'read_app', { appId: app.id })).isError).toBeFalsy();
+  expect((await callHarnessTool(env, principal, 'query_rows', { tableId: app.tableId })).isError).toBeFalsy();
   expect((await callHarnessTool(env, principal, 'add_row', { tableId: app.tableId, values: { Name: 'blocked' } })).isError).toBe(true);
   await env.DB.prepare("INSERT INTO hx_app_actions (org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES (?1,?2,'do_work',1,'return 1;','return 1;',1,datetime('now'))").bind(ORG,app.id).run();
   expect((await send('POST', `/apps/${app.id}/actions`, toru, { orgId: ORG, action: 'run', name: 'do_work', version: 1, input: {} })).status).toBe(403);
@@ -2107,4 +2110,19 @@ test('member app permissions override workspace sharing and fence reads, writes,
   expect(await mayUseApp(env.DB,ORG,app.id,'9101')).toBe(false);
   await env.DB.prepare("UPDATE memberships SET role='member',created_at='2099-01-01T00:00:00.000Z' WHERE org_id=?1 AND user_github_id=?2").bind(ORG,'9101').run();
   expect(await mayUseApp(env.DB,ORG,app.id,'9101')).toBe(true);
+});
+
+
+test('linked Apps intersect member permissions for shared Table reads and writes', async () => {
+  const {app:first}=await (await send('POST','/apps',mika,{orgId:ORG,name:'Shared ACL A',columns:[{name:'Name',type:'text'}]})).json();
+  const {app:second}=await (await send('POST','/apps',mika,{orgId:ORG,name:'Shared ACL B',columns:[{name:'Name',type:'text'}]})).json();
+  await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(first.tableId,ORG,second.id).run();
+  expect((await send('PUT',`/apps/${first.id}/member-permissions`,toru,{orgId:ORG,userId:'9101',permission:'edit',version:0})).status).toBe(200);
+  expect((await send('PUT',`/apps/${second.id}/member-permissions`,toru,{orgId:ORG,userId:'9101',permission:'none',version:0})).status).toBe(200);
+  const {mayEditApp,mayUseTable,mayEditTable,mayReadAppRows}=await import('../src/harness/resourceAccess.js');
+  expect(await mayEditApp(env.DB,ORG,first.id,'9101')).toBe(true);
+  expect(await mayUseTable(env.DB,ORG,first.tableId,'9101')).toBe(false);
+  expect(await mayEditTable(env.DB,ORG,first.tableId,'9101')).toBe(false);
+  expect(await mayReadAppRows(env.DB,ORG,first.id,first.tableId,'9101')).toBe(false);
+  expect(await mayEditApp(env.DB,ORG,first.id,'9102')).toBe(true);
 });

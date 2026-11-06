@@ -2630,3 +2630,18 @@ CREATE TABLE IF NOT EXISTS hx_app_member_permissions (
   PRIMARY KEY(org_id,app_id,user_github_id)
 );
 CREATE INDEX IF NOT EXISTS idx_hx_app_member_permissions_subject ON hx_app_member_permissions(org_id,user_github_id,app_id);
+
+CREATE TRIGGER IF NOT EXISTS hx_app_member_permissions_membership_delete
+AFTER DELETE ON memberships
+BEGIN
+  DELETE FROM hx_app_member_permissions
+  WHERE org_id=OLD.org_id AND user_github_id=OLD.user_github_id;
+END;
+CREATE TRIGGER IF NOT EXISTS hx_app_member_permissions_guest_downgrade
+AFTER UPDATE OF role ON memberships
+WHEN LOWER(COALESCE(NEW.role,'guest'))='guest'
+ AND LOWER(COALESCE(OLD.role,'guest'))!='guest'
+BEGIN
+  DELETE FROM hx_app_member_permissions
+  WHERE org_id=NEW.org_id AND user_github_id=NEW.user_github_id;
+END;
