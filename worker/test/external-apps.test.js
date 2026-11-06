@@ -71,12 +71,40 @@ async function setup() {
   return { orgId, ownerId, guestId, app, otherApp: other.app, primaryRowId, linkedTable: linked.table, unlinkedTable: unlinked.table, linkedRowId, sessions };
 }
 
-async function call(path, token, method = "GET", body = undefined) {
+async function call(path, token, method = "GET", body = undefined, database = env.DB) {
   return worker.fetch(new Request(`https://example.com${path}`, {
     method,
     headers: { "x-session-token": token, ...(body === undefined ? {} : { "content-type": "application/json" }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  }), env, context);
+  }), database === env.DB ? env : { ...env, DB: database }, context);
+}
+
+function removeManagerImmediatelyAfterAccess(db, orgId, managerId) {
+  const managerQuery = "SELECT a.id,a.org_id,a.created_by,a.definition,m.role FROM hx_apps";
+  const wrapStatement = (statement, revokeAfterFirst) => new Proxy(statement, {
+    get(target, property) {
+      if (property === "bind") return (...values) => wrapStatement(target.bind(...values), revokeAfterFirst);
+      if (property === "first") return async (...args) => {
+        const row = await target.first(...args);
+        if (row && revokeAfterFirst) {
+          revokeAfterFirst = false;
+          await db.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2")
+            .bind(orgId, managerId).run();
+        }
+        return row;
+      };
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return new Proxy(db, {
+    get(target, property) {
+      if (property === "prepare") return (sql) =>
+        wrapStatement(target.prepare(sql), String(sql).startsWith(managerQuery));
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 test("an exact App grant exposes only its primary and linked table rows", async () => {
@@ -308,4 +336,74 @@ test("row helper SQL rechecks the exact active App edit grant at the mutation bo
   const remove = await deleteRow(env.DB, f.orgId, f.app.tableId, row.id, row.updatedAt, writeGuard);
   expect(remove.error).toBeTruthy();
   expect(await env.DB.prepare("SELECT id FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3").bind(f.orgId, f.app.tableId, row.id).first()).toMatchObject({ id: row.id });
+});
+
+test("sharing mutations recheck manager membership at commit after concurrent removal", async () => {
+  const f = await setup();
+  const managerId = `external-app-manager-${tag()}`;
+  await upsertUser(env.DB, { githubId: managerId, login: managerId, name: "Manager", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, f.orgId, managerId, "admin");
+  const managerSession = await createSession(env.DB, managerId, "external-app-guest-test");
+  const sharing = `/external/apps/${f.orgId}/${f.app.id}/sharing`;
+  const removeAfterAccess = () => removeManagerImmediatelyAfterAccess(env.DB, f.orgId, managerId);
+  const restoreManager = () => upsertMembership(env.DB, f.orgId, managerId, "admin");
+
+  const inviteEmail = `race-${tag()}@example.com`;
+  const issued = await call(sharing, managerSession, "POST", { email: inviteEmail, permission: "edit" }, removeAfterAccess());
+  expect(issued.status).toBe(403);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_external_app_invites WHERE org_id=?1 AND resource_id=?2 AND invited_email=?3")
+    .bind(f.orgId, f.app.id, inviteEmail).first()).toMatchObject({ n: 0 });
+
+  await restoreManager();
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET permission='view' WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(f.orgId, f.app.id, f.guestId).run();
+  const upgraded = await call(`${sharing}/${f.guestId}`, managerSession, "PATCH", { permission: "edit" }, removeAfterAccess());
+  expect(upgraded.status).toBe(404);
+  expect(await env.DB.prepare("SELECT permission FROM hx_external_resource_grants WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(f.orgId, f.app.id, f.guestId).first()).toMatchObject({ permission: "view" });
+
+  await restoreManager();
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET permission='edit' WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(f.orgId, f.app.id, f.guestId).run();
+  const revokedGrant = await call(`${sharing}/${f.guestId}`, managerSession, "DELETE", undefined, removeAfterAccess());
+  expect(revokedGrant.status).toBe(404);
+  expect(await env.DB.prepare("SELECT revoked_at FROM hx_external_resource_grants WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3")
+    .bind(f.orgId, f.app.id, f.guestId).first()).toMatchObject({ revoked_at: null });
+
+  await restoreManager();
+  const ownerInviteResponse = await call(sharing, f.sessions.owner, "POST", {
+    email: `revoke-${tag()}@example.com`, permission: "view",
+  });
+  expect(ownerInviteResponse.status).toBe(201);
+  const ownerInvite = (await ownerInviteResponse.json()).invite;
+  const revokedInvite = await call(`${sharing}/invites/${ownerInvite.id}`, managerSession, "DELETE", undefined, removeAfterAccess());
+  expect(revokedInvite.status).toBe(404);
+  expect(await env.DB.prepare("SELECT revoked_at FROM hx_external_app_invites WHERE id=?1").bind(ownerInvite.id).first())
+    .toMatchObject({ revoked_at: null });
+
+  await restoreManager();
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET permission='view' WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(f.orgId, f.app.id, f.guestId).run();
+  const rejectedRequest = await call(`/external/apps/${f.orgId}/${f.app.id}/conversation`, f.sessions.guest, "POST", {
+    body: "Request must remain pending after manager removal.", requestSend: true,
+  });
+  expect(rejectedRequest.status).toBe(201);
+  const rejectedRequestId = (await rejectedRequest.json()).requestId;
+  const rejected = await call(`${sharing}/requests/${rejectedRequestId}`, managerSession, "POST", { decision: "reject" }, removeAfterAccess());
+  expect(rejected.status).toBe(404);
+  expect(await env.DB.prepare("SELECT status FROM hx_external_app_send_requests WHERE id=?1").bind(rejectedRequestId).first())
+    .toMatchObject({ status: "pending" });
+
+  await restoreManager();
+  const approvedRequest = await call(`/external/apps/${f.orgId}/${f.app.id}/conversation`, f.sessions.guest, "POST", {
+    body: "Message must not be approved after manager removal.", requestSend: true,
+  });
+  expect(approvedRequest.status).toBe(201);
+  const approvedRequestId = (await approvedRequest.json()).requestId;
+  const approved = await call(`${sharing}/requests/${approvedRequestId}`, managerSession, "POST", { decision: "approve" }, removeAfterAccess());
+  expect(approved.status).toBe(404);
+  expect(await env.DB.prepare("SELECT status FROM hx_external_app_send_requests WHERE id=?1").bind(approvedRequestId).first())
+    .toMatchObject({ status: "pending" });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_messages WHERE org_id=?1 AND app_id=?2 AND body=?3")
+    .bind(f.orgId, f.app.id, "Message must not be approved after manager removal.").first()).toMatchObject({ n: 0 });
 });
