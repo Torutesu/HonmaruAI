@@ -17,6 +17,8 @@ export type PaletteAction =
   | { kind: 'list' }
   | { kind: 'compose' }
   | { kind: 'message'; view: string; id: string; parentId?: string | null }
+  | { kind: 'appRecord'; appId: string; tableId: string; rowId: string }
+  | { kind: 'file'; fileId: string; scope: string }
   /// A conversation, opened in the list.
   | { kind: 'view'; view: string }
 
@@ -39,7 +41,7 @@ interface Props {
   onClose: () => void
 }
 
-interface Item { key: string; group: 'places' | 'actions' | 'cards' | 'past' | 'messages'; label: string; meta?: string; place?: Place; action: PaletteAction }
+interface Item { key: string; group: 'places' | 'actions' | 'cards' | 'past' | 'messages' | 'files' | 'records'; label: string; meta?: string; place?: Place; action: PaletteAction }
 
 const NONE: never[] = []
 
@@ -72,6 +74,11 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
   const [cursor, setCursor] = useState(0)
   const [past, setPast] = useState<Item[]>([])
   const [said, setSaid] = useState<Item[]>([])
+  const [resources, setResources] = useState<Item[]>([])
+  const [resourceTruncated, setResourceTruncated] = useState(false)
+  const [resourcePage, setResourcePage] = useState<{ file: string | null; record: string | null } | null>(null)
+  const [nextFileCursor, setNextFileCursor] = useState<string | null>(null)
+  const [nextRecordCursor, setNextRecordCursor] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => { input.current?.focus() }, [])
@@ -179,27 +186,53 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
 
   // What was said in channels and DMs, from the Worker.
   useEffect(() => {
+    setResources([]); setResourcePage(null); setNextFileCursor(null); setNextRecordCursor(null); setResourceTruncated(false)
+  }, [query])
+
+  useEffect(() => {
     const raw = query.trim()
-    if (raw.length < 2) { setSaid([]); return }
+    if (raw.length < 2) { setSaid([]); setResources([]); setResourceTruncated(false); return }
     let ignore = false
     const id = setTimeout(async () => {
       try {
-        const res = await fetch(`${httpBase}/channels/search?orgId=${encodeURIComponent(orgId)}&q=${encodeURIComponent(raw)}`, { headers: { 'x-session-token': sessionToken } })
+        const params = new URLSearchParams({ orgId, q: raw })
+        if (resourcePage) {
+          if (resourcePage.file) params.set('fileCursor', resourcePage.file); else params.set('skipFiles', '1')
+          if (resourcePage.record) params.set('recordCursor', resourcePage.record); else params.set('skipRecords', '1')
+        }
+        const res = await fetch(`${httpBase}/channels/search?${params}`, { headers: { 'x-session-token': sessionToken } })
         if (!res.ok) return
         const data = await res.json()
         if (ignore) return
-        setSaid((data.messages || []).slice(0, 12).map((m: { id: string; channel: string; body: string; authorName: string | null; mine: boolean; kind: string; createdAt: string; parentId?: string | null }) => ({
+        if (!resourcePage) setSaid((data.messages || []).slice(0, 12).map((m: { id: string; channel: string; body: string; authorName: string | null; mine: boolean; kind: string; createdAt: string; parentId?: string | null }) => ({
           key: `m:${m.id}`, group: 'messages' as const,
           label: m.body.replace(/\s+/g, ' ').slice(0, 140),
           meta: `${m.kind === 'ai' ? t('Your AI') : m.mine ? t('You') : (m.authorName || '')} · ${m.createdAt.slice(0, 10)}`,
           action: { kind: 'message' as const, view: m.channel, id: m.id, parentId: m.parentId || null },
         })))
+        const fileItems = (data.files || []).slice(0, 8).map((f: { id: string; name: string; scope: string; updatedAt: string; snippet: string }) => ({
+          key: `f:${f.id}`, group: 'files' as const, label: f.name,
+          meta: `${f.snippet} · ${f.updatedAt.slice(0, 10)}`,
+          action: { kind: 'file' as const, fileId: f.id, scope: f.scope },
+        }))
+        const recordItems = (data.records || []).slice(0, 8).map((r: { appId: string; appName: string; tableId: string; rowId: string; tableName: string; snippet: string; updatedAt: string }) => ({
+          key: `r:${r.appId}:${r.rowId}`, group: 'records' as const,
+          label: r.snippet, meta: `${r.appName} · ${r.tableName} · ${r.updatedAt.slice(0, 10)}`,
+          action: { kind: 'appRecord' as const, appId: r.appId, tableId: r.tableId, rowId: r.rowId },
+        }))
+        setResources((previous) => {
+          const next = resourcePage ? [...previous, ...fileItems, ...recordItems] : [...fileItems, ...recordItems]
+          return [...new Map(next.map((item) => [item.key, item])).values()]
+        })
+        setNextFileCursor(data.filesNextCursor || null)
+        setNextRecordCursor(data.recordsNextCursor || null)
+        setResourceTruncated(Boolean(data.filesTruncated || data.recordsTruncated))
       } catch { /* the rest of the palette stands */ }
     }, 250)
     return () => { ignore = true; clearTimeout(id) }
-  }, [query, httpBase, orgId, sessionToken, t])
+  }, [query, httpBase, orgId, sessionToken, t, resourcePage])
 
-  const items = useMemo(() => filtered ? said : [...jumps, ...here, ...said, ...past, ...actions], [jumps, here, said, past, actions, filtered])
+  const items = useMemo(() => filtered ? [...said, ...resources] : [...jumps, ...here, ...said, ...resources, ...past, ...actions], [jumps, here, said, resources, past, actions, filtered])
   useEffect(() => { setCursor(0) }, [q, items.length])
   // The highlighted row stays in sight: with conversations above the
   // screens, the arrows walk further than the box is tall. The first row
@@ -233,7 +266,7 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
     else if (e.key === 'Escape') { e.preventDefault(); onClose() }
   }
 
-  const GROUP_WORD: Record<Item['group'], string> = { places: t('Conversations'), actions: t('Go to'), cards: t('Cards'), past: t('Decided before'), messages: t('Messages') }
+  const GROUP_WORD: Record<Item['group'], string> = { places: t('Conversations'), actions: t('Go to'), cards: t('Cards'), past: t('Decided before'), messages: t('Messages'), files: t('Files'), records: t('App records') }
   /// Before a conversation's name, what kind it is, as the sidebar draws it:
   /// # a channel, a lock a private one, @ a person or an agent, faces a group.
   const placeLead = (p: Place) => (
@@ -306,6 +339,7 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
             )
           })}
         </ul>
+        {resourceTruncated && <button className="palette-foot" type="button" onClick={() => setResourcePage({ file: nextFileCursor, record: nextRecordCursor })}>{t('More content matches')}</button>}
         <div className="palette-foot">↑↓ · ⏎ · esc</div>
       </div>
     </>
