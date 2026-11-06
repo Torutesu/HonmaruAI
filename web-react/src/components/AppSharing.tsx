@@ -57,7 +57,8 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
       const res = await fetch(base, { method: 'POST', headers: headers(sessionToken, true), body: JSON.stringify({ email, permission, expiresAt: selectedExpiry() }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || String(res.status))
-      setInviteUrl(data.invite.inviteUrl)
+      const appOrigin = typeof window !== 'undefined' ? window.location.origin : httpBase
+      setInviteUrl(new URL(`/#/external-invite/${data.invite.token}`, appOrigin).toString())
       setEmail('')
       await loadSharing()
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
