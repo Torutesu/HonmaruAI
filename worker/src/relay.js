@@ -647,6 +647,9 @@ export class OrgRelay {
           }
           return;
         }
+        // A client cannot claim which Agent originated a card. Only a
+        // server-side creation path may stamp sourceAgentId.
+        delete card.sourceAgentId;
         // Importance set by hand is set afterwards, through set_priority —
         // not claimed by whoever made the card.
         delete card.prioritySetBy;
@@ -783,7 +786,7 @@ export class OrgRelay {
             delete card.prioritySetBy;
             delete card.aiPriority;
           }
-          for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "proxyAction", "reminder", "autoApproved", "coveringFor"]) {
+          for (const field of ["business", "requestedBy", "recommendation", "recipientMemberRef", "recipientName", "report", "proposal", "proxyAction", "reminder", "autoApproved", "coveringFor", "sourceAgentId"]) {
             if (card[field] === undefined && existing[field] !== undefined) card[field] = existing[field];
           }
           // The access request is a server-created, recipient-private approval
@@ -1287,3 +1290,5 @@ export class OrgRelay {
     try { this.announceLeft(ws, ws.deserializeAttachment() || {}); } catch {}
   }
 }
+
+
