@@ -13,16 +13,43 @@ export function ExternalGuestThread({httpBase,orgId,rootId,sessionToken}:{httpBa
   const [notice,setNotice]=useState('')
   const [attempt,setAttempt]=useState(0)
   useEffect(()=>{
-    const controller=new AbortController()
+    let live=true
+    let pending:AbortController|null=null
+    const load=()=>{
+      if(!live||document.visibilityState==='hidden'||pending)return
+      const controller=new AbortController()
+      pending=controller
+      void fetch(`${httpBase}/external/threads/${encodeURIComponent(orgId)}/${encodeURIComponent(rootId)}`,{
+        headers:{'x-session-token':sessionToken},cache:'no-store',signal:controller.signal,
+      }).then(async response=>{
+        const value=await response.json().catch(()=>({}))
+        if(!live||controller.signal.aborted)return
+        if(!response.ok){
+          if(response.status===404)setData(null)
+          throw new Error(response.status===404?t('This Thread is unavailable or access has expired.'):value.message||t('Could not load this Thread.'))
+        }
+        setData(value)
+        setError('')
+      }).catch(reason=>{
+        if(live&&!controller.signal.aborted)setError(reason instanceof Error?reason.message:t('Could not load this Thread.'))
+      }).finally(()=>{if(pending===controller)pending=null})
+    }
+    const onVisibility=()=>{
+      if(document.visibilityState==='hidden'){
+        pending?.abort()
+        pending=null
+      }else load()
+    }
     setError('')
-    void fetch(`${httpBase}/external/threads/${encodeURIComponent(orgId)}/${encodeURIComponent(rootId)}`,{
-      headers:{'x-session-token':sessionToken},cache:'no-store',signal:controller.signal,
-    }).then(async response=>{
-      const value=await response.json().catch(()=>({}))
-      if(!response.ok)throw new Error(response.status===404?t('This Thread is unavailable or access has expired.'):value.message||t('Could not load this Thread.'))
-      setData(value)
-    }).catch(reason=>{if(!controller.signal.aborted)setError(reason instanceof Error?reason.message:t('Could not load this Thread.'))})
-    return()=>controller.abort()
+    load()
+    const interval=window.setInterval(load,5000)
+    document.addEventListener('visibilitychange',onVisibility)
+    return()=>{
+      live=false
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange',onVisibility)
+      pending?.abort()
+    }
   },[httpBase,orgId,rootId,sessionToken,attempt])
   const send=async(event:React.FormEvent)=>{
     event.preventDefault()
