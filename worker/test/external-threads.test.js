@@ -16,6 +16,7 @@ const grantMigrations = [
 
 async function setup() {
   const tag = suffix();
+  await flushBackground();
   const orgId = `external-thread-${tag}`;
   const ids = {
     owner: `external-owner-${tag}`,
@@ -54,7 +55,10 @@ async function setup() {
   return { orgId, rootId, ids, sessions };
 }
 
-const context = { waitUntil() {} };
+const context = { tasks: [], waitUntil(task) { this.tasks.push(Promise.resolve(task)); } };
+async function flushBackground() {
+  while (context.tasks.length) await Promise.all(context.tasks.splice(0));
+}
 async function call(path, token, method = "GET", body = undefined) {
   const response = await import("../src/index.js").then(({ default: worker }) => worker.fetch(
     new Request(`https://example.com${path}`, {
@@ -80,17 +84,24 @@ test("a verified non-member can read and reply only to an explicitly shared Thre
   expect((await call(`/channels/messages?orgId=${orgId}&channel=b%3Aprivate-room`, sessions.guest)).status).toBe(403);
 
   expect((await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: "send without approval" })).status).toBe(403);
-  const request = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: "Please confirm the launch date.", requestSend: true });
+  const request = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: `@${ids.owner} @AI summarize the launch plan`, requestSend: true });
   expect(request.status).toBe(201);
   const sendRequest = await request.json();
   expect((await call(`/external/threads/${orgId}/${rootId}/requests`, sessions.editor)).status).toBe(404);
   const pending = await call(`/external/threads/${orgId}/${rootId}/requests`, sessions.owner);
-  expect((await pending.json()).requests).toMatchObject([{ id: sendRequest.requestId, body: "Please confirm the launch date." }]);
+  expect((await pending.json()).requests).toMatchObject([{ id: sendRequest.requestId, body: `@${ids.owner} @AI summarize the launch plan` }]);
   const approved = await call(`/external/threads/${orgId}/${rootId}/requests/approve`, sessions.owner, "POST", { requestId: sendRequest.requestId });
   expect(approved.status).toBe(200);
+  const approvedMessage = await approved.json();
+  await flushBackground();
 
   const refreshed = await (await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).json();
-  expect(refreshed.thread.replies).toMatchObject([{ body: "Please confirm the launch date.", authorName: "guest", mine: true }]);
+  expect(refreshed.thread.replies).toMatchObject([
+    { body: `@${ids.owner} @AI summarize the launch plan`, authorName: "guest", mine: true },
+    { kind: "ai", parentId: rootId },
+  ]);
+  expect(await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2").bind(orgId, approvedMessage.messageId).all())
+    .toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
   expect(await env.DB.prepare("SELECT count(*) AS n FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND kind='agent'").bind(orgId, rootId).first()).toMatchObject({ n: 0 });
 });
 
@@ -109,8 +120,12 @@ test("sharing authority is resource-owner/Admin scoped and grants do not cross w
   await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES (?1, ?2, 'b:other-room', ?3, 'message', 'Other workspace', ?4)")
     .bind(otherRootId, otherOrgId, ids.owner, new Date().toISOString()).run();
   expect((await call(`/external/threads/${otherOrgId}/${otherRootId}`, sessions.guest)).status).toBe(404);
-  const reply = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: "Approved edit" });
+  const reply = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: `@${ids.owner} Approved edit` });
   expect(reply.status).toBe(201);
+  const replyBody = await reply.json();
+  await flushBackground();
+  expect(await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2").bind(orgId, replyBody.messageId).all())
+    .toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
 });
 
 test("revocation and expiry are rechecked on every read and write; Simple stays closed", async () => {
