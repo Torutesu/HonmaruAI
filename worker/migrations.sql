@@ -394,3 +394,11 @@ CREATE TABLE IF NOT EXISTS hx_file_share_audit ( org_id TEXT NOT NULL,id INTEGER
 CREATE INDEX IF NOT EXISTS hx_file_share_audit_request ON hx_file_share_audit(org_id,request_id,id);
 
 CREATE INDEX IF NOT EXISTS hx_file_share_requests_source_turn ON hx_file_share_requests(org_id,source_message_id,source_agent_id);
+
+CREATE TABLE IF NOT EXISTS hx_external_resource_grants (id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, resource_type TEXT NOT NULL CHECK (resource_type IN ('workspace','room','thread','app','file')), resource_id TEXT NOT NULL CHECK (length(trim(resource_id)) BETWEEN 1 AND 200), recipient_github_id TEXT NOT NULL REFERENCES users(github_id) ON DELETE CASCADE, permission TEXT NOT NULL CHECK (permission IN ('view','edit')), granted_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, granted_at TEXT NOT NULL, expires_at TEXT CHECK (expires_at IS NULL OR expires_at > granted_at), revoked_at TEXT, revoked_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, CHECK (resource_type != 'workspace' OR resource_id = org_id));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_external_resource_grants_active ON hx_external_resource_grants(org_id, resource_type, resource_id, recipient_github_id) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_hx_external_resource_grants_recipient ON hx_external_resource_grants(org_id, recipient_github_id, revoked_at, expires_at);
+
+CREATE TABLE IF NOT EXISTS hx_external_thread_send_requests (id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, root_message_id TEXT NOT NULL, guest_github_id TEXT NOT NULL REFERENCES users(github_id) ON DELETE CASCADE, body TEXT NOT NULL CHECK (length(trim(body)) BETWEEN 1 AND 4000), status TEXT NOT NULL CHECK (status IN ('pending','approved','rejected','cancelled')), requested_at TEXT NOT NULL, decided_at TEXT, decided_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, message_id TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_external_thread_send_requests_pending ON hx_external_thread_send_requests(org_id, root_message_id, guest_github_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_hx_external_thread_send_requests_owner ON hx_external_thread_send_requests(org_id, root_message_id, status, requested_at);

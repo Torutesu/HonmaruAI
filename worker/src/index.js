@@ -47,6 +47,7 @@ import { settleUsage, jevEntry } from "./ledger.js";
 import { runScheduledSync, runAutomations } from "./scheduled.js";
 import { handleAutomation } from "./automation.js";
 import { handleHarness } from "./harness/routes.js";
+import { handleExternalThreads } from "./externalThreads.js";
 import { runDueWorkflows, handleWorkflowHook } from "./harness/workflows.js";
 import { runDueFollowups } from "./harness/followups.js";
 import { handleChannels, broadcastStored, deliverAcceptedMessages, watchTeammateRuns, caller } from "./channelRoutes.js";
@@ -519,6 +520,10 @@ async function handle(request, env, url, ctx) {
     if (workflowHook) return workflowHook;
     const harnessed = await handleHarness(request, env, url, { after: work => after(ctx, work), dispatch: inner => handle(inner, env, new URL(inner.url), ctx) });
     if (harnessed) return harnessed;
+    // A verified external collaborator's exact Thread route. The handler
+    // authenticates the session and rechecks the resource grant on each call.
+    const externalThread = await handleExternalThreads(request, env, url);
+    if (externalThread) return externalThread;
 
     // Routines, the playbook, agent tokens and the MCP endpoint.
     const automated = await handleAutomation(request, env, url, ctx);
