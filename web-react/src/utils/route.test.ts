@@ -7,6 +7,15 @@ it('source-app links enter chat in the named workspace, without accepting malfor
  expect(parseRoute(hashForApp('app_one','team:acme',{}))).toMatchObject({screen:'apps',appConversation:{}})
 })
 
+it('source-thread App URLs restore the data panel, and their fallback opens the same App directly',()=>{
+ const source=hashForAppSource('app_one','team:acme','data')
+ expect(source).toBe('#/apps/app_one/team%3Aacme?section=data&source=1')
+ expect(parseRoute(source)).toMatchObject({appSource:true,appSourceSection:'data',appId:'app_one',appOrg:'team:acme'})
+ const fallback=hashForApp('app_one','team:acme',undefined,'data')
+ expect(parseRoute(fallback)).toMatchObject({screen:'apps',appId:'app_one',appOrg:'team:acme',appSection:'data'})
+ expect(parseRoute('#/list')).toMatchObject({mode:'classic',cardId:null})
+})
+
 it('opens a versioned template share only for a well-shaped bearer token',()=>{
  const token='tpl_'+'ab'.repeat(32)
  expect(parseRoute(`#/template-share/${token}`)).toMatchObject({screen:'templateImport',sharedTemplateToken:token})
