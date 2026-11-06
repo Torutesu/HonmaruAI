@@ -89,6 +89,7 @@ import { Avatar } from './Avatar'
 import { ProfileCard } from './ProfileCard'
 import { isOnline, statusShown, awayShown, nextExpiry, localTime } from '../utils/people'
 import { Sheet, SheetRow, MessageSheet, PeoplePicker, ForwardSheet, longPress } from './Sheet'
+import { PhoneDestinationComposer } from './PhoneDestinationComposer'
 import { useUploads, PendingUploads, MessageFiles } from './Attachments'
 import { configureMediaUrls } from '../utils/mediaUrls'
 import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopRing } from '../utils/sound'
@@ -821,6 +822,7 @@ export const ClassicList: React.FC<Props> = ({
   }, [pending, sent, decided, businesses, userId, locale, members, hashes, activity, seenTick, serverReads, prefs, groups, agents, startedAgents, layout])
 
   const everything = useMemo(() => [...channels, ...people, ...agentConvos, ...apps], [channels, people, agentConvos, apps])
+  const phoneDraftDestinations = useMemo(() => everything.filter((item) => Boolean(item.view) && item.kind !== 'app').map((item) => ({ key: item.key, view: item.view!, name: item.name, kind: item.kind })), [everything])
 
   // The sidebar's lists, top to bottom: starred first, then your sections,
   // then the rest where they always were — what the starred and your
@@ -945,6 +947,7 @@ export const ClassicList: React.FC<Props> = ({
   const [phoneTab, setPhoneTab] = useState<'home' | 'dms'>('home')
   // The round button's choices, and the people picker behind "New message".
   const [starting, setStarting] = useState<null | 'menu' | 'people'>(null)
+  const [phoneDraftComposer, setPhoneDraftComposer] = useState(false)
   useEffect(() => { if (harness && newRequest) setStarting('menu') }, [harness, newRequest])
   useEffect(() => { if (harness && homeRequest) { choose(null); setHarnessFilter('home') } }, [harness, homeRequest])
   // Everything behind ⋯ in a conversation's header, on a phone.
@@ -6153,7 +6156,7 @@ export const ClassicList: React.FC<Props> = ({
           <button type="button" className={tabOn('home') ? 'on' : ''} aria-current={tabOn('home') ? 'page' : undefined} onClick={() => { choose(null); setPhoneTab('home') }} data-phone-tab="home">
             <Icon name="home" size={22} /><span>{t('Home')}</span>
           </button>
-          <button type="button" className={tabOn('dms') ? 'on' : ''} aria-current={tabOn('dms') ? 'page' : undefined} onClick={() => { choose(null); setPhoneTab('dms') }} data-phone-tab="dms">
+          <button type="button" className={tabOn('dms') ? 'on' : ''} aria-current={tabOn('dms') ? 'page' : undefined} onClick={() => { choose(null); setPhoneTab('dms') }} {...(harness ? longPress(() => setPhoneDraftComposer(true), { allowButton: true }) : {})} data-phone-tab="dms">
             <Icon name="message" size={22} /><span>{t('DMs')}</span>{dmUnread > 0 && <i className="cl-tab-badge">{dmUnread}</i>}
           </button>
           <button type="button" className={tabOn('activity') ? 'on' : ''} aria-current={tabOn('activity') ? 'page' : undefined} onClick={openActivity} data-phone-tab="activity">
@@ -6216,6 +6219,29 @@ export const ClassicList: React.FC<Props> = ({
       {harness && joiningRoom && <RoomJoinDialog key={api.orgId} api={api} onClose={() => setJoiningRoom(false)} onJoined={channel => {
         setJoiningRoom(false); setChannelsTick(n => n + 1); choose(`channel:${channel.slice(2)}`)
       }}/>}
+      {harness && phoneDraftComposer && (
+        <PhoneDestinationComposer
+          destinations={phoneDraftDestinations}
+          api={api}
+          onClose={() => setPhoneDraftComposer(false)}
+          t={t}
+          onChoose={(destination, draftText) => {
+            try {
+              const key = destination.threadId
+                ? `draft:${api.orgId}:thread:${destination.threadId}`
+                : `draft:${api.orgId}:${destination.view}`
+              if (draftText.trim()) localStorage.setItem(key, draftText)
+              else localStorage.removeItem(key)
+            } catch { /* drafts remain local when storage is available */ }
+            setPhoneDraftComposer(false)
+            choose(destination.key)
+            if (destination.threadId) {
+              const parent = { id: destination.threadId, channel: destination.view, kind: 'message', body: '', authorName: null, authorRef: null, createdAt: new Date().toISOString() } as ChannelMessage
+              requestAnimationFrame(() => { void openThread(destination.view, parent) })
+            }
+          }}
+        />
+      )}
       {starting === 'menu' && (
         <Sheet label={t('New')} onClose={() => setStarting(null)}>
           <div className="msheet-rows">
