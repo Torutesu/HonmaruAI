@@ -973,7 +973,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if (!room) return json({ message: "No such conversation." }, 404);
         channel = room.key;
       }
-      const context = { channel };
+      const context = { channel, userId: String(me) };
       if (request.method === 'GET' && (parts[5] === 'reviews' || parts[4] === 'reviews')) {
         const r = await memoryReviewHistory(env.DB, orgId, agentId, parts[4] === 'reviews' ? null : parts[4], { ...context, cursor: url.searchParams.get('cursor') });
         return r.error ? fail(r) : json(r);
@@ -992,12 +992,12 @@ export async function handleHarness(request, env, url, context = {}) {
         return r.error?fail(r):json(r,r.replayed?200:201);
       }
       if (request.method === "POST") {
-        const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context" });
+        const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context", scope: input.scope || "shared", userId: me });
         if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });
         return r.error ? fail(r) : json(r, 201);
       }
       if (request.method === "PUT" && parts[5] === 'review') {
-        const r = await reviewMemoryEntry(env.DB, orgId, agentId, parts[4], input, { channel, by: me });
+        const r = await reviewMemoryEntry(env.DB, orgId, agentId, parts[4], input, { ...context, by: me });
         if (!r.error) await audit(env, request, { orgId, action: 'agent.memory_reviewed', actor: person(who.user), entity: { type: 'custom_agent', id: agentId }, details: { memoryId: parts[4], version: r.review.version, verdict: input.verdict || 'keep', scope: channel ? 'conversation' : 'shared' } });
         return r.error ? fail(r) : json(r);
       }
