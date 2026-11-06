@@ -621,9 +621,9 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     try {
       // "@agent remember …": kept in the agent's own memory, no model
       // needed (harness/agents.js).
-      const remember = harness && requestOverride == null ? rememberRequest(requestFor(taskText, agent)) : null;
+      const remember = harness && requestOverride == null ? rememberRequest(requestFor(taskText, agent, { naturalNames: true })) : null;
       // "@agent follow up in 3 days: …": it comes back to this thread then.
-      const later = harness && requestOverride == null && !remember ? followupRequest(requestFor(taskText, agent)) : null;
+      const later = harness && requestOverride == null && !remember ? followupRequest(requestFor(taskText, agent, { naturalNames: true })) : null;
       if (remember) {
         const kept = await addAgentMemory(env.DB, orgId, agent.id, remember, { by: session.github_id, channel: resolved.key });
         text = kept.error || serverText(locale, "agent.remembered", { text: kept.memory.text });
@@ -645,7 +645,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           instructions: agentInstructionsForTools(ready.agent.instructions, toolsForTurn),
         };
         const result = await askAgent({
-          provider: ready.provider, agent: agentForTurn, request: requestFor(taskText, agent), transcript, playbook, where, research, links, tools: toolsForTurn, env,
+          provider: ready.provider, agent: agentForTurn, request: requestFor(taskText, agent, { naturalNames: harness }), transcript, playbook, where, research, links, tools: toolsForTurn, env,
           askedBy: user.name || "a teammate", readerLanguage: locale,
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
           onRound: () => progress(agent, "agent"), authorize, harnessTools: harness, signal,

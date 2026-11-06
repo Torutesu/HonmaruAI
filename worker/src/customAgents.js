@@ -364,9 +364,10 @@ export async function agentTalkFilter(db, orgId) {
   const { results } = await db.prepare("SELECT id, handle, scope FROM custom_agents WHERE org_id = ?1 AND deleted_at IS NULL")
     .bind(orgId).all().catch(() => ({ results: [] }));
   const all = results || [];
+  const harness = await getMode(db, orgId).catch(() => null) === "harness";
   return (row) => row?.kind === "agent"
     || String(row?.channel || "").startsWith("ag:")
-    || (all.length > 0 && agentsCalled(row?.body, all).length > 0);
+    || (all.length > 0 && agentsCalled(row?.body, all, { naturalNames: harness }).length > 0);
 }
 
 /// The words of a message that can call anyone: its own lines — not a
@@ -378,7 +379,36 @@ export function callingText(text) {
     .split("\n").filter((line) => !/^\s*>/.test(line)).join("\n");
 }
 
-export function agentsCalled(text, agents) {
+const intentAfterName = /^(?:please\b|can\s+you\b|could\s+you\b|would\s+you\b|help\b|review\b|check\b|find\b|write\b|draft\b|create\b|make\b|summari[sz]e\b|explain\b|translate\b|compare\b|analy[sz]e\b|plan\b|research\b|look\s+up\b|what\s+do\s+you\s+think\b|に|へ|さんに|さんへ|くんに|ちゃんに|先生に|これ|それ|今日|明日|調べ|確認|見て|考えて|作って|作成|書いて|まとめ|要約|比較|翻訳|説明|手伝|お願い|頼む|直して|修正|探して|教えて|レビュー)/iu;
+
+function plainNameCalls(text, agents) {
+  const source = callingText(text);
+  const matches = [];
+  const seenAliases = new Set();
+  for (const agent of agents) {
+    for (const alias of [agent.name, agent.handle]) {
+      const name = String(alias || "").trim();
+      const key = fold(name);
+      if (!name || key.length < 2 || RESERVED.has(key) || seenAliases.has(key)) continue;
+      seenAliases.add(key);
+      const re = new RegExp(`(^|[\\n.!?。！？,，、;；])([\\t ]*)(${escape(name)})(?=$|[\\t ]|[,，、:：.!?。！？;；]|に|へ|さん|くん|ちゃん|先生)`, "giu");
+      let match;
+      while ((match = re.exec(source))) {
+        const tail = source.slice(re.lastIndex).replace(/^(?:さん|くん|ちゃん|先生)?\s*(?:に|へ)?\s*[,，、:：—-]?\s*/u, "");
+        if (!tail || !intentAfterName.test(tail)) continue;
+        const offset = match.index + match[1].length + match[2].length;
+        const hit = agents.find((candidate) => fold(candidate.name) === key || fold(candidate.handle) === key);
+        if (hit) matches.push({ offset, agent: hit });
+        // A single alias should only produce one call from the first clear
+        // natural-name address in a message.
+        break;
+      }
+    }
+  }
+  return matches.sort((a, b) => a.offset - b.offset).map((item) => item.agent);
+}
+
+export function agentsCalled(text, agents, { naturalNames = false } = {}) {
   const byHandle = new Map();
   // Your own agent first, where yours and the team's could share a name.
   for (const a of [...agents].sort((x, y) => (x.scope === "personal" ? -1 : 0) - (y.scope === "personal" ? -1 : 0))) {
@@ -394,15 +424,27 @@ export function agentsCalled(text, agents) {
     if (hit && !out.includes(hit)) out.push(hit);
     if (out.length >= MAX_CALLED) break;
   }
+  if (naturalNames && out.length < MAX_CALLED) {
+    for (const agent of plainNameCalls(text, [...agents].sort((x, y) => (x.scope === "personal" ? -1 : 0) - (y.scope === "personal" ? -1 : 0)))) {
+      if (!out.includes(agent)) out.push(agent);
+      if (out.length >= MAX_CALLED) break;
+    }
+  }
   return out;
 }
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /// What was asked of one agent: the message, without its @name.
-export function requestFor(text, agent) {
+export function requestFor(text, agent, { naturalNames = false } = {}) {
   const re = new RegExp(`${MENTION_BEFORE}[@＠]${escape(agent.handle)}(?:[にへ](?=[\\s,、:：]|$)|(?![\\p{L}\\p{N}_.-]))[,、:：]?\\s*`, "giu");
-  return String(text || "").replace(re, "$1").trim();
+  const addressed = String(text || "").replace(re, "$1");
+  if (!naturalNames) return addressed.trim();
+  const aliases = [...new Set([agent.name, agent.handle].map((value) => String(value || "").trim()).filter(Boolean))]
+    .sort((a, b) => b.length - a.length);
+  if (!aliases.length) return addressed.trim();
+  const natural = new RegExp(`(^|[\\n.!?。！？,，、;；])([\\t ]*)(?:${aliases.map(escape).join("|")})(?:さん|くん|ちゃん|先生)?(?=$|[\\t ]|[,，、:：.!?。！？;；]|に|へ)\\s*(?:に|へ)?\\s*[,，、:：—-]?\\s*`, "giu");
+  return addressed.replace(natural, "$1").trim();
 }
 
 const RULES = `You are an agent in a team's chat, called by name by a teammate. The team wrote your instructions; follow them.
@@ -544,7 +586,8 @@ export function forChat(text) {
 export async function respondingAgents(db, { orgId, login, resolved, row, room = null, mode = null }) {
   const added = ['business', 'group'].includes(resolved.kind) ? channelAgents(db, orgId, resolved.key) : Promise.resolve([]);
   const here = await agentsHere(db, orgId, login, resolved.key, { added });
-  let agents = agentsCalled(row.body, here);
+  const harness = (mode || await getMode(db, orgId)) === "harness";
+  let agents = agentsCalled(row.body, here, { naturalNames: harness });
   // Who was asked by name, or by talking to them in their own
   // conversation. In a thread an agent answered, a reply that does not name
   // it is to the people there: it answered every follow-up of the person who
@@ -558,7 +601,6 @@ export async function respondingAgents(db, { orgId, login, resolved, row, room =
   const mentionedOnly = resolved.kind === "business" && (room || await roomResponses(db, orgId, resolved.key)).mentionedOnly;
   // As each agent's profile allows (harness/agents.js): who may call it,
   // and whether it waits to be named.
-  const harness = (mode || await getMode(db, orgId)) === "harness";
   const permitted = await filterResponders(db, orgId, login, agents, { named: harness ? named : null, channel: resolved.key });
   // Automatic routing is Harness-only, for new human requests in rooms.
   // A thread already between people, an explicit addressee, and an agent's
