@@ -27,9 +27,15 @@ beforeEach(async () => {
     schemaBatchSize += sql.length + 2;
   }
   if (schemaBatch.length) await env.DB.exec(`${schemaBatch.join("; ")};`.replace(/\n/g, " "));
-  for (const sql of workflowWebhookColumns) await env.DB.exec(sql);
+  for (const sql of workflowWebhookColumns) {
+    if (sql.startsWith('ALTER TABLE ')) await applyTestColumn(sql);
+    else await env.DB.exec(sql);
+  }
   // Keep the workflow budget columns in step with the production migration.
-  for (const sql of workflowBudgetColumns) await env.DB.exec(sql);
+  for (const sql of workflowBudgetColumns) {
+    if (sql.startsWith('ALTER TABLE ')) await applyTestColumn(sql);
+    else await env.DB.exec(sql);
+  }
   await env.DB.exec(workspaceFilesSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRuntimeSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRevisionSql.replace(/\n/g, " "));
@@ -39,6 +45,14 @@ beforeEach(async () => {
   // as deploy does, after columns already exist on the fresh test schema.
   for (const sql of migrationStatements) await env.DB.exec(sql);
 });
+
+async function applyTestColumn(sql) {
+  const match = /^ALTER TABLE ([A-Za-z0-9_]+) ADD COLUMN ([A-Za-z0-9_]+)/.exec(sql);
+  if (!match) throw new Error(`Unsupported test schema alteration: ${sql}`);
+  const [, table, column] = match;
+  const { results = [] } = await env.DB.prepare(`PRAGMA table_info("${table}")`).all();
+  if (!results.some((entry) => entry.name === column)) await env.DB.exec(sql);
+}
 
 const migrationStatements = migrationsSql.split("\n").filter((line) => /^(CREATE (UNIQUE )?INDEX IF NOT EXISTS|CREATE TRIGGER IF NOT EXISTS|INSERT OR IGNORE INTO)/.test(line));
 const workflowWebhookColumns = [

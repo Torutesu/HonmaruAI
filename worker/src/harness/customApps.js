@@ -4,6 +4,12 @@ import { getTable } from "./tables.js";
 export const MAX_SOURCE = 120000;
 // The preview frame includes runner markup and accepts at most this many source characters.
 export const MAX_PREVIEW_SOURCE = 119800;
+function decodeAssetBase64(value) {
+  const binary=atob(String(value||''));
+  const bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+  return bytes;
+}
 export function validateSource(source) {
   return typeof source === 'string' && source.trim() && source.length <= MAX_SOURCE;
 }
@@ -29,7 +35,8 @@ export async function generateCustomSource(prompt, table, complete, capabilities
   } catch { return { error: 'The model did not return a valid custom app. Please retry.', status: 502 }; }
 }
 
-export async function saveCustomRelease(db, orgId, app, input, by) {
+export async function saveCustomRelease(db, orgId, app, input, by, trusted = {}) {
+  const nextVersion = app.version + 1;
   if (!Number.isInteger(input.version) || input.version !== app.version) return { error: 'This app changed. Reload before saving.', status: 409 };
   const custom = { ...(app.definition.custom || {}) };
   if (input.action === 'restore') {
@@ -41,26 +48,46 @@ export async function saveCustomRelease(db, orgId, app, input, by) {
   } else if (input.action === 'draft') {
     if (!validateSource(input.html)) return { error: 'HTML source must contain 1–120000 characters.', status: 400 };
     custom.draft = input.html;
+    if (trusted.commit) custom.draftCommit = { ...trusted.commit, appVersion: nextVersion };
+    else delete custom.draftCommit;
   } else if (input.action === 'publish') {
     if (!validateSource(custom.draft)) return { error: 'Save a draft before publishing.', status: 400 };
     if (custom.draft.length > MAX_PREVIEW_SOURCE) return { error: `Shorten the draft to ${MAX_PREVIEW_SOURCE} characters or fewer before previewing and publishing.`, status: 400 };
     custom.published = custom.draft;
+    delete custom.publishedCommit;
+    delete custom.publishedCommitApprovalId;
     custom.publishedBy = String(by);
     custom.publishedAt = new Date().toISOString();
   } else if (input.action === 'unpublish') {
     delete custom.published;
+    delete custom.publishedCommit;
+    delete custom.publishedCommitApprovalId;
   } else return { error: 'Unknown release action.', status: 400 };
   const table = await getTable(db, orgId, app.tableId);
   const definition = { ...app.definition, custom };
   const at = new Date().toISOString();
-  const version = app.version + 1;
+  const version = nextVersion;
   const stoppedRelease = crypto.randomUUID();
   // Both statements run in a D1 transaction; the snapshot is inserted only when CAS won.
   const result = await db.batch([
     db.prepare('UPDATE hx_apps SET definition = ?1, version = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5 AND version = ?6')
       .bind(JSON.stringify(definition), version, at, app.id, orgId, app.version),
     db.prepare('INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE changes() = 1')
-      .bind(app.id, orgId, version, JSON.stringify({ ...definition, name: app.name, columns: table.columns }), `Custom app: ${input.action}`, String(by), at),
+      .bind(app.id, orgId, version, JSON.stringify({ ...definition, name: app.name, columns: table.columns }), trusted.commit ? `Custom app: GitHub commit ${trusted.commit.owner}/${trusted.commit.repo}@${trusted.commit.sha}` : `Custom app: ${input.action}`, String(by), at),
+    ...((input.action === 'draft' || input.action === 'restore') ? [
+      db.prepare(`UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=?1
+        WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved') AND consumed_at IS NULL
+          AND app_version < ?4`).bind(at,orgId,app.id,version),
+    ] : []),
+    ...(trusted.commit && Array.isArray(trusted.assets) ? trusted.assets.map(asset =>
+      db.prepare(`INSERT OR IGNORE INTO hx_app_git_assets
+        (org_id,app_id,app_version,commit_sha,path,content_type,content_bytes,content_hash,size)
+        SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9
+        WHERE EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND a.version=?3
+          AND json_extract(a.definition,'$.custom.draftCommit.sha')=?4
+          AND json_extract(a.definition,'$.custom.draftCommit.sourceHash')=?10)`)
+        .bind(orgId,app.id,version,trusted.commit.sha,asset.path,asset.mimeType,decodeAssetBase64(asset.contentBase64),asset.contentHash,asset.size,trusted.commit.sourceHash)
+    ) : []),
     ...(input.action === 'unpublish' ? [
       // changes() refers to the preceding history insertion, so a losing
       // source CAS cannot stop another editor's automation release.

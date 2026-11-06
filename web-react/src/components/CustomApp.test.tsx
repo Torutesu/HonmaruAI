@@ -1,7 +1,7 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, expect, test, vi } from 'vitest'
-import { CustomAppFrame } from './CustomApp'
+import { CustomAppEditor, CustomAppFrame } from './CustomApp'
 vi.mock('../utils/appearance', () => ({ useAppearance: () => ({ theme: 'dark' }) }))
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 const table = { id: 'only-this-table', name: 'Tasks', columns: [] }
@@ -209,3 +209,89 @@ test('a runner that never renders exposes retry and ignores old acknowledgements
   expect(tree!.root.findAllByProps({role:'status'})).toHaveLength(0)
   act(()=>tree!.unmount())
 })
+
+
+const commitState = (status: string) => ({
+  commit: { owner:'acme',repo:'static-app',branch:'main',sha:'a'.repeat(40),path:'index.html',sourceHash:'b'.repeat(64),appVersion:3,assets:[] },
+  scope: { visibility:'workspace',accessVersion:0,domainScope:'' },
+  approval: { id:'approval-1',status,appVersion:3,commitSha:'a'.repeat(40),sourceHash:'b'.repeat(64),visibility:'workspace',requestedBy:'9101',reviewerId:status==='approved'?'9103':null },
+});
+const editorApp = { id:'app',version:3,definition:{custom:{draft:'<main>release</main>'}} } as any;
+const editorTable = { id:'table',name:'Tasks',columns:[] } as any;
+
+test('Git commit editor exposes pending review and displays server self-review rejection', async () => {
+  const state=commitState('pending');
+  const customCommit=vi.fn().mockRejectedValue(new Error('The reviewer must be independent from the requester.'));
+  const api={customCommitState:vi.fn().mockResolvedValue(state),customCommit} as any;
+  let tree:ReturnType<typeof create>;
+  await act(async()=>{tree=create(<CustomAppEditor app={editorApp} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
+  expect(tree!.root.findAllByProps({ 'aria-label':'GitHub commit approval' })).toHaveLength(1);
+  expect(tree!.root.findAllByType('button').some(button=>button.children.join('')==='Owner/Adminとして承認')).toBe(true);
+  const review=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Owner/Adminとして承認')!;
+  await act(async()=>{await review.props.onClick()});
+  expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({
+    action:'review_commit_approval',decision:'approve',approvalId:'approval-1',commitSha:'a'.repeat(40),sourceHash:'b'.repeat(64),
+  }));
+  expect(tree!.root.findAllByProps({role:'alert'}).some(node=>String(node.children.join('')).includes('independent'))).toBe(true);
+  act(()=>tree!.unmount());
+});
+
+test('Git commit editor disables stale approvals after the API reports a publish conflict', async () => {
+  const state=commitState('approved');
+  const customCommit=vi.fn().mockRejectedValue(new Error('The commit approval is stale or no longer matches the publish scope.'));
+  const api={customCommitState:vi.fn().mockResolvedValue(state),customCommit} as any;
+  let tree:ReturnType<typeof create>;
+  await act(async()=>{tree=create(<CustomAppEditor app={editorApp} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
+  const publish=tree!.root.findAllByType('button').find(button=>button.children.join('')==='承認済みGitHub commitを公開')!;
+  await act(async()=>{publish.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
+  expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({action:'publish_commit',version:3,approvalId:'approval-1'}));
+  expect(tree!.root.findAllByProps({role:'alert'}).some(node=>String(node.children.join('')).includes('publish scope'))).toBe(true);
+  act(()=>tree!.unmount());
+});
+
+test('Git commit editor imports through its API action and publishes only after approval', async () => {
+  let current=commitState('approved');
+  const customCommit=vi.fn(async(_id:string,input:any)=>{
+    if(input.action==='publish_commit')current={...current,approval:{...current.approval,status:'published'}};
+    return {saved:true};
+  });
+  const api={customCommitState:vi.fn(async()=>current),customCommit} as any;
+  const reload=vi.fn();
+  let tree:ReturnType<typeof create>;
+  await act(async()=>{tree=create(<CustomAppEditor app={editorApp} table={editorTable} rows={[]} api={api} reload={reload} httpBase="https://api.example"/>);await Promise.resolve()});
+  const owner=tree!.root.findByProps({ 'aria-label':'GitHub owner' });
+  const repo=tree!.root.findByProps({ 'aria-label':'GitHub repository' });
+  const branch=tree!.root.findByProps({ 'aria-label':'GitHub branch' });
+  const sha=tree!.root.findByProps({ 'aria-label':'GitHub commit SHA' });
+  act(()=>{owner.props.onChange({target:{value:'acme'}});repo.props.onChange({target:{value:'static-app'}});branch.props.onChange({target:{value:'main'}});sha.props.onChange({target:{value:'a'.repeat(40)}})});
+  const importButton=tree!.root.findAllByType('button').find(button=>button.children.join('')==='commitのHTMLと静的アセットを取り込む')!;
+  await act(async()=>{importButton.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
+  expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({action:'import_commit',owner:'acme',repo:'static-app',branch:'main',commitSha:'a'.repeat(40)}));
+  expect(reload).toHaveBeenCalled();
+  const publish=tree!.root.findAllByType('button').find(button=>button.children.join('')==='承認済みGitHub commitを公開')!;
+  await act(async()=>{await publish.props.onClick()});
+  expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({action:'publish_commit',version:3,approvalId:'approval-1'}));
+  expect(reload).toHaveBeenCalledTimes(2);
+  act(()=>tree!.unmount());
+});
+
+test('custom domain publishing requires a visible explicit all-records consent', async () => {
+  const hosting={configured:true,project:'honmaru-web',dnsTarget:'',domain:null,environment:[]};
+  const changeAppHosting=vi.fn().mockResolvedValue({saved:true});
+  const api={customCommitState:vi.fn().mockResolvedValue(commitState('none')),appHosting:vi.fn().mockResolvedValue(hosting),changeAppHosting} as any;
+  const app={...editorApp,definition:{custom:{draft:'<main>release</main>',published:'<main>release</main>'}}};
+  let tree:ReturnType<typeof create>;
+  await act(async()=>{tree=create(<CustomAppEditor app={app} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
+  const panel=tree!.root.findByProps({'aria-label':'カスタムドメイン公開'});
+  expect(JSON.stringify(tree!.toJSON())).toContain('このドメインではカスタム画面と全レコードを誰でも閲覧できます');
+  const hostname=tree!.root.findByProps({'aria-label':'独自ドメインのホスト名'});
+  act(()=>hostname.props.onChange({target:{value:'app.example.com'}}));
+  const checkbox=tree!.root.findByProps({'aria-label':'全レコードの公開を確認'});
+  const attach=tree!.root.findAllByType('button').find(button=>button.children.join('')==='独自ドメインを追加')!;
+  expect(attach.props.disabled).toBe(true);
+  act(()=>checkbox.props.onChange({target:{checked:true}}));
+  expect(attach.props.disabled).toBe(false);
+  await act(async()=>{await attach.props.onClick()});
+  expect(changeAppHosting).toHaveBeenCalledWith('app',{action:'attach',hostname:'app.example.com',publicDataConfirmed:true});
+  act(()=>tree!.unmount());
+});

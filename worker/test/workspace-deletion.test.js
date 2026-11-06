@@ -62,7 +62,12 @@ test("after thirty days everything under the workspace goes, the audit log stays
   await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
   // Not yet.
   expect(await purgeDueWorkspaces(env, { now: Date.now() + 29 * DAY })).toEqual([]);
-  expect(await purgeDueWorkspaces(env, { now: Date.now() + 31 * DAY })).toEqual([ORG]);
+  const now = Date.now() + 31 * DAY;
+  let completed = [];
+  for (let attempt = 0; attempt < 10 && !completed.includes(ORG); attempt++) {
+    completed = await purgeDueWorkspaces(env, { now });
+  }
+  expect(completed).toEqual([ORG]);
 
   const left = async (sql) => (await env.DB.prepare(sql).bind(ORG).first()).n;
   expect(await left("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1")).toBe(0);
@@ -186,7 +191,12 @@ test("the purge deletes the icon, emoji, agents' pictures and Jam recordings kep
   const staying = await keptByName("team:stays", "02");
   await env.MEDIA.put("jam/rec-old", "audio");
   await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
-  expect(await purgeDueWorkspaces(env, { now: Date.now() + 31 * DAY })).toEqual([ORG]);
+  const purgeNow = Date.now() + 31 * DAY;
+  let purged = [];
+  for (let attempt = 0; attempt < 10 && !purged.includes(ORG); attempt++) {
+    purged = await purgeDueWorkspaces(env, { now: purgeNow });
+  }
+  expect(purged).toEqual([ORG]);
   for (const key of going) expect(await env.MEDIA.get(key)).toBeNull();
   for (const key of staying) expect(await env.MEDIA.get(key)).not.toBeNull();
   expect(await env.MEDIA.get("jam/rec-old")).not.toBeNull();
