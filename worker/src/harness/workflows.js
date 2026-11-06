@@ -434,6 +434,81 @@ export async function listRuns(db, orgId, workflowId, limit = 50, viewerId) {
   return visible;
 }
 
+
+/**
+ * Summary for the rolling 168-hour window ending at now (UTC instants).
+ * Every candidate is passed through getRun's detail ACL before it can
+ * contribute to any aggregate. Workspace administrators receive no bypass.
+ */
+export async function workflowRunSummary(db, orgId, workflowId, viewerId, { nowMs = Date.now(), maxRuns = 5000 } = {}) {
+  if (!viewerId) throw new TypeError('A viewer is required to summarize workflow runs.');
+  const windowEnd = new Date(nowMs).toISOString();
+  const windowStart = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const pageSize = 200;
+  const revisions = await workflowRevisionRows(db, orgId, workflowId);
+  const visibleRuns = [];
+  let cursor = null;
+  let truncated = false;
+
+  // The cap applies to authorized records only. Hidden runs are still checked
+  // against the same detail ACL, but never affect visible counts or truncation.
+  while (true) {
+    const cursorClause = cursor ? " AND (r.started_at < ?5 OR (r.started_at = ?5 AND r.id < ?6))" : "";
+    const bindings = cursor
+      ? [orgId, workflowId, windowStart, windowEnd, cursor.startedAt, cursor.id, pageSize]
+      : [orgId, workflowId, windowStart, windowEnd, pageSize];
+    const limitParameter = cursor ? "?7" : "?5";
+    const { results = [] } = await db.prepare(`SELECT r.*,d.definition AS definition_snapshot
+      FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d
+        ON d.run_id=r.id AND d.org_id=r.org_id
+      WHERE r.org_id=?1 AND r.workflow_id=?2 AND r.started_at>=?3 AND r.started_at<=?4${cursorClause}
+      ORDER BY r.started_at DESC,r.id DESC LIMIT ${limitParameter}`).bind(...bindings).all();
+    if (!results.length) break;
+
+    for (const row of results) {
+      const run = await getRun(db, orgId, row.id, { viewerId, revisions });
+      if (!run) continue;
+      if (visibleRuns.length === maxRuns) {
+        truncated = true;
+        break;
+      }
+      visibleRuns.push(run);
+    }
+    if (truncated || results.length < pageSize) break;
+    const last = results[results.length - 1];
+    cursor = { startedAt: last.started_at, id: last.id };
+  }
+
+  const durations = visibleRuns
+    .filter(run => ['done', 'failed', 'declined', 'cancelled'].includes(run.status) && run.finishedAt)
+    .map(run => Date.parse(run.finishedAt) - Date.parse(run.startedAt))
+    .filter(value => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b);
+  const middle = Math.floor(durations.length / 2);
+  const typicalDurationMs = durations.length
+    ? durations.length % 2 ? durations[middle] : Math.round((durations[middle - 1] + durations[middle]) / 2)
+    : null;
+  const usage = visibleRuns.reduce((total, run) => {
+    const value = run.usage;
+    if (!value) return total;
+    total.trackedRuns += value.calls > 0 || value.unpricedCalls > 0 || value.unknownCalls > 0 ? 1 : 0;
+    total.calls += value.calls;
+    total.inputTokens += value.inputTokens;
+    total.outputTokens += value.outputTokens;
+    total.unknownCalls += value.unknownCalls;
+    total.unpricedCalls += value.unpricedCalls;
+    total.estimatedMicros += value.estimatedMicros;
+    return total;
+  }, { trackedRuns: 0, calls: 0, inputTokens: 0, outputTokens: 0, unknownCalls: 0, unpricedCalls: 0, estimatedMicros: 0 });
+  return {
+    windowStart, windowEnd, timezone: 'UTC', windowHours: 168,
+    runCount: visibleRuns.length,
+    failedCount: visibleRuns.filter(run => run.status === 'failed').length,
+    completedDurationCount: durations.length, typicalDurationMs,
+    usage, truncated,
+  };
+}
+
 export async function getRun(db, orgId, runId, { viewerId, revisions } = {}) {
   const row = await db.prepare("SELECT r.*,d.definition AS definition_snapshot FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d ON d.run_id=r.id AND d.org_id=r.org_id WHERE r.id = ?1 AND r.org_id = ?2").bind(runId, orgId).first();
   const run = row ? publicRun(row, revisions || await workflowRevisionRows(db, orgId, row.workflow_id)) : null;
