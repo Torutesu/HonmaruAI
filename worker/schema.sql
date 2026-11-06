@@ -1950,7 +1950,7 @@ CREATE TABLE IF NOT EXISTS hx_memory_scopes (memory_id TEXT PRIMARY KEY REFERENC
 
 CREATE TABLE IF NOT EXISTS hx_workflow_run_definitions (run_id TEXT PRIMARY KEY REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, org_id TEXT NOT NULL, definition TEXT NOT NULL, created_at TEXT NOT NULL);
 
-CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, PRIMARY KEY (org_id, app_id));
+CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, room_channel TEXT, PRIMARY KEY (org_id, app_id));
 
 CREATE TABLE IF NOT EXISTS hx_skill_access (org_id TEXT NOT NULL, skill_id TEXT NOT NULL REFERENCES hx_skills(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, PRIMARY KEY (org_id, skill_id));
 
