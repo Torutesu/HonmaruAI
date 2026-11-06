@@ -361,7 +361,7 @@ export async function deleteAgent(db, orgId, { id, login, isAdmin }) {
 /// becomes part of a decision card or a daily report. A test for a
 /// message row, over every agent anyone in the workspace has.
 export async function agentTalkFilter(db, orgId) {
-  const { results } = await db.prepare("SELECT id, handle, scope FROM custom_agents WHERE org_id = ?1 AND deleted_at IS NULL")
+  const { results } = await db.prepare("SELECT id, handle, name, scope FROM custom_agents WHERE org_id = ?1 AND deleted_at IS NULL")
     .bind(orgId).all().catch(() => ({ results: [] }));
   const all = results || [];
   const harness = await getMode(db, orgId).catch(() => null) === "harness";

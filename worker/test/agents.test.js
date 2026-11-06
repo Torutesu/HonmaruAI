@@ -526,7 +526,8 @@ test("an agent you have can be added to a channel: listed among its members, cal
 });
 
 test("natural Agent names route only in Harness; Simple still requires an explicit mention", async () => {
-  const { agent } = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  const namedByDisplayName = HAYAO.replace("handle: hayao", "handle: art-director");
+  const { agent } = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: namedByDisplayName })).json();
   await send("POST", "/channels/channel-agents", toru, { orgId: ORG, channel: "b:cafe", agentId: agent.id });
   const { setMode } = await import("../src/harness/mode.js");
   await setMode(env.DB, ORG, "harness", "8801");
