@@ -25,6 +25,7 @@ function globals(store:ReturnType<typeof storage>,hash:string,fetcher:typeof fet
  const location={hash,protocol:'http:',pathname:'/',search:'',href:'http://app.test/'}
  const w=Object.assign(new EventTarget(),{location})
  vi.stubGlobal('window',w);vi.stubGlobal('location',location);vi.stubGlobal('localStorage',store)
+  vi.stubGlobal('sessionStorage',storage())
  vi.stubGlobal('history',{replaceState:vi.fn()});vi.stubGlobal('navigator',{onLine:true})
  vi.stubGlobal('document',Object.assign(new EventTarget(),{visibilityState:'visible'}))
  vi.stubGlobal('fetch',fetcher)
@@ -92,6 +93,24 @@ test('a matching SSO callback still exchanges and signs in',async()=>{
  expect(fetcher.mock.calls.some(([url])=>url.endsWith('/sso/exchange'))).toBe(true)
  expect(store.values.get('sessionToken')).toBe('sso-new')
  expect(store.values.get('userId')).toBe('alice')
+ act(()=>tree.unmount())
+})
+
+test('a tab-local direct Thread link is restored after a successful SSO callback',async()=>{
+ const store=storage()
+ const tab=storage()
+ tab.setItem('honmaru.externalThreadAuthReturn','#/external-thread/org%3Ashared/thread-root')
+ await bindSsoStart(store as unknown as Storage)
+ const replaceState=vi.fn()
+ const fetcher=vi.fn(async (url:string)=>({ok:true,status:200,json:async()=>url.endsWith('/sso/exchange')?{token:'sso-new',login:'alice',orgId:'org'}:{login:'alice',orgs:[{id:'org'}]}}))
+ const ui=globals(store,'#/sso/done?code=valid-code',fetcher as unknown as typeof fetch)
+ vi.stubGlobal('sessionStorage',tab)
+ vi.stubGlobal('history',{replaceState})
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<App/>);await new Promise(resolve=>setTimeout(resolve,20))})
+ expect(replaceState).toHaveBeenCalledWith(null,'','/#/external-thread/org%3Ashared/thread-root')
+ expect(tab.getItem('honmaru.externalThreadAuthReturn')).toBeNull()
+ expect(ui.w.dispatchEvent).toBeDefined()
  act(()=>tree.unmount())
 })
 
