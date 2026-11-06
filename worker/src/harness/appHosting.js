@@ -5,6 +5,7 @@ const MAX_ENV_VARS = 25;
 const MAX_ENV_VALUE = 4000;
 const MAX_ENV_TOTAL = 12000;
 const MAX_PUBLIC_SNAPSHOT = 1_500_000;
+const PUBLIC_DOMAIN_CONFIRMATION_VERSION = 1;
 const RESERVED_HOSTS = new Set(['app.honmaruai.com', 'www.honmaruai.com', 'honmaruai.com', 'honmaru-web.pages.dev']);
 const error = (message, status = 400) => ({ error: message, status });
 const now = () => new Date().toISOString();
@@ -82,26 +83,37 @@ async function attachDomain(db, env, orgId, app, by, rawHostname) {
   // cannot attach one public host to two apps.
   const at = now();
   try {
-    await db.prepare("INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at) VALUES(?1,?2,?3,'configuring',?4,?5,?5)")
-      .bind(orgId, app.id, hostname, String(by), at).run();
+    await db.batch([
+      db.prepare("INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at) VALUES(?1,?2,?3,'configuring',?4,?5,?5)")
+        .bind(orgId, app.id, hostname, String(by), at),
+      db.prepare("INSERT INTO hx_app_domain_public_consents(org_id,app_id,hostname,domain_created_at,confirmed_by,confirmed_at,confirmation_version) VALUES(?1,?2,?3,?4,?5,?6,?7)")
+        .bind(orgId, app.id, hostname, at, String(by), at, PUBLIC_DOMAIN_CONFIRMATION_VERSION),
+    ]);
   } catch {
     return error('このホスト名またはアプリにはすでに独自ドメインが設定されています。', 409);
   }
 
+  const clearReservation = () => db.batch([
+    db.prepare('DELETE FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2 AND hostname=?3 AND domain_created_at=?4')
+      .bind(orgId, app.id, hostname, at),
+    db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3 AND created_at=?4')
+      .bind(orgId, app.id, hostname, at),
+  ]);
+
   const listed = await pagesRequest(env, 'GET');
   if (listed.error) {
-    await db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3').bind(orgId, app.id, hostname).run();
+    await clearReservation();
     return listed;
   }
   const providerDomain = (Array.isArray(listed.result) ? listed.result : []).find(item => String(item.name || '').toLowerCase() === hostname);
   if (providerDomain) {
-    await db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3').bind(orgId, app.id, hostname).run();
+    await clearReservation();
     return error('このホスト名はCloudflare Pagesですでに使用されています。', 409);
   }
 
   const created = await pagesRequest(env, 'POST', null, { name: hostname });
   if (created.error) {
-    await db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3').bind(orgId, app.id, hostname).run();
+    await clearReservation();
     return created;
   }
   const status = String(created.result?.status || 'pending').toLowerCase();
@@ -129,11 +141,13 @@ async function refreshDomain(db, env, orgId, appId) {
 }
 
 async function removeDomain(db, env, orgId, appId) {
-  const existing = await db.prepare('SELECT hostname FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(orgId, appId).first();
+  const existing = await db.prepare('SELECT hostname,created_at AS createdAt FROM hx_app_domains WHERE org_id=?1 AND app_id=?2').bind(orgId, appId).first();
   if (!existing) return readAppHosting(db, env, orgId, appId);
+  await db.prepare('DELETE FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2 AND hostname=?3 AND domain_created_at=?4')
+    .bind(orgId, appId, existing.hostname, existing.createdAt).run();
   const result = await pagesRequest(env, 'DELETE', existing.hostname);
   if (result.error && result.status !== 404) return result;
-  await db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3').bind(orgId, appId, existing.hostname).run();
+  await db.prepare('DELETE FROM hx_app_domains WHERE org_id=?1 AND app_id=?2 AND hostname=?3 AND created_at=?4').bind(orgId, appId, existing.hostname, existing.createdAt).run();
   return readAppHosting(db, env, orgId, appId);
 }
 
@@ -204,8 +218,12 @@ export async function servePublicAppDomain(request, env, url) {
   const hostname = normalizeAppHostname(url.searchParams.get('host') || '');
   if (!hostname) return new Response('Not found.', { status: 404, headers: { 'cache-control': 'no-store' } });
   const domain = await env.DB.prepare(`SELECT d.org_id AS orgId,d.app_id AS appId,a.name,a.icon,a.table_id AS tableId,a.definition
-    FROM hx_app_domains d JOIN hx_apps a ON a.org_id=d.org_id AND a.id=d.app_id
-    WHERE d.hostname=?1 AND d.status='active'`).bind(hostname).first();
+    FROM hx_app_domains d
+    JOIN hx_app_domain_public_consents consent ON consent.org_id=d.org_id AND consent.app_id=d.app_id
+      AND consent.hostname=d.hostname AND consent.domain_created_at=d.created_at
+      AND consent.confirmation_version=?2
+    JOIN hx_apps a ON a.org_id=d.org_id AND a.id=d.app_id
+    WHERE d.hostname=?1 AND d.status='active'`).bind(hostname, PUBLIC_DOMAIN_CONFIRMATION_VERSION).first();
   if (!domain) return new Response('No published app is available at this domain.', { status: 404, headers: { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' } });
   let definition;
   try { definition = JSON.parse(domain.definition || '{}'); } catch { definition = {}; }
@@ -227,16 +245,25 @@ export async function servePublicAppDomain(request, env, url) {
   const json = scriptJson(payload);
   if (json.length > MAX_PUBLIC_SNAPSHOT) return new Response('The app data is too large to publish on a single page.', { status: 413, headers: { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' } });
   const runner = `${url.origin}/custom-app-runner?v=4`;
+  const publishedCommit=definition.custom?.publishedCommit;
+  const commitAssetBase=publishedCommit?.sha&&publishedCommit?.assetToken
+    ?`${url.origin}/app-commit-assets/${encodeURIComponent(domain.appId)}/${encodeURIComponent(publishedCommit.sha)}/${encodeURIComponent(publishedCommit.assetToken)}/`
+    :'';
+  // The sandboxed srcdoc has an opaque origin, so 'self' cannot authorize
+  // captured assets. Permit only this app/commit/token path from this origin.
+  const assetSource=commitAssetBase||"'self'";
+  const assetPolicy=`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' ${assetSource}; style-src 'unsafe-inline' ${assetSource}; img-src ${assetSource} data:; font-src ${assetSource} data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri ${assetSource}">`;
+  const assetBase=commitAssetBase?`<base href="${escaped(commitAssetBase)}">`:'';
   const title = escaped(domain.name || 'App');
   const body = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>html,body{margin:0;min-height:100%;font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#172033}header{height:48px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #e2e8f0;background:white}header strong{font-size:14px;font-weight:600}header span{font-size:18px}iframe{display:block;width:100%;height:calc(100dvh - 49px);border:0}</style></head><body><header><span>${escaped(domain.icon || '📋')}</span><strong>${title}</strong></header><iframe id="runner" title="${title}" sandbox="allow-scripts" referrerpolicy="no-referrer" src="${escaped(runner)}"></iframe><script>
 const snapshot=${json};const frame=document.getElementById('runner');let initialized=false;
 function reply(id,value,error){frame.contentWindow.postMessage({type:'honmaru:result',id,value,error},'*')}
-addEventListener('message',event=>{if(event.source!==frame.contentWindow||!event.data)return;const m=event.data;if(m.type==='honmaru:ready'&&!initialized){initialized=true;frame.contentWindow.postMessage({type:'honmaru:init',renderId:crypto.randomUUID(),theme:'system',html:'<meta name="color-scheme" content="light dark"><style>body{background:Canvas;color:CanvasText}</style>'+snapshotHtml},'*');return}if(m.type!=='honmaru:request'||typeof m.id!=='string'||m.id.length>80)return;const args=m.args&&typeof m.args==='object'?m.args:{};if(m.operation==='read'){reply(m.id,{table:snapshot.table,rows:snapshot.rows});return}if(m.operation==='entity'){const entity=snapshot.entities.find(item=>item.key===args.entity);entity?reply(m.id,{table:entity.table,rows:entity.rows}):reply(m.id,undefined,'No such entity.');return}reply(m.id,undefined,'Published apps on this domain are read-only.')});
-const snapshotHtml=${scriptJson(`<meta name="color-scheme" content="light dark"><style>body{background:Canvas;color:CanvasText}</style>${html}`)};
+addEventListener('message',event=>{if(event.source!==frame.contentWindow||!event.data)return;const m=event.data;if(m.type==='honmaru:ready'&&!initialized){initialized=true;frame.contentWindow.postMessage({type:'honmaru:init',renderId:crypto.randomUUID(),theme:'system',html:snapshotHtml},'*');return}if(m.type!=='honmaru:request'||typeof m.id!=='string'||m.id.length>80)return;const args=m.args&&typeof m.args==='object'?m.args:{};if(m.operation==='read'){reply(m.id,{table:snapshot.table,rows:snapshot.rows});return}if(m.operation==='entity'){const entity=snapshot.entities.find(item=>item.key===args.entity);entity?reply(m.id,{table:entity.table,rows:entity.rows}):reply(m.id,undefined,'No such entity.');return}reply(m.id,undefined,'Published apps on this domain are read-only.')});
+const snapshotHtml=${scriptJson(`${assetPolicy}${assetBase}<meta name="color-scheme" content="light dark"><style>body{background:Canvas;color:CanvasText}</style>${html}`)};
 </script></body></html>`;
   return new Response(body, { headers: {
     'content-type': 'text/html; charset=utf-8',
-    'content-security-policy': `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src ${url.origin}; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    'content-security-policy': `default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; frame-src ${url.origin}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'`,
     'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff', 'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()', 'cache-control': 'no-store',
   } });
 }

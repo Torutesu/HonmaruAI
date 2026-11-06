@@ -10,7 +10,9 @@ import schemaSql from '../schema.sql?raw';
 const ORG='agent-access-requests';
 // Line comments go first: each statement is replayed on one line, where a
 // `--` would otherwise swallow everything after it.
-const agentAccessRequestSql=schemaSql.slice(schemaSql.indexOf('CREATE TABLE IF NOT EXISTS hx_agent_access_requests (')).replace(/--[^\n]*/g,'');
+const agentAccessStart=schemaSql.indexOf('CREATE TABLE IF NOT EXISTS hx_agent_access_requests (');
+const agentAccessEnd=schemaSql.indexOf('/* Row-change trigger receipts',agentAccessStart);
+const agentAccessRequestSql=schemaSql.slice(agentAccessStart,agentAccessEnd).replace(/--[^\n]*/g,'');
 beforeEach(async()=>{
  for(const [id,login,role] of [['owner','owner','member'],['requester','requester','member'],['admin','agent-admin','member'],['guest','guest','guest']]){
   await upsertUser(env.DB,{githubId:id,login,name:login,locale:'en'});

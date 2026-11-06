@@ -14,6 +14,7 @@ import { pendingMessageDelete } from './pending-message-delete.mjs'
 // that finds them before anyone else does.
 
 import { appSourceNavigation } from './app-source-navigation.mjs'
+import { commitAssetPolicy } from './commit-asset-policy.mjs'
 import { chromium } from '../web-react/node_modules/playwright/index.mjs'
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
@@ -4779,6 +4780,10 @@ await step('removing someone takes them out of the room, not just the table', as
   await closeEverything()
 })
 
+await step('published commit assets load in a sandboxed browser without external network access', async () => {
+  const page = await phone.newPage()
+  try { await commitAssetPolicy({ page, apiHost: API }) } finally { await page.close() }
+})
 await step('app filter adjustment opens its source thread, preserves drafts and never posts', () => appSourceNavigation({ context: phone, web: WEB, apiHost: API, shots: SHOTS }))
 await step('workflow conditions can be created, reviewed after reload and skip unmatched effects', () => workflowConditions({context:phone,web:WEB,apiHost:API,shots:SHOTS}))
 await step('TypeScript execution preserves language drafts and queues the selected module',()=>gatewayTypeScript({context:phone,web:WEB,apiHost:API,shots:SHOTS}))
