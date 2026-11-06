@@ -15,16 +15,16 @@ export function memoryEntry(row) {
     description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at,
     review: row.reviewed_at ? { version: row.reviewed_version, evidence: row.review_evidence, by: row.reviewed_by, at: row.reviewed_at, current: row.reviewed_version === (row.version ?? 0) } : null };
 }
-export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel = "", by = null, reviewEvidence } = {}) {
+export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel = "", by = null, reviewEvidence, userId = null } = {}) {
   const fields = memoryFields(input);
   if (fields.error) return fields;
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) return { error: "Expected memory version is required." };
   if (!["context", "preference", "feedback", "reference"].includes(input.kind)) return { error: "Invalid memory kind." };
-  const row = await db.prepare(`SELECT m.*, s.channel, s.kind, d.version FROM hx_agent_memories m
+  const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, d.version FROM hx_agent_memories m
     LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id
-    WHERE m.org_id = ?1 AND m.agent_id = ?2 AND m.id = ?3 AND COALESCE(s.channel, '') = ?4`)
-    .bind(orgId, agentId, id, channel).first();
+    WHERE m.org_id = ?1 AND m.agent_id = ?2 AND m.id = ?3 AND COALESCE(s.channel, '') = ?4 AND (s.user_github_id IS NULL OR s.user_github_id = ?5)`)
+    .bind(orgId, agentId, id, channel, userId ? String(userId) : "").first();
   if (!row) return { error: "No such memory.", status: 404 };
   if ((row.version ?? 0) !== input.expectedVersion) return { error: "This memory changed. Reload before saving.", status: 409 };
   const stamp = new Date().toISOString();
