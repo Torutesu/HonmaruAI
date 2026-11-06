@@ -14,3 +14,17 @@
 .hx-external-guest-thread textarea{resize:vertical;width:100%;border:1px solid var(--bone);border-radius:10px;background:var(--signal-white);color:var(--ink);padding:12px;font:inherit}
 .hx-external-guest-thread form button{justify-self:end}
 @media(max-width:600px){.hx-external-guest-thread-body{margin:24px auto}}
+
+.hx-external-guest-thread-files{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:6px}
+.hx-external-guest-thread-files li{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hx-external-guest-thread-files button{border:1px solid var(--bone);border-radius:8px;padding:6px 10px;background:var(--paper);color:var(--ink);font:inherit;cursor:pointer}
+.hx-external-guest-thread-files small{color:var(--ash)}
+.hx-external-guest-thread-reactions{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.hx-external-guest-thread-reactions button{border:1px solid var(--bone);border-radius:999px;padding:4px 10px;background:var(--paper);color:var(--ink);font:inherit;cursor:pointer}
+.hx-external-guest-thread-reactions button[aria-pressed=true]{border-color:var(--ink);background:var(--bone)}
+.hx-external-guest-thread-upload{display:grid;gap:8px}
+.hx-external-guest-thread-upload input{max-width:100%;color:var(--ash)}
+.hx-external-guest-thread-upload ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.hx-external-guest-thread-upload li{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--bone);border-radius:8px;padding:8px 10px;background:var(--signal-white)}
+.hx-external-guest-thread-upload li span{overflow-wrap:anywhere}
+.hx-external-guest-thread-upload li button{justify-self:auto}
