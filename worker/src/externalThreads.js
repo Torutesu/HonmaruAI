@@ -172,24 +172,28 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
   }
   if (inviteRef && request.method === "DELETE") {
     const now = new Date().toISOString();
-    const existing = await env.DB.prepare(`SELECT redeemed_by,created_grant_id FROM hx_external_thread_invites
-      WHERE id=?1 AND org_id=?2 AND resource_id=?3 AND revoked_at IS NULL`).bind(inviteRef,orgId,rootId).first();
-    if (!existing) return json({ revoked: false });
-    await env.DB.batch([
+    // Fence redemption and revoke its exact grant in one D1 batch transaction.
+    // Whichever transaction wins, the invite cannot be left revoked with a
+    // live grant: a later redemption sees revoked_at; an earlier one exposes
+    // created_grant_id to the following statement in this same batch.
+    const results = await env.DB.batch([
       env.DB.prepare(`UPDATE hx_external_thread_invites SET revoked_at=?1,revoked_by=?2
         WHERE id=?3 AND org_id=?4 AND resource_id=?5 AND revoked_at IS NULL`)
         .bind(now,actor.user.github_id,inviteRef,orgId,rootId),
       env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
-        WHERE id=?3 AND org_id=?4 AND resource_type='thread' AND resource_id=?5 AND revoked_at IS NULL`)
-        .bind(now,actor.user.github_id,existing.created_grant_id || "",orgId,rootId),
-    ]);
-    if (existing.redeemed_by) {
-      await env.DB.prepare(`UPDATE hx_external_thread_send_requests
+        WHERE id=(SELECT created_grant_id FROM hx_external_thread_invites
+          WHERE id=?3 AND org_id=?4 AND resource_id=?5)
+          AND org_id=?4 AND resource_type='thread' AND resource_id=?5 AND revoked_at IS NULL`)
+        .bind(now,actor.user.github_id,inviteRef,orgId,rootId),
+      env.DB.prepare(`UPDATE hx_external_thread_send_requests
         SET status='cancelled',decided_at=?1,decided_by=?2
-        WHERE org_id=?3 AND root_message_id=?4 AND guest_github_id=?5 AND status='pending'`)
-        .bind(now,actor.user.github_id,orgId,rootId,existing.redeemed_by).run();
-    }
-    return json({ revoked: true });
+        WHERE org_id=?3 AND root_message_id=?4
+          AND guest_github_id=(SELECT redeemed_by FROM hx_external_thread_invites
+            WHERE id=?5 AND org_id=?3 AND resource_id=?4)
+          AND status='pending'`)
+        .bind(now,actor.user.github_id,orgId,rootId,inviteRef),
+    ]);
+    return json({ revoked: Number(results?.[0]?.meta?.changes || 0) > 0 });
   }
   return fail("Method not allowed.", 405);
 }
