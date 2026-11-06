@@ -91,7 +91,8 @@ export type AutomationDefinition = Pick<Workflow, 'name' | 'enabled' | 'trigger'
 export interface AutomationBundle { version: 1; items: Array<AutomationDefinition & {key: string}> }
 export interface AutomationPlanItem { key: string; workflowId: string | null; status: 'added'|'changed'|'unchanged'|'removed'|'retired'|'drifted'|'missing'; declared: AutomationDefinition | null; published: AutomationDefinition | null; live: AutomationDefinition | null }
 export interface AppAutomationState { version: number; revision: number; draft: AutomationBundle; published: AutomationBundle | null; releaseId: string | null; publishedAt: string | null; plan?: AutomationPlanItem[] }
-export interface RunLog { step: number; type: StepType; status: string; output?: string; error?: string; at: string }
+export interface RunAuthorizationEvent { actorId:string; resourceType:'workflow'|'conversation'|'agent'|'table'|'app'|'connection'|'member'; resourceId:string; outcome:'allowed'|'denied'; checkedAt:string }
+export interface RunLog { step: number; type: StepType; status: string; output?: string; error?: string; at: string; authorization?:RunAuthorizationEvent[] }
 export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
 export interface RunUsageCounters { calls:number; inputTokens:number; outputTokens:number; unknownCalls:number; unpricedCalls:number; estimatedMicros:number }
 export interface RunUsage extends RunUsageCounters { coverage:'priced-token-estimate'; estimatedUsd:number; steps:Array<RunUsageCounters & {stepNumber:number}> }

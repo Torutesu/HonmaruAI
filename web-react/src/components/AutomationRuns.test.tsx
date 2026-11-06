@@ -12,6 +12,19 @@ test('execution history loads on demand and exposes failed step details',async()
  expect(workflow).toHaveBeenCalledWith('wf');expect(JSON.stringify(tree.toJSON())).toContain('Permission revoked')
  act(()=>tree.unmount())
 })
+test('run history shows only the actor, resource, outcome, and check time for authorization events',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-auth',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[{step:1,type:'post',status:'failed',at:'2026-10-24T00:00:01Z',authorization:[{actorId:'user-42',resourceType:'conversation',resourceId:'b:ops',outcome:'denied',checkedAt:'2026-10-24T00:00:01Z'}]}]}]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)});
+ await act(async()=>refresh(tree).props.onClick())
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain(t('Access checks'))
+ expect(text).toContain(t('Actor ID'))
+ expect(text).toContain(t('Conversation resource'))
+ expect(text).toContain(t('Denied'))
+ expect(text).toContain('2026-10-24T00:00:01Z')
+ expect(text).not.toContain('prompt')
+ act(()=>tree.unmount())
+})
 test('failed refresh removes stale results and offers a retry',async()=>{
  const workflow=vi.fn().mockResolvedValueOnce({runs:[{id:'old',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[]}]}).mockRejectedValueOnce(new Error('Access changed')).mockResolvedValue({runs:[]});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
