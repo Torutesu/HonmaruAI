@@ -11,3 +11,6 @@
 .hx-agent-transfer { display:grid; gap:12px; margin-top:20px; padding-top:16px; border-top:1px solid var(--hx-border); }
 .hx-agent-transfer select { width:100%; color:var(--hx-text); background:var(--hx-surface); }
 .hx-agent-transfer > button { justify-self:start; }
+
+.hx-agent-access .hx-agent-member-list { max-height:min(36vh,320px); overflow:auto; }
+.hx-agent-access .hx-agent-member-form { margin-top:16px; }
