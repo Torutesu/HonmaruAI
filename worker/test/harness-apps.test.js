@@ -2111,8 +2111,11 @@ test('member app permissions override workspace sharing and fence reads, writes,
   expect((await callHarnessTool(env, principal, 'add_row', { tableId: app.tableId, values: { Name: 'blocked' } })).isError).toBe(true);
   await env.DB.prepare("INSERT INTO hx_app_actions (org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES (?1,?2,'do_work',1,'return 1;','return 1;',1,datetime('now'))").bind(ORG,app.id).run();
   expect((await send('POST', `/apps/${app.id}/actions`, outsider, { orgId: ORG, action: 'run', name: 'do_work', version: 1, input: {} })).status).toBe(403);
+  const { setMode } = await import('../src/harness/mode.js');
+  await setMode(env.DB, ORG, 'harness', '9102');
   const { callExecutionTool } = await import('../src/harness/executionTools.js');
   const actionResult = await callExecutionTool(env, principal, 'run_app_action', { appId: app.id, name: 'do_work', version: 1, gatewayId: 'node', requestId: 'acl-test', input: {} });
+  expect(actionResult.isError).toBe(true);
   expect(actionResult.structuredContent.error).toContain('cannot run its actions');
 
   const { createWorkflow, mayEditWorkflow } = await import('../src/harness/workflows.js');
