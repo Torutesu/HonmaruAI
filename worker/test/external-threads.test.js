@@ -116,9 +116,9 @@ test("sharing authority is resource-owner/Admin scoped and grants do not cross w
 test("revocation and expiry are rechecked on every read and write; Simple stays closed", async () => {
   const { orgId, rootId, sessions } = await setup();
   const email = `guest-${orgId.split("-").at(-1)}@example.test`;
-  const expiresAt = new Date(Date.now() + 500).toISOString();
+  const expiresAt = new Date(Date.now() + 5_000).toISOString();
   expect((await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", { email, permission: "edit", expiresAt })).status).toBe(201);
-  await new Promise(resolve => setTimeout(resolve, 600));
+  await new Promise(resolve => setTimeout(resolve, 5_200);
   expect((await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).status).toBe(404);
   expect((await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: "expired" })).status).toBe(404);
 
