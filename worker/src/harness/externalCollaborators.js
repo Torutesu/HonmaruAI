@@ -57,9 +57,12 @@ export async function grantExternalResource(db, input, now = new Date().toISOStr
 }
 
 /**
- * Return an exact resource grant for a human collaborator. This is only one
- * input to a route's authorization decision: room membership, resource
- * existence, owner approval, and workspace deletion checks remain mandatory.
+ * Return an exact resource grant for a human collaborator. A membership
+ * transition stamps suspended_at through the memberships trigger. That marker
+ * survives membership removal so an old external grant cannot silently revive;
+ * owners may revoke it or explicitly create a new grant after the person leaves.
+ * This is only one input to a route's authorization decision: room membership,
+ * resource existence, owner approval, and workspace deletion checks remain mandatory.
  */
 export async function externalResourcePermission(db, {
   orgId, resourceType, resourceId, githubId, principalType = "human", now = new Date().toISOString(),
