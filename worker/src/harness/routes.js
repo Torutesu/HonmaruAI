@@ -82,6 +82,7 @@ import { getProfile, saveProfile, listAgentMemories, addAgentMemory, deleteAgent
 import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill, takeSkill, skillsOf } from "./skills.js";
 import { skillMarkdown } from "./skillMarkdown.js";
 import { generateWorkflow } from './workflowCreation.js';
+import { respondToRecurringAutomationOffer } from './recurringAutomationOffers.js';
 import { completer } from "./model.js";
 import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
@@ -558,6 +559,13 @@ export async function handleHarness(request, env, url, context = {}) {
   // ── Workflows ─────────────────────────────────────────────────────────
   if (parts[0] === "workflows") {
     const [, wfId, sub, runId] = parts;
+    if(wfId==='offers'&&sub&&['accept','decline'].includes(runId)&&request.method==='POST'){
+      const made=await respondToRecurringAutomationOffer(env,request,orgId,who,{id:sub,action:runId,timezone:input.timezone||'UTC'});
+      if(made.response)return made.response;
+      if(made.error)return fail(made);
+      if(made.workflow&&!made.replay&&runId==='accept')await audit(env,request,{orgId,action:'workflow.created',actor:person(who.user),entity:{type:'workflow',id:made.workflow.id,name:made.workflow.name},details:{source:'consented_agent_suggestion',offerId:sub,enabled:true}});
+      return json(made,made.offer?.state==='created'&&!made.replay?201:200);
+    }
     if(wfId==='notices'&&!sub&&['GET','POST'].includes(request.method)){
       const result=await workflowNotices(env.DB,orgId,me,input,request.method==='POST');
       return result.error?fail(result):json(result);

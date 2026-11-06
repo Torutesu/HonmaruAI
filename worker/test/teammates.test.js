@@ -262,7 +262,7 @@ test('external teammates receive current room rules on each turn without changin
  await env.DB.prepare("UPDATE hx_room_guidelines SET body='',version=2 WHERE org_id=?1 AND channel='b:cafe'").bind(ORG).run();
  anthropic().intercept({path:'/v1/sessions/sesn_rules/events?beta=true',method:'POST'}).reply(200,opts=>{follow=JSON.parse(opts.body);return{data:[]}});
  await startTeammateRun(env,{...args,request:'Continue'});
- const text=follow.events[0].content[0].text;expect(text).toContain('revision 2');expect(text).toContain('empty string means no room-specific rules');expect(text).not.toContain('Cafe rules only');
+ const text=follow.events[0].content[0].text;expect(text).toContain('revision 2');expect(text).toContain('empty string means this Room has no specific rules');expect(text).not.toContain('Cafe rules only');
  anthropic().intercept({path:'/v1/sessions?beta=true',method:'POST'}).reply(200,opts=>{other=JSON.parse(opts.body);return{id:'sesn_other'}});
  await startTeammateRun(env,{...args,key:'b:other',threadId:'other-thread'});
  expect(other.initial_events[0].content[0].text).not.toContain('Current room guidelines');

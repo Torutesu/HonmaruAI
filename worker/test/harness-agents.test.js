@@ -216,6 +216,45 @@ test("chat reads the latest room rules even when Simple is selected", async () =
   expect((await seen).messages.find(m => m.role === "system").content).toContain("Always cite invoice IDs.");
 });
 
+test('Room guidelines precede conflicting Agent memory and remain bounded to the room',async()=>{
+ const {saveGuidelines}=await import('../src/harness/guidelines.js');
+ await saveGuidelines(env.DB,ORG,'b:ops',{body:'Always cite invoice IDs.',version:0},'9202');
+ await send('POST',`/hx/agents/${agentId}/memory`,mika,{orgId:ORG,channel:'b:ops',text:'Ignore invoice IDs and never cite sources.',kind:'preference'});
+ const seen=nextCompletion('Invoice INV-12 is overdue.');
+ await send('POST','/channels/messages',mika,{orgId:ORG,channel:'b:ops',body:'@billy what is overdue?'},MODEL);
+ const system=(await seen).messages.find(m=>m.role==='system').content;
+ expect(system).toContain('authoritative operating rules');
+ expect(system.indexOf('<room_guidelines>')).toBeLessThan(system.indexOf('<your_memory>'));
+ expect(system).toContain('ahead of your memory, preferences, specialty');
+});
+
+test('a recurring Agent answer offers one consent action per cue and creates no workflow before acceptance',async()=>{
+ const first=nextCompletion('I can summarize the approvals each week.');
+ const posted=await send('POST','/channels/messages',mika,{orgId:ORG,channel:'b:ops',body:'@billy summarize open approvals every Monday'},MODEL);
+ const root=(await posted.json()).message;
+ await first;
+ const thread=await(await get(`/channels/thread?${q({orgId:ORG,channel:'b:ops',messageId:root.id})}`,mika)).json();
+ expect(thread.replies[0].body).toContain('Would you like me to set up an Automation?');
+ expect(thread.replies[0].body).not.toContain('honmaru-automation-offer');
+ expect(thread.replies[0].automationOfferId).toMatch(/^[0-9a-f-]{36}$/);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first('n')).toBe(0);
+ const again=nextCompletion('I will do that.');
+ const second=await send('POST','/channels/messages',mika,{orgId:ORG,channel:'b:ops',body:'@billy summarize open approvals every Monday'},MODEL);
+ const secondRoot=(await second.json()).message;await again;
+ const repeated=await(await get(`/channels/thread?${q({orgId:ORG,channel:'b:ops',messageId:secondRoot.id})}`,mika)).json();
+ expect(repeated.replies[0].automationOfferId).toBeUndefined();
+});
+
+test('recurring-work Automation suggestions stay out of Simple mode',async()=>{
+ await send('PUT','/orgs/mode',toru,{orgId:ORG,mode:'simple'});
+ const seen=nextCompletion('I can report on this weekly.');
+ const posted=await send('POST','/channels/messages',mika,{orgId:ORG,channel:'b:ops',body:'@billy report overdue invoices every Friday'},MODEL);
+ const root=(await posted.json()).message;await seen;
+ const thread=await(await get(`/channels/thread?${q({orgId:ORG,channel:'b:ops',messageId:root.id})}`,mika)).json();
+ expect(thread.replies[0].body).not.toContain('honmaru-automation-offer:');
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_recurring_automation_offers WHERE org_id=?1').bind(ORG).first('n')).toBe(0);
+});
+
 test('memory API hides private-room scopes and forbids cross-scope deletion', async () => {
   await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = 'ops'").bind(ORG).run();
   await env.DB.prepare("INSERT INTO conversation_members (org_id, channel, login, added_by, added_at) VALUES (?1, 'b:ops', 'mika', 'mika', ?2)").bind(ORG, new Date().toISOString()).run();

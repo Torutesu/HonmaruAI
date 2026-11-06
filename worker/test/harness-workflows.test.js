@@ -918,7 +918,7 @@ test('natural-language workflow generation receives the current room guidelines'
     complete: async (_system, request) => { requestText = request; return JSON.stringify(spec); },
   });
   expect(result.workflow.name).toBe('Guided reminder');
-  expect(requestText).toContain('Current room guidelines (revision 1)');
+  expect(requestText).toContain('Current authoritative Room rules (revision 1):');
   expect(requestText).toContain(rule);
 });
 

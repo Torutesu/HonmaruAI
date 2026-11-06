@@ -1,0 +1,7 @@
+.hx-recurring-offer{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0 2px;padding:9px 11px;border:1px solid var(--hx-border);border-radius:10px;background:var(--hx-surface);color:var(--hx-text);font-size:12px}
+.hx-recurring-offer>span{display:inline-flex;align-items:center;gap:7px;margin-right:auto}
+.hx-recurring-offer button{border:1px solid var(--hx-border);border-radius:7px;background:var(--hx-accent);color:var(--hx-accent-contrast,#fff);padding:5px 9px;font:inherit;cursor:pointer}
+.hx-recurring-offer button.quiet{background:transparent;color:var(--hx-muted)}
+.hx-recurring-offer button:disabled{opacity:.55;cursor:wait}
+.hx-recurring-offer small{flex-basis:100%;color:var(--hx-danger,#b4232c)}
+:root[data-theme=dark] .hx-recurring-offer small{color:#ff8b8b}

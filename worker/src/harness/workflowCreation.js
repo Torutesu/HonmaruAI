@@ -18,7 +18,7 @@ const leaseMs=120000;
 
 // A generation request owns one prompt thread and one paused workflow. The
 // publication transaction includes its lease fence and source binding.
-export async function generateWorkflow(env,request,orgId,who,input,{makeCompleter=completer}={}){
+export async function generateWorkflow(env,request,orgId,who,input,{makeCompleter=completer,enableAfterConsent=false,sourceOverride=null}={}){
  const by=String(who.session.github_id),login=who.user.login;
  const prompt=typeof input.prompt==='string'?input.prompt.trim():'';
  if(!prompt||prompt.length>4000)return {error:'Describe the automation in 1–4000 characters.',status:400};
@@ -34,7 +34,7 @@ export async function generateWorkflow(env,request,orgId,who,input,{makeComplete
  if(input.captureSource&&!channel)return {error:'Choose a room for the source conversation.',status:400};
  const denied=await checkOutgoing(env,request,{orgId,login,text:prompt,ack:input.dlpAck===true,where:'workflow generation'});
  if(denied)return {response:denied};
- const fingerprint=await digest(JSON.stringify({prompt,channel,timezone:input.timezone||'UTC',captureSource:Boolean(input.captureSource),useModel:input.useModel!==false}));
+ const fingerprint=await digest(JSON.stringify({prompt,channel,timezone:input.timezone||'UTC',captureSource:Boolean(input.captureSource),useModel:input.useModel!==false,enableAfterConsent:Boolean(enableAfterConsent),source:sourceOverride?{channel:sourceOverride.channel,threadId:sourceOverride.threadId}:null}));
  const announce=async workflowId=>{
   const id=`workflow-created-${workflowId}`;
   const message=await getMessage(env.DB,orgId,id);
@@ -71,13 +71,18 @@ export async function generateWorkflow(env,request,orgId,who,input,{makeComplete
    .bind(orgId,by,requestId,token).run();
  };
  try{
-  let source;
+  let source=sourceOverride;
   if(input.captureSource){
    const root=await postMessage(env.DB,{orgId,key:channel,authorLogin:login,body:prompt,clientId:'tmp-wf-'+await digest(JSON.stringify([orgId,by,requestId]))});
    if(root.error){await release();return root;}
    if(root.row.deleted_at||root.row.channel!==channel||root.row.body!==prompt){await release();return {error:'The source conversation changed. Start a new generation request.',status:409};}
    source={channel,threadId:root.row.id,body:prompt};
    if(!root.replay)await broadcastStored(env,orgId,channel,root.row).catch(()=>{});
+  }
+  if(sourceOverride){
+   const root=await getMessage(env.DB,orgId,sourceOverride.threadId);
+   if(!root||root.deleted_at||root.parent_id||root.channel!==channel||root.body!==sourceOverride.body){await release();return {error:'The source conversation changed. Start a new generation request.',status:409};}
+   source={channel,threadId:root.id,body:root.body};
   }
   let made=job?.generated?JSON.parse(job.generated):null;
   if(!made){
@@ -99,9 +104,9 @@ export async function generateWorkflow(env,request,orgId,who,input,{makeComplete
   }
   if(source){
    const root=await getMessage(env.DB,orgId,source.threadId);
-   if(!root||root.deleted_at||root.parent_id||root.channel!==channel||root.body!==prompt){await release();return {error:'The source conversation changed. Start a new generation request.',status:409};}
+   if(!root||root.deleted_at||root.parent_id||root.channel!==channel||root.body!==source.body){await release();return {error:'The source conversation changed. Start a new generation request.',status:409};}
   }
-  const result=await createWorkflow(env.DB,orgId,{...made.workflow,enabled:false},by,{source,announcementLocale:who.user.locale||'en',
+  const result=await createWorkflow(env.DB,orgId,{...made.workflow,enabled:Boolean(enableAfterConsent)},by,{source,announcementLocale:who.user.locale||'en',
    ...(requestId?{commitGuard:id=>env.DB.prepare("UPDATE hx_workflow_generation_jobs SET workflow_id=CASE WHEN lease_token=? AND lease_until>? AND status='running' THEN ? ELSE NULL END,status='complete' WHERE org_id=? AND user_id=? AND request_id=?")
     .bind(token,Date.now(),id,orgId,by,requestId)}:{})});
   if(result.error){await release();return result;}

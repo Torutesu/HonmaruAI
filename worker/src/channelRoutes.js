@@ -30,6 +30,7 @@ import { getMode } from "./harness/mode.js";
 import { mayUseAgentSource } from "./harness/agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
+import { createRecurringAutomationOffer, isRecurringWorkPrompt } from "./harness/recurringAutomationOffers.js";
 import { followupRequest, scheduleFollowup } from "./harness/followups.js";
 import { linksIn, readLinks, linksBlock } from "./links.js";
 import { agentInstructionsForTools, agentTools } from "./agentTools.js";
@@ -660,7 +661,11 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       }
       if(signal?.aborted)return {cancelled:true};
       if (authorize && !await authorize()) return;
-      const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId, roomHookSource, assignmentFence:replyFence });
+      if(modelAnswered&&harness&&resolved.kind==='business'&&user.login&&isRecurringWorkPrompt(taskText)){
+        const offer=await createRecurringAutomationOffer(env.DB,{orgId,userId:session.github_id,login:user.login,channel:resolved.key,threadId:parentId,sourceMessageId:row.id,prompt:taskText}).catch(()=>null);
+        if(offer){text=`${text}\n\n${String(locale).startsWith('ja')?'定期的な作業のようです。オートメーションを設定しますか？':'I noticed this is recurring work. Would you like me to set up an Automation?'}`;var recurringOfferId=offer.id;}
+      }
+      const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId, roomHookSource, assignmentFence:replyFence, automationOfferId:recurringOfferId||null });
       if (out.row) {
         if (modelAnswered) answered += 1;
         await queueMessagePushes(env, orgId, out.row, { members }).catch((err) => console.error("push queue failed", safe(err?.message)));

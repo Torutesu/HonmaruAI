@@ -347,7 +347,9 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   if(announcementId){
     const label=name.replace(/[\\\[\]()*`]/g,'\\$&');
     const link=`[${label}](#/workflows/${encodeURIComponent(id)}/${encodeURIComponent(orgId)})`;
-    const body=String(announcementLocale).startsWith('ja')?`${link} を作成しました。\n自動実行は停止中です。内容を確認してから有効にしてください。`:`Created ${link}.\nAutomatic triggers are paused. Review the workflow before enabling it.`;
+    const body=String(announcementLocale).startsWith('ja')
+      ? input?.enabled ? `${link} を作成して有効にしました。初回の自動実行はスケジュールまたはイベントを待ちます。` : `${link} を作成しました。\n自動実行は停止中です。内容を確認してから有効にしてください。`
+      : input?.enabled ? `Created and enabled ${link}. It will wait for its schedule or trigger; no run was started now.` : `Created ${link}.\nAutomatic triggers are paused. Review the workflow before enabling it.`;
     statements.push(db.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at,parent_id) VALUES(?,?,?,NULL,'ai',?,?,?)")
       .bind(announcementId,orgId,source.channel,body,at,source.threadId));
   }

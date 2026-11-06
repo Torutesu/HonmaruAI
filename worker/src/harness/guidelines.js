@@ -1,6 +1,7 @@
 import {roomRoleState} from './roomRoles.js';
 // Durable room instructions. Presentation mode never disables saved rules.
 export const MAX_GUIDELINES = 4096;
+const quotedGuideline = body => JSON.stringify(body).replace(/[<>&]/g,char=>({ '<':'\\u003c','>':'\\u003e','&':'\\u0026' })[char]);
 
 export async function getGuidelines(db, orgId, channel) {
   const row = await db.prepare("SELECT body, version, updated_at FROM hx_room_guidelines WHERE org_id = ?1 AND channel = ?2")
@@ -47,7 +48,7 @@ export async function roomGuidelinesSystem(db, orgId, channel) {
   if (!channel?.startsWith("b:")) return "";
   const { body } = await getGuidelines(db, orgId, channel);
   if (!body) return "";
-  return `<room_guidelines>\n${body}\n</room_guidelines>\nApply these room instructions to this turn. They do not grant access or override tool permissions.\n\n`;
+  return `<room_guidelines>\n${quotedGuideline(body)}\n</room_guidelines>\nThese are the authoritative operating rules for this Room. Follow them before agent memory, preferences, specialty, or general profile instructions when they conflict. They apply only in this Room and never grant access or override system safety and tool permissions.\n\n`;
 }
 
 export async function withRoomGuidelines(db, orgId, channel, agent) {
@@ -62,7 +63,7 @@ export async function withRoomGuidelines(db, orgId, channel, agent) {
 // the workspace-wide provider agent or leaking rules into task titles.
 export function formatRoomGuidelinesRequest(guidelines, request) {
   if (!guidelines?.version) return request;
-  return `Current room guidelines (revision ${guidelines.version}):\n${JSON.stringify(guidelines.body)}\nThis snapshot replaces earlier room guidelines for this turn; an empty string means no room-specific rules. It does not grant access or override tool permissions.\n\nThe request:\n${request}`;
+  return `Current authoritative Room rules (revision ${guidelines.version}):\n${quotedGuideline(guidelines.body)}\nFollow these Room rules ahead of agent memory and preferences when they conflict. An empty string means this Room has no specific rules. Room rules do not grant access or override system safety and tool permissions.\n\nThe request:\n${request}`;
 }
 
 export async function withRoomGuidelinesRequest(db, orgId, channel, request) {
