@@ -1002,7 +1002,7 @@ export async function handleHarness(request, env, url, context = {}) {
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "PUT") {
-        const r = await updateMemoryEntry(env.DB, orgId, agentId, parts[4] || input.id || "", input, { channel, by: me });
+        const r = await updateMemoryEntry(env.DB, orgId, agentId, parts[4] || input.id || "", input, { ...context, by: me });
         if (!r.error) await audit(env, request, { orgId, action: "agent.memory_updated", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });
         return r.error ? fail(r) : json(r);
       }
