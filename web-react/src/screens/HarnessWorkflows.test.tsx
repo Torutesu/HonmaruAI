@@ -27,7 +27,7 @@ async function open() {
   await act(async () => { tree.root.findByProps({ 'data-workflow': workflow.id }).props.onClick() })
 }
 test('workflow detail shows a rolling median and labels provider token estimates clearly',async()=>{
- state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[],summary:{...emptySummary,runCount:2,failedCount:1,completedDurationCount:2,typicalDurationMs:5000,usage:{...emptySummary.usage,calls:2,trackedRuns:2,estimatedMicros:1234}}});
+ state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[],summary:{...emptySummary,runCount:2,failedCount:1,completedDurationCount:2,typicalDurationMs:5000,usage:{...emptySummary.usage,calls:2,trackedRuns:2,unpricedCalls:1,unknownCalls:1,estimatedMicros:1234}}});
  await open();
  const text=JSON.stringify(tree.toJSON());
  expect(text).toContain('Last 7 days');
@@ -35,6 +35,9 @@ test('workflow detail shows a rolling median and labels provider token estimates
  expect(text).toContain('Median of {count} completed runs');
  expect(text).toContain('Estimated AI usage');
  expect(text).toContain('This is not provider credits or an invoice');
+ expect(text).toContain('1 unpriced calls');
+ expect(text).toContain('1 calls with unknown token usage');
+ expect(text).toContain('Recorded on {count} runs');
  expect(text).toContain('$0.001234');
 });
 test('workflow history shows elapsed time without inventing duration for unfinished runs',async()=>{
