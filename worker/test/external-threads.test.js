@@ -124,6 +124,11 @@ test("a verified non-member can read and reply only to an explicitly shared Thre
   const request = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: `@${ids.owner} @AI summarize the launch plan`, requestSend: true });
   expect(request.status).toBe(201);
   const sendRequest = await request.json();
+  // A view-only guest request is stored for owner review; it is neither a
+  // channel message nor a notification until the owner approves it.
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM channel_messages WHERE org_id=?1 AND body=?2")
+    .bind(orgId, `@${ids.owner} @AI summarize the launch plan`).first()).toMatchObject({ n: 0 });
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM push_queue WHERE org_id=?1 AND reason='mention'").bind(orgId).first()).toMatchObject({ n: 0 });
   expect((await call(`/external/threads/${orgId}/${rootId}/requests`, sessions.editor)).status).toBe(404);
   const pending = await call(`/external/threads/${orgId}/${rootId}/requests`, sessions.owner);
   expect((await pending.json()).requests).toMatchObject([{ id: sendRequest.requestId, body: `@${ids.owner} @AI summarize the launch plan` }]);
@@ -131,6 +136,8 @@ test("a verified non-member can read and reply only to an explicitly shared Thre
   expect(approved.status).toBe(200);
   const approvedMessage = await approved.json();
   await flushBackground();
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM channel_messages WHERE org_id=?1 AND id=?2")
+    .bind(orgId, approvedMessage.messageId).first()).toMatchObject({ n: 1 });
   expect(aiPrompt.messages.find((message) => message.role === "user").content).not.toContain(privateBody);
   expect(JSON.stringify(aiPrompt.messages)).not.toContain(privateBody);
 
