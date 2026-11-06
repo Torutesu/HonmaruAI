@@ -12,13 +12,12 @@ const storage = {
 ;(globalThis as any).window=(globalThis as any).window||{}
 afterEach(()=>{storage.clear();delete (window as any).SpeechRecognition;delete (window as any).webkitSpeechRecognition})
 
-test('vocabulary is bounded, deduplicated, editable, and scoped to organization and user',()=>{
- expect(writeDictationVocabulary('org','a',[' Honmaru ','Honmaru','Product Ops'])).toEqual(['Honmaru','Product Ops'])
- expect(readDictationVocabulary('org','a')).toEqual(['Honmaru','Product Ops'])
- expect(readDictationVocabulary('org','b')).toEqual([])
- expect(readDictationVocabulary('other','a')).toEqual([])
- expect(writeDictationVocabulary('org','a',['  '])).toEqual([])
- expect(readDictationVocabulary('org','a')).toEqual([])
+test('vocabulary is bounded, deduplicated, editable, and scoped to the account',()=>{
+ expect(writeDictationVocabulary('a',[' Honmaru ','Honmaru','Product Ops'])).toEqual(['Honmaru','Product Ops'])
+ expect(readDictationVocabulary('a')).toEqual(['Honmaru','Product Ops'])
+ expect(readDictationVocabulary('b')).toEqual([])
+ expect(writeDictationVocabulary('a',['  '])).toEqual([])
+ expect(readDictationVocabulary('a')).toEqual([])
 })
 
 test('longer phrases are applied first and regex characters are treated literally',()=>{
@@ -35,7 +34,7 @@ test('learns only a single token correction within the dictated suffix',()=>{
  expect(detectDictationCorrection('今日会議','明日開始','','ja')).toBeNull()
 })
 
-test('browser phrase hints and normalized interim text are available without delaying sends',()=>{
+test('private vocabulary is normalized locally without passing phrase hints to the browser',()=>{
  let instance:any, onText:(text:string,final:boolean)=>void=()=>{}
  class FakeRecognition {
    lang='';continuous=false;interimResults=false;phrases:any[]=[]
@@ -46,7 +45,7 @@ test('browser phrase hints and normalized interim text are available without del
  ;(window as any).SpeechRecognition=FakeRecognition
  const changed=vi.fn((text:string,final:boolean)=>{onText(text,final)})
  const handle=startDictation('en-US',changed,()=>{},['Honmaru'])!
- expect(instance.phrases).toEqual([{phrase:'Honmaru',boost:5}])
+ expect(instance.phrases).toEqual([])
  instance.onresult({resultIndex:0,results:[Object.assign([ {transcript:'honmaru is ready'} ],{isFinal:false})]})
  expect(changed).toHaveBeenLastCalledWith('Honmaru is ready',false)
  // The composer can submit this interim value immediately; no onend/final event is required.

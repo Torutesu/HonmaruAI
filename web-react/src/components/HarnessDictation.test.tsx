@@ -7,10 +7,10 @@ vi.mock('../utils/i18n',()=>({useT:()=> (s:string,values?:Record<string,string>)
 vi.mock('../utils/dictation',()=>({
  dictationAvailable:()=>speech.available,
  startDictation:(_lang:string,text:any,end:any,words:string[]=[],corrections:any[]=[])=>{speech.text=text;speech.end=end;speech.vocabulary=words;speech.corrections=corrections;return{stop:speech.stop}},
- readDictationVocabulary:(org:string,user:string)=>JSON.parse(speech.store[org+':'+user]||'[]'),
- writeDictationVocabulary:(org:string,user:string,words:string[])=>{speech.store[org+':'+user]=JSON.stringify(words);return words},
- readDictationCorrections:()=>[],
- writeDictationCorrections:(_org:string,_user:string,items:any[])=>items,
+ readDictationVocabulary:(user:string)=>JSON.parse(speech.store[user+':vocabulary']||'[]'),
+ writeDictationVocabulary:(user:string,words:string[])=>{speech.store[user+':vocabulary']=JSON.stringify(words);return words},
+ readDictationCorrections:(user:string)=>JSON.parse(speech.store[user+':corrections']||'[]'),
+ writeDictationCorrections:(user:string,items:any[])=>{speech.store[user+':corrections']=JSON.stringify(items);return items},
  detectDictationCorrection:(previous:string,edited:string,prefix:string)=>{const a=previous.slice(prefix.length),b=edited.slice(prefix.length);return a==='hello wor1d'&&b==='hello world'?{from:'wor1d',to:'world'}:null},
 }))
 test('late recognition cannot replace edited or sent drafts, or follow a room change',()=>{
@@ -29,9 +29,9 @@ test('late recognition cannot replace edited or sent drafts, or follow a room ch
  act(()=>tree.update(render('another room','room-b')));act(()=>old('wrong room'));expect(change).not.toHaveBeenCalled()
  act(()=>tree.unmount())
 })
-test('unsupported clients have no nonfunctional microphone control',()=>{
+test('unsupported clients can edit vocabulary without showing a nonfunctional microphone',()=>{
  speech.available=false;let tree!:ReturnType<typeof create>
- try{act(()=>{tree=create(<HarnessDictation value="" onChange={vi.fn()} locale="ja" orgId="org" userId="user"/>)});expect(tree.toJSON()).toBeNull();act(()=>tree.unmount())}finally{speech.available=true}
+ try{act(()=>{tree=create(<HarnessDictation value="" onChange={vi.fn()} locale="ja" orgId="org" userId="user"/>)});expect(tree.root.findAllByProps({'aria-label':'Voice input'})).toHaveLength(0);expect(tree.root.findByProps({'aria-label':'Voice vocabulary'})).toBeTruthy();act(()=>tree.root.findByProps({'aria-label':'Voice vocabulary'}).props.onClick());expect(tree.root.findByProps({'aria-label':'Add a word or phrase'})).toBeTruthy();act(()=>tree.unmount())}finally{speech.available=true}
 })
 test('recognition respects the composer limit and stops capturing at the boundary',()=>{
  const change=vi.fn();let tree!:ReturnType<typeof create>;speech.stop.mockClear()
@@ -50,14 +50,14 @@ test('recognition errors stop the active microphone and expose failure',()=>{
  expect(speech.stop).toHaveBeenCalledOnce();expect(tree.root.findByProps({role:'status'}).children).toContain('Voice input unavailable. Check microphone access.')
  act(()=>tree.unmount())
 })
-test('voice vocabulary is per user and passed to the active recognizer',()=>{
+test('voice vocabulary is per account and passed to local dictation correction',()=>{
  speech.store={};speech.stop.mockClear();let tree!:ReturnType<typeof create>
  act(()=>{tree=create(<HarnessDictation value="" onChange={vi.fn()} locale="ja" orgId="org" userId="u1"/>)})
  act(()=>tree.root.findByProps({'aria-label':'Voice vocabulary'}).props.onClick())
  const input=tree.root.findByProps({'aria-label':'Add a word or phrase'})
  act(()=>input.props.onChange({target:{value:'Honmaru'}}))
  act(()=>tree.root.findByType('form').props.onSubmit({preventDefault(){}}))
- expect(speech.store['org:u1']).toBe('["Honmaru"]')
+ expect(speech.store['u1:vocabulary']).toBe('["Honmaru"]')
  act(()=>tree.root.findAllByType('button')[0].props.onClick())
  expect(speech.vocabulary).toEqual(['Honmaru'])
  act(()=>speech.text('welcome to honmaru'))
@@ -66,7 +66,7 @@ test('voice vocabulary is per user and passed to the active recognizer',()=>{
  act(()=>{other=create(<HarnessDictation value="" onChange={vi.fn()} locale="ja" orgId="org" userId="u2"/>)})
  act(()=>other.root.findByProps({'aria-label':'Voice vocabulary'}).props.onClick())
  expect(other.root.findByProps({'aria-label':'Add a word or phrase'})).toBeTruthy()
- expect(JSON.parse(speech.store['org:u2']||'[]')).toEqual([])
+ expect(JSON.parse(speech.store['u2:vocabulary']||'[]')).toEqual([])
  act(()=>other.unmount())
 })
 test('the account vocabulary loads from D1 and saves with its current revision',async()=>{

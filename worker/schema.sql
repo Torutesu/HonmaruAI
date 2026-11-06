@@ -1731,16 +1731,13 @@ CREATE TABLE IF NOT EXISTS hx_user_display_preferences (
   FOREIGN KEY (org_id,user_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE
 );
 
-/* Personal voice dictionary shared by the member's devices within a workspace. */
-CREATE TABLE IF NOT EXISTS hx_user_dictation_preferences (
-  org_id        TEXT NOT NULL,
-  user_id       TEXT NOT NULL,
+/* Personal voice dictionary follows the account across Workspaces. */
+CREATE TABLE IF NOT EXISTS hx_user_dictation_accounts (
+  user_id       TEXT PRIMARY KEY REFERENCES users(github_id) ON DELETE CASCADE,
   vocabulary    TEXT NOT NULL DEFAULT '[]',
   corrections   TEXT NOT NULL DEFAULT '[]',
   revision      INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
-  updated_at    TEXT NOT NULL,
-  PRIMARY KEY (org_id,user_id),
-  FOREIGN KEY (org_id,user_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE
+  updated_at    TEXT NOT NULL
 );
 
 /* A typed table: the database under an App. Columns are JSON

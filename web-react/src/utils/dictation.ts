@@ -24,25 +24,25 @@ export function dictationAvailable(): boolean {
 
 export interface Dictation { stop: () => void }
 
-const DICTIONARY_PREFIX = 'honmaru.dictation.vocabulary.v1'
-const CORRECTIONS_PREFIX = 'honmaru.dictation.corrections.v1'
+const DICTIONARY_PREFIX = 'honmaru.dictation.vocabulary.v2'
+const CORRECTIONS_PREFIX = 'honmaru.dictation.corrections.v2'
 
-/** User-scoped vocabulary lives on this device only; speech is still handled by
- * the browser and nothing in the dictionary is sent to a speech provider. */
-export function readDictationVocabulary(orgId: string, userId: string): string[] {
-  if (!orgId || !userId || typeof localStorage === 'undefined') return []
+/** Account vocabulary is cached locally; phrase correction happens in-app after
+ * the browser returns recognized text, without sending dictionary hints. */
+export function readDictationVocabulary(userId: string): string[] {
+  if (!userId || typeof localStorage === 'undefined') return []
   try {
-    const raw = JSON.parse(localStorage.getItem(`${DICTIONARY_PREFIX}:${encodeURIComponent(orgId)}:${encodeURIComponent(userId)}`) || '[]')
+    const raw = JSON.parse(localStorage.getItem(`${DICTIONARY_PREFIX}:${encodeURIComponent(userId)}`) || '[]')
     if (!Array.isArray(raw)) return []
     return [...new Set(raw.filter((word): word is string => typeof word === 'string').map(word => word.trim()).filter(Boolean))].slice(0, 100)
   } catch { return [] }
 }
 
-export function writeDictationVocabulary(orgId: string, userId: string, words: string[]): string[] {
+export function writeDictationVocabulary(userId: string, words: string[]): string[] {
   const clean = [...new Set(words.map(word => word.trim()).filter(Boolean))].slice(0, 100)
-  if (!orgId || !userId || typeof localStorage === 'undefined') return clean
+  if (!userId || typeof localStorage === 'undefined') return clean
   try {
-    const key = `${DICTIONARY_PREFIX}:${encodeURIComponent(orgId)}:${encodeURIComponent(userId)}`
+    const key = `${DICTIONARY_PREFIX}:${encodeURIComponent(userId)}`
     if (clean.length) localStorage.setItem(key, JSON.stringify(clean))
     else localStorage.removeItem(key)
   } catch { /* private browsing or storage quota: use for this render only */ }
@@ -51,28 +51,27 @@ export function writeDictationVocabulary(orgId: string, userId: string, words: s
 
 export type DictationCorrection = { from: string; to: string }
 
-export function readDictationCorrections(orgId: string, userId: string): DictationCorrection[] {
-  if (!orgId || !userId || typeof localStorage === 'undefined') return []
+export function readDictationCorrections(userId: string): DictationCorrection[] {
+  if (!userId || typeof localStorage === 'undefined') return []
   try {
-    const raw = JSON.parse(localStorage.getItem(`${CORRECTIONS_PREFIX}:${encodeURIComponent(orgId)}:${encodeURIComponent(userId)}`) || '[]')
+    const raw = JSON.parse(localStorage.getItem(`${CORRECTIONS_PREFIX}:${encodeURIComponent(userId)}`) || '[]')
     if (!Array.isArray(raw)) return []
     return raw.filter((item): item is DictationCorrection => !!item && typeof item.from === 'string' && typeof item.to === 'string').slice(0, 100)
   } catch { return [] }
 }
 
-export function writeDictationCorrections(orgId: string, userId: string, corrections: DictationCorrection[]): DictationCorrection[] {
+export function writeDictationCorrections(userId: string, corrections: DictationCorrection[]): DictationCorrection[] {
   const clean = corrections.filter(item => item.from.trim() && item.to.trim() && item.from !== item.to).slice(0, 100)
-  if (!orgId || !userId || typeof localStorage === 'undefined') return clean
+  if (!userId || typeof localStorage === 'undefined') return clean
   try {
-    const key = `${CORRECTIONS_PREFIX}:${encodeURIComponent(orgId)}:${encodeURIComponent(userId)}`
+    const key = `${CORRECTIONS_PREFIX}:${encodeURIComponent(userId)}`
     if (clean.length) localStorage.setItem(key, JSON.stringify(clean))
     else localStorage.removeItem(key)
   } catch { /* cache only; the API is authoritative */ }
   return clean
 }
 
-/** Prefer a native phrase hint when supported, and also normalize returned text
- * for browsers which do not implement SpeechRecognition.phrases. */
+/** Apply private vocabulary locally after the browser returns transcript text. */
 export function applyDictationVocabulary(text: string, vocabulary: string[], corrections: DictationCorrection[] = []): string {
   const corrected = [...corrections].sort((a, b) => b.from.length - a.from.length).reduce((result, item) => {
     const escaped = item.from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -131,10 +130,6 @@ export function startDictation(lang: string, onText: (text: string, final: boole
   r.lang = lang
   r.continuous = true
   r.interimResults = true
-  const phraseRecognition = r as Recognizer & { phrases?: Array<{ phrase: string; boost?: number }> }
-  if ('phrases' in phraseRecognition) {
-    try { phraseRecognition.phrases = [...vocabulary, ...corrections.map(item => item.to)].map(phrase => ({ phrase, boost: 5 })) } catch { /* browser hint is optional */ }
-  }
   let finalText = ''
   r.onresult = (e) => {
     let interim = ''

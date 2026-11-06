@@ -16,7 +16,7 @@ import migrationsSql from "../migrations.sql?raw";
 // rather than approximated, because a test that extracts statements its own way
 // can pass while the deploy silently skips one — which is the shape of the bug
 // this file exists to prevent.
-const DEPLOY_STATEMENT = /^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO)/;
+const DEPLOY_STATEMENT = /^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO|DROP TABLE)/;
 
 function deployStatements(sql) {
   return sql.split("\n").filter((line) => DEPLOY_STATEMENT.test(line)).map((l) => l.trim());
@@ -228,12 +228,36 @@ test("every statement in migrations.sql is one the deploy will actually run", ()
 
 test("the dictation preferences migration is a single executable deploy statement", async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
-  await env.DB.exec("DROP TABLE IF EXISTS hx_user_dictation_preferences");
-  const statement = deployStatements(migrationsSql).find(line => line.startsWith("CREATE TABLE IF NOT EXISTS hx_user_dictation_preferences "));
+  const statement = deployStatements(migrationsSql).find(line => line.startsWith("CREATE TABLE IF NOT EXISTS hx_user_dictation_accounts "));
   expect(statement).toBeTruthy();
   await env.DB.exec(statement);
-  const { results } = await env.DB.prepare("PRAGMA table_info(hx_user_dictation_preferences)").all();
-  expect(results.map(column => column.name)).toEqual(["org_id", "user_id", "vocabulary", "corrections", "revision", "updated_at"]);
+  const { results } = await env.DB.prepare("PRAGMA table_info(hx_user_dictation_accounts)").all();
+  expect(results.map(column => column.name)).toEqual(["user_id", "vocabulary", "corrections", "revision", "updated_at"]);
+});
+
+test("dictation migration merges workspace-local dictionaries into private account preferences", async () => {
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  await env.DB.exec("CREATE TABLE hx_user_dictation_preferences (org_id TEXT NOT NULL,user_id TEXT NOT NULL,vocabulary TEXT NOT NULL DEFAULT '[]',corrections TEXT NOT NULL DEFAULT '[]',revision INTEGER NOT NULL DEFAULT 1,updated_at TEXT NOT NULL,PRIMARY KEY(org_id,user_id))");
+  await env.DB.exec("INSERT INTO users(github_id,login,created_at) VALUES ('dictation-mika','mika','2026-11-01'),('dictation-toru','toru','2026-11-01')");
+  await env.DB.exec("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES ('dictation-org-a','dictation-mika','member','2026-11-01'),('dictation-org-b','dictation-mika','member','2026-11-01'),('dictation-org-a','dictation-toru','member','2026-11-01')");
+  await env.DB.prepare("INSERT INTO hx_user_dictation_preferences(org_id,user_id,vocabulary,corrections,revision,updated_at) VALUES (?1,?2,?3,?4,?5,?6)")
+    .bind("dictation-org-a", "dictation-mika", JSON.stringify(["Honmaru", "Tokyo"]), JSON.stringify([{ from: "honmaru", to: "Honmaru" }]), 2, "2026-11-02").run();
+  await env.DB.prepare("INSERT INTO hx_user_dictation_preferences(org_id,user_id,vocabulary,corrections,revision,updated_at) VALUES (?1,?2,?3,?4,?5,?6)")
+    .bind("dictation-org-b", "dictation-mika", JSON.stringify(["Tokyo", "Product Ops"]), JSON.stringify([{ from: "honmaru", to: "HONMARU" }, { from: "HQ", to: "Headquarters" }]), 4, "2026-11-03").run();
+  await env.DB.prepare("INSERT INTO hx_user_dictation_preferences(org_id,user_id,vocabulary,corrections,revision,updated_at) VALUES (?1,?2,?3,?4,?5,?6)")
+    .bind("dictation-org-a", "dictation-toru", JSON.stringify(["Toru private term"]), "[]", 1, "2026-11-03").run();
+
+  await expect(applyDeploy(env.DB)).resolves.not.toThrow();
+  const { readDictationVocabulary } = await import("../src/harness/dictationVocabulary.js");
+  expect(await readDictationVocabulary(env.DB, "dictation-mika")).toEqual({
+    vocabulary: ["Product Ops", "Tokyo", "Honmaru"],
+    corrections: [{ from: "HQ", to: "Headquarters" }, { from: "honmaru", to: "HONMARU" }],
+    revision: 4,
+  });
+  expect(await readDictationVocabulary(env.DB, "dictation-toru")).toMatchObject({ vocabulary: ["Toru private term"] });
+  expect(await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hx_user_dictation_preferences'").first()).toBeNull();
+  await expect(applyDeploy(env.DB)).resolves.not.toThrow();
+  expect(await readDictationVocabulary(env.DB, "dictation-mika")).toMatchObject({ vocabulary: ["Product Ops", "Tokyo", "Honmaru"] });
 });
 
 test("an existing complimentary grant survives adding provider synchronization columns", async () => {

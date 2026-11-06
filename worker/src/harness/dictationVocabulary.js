@@ -32,9 +32,9 @@ export function normalizeCorrections(value) {
   return corrections;
 }
 
-export async function readDictationVocabulary(db, orgId, userId) {
-  const row = await db.prepare(`SELECT vocabulary,corrections,revision FROM hx_user_dictation_preferences
-    WHERE org_id=?1 AND user_id=?2`).bind(orgId, String(userId)).first();
+export async function readDictationVocabulary(db, userId) {
+  const row = await db.prepare(`SELECT vocabulary,corrections,revision FROM hx_user_dictation_accounts
+    WHERE user_id=?1`).bind(String(userId)).first();
   let words = [];
   try { words = normalizeVocabulary(JSON.parse(row?.vocabulary || '[]')) || []; } catch { words = []; }
   let corrections = [];
@@ -42,23 +42,23 @@ export async function readDictationVocabulary(db, orgId, userId) {
   return { vocabulary: words, corrections, revision: Number(row?.revision || 0) };
 }
 
-export async function saveDictationVocabulary(db, orgId, userId, value, correctionValue = [], expectedRevision, now = new Date().toISOString()) {
+export async function saveDictationVocabulary(db, userId, value, correctionValue = [], expectedRevision, now = new Date().toISOString()) {
   const vocabulary = normalizeVocabulary(value);
   if (!vocabulary) return { error: 'Vocabulary must contain at most 100 phrases of 80 characters each.', status: 400 };
   const corrections = normalizeCorrections(correctionValue);
   if (!corrections) return { error: 'Corrections must contain at most 100 pairs of 80 characters each.', status: 400 };
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) return { error: 'expectedRevision must be a non-negative integer.', status: 400 };
-  const row = await db.prepare(`INSERT INTO hx_user_dictation_preferences
-      (org_id,user_id,vocabulary,corrections,revision,updated_at)
-    SELECT ?1,?2,?3,?4,1,?5 WHERE ?6=0
-    ON CONFLICT(org_id,user_id) DO UPDATE SET
+  const row = await db.prepare(`INSERT INTO hx_user_dictation_accounts
+      (user_id,vocabulary,corrections,revision,updated_at)
+    SELECT ?1,?2,?3,1,?4 WHERE ?5=0
+    ON CONFLICT(user_id) DO UPDATE SET
       vocabulary=excluded.vocabulary,
       corrections=excluded.corrections,
-      revision=hx_user_dictation_preferences.revision+1,
+      revision=hx_user_dictation_accounts.revision+1,
       updated_at=excluded.updated_at
-    WHERE hx_user_dictation_preferences.revision=?6
+    WHERE hx_user_dictation_accounts.revision=?5
     RETURNING vocabulary,corrections,revision`)
-    .bind(orgId, String(userId), JSON.stringify(vocabulary), JSON.stringify(corrections), now, expectedRevision).first();
+    .bind(String(userId), JSON.stringify(vocabulary), JSON.stringify(corrections), now, expectedRevision).first();
   if (!row) return { error: 'The voice vocabulary changed on another device. Reload before saving.', status: 409 };
   return { vocabulary: JSON.parse(row.vocabulary), corrections: JSON.parse(row.corrections), revision: Number(row.revision) };
 }
