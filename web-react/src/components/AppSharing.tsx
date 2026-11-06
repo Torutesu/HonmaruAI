@@ -27,7 +27,13 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
     if (!res.ok) throw new Error(data.message || String(res.status))
     const queueRes = await fetch(`${base}/requests`, { headers: headers(sessionToken), signal })
     const queue = queueRes.ok ? await queueRes.json() : { requests: [] }
-    setSharing({ ...data, requests: queue.requests || [] })
+    setSharing({
+      guests: Array.isArray(data.guests) ? data.guests : [],
+      invites: Array.isArray(data.invites) ? data.invites : [],
+      requests: Array.isArray(queue.requests) ? queue.requests : [],
+      canManage: data.canManage === true,
+      customUnsupported: data.customUnsupported === true,
+    })
   }, [base, sessionToken])
   useEffect(() => {
     const controller = new AbortController()
