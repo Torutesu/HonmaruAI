@@ -50,3 +50,15 @@ test('public link creation binds the exact app and access versions and lists rev
   await act(async()=>{await revoke.props.onClick()})
   expect(fetcher.mock.calls[4][0]).toContain('/public-shares/share-1/revoke?')
 })
+
+test('workspace admins may manage public links without changing owner-only audience', async () => {
+  const fetcher=vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({access:{visibility:'private',version:5},canEdit:false,canManage:true,canPublicShare:true,rooms:[]})))
+    .mockResolvedValueOnce(new Response(JSON.stringify({shares:[]})))
+  vi.stubGlobal('fetch',fetcher)
+  await act(async()=>{tree=create(<AppSharing {...props}/>)})
+  expect(tree!.root.findAllByType('select')[0].props.disabled).toBe(true)
+  const consent=tree!.root.findAllByType('input').find(input=>input.props.type==='checkbox')!
+  expect(consent.props.disabled).toBe(false)
+  expect(tree!.root.findAllByType('button').find(button=>button.children.includes('Create link'))!.props.disabled).toBe(true)
+})
