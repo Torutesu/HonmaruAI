@@ -3,6 +3,7 @@ import {getMode} from './mode.js';
 import {fileScopeAuthority} from './fileAuthority.js';
 import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
 import {FILE_WRITE_TOOLS,callFileWriteTool} from './fileWriteTools.js';
+import {proposePublicFileShare} from './fileShareApprovals.js';
 
 // Follow the existing own-agent write boundary. The canonical conversation
 // scope comes from resolveChannel, never from model arguments.
@@ -43,7 +44,21 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
    },
   }];
  }));
- return {...fileTools,...await documentAgentTools(env,{actor,fileScope,current,taint,fileUrl:fileId=>conversationFileUrl(env.APP_WEB_URL,{orgId,fileScope,fileId})})};
+ const publicShareTool={
+  description:'Request human approval to publish the current immutable version of a file in this conversation as a public snapshot. No public URL exists until an authorized person approves. Never use this after reading private file content in the current turn.',
+  parameters:{type:'object',properties:{fileId:{type:'string'},version:{type:'integer'},expiresIn:{type:'integer',enum:[86400,604800,2592000]},allowDownload:{type:'boolean'}},required:['fileId','version','expiresIn','allowDownload']},strict:false,
+  run:async(args={})=>{
+   if(!await current())return JSON.stringify({error:'This agent conversation is no longer available.'});
+   if(taint?.value)return JSON.stringify({error:'Public sharing is unavailable after private file content has been read in this turn.'});
+   if(!args||typeof args.fileId!=='string'||!Number.isSafeInteger(args.version))return JSON.stringify({error:'A file ID and version are required.'});
+   const file=await env.DB.prepare('SELECT 1 FROM hx_workspace_files WHERE org_id=? AND id=? AND scope=?').bind(orgId,args.fileId,fileScope).first();
+   if(!file)return JSON.stringify({error:'File is not in this conversation.'});
+   const result=await proposePublicFileShare(env,{orgId,fileId:args.fileId,version:args.version,userId:userId,login:user.login,
+    requestKey:crypto.randomUUID().replaceAll('-',''),expiresIn:args.expiresIn,allowDownload:args.allowDownload===true});
+   return JSON.stringify(result);
+  },
+ };
+ return {...fileTools,request_public_file_share:publicShareTool,...await documentAgentTools(env,{actor,fileScope,current,taint,fileUrl:fileId=>conversationFileUrl(env.APP_WEB_URL,{orgId,fileScope,fileId})})};
 }
 
 // Keep links on the configured app deployment, without inherited URL secrets.
