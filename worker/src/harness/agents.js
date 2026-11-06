@@ -142,10 +142,10 @@ export async function filterResponders(db, orgId, login, agents, { named = null,
 
 // ── Memory ──────────────────────────────────────────────────────────────
 
-export async function listAgentMemories(db, orgId, agentId, { channel = "" } = {}) {
+export async function listAgentMemories(db, orgId, agentId, { channel = "", userId = null } = {}) {
   const { results } = await db
-    .prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id WHERE m.org_id = ?1 AND m.agent_id = ?2 AND (s.memory_id IS NULL OR s.channel = '' OR s.channel = ?4) ORDER BY m.created_at DESC LIMIT ?3`)
-    .bind(orgId, agentId, MAX_MEMORIES, channel)
+    .prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id WHERE m.org_id = ?1 AND m.agent_id = ?2 AND (s.memory_id IS NULL OR s.channel = '' OR s.channel = ?4) AND (s.user_github_id IS NULL OR s.user_github_id = ?5) ORDER BY m.created_at DESC LIMIT ?3`)
+    .bind(orgId, agentId, MAX_MEMORIES, channel, userId ? String(userId) : "")
     .all();
   return (results || []).map(memoryEntry);
 }
