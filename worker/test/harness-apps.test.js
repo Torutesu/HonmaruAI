@@ -1566,7 +1566,7 @@ test.each(['http', 'mcp', 'home'])('app row read checks linked visibility again 
   let changed = false;
   const racing = new Proxy(env.DB, {get(db,key) {
     if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
-    return sql => { const statement=db.prepare(sql); if(!sql.startsWith('SELECT 1 AS allowed FROM hx_apps target'))return statement;
+    return sql => { const statement=db.prepare(sql); if(!sql.startsWith('SELECT target.id FROM hx_apps target'))return statement;
       return {bind(...args) {const bound=statement.bind(...args);return {async first() {
         if(!changed && args[1]===app.id) {changed=true;await db.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,linked.id).run();}
         return bound.first();
@@ -1591,7 +1591,7 @@ test('a changed primary table cannot authorize rows read from the previous table
   let changed=false;
   const racing=new Proxy(env.DB,{get(db,key){
     if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
-    return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM hx_apps target'))return statement;
+    return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT target.id FROM hx_apps target'))return statement;
       return {bind(...args){const bound=statement.bind(...args);return {async first(){
         if(!changed){changed=true;await db.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(replacement.tableId,ORG,app.id).run()}
         return bound.first();
