@@ -167,7 +167,8 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
     }
     // No account lookup or email is sent here. The inviter shares this one-time
     // URL with the named address; redemption proves the address through OTP.
-    return json({ invited: true, invitationId: id, inviteUrl: externalInviteLink(env, code), expiresAt }, 201);
+    const inviteUrl = externalInviteLink(env, code);
+    return json({ invited: true, invitationId: id, inviteUrl, ...(!inviteUrl ? { token: code } : {}), expiresAt }, 201);
   }
   if (inviteRef && request.method === "DELETE") {
     const now = new Date().toISOString();
