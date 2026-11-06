@@ -142,7 +142,7 @@ export async function handleHarness(request, env, url, context = {}) {
 
   if (url.pathname === '/app-domains/resolve') return servePublicAppDomain(request, env, url);
   if (url.pathname.startsWith('/app-commit-assets/')) return servePublishedCommitAsset(request, env, url);
-  const publicAppSharePath = url.pathname.match(/^\\/app-shares\\/([^/]+)$/);
+  const publicAppSharePath = url.pathname.match(/^\/app-shares\/([^/]+)$/);
   if (publicAppSharePath) {
     if (request.method !== 'GET') return json({ message: 'This app link is unavailable.' }, 404);
     const result = await readAppShare(env.DB, publicAppSharePath[1]);
