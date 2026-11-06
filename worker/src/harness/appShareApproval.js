@@ -19,7 +19,7 @@ export async function requestPublicAppShareApproval(env, context, appId) {
       || typeof sourceBody !== 'string' || !appId || typeof appId !== 'string') return { error: 'This Agent turn cannot request an app link.', status: 400 };
   const db = env.DB;
   if (!await mayUseConversation(db, orgId, userId, channel)) return { error: 'The Agent no longer has access to this room.', status: 403 };
-  const source = await db.prepare('SELECT body,channel,parent_id,deleted_at FROM channel_messages WHERE org_id=?1 AND id=?2').bind(orgId, sourceMessageId).first();
+  const source = await db.prepare('SELECT id,body,channel,parent_id,deleted_at FROM channel_messages WHERE org_id=?1 AND id=?2').bind(orgId, sourceMessageId).first();
   if (!source || source.deleted_at || source.channel !== channel || source.body !== sourceBody || (source.parent_id || source.id) !== sourceThreadId) return { error: 'The source turn changed. Ask the Agent again.', status: 409 };
   const agent = await db.prepare(`SELECT a.scope,a.deleted_at FROM custom_agents a
     JOIN channel_agents ca ON ca.org_id=a.org_id AND ca.agent_id=a.id AND ca.channel=?3
