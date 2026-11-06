@@ -315,10 +315,11 @@ test('file detail request flows through human approval queue to public link revo
 
 test('pending public share can be declined without revealing a URL',async()=>{
  const request={id:'request-decline',fileId:'file',filePath:file.path,scope:'workspace',version:51,currentVersion:51,contentHash:'b'.repeat(64),contentType:'text/plain',size:1,expiresAt:new Date(Date.now()+86400000).toISOString(),allowDownload:false,status:'pending',createdAt:new Date().toISOString(),requesterLogin:'agent',decisionAt:null,shareId:null,revokedAt:null,revokedBy:null}
+ let declined=false
  const api={
   list:vi.fn().mockResolvedValue({files:[file],next:null}),
-  shareRequests:vi.fn().mockResolvedValue({requests:[request]}),
-  declinePublicShare:vi.fn().mockResolvedValue({requestId:request.id,status:'declined',decisionAt:new Date().toISOString()}),
+  shareRequests:vi.fn().mockImplementation(async()=>({requests:[{...request,status:declined?'declined':'pending'}]})),
+  declinePublicShare:vi.fn().mockImplementation(async()=>{declined=true;return {requestId:request.id,status:'declined',decisionAt:new Date().toISOString()}}),
  } as unknown as WorkspaceFileApi
  let renderer:ReturnType<typeof create>
  await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
