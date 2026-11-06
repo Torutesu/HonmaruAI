@@ -148,7 +148,7 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   const assetUrl = `/app-commit-assets/${app.id}/${commitSha}/${importedBody.commit.assetToken}/app.js`;
   const asset = await call(assetUrl);
   expect(asset.status).toBe(200);
-  expect(await asset.text()).toContain('dataset.ready');
+  expect(await asset.text()).toBe('document.body.dataset.ready="yes";');
   expect(asset.headers.get('x-content-type-options')).toBe('nosniff');
 
   const stopped = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'unpublish', version: importedBody.version + 1 });
@@ -233,7 +233,9 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
   expect(releaseState.consumedAt).toBeTruthy();
   const served=await call(`/app-commit-assets/${app.id}/${commitSha}/${data.commit.assetToken}/app.js`);
   expect(served.status).toBe(200);
-  expect((await served.arrayBuffer()).byteLength).toBe(1_500_000);
+  const servedBytes=new Uint8Array(await served.arrayBuffer());
+  expect(servedBytes.byteLength).toBe(1_500_000);
+  expect(servedBytes.every(byte=>byte===120)).toBe(true);
 });
 
 

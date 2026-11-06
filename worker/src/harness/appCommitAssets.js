@@ -7,11 +7,11 @@ function decodePathSegment(value){
   if(!decoded||decoded==='.'||decoded==='..'||decoded.includes('/')||decoded.includes('\\')||decoded.includes('\0')||!/^[A-Za-z0-9_.@+-]{1,100}$/.test(decoded))return null;
   return decoded;
 }
-function readBytes(value) {
-  if(value instanceof Uint8Array)return value;
-  if(value instanceof ArrayBuffer)return new Uint8Array(value);
-  if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);
-  return null;
+function readHexBytes(value) {
+  if(typeof value!=='string'||value.length%2!==0||!/^[0-9a-f]*$/i.test(value))return null;
+  const bytes=new Uint8Array(value.length/2);
+  for(let i=0;i<bytes.length;i++)bytes[i]=Number.parseInt(value.slice(i*2,i*2+2),16);
+  return bytes;
 }
 async function hash(bytes){
   const digest=await crypto.subtle.digest('SHA-256',bytes);
@@ -40,16 +40,15 @@ export async function servePublishedCommitAsset(request,env,url){
       AND json_extract(a.definition,'$.custom.publishedCommit.assetToken')=?4`).bind(appId,commitSha,path,assetToken).first();
   if(!row||!ALLOWED_TYPES.has(row.contentType)||!Number.isSafeInteger(Number(row.size))||Number(row.size)<0||Number(row.size)>1_500_000)return notFound();
 
-  // Read bounded BLOB slices instead of returning the entire D1 row. A
-  // maximum-sized asset can exceed a D1 result's safe response envelope even
-  // though it fits the app bundle limit; chunking keeps each query bounded.
+  // Read bounded hex-text slices so D1 never returns the oversized asset row
+  // and its BLOB-to-JavaScript conversion remains consistent across runtimes.
   const size=Number(row.size),bytes=new Uint8Array(size);
   for(let offset=0;offset<size;offset+=READ_CHUNK_BYTES){
     const length=Math.min(READ_CHUNK_BYTES,size-offset);
-    const part=await env.DB.prepare(`SELECT substr(content_bytes,?4,?5) AS contentBytes FROM hx_app_git_assets
+    const part=await env.DB.prepare(`SELECT hex(substr(content_bytes,?4,?5)) AS contentHex FROM hx_app_git_assets
       WHERE org_id=?6 AND app_id=?1 AND commit_sha=?2 AND path=?3 AND app_version=?7`)
       .bind(appId,commitSha,path,offset+1,length,row.orgId,row.appVersion).first();
-    const chunk=readBytes(part?.contentBytes);
+    const chunk=readHexBytes(part?.contentHex);
     if(!chunk||chunk.length!==length)return notFound();
     bytes.set(chunk,offset);
   }
