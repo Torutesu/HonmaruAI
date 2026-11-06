@@ -8,28 +8,31 @@ async function restrictedRunRows(db,orgId,rowIds,viewer) {
   const [dispatch,assignments]=await Promise.all([
     db.prepare(`SELECT message_id,agent_ids FROM hx_agent_request_dispatch WHERE org_id=?1 AND message_id IN (${marks})`).bind(orgId,...rowIds).all(),
     db.prepare(`SELECT id,source_message_id,initial_agent_id,current_agent_id FROM hx_agent_assignments
-      WHERE org_id=?1 AND source_message_id IN (${marks})`).bind(orgId,...rowIds).all(),
+      WHERE org_id=?1 AND source_message_id IN (${marks}) ORDER BY created_at,id LIMIT 401`).bind(orgId,...rowIds).all(),
   ]);
-  const assignmentIds=assignments.results.map(row=>row.id);
+  const hidden=new Set();
+  if(assignments.results.length>400)for(const id of rowIds)hidden.add(id);
+  const assignmentIds=assignments.results.slice(0,400).map(row=>row.id);
   const hops=assignmentIds.length
     ?await db.prepare(`SELECT h.assignment_id,h.source_agent_id,h.target_agent_id FROM hx_agent_handoffs h
         JOIN hx_agent_assignments a ON a.org_id=h.org_id AND a.id=h.assignment_id
-        WHERE h.org_id=?1 AND h.assignment_id IN (${assignmentIds.map((_,i)=>`?${i+2}`).join(',')})`).bind(orgId,...assignmentIds).all()
+        WHERE h.org_id=?1 AND h.assignment_id IN (${assignmentIds.map((_,i)=>`?${i+2}`).join(',')})
+        ORDER BY h.source_generation,h.operation_id LIMIT 3201`).bind(orgId,...assignmentIds).all()
     :{results:[]};
+  if(hops.results.length>3200)for(const id of rowIds)hidden.add(id);
   const agentsByRow=new Map(rowIds.map(id=>[id,new Set()]));
-  const hidden=new Set();
   for(const row of dispatch.results) {
     let ids;
     try { ids=JSON.parse(row.agent_ids); } catch { hidden.add(row.message_id); continue; }
     if(!Array.isArray(ids)||ids.some(id=>typeof id!=='string'||!id)){hidden.add(row.message_id);continue;}
     for(const id of ids)agentsByRow.get(row.message_id)?.add(id);
   }
-  const assignmentRows=new Map(assignments.results.map(row=>[row.id,row.source_message_id]));
-  for(const row of assignments.results) {
+  const assignmentRows=new Map(assignments.results.slice(0,400).map(row=>[row.id,row.source_message_id]));
+  for(const row of assignments.results.slice(0,400)) {
     agentsByRow.get(row.source_message_id)?.add(row.initial_agent_id);
     agentsByRow.get(row.source_message_id)?.add(row.current_agent_id);
   }
-  for(const hop of hops.results) {
+  for(const hop of hops.results.slice(0,3200)) {
     const rowId=assignmentRows.get(hop.assignment_id);
     if(rowId) {
       agentsByRow.get(rowId)?.add(hop.source_agent_id);
@@ -37,16 +40,18 @@ async function restrictedRunRows(db,orgId,rowIds,viewer) {
     }
   }
   const agentIds=[...new Set([...agentsByRow.values()].flatMap(set=>[...set]))];
-  const agentRows=agentIds.length
-    ?await db.prepare(`SELECT id,scope,owner_login FROM custom_agents WHERE org_id=?1 AND id IN (${agentIds.map((_,i)=>`?${i+2}`).join(',')}) AND deleted_at IS NULL`).bind(orgId,...agentIds).all()
-    :{results:[]};
-  const byId=new Map(agentRows.results.map(agent=>[agent.id,agent]));
-  const access=new Map();
-  await Promise.all(agentIds.map(async id=>{
-    const agent=byId.get(id);
-    access.set(id,Boolean(agent&&await mayAccessAgent(db,orgId,{...agent,ownerLogin:agent.owner_login},viewer.login)));
-  }));
-  for(const [rowId,ids] of agentsByRow) if([...ids].some(id=>!access.get(id)))hidden.add(rowId);
+  const canAccess=new Map();
+  for(let offset=0;offset<agentIds.length;offset+=800) {
+    const batch=agentIds.slice(offset,offset+800);
+    const {results:rows}=await db.prepare(`SELECT id,scope,owner_login FROM custom_agents
+      WHERE org_id=?1 AND id IN (${batch.map((_,i)=>`?${i+2}`).join(',')}) AND deleted_at IS NULL`).bind(orgId,...batch).all();
+    const byId=new Map(rows.map(row=>[row.id,row]));
+    await Promise.all(batch.map(async id=>{
+      const agent=byId.get(id);
+      canAccess.set(id,Boolean(agent&&await mayAccessAgent(db,orgId,{...agent,ownerLogin:agent.owner_login},viewer.login)));
+    }));
+  }
+  for(const [rowId,ids] of agentsByRow) if([...ids].some(id=>!canAccess.get(id)))hidden.add(rowId);
   return hidden;
 }
 
