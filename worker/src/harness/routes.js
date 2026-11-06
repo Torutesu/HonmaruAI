@@ -51,7 +51,7 @@ import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHos
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
-import { appAccess, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { appAccess, appPeopleAccess, hasExplicitAppPermission, mayEditApp, mayEditTable, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
 import { mayUseConversation, readableConversation } from './conversationAccess.js';
 import { listMembers as memoryMembers } from '../team.js';
 import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans } from './agentAccessRequests.js';
@@ -506,6 +506,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return null;
     }
     if (!(await mayUseTable(env.DB, orgId, tableId, me))) return json({ message: "No such table." }, 404);
+    if (request.method !== 'GET' && !(await mayEditTable(env.DB,orgId,tableId,me))) return json({ message: "No such table." }, 404);
     if (sub === "contract" && request.method === "GET") {
       const table = await getTable(env.DB, orgId, tableId);
       return table ? json(tableContract(table)) : json({ message: "No such table." }, 404);
@@ -1186,14 +1187,19 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     const app = await getApp(env.DB, orgId, appId);
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    const mayChangeApp = async () => {
+      if (await mayEditApp(env.DB, orgId, appId, me)) return true;
+      if (await hasExplicitAppPermission(env.DB, orgId, appId, me)) return false;
+      return mayChange(env, orgId, who, app.createdBy);
+    };
     if (sub === 'hosting' && parts.length === 3) {
-      const canManage = await mayChange(env, orgId, who, app.createdBy);
+      const canManage = await mayChangeApp();
       if (request.method === 'GET') {
-        if (!canManage) return json({ message: 'Only its maker or an admin can read app hosting settings.' }, 403);
+        if (!canManage) return json({ message: 'Only its maker, an editor, or an admin can read app hosting settings.' }, 403);
         return json(await readAppHosting(env.DB, env, orgId, appId));
       }
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
-      if (!canManage) return json({ message: 'Only its maker or an admin can change app hosting.' }, 403);
+      if (!canManage) return json({ message: 'Only its maker, an editor, or an admin can change app hosting.' }, 403);
       const result = await changeAppHosting(env.DB, env, orgId, app, input || {}, me);
       if (result.error) return fail(result);
       await audit(env, request, { orgId, action: `app.hosting_${input.action}`, actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: {
@@ -1216,7 +1222,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return await combined()?result:{error:'No such app.',status:404};
     };
     if (['database','actions','connections'].includes(sub)) {
-      const canManage = await mayChange(env, orgId, who, app.createdBy);
+      const canManage = await mayChangeApp();
       const respond = async (result, action, extraTableIds = []) => {
         if (!result.error && action) await audit(env, request, { orgId, action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version ?? null, name: typeof input?.name === 'string' ? input.name : null, ...(result.merged?{forkId:result.forkId,checksum:result.checksum,changed:result.changed??null,replay:Boolean(result.replay)}:{}) } });
         if (sub === 'database' && !result.error && !await mayUseDatabase(env.DB, orgId, appId, me, [...extraTableIds,...[...(result.fork?.entities || []), ...(result.entities || [])].map(entity=>entity.table?.id).filter(Boolean)], request.method !== 'GET')) return json({message:'No such app.'},404);
@@ -1226,7 +1232,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if (!await mayUseDatabase(env.DB, orgId, appId, me)) return json({message:'No such app.'},404);
         if (request.method === 'GET') return respond({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
         if (request.method !== 'POST') return json({ message: 'Method not allowed.' },405);
-        if (!canManage) return json({ message: 'Only its maker or an admin can develop this app.' },403);
+        if (!canManage) return json({ message: 'Only its maker, an editor, or an admin can develop this app.' },403);
         if (input.action === 'generate') {
           const schema=await databaseView(env.DB,orgId,app), ids=schema.entities.map(entity=>entity.table?.id).filter(Boolean);
           const authorize=async guard=>await mayUseDatabase(env.DB,orgId,appId,me,ids,true) && await mayGenerateFromSchema(env.DB,orgId,appId,me,schema.entities,[],guard);
@@ -1290,7 +1296,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({message:'Unknown operation.'},400);
     }
     if (sub === 'automations') {
-      if (!(await mayChange(env, orgId, who, app.createdBy))) return json({message:'Only its maker or an admin can develop app automations.'},403);
+      if (!(await mayChangeApp())) return json({message:'Only its maker, an editor, or an admin can develop app automations.'},403);
       if(request.method==='POST' && input.action==='generate') {
         const tables=await visibleResources(await listTables(env.DB,orgId),t=>mayUseTable(env.DB,orgId,t.id,me));
         const agents=await listAgents(env.DB,orgId,who.user.login),visibleAgents=[];
@@ -1335,7 +1341,7 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if (sub === "custom") {
       if (request.method === 'GET') return json(await customCommitState(env.DB,orgId,app));
-      if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can change custom code." }, 403);
+      if (!(await mayChangeApp())) return json({ message: "Only its maker, an editor, or an admin can change custom code." }, 403);
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
@@ -1400,16 +1406,19 @@ export async function handleHarness(request, env, url, context = {}) {
       return result.error ? fail(result) : json(result);
     }
     if (sub === "access") {
-      if (request.method === "GET") return json({ access: await appAccess(env.DB, orgId, appId), canEdit: app.createdBy === String(me) });
+      if (request.method === "GET") {
+        const canEdit = app.createdBy === String(me);
+        return json({ access: await appAccess(env.DB, orgId, appId), people: canEdit ? await appPeopleAccess(env.DB,orgId,appId) : [], canEdit });
+      }
       if (request.method === "PUT") {
         const result = await setAppAccess(env.DB, orgId, appId, me, input);
-        if (!result.error) await audit(env, request, { orgId, action: "app.access_changed", actor: person(who.user), entity: { type: "app", id: appId }, details: { visibility: result.access.visibility, version: result.access.version } });
+        if (!result.error) await audit(env, request, { orgId, action: "app.access_changed", actor: person(who.user), entity: { type: "app", id: appId }, details: { visibility: result.access.visibility, version: result.access.version, explicitPeople: Array.isArray(input.people) ? input.people.length : null } });
         return result.error ? fail(result) : json(result);
       }
       return json({ message: "Method not allowed." }, 405);
     }
     if (sub === 'template-shares') {
-      if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: 'Only its maker or an admin can share this app as a template.' }, 403);
+      if (!(await mayChangeApp())) return json({ message: 'Only its maker, an editor, or an admin can share this app as a template.' }, 403);
       if (request.method === 'GET' && parts.length === 3) return json({ ...(await listTemplateShares(env.DB, orgId, appId)), canManage: true });
       if (request.method === 'POST' && parts.length === 3) {
         const result = await createTemplateShare(env.DB, orgId, app, input, me);
@@ -1429,19 +1438,19 @@ export async function handleHarness(request, env, url, context = {}) {
         const r = await renderApp(env.DB, orgId, appId);
         if (r.error) return fail(r);
         const [visibleApp] = await visibleAppLinks(env.DB, orgId, [r.app], who.user);
-        const canCustomize = await mayChange(env, orgId, who, app.createdBy);
+        const canCustomize = await mayChangeApp();
         if (!(await mayReadAppRows(env.DB, orgId, appId, r.app.tableId, me))) return json({ message: 'No such app.' }, 404);
         return json({ ...r, app: visibleApp, canCustomize });
       }
       if (request.method === "PUT") {
         // The shared definition is its maker's or an admin's to change, as
         // canCustomize says; everyone else keeps personal views of their own.
-        if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can change this app." }, 403);
+        if (!(await mayChangeApp())) return json({ message: "Only its maker, an editor, or an admin can change this app." }, 403);
         const r = await updateApp(env.DB, orgId, appId, input, me);
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "DELETE") {
-        if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can delete this app." }, 403);
+        if (!(await mayChangeApp())) return json({ message: "Only its maker, an editor, or an admin can delete this app." }, 403);
         const r = await deleteApp(env.DB, orgId, appId);
         if (!r.error) await audit(env, request, { orgId, action: "app.deleted", actor: person(who.user), entity: { type: "app", id: appId, name: app.name } });
         return r.error ? fail(r) : json(r);
@@ -1454,13 +1463,13 @@ export async function handleHarness(request, env, url, context = {}) {
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "POST") {
-        if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can change this app." }, 403);
+        if (!(await mayChangeApp())) return json({ message: "Only its maker, an editor, or an admin can change this app." }, 403);
         const r = await restoreVersion(env.DB, orgId, appId, input.version, me);
         return r.error ? fail(r) : json(r);
       }
     }
     if (sub === "links") {
-      if (!await mayChange(env, orgId, who, app.createdBy)) return json({ message: "Only its maker or an admin can change app links." }, 403);
+      if (!await mayChangeApp()) return json({ message: "Only its maker, an editor, or an admin can change app links." }, 403);
       if (request.method === "POST") {
         const room = await readableConversation(env.DB, orgId, me, input.channel);
         if (!room) return json({ message: 'No such room.' }, 404);

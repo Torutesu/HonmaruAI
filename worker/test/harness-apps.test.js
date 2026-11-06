@@ -522,6 +522,40 @@ test('app creators cannot spoof ownership and private grants require live member
   expect(await mayUseApp(env.DB, ORG, app.id, '9102')).toBe(false);
 });
 
+test('personal app grants inherit defaults, enforce deny precedence, and make view grants read-only', async () => {
+  const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9103'").bind(ORG).run();
+  const accessPath=`/apps/${app.id}/access`;
+  const saved=await send('PUT',accessPath,mika,{orgId:ORG,visibility:'private',version:0,people:[{userId:'9103',permission:'view'}]});
+  expect(saved.status).toBe(200);
+  expect((await saved.json()).people.find(person=>person.userId==='9103')).toMatchObject({permission:'view',explicit:true,canOverride:true});
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,guest)).status).toBe(200);
+  expect((await send('POST',`/tables/${app.tableId}/rows`,guest,{orgId:ORG,values:{company:'Blocked'}})).status).toBe(404);
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9103'},'add_row',{tableId:app.tableId,values:{company:'Blocked'}})).isError).toBe(true);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB,ORG,{name:'View-only write',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{company:'Blocked'}}]},'9103');
+  expect(await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).toMatchObject({status:'failed',log:[expect.objectContaining({error:'Table access required.'})]});
+
+  const edit=await send('PUT',accessPath,mika,{orgId:ORG,visibility:'private',version:1,people:[{userId:'9103',permission:'edit'}]});
+  expect(edit.status).toBe(200);
+  expect((await send('POST',`/tables/${app.tableId}/rows`,guest,{orgId:ORG,values:{company:'Allowed'}})).status).toBe(201);
+  expect((await send('PUT',`/apps/${app.id}`,guest,{orgId:ORG,name:'Edited by collaborator'})).status).toBe(200);
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9103'},'add_row',{tableId:app.tableId,values:{company:'Allowed by MCP'}})).isError).not.toBe(true);
+  expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).status).toBe('done');
+
+  const deny=await send('PUT',accessPath,mika,{orgId:ORG,visibility:'workspace',version:2,people:[{userId:'9103',permission:'none'}]});
+  expect(deny.status).toBe(200);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,guest)).status).toBe(404);
+  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`,guest)).status).toBe(404);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,toru)).status).toBe(200);
+
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG,'9103').run();
+  expect(await env.DB.prepare('SELECT 1 FROM hx_app_person_access WHERE org_id=?1 AND app_id=?2 AND user_github_id=?3').bind(ORG,app.id,'9103').first()).toBeNull();
+  await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES(?1,'9103','member',datetime('now'))").bind(ORG).run();
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,guest)).status).toBe(200);
+});
+
 test('table workflows lose access when an app becomes private, including historical runs', async () => {
   const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, template: 'crm', sample: false })).json();
   const { createWorkflow, startRun, getRun, getWorkflow } = await import('../src/harness/workflows.js');
