@@ -1,5 +1,6 @@
 import { getSession, getUserByGithubId, isMember } from "./db.js";
 import { handleExternalFiles } from "./externalFiles.js";
+import { redeemExternalAppInvite } from "./externalApps.js";
 import { getMode } from "./harness/mode.js";
 import { resolveChannel, asksTheAI, getMessage, cleanEmoji } from "./channels.js";
 import { byteRange, deleteFileObject, getFileObject, MAX_FILES_PER_MESSAGE, sendable, UNSATISFIABLE, uploadFile } from "./files.js";
@@ -694,6 +695,8 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
     const actor = await signedIn(request,env);
     if (!actor) return fail("Sign in to continue.",401);
     const input = await request.json().catch(() => ({}));
+    const appRedeemed = await redeemExternalAppInvite(env,{token:input.token,userId:actor.user.github_id});
+    if (!appRedeemed.error) return json(appRedeemed);
     const redeemed = await redeemExternalThreadInvite(env,{token:input.token,userId:actor.user.github_id});
     return redeemed.error ? fail(redeemed.error,redeemed.status) : json(redeemed);
   }
