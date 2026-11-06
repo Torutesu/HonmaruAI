@@ -17,7 +17,7 @@ const requestId = () => `xreq_${crypto.randomUUID().replaceAll("-", "")}`;
 const activeGrantSql = `EXISTS(
   SELECT 1 FROM hx_external_resource_grants g
    WHERE g.org_id = ?2 AND g.resource_type = 'thread' AND g.resource_id = ?3
-     AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL
+     AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL AND g.suspended_at IS NULL
      AND (g.expires_at IS NULL OR g.expires_at > ?5)
      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id = ?2 AND member.user_github_id = ?4))`;
 async function signedIn(request, env) {
@@ -51,13 +51,13 @@ async function manageableRoot(db, orgId, rootId, user) {
   return root;
 }
 
-async function resolveRecipient(db, orgId, email, actorId) {
+async function resolveRecipient(db, orgId, email, actorId, { allowMember = false } = {}) {
   const normalized = typeof email === "string" ? email.trim().toLowerCase() : "";
   if (!normalized || normalized.length > 320 || !normalized.includes("@")) return null;
   const recipient = await db.prepare(
     "SELECT github_id, login, name, email FROM users WHERE lower(email) = ?1 AND email_verified_at IS NOT NULL"
   ).bind(normalized).first();
-  if (!recipient || recipient.github_id === actorId || await isMember(db, orgId, recipient.github_id)) return null;
+  if (!recipient || recipient.github_id === actorId || (!allowMember && await isMember(db, orgId, recipient.github_id))) return null;
   return recipient;
 }
 
@@ -67,20 +67,20 @@ async function shareThread(request, env, orgId, rootId, actor) {
   if (!root) return fail("Thread not found or cannot be shared.", 404);
   if (request.method === "GET") {
     const now = new Date().toISOString();
-    const { results = [] } = await env.DB.prepare(`SELECT g.id,g.permission,g.granted_at,g.expires_at,
-        u.name,u.login,u.email
+    const { results = [] } = await env.DB.prepare(`SELECT g.id,g.permission,g.granted_at,g.expires_at,g.suspended_at,
+        u.name,u.login,u.email,
+        EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=g.org_id AND member.user_github_id=g.recipient_github_id) AS recipient_is_member
       FROM hx_external_resource_grants g
       JOIN users u ON u.github_id=g.recipient_github_id
       WHERE g.org_id=?1 AND g.resource_type='thread' AND g.resource_id=?2
         AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?3)
-        AND NOT EXISTS(SELECT 1 FROM memberships member
-          WHERE member.org_id=g.org_id AND member.user_github_id=g.recipient_github_id)
       ORDER BY lower(COALESCE(u.name,u.login)),g.granted_at,g.id`)
       .bind(orgId,rootId,now).all();
     return json({ shares: results.map(row => ({
       id: row.id, permission: row.permission,
       recipient: { name: row.name || row.login, email: row.email },
       grantedAt: row.granted_at, expiresAt: row.expires_at || null,
+      recipientIsMember: Boolean(row.recipient_is_member), suspended: Boolean(row.suspended_at),
     })) });
   }
   const input = await request.json().catch(() => null);
@@ -103,7 +103,7 @@ async function shareThread(request, env, orgId, rootId, actor) {
     return json({ shared: true, grant: { id: grant.id, permission, expiresAt: grant.expiresAt },
       recipient: { name: recipient.name || recipient.login, email: recipient.email } }, 201);
   }
-  const recipient = await resolveRecipient(env.DB, orgId, input.email, actor.user.github_id);
+  const recipient = await resolveRecipient(env.DB, orgId, input.email, actor.user.github_id, { allowMember: true });
   if (!recipient) return fail("Recipient not found.", 404);
   const revoked = await revokeExternalResource(env.DB, {
     orgId, resourceType: "thread", resourceId: rootId,
@@ -174,7 +174,7 @@ async function insertReply(env, orgId, rootId, user, body) {
        AND ${activeGrantSql} AND EXISTS(
          SELECT 1 FROM hx_external_resource_grants g
           WHERE g.org_id = ?2 AND g.resource_type = 'thread' AND g.resource_id = ?3
-            AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL AND g.permission = 'edit'
+            AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND g.permission = 'edit'
             AND (g.expires_at IS NULL OR g.expires_at > ?5))`)
     .bind(id, orgId, rootId, user.github_id, now, user.login, body, now).run();
   return put.meta?.changes ? id : null;
@@ -192,7 +192,7 @@ async function requestSend(env, orgId, rootId, user, body) {
          AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL))
        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
          AND g.resource_type='thread' AND g.resource_id=?3 AND g.recipient_github_id=?4
-         AND g.revoked_at IS NULL AND g.permission='view' AND (g.expires_at IS NULL OR g.expires_at>?6)
+         AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND g.permission='view' AND (g.expires_at IS NULL OR g.expires_at>?6)
          AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=?4))`)
     .bind(id, orgId, rootId, user.github_id, body, now).run();
   if (put.meta?.changes) return { id, created: true };
@@ -214,7 +214,7 @@ async function pendingRequests(env, orgId, rootId, owner) {
       AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=r.org_id
         AND g.resource_type='thread' AND g.resource_id=r.root_message_id
         AND g.recipient_github_id=r.guest_github_id AND g.granted_by=?3
-        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4))
+        AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4))
     ORDER BY r.requested_at, r.id`).bind(orgId, rootId, owner.user.github_id, new Date().toISOString()).all();
 }
 
@@ -226,7 +226,7 @@ async function decideRequest(env, orgId, rootId, id, owner, action) {
      WHERE org_id=?3 AND root_message_id=?4 AND id=?5 AND status='pending'
        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?3
          AND g.resource_type='thread' AND g.resource_id=?4 AND g.recipient_github_id=guest_github_id
-         AND g.granted_by=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?1)
+         AND g.granted_by=?2 AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?1)
          AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?3 AND member.user_github_id=guest_github_id))`)
       .bind(now, owner.user.github_id, orgId, rootId, id).run();
     return result.meta?.changes ? { rejected: true } : null;
@@ -246,7 +246,7 @@ async function decideRequest(env, orgId, rootId, id, owner, action) {
            AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
          AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
            AND g.resource_type='thread' AND g.resource_id=?3 AND g.recipient_github_id=r.guest_github_id
-           AND g.granted_by=?5 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8)
+           AND g.granted_by=?5 AND g.revoked_at IS NULL AND g.suspended_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8)
            AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=r.guest_github_id))`)
       .bind(messageId, orgId, rootId, id, owner.user.github_id, owner.user.github_id, now, now),
     env.DB.prepare(`UPDATE hx_external_thread_send_requests
