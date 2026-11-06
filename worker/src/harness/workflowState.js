@@ -3,6 +3,7 @@ import {managedAutomationGuard} from './appAutomationGuard.js';
 import {workflowActivationFence,activationScope} from './workflowActivationGuard.js';
 import {ROLE_RANK} from '../auth.js';
 import {can} from '../permissions.js';
+import {appRecordSourceAuthority as appRecordSourceSql} from './appRecordSourceAuthority.js';
 // Internal durable-state store. The executor must authorize source/resource
 // access before obtaining its checkpoint lease. Never expose these helpers as
 // a user-supplied run-ID API: the live lease is an additional write fence only.
@@ -17,9 +18,16 @@ const sourceTableAuthority=`(${sourceTable} IS NULL OR (EXISTS(SELECT 1 FROM hx_
  AND NOT EXISTS(SELECT 1 FROM hx_apps app LEFT JOIN hx_app_access access ON access.org_id=app.org_id AND access.app_id=app.id
   WHERE app.org_id=r.org_id AND (app.table_id=${sourceTable} OR EXISTS(SELECT 1 FROM hx_app_entities entity WHERE entity.org_id=r.org_id AND entity.app_id=app.id AND entity.table_id=${sourceTable}))
    AND COALESCE(access.visibility,'workspace')!='workspace' AND app.created_by!=json_extract(d.definition,'$.createdBy'))))`;
+// The frozen event payload must still refer to the exact current entity/table
+// mapping. Table-only checks allowed a running program to continue after an
+// App entity had been rebound to another table.
+const appRecordSourceAuthority=`(json_extract(d.definition,'$.trigger.type') IS NOT 'app_record_change' OR (
+ json_extract(r.input,'$.records[0].appId')=json_extract(d.definition,'$.trigger.appId')
+ AND json_extract(r.input,'$.records[0].entityId')=json_extract(d.definition,'$.trigger.entityId')
+ AND ${appRecordSourceSql('r.org_id',"json_extract(d.definition,'$.trigger.appId')","json_extract(d.definition,'$.trigger.entityId')","json_extract(r.input,'$.tableId')","json_extract(d.definition,'$.createdBy')")}))`;
 // Source access is checked inside the same SQL statement as the lease and CAS.
 // Unsourced workflows still require current workspace membership.
-export const workflowStateAuthority=`${sourceTableAuthority} AND ${managedAutomationGuard('r.org_id','r.workflow_id',"json_extract(d.definition,'$.automationReleaseId')")} AND (json_type(d.definition,'$.safetyGeneration') IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_safety safety WHERE safety.org_id=r.org_id AND safety.workflow_id=r.workflow_id AND safety.generation=json_extract(d.definition,'$.safetyGeneration') AND safety.paused_at IS NULL)) AND EXISTS(SELECT 1 FROM hx_workflows w
+export const workflowStateAuthority=`${sourceTableAuthority} AND ${appRecordSourceAuthority} AND ${managedAutomationGuard('r.org_id','r.workflow_id',"json_extract(d.definition,'$.automationReleaseId')")} AND (json_type(d.definition,'$.safetyGeneration') IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_safety safety WHERE safety.org_id=r.org_id AND safety.workflow_id=r.workflow_id AND safety.generation=json_extract(d.definition,'$.safetyGeneration') AND safety.paused_at IS NULL)) AND EXISTS(SELECT 1 FROM hx_workflows w
  JOIN memberships m ON m.org_id=w.org_id AND m.user_github_id=w.created_by
  JOIN users u ON u.github_id=w.created_by
  WHERE w.org_id=r.org_id AND w.id=r.workflow_id AND json_extract(d.definition,'$.id')=w.id AND json_extract(d.definition,'$.createdBy')=w.created_by AND lower(m.role) IN (${workflowBuilderRoles})

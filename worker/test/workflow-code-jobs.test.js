@@ -94,6 +94,25 @@ test('row-trigger input is fenced when its app becomes private',async()=>{
  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(jobId).first()).status).toBe('failed');
 });
 const finishJob=async(jobId,status='succeeded',finishedAt=4000)=>env.DB.prepare("UPDATE hx_gateway_jobs SET status=?2,started_at=3000,finished_at=?3,lease_until=90000,deadline=120000,result='{\"stdout\":\"Program result\",\"stderr\":\"\",\"exitCode\":0}' WHERE id=?1").bind(jobId,status,finishedAt).run();
+test('an in-flight app-record program loses its heartbeat when the exact App entity is rebound',async()=>{
+ await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('program-table','program-org','Details','[]','someone-else','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('primary-table','program-org','Primary','[]','someone-else','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('program-app','program-org','Source','primary-table','{}','someone-else','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES('program-org','program-app','details','program-table')").run();
+ definition.trigger={type:'app_record_change',appId:'program-app',entityId:'details',events:['update']};
+ await env.DB.prepare("UPDATE hx_workflow_runs SET trigger='app_record_change',input=?1 WHERE id='program-run'").bind(JSON.stringify({tableId:'program-table',records:[{event:'update',appId:'program-app',entityId:'details',recordId:'row-1',data:{status:'open'}}],totalCount:1,truncated:false})).run();
+ await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=?1 WHERE run_id='program-run'").bind(JSON.stringify(definition)).run();
+ const token=`hgw_${crypto.randomUUID()}${crypto.randomUUID()}`;
+ const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))),byte=>byte.toString(16).padStart(2,'0')).join('');
+ await env.DB.prepare("UPDATE hx_gateways SET token_hash=?1 WHERE id='program-node'").bind(hash).run();
+ const {jobId}=await enqueue({at:Date.now()});expect(jobId).toBeTruthy();
+ const api=(path,body={})=>worker.fetch(new Request(`https://example.com/gateways${path}`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)}),env,{waitUntil(){}});
+ const claimed=await api('/claim',{capabilities:['workflow-program-v1']});expect(claimed.status).toBe(200);
+ const {job}=await claimed.json();expect(job.id).toBe(jobId);expect(job.workflow).toBe(true);
+ await env.DB.prepare("UPDATE hx_app_entities SET table_id='primary-table' WHERE org_id='program-org' AND app_id='program-app' AND entity_key='details'").run();
+ expect((await api(`/jobs/${jobId}/heartbeat`,{lease:job.lease})).status).toBe(409);
+ expect((await api(`/jobs/${jobId}/finish`,{lease:job.lease,status:'succeeded',stdout:'must be rejected',stderr:'',exitCode:0})).status).toBe(409);
+});
 test.each([false,true])('node finish HTTP settles a program even after an interrupted reply: %s',async interrupted=>{
  const token=`hgw_${crypto.randomUUID()}${crypto.randomUUID()}`;
  const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))),byte=>byte.toString(16).padStart(2,'0')).join('');
