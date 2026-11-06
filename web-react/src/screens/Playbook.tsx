@@ -25,6 +25,8 @@ interface Memory {
   canEdit: boolean
 }
 
+interface DraftStylePreference { sourceApp: string; key: string; text: string; updatedAt: string }
+
 const MAX_RULE = 280
 
 /// The playbook: the rules your AI follows when it routes, answers and
@@ -56,6 +58,8 @@ export const Playbook: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
   const [confirm, setConfirm] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  const [draftPreferences, setDraftPreferences] = useState<DraftStylePreference[] | null>(null)
+  const [forgetDrafts, setForgetDrafts] = useState(false)
 
   const headers = useMemo(() => ({ 'content-type': 'application/json', 'x-session-token': sessionToken }), [sessionToken])
   const load = useCallback(async () => {
@@ -71,6 +75,18 @@ export const Playbook: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
     }
   }, [httpBase, orgId, sessionToken, t])
   useEffect(() => { load() }, [load])
+  const loadDraftPreferences = useCallback(async () => {
+    try {
+      const res = await fetch(`${httpBase}/ai/draft-preferences?orgId=${encodeURIComponent(orgId)}&sourceApp=all`, { headers: { 'x-session-token': sessionToken } })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message || t('Could not load your draft style.'))
+      setDraftPreferences(data.preferences || [])
+    } catch (err) {
+      setDraftPreferences([])
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }, [httpBase, orgId, sessionToken, t])
+  useEffect(() => { loadDraftPreferences() }, [loadDraftPreferences])
 
   const act = async (key: string, work: () => Promise<void>) => {
     setBusy(key); setError(null); setNote(null)
@@ -108,6 +124,15 @@ export const Playbook: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
     setMemories((list) => (list || []).filter((m) => m.origin !== 'learned'))
     setConfirm(null)
     setNote(t('Forgot {n} learned rules.', { n: Number(data.removed || 0) }))
+  })
+  const removeDraftPreference = (item: DraftStylePreference) => act(`draft-pref-${item.sourceApp}-${item.key}`, async () => {
+    await send('DELETE', `/ai/draft-preferences?orgId=${encodeURIComponent(orgId)}&sourceApp=${encodeURIComponent(item.sourceApp)}&key=${encodeURIComponent(item.key)}`)
+    setDraftPreferences((list) => (list || []).filter((p) => p.sourceApp !== item.sourceApp || p.key !== item.key))
+  })
+  const forgetAllDraftPreferences = () => act('draft-pref-clear', async () => {
+    await send('DELETE', `/ai/draft-preferences?orgId=${encodeURIComponent(orgId)}&sourceApp=all`)
+    setDraftPreferences([])
+    setForgetDrafts(false)
   })
 
   const learned = (memories || []).filter((m) => m.origin === 'learned').length
@@ -148,6 +173,23 @@ export const Playbook: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClo
 
         {note && <div className="form-note">{note}</div>}
         {error && <div className="form-error">{error}</div>}
+
+        <div className="rows-title">{t('Your draft style')}</div>
+        <p className="lede" style={{ marginTop: 0 }}>{t('Preferences you explicitly saved from edited drafts. They apply only to your replies in this workspace.')}</p>
+        {!draftPreferences?.length ? (
+          <div className="rows"><div className="row static"><span className="row-main"><span className="row-sub">{t('No draft style preferences saved.')}</span></span></div></div>
+        ) : (
+          <div className="rows">
+            {draftPreferences.map((p) => (
+              <div className="row static" key={`${p.sourceApp}:${p.key}`}>
+                <span className="row-main">{p.text}<span className="row-sub">{t('From {app} drafts', { app: p.sourceApp })} · {date(p.updatedAt)}</span></span>
+                <button className="btn-text danger" disabled={busy === `draft-pref-${p.sourceApp}-${p.key}`} onClick={() => removeDraftPreference(p)}>{t('Forget')}</button>
+              </div>
+            ))}
+            <button className="btn-text danger" onClick={() => setForgetDrafts(true)}>{t('Forget all draft style preferences')}</button>
+            {forgetDrafts && <div className="form-error">{t('Remove all of your saved draft style preferences?')} <button className="btn-text" onClick={() => setForgetDrafts(false)}>{t('Keep')}</button> <button className="btn-text danger" disabled={busy === 'draft-pref-clear'} onClick={forgetAllDraftPreferences}>{t('Forget all')}</button></div>}
+          </div>
+        )}
 
         <div className="rows-title">{t('What it follows')}</div>
         {memories === null && <div className="empty">{t('Loading…')}</div>}
