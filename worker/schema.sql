@@ -2593,7 +2593,6 @@ BEGIN
   WHERE org_id=OLD.org_id AND requested_by=OLD.user_github_id AND status IN ('pending','approved') AND consumed_at IS NULL;
 END;
 CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_requester_removal
-CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_requester_removal
 AFTER DELETE ON memberships
 BEGIN
   UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=datetime('now')
