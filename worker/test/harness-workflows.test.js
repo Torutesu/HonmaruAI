@@ -392,7 +392,7 @@ test('an app record run stops if its entity is remapped while the agent is answe
       input: { tableId: invoices, totalCount: 1, truncated: false, records: [{ event: 'update', appId: invoicesAppId, entityId: 'primary', recordId: 'record-from-old-table', data: { status: 'Overdue' } }] },
     });
     expect(result.status).toBe('failed');
-    expect(result.log[0].error).toContain('source access was removed');
+    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
     expect(providerCalls).toBe(1);
     const posted = await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?1 AND body='Sensitive result from the old table.'").bind(ORG).first();
     expect(posted.n).toBe(0);
