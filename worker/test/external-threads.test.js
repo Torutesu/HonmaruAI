@@ -101,7 +101,7 @@ test("a verified non-member can read and reply only to an explicitly shared Thre
     { kind: "ai", parentId: rootId },
   ]);
   expect(await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2").bind(orgId, approvedMessage.messageId).all())
-    .resolves.toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
+    .toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
   expect(await env.DB.prepare("SELECT count(*) AS n FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND kind='agent'").bind(orgId, rootId).first()).toMatchObject({ n: 0 });
 });
 
@@ -125,7 +125,7 @@ test("sharing authority is resource-owner/Admin scoped and grants do not cross w
   const replyBody = await reply.json();
   await flushBackground();
   expect(await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2").bind(orgId, replyBody.messageId).all())
-    .resolves.toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
+    .toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
 });
 
 test("revocation and expiry are rechecked on every read and write; Simple stays closed", async () => {
