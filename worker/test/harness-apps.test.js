@@ -119,6 +119,20 @@ test("a table keeps its values in the column's type", async () => {
   expect(renamed.table.columns[0]).toMatchObject({ id: "company", name: "Account" });
 });
 
+test('mixed-case guests cannot read or mutate standalone Harness tables', async () => {
+  const made = await send('POST', '/tables', mika, { orgId: ORG, name: 'Standalone', columns: [{ name: 'Secret', type: 'text' }] });
+  const { table } = await made.json();
+  await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id='9102'").bind(ORG).run();
+  const { mayUseTable } = await import('../src/harness/resourceAccess.js');
+  expect(await mayUseTable(env.DB, ORG, table.id, '9102')).toBe(false);
+  expect((await get(`/tables/${table.id}?orgId=${ORG}`, mika)).status).toBe(403);
+  expect((await send('POST', `/tables/${table.id}/rows`, mika, { orgId: ORG, values: { secret: 'blocked' } })).status).toBe(403);
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  expect((await callHarnessTool(env, { orgId: ORG, githubId: '9102' }, 'query_rows', { tableId: table.id })).isError).toBe(true);
+  expect((await callHarnessTool(env, { orgId: ORG, githubId: '9102' }, 'add_row', { tableId: table.id, values: { secret: 'blocked' } })).isError).toBe(true);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?1').bind(table.id).first()).toMatchObject({ n: 0 });
+});
+
 test("an app from a template: its views, worked out on the server", async () => {
   const at = new Date().toISOString();
   await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'sales','Sales',0,'9101',?2)").bind(ORG, at).run();
