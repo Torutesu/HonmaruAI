@@ -21,6 +21,7 @@ import { getMode } from "./harness/mode.js";
 import { mayUseAgentSource } from "./harness/agentConnections.js";
 import { agentRemoteMcpTools, mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { callRemoteMcpTool } from "./harness/remoteMcp.js";
+import { agentRoomHistoryTools } from "./harness/agentRoomHistory.js";
 
 export function agentInstructionsForTools(instructions, tools) {
   if (!["list_document_nodes", "create_document", "get_document_status"].every(name => typeof tools?.[name]?.run === "function")) return instructions;
@@ -121,6 +122,9 @@ export async function agentTools(env, { orgId, session, language = "en", persona
       orgId, session, taint, writes: ownAgentsOnly, agentId,
       requireAgentGrant: workspaceMode === "harness",
     }).catch(() => ({})));
+  }
+  if (workspaceMode === "harness" && personal && agentId && session?.github_id) {
+    Object.assign(tools, agentRoomHistoryTools(env, { orgId, session, agentId, onRead: () => { taint.value = true; } }));
   }
   if (workspaceMode === "harness" && personal && agentId && session?.github_id) {
     const remoteTools = await agentRemoteMcpTools(env, { orgId, agentId, session }).catch(() => []);
