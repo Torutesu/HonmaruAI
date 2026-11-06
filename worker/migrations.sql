@@ -400,7 +400,7 @@ CREATE TABLE IF NOT EXISTS hx_public_file_shares (
 CREATE INDEX IF NOT EXISTS hx_public_file_shares_file ON hx_public_file_shares(org_id,file_id,created_at DESC);
 CREATE TABLE IF NOT EXISTS hx_file_share_audit (
  org_id TEXT NOT NULL,id INTEGER PRIMARY KEY AUTOINCREMENT,request_id TEXT NOT NULL,share_id TEXT,actor_id TEXT NOT NULL,
- action TEXT NOT NULL CHECK(action IN ('proposed','approved','revoked','expired','stale')),details TEXT NOT NULL,created_at TEXT NOT NULL
+ action TEXT NOT NULL CHECK(action IN ('proposed','approved','declined','revoked','expired','stale')),details TEXT NOT NULL,created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS hx_file_share_audit_request ON hx_file_share_audit(org_id,request_id,id);
 
