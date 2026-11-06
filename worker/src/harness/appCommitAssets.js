@@ -47,9 +47,8 @@ export async function servePublishedCommitAsset(request,env,url){
   for(let offset=0;offset<size;offset+=READ_CHUNK_BYTES){
     const length=Math.min(READ_CHUNK_BYTES,size-offset);
     const part=await env.DB.prepare(`SELECT substr(content_bytes,?4,?5) AS contentBytes FROM hx_app_git_assets
-      WHERE org_id=(SELECT org_id FROM hx_apps WHERE id=?1) AND app_id=?1 AND commit_sha=?2 AND path=?3
-        AND app_version=CAST((SELECT json_extract(definition,'$.custom.publishedCommit.appVersion') FROM hx_apps WHERE id=?1) AS INTEGER)`)
-      .bind(appId,commitSha,path,offset+1,length).first();
+      WHERE org_id=?6 AND app_id=?1 AND commit_sha=?2 AND path=?3 AND app_version=?7`)
+      .bind(appId,commitSha,path,offset+1,length,row.orgId,row.appVersion).first();
     const chunk=readBytes(part?.contentBytes);
     if(!chunk||chunk.length!==length)return notFound();
     bytes.set(chunk,offset);
