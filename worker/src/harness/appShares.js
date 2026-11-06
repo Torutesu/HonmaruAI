@@ -64,5 +64,14 @@ export async function readAppShare(db, token) {
   if (!html) return { error: 'This app link is unavailable.', status: 404 };
   const rendered = await renderApp(db, row.orgId, row.appId);
   if (rendered.error || Number(rendered.app.version) !== Number(row.appVersion)) return { error: 'This app link is unavailable.', status: 404 };
+  // Rendering may take long enough for an owner to revoke the link or change
+  // its audience. Recheck the complete fence immediately before returning data.
+  const finalFence = await db.prepare(`SELECT s.revoked_at AS revokedAt,s.expires_at AS expiresAt,
+      a.version AS appVersion,COALESCE((SELECT version FROM hx_app_access WHERE org_id=s.org_id AND app_id=s.app_id),0) AS accessVersion
+    FROM hx_app_public_shares s JOIN hx_apps a ON a.org_id=s.org_id AND a.id=s.app_id
+    WHERE s.token_hash=?1`).bind(await tokenHash(token)).first();
+  if (!finalFence || finalFence.revokedAt || finalFence.expiresAt <= now()
+      || Number(finalFence.appVersion) !== Number(row.appVersion)
+      || Number(finalFence.accessVersion) !== Number(row.accessVersion)) return { error: 'This app link is unavailable.', status: 404 };
   return { share: { expiresAt: row.expiresAt }, app: { id: row.appId, name: row.name, icon: row.icon || '📋', version: Number(row.version) }, html, table: rendered.table, rows: rendered.rows.slice(0, 500) };
 }
