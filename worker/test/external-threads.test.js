@@ -236,7 +236,7 @@ test("external invitations accept normal email addresses and reject malformed wh
   const {orgId,rootId,sessions}=await setup();
   const path=`/external/threads/${orgId}/${rootId}/invites`;
   expect((await call(path,sessions.owner,"POST",{email:"guest@example.test",permission:"view"})).status).toBe(201);
-  for(const email of ["guest @example.test","guest@example .test","not-an-email",`${"a".repeat(250)}@x.io`]) {
+  for(const email of ["guest @example.test","guest@example .test","not-an-email","guest@other@example.test",`${"a".repeat(250)}@x.io`]) {
     expect((await call(path,sessions.owner,"POST",{email,permission:"view"})).status).toBe(400);
   }
 });
