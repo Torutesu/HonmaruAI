@@ -275,7 +275,7 @@ test("concurrent redemption and revoke leave no live Thread grant", async () => 
   const created=await call(path,sessions.owner,"POST",{email,permission:"edit"});
   expect(created.status).toBe(201);
   const invite=await created.json();
-  const token=invite.inviteUrl?.match(/external-invite\\/([a-f0-9]{64})$/i)?.[1]||invite.token;
+  const token=invite.inviteUrl?.match(/external-invite\/([a-f0-9]{64})$/i)?.[1]||invite.token;
   const [redemption,revocation]=await Promise.all([
     call("/external/invites/redeem",sessions.guest,"POST",{token}),
     call(`${path}/${invite.invitationId}`,sessions.owner,"DELETE"),
