@@ -35,8 +35,8 @@ test('workflow detail shows a rolling median and labels provider token estimates
  expect(text).toContain('Median of {count} completed runs');
  expect(text).toContain('Estimated AI usage');
  expect(text).toContain('This is not provider credits or an invoice');
- expect(text).toContain('1 unpriced calls');
- expect(text).toContain('1 calls with unknown token usage');
+ expect(text).toContain('{count} unpriced calls');
+ expect(text).toContain('{count} calls with unknown token usage');
  expect(text).toContain('Recorded on {count} runs');
  expect(text).toContain('$0.001234');
 });
