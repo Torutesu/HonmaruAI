@@ -184,8 +184,8 @@ export async function addAgentMemory(db, orgId, agentId, text, { by = null, sour
 export async function deleteAgentMemory(db, orgId, agentId, id, { channel = "" } = {}) {
   const res = await db.prepare(`DELETE FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2
     AND (?3 = '*' OR id = ?3)
-    AND COALESCE((SELECT channel FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id), '') = ?4 RETURNING id`)
-    .bind(orgId, agentId, id, channel).all();
+    AND COALESCE((SELECT channel FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id AND org_id = hx_agent_memories.org_id), '') = ?4 AND ((SELECT user_github_id FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id AND org_id = hx_agent_memories.org_id) IS NULL OR (SELECT user_github_id FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id AND org_id = hx_agent_memories.org_id) = ?5) RETURNING id`)
+    .bind(orgId, agentId, id, channel, userId ? String(userId) : '').all();
   return { deleted: res.results.length };
 }
 
