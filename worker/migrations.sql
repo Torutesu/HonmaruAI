@@ -378,3 +378,16 @@ ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
 ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN app_id TEXT;
+CREATE TABLE IF NOT EXISTS hx_agent_agent_members (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  member_agent_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('admin','member')),
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,agent_id,member_agent_id),
+  CHECK(agent_id != member_agent_id),
+  FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE,
+  FOREIGN KEY(org_id,member_agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_agent_members_peer ON hx_agent_agent_members(org_id,member_agent_id,agent_id);
