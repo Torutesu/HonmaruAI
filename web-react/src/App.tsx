@@ -78,7 +78,7 @@ function App() {
   if(hash.startsWith('#/shared/'))return <>{warning}<SharedThread key={hash} httpBase={httpBase(DEFAULT_HOST)} token={hash.slice('#/shared/'.length)}/></>
   const skillShare=hash.match(/^#\/skill-share\/(skl_[a-f0-9]{64})$/)
   if(skillShare)return <>{warning}<PublicSkillShare key={hash} httpBase={httpBase(DEFAULT_HOST)} token={skillShare[1]}/></>
-  const appShare=hash.match(/^#\\/app-share\\/(app_[a-f0-9]{64})$/)
+  const appShare=hash.startsWith('#/app-share/') ? hash.slice('#/app-share/'.length).match(/^(app_[a-f0-9]{64})$/) : null
   if(appShare)return <>{warning}<PublicAppShare key={hash} httpBase={httpBase(DEFAULT_HOST)} token={appShare[1]}/></>
   return <>{warning}<AccountApp/></>
 }
