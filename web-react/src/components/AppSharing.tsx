@@ -4,7 +4,8 @@ import { useT } from '../utils/i18n'
 interface Access { visibility: 'private' | 'workspace'; version: number }
 interface Guest { githubId: string; login: string; name?: string | null; email?: string | null; permission: 'view' | 'edit'; expiresAt: string | null }
 interface Invite { id: string; invitedEmail: string; permission: 'view' | 'edit'; accessExpiresAt: string | null; inviteExpiresAt: string }
-interface SendRequest { id: string; tableId: string; rowId: string; guestGithubId: string; name?: string | null; login: string; email?: string | null; body: string; requestedAt: string }\ninterface ShareState { guests: Guest[]; invites: Invite[]; requests: SendRequest[]; canManage: boolean; customUnsupported?: boolean }
+interface SendRequest { id: string; tableId: string; rowId: string; guestGithubId: string; name?: string | null; login: string; email?: string | null; body: string; requestedAt: string }
+interface ShareState { guests: Guest[]; invites: Invite[]; requests: SendRequest[]; canManage: boolean; customUnsupported?: boolean }
 const headers = (sessionToken: string, json = false) => ({ 'x-session-token': sessionToken, ...(json ? { 'content-type': 'application/json' } : {}) })
 
 export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase: string; orgId: string; sessionToken: string; appId: string }) {
