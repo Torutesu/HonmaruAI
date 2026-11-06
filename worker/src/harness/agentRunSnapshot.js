@@ -38,7 +38,7 @@ async function restrictedRunRows(db,orgId,rowIds,viewer) {
   }
   const agentIds=[...new Set([...agentsByRow.values()].flatMap(set=>[...set]))];
   const agentRows=agentIds.length
-    ?await db.prepare(`SELECT id,scope,owner_login FROM custom_agents WHERE org_id=?1 AND id IN (${agentIds.map((_,i)=>`?${i+2}`).join(',')}) AND deleted_at IS NULL AND provider IS NULL`).bind(orgId,...agentIds).all()
+    ?await db.prepare(`SELECT id,scope,owner_login FROM custom_agents WHERE org_id=?1 AND id IN (${agentIds.map((_,i)=>`?${i+2}`).join(',')}) AND deleted_at IS NULL`).bind(orgId,...agentIds).all()
     :{results:[]};
   const byId=new Map(agentRows.results.map(agent=>[agent.id,agent]));
   const access=new Map();
