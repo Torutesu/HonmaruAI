@@ -237,7 +237,7 @@ test('review audit retains scope and evidence after removal without copying the 
  await env.DB.prepare('DELETE FROM hx_memory_review_audit WHERE memory_id=?').bind(made.memory.id).run();
  const {default:schema}=await import('../schema.sql?raw');
  const {default:migrations}=await import('../migrations.sql?raw');
- const deployBackfills=migrations.split('\n').filter(line=>/^INSERT OR IGNORE INTO hx_memory_review_audit(?:_scope)?\\s/.test(line));
+ const deployBackfills=migrations.split('\n').filter(line=>/^INSERT OR IGNORE INTO hx_memory_review_audit(?:_scope)?\s/.test(line));
  expect(deployBackfills).toHaveLength(2);
  for(const sql of deployBackfills) await env.DB.exec(sql);
  await env.DB.exec(schema.replace(/\n/g,' '));
