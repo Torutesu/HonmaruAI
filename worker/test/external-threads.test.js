@@ -268,6 +268,23 @@ test("revoking an older invitation leaves a later explicit re-share active", asy
 });
 
 
+test("owner can list active grants and revoke by grant id after recipient joins", async () => {
+  const {orgId,rootId,ids,sessions}=await setup();
+  const email=`guest-${orgId.split("-").at(-1)}@example.test`;
+  const created=await call(`/external/threads/${orgId}/${rootId}/shares`,sessions.owner,"POST",{email,permission:"edit"});
+  expect(created.status).toBe(201);
+  const grant=(await created.json()).grant;
+  let listed=await call(`/external/threads/${orgId}/${rootId}/shares`,sessions.owner);
+  expect(await listed.json()).toMatchObject({shares:[{id:grant.id,permission:"edit",recipient:{email},recipientIsMember:false,suspended:false}]});
+  await upsertMembership(env.DB,orgId,ids.guest,"member");
+  listed=await call(`/external/threads/${orgId}/${rootId}/shares`,sessions.owner);
+  expect(await listed.json()).toMatchObject({shares:[{id:grant.id,recipient:{email},recipientIsMember:true,suspended:true}]});
+  const revoked=await call(`/external/threads/${orgId}/${rootId}/shares`,sessions.owner,"DELETE",{grantId:grant.id});
+  expect(await revoked.json()).toEqual({revoked:true});
+  expect(await env.DB.prepare("SELECT revoked_at FROM hx_external_resource_grants WHERE id=?1").bind(grant.id).first()).toMatchObject({revoked_at:expect.any(String)});
+});
+
+
 test("concurrent redemption and revoke leave no live Thread grant", async () => {
   const {orgId,rootId,ids,sessions}=await setup();
   const email=`guest-${orgId.split("-").at(-1)}@example.test`;
