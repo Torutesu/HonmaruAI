@@ -47,6 +47,22 @@ async function readReleaseState(appId, approvalId) {
     WHERE a.org_id=?1 AND a.id=?2 AND p.id=?3`).bind(ORG,appId,approvalId).first();
 }
 
+async function readCommitPublishGuardState(appId, approvalId, actorId) {
+  return env.DB.prepare(`SELECT a.version AS appVersion,a.created_by AS appCreatedBy,
+    json_extract(a.definition,'$.custom.draftCommit.sha') AS draftSha,
+    json_extract(a.definition,'$.custom.draftCommit.sourceHash') AS draftSourceHash,
+    p.app_version AS approvalVersion,p.commit_sha AS approvalSha,p.source_hash AS approvalSourceHash,
+    p.visibility_scope AS approvedVisibility,p.access_version AS approvedAccessVersion,p.domain_scope AS approvedDomainScope,
+    p.requested_by AS requestedBy,p.reviewer_id AS reviewerId,p.status AS approvalStatus,p.consumed_at AS consumedAt,
+    COALESCE((SELECT visibility FROM hx_app_access WHERE org_id=a.org_id AND app_id=a.id),'workspace') AS currentVisibility,
+    COALESCE((SELECT version FROM hx_app_access WHERE org_id=a.org_id AND app_id=a.id),0) AS currentAccessVersion,
+    COALESCE((SELECT hostname||'#'||status FROM hx_app_domains WHERE org_id=a.org_id AND app_id=a.id),'') AS currentDomainScope,
+    (SELECT role FROM memberships WHERE org_id=a.org_id AND user_github_id=?4) AS actorRole,
+    (SELECT role FROM memberships WHERE org_id=a.org_id AND user_github_id=p.reviewer_id) AS reviewerRole
+    FROM hx_apps a JOIN hx_app_commit_approvals p ON p.org_id=a.org_id AND p.app_id=a.id
+    WHERE a.org_id=?1 AND a.id=?2 AND p.id=?3`).bind(ORG,appId,approvalId,String(actorId)).first();
+}
+
 async function importCommit(app) {
   const result = await send('POST', `/apps/${app.id}/custom`, toru, {
     action: 'import_commit', owner: 'acme', repo: 'static-app', branch: 'main', commitSha,
@@ -103,8 +119,9 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
     action: 'publish_commit', version: importedBody.version, approvalId: approval.id,
   });
   const releaseState=await readReleaseState(app.id,approval.id);
+  const guardState=await readCommitPublishGuardState(app.id,approval.id,'9101');
   if(published.status===409) expect(releaseState).toEqual(beforeRelease);
-  expect(published.status, `${await published.clone().text()} state=${JSON.stringify(releaseState)}`).toBe(200);
+  expect(published.status, `${await published.clone().text()} state=${JSON.stringify(releaseState)} guard=${JSON.stringify(guardState)}`).toBe(200);
   expect((await published.json()).commit.sha).toBe(commitSha);
   expect(releaseState).toMatchObject({version:importedBody.version+1,publishedApproval:approval.id,approvalStatus:'published'});
   expect(releaseState.consumedAt).toBeTruthy();
@@ -200,8 +217,9 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
   const beforeRelease=await readReleaseState(app.id,approval.id);
   const published=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:data.version,approvalId:approval.id});
   const releaseState=await readReleaseState(app.id,approval.id);
+  const guardState=await readCommitPublishGuardState(app.id,approval.id,'9101');
   if(published.status===409) expect(releaseState).toEqual(beforeRelease);
-  expect(published.status, `${await published.clone().text()} state=${JSON.stringify(releaseState)}`).toBe(200);
+  expect(published.status, `${await published.clone().text()} state=${JSON.stringify(releaseState)} guard=${JSON.stringify(guardState)}`).toBe(200);
   expect(releaseState).toMatchObject({version:data.version+1,publishedApproval:approval.id,approvalStatus:'published'});
   expect(releaseState.consumedAt).toBeTruthy();
   const served=await call(`/app-commit-assets/${app.id}/${commitSha}/${data.commit.assetToken}/app.js`);
@@ -250,13 +268,14 @@ test('custom domain consent is bound to its attachment and exposes only after ex
   expect(unconfirmed.status).toBe(409);
   expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).toEqual({n:0});
 
-  vi.stubGlobal('fetch',vi.fn(async input=>{
-    const request=input instanceof Request?input:new Request(String(input));
+  vi.stubGlobal('fetch',vi.fn(async (input,init={})=>{
+    const request=input instanceof Request?input:new Request(String(input),init);
     const url=new URL(request.url);
+    const method=String(init.method||request.method||'GET').toUpperCase();
     if(url.hostname==='api.cloudflare.com'){
-      if(request.method==='GET')return json({success:true,result:[]});
-      if(request.method==='POST')return json({success:true,result:{status:'active',validation_data:{status:'success'},verification_data:{status:'success'}}});
-      if(request.method==='DELETE')return json({success:true,result:{}});
+      if(method==='GET')return json({success:true,result:[]});
+      if(method==='POST')return json({success:true,result:{status:'active',validation_data:{status:'success'},verification_data:{status:'success'}}});
+      if(method==='DELETE')return json({success:true,result:{}});
     }
     return new Response('Unexpected upstream request.',{status:502});
   }));
