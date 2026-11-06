@@ -33,6 +33,8 @@ beforeEach(async () => {
   await env.DB.exec(workspaceFilesSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRuntimeSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRevisionSql.replace(/\n/g, " "));
+  // Create migration-owned tables before post-schema indexes and backfills.
+  for (const sql of externalCollaboratorTables) await env.DB.exec(sql);
   // Apply idempotent post-schema indexes, data backfills, and triggers just
   // as deploy does, after columns already exist on the fresh test schema.
   for (const sql of migrationStatements) await env.DB.exec(sql);
@@ -124,3 +126,9 @@ env.DB.exec = async (source) => {
   if (batch.length) result = await rawDbExec(`${batch.join("; ")};`.replace(/\n/g, " "));
   return result;
 };
+
+// These grant-ledger tables are introduced by ordered migrations rather than
+// the cumulative schema. Create them after schema setup and before replaying
+// migration indexes/backfills in the test bootstrap.
+const externalCollaboratorTables = migrationsSql.split("\n").filter((line) =>
+  /^CREATE TABLE IF NOT EXISTS hx_external_(?:resource_grants|thread_send_requests) /.test(line));
