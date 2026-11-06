@@ -1,7 +1,8 @@
 import { getSession, getUserByGithubId, isMember } from "./db.js";
 import { handleExternalFiles } from "./externalFiles.js";
 import { getMode } from "./harness/mode.js";
-import { resolveChannel, asksTheAI, getMessage } from "./channels.js";
+import { resolveChannel, asksTheAI, getMessage, cleanEmoji } from "./channels.js";
+import { byteRange, deleteFileObject, getFileObject, MAX_FILES_PER_MESSAGE, sendable, UNSATISFIABLE, uploadFile } from "./files.js";
 import { audienceOf } from "./access.js";
 import { listMembers } from "./team.js";
 import { answerAsAI, broadcastStored } from "./channelRoutes.js";
@@ -294,28 +295,222 @@ export async function redeemExternalThreadInvite(env, { token, userId }) {
   return { redeemed: true, alreadyMember: true, orgId: invite.org_id };
 }
 
+async function uploadExternalAttachment(request, env, url, orgId, root, actor) {
+  const permission = await externalResourcePermission(env.DB, {
+    orgId, resourceType: "thread", resourceId: root.id, githubId: actor.user.github_id,
+  });
+  if (!permission) return fail("Thread not found or access revoked.", 404);
+  if (permission !== "edit") return fail("An edit grant is required to upload a Thread attachment.", 403);
+  const uploaded = await uploadFile(request, env, url, {
+    orgId, resolved: { key: root.channel }, login: actor.user.login,
+  });
+  if (!uploaded.ok) return uploaded;
+  const result = await uploaded.json().catch(() => null);
+  const file = result?.file;
+  if (!file?.id) return fail("Could not save this attachment.", 503);
+
+  // The upload streams to R2 after the initial authorization check. Recheck
+  // the exact Thread grant once the stream completes; clean up if it changed.
+  const currentRoot = await rootFor(env.DB, orgId, root.id);
+  const currentPermission = currentRoot && await externalResourcePermission(env.DB, {
+    orgId, resourceType: "thread", resourceId: root.id, githubId: actor.user.github_id,
+  });
+  if (!currentRoot || currentRoot.channel !== root.channel || currentPermission !== "edit") {
+    const deleted = await env.DB.prepare(
+      "DELETE FROM message_files WHERE org_id=?1 AND id=?2 AND message_id IS NULL"
+    ).bind(orgId, file.id).run();
+    if (deleted.meta?.changes) await deleteFileObject(env, orgId, file.id);
+    return fail("Thread not found or access revoked.", 404);
+  }
+  // Never return the regular signed media URL: every guest read uses the
+  // session and exact-resource grant checked by readExternalAttachment.
+  return json({ file: {
+    id: file.id, name: file.name, type: file.type, size: file.size,
+    width: file.width || null, height: file.height || null,
+  } }, 201);
+}
+
+async function readExternalAttachment(request, env, orgId, root, fileId, user) {
+  if (request.method !== "GET" || !/^f_[0-9a-f]{24}$/.test(fileId)) return fail("Not found.", 404);
+  const now = new Date().toISOString();
+  const row = await env.DB.prepare(`SELECT f.*
+    FROM message_files f
+    JOIN channel_messages m ON m.org_id=f.org_id AND m.id=f.message_id
+    JOIN channel_messages root ON root.org_id=m.org_id AND root.id=?2
+      AND root.parent_id IS NULL AND root.deleted_at IS NULL AND root.channel=m.channel
+    WHERE f.org_id=?1 AND f.id=?3 AND (m.id=root.id OR m.parent_id=root.id)
+      AND m.deleted_at IS NULL
+      AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
+        WHERE tombstone.org_id=root.org_id AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
+      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g
+        WHERE g.org_id=?1 AND g.resource_type='thread' AND g.resource_id=?2
+          AND g.recipient_github_id=?4 AND g.revoked_at IS NULL
+          AND (g.expires_at IS NULL OR g.expires_at>?5))
+      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?4)`)
+    .bind(orgId, root.id, fileId, user.github_id, now).first();
+  if (!row) return fail("Not found.", 404);
+
+  const headers = {
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; sandbox",
+    "cache-control": "no-store",
+    "accept-ranges": "bytes",
+    "content-type": row.type,
+    "content-disposition": "attachment; filename*=UTF-8''" + encodeURIComponent(row.name || "file").replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`),
+  };
+  const range = request.headers.has("if-range") ? null : byteRange(request.headers.get("range"), Number(row.size) || 0);
+  if (range === UNSATISFIABLE) {
+    return new Response(null, { status: 416, headers: { ...headers, "content-range": `bytes */${row.size}` } });
+  }
+  // Authorization is checked for every request, including each media range.
+  const object = await getFileObject(env, orgId, fileId, range ? { range } : undefined);
+  if (!object) return fail("Not found.", 404);
+  return new Response(object.body, {
+    status: range ? 206 : 200,
+    headers: {
+      ...headers,
+      "content-length": String(range ? range.length : row.size),
+      ...(range ? { "content-range": `bytes ${range.offset}-${range.offset + range.length - 1}/${row.size}` } : {}),
+    },
+  });
+}
+
+async function reactionRows(env, orgId, rootId, user, messageIds) {
+  if (!messageIds.length) return [];
+  const { results = [] } = await env.DB.prepare(`SELECT r.message_id, r.emoji, COUNT(*) AS count,
+      MAX(CASE WHEN r.login=?3 THEN 1 ELSE 0 END) AS mine
+    FROM message_reactions r
+    JOIN channel_messages m ON m.org_id=r.org_id AND m.id=r.message_id
+    JOIN channel_messages root ON root.org_id=m.org_id AND root.id=?2
+      AND root.parent_id IS NULL AND root.deleted_at IS NULL AND root.channel=m.channel
+    WHERE r.org_id=?1 AND (m.id=root.id OR m.parent_id=root.id) AND m.deleted_at IS NULL
+      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1
+        AND g.resource_type='thread' AND g.resource_id=?2 AND g.recipient_github_id=?4
+        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?5))
+      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?4)
+    GROUP BY r.message_id, r.emoji ORDER BY r.emoji`)
+    .bind(orgId, rootId, user.login, user.github_id, new Date().toISOString()).all();
+  return results;
+}
+
+async function toggleExternalReaction(env, orgId, rootId, user, input) {
+  if (!input || typeof input.messageId !== "string") return fail("messageId is required.", 400);
+  const emoji = cleanEmoji(input.emoji);
+  if (!emoji) return fail("That is not an emoji.", 400);
+  const now = new Date().toISOString();
+  const target = await env.DB.prepare(`SELECT m.id FROM channel_messages m
+    JOIN channel_messages root ON root.org_id=m.org_id AND root.id=?2
+      AND root.parent_id IS NULL AND root.deleted_at IS NULL AND root.channel=m.channel
+    WHERE m.org_id=?1 AND m.id=?3 AND (m.id=root.id OR m.parent_id=root.id) AND m.deleted_at IS NULL
+      AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone WHERE tombstone.org_id=root.org_id
+        AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
+      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1
+        AND g.resource_type='thread' AND g.resource_id=?2 AND g.recipient_github_id=?4
+        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?5))
+      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?4)`)
+    .bind(orgId, rootId, input.messageId, user.github_id, now).first();
+  if (!target) return fail("Thread not found or access revoked.", 404);
+  const had = await env.DB.prepare(
+    "SELECT 1 FROM message_reactions WHERE org_id=?1 AND message_id=?2 AND emoji=?3 AND login=?4"
+  ).bind(orgId, target.id, emoji, user.login).first();
+  if (had) {
+    await env.DB.prepare(`DELETE FROM message_reactions
+      WHERE org_id=?1 AND message_id=?2 AND emoji=?3 AND login=?4
+        AND EXISTS(SELECT 1 FROM channel_messages m JOIN channel_messages root
+          ON root.org_id=m.org_id AND root.id=?5 AND root.parent_id IS NULL
+            AND root.deleted_at IS NULL AND root.channel=m.channel
+          WHERE m.org_id=?1 AND m.id=?2 AND (m.id=root.id OR m.parent_id=root.id) AND m.deleted_at IS NULL)
+        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1
+          AND g.resource_type='thread' AND g.resource_id=?5 AND g.recipient_github_id=?6
+          AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?7))
+        AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?6)`)
+      .bind(orgId, target.id, emoji, user.login, rootId, user.github_id, now).run();
+  } else {
+    await env.DB.prepare(`INSERT INTO message_reactions (org_id,message_id,emoji,login,created_at)
+      SELECT ?1,?2,?3,?4,?7
+      WHERE EXISTS(SELECT 1 FROM channel_messages m JOIN channel_messages root
+        ON root.org_id=m.org_id AND root.id=?5 AND root.parent_id IS NULL
+          AND root.deleted_at IS NULL AND root.channel=m.channel
+        WHERE m.org_id=?1 AND m.id=?2 AND (m.id=root.id OR m.parent_id=root.id) AND m.deleted_at IS NULL)
+        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1
+          AND g.resource_type='thread' AND g.resource_id=?5 AND g.recipient_github_id=?6
+          AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?7))
+        AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?6)
+        AND (EXISTS(SELECT 1 FROM message_reactions WHERE message_id=?2 AND emoji=?3)
+          OR (SELECT COUNT(DISTINCT emoji) FROM message_reactions WHERE message_id=?2)<20)
+      ON CONFLICT DO NOTHING`)
+      .bind(orgId, target.id, emoji, user.login, rootId, user.github_id, now).run();
+  }
+  const permission = await externalResourcePermission(env.DB, {
+    orgId, resourceType: "thread", resourceId: rootId, githubId: user.github_id,
+  });
+  if (!permission) return fail("Thread not found or access revoked.", 404);
+  const reactions = await reactionRows(env, orgId, rootId, user, [target.id]);
+  return json({ messageId: target.id, reactions: reactions.map(({ emoji: name, count, mine }) => ({
+    emoji: name, count: Number(count), mine: Boolean(mine),
+  })) });
+}
+
 async function readThread(env, orgId, rootId, user) {
   const now = new Date().toISOString();
-  // One SELECT proves the active exact-resource grant and reads only the root
-  // plus its direct replies. It never traverses into the containing Room.
+  // The message query proves the exact active grant and never traverses the
+  // containing Room. Attachment/reaction queries repeat the ACL condition.
   const { results = [] } = await env.DB.prepare(`SELECT m.id, m.kind, m.body, m.author_login, m.created_at, m.edited_at,
       m.parent_id, u.name AS author_name, a.name AS agent_name, g.permission
     FROM channel_messages m
     JOIN hx_external_resource_grants g
-      ON g.org_id = m.org_id AND g.resource_type = 'thread' AND g.resource_id = ?3
-     AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL
-     AND (g.expires_at IS NULL OR g.expires_at > ?5)
-     AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id = m.org_id AND member.user_github_id = g.recipient_github_id)
-    JOIN channel_messages root ON root.org_id = m.org_id AND root.id = ?3
-      AND root.parent_id IS NULL AND root.deleted_at IS NULL AND root.channel = m.channel
-    LEFT JOIN users u ON u.login = m.author_login
-    LEFT JOIN custom_agents a ON 'agent:' || a.id = m.author_login AND a.org_id = m.org_id
-    WHERE m.org_id = ?2 AND (m.id = ?3 OR m.parent_id = ?3) AND m.deleted_at IS NULL
+      ON g.org_id=m.org_id AND g.resource_type='thread' AND g.resource_id=?3
+     AND g.recipient_github_id=?4 AND g.revoked_at IS NULL
+     AND (g.expires_at IS NULL OR g.expires_at>?5)
+     AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=m.org_id AND member.user_github_id=g.recipient_github_id)
+    JOIN channel_messages root ON root.org_id=m.org_id AND root.id=?3
+      AND root.parent_id IS NULL AND root.deleted_at IS NULL AND root.channel=m.channel
+    LEFT JOIN users u ON u.login=m.author_login
+    LEFT JOIN custom_agents a ON 'agent:' || a.id=m.author_login AND a.org_id=m.org_id
+    WHERE m.org_id=?2 AND (m.id=?3 OR m.parent_id=?3) AND m.deleted_at IS NULL
       AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
-        WHERE tombstone.org_id = root.org_id AND tombstone.channel = root.channel AND tombstone.deleted_at IS NOT NULL)
-    ORDER BY m.created_at, m.rowid`)
+        WHERE tombstone.org_id=root.org_id AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
+    ORDER BY m.created_at,m.rowid`)
     .bind(orgId, orgId, rootId, user.github_id, now).all();
   if (!results.length) return null;
+
+  const { results: fileRows = [] } = await env.DB.prepare(`SELECT f.id, f.name, f.type, f.size,
+      f.width, f.height, f.message_id
+    FROM message_files f
+    JOIN channel_messages m ON m.org_id=f.org_id AND m.id=f.message_id
+    JOIN channel_messages root ON root.org_id=m.org_id AND root.id=?2
+      AND root.parent_id IS NULL AND root.deleted_at IS NULL AND root.channel=m.channel
+    WHERE f.org_id=?1 AND (m.id=root.id OR m.parent_id=root.id) AND m.deleted_at IS NULL
+      AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
+        WHERE tombstone.org_id=root.org_id AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
+      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1
+        AND g.resource_type='thread' AND g.resource_id=?2 AND g.recipient_github_id=?3
+        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4))
+      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?3)
+    ORDER BY f.created_at,f.rowid`)
+    .bind(orgId, rootId, user.github_id, new Date().toISOString()).all();
+  const filesByMessage = new Map();
+  for (const file of fileRows) {
+    const files = filesByMessage.get(file.message_id) || [];
+    files.push({
+      id: file.id, name: file.name, type: file.type, size: file.size,
+      width: file.width || null, height: file.height || null,
+      url: `/external/threads/${encodeURIComponent(orgId)}/${encodeURIComponent(rootId)}/files/${file.id}`,
+    });
+    filesByMessage.set(file.message_id, files);
+  }
+  const reactions = await reactionRows(env, orgId, rootId, user, results.map(row => row.id));
+  const currentRoot = await rootFor(env.DB, orgId, rootId);
+  const currentPermission = currentRoot && await externalResourcePermission(env.DB, {
+    orgId, resourceType: "thread", resourceId: rootId, githubId: user.github_id,
+  });
+  if (!currentRoot || !["view", "edit"].includes(currentPermission)) return null;
+  const reactionsByMessage = new Map();
+  for (const reaction of reactions) {
+    const items = reactionsByMessage.get(reaction.message_id) || [];
+    items.push({ emoji: reaction.emoji, count: Number(reaction.count), mine: Boolean(reaction.mine) });
+    reactionsByMessage.set(reaction.message_id, items);
+  }
   const permission = results[0].permission;
   const messages = results.map(row => ({
     id: row.id,
@@ -327,8 +522,8 @@ async function readThread(env, orgId, rootId, user) {
     createdAt: row.created_at,
     editedAt: row.edited_at || null,
     parentId: row.parent_id || null,
-    files: [],
-    reactions: [],
+    files: filesByMessage.get(row.id) || [],
+    reactions: reactionsByMessage.get(row.id) || [],
   }));
   return {
     permission,
@@ -379,22 +574,37 @@ function deferExternalReply(ctx, env, input) {
   else return task;
 }
 
-async function insertReply(env, orgId, rootId, user, body) {
+async function insertReply(env, orgId, rootId, user, body, fileIds = []) {
   const id = keyId();
   const now = new Date().toISOString();
-  const put = await env.DB.prepare(`INSERT INTO channel_messages
+  const insert = env.DB.prepare(`INSERT INTO channel_messages
       (id, org_id, channel, author_login, kind, body, created_at, parent_id)
     SELECT ?1, root.org_id, root.channel, ?6, 'message', ?7, ?8, root.id
       FROM channel_messages root
-     WHERE root.org_id = ?2 AND root.id = ?3 AND root.parent_id IS NULL AND root.deleted_at IS NULL
+     WHERE root.org_id=?2 AND root.id=?3 AND root.parent_id IS NULL AND root.deleted_at IS NULL
        AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
-         WHERE tombstone.org_id = root.org_id AND tombstone.channel = root.channel AND tombstone.deleted_at IS NOT NULL)
+         WHERE tombstone.org_id=root.org_id AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
        AND ${activeGrantSql} AND EXISTS(
          SELECT 1 FROM hx_external_resource_grants g
-          WHERE g.org_id = ?2 AND g.resource_type = 'thread' AND g.resource_id = ?3
-            AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL AND g.permission = 'edit'
-            AND (g.expires_at IS NULL OR g.expires_at > ?5))`)
-    .bind(id, orgId, rootId, user.github_id, now, user.login, body, now).run();
+          WHERE g.org_id=?2 AND g.resource_type='thread' AND g.resource_id=?3
+            AND g.recipient_github_id=?4 AND g.revoked_at IS NULL AND g.permission='edit'
+            AND (g.expires_at IS NULL OR g.expires_at>?5))`)
+    .bind(id, orgId, rootId, user.github_id, now, user.login, body, now);
+  if (!fileIds.length) {
+    const put = await insert.run();
+    return put.meta?.changes ? id : null;
+  }
+  const marks = fileIds.map((_, index) => `?${index + 8}`).join(",");
+  const claim = env.DB.prepare(`UPDATE message_files SET message_id=?1
+    WHERE org_id=?2 AND channel=?6 AND uploader=?7 AND message_id IS NULL AND id IN (${marks})
+      AND EXISTS(SELECT 1 FROM channel_messages m WHERE m.org_id=?2 AND m.id=?1
+        AND m.channel=?6 AND m.author_login=?7 AND m.parent_id=?3 AND m.deleted_at IS NULL)
+      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
+        AND g.resource_type='thread' AND g.resource_id=?3 AND g.recipient_github_id=?4
+        AND g.permission='edit' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?5))
+      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=?4)`)
+    .bind(id, orgId, rootId, user.github_id, now, (await rootFor(env.DB, orgId, rootId))?.channel || "", user.login, ...fileIds);
+  const [put] = await env.DB.batch([insert, claim]);
   return put.meta?.changes ? id : null;
 }
 
@@ -508,6 +718,19 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
   const root = await rootFor(env.DB, orgId, rootId);
   if (!root) return fail("Thread not found.", 404);
 
+  if (parts.length === 5 && parts[4] === "files" && request.method === "POST") {
+    return uploadExternalAttachment(request, env, url, orgId, root, actor);
+  }
+  if (parts.length === 6 && parts[4] === "files") {
+    let fileId;
+    try { fileId = decodeURIComponent(parts[5]); } catch { return fail("Not found.", 404); }
+    return readExternalAttachment(request, env, orgId, root, fileId, actor.user);
+  }
+  if (parts.length === 5 && parts[4] === "reactions" && request.method === "POST") {
+    const input = await request.json().catch(() => null);
+    return toggleExternalReaction(env, orgId, rootId, actor.user, input);
+  }
+
   if (parts.length === 5 && parts[4] === "requests" && request.method === "GET") {
     const manageable = await manageableRoot(env.DB, orgId, rootId, actor.user);
     if (!manageable) return fail("Thread not found or cannot manage requests.", 404);
@@ -553,7 +776,15 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
     });
     if (!permission) return fail("Thread not found or access revoked.", 404);
     if (permission !== "edit") return fail("Ask the Thread owner to approve a send request.", 403);
-    const messageId = await insertReply(env, orgId, rootId, actor.user, body);
+    const requestedFiles = input.files === undefined ? [] : input.files;
+    if (!Array.isArray(requestedFiles) || requestedFiles.length > MAX_FILES_PER_MESSAGE) {
+      return fail(`A message can carry at most ${MAX_FILES_PER_MESSAGE} files.`, 400);
+    }
+    const uploads = await sendable(env.DB, {
+      orgId, key: root.channel, login: actor.user.login, ids: requestedFiles,
+    });
+    if (uploads.over) return fail(`A message can carry at most ${MAX_FILES_PER_MESSAGE} files.`, 400);
+    const messageId = await insertReply(env, orgId, rootId, actor.user, body, uploads.ids);
     if (!messageId) return fail("Thread not found or access revoked.", 404);
     const message = await getMessage(env.DB, orgId, messageId);
     if (message) deferExternalReply(ctx, env, { orgId, root, row: message, guest: actor });
