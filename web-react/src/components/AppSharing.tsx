@@ -4,7 +4,7 @@ import { useT } from '../utils/i18n'
 type Visibility = 'private' | 'workspace' | 'room'
 interface Access { visibility: Visibility; version: number; roomChannel?: string | null }
 interface Share { id: string; createdAt: string; expiresAt: string; revokedAt: string | null }
-export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase: string; orgId: string; sessionToken: string; appId: string }) {
+export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }: { httpBase: string; orgId: string; sessionToken: string; appId: string; appVersion: number }) {
   const t = useT()
   const [access, setAccess] = useState<Access | null>(null)
   const [rooms, setRooms] = useState<string[]>([])
@@ -48,7 +48,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
   const createShare = async () => {
     setBusy(true); setError(''); setCreatedUrl('')
     try {
-      const res = await fetch(`${httpBase}/apps/${appId}/public-shares`, { method: 'POST', headers, body: JSON.stringify({ orgId, version: access?.version && 0, accessVersion: access?.version, confirmDataExposure: consent, expiresInDays }) })
+      const res = await fetch(`${httpBase}/apps/${appId}/public-shares`, { method: 'POST', headers, body: JSON.stringify({ orgId, version: appVersion, accessVersion: access?.version, confirmDataExposure: consent, expiresInDays }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || String(res.status))
       setCreatedUrl(`${location.origin}/#/app-share/${data.token}`)
