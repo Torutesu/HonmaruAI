@@ -142,9 +142,19 @@ export async function purgeWorkspace(env, orgId, { budget = BATCHES_PER_RUN } = 
   }
   for (const table of await workspaceTables(env.DB)) {
     for (;;) {
-      if (left-- <= 0) return false;
+      // Empty tables do not consume a deletion batch. Once the work budget is
+      // spent, inspect the remaining tables without deleting; stop only when
+      // there is actual workspace data that must wait for the next run.
+      if (left <= 0) {
+        const remaining = await env.DB.prepare(`SELECT 1 FROM ${table} WHERE org_id = ?1 LIMIT 1`).bind(orgId).first();
+        if (remaining) return false;
+        break;
+      }
       const out = await env.DB.prepare(`DELETE FROM ${table} WHERE rowid IN (SELECT rowid FROM ${table} WHERE org_id = ?1 LIMIT ${BATCH})`).bind(orgId).run();
-      if (!(out?.meta?.changes >= BATCH)) break;
+      const changes = Number(out?.meta?.changes || 0);
+      if (!changes) break;
+      left -= 1;
+      if (changes < BATCH) break;
     }
   }
   // Its objects: files, videos, exports.
