@@ -1006,6 +1006,25 @@ test('assignment status is hidden from room readers without current grants to ea
  const mixed=await call(`${url}&messageId=foreign`,{headers:headers(mika)},f.over);expect(mixed.status).toBe(404);
 });
 
+test('queued direct Agent status stays private until the caller has the current Agent grant',async()=>{
+ const {agent}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
+ const {setMode}=await import('../src/harness/mode.js');
+ const {postMessage}=await import('../src/channels.js');
+ const {getSession}=await import('../src/db.js');
+ await setMode(env.DB,ORG,'harness','8801');
+ await env.DB.prepare("UPDATE hx_agent_profiles SET access='people',people='[\"mika\"]' WHERE org_id=?1 AND agent_id=?2").bind(ORG,agent.id).run();
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@hayao check this',agentRequest:{sessionKey:(await getSession(env.DB,mika)).token,agentIds:[agent.id],locale:'en'}});
+ const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>Response.json({results:JSON.parse(init.body).rowIds.map(rowId=>({rowId,status:'queued',answered:0}))})})};
+ const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:row.id})}`;
+ const authorized=await call(url,{headers:headers(mika)},{AGENT_RUNNER:runner});
+ expect((await authorized.json()).results).toEqual([{rowId:row.id,status:'queued',answered:0}]);
+ const hidden=await call(url,{headers:headers(kenji)},{AGENT_RUNNER:runner});
+ expect((await hidden.json()).results).toEqual([{rowId:row.id,status:'unknown',answered:0}]);
+ await send('PUT','/orgs/mode',toru,{orgId:ORG,mode:'simple'});
+ const hiddenSimple=await call(url,{headers:headers(kenji)},{AGENT_RUNNER:runner});
+ expect((await hiddenSimple.json()).results).toEqual([{rowId:row.id,status:'unknown',answered:0}]);
+});
+
 test('only the requester or agent manager can stop the observed assignment generation',async()=>{
  const f=await assignmentStatusFixture();
  const body={orgId:ORG,channel:'b:cafe',messageId:f.row.id,assignmentId:f.assignmentId,generation:1};
