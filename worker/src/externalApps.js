@@ -283,7 +283,7 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
       .bind(orgId, appId, parts[6]).first();
     if (!row || row.status !== "pending") return fail("Request not found or already decided.");
     if (input.decision === "reject") {
-      const result = await env.DB.prepare("UPDATE hx_external_app_send_requests SET status='rejected',decided_at=?1,decided_by=?2 WHERE org_id=?3 AND app_id=?4 AND id=?5 AND status='pending' AND ${sharingManagerWriteGuard('?3','?4','?2')}")
+      const result = await env.DB.prepare(`UPDATE hx_external_app_send_requests SET status='rejected',decided_at=?1,decided_by=?2 WHERE org_id=?3 AND app_id=?4 AND id=?5 AND status='pending' AND ${sharingManagerWriteGuard('?3','?4','?2')}`)
         .bind(new Date().toISOString(), actor.user.github_id, orgId, appId, row.id).run();
       return Number(result.meta?.changes || 0) ? json({ rejected: true }) : fail("Request not found or already decided.");
     }
@@ -293,9 +293,9 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
     const messageId = "xappr_" + crypto.randomUUID().replaceAll("-", "");
     const requestId = "xasr_" + row.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
     const writes = await env.DB.batch([
-      env.DB.prepare("INSERT OR IGNORE INTO hx_app_messages (org_id,app_id,table_id,row_id,author_id,request_id,body,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE EXISTS(SELECT 1 FROM hx_external_app_send_requests r WHERE r.org_id=?1 AND r.app_id=?2 AND r.id=?9 AND r.status='pending') AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1 AND g.resource_type='app' AND g.resource_id=?2 AND g.recipient_github_id=?5 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?5)) AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1) AND ${sharingManagerWriteGuard('?1','?2','?10')})")
+      env.DB.prepare(`INSERT OR IGNORE INTO hx_app_messages (org_id,app_id,table_id,row_id,author_id,request_id,body,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE EXISTS(SELECT 1 FROM hx_external_app_send_requests r WHERE r.org_id=?1 AND r.app_id=?2 AND r.id=?9 AND r.status='pending') AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1 AND g.resource_type='app' AND g.resource_id=?2 AND g.recipient_github_id=?5 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?5)) AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1) AND ${sharingManagerWriteGuard('?1','?2','?10')})`)
         .bind(orgId, appId, row.table_id, row.row_id, row.guest_github_id, requestId, row.body, at, row.id, actor.user.github_id),
-      env.DB.prepare("UPDATE hx_external_app_send_requests SET status='approved',decided_at=?1,decided_by=?2,message_id=?3 WHERE org_id=?4 AND app_id=?5 AND id=?6 AND status='pending' AND EXISTS(SELECT 1 FROM hx_app_messages m WHERE m.org_id=?4 AND m.app_id=?5 AND m.table_id=?7 AND m.row_id=?8 AND m.author_id=?9 AND m.request_id=?10) AND ${sharingManagerWriteGuard('?4','?5','?2')}")
+      env.DB.prepare(`UPDATE hx_external_app_send_requests SET status='approved',decided_at=?1,decided_by=?2,message_id=?3 WHERE org_id=?4 AND app_id=?5 AND id=?6 AND status='pending' AND EXISTS(SELECT 1 FROM hx_app_messages m WHERE m.org_id=?4 AND m.app_id=?5 AND m.table_id=?7 AND m.row_id=?8 AND m.author_id=?9 AND m.request_id=?10) AND ${sharingManagerWriteGuard('?4','?5','?2')}`)
         .bind(at, actor.user.github_id, messageId, orgId, appId, row.id, row.table_id, row.row_id, row.guest_github_id, requestId),
     ]);
     const approved = Number(writes?.[1]?.meta?.changes || 0);
@@ -327,7 +327,7 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
     const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join("");
     const tokenHash = await sha256Hex(token);
     const id = "xai_" + crypto.randomUUID().replaceAll("-", "");
-    const inserted = await env.DB.prepare("INSERT INTO hx_external_app_invites (id,org_id,resource_id,invited_email,permission,access_expires_at,token_hash,created_by,created_at,expires_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10 WHERE ${sharingManagerWriteGuard('?2','?3','?8')}")
+    const inserted = await env.DB.prepare(`INSERT INTO hx_external_app_invites (id,org_id,resource_id,invited_email,permission,access_expires_at,token_hash,created_by,created_at,expires_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10 WHERE ${sharingManagerWriteGuard('?2','?3','?8')}`)
       .bind(id, orgId, appId, email, permission, accessExpiresAt, tokenHash, actor.user.github_id, now, new Date(Date.now() + 7 * 86400000).toISOString()).run();
     if (!Number(inserted.meta?.changes || 0)) return fail("Sharing manager access was revoked.", 403);
     return json({ invite: { id, invitedEmail: email, permission, accessExpiresAt, token, inviteUrl: new URL("/#/external-invite/" + token, url.origin).toString() } }, 201);
@@ -345,17 +345,17 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
       if (!Number.isFinite(parsed) || parsed <= Date.now()) return json({ message: "Access expiry must be in the future." }, 400);
       expiresAt = new Date(parsed).toISOString();
     }
-    const result = await env.DB.prepare("UPDATE hx_external_resource_grants SET permission=?1,expires_at=?2 WHERE org_id=?3 AND resource_type='app' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?3 AND m.user_github_id=?5) AND ${sharingManagerWriteGuard('?3','?4','?6')}")
+    const result = await env.DB.prepare(`UPDATE hx_external_resource_grants SET permission=?1,expires_at=?2 WHERE org_id=?3 AND resource_type='app' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?3 AND m.user_github_id=?5) AND ${sharingManagerWriteGuard('?3','?4','?6')}`)
       .bind(input.permission, expiresAt, orgId, appId, githubId, actor.user.github_id).run();
     return Number(result.meta?.changes || 0) ? json({ updated: true }) : fail();
   }
   if (parts.length === 6 && request.method === "DELETE") {
-    const result = await env.DB.prepare("UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2 WHERE org_id=?3 AND resource_type='app' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL AND ${sharingManagerWriteGuard('?3','?4','?2')}")
+    const result = await env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2 WHERE org_id=?3 AND resource_type='app' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL AND ${sharingManagerWriteGuard('?3','?4','?2')}`)
       .bind(new Date().toISOString(), actor.user.github_id, orgId, appId, parts[5]).run();
     return Number(result.meta?.changes || 0) ? json({ revoked: true }) : fail();
   }
   if (parts.length === 7 && parts[5] === "invites" && request.method === "DELETE") {
-    const result = await env.DB.prepare("UPDATE hx_external_app_invites SET revoked_at=?1,revoked_by=?2 WHERE org_id=?3 AND resource_id=?4 AND id=?5 AND redeemed_at IS NULL AND revoked_at IS NULL AND ${sharingManagerWriteGuard('?3','?4','?2')}")
+    const result = await env.DB.prepare(`UPDATE hx_external_app_invites SET revoked_at=?1,revoked_by=?2 WHERE org_id=?3 AND resource_id=?4 AND id=?5 AND redeemed_at IS NULL AND revoked_at IS NULL AND ${sharingManagerWriteGuard('?3','?4','?2')}`)
       .bind(new Date().toISOString(), actor.user.github_id, orgId, appId, parts[6]).run();
     return Number(result.meta?.changes || 0) ? json({ revoked: true }) : fail();
   }
