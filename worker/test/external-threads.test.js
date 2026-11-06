@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { expect, test } from "vitest";
 import { createSession, upsertMembership, upsertUser } from "../src/db.js";
+import { hashPassword, newSaltHex } from "../src/auth.js";
 import { setMode } from "../src/harness/mode.js";
 import schemaSql from "../schema.sql?raw";
 import migrationsSql from "../migrations.sql?raw";
@@ -153,10 +154,17 @@ test("unregistered email invitations redeem after OTP proof without workspace me
   expect(await env.DB.prepare("SELECT github_id FROM users WHERE email=?1").bind(email).first()).toBeNull();
 
   const guestId = `email:${email}`;
-  await upsertUser(env.DB, { githubId: guestId, login: `u:${email}`, name: "New guest", avatarUrl: null, locale: "en" });
-  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3")
-    .bind(email,new Date().toISOString(),guestId).run();
-  const guestSession = await createSession(env.DB,guestId,"external-invite-test");
+  const codeValue = "382941";
+  const salt = newSaltHex();
+  const hash = await hashPassword(codeValue,salt);
+  const now = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO login_codes (email,code_hash,code_salt,expires_at,attempts,created_at) VALUES (?1,?2,?3,?4,0,?5)")
+    .bind(email,hash,salt,new Date(Date.now()+10*60_000).toISOString(),now).run();
+  const authenticated = await call("/auth/otp/verify", "", "POST", {email,code:codeValue,name:"New guest"});
+  expect(authenticated.status).toBe(200);
+  const authResult = await authenticated.json();
+  expect(authResult).toMatchObject({created:true,userId:guestId});
+  const guestSession = authResult.token;
   const redemption = await call("/external/invites/redeem",guestSession,"POST",{token});
   expect(redemption.status).toBe(200);
   expect(await redemption.json()).toMatchObject({ redeemed: true, resourceType: "thread", resourceId: rootId, permission: "edit" });
@@ -207,5 +215,9 @@ test("invitation email mismatch, expiry, revoke, and new workspace membership ca
   const oldCreated=new Date(Date.now()-120_000).toISOString();
   const oldExpiry=new Date(Date.now()-60_000).toISOString();
   await env.DB.prepare("UPDATE hx_external_thread_invites SET created_at=?1,expires_at=?2 WHERE id=?3").bind(oldCreated,oldExpiry,expired.invitationId).run();
-  expect((await call("/external/invites/redeem",inviteeSession,"POST",{token:expiredToken})).status).toBe(404);
+  const expiredId=`email:${expiredEmail}`;
+  await upsertUser(env.DB,{githubId:expiredId,login:`u:${expiredEmail}`,name:"Expired",avatarUrl:null,locale:"en"});
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3").bind(expiredEmail,new Date().toISOString(),expiredId).run();
+  const expiredSession=await createSession(env.DB,expiredId,"external-invite-test");
+  expect((await call("/external/invites/redeem",expiredSession,"POST",{token:expiredToken})).status).toBe(404);
 });
