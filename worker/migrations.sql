@@ -392,3 +392,5 @@ CREATE TRIGGER IF NOT EXISTS hx_app_commit_consume_approved_publish AFTER UPDATE
 CREATE TABLE IF NOT EXISTS hx_app_git_assets ( org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, app_version INTEGER NOT NULL CHECK(app_version>0), commit_sha TEXT NOT NULL, path TEXT NOT NULL, content_type TEXT NOT NULL, content_bytes BLOB NOT NULL, content_hash TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>=0), PRIMARY KEY(org_id,app_id,app_version,commit_sha,path) );
 CREATE INDEX IF NOT EXISTS hx_app_git_assets_commit ON hx_app_git_assets(org_id,app_id,commit_sha,app_version);
 CREATE TRIGGER IF NOT EXISTS hx_app_git_assets_immutable BEFORE UPDATE ON hx_app_git_assets BEGIN SELECT RAISE(ABORT,'Git commit assets are immutable'); END;
+
+ALTER TABLE hx_app_access ADD COLUMN room_channel TEXT;
