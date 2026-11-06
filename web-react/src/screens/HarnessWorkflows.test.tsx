@@ -688,9 +688,9 @@ test('refresh failure clears stale run details and reports the error',async()=>{
 test('manual setup focuses the builder instead of stacking the generation form above it',async()=>{
  await act(async()=>{tree=create(<HarnessWorkflows {...props}/>)});
  await act(async()=>{button('Set up an automation').props.onClick()});
- expect(tree.root.findAll(node=>node.props.className?.split(/\\s+/).includes('hx-generation'))).toHaveLength(1);
+ expect(tree.root.findAll(node=>node.props.className?.split(' ').includes('hx-generation'))).toHaveLength(1);
  await act(async()=>{button('Manual setup').props.onClick()});
- expect(tree.root.findAll(node=>node.props.className?.split(/\\s+/).includes('hx-generation'))).toHaveLength(0);
+ expect(tree.root.findAll(node=>node.props.className?.split(' ').includes('hx-generation'))).toHaveLength(0);
  expect(tree.root.findAllByProps({className:'hx-builder'})).toHaveLength(1);
 });
 test('workflow detail edits UTC run limits and displays usage with the saved revision',async()=>{
