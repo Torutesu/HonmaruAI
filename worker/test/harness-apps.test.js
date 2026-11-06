@@ -1566,7 +1566,7 @@ test.each(['http', 'mcp', 'home'])('app row read checks linked visibility again 
   let changed = false;
   const racing = new Proxy(env.DB, {get(db,key) {
     if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
-    return sql => { const statement=db.prepare(sql); if(!sql.startsWith('SELECT 1 AS allowed FROM hx_apps target'))return statement;
+    return sql => { const statement=db.prepare(sql); if(!sql.startsWith('SELECT target.id FROM hx_apps target'))return statement;
       return {bind(...args) {const bound=statement.bind(...args);return {async first() {
         if(!changed && args[1]===app.id) {changed=true;await db.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,linked.id).run();}
         return bound.first();
@@ -1591,7 +1591,7 @@ test('a changed primary table cannot authorize rows read from the previous table
   let changed=false;
   const racing=new Proxy(env.DB,{get(db,key){
     if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
-    return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT 1 AS allowed FROM hx_apps target'))return statement;
+    return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('SELECT target.id FROM hx_apps target'))return statement;
       return {bind(...args){const bound=statement.bind(...args);return {async first(){
         if(!changed){changed=true;await db.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(replacement.tableId,ORG,app.id).run()}
         return bound.first();
@@ -2031,4 +2031,39 @@ test('combined automation release rejects an oversized draft without changing th
  draft=await saveCustomRelease(env.DB,ORG,current,{action:'draft',version:current.version,html:'x'.repeat(MAX_PREVIEW_SOURCE)},'9101');
  result=await f.release({action:'publish',requestId:'guard_boundary_src01',version:draft.version,revision:alone.revision,includeSource:true});expect(result.saved).toBe(true);
  current=await getApp(env.DB,ORG,f.app.id);expect(current.definition.custom.published.length).toBe(MAX_PREVIEW_SOURCE);
+});
+
+test('anyone links publish only inline Custom Apps and exact revocation hides a read-only snapshot', async () => {
+  const {app}=await (await send('POST','/apps',mika,{orgId:ORG,template:'tracker',sample:false})).json();
+  const draftRes=await send('POST',`/apps/${app.id}/custom`,mika,{orgId:ORG,action:'draft',version:app.version,html:'<h1>Public read-only</h1>'});
+  expect(draftRes.status).toBe(200);
+  const draft=await draftRes.json();
+  const publishRes=await send('POST',`/apps/${app.id}/custom`,mika,{orgId:ORG,action:'publish',version:draft.version});
+  expect(publishRes.status).toBe(200);
+  const published=await publishRes.json();
+  const create=await send('POST',`/apps/${app.id}/public-shares`,mika,{
+    orgId:ORG,version:published.version,accessVersion:0,confirmDataExposure:true,expiresInDays:7
+  });
+  expect(create.status).toBe(201);
+  const issued=await create.json();
+  expect(issued.token).toMatch(/^app_[a-f0-9]{64}$/);
+  const inventory=await (await get(`/apps/${app.id}/public-shares?orgId=${ORG}`,mika)).json();
+  expect(inventory.shares[0]).not.toHaveProperty('token');
+  const publicRead=await call(`/app-shares/${issued.token}`);
+  expect(publicRead.status).toBe(200);
+  expect(publicRead.headers.get('cache-control')).toContain('no-store');
+  expect(await publicRead.json()).toMatchObject({app:{id:app.id,version:published.version},html:'<h1>Public read-only</h1>'});
+  expect((await call(`/app-shares/${issued.token}`,{method:'POST'})).status).toBe(404);
+  const revoked=await send('POST',`/apps/${app.id}/public-shares/${issued.share.id}/revoke`,mika,{orgId:ORG});
+  expect(revoked.status).toBe(200);
+  expect((await call(`/app-shares/${issued.token}`)).status).toBe(404);
+});
+
+test('Database Apps cannot receive an anyone link even with exposure confirmation', async () => {
+  const {app}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm',sample:false})).json();
+  const result=await send('POST',`/apps/${app.id}/public-shares`,mika,{
+    orgId:ORG,version:app.version,accessVersion:0,confirmDataExposure:true,expiresInDays:7
+  });
+  expect(result.status).toBe(409);
+  expect((await result.json()).message).toContain('published inline Custom App');
 });

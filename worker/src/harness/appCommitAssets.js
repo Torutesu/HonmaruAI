@@ -1,16 +1,17 @@
 const SHA=/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i;
 const ALLOWED_TYPES=new Set(['text/css','text/javascript','application/json','text/plain','image/svg+xml','image/png','image/jpeg','image/gif','image/webp','image/avif','image/x-icon','font/woff','font/woff2','font/ttf','font/otf']);
+const READ_CHUNK_BYTES=64*1024;
 
 function decodePathSegment(value){
   let decoded;try{decoded=decodeURIComponent(value);}catch{return null;}
   if(!decoded||decoded==='.'||decoded==='..'||decoded.includes('/')||decoded.includes('\\')||decoded.includes('\0')||!/^[A-Za-z0-9_.@+-]{1,100}$/.test(decoded))return null;
   return decoded;
 }
-function readBytes(value) {
-  if(value instanceof Uint8Array)return value;
-  if(value instanceof ArrayBuffer)return new Uint8Array(value);
-  if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);
-  return null;
+function readHexBytes(value) {
+  if(typeof value!=='string'||value.length%2!==0||!/^[0-9a-f]*$/i.test(value))return null;
+  const bytes=new Uint8Array(value.length/2);
+  for(let i=0;i<bytes.length;i++)bytes[i]=Number.parseInt(value.slice(i*2,i*2+2),16);
+  return bytes;
 }
 async function hash(bytes){
   const digest=await crypto.subtle.digest('SHA-256',bytes);
@@ -27,7 +28,7 @@ export async function servePublishedCommitAsset(request,env,url){
   if(!appId||!assetToken||!SHA.test(commitSha)||pathParts.some(part=>!part))return notFound();
   const path=pathParts.join('/');
   if(path.length>240||pathParts.length>12)return notFound();
-  const row=await env.DB.prepare(`SELECT f.content_type AS contentType,f.content_bytes AS contentBytes,f.content_hash AS contentHash,f.size
+  const row=await env.DB.prepare(`SELECT f.org_id AS orgId,f.app_version AS appVersion,f.content_type AS contentType,f.content_hash AS contentHash,f.size
     FROM hx_app_git_assets f
     JOIN hx_apps a ON a.org_id=f.org_id AND a.id=f.app_id
     JOIN hx_app_domains d ON d.org_id=a.org_id AND d.app_id=a.id AND d.status='active'
@@ -37,9 +38,21 @@ export async function servePublishedCommitAsset(request,env,url){
       AND f.app_version=CAST(json_extract(a.definition,'$.custom.publishedCommit.appVersion') AS INTEGER)
       AND json_extract(a.definition,'$.custom.publishedCommit.sha')=?2
       AND json_extract(a.definition,'$.custom.publishedCommit.assetToken')=?4`).bind(appId,commitSha,path,assetToken).first();
-  if(!row||!ALLOWED_TYPES.has(row.contentType)||row.size<0||row.size>1_500_000)return notFound();
-  const bytes=readBytes(row.contentBytes);
-  if(!bytes||bytes.length!==Number(row.size)||await hash(bytes)!==row.contentHash)return notFound();
+  if(!row||!ALLOWED_TYPES.has(row.contentType)||!Number.isSafeInteger(Number(row.size))||Number(row.size)<0||Number(row.size)>1_500_000)return notFound();
+
+  // Read bounded hex-text slices so D1 never returns the oversized asset row
+  // and its BLOB-to-JavaScript conversion remains consistent across runtimes.
+  const size=Number(row.size),bytes=new Uint8Array(size);
+  for(let offset=0;offset<size;offset+=READ_CHUNK_BYTES){
+    const length=Math.min(READ_CHUNK_BYTES,size-offset);
+    const part=await env.DB.prepare(`SELECT hex(substr(content_bytes,?4,?5)) AS contentHex FROM hx_app_git_assets
+      WHERE org_id=?6 AND app_id=?1 AND commit_sha=?2 AND path=?3 AND app_version=?7`)
+      .bind(appId,commitSha,path,offset+1,length,row.orgId,row.appVersion).first();
+    const chunk=readHexBytes(part?.contentHex);
+    if(!chunk||chunk.length!==length)return notFound();
+    bytes.set(chunk,offset);
+  }
+  if(await hash(bytes)!==row.contentHash)return notFound();
   return new Response(bytes,{headers:{
     'content-type':row.contentType,
     'content-security-policy':"default-src 'none'; sandbox",

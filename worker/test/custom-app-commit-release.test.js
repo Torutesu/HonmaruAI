@@ -136,7 +136,9 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   const badDefinition=JSON.parse(storedApp.definition);
   badDefinition.custom.publishedCommitApprovalId='missing-approval';
   await expect(env.DB.prepare('UPDATE hx_apps SET definition=?1 WHERE org_id=?2 AND id=?3')
-    .bind(JSON.stringify(badDefinition),ORG,app.id).run()).rejects.toThrow('Custom commit approval could not be consumed atomically');
+    .bind(JSON.stringify(badDefinition),ORG,app.id).run()).rejects.toThrow();
+  expect(await env.DB.prepare('SELECT definition FROM hx_apps WHERE org_id=?1 AND id=?2').bind(ORG,app.id).first())
+    .toEqual(storedApp);
   expect(await readReleaseState(app.id,approval.id)).toEqual(beforeBadPublish);
   const domain = new Date().toISOString();
   await env.DB.prepare(`INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at)
@@ -146,7 +148,7 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   const assetUrl = `/app-commit-assets/${app.id}/${commitSha}/${importedBody.commit.assetToken}/app.js`;
   const asset = await call(assetUrl);
   expect(asset.status).toBe(200);
-  expect(await asset.text()).toContain('dataset.ready');
+  expect(await asset.text()).toBe('document.body.dataset.ready="yes";');
   expect(asset.headers.get('x-content-type-options')).toBe('nosniff');
 
   const stopped = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'unpublish', version: importedBody.version + 1 });
@@ -231,7 +233,9 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
   expect(releaseState.consumedAt).toBeTruthy();
   const served=await call(`/app-commit-assets/${app.id}/${commitSha}/${data.commit.assetToken}/app.js`);
   expect(served.status).toBe(200);
-  expect((await served.arrayBuffer()).byteLength).toBe(1_500_000);
+  const servedBytes=new Uint8Array(await served.arrayBuffer());
+  expect(servedBytes.byteLength).toBe(1_500_000);
+  expect(servedBytes.every(byte=>byte===120)).toBe(true);
 });
 
 

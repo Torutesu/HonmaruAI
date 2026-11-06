@@ -27,9 +27,9 @@ beforeEach(async () => {
     schemaBatchSize += sql.length + 2;
   }
   if (schemaBatch.length) await env.DB.exec(`${schemaBatch.join("; ")};`.replace(/\n/g, " "));
-  for (const sql of workflowWebhookColumns) await env.DB.exec(sql);
+  for (const sql of workflowWebhookColumns) await execAlterIfMissing(env.DB, sql);
   // Keep the workflow budget columns in step with the production migration.
-  for (const sql of workflowBudgetColumns) await env.DB.exec(sql);
+  for (const sql of workflowBudgetColumns) await execAlterIfMissing(env.DB, sql);
   await env.DB.exec(workspaceFilesSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRuntimeSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRevisionSql.replace(/\n/g, " "));
@@ -37,6 +37,14 @@ beforeEach(async () => {
   // columns are already in the fresh tables, so only those statements count.
   for (const sql of migrationIndexes) await env.DB.exec(sql);
 });
+
+async function execAlterIfMissing(db, sql) {
+  const match = /^ALTER TABLE\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+ADD COLUMN\\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(sql);
+  if (!match) { await db.exec(sql); return; }
+  const [, table, column] = match;
+  const { results = [] } = await db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!results.some((row) => row.name === column)) await db.exec(sql);
+}
 
 const migrationIndexes = migrationsSql.split("\n").filter((line) => /^CREATE (UNIQUE )?INDEX IF NOT EXISTS/.test(line));
 const workflowWebhookColumns = [
