@@ -115,7 +115,7 @@ function externalInviteLink(env, token) {
   } catch { return null; }
 }
 function validInviteEmail(email) {
-  return typeof email === "string" && email.length <= 254 && /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(email);
+  return typeof email === "string" && email.length <= 254 && /^[^@\s]+@[^\s]+\.[^\s]+$/.test(email);
 }
 
 async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef = null) {
