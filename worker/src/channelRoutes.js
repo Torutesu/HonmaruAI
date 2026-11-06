@@ -2173,8 +2173,14 @@ export async function handleChannels(request, env, url, { route, after }) {
     const placesAgents = ctx.resolved.kind === "business" || ctx.resolved.kind === "group";
     const guest = placesAgents ? await isGuest(env.DB, orgId, ctx.who.session.github_id) : true;
     const here = placesAgents ? await channelAgents(env.DB, orgId, ctx.resolved.key) : [];
+    // Room placement is not an Agent grant for a restricted profile. Keep the
+    // legacy placement grant for unprofiled Agents, but never disclose a
+    // restricted Agent's identity through the room member details API.
+    const visibleHere = placesAgents
+      ? await filterResponders(env.DB, orgId, ctx.who.user.login, here, { channel: ctx.resolved.key })
+      : [];
     const nameOf = (login) => ctx.members.find((m) => m.login === login)?.name || null;
-    const custom = here.map((a) => ({
+    const custom = visibleHere.map((a) => ({
       kind: "custom", id: a.id, handle: a.handle, name: a.name, emoji: a.emoji, avatarUrl: a.avatarUrl || null, description: a.description, scope: a.scope,
       owner: nameOf(a.addedBy), canRemove: !guest && canInvite && (!managed || participant.role === 'admin' || roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role !== 'admin'),
       ...(managed ? {roomRole:roomState.members.find(m => m.kind === 'agent' && m.id === a.id)?.role || 'member',canChangeRole:Boolean(participant?.eligible && participant.role==='admin')} : {}),
