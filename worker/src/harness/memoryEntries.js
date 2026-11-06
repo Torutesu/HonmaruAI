@@ -170,7 +170,21 @@ export async function memoryReviewHistory(db, orgId, agentId, memoryId = null, {
   }
   const {results=[]}=await db.prepare(`SELECT h.*, COALESCE(u.name,u.login,h.reviewed_by) AS reviewer_name
     FROM hx_memory_review_audit h LEFT JOIN users u ON u.github_id=h.reviewed_by
-    WHERE h.org_id=?1 AND h.agent_id=?2 AND (?3 IS NULL OR h.memory_id=?3) AND h.channel=?4 AND EXISTS (SELECT 1 FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id WHERE m.org_id=h.org_id AND m.agent_id=h.agent_id AND m.id=h.memory_id AND (s.user_github_id IS NULL OR s.user_github_id=?7))
+    WHERE h.org_id=?1 AND h.agent_id=?2 AND (?3 IS NULL OR h.memory_id=?3)
+      AND (
+        EXISTS (SELECT 1 FROM hx_memory_review_audit_scope hs
+          WHERE hs.audit_id=h.id AND hs.org_id=h.org_id AND hs.agent_id=h.agent_id
+            AND ((hs.memory_scope='person' AND ?7!='' AND hs.user_github_id=?7)
+              OR (hs.memory_scope IN ('shared','conversation') AND hs.channel=?4)))
+        OR (
+          NOT EXISTS (SELECT 1 FROM hx_memory_review_audit_scope hs WHERE hs.audit_id=h.id)
+          AND h.channel=?4
+          AND EXISTS (SELECT 1 FROM hx_agent_memories m
+            LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+            WHERE m.org_id=h.org_id AND m.agent_id=h.agent_id AND m.id=h.memory_id
+              AND s.user_github_id IS NULL)
+        )
+      )
       AND (?5 IS NULL OR h.reviewed_at < ?5 OR (h.reviewed_at = ?5 AND h.id < ?6))
     ORDER BY h.reviewed_at DESC,h.id DESC LIMIT 51`)
     .bind(orgId,agentId,memoryId,channel,after?.[0]||null,after?.[1]||null,userId?String(userId):'').all();
