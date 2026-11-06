@@ -11,6 +11,7 @@ interface Props {
   /// The code a link carried here, and what the Worker says it opens.
   initialInviteCode?: string
   invite?: InvitePeek | null
+  hasExternalInvite?: boolean
   /// A code was sent; go and collect it.
   onCodeSent: (email: string, name: string, inviteCode: string) => void
   /// Signed in outright with a password.
@@ -25,7 +26,7 @@ interface Props {
 /// and it proves the address every notification this product sends depends on.
 /// A password still works — some deployments have no mail configured at all —
 /// so this screen carries both, with the code path in front.
-export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, invite, onCodeSent, onSignedIn, onBack, onSwitchMode }) => {
+export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, invite, hasExternalInvite = false, onCodeSent, onSignedIn, onBack, onSwitchMode }) => {
   const t = useT()
   const active=useRef(true)
   useEffect(()=>{active.current=true;return()=>{active.current=false}},[])
@@ -125,6 +126,7 @@ export const SignIn: React.FC<Props> = ({ httpBase, mode, initialInviteCode, inv
         <h1 className="display" style={{ fontSize: 28 }}>
           {mode === 'signup' ? t('Your AI needs an address.') : t('Welcome back.')}
         </h1>
+        {hasExternalInvite && <p className="lede">{t('Sign in with the invited email address to accept this Thread invitation.')}</p>}
         <p className="lede">
           {usePassword
             ? t('Email and password.')

@@ -120,7 +120,7 @@ function AccountApp() {
   if(dialogScope.current.host!==host || dialogScope.current.sessionToken!==sessionToken || dialogScope.current.userId!==userId || dialogScope.current.orgId!==orgId)
     dialogScope.current={host,sessionToken,userId,orgId,version:dialogScope.current.version+1}
   // Carried from the email screen to the code screen and nowhere else.
-  const [pending, setPending] = useState({ email: '', name: '', inviteCode: '' })
+  const [pending, setPending] = useState({ email: '', name: '', inviteCode: '', externalInviteToken: '' })
   // GitHub sign-in on the web, where the deployment offers it; and the
   // session that came back before it has a workspace to open.
   const [github, setGithub] = useState<GitHubWebConfig | null>(null)
@@ -128,6 +128,11 @@ function AccountApp() {
   const [pendingGithub, setPendingGithub] = useState<{ token: string; login: string } | null>(null)
   // An invitation the URL carried: what it opens, and a word once it did.
   const [invite, setInvite] = useState<InvitePeek | null>(null)
+  const [pendingExternalInviteToken, setPendingExternalInviteToken] = useState<string | null>(() => {
+    const match = location.hash.match(/^#\/external-invite\/([a-f0-9]{64})$/i)
+    if (match?.[1]) return match[1].toLowerCase()
+    try { return sessionStorage.getItem('externalThreadInviteToken') } catch { return null }
+  })
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null)
   useEffect(() => {
     let ignore = false
@@ -241,9 +246,46 @@ function AccountApp() {
   // code filled in and the team named. Read on arrival and on every change
   // of the hash, so a link pasted into a tab that is already open works too.
   const joinedRef = useRef<string | null>(null)
+  const externalInviteRef = useRef<string | null>(null)
   useEffect(() => {
     if (restoring) return
     const onHash = () => {
+      const external = location.hash.match(/^#\/external-invite\/([a-f0-9]{64})$/i)
+      if (external) {
+        const inviteToken = external[1].toLowerCase()
+        if (externalInviteRef.current === inviteToken) return
+        externalInviteRef.current = inviteToken
+        setPendingExternalInviteToken(inviteToken)
+        try { sessionStorage.setItem('externalThreadInviteToken', inviteToken) } catch { /* private mode */ }
+        setPending((current) => ({ ...current, externalInviteToken: inviteToken }))
+        const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
+        const token = localStorage.getItem('sessionToken')
+        const clear = () => { try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ } }
+        if (token && localStorage.getItem('userId')) {
+          fetch(`${base}/external/invites/redeem`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-session-token': token },
+            body: JSON.stringify({ token: inviteToken }),
+          })
+            .then(async (response) => {
+              const data = await response.json().catch(() => ({}))
+              clear()
+              setPendingExternalInviteToken(null)
+              setPending((current) => ({ ...current, externalInviteToken: '' }))
+              try { sessionStorage.removeItem('externalThreadInviteToken') } catch { /* private mode */ }
+              setNotice(response.ok
+                ? { text: data.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
+                : { text: t('This invitation is not valid, or has expired.'), error: true })
+            })
+            .catch(() => setNotice({ text: t('Could not verify this invitation yet. Open its link again after signing in.'), error: true }))
+          return
+        }
+        clear()
+        setPending((current) => ({ ...current, externalInviteToken: inviteToken }))
+        setMode('login')
+        setStage('auth')
+        return
+      }
       const { join } = parseRoute(location.hash)
       if (!join || joinedRef.current === join) return
       joinedRef.current = join
@@ -393,6 +435,37 @@ function AccountApp() {
   }
 
   finishAuthRef.current = finishAuth
+
+  const finishAuthWithExternalInvite = async (
+    token: string, uid: string, org: string, firstTime: boolean,
+    inviteNotice?: { message: string; error?: boolean }, alreadyRedeemed = false,
+  ) => {
+    let noticeAfter: { text: string; error?: boolean } | null = inviteNotice ? { text: inviteNotice.message, error: inviteNotice.error } : null
+    const inviteToken = pendingExternalInviteToken || pending.externalInviteToken
+    if (inviteToken && !alreadyRedeemed) {
+      try {
+        const response = await fetch(`${httpBase(host)}/external/invites/redeem`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-session-token': token },
+          body: JSON.stringify({ token: inviteToken }),
+        })
+        const data = await response.json().catch(() => ({}))
+        noticeAfter = response.ok
+          ? { text: data.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
+          : { text: t('This invitation is not valid, or has expired.'), error: true }
+      } catch {
+        noticeAfter = { text: t('Could not verify this invitation yet. Open its link again after signing in.'), error: true }
+      }
+    }
+    if (inviteToken) {
+      setPendingExternalInviteToken(null)
+      setPending((current) => ({ ...current, externalInviteToken: '' }))
+      try { sessionStorage.removeItem('externalThreadInviteToken') } catch { /* private mode */ }
+      try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ }
+    }
+    await finishAuth(token, uid, org, firstTime)
+    if (noticeAfter) setNotice(noticeAfter)
+  }
 
   /// Moving between the workspaces someone belongs to — their own, and any
   /// team they were invited into. Stored, because it is where they work.
@@ -602,10 +675,11 @@ function AccountApp() {
         mode={mode}
         initialInviteCode={pending.inviteCode}
         invite={invite}
+        hasExternalInvite={Boolean(pendingExternalInviteToken || pending.externalInviteToken)}
         onBack={() => setStage('welcome')}
         onSwitchMode={setMode}
-        onCodeSent={(email, name, inviteCode) => { setPending({ email, name, inviteCode }); setStage('otp') }}
-        onSignedIn={(token, uid, org) => { void finishAuth(token, uid, org, mode === 'signup') }}
+        onCodeSent={(email, name, inviteCode) => { setPending((current) => ({ ...current, email, name, inviteCode })); setStage('otp') }}
+        onSignedIn={(token, uid, org) => { void finishAuthWithExternalInvite(token, uid, org, mode === 'signup') }}
       />
     )
   }
@@ -617,8 +691,9 @@ function AccountApp() {
         email={pending.email}
         name={pending.name}
         inviteCode={pending.inviteCode}
+        externalInviteToken={pending.externalInviteToken || pendingExternalInviteToken || undefined}
         onBack={() => setStage('auth')}
-        onVerified={(token, uid, org, created) => { void finishAuth(token, uid, org, created) }}
+        onVerified={(token, uid, org, created, inviteNotice) => { void finishAuthWithExternalInvite(token, uid, org, created, inviteNotice, true) }}
       />
     )
   }

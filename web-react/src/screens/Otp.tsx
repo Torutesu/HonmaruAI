@@ -6,7 +6,8 @@ interface Props {
   email: string
   name: string
   inviteCode: string
-  onVerified: (token: string, userId: string, orgId: string, created: boolean) => void
+  externalInviteToken?: string
+  onVerified: (token: string, userId: string, orgId: string, created: boolean, inviteNotice?: { message: string; error?: boolean }) => void
   onBack: () => void
 }
 
@@ -19,7 +20,7 @@ const RESEND_SECONDS = 60
 /// and a paste both expect: typing advances, backspace retreats, and pasting
 /// the whole code from a mail app fills all six at once. Anything less and
 /// people retype a code they already have on the clipboard.
-export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVerified, onBack }) => {
+export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, externalInviteToken, onVerified, onBack }) => {
   const t = useT()
   const [digits, setDigits] = useState<string[]>(Array(LENGTH).fill(''))
   const [busy, setBusy] = useState(false)
@@ -62,7 +63,23 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, onVeri
         setPending({ token: data.token, uid: data.login || data.userId, org: data.orgId || '', created: Boolean(data.created) })
         return
       }
-      onVerified(data.token, data.login || data.userId, data.orgId || '', Boolean(data.created))
+      let inviteNotice: { message: string; error?: boolean } | undefined
+      if (externalInviteToken) {
+        try {
+          const redeemed = await fetch(`${httpBase}/external/invites/redeem`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-session-token': data.token },
+            body: JSON.stringify({ token: externalInviteToken }),
+          })
+          const result = await redeemed.json().catch(() => ({}))
+          inviteNotice = redeemed.ok
+            ? { message: result.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
+            : { message: t('This invitation is not valid, or has expired.'), error: true }
+        } catch {
+          inviteNotice = { message: t('Could not verify this invitation yet. Sign in and open its link again.'), error: true }
+        }
+      }
+      onVerified(data.token, data.login || data.userId, data.orgId || '', Boolean(data.created), inviteNotice)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally { setBusy(false) }
