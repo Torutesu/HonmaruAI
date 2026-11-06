@@ -4,6 +4,7 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { agentTalkFilter, agentsCalled, requestFor, parseAgentMarkdown, agentMarkdown, cleanAgentHandle, PRESETS, presetsFor, readResponse, forChat, MAX_CALLED } from "../src/customAgents.js";
+import { mayRunAgent } from "../src/harness/agents.js";
 
 // Agents a team writes for itself: "@hayao" answers in the thread under the
 // message that named it, as its Markdown instructions say. A team agent is
@@ -1081,4 +1082,23 @@ test('a file-thread question sends its saved text to the model and persists the 
  expect(response.status).toBe(201);
  const reply=await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id=? AND kind='agent' AND body LIKE '%540 yen%'").bind(ORG).first();
  expect(reply?.body).toBe('The saved menu lists a chestnut latte for 540 yen (version 1).');
+});
+
+
+test("workflow Agent fence uses current Agent state after a stale row was loaded", async () => {
+  const created = await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  expect(created.status).toBe(201);
+  const { agent } = await created.json();
+  await env.DB.prepare("UPDATE hx_agent_profiles SET access='everyone', people='[]' WHERE org_id=?1 AND agent_id=?2")
+    .bind(ORG, agent.id).run();
+  const stale = await env.DB.prepare("SELECT id, scope, owner_login FROM custom_agents WHERE org_id=?1 AND id=?2")
+    .bind(ORG, agent.id).first();
+  expect(stale).toMatchObject({ scope: "team" });
+  expect(await mayRunAgent(env.DB, ORG, stale, "8802")).toBe(true);
+
+  await env.DB.prepare("UPDATE custom_agents SET deleted_at=?1 WHERE org_id=?2 AND id=?3")
+    .bind(new Date().toISOString(), ORG, agent.id).run();
+  // authorizeAgent is called with the same object captured before the Agent
+  // was deleted. The live fence must reload current state and deny it.
+  expect(await mayRunAgent(env.DB, ORG, stale, "8802")).toBe(false);
 });

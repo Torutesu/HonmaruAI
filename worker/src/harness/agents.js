@@ -109,12 +109,20 @@ export async function mayAccessAgent(db, orgId, agent, login) {
 // Scheduled work rechecks the owner's membership and agent grant when it
 // executes, including after an approval or a delay.
 export async function mayRunAgent(db, orgId, row, userId) {
-  const user = await db.prepare(`SELECT u.login FROM users u JOIN memberships m
-    ON m.user_github_id = u.github_id WHERE m.org_id = ?1 AND u.github_id = ?2
-      AND LOWER(COALESCE(m.role,'guest')) != 'guest'`)
-    .bind(orgId, String(userId)).first();
-  return Boolean(user && await mayAccessAgent(db, orgId,
-    { id: row.id, scope: row.scope, ownerLogin: row.owner_login }, user.login));
+  // A workflow keeps the row it loaded when its Agent step began. That object
+  // can be stale by the next model/tool fence, so reload current Agent state
+  // here; deletion, provider conversion, scope changes and ownership changes
+  // must take effect for an in-flight run too.
+  if (!row?.id) return false;
+  const current = await db.prepare(`SELECT u.login, a.id, a.scope, a.owner_login
+    FROM custom_agents a
+    JOIN users u ON u.github_id = ?2
+    JOIN memberships m ON m.org_id = a.org_id AND m.user_github_id = u.github_id
+      AND LOWER(COALESCE(m.role,'guest')) != 'guest'
+    WHERE a.org_id = ?1 AND a.id = ?3 AND a.deleted_at IS NULL AND a.provider IS NULL`)
+    .bind(orgId, String(userId), String(row.id)).first();
+  return Boolean(current && await mayAccessAgent(db, orgId,
+    { id: current.id, scope: current.scope, ownerLogin: current.owner_login }, current.login));
 }
 
 /// The agents a message would call, as their profiles allow: someone not
