@@ -84,6 +84,12 @@
 .hx-run-detail > div { margin-top: 8px; font-size: 12px; }
 .hx-run-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; margin: 4px 0 8px; padding: 8px; background: var(--mist); border-radius: var(--radius-input); }
 .hx-run-detail time { font-size: 11px; color: var(--ash); }
+.hx-run-authorization { margin-top: 8px; border: 1px solid var(--line, var(--bone)); border-radius: var(--radius-input); padding: 8px 10px; font-size: 12px; }
+.hx-run-authorization > summary { cursor: pointer; color: var(--ash); }
+.hx-run-authorization ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.hx-run-authorization li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; align-items: baseline; gap: 4px 10px; overflow-wrap: anywhere; }
+.hx-run-authorization li time { grid-column: 1 / -1; color: var(--ash); }
+.hx-run-authorization code { font-family: var(--font-mono); font-size: 11px; }
 .hx-run-history-panel > summary { cursor: pointer; }
 .hx-run-history-tools { display: flex; justify-content: flex-end; margin: 10px 0 6px; }
 .hx-run-filter[aria-pressed="true"] { border-color: color-mix(in srgb, #d14343 48%, var(--hx-border, var(--bone))); color: var(--hx-danger, #c04444); background: color-mix(in srgb, #d14343 8%, var(--hx-surface, var(--signal-white))); }
