@@ -226,6 +226,16 @@ test("every statement in migrations.sql is one the deploy will actually run", ()
   expect(lines.every(line => line.trimEnd().endsWith(";"))).toBe(true);
 });
 
+test("the dictation preferences migration is a single executable deploy statement", async () => {
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  await env.DB.exec("DROP TABLE IF EXISTS hx_user_dictation_preferences");
+  const statement = deployStatements(migrationsSql).find(line => line.startsWith("CREATE TABLE IF NOT EXISTS hx_user_dictation_preferences "));
+  expect(statement).toBeTruthy();
+  await env.DB.exec(statement);
+  const { results } = await env.DB.prepare("PRAGMA table_info(hx_user_dictation_preferences)").all();
+  expect(results.map(column => column.name)).toEqual(["org_id", "user_id", "vocabulary", "corrections", "revision", "updated_at"]);
+});
+
 test("an existing complimentary grant survives adding provider synchronization columns", async () => {
   await env.DB.exec("DROP TABLE IF EXISTS complimentary_access");
   await env.DB.exec("CREATE TABLE complimentary_access (user_github_id TEXT PRIMARY KEY, granted_at TEXT NOT NULL)");
