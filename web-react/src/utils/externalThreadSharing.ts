@@ -18,7 +18,7 @@ export class ExternalThreadShareError extends Error {
 
 type Client = { httpBase: string; orgId: string; sessionToken: string }
 const pathFor = (api: Client, threadId: string) =>
-  `${api.httpBase.replace(/\\/$/, '')}/external/threads/${encodeURIComponent(api.orgId)}/${encodeURIComponent(threadId)}/shares`
+  `${api.httpBase.replace(/\/$/, '')}/external/threads/${encodeURIComponent(api.orgId)}/${encodeURIComponent(threadId)}/shares`
 
 async function request<T>(api: Client, threadId: string, method: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(pathFor(api, threadId), {
