@@ -100,6 +100,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [section, setSection] = useState<'profile' | 'connections' | 'skills' | 'memory' | 'followups'>('profile')
   const [editingProfile, setEditingProfile] = useState(false)
   const [accessDialog,setAccessDialog]=useState(false)
+  const [peerManaged,setPeerManaged]=useState(false)
   const [peerAccessDialog,setPeerAccessDialog]=useState(false)
   const loadAccess=useCallback(()=>api.agentMembers(agent.id),[api,agent.id])
   const loadPeerAccess=useCallback(()=>api.agentPeerMembers(agent.id),[api,agent.id])
@@ -137,6 +138,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
     setMemories(m.memories); setMemoryCursor(m.nextCursor); setSkills(s.skills); setAllSkills(all.skills)
   }), [api, act, agent.id, memoryChannel, memorySearch])
   useEffect(() => { load(); return () => { ++memoryLoad.current } }, [load])
+  useEffect(()=>{let current=true;setPeerManaged(false);if(agent.scope==='team'&&profile)void loadPeerAccess().then(state=>{if(current)setPeerManaged(state.managed&&state.scope==='team')}).catch(()=>{if(current)setPeerManaged(false)});return()=>{current=false}},[agent.scope,profile,loadPeerAccess])
   useEffect(()=>{
     if(typeof window==='undefined')return
     const refresh=(event:Event)=>{
@@ -200,7 +202,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         <dt><Icon name="lock" size={14}/>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' ? 'Only its owner' : profile.access === 'private' ? 'Owner and assigned members' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd>
       </dl>
       <button className="btn-text" onClick={()=>setAccessDialog(true)}>{t('Agent access')}</button>
-      {agent.scope==='team'&&<button className="btn-text" onClick={()=>setPeerAccessDialog(true)}>{t('Agent roles')}</button>}
+      {peerManaged&&<button className="btn-text" onClick={()=>setPeerAccessDialog(true)}>{t('Agent roles')}</button>}
       {canEdit && <button className="btn-text" onClick={() => setEditingProfile(v => !v)}>{t('Advanced settings')}</button>}
       {editingProfile && <>
       <div className="rows">
