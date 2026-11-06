@@ -111,15 +111,15 @@ export async function mayAccessAgent(db, orgId, agent, login) {
 export async function mayRunAgent(db, orgId, row, userId) {
   // A workflow keeps the row it loaded when its Agent step began. That object
   // can be stale by the next model/tool fence, so reload current Agent state
-  // here; deletion, provider conversion, scope changes and ownership changes
-  // must take effect for an in-flight run too.
+  // here; deletion, scope changes and ownership changes must take effect for
+  // an in-flight run too. Provider-specific callers apply their own fences.
   if (!row?.id) return false;
   const current = await db.prepare(`SELECT u.login, a.id, a.scope, a.owner_login
     FROM custom_agents a
     JOIN users u ON u.github_id = ?2
     JOIN memberships m ON m.org_id = a.org_id AND m.user_github_id = u.github_id
       AND LOWER(COALESCE(m.role,'guest')) != 'guest'
-    WHERE a.org_id = ?1 AND a.id = ?3 AND a.deleted_at IS NULL AND a.provider IS NULL`)
+    WHERE a.org_id = ?1 AND a.id = ?3 AND a.deleted_at IS NULL`)
     .bind(orgId, String(userId), String(row.id)).first();
   return Boolean(current && await mayAccessAgent(db, orgId,
     { id: current.id, scope: current.scope, ownerLogin: current.owner_login }, current.login));
