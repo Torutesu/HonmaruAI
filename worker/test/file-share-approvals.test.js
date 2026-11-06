@@ -66,6 +66,18 @@ test('Agent proposal creates no token; only the file owner can approve and the p
  expect((await env.DB.prepare("SELECT action FROM hx_file_share_audit ORDER BY id").all()).results.map(x=>x.action)).toEqual(['proposed','approved','revoked']);
 });
 
+test('the review queue returns authorized file snapshot metadata but never the token',async()=>{
+ const request=await propose(),published=await approve(request.requestId);
+ const token=published.url.split('/').at(-1);
+ const queueRequest=new Request('https://honmaru.test/hx/files/share-requests?orgId='+orgId);
+ const response=await handleFileShareRoutes(queueRequest,env,new URL(queueRequest.url),{orgId,userId:ownerId,login:'share-owner'});
+ const result=await response.json();
+ expect(result.requests[0]).toMatchObject({fileId,filePath:'report.txt',scope:'workspace',version:1,contentType:'text/plain',size:17,status:'approved',shareId:published.shareId});
+ expect(JSON.stringify(result)).not.toContain(token);
+ const hidden=await handleFileShareRoutes(queueRequest,env,new URL(queueRequest.url),{orgId,userId:otherId,login:'share-other'});
+ expect((await hidden.json()).requests).toEqual([]);
+});
+
 test('an approval is rejected after the file revision changes and no bearer token is created',async()=>{
  const request=await propose();
  expect((await upload(1,'new revision')).saved).toBe(true);
