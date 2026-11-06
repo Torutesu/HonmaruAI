@@ -42,7 +42,7 @@ test('redeems an external Thread invite with the session created by email OTP', 
     'email:guest@example.test',
     'personal',
     true,
-    { message: 'The Thread invitation was accepted.' },
+    { message: 'The Thread invitation was accepted.', externalThread: { orgId: 'team:one', rootId: 'root', permission: 'view' } },
   )
   act(() => tree.unmount())
 })

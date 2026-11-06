@@ -27,6 +27,8 @@ import {SharedThread} from './screens/SharedThread'
 import { pendingMcpRequest, clearMcpRequest } from './utils/mcpConsentRequest'
 import { McpConsent } from './components/McpConsent'
 import {PublicSkillShare} from './screens/PublicSkillShare'
+import {ExternalGuestThread} from './screens/ExternalGuestThread'
+import {externalThreadAccessFromInvite,externalThreadHash} from './utils/externalThreadInvite'
 
 // The web client talks to the backend over HTTP for auth and WebSocket for the
 // feed. We store one base host and derive both.
@@ -53,7 +55,7 @@ type AccountScope = { server: string; token: string; user: string | null; org: s
 function App() {
   const [hash,setHash]=useState(()=>location.hash)
   const [sidebarSessionWarning,setSidebarSessionWarning]=useState(false)
-  useEffect(()=>{const change=()=>setHash(location.hash);window.addEventListener('hashchange',change);return()=>window.removeEventListener('hashchange',change)},[])
+  useEffect(()=>{const change=()=>setHash(location.hash);window.addEventListener('hashchange',change);window.addEventListener('honmaru:session-ready',change);return()=>{window.removeEventListener('hashchange',change);window.removeEventListener('honmaru:session-ready',change)}},[])
   // Public pages can temporarily unmount AccountApp. Keep the session
   // boundary active there too so another tab's logout drops retained queues.
   useEffect(()=>{
@@ -77,6 +79,10 @@ function App() {
   if(hash.startsWith('#/shared/'))return <>{warning}<SharedThread key={hash} httpBase={httpBase(DEFAULT_HOST)} token={hash.slice('#/shared/'.length)}/></>
   const skillShare=hash.match(/^#\/skill-share\/(skl_[a-f0-9]{64})$/)
   if(skillShare)return <>{warning}<PublicSkillShare key={hash} httpBase={httpBase(DEFAULT_HOST)} token={skillShare[1]}/></>
+  const guestThread=hash.match(/^#\/external-thread\/([^/]+)\/([^/]+)$/)
+  let guestSession=''
+  try { guestSession=localStorage.getItem('sessionToken')||'' } catch { /* private mode */ }
+  if(guestThread&&guestSession)return <>{warning}<ExternalGuestThread key={hash} httpBase={httpBase(localStorage.getItem('host')||DEFAULT_HOST)} orgId={decodeURIComponent(guestThread[1])} rootId={decodeURIComponent(guestThread[2])} sessionToken={guestSession}/></>
   return <>{warning}<AccountApp/></>
 }
 
@@ -438,9 +444,10 @@ function AccountApp() {
 
   const finishAuthWithExternalInvite = async (
     token: string, uid: string, org: string, firstTime: boolean,
-    inviteNotice?: { message: string; error?: boolean }, alreadyRedeemed = false,
+    inviteNotice?: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' } }, alreadyRedeemed = false,
   ) => {
     let noticeAfter: { text: string; error?: boolean } | null = inviteNotice ? { text: inviteNotice.message, error: inviteNotice.error } : null
+    let redeemedThread: ReturnType<typeof externalThreadAccessFromInvite> = null
     const inviteToken = pendingExternalInviteToken || pending.externalInviteToken
     if (inviteToken && !alreadyRedeemed) {
       try {
@@ -450,6 +457,7 @@ function AccountApp() {
           body: JSON.stringify({ token: inviteToken }),
         })
         const data = await response.json().catch(() => ({}))
+        if (response.ok) redeemedThread = externalThreadAccessFromInvite(data)
         noticeAfter = response.ok
           ? { text: data.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
           : { text: t('This invitation is not valid, or has expired.'), error: true }
@@ -465,6 +473,11 @@ function AccountApp() {
     }
     await finishAuth(token, uid, org, firstTime)
     if (noticeAfter) setNotice(noticeAfter)
+    const externalThread = inviteNotice?.externalThread || redeemedThread
+    if (externalThread) {
+      history.replaceState(null, '', location.pathname + location.search + externalThreadHash(externalThread))
+      window.dispatchEvent(new Event('honmaru:session-ready'))
+    }
   }
 
   /// Moving between the workspaces someone belongs to — their own, and any

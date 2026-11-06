@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
+import {externalThreadAccessFromInvite} from '../utils/externalThreadInvite'
 
 interface Props {
   httpBase: string
@@ -7,7 +8,7 @@ interface Props {
   name: string
   inviteCode: string
   externalInviteToken?: string
-  onVerified: (token: string, userId: string, orgId: string, created: boolean, inviteNotice?: { message: string; error?: boolean }) => void
+  onVerified: (token: string, userId: string, orgId: string, created: boolean, inviteNotice?: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' } }) => void
   onBack: () => void
 }
 
@@ -63,7 +64,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, extern
         setPending({ token: data.token, uid: data.login || data.userId, org: data.orgId || '', created: Boolean(data.created) })
         return
       }
-      let inviteNotice: { message: string; error?: boolean } | undefined
+      let inviteNotice: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' } } | undefined
       if (externalInviteToken) {
         try {
           const redeemed = await fetch(`${httpBase}/external/invites/redeem`, {
@@ -73,7 +74,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, extern
           })
           const result = await redeemed.json().catch(() => ({}))
           inviteNotice = redeemed.ok
-            ? { message: result.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
+            ? { message: result.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.'), ...(externalThreadAccessFromInvite(result) ? { externalThread: externalThreadAccessFromInvite(result)! } : {}) }
             : { message: t('This invitation is not valid, or has expired.'), error: true }
         } catch {
           inviteNotice = { message: t('Could not verify this invitation yet. Sign in and open its link again.'), error: true }
