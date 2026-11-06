@@ -43,6 +43,7 @@ import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
+import { createAppShare, listAppShares, revokeAppShare, readAppShare } from "./appShares.js";
 import { fetchGitHubCommitSource, verifyGitHubCommitRef } from './githubCommitSource.js';
 import { commitPublishScope, customCommitState, requestCustomCommitApproval, reviewCustomCommitApproval, publishApprovedCustomCommit, hashSource } from './appCommitRelease.js';
 import { servePublishedCommitAsset } from './appCommitAssets.js';
@@ -111,7 +112,7 @@ const fail = (result) => json({ message: result.error, ...(result.fields ? { fie
 const importMayBeSaved = 'A copy may have been created. After access is restored, check the Skill list before retrying.';
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-commit-assets|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-commit-assets|app-generation-v2|app-shares|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId, options) {
@@ -185,6 +186,14 @@ export async function handleHarness(request, env, url, context = {}) {
   // A share token is a narrowly scoped bearer credential: GET exposes only
   // the sanitized template blueprint, while importing also requires a valid
   // member session in the destination workspace.
+  // Public Custom App links are bearer-scoped, read-only, version-bound and no-store.
+  if (parts[0] === 'app-shares') {
+    if (parts.length === 2 && request.method === 'GET') {
+      const result = await readAppShare(env.DB, parts[1]);
+      return result.error ? fail(result) : json(result);
+    }
+    return json({ message: 'This app link is unavailable.' }, 404);
+  }
   if (parts[0] === 'template-shares') {
     if (parts.length === 2 && request.method === 'GET') {
       const result = await readTemplateShare(env.DB, parts[1]);
