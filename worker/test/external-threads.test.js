@@ -12,6 +12,9 @@ const grantMigrations = [
   ...migrationLines.filter((line) => /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_resource_grants_/.test(line)),
   migrationLines.find((line) => /^CREATE TABLE IF NOT EXISTS hx_external_thread_send_requests /.test(line)),
   ...migrationLines.filter((line) => /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_thread_send_requests_/.test(line)),
+  migrationLines.find((line) => /^ALTER TABLE hx_external_resource_grants ADD COLUMN suspended_at /.test(line)),
+  migrationLines.find((line) => /^UPDATE hx_external_resource_grants SET suspended_at=/.test(line)),
+  migrationLines.find((line) => /^CREATE TRIGGER IF NOT EXISTS hx_external_resource_grants_suspend_on_membership /.test(line)),
 ].filter(Boolean);
 
 async function setup() {
@@ -25,7 +28,9 @@ async function setup() {
   };
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   if (!grantMigrations.some((line) => line.startsWith("CREATE TABLE IF NOT EXISTS hx_external_resource_grants ")) ||
-      !grantMigrations.some((line) => line.startsWith("CREATE TABLE IF NOT EXISTS hx_external_thread_send_requests "))) {
+      !grantMigrations.some((line) => line.startsWith("CREATE TABLE IF NOT EXISTS hx_external_thread_send_requests ")) ||
+      !grantMigrations.some((line) => line.startsWith("ALTER TABLE hx_external_resource_grants ADD COLUMN suspended_at ")) ||
+      !grantMigrations.some((line) => line.startsWith("CREATE TRIGGER IF NOT EXISTS hx_external_resource_grants_suspend_on_membership "))) {
     throw new Error("external Thread sharing migration is missing");
   }
   for (const sql of grantMigrations) await env.DB.exec(sql);
@@ -161,3 +166,25 @@ test("revocation and expiry are rechecked on every read and write; Simple stays 
   await setMode(env.DB, second.orgId, "simple", second.ids.owner);
   expect((await call(`/external/threads/${second.orgId}/${second.rootId}`, second.sessions.guest)).status).toBe(404);
 }, 15_000);
+
+
+test("membership transition pauses external Thread access, keeps the grant visible, and allows owner revoke", async () => {
+  const {orgId,rootId,ids,sessions}=await setup();
+  const email=`guest-${orgId.split("-").at(-1)}@example.test`;
+  const path=`/external/threads/${orgId}/${rootId}/shares`;
+  expect((await call(path,sessions.owner,"POST",{email,permission:"edit"})).status).toBe(201);
+  expect((await call(`/external/threads/${orgId}/${rootId}`,sessions.guest)).status).toBe(200);
+
+  await upsertMembership(env.DB,orgId,ids.guest,"member");
+  const listed=await call(path,sessions.owner);
+  expect((await listed.json()).shares).toMatchObject([{
+    recipient:{email},recipientIsMember:true,suspended:true,permission:"edit",
+  }]);
+  expect((await call(`/external/threads/${orgId}/${rootId}`,sessions.guest)).status).toBe(404);
+
+  expect((await call(path,sessions.owner,"DELETE",{email})).status).toBe(200);
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,ids.guest).run();
+  expect((await call(`/external/threads/${orgId}/${rootId}`,sessions.guest)).status).toBe(404);
+  expect(await env.DB.prepare("SELECT suspended_at,revoked_at FROM hx_external_resource_grants WHERE org_id=?1 AND resource_id=?2 AND recipient_github_id=?3").bind(orgId,rootId,ids.guest).first())
+    .toMatchObject({suspended_at:expect.any(String),revoked_at:expect.any(String)});
+});
