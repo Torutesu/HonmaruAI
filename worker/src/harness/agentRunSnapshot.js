@@ -1,6 +1,5 @@
 import {decorateAssignmentStatuses} from './agentAssignmentStatus.js';
 import {decorateAgentRequestStatuses} from '../agentRequestDispatch.js';
-import {mayAccessAgent} from './agents.js';
 
 async function restrictedRunRows(db,orgId,rowIds,viewer) {
   if(viewer.canManage)return new Set();
@@ -43,13 +42,24 @@ async function restrictedRunRows(db,orgId,rowIds,viewer) {
   const canAccess=new Map();
   for(let offset=0;offset<agentIds.length;offset+=800) {
     const batch=agentIds.slice(offset,offset+800);
-    const {results:rows}=await db.prepare(`SELECT id,scope,owner_login FROM custom_agents
-      WHERE org_id=?1 AND id IN (${batch.map((_,i)=>`?${i+2}`).join(',')}) AND deleted_at IS NULL`).bind(orgId,...batch).all();
-    const byId=new Map(rows.map(row=>[row.id,row]));
-    await Promise.all(batch.map(async id=>{
-      const agent=byId.get(id);
-      canAccess.set(id,Boolean(agent&&await mayAccessAgent(db,orgId,{...agent,ownerLogin:agent.owner_login},viewer.login)));
-    }));
+    const {results:rows}=await db.prepare(`SELECT a.id,
+      CASE
+        WHEN a.scope='team' AND EXISTS(
+          SELECT 1 FROM hx_agent_members r
+          JOIN hx_agent_profiles rp ON rp.org_id=r.org_id AND rp.agent_id=r.agent_id
+          JOIN users u ON u.github_id=r.user_id AND u.login=?2
+          JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.user_id
+            AND m.created_at=r.member_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
+          WHERE r.org_id=a.org_id AND r.agent_id=a.id AND a.provider IS NULL
+        ) THEN 1
+        WHEN a.scope='personal' AND a.owner_login!=?2 THEN 0
+        WHEN p.agent_id IS NULL OR p.access='everyone' OR a.owner_login=?2 THEN 1
+        WHEN p.access='people' AND EXISTS(SELECT 1 FROM json_each(p.people) WHERE value=?2) THEN 1
+        ELSE 0
+      END AS can_access
+      FROM custom_agents a LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
+      WHERE a.org_id=?1 AND a.id IN (${batch.map((_,i)=>`?${i+3}`).join(',')}) AND a.deleted_at IS NULL`).bind(orgId,viewer.login||'',...batch).all();
+    for(const row of rows)canAccess.set(row.id,Boolean(row.can_access));
   }
   for(const [rowId,ids] of agentsByRow) if([...ids].some(id=>!canAccess.get(id)))hidden.add(rowId);
   return hidden;
