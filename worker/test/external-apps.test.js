@@ -396,6 +396,7 @@ test("sharing mutations recheck manager membership at commit after concurrent re
 
   await restoreManager();
   const approvedRequest = await call(`/external/apps/${f.orgId}/${f.app.id}/conversation`, f.sessions.guest, "POST", {
+    tableId: f.linkedTable.id, rowId: f.linkedRowId,
     body: "Message must not be approved after manager removal.", requestSend: true,
   });
   expect(approvedRequest.status).toBe(201);
