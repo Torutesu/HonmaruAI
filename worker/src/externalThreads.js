@@ -1,4 +1,5 @@
 import { getSession, getUserByGithubId, isMember } from "./db.js";
+import { handleExternalFiles } from "./externalFiles.js";
 import { getMode } from "./harness/mode.js";
 import { resolveChannel } from "./channels.js";
 import {
@@ -241,6 +242,7 @@ async function decideRequest(env, orgId, rootId, id, owner, action) {
 }
 
 export async function handleExternalThreads(request, env, url) {
+  if (url.pathname.startsWith("/external/files/")) return handleExternalFiles(request, env, url);
   if (!url.pathname.startsWith("/external/threads/")) return null;
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts.length < 4) return fail("Not found.", 404);
