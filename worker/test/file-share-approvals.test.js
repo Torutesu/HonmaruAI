@@ -94,3 +94,17 @@ test('an approved old snapshot stops serving as soon as its file revision change
  expect((await upload(1,'changed')).saved).toBe(true);
  expect((await publicGet(token)).status).toBe(404);
 });
+
+test('public snapshot content disposition preserves a sanitized Unicode basename',async()=>{
+ await env.DB.prepare('UPDATE hx_workspace_files SET path=? WHERE org_id=? AND id=?')
+  .bind('nested/日本語 "unsafe".txt',orgId,fileId).run();
+ const request=await propose(),published=await approve(request.requestId),token=published.url.split('/').at(-1);
+ const response=await publicGet(token),header=response.headers.get('content-disposition');
+ expect(header).toContain('filename*=');
+ const encoded=header.match(/filename\*=UTF-8''([^;]+)/)?.[1];
+ expect(encoded).toBeTruthy();
+ expect(decodeURIComponent(encoded)).toBe('日本語 _unsafe_.txt');
+ expect(header).not.toContain('nested/');
+ expect(header).not.toContain('"unsafe"');
+ expect(header).not.toMatch(/[\r\n]/);
+});
