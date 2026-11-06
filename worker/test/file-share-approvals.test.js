@@ -108,3 +108,21 @@ test('public snapshot content disposition preserves a sanitized Unicode basename
  expect(header).not.toContain('"unsafe"');
  expect(header).not.toMatch(/[\r\n]/);
 });
+
+test('owner can decline a pending request atomically and no token or link is created',async()=>{
+ const request=await propose();
+ const url='https://honmaru.test/hx/files/share-requests/decline?orgId='+orgId;
+ const asOther=new Request(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({requestId:request.requestId})});
+ const denied=await handleFileShareRoutes(asOther,env,new URL(url),{orgId,userId:otherId,login:'share-other'});
+ expect(denied.status).toBe(403);
+ expect((await env.DB.prepare('SELECT status FROM hx_file_share_requests WHERE id=?').bind(request.requestId).first()).status).toBe('pending');
+ const asOwner=new Request(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({requestId:request.requestId})});
+ const declined=await handleFileShareRoutes(asOwner,env,new URL(url),{orgId,userId:ownerId,login:'share-owner'});
+ expect(declined.status).toBe(200);
+ expect(await declined.json()).toMatchObject({requestId:request.requestId,status:'declined'});
+ expect((await env.DB.prepare('SELECT status FROM hx_file_share_requests WHERE id=?').bind(request.requestId).first()).status).toBe('declined');
+ expect((await env.DB.prepare('SELECT * FROM hx_public_file_shares').all()).results).toHaveLength(0);
+ expect((await env.DB.prepare('SELECT action FROM hx_file_share_audit WHERE request_id=?').bind(request.requestId).all()).results.map(x=>x.action)).toEqual(['proposed','declined']);
+ const repeat=await handleFileShareRoutes(asOwner,env,new URL(url),{orgId,userId:ownerId,login:'share-owner'});
+ expect(repeat.status).toBe(404);
+});
