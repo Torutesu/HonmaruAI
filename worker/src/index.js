@@ -526,8 +526,9 @@ async function handle(request, env, url, ctx) {
     if (automated) return automated;
 
     // Explicitly scoped outside-collaborator Thread endpoints. They do not
-    // enter the workspace channel router or trigger agent dispatch.
-    const externalThread = await handleExternalThreads(request, env, url);
+    // enter general channel routing; approved sends use the shared message
+    // delivery path and may invoke only an explicit @AI request.
+    const externalThread = await handleExternalThreads(request, env, url, ctx);
     if (externalThread) return externalThread;
 
     // Channels: talking, and turning what was said into a decision through
