@@ -391,5 +391,4 @@ CREATE TABLE IF NOT EXISTS hx_memory_review_audit_scope (
   channel TEXT NOT NULL DEFAULT '',
   user_github_id TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_scope_owner
-  ON hx_memory_review_audit_scope(org_id,agent_id,user_github_id,channel,audit_id);
+CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_scope_owner ON hx_memory_review_audit_scope(org_id,agent_id,user_github_id,channel,audit_id);
