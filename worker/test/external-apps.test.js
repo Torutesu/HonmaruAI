@@ -51,7 +51,7 @@ async function setup() {
   const primaryRowId = `row-primary-${id}`;
   const linkedRowId = `row-linked-${id}`;
   await env.DB.prepare("INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,created_at,updated_at) VALUES (?1,?2,?3,?4,0,?5,?6,?6)")
-    .bind(primaryRowId, app.table_id, orgId, JSON.stringify({ title: "visible row", removed_column: "must not leak" }), ownerId, now).run();
+    .bind(primaryRowId, app.tableId, orgId, JSON.stringify({ title: "visible row", removed_column: "must not leak" }), ownerId, now).run();
   await env.DB.prepare("INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,created_at,updated_at) VALUES (?1,?2,?3,?4,0,?5,?6,?6)")
     .bind(linkedRowId, linked.table.id, orgId, JSON.stringify({ secret: "linked row" }), ownerId, now).run();
   const other = await createApp(env.DB, { orgId, by: ownerId, name: "Other app", columns: [{ id: "name", name: "Name", type: "text" }], definition: {} });
@@ -80,7 +80,7 @@ test("an exact App grant exposes only its primary and linked table rows", async 
   expect(await app.json()).toMatchObject({ app: { id: f.app.id, name: "Shared app" } });
   expect((await call(`/external/apps/${f.orgId}/${f.otherApp.id}`, f.sessions.guest)).status).toBe(404);
 
-  const primary = await call(`/external/apps/${f.orgId}/${f.app.id}/tables/${f.app.table_id}/rows`, f.sessions.guest);
+  const primary = await call(`/external/apps/${f.orgId}/${f.app.id}/tables/${f.app.tableId}/rows`, f.sessions.guest);
   expect(primary.status).toBe(200);
   const primaryBody = await primary.json();
   expect(primaryBody.rows).toMatchObject([{ id: f.primaryRowId, data: { title: "visible row" } }]);
@@ -137,7 +137,7 @@ test("expired App grants deny metadata, row lists, and conversation reads", asyn
     .bind("2020-01-01T00:00:00.000Z", "2020-01-02T00:00:00.000Z", grant.id).run();
 
   const appPath = `/external/apps/${f.orgId}/${f.app.id}`;
-  const rowsPath = `${appPath}/tables/${f.app.table_id}/rows`;
+  const rowsPath = `${appPath}/tables/${f.app.tableId}/rows`;
   const conversationPath = `${appPath}/conversation`;
   expect((await call(appPath, f.sessions.guest)).status).toBe(404);
   expect((await call(rowsPath, f.sessions.guest)).status).toBe(404);
