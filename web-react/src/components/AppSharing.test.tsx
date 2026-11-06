@@ -25,7 +25,7 @@ test('readers cannot change audience and do not request link inventory', async (
   const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify({ access: { visibility: 'workspace', version: 0 }, canEdit: false, canManage: false, canPublicShare: true, rooms: [] })))
   vi.stubGlobal('fetch', fetcher)
   await act(async () => { tree = create(<AppSharing {...props} />) })
-  expect(tree!.root.findByType('select').props.disabled).toBe(true)
+  expect(tree!.root.findAllByType('select')[0].props.disabled).toBe(true)
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
 
