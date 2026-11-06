@@ -266,3 +266,26 @@ test("revoking an older invitation leaves a later explicit re-share active", asy
     .toMatchObject({id:active.id});
   expect((await call(`${path.replace("/external/threads/","/external/threads/")}`,guestSession)).status).toBe(200);
 });
+
+
+test("concurrent redemption and revoke leave no live Thread grant", async () => {
+  const {orgId,rootId,ids,sessions}=await setup();
+  const email=`guest-${orgId.split("-").at(-1)}@example.test`;
+  const path=`/external/threads/${orgId}/${rootId}/invites`;
+  const created=await call(path,sessions.owner,"POST",{email,permission:"edit"});
+  expect(created.status).toBe(201);
+  const invite=await created.json();
+  const token=invite.inviteUrl?.match(/external-invite\\/([a-f0-9]{64})$/i)?.[1]||invite.token;
+  const [redemption,revocation]=await Promise.all([
+    call("/external/invites/redeem",sessions.guest,"POST",{token}),
+    call(`${path}/${invite.invitationId}`,sessions.owner,"DELETE"),
+  ]);
+  expect([200,404]).toContain(redemption.status);
+  expect(revocation.status).toBe(200);
+  expect(await env.DB.prepare("SELECT revoked_at FROM hx_external_thread_invites WHERE id=?1").bind(invite.invitationId).first())
+    .toMatchObject({revoked_at:expect.any(String)});
+  expect(await env.DB.prepare(`SELECT count(*) AS n FROM hx_external_resource_grants
+    WHERE org_id=?1 AND resource_type='thread' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL`)
+    .bind(orgId,rootId,ids.guest).first()).toMatchObject({n:0});
+  expect((await call(`/external/threads/${orgId}/${rootId}`,sessions.guest)).status).toBe(404);
+});
