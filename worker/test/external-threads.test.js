@@ -168,6 +168,29 @@ test("sharing authority is resource-owner/Admin scoped and grants do not cross w
     .toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
 });
 
+test("share creation rechecks active workspace membership at the write boundary", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const email = `guest-${orgId.split("-").at(-1)}@example.test`;
+  let removed = false;
+  const racingDb = new Proxy(env.DB, { get(db, key) {
+    if (key === "batch") return async statements => {
+      if (!removed) {
+        removed = true;
+        await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2")
+          .bind(orgId, ids.owner).run();
+      }
+      return db.batch(statements);
+    };
+    return typeof db[key] === "function" ? db[key].bind(db) : db[key];
+  }});
+  const response = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST",
+    { email, permission: "edit" }, { DB: racingDb });
+  expect(response.status).toBe(404);
+  expect(await env.DB.prepare(`SELECT id FROM hx_external_resource_grants
+    WHERE org_id=?1 AND resource_type='thread' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL`)
+    .bind(orgId, rootId, ids.guest).first()).toBeNull();
+});
+
 test("revocation and expiry are rechecked on every read and write; Simple stays closed", async () => {
   const { orgId, rootId, sessions } = await setup();
   const email = `guest-${orgId.split("-").at(-1)}@example.test`;
