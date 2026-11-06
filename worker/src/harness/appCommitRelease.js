@@ -112,7 +112,8 @@ export async function publishApprovedCustomCommit(db, orgId, app, input, by, sco
   } };
   const table = await getTable(db, orgId, app.tableId);
   if (!table) return err('The app data is unavailable.', 503);
-  const result = await db.batch([
+  let result;
+  try { result = await db.batch([
     db.prepare(`UPDATE hx_apps SET definition=?1,version=?2,updated_at=?3
       WHERE org_id=?4 AND id=?5 AND version=?6
         AND json_extract(definition,'$.custom.draftCommit.sha')=?7
@@ -120,7 +121,7 @@ export async function publishApprovedCustomCommit(db, orgId, app, input, by, sco
         AND EXISTS(SELECT 1 FROM hx_app_commit_approvals a
           WHERE a.org_id=?4 AND a.app_id=?5 AND a.id=?9 AND a.app_version=?6
             AND a.commit_sha=?7 AND a.source_hash=?8 AND a.status='approved' AND a.consumed_at IS NULL
-            AND a.requested_by<>?10 AND a.visibility_scope=?11 AND a.access_version=?12 AND a.domain_scope=?13
+            AND a.reviewer_id<>?10 AND a.visibility_scope=?11 AND a.access_version=?12 AND a.domain_scope=?13
             AND EXISTS(SELECT 1 FROM memberships r WHERE r.org_id=a.org_id AND r.user_github_id=a.reviewer_id AND r.role IN ('owner','admin'))
             AND EXISTS(SELECT 1 FROM memberships p WHERE p.org_id=a.org_id AND p.user_github_id=?10 AND p.role<>'guest'))
         AND (created_by=?10 OR EXISTS(SELECT 1 FROM memberships admin WHERE admin.org_id=?4 AND admin.user_github_id=?10 AND admin.role IN ('owner','admin')))
@@ -128,17 +129,17 @@ export async function publishApprovedCustomCommit(db, orgId, app, input, by, sco
         AND COALESCE((SELECT version FROM hx_app_access WHERE org_id=?4 AND app_id=?5),0)=?12
         AND COALESCE((SELECT hostname||'#'||status FROM hx_app_domains WHERE org_id=?4 AND app_id=?5),'')=?13`)
       .bind(JSON.stringify(definition),version,at,orgId,app.id,app.version,commit.sha,commit.sourceHash,approvalId,String(by),scope.visibility,scope.accessVersion,scope.domainScope),
-    db.prepare(`UPDATE hx_app_commit_approvals SET status='published',consumed_at=?1,reviewed_at=COALESCE(reviewed_at,?1)
-      WHERE org_id=?2 AND app_id=?3 AND id=?4 AND status='approved' AND consumed_at IS NULL
-        AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?3 AND a.version=?5
-          AND json_extract(a.definition,'$.custom.publishedCommitApprovalId')=?4)`)
-      .bind(at,orgId,app.id,approvalId,version),
     db.prepare(`INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at)
       SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?1 AND a.version=?3
         AND json_extract(a.definition,'$.custom.publishedCommitApprovalId')=?8)`)
       .bind(app.id,orgId,version,JSON.stringify({...definition,name:app.name,columns:table.columns}),`GitHub commit: ${commit.owner}/${commit.repo}@${commit.sha}`,String(by),at,approvalId),
-  ]);
-  if (!result[0]?.meta?.changes || !result[1]?.meta?.changes) return err('The commit approval is stale, revoked, or no longer matches the publish scope.', 409);
+  ]); } catch (error) {
+    if (String(error?.message || error).includes('Custom commit approval could not be consumed atomically')) {
+      return err('The commit approval is stale, revoked, or no longer matches the publish scope.', 409);
+    }
+    throw error;
+  }
+  if (!result[0]?.meta?.changes) return err('The commit approval is stale, revoked, or no longer matches the publish scope.', 409);
   return { saved: true, version, commit, approvalId };
 }
 
