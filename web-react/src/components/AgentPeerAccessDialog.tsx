@@ -21,7 +21,7 @@ export function AgentPeerAccessDialog({load,save,onClose}:{load:()=>Promise<Agen
   catch(e){const message=e instanceof Error?e.message:String(e);if((typeof e==='object'&&e!==null&&'status'in e&&(e as {status?:unknown}).status===409)||message.includes('Agent access changed'))setNeedsReload(true);setError(message)}
   finally{pending.current=false;setBusy(false)}
  }
- const allowed=!!data?.canManage&&data.scope==='team'
+ const allowed=!!data?.managed&&!!data.canManage&&data.scope==='team'
  return <Dialog title={t('Agent roles')} className="hx-agent-access" onClose={()=>{if(!pending.current)onClose()}} footer={<>
   <button className="dlg-btn" disabled={busy} onClick={()=>void reload()}>{t('Reload')}</button>
   <button className="dlg-btn" disabled={busy} onClick={onClose}>{t('Close')}</button>
@@ -29,7 +29,7 @@ export function AgentPeerAccessDialog({load,save,onClose}:{load:()=>Promise<Agen
  </>}>
   {!data&&!error&&<p role="status">{t('Loading…')}</p>}
   {data&&<><p className="dlg-hint">{t('Assign managed team Agents to this Agent. Agent Admins can change a peer role; members can view assignments.')}</p>
-   {data.scope!=='team'&&<p className="dlg-hint">{t('Peer roles are available for managed team Agents only.')}</p>}
+   {(!data.managed||data.scope!=='team')&&<p className="dlg-hint">{t('Peer roles are available for managed team Agents only.')}</p>}
    <ul className="hx-agent-member-list" aria-label={t('Assigned agents')}>{data.members.map(member=><li key={member.agentId}><Icon name={member.role==='admin'?'shield':'you'} size={18}/><span><strong>{member.name}</strong><small>{t(member.role==='admin'?'Agent admin':'Agent member')}</small></span></li>)}</ul>
    {data.members.length===0&&<p className="dlg-hint">{t('No Agents are assigned yet.')}</p>}
    {allowed&&<div className="hx-agent-member-form">
