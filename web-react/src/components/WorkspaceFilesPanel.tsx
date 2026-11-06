@@ -146,7 +146,7 @@ function WorkspaceFileShareQueue({api,onClose}:{api:WorkspaceFileApi;onClose:()=
  useEffect(()=>{void refresh()},[api])
  const approve=async(request:PublicFileShareRequest)=>{
   setBusy(request.id);setError('')
-  try{const result=await api.approvePublicShare(request.id);setRevealed(value=>({...value,[result.shareId]:new URL(result.url,window.location.origin).toString()}));await refresh()}
+  try{const result=await api.approvePublicShare(request.id);setRevealed(value=>({...value,[result.shareId]:new URL(result.url,typeof window==='undefined'?'https://localhost':window.location.origin).toString()}));await refresh()}
   catch(error){setError(error instanceof Error?error.message:String(error))}
   finally{setBusy('')}
  }
@@ -167,7 +167,7 @@ function WorkspaceFileShareQueue({api,onClose}:{api:WorkspaceFileApi;onClose:()=
     <div className="hx-file-share-title"><Icon name="file" size={16}/><div><strong>{request.filePath}</strong><small>{request.scope} · v{request.version} · {t('Requested by')} {request.requesterLogin}</small></div></div>
     <dl><div><dt>{t('Content snapshot')}</dt><dd><code>{request.contentHash.slice(0,12)}…</code> · {request.size.toLocaleString()} B · {request.contentType}</dd></div><div><dt>{t('Expiry')}</dt><dd>{new Date(request.expiresAt).toLocaleString()}</dd></div><div><dt>{t('Access')}</dt><dd>{request.allowDownload?t('Download allowed'):t('View only')}</dd></div></dl>
     {request.status==='pending'&&!isExpired?<button type="button" disabled={Boolean(busy)} onClick={()=>void approve(request)}>{busy===request.id?t('Approving…'):t('Approve and create link')}</button>:null}
-    {active&&<div className="hx-file-share-active"><p>{t('Public snapshot link is active. Revoke it to stop access.')}</p>{revealedUrl?<><a href={revealedUrl} target="_blank" rel="noreferrer">{t('Open public link')}</a><button type="button" onClick={()=>void navigator.clipboard?.writeText(revealedUrl)}>{t('Copy link')}</button></>:<p>{t('The link is shown only immediately after approval. It cannot be recovered here.')}</p>}<button type="button" className="hx-file-share-revoke" disabled={Boolean(busy)} onClick={()=>request.shareId&&void revoke(request.shareId)}>{busy===request.shareId?t('Revoking…'):t('Revoke link')}</button></div>}
+    {active&&<div className="hx-file-share-active"><p>{t('Public snapshot link is active. Revoke it to stop access.')}</p>{revealedUrl?<><a href={revealedUrl} target="_blank" rel="noreferrer">{t('Open public link')}</a><button type="button" onClick={()=>{if(typeof navigator!=='undefined')void navigator.clipboard?.writeText(revealedUrl)}}>{t('Copy link')}</button></>:<p>{t('The link is shown only immediately after approval. It cannot be recovered here.')}</p>}<button type="button" className="hx-file-share-revoke" disabled={Boolean(busy)} onClick={()=>request.shareId&&void revoke(request.shareId)}>{busy===request.shareId?t('Revoking…'):t('Revoke link')}</button></div>}
     {!active&&request.status==='approved'&&<p className="hx-file-share-state">{request.revokedAt?t('Revoked'):t('Expired')}</p>}
     {request.status==='stale'&&<p className="hx-file-share-state">{t('File changed. A new approval request is required.')}</p>}
     {request.status==='declined'&&<p className="hx-file-share-state">{t('Declined')}</p>}
