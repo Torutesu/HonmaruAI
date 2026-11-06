@@ -973,7 +973,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if (!room) return json({ message: "No such conversation." }, 404);
         channel = room.key;
       }
-      const context = { channel };
+      const context = { channel, userId: String(me) };
       if (request.method === 'GET' && (parts[5] === 'reviews' || parts[4] === 'reviews')) {
         const r = await memoryReviewHistory(env.DB, orgId, agentId, parts[4] === 'reviews' ? null : parts[4], { ...context, cursor: url.searchParams.get('cursor') });
         return r.error ? fail(r) : json(r);
@@ -987,22 +987,25 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === 'POST' && parts[5] === 'to-skill') {
         if (!canEdit) return json({message:"Only the agent's maker or an admin can convert its memory."},403);
+        const memoryScope=await env.DB.prepare("SELECT user_github_id FROM hx_memory_scopes WHERE org_id=?1 AND memory_id=?2").bind(orgId,parts[4]).first();
+        if (memoryScope?.user_github_id && String(memoryScope.user_github_id)!==String(me)) return json({message:"No such memory."},404);
+        const auditScope=memoryScope?.user_github_id?'person':channel?'conversation':'shared';
         const r=await convertMemoryToSkill(env.DB,orgId,agentId,parts[4],input,{channel,by:me});
-        if (!r.error && !r.replayed) await audit(env,request,{orgId,action:'agent.memory_converted',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memoryId:parts[4],skillId:r.skill.id,version:input.expectedVersion,keptMemory:r.keptMemory,scope:channel?'conversation':'shared'}});
+        if (!r.error && !r.replayed) await audit(env,request,{orgId,action:'agent.memory_converted',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memoryId:parts[4],skillId:r.skill.id,version:input.expectedVersion,keptMemory:r.keptMemory,scope:auditScope}});
         return r.error?fail(r):json(r,r.replayed?200:201);
       }
       if (request.method === "POST") {
-        const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context" });
-        if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });
+        const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context", scope: input.scope || "shared", userId: me });
+        if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: r.memory.scope } });
         return r.error ? fail(r) : json(r, 201);
       }
       if (request.method === "PUT" && parts[5] === 'review') {
-        const r = await reviewMemoryEntry(env.DB, orgId, agentId, parts[4], input, { channel, by: me });
+        const r = await reviewMemoryEntry(env.DB, orgId, agentId, parts[4], input, { ...context, by: me });
         if (!r.error) await audit(env, request, { orgId, action: 'agent.memory_reviewed', actor: person(who.user), entity: { type: 'custom_agent', id: agentId }, details: { memoryId: parts[4], version: r.review.version, verdict: input.verdict || 'keep', scope: channel ? 'conversation' : 'shared' } });
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "PUT") {
-        const r = await updateMemoryEntry(env.DB, orgId, agentId, parts[4] || input.id || "", input, { channel, by: me });
+        const r = await updateMemoryEntry(env.DB, orgId, agentId, parts[4] || input.id || "", input, { ...context, by: me });
         if (!r.error) await audit(env, request, { orgId, action: "agent.memory_updated", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: channel ? "conversation" : "shared" } });
         return r.error ? fail(r) : json(r);
       }

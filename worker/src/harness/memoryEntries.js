@@ -13,18 +13,26 @@ export function memoryEntry(row) {
   return { id: row.id, text: row.text, source: row.source, createdBy: row.created_by, createdAt: row.created_at,
     channel: row.channel || null, kind: row.kind || "context", title: row.title ?? row.text.slice(0, 120),
     description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at,
+    scope: row.user_github_id ? "person" : (row.channel ? "conversation" : "shared"),
     review: row.reviewed_at ? { version: row.reviewed_version, evidence: row.review_evidence, by: row.reviewed_by, at: row.reviewed_at, current: row.reviewed_version === (row.version ?? 0) } : null };
 }
-export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel = "", by = null, reviewEvidence } = {}) {
+async function memoryVisibleTo(db, orgId, agentId, id, channel, userId) {
+  // Direct helper callers predating person scopes have no human identity. Keep
+  // their shared/room behavior; HTTP routes always provide the authenticated ID.
+  if (!userId) return true;
+  const row = await db.prepare(`SELECT s.user_github_id FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3`).bind(orgId,agentId,id).first();
+  return !row || !row.user_github_id || String(row.user_github_id) === String(userId);
+}
+export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel = "", by = null, reviewEvidence, userId = null } = {}) {
   const fields = memoryFields(input);
   if (fields.error) return fields;
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) return { error: "Expected memory version is required." };
   if (!["context", "preference", "feedback", "reference"].includes(input.kind)) return { error: "Invalid memory kind." };
-  const row = await db.prepare(`SELECT m.*, s.channel, s.kind, d.version FROM hx_agent_memories m
+  const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, d.version FROM hx_agent_memories m
     LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id
-    WHERE m.org_id = ?1 AND m.agent_id = ?2 AND m.id = ?3 AND COALESCE(s.channel, '') = ?4`)
-    .bind(orgId, agentId, id, channel).first();
+    WHERE m.org_id = ?1 AND m.agent_id = ?2 AND m.id = ?3 AND COALESCE(s.channel, '') = ?4 AND (s.user_github_id IS NULL OR s.user_github_id = ?5)`)
+    .bind(orgId, agentId, id, channel, userId ? String(userId) : "").first();
   if (!row) return { error: "No such memory.", status: 404 };
   if ((row.version ?? 0) !== input.expectedVersion) return { error: "This memory changed. Reload before saving.", status: 409 };
   const stamp = new Date().toISOString();
@@ -70,21 +78,21 @@ export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel
   return { ...(review ? {review} : {}), memory: { ...memoryEntry(row), ...(review ? {review} : {}), ...fields, text: fields.body.replace(/\s+/g, " ").slice(0, 500), kind: input.kind, version: saved.version, updatedAt: stamp } };
 }
 
-export async function memoryPage(db, orgId, agentId, { channel = '', cursor, query = '', kind = 'all' } = {}) {
+export async function memoryPage(db, orgId, agentId, { channel = '', cursor, query = '', kind = 'all', userId = null } = {}) {
   if (typeof query !== 'string' || query.length > 200 || !['all','context','preference','feedback','reference'].includes(kind)) return { error: 'Invalid memory search.', status: 400 };
   query = query.trim();
-  const scope = [orgId, agentId, channel, query, kind];
+  const scope = [orgId, agentId, channel, query, kind, userId ? String(userId) : ""];
   let after = null;
   if (cursor) {
     try {
       const value = JSON.parse(cursor);
-      if (!Array.isArray(value) || value.length !== 7 || JSON.stringify(value.slice(0,5)) !== JSON.stringify(scope)
-        || typeof value[5] !== 'string' || value[5].length > 40 || !Number.isFinite(Date.parse(value[5]))
-        || typeof value[6] !== 'string' || !value[6] || value[6].length > 100) throw new Error();
-      after = value.slice(5);
+      if (!Array.isArray(value) || value.length !== 8 || JSON.stringify(value.slice(0,6)) !== JSON.stringify(scope)
+        || typeof value[6] !== 'string' || value[6].length > 40 || !Number.isFinite(Date.parse(value[6]))
+        || typeof value[7] !== 'string' || !value[7] || value[7].length > 100) throw new Error();
+      after = value.slice(6);
     } catch { return { error: 'Invalid memory cursor.', status: 400 }; }
   }
-  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at, r.reviewed_version, r.evidence AS review_evidence, r.reviewed_by, r.reviewed_at
+  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, d.title, d.description, d.body, d.version, d.updated_at, r.reviewed_version, r.evidence AS review_evidence, r.reviewed_by, r.reviewed_at
     FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
     LEFT JOIN hx_memory_reviews r ON r.memory_id=m.id AND r.org_id=m.org_id
@@ -92,26 +100,27 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
       AND (?4 IS NULL OR m.created_at < ?4 OR (m.created_at = ?4 AND m.id < ?5))
       AND (?6 = '' OR instr(lower(COALESCE(d.title,'')),lower(?6))>0
         OR instr(lower(COALESCE(d.description,'')),lower(?6))>0 OR instr(lower(COALESCE(d.body,m.text)),lower(?6))>0)
-      AND (?7 = 'all' OR COALESCE(s.kind,'context')=?7)
+      AND (?7 = 'all' OR COALESCE(s.kind,'context')=?7) AND (s.user_github_id IS NULL OR s.user_github_id=?8)
     ORDER BY m.created_at DESC, m.id DESC LIMIT 51`)
-    .bind(orgId,agentId,channel,after?.[0] || null,after?.[1] || null,query,kind).all();
+    .bind(orgId,agentId,channel,after?.[0] || null,after?.[1] || null,query,kind,userId ? String(userId) : "").all();
   const memories = results.slice(0,50).map(memoryEntry), last = memories[memories.length-1];
   return { memories, nextCursor: results.length > 50 ? JSON.stringify([...scope,last.createdAt,last.id]) : null };
 }
 
-export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel = '', by } = {}) {
+export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel = '', by, userId = null } = {}) {
   if (input?.verdict !== undefined && !['keep','update','delete'].includes(input.verdict)) return { error: 'Invalid memory review verdict.', status: 400 };
   if (!Number.isSafeInteger(input?.expectedVersion) || input.expectedVersion < 0
     || typeof input.evidence !== 'string' || !input.evidence.trim() || input.evidence.length > 2000
     || !by) return { error: 'A memory version and review evidence are required.', status: 400 };
+  if (!await memoryVisibleTo(db, orgId, agentId, id, channel, userId)) return {error:'No such memory.',status:404};
   if (input.verdict === 'update') {
-    const row = await db.prepare(`SELECT m.*,s.channel,s.kind,d.title,d.description,d.body,d.version FROM hx_agent_memories m
+    const row = await db.prepare(`SELECT m.*,s.channel,s.kind,s.user_github_id,d.title,d.description,d.body,d.version FROM hx_agent_memories m
       LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
       LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
       WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4`).bind(orgId,agentId,id,channel).first();
     if (!row) return {error:'No such memory.',status:404};
     const current = memoryEntry(row);
-    return updateMemoryEntry(db,orgId,agentId,id,{title:current.title,description:current.description,body:current.body,kind:current.kind,...input},{channel,by,reviewEvidence:input.evidence});
+    return updateMemoryEntry(db,orgId,agentId,id,{title:current.title,description:current.description,body:current.body,kind:current.kind,...input},{channel,by,reviewEvidence:input.evidence,userId});
   }
   const stamp = new Date().toISOString(), reviewId = crypto.randomUUID();
   if (input.verdict === 'delete') {
@@ -147,24 +156,38 @@ export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel
   return { review: { version: results[0].reviewed_version, evidence: results[0].evidence, by: results[0].reviewed_by, at: results[0].reviewed_at } };
 }
 
-export async function memoryReviewHistory(db, orgId, agentId, memoryId = null, {channel='',cursor}={}) {
-  const scope=[orgId,agentId,memoryId,channel];
+export async function memoryReviewHistory(db, orgId, agentId, memoryId = null, {channel='',cursor,userId=null}={}) {
+  const scope=[orgId,agentId,memoryId,channel,userId?String(userId):''];
   let after=null;
   if(cursor) {
     try {
       const value=JSON.parse(cursor);
-      if(!Array.isArray(value)||value.length!==6||JSON.stringify(value.slice(0,4))!==JSON.stringify(scope)
-        ||typeof value[4]!=='string'||value[4].length>40||!Number.isFinite(Date.parse(value[4]))
-        ||typeof value[5]!=='string'||!value[5]||value[5].length>100) throw new Error();
-      after=value.slice(4);
+      if(!Array.isArray(value)||value.length!==7||JSON.stringify(value.slice(0,5))!==JSON.stringify(scope)
+        ||typeof value[5]!=='string'||value[5].length>40||!Number.isFinite(Date.parse(value[5]))
+        ||typeof value[6]!=='string'||!value[6]||value[6].length>100) throw new Error();
+      after=value.slice(5);
     } catch {return {error:'Invalid review history cursor.',status:400};}
   }
   const {results=[]}=await db.prepare(`SELECT h.*, COALESCE(u.name,u.login,h.reviewed_by) AS reviewer_name
     FROM hx_memory_review_audit h LEFT JOIN users u ON u.github_id=h.reviewed_by
-    WHERE h.org_id=?1 AND h.agent_id=?2 AND (?3 IS NULL OR h.memory_id=?3) AND h.channel=?4
+    WHERE h.org_id=?1 AND h.agent_id=?2 AND (?3 IS NULL OR h.memory_id=?3)
+      AND (
+        EXISTS (SELECT 1 FROM hx_memory_review_audit_scope hs
+          WHERE hs.audit_id=h.id AND hs.org_id=h.org_id AND hs.agent_id=h.agent_id
+            AND ((hs.memory_scope='person' AND ?7!='' AND hs.user_github_id=?7)
+              OR (hs.memory_scope IN ('shared','conversation') AND hs.channel=?4)))
+        OR (
+          NOT EXISTS (SELECT 1 FROM hx_memory_review_audit_scope hs WHERE hs.audit_id=h.id)
+          AND h.channel=?4
+          AND EXISTS (SELECT 1 FROM hx_agent_memories m
+            LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+            WHERE m.org_id=h.org_id AND m.agent_id=h.agent_id AND m.id=h.memory_id
+              AND s.user_github_id IS NULL)
+        )
+      )
       AND (?5 IS NULL OR h.reviewed_at < ?5 OR (h.reviewed_at = ?5 AND h.id < ?6))
     ORDER BY h.reviewed_at DESC,h.id DESC LIMIT 51`)
-    .bind(orgId,agentId,memoryId,channel,after?.[0]||null,after?.[1]||null).all();
+    .bind(orgId,agentId,memoryId,channel,after?.[0]||null,after?.[1]||null,userId?String(userId):'').all();
   const reviews=results.slice(0,50).map(r=>({id:r.id,memoryId:r.memory_id,version:r.reviewed_version,verdict:r.verdict,evidence:r.evidence,by:r.reviewed_by,reviewerName:r.reviewer_name,at:r.reviewed_at}));
   const last=reviews[reviews.length-1];
   return {reviews,nextCursor:results.length>50?JSON.stringify([...scope,last.at,last.id]):null};

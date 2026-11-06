@@ -1,6 +1,3 @@
-const { spawnSync } = require('node:child_process');
-const { readFileSync } = require('node:fs');
-
 // Inspect names, never user data. Unsupported/failed inspection falls back to
 // the original per-statement migration; only proven existing columns are skipped.
 function columnInspection(statements) {
@@ -57,11 +54,13 @@ async function migrateColumns({ statements, execute, inspect, wait = ms => new P
 }
 module.exports = { migrateColumns, existingColumns, columnInspection };
 if (require.main === module) {
+  const { spawnSync } = require('node:child_process');
+  const { readFileSync } = require('node:fs');
   const [database, ...flags] = process.argv.slice(2);
   if (!database || !(flags.length === 0 || flags.length === 2 && flags[0] === '--env' && flags[1] === 'staging')) {
     console.error('Usage: node migrate-columns.cjs <database> [--env staging]'); process.exitCode = 1;
   } else {
-    const statements = readFileSync('migrations.sql', 'utf8').split(/\r?\n/).filter(line => /^(ALTER TABLE|CREATE )/.test(line));
+    const statements = readFileSync('migrations.sql', 'utf8').split(/\r?\n/).filter(line => /^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO)/.test(line));
     migrateColumns({ statements, inspect: statement => spawnSync('npx', ['-y', 'wrangler@4', 'd1', 'execute', database, ...flags, '--remote', '--command', statement, '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), execute: statement => spawnSync('npx', ['-y', 'wrangler@4', 'd1', 'execute', database, ...flags, '--remote', '--command', statement, '--yes'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) })
       .then(code => { process.exitCode = code; }).catch(error => { console.error(error.message); process.exitCode = 1; });
   }

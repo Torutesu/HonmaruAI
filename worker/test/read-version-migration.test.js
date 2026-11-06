@@ -10,7 +10,7 @@ test('deploying read revisions preserves existing positions and starts the next 
  const at='2020-01-01T00:00:00.000Z';
  await env.DB.prepare('INSERT INTO channel_reads VALUES(?,?,?,?)').bind('legacy','person','b:room',at).run();
  await env.DB.exec(schema.replace(/\n/g,' '));
- for(const statement of migrations.split('\n').filter(line=>/^(ALTER TABLE|CREATE )/.test(line))){
+ for(const statement of migrations.split('\n').filter(line=>/^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO)/.test(line))){
   try{await env.DB.exec(statement)}catch(error){if(!/duplicate column name/i.test(String(error)))throw error}
  }
  expect(await env.DB.prepare('SELECT last_read_at,read_version FROM channel_reads').first()).toEqual({last_read_at:at,read_version:0});

@@ -57,7 +57,7 @@ while IFS= read -r stmt; do
       status=1
     fi
   fi
-done < <(grep -E '^(ALTER TABLE|CREATE )' migrations.sql)
+done < <(grep -E '^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO)' migrations.sql)
 [ "$status" -eq 0 ] || { echo "A migration failed. Nothing deployed." >&2; exit 1; }
 
 say "4. Deploy"

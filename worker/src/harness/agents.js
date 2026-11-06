@@ -142,16 +142,18 @@ export async function filterResponders(db, orgId, login, agents, { named = null,
 
 // ── Memory ──────────────────────────────────────────────────────────────
 
-export async function listAgentMemories(db, orgId, agentId, { channel = "" } = {}) {
+export async function listAgentMemories(db, orgId, agentId, { channel = "", userId = null } = {}) {
   const { results } = await db
-    .prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id WHERE m.org_id = ?1 AND m.agent_id = ?2 AND (s.memory_id IS NULL OR s.channel = '' OR s.channel = ?4) ORDER BY m.created_at DESC LIMIT ?3`)
-    .bind(orgId, agentId, MAX_MEMORIES, channel)
+    .prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, d.title, d.description, d.body, d.version, d.updated_at FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id WHERE m.org_id = ?1 AND m.agent_id = ?2 AND (s.memory_id IS NULL OR s.channel = '' OR s.channel = ?4) AND (s.user_github_id IS NULL OR s.user_github_id = ?5) ORDER BY m.created_at DESC LIMIT ?3`)
+    .bind(orgId, agentId, MAX_MEMORIES, channel, userId ? String(userId) : "")
     .all();
   return (results || []).map(memoryEntry);
 }
 
-export async function addAgentMemory(db, orgId, agentId, text, { by = null, source = "person", channel = "", kind = "context" } = {}) {
+export async function addAgentMemory(db, orgId, agentId, text, { by = null, source = "person", channel = "", kind = "context", userId = null, scope = "shared" } = {}) {
   if (!["context", "preference", "feedback", "reference"].includes(kind)) return { error: "Invalid memory kind." };
+  if (!["shared", "person"].includes(scope) || (scope === "person" && (!userId || channel))) return { error: "Person memory requires an authenticated user and cannot be room-scoped." };
+  const memoryOwner = scope === "person" ? String(userId) : null;
   if (typeof channel !== "string") return { error: "Invalid memory channel." };
   const structured = typeof text === "object" && text !== null;
   const fields = structured ? memoryFields(text) : null;
@@ -159,31 +161,31 @@ export async function addAgentMemory(db, orgId, agentId, text, { by = null, sour
   const body = structured ? fields.body : String(text || "").replace(/\s+/g, " ").trim().slice(0, MAX_MEMORY_CHARS);
   const clean = body.replace(/\s+/g, " ").slice(0, MAX_MEMORY_CHARS);
   if (!clean) return { error: "Say what to remember." };
-  const dup = await db.prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at
+  const dup = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, d.title, d.description, d.body, d.version, d.updated_at
     FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id
-    WHERE m.org_id = ?1 AND m.agent_id = ?2 AND COALESCE(d.body, m.text) = ?3 AND COALESCE(s.channel, '') = ?4 AND COALESCE(s.kind, 'context') = ?5`)
-    .bind(orgId, agentId, body, channel, kind).first();
+    WHERE m.org_id = ?1 AND m.agent_id = ?2 AND COALESCE(d.body, m.text) = ?3 AND COALESCE(s.channel, '') = ?4 AND COALESCE(s.kind, 'context') = ?5 AND COALESCE(s.user_github_id, '') = ?6`)
+    .bind(orgId, agentId, body, channel, kind, memoryOwner || "").first();
   if (dup) return { memory: memoryEntry(dup), duplicate: true };
   const id = newId("amem"), stamp = now();
   const writes = [
     db.prepare("INSERT INTO hx_agent_memories (id, org_id, agent_id, text, source, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
       .bind(id, orgId, agentId, clean, source, by ? String(by) : null, stamp),
-    db.prepare("INSERT INTO hx_memory_scopes (memory_id, org_id, channel, kind) VALUES (?1, ?2, ?3, ?4)")
-      .bind(id, orgId, channel, kind),
+    db.prepare("INSERT INTO hx_memory_scopes (memory_id, org_id, channel, kind, user_github_id) VALUES (?1, ?2, ?3, ?4, ?5)")
+      .bind(id, orgId, channel, kind, memoryOwner),
   ];
   if (structured) writes.push(db.prepare("INSERT INTO hx_memory_entries (memory_id, org_id, title, description, body, version, updated_by, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)")
     .bind(id, orgId, fields.title, fields.description, fields.body, by ? String(by) : null, stamp));
   await db.batch(writes);
   // The recent prompt index is bounded; saved memory is retained until explicitly removed.
-  return { memory: memoryEntry({ id, text: clean, source, channel, kind, created_by: by ? String(by) : null, created_at: stamp, ...(structured ? { ...fields, version: 1, updated_at: stamp } : {}) }) };
+  return { memory: memoryEntry({ id, text: clean, source, channel, kind, user_github_id: memoryOwner, created_by: by ? String(by) : null, created_at: stamp, ...(structured ? { ...fields, version: 1, updated_at: stamp } : {}) }) };
 }
 
-export async function deleteAgentMemory(db, orgId, agentId, id, { channel = "" } = {}) {
+export async function deleteAgentMemory(db, orgId, agentId, id, { channel = "", userId = null } = {}) {
   const res = await db.prepare(`DELETE FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2
     AND (?3 = '*' OR id = ?3)
-    AND COALESCE((SELECT channel FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id), '') = ?4 RETURNING id`)
-    .bind(orgId, agentId, id, channel).all();
+    AND COALESCE((SELECT channel FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id AND org_id = hx_agent_memories.org_id), '') = ?4 AND ((SELECT user_github_id FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id AND org_id = hx_agent_memories.org_id) IS NULL OR (SELECT user_github_id FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id AND org_id = hx_agent_memories.org_id) = ?5) RETURNING id`)
+    .bind(orgId, agentId, id, channel, userId ? String(userId) : '').all();
   return { deleted: res.results.length };
 }
 

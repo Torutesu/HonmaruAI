@@ -16,7 +16,7 @@ import migrationsSql from "../migrations.sql?raw";
 // rather than approximated, because a test that extracts statements its own way
 // can pass while the deploy silently skips one — which is the shape of the bug
 // this file exists to prevent.
-const DEPLOY_STATEMENT = /^(ALTER TABLE|CREATE )/;
+const DEPLOY_STATEMENT = /^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO)/;
 
 function deployStatements(sql) {
   return sql.split("\n").filter((line) => DEPLOY_STATEMENT.test(line)).map((l) => l.trim());
@@ -166,6 +166,33 @@ test("schema.sql builds no index on a column migrations.sql adds", () => {
     }
   }
   expect(wrong).toEqual([]);
+});
+
+test("schema replay succeeds before the memory owner column migration and backfills audit scope after ALTER", async () => {
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  await env.DB.exec("DROP TRIGGER IF EXISTS hx_memory_review_audit_scope_insert");
+  await env.DB.exec("DROP TRIGGER IF EXISTS hx_memory_review_audit_insert");
+  await env.DB.exec("DROP TABLE hx_memory_review_audit_scope");
+  await env.DB.exec("DROP TABLE hx_memory_scopes");
+  await env.DB.exec("CREATE TABLE hx_memory_scopes (memory_id TEXT PRIMARY KEY REFERENCES hx_agent_memories(id) ON DELETE CASCADE, org_id TEXT NOT NULL, channel TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT 'context')");
+
+  await env.DB.prepare("INSERT INTO hx_agent_memories (id,org_id,agent_id,text,source,created_by,created_at) VALUES ('legacy-memory','legacy-org','legacy-agent','Legacy','person','owner','2026-01-01')").run();
+  await env.DB.prepare("INSERT INTO hx_memory_scopes (memory_id,org_id,channel,kind) VALUES ('legacy-memory','legacy-org','b:ops','context')").run();
+  await env.DB.prepare("INSERT INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at) VALUES ('legacy-review','legacy-memory','legacy-org',1,'keep','Retain safely','owner','2026-01-02')").run();
+
+  await expect(applyDeploy(env.DB)).resolves.not.toThrow();
+  const columns = await env.DB.prepare("PRAGMA table_info(hx_memory_scopes)").all();
+  expect(columns.results.map(row => row.name)).toContain("user_github_id");
+  expect(await env.DB.prepare("SELECT id,memory_id,agent_id,channel FROM hx_memory_review_audit WHERE id='legacy-review'").first())
+    .toEqual({ id: "legacy-review", memory_id: "legacy-memory", agent_id: "legacy-agent", channel: "b:ops" });
+  expect(await env.DB.prepare("SELECT memory_scope,channel,user_github_id FROM hx_memory_review_audit_scope WHERE audit_id='legacy-review'").first())
+    .toEqual({ memory_scope: "conversation", channel: "b:ops", user_github_id: null });
+
+  await env.DB.prepare("INSERT INTO hx_agent_memories (id,org_id,agent_id,text,source,created_by,created_at) VALUES ('new-person-memory','legacy-org','legacy-agent','Private','person','person-1','2026-01-03')").run();
+  await env.DB.prepare("INSERT INTO hx_memory_scopes (memory_id,org_id,channel,kind,user_github_id) VALUES ('new-person-memory','legacy-org','','preference','person-1')").run();
+  await env.DB.prepare("INSERT INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at) VALUES ('new-person-review','new-person-memory','legacy-org',1,'keep','Owner-only history','person-1','2026-01-04')").run();
+  expect(await env.DB.prepare("SELECT memory_scope,channel,user_github_id FROM hx_memory_review_audit_scope WHERE audit_id='new-person-review'").first())
+    .toEqual({ memory_scope: "person", channel: "", user_github_id: "person-1" });
 });
 
 test("replaying the deploy is safe", async () => {

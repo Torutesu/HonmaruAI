@@ -1946,7 +1946,7 @@ CREATE INDEX IF NOT EXISTS idx_hx_followups_channel ON hx_followups(org_id, chan
 /* Room rules survive Simple / Harness switches. */
 CREATE TABLE IF NOT EXISTS hx_room_guidelines (org_id TEXT NOT NULL, channel TEXT NOT NULL, body TEXT NOT NULL, version INTEGER NOT NULL, updated_by TEXT, updated_at TEXT NOT NULL, PRIMARY KEY (org_id, channel));
 
-CREATE TABLE IF NOT EXISTS hx_memory_scopes (memory_id TEXT PRIMARY KEY REFERENCES hx_agent_memories(id) ON DELETE CASCADE, org_id TEXT NOT NULL, channel TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT 'context');
+CREATE TABLE IF NOT EXISTS hx_memory_scopes (memory_id TEXT PRIMARY KEY REFERENCES hx_agent_memories(id) ON DELETE CASCADE, org_id TEXT NOT NULL, channel TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT 'context', user_github_id TEXT);
 
 CREATE TABLE IF NOT EXISTS hx_workflow_run_definitions (run_id TEXT PRIMARY KEY REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, org_id TEXT NOT NULL, definition TEXT NOT NULL, created_at TEXT NOT NULL);
 
@@ -2296,10 +2296,23 @@ CREATE TABLE IF NOT EXISTS hx_memory_review_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_scope ON hx_memory_review_audit(org_id,agent_id,channel,reviewed_at,id);
 CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_memory ON hx_memory_review_audit(org_id,memory_id,reviewed_at,id);
-INSERT OR IGNORE INTO hx_memory_review_audit (id,memory_id,org_id,agent_id,channel,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
-SELECT h.id,h.memory_id,h.org_id,m.agent_id,COALESCE(s.channel,''),h.reviewed_version,h.verdict,h.evidence,h.reviewed_by,h.reviewed_at
-FROM hx_memory_review_history h JOIN hx_agent_memories m ON m.id=h.memory_id AND m.org_id=h.org_id
-LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id;
+
+/* The audit survives memory deletion. Keep only scope metadata, never body text.
+   The owner scope snapshot is installed by migrations.sql after the column
+   addition, so this replay remains safe on databases with the old scope table. */
+CREATE TABLE IF NOT EXISTS hx_memory_review_audit_scope (
+  audit_id TEXT PRIMARY KEY REFERENCES hx_memory_review_audit(id) ON DELETE CASCADE,
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  memory_scope TEXT NOT NULL CHECK(memory_scope IN ('shared','conversation','person')),
+  channel TEXT NOT NULL DEFAULT '',
+  user_github_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_scope_owner
+  ON hx_memory_review_audit_scope(org_id,agent_id,user_github_id,channel,audit_id);
+
+/* Keep the replay trigger independent of the not-yet-migrated owner column.
+   Migrations.sql adds a second trigger on the audit row after the ALTER. */
 CREATE TRIGGER IF NOT EXISTS hx_memory_review_audit_insert AFTER INSERT ON hx_memory_review_history
 BEGIN
   INSERT INTO hx_memory_review_audit (id,memory_id,org_id,agent_id,channel,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
