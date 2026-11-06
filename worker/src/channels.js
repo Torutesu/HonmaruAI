@@ -198,6 +198,7 @@ export function toMessage(row, viewerLogin, view, members, extra = {}) {
     pinned: !deleted && Boolean(row.pinned_at),
     pinVersion: Number(row.pin_version || 0),
     ...(row.previews_hidden ? { previewsHidden: true } : {}),
+    ...(!deleted && row.automation_offer_id ? { automationOfferId: row.automation_offer_id } : {}),
     reactions: deleted ? [] : reactions,
     files: deleted ? [] : (extra.files || []),
     // An inline reply carries the message it answers, as that is now.
@@ -657,10 +658,11 @@ async function messageByClientId(db, orgId, authorLogin, clientId, creation = nu
 /// than sent without it.
 const FILES_GONE = "A file in this message is no longer there. Attach it again.";
 
-export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, deliveryBoundary = null, assignmentFence = null, workflowNotice = null, creationActorId = null, creationRoomSnapshot = null, conversationActorId = null, mcpAuthority = null }) {
+export async function postMessage(db, { orgId, key, authorLogin, body, kind = "message", cardId = null, parentId = null, replyTo = null, withFiles = false, files = null, clientId = null, alsoChannel = false, onBehalfOf = null, roomHookSource = false, agentRequest = null, deliveryTasks = false, deliveryBoundary = null, assignmentFence = null, workflowNotice = null, creationActorId = null, creationRoomSnapshot = null, conversationActorId = null, mcpAuthority = null, automationOfferId = null }) {
   const creation = creationActorId !== null;
   if (mcpAuthority && (!conversationActorId || !['chat:write', 'chat:schedule'].includes(mcpAuthority.scope) || Boolean(mcpAuthority.tokenId) === Boolean(mcpAuthority.grantId))) return { error: 'Invalid connection authority.', status: 403 };
   if (conversationActorId !== null && (typeof conversationActorId !== 'string' || !conversationActorId || creation || assignmentFence || workflowNotice || roomHookSource || kind !== 'message')) return { error: 'Invalid conversation author.', status: 403 };
+  if (automationOfferId != null && (typeof automationOfferId !== "string" || !/^[0-9a-f-]{36}$/i.test(automationOfferId) || kind !== "agent" || !parentId)) return { error: "Invalid Automation offer reference.", status: 400 };
   if (creation && (typeof creationActorId !== 'string' || !creationActorId || typeof key !== 'string' || kind !== 'message' || parentId || replyTo || cardId || files || withFiles || assignmentFence || workflowNotice || agentRequest || roomHookSource || deliveryTasks || alsoChannel || onBehalfOf || !clientIdOk(clientId) ||
     (key.startsWith('b:') && (!creationRoomSnapshot || typeof creationRoomSnapshot.createdAt !== 'string' || !creationRoomSnapshot.createdAt || typeof creationRoomSnapshot.private !== 'boolean')))) return {error:'Invalid app source message.',status:403};
   if (!creation && creationRoomSnapshot) return {error:'Invalid app source message.',status:403};
@@ -705,7 +707,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
   // Strictly after the channel's last message, so two sent in the same
   // millisecond still read in the order they were sent.
   const now = new Date().toISOString();
-  const columns = "id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of";
+  const offerValue = automationOfferId ? `'${automationOfferId}'` : "NULL";
   const values = [id, orgId, key, authorLogin, kind, text, cardId, now, parentId, replyTo || null, remembered, parentId && alsoChannel ? 1 : 0, kind === "agent" && onBehalfOf ? onBehalfOf : null];
   const marks = values.map((_, i) => `?${i + 1}`).join(", ");
   const dispatch = agentRequest ? await agentRequestStatement(db,{orgId,row:{id,channel:key,author_login:authorLogin,kind,body:text,parent_id:parentId},...agentRequest}) : null;
@@ -746,7 +748,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
       // and a retry of it is a send like the first.
       const done = await db.batch([
         claimFiles(db, { orgId, key, login: files.login, messageId: id, ids: files.ids }),
-        db.prepare(`INSERT INTO channel_messages (${columns}) SELECT ${marks}
+        db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of, automation_offer_id) SELECT ${marks}, ${offerValue}
                     WHERE ${parentLive}${actorLive}${grantLive} AND (SELECT COUNT(*) FROM message_files WHERE org_id = ?2 AND message_id = ?1) = ?${values.length + 1}`)
           .bind(...values, files.ids.length, ...actorValues, ...grantValues),
         db.prepare("UPDATE message_files SET message_id = NULL WHERE org_id = ?1 AND message_id = ?2 AND NOT EXISTS (SELECT 1 FROM channel_messages WHERE org_id = ?1 AND id = ?2)")
@@ -762,7 +764,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
         return { error: FILES_GONE, code: "files_gone", status: 409 };
       }
     } else {
-      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of) SELECT ${marks} WHERE ${parentLive}${executionLive}${noticeLive}${creationLive}${actorLive}${grantLive}`).bind(...values,...fenceValues,...noticeValues,...creationValues,...actorValues,...grantValues);
+      const insert = db.prepare(`INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, card_id, created_at, parent_id, reply_to_id, client_id, also_channel, on_behalf_of, automation_offer_id) SELECT ${marks}, ${offerValue} WHERE ${parentLive}${executionLive}${noticeLive}${creationLive}${actorLive}${grantLive}`).bind(...values,...fenceValues,...noticeValues,...creationValues,...actorValues,...grantValues);
       const put = dispatch || deliveries.length ? (await db.batch([insert,...(dispatch ? [dispatch] : []),...deliveries]))[0] : await insert.run();
       if(conversationActorId && !put.meta?.changes)return {error:'Conversation access changed.',status:403};
       if(creation && !put.meta?.changes)return {error:'No such room.',status:403};
