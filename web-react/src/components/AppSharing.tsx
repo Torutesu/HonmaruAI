@@ -128,14 +128,14 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase:
         {sharing.guests.map(guest => <li key={guest.githubId}>
           <span>{guest.name || guest.login}{guest.email ? ` · ${guest.email}` : ''}</span>
           {!sharing.customUnsupported && <>
-          <select aria-label={t('Permission for {{person}}', { person: guest.name || guest.login })} value={guest.permission} disabled={busy} onChange={event => void updateGuest(guest, event.target.value as 'view' | 'edit')}><option value="view">{t('View')}</option><option value="edit">{t('Edit')}</option></select>
-          <select aria-label={t('Access expiry for {{person}}', { person: guest.name || guest.login })} value="unchanged" disabled={busy} onChange={event => { const days = event.target.value; if (days === 'unchanged') return; void updateGuest(guest, guest.permission, days === 'never' ? null : new Date(Date.now() + Number(days) * 86400000).toISOString()) }}><option value="unchanged">{guest.expiresAt ? t('Expires {{date}}', { date: new Date(guest.expiresAt).toLocaleDateString() }) : t('No expiry')}</option><option value="never">{t('Never')}</option><option value="7">{t('In 7 days')}</option><option value="30">{t('In 30 days')}</option><option value="90">{t('In 90 days')}</option></select>
+          <select aria-label={t('Permission for {person}', { person: guest.name || guest.login })} value={guest.permission} disabled={busy} onChange={event => void updateGuest(guest, event.target.value as 'view' | 'edit')}><option value="view">{t('View')}</option><option value="edit">{t('Edit')}</option></select>
+          <select aria-label={t('Access expiry for {person}', { person: guest.name || guest.login })} value="unchanged" disabled={busy} onChange={event => { const days = event.target.value; if (days === 'unchanged') return; void updateGuest(guest, guest.permission, days === 'never' ? null : new Date(Date.now() + Number(days) * 86400000).toISOString()) }}><option value="unchanged">{guest.expiresAt ? t('Expires {date}', { date: new Date(guest.expiresAt).toLocaleDateString() }) : t('No expiry')}</option><option value="never">{t('Never')}</option><option value="7">{t('In 7 days')}</option><option value="30">{t('In 30 days')}</option><option value="90">{t('In 90 days')}</option></select>
           </>}
           <button className="btn" type="button" disabled={busy} onClick={() => void revoke(encodeURIComponent(guest.githubId))}>{t('Revoke')}</button>
         </li>)}
         {sharing.invites.map(invitation => <li key={invitation.id}>
           <span>{invitation.invitedEmail}</span><span>{t('Invite pending')} · {invitation.permission}</span>
-          <span>{invitation.accessExpiresAt ? t('Access expires {{date}}', { date: new Date(invitation.accessExpiresAt).toLocaleDateString() }) : t('No expiry')}</span>
+          <span>{invitation.accessExpiresAt ? t('Access expires {date}', { date: new Date(invitation.accessExpiresAt).toLocaleDateString() }) : t('No expiry')}</span>
           <button className="btn" type="button" disabled={busy} onClick={() => void revoke(`invites/${encodeURIComponent(invitation.id)}`)}>{t('Revoke invite')}</button>
         </li>)}
       </ul>
