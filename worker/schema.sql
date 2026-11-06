@@ -645,23 +645,6 @@ CREATE TABLE IF NOT EXISTS channel_messages (
    it, for the same reason as `ref` above. */
 CREATE INDEX IF NOT EXISTS idx_channel_messages ON channel_messages(org_id, channel, created_at);
 
-/* Safe, message-scoped summaries of tools used by a Harness agent reply.
-   Arguments and tool results are deliberately never stored here. */
-CREATE TABLE IF NOT EXISTS hx_agent_tool_traces (
-  org_id TEXT NOT NULL,
-  message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE,
-  agent_id TEXT NOT NULL,
-  channel TEXT NOT NULL,
-  run_by TEXT NOT NULL,
-  started_at TEXT NOT NULL,
-  finished_at TEXT NOT NULL,
-  elapsed_ms INTEGER NOT NULL CHECK(elapsed_ms BETWEEN 0 AND 86400000),
-  steps_json TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  PRIMARY KEY(org_id, message_id)
-);
-CREATE INDEX IF NOT EXISTS idx_agent_tool_traces_access ON hx_agent_tool_traces(org_id, channel, agent_id, message_id);
-
 /* One emoji from one person on one message. A browser is told who reacted
    by member ref, never by login. */
 CREATE TABLE IF NOT EXISTS message_reactions (
@@ -2622,3 +2605,86 @@ CREATE TABLE IF NOT EXISTS hx_recurring_automation_offers (
   UNIQUE(org_id,channel,user_github_id,prompt_hash)
 );
 CREATE INDEX IF NOT EXISTS hx_recurring_automation_offers_member ON hx_recurring_automation_offers(org_id,user_github_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS hx_app_commit_approvals (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  app_version INTEGER NOT NULL CHECK(app_version>0),
+  repo_owner TEXT NOT NULL,
+  repo_name TEXT NOT NULL,
+  branch_name TEXT NOT NULL,
+  commit_sha TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  visibility_scope TEXT NOT NULL CHECK(visibility_scope IN ('workspace','private')),
+  access_version INTEGER NOT NULL DEFAULT 0,
+  domain_scope TEXT NOT NULL DEFAULT '',
+  requested_by TEXT NOT NULL,
+  reviewer_id TEXT,
+  status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','revoked','published')),
+  created_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  consumed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS hx_app_commit_approvals_current ON hx_app_commit_approvals(org_id,app_id,status,app_version);
+CREATE UNIQUE INDEX IF NOT EXISTS hx_app_commit_approvals_one_open
+  ON hx_app_commit_approvals(org_id,app_id,app_version,repo_owner,repo_name,branch_name,commit_sha,file_path,source_hash,visibility_scope,access_version,domain_scope)
+  WHERE status IN ('pending','approved');
+CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_reviewer_demotion
+AFTER UPDATE OF role ON memberships
+WHEN OLD.role IN ('owner','admin') AND NEW.role NOT IN ('owner','admin')
+BEGIN
+  UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=datetime('now')
+  WHERE org_id=OLD.org_id AND reviewer_id=OLD.user_github_id AND status='approved' AND consumed_at IS NULL;
+END;
+CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_reviewer_removal
+AFTER DELETE ON memberships WHEN OLD.role IN ('owner','admin')
+BEGIN
+  UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=datetime('now')
+  WHERE org_id=OLD.org_id AND reviewer_id=OLD.user_github_id AND status='approved' AND consumed_at IS NULL;
+END;
+CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_requester_demotion
+AFTER UPDATE OF role ON memberships WHEN OLD.role<>'guest' AND NEW.role='guest'
+BEGIN
+  UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=datetime('now')
+  WHERE org_id=OLD.org_id AND requested_by=OLD.user_github_id AND status IN ('pending','approved') AND consumed_at IS NULL;
+END;
+CREATE TRIGGER IF NOT EXISTS hx_app_commit_revoke_requester_removal
+AFTER DELETE ON memberships
+BEGIN
+  UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=datetime('now')
+  WHERE org_id=OLD.org_id AND requested_by=OLD.user_github_id AND status IN ('pending','approved') AND consumed_at IS NULL;
+END;
+CREATE TRIGGER IF NOT EXISTS hx_app_commit_consume_approved_publish AFTER UPDATE OF definition ON hx_apps WHEN json_extract(NEW.definition,'$.custom.publishedCommitApprovalId') IS NOT NULL AND json_extract(OLD.definition,'$.custom.publishedCommitApprovalId') IS NOT json_extract(NEW.definition,'$.custom.publishedCommitApprovalId') BEGIN UPDATE hx_app_commit_approvals SET status='published',consumed_at=json_extract(NEW.definition,'$.custom.publishedAt'),reviewed_at=COALESCE(reviewed_at,json_extract(NEW.definition,'$.custom.publishedAt')) WHERE org_id=NEW.org_id AND app_id=NEW.id AND id=json_extract(NEW.definition,'$.custom.publishedCommitApprovalId') AND app_version=OLD.version AND repo_owner=json_extract(NEW.definition,'$.custom.publishedCommit.owner') AND repo_name=json_extract(NEW.definition,'$.custom.publishedCommit.repo') AND branch_name=json_extract(NEW.definition,'$.custom.publishedCommit.branch') AND commit_sha=json_extract(NEW.definition,'$.custom.publishedCommit.sha') AND file_path=json_extract(NEW.definition,'$.custom.publishedCommit.path') AND source_hash=json_extract(NEW.definition,'$.custom.publishedCommit.sourceHash') AND status='approved' AND consumed_at IS NULL AND requested_by<>reviewer_id AND reviewer_id<>json_extract(NEW.definition,'$.custom.publishedBy') AND json_extract(NEW.definition,'$.custom.published')=json_extract(OLD.definition,'$.custom.draft') AND json_extract(NEW.definition,'$.custom.publishedCommit.sha')=json_extract(OLD.definition,'$.custom.draftCommit.sha') AND json_extract(NEW.definition,'$.custom.publishedCommit.sourceHash')=json_extract(OLD.definition,'$.custom.draftCommit.sourceHash') AND visibility_scope=COALESCE((SELECT visibility FROM hx_app_access WHERE org_id=NEW.org_id AND app_id=NEW.id),'workspace') AND access_version=COALESCE((SELECT version FROM hx_app_access WHERE org_id=NEW.org_id AND app_id=NEW.id),0) AND domain_scope=COALESCE((SELECT hostname||'#'||status FROM hx_app_domains WHERE org_id=NEW.org_id AND app_id=NEW.id),'') AND EXISTS(SELECT 1 FROM memberships r WHERE r.org_id=NEW.org_id AND r.user_github_id=reviewer_id AND r.role IN ('owner','admin')) AND EXISTS(SELECT 1 FROM memberships q WHERE q.org_id=NEW.org_id AND q.user_github_id=requested_by AND q.role<>'guest') AND EXISTS(SELECT 1 FROM memberships p WHERE p.org_id=NEW.org_id AND p.user_github_id=json_extract(NEW.definition,'$.custom.publishedBy') AND p.role<>'guest') AND (NEW.created_by=json_extract(NEW.definition,'$.custom.publishedBy') OR EXISTS(SELECT 1 FROM memberships admin WHERE admin.org_id=NEW.org_id AND admin.user_github_id=json_extract(NEW.definition,'$.custom.publishedBy') AND admin.role IN ('owner','admin'))); SELECT CASE WHEN changes()<>1 THEN RAISE(ROLLBACK,'Custom commit approval could not be consumed atomically') END; END;
+CREATE TABLE IF NOT EXISTS hx_app_git_assets (
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  app_version INTEGER NOT NULL CHECK(app_version>0),
+  commit_sha TEXT NOT NULL,
+  path TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  content_bytes BLOB NOT NULL,
+  content_hash TEXT NOT NULL,
+  size INTEGER NOT NULL CHECK(size>=0),
+  PRIMARY KEY(org_id,app_id,app_version,commit_sha,path)
+);
+CREATE INDEX IF NOT EXISTS hx_app_git_assets_commit ON hx_app_git_assets(org_id,app_id,commit_sha,app_version);
+CREATE TRIGGER IF NOT EXISTS hx_app_git_assets_immutable
+BEFORE UPDATE ON hx_app_git_assets BEGIN SELECT RAISE(ABORT,'Git commit assets are immutable'); END;
+
+/* Safe, message-scoped summaries of tools used by a Harness agent reply.
+   Arguments and tool results are deliberately never stored here. */
+CREATE TABLE IF NOT EXISTS hx_agent_tool_traces (
+  org_id TEXT NOT NULL,
+  message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  run_by TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT NOT NULL,
+  elapsed_ms INTEGER NOT NULL CHECK(elapsed_ms BETWEEN 0 AND 86400000),
+  steps_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(org_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_tool_traces_access ON hx_agent_tool_traces(org_id, channel, agent_id, message_id);
