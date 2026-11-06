@@ -46,13 +46,14 @@ export async function proposePublicFileShare(env,{orgId,fileId,version,userId,lo
 }
 
 export async function listPublicFileShareRequests(db,{orgId,fileId,userId}){
- const {results=[]}=await db.prepare(`SELECT r.id,r.file_id AS fileId,r.file_version AS version,r.content_hash AS contentHash,
+ const {results=[]}=await db.prepare(`SELECT r.id,r.file_id AS fileId,f.path AS filePath,r.file_scope AS scope,
+   r.file_version AS version,r.content_hash AS contentHash,r.content_type AS contentType,r.size,
    r.expires_at AS expiresAt,r.allow_download AS allowDownload,r.status,r.created_at AS createdAt,
-   r.requester_login AS requesterLogin,r.decision_at AS decisionAt,s.id AS shareId,s.revoked_at AS revokedAt
-  FROM hx_file_share_requests r LEFT JOIN hx_public_file_shares s ON s.org_id=r.org_id AND s.request_id=r.id
+   r.requester_login AS requesterLogin,r.decision_at AS decisionAt,s.id AS shareId,s.revoked_at AS revokedAt,s.revoked_by AS revokedBy
+  FROM hx_file_share_requests r JOIN hx_workspace_files f ON f.org_id=r.org_id AND f.id=r.file_id
+  LEFT JOIN hx_public_file_shares s ON s.org_id=r.org_id AND s.request_id=r.id
   WHERE r.org_id=?1 AND (?2 IS NULL OR r.file_id=?2)
-    AND EXISTS(SELECT 1 FROM hx_workspace_files f WHERE f.org_id=r.org_id AND f.id=r.file_id
-      AND ${fileDeleteAuthority('f.org_id','f.created_by','?3','f.scope')})
+    AND ${fileDeleteAuthority('f.org_id','f.created_by','?3','f.scope')}
   ORDER BY r.created_at DESC LIMIT 100`).bind(orgId,fileId||null,String(userId)).all();
  return results.map(row=>({...row,allowDownload:Boolean(row.allowDownload)}));
 }
