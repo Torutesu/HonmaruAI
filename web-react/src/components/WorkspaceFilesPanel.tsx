@@ -163,16 +163,17 @@ function WorkspaceFileShareQueue({api,onClose}:{api:WorkspaceFileApi;onClose:()=
   <header><button type="button" onClick={onClose}><Icon name="chevron-left" size={15}/>{t('Files')}</button><strong>{t('Public link approvals')}</strong></header>
   {error&&<p className="hx-file-share-error" role="alert">{error}</p>}
   {requests===null&&!error?<p className="hx-files-state" role="status">{t('Loading…')}</p>:requests?.length===0?<p className="hx-files-state">{t('No public link requests.')}</p>:requests?.map(request=>{
-   const isExpired=expired(request.expiresAt),active=request.status==='approved'&&!request.revokedAt&&!isExpired&&request.currentVersion===request.version
+   const isExpired=expired(request.expiresAt),changed=request.currentVersion!==request.version,active=request.status==='approved'&&!request.revokedAt&&!isExpired&&!changed
    const revealedUrl=request.shareId?revealed[request.shareId]:undefined
    return <article className="hx-file-share-item" key={request.id}>
     <div className="hx-file-share-title"><Icon name="file" size={16}/><div><strong>{request.filePath}</strong><small>{request.scope} · v{request.version} · {t('Requested by')} {request.requesterLogin}</small></div></div>
     <dl><div><dt>{t('Content snapshot')}</dt><dd><code>{request.contentHash.slice(0,12)}…</code> · {request.size.toLocaleString()} B · {request.contentType}</dd></div><div><dt>{t('Expiry')}</dt><dd>{new Date(request.expiresAt).toLocaleString()}</dd></div><div><dt>{t('Access')}</dt><dd>{request.allowDownload?t('Download allowed'):t('View only')}</dd></div></dl>
-    {request.status==='pending'&&!isExpired?<button type="button" disabled={Boolean(busy)} onClick={()=>void approve(request)}>{busy===request.id?t('Approving…'):t('Approve and create link')}</button>:null}
+    {request.status==='pending'&&!isExpired&&!changed?<button type="button" disabled={Boolean(busy)} onClick={()=>void approve(request)}>{busy===request.id?t('Approving…'):t('Approve and create link')}</button>:null}
     {active&&<div className="hx-file-share-active"><p>{t('Public snapshot link is active. Revoke it to stop access.')}</p>{revealedUrl?<><a href={revealedUrl} target="_blank" rel="noreferrer">{t('Open public link')}</a><button type="button" onClick={()=>{if(typeof navigator!=='undefined')void navigator.clipboard?.writeText(revealedUrl)}}>{t('Copy link')}</button></>:<p>{t('The link is shown only immediately after approval. It cannot be recovered here.')}</p>}<button type="button" className="hx-file-share-revoke" disabled={Boolean(busy)} onClick={()=>request.shareId&&void revoke(request.shareId)}>{busy===request.shareId?t('Revoking…'):t('Revoke link')}</button></div>}
-    {!active&&request.status==='approved'&&request.currentVersion!==request.version&&!request.revokedAt&&<p className="hx-file-share-state">{t('File changed. A new approval request is required.')}</p>}
-    {!active&&request.status==='approved'&&(request.currentVersion===request.version||request.revokedAt)&&<p className="hx-file-share-state">{request.revokedAt?t('Revoked'):t('Expired')}</p>}
+    {!active&&request.status==='approved'&&changed&&!request.revokedAt&&<p className="hx-file-share-state">{t('File changed. A new approval request is required.')}</p>}
+    {!active&&request.status==='approved'&&(!changed||request.revokedAt)&&<p className="hx-file-share-state">{request.revokedAt?t('Revoked'):t('Expired')}</p>}
     {request.status==='pending'&&isExpired&&<p className="hx-file-share-state">{t('Expired')}</p>}
+    {request.status==='pending'&&!isExpired&&changed&&<p className="hx-file-share-state">{t('File changed. A new approval request is required.')}</p>}
     {request.status==='stale'&&<p className="hx-file-share-state">{t('File changed. A new approval request is required.')}</p>}
     {request.status==='declined'&&<p className="hx-file-share-state">{t('Declined')}</p>}
    </article>
