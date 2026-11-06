@@ -5,7 +5,7 @@ const READ_CHUNK_BYTES=64*1024;
 function decodePathSegment(value){
   let decoded;try{decoded=decodeURIComponent(value);}catch{return null;}
   if(!decoded||decoded==='.'||decoded==='..'||decoded.includes('/')||decoded.includes('\\\\')||decoded.includes('\\0')||!/^[A-Za-z0-9_.@+-]{1,100}$/.test(decoded))return null;
-  return decoded;
+  if(!decoded||decoded==='.'||decoded==='..'||decoded.includes('/')||decoded.includes('\\')||decoded.includes('\0')||!/^[A-Za-z0-9_.@+-]{1,100}$/.test(decoded))return null;
 }
 function readBytes(value) {
   if(value instanceof Uint8Array)return value;
@@ -28,7 +28,7 @@ export async function servePublishedCommitAsset(request,env,url){
   if(!appId||!assetToken||!SHA.test(commitSha)||pathParts.some(part=>!part))return notFound();
   const path=pathParts.join('/');
   if(path.length>240||pathParts.length>12)return notFound();
-  const row=await env.DB.prepare(`SELECT f.content_type AS contentType,f.content_hash AS contentHash,f.size
+  const row=await env.DB.prepare(`SELECT f.org_id AS orgId,f.app_version AS appVersion,f.content_type AS contentType,f.content_hash AS contentHash,f.size
     FROM hx_app_git_assets f
     JOIN hx_apps a ON a.org_id=f.org_id AND a.id=f.app_id
     JOIN hx_app_domains d ON d.org_id=a.org_id AND d.app_id=a.id AND d.status='active'
