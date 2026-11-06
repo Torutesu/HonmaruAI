@@ -173,7 +173,7 @@ test("unregistered email invitations redeem after OTP proof without workspace me
   expect((await call("/external/invites/redeem",guestSession,"POST",{token})).status).toBe(404);
   expect((await call(`${path}/${invitation.invitationId}`,sessions.owner,"DELETE")).status).toBe(200);
   expect((await call(`/external/threads/${orgId}/${rootId}`,guestSession)).status).toBe(404);
-  expect(await env.DB.prepare("SELECT revoked_at FROM hx_external_thread_invites WHERE id=?1").bind(invitation.invitationId).first()).not.toBeNull();
+  expect(await env.DB.prepare("SELECT revoked_at FROM hx_external_thread_invites WHERE id=?1").bind(invitation.invitationId).first()).toMatchObject({revoked_at:expect.any(String)});
 });
 
 test("invitation email mismatch, expiry, revoke, and new workspace membership cannot redeem guest access", async () => {
