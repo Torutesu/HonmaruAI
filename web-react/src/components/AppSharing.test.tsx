@@ -38,6 +38,7 @@ test('public link creation binds the exact app and access versions and lists rev
     .mockResolvedValueOnce(new Response(JSON.stringify({ shares:[{id:'share-1',createdAt:'2026-11-06T00:00:00.000Z',expiresAt:'2026-11-13T00:00:00.000Z',revokedAt:null}] })))
     .mockResolvedValueOnce(new Response(JSON.stringify({ revoked:true })))
     .mockResolvedValueOnce(new Response(JSON.stringify({ shares:[{id:'share-1',createdAt:'2026-11-06T00:00:00.000Z',expiresAt:'2026-11-13T00:00:00.000Z',revokedAt:'2026-11-06T00:01:00.000Z'}] })))
+  vi.stubGlobal('location', { origin: 'https://app.test' })
   vi.stubGlobal('fetch',fetcher)
   await act(async()=>{tree=create(<AppSharing {...props}/>)})
   const consent=tree!.root.findAllByType('input').find(input=>input.props.type==='checkbox')!
