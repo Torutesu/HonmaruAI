@@ -3428,6 +3428,23 @@ const table: Record<string, string> = {
   'Read accessible Harness tables and their records.': 'アクセスできる Harness のテーブルとそのレコードを読みます。',
   'Update lists': 'リストを更新',
   'Create and update accessible Harness tables and records.': 'アクセスできる Harness のテーブルとレコードを作成・更新します。',
+  'Guided automation setup': '自動化の会話形式セットアップ',
+  'Describe an automation': '自動化したい内容を説明',
+  'e.g. Every weekday at 9, ask an agent to summarize tasks and post in #ops.': '例: 平日9時にエージェントがタスクをまとめて #ops に投稿する',
+  'Start a conversation to draft the trigger and steps. You can refine the proposal before saving.': '会話を始めてトリガーと手順を作成します。保存前に提案を調整できます。',
+  'Build preview': '提案を作成',
+  'Automation assistant': '自動化アシスタント',
+  'I drafted a paused proposal. Review the trigger and every step below. Nothing has been saved or run yet.': '一時停止中の案を作成しました。以下のトリガーと各手順を確認してください。まだ保存も実行もしていません。',
+  'Suggested workflow': 'ワークフロー案',
+  'Trigger': 'トリガー',
+  'Nothing has been saved or run yet.': 'まだ保存も実行もしていません。',
+  'What should change?': 'どこを変更しますか？',
+  'e.g. Send a summary only when a row is overdue.': '例: 期限を過ぎた行だけ要約を送る',
+  'Refine proposal': '提案を調整',
+  'Save paused automation': '一時停止状態で保存',
+  'Start over': '最初からやり直す',
+  'I updated the proposal. Review the trigger and every step below. Nothing has been saved or run yet.': '提案を更新しました。以下のトリガーと各手順を確認してください。まだ保存も実行もしていません。',
+  'This refinement is too long to keep the original request and current plan. Start over with a shorter request or change.': '元の依頼と現在の案を保持するには変更内容が長すぎます。短くして再入力してください。',
 }
 
 export default table
