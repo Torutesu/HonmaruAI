@@ -10,6 +10,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
   const [rooms, setRooms] = useState<string[]>([])
   const [room, setRoom] = useState('')
   const [canEdit, setCanEdit] = useState(false)
+  const [canManage, setCanManage] = useState(false)
   const [canPublicShare, setCanPublicShare] = useState(false)
   const [shares, setShares] = useState<Share[]>([])
   const [expiresInDays, setExpiresInDays] = useState(7)
@@ -29,7 +30,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
     setAccess(null); setCanEdit(false); setError('')
     fetch(`${httpBase}/apps/${appId}/access?${new URLSearchParams({ orgId })}`, { headers: { 'x-session-token': sessionToken }, signal: controller.signal })
       .then(async res => { const data = await res.json(); if (!res.ok) throw new Error(data.message || String(res.status)); return data })
-      .then(data => { if (!controller.signal.aborted) { setAccess(data.access); setRooms(data.rooms || []); setRoom(data.access?.roomChannel || data.rooms?.[0] || ''); setCanEdit(Boolean(data.canManage)); setCanPublicShare(Boolean(data.canPublicShare)); if(data.canManage) void loadShares(controller.signal).catch(err => { if (!controller.signal.aborted) setError(String(err.message)) }) } })
+      .then(data => { if (!controller.signal.aborted) { setAccess(data.access); setRooms(data.rooms || []); setRoom(data.access?.roomChannel || data.rooms?.[0] || ''); setCanEdit(Boolean(data.canEdit)); setCanManage(Boolean(data.canManage)); setCanPublicShare(Boolean(data.canPublicShare)); if(data.canManage) void loadShares(controller.signal).catch(err => { if (!controller.signal.aborted) setError(String(err.message)) }) } })
       .catch(err => { if (!controller.signal.aborted) setError(String(err.message)) })
     // Public link inventory is restricted to app owners and workspace admins.\n    // The access response controls the UI; the server remains authoritative.\n    
     return () => controller.abort()
@@ -71,7 +72,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
     <div className="rows-title">{t('Sharing')}</div>
     {error && <div className="form-error" role="alert">{error}</div>}
     {access && <div className="row static"><span className="row-main">
-      <select aria-label={t('App visibility')} value={access.visibility} disabled={!canEdit || busy} onChange={e => void save(e.target.value as Visibility, room)}>
+      <select aria-label={t('App visibility')} value={access.visibility} disabled={!canManage || busy} onChange={e => void save(e.target.value as Visibility, room)}>
         <option value="workspace">{t('Workspace members')}</option><option value="private">{t('Only me')}</option><option value="room">{t('Selected room')}</option>
       </select>
       {access.visibility === 'room' && <select aria-label={t('Room')} value={room} disabled={!canEdit || busy || !rooms.length} onChange={e => { setRoom(e.target.value); void save('room', e.target.value) }}>
@@ -86,9 +87,9 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
       <select aria-label={t('Link expiry')} value={expiresInDays} disabled={!canEdit || busy} onChange={e => setExpiresInDays(Number(e.target.value))}>
         {[1,7,30,90].map(days => <option key={days} value={days}>{days} {t('days')}</option>)}
       </select>
-      <button className="pill-btn" disabled={!canEdit || busy || !consent} onClick={() => void createShare()}>{t('Create link')}</button>
+      <button className="pill-btn" disabled={!canManage || busy || !consent} onClick={() => void createShare()}>{t('Create link')}</button>
       {createdUrl && <p role="status"><a href={createdUrl}>{createdUrl}</a> {t('Copy this link now; it is shown only once.')}</p>}
-      {shares.map(share => <div key={share.id} className="row-sub">{t('Expires')} {new Date(share.expiresAt).toLocaleString()} · {share.revokedAt ? t('Revoked') : <button className="pill-btn" disabled={!canEdit || busy} onClick={() => void revoke(share.id)}>{t('Revoke link')}</button>}</div>)}
+      {shares.map(share => <div key={share.id} className="row-sub">{t('Expires')} {new Date(share.expiresAt).toLocaleString()} · {share.revokedAt ? t('Revoked') : <button className="pill-btn" disabled={!canManage || busy} onClick={() => void revoke(share.id)}>{t('Revoke link')}</button>}</div>)}
     </span></div>}
   </section>
 }
