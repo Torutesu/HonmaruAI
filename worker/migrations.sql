@@ -399,30 +399,8 @@ CREATE TABLE IF NOT EXISTS hx_app_public_shares (id TEXT PRIMARY KEY, token_hash
 CREATE INDEX IF NOT EXISTS idx_hx_app_public_shares_app ON hx_app_public_shares(org_id,app_id,created_at);
 
 
-CREATE TABLE IF NOT EXISTS hx_app_member_permissions (
-  org_id TEXT NOT NULL,
-  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
-  user_github_id TEXT NOT NULL,
-  membership_since TEXT NOT NULL,
-  permission TEXT NOT NULL CHECK(permission IN ('none','view','edit')),
-  version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
-  updated_by TEXT NOT NULL,
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY(org_id,app_id,user_github_id)
-);
+CREATE TABLE IF NOT EXISTS hx_app_member_permissions ( org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, permission TEXT NOT NULL CHECK(permission IN ('none','view','edit')), version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0), updated_by TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY(org_id,app_id,user_github_id) );
 CREATE INDEX IF NOT EXISTS idx_hx_app_member_permissions_subject ON hx_app_member_permissions(org_id,user_github_id,app_id);
 
-CREATE TRIGGER IF NOT EXISTS hx_app_member_permissions_membership_delete
-AFTER DELETE ON memberships
-BEGIN
-  DELETE FROM hx_app_member_permissions
-  WHERE org_id=OLD.org_id AND user_github_id=OLD.user_github_id;
-END;
-CREATE TRIGGER IF NOT EXISTS hx_app_member_permissions_guest_downgrade
-AFTER UPDATE OF role ON memberships
-WHEN LOWER(COALESCE(NEW.role,'guest'))='guest'
- AND LOWER(COALESCE(OLD.role,'guest'))!='guest'
-BEGIN
-  DELETE FROM hx_app_member_permissions
-  WHERE org_id=NEW.org_id AND user_github_id=NEW.user_github_id;
-END;
+CREATE TRIGGER IF NOT EXISTS hx_app_member_permissions_membership_delete AFTER DELETE ON memberships BEGIN DELETE FROM hx_app_member_permissions WHERE org_id=OLD.org_id AND user_github_id=OLD.user_github_id; END;
+CREATE TRIGGER IF NOT EXISTS hx_app_member_permissions_guest_downgrade AFTER UPDATE OF role ON memberships WHEN LOWER(COALESCE(NEW.role,'guest'))='guest' AND LOWER(COALESCE(OLD.role,'guest'))!='guest' BEGIN DELETE FROM hx_app_member_permissions WHERE org_id=NEW.org_id AND user_github_id=NEW.user_github_id; END;
