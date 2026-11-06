@@ -23,6 +23,14 @@ export type ExternalThreadInvitationInput = {
   accessExpiresAt: string | null
 }
 
+export type ExternalThreadSendRequest = {
+  id: string
+  body: string
+  requested_at: string
+  guest_name: string | null
+  guest_email: string | null
+}
+
 export type ExternalThreadShareInput = {
   email: string
   permission: 'view' | 'edit'
@@ -95,4 +103,14 @@ export async function createExternalThreadInvitation(api: Client, threadId: stri
 export async function revokeExternalThreadInvitation(api: Client, threadId: string, invitationId: string): Promise<boolean> {
   const value=await request<{revoked?:boolean}>(api,threadId,'DELETE',undefined,undefined,`invites/${encodeURIComponent(invitationId)}`)
   return value.revoked===true
+}
+
+export async function listExternalThreadSendRequests(api: Client, threadId: string, signal?: AbortSignal): Promise<ExternalThreadSendRequest[]> {
+  const value = await request<{ requests?: ExternalThreadSendRequest[] }>(api, threadId, 'GET', undefined, signal, 'requests')
+  if (!Array.isArray(value.requests)) throw new ExternalThreadShareError('The request service returned an invalid list.', 502)
+  return value.requests
+}
+
+export async function decideExternalThreadSendRequest(api: Client, threadId: string, requestId: string, decision: 'approve' | 'reject'): Promise<void> {
+  await request<{ approved?: boolean; rejected?: boolean }>(api, threadId, 'POST', { requestId }, undefined, `requests/${decision}`)
 }
