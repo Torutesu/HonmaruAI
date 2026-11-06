@@ -3498,6 +3498,16 @@ const table: Record<string, string> = {
   'App resource': 'アプリ',
   'Connection resource': '連携',
   'Member resource': 'メンバー',
+  "Draft a message": "メッセージの下書き",
+  "What would you like to say?": "何を伝えますか？",
+  "Choose a destination": "宛先を選択",
+  "Search conversations and rooms": "会話とルームを検索",
+  "Choosing opens a saved draft. Nothing is sent until you send it.": "選択すると下書きが保存された会話が開きます。送信ボタンを押すまで送信されません。",
+  "Available destinations": "利用可能な宛先",
+  "No matching conversations or rooms": "一致する会話やルームがありません",
+}
+
+export default table
 }
 
 export default table
