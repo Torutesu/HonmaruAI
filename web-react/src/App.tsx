@@ -675,6 +675,7 @@ function AccountApp() {
         mode={mode}
         initialInviteCode={pending.inviteCode}
         invite={invite}
+        hasExternalInvite={Boolean(pendingExternalInviteToken || pending.externalInviteToken)}
         onBack={() => setStage('welcome')}
         onSwitchMode={setMode}
         onCodeSent={(email, name, inviteCode) => { setPending((current) => ({ ...current, email, name, inviteCode })); setStage('otp') }}
