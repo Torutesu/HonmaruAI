@@ -4,6 +4,7 @@ export type WorkspaceFile = {id:string;scope:string;path:string;origin?:FileOrig
 export type FileCursor = {path:string;id:string;updatedAt?:string}
 export type FileVersion = {version:number;kind:'content'|'deleted';contentType:string|null;size:number|null;createdBy:string;createdAt:string;restoredFrom:number|null;currentVersion:number;isCurrent:boolean;purged:boolean}
 export type FileSearch = {scope:string;origin?:FileOrigin;query?:string;directory?:string;type?:'image'|'video'|'media'|'pdf'|'doc'|'html';createdBy?:string;since?:string;until?:string;includeDeleted?:boolean;directOnly?:boolean;order?:'path'|'recent';cursor?:FileCursor;limit?:number}
+export type WorkspaceFileShare={id:string;status:'pending'|'active'|'revoked'|'stopped'|'expired';reusable:boolean;currentRevision:number;createdBy:string;createdAt:string;updatedAt:string;expiresAt:string|null;allowDownload:boolean;files:Array<{fileId:string;version:number;name:string;contentType:string;size:number}>}
 export class WorkspaceFileError extends Error {
  constructor(message:string,readonly status:number){super(message);this.name='WorkspaceFileError'}
 }
@@ -43,6 +44,11 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   remove:(id:string,expectedVersion:number)=>json<{saved:true;version:number}>(path(id),'DELETE',{expectedVersion}),
   restore:(id:string,version:number,expectedVersion:number)=>json<{saved:true;version:number}>(`${path(id)}/restore`,'POST',{version,expectedVersion}),
   purge:(id:string,reason:string,selection:{version:number}|{expectedVersion:number})=>json<{purged?:boolean;purgedCount?:number}>(`${path(id)}/purge`,'POST',{reason,...selection}),
+  fileShares:(id:string,signal?:AbortSignal)=>json<{shares:WorkspaceFileShare[];canManage:boolean}>(`${path(id)}/shares`,'GET',undefined,undefined,signal),
+  createFileShare:(id:string,input:{version:number;assets:Array<{fileId:string;version:number}>;expiresIn:'24h'|'7d'|'30d'|'never';allowDownload:boolean;reusable:boolean;requestKey:string})=>json<{share:WorkspaceFileShare;token:string}>(`${path(id)}/shares`,'POST',input),
+  copyFileShare:(id:string,shareId:string)=>json<{token:string}>(`${path(id)}/shares/${encodeURIComponent(shareId)}/copy`,'POST',{}),
+  updateFileShare:(id:string,shareId:string,input:{version:number;assets:Array<{fileId:string;version:number}>})=>json<{share:WorkspaceFileShare;token:string}>(`${path(id)}/shares/${encodeURIComponent(shareId)}/update`,'POST',input),
+  changeFileShare:(id:string,shareId:string,action:'revoke'|'stop')=>json<{revoked:true;status:'revoked'|'stopped'}>(`${path(id)}/shares/${encodeURIComponent(shareId)}/${action}`,'POST',{}),
  }
 }
 export type WorkspaceFileApi = ReturnType<typeof workspaceFileApi>

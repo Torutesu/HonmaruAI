@@ -21,6 +21,11 @@ async function purgeVersions(db,{orgId,fileId,userId,version,reason,expectedVers
     AND (?4 IS NOT NULL OR (f.current_version=?7 AND EXISTS(SELECT 1 FROM hx_workspace_file_versions current WHERE current.org_id=f.org_id AND current.file_id=f.id AND current.version=f.current_version AND current.kind='deleted')))
     AND ${fileScopeAuthority('f.org_id','f.scope','?3')}
     AND ${fileDeleteAuthority('f.org_id','f.created_by','?3','f.scope')}
+    AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_share_items shared
+     JOIN hx_workspace_file_shares s ON s.org_id=shared.org_id AND s.id=shared.share_id AND s.current_revision=shared.revision AND s.status='active'
+     JOIN hx_workspace_file_share_revisions revision ON revision.org_id=shared.org_id AND revision.share_id=shared.share_id AND revision.revision=shared.revision
+     WHERE shared.org_id=v.org_id AND shared.file_id=v.file_id AND shared.version=v.version
+      AND (revision.expires_at IS NULL OR revision.expires_at>?5))
     AND NOT EXISTS(SELECT 1 FROM message_holds h WHERE h.org_id=f.org_id AND h.released_at IS NULL
      AND ((h.kind='channel' AND h.target=f.scope) OR (h.kind='person' AND (
       h.target IN (f.created_login,v.created_login)

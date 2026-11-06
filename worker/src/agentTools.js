@@ -34,7 +34,7 @@ const query = (what) => ({
   additionalProperties: false,
 });
 
-export async function agentTools(env, { orgId, session, language = "en", personal = false, ownAgentsOnly = false, fileScope = null, fileThreadId = null, agentId = null, agentName = null, agentLogin = null, onNativeSourceUsed = null, onRemoteMcpUsed = null }) {
+export async function agentTools(env, { orgId, session, language = "en", personal = false, ownAgentsOnly = false, fileScope = null, fileThreadId = null, fileTurnId = null, agentId = null, agentName = null, agentLogin = null, onNativeSourceUsed = null, onRemoteMcpUsed = null }) {
   const reader = await readerEnvFor(env, orgId).catch(() => env);
   // Set once one of the person's apps has answered: from then on no page is
   // opened in this answer, so nothing an app said can leave inside a link.
@@ -73,7 +73,7 @@ export async function agentTools(env, { orgId, session, language = "en", persona
       return found.slice(0, 10).map((d) => `- ${d.decidedAt ? String(d.decidedAt).slice(0, 10) : "pending"}${d.recipient ? ` ${d.recipient}` : ""} ${d.status || ""}: ${String(d.title || "").slice(0, 160)}`).join("\n");
     },
   };
-  Object.assign(tools, await fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,fileScope,taint}));
+  Object.assign(tools, await fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,fileScope,fileTurnId,agentId,taint}));
   Object.assign(tools, await executionAgentTools(env, { orgId, session, personal, ownAgentsOnly }));
   // A missing mode read must never turn on ungranted native sources. Simple
   // retains its old private-DM behavior; Harness requires each caller's grant.

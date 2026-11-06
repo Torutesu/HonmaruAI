@@ -30,6 +30,7 @@ import { isGuest, isPersonal, isPrivate, accessFor, mayReadCard } from "./access
 import { learnFromDecision } from "./memory.js";
 import { settleWorkflowApproval } from "./harness/workflows.js";
 import { settleAgentAccessRequest } from "./harness/agentAccessRequests.js";
+import { settleFileShareApproval } from "./harness/fileShares.js";
 import { agentRoleState } from "./harness/agentRoles.js";
 import { settleProposal } from "./proposals.js";
 import { settleProxyAction } from "./proxy.js";
@@ -673,6 +674,7 @@ export class OrgRelay {
         // And a daily report's draft is the Worker's to make: a client cannot
         // hand someone a "draft" that posts in their name.
         delete card.dailyReport;
+        delete card.fileShareApproval;
         if (card.recipientUserID.startsWith("member:")) {
           const member = (await listMembers(this.db, orgId, att.githubId))
             .find(m => `member:${m.ref}` === card.recipientUserID);
@@ -794,6 +796,14 @@ export class OrgRelay {
             card.senderUserID = existing.senderUserID;
             card.recipientUserID = existing.recipientUserID;
           }
+          // A file-share approval is an exact server-created snapshot request.
+          // Keep its reference and private audience when clients republish it.
+          if (existing.fileShareApproval) {
+            card.fileShareApproval = existing.fileShareApproval;
+            card.visibility = 'personal';
+            card.senderUserID = existing.senderUserID;
+            card.recipientUserID = existing.recipientUserID;
+          } else delete card.fileShareApproval;
         }
       }
       await saveCard(this.db, orgId, card);
@@ -1114,7 +1124,21 @@ export class OrgRelay {
   /// never able to fail it.
   async afterDecision(orgId, card, actorLogin, actorGithubId) {
     try {
-      if (card?.agentAccessRequest) {
+      if (card?.fileShareApproval) {
+        const settled=await settleFileShareApproval(this.env,orgId,card);
+        if(settled?.settled&&['approve','stale'].includes(settled.action)&&settled.channel&&settled.agentId){
+          const {postMessage}=await import('./channels.js');
+          const {broadcastStored}=await import('./channelRoutes.js');
+          const appBase=String(this.env.APP_WEB_URL||'').replace(/\/$/,'');
+          const link=appBase?`${appBase}/#/file-share/${encodeURIComponent(settled.token)}`:`${this.env.MCP_PUBLIC_URL||''}/workspace-file-shares/${encodeURIComponent(settled.token)}`;
+          const body=settled.action==='approve'&&settled.token
+            ?`公開ファイル共有が承認されました: [${settled.fileName||'共有ファイル'}を開く](${link})`
+            :`公開ファイル共有は作成されませんでした。承認前にファイルまたはアクセス権が変わったため、現在の内容を確認してからもう一度申請してください。`;
+          const out=await postMessage(this.db,{orgId,key:settled.channel,authorLogin:`agent:${settled.agentId}`,body,kind:'agent'});
+          if(out.row)await broadcastStored(this.env,orgId,settled.channel,out.row);
+        }
+      }
+      else if (card?.agentAccessRequest) {
         const settled=await settleAgentAccessRequest(this.db, orgId, card);
         if (settled?.settled && settled.action === 'approve') {
           try {

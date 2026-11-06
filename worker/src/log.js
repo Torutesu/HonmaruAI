@@ -9,7 +9,7 @@
 // exists to protect is worse than no log. Everything here is either an id, a
 // route, or a number.
 
-const REDACT = /(?:gho_|ghp_|sk-|Bearer\s+)\S+|(?:tpl_|skl_)[a-f0-9]{64}/gi;
+const REDACT = /(?:gho_|ghp_|sk-|Bearer\s+)\S+|(?:tpl_|skl_)[a-f0-9]{64}|shr_[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}/gi;
 
 export function safe(message) {
   return String(message ?? "").replace(REDACT, "[redacted]").slice(0, 500);
@@ -29,7 +29,7 @@ export function routeLabel(method, pathname) {
   const collapsed = pathname
     // Never log the share-token path segment, even when a malformed URL has
     // an extra suffix or an encoded character and therefore fails validation.
-    .replace(/^(\/(?:template|skill)-shares\/)[^/]+/i, "$1:token")
+    .replace(/^(\/(?:template-shares|skill-shares|workspace-file-shares)\/)[^/]+/i, "$1:token")
     .replace(/^\/orgs\/[^/]+\/[^/]+/, "/orgs/:owner/:repo")
     .replace(/\/cards\/[^/]+/, "/cards/:id")
     .replace(/^\/media\/[^/]+$/, "/media/:id")
