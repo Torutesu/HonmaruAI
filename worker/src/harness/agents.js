@@ -181,7 +181,7 @@ export async function addAgentMemory(db, orgId, agentId, text, { by = null, sour
   return { memory: memoryEntry({ id, text: clean, source, channel, kind, created_by: by ? String(by) : null, created_at: stamp, ...(structured ? { ...fields, version: 1, updated_at: stamp } : {}) }) };
 }
 
-export async function deleteAgentMemory(db, orgId, agentId, id, { channel = "" } = {}) {
+export async function deleteAgentMemory(db, orgId, agentId, id, { channel = "", userId = null } = {}) {
   const res = await db.prepare(`DELETE FROM hx_agent_memories WHERE org_id = ?1 AND agent_id = ?2
     AND (?3 = '*' OR id = ?3)
     AND COALESCE((SELECT channel FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id AND org_id = hx_agent_memories.org_id), '') = ?4 AND ((SELECT user_github_id FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id AND org_id = hx_agent_memories.org_id) IS NULL OR (SELECT user_github_id FROM hx_memory_scopes WHERE memory_id = hx_agent_memories.id AND org_id = hx_agent_memories.org_id) = ?5) RETURNING id`)
