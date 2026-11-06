@@ -523,7 +523,7 @@ test('grandfathered URL-only webhooks continue to work until the credential is r
   const response = await call(url.pathname + url.search, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client: 'Existing integration' }) });
   expect(response.status).toBe(202);
   expect((await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, mika)).status).toBe(200);
-  await send('POST', `/workflows/${made.workflow.id}/webhook`, mika, { orgId: ORG, action: 'rotate', expectedSecret: made.workflow.hookSecret });
+  await send('POST', `/workflows/${made.workflow.id}/webhook`, mika, { orgId: ORG, action: 'rotate', expectedSecret: made.workflow.hookSecret, expectedUpdatedAt: made.workflow.updatedAt });
   const current = await (await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, mika)).json();
   expect(current.workflow.webhookSignatureRequired).toBe(true);
   const fresh = new URL(current.workflow.hookUrl);
@@ -562,27 +562,43 @@ test("webhook rotation and revocation require an editor and reject stale concurr
     steps: [{ type: "add_row", tableId: invoices, values: { Client: "Managed", Status: "Draft" } }],
   })).json();
   const endpoint = `/workflows/${made.workflow.id}/webhook`;
-  const mutate = (token, action, expectedSecret) => send('POST', endpoint, token, { orgId: ORG, action, expectedSecret });
+  const mutate = (token, action, expectedSecret, expectedUpdatedAt) => send('POST', endpoint, token, { orgId: ORG, action, expectedSecret, expectedUpdatedAt });
   const fire = secret => signedWebhook(made.hookUrl, secret, '{}');
-  expect((await mutate(mika, 'rotate', made.workflow.hookSecret)).status).toBe(403);
+  expect((await mutate(mika, 'rotate', made.workflow.hookSecret, made.workflow.updatedAt)).status).toBe(403);
   expect((await mutate(toru, 'rotate', undefined)).status).toBe(400);
   expect((await mutate(toru, 'invalid', made.workflow.hookSecret)).status).toBe(400);
-  const attempts = await Promise.all([mutate(toru, 'rotate', made.workflow.hookSecret), mutate(toru, 'rotate', made.workflow.hookSecret)]);
+  const attempts = await Promise.all([
+    mutate(toru, 'rotate', made.workflow.hookSecret, made.workflow.updatedAt),
+    mutate(toru, 'rotate', made.workflow.hookSecret, made.workflow.updatedAt),
+  ]);
   expect(attempts.map(r => r.status).sort()).toEqual([200, 409]);
   const rotated = (await attempts.find(r => r.status === 200).json()).workflow;
   expect(rotated.hookSecret).not.toBe(made.workflow.hookSecret);
   expect((await fire(made.workflow.hookSecret)).status).toBe(404);
   expect((await fire(rotated.hookSecret)).status).toBe(202);
-  expect((await mutate(toru, 'revoke', made.workflow.hookSecret)).status).toBe(409);
-  const revoked = await (await mutate(toru, 'revoke', rotated.hookSecret)).json();
+  expect((await mutate(toru, 'revoke', made.workflow.hookSecret, made.workflow.updatedAt)).status).toBe(409);
+  const reviseResponse = await send('PUT', `/workflows/${made.workflow.id}`, toru, { orgId: ORG, name: 'Managed webhook revised' });
+  expect(reviseResponse.status).toBe(200);
+  const revised = (await reviseResponse.json()).workflow;
+  expect((await mutate(toru, 'rotate', rotated.hookSecret, rotated.updatedAt)).status).toBe(409);
+  const afterStale = await (await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, toru)).json();
+  expect(afterStale.workflow.hookSecret).toBe(rotated.hookSecret);
+  const revoked = await (await mutate(toru, 'revoke', revised.hookSecret, revised.updatedAt)).json();
   expect(revoked.workflow.hookUrl).toBeUndefined();
   expect(revoked.workflow.hookSecret).toBeUndefined();
   await send('PUT', `/workflows/${made.workflow.id}`, toru, { orgId: ORG, name: 'Still revoked', enabled: true });
   const current = await (await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, toru)).json();
   expect(current.workflow.hookSecret).toBeUndefined();
   expect((await fire(rotated.hookSecret)).status).toBe(404);
-  const resumed = await (await mutate(toru, 'rotate', null)).json();
-  expect((await fire(resumed.workflow.hookSecret)).status).toBe(202);
+  const reopenAttempts = await Promise.all([
+    mutate(toru, 'rotate', null, current.workflow.updatedAt),
+    mutate(toru, 'rotate', null, current.workflow.updatedAt),
+  ]);
+  expect(reopenAttempts.map(r => r.status).sort()).toEqual([200, 409]);
+  const reopened = (await reopenAttempts.find(r => r.status === 200).json()).workflow;
+  expect(reopened.hookSecret).toMatch(/^[0-9a-f]{48}$/);
+  expect(Date.parse(reopened.updatedAt)).toBeGreaterThan(Date.parse(current.workflow.updatedAt));
+  expect((await fire(reopened.hookSecret)).status).toBe(202);
 });
 
 test("paused webhook deliveries are held and explicit replay cannot dispatch the same event twice", async () => {
@@ -621,6 +637,25 @@ test("paused webhook deliveries are held and explicit replay cannot dispatch the
   expect(rows.map(r => r.values.client).sort()).toEqual(['First', 'Second']);
 });
 
+test("explicit webhook replay starts selected held events oldest first", async () => {
+  const made = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Ordered held input', enabled: false, trigger: { type: 'webhook' },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: '{{input.client}}', Status: 'Draft' } }],
+  })).json();
+  const olderAt = new Date(Date.now() - 2000).toISOString();
+  const newerAt = new Date(Date.now() - 1000).toISOString();
+  const expiresAt = new Date(Date.now() + 86400000).toISOString();
+  for (const [id, client, receivedAt] of [['held_older', 'Older', olderAt], ['held_newer', 'Newer', newerAt]]) {
+    await env.DB.prepare('INSERT INTO hx_workflow_held_events(id,org_id,workflow_id,input,received_at,expires_at) VALUES(?1,?2,?3,?4,?5,?6)')
+      .bind(id, ORG, made.workflow.id, JSON.stringify({ client }), receivedAt, expiresAt).run();
+  }
+  await send('PUT', `/workflows/${made.workflow.id}`, toru, { orgId: ORG, enabled: true });
+  const replay = await send('POST', `/workflows/${made.workflow.id}/webhook/replay`, toru, { orgId: ORG, eventIds: ['held_newer', 'held_older'] });
+  expect(replay.status).toBe(200);
+  const body = await replay.json();
+  expect(body.runs.map(run => run.eventId)).toEqual(['held_older', 'held_newer']);
+  expect(body.skipped).toBe(0);
+});
 test("paused webhook queue has a hard cap and expires stored payloads", async () => {
   const made = await (await send('POST', '/workflows', toru, {
     orgId: ORG, name: 'Bounded input', enabled: false, trigger: { type: 'webhook' },
@@ -633,7 +668,13 @@ test("paused webhook queue has a hard cap and expires stored payloads", async ()
   const fire = () => signedWebhook(made.hookUrl, made.workflow.hookSecret, '{}');
   expect((await fire()).status).toBe(429);
   await env.DB.prepare("UPDATE hx_workflow_held_events SET expires_at='2000-01-01T00:00:00.000Z'").run();
-  expect((await fire()).status).toBe(202);
+  const accepted = await fire();
+  expect(accepted.status).toBe(202);
+  const held = await accepted.json();
+  const retained = await env.DB.prepare('SELECT received_at,expires_at FROM hx_workflow_held_events WHERE id=?1').bind(held.eventId).first();
+  const retainedMs = Date.parse(retained.expires_at) - Date.parse(retained.received_at);
+  expect(retainedMs).toBeGreaterThanOrEqual(604799000);
+  expect(retainedMs).toBeLessThanOrEqual(604800000);
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_held_events').first()).n).toBe(1);
   await runDueWorkflows(env, { now: new Date(Date.now() + 8 * 86400000) });
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_held_events').first()).n).toBe(0);
@@ -644,7 +685,7 @@ test("a webhook checked before credential revocation cannot create a run afterwa
     orgId: ORG, name: 'In flight delivery', trigger: { type: 'webhook' },
     steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'Must not execute', Status: 'Draft' } }],
   })).json();
-  await send('POST', `/workflows/${made.workflow.id}/webhook`, toru, { orgId: ORG, action: 'revoke', expectedSecret: made.workflow.hookSecret });
+  await send('POST', `/workflows/${made.workflow.id}/webhook`, toru, { orgId: ORG, action: 'revoke', expectedSecret: made.workflow.hookSecret, expectedUpdatedAt: made.workflow.updatedAt });
   const run = await startRun(env, { orgId: ORG, workflow: made.workflow, trigger: 'webhook', input: {}, incomingHookSecret: made.workflow.hookSecret });
   expect(run).toBeNull();
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE workflow_id=?1').bind(made.workflow.id).first()).n).toBe(0);
