@@ -19,6 +19,7 @@ import { runProxy } from "./proxy.js";
 import { useSecretKey } from "./secrets.js";
 import { useMirrorEnv } from "./store/mirror.js";
 import { useMediaEnv } from "./mediaToken.js";
+import { waitForAgentCancellation } from './agentCancellation.js';
 
 const MAX_JOBS = 50;
 const jobKind = job => job.kind === "proxy" ? "proxy" : job.kind === "room_hook" ? "room_hook" : job.kind === "handoff" ? "handoff" : "agent";
@@ -63,6 +64,8 @@ export class AgentRunner {
       if(typeof input?.orgId!=='string'||!input.orgId||input.orgId.length>200||typeof input.assignmentId!=='string'||!input.assignmentId||input.assignmentId.length>100||!Number.isSafeInteger(input.generation)||input.generation<0||input.generation>8)return new Response('Bad request',{status:400});
       const controllers=this.activeAssignments.get(this.assignmentKey(input));
       for(const controller of controllers||[])controller.abort();
+      const cleanupResults = await Promise.all([...(controllers||[])].map(controller=>waitForAgentCancellation(controller.signal)));
+      if (cleanupResults.some(result => !result)) return Response.json({cancelled:false,error:'Execution cancellation could not be confirmed.'},{status:503,headers:{'cache-control':'no-store'}});
       return Response.json({cancelled:true,active:Boolean(controllers?.size)},{headers:{'cache-control':'no-store'}});
     }
     if(request.method==='POST'&&url.pathname==='/room-hook-retry') {

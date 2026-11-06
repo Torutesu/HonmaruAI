@@ -162,6 +162,65 @@ test('cancelling an agent stops its running JavaScript and published app action'
   await startAndCancel('run_app_action', { appId: app.id, name: 'agent_task', version: 2, gatewayId: gateway.id, requestId: 'agent-cancel-app', input: { ok: true } });
 });
 
+test('assignment stop waits for queued execution lease invalidation before completing', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  const { gateway, token: nodeToken } = await (await call('/gateways', { method: 'POST', headers: headers(toru), body: JSON.stringify({ orgId: ORG, name: 'Mac mini' }) })).json();
+  let releaseCancellation, cancellationStarted;
+  const cancellationGate = new Promise(resolve => { releaseCancellation = resolve; });
+  const started = new Promise(resolve => { cancellationStarted = resolve; });
+  const db = new Proxy(env.DB, {
+    get(target, property) {
+      if (property !== 'prepare') return Reflect.get(target, property, target);
+      return sql => {
+        const statement = target.prepare(sql);
+        if (!sql.startsWith("UPDATE hx_gateway_jobs SET status = 'cancelled'")) return statement;
+        return new Proxy(statement, {
+          get(prepared, method) {
+            if (method !== 'bind') return Reflect.get(prepared, method, prepared);
+            return (...args) => {
+              const bound = prepared.bind(...args);
+              return new Proxy(bound, {
+                get(query, operation) {
+                  if (operation !== 'run') return Reflect.get(query, operation, query);
+                  return async (...runArgs) => {
+                    cancellationStarted();
+                    await cancellationGate;
+                    return query.run(...runArgs);
+                  };
+                },
+              });
+            };
+          },
+        });
+      };
+    },
+  });
+  const { executionAgentTools } = await import('../src/harness/executionTools.js');
+  const tools = await executionAgentTools({ ...env, DB: db }, { orgId: ORG, session: { github_id: '9401' }, personal: true, ownAgentsOnly: true });
+  const controller = new AbortController();
+  const created = JSON.parse(await tools.run_javascript.run({ gatewayId: gateway.id, requestId: 'stop-drain', code: 'return input', input: 1 }, { signal: controller.signal }));
+  const nodeCall = async (path, body) => {
+    const response = await call('/gateways/' + path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${nodeToken}` }, body: JSON.stringify(body) });
+    return { status: response.status, ...(await response.json()) };
+  };
+  const claimed = await nodeCall('claim', {});
+  expect(claimed.job.id).toBe(created.job.id);
+
+  const { AgentRunner } = await import('../src/agentRunner.js');
+  const runner = new AgentRunner({ storage: {} }, env);
+  runner.registerAssignment({ orgId: ORG, assignmentId: 'assignment-stop', generation: 0 }, controller);
+  let stopCompleted = false;
+  const stop = runner.fetch(new Request('https://agents/cancel-assignment', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId: ORG, assignmentId: 'assignment-stop', generation: 0 }) })).then(response => { stopCompleted = true; return response; });
+  await started;
+  expect(stopCompleted).toBe(false);
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(created.job.id).first()).status).toBe('running');
+
+  releaseCancellation();
+  expect((await stop).status).toBe(200);
+  expect((await env.DB.prepare('SELECT status,lease_hash FROM hx_gateway_jobs WHERE id=?1').bind(created.job.id).first())).toEqual({ status: 'cancelled', lease_hash: null });
+  expect((await nodeCall(`jobs/${created.job.id}/heartbeat`, { lease: claimed.job.lease })).status).toBe(409);
+});
+
 test('MCP reports an overlapping workflow trigger as skipped without dereferencing a nonexistent run', async () => {
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
   const { createWorkflow } = await import('../src/harness/workflows.js');

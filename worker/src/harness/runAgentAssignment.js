@@ -4,6 +4,7 @@ import {assignmentOwns,endAssignment} from './agentAssignments.js';
 import {markControlTool,handoffControl} from '../agentToolControl.js';
 import {drainAgentHandoffs} from './agentHandoffDispatch.js';
 import {serverText} from '../serverCopy.js';
+import {waitForAgentCancellation} from '../agentCancellation.js';
 
 export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=null,existing=null,locale='en',publish,registerCancellation=null},execute) {
   let assignment=existing;
@@ -41,12 +42,14 @@ export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=
   try {
     if(!await permitted()) {await endAssignment(env.DB,{...identity,status:'cancelled'});return {cancelled:true};}
     const result=await execute({authorize:permitted,signal:controller.signal,tools,replyFence:{assignmentId:assignment.id,generation:assignment.generation,sourceId:row.id,sourceBody:row.body,sourceAuthor:row.author_login,sourceParent:row.parent_id}});
+    await waitForAgentCancellation(controller.signal);
     if(await assignmentOwns(env.DB,identity)) {
       if(controller.signal.aborted || !await permitted())await endAssignment(env.DB,{...identity,status:'cancelled'});
       else if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:result?.interrupted?'interrupted':'finished'});
     }
     return result;
   } catch(error) {
+    await waitForAgentCancellation(controller.signal);
     if(controller.signal.aborted) {
       if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:'cancelled'});
       return {cancelled:true};
