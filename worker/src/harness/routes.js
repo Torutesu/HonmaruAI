@@ -987,6 +987,8 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === 'POST' && parts[5] === 'to-skill') {
         if (!canEdit) return json({message:"Only the agent's maker or an admin can convert its memory."},403);
+        const memoryScope=await env.DB.prepare("SELECT user_github_id FROM hx_memory_scopes WHERE org_id=?1 AND memory_id=?2").bind(orgId,parts[4]).first();
+        if (memoryScope?.user_github_id && String(memoryScope.user_github_id)!==String(me)) return json({message:"No such memory."},404);
         const r=await convertMemoryToSkill(env.DB,orgId,agentId,parts[4],input,{channel,by:me});
         if (!r.error && !r.replayed) await audit(env,request,{orgId,action:'agent.memory_converted',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memoryId:parts[4],skillId:r.skill.id,version:input.expectedVersion,keptMemory:r.keptMemory,scope:channel?'conversation':'shared'}});
         return r.error?fail(r):json(r,r.replayed?200:201);
