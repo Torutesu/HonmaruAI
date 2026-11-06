@@ -47,6 +47,9 @@ export async function revokeAppShare(db, orgId, appId, shareId) {
   return { revoked: true, revokedAt };
 }
 
+// An anyone-link is a separate, read-only bearer grant. It intentionally works
+// without a workspace identity, so per-member overrides cannot identify its
+// reader; revoke or expire the link to withdraw this independent grant.
 export async function readAppShare(db, token) {
   if (!validToken(token)) return { error: 'This app link is unavailable.', status: 404 };
   const row = await db.prepare(`SELECT s.org_id AS orgId,s.app_id AS appId,s.app_version AS appVersion,

@@ -1282,7 +1282,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if(request.method==='GET')return json(await connections(env.DB,orgId,appId,me));
         if(request.method!=='POST')return json({message:'Method not allowed.'},405);
         if(input.action==='request'){if(!(await mayEditApp(env.DB,orgId,appId,me)))return json({message:'You can view this app but cannot run its connections.'},403);return respond(await invokeConnection(env.DB,orgId,appId,me,input),'app.connection_requested');}
-        if(input.action==='save')return respond(await saveConnection(env.DB,orgId,appId,me,input),'app.connection_saved');
+        if(input.action==='save'){if(!canManage)return json({message:'Only the app owner or an admin can save connections.'},403);return respond(await saveConnection(env.DB,orgId,appId,me,input),'app.connection_saved');}
       }
       return json({message:'Unknown operation.'},400);
     }

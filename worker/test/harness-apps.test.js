@@ -2082,11 +2082,18 @@ test('member app permissions override workspace sharing and fence reads, writes,
   const principal = { orgId: ORG, githubId: '9101' };
   expect((await callHarnessTool(env, principal, 'read_app', { appId: app.id })).isError).toBeFalsy();
   expect((await callHarnessTool(env, principal, 'add_row', { tableId: app.tableId, values: { Name: 'blocked' } })).isError).toBe(true);
+  await env.DB.prepare("INSERT INTO hx_app_actions (org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES (?1,?2,'do_work',1,'return 1;','return 1;',1,datetime('now'))").bind(ORG,app.id).run();
+  expect((await send('POST', `/apps/${app.id}/actions`, toru, { orgId: ORG, action: 'run', name: 'do_work', version: 1, input: {} })).status).toBe(403);
+  const { callExecutionTool } = await import('../src/harness/executionTools.js');
+  const actionResult = await callExecutionTool(env, principal, 'run_app_action', { appId: app.id, name: 'do_work', version: 1, gatewayId: 'node', requestId: 'acl-test', input: {} });
+  expect(actionResult.structuredContent.error).toContain('cannot run its actions');
 
   const { createWorkflow, mayEditWorkflow } = await import('../src/harness/workflows.js');
   const { workflow } = await createWorkflow(env.DB, ORG, { name: 'ACL write', trigger: { type: 'manual' }, steps: [{ type: 'add_row', tableId: app.tableId, values: { Name: 'workflow' } }] }, '9101');
   expect(await mayEditWorkflow(env.DB, ORG, workflow, '9101')).toBe(false);
+  expect((await send('POST', `/workflows/${workflow.id}/run`, toru, { orgId: ORG, text: 'test' })).status).toBe(403);
 
+  expect((await grant('edit', 0)).status).toBe(409);
   expect((await grant('none', 1)).status).toBe(200);
   expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
   expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, toru)).status).toBe(404);

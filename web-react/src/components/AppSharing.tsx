@@ -3,7 +3,7 @@ import { useT } from '../utils/i18n'
 
 type Visibility = 'private' | 'workspace' | 'room'
 interface Access { visibility: Visibility; version: number; roomChannel?: string | null }
-interface MemberPermission { userId: string; name: string; login: string; role: string; membershipSince: string; permission: 'none' | 'view' | 'edit' | null; version: number | null }
+interface MemberPermission { userId: string; name: string; login: string; role: string; membershipSince: string; permission: 'none' | 'view' | 'edit' | null; effectivePermission: 'none' | 'view' | 'edit'; version: number | null }
 interface Share { id: string; createdAt: string; expiresAt: string; revokedAt: string | null }
 export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }: { httpBase: string; orgId: string; sessionToken: string; appId: string; appVersion: number }) {
   const t = useT()
@@ -104,12 +104,12 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
     {canManage && <div className="row static"><span className="row-main">
       <strong>{t('Workspace members')}</strong>
       <span className="row-sub">{t('Individual access overrides the app audience. No access always takes precedence.')}</span>
-      {members.map(member => <label key={member.userId} className="row-sub" style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center'}}>
-        <span>{member.name}{member.login ? ` · @${member.login}` : ''}{member.role === 'owner' ? ` · ${t('Owner')}` : ''}</span>
+      <div className="app-sharing-members">{members.map(member => <label key={member.userId} className="row-sub app-sharing-member">
+        <span>{member.name}{member.login ? ` · @${member.login}` : ''}{member.role === 'owner' ? ` · ${t('Owner')}` : ''}<small className="app-sharing-effective">{t('Effective access')}: {t(member.effectivePermission === 'edit' ? 'Can edit' : member.effectivePermission === 'view' ? 'Can view' : 'No access')}</small></span>
         <select aria-label={`${t('Access for')} ${member.name}`} value={member.permission || 'inherit'} disabled={!canManage || busy || member.role === 'owner'} onChange={e => void saveMember(member,e.target.value as 'none'|'view'|'edit'|'inherit')}>
           <option value="inherit">{t('Use app audience')}</option><option value="none">{t('No access')}</option><option value="view">{t('Can view')}</option><option value="edit">{t('Can edit')}</option>
         </select>
-      </label>)}
+      </label>)}</div>
     </span></div>}
     {canPublicShare && <div className="row static"><span className="row-main">
       <strong>{t('Anyone with a link')}</strong>

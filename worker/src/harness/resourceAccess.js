@@ -38,7 +38,7 @@ export async function listAppMemberPermissions(db, orgId, appId) {
     LEFT JOIN hx_app_member_permissions p ON p.org_id=m.org_id AND p.app_id=?2 AND p.user_github_id=m.user_github_id AND p.membership_since=m.created_at
     WHERE m.org_id=?1 AND LOWER(COALESCE(m.role,'guest'))!='guest' ORDER BY COALESCE(u.name,u.login,u.github_id)`)
     .bind(orgId, appId).all();
-  return results;
+  return Promise.all(results.map(async row => ({ ...row, effectivePermission: await appPermission(db,orgId,appId,row.userId) })));
 }
 export async function setAppMemberPermission(db, orgId, appId, actorId, input, adminOverride = false) {
   const app = await appAccess(db, orgId, appId);

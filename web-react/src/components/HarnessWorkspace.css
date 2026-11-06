@@ -992,3 +992,9 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
   .hx-form-grid { grid-template-columns: minmax(0, 1fr); }
   .hx-commit-review .hx-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
 }
+
+.app-sharing-members { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.app-sharing-member { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.app-sharing-member select { max-width: 220px; flex: 0 0 auto; }
+.app-sharing-effective { display: block; color: var(--hx-subtle); margin-top: 3px; }
+@media (max-width: 600px) { .app-sharing-member { align-items: flex-start; flex-direction: column; } .app-sharing-member select { max-width: none; width: 100%; } }
