@@ -52,9 +52,9 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
       const res = await fetch(`${httpBase}/apps/${appId}/public-shares`, { method: 'POST', headers, body: JSON.stringify({ orgId, version: appVersion, accessVersion: access?.version, confirmDataExposure: consent, expiresInDays }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || String(res.status))
-      setCreatedUrl(`${location.origin}/#/app-share/${data.token}`)
+      const shareUrl = `${location.origin}/#/app-share/${data.token}`
       setConsent(false)
-      await loadShares()
+      try { await loadShares() } finally { setCreatedUrl(shareUrl) }
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(false) }
   }
