@@ -161,7 +161,7 @@ export async function addAgentMemory(db, orgId, agentId, text, { by = null, sour
   const body = structured ? fields.body : String(text || "").replace(/\s+/g, " ").trim().slice(0, MAX_MEMORY_CHARS);
   const clean = body.replace(/\s+/g, " ").slice(0, MAX_MEMORY_CHARS);
   if (!clean) return { error: "Say what to remember." };
-  const dup = await db.prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at
+  const dup = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, d.title, d.description, d.body, d.version, d.updated_at
     FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id
     WHERE m.org_id = ?1 AND m.agent_id = ?2 AND COALESCE(d.body, m.text) = ?3 AND COALESCE(s.channel, '') = ?4 AND COALESCE(s.kind, 'context') = ?5 AND COALESCE(s.user_github_id, '') = ?6`)
