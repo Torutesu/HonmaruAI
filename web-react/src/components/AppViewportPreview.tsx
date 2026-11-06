@@ -3,7 +3,7 @@ import { Icon } from './Icon'
 
 type PreviewViewport = 'desktop' | 'phone'
 
-/** Adds a responsive-size switch around a custom app preview. */
+/** Adds a responsive-size switch around an app preview. */
 export function AppViewportPreview({ children }: { children: React.ReactNode }) {
   const [viewport, setViewport] = useState<PreviewViewport>('desktop')
   return <section className="hx-app-viewport-preview" data-viewport={viewport}>

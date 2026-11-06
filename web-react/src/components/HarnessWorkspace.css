@@ -937,7 +937,7 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-app-viewport-frame { width:100%; min-width:0; }
 .hx-app-viewport-frame > .hx-custom-frame { box-sizing:border-box; width:100%; min-height:640px; margin:0; }
 .hx-app-viewport-preview[data-viewport="phone"] .hx-app-viewport-stage { min-height:min(740px,calc(100vh - 250px)); overflow:auto; align-items:flex-start; }
-.hx-app-viewport-preview[data-viewport="phone"] .hx-app-viewport-frame { width:min(390px,100%); min-height:min(740px,calc(100vh - 250px)); border:1px solid var(--hx-border); border-radius:24px; padding:5px; background:var(--hx-app-surface); box-shadow:0 8px 28px #00000012; }
+.hx-app-viewport-preview[data-viewport="phone"] .hx-app-viewport-frame { box-sizing:border-box; width:min(390px,100%); min-height:min(740px,calc(100vh - 250px)); border:1px solid var(--hx-border); border-radius:24px; padding:5px; background:var(--hx-app-surface); box-shadow:0 8px 28px #00000012; }
 .hx-app-viewport-preview[data-viewport="phone"] .hx-app-viewport-frame > .hx-custom-frame { min-height:min(728px,calc(100vh - 262px)); height:min(728px,calc(100vh - 262px)); border:0; border-radius:19px; }
 
 
