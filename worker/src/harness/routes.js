@@ -44,6 +44,9 @@ import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
+import { fetchGitHubCommitSource, verifyGitHubCommitRef } from './githubCommitSource.js';
+import { commitPublishScope, customCommitState, requestCustomCommitApproval, reviewCustomCommitApproval, publishApprovedCustomCommit, hashSource } from './appCommitRelease.js';
+import { servePublishedCommitAsset } from './appCommitAssets.js';
 import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHosting.js';
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
@@ -109,7 +112,7 @@ const fail = (result) => json({ message: result.error, ...(result.fields ? { fie
 const importMayBeSaved = 'A copy may have been created. After access is restored, check the Skill list before retrying.';
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-commit-assets|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId, options) {
@@ -138,6 +141,7 @@ export async function handleHarness(request, env, url, context = {}) {
   if (limited) return limited;
 
   if (url.pathname === '/app-domains/resolve') return servePublicAppDomain(request, env, url);
+  if (url.pathname.startsWith('/app-commit-assets/')) return servePublishedCommitAsset(request, env, url);
 
   if (/^\/hx\/public-file-shares\//.test(url.pathname)) {
     const tokenValue=url.pathname.slice('/hx/public-file-shares/'.length);
@@ -1322,6 +1326,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return result.error?fail(result):json(result);
     }
     if (sub === "custom") {
+      if (request.method === 'GET') return json(await customCommitState(env.DB,orgId,app));
       if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: "Only its maker or an admin can change custom code." }, 403);
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
       if (input.action === 'generate') {
@@ -1341,6 +1346,47 @@ export async function handleHarness(request, env, url, context = {}) {
           },authorize);
         return result.error?fail(result):json(result);
       }
+      if (input.action === 'import_commit') {
+        const imported=await fetchGitHubCommitSource(who.session.github_access_token,input);
+        if(imported.error)return fail(imported);
+        const commit={...imported.commit};
+        const result=await saveCustomRelease(env.DB,orgId,app,{action:'draft',version:app.version,html:imported.source},me,{commit,assets:imported.assets});
+        if(result.error)return fail(result);
+        await audit(env,request,{orgId,action:'app.custom_commit_imported',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{version:result.version,repo:commit.owner+'/'+commit.repo,commitSha:commit.sha,sourceHash:commit.sourceHash,assetCount:imported.assets.length}});
+        return json({saved:true,version:result.version,commit:{...commit,appVersion:result.version},assetCount:imported.assets.length});
+      }
+      if(input.action==='request_commit_approval'){
+        const commit=app.definition?.custom?.draftCommit;
+        if(!commit)return json({message:'Import a GitHub commit into the saved draft first.'},409);
+        const current=await verifyGitHubCommitRef(who.session.github_access_token,commit);
+        if(current.error)return fail(current);
+        const result=await requestCustomCommitApproval(env.DB,orgId,app,me,{version:input.version,commit,sourceHash:commit.sourceHash});
+        if(result.error)return fail(result);
+        await audit(env,request,{orgId,action:'app.custom_commit_approval_requested',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{version:app.version,repo:commit.owner+'/'+commit.repo,commitSha:commit.sha,sourceHash:commit.sourceHash,scope:result.approval.visibility_scope}});
+        return json(result);
+      }
+      if(input.action==='review_commit_approval'){
+        if(!await allowed(env.DB,orgId,who.session.github_id,'harness.delete_others'))return json({message:'Only a workspace Owner or Admin can review a GitHub commit.'},403);
+        if(!Number.isSafeInteger(input.version)||input.version!==app.version)return json({message:'The app changed. Reload before reviewing this commit.'},409);
+        const result=await reviewCustomCommitApproval(env.DB,orgId,app,input,me,true);
+        if(result.error)return fail(result);
+        await audit(env,request,{orgId,action:'app.custom_commit_'+input.decision,actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{version:app.version,commitSha:result.approval.commit_sha,sourceHash:result.approval.source_hash}});
+        return json(result);
+      }
+      if(input.action==='publish_commit'){
+        const commit=app.definition?.custom?.draftCommit;
+        if(!commit)return json({message:'No imported GitHub commit is saved as this draft.'},409);
+        const verified=await fetchGitHubCommitSource(who.session.github_access_token,{owner:commit.owner,repo:commit.repo,branch:commit.branch,commitSha:commit.sha});
+        if(verified.error)return fail(verified);
+        if(verified.commit.sourceHash!==commit.sourceHash||verified.commit.htmlHash!==commit.htmlHash
+          ||JSON.stringify(verified.commit.assets)!==JSON.stringify(commit.assets))return json({message:'The pinned GitHub bundle changed. Import and request approval again.'},409);
+        const scope=await commitPublishScope(env.DB,orgId,appId);
+        const result=await publishApprovedCustomCommit(env.DB,orgId,app,{...input,sourceHash:commit.sourceHash},me,scope);
+        if(result.error)return fail(result);
+        await audit(env,request,{orgId,action:'app.custom_commit_published',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{version:result.version,repo:commit.owner+'/'+commit.repo,commitSha:commit.sha,sourceHash:commit.sourceHash,visibility:scope?.visibility}});
+        return json(result);
+      }
+      if(input.action==='publish'&&app.definition?.custom?.draftCommit)return json({message:'This draft is pinned to a GitHub commit. Publish it with its independent commit approval.'},409);
       const result = await saveCustomRelease(env.DB, orgId, app, input, me);
       if (!result.error) await audit(env, request, { orgId, action: 'app.custom_' + input.action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version } });
       return result.error ? fail(result) : json(result);
