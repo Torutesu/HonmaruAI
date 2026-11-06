@@ -3,7 +3,7 @@ import {test,expect} from 'vitest';
 import migration from '../migrations.sql?raw';
 import source from '../workspace-files.sql?raw';
 
-const statements=migration.split('\\n').filter(line=>/^CREATE TABLE(?: IF NOT EXISTS)? hx_(workspace_file|file_account)/.test(line));
+const statements=migration.split('\n').filter(line=>/^CREATE TABLE(?: IF NOT EXISTS)? hx_(workspace_file|file_account)/.test(line));
 test('production file migration creates all tables and immutable history on an existing database and is replayable',async()=>{
  for(const table of ['hx_public_file_shares','hx_file_share_requests','hx_file_share_audit'])await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
  for(const table of ['hx_workspace_file_origins','hx_workspace_file_purges','hx_workspace_file_versions','hx_workspace_file_uploads','hx_workspace_files','hx_file_account_erasures'])await env.DB.prepare(`DROP TABLE ${table}`).run();
