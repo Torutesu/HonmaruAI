@@ -3412,6 +3412,21 @@ const table: Record<string, string> = {
   'Read accessible Harness tables and their records.': 'アクセスできる Harness のテーブルとそのレコードを読みます。',
   'Update lists': 'リストを更新',
   'Create and update accessible Harness tables and records.': 'アクセスできる Harness のテーブルとレコードを作成・更新します。',
+  "Share thread with people": "スレッドを人と共有",
+  "Only these people can open this thread. Sharing never adds workspace membership.": "共有相手だけがこのスレッドを開けます。共有してもワークスペースのメンバーにはなりません。",
+  "Email address": "メールアドレス",
+  "name@example.com": "name@example.com",
+  "Can view": "閲覧可能",
+  "Can edit": "編集可能",
+  "In 7 days": "7日後",
+  "In 30 days": "30日後",
+  "Share thread": "スレッドを共有",
+  "People with access": "アクセスできる人",
+  "No one outside this workspace has access.": "ワークスペース外でアクセスできる人はいません。",
+  "Permission for {email}": "{email}さんの権限",
+  "Revoke access": "アクセスを取り消す",
+  "An existing verified account outside this workspace is required.": "ワークスペース外の既存アカウントと、確認済みのメールアドレスが必要です。",
+  "Access could not be updated. Check the connection and your permission, then try again.": "アクセス設定を更新できませんでした。接続と権限を確認して再試行してください。",
 }
 
 export default table
