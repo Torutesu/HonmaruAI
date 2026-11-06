@@ -21,6 +21,48 @@ test('continues tool results and reasoning metadata, records usage, and answers'
  expect(await run({provider:p,tools:{lookup:tool(async()=>{ran++;return 'found';})}})).toMatchObject({answer:'Answer',called:true,calls:1,rounds:2});
  expect(ran).toBe(1);expect(p.usage).toHaveLength(2);
 });
+test('tool traces contain only a safe name, lifecycle status, and bounded elapsed time',async()=>{
+ const secretInput='private-input-8b0d';const secretOutput='private-result-316d';const events=[];
+ reply({tool_calls:[call('one','lookup',JSON.stringify({query:secretInput}))]});reply({content:'Done'});
+ const out=await run({onToolEvent:event=>events.push(event),tools:{lookup:tool(async()=>secretOutput)}});
+ expect(out.answer).toBe('Done');
+ expect(events).toHaveLength(2);
+ expect(events[0]).toMatchObject({name:'lookup',phase:'started',status:'started',elapsedMs:0});
+ expect(events[1]).toMatchObject({name:'lookup',phase:'finished',status:'completed'});
+ expect(events.every(event=>Number.isFinite(event.elapsedMs)&&event.elapsedMs>=0&&event.elapsedMs<=86400000)).toBe(true);
+ expect(JSON.stringify(events)).not.toContain(secretInput);expect(JSON.stringify(events)).not.toContain(secretOutput);
+ expect(Object.keys(events[0]).sort()).toEqual(['elapsedMs','name','phase','status']);
+ expect(out.toolTrace).toMatchObject({startedAt:expect.any(String),finishedAt:expect.any(String),elapsedMs:expect.any(Number),steps:[{name:'lookup',status:'completed'}]});
+ expect(Date.parse(out.toolTrace.finishedAt)).toBeGreaterThanOrEqual(Date.parse(out.toolTrace.startedAt));
+});
+test('malformed arguments and unknown tool names create failed summaries',async()=>{
+ const events=[];let ran=0;
+ reply({tool_calls:[call('bad-args','lookup','not-json'),call('unknown','private-user-supplied-name','{}')]});reply({content:'Handled'});
+ const out=await run({onToolEvent:event=>events.push(event),tools:{lookup:tool(async()=>{ran++;})}});
+ expect(out.answer).toBe('Handled');expect(ran).toBe(0);
+ expect(events.map(({name,status})=>[name,status])).toEqual([
+  ['lookup','started'],['lookup','failed'],['unknown_tool','started'],['unknown_tool','failed'],
+ ]);
+ expect(JSON.stringify(events)).not.toContain('private-user-supplied-name');
+});
+test('trace callback failures do not change tool execution or its answer',async()=>{
+ let writes=0;
+ reply({tool_calls:[call('one','write')]});reply({content:'Done'});
+ const out=await run({onToolEvent:()=>{throw new Error('trace storage unavailable');},tools:{write:tool(async()=>{writes++;return 'ok';})}});
+ expect(out.answer).toBe('Done');expect(writes).toBe(1);
+});
+test('trace event count is capped at two events for each of sixteen tool calls',async()=>{
+ const events=[];let responseCount=0;
+ fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,()=>{
+  responseCount++;
+  if(responseCount===1)return {choices:[{message:{tool_calls:Array.from({length:16},(_,i)=>call(`call-${i}`,'write'))}}]};
+  return {choices:[{message:{content:'Done'}}]};
+ }).times(2);
+ const out=await run({onToolEvent:event=>events.push(event),tools:{write:tool(async()=> 'ok')}});
+ expect(out.answer).toBe('Done');expect(out.calls).toBe(16);expect(events).toHaveLength(32);
+ expect(events.filter(event=>event.status==='started')).toHaveLength(16);
+ expect(events.filter(event=>event.status==='completed')).toHaveLength(16);
+});
 test('trusted handoff precedes ordinary siblings and suppresses draft answer and further calls',async()=>{
  let writes=0;
  reply({content:'I completed everything',tool_calls:[call('write','write'),call('handoff','handoff')]});
@@ -108,9 +150,11 @@ test('progress callback cannot bypass revocation before the next model request',
 
 test('a hanging tool reaches its deadline without replay, siblings or an inferred answer',async()=>{
  let started=0,siblings=0,clock=Date.now();
+ const events=[];
  vi.spyOn(Date,'now').mockImplementation(()=>clock);
  const deadline=clock+11000;
  reply({content:'Everything finished',tool_calls:[call('one','hang'),call('two','write')]},()=>{clock=deadline-50;});
- const out=await run({deadline,tools:{hang:tool(async()=>{started++;return new Promise(()=>{});}),write:tool(async()=>siblings++)}});
+ const out=await run({deadline,onToolEvent:event=>events.push(event),tools:{hang:tool(async()=>{started++;return new Promise(()=>{});}),write:tool(async()=>siblings++)}});
  expect(out).toMatchObject({called:true,answer:null,interrupted:true});expect(started).toBe(1);expect(siblings).toBe(0);
+ expect(events.map(({name,status})=>[name,status])).toEqual([['hang','started'],['hang','interrupted']]);
 });
