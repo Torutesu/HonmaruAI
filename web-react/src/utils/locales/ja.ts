@@ -3429,6 +3429,8 @@ const table: Record<string, string> = {
   "Access could not be updated. Check the connection and your permission, then try again.": "アクセス設定を更新できませんでした。接続と権限を確認して再試行してください。",
   "Workspace member": "ワークスペースのメンバー",
   "External access is paused": "外部アクセスは一時停止中です",
+  "External grant is paused while this person is a workspace member.": "この人がワークスペースのメンバーである間、外部共有権限は一時停止されます。",
+  "External grant stays paused after membership ends until it is revoked or re-shared.": "メンバー資格がなくなっても外部共有権限は再開されません。取り消すか、改めて共有してください。",
 }
 
 export default table
