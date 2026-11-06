@@ -1,6 +1,8 @@
 import { enqueueExecution, readExecution } from './executions.js';
 import { sealField, openField, isSealed } from '../secrets.js';
 import { digest } from './appDatabase.js';
+import { getMode } from './mode.js';
+import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
 const err = (error, status=400) => ({ error, status });
 const nameOK = n => typeof n === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(n);
 const codeOK = c => typeof c === 'string' && c.trim() && c.length <= 40000;
@@ -120,6 +122,12 @@ export async function invokeConnection(db,orgId,appId,by,input) {
     body=JSON.stringify(input.body);
     if(new TextEncoder().encode(body).length>20000)return err('External request body exceeds 20KB.',413);
     if(typeof input.requestId!=='string'||! /^[\w-]{1,80}$/.test(input.requestId))return err('A unique request ID is required for external writes.');
+  }
+  if (await getMode(db, orgId) === 'harness') {
+    const budget = await workspaceBudgetAdmission(db, orgId);
+    if (!budget.allowed) return err(budget.message, budget.status);
+  }
+  if(row.method!=='GET') {
     const saved=await db.prepare("INSERT OR IGNORE INTO hx_app_connection_requests (org_id,app_id,created_by,request_id,connection_name,connection_version,body_hash,status,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,'started',?8)").bind(orgId,appId,String(by),input.requestId,row.name,row.version,await digest(body),new Date().toISOString()).run();
     if(!saved.meta?.changes)return err('This external write was already attempted. Check the service before creating another request.',409);
   }
