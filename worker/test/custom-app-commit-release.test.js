@@ -131,6 +131,13 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   expect(replay.status).toBe(409);
   expect(await readReleaseState(app.id,approval.id)).toEqual(releaseState);
 
+  const beforeBadPublish=await readReleaseState(app.id,approval.id);
+  const storedApp=await env.DB.prepare('SELECT definition FROM hx_apps WHERE org_id=?1 AND id=?2').bind(ORG,app.id).first();
+  const badDefinition=JSON.parse(storedApp.definition);
+  badDefinition.custom.publishedCommitApprovalId='missing-approval';
+  await expect(env.DB.prepare('UPDATE hx_apps SET definition=?1 WHERE org_id=?2 AND id=?3')
+    .bind(JSON.stringify(badDefinition),ORG,app.id).run()).rejects.toThrow('Custom commit approval could not be consumed atomically');
+  expect(await readReleaseState(app.id,approval.id)).toEqual(beforeBadPublish);
   const domain = new Date().toISOString();
   await env.DB.prepare(`INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at)
     VALUES(?1,?2,'commit-release.example','active','9101',?3,?3)`).bind(ORG, app.id, domain).run();
@@ -268,10 +275,12 @@ test('custom domain consent is bound to its attachment and exposes only after ex
   expect(unconfirmed.status).toBe(409);
   expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).toEqual({n:0});
 
+  const providerCalls=[];
   vi.stubGlobal('fetch',vi.fn(async (input,init={})=>{
-    const request=input instanceof Request?input:new Request(String(input),init);
-    const url=new URL(request.url);
-    const method=String(init.method||request.method||'GET').toUpperCase();
+    const rawUrl=input&&typeof input==='object'&&'url' in input?input.url:String(input);
+    const url=new URL(rawUrl);
+    const method=String(init?.method||input?.method||'GET').toUpperCase();
+    providerCalls.push({url:url.href,method});
     if(url.hostname==='api.cloudflare.com'){
       if(method==='GET')return json({success:true,result:[]});
       if(method==='POST')return json({success:true,result:{status:'active',validation_data:{status:'success'},verification_data:{status:'success'}}});
@@ -280,7 +289,7 @@ test('custom domain consent is bound to its attachment and exposes only after ex
     return new Response('Unexpected upstream request.',{status:502});
   }));
   const attached=await domainSend({action:'attach',hostname,publicDataConfirmed:true});
-  expect(attached.status).toBe(200);
+  expect(attached.status, `${await attached.clone().text()} calls=${JSON.stringify(providerCalls)}`).toBe(200);
   const domain=(await attached.json()).domain;
   const receipt=await env.DB.prepare('SELECT hostname,domain_created_at AS domainCreatedAt,confirmed_by AS confirmedBy,confirmed_at AS confirmedAt,confirmation_version AS confirmationVersion FROM hx_app_domain_public_consents WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first();
   expect(receipt).toMatchObject({hostname,confirmedBy:'9101',confirmationVersion:1});
