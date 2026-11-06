@@ -29,6 +29,7 @@ import { McpConsent } from './components/McpConsent'
 import {PublicSkillShare} from './screens/PublicSkillShare'
 import {ExternalGuestThread} from './screens/ExternalGuestThread'
 import {externalThreadAccessFromInvite,externalThreadHash} from './utils/externalThreadInvite'
+import {rememberExternalThreadAuthReturn,takeExternalThreadAuthReturn} from './utils/externalThreadAuthReturn'
 
 // The web client talks to the backend over HTTP for auth and WebSocket for the
 // feed. We store one base host and derive both.
@@ -256,6 +257,7 @@ function AccountApp() {
   useEffect(() => {
     if (restoring) return
     const onHash = () => {
+      try { rememberExternalThreadAuthReturn(sessionStorage, location.hash) } catch { /* private browsing */ }
       const external = location.hash.match(/^#\/external-invite\/([a-f0-9]{64})$/i)
       if (external) {
         const inviteToken = external[1].toLowerCase()
@@ -361,6 +363,12 @@ function AccountApp() {
         if(!current())return
         if (!r.ok || !data.token) { setGithubError(data.message || t('That sign-in did not finish. Try again.')); return }
         await finishAuthRef.current?.(data.token, data.login || data.userId, data.orgId || '', false,current)
+        let externalThreadReturn:string|null=null
+        try { externalThreadReturn=takeExternalThreadAuthReturn(sessionStorage) } catch { /* private browsing */ }
+        if(externalThreadReturn){
+          history.replaceState(null,'',location.pathname+location.search+externalThreadReturn)
+          window.dispatchEvent(new Event('honmaru:session-ready'))
+        }
       })
       .catch(() => {if(current())setGithubError(t('Could not reach the relay.'))})
       .finally(()=>scope.release())
@@ -477,6 +485,13 @@ function AccountApp() {
     if (externalThread) {
       history.replaceState(null, '', location.pathname + location.search + externalThreadHash(externalThread))
       window.dispatchEvent(new Event('honmaru:session-ready'))
+    } else {
+      let externalThreadReturn:string|null=null
+      try { externalThreadReturn=takeExternalThreadAuthReturn(sessionStorage) } catch { /* private browsing */ }
+      if(externalThreadReturn){
+        history.replaceState(null,'',location.pathname+location.search+externalThreadReturn)
+        window.dispatchEvent(new Event('honmaru:session-ready'))
+      }
     }
   }
 
