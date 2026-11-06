@@ -1,13 +1,9 @@
-/* Column additions for databases created before these columns existed.
+/* Ordered compatibility migrations for databases deployed before current schema.
 
-   Every statement here is expected to fail on a database that schema.sql has
-   already created from scratch, because schema.sql declares these columns
-   inside CREATE TABLE. D1 aborts a file at its first error, so this file holds
-   *only* ALTERs — nothing after them that needs to run. Anything that must run
-   unconditionally belongs in schema.sql, which is idempotent by construction.
-
-   The deploy applies this file statement by statement and tolerates
-   "duplicate column name" for each, which is the already-applied signal. */
+   schema.sql runs first and must never reference a column that is introduced
+   below. The deploy applies each line here as one D1 statement, in order.
+   Duplicate-column ALTER errors are the already-applied signal; dependent
+   backfills and triggers belong after their required ALTER. */
 
 ALTER TABLE users ADD COLUMN email TEXT;
 ALTER TABLE users ADD COLUMN password_hash TEXT;
@@ -380,8 +376,9 @@ ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN app_id TEXT;
 ALTER TABLE hx_memory_scopes ADD COLUMN user_github_id TEXT;
 
-/* Durable ownership for review audit rows. Legacy rows are populated from the
-   still-existing memory by schema.sql; deleted legacy rows stay unscoped and
-   are hidden rather than guessed. */
+/* Durable review scope is backfilled only from a surviving source memory.
+   Deleted legacy memories have no recoverable owner and remain undiscoverable. */
 CREATE TABLE IF NOT EXISTS hx_memory_review_audit_scope (audit_id TEXT PRIMARY KEY REFERENCES hx_memory_review_audit(id) ON DELETE CASCADE, org_id TEXT NOT NULL, agent_id TEXT NOT NULL, memory_scope TEXT NOT NULL CHECK(memory_scope IN ('shared','conversation','person')), channel TEXT NOT NULL DEFAULT '', user_github_id TEXT);
 CREATE INDEX IF NOT EXISTS idx_hx_memory_review_audit_scope_owner ON hx_memory_review_audit_scope(org_id,agent_id,user_github_id,channel,audit_id);
+INSERT OR IGNORE INTO hx_memory_review_audit_scope (audit_id,org_id,agent_id,memory_scope,channel,user_github_id) SELECT a.id,a.org_id,a.agent_id,CASE WHEN s.user_github_id IS NOT NULL THEN 'person' WHEN COALESCE(s.channel,'')<>'' THEN 'conversation' ELSE 'shared' END,COALESCE(s.channel,''),s.user_github_id FROM hx_memory_review_audit a JOIN hx_agent_memories m ON m.id=a.memory_id AND m.org_id=a.org_id AND m.agent_id=a.agent_id LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id;
+CREATE TRIGGER IF NOT EXISTS hx_memory_review_audit_scope_insert AFTER INSERT ON hx_memory_review_audit BEGIN INSERT OR IGNORE INTO hx_memory_review_audit_scope (audit_id,org_id,agent_id,memory_scope,channel,user_github_id) SELECT NEW.id,NEW.org_id,m.agent_id,CASE WHEN s.user_github_id IS NOT NULL THEN 'person' WHEN COALESCE(s.channel,'')<>'' THEN 'conversation' ELSE 'shared' END,COALESCE(s.channel,''),s.user_github_id FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id WHERE m.id=NEW.memory_id AND m.org_id=NEW.org_id; END;

@@ -130,13 +130,9 @@ jobs:
       - name: Migrate D1
         run: npx -y wrangler@4 d1 execute ${{ steps.target.outputs.db }} ${{ steps.target.outputs.flag }} --remote --file schema.sql --yes
 
-      # Column additions for databases predating these columns. schema.sql
-      # declares them inside CREATE TABLE, so on a database it built these all
-      # fail with "duplicate column name" — the already-applied signal.
-      #
-      # Statement by statement, because D1 aborts a file at its first error:
-      # running them together meant one expected failure skipped the rest, and
-      # anything placed after it silently never ran.
+      # Ordered D1 compatibility changes for databases predating the current schema.
+      # The migration script applies each ALTER, DDL, and backfill in order,
+      # because one D1 error otherwise aborts the rest of a migration file.
       - name: Migrate D1 (column additions)
         run: node ../.github/scripts/migrate-columns.cjs ${{ steps.target.outputs.db }} ${{ steps.target.outputs.flag }}
 

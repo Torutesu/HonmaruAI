@@ -33,12 +33,12 @@ beforeEach(async () => {
   await env.DB.exec(workspaceFilesSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRuntimeSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRevisionSql.replace(/\n/g, " "));
-  // The indexes that live in migrations.sql, as a deploy builds them: the
-  // columns are already in the fresh tables, so only those statements count.
-  for (const sql of migrationIndexes) await env.DB.exec(sql);
+  // Apply idempotent post-schema indexes, data backfills, and triggers just
+  // as deploy does, after columns already exist on the fresh test schema.
+  for (const sql of migrationStatements) await env.DB.exec(sql);
 });
 
-const migrationIndexes = migrationsSql.split("\n").filter((line) => /^CREATE (UNIQUE )?INDEX IF NOT EXISTS/.test(line));
+const migrationStatements = migrationsSql.split("\n").filter((line) => /^(CREATE (UNIQUE )?INDEX IF NOT EXISTS|CREATE TRIGGER IF NOT EXISTS|INSERT OR IGNORE INTO)/.test(line));
 const workflowWebhookColumns = [
   'ALTER TABLE hx_workflow_held_events ADD COLUMN webhook_event_id TEXT',
   'ALTER TABLE hx_workflow_held_events ADD COLUMN payload_hash TEXT',
