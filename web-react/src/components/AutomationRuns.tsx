@@ -7,6 +7,9 @@ import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHis
 const labels:Record<string,string>={done:'Completed',running:'Running',waiting:'Waiting for approval',failed:'Failed',declined:'Declined',ok:'Succeeded',cancelled:'Cancelled'}
 export {runDuration} from '../utils/runDuration'
 import {runDuration} from '../utils/runDuration'
+const authorizationResourceLabels:Record<NonNullable<Run['log'][number]['authorization']>[number]['resourceType'],string>={
+ workflow:'Workflow resource',conversation:'Conversation resource',agent:'Agent resource',table:'Table resource',app:'App resource',connection:'Connection resource',member:'Member resource',
+}
 
 export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessApi}) {
  const t=useT(),[runs,setRuns]=useState<Run[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[isOpen,setIsOpen]=useState(false),[failedOnly,setFailedOnly]=useState(false)
@@ -54,7 +57,9 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
    {visibleRuns.length===0?<p className="hx-run-empty">{t('No failed runs.')}</p>:orderedDays.map(([key,group])=><section className="hx-run-day" key={key}><h4>{runDayLabel(group.date,getLocale(),t)}</h4>
     {group.runs.map(run=><details key={run.id}><summary>{runTimestampLabel(run.startedAt,getLocale(),t('Date unavailable'))} · {t(labels[run.status]||run.status)}{run.definitionRevision ? <span className="row-sub">{t('Version {version}',{version:run.definitionRevision})}</span> : run.definitionSnapshotAvailable===true ? <span className="row-sub">{t('Version not recorded')}</span> : run.definitionSnapshotAvailable===false ? <span className="row-sub">{t('Original definition snapshot unavailable')}</span> : null}{runDuration(run)!==null&&<> · <span title={t('Elapsed time, including approval waits')}>{runDuration(run)}</span></>}</summary>
      <WorkflowRunUsage usage={run.usage}/>
-     <ol>{run.log.map((entry,index)=><li key={index}><strong>{entry.step}. {t(labels[entry.status]||entry.status)}</strong>{entry.error&&<p className="form-error">{entry.error}</p>}{entry.output&&<pre>{entry.output}</pre>}</li>)}</ol>
+     <ol>{run.log.map((entry,index)=><li key={index}><strong>{entry.step}. {t(labels[entry.status]||entry.status)}</strong>{entry.error&&<p className="form-error">{entry.error}</p>}{entry.output&&<pre>{entry.output}</pre>}
+      {!!entry.authorization?.length&&<details className="hx-run-authorization"><summary>{t('Access checks')} · {entry.authorization.length}</summary><ul>{entry.authorization.map((event,eventIndex)=><li key={`${event.resourceType}:${event.resourceId}:${event.outcome}:${eventIndex}`}><span>{t('Actor ID')}: <code>{event.actorId}</code></span><span>{t('Resource')}: {t(authorizationResourceLabels[event.resourceType])} · <code>{event.resourceId}</code></span><strong className={event.outcome==='denied'?'form-error':''}>{t(event.outcome==='allowed'?'Allowed':'Denied')}</strong><time dateTime={event.checkedAt}>{new Date(event.checkedAt).toLocaleString(getLocale())}</time></li>)}</ul></details>}
+     </li>)}</ol>
      <small>{t('Run ID: {id}',{id:run.id})}</small>
     </details>)}
    </section>)}
