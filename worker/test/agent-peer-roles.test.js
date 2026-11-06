@@ -24,7 +24,7 @@ test('handoff to a managed Agent requires an explicit Agent member role and a cu
   const assignment=(await beginAssignment(env.DB,{orgId:org,row,agentId:'researcher',actorId:'human',sessionKey:'h1:peer'})).assignment;
   const move={orgId:org,assignmentId:assignment.id,generation:0,sourceAgentId:'researcher',targetAgentId:'reviewer',operationId:'peer-op',brief:'Review',messageBody:'Please review'};
   expect(await commitHandoff(env.DB,move)).toMatchObject({status:403});
-  expect(await agentPeerRoleState(env.DB,org,'reviewer')).toMatchObject({version:0,members:[]});
+  expect(await agentPeerRoleState(env.DB,org,'reviewer')).toMatchObject({version:0,scope:'team',managed:true,members:[]});
   expect(await setAgentPeerRole(env.DB,org,'reviewer',{actorId:'human',memberAgentId:'researcher',role:'member',expectedVersion:0})).toEqual({version:1});
   expect(await setAgentPeerRole(env.DB,org,'reviewer',{actorId:'human',memberAgentId:'researcher',role:'admin',expectedVersion:0})).toMatchObject({status:409});
   expect(await commitHandoff(env.DB,move)).toMatchObject({replayed:false,operation:{target_agent_id:'reviewer'}});
@@ -34,4 +34,10 @@ test('peer role mutations require a human Agent Admin and reject self or non-man
   expect(await setAgentPeerRole(env.DB,org,'reviewer',{actorId:'unknown',memberAgentId:'researcher',role:'member',expectedVersion:0})).toMatchObject({status:403});
   expect(await setAgentPeerRole(env.DB,org,'reviewer',{actorId:'human',memberAgentId:'reviewer',role:'member',expectedVersion:0})).toMatchObject({status:400});
   expect(await setAgentPeerRole(env.DB,org,'reviewer',{actorId:'human',memberAgentId:'missing',role:'member',expectedVersion:0})).toMatchObject({status:404});
+});
+
+test('legacy team Agents without a managed profile are marked ineligible for the peer-role UI',async()=>{
+  await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,'legacy','legacy','Legacy','Help','team','owner','now','now')`).bind(org).run();
+  expect(await agentPeerRoleState(env.DB,org,'legacy')).toMatchObject({scope:'team',managed:false});
 });

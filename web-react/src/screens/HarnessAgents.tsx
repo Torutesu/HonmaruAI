@@ -3,6 +3,7 @@ import { AgentMemoryHistory } from '../components/AgentMemoryHistory'
 import { AgentMemoryReview } from '../components/AgentMemoryReview'
 import { AgentFollowups } from '../components/AgentFollowups'
 import { AgentAccessDialog } from '../components/AgentAccessDialog'
+import { AgentPeerAccessDialog } from '../components/AgentPeerAccessDialog'
 import { AgentMemoryEditor } from '../components/AgentMemoryEditor'
 import { AgentTierSelect } from '../components/AgentTierSelect'
 import { skillImportInput } from '../utils/skillImport'
@@ -99,7 +100,10 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [section, setSection] = useState<'profile' | 'connections' | 'skills' | 'memory' | 'followups'>('profile')
   const [editingProfile, setEditingProfile] = useState(false)
   const [accessDialog,setAccessDialog]=useState(false)
+  const [peerManaged,setPeerManaged]=useState(false)
+  const [peerAccessDialog,setPeerAccessDialog]=useState(false)
   const loadAccess=useCallback(()=>api.agentMembers(agent.id),[api,agent.id])
+  const loadPeerAccess=useCallback(()=>api.agentPeerMembers(agent.id),[api,agent.id])
   const [profileDialog, setProfileDialog] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState(false)
   const [profile, setProfile] = useState<AgentProfile | null>(null)
@@ -134,6 +138,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
     setMemories(m.memories); setMemoryCursor(m.nextCursor); setSkills(s.skills); setAllSkills(all.skills)
   }), [api, act, agent.id, memoryChannel, memorySearch])
   useEffect(() => { load(); return () => { ++memoryLoad.current } }, [load])
+  useEffect(()=>{let current=true;setPeerManaged(false);if(agent.scope==='team'&&profile)void loadPeerAccess().then(state=>{if(current)setPeerManaged(state.managed&&state.scope==='team')}).catch(()=>{if(current)setPeerManaged(false)});return()=>{current=false}},[agent.scope,profile,loadPeerAccess])
   useEffect(()=>{
     if(typeof window==='undefined')return
     const refresh=(event:Event)=>{
@@ -165,6 +170,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       <div className="hx-profile-heading"><button className="hx-profile-avatar-trigger" aria-label={t("Show {name}’s avatar", { name: agent.name })} aria-haspopup="dialog" onClick={() => setAvatarPreview(true)}><AgentAvatar agent={agent} className="hx-profile-avatar" /></button><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
       <div className="hx-profile-tabs" role="tablist">{(['profile','connections','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'connections' ? 'Connections' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
       {accessDialog && <AgentAccessDialog agentId={agent.id} load={loadAccess} transfer={(ref,version)=>api.transferAgentOwnership(agent.id,ref,version)} save={(ref,role,version)=>api.setAgentMember(agent.id,ref,role,version)} onClose={scope=>{setAccessDialog(false);props.onAccessChanged();if(scope)props.onUpdated({id:agent.id,scope});void load()}}/>}
+      {peerAccessDialog && <AgentPeerAccessDialog load={loadPeerAccess} save={(memberAgentId,role,version)=>api.setAgentPeerMember(agent.id,memberAgentId,role,version)} onClose={()=>setPeerAccessDialog(false)}/>} 
       {avatarPreview && <AgentAvatarPreview agent={agent} onClose={() => setAvatarPreview(false)}/>}
       {profileDialog && <EditAgentProfile agent={agent} profile={profile} onClose={() => setProfileDialog(false)} onSave={async (patch, picture) => {
         const result = await api.saveProfile(agent.id, patch)
@@ -196,6 +202,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         <dt><Icon name="lock" size={14}/>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' ? 'Only its owner' : profile.access === 'private' ? 'Owner and assigned members' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd>
       </dl>
       <button className="btn-text" onClick={()=>setAccessDialog(true)}>{t('Agent access')}</button>
+      {peerManaged&&<button className="btn-text" onClick={()=>setPeerAccessDialog(true)}>{t('Agent roles')}</button>}
       {canEdit && <button className="btn-text" onClick={() => setEditingProfile(v => !v)}>{t('Advanced settings')}</button>}
       {editingProfile && <>
       <div className="rows">
