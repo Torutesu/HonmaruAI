@@ -9,7 +9,7 @@ const state:AgentPeerRoleState={version:7,scope:'team',canManage:true,members:[{
 test('managed Agent admins can assign an eligible peer using the loaded access version',async()=>{
  const load=vi.fn().mockResolvedValue(state),save=vi.fn().mockResolvedValue({version:8});let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<AgentPeerAccessDialog load={load} save={save} onClose={vi.fn()}/>)})
- expect(tree.root.findByProps({type:'section'}).findAllByType('strong').map(n=>n.children.join(''))).toEqual(['Worker'])
+ expect(tree.root.findAllByType('strong').map(n=>n.children.join(''))).toEqual(['Worker'])
  const selects=tree.root.findAllByType('select')
  act(()=>selects[0].props.onChange({target:{value:'reviewer'}}));act(()=>selects[1].props.onChange({target:{value:'admin'}}))
  await act(async()=>tree.root.findAllByType('button').find(n=>n.children.includes('Save'))!.props.onClick())
