@@ -25,8 +25,9 @@ import { searchThread } from "./threadSearch.js";
 import { previewThreadShare, threadSharePolicy, setThreadSharePolicy, storeThreadShare, readThreadShare, revokeOwnThreadShare } from "./threadShares.js";
 import { appActivity, readAppActivity, appActivityProof, appActivityDeliveryKeys } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
-import { prepareAgent, rememberRequest, addAgentMemory, filterResponders } from "./harness/agents.js";
+import { prepareAgent, rememberRequest, addAgentMemory, filterResponders, mayAccessAgent } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
+import { storeAgentToolTrace, traceFromRow } from "./harness/agentToolTraces.js";
 import { mayUseAgentSource } from "./harness/agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
@@ -618,6 +619,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     await progress(agent, "agent");
     let text;
     let modelAnswered = false;
+    let toolTrace = null;
     try {
       // "@agent remember …": kept in the agent's own memory, no model
       // needed (harness/agents.js).
@@ -651,6 +653,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           onRound: () => progress(agent, "agent"), authorize, harnessTools: harness, signal,
           usageContext: { roomSlug: resolved.kind === "business" ? resolved.slug : null, agentId: agent.id },
         });
+        toolTrace = result.toolTrace || null;
         if (result.called && allowance.metered) await allowance.consume();
         if (result.cancelled || result.handedOff) return result.cancelled?{cancelled:true}:undefined;
         if (result.interrupted) return {interrupted:true};
@@ -667,6 +670,12 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       }
       const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId, roomHookSource, assignmentFence:replyFence, automationOfferId:recurringOfferId||null });
       if (out.row) {
+        if (harness && toolTrace && await (!authorize || authorize())) {
+          await storeAgentToolTrace(env.DB, {
+            orgId, messageId: out.row.id, channel: resolved.key, agentId: agent.id,
+            runBy: session.github_id, trace: toolTrace,
+          }).catch((err) => console.error("agent tool trace save failed", safe(err?.message)));
+        }
         if (modelAnswered) answered += 1;
         await queueMessagePushes(env, orgId, out.row, { members }).catch((err) => console.error("push queue failed", safe(err?.message)));
         await broadcastWithParent(env, orgId, resolved, out.row, members);
@@ -1197,13 +1206,11 @@ export async function handleChannels(request, env, url, { route, after }) {
     const result=await stopAssignment(env.DB,{orgId:body.orgId,sourceMessageId:row.id,channel:access.resolved.key,assignmentId:body.assignmentId,generation:body.generation,
       actorId:access.who.session.github_id,canManage:await allowed(env.DB,body.orgId,access.who.session.github_id,'agent.manage_others')});
     let remoteStop={status:result.remoteStop || 'not_applicable'};
-    let localStopFailed=false;
     if(result.stopped&&result.retryRemote&&env.AGENT_RUNNER) {
       try {
         const stub=env.AGENT_RUNNER.get(env.AGENT_RUNNER.idFromName(body.orgId));
-        const response=await stub.fetch('https://agents/cancel-assignment',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({orgId:body.orgId,assignmentId:body.assignmentId,generation:body.generation})});
-        if(!response.ok) {localStopFailed=true;console.error('agent cancellation signal failed',response.status);}
-      } catch(error) {localStopFailed=true;console.error('agent cancellation signal failed',safe(error?.message));}
+        await stub.fetch('https://agents/cancel-assignment',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({orgId:body.orgId,assignmentId:body.assignmentId,generation:body.generation})});
+      } catch(error) {console.error('agent cancellation signal failed',safe(error?.message));}
     }
     if(result.stopped&&result.retryRemote) {
       const stamp=new Date().toISOString();
@@ -1212,16 +1219,11 @@ export async function handleChannels(request, env, url, { route, after }) {
       if(claimed.meta?.changes) {
         try { remoteStop=await (await import('./teammates.js')).cancelAssignedTeammateRuns(env,{orgId:body.orgId,assignmentId:body.assignmentId,generation:body.generation}); }
         catch(error) {console.error('external agent cancellation lookup failed',safe(error?.message));remoteStop={status:'failed'};}
-        if(localStopFailed)remoteStop={status:'failed'};
         await env.DB.prepare(`UPDATE hx_agent_assignments SET remote_stop_status=?4,remote_stop_updated_at=?5
           WHERE org_id=?1 AND id=?2 AND generation=?3 AND status='cancelled' AND remote_stop_status='requesting'`).bind(body.orgId,body.assignmentId,body.generation,remoteStop.status,new Date().toISOString()).run().catch(error=>{console.error('external agent cancellation status save failed',safe(error?.message));remoteStop={status:'requesting'};});
       } else {
         const current=await env.DB.prepare('SELECT remote_stop_status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2 AND generation=?3').bind(body.orgId,body.assignmentId,body.generation).first().catch(()=>null);
-        if(localStopFailed) {
-          await env.DB.prepare(`UPDATE hx_agent_assignments SET remote_stop_status='failed',remote_stop_updated_at=?4
-            WHERE org_id=?1 AND id=?2 AND generation=?3 AND status='cancelled'`).bind(body.orgId,body.assignmentId,body.generation,new Date().toISOString()).run().catch(error=>console.error('failed stop status save failed',safe(error?.message)));
-          remoteStop={status:'failed'};
-        } else remoteStop={status:current?.remote_stop_status || 'requesting'};
+        remoteStop={status:current?.remote_stop_status || 'requesting'};
       }
     }
     return result.stopped?json({stopped:true,...(remoteStop.status!=='no_remote_run'&&remoteStop.status!=='not_applicable'?{remoteStop:remoteStop.status}:{})}):json({message:result.message},result.status);
@@ -1242,6 +1244,33 @@ export async function handleChannels(request, env, url, { route, after }) {
     } catch {
       return json({message: 'Execution status unavailable.'}, 503);
     }
+  }
+
+  if (path === '/channels/agent-tool-traces' && request.method === 'GET') {
+    const orgId = url.searchParams.get('orgId');
+    const channel = url.searchParams.get('channel');
+    const messageId = url.searchParams.get('messageId');
+    if (!orgId || orgId.length > 200 || !messageId || messageId.length > 100) return json({message: 'Invalid message ID.'}, 400);
+    const access = await inChannel(env, request, {orgId, channel});
+    if (access.denied) return access.denied;
+    if (await getMode(env.DB, orgId).catch(() => 'simple') !== 'harness') return json({message: 'No execution trace.'}, 404);
+    const message = await getMessage(env.DB, orgId, messageId);
+    if (!message || message.deleted_at || message.channel !== access.resolved.key || message.kind !== 'agent' || !message.author_login?.startsWith('agent:')) {
+      return json({message: 'No execution trace.'}, 404);
+    }
+    const agentId = message.author_login.slice('agent:'.length);
+    if (!agentId || agentId.length > 100) return json({message: 'No execution trace.'}, 404);
+    if (message.parent_id) {
+      const parent = await getMessage(env.DB, orgId, message.parent_id);
+      if (!parent || parent.deleted_at || parent.channel !== message.channel) return json({message: 'No execution trace.'}, 404);
+    }
+    const agent = await env.DB.prepare(`SELECT id, scope, owner_login AS ownerLogin FROM custom_agents
+      WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL`).bind(orgId, agentId).first();
+    if (!agent || !await mayAccessAgent(env.DB, orgId, agent, access.who.user.login)) return json({message: 'No execution trace.'}, 404);
+    const row = await env.DB.prepare(`SELECT * FROM hx_agent_tool_traces
+      WHERE org_id=?1 AND message_id=?2 AND channel=?3 AND agent_id=?4`).bind(orgId, messageId, access.resolved.key, agentId).first().catch(() => null);
+    const trace = traceFromRow(row);
+    return trace ? json({trace}) : json({message: 'No execution trace.'}, 404);
   }
 
   if (path === "/channels/messages" && (request.method === "GET" || request.method === "POST")) {
