@@ -85,6 +85,7 @@ test('an approval is rejected after the file revision changes and no bearer toke
  expect(result.status).toBe(409);expect(result.error).toMatch(/fresh approval/i);
  expect((await env.DB.prepare('SELECT * FROM hx_public_file_shares').all()).results).toHaveLength(0);
  expect((await env.DB.prepare('SELECT status FROM hx_file_share_requests WHERE id=?').bind(request.requestId).first()).status).toBe('stale');
+ expect((await env.DB.prepare("SELECT action FROM hx_file_share_audit WHERE request_id=? ORDER BY id").bind(request.requestId).all()).results.map(x=>x.action)).toEqual(['proposed','stale']);
 });
 
 test('an approved old snapshot stops serving as soon as its file revision changes',async()=>{
