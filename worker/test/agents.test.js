@@ -980,18 +980,56 @@ async function assignmentStatusFixture() {
  return {row,source,target,assignmentId:begun.assignment.id,over:{AGENT_RUNNER:runner}};
 }
 
-test('assignment status exposes scoped chain metadata with per-viewer stop rights',async()=>{
+test('assignment status is hidden from room readers without current grants to each Agent in the handoff',async()=>{
  const f=await assignmentStatusFixture();
+ const profileUpsert=env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at) VALUES (?1,?2,'people','[\"mika\"]','8801',datetime('now')) ON CONFLICT(org_id,agent_id) DO UPDATE SET access='people',people='[\"mika\"]',updated_by='8801',updated_at=datetime('now')");
+ const profileResults=await env.DB.batch([profileUpsert.bind(ORG,f.source.id),profileUpsert.bind(ORG,f.target.id)]);
+ expect(profileResults).toHaveLength(2);
+ const restrictedProfiles=await env.DB.prepare("SELECT agent_id,access,people FROM hx_agent_profiles WHERE org_id=?1 AND agent_id IN (?2,?3) ORDER BY agent_id").bind(ORG,f.source.id,f.target.id).all();
+ expect(restrictedProfiles.results).toHaveLength(2);
+ expect(restrictedProfiles.results.every(profile=>profile.access==='people' && profile.people==='[\"mika\"]')).toBe(true);
+ await env.DB.prepare("UPDATE custom_agents SET owner_login='mika' WHERE org_id=?1 AND id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
+ await env.DB.prepare("DELETE FROM hx_agent_members WHERE org_id=?1 AND agent_id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
  await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/reviewer.png',ORG,f.target.id).run();
  const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:f.row.id})}`;
- for(const [token,canStop] of [[mika,true],[kenji,false],[toru,true]]) {
+ for(const [token,canStop] of [[mika,true]]) {
   const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
   const body=await response.json();const a=body.results[0].assignments[0];
   expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝',avatarUrl:'https://example.com/reviewer.png'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝',avatarUrl:'https://example.com/reviewer.png'}}]});
   expect(Number.isFinite(Date.parse(a.startedAt))).toBe(true);expect(Number.isFinite(Date.parse(a.updatedAt))).toBe(true);
   const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions'])expect(text).not.toContain(value);
  }
+ const assertHidden=async(token)=> {
+  const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
+  const body=await response.json();expect(body.results).toEqual([{rowId:f.row.id,status:'unknown',answered:0}]);
+  const text=JSON.stringify(body);
+  for(const value of [f.assignmentId,f.source.id,f.target.id,'Reviewer','Private handoff brief'])expect(text).not.toContain(value);
+ };
+ await assertHidden(kenji);
+ await assertHidden(toru); // Workspace Admin does not override an Agent's independent read grant.
+ await send('PUT','/orgs/mode',toru,{orgId:ORG,mode:'simple'});
+ await assertHidden(kenji);
  const mixed=await call(`${url}&messageId=foreign`,{headers:headers(mika)},f.over);expect(mixed.status).toBe(404);
+});
+
+test('queued direct Agent status stays private until the caller has the current Agent grant',async()=>{
+ const {agent}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
+ const {setMode}=await import('../src/harness/mode.js');
+ const {postMessage}=await import('../src/channels.js');
+ const {getSession}=await import('../src/db.js');
+ await setMode(env.DB,ORG,'harness','8801');
+ const restricted=await send('PUT',`/hx/agents/${agent.id}/profile`,toru,{orgId:ORG,access:'people',people:['mika']});
+ expect(restricted.status).toBe(200);
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@hayao check this',agentRequest:{sessionKey:(await getSession(env.DB,mika)).token,agentIds:[agent.id],locale:'en'}});
+ const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>Response.json({results:JSON.parse(init.body).rowIds.map(rowId=>({rowId,status:'queued',answered:0}))})})};
+ const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:row.id})}`;
+ const authorized=await call(url,{headers:headers(mika)},{AGENT_RUNNER:runner});
+ expect((await authorized.json()).results).toEqual([{rowId:row.id,status:'queued',answered:0}]);
+ const hidden=await call(url,{headers:headers(kenji)},{AGENT_RUNNER:runner});
+ expect((await hidden.json()).results).toEqual([{rowId:row.id,status:'unknown',answered:0}]);
+ await send('PUT','/orgs/mode',toru,{orgId:ORG,mode:'simple'});
+ const hiddenSimple=await call(url,{headers:headers(kenji)},{AGENT_RUNNER:runner});
+ expect((await hiddenSimple.json()).results).toEqual([{rowId:row.id,status:'unknown',answered:0}]);
 });
 
 test('only the requester or agent manager can stop the observed assignment generation',async()=>{
