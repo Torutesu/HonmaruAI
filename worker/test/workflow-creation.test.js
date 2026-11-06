@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect,vi} from 'vitest';
 import {upsertUser,upsertMembership,upsertBusiness} from '../src/db.js';
-import {generateWorkflow} from '../src/harness/workflowCreation.js';
+import {generateWorkflow,previewWorkflow} from '../src/harness/workflowCreation.js';
 import {workflowSource} from '../src/harness/workflowSource.js';
 const org='personal:workflow-origin',by='9811';
 const who={session:{github_id:by},user:{github_id:by,login:'origin-owner',name:'Owner'}};
@@ -14,6 +14,16 @@ beforeEach(async()=>{
  await upsertUser(env.DB,{githubId:by,login:who.user.login,name:'Owner',locale:'en'});
  await upsertMembership(env.DB,org,by,'admin');
  await upsertBusiness(env.DB,org,{name:'Ops',createdBy:by});
+});
+
+test('guided previews require explicit save and create no workflow, run, or source message',async()=>{
+ const model=vi.fn(async()=>JSON.stringify(spec));
+ const result=await previewWorkflow(env,request,org,who,{prompt:input.prompt,channel:input.channel,timezone:'UTC'},{makeCompleter:async()=>model});
+ expect(result).toMatchObject({preview:true,workflow:{name:'Reminder',enabled:false,trigger:{type:'manual'},steps:spec.steps}});
+ expect(model).toHaveBeenCalledTimes(1);
+ expect(await count('hx_workflows')).toBe(0);
+ expect(await count('hx_workflow_runs')).toBe(0);
+ expect(await count('channel_messages')).toBe(0);
 });
 test('captures one source and paused workflow across retries; changed requests conflict',async()=>{
  const model=vi.fn(async()=>JSON.stringify(spec));
