@@ -179,6 +179,11 @@ test("the channel overview does not advertise a restricted agent placed in a rea
 
   const overview = await (await get(`/channels?${q({ orgId: ORG })}`, kenji)).json();
   expect(overview.agents.some((agent) => agent.id === agentId || agent.handle === "billy")).toBe(false);
+  const details = await (await get(`/channels/details?${q({ orgId: ORG, channel: "b:ops" })}`, kenji)).json();
+  expect(details.members.agents.some((agent) => agent.id === agentId || agent.handle === "billy")).toBe(false);
+  // The owner still sees the room participant and can manage its placement.
+  const ownerDetails = await (await get(`/channels/details?${q({ orgId: ORG, channel: "b:ops" })}`, mika)).json();
+  expect(ownerDetails.members.agents.some((agent) => agent.id === agentId)).toBe(true);
 });
 
 test("profile lookup failures do not silently grant access", async () => {
