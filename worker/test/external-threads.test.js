@@ -65,15 +65,29 @@ afterEach(() => fetchMock.deactivate());
 async function flushBackground() {
   while (context.tasks.length) await Promise.all(context.tasks.splice(0));
 }
-async function call(path, token, method = "GET", body = undefined, extra = {}) {
+async function call(path, token, method = "GET", body = undefined, extra = {}, requestHeaders = {}) {
   const response = await import("../src/index.js").then(({ default: worker }) => worker.fetch(
     new Request(`https://example.com${path}`, {
       method,
-      headers: { "x-session-token": token, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      headers: { "x-session-token": token, ...(body === undefined ? {} : { "content-type": "application/json" }), ...requestHeaders },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }), { ...env, ...extra }, context,
   ));
   return response;
+}
+async function callUpload(path, token, content = "guest attachment bytes") {
+  const bytes = new TextEncoder().encode(content);
+  return import("../src/index.js").then(({ default: worker }) => worker.fetch(
+    new Request(`https://example.com${path}`, {
+      method: "POST",
+      headers: {
+        "x-session-token": token,
+        "content-type": "text/plain",
+        "content-length": String(bytes.byteLength),
+      },
+      body: bytes,
+    }), env, context,
+  ));
 }
 
 test("external Thread route is registered and requires a signed-in session", async () => {
@@ -342,4 +356,109 @@ test("concurrent redemption and revoke leave no live Thread grant", async () => 
     WHERE org_id=?1 AND resource_type='thread' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL`)
     .bind(orgId,rootId,ids.guest).first()).toMatchObject({n:0});
   expect((await call(`/external/threads/${orgId}/${rootId}`,sessions.guest)).status).toBe(404);
+});
+
+test("edit guests can attach to an exact Thread reply and every file read is grant checked", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const email = `guest-${orgId.split("-").at(-1)}@example.test`;
+  expect((await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", { email, permission: "edit" })).status).toBe(201);
+  const uploaded = await callUpload(`/external/threads/${orgId}/${rootId}/files?name=launch-notes.txt`, sessions.guest);
+  expect(uploaded.status).toBe(201);
+  const { file } = await uploaded.json();
+  expect(file).toMatchObject({ name: "launch-notes.txt", type: "text/plain" });
+  expect(file.url).toBeUndefined();
+  const sent = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", {
+    body: "Launch notes attached", files: [file.id],
+  });
+  expect(sent.status).toBe(201);
+  const { messageId } = await sent.json();
+  const read = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest);
+  const data = await read.json();
+  const reply = data.thread.replies.find(message => message.id === messageId);
+  expect(reply.files).toMatchObject([{
+    id: file.id, name: "launch-notes.txt", type: "text/plain", size: 22,
+  }]);
+  expect(reply.files[0].url).toBe(`/external/threads/${orgId}/${rootId}/files/${file.id}`);
+  const bytes = await call(reply.files[0].url, sessions.guest);
+  expect(bytes.status).toBe(200);
+  expect(await bytes.text()).toBe("guest attachment bytes");
+  const ranged = await call(reply.files[0].url, sessions.guest, "GET", undefined, {}, { range: "bytes=6-15" });
+  expect(ranged.status).toBe(206);
+  expect(ranged.headers.get("content-range")).toBe("bytes 6-15/22");
+  expect(await ranged.text()).toBe("attachment");
+  const unsatisfiable = await call(reply.files[0].url, sessions.guest, "GET", undefined, {}, { range: "bytes=22-23" });
+  expect(unsatisfiable.status).toBe(416);
+  expect(unsatisfiable.headers.get("content-range")).toBe("bytes */22");
+  const reaction = await call(`/external/threads/${orgId}/${rootId}/reactions`, sessions.guest, "POST", {
+    messageId, emoji: "👍",
+  });
+  expect(reaction.status).toBe(200);
+  const refreshed = await (await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).json();
+  expect(refreshed.thread.replies.find(message => message.id === messageId).reactions).toEqual([
+    { emoji: "👍", count: 1, mine: true },
+  ]);
+  expect((await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "DELETE", { email })).status).toBe(200);
+  expect((await call(reply.files[0].url, sessions.guest)).status).toBe(404);
+  expect((await call(reply.files[0].url, sessions.guest, "GET", undefined, {}, { range: "bytes=0-5" })).status).toBe(404);
+  expect((await call(`/external/threads/${orgId}/${rootId}/reactions`, sessions.guest, "POST", { messageId, emoji: "✅" })).status).toBe(404);
+  expect((await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).status).toBe(404);
+});
+test("view guests may read attachment ranges and react but cannot upload, attach, or cross Threads", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const email = `guest-${orgId.split("-").at(-1)}@example.test`;
+  const shared = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", { email, permission: "edit" });
+  expect(shared.status).toBe(201);
+  const grantId = (await shared.json()).grant.id;
+  const uploaded = await callUpload(`/external/threads/${orgId}/${rootId}/files?name=viewable.txt`, sessions.guest);
+  expect(uploaded.status).toBe(201);
+  const { file } = await uploaded.json();
+  const pendingUpload = await callUpload(`/external/threads/${orgId}/${rootId}/files?name=pending.txt`, sessions.guest, "pending attachment bytes");
+  expect(pendingUpload.status).toBe(201);
+  const { file: pendingFile } = await pendingUpload.json();
+  const sent = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", {
+    body: "Attached before changing the grant to view", files: [file.id],
+  });
+  expect(sent.status).toBe(201);
+  const { messageId } = await sent.json();
+  await flushBackground();
+  const revoked = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "DELETE", { grantId });
+  expect(revoked.status).toBe(200);
+  expect((await call(`/external/threads/${orgId}/${rootId}/files/${file.id}`, sessions.guest, "GET", undefined, {}, { range: "bytes=0-5" })).status).toBe(404);
+  const viewGrant = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", { email, permission: "view" });
+  expect(viewGrant.status).toBe(201);
+
+  const upload = await callUpload(`/external/threads/${orgId}/${rootId}/files?name=view-only.txt`, sessions.guest);
+  expect(upload.status).toBe(403);
+  const attach = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", {
+    body: "View guests cannot attach", files: [pendingFile.id],
+  });
+  expect(attach.status).toBe(403);
+
+  const thread = await (await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).json();
+  const reply = thread.thread.replies.find(message => message.id === messageId);
+  expect(reply.files).toMatchObject([{ id: file.id, size: 22 }]);
+  const ranged = await call(reply.files[0].url, sessions.guest, "GET", undefined, {}, { range: "bytes=6-15" });
+  expect(ranged.status).toBe(206);
+  expect(ranged.headers.get("content-range")).toBe("bytes 6-15/22");
+  expect(await ranged.text()).toBe("attachment");
+  const unsatisfiable = await call(reply.files[0].url, sessions.guest, "GET", undefined, {}, { range: "bytes=22-23" });
+  expect(unsatisfiable.status).toBe(416);
+  expect(unsatisfiable.headers.get("content-range")).toBe("bytes */22");
+
+  const otherRootId = `${rootId}-other`;
+  await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES (?1, ?2, 'b:private-room', ?3, 'message', 'Other Thread', ?4)")
+    .bind(otherRootId, orgId, ids.owner, new Date().toISOString()).run();
+  const crossRange = await call(`/external/threads/${orgId}/${otherRootId}/files/${file.id}`, sessions.guest, "GET", undefined, {}, { range: "bytes=0-5" });
+  expect(crossRange.status).toBe(404);
+  const crossReaction = await call(`/external/threads/${orgId}/${rootId}/reactions`, sessions.guest, "POST", {
+    messageId: otherRootId, emoji: "👀",
+  });
+  expect(crossReaction.status).toBe(404);
+  expect((await call(`/external/threads/${orgId}/${otherRootId}`, sessions.guest)).status).toBe(404);
+  const reaction = await call(`/external/threads/${orgId}/${rootId}/reactions`, sessions.guest, "POST", {
+    messageId: rootId, emoji: "👀",
+  });
+  expect(reaction.status).toBe(200);
+  const refreshed = await (await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).json();
+  expect(refreshed.thread.parent.reactions).toEqual([{ emoji: "👀", count: 1, mine: true }]);
 });
