@@ -1,6 +1,6 @@
 import {createHash,randomBytes} from 'node:crypto';
 import {readFileVersionContent} from './fileVersionLedger.js';
-import {fileDeleteAuthority} from './fileAuthority.js';
+import {fileDeleteAuthority,fileScopeAuthority} from './fileAuthority.js';
 
 const id=prefix=>`${prefix}_${crypto.randomUUID().replaceAll('-','')}`;
 const iso=()=>new Date().toISOString();
@@ -31,7 +31,7 @@ export async function proposePublicFileShare(env,{orgId,fileId,version,userId,lo
   SELECT ?1,?2,f.id,f.scope,?4,?5,?6,?7,?8,?9,?10,?11,?12,'pending',?13
   FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=?4
   WHERE f.org_id=?1 AND f.id=?3 AND f.current_version=?4 AND v.kind='content' AND v.content_hash=?5
-    AND ${/* trusted SQL fragment */'1=1'}
+    AND ${fileScopeAuthority('f.org_id','f.scope','?8')}
     AND EXISTS(SELECT 1 FROM users u JOIN memberships m ON m.org_id=?1 AND m.user_github_id=u.github_id
       WHERE u.github_id=?8 AND u.login=?9 AND lower(coalesce(m.role,'guest'))!='guest')
     AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=f.org_id AND p.file_id=f.id AND p.version=?4)`)
