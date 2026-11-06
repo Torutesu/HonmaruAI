@@ -66,3 +66,16 @@ test('voice vocabulary is per user and passed to the active recognizer',()=>{
  expect(JSON.parse(speech.store['org:u2']||'[]')).toEqual([])
  act(()=>other.unmount())
 })
+test('the account vocabulary loads from D1 and saves with its current revision',async()=>{
+ const load=vi.fn().mockResolvedValue({vocabulary:['Remote name'],revision:7})
+ const save=vi.fn().mockResolvedValue({vocabulary:['Remote name','New name'],revision:8})
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<HarnessDictation value="" onChange={vi.fn()} locale="en-US" orgId="org" userId="u3" loadVocabulary={load} saveVocabulary={save}/>)})
+ act(()=>tree.root.findByProps({'aria-label':'Voice vocabulary'}).props.onClick())
+ expect(tree.root.findAllByType('span').some(node=>node.children.includes('Remote name'))).toBe(true)
+ act(()=>tree.root.findByProps({'aria-label':'Add a word or phrase'}).props.onChange({target:{value:'New name'}}))
+ await act(async()=>tree.root.findByType('form').props.onSubmit({preventDefault(){}}))
+ expect(save).toHaveBeenCalledWith(['Remote name','New name'],7)
+ expect(tree.root.findAllByType('span').some(node=>node.children.includes('New name'))).toBe(true)
+ act(()=>tree.unmount())
+})

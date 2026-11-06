@@ -75,6 +75,25 @@ test("Simple-only display preference syncs to the same member, not the workspace
   toruSocket.close();
 });
 
+test("voice vocabulary syncs across a member's devices in Simple mode and stays private", async () => {
+  const empty = await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, mika)).json();
+  expect(empty).toEqual({ vocabulary: [], revision: 0 });
+  const saved = await send("PUT", "/hx/dictation-vocabulary", mika, {
+    orgId: ORG, vocabulary: [" Honmaru ", "Honmaru", "Product Ops"], expectedRevision: 0,
+  });
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], revision: 1 });
+  expect(await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, mika)).json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], revision: 1 });
+  expect(await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, toru)).json()).toMatchObject({ vocabulary: [], revision: 0 });
+  expect(await (await get(`/hx/dictation-vocabulary?orgId=personal%3Aelsewhere`, outsider)).json()).toMatchObject({ vocabulary: [], revision: 0 });
+
+  const stale = await send("PUT", "/hx/dictation-vocabulary", mika, { orgId: ORG, vocabulary: ["Other"], expectedRevision: 0 });
+  expect(stale.status).toBe(409);
+  const tooLong = await send("PUT", "/hx/dictation-vocabulary", mika, { orgId: ORG, vocabulary: ["x".repeat(81)], expectedRevision: 1 });
+  expect(tooLong.status).toBe(400);
+  expect((await get(`/hx/dictation-vocabulary?orgId=${ORG}`, outsider)).status).toBe(403);
+});
+
 test("someone outside the workspace, or a guest in it, reaches none of it", async () => {
   expect((await get(`/orgs/mode?orgId=${ORG}`, outsider)).status).toBe(403);
   expect((await get(`/apps?orgId=${ORG}`, outsider)).status).toBe(403);

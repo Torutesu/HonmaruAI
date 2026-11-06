@@ -409,3 +409,4 @@ CREATE TABLE IF NOT EXISTS hx_external_thread_invites (id TEXT PRIMARY KEY, org_
 CREATE INDEX IF NOT EXISTS idx_hx_external_thread_invites_active ON hx_external_thread_invites(org_id,resource_id,expires_at) WHERE redeemed_at IS NULL AND revoked_at IS NULL;
 
 ALTER TABLE channel_messages ADD COLUMN automation_offer_id TEXT;
+CREATE TABLE IF NOT EXISTS hx_user_dictation_preferences (org_id TEXT NOT NULL, user_id TEXT NOT NULL, vocabulary TEXT NOT NULL DEFAULT '[]', corrections TEXT NOT NULL DEFAULT '[]', revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0), updated_at TEXT NOT NULL, PRIMARY KEY (org_id,user_id), FOREIGN KEY (org_id,user_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE);

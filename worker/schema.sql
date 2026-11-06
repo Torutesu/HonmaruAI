@@ -1731,6 +1731,17 @@ CREATE TABLE IF NOT EXISTS hx_user_display_preferences (
   FOREIGN KEY (org_id,user_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE
 );
 
+/* Personal voice dictionary shared by the member's devices within a workspace. */
+CREATE TABLE IF NOT EXISTS hx_user_dictation_preferences (
+  org_id        TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  vocabulary    TEXT NOT NULL DEFAULT '[]',
+  revision      INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (org_id,user_id),
+  FOREIGN KEY (org_id,user_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE
+);
+
 /* A typed table: the database under an App. Columns are JSON
    [{ id, name, type, options? }] (harness/tables.js). */
 CREATE TABLE IF NOT EXISTS hx_tables (

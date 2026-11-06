@@ -68,6 +68,7 @@ import { audit, person } from "../audit.js";
 import { enforce } from "../ratelimit.js";
 import { getMode, setMode, MODES } from "./mode.js";
 import { getDisplayPreference, setDisplayPreference } from "./displayPreferences.js";
+import { readDictationVocabulary, saveDictationVocabulary } from "./dictationVocabulary.js";
 import {
   listTables, getTable, createTable, updateTable, deleteTable,
   listRows, addRow, updateRow, deleteRow,
@@ -292,6 +293,22 @@ export async function handleHarness(request, env, url, context = {}) {
       event: appActivityEvent('display_preference_changed', { orgId, ...preference }),
     }]);
     return json(preference);
+  }
+
+  // Personal vocabulary is stored per member and workspace so it follows that
+  // member across devices without changing a workspace's Simple/Harness mode.
+  if (url.pathname === '/hx/dictation-vocabulary') {
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    if (request.method === 'GET') return json(await readDictationVocabulary(env.DB, orgId, who.session.github_id));
+    if (request.method !== 'PUT') return json({ message: 'Method not allowed.' }, 405);
+    const saved = await saveDictationVocabulary(env.DB, orgId, who.session.github_id, input?.vocabulary, input?.expectedRevision);
+    if (saved.error) return fail(saved);
+    await announceTo(env, orgId, [{
+      to: who.user.login,
+      event: appActivityEvent('dictation_vocabulary_changed', { orgId, revision: saved.revision }),
+    }]);
+    return json(saved);
   }
 
   if (parts[0] === 'gateways') return handleGateways(request, env, url, input);

@@ -297,7 +297,7 @@ const table: Record<string, string> = {
   "Voice input": "音声入力",
   "Stop voice input": "音声入力を停止",
   "Voice vocabulary": "音声辞書",
-  "Names and phrases are saved for this account on this device.": "名前やフレーズは、この端末のこのアカウント用に保存されます。",
+  "Names and phrases sync for your account across devices in this workspace.": "名前やフレーズは、このワークスペースのアカウントで端末間同期されます。",
   "Add a word or phrase": "単語またはフレーズを追加",
   "Clear vocabulary": "辞書をすべて削除",
   "Voice input unavailable. Check microphone access.": "音声入力を利用できません。マイクのアクセス許可を確認してください。",
