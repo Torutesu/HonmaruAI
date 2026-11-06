@@ -15,8 +15,9 @@ export function ExternalGuestThread({httpBase,orgId,rootId,sessionToken}:{httpBa
   useEffect(()=>{
     let live=true
     let pending:AbortController|null=null
+    const doc=typeof document==='undefined'?null:document
     const load=()=>{
-      if(!live||document.visibilityState==='hidden'||pending)return
+      if(!live||doc?.visibilityState==='hidden'||pending)return
       const controller=new AbortController()
       pending=controller
       void fetch(`${httpBase}/external/threads/${encodeURIComponent(orgId)}/${encodeURIComponent(rootId)}`,{
@@ -35,19 +36,19 @@ export function ExternalGuestThread({httpBase,orgId,rootId,sessionToken}:{httpBa
       }).finally(()=>{if(pending===controller)pending=null})
     }
     const onVisibility=()=>{
-      if(document.visibilityState==='hidden'){
+      if(doc?.visibilityState==='hidden'){
         pending?.abort()
         pending=null
       }else load()
     }
     setError('')
     load()
-    const interval=window.setInterval(load,5000)
-    document.addEventListener('visibilitychange',onVisibility)
+    const interval=globalThis.setInterval(load,5000)
+    doc?.addEventListener('visibilitychange',onVisibility)
     return()=>{
       live=false
-      window.clearInterval(interval)
-      document.removeEventListener('visibilitychange',onVisibility)
+      globalThis.clearInterval(interval)
+      doc?.removeEventListener('visibilitychange',onVisibility)
       pending?.abort()
     }
   },[httpBase,orgId,rootId,sessionToken,attempt])
