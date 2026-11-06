@@ -3427,6 +3427,8 @@ const table: Record<string, string> = {
   "Revoke access": "アクセスを取り消す",
   "An existing verified account outside this workspace is required.": "ワークスペース外の既存アカウントと、確認済みのメールアドレスが必要です。",
   "Access could not be updated. Check the connection and your permission, then try again.": "アクセス設定を更新できませんでした。接続と権限を確認して再試行してください。",
+  "Workspace member": "ワークスペースのメンバー",
+  "External access is paused": "外部アクセスは一時停止中です",
 }
 
 export default table
