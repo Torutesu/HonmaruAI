@@ -264,7 +264,7 @@ test("external App row writes honor exact edit grants, linked table scope, and d
     recipientGithubId: f.guestId, revokedBy: f.ownerId,
   });
   expect((await call(`${primaryRows}/${createdRow.id}`, f.sessions.guest, "DELETE", {
-    expectedUpdatedAt: (await updated.json().row).updatedAt,
+    expectedUpdatedAt: updatedRow.updatedAt,
   })).status).toBe(404);
 });
 
