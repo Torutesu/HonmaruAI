@@ -123,6 +123,7 @@ test('owner can decline a pending request atomically and no token or link is cre
  expect((await env.DB.prepare('SELECT status FROM hx_file_share_requests WHERE id=?').bind(request.requestId).first()).status).toBe('declined');
  expect((await env.DB.prepare('SELECT * FROM hx_public_file_shares').all()).results).toHaveLength(0);
  expect((await env.DB.prepare('SELECT action FROM hx_file_share_audit WHERE request_id=?').bind(request.requestId).all()).results.map(x=>x.action)).toEqual(['proposed','declined']);
- const repeat=await handleFileShareRoutes(asOwner,env,new URL(url),{orgId,userId:ownerId,login:'share-owner'});
+ const repeatedRequest=new Request(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({requestId:request.requestId})});
+ const repeat=await handleFileShareRoutes(repeatedRequest,env,new URL(url),{orgId,userId:ownerId,login:'share-owner'});
  expect(repeat.status).toBe(404);
 });
