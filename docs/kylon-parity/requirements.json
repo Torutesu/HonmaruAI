@@ -582,11 +582,17 @@
       "id": "KY-050",
       "category": "Apps",
       "requirement": "独自ドメイン・DNS・環境変数",
-      "status": "missing",
+      "status": "partial",
       "priority": "P2",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "ホスト競合・証明書・秘密値非表示・再デプロイ"
+      "acceptance": "ホスト競合・証明書・秘密値非表示・再デプロイ",
+      "evidence": {
+        "reviewedAt": "2026-11-05",
+        "implementedScope": "PR #679 is merged and deployed. Company Harness apps can use existing Cloudflare Pages hosting, optional custom-domain attachment (when the existing Pages Write token is configured), read-only public serving through the Worker/Pages route, and encrypted per-app environment variables available only to the assigned isolated gateway action. No paid provider or new service was introduced.",
+        "remaining": "Custom-domain host-conflict handling, certificate issuance/renewal verification, secret-masking verification, and redeploy behavior verification remain open. Custom-domain attachment is disabled until a Pages Write token is configured.",
+        "verification": "PR #679 merged 2026-11-05: Worker integration tests (39), Mac gateway tests (16), Pages middleware tests (3), and Web production build passed; authenticated app-detail visual review remains pending."
+      }
     },
     {
       "id": "KY-051",
@@ -952,10 +958,10 @@
       "code": "worker/src/agentTools.js",
       "acceptance": "人の接続とagent/app/workflowの利用権を分離",
       "evidence": {
-        "reviewedAt": "2026-11-01",
-        "implementedScope": "PR #583 is merged and deployed. Harness Agentごと・呼び出しユーザーごとにNotion/GitHub native searchを初期拒否し、接続済みソースのみ許可可能。手動ツール、自動リサーチ、スケジュール済みFollow-upは検索前後とモデル応答・公開前にmembership世代・grant・接続状態を再検証し、失効後は結果を破棄。Smithery App grantとは別テーブル。Simpleの従来接続経路を維持。",
-        "remaining": "任意の外部Connectionのgrant、App/Workflow作成者と実行ユーザーのgrant統合、全操作カテゴリのKylon同等性",
-        "verification": "docs/kylon-parity/verification.md (main CI 41217441410; Worker deploy 41217441413; Web deploy 41217441411; signed-in Agent Connections screen)"
+        "reviewedAt": "2026-11-05",
+        "implementedScope": "PR #583 is merged and deployed. Harness Agentごと・呼び出しユーザーごとにNotion/GitHub native searchを初期拒否し、手動ツール、自動リサーチ、スケジュール済みFollow-upでmembership世代・grant・接続状態を再検証。PR #683では、個人Notion接続の所有者が特定Agentに共有し、既存Agent ACLで許可された非guestだけがその接続を読み取り専用検索に使える拡張を追加。所有者のmembership・接続・shareと呼び出し者のAgent accessを検索前後に再検証し、失効中の結果を破棄。接続の再認可ではshareを保持し、Simple経路は維持。PR #683はレビュー中で未merge・未deploy。",
+        "remaining": "GitHub共有は個人OAuth tokenとworkspace tokenの主体・repository scopeが未分離のため未対応。Remote MCPはworkspace credentialと別のper-caller Agent grant方式を維持し、所有者共有には未対応。任意の外部Connection、App/Workflow作成者と実行ユーザーのgrant統合、全操作カテゴリのKylon同等性も未実装。",
+        "verification": "PR #583 baseline: docs/kylon-parity/verification.md (main CI 41217441410; Worker deploy 41217441413; Web deploy 41217441411; signed-in Agent Connections screen). PR #683: branch codex/agent-connection-sharing-20261105; focused Worker/React tests added; CI in progress; not merged or deployed."
       }
     },
     {

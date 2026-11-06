@@ -412,6 +412,106 @@ test("Harness auto-research honors per-agent native source grants", async () => 
   }
 });
 
+test("Harness auto-research uses a shared Notion owner for share-only and locally connected ungranted callers", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "harness" });
+  const connectedAt = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('8802',?1,?2)")
+    .bind(connectedAt, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('8802','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), connectedAt).run();
+
+  const share = await send("POST", `/hx/agents/${made.agent.id}/apps`, mika,
+    { orgId: ORG, source: "notion", shareWithAgent: true }, { COMPOSIO_API_KEY: "ck-test" });
+  expect(share.status).toBe(200);
+
+  const prompts = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    prompts.push(JSON.parse(opts.body));
+    return { id: `shared_${prompts.length}`, model: "gpt-5-mini", output: [{ type: "message", content: [{ type: "output_text", text: "Done." }] }], usage: { input_tokens: 50, output_tokens: 10 } };
+  }).times(2);
+
+  const realFetch = globalThis.fetch;
+  const searchedAccounts = [];
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.origin === "https://backend.composio.dev") {
+      searchedAccounts.push(JSON.parse(init.body).user_id);
+      return Response.json({ results: [{ response: { data: { results: [{
+        properties: { Title: { type: "title", title: [{ plain_text: "Shared payroll policy" }] } },
+        url: "https://notion.so/shared-payroll-policy",
+      }] } } }] });
+    }
+    return realFetch(input, init);
+  };
+  try {
+    // Kenji has no Notion connection; he can use Mika's explicit Agent share.
+    await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "Find our payroll policy" }, { OPENAI_API_KEY: "sk-test", COMPOSIO_API_KEY: "ck-test" });
+    expect(searchedAccounts).toEqual(["8802"]);
+    expect(JSON.stringify(prompts[0])).toContain("Shared payroll policy");
+
+    // Kenji connects Notion but does not grant his own connection to the Agent.
+    // Auto-research must keep using Mika's shared owner identity.
+    await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('8803',?1,?2)")
+      .bind(connectedAt, ORG).run();
+    await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('8803','notion',?1,?2)")
+      .bind(JSON.stringify({ connected: true }), connectedAt).run();
+    await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "Find our payroll policy" }, { OPENAI_API_KEY: "sk-test", COMPOSIO_API_KEY: "ck-test" });
+    expect(searchedAccounts).toEqual(["8802", "8802"]);
+    expect(JSON.stringify(prompts[1])).toContain("Shared payroll policy");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("Harness auto-research discards shared Notion results when the owner loses Agent access in flight", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "harness" });
+  const connectedAt = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('8802',?1,?2)")
+    .bind(connectedAt, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('8802','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), connectedAt).run();
+  const share = await send("POST", `/hx/agents/${made.agent.id}/apps`, mika,
+    { orgId: ORG, source: "notion", shareWithAgent: true }, { COMPOSIO_API_KEY: "ck-test" });
+  expect(share.status).toBe(200);
+
+  const prompts = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    prompts.push(JSON.parse(opts.body));
+    return { id: "owner_acl_revoked", model: "gpt-5-mini", output: [{ type: "message", content: [{ type: "output_text", text: "Done." }] }], usage: { input_tokens: 50, output_tokens: 10 } };
+  });
+
+  const realFetch = globalThis.fetch;
+  let searches = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.origin === "https://backend.composio.dev") {
+      searches += 1;
+      // Revoke Mika's Agent access while her shared connection is in use.
+      // Kenji remains authorized, isolating the owner-ACL condition.
+      await env.DB.prepare(`INSERT INTO hx_agent_profiles (org_id,agent_id,access,people,updated_by,updated_at)
+        VALUES (?1,?2,'people','["toru","kenji"]','8801',?3)
+        ON CONFLICT(org_id,agent_id) DO UPDATE SET access='people',people='["toru","kenji"]',updated_by='8801',updated_at=excluded.updated_at`)
+        .bind(ORG, made.agent.id, new Date().toISOString()).run();
+      return Response.json({ results: [{ response: { data: { results: [{
+        properties: { Title: { type: "title", title: [{ plain_text: "Private payroll policy" }] } },
+        url: "https://notion.so/private-payroll-policy",
+      }] } } }] });
+    }
+    return realFetch(input, init);
+  };
+  try {
+    await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "Find our payroll policy" }, { OPENAI_API_KEY: "sk-test", COMPOSIO_API_KEY: "ck-test" });
+    expect(searches).toBe(1);
+    expect(JSON.stringify(prompts)).not.toContain("Private payroll policy");
+    expect(await env.DB.prepare(`SELECT 1 FROM hx_agent_source_shares WHERE org_id=?1 AND agent_id=?2 AND source='notion'`)
+      .bind(ORG, made.agent.id).first()).toBeNull();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("an agent that cannot answer says why in the thread, never silence", async () => {
   await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(401, { error: { message: "bad key" } }).times(2);

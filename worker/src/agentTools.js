@@ -18,7 +18,7 @@ import { accessFor } from "./access.js";
 import { getUserByGithubId } from "./db.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 import { getMode } from "./harness/mode.js";
-import { mayUseAgentSource } from "./harness/agentConnections.js";
+import { mayUseAgentSource, agentSourceProvider } from "./harness/agentConnections.js";
 import { agentRemoteMcpTools, mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { callRemoteMcpTool } from "./harness/remoteMcp.js";
 import { agentRoomHistoryTools } from "./harness/agentRoomHistory.js";
@@ -85,15 +85,24 @@ export async function agentTools(env, { orgId, session, language = "en", persona
     return currentMode === "harness" && await mayUseAgentSource(env, { orgId, agentId, session, source });
   };
   const connected = await connectedSources(env, session, orgId).catch(() => ({}));
-  if (connected.notion && await sourceAllowed("notion")) {
+  const notionOwner = async () => {
+    const currentMode = await getMode(env.DB, orgId).catch(() => null);
+    // Simple retains its original personal connection path. Harness resolves
+    // either this caller's grant or the connection owner's explicit Agent share.
+    if (currentMode === "simple") return connected.notion ? String(session?.github_id || "") || null : null;
+    if (currentMode === "harness") return agentSourceProvider(env, { orgId, agentId, session, source: "notion" });
+    return null;
+  };
+  if (await notionOwner()) {
     tools.search_notion = {
-      description: "Search the asker's connected Notion for pages: specs, notes, plans, meeting notes. Use it for anything the team may have written down.",
+      description: workspaceMode === "simple" ? "Search the asker's connected Notion for pages: specs, notes, plans, meeting notes. Use it for anything the team may have written down." : "Search a Notion connection authorized for this Agent for pages: specs, notes, plans, meeting notes. Use it for anything the team may have written down.",
       parameters: query("Key words to search Notion for."),
       run: async ({ query: q }) => {
-        if (!await sourceAllowed("notion")) return "Not searched: this Agent no longer has permission to use your Notion connection.";
-        const found = await searchNotion(env, session.github_id, String(q || "")).catch(() => []);
-        if (!await sourceAllowed("notion")) return "Not searched: Notion access changed while the request was running; the result was discarded.";
-        if (found.length) { taint.value = true; onNativeSourceUsed?.("notion"); }
+        const ownerId = await notionOwner();
+        if (!ownerId) return "Not searched: this Agent no longer has permission to use an authorized Notion connection.";
+        const found = await searchNotion(env, ownerId, String(q || "")).catch(() => []);
+        if (await notionOwner() !== ownerId) return "Not searched: Notion access changed while the request was running; the result was discarded.";
+        if (found.length) { taint.value = true; onNativeSourceUsed?.("notion", ownerId); }
         return formatSourcesForModel(found);
       },
     };
@@ -106,7 +115,7 @@ export async function agentTools(env, { orgId, session, language = "en", persona
         if (!await sourceAllowed("github")) return "Not searched: this Agent no longer has permission to use your GitHub connection.";
         const found = await searchGithubIssues(session, orgId, String(q || ""), env).catch(() => []);
         if (!await sourceAllowed("github")) return "Not searched: GitHub access changed while the request was running; the result was discarded.";
-        if (found.length) { taint.value = true; onNativeSourceUsed?.("github"); }
+        if (found.length) { taint.value = true; onNativeSourceUsed?.("github", String(session?.github_id || "")); }
         return formatSourcesForModel(found);
       },
     };

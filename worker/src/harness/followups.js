@@ -10,7 +10,7 @@ import { completer } from "./model.js";
 import { prepareAgent, mayRunAgent } from "./agents.js";
 import { withRoomGuidelines } from "./guidelines.js";
 import { getMode } from "./mode.js";
-import { mayUseAgentSource } from "./agentConnections.js";
+import { agentSourceProvider } from "./agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./agentRemoteMcp.js";
 
 export const MAX_PER_CHANNEL = 50;
@@ -170,7 +170,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       }
       return null;
     };
-    const nativeSourcesUsed = new Set();
+    const nativeSourcesUsed = new Map();
     const remoteMcpToolsUsed = new Map();
     const nativeSourcesStillAllowed = async () => {
       if (!nativeSourcesUsed.size || !r.agent_id) return true;
@@ -178,8 +178,8 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       if (mode === "simple") return true;
       if (mode !== "harness") return false;
       const session = { github_id: String(r.created_by) };
-      for (const source of nativeSourcesUsed) {
-        if (!await mayUseAgentSource(env, { orgId: r.org_id, agentId: r.agent_id, session, source })) return false;
+      for (const [source, expectedProvider] of nativeSourcesUsed) {
+        if (await agentSourceProvider(env, { orgId: r.org_id, agentId: r.agent_id, session, source }) !== expectedProvider) return false;
       }
       return true;
     };
@@ -218,7 +218,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
         const prepared = agentRow
           ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: r.channel || "", userId: r.created_by })
           : { agent: { name: "AI", handle: "AI", instructions: "You are the team's AI." } };
-        const personalTools = await personalFollowupTools(env, r, source => nativeSourcesUsed.add(source), (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }));
+        const personalTools = await personalFollowupTools(env, r, (source, providerId) => nativeSourcesUsed.set(source, String(providerId || r.created_by)), (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }));
         const tools = { ...prepared.skillTools, ...personalTools };
         const setupFailure=await accessFailure();
         if(setupFailure)throw new Error(setupFailure);

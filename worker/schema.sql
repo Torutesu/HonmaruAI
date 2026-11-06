@@ -2214,6 +2214,20 @@ CREATE TABLE IF NOT EXISTS hx_agent_source_grants (
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
 
+/* The connection owner may share one native Notion connection with people
+   who already have access to this Agent. A membership stamp prevents a
+   departed owner's prior share from reviving if they rejoin. */
+CREATE TABLE IF NOT EXISTS hx_agent_source_shares (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  owner_github_id TEXT NOT NULL,
+  owner_membership_since TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source = 'notion'),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id, source),
+  FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
+);
+
 /* A user may grant their private Agent conversation read-only access to
    workspace-managed Remote MCP servers. Membership stamps stop a rejoin
    from reviving the grant. */
