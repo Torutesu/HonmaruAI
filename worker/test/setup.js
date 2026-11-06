@@ -33,11 +33,17 @@ beforeEach(async () => {
   await env.DB.exec(workspaceFilesSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRuntimeSql.replace(/\n/g, " "));
   await env.DB.exec(workflowRevisionSql.replace(/\n/g, " "));
+  for (const sql of externalCollaboratorTables) await env.DB.exec(sql);
   // The indexes that live in migrations.sql, as a deploy builds them: the
   // columns are already in the fresh tables, so only those statements count.
   for (const sql of migrationIndexes) await env.DB.exec(sql);
 });
 
+// These grant-ledger tables live in migrations.sql, not schema.sql. The
+// shared bootstrap applies all migration indexes before each test's own hooks,
+// so create their parent tables on every reset first.
+const externalCollaboratorTables = migrationsSql.split("\n").filter((line) =>
+  /^CREATE TABLE IF NOT EXISTS hx_external_(?:resource_grants|thread_send_requests) /.test(line));
 const migrationIndexes = migrationsSql.split("\n").filter((line) => /^CREATE (UNIQUE )?INDEX IF NOT EXISTS/.test(line));
 const workflowWebhookColumns = [
   'ALTER TABLE hx_workflow_held_events ADD COLUMN webhook_event_id TEXT',
