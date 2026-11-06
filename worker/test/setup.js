@@ -43,7 +43,7 @@ beforeEach(async () => {
 // shared bootstrap applies all migration indexes before each test's own hooks,
 // so create their parent tables on every reset first.
 const externalCollaboratorTables = migrationsSql.split("\n").filter((line) =>
-  /^CREATE TABLE IF NOT EXISTS hx_external_(?:resource_grants|thread_send_requests) /.test(line));
+  /^CREATE TABLE IF NOT EXISTS hx_external_(?:resource_grants|thread_send_requests|thread_invites) /.test(line));
 const migrationIndexes = migrationsSql.split("\n").filter((line) => /^CREATE (UNIQUE )?INDEX IF NOT EXISTS/.test(line));
 const workflowWebhookColumns = [
   'ALTER TABLE hx_workflow_held_events ADD COLUMN webhook_event_id TEXT',
