@@ -994,7 +994,14 @@ export async function handleHarness(request, env, url, context = {}) {
         return r.error?fail(r):json(r,r.replayed?200:201);
       }
       if (request.method === "POST") {
-        const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context", scope: input.scope || "shared", userId: me });
+        const requestedScope = input.scope || (!canEdit && !channel ? "person" : "shared");
+        // A caller may teach an Agent private facts for their own future turns,
+        // but only its editor can publish a workspace-wide memory. Room-scoped
+        // memories remain available inside a conversation the caller can access.
+        if (!canEdit && !channel && requestedScope !== "person") {
+          return json({ message: "Only the agent's maker or an admin can create shared memory." }, 403);
+        }
+        const r = await addAgentMemory(env.DB, orgId, agentId, input.body !== undefined ? { title: input.title, description: input.description, body: input.body } : input.text, { by: me, channel, kind: input.kind || "context", scope: requestedScope, userId: me });
         if (!r.error && !r.duplicate) await audit(env, request, { orgId, action: "agent.memory_created", actor: person(who.user), entity: { type: "custom_agent", id: agentId }, details: { memoryId: r.memory.id, kind: r.memory.kind, version: r.memory.version, scope: r.memory.scope } });
         return r.error ? fail(r) : json(r, 201);
       }
