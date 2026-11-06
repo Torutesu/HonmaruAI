@@ -12,6 +12,7 @@ import { PersonalViewControls } from '../components/PersonalViewControls'
 import type { PersonalViews } from '../utils/harness'
 import { AppViewControls } from '../components/AppViewControls'
 import { HarnessAppPreview } from '../components/HarnessAppPreview'
+import { AppViewportPreview } from '../components/AppViewportPreview'
 import { HarnessAppMenu } from '../components/HarnessAppMenu'
 import { useAppPins } from '../utils/appPins'
 import { HarnessAppIcon } from '../components/HarnessAppIcon'
@@ -663,7 +664,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'backend' && <CompanyApp app={app} api={api} canManage={data.canCustomize !== false} reload={load} />}
       {section === 'custom' && data.canCustomize === false && <p>カスタムコードの編集・公開は、作成者または管理者が行えます。</p>}
       {section === 'custom' && data.canCustomize !== false && <CustomAppEditor httpBase={httpBase} app={app} table={table} rows={data.rows} api={api} reload={load} />}
-      {section === 'overview' && app.definition.custom?.published && <CustomAppFrame appId={app.id} api={api} reload={load} httpBase={httpBase} html={app.definition.custom.published} table={table} rows={data.rows} />}
+      {section === 'overview' && app.definition.custom?.published && <AppViewportPreview><CustomAppFrame appId={app.id} api={api} reload={load} httpBase={httpBase} html={app.definition.custom.published} table={table} rows={data.rows} /></AppViewportPreview>}
       {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => selectSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => selectSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
       <div className="hx-data-toolbar" ref={searchToolbar}><div className="hx-data-heading"><h2>{appTableDisplayName(app.name,table.name,table.columns[0]?.name)}</h2><button className="pill-btn hx-create-record" title={localizedRecordLabel} aria-label={localizedRecordLabel} onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{localizedRecordLabel}</button></div>
