@@ -1,3 +1,4 @@
+import { mayUseConversation } from './conversationAccess.js';
 import { readableConversation } from './conversationAccess.js';
 
 // Explicit app visibility. Absence means the legacy workspace-wide policy.
@@ -6,7 +7,7 @@ export async function appAccess(db, orgId, appId) {
   const row = await db.prepare(`SELECT a.created_by, p.visibility, p.version FROM hx_apps a
     LEFT JOIN hx_app_access p ON p.org_id = a.org_id AND p.app_id = a.id
     WHERE a.org_id = ?1 AND a.id = ?2`).bind(orgId, appId).first();
-  return row ? { ownerId: row.created_by, visibility: row.visibility || 'workspace', version: row.version || 0 } : null;
+  return row ? { ownerId: row.created_by, visibility: row.room_channel ? 'room' : (row.visibility || 'workspace'), roomChannel: row.room_channel || null, version: row.version || 0 } : null;
 }
 
 export async function mayUseApp(db, orgId, appId, userId) {
@@ -14,7 +15,10 @@ export async function mayUseApp(db, orgId, appId, userId) {
   const member = await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2 AND role != 'guest'").bind(orgId, String(userId)).first();
   if (!member) return false;
   const access = await appAccess(db, orgId, appId);
-  return Boolean(access && (access.visibility === 'workspace' || access.ownerId === String(userId)));
+  if (!access) return false;
+  if (access.visibility === 'workspace') return true;
+  if (access.visibility === 'room') return await mayUseConversation(db, orgId, userId, access.roomChannel);
+  return access.ownerId === String(userId);
 }
 
 export async function mayUseTable(db, orgId, tableId, userId) {
@@ -57,11 +61,16 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
   const current = await appAccess(db, orgId, appId);
   if (!current || !(await mayUseApp(db, orgId, appId, userId))) return { error: 'No such app.', status: 404 };
   if (current.ownerId !== String(userId)) return { error: 'Only the app owner can change sharing.', status: 403 };
-  if (!['workspace', 'private'].includes(input.visibility)) return { error: 'Invalid visibility.' };
+  if (!['workspace', 'private', 'room'].includes(input.visibility)) return { error: 'Invalid visibility.' };
   if (!Number.isSafeInteger(input.version) || input.version < 0) return { error: 'A current access version is required.' };
+  const roomChannel = input.visibility === 'room' ? String(input.channel || '') : null;
+  if (input.visibility === 'room' && (!roomChannel || roomChannel.length > 200 || !(await mayUseConversation(db, orgId, userId, roomChannel)))) {
+    return { error: 'Choose a room you can access.', status: 400 };
+  }
+  const storedVisibility = input.visibility === 'room' ? 'private' : input.visibility;
   const result = input.version === 0
-    ? await db.prepare('INSERT OR IGNORE INTO hx_app_access (org_id, app_id, visibility, version) VALUES (?1, ?2, ?3, 1)').bind(orgId, appId, input.visibility).run()
-    : await db.prepare('UPDATE hx_app_access SET visibility = ?3, version = version + 1 WHERE org_id = ?1 AND app_id = ?2 AND version = ?4').bind(orgId, appId, input.visibility, input.version).run();
+    ? await db.prepare('INSERT OR IGNORE INTO hx_app_access (org_id, app_id, visibility, version, room_channel) VALUES (?1, ?2, ?3, 1, ?4)').bind(orgId, appId, storedVisibility, roomChannel).run()
+    : await db.prepare('UPDATE hx_app_access SET visibility = ?3, version = version + 1, room_channel = ?5 WHERE org_id = ?1 AND app_id = ?2 AND version = ?4').bind(orgId, appId, storedVisibility, input.version, roomChannel).run();
   if (!result.meta?.changes) return { error: 'Sharing changed. Reload before saving.', status: 409 };
   return { access: await appAccess(db, orgId, appId) };
 }
