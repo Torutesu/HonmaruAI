@@ -1166,7 +1166,9 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({...r,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
     }
     const app = await getApp(env.DB, orgId, appId);
-    if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    const appManager = app ? await mayChange(env, orgId, who, app.createdBy) : false;
+    const approvalManagerRoute = sub === 'public-share-approvals' && appManager;
+    if (!app || (!(await mayUseApp(env.DB, orgId, appId, me)) && !approvalManagerRoute)) return json({ message: "No such app." }, 404);
     if (sub === 'hosting' && parts.length === 3) {
       const canManage = await mayChange(env, orgId, who, app.createdBy);
       if (request.method === 'GET') {
@@ -1396,7 +1398,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({ message: "Method not allowed." }, 405);
     }
     if (sub === 'public-share-approvals') {
-      if (!(await mayChange(env, orgId, who, app.createdBy))) return json({ message: 'Only its maker or a workspace admin can review this request.' }, 403);
+      if (!appManager) return json({ message: 'Only its maker or a workspace admin can review this request.' }, 403);
       if (request.method === 'GET' && parts.length === 3) return json(await listPublicAppShareApprovals(env.DB, orgId, appId));
       if (request.method === 'POST' && parts.length === 3) {
         const result = await reviewPublicAppShareApproval(env.DB, orgId, appId, input.requestId, me, input.decision, env);
