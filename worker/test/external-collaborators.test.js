@@ -8,12 +8,17 @@ import {
   revokeExternalResource,
 } from "../src/harness/externalCollaborators.js";
 
-const migration = migrationsSql.split("\n").filter((line) =>
-  /^CREATE (?:TABLE|UNIQUE INDEX|INDEX) IF NOT EXISTS (?:hx_external_resource_grants|idx_hx_external_resource_grants_)/.test(line));
+const migrationLines = migrationsSql.split("\n");
+const grantTable = migrationLines.find((line) =>
+  /^CREATE TABLE IF NOT EXISTS hx_external_resource_grants /.test(line));
+const grantIndexes = migrationLines.filter((line) =>
+  /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_resource_grants_/.test(line));
 
 beforeAll(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
-  for (const statement of migration) await env.DB.exec(statement);
+  if (!grantTable) throw new Error("external grant table migration is missing");
+  await env.DB.exec(grantTable);
+  for (const statement of grantIndexes) await env.DB.exec(statement);
 });
 
 async function identity(id) {
