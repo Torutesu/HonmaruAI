@@ -285,7 +285,7 @@ export async function mayEditWorkflow(db, orgId, workflow, viewerId) {
   }
   return true;
 }
-async function mayViewWorkflow(db, orgId, workflow, viewerId) {
+export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
   if (!workflow) return false;
   if(workflow.id){
     const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,workflow.id).first();

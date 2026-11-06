@@ -57,9 +57,12 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
   const saveMember = async (member: MemberPermission, permission: 'none' | 'view' | 'edit' | 'inherit') => {
     setBusy(true); setError('')
     try {
-      const res = await fetch(`${httpBase}/apps/${appId}/member-permissions?${new URLSearchParams({ orgId })}`, {
+      const query = permission === 'inherit'
+        ? new URLSearchParams({ orgId, userId: member.userId, version: String(member.version || 0) })
+        : new URLSearchParams({ orgId })
+      const res = await fetch(`${httpBase}/apps/${appId}/member-permissions?${query}`, {
         method: permission === 'inherit' ? 'DELETE' : 'PUT', headers,
-        ...(permission === 'inherit' ? { body: JSON.stringify({ orgId, userId: member.userId, version: member.version || 0 }) } : { body: JSON.stringify({ orgId, userId: member.userId, permission, version: member.version || 0 }) })
+        ...(permission === 'inherit' ? {} : { body: JSON.stringify({ orgId, userId: member.userId, permission, version: member.version || 0 }) })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || String(res.status))

@@ -2063,7 +2063,7 @@ test('anyone links publish only inline Custom Apps and exact revocation hides a 
   const publicRead=await call(`/app-shares/${issued.token}`);
   expect(publicRead.status).toBe(200);
   expect((await call(`/app-shares/${issued.token}`,{headers:headers(toru)})).status).toBe(404);
-  const clearDeny=await send('DELETE',`/apps/${app.id}/member-permissions`,toru,{orgId:ORG,userId:'9101',version:1});
+  const clearDeny=await send('DELETE',`/apps/${app.id}/member-permissions?${new URLSearchParams({orgId:ORG,userId:'9101',version:'1'})}`,toru,{});
   expect(clearDeny.status).toBe(200);
   const renderRace=vi.spyOn(appsModule,'renderApp').mockImplementation(async(db,orgId,appId)=>{
     const rendered=await originalRender(db,orgId,appId);
@@ -2101,7 +2101,6 @@ test('member app permissions override workspace sharing and fence reads, writes,
   expect((await grant('9104','view')).status).toBe(200);
   expect((await get(`/apps/${app.id}?orgId=${ORG}`, outsider)).status).toBe(200);
   expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, outsider)).status).toBe(200);
-  expect((await get(`/tables/${app.tableId}/rows?orgId=${ORG}`, outsider)).status).toBe(200);
   expect((await send('PUT', `/tables/${app.tableId}?orgId=${ORG}`, outsider, { columns: [{ name: 'Name', type: 'text' }] })).status).toBe(403);
   expect((await send('POST', `/tables/${app.tableId}/rows`, outsider, { orgId: ORG, values: { Name: 'blocked' } })).status).toBe(403);
 

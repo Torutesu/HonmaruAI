@@ -1171,7 +1171,8 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     const app = await getApp(env.DB, orgId, appId);
     const canManageApp = app ? await mayChange(env, orgId, who, app.createdBy) : false;
-    if (!app || (!(await mayUseApp(env.DB, orgId, appId, me)) && !canManageApp)) return json({ message: "No such app." }, 404);
+    const canManageMemberPermissions = sub === 'member-permissions' && canManageApp;
+    if (!app || (!(await mayUseApp(env.DB, orgId, appId, me)) && !canManageMemberPermissions)) return json({ message: "No such app." }, 404);
     if (sub === 'member-permissions') {
       if (!canManageApp) return json({ message: 'Only the app owner or a workspace admin can manage member access.' }, 403);
       if (request.method === 'GET') return json({ permissions: await listAppMemberPermissions(env.DB,orgId,appId), canManage: true });

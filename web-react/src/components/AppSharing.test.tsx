@@ -80,6 +80,10 @@ test('owner and admins can set member permissions and see effective inherited ac
       {userId:'member-1',name:'Mika',login:'mika',role:'member',permission:null,effectivePermission:'edit',version:null},
       {userId:'member-2',name:'Gina',login:'gina',role:'member',permission:'view',effectivePermission:'view',version:1}
     ]})))
+    .mockResolvedValueOnce(new Response(JSON.stringify({permissions:[
+      {userId:'member-1',name:'Mika',login:'mika',role:'member',permission:null,effectivePermission:'edit',version:null},
+      {userId:'member-2',name:'Gina',login:'gina',role:'member',permission:null,effectivePermission:'none',version:null}
+    ]})))
   vi.stubGlobal('fetch',fetcher)
   await act(async()=>{tree=create(<AppSharing {...props}/>)})
   expect(tree!.root.findAllByType('select').at(-1)!.props['aria-label']).toBe('Access for Gina')
@@ -88,4 +92,9 @@ test('owner and admins can set member permissions and see effective inherited ac
   await act(async()=>{tree!.root.findAllByType('select').at(-1)!.props.onChange({target:{value:'view'}})})
   expect(fetcher.mock.calls[3][1].method).toBe('PUT')
   expect(JSON.parse(fetcher.mock.calls[3][1].body)).toMatchObject({orgId:'org',userId:'member-2',permission:'view',version:0})
+  await act(async()=>{tree!.root.findAllByType('select').at(-1)!.props.onChange({target:{value:'inherit'}})})
+  expect(fetcher.mock.calls[4][1].method).toBe('DELETE')
+  expect(fetcher.mock.calls[4][0]).toContain('userId=member-2')
+  expect(fetcher.mock.calls[4][0]).toContain('version=1')
+  expect(fetcher.mock.calls[4][1].body).toBeUndefined()
 });
