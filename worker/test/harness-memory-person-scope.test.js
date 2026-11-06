@@ -3,6 +3,7 @@ import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { addAgentMemory, listAgentMemories, deleteAgentMemory } from "../src/harness/agents.js";
 import { memoryPage, updateMemoryEntry, reviewMemoryEntry, memoryReviewHistory } from "../src/harness/memoryEntries.js";
+import { agentMemoryTools } from "../src/harness/memoryReader.js";
 
 const ORG = "personal:memory-person-scope";
 let agentId;
@@ -38,6 +39,13 @@ test("person memories stay private across list, page, search, read, edit, review
   expect(otherPage.memories).toHaveLength(0);
   const ownerPage = await memoryPage(env.DB, ORG, agentId, { userId: "9212", query: "private account" });
   expect(ownerPage.memories.map(m => m.id)).toContain(personalId);
+
+  const otherTools = agentMemoryTools(env.DB, ORG, agentId, { userId: "9213", channel: "" });
+  const ownerTools = agentMemoryTools(env.DB, ORG, agentId, { userId: "9212", channel: "" });
+  expect(JSON.parse(await otherTools.search_agent_memory.run({ query: "private account" })).memories).toHaveLength(0);
+  expect(JSON.parse(await ownerTools.search_agent_memory.run({ query: "private account" })).memories.map(m => m.id)).toContain(personalId);
+  expect(await otherTools.read_agent_memory.run({ memory_id: personalId })).toBe("Memory unavailable.");
+  expect(JSON.parse(await ownerTools.read_agent_memory.run({ memory_id: personalId })).id).toBe(personalId);
 
   const deniedEdit = await updateMemoryEntry(env.DB, ORG, agentId, personalId, {
     title: "Changed", body: "Changed private account phrase", kind: "reference", expectedVersion: 1
