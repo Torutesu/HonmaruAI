@@ -20,7 +20,7 @@ test('redeems an external Thread invite with the session created by email OTP', 
       email="guest@example.test"
       name="Guest"
       inviteCode=""
-      externalInviteToken="a".repeat(64)
+      externalInviteToken={"a".repeat(64)}
       onVerified={onVerified}
       onBack={() => {}}
     />)
