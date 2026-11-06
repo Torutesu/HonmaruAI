@@ -321,7 +321,7 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
         "SELECT guest_github_id FROM hx_external_thread_send_requests WHERE org_id=?1 AND root_message_id=?2 AND id=?3"
       ).bind(orgId, rootId, input.requestId).first();
       const guestUser = requestRow ? await getUserByGithubId(env.DB, requestRow.guest_github_id) : null;
-      if (message && guestUser) deferExternalReply(ctx, env, { orgId, root, row: message, guest: { user: guestUser } });
+      if (message && guestUser) deferExternalReply(ctx, env, { orgId, root, row: message, guest: { session: { github_id: guestUser.github_id }, user: guestUser } });
     }
     return decided ? json(decided) : fail("Request is no longer available.", 409);
   }
