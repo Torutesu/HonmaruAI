@@ -72,7 +72,13 @@ export async function approvePublicFileShare(env,{orgId,requestId,userId,login})
   WHERE r.org_id=?1 AND r.id=?2 AND r.status='pending' AND r.expires_at>?3`).bind(orgId,requestId,iso()).first();
  if(!request)return {error:'Pending share request is unavailable.',status:404};
  if(request.current_version!==request.file_version||request.content_hash!==request.current_hash||request.file_scope!==request.current_scope){
-  await env.DB.prepare(`UPDATE hx_file_share_requests SET status='stale',decision_at=?3 WHERE org_id=?1 AND id=?2 AND status='pending'`).bind(orgId,requestId,iso()).run();
+  const staleAt=iso();
+  await env.DB.batch([
+   env.DB.prepare(`UPDATE hx_file_share_requests SET status='stale',decision_at=?3 WHERE org_id=?1 AND id=?2 AND status='pending'`).bind(orgId,requestId,staleAt),
+   env.DB.prepare(`INSERT INTO hx_file_share_audit(org_id,request_id,share_id,actor_id,action,details,created_at)
+    SELECT ?1,?2,NULL,?4,'stale',?5,?3 WHERE EXISTS(SELECT 1 FROM hx_file_share_requests WHERE org_id=?1 AND id=?2 AND status='stale' AND decision_at=?3)`)
+    .bind(orgId,requestId,staleAt,String(userId),JSON.stringify({expectedVersion:request.file_version,currentVersion:request.current_version,expectedHash:request.content_hash,currentHash:request.current_hash}))
+  ]);
   return {error:'File changed after the proposal. A fresh approval is required.',status:409};
  }
  const permitted=await env.DB.prepare(`SELECT 1 AS ok WHERE ${fileDeleteAuthority('?1','?2','?3','?4')}`)
