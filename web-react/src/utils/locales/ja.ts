@@ -1161,6 +1161,7 @@ const table: Record<string, string> = {
   'Keep it to {n} characters.': '{n}文字以内にしてください。',
   'Pick a day.': '日付を選んでください。',
   'Pick a time within the next year.': '1年以内の日時を選んでください。',
+
   'Pick somebody else in this workspace.': 'このワークスペースの別の人を選んでください。',
   'Saved.': '保存しました。',
   'Keyboard shortcuts': 'キーボードショートカット',
@@ -2244,6 +2245,7 @@ const table: Record<string, string> = {
   'Audit log': '監査ログ',
   'Channels this guest can see': 'このゲストが見られるチャンネル',
   'Critical only': '重大のみ',
+
   'Deliveries': '送信履歴',
   'Deliveries · {name}': '送信履歴 · {name}',
   'Every public channel': 'すべての公開チャンネル',
@@ -3356,6 +3358,7 @@ const table: Record<string, string> = {
   'Allow this Agent to read {count} workspace-approved tools in your private conversations.': 'ご本人との個別会話で、このAgentにワークスペースが許可した読み取り専用ツール{count}件の利用を許可します。',
   'This server has no workspace-approved tools marked read-only. A workspace admin can refresh its tool list in Tools → Apps.': 'このサーバーには、ワークスペースが許可した読み取り専用ツールがありません。管理者は「ツール → アプリ」でツール一覧を再取得できます。',
   'Allow {agent} to use read-only tools from {server}': '{agent}に{server}の読み取り専用ツールの利用を許可',
+
   // Connected AI apps (MCP)
   'Could not load this connection request.': 'この接続リクエストを読み込めませんでした。',
   'Could not authorize this connection.': 'この接続を許可できませんでした。',
@@ -3412,6 +3415,18 @@ const table: Record<string, string> = {
   'Read accessible Harness tables and their records.': 'アクセスできる Harness のテーブルとそのレコードを読みます。',
   'Update lists': 'リストを更新',
   'Create and update accessible Harness tables and records.': 'アクセスできる Harness のテーブルとレコードを作成・更新します。',
+
+  'Access checks': 'アクセス権の確認',
+  'Actor ID': '実行主体ID',
+  'Resource': '対象',
+  'Denied': '拒否',
+  'Workflow resource': 'ワークフロー',
+  'Conversation resource': '会話',
+  'Agent resource': 'エージェント',
+  'Table resource': 'テーブル',
+  'App resource': 'アプリ',
+  'Connection resource': '連携',
+  'Member resource': 'メンバー',
 }
 
 export default table
