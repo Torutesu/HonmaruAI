@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
-import React from 'react'
+import React, { act } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -389,15 +389,15 @@ describe('MessageFiles, kept fresh', () => {
     try {
       const pic = file('f_eeeeeeeeeeeeeeeeeeeeeeee', 'p.png', 'image/png', { expiresAt: Date.now() + 30_000 })
       const { close } = drawn([pic])
-      await vi.advanceTimersByTimeAsync(100)
+      await act(async () => { await vi.advanceTimersByTimeAsync(100) })
       expect(calls).toHaveLength(1)
       // Offline when it was due: asked again ten seconds on, then twenty.
-      await vi.advanceTimersByTimeAsync(10_500)
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_500) })
       expect(calls).toHaveLength(2)
-      await vi.advanceTimersByTimeAsync(20_500)
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_500) })
       expect(calls).toHaveLength(3)
       close()
-      await vi.advanceTimersByTimeAsync(600_000)
+      await act(async () => { await vi.advanceTimersByTimeAsync(600_000) })
       expect(calls).toHaveLength(3)
     } finally {
       fetching.mockRestore()
