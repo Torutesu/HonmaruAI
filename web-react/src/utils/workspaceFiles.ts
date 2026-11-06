@@ -55,4 +55,6 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   purge:(id:string,reason:string,selection:{version:number}|{expectedVersion:number})=>json<{purged?:boolean;purgedCount?:number}>(`${path(id)}/purge`,'POST',{reason,...selection}),
  }
 }
-export type WorkspaceFileApi = ReturnType<typeof workspaceFileApi>
+type WorkspaceFileApiBase=ReturnType<typeof workspaceFileApi>
+type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'revokePublicShare'
+export type WorkspaceFileApi = Omit<WorkspaceFileApiBase,ShareApiMethods> & Partial<Pick<WorkspaceFileApiBase,ShareApiMethods>>
