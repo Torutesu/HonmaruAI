@@ -984,7 +984,7 @@ test('assignment status is hidden from room readers without current grants to ea
  const f=await assignmentStatusFixture();
  await env.DB.prepare("UPDATE hx_agent_profiles SET access='people',people='[\"mika\"]' WHERE org_id=?1 AND agent_id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
  await env.DB.prepare("UPDATE custom_agents SET owner_login='mika' WHERE org_id=?1 AND id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
- await env.DB.prepare("DELETE FROM hx_agent_members WHERE org_id=?1 AND user_id='8801' AND agent_id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
+ await env.DB.prepare("DELETE FROM hx_agent_members WHERE org_id=?1 AND agent_id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
  await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/reviewer.png',ORG,f.target.id).run();
  const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:f.row.id})}`;
  for(const [token,canStop] of [[mika,true]]) {

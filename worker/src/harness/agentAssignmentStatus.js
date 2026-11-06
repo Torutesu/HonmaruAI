@@ -4,6 +4,7 @@ import {validAgentStatusInput} from '../agentJobStatus.js';
 // No actor/session keys, source fingerprints, briefs or private instructions
 // leave this boundary. Keep the caller's result ordering and metadata.
 export async function decorateAssignmentStatuses(db,orgId,results,{actorId=null,canManage=false}={}) {
+  if(!results.length)return results;
   const rowIds=results.map(result=>result.rowId);
   if(!validAgentStatusInput({orgId,rowIds}))throw new Error('Invalid assignment status scope');
   const marks=rowIds.map((_,i)=>`?${i+2}`).join(',');
