@@ -409,3 +409,15 @@ CREATE TABLE IF NOT EXISTS hx_external_thread_invites (id TEXT PRIMARY KEY, org_
 CREATE INDEX IF NOT EXISTS idx_hx_external_thread_invites_active ON hx_external_thread_invites(org_id,resource_id,expires_at) WHERE redeemed_at IS NULL AND revoked_at IS NULL;
 
 ALTER TABLE channel_messages ADD COLUMN automation_offer_id TEXT;
+
+
+CREATE TABLE IF NOT EXISTS hx_user_draft_style_preferences (org_id TEXT NOT NULL,user_github_id TEXT NOT NULL,source_app TEXT NOT NULL DEFAULT 'general',preference_key TEXT NOT NULL,preference_text TEXT NOT NULL,source_card_id TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY (org_id,user_github_id,source_app,preference_key),FOREIGN KEY (org_id,user_github_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_hx_user_draft_style_preferences_user ON hx_user_draft_style_preferences(org_id,user_github_id,source_app,updated_at DESC);
+
+/* Private, short-lived reply-draft edits that an Agent sees only with the
+   member's next message to that exact Agent. Draft text is never sent outside
+   the workspace; the bounded changed span is deleted once attached/consumed. */
+CREATE TABLE IF NOT EXISTS hx_agent_draft_edit_pending (org_id TEXT NOT NULL,user_github_id TEXT NOT NULL,agent_id TEXT NOT NULL,card_id TEXT NOT NULL,removed_text TEXT NOT NULL DEFAULT '',added_text TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,expires_at TEXT NOT NULL,PRIMARY KEY(org_id,user_github_id,agent_id,card_id),FOREIGN KEY(org_id,user_github_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE,FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_draft_edit_pending_next ON hx_agent_draft_edit_pending(org_id,user_github_id,agent_id,expires_at);
+CREATE TABLE IF NOT EXISTS hx_agent_draft_edit_context (org_id TEXT NOT NULL,message_id TEXT NOT NULL,user_github_id TEXT NOT NULL,agent_id TEXT NOT NULL,card_id TEXT NOT NULL,removed_text TEXT NOT NULL DEFAULT '',added_text TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,expires_at TEXT NOT NULL,PRIMARY KEY(org_id,message_id,agent_id,card_id),FOREIGN KEY(org_id,user_github_id) REFERENCES memberships(org_id,user_github_id) ON DELETE CASCADE,FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
+
