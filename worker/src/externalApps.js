@@ -35,6 +35,15 @@ function isCustomApp(definition) {
   try { return Boolean(JSON.parse(definition || "{}")?.custom); } catch { return false; }
 }
 
+export function externalAppWriteGuard(orgId, appId, userId, tableId) {
+  return {
+    binds: [orgId, appId, userId, tableId],
+    sql(start) {
+      return `EXISTS(SELECT 1 FROM hx_apps a JOIN hx_external_resource_grants g ON g.org_id=a.org_id AND g.resource_type='app' AND g.resource_id=a.id WHERE a.org_id=?${start} AND a.id=?${start+1} AND g.recipient_github_id=?${start+2} AND g.permission='edit' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')) AND (a.table_id=?${start+3} OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?${start+3})) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=a.org_id AND m.user_github_id=?${start+2}) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))`;
+    },
+  };
+}
+
 async function liveEditGrant(db, orgId, appId, userId) {
   const row = await db.prepare("SELECT 1 FROM hx_external_resource_grants g JOIN hx_apps a ON a.org_id=g.org_id AND a.id=g.resource_id WHERE g.org_id=?1 AND g.resource_type='app' AND g.resource_id=?2 AND g.recipient_github_id=?3 AND g.permission='edit' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?3) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)")
     .bind(orgId, appId, userId, new Date().toISOString()).first();
@@ -407,17 +416,17 @@ export async function handleExternalApps(request, env, url) {
     if (!await liveEditGrant(env.DB, orgId, appId, actor.user.github_id)) return fail("An active edit grant is required.", 403);
     const input = await request.json().catch(() => null);
     if (request.method === "POST" && !rowId) {
-      const result = await addRow(env.DB, orgId, tableId, input?.values, actor.user.github_id, "strict");
+      const result = await addRow(env.DB, orgId, tableId, input?.values, actor.user.github_id, "strict", externalAppWriteGuard(orgId, appId, actor.user.github_id, tableId));
       return result.error ? json({ message: result.error, fields: result.fields }, result.status || 400)
         : json({ row: result.row }, 201);
     }
     if (request.method === "PATCH" && rowId) {
-      const result = await updateRow(env.DB, orgId, tableId, rowId, input?.values, actor.user.github_id, input?.expectedUpdatedAt, "strict");
+      const result = await updateRow(env.DB, orgId, tableId, rowId, input?.values, actor.user.github_id, input?.expectedUpdatedAt, "strict", externalAppWriteGuard(orgId, appId, actor.user.github_id, tableId));
       return result.error ? json({ message: result.error, fields: result.fields }, result.status || 400)
         : json({ row: result.row });
     }
     if (request.method === "DELETE" && rowId) {
-      const result = await deleteRow(env.DB, orgId, tableId, rowId, input?.expectedUpdatedAt);
+      const result = await deleteRow(env.DB, orgId, tableId, rowId, input?.expectedUpdatedAt, externalAppWriteGuard(orgId, appId, actor.user.github_id, tableId));
       return result.error ? json({ message: result.error }, result.status || 400) : json({ deleted: true });
     }
     return fail("Method not allowed.", 405);
