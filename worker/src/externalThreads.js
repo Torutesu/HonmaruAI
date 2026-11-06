@@ -1,7 +1,10 @@
 import { getSession, getUserByGithubId, isMember } from "./db.js";
 import { handleExternalFiles } from "./externalFiles.js";
 import { getMode } from "./harness/mode.js";
-import { resolveChannel } from "./channels.js";
+import { resolveChannel, asksTheAI, getMessage } from "./channels.js";
+import { audienceOf } from "./access.js";
+import { listMembers } from "./team.js";
+import { answerAsAI, broadcastStored } from "./channelRoutes.js";
 import {
   externalResourcePermission,
   grantExternalResource,
@@ -144,6 +147,46 @@ async function readThread(env, orgId, rootId, user) {
   };
 }
 
+async function deliverExternalReply(env, { orgId, root, row, guest }) {
+  // Reuse the normal channel delivery pipeline so existing members receive
+  // mention notifications and live updates. The guest still reads only via
+  // the exact-resource external Thread endpoint.
+  await broadcastStored(env, orgId, root.channel, row);
+
+  // External collaborators can ask the workspace AI explicitly. Custom Agent
+  // dispatch remains unavailable here: a Thread grant does not grant Agent
+  // access. Recheck the grant and root after the asynchronous message insert.
+  if (!asksTheAI(row.body) || await getMode(env.DB, orgId) !== "harness") return;
+  const currentRoot = await rootFor(env.DB, orgId, root.id);
+  if (!currentRoot || currentRoot.channel !== root.channel) return;
+  if (!await externalResourcePermission(env.DB, {
+    orgId, resourceType: "thread", resourceId: root.id, githubId: guest.user.github_id,
+  })) return;
+
+  const logins = await audienceOf(env.DB, orgId, root.channel);
+  const key = root.channel;
+  const kind = key.startsWith("b:") ? "business"
+    : key.startsWith("dm:") ? "dm"
+    : key.startsWith("g:") ? "group"
+    : key.startsWith("ag:") ? "agent" : null;
+  if (!kind) return;
+  const resolved = { key, kind, logins };
+  if (kind === "business") resolved.slug = key.slice(2);
+  const members = await listMembers(env.DB, orgId, null);
+  await answerAsAI(env, {
+    orgId, session: guest.session, user: guest.user, resolved, row, members,
+    locale: guest.user.locale || "en",
+  });
+}
+
+function deferExternalReply(ctx, env, input) {
+  const task = deliverExternalReply(env, input).catch((error) => {
+    console.error("external Thread delivery failed", error?.message || error);
+  });
+  if (ctx?.waitUntil) ctx.waitUntil(task);
+  else return task;
+}
+
 async function insertReply(env, orgId, rootId, user, body) {
   const id = keyId();
   const now = new Date().toISOString();
@@ -241,7 +284,7 @@ async function decideRequest(env, orgId, rootId, id, owner, action) {
   return insert.meta?.changes && update.meta?.changes ? { approved: true, messageId } : null;
 }
 
-export async function handleExternalThreads(request, env, url) {
+export async function handleExternalThreads(request, env, url, ctx = null) {
   if (url.pathname.startsWith("/external/files/")) return handleExternalFiles(request, env, url);
   if (!url.pathname.startsWith("/external/threads/")) return null;
   const parts = url.pathname.split("/").filter(Boolean);
@@ -272,6 +315,14 @@ export async function handleExternalThreads(request, env, url) {
     const input = await request.json().catch(() => ({}));
     if (typeof input.requestId !== "string" || !input.requestId) return fail("requestId is required.", 400);
     const decided = await decideRequest(env, orgId, rootId, input.requestId, actor, action);
+    if (decided?.approved) {
+      const message = await getMessage(env.DB, orgId, decided.messageId);
+      const requestRow = await env.DB.prepare(
+        "SELECT guest_github_id FROM hx_external_thread_send_requests WHERE org_id=?1 AND root_message_id=?2 AND id=?3"
+      ).bind(orgId, rootId, input.requestId).first();
+      const guestUser = requestRow ? await getUserByGithubId(env.DB, requestRow.guest_github_id) : null;
+      if (message && guestUser) deferExternalReply(ctx, env, { orgId, root, row: message, guest: { user: guestUser } });
+    }
     return decided ? json(decided) : fail("Request is no longer available.", 409);
   }
   if (parts.length !== 4) return fail("Not found.", 404);
@@ -296,7 +347,10 @@ export async function handleExternalThreads(request, env, url) {
     if (!permission) return fail("Thread not found or access revoked.", 404);
     if (permission !== "edit") return fail("Ask the Thread owner to approve a send request.", 403);
     const messageId = await insertReply(env, orgId, rootId, actor.user, body);
-    return messageId ? json({ messageId, sent: true }, 201) : fail("Thread not found or access revoked.", 404);
+    if (!messageId) return fail("Thread not found or access revoked.", 404);
+    const message = await getMessage(env.DB, orgId, messageId);
+    if (message) deferExternalReply(ctx, env, { orgId, root, row: message, guest: actor });
+    return json({ messageId, sent: true }, 201);
   }
   return fail("Method not allowed.", 405);
 }
