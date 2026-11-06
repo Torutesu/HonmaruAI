@@ -1797,11 +1797,11 @@ const runCustomGenerationRace=async(kind,phase)=>{
  } finally {vi.unstubAllGlobals()}
 };
 
-test.each(test.each([
+test.each([
  ['action','before dispatch'],['connection','before dispatch'],['gateway','before dispatch'],
 ['connection','during model'],['gateway','during model'],
  ['action','during cleanup'],['connection','during cleanup'],['gateway','during cleanup'],
-)('custom generation rejects a %s changed %s',runCustomGenerationRace);
+])('custom generation rejects a %s changed %s',runCustomGenerationRace);
 test('custom generation rejects an action changed during model',()=>runCustomGenerationRace('action','during model'),15000);
 
 test('custom capability snapshot checks exact visible values and ignores unrelated records',async()=>{
