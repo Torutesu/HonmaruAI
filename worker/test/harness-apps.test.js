@@ -2049,11 +2049,30 @@ test('anyone links publish only inline Custom Apps and exact revocation hides a 
   expect(issued.token).toMatch(/^app_[a-f0-9]{64}$/);
   const inventory=await (await get(`/apps/${app.id}/public-shares?orgId=${ORG}`,mika)).json();
   expect(inventory.shares[0]).not.toHaveProperty('token');
-  const denyLink=await send('PUT',`/apps/${app.id}/member-permissions`,toru,{orgId:ORG,userId:'9101',permission:'none',version:0});
-  expect(denyLink.status).toBe(200);
+  const appsModule=await import('../src/harness/apps.js');
+  const originalRender=appsModule.renderApp;
+  const renderSpy=vi.spyOn(appsModule,'renderApp').mockImplementation(async(db,orgId,appId)=>{
+    const rendered=await originalRender(db,orgId,appId);
+    const denied=await send('PUT',`/apps/${app.id}/member-permissions`,toru,{orgId:ORG,userId:'9101',permission:'none',version:0});
+    expect(denied.status).toBe(200);
+    return rendered;
+  });
+  const midRenderDenied=await call(`/app-shares/${issued.token}`,{headers:headers(toru)});
+  renderSpy.mockRestore();
+  expect(midRenderDenied.status).toBe(404);
   const publicRead=await call(`/app-shares/${issued.token}`);
   expect(publicRead.status).toBe(200);
   expect((await call(`/app-shares/${issued.token}`,{headers:headers(toru)})).status).toBe(404);
+  const clearDeny=await send('DELETE',`/apps/${app.id}/member-permissions`,toru,{orgId:ORG,userId:'9101',version:1});
+  expect(clearDeny.status).toBe(200);
+  const renderRace=vi.spyOn(appsModule,'renderApp').mockImplementation(async(db,orgId,appId)=>{
+    const rendered=await originalRender(db,orgId,appId);
+    await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+    return rendered;
+  });
+  const membershipRevokedDuringRender=await call(`/app-shares/${issued.token}`,{headers:headers(toru)});
+  renderRace.mockRestore();
+  expect(membershipRevokedDuringRender.status).toBe(404);
   expect(publicRead.headers.get('cache-control')).toContain('no-store');
   expect(await publicRead.json()).toMatchObject({app:{id:app.id,version:published.version},html:'<h1>Public read-only</h1>'});
   expect((await call(`/app-shares/${issued.token}`,{method:'POST'})).status).toBe(404);
@@ -2075,43 +2094,49 @@ test('Database Apps cannot receive an anyone link even with exposure confirmatio
 test('member app permissions override workspace sharing and fence reads, writes, workflows, and MCP', async () => {
   const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Member ACL', columns: [{ name: 'Name', type: 'text' }] })).json();
   const path = `/apps/${app.id}/member-permissions`;
-  const grant = async (permission, version = 0) => send('PUT', path, toru, { orgId: ORG, userId: '9101', permission, version });
-  expect((await grant('view')).status).toBe(200);
-  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(200);
-  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, toru)).status).toBe(200);
-  expect((await get(`/tables/${app.tableId}/rows?orgId=${ORG}`, toru)).status).toBe(200);
-  expect((await send('PUT', `/tables/${app.tableId}?orgId=${ORG}`, toru, { columns: [{ name: 'Name', type: 'text' }] })).status).toBe(403);
-  expect((await send('POST', `/tables/${app.tableId}/rows`, toru, { orgId: ORG, values: { Name: 'blocked' } })).status).toBe(403);
+  const { upsertMembership } = await import('../src/db.js');
+  await upsertMembership(env.DB,ORG,'9104','member');
+  const grant = async (userId, permission, version = 0) => send('PUT', path, toru, { orgId: ORG, userId, permission, version });
+  expect((await grant('9101','view')).status).toBe(200);
+  expect((await grant('9104','view')).status).toBe(200);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, outsider)).status).toBe(200);
+  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, outsider)).status).toBe(200);
+  expect((await get(`/tables/${app.tableId}/rows?orgId=${ORG}`, outsider)).status).toBe(200);
+  expect((await send('PUT', `/tables/${app.tableId}?orgId=${ORG}`, outsider, { columns: [{ name: 'Name', type: 'text' }] })).status).toBe(403);
+  expect((await send('POST', `/tables/${app.tableId}/rows`, outsider, { orgId: ORG, values: { Name: 'blocked' } })).status).toBe(403);
 
   const { callHarnessTool } = await import('../src/harness/mcpTools.js');
-  const principal = { orgId: ORG, githubId: '9101' };
+  const principal = { orgId: ORG, githubId: '9104' };
   expect((await callHarnessTool(env, principal, 'read_app', { appId: app.id })).isError).toBeFalsy();
   expect((await callHarnessTool(env, principal, 'query_rows', { tableId: app.tableId })).isError).toBeFalsy();
   expect((await callHarnessTool(env, principal, 'add_row', { tableId: app.tableId, values: { Name: 'blocked' } })).isError).toBe(true);
   await env.DB.prepare("INSERT INTO hx_app_actions (org_id,app_id,name,version,draft,published,published_version,updated_at) VALUES (?1,?2,'do_work',1,'return 1;','return 1;',1,datetime('now'))").bind(ORG,app.id).run();
-  expect((await send('POST', `/apps/${app.id}/actions`, toru, { orgId: ORG, action: 'run', name: 'do_work', version: 1, input: {} })).status).toBe(403);
+  expect((await send('POST', `/apps/${app.id}/actions`, outsider, { orgId: ORG, action: 'run', name: 'do_work', version: 1, input: {} })).status).toBe(403);
   const { callExecutionTool } = await import('../src/harness/executionTools.js');
   const actionResult = await callExecutionTool(env, principal, 'run_app_action', { appId: app.id, name: 'do_work', version: 1, gatewayId: 'node', requestId: 'acl-test', input: {} });
   expect(actionResult.structuredContent.error).toContain('cannot run its actions');
 
   const { createWorkflow, mayEditWorkflow } = await import('../src/harness/workflows.js');
-  const { workflow } = await createWorkflow(env.DB, ORG, { name: 'ACL write', trigger: { type: 'manual' }, steps: [{ type: 'add_row', tableId: app.tableId, values: { Name: 'workflow' } }] }, '9101');
-  expect(await mayEditWorkflow(env.DB, ORG, workflow, '9101')).toBe(false);
-  expect((await send('POST', `/workflows/${workflow.id}/run`, toru, { orgId: ORG, text: 'test' })).status).toBe(403);
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: 'ACL write', trigger: { type: 'manual' }, steps: [{ type: 'add_row', tableId: app.tableId, values: { Name: 'workflow' } }] }, '9102');
+  expect(await mayEditWorkflow(env.DB, ORG, workflow, '9104')).toBe(false);
+  expect((await send('POST', `/workflows/${workflow.id}/run`, outsider, { orgId: ORG, text: 'test' })).status).toBe(403);
+  const { workflow: sideEffectWorkflow } = await createWorkflow(env.DB,ORG,{name:'Side effect only',trigger:{type:'manual'},steps:[{type:'post',channel:'b:cafe',text:'hello'}]},'9102');
+  expect(await mayEditWorkflow(env.DB,ORG,sideEffectWorkflow,'9104')).toBe(false);
+  expect((await send('POST',`/workflows/${sideEffectWorkflow.id}/run`,outsider,{orgId:ORG,text:'test'})).status).toBe(403);
 
-  expect((await grant('edit', 0)).status).toBe(409);
-  expect((await grant('none', 1)).status).toBe(200);
-  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
-  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, toru)).status).toBe(404);
+  expect((await grant('9104','edit',0)).status).toBe(409);
+  expect((await grant('9104','none',1)).status).toBe(200);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, outsider)).status).toBe(404);
+  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, outsider)).status).toBe(404);
+  expect((await (await get(`/apps?orgId=${ORG}`,outsider)).json()).apps.some(item=>item.id===app.id)).toBe(false);
   expect((await callHarnessTool(env, principal, 'read_app', { appId: app.id })).isError).toBe(true);
 
-  await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id=?2").bind(ORG,'9101').run();
+  await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id=?2").bind(ORG,'9104').run();
   const { mayUseApp } = await import('../src/harness/resourceAccess.js');
-  expect(await mayUseApp(env.DB,ORG,app.id,'9101')).toBe(false);
-  await env.DB.prepare("UPDATE memberships SET role='member',created_at='2099-01-01T00:00:00.000Z' WHERE org_id=?1 AND user_github_id=?2").bind(ORG,'9101').run();
-  expect(await mayUseApp(env.DB,ORG,app.id,'9101')).toBe(true);
+  expect(await mayUseApp(env.DB,ORG,app.id,'9104')).toBe(false);
+  await env.DB.prepare("UPDATE memberships SET role='member',created_at='2099-01-01T00:00:00.000Z' WHERE org_id=?1 AND user_github_id=?2").bind(ORG,'9104').run();
+  expect(await mayUseApp(env.DB,ORG,app.id,'9104')).toBe(true);
 });
-
 
 test('linked Apps intersect member permissions for shared Table reads and writes', async () => {
   const {app:first}=await (await send('POST','/apps',mika,{orgId:ORG,name:'Shared ACL A',columns:[{name:'Name',type:'text'}]})).json();

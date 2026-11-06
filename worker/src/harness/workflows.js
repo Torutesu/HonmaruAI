@@ -270,6 +270,13 @@ async function unavailableProgramNode(db,orgId,steps) {
 
 export async function mayEditWorkflow(db, orgId, workflow, viewerId) {
   if (!workflow || !viewerId) return false;
+  const membership=await db.prepare("SELECT role FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'guest'))!='guest'").bind(orgId,String(viewerId)).first();
+  if(!membership)return false;
+  const scoped=Boolean(workflow.trigger?.tableId||workflow.trigger?.appId||(workflow.steps||[]).some(step=>step.tableId||step.appId));
+  // A side-effect-only/manual workflow has no App or Table ACL to inherit.
+  // Keep execution to its author or a workspace admin instead of treating a
+  // viewer on an unrelated App as a universal workflow runner.
+  if(!scoped)return String(workflow.createdBy)===String(viewerId)||['owner','admin'].includes(String(membership.role).toLowerCase());
   if (workflow.trigger?.tableId && !(await mayEditTable(db,orgId,workflow.trigger.tableId,viewerId))) return false;
   if (workflow.trigger?.type === 'app_record_change' && !(await mayEditApp(db,orgId,workflow.trigger.appId,viewerId))) return false;
   for (const step of workflow.steps || []) {

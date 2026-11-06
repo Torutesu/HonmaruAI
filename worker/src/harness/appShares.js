@@ -1,4 +1,4 @@
-import { explicitlyDeniedAppMember } from './resourceAccess.js';
+import { appMemberPermissionSnapshot, appShareMemberStillAllowed } from './resourceAccess.js';
 import { renderApp } from './apps.js';
 
 const tokenHash = async token => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))), byte => byte.toString(16).padStart(2, '0')).join('');
@@ -61,7 +61,8 @@ export async function readAppShare(db, token, viewerId = null) {
   if (!row || row.revokedAt || row.expiresAt <= now() || Number(row.version) !== Number(row.appVersion)) return { error: 'This app link is unavailable.', status: 404 };
   // The bearer token remains public, but an authenticated current workspace
   // member's explicit per-App deny takes precedence over that broader grant.
-  if (await explicitlyDeniedAppMember(db,row.orgId,row.appId,viewerId)) return { error: 'This app link is unavailable.', status: 404 };
+  const memberSnapshot=viewerId?await appMemberPermissionSnapshot(db,row.orgId,row.appId,viewerId):null;
+  if(memberSnapshot?.permission==='none')return {error:'This app link is unavailable.',status:404};
   const current = await db.prepare('SELECT COALESCE((SELECT version FROM hx_app_access WHERE org_id=?1 AND app_id=?2),0) AS version').bind(row.orgId,row.appId).first();
   if (Number(current?.version || 0) !== Number(row.accessVersion)) return { error: 'This app link is unavailable.', status: 404 };
   let definition;
@@ -80,5 +81,6 @@ export async function readAppShare(db, token, viewerId = null) {
   if (!finalFence || finalFence.revokedAt || finalFence.expiresAt <= now()
       || Number(finalFence.appVersion) !== Number(row.appVersion)
       || Number(finalFence.accessVersion) !== Number(row.accessVersion)) return { error: 'This app link is unavailable.', status: 404 };
+  if(!await appShareMemberStillAllowed(db,row.orgId,row.appId,viewerId,memberSnapshot))return {error:'This app link is unavailable.',status:404};
   return { share: { expiresAt: row.expiresAt }, app: { id: row.appId, name: row.name, icon: row.icon || '📋', version: Number(row.version) }, html, table: rendered.table, rows: rendered.rows.slice(0, 500) };
 }
