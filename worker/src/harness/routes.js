@@ -48,6 +48,7 @@ import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
 import { appAccess, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { searchGlobalResources } from './globalSearch.js';
 import { mayUseConversation, readableConversation } from './conversationAccess.js';
 import { listMembers as memoryMembers } from '../team.js';
 import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans } from './agentAccessRequests.js';
@@ -169,6 +170,20 @@ export async function handleHarness(request, env, url, context = {}) {
       if(result.version!==0){const {announceFileChanged}=await import('./fileEvents.js');await announceFileChanged(env,orgId,result.id||url.pathname.split('/')[3]);}
     }
     return response;
+  }
+
+  if (url.pathname === '/hx/search/resources' && request.method === 'GET') {
+    const orgId = url.searchParams.get('orgId');
+    const who = await member(env, request, orgId);
+    if (who.denied) return who.denied;
+    if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Not found.' }, 404);
+    const q = url.searchParams.get('q') || '';
+    const ready = await env.DB.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='hx_workspace_file_search'").first();
+    if (!ready) return json({ message: 'Workspace search is not ready.' }, 503);
+    const members = await memoryMembers(env.DB, orgId, who.session.github_id);
+    const result = await searchGlobalResources(env.DB, { orgId, userId: String(who.session.github_id), login: who.user.login, members, raw: q });
+    if (result.error) return json({ message: result.error }, result.status || 400);
+    return json(result);
   }
 
   const visualRoute = url.pathname === "/hx/rooms/visual";

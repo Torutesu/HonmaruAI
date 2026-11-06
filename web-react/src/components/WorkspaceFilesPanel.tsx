@@ -12,12 +12,13 @@ import {WorkspaceFilePreview} from './WorkspaceFilePreview'
 import {workspaceFilePreviewKind} from '../utils/workspaceFilePreview'
 import {WorkspaceFileUpload} from './WorkspaceFileUpload'
 
-export function RoomFilesPanel({api,channel,targetFileId,inlinePreview=false,preferenceKey,allOriginsInFolders=false,onClose,onAttachments}:{api:WorkspaceFileApi;channel:string;targetFileId?:string;inlinePreview?:boolean;preferenceKey?:string;allOriginsInFolders?:boolean;onClose:()=>void;onAttachments:()=>void}){
+export function RoomFilesPanel({api,channel,targetFileId,scopeOverride,inlinePreview=false,preferenceKey,allOriginsInFolders=false,onClose,onAttachments}:{api:WorkspaceFileApi;channel:string;targetFileId?:string;scopeOverride?:string;inlinePreview?:boolean;preferenceKey?:string;allOriginsInFolders?:boolean;onClose:()=>void;onAttachments:()=>void}){
  const t=useT(),[scope,setScope]=useState<string|null>(null),[error,setError]=useState(''),[revision,setRevision]=useState(0)
  useEffect(()=>{let live=true;const controller=new AbortController();setScope(null);setError('')
+  if(scopeOverride){setScope(scopeOverride);return()=>{live=false;controller.abort()}}
   api.resolveScope(channel,controller.signal).then(result=>{if(live)setScope(result.scope)}).catch(error=>{if(live)setError(String(error.message||error))})
   return()=>{live=false;controller.abort()}
- },[api,channel,revision])
+ },[api,channel,revision,scopeOverride])
  if(scope)return <WorkspaceFilesPanel key={`${scope}:${preferenceKey}`} api={api} scope={scope} targetFileId={targetFileId} inlinePreview={inlinePreview} preferenceKey={preferenceKey} allOriginsInFolders={allOriginsInFolders} onClose={onClose} onAttachments={onAttachments}/>
  return <aside className="hx-room-resource slk-pane hx-files-panel" aria-label={t('Files')}><header><strong>{t('Files')}</strong><button onClick={onClose} aria-label={t('Close resources')}><Icon name="x" size={16}/></button></header><div className="hx-files-state" role={error?'alert':'status'}>{error||t('Loading…')}{error&&<button onClick={()=>setRevision(value=>value+1)}>{t('Retry')}</button>}</div><footer><button onClick={onAttachments}>{t('Message attachments')}</button></footer></aside>
 }
@@ -52,7 +53,7 @@ export function WorkspaceFilesPanel({api,scope,targetFileId,inlinePreview=false,
   let live=true;const controller=new AbortController();setSelected(null);setTargetState(targetFileId?'loading':'')
   if(targetFileId)void api.get(targetFileId,controller.signal).then(({file})=>{
    if(!live)return
-   if(file.id!==targetFileId||file.scope!==scope){setTargetState('unavailable');return}
+   if(file.id!==targetFileId||(scope!=='all'&&file.scope!==scope)){setTargetState('unavailable');return}
    setSelected(file);setTargetState('')
   }).catch(error=>{if(live)setTargetState(error instanceof WorkspaceFileError&&[403,404].includes(error.status)?'unavailable':'error')})
   return()=>{live=false;controller.abort()}
@@ -68,8 +69,8 @@ export function WorkspaceFilesPanel({api,scope,targetFileId,inlinePreview=false,
    </div>}
 
    {!selected&&<div className="hx-files-view" role="group" aria-label={t('File view')}><button type="button" title={t('Recent')} aria-label={t('Recent')} aria-pressed={!folderMode} onClick={()=>{setFolderMode(false);setCursor(null);setFolderCursor(undefined)}}><Icon name="list" size={16}/></button><button type="button" title={t('Folders')} aria-label={t('Folders')} aria-pressed={folderMode} onClick={()=>{setFolderMode(true);setCursor(null);setFolderCursor(undefined)}}><Icon name="folder" size={16}/></button></div>}
-   <DocumentCreate key={`document:${scope}`} api={api} scope={scope} receiptKey={preferenceKey?`${preferenceKey}:${scope}`:undefined} directory={folderMode?directory:''} onOpen={id=>{setRevision(v=>v+1);void api.get(id).then(r=>setSelected(r.file)).catch(e=>setError(e.message))}}/>
-   <WorkspaceFileUpload key={scope} api={api} scope={scope} directory={folderMode?directory:''} onSaved={()=>setRevision(value=>value+1)}/>
+   {scope!=='all'&&<DocumentCreate key={`document:${scope}`} api={api} scope={scope} receiptKey={preferenceKey?`${preferenceKey}:${scope}`:undefined} directory={folderMode?directory:''} onOpen={id=>{setRevision(v=>v+1);void api.get(id).then(r=>setSelected(r.file)).catch(e=>setError(e.message))}}/>}
+   {scope!=='all'&&<WorkspaceFileUpload key={scope} api={api} scope={scope} directory={folderMode?directory:''} onSaved={()=>setRevision(value=>value+1)}/>}
   </div>
   {selected?<WorkspaceFileHistory key={`${scope}:${selected.id}`} api={api} file={selected} inlinePreview={inlinePreview} refreshRevision={revision} onBack={()=>setSelected(null)} onChanged={()=>setRevision(value=>value+1)}/>:<>
    {folderMode&&<nav className="hx-files-breadcrumbs" aria-label={t('Folder path')}><button onClick={()=>openDirectory('')}>{t('All files')}</button>{directory.split('/').filter(Boolean).map((name,index,parts)=><React.Fragment key={index}><Icon name="chevron-right" size={12}/><button aria-current={index===parts.length-1?'location':undefined} onClick={()=>openDirectory(parts.slice(0,index+1).join('/')+'/')}>{name}</button></React.Fragment>)}</nav>}
@@ -80,7 +81,7 @@ export function WorkspaceFilesPanel({api,scope,targetFileId,inlinePreview=false,
    {folderMode&&!search&&<div className="hx-files-pagination">{folderCursor&&<button onClick={()=>setFolderCursor(undefined)}>{t('First folders')}</button>}{folderNext&&files!==null&&!error&&<button onClick={()=>setFolderCursor(folderNext)}>{t('More folders')}</button>}</div>}
    <div className="hx-files-pagination">{cursor&&<button onClick={()=>setCursor(null)}>{t('Back to first page')}</button>}{next&&files!==null&&!error&&<button onClick={()=>setCursor(next)}>{t('Next')}</button>}</div>
   </>}
-  <footer><button type="button" onClick={onAttachments}><Icon name="paperclip" size={14}/>{t('Message attachments')}</button></footer>
+  {scope!=='all'&&<footer><button type="button" onClick={onAttachments}><Icon name="paperclip" size={14}/>{t('Message attachments')}</button></footer>}
  </aside>
 }
 function WorkspaceFileHistory({api,file,inlinePreview,refreshRevision,onBack,onChanged}:{api:WorkspaceFileApi;file:WorkspaceFile;inlinePreview:boolean;refreshRevision:number;onBack:()=>void;onChanged:()=>void}){

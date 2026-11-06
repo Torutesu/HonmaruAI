@@ -100,8 +100,12 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://kylon.io/product/workspace",
-      "code": "worker/src/channels.js",
-      "acceptance": "メッセージだけでなくファイル本文・レコードも同じACLで検索"
+      "code": "worker/src/harness/globalSearch.js",
+      "acceptance": "メッセージ・ファイル・レコード・自動化を横断し、リソースごとの現在ACLを適用。Harness検索Paletteに結果群と個別リソースへの導線を表示。Simpleの既存検索経路は維持",
+      "evidence": {
+        "implementedScope": "既存D1とWorker内の検索のみ。ファイル本文は新しい現行版のUTF-8 plain text系MIMEを128 KiB/件まで索引化し、current versionとfileScopeAuthorityで検索、更新/削除/purgeと同一batchで更新。索引は最新256ファイル/Workspaceに上限。行検索は現在のtable/App ACLをSQL適用してからmayUseTableで再確認。AutomationはlistWorkflows(viewerId)経由。",
+        "remaining": "既存ファイル/旧版の本文索引backfill、PDF/DOCX/OCRと上限超過ファイル、最新5,000件より古い候補の横断検索、実画面Kylon比較、CI/実機での受入確認。"
+      }
     },
     {
       "id": "KY-009",

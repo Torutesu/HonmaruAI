@@ -3883,12 +3883,24 @@ export const ClassicList: React.FC<Props> = ({
 
   // ---- What the header opens ----
   // The journal ("Context"), or the channel's details on one of its tabs.
-  const [side, setSide] = useState<null | { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; section?:'data'; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'files'; fileId?:string } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
+  const [side, setSide] = useState<null | { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; section?:'data'; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'files'; fileId?:string; scope?:string } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }>(null)
   const sourceThreadApp = Boolean(harness && thread && (side?.kind==='app'||side?.kind==='references'||(side?.kind==='files'&&side.fileId)) && !detail && !profile && !activityOpen && current?.view)
-  const openSide = (next: { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; section?:'data'; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'files'; fileId?:string } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
+  const openSide = (next: { kind: 'references' } | { kind: 'journal' } | { kind: 'app'; id: string; section?:'data'; conversation?:boolean; fromReferences?:boolean } | { kind: 'canvas' } | { kind: 'files'; fileId?:string; scope?:string } | { kind: 'resources'; resource: 'apps' | 'workflows' } | { kind: 'details'; tab: DetailsTab }) => {
     setDetailId(null); setThread(null); setProfile(null); setPins(null)
     setSide((prev) => (prev && prev.kind === next.kind && (prev.kind === 'journal' || prev.kind === 'files' || prev.kind === 'canvas' || (next.kind === 'resources' && prev.kind === 'resources' && prev.resource === next.resource) || (next.kind === 'details' && prev.kind === 'details' && prev.tab === next.tab)) ? null : next))
   }
+  useEffect(()=>{
+    const open=(event?:Event)=>{
+      let stored='';try{stored=sessionStorage.getItem('list.openGlobalFile')||''}catch{}
+      const fileId=String((event as CustomEvent|undefined)?.detail||stored)
+      if(!/^(?:file-)?[a-f0-9-]{36}$/i.test(fileId))return
+      try{sessionStorage.removeItem('list.openGlobalFile')}catch{}
+      setDetailId(null);setThread(null);setProfile(null);setSide({kind:'files',fileId,scope:'all'})
+    }
+    window.addEventListener('honmaru:open-global-file',open)
+    open()
+    return()=>window.removeEventListener('honmaru:open-global-file',open)
+  },[])
   // What to open beside a conversation chosen from somewhere else (the
   // sidebar's right-click menu): set before choosing, applied once it opens.
   const sideOnOpen = useRef<null | { kind: 'details'; tab: DetailsTab }>(null)
@@ -6477,7 +6489,7 @@ export const ClassicList: React.FC<Props> = ({
           : side.kind === 'app'
           ? <aside className="hx-app-pane slk-pane"><AppView key={`${api.orgId}:${side.id}`} httpBase={api.httpBase} orgId={api.orgId} sessionToken={api.sessionToken} api={resourceClient} appId={side.id} openConversation={side.conversation} initialSection={side.section} onClose={() => setSide(null)} onBack={() => setSide(side.fromReferences&&thread?{kind:'references'}:{ kind: 'resources', resource: 'apps' })} /></aside>
           : side.kind === 'files'
-          ? <RoomFilesPanel key={`${api.orgId}:${api.sessionToken}:${current.view}`} api={resourceClient.files} channel={current.view} targetFileId={side.fileId} inlinePreview={!!thread} allOriginsInFolders={harness} preferenceKey={workspaceFileViewKey(api.httpBase,api.orgId,userId,current.view)} onClose={()=>setSide(null)} onAttachments={()=>{setThread(null);setSide({kind:'details',tab:'attachments'})}}/>
+          ? <RoomFilesPanel key={`${api.orgId}:${api.sessionToken}:${current.view}:${side.scope||''}`} api={resourceClient.files} channel={current.view} targetFileId={side.fileId} scopeOverride={side.scope} inlinePreview={!!thread} allOriginsInFolders={harness} preferenceKey={workspaceFileViewKey(api.httpBase,api.orgId,userId,side.scope==='all'?'workspace':current.view)} onClose={()=>setSide(null)} onAttachments={()=>{setThread(null);setSide({kind:'details',tab:'attachments'})}}/>
           : side.kind === 'resources'
           ? <HarnessRoomResources key={`${api.orgId}:${userId}:${current.view}:${side.resource}`} api={api} channel={current.view} kind={side.resource}
               onClose={() => setSide(null)} onOpenApp={id => { if (id) setSide({ kind: 'app', id }); else { setSide(null); onApps?.() } }} onOpenWorkflow={id => { setSide(null); onWorkflow?.(id) }}

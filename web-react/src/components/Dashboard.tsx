@@ -27,7 +27,7 @@ import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { displayName } from '../utils/names'
 import { bringForward, pageShowing } from '../utils/desktop'
-import { useRoute, useDesktop, useMinWidth, hashForCard, hashForMode, hashForScreen, hashForView, hashForWorkflow } from '../utils/route'
+import { useRoute, useDesktop, useMinWidth, hashForApp, hashForCard, hashForMode, hashForScreen, hashForView, hashForWorkflow } from '../utils/route'
 import { loadCardCache, saveCardCache } from '../utils/cardCache'
 import { reconnectWatch, wakeWatch } from '../utils/resync'
 import { needsLocalizing } from '../utils/language'
@@ -804,7 +804,14 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       navigate(hashForMode('classic'))
       setTimeout(() => window.dispatchEvent(new CustomEvent('honmaru:open-message', { detail: target })), 150)
     }
-  }, [navigate, mode, screen])
+    else if (action.kind === 'file') {
+      try { localStorage.setItem('mode', 'classic'); sessionStorage.setItem('list.openGlobalFile', action.fileId) } catch {}
+      navigate(hashForMode('classic'))
+      setTimeout(() => window.dispatchEvent(new CustomEvent('honmaru:open-global-file', { detail: action.fileId })), 150)
+    }
+    else if (action.kind === 'record') navigate(action.appId ? hashForApp(action.appId, orgId, { tableId: action.tableId, rowId: action.rowId }, 'data') : '#/apps')
+    else if (action.kind === 'workflow') navigate(hashForWorkflow(action.workflowId, orgId))
+  }, [navigate, mode, screen, orgId])
 
   // A toast that stays until clicked is a banner. Errors clear themselves.
   useEffect(() => {
@@ -1338,6 +1345,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           httpBase={relayHttpUrl}
           orgId={orgId}
           sessionToken={sessionToken}
+          harnessSearch={workspaceMode === 'harness'}
           cards={[...pendingCards, ...decidedCards, ...sentCards]}
           places={placesRef.current}
           recent={recent}

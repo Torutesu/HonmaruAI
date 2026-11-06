@@ -17,6 +17,9 @@ export type PaletteAction =
   | { kind: 'list' }
   | { kind: 'compose' }
   | { kind: 'message'; view: string; id: string; parentId?: string | null }
+  | { kind: 'file'; fileId: string }
+  | { kind: 'record'; appId: string | null; tableId: string; rowId: string }
+  | { kind: 'workflow'; workflowId: string }
   /// A conversation, opened in the list.
   | { kind: 'view'; view: string }
 
@@ -24,6 +27,7 @@ interface Props {
   httpBase: string
   orgId: string
   sessionToken: string
+  harnessSearch?: boolean
   cards: DecisionCard[]
   /// Every conversation the list can open, as it last said. Empty until the
   /// list has been drawn once; the channels and the team stand in till then.
@@ -39,7 +43,7 @@ interface Props {
   onClose: () => void
 }
 
-interface Item { key: string; group: 'places' | 'actions' | 'cards' | 'past' | 'messages'; label: string; meta?: string; place?: Place; action: PaletteAction }
+interface Item { key: string; group: 'places' | 'actions' | 'cards' | 'past' | 'messages' | 'files' | 'records' | 'automations'; label: string; meta?: string; place?: Place; action: PaletteAction }
 
 const NONE: never[] = []
 
@@ -65,13 +69,16 @@ const ACTION_WORD: Record<string, string> = {
 /// few letters of its name, a screen, an action, a card the browser already
 /// has, and — a moment later — what the team decided before, from the
 /// Worker's search. Enter takes the highlighted row; Escape closes.
-export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards, places = NONE, recent = NONE, current = null, businesses = NONE, onPick, onClose }) => {
+export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, harnessSearch = false, cards, places = NONE, recent = NONE, current = null, businesses = NONE, onPick, onClose }) => {
   const t = useT()
   const locale = getLocale()
   const [query, setQuery] = useState('')
   const [cursor, setCursor] = useState(0)
   const [past, setPast] = useState<Item[]>([])
   const [said, setSaid] = useState<Item[]>([])
+  const [files, setFiles] = useState<Item[]>([])
+  const [records, setRecords] = useState<Item[]>([])
+  const [automations, setAutomations] = useState<Item[]>([])
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => { input.current?.focus() }, [])
@@ -177,14 +184,15 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
     return () => { ignore = true; clearTimeout(id) }
   }, [q, httpBase, orgId, sessionToken, cards, t])
 
-  // What was said in channels and DMs, from the Worker.
+  // What was said, plus the Harness resources that can be opened from here.
   useEffect(() => {
     const raw = query.trim()
-    if (raw.length < 2) { setSaid([]); return }
+    if (raw.length < 2) { setSaid([]); setFiles([]); setRecords([]); setAutomations([]); return }
     let ignore = false
     const id = setTimeout(async () => {
       try {
-        const res = await fetch(`${httpBase}/channels/search?orgId=${encodeURIComponent(orgId)}&q=${encodeURIComponent(raw)}`, { headers: { 'x-session-token': sessionToken } })
+        const path = harnessSearch ? '/hx/search/resources' : '/channels/search'
+        const res = await fetch(`${httpBase}${path}?orgId=${encodeURIComponent(orgId)}&q=${encodeURIComponent(raw)}`, { headers: { 'x-session-token': sessionToken } })
         if (!res.ok) return
         const data = await res.json()
         if (ignore) return
@@ -194,12 +202,30 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
           meta: `${m.kind === 'ai' ? t('Your AI') : m.mine ? t('You') : (m.authorName || '')} · ${m.createdAt.slice(0, 10)}`,
           action: { kind: 'message' as const, view: m.channel, id: m.id, parentId: m.parentId || null },
         })))
-      } catch { /* the rest of the palette stands */ }
+        setFiles((data.files || []).slice(0, 8).map((file: {id:string;path?:string;name?:string;matchedBy:'name'|'content';source?:'workspace'|'attachment';view?:string;messageId?:string;parentId?:string|null}) => ({
+          key: `f:${file.id}`, group: 'files' as const, label: file.path || file.name || t('File'),
+          meta: file.source === 'attachment' ? t('Attachment') : file.matchedBy === 'content' ? t('File content') : t('File name'),
+          action: file.source === 'attachment' && file.view && file.messageId
+            ? { kind: 'message' as const, view: file.view, id: file.messageId, parentId: file.parentId || null }
+            : { kind: 'file' as const, fileId: file.id },
+        })))
+        setRecords((data.records || []).slice(0, 8).map((record: {rowId:string;tableId:string;tableName:string;appId:string|null}) => ({
+          key: `r:${record.tableId}:${record.rowId}`, group: 'records' as const,
+          label: `${t('Record')} · ${record.rowId.slice(0, 8)}`,
+          meta: record.tableName,
+          action: { kind: 'record' as const, appId: record.appId, tableId: record.tableId, rowId: record.rowId },
+        })))
+        setAutomations((data.automations || []).slice(0, 8).map((workflow: {id:string;name:string;enabled:boolean;triggerType:string}) => ({
+          key: `w:${workflow.id}`, group: 'automations' as const, label: workflow.name,
+          meta: `${workflow.enabled ? t('Active') : t('Paused')} · ${workflow.triggerType}`,
+          action: { kind: 'workflow' as const, workflowId: workflow.id },
+        })))
+      } catch { /* the browser's own matches stand */ }
     }, 250)
     return () => { ignore = true; clearTimeout(id) }
-  }, [query, httpBase, orgId, sessionToken, t])
+  }, [query, httpBase, orgId, sessionToken, harnessSearch, t])
 
-  const items = useMemo(() => filtered ? said : [...jumps, ...here, ...said, ...past, ...actions], [jumps, here, said, past, actions, filtered])
+  const items = useMemo(() => filtered ? said : [...jumps, ...here, ...said, ...files, ...records, ...automations, ...past, ...actions], [jumps, here, said, files, records, automations, past, actions, filtered])
   useEffect(() => { setCursor(0) }, [q, items.length])
   // The highlighted row stays in sight: with conversations above the
   // screens, the arrows walk further than the box is tall. The first row
@@ -233,7 +259,7 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
     else if (e.key === 'Escape') { e.preventDefault(); onClose() }
   }
 
-  const GROUP_WORD: Record<Item['group'], string> = { places: t('Conversations'), actions: t('Go to'), cards: t('Cards'), past: t('Decided before'), messages: t('Messages') }
+  const GROUP_WORD: Record<Item['group'], string> = { places: t('Conversations'), actions: t('Go to'), cards: t('Cards'), past: t('Decided before'), messages: t('Messages'), files: t('Files'), records: t('Records'), automations: t('Automations') }
   /// Before a conversation's name, what kind it is, as the sidebar draws it:
   /// # a channel, a lock a private one, @ a person or an agent, faces a group.
   const placeLead = (p: Place) => (
