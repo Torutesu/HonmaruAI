@@ -982,7 +982,12 @@ async function assignmentStatusFixture() {
 
 test('assignment status is hidden from room readers without current grants to each Agent in the handoff',async()=>{
  const f=await assignmentStatusFixture();
- await env.DB.prepare("UPDATE hx_agent_profiles SET access='people',people='[\"mika\"]' WHERE org_id=?1 AND agent_id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
+ const profileUpsert=env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at) VALUES (?1,?2,'people','[\"mika\"]','8801',datetime('now')) ON CONFLICT(org_id,agent_id) DO UPDATE SET access='people',people='[\"mika\"]',updated_by='8801',updated_at=datetime('now')");
+ const profileResults=await env.DB.batch([profileUpsert.bind(ORG,f.source.id),profileUpsert.bind(ORG,f.target.id)]);
+ expect(profileResults).toHaveLength(2);
+ const restrictedProfiles=await env.DB.prepare("SELECT agent_id,access,people FROM hx_agent_profiles WHERE org_id=?1 AND agent_id IN (?2,?3) ORDER BY agent_id").bind(ORG,f.source.id,f.target.id).all();
+ expect(restrictedProfiles.results).toHaveLength(2);
+ expect(restrictedProfiles.results.every(profile=>profile.access==='people' && profile.people==='[\"mika\"]')).toBe(true);
  await env.DB.prepare("UPDATE custom_agents SET owner_login='mika' WHERE org_id=?1 AND id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
  await env.DB.prepare("DELETE FROM hx_agent_members WHERE org_id=?1 AND agent_id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
  await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/reviewer.png',ORG,f.target.id).run();
