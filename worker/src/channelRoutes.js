@@ -334,7 +334,7 @@ const TEAM_AI = {
   id: "ai", handle: "AI", name: "AI", emoji: null,
   instructions: `You are the team's own AI assistant in its chat. Answer what you are asked: explain, summarise the conversation, draft a reply or a document, compare options, give a recommendation with its reasons. You do not create decision cards here; if the person clearly wants someone to approve or decide something, end with one short line saying they can send it as a decision.`,
 };
-export async function answerAsAI(env, { orgId, session, user, resolved, row, members, locale }) {
+export async function answerAsAI(env, { orgId, session, user, resolved, row, members, locale, threadOnly = false }) {
   locale = await loadCopy(env, locale || "en", { orgId });
   const parentId = row.parent_id || row.id;
   const face = { id: "ai", handle: "AI", name: "AI", emoji: "✨" };
@@ -365,7 +365,7 @@ export async function answerAsAI(env, { orgId, session, user, resolved, row, mem
     // @AI is the workspace's own assistant: called from the conversation,
     // it reads what the conversation was just saying ("@AI 今の話を要約して").
     // A thread is still only its thread.
-    const [transcript, playbook] = await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: true }), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)]);
+    const [transcript, playbook] = await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: !threadOnly }), row.parent_id ? [] : playbookFor(env.DB, orgId, row.body)]);
     let links = "";
     try {
       const urls = linksIn(row.body).length ? linksIn(row.body) : linksIn(transcript.slice(-6).join("\n"));
