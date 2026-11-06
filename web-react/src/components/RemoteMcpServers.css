@@ -55,15 +55,22 @@
 .remote-mcp-form { display: flex; flex-direction: column; gap: 9px; padding: 13px; border: 1px solid var(--st-line); border-radius: 10px; background: var(--st-field); }
 .remote-mcp-form h3 { margin: 0 0 2px; color: var(--st-ink); font-size: 13.5px; }
 .remote-mcp-form > label { display: flex; flex-direction: column; gap: 5px; color: var(--st-dim); font-size: 12px; font-weight: 600; }
-.remote-mcp-form input { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--st-line); border-radius: 7px; outline: none; background: var(--st-bg); color: var(--st-ink); font: inherit; font-size: 12.5px; }
-.remote-mcp-form input:focus { border-color: var(--st-accent); }
-.remote-mcp-form select { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--st-line); border-radius: 7px; outline: none; background: var(--st-bg); color: var(--st-ink); font: inherit; font-size: 12.5px; }
-.remote-mcp-form select:focus { border-color: var(--st-accent); }
+.remote-mcp-form input { width: 100%; min-width: 0; min-height: 38px; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--st-line); border-radius: 8px; outline: none; background: var(--st-bg); color: var(--st-ink); font: inherit; font-size: 12.5px; }
+.remote-mcp-form input:focus { border-color: var(--st-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-accent) 18%, transparent); }
+.remote-mcp-form select { width: 100%; min-width: 0; min-height: 38px; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--st-line); border-radius: 8px; outline: none; background: var(--st-bg); color: var(--st-ink); font: inherit; font-size: 12.5px; }
+.remote-mcp-form select:focus { border-color: var(--st-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-accent) 18%, transparent); }
 .remote-mcp-form > label.remote-mcp-toggle { flex-direction: row; align-items: center; gap: 8px; }
 .remote-mcp-toggle input { width: auto; accent-color: var(--st-accent); }
 .remote-mcp-header-label { color: var(--st-dim); font-size: 12px; font-weight: 600; }
 .remote-mcp-header-row { display: grid; grid-template-columns: minmax(120px, .75fr) minmax(160px, 1fr) auto; align-items: center; gap: 7px; }
 .remote-mcp-submit { align-self: flex-start; margin-top: 3px; }
+
+@media (min-width: 900px) {
+  .remote-mcp-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; padding: 16px; }
+  .remote-mcp-form h3, .remote-mcp-form-note, .remote-mcp-header-label, .remote-mcp-header-row, .remote-mcp-add-header { grid-column: 1 / -1; }
+  .remote-mcp-form > label:has(input[type="checkbox"]) { align-self: center; min-height: 38px; }
+  .remote-mcp-form > button[type="submit"] { grid-column: 1 / -1; }
+}
 
 @media (max-width: 620px) {
   .remote-mcp { padding: 12px; }
