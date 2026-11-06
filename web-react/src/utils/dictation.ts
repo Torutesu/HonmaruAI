@@ -25,6 +25,7 @@ export function dictationAvailable(): boolean {
 export interface Dictation { stop: () => void }
 
 const DICTIONARY_PREFIX = 'honmaru.dictation.vocabulary.v1'
+const CORRECTIONS_PREFIX = 'honmaru.dictation.corrections.v1'
 
 /** User-scoped vocabulary lives on this device only; speech is still handled by
  * the browser and nothing in the dictionary is sent to a speech provider. */
@@ -48,19 +49,82 @@ export function writeDictationVocabulary(orgId: string, userId: string, words: s
   return clean
 }
 
+export type DictationCorrection = { from: string; to: string }
+
+export function readDictationCorrections(orgId: string, userId: string): DictationCorrection[] {
+  if (!orgId || !userId || typeof localStorage === 'undefined') return []
+  try {
+    const raw = JSON.parse(localStorage.getItem(`${CORRECTIONS_PREFIX}:${encodeURIComponent(orgId)}:${encodeURIComponent(userId)}`) || '[]')
+    if (!Array.isArray(raw)) return []
+    return raw.filter((item): item is DictationCorrection => !!item && typeof item.from === 'string' && typeof item.to === 'string').slice(0, 100)
+  } catch { return [] }
+}
+
+export function writeDictationCorrections(orgId: string, userId: string, corrections: DictationCorrection[]): DictationCorrection[] {
+  const clean = corrections.filter(item => item.from.trim() && item.to.trim() && item.from !== item.to).slice(0, 100)
+  if (!orgId || !userId || typeof localStorage === 'undefined') return clean
+  try {
+    const key = `${CORRECTIONS_PREFIX}:${encodeURIComponent(orgId)}:${encodeURIComponent(userId)}`
+    if (clean.length) localStorage.setItem(key, JSON.stringify(clean))
+    else localStorage.removeItem(key)
+  } catch { /* cache only; the API is authoritative */ }
+  return clean
+}
+
 /** Prefer a native phrase hint when supported, and also normalize returned text
  * for browsers which do not implement SpeechRecognition.phrases. */
-export function applyDictationVocabulary(text: string, vocabulary: string[]): string {
+export function applyDictationVocabulary(text: string, vocabulary: string[], corrections: DictationCorrection[] = []): string {
+  const corrected = [...corrections].sort((a, b) => b.from.length - a.from.length).reduce((result, item) => {
+    const escaped = item.from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const bounded = /^[\p{L}\p{N}][\p{L}\p{N}._'’+-]*$/u.test(item.from)
+    const pattern = bounded ? new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`, 'giu') : new RegExp(escaped, 'giu')
+    return bounded ? result.replace(pattern, (_match, before='') => `${before}${item.to}`) : result.replace(pattern, item.to)
+  }, text)
   return [...vocabulary].sort((a, b) => b.length - a.length).reduce((result, word) => {
     const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    return result.replace(new RegExp(escaped, 'giu'), word)
-  }, text)
+    const bounded = /^[\p{L}\p{N}][\p{L}\p{N}._'’+-]*$/u.test(word)
+    const pattern = bounded ? new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`, 'giu') : new RegExp(escaped, 'giu')
+    return bounded ? result.replace(pattern, (_match, before='') => `${before}${word}`) : result.replace(pattern, word)
+  }, corrected)
+}
+
+/** Infer one user correction in a dictated suffix, never from arbitrary prose. */
+export function detectDictationCorrection(previous: string, edited: string, dictatedPrefix: string, locale = 'en'): DictationCorrection | null {
+  if (!previous.startsWith(dictatedPrefix) || !edited.startsWith(dictatedPrefix)) return null
+  const before = previous.slice(dictatedPrefix.length), after = edited.slice(dictatedPrefix.length)
+  if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(before + after)) {
+    if (typeof Intl.Segmenter !== 'function') return null
+    const segmenter = new Intl.Segmenter(locale, { granularity: 'word' })
+    const words = (text: string) => [...segmenter.segment(text)].filter(part => part.isWordLike).map(part => part.segment)
+    const oldWords = words(before), newWords = words(after)
+    let head = 0
+    while (head < oldWords.length && head < newWords.length && oldWords[head] === newWords[head]) head++
+    let tail = 0
+    while (tail < oldWords.length - head && tail < newWords.length - head && oldWords[oldWords.length - tail - 1] === newWords[newWords.length - tail - 1]) tail++
+    const oldChanges = oldWords.slice(head, oldWords.length - tail), newChanges = newWords.slice(head, newWords.length - tail)
+    return oldChanges.length === 1 && newChanges.length === 1 && oldChanges[0] !== newChanges[0]
+      ? { from: oldChanges[0], to: newChanges[0] }
+      : null
+  }
+  let prefix = 0
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++
+  let suffix = 0
+  while (suffix < before.length - prefix && suffix < after.length - prefix && before[before.length - suffix - 1] === after[after.length - suffix - 1]) suffix++
+  let start = prefix, beforeEnd = before.length - suffix, afterEnd = after.length - suffix
+  const wordChar = (value: string) => /^[\p{L}\p{N}._'’+-]$/u.test(value)
+  while (start > 0 && wordChar(before[start - 1]) && wordChar(after[start - 1])) start--
+  while (beforeEnd < before.length && afterEnd < after.length && wordChar(before[beforeEnd]) && wordChar(after[afterEnd])) { beforeEnd++; afterEnd++ }
+  const from = before.slice(start, beforeEnd)
+  const to = after.slice(start, afterEnd)
+  const token = /^[\p{L}\p{N}][\p{L}\p{N}._'’+-]{1,79}$/u
+  if (!token.test(from) || !token.test(to) || from === to) return null
+  return { from, to }
 }
 
 /// Start listening. `onText` gets the whole utterance so far, interim words
 /// included, so the box fills as the person speaks; `onEnd` fires when the
 /// browser stops on its own or `stop` is called.
-export function startDictation(lang: string, onText: (text: string, final: boolean) => void, onEnd: (error?: string) => void, vocabulary: string[] = []): Dictation | null {
+export function startDictation(lang: string, onText: (text: string, final: boolean) => void, onEnd: (error?: string) => void, vocabulary: string[] = [], corrections: DictationCorrection[] = []): Dictation | null {
   const Ctor = ctor()
   if (!Ctor) return null
   const r = new Ctor()
@@ -69,7 +133,7 @@ export function startDictation(lang: string, onText: (text: string, final: boole
   r.interimResults = true
   const phraseRecognition = r as Recognizer & { phrases?: Array<{ phrase: string; boost?: number }> }
   if ('phrases' in phraseRecognition) {
-    try { phraseRecognition.phrases = vocabulary.map(phrase => ({ phrase, boost: 5 })) } catch { /* browser hint is optional */ }
+    try { phraseRecognition.phrases = [...vocabulary, ...corrections.map(item => item.to)].map(phrase => ({ phrase, boost: 5 })) } catch { /* browser hint is optional */ }
   }
   let finalText = ''
   r.onresult = (e) => {
@@ -79,7 +143,7 @@ export function startDictation(lang: string, onText: (text: string, final: boole
       if (res.isFinal) finalText += res[0].transcript
       else interim += res[0].transcript
     }
-    onText(applyDictationVocabulary(finalText + interim, vocabulary), !interim)
+    onText(applyDictationVocabulary(finalText + interim, vocabulary, corrections), !interim)
   }
   r.onerror = (e) => onEnd(e.error || 'error')
   r.onend = () => onEnd()

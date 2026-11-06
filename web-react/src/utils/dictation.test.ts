@@ -1,5 +1,5 @@
 import {afterEach,expect,test,vi} from 'vitest'
-import {applyDictationVocabulary,readDictationVocabulary,writeDictationVocabulary,startDictation} from './dictation'
+import {applyDictationVocabulary,detectDictationCorrection,readDictationVocabulary,writeDictationVocabulary,startDictation} from './dictation'
 
 const memory = new Map<string,string>()
 const storage = {
@@ -24,6 +24,15 @@ test('vocabulary is bounded, deduplicated, editable, and scoped to organization 
 test('longer phrases are applied first and regex characters are treated literally',()=>{
  expect(applyDictationVocabulary('honmaru and product ops', ['Honmaru','Product Ops'])).toBe('Honmaru and Product Ops')
  expect(applyDictationVocabulary('call ops.v2 now', ['ops.v2'])).toBe('call ops.v2 now')
+ expect(applyDictationVocabulary('the wor1d is ready', [], [{from:'wor1d',to:'world'}])).toBe('the world is ready')
+ expect(applyDictationVocabulary('swordfish', [], [{from:'word',to:'name'}])).toBe('swordfish')
+})
+
+test('learns only a single token correction within the dictated suffix',()=>{
+ expect(detectDictationCorrection('Hello wor1d','Hello world','Hello ')).toEqual({from:'wor1d',to:'world'})
+ expect(detectDictationCorrection('Hello wor1d','Changed wor1d','Hello ')).toBeNull()
+ expect(detectDictationCorrection('本丸に行く','本丸へ行く','','ja')).toEqual({from:'に',to:'へ'})
+ expect(detectDictationCorrection('今日会議','明日開始','','ja')).toBeNull()
 })
 
 test('browser phrase hints and normalized interim text are available without delaying sends',()=>{

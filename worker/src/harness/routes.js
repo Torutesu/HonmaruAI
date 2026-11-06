@@ -302,7 +302,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (who.denied) return who.denied;
     if (request.method === 'GET') return json(await readDictationVocabulary(env.DB, orgId, who.session.github_id));
     if (request.method !== 'PUT') return json({ message: 'Method not allowed.' }, 405);
-    const saved = await saveDictationVocabulary(env.DB, orgId, who.session.github_id, input?.vocabulary, input?.expectedRevision);
+    const saved = await saveDictationVocabulary(env.DB, orgId, who.session.github_id, input?.vocabulary, input?.corrections, input?.expectedRevision);
     if (saved.error) return fail(saved);
     await announceTo(env, orgId, [{
       to: who.user.login,

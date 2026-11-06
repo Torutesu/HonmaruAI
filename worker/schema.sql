@@ -1736,6 +1736,7 @@ CREATE TABLE IF NOT EXISTS hx_user_dictation_preferences (
   org_id        TEXT NOT NULL,
   user_id       TEXT NOT NULL,
   vocabulary    TEXT NOT NULL DEFAULT '[]',
+  corrections   TEXT NOT NULL DEFAULT '[]',
   revision      INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
   updated_at    TEXT NOT NULL,
   PRIMARY KEY (org_id,user_id),
