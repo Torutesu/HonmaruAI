@@ -142,16 +142,18 @@ function WorkspaceFileHistory({api,file,inlinePreview,refreshRevision,onBack,onC
 
 function WorkspaceFileShareQueue({api,onClose}:{api:WorkspaceFileApi;onClose:()=>void}){
  const t=useT(),[requests,setRequests]=useState<PublicFileShareRequest[]|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(''),[revealed,setRevealed]=useState<Record<string,string>>({})
- const refresh=async()=>{try{const result=await api.shareRequests();setRequests(result.requests);setError('')}catch(error){setError(error instanceof Error?error.message:String(error))}}
+ const refresh=async()=>{if(!api.shareRequests)return;try{const result=await api.shareRequests();setRequests(result.requests);setError('')}catch(error){setError(error instanceof Error?error.message:String(error))}}
  useEffect(()=>{void refresh()},[api])
  const approve=async(request:PublicFileShareRequest)=>{
   setBusy(request.id);setError('')
+  if(!api.approvePublicShare){setError(t('Approval action is unavailable.'));setBusy('');return}
   try{const result=await api.approvePublicShare(request.id);setRevealed(value=>({...value,[result.shareId]:new URL(result.url,typeof window==='undefined'?'https://localhost':window.location.origin).toString()}));await refresh()}
   catch(error){setError(error instanceof Error?error.message:String(error))}
   finally{setBusy('')}
  }
  const revoke=async(shareId:string)=>{
   setBusy(shareId);setError('')
+  if(!api.revokePublicShare){setError(t('Revoke action is unavailable.'));setBusy('');return}
   try{await api.revokePublicShare(shareId);setRevealed(value=>{const next={...value};delete next[shareId];return next});await refresh()}
   catch(error){setError(error instanceof Error?error.message:String(error))}
   finally{setBusy('')}
