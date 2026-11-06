@@ -8,6 +8,8 @@ import { grantExternalResource, revokeExternalResource } from "../src/harness/ex
 import schemaSql from "../schema.sql?raw";
 import migrationsSql from "../migrations.sql?raw";
 import worker from "../src/index.js";
+import { addRow, updateRow, deleteRow } from "../src/harness/tables.js";
+import { externalAppWriteGuard } from "../src/externalApps.js";
 
 const tag = () => crypto.randomUUID().replaceAll("-", "");
 const context = { waitUntil() {} };
@@ -279,4 +281,31 @@ test("external App guests are told when a published Custom App runtime is not su
   expect((await call(`${appPath}/sharing`, f.sessions.owner, "POST", {
     email: "custom-guest@example.com", permission: "view",
   })).status).toBe(409);
+});
+
+test("row helper SQL rechecks the exact active App edit grant at the mutation boundary", async () => {
+  const f = await setup();
+  const path = `/external/apps/${f.orgId}/${f.app.id}/tables/${f.app.tableId}/rows`;
+  const seed = await call(path, f.sessions.guest, "POST", { values: { title: "before" } });
+  expect(seed.status).toBe(201);
+  const row = (await seed.json()).row;
+  const writeGuard = externalAppWriteGuard(f.orgId, f.app.id, f.guestId, f.app.tableId);
+
+  await revokeExternalResource(env.DB, {
+    orgId: f.orgId, resourceType: "app", resourceId: f.app.id,
+    recipientGithubId: f.guestId, revokedBy: f.ownerId,
+  });
+
+  const create = await addRow(env.DB, f.orgId, f.app.tableId, { title: "after revoke" }, f.guestId, "strict", writeGuard);
+  expect(create.error).toBeTruthy();
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=?1 AND table_id=?2").bind(f.orgId, f.app.tableId).first()).toMatchObject({ n: 2 });
+
+  const update = await updateRow(env.DB, f.orgId, f.app.tableId, row.id, { title: "after revoke" }, f.guestId, row.updatedAt, "strict", writeGuard);
+  expect(update.error).toBeTruthy();
+  const unchanged = await env.DB.prepare("SELECT data FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3").bind(f.orgId, f.app.tableId, row.id).first();
+  expect(JSON.parse(unchanged.data)).toEqual({ title: "before" });
+
+  const remove = await deleteRow(env.DB, f.orgId, f.app.tableId, row.id, row.updatedAt, writeGuard);
+  expect(remove.error).toBeTruthy();
+  expect(await env.DB.prepare("SELECT id FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3").bind(f.orgId, f.app.tableId, row.id).first()).toMatchObject({ id: row.id });
 });
