@@ -423,6 +423,7 @@ test("view guests may read attachment ranges and react but cannot upload, attach
   await flushBackground();
   const revoked = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "DELETE", { grantId });
   expect(revoked.status).toBe(200);
+  // Revoking the edit grant leaves no active grant, so range metadata is hidden too.
   expect((await call(`/external/threads/${orgId}/${rootId}/files/${file.id}`, sessions.guest, "GET", undefined, {}, { range: "bytes=0-5" })).status).toBe(404);
   const viewGrant = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", { email, permission: "view" });
   expect(viewGrant.status).toBe(201);
