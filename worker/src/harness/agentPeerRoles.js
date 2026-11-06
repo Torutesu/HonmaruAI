@@ -1,7 +1,8 @@
 import {agentRoleState} from './agentRoles.js';
 
 export async function agentPeerRoleState(db,orgId,agentId) {
-  const owner=await db.prepare(`SELECT owner_login,scope,COALESCE(v.version,0) AS version
+  const owner=await db.prepare(`SELECT owner_login,scope,COALESCE(v.version,0) AS version,
+      EXISTS(SELECT 1 FROM hx_agent_profiles p WHERE p.org_id=a.org_id AND p.agent_id=a.id) AS managed
     FROM custom_agents a LEFT JOIN hx_agent_access v ON v.org_id=a.org_id AND v.agent_id=a.id
     WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND a.provider IS NULL`)
     .bind(orgId,agentId).first();
@@ -10,7 +11,7 @@ export async function agentPeerRoleState(db,orgId,agentId) {
     FROM hx_agent_agent_members r JOIN custom_agents a
       ON a.org_id=r.org_id AND a.id=r.member_agent_id AND a.deleted_at IS NULL
     WHERE r.org_id=?1 AND r.agent_id=?2 ORDER BY a.name,a.id`).bind(orgId,agentId).all();
-  return {version:owner.version,scope:owner.scope,members:results};
+  return {version:owner.version,scope:owner.scope,managed:!!owner.managed,members:results};
 }
 
 // Only human Agent Admins may assign another Agent. The recipient is scoped to
