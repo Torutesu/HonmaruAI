@@ -6,7 +6,7 @@ import React,{useEffect,useRef,useState} from 'react'
 import {Icon} from './Icon'
 import {useT} from '../utils/i18n'
 import {WorkspaceFileError} from '../utils/workspaceFiles'
-import type {WorkspaceFileApi,WorkspaceFile,FileVersion,FileCursor,FileOrigin,FileSearch} from '../utils/workspaceFiles'
+import type {WorkspaceFileApi,WorkspaceFile,FileVersion,FileCursor,FileOrigin,FileSearch,PublicFileShareRequest} from '../utils/workspaceFiles'
 import './WorkspaceFilesPanel.css'
 import {WorkspaceFilePreview} from './WorkspaceFilePreview'
 import {workspaceFilePreviewKind} from '../utils/workspaceFilePreview'
@@ -24,6 +24,7 @@ export function RoomFilesPanel({api,channel,targetFileId,inlinePreview=false,pre
 
 export function WorkspaceFilesPanel({api,scope,targetFileId,inlinePreview=false,preferenceKey,allOriginsInFolders=false,onClose,onAttachments}:{api:WorkspaceFileApi;scope:string;targetFileId?:string;inlinePreview?:boolean;preferenceKey?:string;allOriginsInFolders?:boolean;onClose:()=>void;onAttachments:()=>void}){
  const [saved]=useState(()=>readWorkspaceFileView(preferenceKey))
+ const [showShares,setShowShares]=useState(false)
  const t=useT(),[query,setQuery]=useState(saved.search),[search,setSearch]=useState(saved.search),[revision,setRevision]=useState(0)
  const [files,setFiles]=useState<WorkspaceFile[]|null>(null),[cursor,setCursor]=useState<FileCursor|null>(null),[next,setNext]=useState<FileCursor|null>(null)
  const [includeDeleted,setIncludeDeleted]=useState(saved.includeDeleted)
@@ -70,8 +71,9 @@ export function WorkspaceFilesPanel({api,scope,targetFileId,inlinePreview=false,
    {!selected&&<div className="hx-files-view" role="group" aria-label={t('File view')}><button type="button" title={t('Recent')} aria-label={t('Recent')} aria-pressed={!folderMode} onClick={()=>{setFolderMode(false);setCursor(null);setFolderCursor(undefined)}}><Icon name="list" size={16}/></button><button type="button" title={t('Folders')} aria-label={t('Folders')} aria-pressed={folderMode} onClick={()=>{setFolderMode(true);setCursor(null);setFolderCursor(undefined)}}><Icon name="folder" size={16}/></button></div>}
    <DocumentCreate key={`document:${scope}`} api={api} scope={scope} receiptKey={preferenceKey?`${preferenceKey}:${scope}`:undefined} directory={folderMode?directory:''} onOpen={id=>{setRevision(v=>v+1);void api.get(id).then(r=>setSelected(r.file)).catch(e=>setError(e.message))}}/>
    <WorkspaceFileUpload key={scope} api={api} scope={scope} directory={folderMode?directory:''} onSaved={()=>setRevision(value=>value+1)}/>
+   {api.shareRequests&&<button type="button" className="hx-files-share-open" onClick={()=>setShowShares(true)}><Icon name="share" size={15}/>{t('Public link approvals')}</button>}
   </div>
-  {selected?<WorkspaceFileHistory key={`${scope}:${selected.id}`} api={api} file={selected} inlinePreview={inlinePreview} refreshRevision={revision} onBack={()=>setSelected(null)} onChanged={()=>setRevision(value=>value+1)}/>:<>
+  {showShares?<WorkspaceFileShareQueue api={api} onClose={()=>setShowShares(false)}/>:selected?<WorkspaceFileHistory key={`${scope}:${selected.id}`} api={api} file={selected} inlinePreview={inlinePreview} refreshRevision={revision} onBack={()=>setSelected(null)} onChanged={()=>setRevision(value=>value+1)}/>:<>
    {folderMode&&<nav className="hx-files-breadcrumbs" aria-label={t('Folder path')}><button onClick={()=>openDirectory('')}>{t('All files')}</button>{directory.split('/').filter(Boolean).map((name,index,parts)=><React.Fragment key={index}><Icon name="chevron-right" size={12}/><button aria-current={index===parts.length-1?'location':undefined} onClick={()=>openDirectory(parts.slice(0,index+1).join('/')+'/')}>{name}</button></React.Fragment>)}</nav>}
    <label className="hx-files-deleted"><input type="checkbox" checked={includeDeleted} onChange={event=>{setCursor(null);setFolderCursor(undefined);setIncludeDeleted(event.target.checked)}}/>{t('Include deleted files')}</label>
    <form className="hx-files-search" onSubmit={event=>{event.preventDefault();setCursor(null);setFolderCursor(undefined);setSearch(query)}}><Icon name="search" size={15}/><input maxLength={1024} aria-label={t('Search files')} placeholder={t('Search files')} value={query} onChange={event=>setQuery(event.target.value)}/><button type="submit" aria-label={t('Search')}><Icon name="chevron-right" size={15}/></button></form>
@@ -122,9 +124,54 @@ function WorkspaceFileHistory({api,file,inlinePreview,refreshRevision,onBack,onC
   finally{restoring.current=false;if(!controller.signal.aborted)setBusy(false)}
  }
  const current=versions?.find(version=>version.isCurrent)
+ const [shareExpiry,setShareExpiry]=useState(604800),[shareDownload,setShareDownload]=useState(false),[shareBusy,setShareBusy]=useState(false),[shareMessage,setShareMessage]=useState('')
+ const requestShare=async()=>{
+  if(!current||!api.requestPublicShare||shareBusy)return
+  setShareBusy(true);setShareMessage('')
+  try{await api.requestPublicShare(file.id,current.version,shareExpiry,shareDownload);setShareMessage(t('Approval request submitted. Review it under Public link approvals.'));onChanged()}
+  catch(error){setShareMessage(error instanceof Error?error.message:t('Could not request approval.'))}
+  finally{setShareBusy(false)}
+ }
  return <div className="hx-file-history">{preview&&<WorkspaceFilePreview key={`${file.id}:${preview.version}`} api={api} file={file} version={preview} inline={inlinePreview} onClose={()=>setPreview(null)}/>}<button className="hx-files-back" onClick={onBack}><Icon name="chevron-left" size={15}/>{t('Files')}</button><h2>{file.path.split('/').at(-1)}</h2><p className="hx-file-path">{file.path}</p>{current?.kind==='content'&&file.scope!=='workspace'&&<FileConversationButton fileId={file.id}/>}{current?.kind==='content'&&<><input ref={replacement} hidden type="file" aria-label={t('Choose a new file version')} onChange={event=>{const content=event.target.files?.[0];event.target.value='';if(content)void replace(content,current)}}/><button className="hx-files-replace" disabled={busy} onClick={()=>replacement.current?.click()}><Icon name="upload" size={14}/>{t('Upload new version')}</button></>}{current?.kind==='content'&&<button className="hx-files-remove" disabled={busy} onClick={()=>void remove(current)}><Icon name="trash" size={14}/>{t('Move to deleted files')}</button>}<h3>{t('Version history')}</h3>
+  {current?.kind==='content'&&!file.deleted&&api.requestPublicShare&&<section className="hx-file-share-request" aria-label={t('Public link approvals')}><p>{t('Only the current version is shared. Any file change invalidates its public link.')}</p><label>{t('Link expires')}<select value={shareExpiry} onChange={event=>setShareExpiry(Number(event.target.value))}><option value={86400}>{t('1 day')}</option><option value={604800}>{t('7 days')}</option><option value={2592000}>{t('30 days')}</option></select></label><label className="hx-file-share-download"><input type="checkbox" checked={shareDownload} onChange={event=>setShareDownload(event.target.checked)}/>{t('Allow downloads')}</label><button type="button" disabled={shareBusy} onClick={()=>void requestShare()}>{shareBusy?t('Submitting…'):t('Request approval')}</button>{shareMessage&&<p role="status">{shareMessage}</p>}</section>}
   {error&&<div role="alert"><p>{error}</p><button onClick={()=>setRevision(value=>value+1)}>{t('Retry')}</button></div>}
   {!versions&&!error?<p role="status">{t('Loading…')}</p>:versions?.map(version=><div className="hx-file-version" key={version.version}><span><b>v{version.version}{version.isCurrent?` · ${t('Current version')}`:''}</b><small>{new Date(version.createdAt).toLocaleString()}</small>{version.kind==='deleted'&&<small>{t('Deleted')}</small>}{version.purged&&<small>{t('Permanently deleted')}</small>}</span>{version.kind==='content'&&!version.purged&&<div className="hx-file-version-actions">{workspaceFilePreviewKind(version.contentType||'',file.path)&&<button onClick={()=>setPreview(version)} aria-label={`${t('Preview')} v${version.version}`}>{t('Preview')}</button>}{!version.isCurrent&&<button disabled={busy} onClick={()=>void restore(version)} aria-label={`${t('Restore')} v${version.version}`}>{t('Restore')}</button>}<button disabled={busy} onClick={()=>void download(version.version)} aria-label={`${t('Download')} v${version.version}`}><Icon name="download" size={16}/></button></div>}</div>)}
   <div className="hx-files-pagination">{before!==undefined&&<button onClick={()=>setBefore(undefined)}>{t('Latest versions')}</button>}{versions?.length===50&&versions[versions.length-1].version>1&&<button onClick={()=>setBefore(versions[versions.length-1].version)}>{t('Older versions')}</button>}</div>
  </div>
+}
+
+function WorkspaceFileShareQueue({api,onClose}:{api:WorkspaceFileApi;onClose:()=>void}){
+ const t=useT(),[requests,setRequests]=useState<PublicFileShareRequest[]|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(''),[revealed,setRevealed]=useState<Record<string,string>>({})
+ const refresh=async()=>{try{const result=await api.shareRequests();setRequests(result.requests);setError('')}catch(error){setError(error instanceof Error?error.message:String(error))}}
+ useEffect(()=>{void refresh()},[api])
+ const approve=async(request:PublicFileShareRequest)=>{
+  setBusy(request.id);setError('')
+  try{const result=await api.approvePublicShare(request.id);setRevealed(value=>({...value,[result.shareId]:new URL(result.url,window.location.origin).toString()}));await refresh()}
+  catch(error){setError(error instanceof Error?error.message:String(error))}
+  finally{setBusy('')}
+ }
+ const revoke=async(shareId:string)=>{
+  setBusy(shareId);setError('')
+  try{await api.revokePublicShare(shareId);setRevealed(value=>{const next={...value};delete next[shareId];return next});await refresh()}
+  catch(error){setError(error instanceof Error?error.message:String(error))}
+  finally{setBusy('')}
+ }
+ const expired=(value:string)=>Date.parse(value)<=Date.now()
+ return <section className="hx-file-share-queue" aria-label={t('Public link approvals')}>
+  <header><button type="button" onClick={onClose}><Icon name="chevron-left" size={15}/>{t('Files')}</button><strong>{t('Public link approvals')}</strong></header>
+  {error&&<p className="hx-file-share-error" role="alert">{error}</p>}
+  {requests===null&&!error?<p className="hx-files-state" role="status">{t('Loading…')}</p>:requests?.length===0?<p className="hx-files-state">{t('No public link requests.')}</p>:requests?.map(request=>{
+   const isExpired=expired(request.expiresAt),active=request.status==='approved'&&!request.revokedAt&&!isExpired
+   const revealedUrl=request.shareId?revealed[request.shareId]:undefined
+   return <article className="hx-file-share-item" key={request.id}>
+    <div className="hx-file-share-title"><Icon name="file" size={16}/><div><strong>{request.filePath}</strong><small>{request.scope} · v{request.version} · {t('Requested by')} {request.requesterLogin}</small></div></div>
+    <dl><div><dt>{t('Content snapshot')}</dt><dd><code>{request.contentHash.slice(0,12)}…</code> · {request.size.toLocaleString()} B · {request.contentType}</dd></div><div><dt>{t('Expiry')}</dt><dd>{new Date(request.expiresAt).toLocaleString()}</dd></div><div><dt>{t('Access')}</dt><dd>{request.allowDownload?t('Download allowed'):t('View only')}</dd></div></dl>
+    {request.status==='pending'&&!isExpired?<button type="button" disabled={Boolean(busy)} onClick={()=>void approve(request)}>{busy===request.id?t('Approving…'):t('Approve and create link')}</button>:null}
+    {active&&<div className="hx-file-share-active"><p>{t('Public snapshot link is active. Revoke it to stop access.')}</p>{revealedUrl?<><a href={revealedUrl} target="_blank" rel="noreferrer">{t('Open public link')}</a><button type="button" onClick={()=>void navigator.clipboard?.writeText(revealedUrl)}>{t('Copy link')}</button></>:<p>{t('The link is shown only immediately after approval. It cannot be recovered here.')}</p>}<button type="button" className="hx-file-share-revoke" disabled={Boolean(busy)} onClick={()=>request.shareId&&void revoke(request.shareId)}>{busy===request.shareId?t('Revoking…'):t('Revoke link')}</button></div>}
+    {!active&&request.status==='approved'&&<p className="hx-file-share-state">{request.revokedAt?t('Revoked'):t('Expired')}</p>}
+    {request.status==='stale'&&<p className="hx-file-share-state">{t('File changed. A new approval request is required.')}</p>}
+    {request.status==='declined'&&<p className="hx-file-share-state">{t('Declined')}</p>}
+   </article>
+  })}
+ </section>
 }
