@@ -171,6 +171,9 @@ test("unregistered email invitations redeem after OTP proof without workspace me
   expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,guestId).first()).toBeNull();
   expect((await call(`/external/threads/${orgId}/${rootId}`,guestSession)).status).toBe(200);
   expect((await call("/external/invites/redeem",guestSession,"POST",{token})).status).toBe(404);
+  expect((await call(`${path}/${invitation.invitationId}`,sessions.owner,"DELETE")).status).toBe(200);
+  expect((await call(`/external/threads/${orgId}/${rootId}`,guestSession)).status).toBe(404);
+  expect(await env.DB.prepare("SELECT revoked_at FROM hx_external_thread_invites WHERE id=?1").bind(invitation.invitationId).first()).not.toBeNull();
 });
 
 test("invitation email mismatch, expiry, revoke, and new workspace membership cannot redeem guest access", async () => {
@@ -186,6 +189,13 @@ test("invitation email mismatch, expiry, revoke, and new workspace membership ca
   await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3").bind(otherEmail,new Date().toISOString(),otherId).run();
   const otherSession = await createSession(env.DB,otherId,"external-invite-test");
   expect((await call("/external/invites/redeem",otherSession,"POST",{token})).status).toBe(404);
+
+  const unverifiedId=`email:${email}`;
+  await upsertUser(env.DB,{githubId:unverifiedId,login:`u:${email}`,name:"Unverified",avatarUrl:null,locale:"en"});
+  await env.DB.prepare("UPDATE users SET email=?1 WHERE github_id=?2").bind(email,unverifiedId).run();
+  const unverifiedSession=await createSession(env.DB,unverifiedId,"external-invite-test");
+  expect((await call("/external/invites/redeem",unverifiedSession,"POST",{token})).status).toBe(404);
+  expect((await call("/external/invites/redeem","", "POST",{token})).status).toBe(401);
 
   const inviteId = invitation.invitationId;
   expect((await call(`${path}/${inviteId}`,sessions.editor,"DELETE")).status).toBe(404);
