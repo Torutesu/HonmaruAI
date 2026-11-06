@@ -22,7 +22,7 @@ async function restrictedRunRows(db,orgId,rowIds,viewer) {
   for(const row of dispatch.results) {
     let ids;
     try { ids=JSON.parse(row.agent_ids); } catch { hidden.add(row.message_id); continue; }
-    if(!Array.isArray(ids)||ids.some(id=>typeof id!=='string'||!id)){hidden.add(row.message_id);continue;}
+    if(!Array.isArray(ids)||ids.length<1||ids.length>20||ids.some(id=>typeof id!=='string'||!id||id.length>200)){hidden.add(row.message_id);continue;}
     for(const id of ids)agentsByRow.get(row.message_id)?.add(id);
   }
   const assignmentRows=new Map(assignments.results.slice(0,400).map(row=>[row.id,row.source_message_id]));
