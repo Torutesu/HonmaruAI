@@ -136,7 +136,9 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   const badDefinition=JSON.parse(storedApp.definition);
   badDefinition.custom.publishedCommitApprovalId='missing-approval';
   await expect(env.DB.prepare('UPDATE hx_apps SET definition=?1 WHERE org_id=?2 AND id=?3')
-    .bind(JSON.stringify(badDefinition),ORG,app.id).run()).rejects.toThrow('Custom commit approval could not be consumed atomically');
+    .bind(JSON.stringify(badDefinition),ORG,app.id).run()).rejects.toThrow();
+  expect(await env.DB.prepare('SELECT definition FROM hx_apps WHERE org_id=?1 AND id=?2').bind(ORG,app.id).first())
+    .toEqual(storedApp);
   expect(await readReleaseState(app.id,approval.id)).toEqual(beforeBadPublish);
   const domain = new Date().toISOString();
   await env.DB.prepare(`INSERT INTO hx_app_domains(org_id,app_id,hostname,status,created_by,created_at,updated_at)
