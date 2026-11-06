@@ -25,6 +25,10 @@ export async function proposePublicFileShare(env,{orgId,fileId,version,userId,lo
   FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=?3
   WHERE f.org_id=?1 AND f.id=?2 AND v.kind='content'`).bind(orgId,fileId,version).first();
  if(!current||current.current_version!==version||current.content_hash!==source.contentHash)return {error:'Only the current unchanged file version can be proposed.',status:409};
+ const pending=await env.DB.prepare(`SELECT id,status,expires_at AS expiresAt FROM hx_file_share_requests
+  WHERE org_id=?1 AND file_id=?2 AND file_version=?3 AND requester_id=?4 AND status='pending' AND content_hash=?5
+  ORDER BY created_at DESC LIMIT 1`).bind(orgId,fileId,version,String(userId),source.contentHash).first();
+ if(pending)return {requestId:pending.id,status:pending.status,fileId,version,contentHash:source.contentHash,expiresAt:pending.expiresAt,allowDownload:Boolean(allowDownload),created:false};
  const requestId=id('fshare_req'),createdAt=iso();
  const result=await env.DB.prepare(`INSERT OR IGNORE INTO hx_file_share_requests
   (org_id,id,file_id,file_scope,file_version,content_hash,content_type,size,requester_id,requester_login,request_key,expires_at,allow_download,status,created_at)
@@ -47,7 +51,7 @@ export async function proposePublicFileShare(env,{orgId,fileId,version,userId,lo
 
 export async function listPublicFileShareRequests(db,{orgId,fileId,userId}){
  const {results=[]}=await db.prepare(`SELECT r.id,r.file_id AS fileId,f.path AS filePath,r.file_scope AS scope,
-   r.file_version AS version,r.content_hash AS contentHash,r.content_type AS contentType,r.size,
+   r.file_version AS version,f.current_version AS currentVersion,r.content_hash AS contentHash,r.content_type AS contentType,r.size,
    r.expires_at AS expiresAt,r.allow_download AS allowDownload,r.status,r.created_at AS createdAt,
    r.requester_login AS requesterLogin,r.decision_at AS decisionAt,s.id AS shareId,s.revoked_at AS revokedAt,s.revoked_by AS revokedBy
   FROM hx_file_share_requests r JOIN hx_workspace_files f ON f.org_id=r.org_id AND f.id=r.file_id
