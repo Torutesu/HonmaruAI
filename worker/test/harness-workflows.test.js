@@ -1873,6 +1873,28 @@ test('workspace AI pause blocks a new Harness workflow run before it is created'
  expect((await messages(mika)).some(message=>message.body==='Must not post')).toBe(false);
 });
 
+test('an Agent that crosses the workspace pause cannot dispatch the following post step', async () => {
+ const {agent}=await(await send('POST','/channels/agents',mika,{orgId:ORG,name:'Budget reviewer',handle:'budget-reviewer',instructions:'Review and summarize.',scope:'team'})).json();
+ const {workflow}=await(await send('POST','/workflows',mika,{orgId:ORG,name:'Agent then post under workspace pause',trigger:{type:'manual'},steps:[
+   {type:'agent',agentId:agent.id,prompt:'Review the report.'},
+   {type:'post',channel:'b:ops',text:'Must not post after the budget is reached.'},
+ ]})).json();
+ const at=new Date(Date.now()-1_000).toISOString();
+ await saveWorkspaceAIBudget(env.DB,ORG,{revision:0,dailyLimitUsd:0.000001,weeklyLimitUsd:0,monthlyLimitUsd:0,action:'pause'},'9302',at);
+ fetchMock.activate();
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'})
+   .reply(200,{choices:[{message:{content:'The report is ready.'}}],usage:{prompt_tokens:1000000,completion_tokens:1000000}});
+ try {
+  const run=await startRun({...env,OPENAI_API_KEY:'sk-test'},{orgId:ORG,workflow,trigger:'manual',startedBy:'9302'});
+  expect(run.status).toBe('failed');
+  expect(run.log[0]).toMatchObject({type:'agent',status:'ok'});
+  expect(run.log[1]).toMatchObject({type:'post',status:'failed',reason:'workspace_ai_budget'});
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_calls WHERE org_id=?1 AND byok=0').bind(ORG).first()).n).toBeGreaterThan(0);
+  expect((await messages(mika)).map(message=>message.body)).not.toContain('Must not post after the budget is reached.');
+  fetchMock.assertNoPendingInterceptors();
+ } finally {fetchMock.deactivate();}
+});
+
 test.each([
   ['row', 'ID#', '{{row.ID#}}'], ['row', 'ID#', '{{input.row.id#}}'],
   ['row', 'ID#', '{{before.ID#}}'], ['row', 'ID#', '{{input.before.id#}}'],

@@ -2,6 +2,8 @@ import {claimWorkflowNode,finishWorkflowNode} from './workflowCheckpoints.js';
 import {workflowStateAuthority} from './workflowState.js';
 import {allowed} from '../permissions.js';
 import {workflowSettlementStatements} from './workflowSafety.js';
+import {getMode} from './mode.js';
+import {workspaceBudgetAdmission} from '../workspaceAIBudget.js';
 const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
 
 // Evaluated inside claim/heartbeat/finish/expiry SQL, before a node receives
@@ -33,6 +35,10 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  if(!await allowed(db,orgId,definition.createdBy,'harness.build'))return {status:'failed',error:'Workflow execution access was removed.'};
  const node=await db.prepare('SELECT * FROM hx_gateways WHERE org_id=?1 AND id=?2 AND revoked_at IS NULL').bind(orgId,step.gatewayId).first();
  if(!node||!await allowed(db,orgId,node.created_by,'workspace.mode'))return {status:'failed',error:'Execution node is unavailable.'};
+ if(await getMode(db,orgId)==='harness'){
+  const budget=await workspaceBudgetAdmission(db,orgId);
+  if(!budget.allowed)return {status:'failed',error:budget.message,reason:budget.reason};
+ }
  const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,run.workflow_id).first();
  const input=run.input?JSON.parse(run.input):null;
  const trigger={kind:run.trigger,...(run.trigger==='app_record_change'&&input?.records?{records:input.records,totalCount:input.totalCount??input.records.length,truncated:Boolean(input.truncated)}:{input})};
