@@ -24,12 +24,12 @@ export function agentMemoryTools(db, orgId, agentId, context) {
           FROM hx_agent_memories m
           LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
           LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
-          WHERE m.org_id=?1 AND m.agent_id=?2 AND COALESCE(s.channel,'') IN ('',?3)
+          WHERE m.org_id=?1 AND m.agent_id=?2 AND COALESCE(s.channel,'') IN ('',?3) AND (s.user_github_id IS NULL OR s.user_github_id=?5)
           AND (instr(lower(COALESCE(d.title,'')),lower(?4))>0
             OR instr(lower(COALESCE(d.description,'')),lower(?4))>0
             OR instr(lower(COALESCE(d.body,m.text)),lower(?4))>0)
           ORDER BY m.created_at DESC,m.id DESC LIMIT 21`)
-          .bind(orgId,agentId,channel,args.query.trim()).all();
+          .bind(orgId,agentId,channel,args.query.trim(),String(userId)).all();
         return JSON.stringify({ memories: results.slice(0,20), truncated: results.length > 20 });
       },
     },
@@ -43,8 +43,8 @@ export function agentMemoryTools(db, orgId, agentId, context) {
         const row = await db.prepare(`SELECT m.*, s.channel, s.kind, d.title, d.description, d.body, d.version, d.updated_at FROM hx_agent_memories m
           LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
           LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
-          WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'') IN ('',?4)`)
-          .bind(orgId,agentId,args.memory_id,channel).first();
+          WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'') IN ('',?4) AND (s.user_github_id IS NULL OR s.user_github_id=?5)`)
+          .bind(orgId,agentId,args.memory_id,channel,String(userId)).first();
         return row ? JSON.stringify(memoryEntry(row)) : denied;
       },
     },
