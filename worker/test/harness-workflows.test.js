@@ -365,6 +365,40 @@ test('app record triggers scope to an app entity, filter insert/update data, and
   expect(JSON.stringify(deleteRuns[0].input)).not.toContain('Private Customer');
 });
 
+test('an app record run stops if its entity is remapped while the agent is answering', async () => {
+  const agent = (await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Record reviewer', handle: 'record-reviewer', instructions: 'Review the changed record.', scope: 'team',
+  })).json()).agent;
+  const replacement = (await (await send('POST', '/apps', mika, {
+    orgId: ORG, name: 'Replacement entity table', columns: [{ name: 'Status', type: 'text' }],
+  })).json()).app;
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Review source record',
+    trigger: { type: 'app_record_change', appId: invoicesAppId, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Review this record.' }],
+  }, '9302');
+  let providerCalls = 0;
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, async () => {
+    providerCalls += 1;
+    // Change the app's canonical entity table while the model call is in flight.
+    await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(replacement.tableId, ORG, invoicesAppId).run();
+    return { choices: [{ message: { content: 'Sensitive result from the old table.' } }], usage: { prompt_tokens: 8, completion_tokens: 4 } };
+  });
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, {
+      orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+      input: { tableId: invoices, totalCount: 1, truncated: false, records: [{ event: 'update', appId: invoicesAppId, entityId: 'primary', recordId: 'record-from-old-table', data: { status: 'Overdue' } }] },
+    });
+    expect(result.status).toBe('failed');
+    expect(result.log[0].error).toContain('source access was removed');
+    expect(providerCalls).toBe(1);
+    const posted = await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?1 AND body='Sensitive result from the old table.'").bind(ORG).first();
+    expect(posted.n).toBe(0);
+  } finally { fetchMock.deactivate(); }
+});
+
 test('admin editors cannot redirect a workflow to an app they cannot access',async()=>{
   const {workflow}=await (await send('POST','/workflows',mika,{orgId:ORG,name:'Private app workflow',trigger:{type:'manual'},steps:[{type:'approval',to:'toru',title:'Review'}]})).json();
   await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)").bind(ORG,invoicesAppId).run();
