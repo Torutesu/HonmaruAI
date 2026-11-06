@@ -68,6 +68,7 @@ import { audit, person } from "../audit.js";
 import { enforce } from "../ratelimit.js";
 import { getMode, setMode, MODES } from "./mode.js";
 import { getDisplayPreference, setDisplayPreference } from "./displayPreferences.js";
+import { readDictationVocabulary, saveDictationVocabulary } from "./dictationVocabulary.js";
 import {
   listTables, getTable, createTable, updateTable, deleteTable,
   listRows, addRow, updateRow, deleteRow,
@@ -292,6 +293,22 @@ export async function handleHarness(request, env, url, context = {}) {
       event: appActivityEvent('display_preference_changed', { orgId, ...preference }),
     }]);
     return json(preference);
+  }
+
+  // Personal vocabulary follows the authenticated account across Workspaces.
+  // The Workspace is still checked by caller, but it does not partition the
+  // person's private dictionary.
+  if (url.pathname === '/hx/dictation-vocabulary') {
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    if (request.method === 'GET') return json(await readDictationVocabulary(env.DB, who.session.github_id));
+    if (request.method !== 'PUT') return json({ message: 'Method not allowed.' }, 405);
+    const saved = await saveDictationVocabulary(env.DB, who.session.github_id, input?.vocabulary, input?.corrections, input?.expectedRevision);
+    if (saved.error) return fail(saved);
+    const { results: workspaces = [] } = await env.DB.prepare('SELECT org_id FROM memberships WHERE user_github_id=?1').bind(String(who.session.github_id)).all();
+    const event = appActivityEvent('dictation_vocabulary_changed', { orgId, userId: String(who.session.github_id), revision: saved.revision });
+    await Promise.all(workspaces.map(workspace => announceTo(env, workspace.org_id, [{ to: who.user.login, event }])));
+    return json(saved);
   }
 
   if (parts[0] === 'gateways') return handleGateways(request, env, url, input);

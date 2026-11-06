@@ -319,6 +319,18 @@ describe('WebSocketClient', () => {
     expect(details).toEqual([preference])
   })
 
+  it('forwards a private dictation vocabulary revision without its contents', async () => {
+    const { socket } = await connectedClient()
+    const target = new EventTarget()
+    const details: unknown[] = []
+    target.addEventListener('honmaru:dictation-vocabulary-changed', event => details.push((event as CustomEvent).detail))
+    vi.stubGlobal('window', target)
+    const event = { orgId: 'core-team', revision: 3 }
+    socket.emit({ type: 'CUSTOM', name: 'dictation_vocabulary_changed', value: event })
+    socket.emit({ type: 'CUSTOM', name: 'dictation_vocabulary_changed', value: { ...event, revision: '4', vocabulary: ['private'] } })
+    expect(details).toEqual([event])
+  })
+
   it('forwards versioned personal view changes to the active app only when complete', async () => {
     const { socket } = await connectedClient()
     const target = new EventTarget()

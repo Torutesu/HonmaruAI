@@ -491,6 +491,10 @@ export class WebSocketClient {
       // Personal presentation choice: the relay addresses this event to the
       // signed-in user's devices only, never to other workspace members.
       if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('honmaru:display-preference-changed', { detail: event.value }))
+    } else if (event.name === 'dictation_vocabulary_changed' && typeof event.value?.orgId === 'string' && Number.isSafeInteger(event.value?.revision)) {
+      // Personal dictation vocabulary is private and addressed only to this
+      // member's devices; consumers reload it without broadcasting its words.
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('honmaru:dictation-vocabulary-changed', { detail: event.value }))
     } else if (event.name === 'personal_views_changed' && typeof event.value?.orgId === 'string' && typeof event.value?.appId === 'string' && Number.isSafeInteger(event.value?.revision)) {
       // Saved views and column layout are private to this member. The relay
       // targets the same user's devices; each open App reloads only its own
