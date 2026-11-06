@@ -2,7 +2,7 @@ import {afterEach,expect,test,vi} from 'vitest'
 import {harnessApi} from './harness'
 afterEach(()=>vi.unstubAllGlobals())
 test('peer Agent role API uses the exact managed Agent endpoint and access-version CAS body',async()=>{
- const fetch=vi.fn().mockResolvedValueOnce({ok:true,json:async()=>({version:4,scope:'team',canManage:true,members:[],candidates:[{id:'peer',name:'Peer'}]})}).mockResolvedValueOnce({ok:true,json:async()=>({version:5})})
+ const fetch=vi.fn().mockResolvedValueOnce({ok:true,json:async()=>({version:4,scope:'team',managed:true,canManage:true,members:[],candidates:[{id:'peer',name:'Peer'}]})}).mockResolvedValueOnce({ok:true,json:async()=>({version:5})})
  vi.stubGlobal('fetch',fetch)
  const api=harnessApi('https://example.test','team:one','session')
  const state=await api.agentPeerMembers('agent/id')
