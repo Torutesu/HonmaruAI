@@ -129,7 +129,7 @@ export async function servePublicFileShare(request,env,tokenValue){
   WHERE s.token_hash=?1 AND s.revoked_at IS NULL AND s.expires_at>?2
    AND v.kind='content' AND v.content_hash=s.content_hash
    AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=s.org_id AND p.file_id=s.file_id AND p.version=s.file_version)
-   AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_deletions d WHERE d.org_id=s.org_id AND d.file_id=s.file_id AND d.deleted_at IS NOT NULL)
+   AND f.current_version=s.file_version
   LIMIT 1`).bind(hash,now).first();
  if(!row)return json();
  const object=await env.MEDIA.get(row.object_key);if(!object)return json();
@@ -142,4 +142,31 @@ export async function servePublicFileShare(request,env,tokenValue){
   'cache-control':'no-store, no-cache, must-revalidate','x-content-type-options':'nosniff',
   'referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; sandbox",
   'x-robots-tag':'noindex, nofollow'}});
+}
+
+export async function handleFileShareRoutes(request,env,url,{orgId,userId,login}){
+ const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json','cache-control':'private, no-store'}});
+ const parts=url.pathname.split('/').filter(Boolean);
+ try{
+  if(request.method==='GET'&&parts.length===3&&parts[2]==='share-requests'){
+   const requests=await listPublicFileShareRequests(env.DB,{orgId,fileId:url.searchParams.get('fileId'),userId});
+   return json({requests});
+  }
+  if(request.method==='POST'&&parts.length===4&&parts[2]==='share-requests'&&parts[3]==='approve'){
+   const body=await request.json().catch(()=>null);
+   const result=await approvePublicFileShare(env,{orgId,requestId:body?.requestId,userId,login});
+   return json(result,result.error?result.status||400:200);
+  }
+  if(request.method==='POST'&&parts.length===5&&parts[2]==='shares'&&parts[4]==='revoke'){
+   const result=await revokePublicFileShare(env,{orgId,shareId:decodeURIComponent(parts[3]),userId,login});
+   return json(result,result.error?result.status||400:200);
+  }
+  if(request.method==='POST'&&parts.length===5&&parts[2]==='files'&&parts[4]==='share-requests'){
+   const fileId=decodeURIComponent(parts[3]),body=await request.json().catch(()=>null);
+   const result=await proposePublicFileShare(env,{orgId,fileId,version:body?.version,userId,login,
+    requestKey:body?.requestKey,expiresIn:body?.expiresIn,allowDownload:body?.allowDownload===true});
+   return json(result,result.error?result.status||400:201);
+  }
+ }catch(error){if(error instanceof URIError)return json({error:'Invalid identifier.'},400);throw error;}
+ return null;
 }
