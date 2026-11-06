@@ -396,6 +396,8 @@ async function decideRequest(env, orgId, rootId, id, owner, action) {
 
 export async function handleExternalThreads(request, env, url) {
   if (url.pathname === "/external/invites/redeem" && request.method === "POST") {
+    const limited = await enforce(env,request,"invites/peek");
+    if (limited) return limited;
     const actor = await signedIn(request,env);
     if (!actor) return fail("Sign in to continue.",401);
     const input = await request.json().catch(() => ({}));
