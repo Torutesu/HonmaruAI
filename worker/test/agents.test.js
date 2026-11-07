@@ -589,7 +589,7 @@ test("an agent can wear a picture instead of its emoji: set by whoever may chang
   const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
   const team = (await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json()).agent;
   const mine = (await (await send("POST", "/channels/agents", toru, { orgId: ORG, name: "Diary", handle: "diary", instructions: "x", scope: "personal" })).json()).agent;
-  const picture = (token, id, body = PNG, type = "image/png") => call(`/channels/agents/avatar?${q({ orgId: ORG, id })}`, { method: "POST", headers: { "x-session-token": token, "content-type": type }, body }, { APP_WEB_URL: "https://example.com", API_ORIGIN: "https://example.com" });
+  const picture = (token, id, body = PNG, type = "image/png") => call(`/channels/agents/avatar?${q({ orgId: ORG, id })}`, { method: "POST", headers: { "x-session-token": token, "content-type": type }, body }, { APP_WEB_URL: "https://example.com", API_ORIGIN: "https://example.com", DATA_KEY: "test-avatar-signing-key" });
 
   // Anyone who may improve a team agent may give it a picture.
   const up = await picture(mika, team.id);
@@ -640,7 +640,7 @@ test("an agent can wear a picture instead of its emoji: set by whoever may chang
   const replacement = await picture(toru, team.id);
   expect(replacement.status).toBe(200);
   const next = (await replacement.json()).agent.avatarUrl;
-  expect(next).toBeTruthy();
+  expect(next).toBeTruthy();\n  const signedNext = new URL(next);\n  expect(signedNext.searchParams.get("viewer")).toBe("8801");\n  expect(signedNext.searchParams.get("v")).toBe("2");
   expect(next).not.toBe(agent.avatarUrl);
   expect((await worker.fetch(new Request(agent.avatarUrl), env)).status).toBe(404);
   const off = await call(`/channels/agents/avatar?${q({ orgId: ORG, id: team.id })}`, { method: "DELETE", headers: { "x-session-token": toru } });
@@ -1003,7 +1003,7 @@ async function assignmentStatusFixture() {
  const accepted=await acceptAgentHandoff(env,{orgId:ORG,assignmentId:begun.assignment.id,generation:0,sourceAgentId:source.id,targetAgentId:target.id,operationId:'status-hop',brief:'Private handoff brief',messageBody:'@reviewer review'});
  expect(accepted.error).toBeUndefined();
  const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>Response.json({results:JSON.parse(init.body).rowIds.map(rowId=>({rowId,status:'finished',answered:0}))})})};
- return {row,source,target,assignmentId:begun.assignment.id,over:{AGENT_RUNNER:runner,APP_WEB_URL:"https://example.com",API_ORIGIN:"https://example.com"}};
+ return {row,source,target,assignmentId:begun.assignment.id,over:{AGENT_RUNNER:runner,APP_WEB_URL:"https://example.com",API_ORIGIN:"https://example.com",DATA_KEY:"test-avatar-signing-key"}};
 }
 
 test('assignment status is hidden from room readers without current grants to each Agent in the handoff',async()=>{
