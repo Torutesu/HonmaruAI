@@ -637,7 +637,10 @@ test("an agent can wear a picture instead of its emoji: set by whoever may chang
   expect((await picture(toru, team.id, "<svg/>", "image/svg+xml")).status).toBe(415);
 
   // A new picture replaces the old one's bytes; taking it off leaves the emoji.
-  const replacement = await picture(toru, team.id);\n  expect(replacement.status).toBe(200);\n  const next = (await replacement.json()).agent.avatarUrl;\n  expect(next).toBeTruthy();
+  const replacement = await picture(toru, team.id);
+  expect(replacement.status).toBe(200);
+  const next = (await replacement.json()).agent.avatarUrl;
+  expect(next).toBeTruthy();
   expect(next).not.toBe(agent.avatarUrl);
   expect((await worker.fetch(new Request(agent.avatarUrl), env)).status).toBe(404);
   const off = await call(`/channels/agents/avatar?${q({ orgId: ORG, id: team.id })}`, { method: "DELETE", headers: { "x-session-token": toru } });
