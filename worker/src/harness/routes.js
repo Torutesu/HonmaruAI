@@ -55,6 +55,7 @@ import { appAccess, appPeopleAccess, hasExplicitAppPermission, mayEditApp, mayEd
 import { mayUseConversation, readableConversation } from './conversationAccess.js';
 import { listMembers as memoryMembers } from '../team.js';
 import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans } from './agentAccessRequests.js';
+import { clientAgentAvatarUrl } from '../agentAvatarAccess.js';
 import { announceCards } from '../announce.js';
 import { notifyCard, anyChannelConfigured } from '../notify.js';
 import { handleRemoteMcp } from './remoteMcp.js';
@@ -342,10 +343,10 @@ export async function handleHarness(request, env, url, context = {}) {
     const accessible=await listAgents(env.DB,orgId,who.user.login);
     const plans=await roomAgentAccessPlans(env.DB,orgId,accessible.map(a=>a.id),workspacePeople,me);
     const memberRefs=new Map(roster.map(m=>[String(m.userId),m.ref]));
-    const addableAgents=accessible.map(a=>{
+    const addableAgents=await Promise.all(accessible.map(async a=>{
       const plan=plans.get(a.id)||{missing:[],canGrantAccess:false};
-      return {id:a.id,name:a.name,avatarUrl:a.avatarUrl||null,missingAccessMembers:plan.missing.map(m=>({ref:memberRefs.get(m.id),name:m.name})).filter(m=>m.ref),canGrantAccess:plan.canGrantAccess};
-    });
+      return {id:a.id,name:a.name,avatarUrl:await clientAgentAvatarUrl(env,orgId,a,who.user.login),missingAccessMembers:plan.missing.map(m=>({ref:memberRefs.get(m.id),name:m.name})).filter(m=>m.ref),canGrantAccess:plan.canGrantAccess};
+    }));
     return json({ agents, addableAgents });
   }
   if (url.pathname === '/hx/rooms/webhooks') {
