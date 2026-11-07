@@ -7,6 +7,7 @@ import { registerCatalog } from "./copy.js";
 
 const EN = {
   "agent.handoff": "Handing off to {name} (@{handle}).\n\n{brief}",
+  "agent.handoffUnavailable": "I couldn't hand this task to the requested Agent because it is no longer available. No transfer was made.",
   "jam.transcript": "Transcript",
   "invite.joined": "{name} joined the workspace. Say hello!",
   "welcome.dm": "Welcome to {team}, {name}! A few things to get you going:\n- Channels on the left hold the team's conversations, one topic each.\n- Write *@AI* to ask your AI anything; it answers in the thread. To have someone decide, send it as a decision (✦).\n- Write *@* and an agent's name to have it research, summarise or draft for you.\n- Messages in other languages are translated into yours automatically.\nAnything else, ask {owner} right here.",
@@ -119,6 +120,7 @@ const EN = {
 
 const JA = {
   "agent.handoff": "{name}（@{handle}）へ引き継ぎます。\n\n{brief}",
+  "agent.handoffUnavailable": "指定されたAgentが利用できなくなったため、引き継げませんでした。処理は移していません。",
   "jam.transcript": "文字起こし",
   "invite.joined": "{name}さんがワークスペースに参加しました。ようこそ！",
   "welcome.dm": "{name}さん、{team}へようこそ！はじめに知っておくと便利なこと：\n- 左のチャンネルに、話題ごとのチームの会話があります。\n- *@AI* と書けばAIに何でも質問でき、スレッドで答えます。誰かに決めてほしいときは「決定事項として送信」（✦）で送ってください。\n- *@* とエージェント名を書くと、調べもの・要約・下書きを頼めます。\n- ほかの言語のメッセージは自動であなたの言語に翻訳されます。\nわからないことは、このDMで{owner}さんに聞いてください。",
@@ -231,6 +233,7 @@ const JA = {
 
 const ES = {
   "agent.handoff": "Transfiero la tarea a {name} (@{handle}).\n\n{brief}",
+  "agent.handoffUnavailable": "No pude transferir esta tarea porque el agente solicitado ya no está disponible. No se realizó la transferencia.",
   "jam.transcript": "Transcripción",
   "invite.joined": "{name} se unió al espacio de trabajo. ¡Salúdale!",
   "welcome.dm": "¡Bienvenido a {team}, {name}! Algunas cosas para empezar:\n- Los canales de la izquierda tienen las conversaciones del equipo, un tema cada uno.\n- Escribe *@AI* para preguntar lo que sea a tu IA; responde en el hilo. Para que alguien decida, envíalo como decisión (✦).\n- Escribe *@* y el nombre de un agente para que investigue, resuma o redacte por ti.\n- Los mensajes en otros idiomas se traducen al tuyo automáticamente.\nCualquier otra cosa, pregúntale a {owner} aquí mismo.",
@@ -343,6 +346,7 @@ const ES = {
 
 const FR = {
   "agent.handoff": "Je transmets la tâche à {name} (@{handle}).\n\n{brief}",
+  "agent.handoffUnavailable": "Je n’ai pas pu transférer cette tâche, car l’agent demandé n’est plus disponible. Aucun transfert n’a été effectué.",
   "jam.transcript": "Transcription",
   "invite.joined": "{name} a rejoint l’espace de travail. Dites bonjour !",
   "welcome.dm": "Bienvenue dans {team}, {name} ! Quelques repères pour démarrer :\n- Les canaux à gauche rassemblent les conversations de l’équipe, un sujet chacun.\n- Écrivez *@AI* pour poser n’importe quelle question à votre IA ; elle répond dans le fil. Pour faire décider quelqu’un, envoyez-le comme décision (✦).\n- Écrivez *@* et le nom d’un agent pour qu’il cherche, résume ou rédige pour vous.\n- Les messages dans d’autres langues sont traduits dans la vôtre automatiquement.\nPour tout le reste, demandez à {owner} ici même.",
@@ -455,6 +459,7 @@ const FR = {
 
 const DE = {
   "agent.handoff": "Übergabe an {name} (@{handle}).\n\n{brief}",
+  "agent.handoffUnavailable": "Ich konnte diese Aufgabe nicht übergeben, weil der angeforderte Agent nicht mehr verfügbar ist. Es wurde nichts übertragen.",
   "jam.transcript": "Transkript",
   "invite.joined": "{name} ist dem Workspace beigetreten. Sag hallo!",
   "welcome.dm": "Willkommen bei {team}, {name}! Ein paar Dinge für den Anfang:\n- Die Kanäle links enthalten die Gespräche des Teams, je ein Thema.\n- Schreib *@AI*, um deiner KI etwas zu fragen; sie antwortet im Thread. Soll jemand entscheiden, sende es als Entscheidung (✦).\n- Schreib *@* und den Namen eines Agenten, damit er recherchiert, zusammenfasst oder entwirft.\n- Nachrichten in anderen Sprachen werden automatisch in deine übersetzt.\nAlles andere frag {owner} direkt hier.",

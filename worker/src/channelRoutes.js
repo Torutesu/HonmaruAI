@@ -2,6 +2,9 @@ import { prepareConversationMessage, acceptConversationMessage } from './convers
 import {drainMessageDelivery,messageDeliveryAllowed,discardPendingMessagePushes} from './messageDelivery.js';
 import {externalIdentity,externalReplyGrant} from './harness/externalAssignment.js';
 import {endAssignment} from './harness/agentAssignments.js';
+import {assignmentExecutionGrant,assignmentTargets,acceptAgentHandoff} from './harness/agentAssignmentGrant.js';
+import {drainAgentHandoffs} from './harness/agentHandoffDispatch.js';
+import {remoteHandoffInstruction,parseRemoteHandoff} from './harness/remoteHandoff.js';
 import {drainTeammateResults} from './teammateResultDispatch.js';
 import {agentRunSnapshot} from './harness/agentRunSnapshot.js';
 import { publicAppShareAgentTools } from './harness/appShareApproval.js';
@@ -783,10 +786,20 @@ async function runTeammate(env, { orgId, user, requesterId, resolved, row, membe
   try {
     const transcript = await contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }).catch(() => []);
     const where = resolved.kind === "business" ? `the #${resolved.slug} channel` : resolved.kind === "agent" ? "a direct conversation with you" : "a direct conversation";
+    let handoffInstruction='';
+    if(replyFence&&!roomHookSource) {
+      const grant=await assignmentExecutionGrant(env,{orgId,assignmentId:replyFence.assignmentId,generation:replyFence.generation,agentId:agent.id});
+      if(grant) {
+        let visited=[];
+        try { const parsed=JSON.parse(grant.assignment.visited); if(Array.isArray(parsed))visited=parsed; } catch {}
+        const targets=(await assignmentTargets(env,grant)).filter(target=>target.id!==agent.id&&!visited.includes(target.id));
+        handoffInstruction=remoteHandoffInstruction(targets);
+      }
+    }
     if (authorize && !await authorize()) return;
     started = await startTeammateRun(env, {
       orgId, t, key: resolved.key, threadId: parentId || "-", where, askedBy: user.name || "a teammate",
-      transcript, request: requestFor(taskText, agent), login: user.login, requesterId, roomHookSource: roomHookSource ? row.id : null, assignment:replyFence?{assignmentId:replyFence.assignmentId,generation:replyFence.generation,agentId:agent.id}:null,
+      transcript, request: [requestFor(taskText, agent),handoffInstruction].filter(Boolean).join('\n\n'), login: user.login, requesterId, roomHookSource: roomHookSource ? row.id : null, assignment:replyFence?{assignmentId:replyFence.assignmentId,generation:replyFence.generation,agentId:agent.id}:null,
     });
   } catch (err) {
     console.error("teammate start failed", safe(err?.message));
@@ -879,7 +892,7 @@ async function postTeammateResult(env, run, t, read, status, {clientId=null,deli
   if (run.room_hook_source && run.room_hook_source !== run.thread_id) return {cancelled:true};
   const starter = run.started_by ? await getUserByLogin(env.DB, run.started_by).catch(() => null) : null;
   const locale = await loadCopy(env, starter?.locale || "en", { orgId: run.org_id });
-  const words = read.texts.join("\n\n").trim();
+  let words = read.texts.join("\n\n").trim();
   let body;
   if (status === "budget") body = [words, serverText(locale, "teammate.budget")].filter(Boolean).join("\n\n");
   else if (status === "failed") body = [words, serverText(locale, read.stop === "terminated" ? "teammate.failed" : "teammate.stopped")].filter(Boolean).join("\n\n");
@@ -888,6 +901,28 @@ async function postTeammateResult(env, run, t, read, status, {clientId=null,deli
   if (!agentId || (deliveryAgentId && deliveryAgentId!==agentId)) {await finish('cancelled');return {cancelled:true};}
   const externalGrant=identity?await externalReplyGrant(env,run,agentId):null;
   if(identity && !externalGrant)return {cancelled:true};
+  if(externalGrant && status==='idle' && !run.on_behalf_of && !run.room_hook_source) {
+    const parsed=parseRemoteHandoff(words);
+    if(parsed) {
+      const grant=await assignmentExecutionGrant(env,externalGrant.identity);
+      let visited=[];
+      try { const value=JSON.parse(grant?.assignment?.visited||'[]'); if(Array.isArray(value))visited=value; } catch {}
+      const target=grant&&(await assignmentTargets(env,grant)).find(candidate=>candidate.id===parsed.handoff.targetAgentId&&candidate.id!==agentId&&!visited.includes(candidate.id));
+      const operationId=`remote-${run.id}-${run.turn_version??0}`;
+      if(target) {
+        const accepted=await acceptAgentHandoff(env,{...externalGrant.identity,sourceAgentId:agentId,targetAgentId:target.id,operationId,brief:parsed.handoff.brief,
+          messageBody:serverText(locale,'agent.handoff',{name:target.name,handle:target.handle,brief:parsed.handoff.brief})});
+        if(!accepted.error) {
+          await drainAgentHandoffs(env,{orgId:run.org_id,operationId}).catch(()=>{});
+          const handoffMessage=await getMessage(env.DB,run.org_id,accepted.operation.message_id).catch(()=>null);
+          if(handoffMessage&&!handoffMessage.deleted_at)await broadcastStored(env,run.org_id,run.channel,handoffMessage);
+          return {published:true};
+        }
+      }
+      words=[parsed.text,serverText(locale,'agent.handoffUnavailable')].filter(Boolean).join('\n\n');
+      body=words;
+    }
+  }
   if (run.room_hook_source && !await roomHookAgentAllowed(env.DB,run.org_id,run.room_hook_source,agentId)) return {cancelled:true};
   // Working for a person who was mentioned: what it would post outside the
   // chat waits on that person (proxy.js), and the answer reads as theirs.
