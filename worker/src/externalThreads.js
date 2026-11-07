@@ -1,7 +1,7 @@
 import { getSession, getUserByGithubId, isMember } from "./db.js";
 import { handleExternalFiles } from "./externalFiles.js";
 import { getMode } from "./harness/mode.js";
-import { resolveChannel, asksTheAI, getMessage, cleanEmoji } from "./channels.js";
+import { resolveChannel, asksTheAI, getMessage, cleanEmoji, viewOf } from "./channels.js";
 import { byteRange, deleteFileObject, getFileObject, MAX_FILES_PER_MESSAGE, sendable, UNSATISFIABLE, uploadFile } from "./files.js";
 import { audienceOf } from "./access.js";
 import { listMembers } from "./team.js";
@@ -51,8 +51,14 @@ async function manageableRoot(db, orgId, rootId, user) {
   ).bind(orgId, user.github_id).first();
   const role = String(membership?.role || "").toLowerCase();
   if (root.author_login !== user.login && !["owner", "admin"].includes(role)) return null;
+  // Stored DMs and Agent threads use canonical keys, while resolveChannel
+  // accepts the viewer-specific handle. Convert only those keys after loading
+  // current workspace members; this also makes a removed DM participant fail.
+  const members = root.channel.startsWith("dm:") || root.channel.startsWith("ag:")
+    ? await listMembers(db, orgId, user.github_id) : undefined;
+  const viewerChannel = members ? viewOf(root.channel, user.login, members) : root.channel;
   // A workspace role alone cannot reveal a private Room's thread.
-  if (!(await resolveChannel(db, orgId, user, root.channel))) return null;
+  if (!viewerChannel || !(await resolveChannel(db, orgId, user, viewerChannel, members))) return null;
   return root;
 }
 
@@ -95,7 +101,14 @@ function threadManagerFence(orgId, rootId, user, expectedChannel, firstParameter
           OR (managedRoot.channel LIKE 'dm:%' AND instr(managedRoot.channel,'|')>4
             AND instr(substr(managedRoot.channel,instr(managedRoot.channel,'|')+1),'|')=0
             AND (substr(managedRoot.channel,4,instr(managedRoot.channel,'|')-4)=${login}
-              OR substr(managedRoot.channel,instr(managedRoot.channel,'|')+1)=${login}))
+              OR substr(managedRoot.channel,instr(managedRoot.channel,'|')+1)=${login})
+            AND EXISTS(SELECT 1 FROM users dmOther
+              JOIN memberships dmOtherMembership ON dmOtherMembership.org_id=managedRoot.org_id
+                AND dmOtherMembership.user_github_id=dmOther.github_id
+              WHERE dmOther.login=CASE
+                WHEN substr(managedRoot.channel,4,instr(managedRoot.channel,'|')-4)=${login}
+                THEN substr(managedRoot.channel,instr(managedRoot.channel,'|')+1)
+                ELSE substr(managedRoot.channel,4,instr(managedRoot.channel,'|')-4) END))
           OR (managedRoot.channel LIKE 'ag:%' AND EXISTS(
             SELECT 1 FROM custom_agents agent
             LEFT JOIN hx_agent_profiles profile ON profile.org_id=agent.org_id AND profile.agent_id=agent.id
