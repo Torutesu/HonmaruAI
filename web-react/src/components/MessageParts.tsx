@@ -30,7 +30,7 @@ const PICKER_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 
 /// into one grid of what matches, and Enter takes the first. The arrows move
 /// through the grids, and Tab leaves them in one step. Until the list is
 /// here it says so, and offers to fetch it again if it did not come.
-export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: () => void; label?: string }> = ({ onPick, onClose, label }) => {
+export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: () => void; label?: string; allowWorkspaceEmoji?: boolean }> = ({ onPick, onClose, label, allowWorkspaceEmoji = true }) => {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const search = useRef<HTMLInputElement>(null)
@@ -44,7 +44,7 @@ export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: (
   // Closed by a key or a pick, focus goes back to what opened the picker; a
   // click somewhere else leaves it where the click put it.
   const giveBack = useRef(false)
-  const sections = useMemo(() => pickerSections(query, custom, recent, data), [query, custom, recent, data])
+  const sections = useMemo(() => pickerSections(query, allowWorkspaceEmoji ? custom : [], allowWorkspaceEmoji ? recent : recent.filter((emoji) => !CUSTOM_EMOJI.test(emoji)), data), [query, custom, allowWorkspaceEmoji, recent, data])
   const sizes = sections.map((s) => s.cells.length)
   const starts = sizes.map((_, i) => sizes.slice(0, i).reduce((a, b) => a + b, 0))
   const total = sizes.reduce((a, b) => a + b, 0)
@@ -121,7 +121,7 @@ export const EmojiPicker: React.FC<{ onPick: (emoji: string) => void; onClose: (
           data-emoji-search
         />
       </div>
-      {sections.map((s, si) => (s.cells.length > 0 || s.workspace) && (
+      {sections.map((s, si) => (s.cells.length > 0 || (s.workspace && allowWorkspaceEmoji)) && (
         <div key={s.label} className={`slk-picker-set${s.workspace ? ' workspace' : ''}`} role="group" aria-labelledby={`${id}-${si}`}>
           <div className="slk-picker-label">
             <span id={`${id}-${si}`}>{t(s.label)}</span>

@@ -503,13 +503,16 @@ async function reactionRows(env, orgId, rootId, user, messageIds) {
       AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?4)
     GROUP BY r.message_id, r.emoji ORDER BY r.emoji`)
     .bind(orgId, rootId, user.login, user.github_id, new Date().toISOString()).all();
-  return results;
+  // Workspace shortcodes resolve to workspace assets that are not delivered to external guests.
+  // Keep them out of the guest payload until a resource-authorized asset route exists.
+  return results.filter((row) => !/^:[a-z0-9_+-]{1,30}:$/i.test(String(row.emoji || "")));
 }
 
 async function toggleExternalReaction(env, orgId, rootId, user, input) {
   if (!input || typeof input.messageId !== "string") return fail("messageId is required.", 400);
   const emoji = cleanEmoji(input.emoji);
   if (!emoji) return fail("That is not an emoji.", 400);
+  if (/^:[a-z0-9_+-]{1,30}:$/i.test(emoji)) return fail("Workspace emoji are not available to external collaborators.", 400);
   const now = new Date().toISOString();
   const target = await env.DB.prepare(`SELECT m.id FROM channel_messages m
     JOIN channel_messages root ON root.org_id=m.org_id AND root.id=?2
