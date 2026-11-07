@@ -1,6 +1,7 @@
 import { connectedSources } from '../context.js';
 import { getWorkspaceGitHub } from '../githubWorkspace.js';
 import { EMAIL_AUTH_TOKEN } from '../auth.js';
+import { mayRunAgent } from './agents.js';
 
 export const AGENT_CONNECTION_SOURCES = ['notion', 'github'];
 
@@ -94,6 +95,9 @@ export async function setAgentSourceConnection(env, { orgId, agentId, session, s
 
 export async function agentSourceCredential(env, { orgId, agentId, session, source }) {
   if (!AGENT_CONNECTION_SOURCES.includes(source) || !session?.github_id || !agentId) return null;
+  // Credential helpers are execution boundaries too: never rely on a caller
+  // having filtered the Agent list before a connection grant is consumed.
+  if (!await mayRunAgent(env.DB, orgId, { id: agentId }, session.github_id).catch(() => false)) return null;
   const githubId = String(session.github_id);
   if (source === 'github') {
     const workspace = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);

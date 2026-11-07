@@ -528,3 +528,33 @@ test("a mixed-case Guest cannot keep or reacquire a Remote MCP Agent grant", asy
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9551'")
     .bind(ORG, agentId).first()).toEqual({ n: 0 });
 });
+
+test("Remote MCP execution rechecks the requester's current Agent audience", async () => {
+  await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "9552", login: "remote-member", name: "Remote Member" });
+  await upsertMembership(env.DB, ORG, "9552", "member");
+  const memberSession = { github_id: "9552" };
+  const agentId = "remote-mcp-private-agent";
+  const serverId = "remote-mcp-private-server";
+  const createdAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'remote-private','Private','Read only.','team','remote-admin',?3,?3)`)
+    .bind(ORG, agentId, createdAt).run();
+  await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers
+    (id,org_id,name,endpoint,tools_json,allowed_tools,created_by,created_at,updated_at)
+    VALUES (?1,?2,'Read only','https://mcp.example.com/mcp',?3,'["read"]','9551',?4,?4)`)
+    .bind(serverId, ORG, JSON.stringify([{ name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]), createdAt).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_remote_mcp_grants
+    (org_id,agent_id,user_github_id,membership_since,server_id,created_at)
+    SELECT ?1,?2,'9552',created_at,?3,?4 FROM memberships WHERE org_id=?1 AND user_github_id='9552'`)
+    .bind(ORG, agentId, serverId, createdAt).run();
+  const { agentRemoteMcpTools, mayUseAgentRemoteMcp } = await import("../src/harness/agentRemoteMcp.js");
+  expect(await mayUseAgentRemoteMcp(env, { orgId: ORG, agentId, session: memberSession, serverId })).toBe(true);
+  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session: memberSession })).toHaveLength(1);
+  await env.DB.prepare("INSERT INTO hx_agent_profiles (org_id,agent_id,access,people,updated_by,updated_at) VALUES (?1,?2,'private','[]','9551',?3)")
+    .bind(ORG, agentId, new Date().toISOString()).run();
+  expect(await mayUseAgentRemoteMcp(env, { orgId: ORG, agentId, session: memberSession, serverId })).toBe(false);
+  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session: memberSession })).toEqual([]);
+});

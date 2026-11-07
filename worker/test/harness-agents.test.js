@@ -715,6 +715,9 @@ test("workspace GitHub sharing is admin-only, scoped to the workspace, and keeps
   expect(JSON.stringify(oauthBody)).not.toContain("9201");
   expect(oauthBody.nativeConnections.find(row => row.source === "github")).toMatchObject({ workspaceAvailable: true, workspaceEnabled: true });
   expect(await agentSourceCredential({ ...env, COMPOSIO_API_KEY: "ck_test" }, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe("workspace");
+  await env.DB.prepare("INSERT INTO hx_agent_profiles (org_id,agent_id,access,people,updated_by,updated_at) VALUES (?1,?2,'private','[]','9202',?3) ON CONFLICT(org_id,agent_id) DO UPDATE SET access='private',people='[]',updated_by='9202',updated_at=excluded.updated_at")
+    .bind(ORG, agentId, new Date().toISOString()).run();
+  expect(await agentSourceCredential({ ...env, COMPOSIO_API_KEY: "ck_test" }, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe(null);
 });
 
 test('an active normal request loses authorization when agent access becomes private', async()=>{

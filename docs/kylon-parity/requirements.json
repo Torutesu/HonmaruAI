@@ -175,8 +175,12 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
-      "code": "worker/src/harness/routes.js",
-      "acceptance": "今回メモリ等・一覧・DM・編集を修正。全API/外部実行の経路監査が残る"
+      "code": "worker/src/harness/routes.js, worker/src/harness/agentConnections.js, worker/src/harness/agentRemoteMcp.js",
+      "acceptance": "全API/外部実行の経路監査を継続。Native/Remote MCP資格情報ヘルパーも利用者の現在のAgent権限を毎回確認し、権限失効後の実行・ツール列挙を拒否する。全経路と複数利用者での本番隔離検証は残る",
+      "evidence": {
+        "verified": "Existing direct API, room list, role, schedule, and external execution routes were re-audited; no confirmed bypass was found. Native credential access now calls mayRunAgent at the credential boundary; Remote MCP authorization and tool enumeration do the same. Focused regressions prove workspace-granted Native credentials and Remote MCP tools are denied after the Agent audience becomes private. `npm test -- --run test/harness-agents.test.js test/remote-mcp.test.js test/smithery-apps.test.js` passed (66 tests).",
+        "remaining": "Full route/provider audit, exact-head CI and production deployment, authenticated multi-user isolation and visual comparison remain."
+      }
     },
     {
       "id": "KY-016",
