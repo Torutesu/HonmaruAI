@@ -32,6 +32,7 @@ import {ExternalGuestThread} from './screens/ExternalGuestThread'
 import {ExternalSharedFile} from './screens/ExternalSharedFile'
 import {externalThreadAccessFromInvite,externalThreadHash} from './utils/externalThreadInvite'
 import {rememberExternalThreadAuthReturn,takeExternalThreadAuthReturn} from './utils/externalThreadAuthReturn'
+import {PublicAppShare} from './screens/PublicAppShare'
 
 // The web client talks to the backend over HTTP for auth and WebSocket for the
 // feed. We store one base host and derive both.
@@ -89,6 +90,8 @@ function App() {
   if(guestThread&&guestSession)return <>{warning}<ExternalGuestThread key={hash} httpBase={httpBase(localStorage.getItem('host')||DEFAULT_HOST)} orgId={decodeURIComponent(guestThread[1])} rootId={decodeURIComponent(guestThread[2])} sessionToken={guestSession}/></>
   const guestApp=hash.match(/^#\/external-app\/([^/]+)\/([^/]+)$/)
   if(guestApp&&guestSession)return <>{warning}<ExternalGuestApp key={hash} httpBase={httpBase(localStorage.getItem('host')||DEFAULT_HOST)} orgId={decodeURIComponent(guestApp[1])} appId={decodeURIComponent(guestApp[2])} sessionToken={guestSession}/></>
+  const appShare=hash.startsWith('#/app-share/') ? hash.slice('#/app-share/'.length).match(/^(app_[a-f0-9]{64})$/) : null
+  if(appShare)return <>{warning}<PublicAppShare key={hash} httpBase={httpBase(DEFAULT_HOST)} token={appShare[1]}/></>
   return <>{warning}<AccountApp/></>
 }
 

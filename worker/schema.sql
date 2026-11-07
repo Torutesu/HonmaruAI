@@ -1977,7 +1977,7 @@ CREATE TABLE IF NOT EXISTS hx_memory_scopes (memory_id TEXT PRIMARY KEY REFERENC
 
 CREATE TABLE IF NOT EXISTS hx_workflow_run_definitions (run_id TEXT PRIMARY KEY REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, org_id TEXT NOT NULL, definition TEXT NOT NULL, created_at TEXT NOT NULL);
 
-CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, change_token TEXT, PRIMARY KEY (org_id, app_id));
+CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, change_token TEXT, room_channel TEXT, PRIMARY KEY (org_id, app_id));
 CREATE TABLE IF NOT EXISTS hx_app_person_access (
   org_id TEXT NOT NULL,
   app_id TEXT NOT NULL,
@@ -2795,3 +2795,9 @@ CREATE TABLE IF NOT EXISTS hx_agent_workspace_source_grants (
   PRIMARY KEY (org_id, agent_id, source),
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
+
+
+CREATE TABLE IF NOT EXISTS hx_app_public_shares (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, app_version INTEGER NOT NULL, access_version INTEGER NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_hx_app_public_shares_app ON hx_app_public_shares(org_id,app_id,created_at);
+CREATE TABLE IF NOT EXISTS hx_app_public_share_requests (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, app_id TEXT NOT NULL, requester_id TEXT NOT NULL, requester_login TEXT NOT NULL, agent_id TEXT NOT NULL, room_channel TEXT NOT NULL, source_message_id TEXT NOT NULL, source_thread_id TEXT, source_hash TEXT NOT NULL, app_version INTEGER NOT NULL, access_version INTEGER NOT NULL, assets_hash TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','approved','declined','stale')), created_at TEXT NOT NULL, reviewed_by TEXT, reviewed_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_hx_app_public_share_requests_app ON hx_app_public_share_requests(org_id,app_id,status,created_at);
