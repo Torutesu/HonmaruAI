@@ -22,7 +22,7 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
  const annotationsChanged=useRef(onAnnotationsChange);annotationsChanged.current=onAnnotationsChange
  const consumedAnnotation=useRef<string|null>(null)
  const box=useRef<HTMLTextAreaElement>(null)
- const [members,setMembers]=useState<Mentionable[]>([]),[source,setSource]=useState<AppConversation['source']>(null),[aiReplies,setAIReplies]=useState<NonNullable<AppConversation['aiReplies']>>([])
+ const [members,setMembers]=useState<Mentionable[]>([]),[source,setSource]=useState<AppConversation['source']>(null),[aiReplies,setAIReplies]=useState<NonNullable<AppConversation['aiReplies']>>([]),[proposals,setProposals]=useState<NonNullable<AppConversation['proposals']>>([]),[canEditRecord,setCanEditRecord]=useState(false),[reviewing,setReviewing]=useState('')
  const [sources,setSources]=useState<Array<{id:string;body:string;channel:string}>|null>(null),[linking,setLinking]=useState(false)
  const mentions=useMentionMenu(box,draft,saveDraft,[{ref:'__ai',name:'AI',handle:'AI'},{ref:'__channel',name:'全員',handle:'channel',special:'channel',detail:'閲覧できるメンバーに通知'},...members])
  useEffect(()=>{let active=true;setMembers([]);if(api.members)void api.members().then(r=>{if(active)setMembers(r.members)},()=>{});return()=>{active=false}},[api])
@@ -35,13 +35,14 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
  useLayoutEffect(()=>{const element=list.current;if(!element)return;if(scrollAnchor.current){element.scrollTop=scrollAnchor.current.top+element.scrollHeight-scrollAnchor.current.height;scrollAnchor.current=null}else if(stickToBottom.current)element.scrollTop=element.scrollHeight},[messages,source])
  const refresh=useCallback(async(generation:number)=>{
   const read=++readVersion.current;
-  try {const data=await api.conversation(appId,{tableId,rowId});if(generation!==epoch.current||read!==readVersion.current)return;setMessages(previous=>mergeMessages(previous,data.messages));setSource(data.source||null);setAIReplies(data.aiReplies||[]);annotationsChanged.current?.(data.annotations||[]);if(!historyLoaded.current)setHasMore(data.hasMore);setError('')}
-  catch(e){if(generation===epoch.current&&read===readVersion.current){historyLoaded.current=false;setMessages([]);setSource(null);setSources(null);setAIReplies([]);annotationsChanged.current?.([]);setError(e instanceof Error?e.message:String(e))}}
+  try {const data=await api.conversation(appId,{tableId,rowId});if(generation!==epoch.current||read!==readVersion.current)return;setMessages(previous=>mergeMessages(previous,data.messages));setSource(data.source||null);setAIReplies(data.aiReplies||[]);setProposals(data.proposals||[]);setCanEditRecord(Boolean(data.canEditRecord));annotationsChanged.current?.(data.annotations||[]);if(!historyLoaded.current)setHasMore(data.hasMore);setError('')}
+  catch(e){if(generation===epoch.current&&read===readVersion.current){historyLoaded.current=false;setMessages([]);setSource(null);setSources(null);setAIReplies([]);setProposals([]);setCanEditRecord(false);annotationsChanged.current?.([]);setError(e instanceof Error?e.message:String(e))}}
   finally {if(generation===epoch.current)setLoading(false)}
  },[api,appId,tableId,rowId])
+ const reviewProposal=async(id:string,action:'approve'|'reject'|'undo')=>{if(!api.reviewRecordProposal)return;const generation=epoch.current;setReviewing(id);setError('');try{await api.reviewRecordProposal(appId,id,action);if(generation===epoch.current)await refresh(generation)}catch(e){if(generation===epoch.current)setError(e instanceof Error?e.message:String(e))}finally{if(generation===epoch.current)setReviewing('')}}
  useEffect(()=>{
   const generation=++epoch.current
-  sourceRead.current='';setMessages([]);setSource(null);setSources(null);setLinking(false);setAIReplies([])
+  sourceRead.current='';setMessages([]);setSource(null);setSources(null);setLinking(false);setAIReplies([]);setProposals([]);setCanEditRecord(false)
   const savedDraft=api.drafts?.read(appId,tableId,rowId)||''
   // A route suggestion must not replace the user's existing unsent text.
   // Keep it visible as a separate choice, and leave the route intact until
@@ -94,6 +95,7 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
   </div>
   {aiReplies.some(r=>r.status==='running')&&<div className="hx-chat-context" role="status">AIが返信を作成しています…</div>}
   {aiReplies[0]?.status==='failed'&&<div className="hx-chat-error" role="status">{aiReplies[0].error}</div>}
+  {proposals.map(proposal=><section className="hx-chat-context" key={proposal.id} aria-label="AIのレコード変更提案"><strong>{proposal.status==='pending'?'AIの変更提案':proposal.status==='applying'?'適用を確認中…':proposal.status==='applied'?'変更を適用しました':proposal.status==='undone'?'変更を取り消しました':proposal.status==='rejected'?'提案を却下しました':'適用できない提案'}</strong><ul>{proposal.fields.map(field=><li key={field.id}><b>{field.name}</b>: {typeof field.value==='string'?field.value:JSON.stringify(field.value)}</li>)}</ul>{proposal.status==='pending'&&(!proposal.expiresAt||Date.parse(proposal.expiresAt)>Date.now())&&<div>{canEditRecord?<><button type="button" className="pill-btn" disabled={Boolean(reviewing)} onClick={()=>void reviewProposal(proposal.id,'approve')}>{reviewing===proposal.id?'処理中…':'確認して適用'}</button> <button type="button" className="pill-btn quiet" disabled={Boolean(reviewing)} onClick={()=>void reviewProposal(proposal.id,'reject')}>却下</button></>:<span>編集権限のあるメンバーが確認できます。</span>}</div>}{proposal.status==='applied'&&proposal.appliedUpdatedAt&&canEditRecord&&<button type="button" className="pill-btn quiet" disabled={Boolean(reviewing)} onClick={()=>void reviewProposal(proposal.id,'undo')}>取り消す</button>}</section>)}
   {!rowId&&!source&&<div className="hx-chat-source"><button type="button" disabled={linking||loading} onClick={()=>void findSources()}><Icon name="link" size={14}/>作成元スレッドを引き継ぐ</button>{sources&&<div><p>以後の送信は選択したスレッドへ届きます。元の閲覧権限を維持します。</p>{sources.length?<select aria-label="作成元スレッド" defaultValue="" disabled={linking} onChange={e=>{if(e.target.value)void chooseSource(e.target.value)}}><option value="">スレッドを選択</option>{sources.map(s=><option key={s.id} value={s.id}>{s.channel.startsWith('b:')?'#'+s.channel.slice(2):'元の会話'} · {s.body}</option>)}</select>:<p>アプリに紐づいたルームに選択可能なスレッドがありません。</p>}</div>}</div>}
   {error&&<div className="hx-chat-error" role="alert">{error}<button type="button" onClick={()=>void refresh(epoch.current)}>再読み込み</button></div>}
   {context&&<div className="hx-chat-context">{context}</div>}

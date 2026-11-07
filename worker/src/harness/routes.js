@@ -1232,7 +1232,9 @@ export async function handleHarness(request, env, url, context = {}) {
       if(request.method==='GET'){
         const {results:aiReplies}=await env.DB.prepare(`SELECT r.message_id AS messageId,CASE WHEN r.status='running' AND r.started_at<unixepoch()-120 THEN 'failed' ELSE r.status END AS status,CASE WHEN r.status='running' AND r.started_at<unixepoch()-120 THEN 'AIの応答待ちが終了しました。再度質問してください。' ELSE r.error END AS error FROM hx_app_ai_replies r JOIN hx_app_messages m ON m.sequence=r.message_id WHERE m.org_id=? AND m.app_id=? AND m.table_id=? AND m.row_id=? ORDER BY m.sequence DESC LIMIT 10`).bind(orgId,appId,query.tableId||'',query.rowId||'').all();
         const annotations=await listAppAnnotations(env.DB,orgId,appId,query);
-        return json({...access,source:source?await sourceHistory(env.DB,orgId,who.user,source):null,aiReplies,annotations});
+        const table=query.rowId?await getTable(env.DB,orgId,query.tableId):null;
+        const proposals=query.rowId?(await env.DB.prepare(`SELECT id,CASE WHEN status='pending' AND expires_at<=? THEN 'stale' ELSE status END AS status,changes,expires_at AS expiresAt,applied_updated_at AS appliedUpdatedAt FROM hx_app_record_proposals WHERE org_id=? AND app_id=? AND table_id=? AND row_id=? AND status IN ('pending','applying','applied','undone','rejected','stale') ORDER BY created_at DESC LIMIT 10`).bind(new Date().toISOString(),orgId,appId,query.tableId,query.rowId).all()).results.map(p=>({...p,fields:Object.entries(JSON.parse(p.changes||'{}')).map(([id,value])=>({id,name:table?.columns?.find(column=>column.id===id)?.name||id,value}))})):[];
+        return json({...access,source:source?await sourceHistory(env.DB,orgId,who.user,source):null,aiReplies,annotations,proposals,canEditRecord:query.rowId?await mayEditTable(env.DB,orgId,query.tableId,me):false});
       }
       let requestProof;
       if(aiConversationRequest){
@@ -1254,6 +1256,47 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     const app = await getApp(env.DB, orgId, appId);
     if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    if(sub==='record-proposals'&&parts.length===4){
+      if(request.method!=='POST')return json({message:'Method not allowed.'},405);
+      const proposal=await env.DB.prepare(`SELECT * FROM hx_app_record_proposals WHERE org_id=? AND app_id=? AND id=?`).bind(orgId,appId,parts[3]).first();
+      if(!proposal)return json({message:'No such record proposal.'},404);
+      const scope={tableId:proposal.table_id,rowId:proposal.row_id};
+      const access=await appConversation(env.DB,orgId,me,appId,scope);
+      if(access.error)return fail(access);
+      if(!(await mayEditTable(env.DB,orgId,proposal.table_id,me)))return json({message:'You cannot edit this record.'},403);
+      const action=input?.action;
+      if(action==='reject'){
+        const result=await env.DB.prepare(`UPDATE hx_app_record_proposals SET status='rejected',reviewed_by=?,reviewed_at=? WHERE id=? AND org_id=? AND app_id=? AND status='pending' AND expires_at>?`).bind(String(me),new Date().toISOString(),proposal.id,orgId,appId,new Date().toISOString()).run();
+        if(!result.meta?.changes)return json({message:'This proposal is no longer pending.'},409);
+        await audit(env,request,{orgId,action:'app.record_proposal.rejected',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{tableId:proposal.table_id,rowId:proposal.row_id,proposalId:proposal.id}});
+        return json({ok:true,status:'rejected'});
+      }
+      if(action==='approve'){
+        if(proposal.status!=='pending'||proposal.expires_at<=new Date().toISOString())return json({message:'This proposal has expired or is no longer pending.'},409);
+        const claim=await env.DB.prepare(`UPDATE hx_app_record_proposals SET status='applying',reviewed_by=?,reviewed_at=? WHERE id=? AND org_id=? AND app_id=? AND status='pending' AND expires_at>?`).bind(String(me),new Date().toISOString(),proposal.id,orgId,appId,new Date().toISOString()).run();
+        if(!claim.meta?.changes)return json({message:'This proposal is already being reviewed or is no longer pending.'},409);
+        const changes=JSON.parse(proposal.changes);
+        const result=await updateRow(env.DB,orgId,proposal.table_id,proposal.row_id,changes,String(me),proposal.expected_updated_at,'strict',me);
+        if(result.error){await env.DB.prepare(`UPDATE hx_app_record_proposals SET status='stale' WHERE id=? AND status='applying'`).bind(proposal.id).run();return fail(result)}
+        const changed=await env.DB.prepare(`UPDATE hx_app_record_proposals SET status='applied',applied_updated_at=? WHERE id=? AND org_id=? AND app_id=? AND status='applying'`).bind(result.row.updatedAt,proposal.id,orgId,appId).run();
+        if(!changed.meta?.changes)return json({message:'The proposal was already reviewed.'},409);
+        await afterRowChange(env,{orgId,table:result.table,before:result.before,row:result.row,by:me});
+        await audit(env,request,{orgId,action:'app.record_proposal.applied',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{tableId:proposal.table_id,rowId:proposal.row_id,proposalId:proposal.id,fieldCount:Object.keys(changes).length}});
+        return json({ok:true,status:'applied',row:result.row});
+      }
+      if(action==='undo'){
+        if(proposal.status!=='applied'||!proposal.applied_updated_at)return json({message:'This proposal cannot be undone.'},409);
+        const before=JSON.parse(proposal.before_data),changes=JSON.parse(proposal.changes),restore=Object.fromEntries(Object.keys(changes).map(id=>[id,before[id]??null]));
+        const result=await updateRow(env.DB,orgId,proposal.table_id,proposal.row_id,restore,String(me),proposal.applied_updated_at,'strict',me);
+        if(result.error)return fail(result);
+        const changed=await env.DB.prepare(`UPDATE hx_app_record_proposals SET status='undone',undone_by=?,undone_at=? WHERE id=? AND org_id=? AND app_id=? AND status='applied' AND applied_updated_at=?`).bind(String(me),new Date().toISOString(),proposal.id,orgId,appId,proposal.applied_updated_at).run();
+        if(!changed.meta?.changes)return json({message:'The proposal was already changed.'},409);
+        await afterRowChange(env,{orgId,table:result.table,before:result.before,row:result.row,by:me});
+        await audit(env,request,{orgId,action:'app.record_proposal.undone',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{tableId:proposal.table_id,rowId:proposal.row_id,proposalId:proposal.id,fieldCount:Object.keys(changes).length}});
+        return json({ok:true,status:'undone',row:result.row});
+      }
+      return json({message:'Unknown proposal action.'},400);
+    }
     const mayChangeApp = async () => {
       if (await mayEditApp(env.DB, orgId, appId, me)) return true;
       if (await hasExplicitAppPermission(env.DB, orgId, appId, me)) return false;

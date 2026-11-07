@@ -216,10 +216,11 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 - Honmaru's workflow and workspace controls use recorded model-token USD list-price estimates under the no-new-charge constraint. They do not reproduce Kylon credits, billable tool/API charges, renewal/top-up handling or script-call rate caps. Those differences remain in KY-067, KY-086 and KY-088; current exact-SHA CI and production evidence is tracked separately in [verification.md](verification.md).
 
 |---|---|---|---|---|---|
+| KY-099 | ワークスペース外の名前付きコラボレーターとリソース単位の権限 | 一部 | P0 | [worker/src/harness/externalCollaborators.js](../../worker/src/harness/externalCollaborators.js), [worker/migrations.sql](../../worker/migrations.sql) | 外部ユーザー用のリソースgrant/revokeとfail-closed lookupの基礎を追加。メール招待/検証/受諾、Share UI、Thread/File/App/Room全APIへの認可、返信/添付/リアクション、所有者承認、公開スナップショット、ゲストAgent返信抑止、複数ユーザー実環境の隔離検証が残る。Simpleモードはこのgrantモデルを参照しない |
 | KY-100 | 編集済みAI下書きの学習を元Agentへ引き継ぐ | 一部 | P1 | [ReplyDraft.tsx](../../web-react/src/components/ReplyDraft.tsx), [draftEdits.js](../../worker/src/draftEdits.js) | PR #788 / main 2070c407。編集差分を利用者・workspace・Agent・cardに限定し、同一Agentへの次の直接メッセージへ一度だけ引き継ぐ。編集例本文と明示的な個人文体設定を分離し、export/deleteを実装。PR exact-head CI 42348597887、main CI 42349710775、Worker deploy 42349710789（migration・health ok:true）、Web deploy 42349710776（app.honmaruai.com配信）成功。認証済み本番での編集・次回返信・破棄・設定・削除/エクスポートUI比較が残るため一部 |
 
 ### 2026-11-08 — レコード／フィールドを指した会話
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-111 | Appのレコード／フィールドを指してAgentに更新を依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [AppConversationPanel.tsx](../../web-react/src/components/AppConversationPanel.tsx), [worker/src/harness/routes.js](../../worker/src/harness/routes.js) | 表示中の列IDとレコードIDをドラッグ選択から保ち、対象レコードの権限付き会話へ下書きを送り、フィールド名/IDとレコードデータをAIコンテキストに保持する。メッセージ・注釈は正確なレコード会話に保存し、別レコードへ漏らさない。Kylon 2026-11-03 changelogで確認した差分。現実装はレコード文脈で質問・指示を送るところまでで、AIによるレコード変更・確認/Undoフロー、実画面比較と本番受入は未完了。 |
+| KY-111 | Appのレコード／フィールドを指してAgentに更新を依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [AppConversationPanel.tsx](../../web-react/src/components/AppConversationPanel.tsx), [worker/src/harness/routes.js](../../worker/src/harness/routes.js) | 表示中の列ID・レコードIDとレコードスナップショットを権限付き会話へ引き継ぎ、AIが変更案を出す。最大8フィールドの変更を24時間有効な提案として保存し、権限者の明示承認後のみupdateRowの型検証・CASで反映。拒否・期限切れ・競合を拒否し、未変更レコードへのCAS Undoを追加。undoの権限も再確認。Simple modeは変更なし、既存AI枠以外の課金なし。Worker全体・CI・本番・Kylon実画面比較は未完了。 |
