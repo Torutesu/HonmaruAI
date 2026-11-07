@@ -3465,7 +3465,6 @@ const table: Record<string, string> = {
   "Email address": "メールアドレス",
   "name@example.com": "name@example.com",
   "Can view": "閲覧可能",
-  "Can edit": "編集可能",
   "In 7 days": "7日後",
   "In 30 days": "30日後",
   "Share thread": "スレッドを共有",
