@@ -74,3 +74,67 @@ test('does not poll while hidden and aborts an in-flight fetch on unmount',async
  expect(doc.removeEventListener).toHaveBeenCalled()
  vi.useRealTimers()
 })
+
+test('edit guests upload an attachment, attach it to a reply, and react to the shared Thread',async()=>{
+ const uploaded={id:'upload-1',name:'plan & scope.txt',type:'text/plain',size:4}
+ const reply={id:'reply-file',body:'See the attached plan',authorName:'Guest',mine:true,createdAt:'2026-11-06T00:01:00Z',parentId:'root',files:[{...uploaded,url:'/external/threads/org%2Fone/root%20one/files/f_0123456789abcdef01234567'}]}
+ const refreshed={...thread('edit'),thread:{...thread('edit').thread,replies:[reply]}}
+ const fetch=vi.fn()
+   .mockResolvedValueOnce(ok(thread('edit')))
+   .mockResolvedValueOnce(ok({file:uploaded},201))
+   .mockResolvedValueOnce(ok({sent:true,messageId:'reply-file'},201))
+   .mockResolvedValueOnce(ok(refreshed))
+ vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<ExternalGuestThread {...props}/>);await Promise.resolve();await Promise.resolve()})
+ const selected={name:'plan & scope.txt',type:'text/plain',size:4} as File
+ await act(async()=>{
+   tree.root.findByProps({id:'external-thread-files'}).props.onChange({target:{files:[selected],value:'selected'}})
+   await Promise.resolve();await Promise.resolve()
+ })
+ expect(fetch.mock.calls[1][0]).toBe('https://api.example/external/threads/org%2Fone/root%20one/files?name=plan%20%26%20scope.txt')
+ expect(fetch.mock.calls[1][1]).toMatchObject({method:'POST',headers:{'x-session-token':'session','content-type':'text/plain'}})
+ expect(fetch.mock.calls[1][1].body).toBe(selected)
+ expect(JSON.stringify(tree.toJSON())).toContain('plan & scope.txt')
+ act(()=>tree.root.findByType('textarea').props.onChange({target:{value:'See the attached plan'}}))
+ await act(async()=>{tree.root.findByType('form').props.onSubmit({preventDefault(){}});await Promise.resolve();await Promise.resolve();await Promise.resolve()})
+ expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({body:'See the attached plan',files:['upload-1']})
+ expect(JSON.stringify(tree.toJSON())).toContain('See the attached plan')
+ act(()=>tree.unmount())
+})
+
+test('external guests can search Unicode reactions without seeing cached workspace emoji names or assets',async()=>{
+ const customUrl='https://api.example/private-workspace-emoji.png'
+ const doc={visibilityState:'visible',addEventListener:vi.fn(),removeEventListener:vi.fn(),activeElement:null}
+ vi.stubGlobal('document',doc)
+ vi.stubGlobal('window',{matchMedia:()=>({matches:true}),addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ vi.stubGlobal('HTMLElement',class {})
+ const fetch=vi.fn()
+   .mockResolvedValueOnce(ok({emoji:[{name:'private_mark',url:customUrl,by:'owner',createdAt:'2026-11-06T00:00:00Z'}]}))
+   .mockResolvedValueOnce(ok(thread('edit')))
+   .mockResolvedValueOnce(ok({messageId:'root',reactions:[{emoji:'🚀',count:1,mine:true}]}))
+ vi.stubGlobal('fetch',fetch)
+ const {loadCustomEmoji}=await import('../utils/customEmoji')
+ const {loadEmojiData,rememberEmoji}=await import('../utils/emojiSearch')
+ await loadCustomEmoji(props.httpBase,props.sessionToken,props.orgId)
+ rememberEmoji(':private_mark:')
+ await loadEmojiData()
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<ExternalGuestThread {...props}/>);await Promise.resolve();await Promise.resolve()})
+ const add=tree.root.findAllByProps({'aria-label':'Add reaction'})[0]
+ act(()=>add.props.onClick())
+ expect(tree.root.findAllByProps({role:'dialog'})).toHaveLength(1)
+ expect(JSON.stringify(tree.toJSON())).toContain('Workspace custom emoji are unavailable in guest threads. Unicode emoji are supported.')
+ expect(JSON.stringify(tree.toJSON())).not.toContain(':private_mark:')
+ expect(JSON.stringify(tree.toJSON())).not.toContain(customUrl)
+ const search=tree.root.findByProps({'data-emoji-search':true})
+ await act(async()=>{search.props.onChange({target:{value:'rocket'}});await Promise.resolve();await Promise.resolve()})
+ const rocket=tree.root.findAllByType('button').find(button=>button.props['aria-label']==='🚀')
+ expect(rocket).toBeTruthy()
+ await act(async()=>{rocket!.props.onClick();await Promise.resolve();await Promise.resolve()})
+ expect(fetch.mock.calls[2][0]).toBe('https://api.example/external/threads/org%2Fone/root%20one/reactions')
+ expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({messageId:'root',emoji:'🚀'})
+ expect(JSON.stringify(tree.toJSON())).not.toContain(':private_mark:')
+ expect(JSON.stringify(tree.toJSON())).not.toContain(customUrl)
+ act(()=>tree.unmount())
+})
