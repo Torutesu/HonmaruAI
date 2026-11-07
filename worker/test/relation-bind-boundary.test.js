@@ -42,7 +42,8 @@ test('records actual and simulated 100-bind outcomes for normal relation writes'
     const updateCap=await call(`/tables/${app.tableId}/rows/${target.id}`,token,{values},'PATCH',capped.db);
     outcomes.push({n,actualAdd:add.status,actualUpdate:updateStatus,actualBinds:actual.hits,simulatedAdd:addCap.status,simulatedUpdate:updateCap.status,simulatedBinds:capped.hits});
   }
-  const fixed=11;
+  // The row-level ACL fence adds one bind to both mutation statements.
+  const fixed=12;
   for(const o of outcomes) {
     const count=fixed;
     expect(o.actualBinds).toEqual([{kind:'add',count},{kind:'update',count}]);
