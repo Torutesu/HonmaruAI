@@ -637,7 +637,7 @@ test('long 30-message history and record context fit the guarded D1 reply INSERT
  for(let n=0;n<32;n++)await appConversation(env.DB,org,'9201',app.id,{body:long,requestId:'long_history_'+String(n).padStart(10,'0'),tableId:app.tableId,rowId:row.id},true);
  const input={body:'@AI final',requestId:'long_context_req_01',tableId:app.tableId,rowId:row.id};
  const saved=await appConversation(env.DB,org,'9201',app.id,input,true);
- const model=vi.fn(async(_system,prompt)=>{const context=JSON.parse(prompt);expect(context.conversation).toHaveLength(30);expect(context.record.data).toContain(long);return 'Accepted';});
+ const model=vi.fn(async(_system,prompt)=>{const context=JSON.parse(prompt);expect(context.conversation).toHaveLength(30);expect(JSON.stringify(context.record.data)).toContain(long);return 'Accepted';});
  await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,requestProof:await replyRequestProof(owner),expectedSource:null,makeCompleter:async()=>model});
  expect(model).toHaveBeenCalledOnce();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
 });
