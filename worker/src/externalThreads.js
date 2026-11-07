@@ -9,6 +9,7 @@ import { audienceOf } from "./access.js";
 import { listMembers } from "./team.js";
 import { answerAsAI, broadcastStored } from "./channelRoutes.js";
 import { sha256Hex } from "./auth.js";
+import { deliverExternalInvite } from "./externalInviteMail.js";
 import { enforce } from "./ratelimit.js";
 import {
   externalResourcePermission,
@@ -310,10 +311,12 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
       console.error("external Thread invitation create failed", error?.message || error);
       return fail("Could not create this invitation.", 503);
     }
-    // No account lookup or email is sent here. The inviter shares this one-time
-    // URL with the named address; redemption proves the address through OTP.
+    // The one-time URL is safe to send to the invited address: redemption still
+    // proves that identity through OTP. If mail is unavailable, the UI exposes
+    // the same URL for manual sharing.
     const inviteUrl = externalInviteLink(env, code);
-    return json({ invited: true, invitationId: id, inviteUrl, ...(!inviteUrl ? { token: code } : {}), expiresAt }, 201);
+    const emailDelivery = inviteUrl ? await deliverExternalInvite(env, { id, to: email, resource: "a Thread", inviteUrl, expiresAt }) : { status: "not_configured" };
+    return json({ invited: true, invitationId: id, inviteUrl, emailDelivery, ...(!inviteUrl ? { token: code } : {}), expiresAt }, 201);
   }
   if (inviteRef && request.method === "DELETE") {
     const now = new Date().toISOString();

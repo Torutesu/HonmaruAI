@@ -35,6 +35,7 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
   const [sendRequests, setSendRequests] = useState<ExternalThreadSendRequest[]>([])
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteUrl, setInviteUrl] = useState('')
+  const [inviteDelivery, setInviteDelivery] = useState<'sent'|'failed'|'not_configured'|''>('')
   const [invitePermission, setInvitePermission] = useState<'view'|'edit'>('view')
   const [inviteExpiry, setInviteExpiry] = useState<Expiry>('7d')
   const [loading, setLoading] = useState(true)
@@ -77,6 +78,7 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
         email: value, permission: invitePermission, accessExpiresAt: nextExpiry(inviteExpiry),
       })
       setInviteUrl(invite.inviteUrl)
+      setInviteDelivery(invite.emailDelivery)
       setInviteEmail('')
     })
   }
@@ -149,7 +151,7 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
     </section>
     <section className="hx-external-thread-invites" aria-label={t('Invite a guest')}>
       <h3>{t('Invite by link')}</h3>
-      <p className="row-sub">{t('The recipient must verify this email address. No email is sent.')}</p>
+      <p className="row-sub">{t('The recipient must verify this email address. An email is sent when delivery is configured; a copyable link is always available.')}</p>
       <form className="hx-external-thread-share-form" onSubmit={createInvite}>
         <label>{t('Email address')}
           <input type="email" autoComplete="email" value={inviteEmail} disabled={busy} onChange={event=>setInviteEmail(event.target.value)} placeholder={t('name@example.com')} />
@@ -168,7 +170,7 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
         </div>
         <button type="submit" className="pill-btn" disabled={busy||!inviteEmail.trim()}>{t('Create invite link')}</button>
       </form>
-      {inviteUrl&&<div className="hx-external-thread-invite-link"><label>{t('Copy this one-time invite link')}<input readOnly value={inviteUrl} aria-label={t('Invite link')} /></label><button type="button" className="btn-text" onClick={()=>void copyInvite()}>{t('Copy link')}</button></div>}
+      {inviteUrl&&<div className="hx-external-thread-invite-link"><p>{t(inviteDelivery==='sent'?'Invitation email sent.':inviteDelivery==='failed'?'Email could not be delivered. Share this link manually.':'Email delivery is not configured. Share this link manually.')}</p><label>{t('Copy this one-time invite link')}<input readOnly value={inviteUrl} aria-label={t('Invite link')} /></label><button type="button" className="btn-text" onClick={()=>void copyInvite()}>{t('Copy link')}</button></div>}
       <ul className="hx-external-thread-invite-list" aria-label={t('Pending invitations')}>
         {invitations.map(invite=><li key={invite.id}><span><strong>{invite.email}</strong><small>{t(invite.permission==='edit'?'Can edit':'Can view')} · {t('Expires')} {expires(invite.expiresAt)}</small></span><button type="button" className="btn-text" disabled={busy} onClick={()=>revokeInvite(invite)}>{t('Revoke invite')}</button></li>)}
       </ul>

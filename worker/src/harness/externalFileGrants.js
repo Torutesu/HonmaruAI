@@ -2,6 +2,7 @@ import { grantExternalResource, revokeExternalResource } from './externalCollabo
 import { allowed } from '../permissions.js';
 import { getMode } from './mode.js';
 import { sha256Hex } from '../auth.js';
+import { deliverExternalInvite } from '../externalInviteMail.js';
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
@@ -61,7 +62,9 @@ async function handleFileInviteRoutes(request,env,url,{orgId,userId},route) {
   try{
    const inserted=await db.prepare("INSERT INTO hx_external_file_invites(id,org_id,file_id,invited_email,permission,access_expires_at,token_hash,created_by,created_at,expires_at) SELECT ?1,?2,?3,?4,'view',?5,?6,?7,?8,?9 WHERE EXISTS(SELECT 1 FROM hx_workspace_files f WHERE f.org_id=?2 AND f.id=?3 AND f.current_version>0 AND EXISTS(SELECT 1 FROM hx_workspace_file_versions v WHERE v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version AND v.kind='content') AND f.created_by=?10) OR EXISTS(SELECT 1 FROM hx_workspace_files f WHERE f.org_id=?2 AND f.id=?3 AND f.current_version>0 AND EXISTS(SELECT 1 FROM hx_workspace_file_versions v WHERE v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version AND v.kind='content') AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?10 AND lower(m.role) IN ('owner','admin')))").bind(id,orgId,route.fileId,email,accessExpiresAt,await sha256Hex(token),String(userId),createdAt,expiresAt,String(userId)).run();
    if(inserted.meta?.changes!==1)return json({message:'File not found or sharing permission changed.'},404);
-   return json({invite:{id,invitedEmail:email,permission:'view',accessExpiresAt,createdAt,expiresAt,token,inviteUrl:new URL('/#/external-invite/'+token,url.origin).toString(),redeemedAt:null,revokedAt:null}},201);
+   const inviteUrl=new URL('/#/external-invite/'+token,env.APP_WEB_URL||url.origin).toString();
+   const emailDelivery=await deliverExternalInvite(env,{id,to:email,resource:`the file “${file.path.split('/').at(-1)}”`,inviteUrl,expiresAt});
+   return json({invite:{id,invitedEmail:email,permission:'view',accessExpiresAt,createdAt,expiresAt,token,inviteUrl,emailDelivery,redeemedAt:null,revokedAt:null}},201);
   }catch(error){return json({message:error instanceof Error?error.message:'Could not create a File invitation.'},400)}
  }
  if(request.method==='DELETE'&&route.inviteId){
