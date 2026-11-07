@@ -91,6 +91,24 @@ test('relation filters search target labels and persist the stable linked record
  act(()=>ui.tree.unmount())
 })
 
+test('multi-relation exclusion filters show and persist the negative operator',async()=>{
+ vi.stubGlobal('window',{innerWidth:1280,innerHeight:800,addEventListener:vi.fn(),removeEventListener:vi.fn()});
+ const save=vi.fn().mockResolvedValue(undefined),relationColumns=[{id:'watchers',name:'Watchers',type:'relation' as const,targetEntity:'customers',multiple:true}];
+ const relationEntities=[{key:'customers',table:{columns:[{id:'name',name:'Name',type:'text' as const}]},rows:[{id:'customer_1',values:{name:'Acme'},updatedAt:'2026-10-18T00:00:00Z'},{id:'customer_2',values:{name:'Beacon'},updatedAt:'2026-10-18T00:00:00Z'}]}];
+ const ui=setup(save,undefined,relationColumns,relationEntities);ui.click('フィルター');ui.click('フィルターを調整');ui.click('条件を追加');
+ const operator=ui.tree.root.findByProps({'aria-label':'条件1の演算子'});
+ expect(operator.findAllByType('option').map(option=>option.props.children)).toContain('を含まない');
+ act(()=>operator.props.onChange({target:{value:'neq'}}));
+ act(()=>ui.tree.root.findByProps({'aria-label':'Watchers'}).props.onClick());
+ const search=ui.tree.root.findByProps({'aria-label':'Watchersを検索'});act(()=>search.props.onChange({target:{value:'Beacon'}}));
+ const beacon=ui.tree.root.findAllByProps({role:'option'}).find(option=>option.findAllByType('span').some(span=>span.children.includes('Beacon')))!;act(()=>beacon.props.onClick());
+ await act(async()=>{ui.tree.root.findAllByType('button').find(button=>button.children.includes('保存'))!.props.onClick();await Promise.resolve()});
+ expect(save).toHaveBeenCalledWith({filters:[{column:'watchers',op:'neq',value:'customer_2'}],where:{}});
+ act(()=>ui.tree.update(<AppViewControls view={{...view,filters:[{column:'watchers',op:'neq',value:'customer_2'}]}} columns={relationColumns} relationEntities={relationEntities} canEdit save={save}/>));
+ ui.click('フィルター');expect(ui.tree.root.findAllByType('p').map(item=>item.children.join('')).join(' ')).toContain('Watchers を含まない Beacon');
+ act(()=>ui.tree.unmount())
+})
+
  test('shared filter adjustment opens its conversation without saving and keeps direct editing available',()=>{
  const onAdjust=vi.fn();const ui=setup(undefined,onAdjust)
  ui.click('フィルター');ui.click('フィルターを調整')
