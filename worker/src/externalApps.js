@@ -371,6 +371,7 @@ export async function redeemExternalAppInvite(env, { token, userId }) {
   if (typeof token !== "string" || !/^[a-f0-9]{64}$/i.test(token) || !userId) return deny;
   const tokenHash = await sha256Hex(token.toLowerCase());
   const now = new Date().toISOString();
+  // token_hash is globally unique; the joined App and every follow-up check stay workspace-scoped.
   const invite = await env.DB.prepare("SELECT i.*,a.id AS app_id FROM hx_external_app_invites i JOIN hx_apps a ON a.org_id=i.org_id AND a.id=i.resource_id WHERE i.token_hash=?1 AND i.redeemed_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>?2 AND (i.access_expires_at IS NULL OR i.access_expires_at>?2) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=i.org_id AND m.user_github_id=?3) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=i.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=i.org_id)")
     .bind(tokenHash, now, userId).first();
   if (!invite || (await getMode(env.DB, invite.org_id)) !== "harness") return deny;

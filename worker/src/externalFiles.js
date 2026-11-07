@@ -12,6 +12,12 @@ const fail = (message = "File not found.", status = 404) => json({ message }, st
 const PAGE_MAX = 100;
 const FILE_MAX = 25 * 1024 * 1024;
 
+function safeDisplayFilename(path) {
+  const basename = String(path || "").split(/[\\/]/).filter(Boolean).at(-1) || "shared-file";
+  return basename.normalize("NFC").replace(/[\x00-\x1f\x7f"\\/]/g, "_").slice(0, 180).trim() || "shared-file";
+}
+
+
 function fileParts(url) {
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts.length < 4 || parts[0] !== "external" || parts[1] !== "files") return null;
@@ -65,6 +71,7 @@ async function readableFile(db, orgId, fileId, userId, now = new Date().toISOStr
       ON g.org_id = f.org_id AND g.resource_type = 'file' AND g.resource_id = f.id
      AND g.recipient_github_id = ?3 AND g.revoked_at IS NULL
      AND (g.expires_at IS NULL OR g.expires_at > ?4)
+     AND EXISTS(SELECT 1 FROM users verified WHERE verified.github_id=g.recipient_github_id AND verified.email_verified_at IS NOT NULL)
     WHERE f.org_id = ?1 AND f.id = ?2 AND v.kind = 'content'
       AND NOT EXISTS (SELECT 1 FROM memberships member
         WHERE member.org_id = f.org_id AND member.user_github_id = ?3)
@@ -77,9 +84,6 @@ async function readableFile(db, orgId, fileId, userId, now = new Date().toISOStr
 
 async function listVersions(db, orgId, fileId, userId, before, limit, now) {
   const rows = await db.prepare(`SELECT v.version, v.kind, v.content_type, v.size,
-      CASE WHEN v.created_by = 'system:retention'
-             OR EXISTS (SELECT 1 FROM users author WHERE author.github_id = v.created_by)
-        THEN v.created_by ELSE 'deleted-user' END AS created_by,
       v.created_at, v.restored_from, f.current_version,
       v.version = f.current_version AS is_current,
       purged.version IS NOT NULL AS purged
@@ -182,7 +186,7 @@ export async function handleExternalFiles(request, env, url) {
   if (parts.length === 4) {
     const file = await readableFile(env.DB, orgId, fileId, actor.user.github_id, now);
     return file ? json({ permission: file.permission, file: {
-      id: file.id, scope: file.scope, path: file.path, createdBy: file.created_by,
+      id: file.id, path: safeDisplayFilename(file.path),
       createdAt: file.created_at, updatedAt: file.updated_at, version: file.current_version,
       contentType: file.content_type, size: file.size, deleted: false,
     } }) : fail();
@@ -199,7 +203,7 @@ export async function handleExternalFiles(request, env, url) {
     const rows = await listVersions(env.DB, orgId, fileId, actor.user.github_id, before, limit, now);
     const page = rows.slice(0, limit).map(row => ({
       version: row.version, kind: row.kind, contentType: row.content_type, size: row.size,
-      createdBy: row.created_by, createdAt: row.created_at, restoredFrom: row.restored_from,
+      createdAt: row.created_at, restoredFrom: row.restored_from,
       currentVersion: row.current_version, isCurrent: Boolean(row.is_current), purged: Boolean(row.purged),
     }));
     return json({ permission: file.permission, versions: page,

@@ -1,5 +1,6 @@
 import {currentIp} from '../requestContext.js';
 import {handleFileShareRoutes,servePublicFileShare} from './fileShareApprovals.js';
+import { handleExternalFileGrantRoutes } from './externalFileGrants.js';
 import {annotationProofRequiresIp} from './appReplyRequestProof.js';
 import {appActivityProof,visibleAppNotifications} from './appActivity.js';
 import { prepareAppGuidelines } from './appGuidelinesFence.js';
@@ -115,7 +116,7 @@ const fail = (result) => json({ message: result.error, ...(result.fields ? { fie
 const importMayBeSaved = 'A copy may have been created. After access is restored, check the Skill list before retrying.';
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-commit-assets|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-commit-assets|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|external\/files|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId, options) {
@@ -143,6 +144,10 @@ export async function handleHarness(request, env, url, context = {}) {
   const limited = await enforce(env, request, (isGatewayNodeRoute(url.pathname)||isDocumentNodeRoute(url.pathname)) ? "gateway/edge" : "team");
   if (limited) return limited;
 
+  if (/^\/external\/files\//.test(url.pathname)) {
+    const { handleExternalFiles } = await import('../externalFiles.js');
+    return handleExternalFiles(request,env,url);
+  }
   if (url.pathname === '/app-domains/resolve') return servePublicAppDomain(request, env, url);
   if (url.pathname.startsWith('/app-commit-assets/')) return servePublishedCommitAsset(request, env, url);
 
@@ -156,9 +161,23 @@ export async function handleHarness(request, env, url, context = {}) {
   if (/^\/hx\/files(?:\/|$)/.test(url.pathname)) {
     const orgId=url.searchParams.get('orgId'),who=await member(env,request,orgId);
     if(who.denied)return who.denied;
-    const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins')").all();
-    if(results.length!==6)return json({message:'Workspace file storage is not ready.'},503);
+    const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins','hx_external_resource_grants','hx_external_file_invites')").all();
+    if(results.length!==8)return json({message:'Workspace file storage is not ready.'},503);
     const identity={orgId,userId:String(who.session.github_id),headers:CORS_HEADERS};
+    const externalGrantRoute=await handleExternalFileGrantRoutes(request,env,url,{orgId,userId:identity.userId});
+    if(externalGrantRoute){
+      if(request.method==='POST'&&externalGrantRoute.status===201){
+        const result=await externalGrantRoute.clone().json();
+        if(url.pathname.endsWith('/external-grant-invites')){
+          await audit(env,request,{orgId,action:'workspace.file_external_invite_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{invitedEmail:result.invite.invitedEmail,permission:'view',expiresAt:result.invite.expiresAt}});
+        }else{
+          await audit(env,request,{orgId,action:'workspace.file_external_grant_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:result.grant.recipientGithubId,permission:'view',expiresAt:result.grant.expiresAt}});
+        }
+      }else if(request.method==='DELETE'&&externalGrantRoute.ok){
+        await audit(env,request,{orgId,action:'workspace.file_external_grant_revoked',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:url.pathname.split('/').at(-1)}});
+      }
+      return externalGrantRoute;
+    }
     const shareRoute=await handleFileShareRoutes(request,env,url,{orgId,userId:identity.userId,login:who.user.login});
     if(shareRoute)return shareRoute;
     if(request.method==='GET' && url.pathname==='/hx/files/scope'){

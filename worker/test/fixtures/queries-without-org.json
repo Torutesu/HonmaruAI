@@ -30,6 +30,7 @@
   "harness/followups.js": 1,
   "harness/templateShares.js": 1,
   "harness/workflows.js": 2,
-  "harness/remoteMcpOAuth.js": 1
+  "harness/remoteMcpOAuth.js": 1,
+  "externalApps.js": 1,
+  "harness/externalFileGrants.js": 3
 }
-
