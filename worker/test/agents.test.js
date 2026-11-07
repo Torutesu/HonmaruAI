@@ -640,7 +640,10 @@ test("an agent can wear a picture instead of its emoji: set by whoever may chang
   const replacement = await picture(toru, team.id);
   expect(replacement.status).toBe(200);
   const next = (await replacement.json()).agent.avatarUrl;
-  expect(next).toBeTruthy();\n  const signedNext = new URL(next);\n  expect(signedNext.searchParams.get("viewer")).toBe("8801");\n  expect(signedNext.searchParams.get("v")).toBe("2");
+  expect(next).toBeTruthy();
+  const signedNext = new URL(next);
+  expect(signedNext.searchParams.get("viewer")).toBe("8801");
+  expect(signedNext.searchParams.get("v")).toBe("2");
   expect(next).not.toBe(agent.avatarUrl);
   expect((await worker.fetch(new Request(agent.avatarUrl), env)).status).toBe(404);
   const off = await call(`/channels/agents/avatar?${q({ orgId: ORG, id: team.id })}`, { method: "DELETE", headers: { "x-session-token": toru } });
