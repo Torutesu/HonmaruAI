@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {AppAnnotation} from '../utils/harness'
 import {Icon} from './Icon'
 
-export type AppAnnotationSelection = { target: string; x: number; y: number; rect?: {left:number;top:number;width:number;height:number} }
+export type AppAnnotationSelection = { target: string; x: number; y: number; rect?: {left:number;top:number;width:number;height:number}; tableId?: string; rowId?: string; columnId?: string }
 
 export function AppAnnotationMarkers({annotations,section,openId,onOpenChange}:{annotations:AppAnnotation[];section:'overview'|'data';openId:string|null;onOpenChange:(id:string|null)=>void}) {
   const visible=annotations.filter(annotation=>annotation.section===section&&!annotation.tableId&&!annotation.rowId)
@@ -64,6 +64,29 @@ export function annotationTargetAt(x: number, y: number, layer: HTMLElement, roo
   return describeAnnotationTarget(target)
 }
 
+/** Bind table-cell annotations to the exact visible field and record. */
+export function annotationRecordAt(
+  x:number,
+  y:number,
+  layer:HTMLElement,
+  tableId:string|undefined,
+  columns:Array<{id:string;name:string}>,
+  root:Pick<Document,'elementsFromPoint'>=document,
+):Pick<AppAnnotationSelection,'tableId'|'rowId'|'columnId'> {
+  const previousPointerEvents=layer.style.pointerEvents
+  layer.style.pointerEvents='none'
+  try {
+    const target=root.elementsFromPoint(x,y).find(element=>element!==layer&&!layer.contains(element))
+    const cell=target?.closest('th,td') as HTMLTableCellElement|null|undefined
+    if(!cell||!tableId||!cell.closest('.hx-table'))return {}
+    const column=columns[cell.cellIndex]
+    if(!column)return {}
+    const row=cell.tagName==='TD'?cell.closest('tr[data-row]'):null
+    const rowId=row?.getAttribute('data-row')||undefined
+    return {columnId:column.id,...(rowId?{tableId,rowId}:{})}
+  } finally { layer.style.pointerEvents=previousPointerEvents }
+}
+
 /**
  * Published custom apps render inside an opaque sandbox frame. Ask the frame's
  * small, host-controlled message bridge to identify the element under the
@@ -121,7 +144,7 @@ export function resolveCustomAppAnnotationTarget(
   })
 }
 
-export function AppAnnotationLayer({ onSelect, onCancel, onShowAnnotations, showAnnotations }: { onSelect: (selection: AppAnnotationSelection) => void; onCancel: () => void; onShowAnnotations:()=>void; showAnnotations:boolean }) {
+export function AppAnnotationLayer({ onSelect, onCancel, onShowAnnotations, showAnnotations, tableId, columns=[] }: { onSelect: (selection: AppAnnotationSelection) => void; onCancel: () => void; onShowAnnotations:()=>void; showAnnotations:boolean; tableId?:string; columns?:Array<{id:string;name:string}> }) {
   const layer = useRef<HTMLDivElement>(null)
   const start = useRef<{ x: number; y: number; pointerId: number } | null>(null)
   const pending = useRef<AbortController | null>(null)
@@ -159,6 +182,7 @@ export function AppAnnotationLayer({ onSelect, onCancel, onShowAnnotations, show
         x: Math.round(((origin.x + clientX - bounds.left) / 2 / bounds.width) * 1000) / 10,
         y: Math.round(((origin.y + clientY - bounds.top) / 2 / bounds.height) * 1000) / 10,
         rect:{left:percent(Math.min(origin.x,endX),bounds.width),top:percent(Math.min(origin.y,endY),bounds.height),width:percent(width,bounds.width),height:percent(height,bounds.height)},
+        ...annotationRecordAt(clientX,clientY,layer.current,tableId,columns),
       }
       const controller = new AbortController()
       pending.current = controller

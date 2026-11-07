@@ -1,7 +1,7 @@
 import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {expect,test,vi} from 'vitest'
-import {annotationTargetAt,AppAnnotationDialog,AppAnnotationList,AppAnnotationMarkers,resolveCustomAppAnnotationTarget} from './AppAnnotation'
+import {annotationRecordAt,annotationTargetAt,AppAnnotationDialog,AppAnnotationLayer,AppAnnotationList,AppAnnotationMarkers,resolveCustomAppAnnotationTarget} from './AppAnnotation'
 import {AppConversationPanel} from './AppConversationPanel'
 
 test('annotation target lookup temporarily exposes the app beneath the drag layer',()=>{
@@ -10,6 +10,33 @@ test('annotation target lookup temporarily exposes the app beneath the drag laye
  const root={elementsFromPoint:()=>{expect(layer.style.pointerEvents).toBe('none');return [target]}}
  expect(annotationTargetAt(20,30,layer,root)).toBe('画面上の選択範囲')
  expect(layer.style.pointerEvents).toBe('auto')
+})
+
+test('table annotations retain the exact record and visible field scope',()=>{
+ const row={getAttribute:(name:string)=>name==='data-row'?'row-7':null}
+ const table={}
+ const cell={tagName:'TD',cellIndex:1,closest:(selector:string)=>selector==='tr[data-row]'?row:table}
+ const target={closest:(selector:string)=>selector==='th,td'?cell:null}
+ const layer={style:{pointerEvents:'auto'},contains:()=>false} as unknown as HTMLElement
+ const root={elementsFromPoint:()=>[target]} as unknown as Document
+ expect(annotationRecordAt(10,20,layer,'tasks',[{id:'title',name:'Title'},{id:'status',name:'Status'}],root)).toEqual({tableId:'tasks',rowId:'row-7',columnId:'status'})
+ expect(layer.style.pointerEvents).toBe('auto')
+})
+
+test('dragging on a table cell returns its record and field with the visual marker',async()=>{
+ const row={getAttribute:(name:string)=>name==='data-row'?'row-7':null}
+ const table={querySelectorAll:(selector:string)=>selector==='tbody tr[data-row]'?[row]:[]}
+ const cell={tagName:'TD',cellIndex:0,closest:(selector:string)=>selector==='tr[data-row]'?row:table}
+ const target={tagName:'INPUT',closest:(selector:string)=>selector==='th,td'?cell:null,getAttribute:()=>null}
+ const layer={style:{pointerEvents:'auto'},contains:()=>false,focus:vi.fn(),setPointerCapture:vi.fn(),getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})} as unknown as HTMLDivElement
+ vi.stubGlobal('document',{elementsFromPoint:()=>[target]})
+ const onSelect=vi.fn();let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppAnnotationLayer tableId="tasks" columns={[{id:'title',name:'Title'}]} showAnnotations={false} onShowAnnotations={()=>{}} onCancel={()=>{}} onSelect={onSelect}/>,{createNodeMock:element=>element.props.className==='hx-annotation-layer'?layer:null})})
+ const props=tree!.root.findByProps({className:'hx-annotation-layer'}).props
+ act(()=>props.onPointerDown({button:0,pointerId:1,clientX:10,clientY:10,preventDefault:vi.fn()}))
+ await act(async()=>{props.onPointerUp({pointerId:1,clientX:30,clientY:30});await new Promise(resolve=>setTimeout(resolve,0))})
+ expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({tableId:'tasks',rowId:'row-7',columnId:'title',rect:{left:10,top:10,width:20,height:20}}))
+ act(()=>tree!.unmount());vi.unstubAllGlobals()
 })
 
 test('annotation resolves an element inside a sandboxed custom app and rejects other frame messages',async()=>{
@@ -97,5 +124,18 @@ test('restored app annotation metadata is sent only with the explicit chat submi
  expect(postConversation).not.toHaveBeenCalled()
  await act(async()=>tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()}))
  expect(postConversation).toHaveBeenCalledWith('app',{tableId:undefined,rowId:undefined},'Please change the status',expect.any(String),marker)
+ act(()=>tree!.unmount());vi.unstubAllGlobals()
+})
+
+test('record annotation metadata stays attached to the selected record when the message is sent',async()=>{
+ vi.stubGlobal('document',{visibilityState:'visible'})
+ const marker={target:'Status · 2行目',x:44,y:66,section:'data' as const},postConversation=vi.fn().mockResolvedValue({}),api:any={
+  conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),postConversation,
+  drafts:{read:()=> 'Please update this field',readAnnotation:()=>marker,write:vi.fn(),writeAnnotation:vi.fn()},
+ }
+ let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" tableId="tasks" rowId="row-7" title="Record"/>)})
+ await act(async()=>tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()}))
+ expect(postConversation).toHaveBeenCalledWith('app',{tableId:'tasks',rowId:'row-7'},'Please update this field',expect.any(String),marker)
  act(()=>tree!.unmount());vi.unstubAllGlobals()
 })
