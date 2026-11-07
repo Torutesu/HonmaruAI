@@ -88,8 +88,8 @@ export async function listExternalThreadInvitations(api: Client, threadId: strin
   return value.invitations
 }
 
-export async function createExternalThreadInvitation(api: Client, threadId: string, input: ExternalThreadInvitationInput): Promise<{ invitationId:string; inviteUrl:string; expiresAt:string }> {
-  const value = await request<{ invited?:boolean; invitationId?:string; inviteUrl?:string|null; token?:string; expiresAt?:string }>(api,threadId,'POST',input,undefined,'invites')
+export async function createExternalThreadInvitation(api: Client, threadId: string, input: ExternalThreadInvitationInput): Promise<{ invitationId:string; inviteUrl:string; expiresAt:string; emailDelivery:'sent'|'failed'|'not_configured' }> {
+  const value = await request<{ invited?:boolean; invitationId?:string; inviteUrl?:string|null; token?:string; expiresAt?:string; emailDelivery?:{status?:'sent'|'failed'|'not_configured'} }>(api,threadId,'POST',input,undefined,'invites')
   let inviteUrl=value.inviteUrl||''
   if(!inviteUrl&&value.token){
     const url=new URL(window.location.href)
@@ -97,7 +97,7 @@ export async function createExternalThreadInvitation(api: Client, threadId: stri
     inviteUrl=url.toString()
   }
   if(!value.invited||!value.invitationId||!inviteUrl||!value.expiresAt) throw new ExternalThreadShareError('The invitation service returned an invalid invitation.',502)
-  return {invitationId:value.invitationId,inviteUrl,expiresAt:value.expiresAt}
+  return {invitationId:value.invitationId,inviteUrl,expiresAt:value.expiresAt,emailDelivery:value.emailDelivery?.status||'not_configured'}
 }
 
 export async function revokeExternalThreadInvitation(api: Client, threadId: string, invitationId: string): Promise<boolean> {

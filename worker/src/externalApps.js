@@ -2,6 +2,7 @@ import { getSession, getUserByGithubId } from "./db.js";
 import { getMode } from "./harness/mode.js";
 import { sha256Hex } from "./auth.js";
 import { addRow, updateRow, deleteRow } from "./harness/tables.js";
+import { deliverExternalInvite } from "./externalInviteMail.js";
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -333,7 +334,10 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
     const inserted = await env.DB.prepare(`INSERT INTO hx_external_app_invites (id,org_id,resource_id,invited_email,permission,access_expires_at,token_hash,created_by,created_at,expires_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10 WHERE ${sharingManagerWriteGuard('?2','?3','?8')}`)
       .bind(id, orgId, appId, email, permission, accessExpiresAt, tokenHash, actor.user.github_id, now, new Date(Date.now() + 7 * 86400000).toISOString()).run();
     if (!Number(inserted.meta?.changes || 0)) return fail("Sharing manager access was revoked.", 403);
-    return json({ invite: { id, invitedEmail: email, permission, accessExpiresAt, token, inviteUrl: new URL("/#/external-invite/" + token, url.origin).toString() } }, 201);
+    const inviteBase = env.APP_WEB_URL || url.origin;
+    const inviteUrl = new URL("/#/external-invite/" + token, inviteBase).toString();
+    const emailDelivery = await deliverExternalInvite(env, { id, to: email, resource: "an App", inviteUrl, expiresAt: new Date(Date.now() + 7 * 86400000).toISOString() });
+    return json({ invite: { id, invitedEmail: email, permission, accessExpiresAt, token, inviteUrl, emailDelivery } }, 201);
   }
   if (parts.length === 6 && parts[5] === "invites" && request.method === "DELETE") {
     return fail("Invalid invite route.");

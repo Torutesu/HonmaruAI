@@ -13,7 +13,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     requests.push({ url, init })
     if (url.endsWith('/sharing') && init?.method === 'POST') {
-      return new Response(JSON.stringify({ invite: { token: 'a'.repeat(64) } }), { status: 201 })
+      return new Response(JSON.stringify({ invite: { token: 'a'.repeat(64), emailDelivery: { status: 'not_configured' } } }), { status: 201 })
     }
     if (url.endsWith('/sharing/requests')) return new Response(JSON.stringify({ requests: [
       { id: 'request-1', tableId: '', rowId: '', guestGithubId: 'guest-1', name: 'Guest Person', login: 'guest', email: 'guest@example.com', body: 'Please confirm this update.', requestedAt: '2026-11-07T10:00:00.000Z' },
@@ -48,7 +48,7 @@ test('App owner can invite a named guest, approve a message, change permission a
   const inviteBody = JSON.parse(String(inviteRequest?.init?.body))
   expect(inviteBody).toMatchObject({ email: 'new@example.com', permission: 'edit' })
   expect(Date.parse(inviteBody.expiresAt)).toBeGreaterThan(Date.now())
-  expect(JSON.stringify(tree?.toJSON())).toContain('Honmaru does not email this invitation')
+  expect(JSON.stringify(tree?.toJSON())).toContain('Email delivery is not configured')
   expect(JSON.stringify(tree?.toJSON())).toContain('one-time link')
   const writeText = vi.fn(async () => {})
   vi.stubGlobal('navigator', { clipboard: { writeText } })
