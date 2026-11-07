@@ -5,7 +5,7 @@ import {workflowSourceMayRun} from './workflowSourceAuthority.js';
 import {tryWorkflowNotice} from './workflowNoticeDelivery.js';
 import {ensureWorkflowSafety,readWorkflowSafety,workflowBudgetStatus,workflowBudgetWindows,workflowAiBudgetWindows,workflowBudgetReason,recoverWorkflowBudgetPause,pauseWorkflowForBudget,workflowSettlementStatements} from './workflowSafety.js';
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
-import { mayUseApp, mayUseTable } from './resourceAccess.js';
+import { mayUseApp, mayUseTable, mayEditTable } from './resourceAccess.js';
 import { holdWorkflowEvent } from './workflowHeld.js';
 import { WORKFLOW_WEBHOOK_REPLAY_TTL_MS, verifyWorkflowWebhook } from './workflowWebhookSignature.js';
 import { mayUseConversation } from './conversationAccess.js';
@@ -862,7 +862,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       return { status: "ok", output: String(answer).slice(0, 4000) };
     }
     case "add_row": {
-      const canUseTable = await mayUseTable(db, orgId, step.tableId, owner);
+      const canUseTable = await mayEditTable(db, orgId, step.tableId, owner);
       authorizationTrace.record('table', step.tableId, canUseTable);
       if (!canUseTable) return { status: "failed", error: "Table access required." };
       const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`);
@@ -887,7 +887,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       }
       const rowId = step.rowId ? render(step.rowId, scope) : implicitRowId;
       if (tableId) {
-        const canUseTable = await mayUseTable(db, orgId, tableId, owner);
+        const canUseTable = await mayEditTable(db, orgId, tableId, owner);
         authorizationTrace.record('table', tableId, canUseTable);
         if (!canUseTable) return { status: "failed", error: "Table access required." };
       }

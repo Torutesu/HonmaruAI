@@ -119,6 +119,20 @@ test("a table keeps its values in the column's type", async () => {
   expect(renamed.table.columns[0]).toMatchObject({ id: "company", name: "Account" });
 });
 
+test('mixed-case guests cannot read or mutate standalone Harness tables', async () => {
+  const made = await send('POST', '/tables', mika, { orgId: ORG, name: 'Standalone', columns: [{ name: 'Secret', type: 'text' }] });
+  const { table } = await made.json();
+  await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id='9102'").bind(ORG).run();
+  const { mayUseTable } = await import('../src/harness/resourceAccess.js');
+  expect(await mayUseTable(env.DB, ORG, table.id, '9102')).toBe(false);
+  expect((await get(`/tables/${table.id}?orgId=${ORG}`, mika)).status).toBe(403);
+  expect((await send('POST', `/tables/${table.id}/rows`, mika, { orgId: ORG, values: { secret: 'blocked' } })).status).toBe(403);
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  expect((await callHarnessTool(env, { orgId: ORG, githubId: '9102' }, 'query_rows', { tableId: table.id })).isError).toBe(true);
+  expect((await callHarnessTool(env, { orgId: ORG, githubId: '9102' }, 'add_row', { tableId: table.id, values: { secret: 'blocked' } })).isError).toBe(true);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?1').bind(table.id).first()).toMatchObject({ n: 0 });
+});
+
 test("an app from a template: its views, worked out on the server", async () => {
   const at = new Date().toISOString();
   await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'sales','Sales',0,'9101',?2)").bind(ORG, at).run();
@@ -520,6 +534,80 @@ test('app creators cannot spoof ownership and private grants require live member
   await setAppAccess(env.DB, ORG, app.id, '9102', { visibility: 'private', version: 0 });
   await env.DB.prepare('DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = ?2').bind(ORG, '9102').run();
   expect(await mayUseApp(env.DB, ORG, app.id, '9102')).toBe(false);
+});
+
+test('personal app grants inherit defaults, enforce deny precedence, and make view grants read-only', async () => {
+  const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9103'").bind(ORG).run();
+  const accessPath=`/apps/${app.id}/access`;
+  const saved=await send('PUT',accessPath,mika,{orgId:ORG,visibility:'private',version:0,people:[{userId:'9103',permission:'view'}]});
+  expect(saved.status).toBe(200);
+  expect((await saved.json()).people.find(person=>person.userId==='9103')).toMatchObject({permission:'view',explicit:true,canOverride:true});
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,guest)).status).toBe(200);
+  expect((await send('POST',`/tables/${app.tableId}/rows`,guest,{orgId:ORG,values:{company:'Blocked'}})).status).toBe(404);
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9103'},'add_row',{tableId:app.tableId,values:{company:'Blocked'}})).isError).toBe(true);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB,ORG,{name:'View-only write',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{company:'Blocked'}}]},'9103');
+  expect(await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).toMatchObject({status:'failed',log:[expect.objectContaining({error:'Table access required.'})]});
+  const { workflow: ownerWorkflow } = await createWorkflow(env.DB,ORG,{name:'Owner write',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{company:'Owner action'}}]},'9102');
+  expect((await send('POST',`/workflows/${ownerWorkflow.id}/run`,guest,{orgId:ORG})).status).toBe(403);
+
+  const edit=await send('PUT',accessPath,mika,{orgId:ORG,visibility:'private',version:1,people:[{userId:'9103',permission:'edit'}]});
+  expect(edit.status).toBe(200);
+  expect((await send('POST',`/tables/${app.tableId}/rows`,guest,{orgId:ORG,values:{company:'Allowed'}})).status).toBe(201);
+  expect((await send('PUT',`/apps/${app.id}`,guest,{orgId:ORG,name:'Edited by collaborator'})).status).toBe(200);
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9103'},'add_row',{tableId:app.tableId,values:{company:'Allowed by MCP'}})).isError).not.toBe(true);
+  expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).status).toBe('done');
+  expect((await send('POST',`/workflows/${ownerWorkflow.id}/run`,guest,{orgId:ORG})).status).toBe(201);
+
+  const deny=await send('PUT',accessPath,mika,{orgId:ORG,visibility:'workspace',version:2,people:[{userId:'9103',permission:'none'}]});
+  expect(deny.status).toBe(200);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,guest)).status).toBe(404);
+  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`,guest)).status).toBe(404);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,toru)).status).toBe(200);
+
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG,'9103').run();
+  expect(await env.DB.prepare('SELECT 1 FROM hx_app_person_access WHERE org_id=?1 AND app_id=?2 AND user_github_id=?3').bind(ORG,app.id,'9103').first()).toBeNull();
+  await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES(?1,'9103','member',datetime('now'))").bind(ORG).run();
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,guest)).status).toBe(200);
+});
+
+test('sharing saves keep the prior app policy when a target member leaves after preflight', async () => {
+  const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9103'").bind(ORG).run();
+  const accessPath=`/apps/${app.id}/access`;
+  const created=await send('PUT',accessPath,mika,{orgId:ORG,visibility:'private',version:0,people:[{userId:'9103',permission:'view'}]});
+  expect(created.status).toBe(200);
+  const racingDb=new Proxy(env.DB,{get(db,key){
+    if(key==='batch')return async statements=>{
+      await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG,'9103').run();
+      return db.batch(statements);
+    };
+    return typeof db[key]==='function'?db[key].bind(db):db[key];
+  }});
+  const {setAppAccess,appAccess}=await import('../src/harness/resourceAccess.js');
+  const denied=await setAppAccess(racingDb,ORG,app.id,'9102',{visibility:'workspace',version:1,people:[{userId:'9103',permission:'edit'}]});
+  expect(denied).toMatchObject({status:409});
+  expect(await appAccess(env.DB,ORG,app.id)).toMatchObject({visibility:'private',version:1});
+  expect(await env.DB.prepare('SELECT change_token FROM hx_app_access WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).toMatchObject({change_token:null});
+});
+
+test('app person permissions and inventory are not truncated at 500 people', async () => {
+  const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+  const {upsertUser,upsertMembership}=await import('../src/db.js');
+  const people=[];
+  for(let index=0;index<501;index++){
+    const userId=`app-person-${index}`;
+    await upsertUser(env.DB,{githubId:userId,login:userId,name:`Person ${index}`,avatarUrl:null,locale:'en'});
+    await upsertMembership(env.DB,ORG,userId,'member');
+    people.push({userId,permission:index===500?'edit':'view'});
+  }
+  const {setAppAccess}=await import('../src/harness/resourceAccess.js');
+  const saved=await setAppAccess(env.DB,ORG,app.id,'9102',{visibility:'workspace',version:0,people});
+  expect(saved.error).toBeUndefined();
+  expect(saved.people).toHaveLength(503);
+  expect(saved.people.find(person=>person.userId==='app-person-500')).toMatchObject({permission:'edit',explicit:true});
 });
 
 test('table workflows lose access when an app becomes private, including historical runs', async () => {
