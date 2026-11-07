@@ -214,6 +214,35 @@
 .hx-program-code .hx-program-input:focus-visible { outline: none; }
 
 .hx-template-sharing { margin-top: 20px; }
+.app-sharing-people { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hx-border, var(--bone)); }
+.app-sharing-people > .rows-title { margin: 10px 0 8px; font-size: 13px; font-weight: 650; }
+.app-sharing-filter { display: grid; gap: 6px; max-width: 440px; margin: 8px 0 12px; color: var(--hx-muted, var(--ash)); font-size: 12px; }
+.app-sharing-filter input {
+  box-sizing: border-box; width: 100%; min-width: 0; min-height: 38px; padding: 8px 11px;
+  border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-input);
+  background: var(--hx-surface, var(--signal-white)); color: var(--hx-text, var(--ink-black)); font: inherit; font-size: 13px;
+}
+.app-sharing-filter input:focus-visible { outline: 2px solid var(--hx-text, var(--ink-black)); outline-offset: 2px; }
+.app-sharing-person-list {
+  max-height: min(420px, 50vh); overflow: auto; border: 1px solid var(--hx-border, var(--bone));
+  border-radius: var(--radius-input); background: var(--hx-surface, var(--signal-white));
+}
+.app-sharing-person { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--hx-border, var(--bone)); }
+.app-sharing-person:last-child { border-bottom: 0; }
+.app-sharing-person .row-main { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
+.app-sharing-person .row-main > :first-child, .app-sharing-person .row-sub { margin: 0; overflow-wrap: anywhere; }
+.app-sharing-person select {
+  box-sizing: border-box; flex: 0 1 280px; width: min(100%, 280px); min-width: 180px; min-height: 36px; padding: 6px 10px;
+  border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-input);
+  background: var(--hx-surface, var(--signal-white)); color: var(--hx-text, var(--ink-black));
+}
+.app-sharing-person select:focus-visible { outline: 2px solid var(--hx-text, var(--ink-black)); outline-offset: 2px; }
+.app-sharing-people > .row-sub { display: block; margin: 8px 0 0; color: var(--hx-muted, var(--ash)); font-size: 12px; }
+@media (max-width: 600px) {
+  .app-sharing-person { align-items: flex-start; gap: 8px; }
+  .app-sharing-person select { flex-basis: 44%; min-width: 140px; }
+}
+
 .hx-template-sharing .row-main > label { display: grid; gap: 5px; max-width: 420px; margin: 0 0 10px; font-size: 12px; color: var(--hx-muted, var(--ash)); }
 .hx-template-sharing .row-main > .hx-template-review { display: flex; align-items: flex-start; gap: 8px; max-width: 640px; line-height: 1.45; }
 .hx-template-review input { flex: 0 0 auto; margin-top: 2px; }

@@ -161,6 +161,10 @@ CREATE TABLE IF NOT EXISTS hx_memory_scopes (memory_id TEXT PRIMARY KEY REFERENC
 CREATE TABLE IF NOT EXISTS hx_workflow_run_definitions (run_id TEXT PRIMARY KEY REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, org_id TEXT NOT NULL, definition TEXT NOT NULL, created_at TEXT NOT NULL);
 
 CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, PRIMARY KEY (org_id, app_id));
+ALTER TABLE hx_app_access ADD COLUMN change_token TEXT;
+CREATE TABLE IF NOT EXISTS hx_app_person_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL, user_github_id TEXT NOT NULL, permission TEXT NOT NULL CHECK (permission IN ('none','view','edit')), updated_at TEXT NOT NULL, PRIMARY KEY (org_id,app_id,user_github_id), FOREIGN KEY (app_id) REFERENCES hx_apps(id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_hx_app_person_access_user ON hx_app_person_access(org_id,user_github_id,app_id);
+CREATE TRIGGER IF NOT EXISTS hx_app_person_access_membership_deleted AFTER DELETE ON memberships BEGIN DELETE FROM hx_app_person_access WHERE org_id=OLD.org_id AND user_github_id=OLD.user_github_id; END;
 
 CREATE TABLE IF NOT EXISTS hx_skill_access (org_id TEXT NOT NULL, skill_id TEXT NOT NULL REFERENCES hx_skills(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, PRIMARY KEY (org_id, skill_id));
 
