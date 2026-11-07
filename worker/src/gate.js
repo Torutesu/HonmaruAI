@@ -1,6 +1,7 @@
 import { isPro } from "./entitlements.js";
 import { countAIUse, reserveAIUse, releaseAIUse } from "./db.js";
 import { workspaceBudgetAdmission } from "./workspaceAIBudget.js";
+import { cancelDeploymentBudgetWorkflowRuns } from "./workspaceBudgetStop.js";
 
 export const FREE_DAILY_ROUTES = 3;
 
@@ -81,21 +82,27 @@ async function metered(env, githubId, limit) {
 /// The same question, asked for a workspace: a workspace that runs on its
 /// own key is never metered. Every caller that knows the workspace goes
 /// through here.
-export async function allowanceFor(env, orgId, { githubId, userKey }) {
+export async function allowanceFor(env, orgId, { githubId, userKey, credentialSource }) {
   let workspaceKey = false;
   // Only someone signed in may spend a workspace's own key: the route checks
   // membership for a session alone, and a workspace id ("owner/repo") is no
   // secret, so an anonymous caller naming one would bill that team.
   if (orgId && !userKey && githubId) {
-    const budget = await workspaceBudgetAdmission(env.DB, orgId);
-    workspaceKey = budget.source === 'workspace-key';
-    if (!budget.allowed) return {
+    const budget = await workspaceBudgetAdmission(env.DB, orgId, Date.now(), { ignoreWorkspaceKey: credentialSource === 'deployment' });
+    workspaceKey = credentialSource === 'workspace' || budget.source === 'workspace-key';
+    if (!budget.allowed) {
+      if (budget.reason === 'workspace_ai_budget') {
+        try { await cancelDeploymentBudgetWorkflowRuns(env.DB, orgId); }
+        catch (err) { console.error("workspace budget workflow stop failed", err?.message || err); }
+      }
+      return {
       ...DENIED_WORKSPACE_BUDGET,
       workspaceBudgetExceeded: budget.reason === 'workspace_ai_budget',
       workspaceBudgetCheckUnavailable: budget.reason === 'workspace_ai_budget_unavailable',
       message: budget.message,
       ...(budget.reason === 'workspace_ai_budget_unavailable' ? { messageKey: 'agent.workspaceBudgetCheckUnavailable' } : {}),
-    };
+      };
+    }
   }
   return checkAIAllowance(env, { githubId, userKey, workspaceKey });
 }

@@ -3,7 +3,7 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import { fetchMock } from "./helpers/fetch-mock.js";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { providerFor, jevFor, readerEnvFor } from "../src/orgAI.js";
+import { providerFor, jevFor, readerEnvFor, workflowCredentialSource } from "../src/orgAI.js";
 
 // What a workspace runs its AI on is set from the Tools screen by its admin:
 // a model, a key of its own, System One. A member reads the status; nobody
@@ -122,4 +122,24 @@ test("a routed instruction goes to the workspace's model on the workspace's key"
   // Their key, their bill: the ledger does not count it as ours.
   const row = await env.DB.prepare("SELECT byok, model FROM ai_calls WHERE org_id = ?1").bind(ORG).first();
   expect(row).toMatchObject({ byok: 1, model: "gpt-4.1-nano" });
+});
+
+
+test("workflow credential sources stay pinned and fail closed when revoked", async () => {
+  const deploymentEnv = { ...env, OPENAI_API_KEY: "sk-deployment-abcdefghijkl" };
+  expect(await workflowCredentialSource(deploymentEnv, ORG)).toBe("deployment");
+  expect(await providerFor(deploymentEnv, ORG, undefined, { credentialSource: "deployment" }))
+    .toMatchObject({ apiKey: "sk-deployment-abcdefghijkl", byok: false });
+
+  await put("/orgs/ai", toru, { orgId: ORG, openaiKey: "sk-workspace-abcdefghijkl1234" });
+  expect(await providerFor(deploymentEnv, ORG, undefined, { credentialSource: "deployment" }))
+    .toMatchObject({ apiKey: "sk-deployment-abcdefghijkl", byok: false });
+  expect(await workflowCredentialSource(deploymentEnv, ORG)).toBe("workspace");
+  expect(await providerFor(deploymentEnv, ORG, undefined, { credentialSource: "workspace" }))
+    .toMatchObject({ apiKey: "sk-workspace-abcdefghijkl1234", byok: true });
+
+  await put("/orgs/ai", toru, { orgId: ORG, openaiKey: null });
+  expect(await providerFor(deploymentEnv, ORG, undefined, { credentialSource: "workspace" })).toBeUndefined();
+  expect(await providerFor({ ...env, OPENAI_API_KEY: undefined, OPENROUTER_API_KEY: undefined }, ORG, undefined,
+    { credentialSource: "deployment" })).toBeUndefined();
 });

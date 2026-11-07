@@ -53,12 +53,12 @@ export function workspaceAIBudgetExceeded(status) {
 // does not estimate or meter external-provider/connector charges. A workspace
 // OpenAI key remains the workspace's own bill and bypasses this deployment
 // budget, matching allowanceFor.
-export async function workspaceBudgetAdmission(db, orgId, now = Date.now()) {
+export async function workspaceBudgetAdmission(db, orgId, now = Date.now(), { ignoreWorkspaceKey = false } = {}) {
   if (!db || !orgId) return { allowed: true };
   try {
     const settings = await db.prepare(`SELECT openai_key,daily_budget_micros,weekly_budget_micros,monthly_budget_micros,
       budget_action,budget_revision FROM org_ai_settings WHERE org_id=?1`).bind(orgId).first();
-    if (settings?.openai_key) {
+    if (!ignoreWorkspaceKey && settings?.openai_key) {
       let workspaceKey = null;
       try { workspaceKey = await openField(settings.openai_key, aad.aiKey(orgId, 'openai_key'), orgId); } catch {}
       if (workspaceKey) return { allowed: true, source: 'workspace-key' };

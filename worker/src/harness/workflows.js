@@ -13,6 +13,8 @@ import { getMode } from './mode.js';
 import { callRemoteMcpTool, remoteMcpTools } from './remoteMcp.js';
 import { createWorkflowAuthorizationTrace, publicWorkflowAuthorizationEvents } from './workflowAuthorizationTrace.js';
 import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
+import { workflowCredentialSource } from '../orgAI.js';
+import { cancelDeploymentBudgetWorkflowRuns } from '../workspaceBudgetStop.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
 //
@@ -55,6 +57,12 @@ const now = () => new Date().toISOString();
 const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 const parse = (s, f) => { try { return JSON.parse(s); } catch { return f; } };
 const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+async function stopDeploymentRunsIfBudgetPaused(db, orgId, budget) {
+  if (budget?.reason !== 'workspace_ai_budget') return 0;
+  try { return await cancelDeploymentBudgetWorkflowRuns(db, orgId); }
+  catch (err) { console.error('workspace budget workflow stop failed', err?.message || err); return 0; }
+}
 
 // ── Definitions ─────────────────────────────────────────────────────────
 
@@ -239,6 +247,7 @@ const publicRun = (r, revisions) => {
   }
   return {
   id: r.id, workflowId: r.workflow_id, definitionRevision: matchingRevision(snapshot, r.started_at, revisions), definitionSnapshotAvailable, trigger: r.trigger, status: r.status,
+  credentialSource: ['deployment','workspace','none','unresolved'].includes(r.credential_source) ? r.credential_source : 'unknown',
   input: parse(r.input, null), log: parse(r.log, []).map(entry => {
     if (!entry || typeof entry !== 'object') return entry;
     const authorization = publicWorkflowAuthorizationEvents(entry.authorization);
@@ -507,10 +516,16 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   if(safety?.paused_at)return {status:'paused',reason:safety.pause_reason};
   if (await getMode(env.DB, orgId) === 'harness') {
     const budget = await workspaceBudgetAdmission(env.DB, orgId);
-    if (!budget.allowed) return { status: 'paused', reason: budget.reason };
+    if (!budget.allowed) {
+      await stopDeploymentRunsIfBudgetPaused(env.DB, orgId, budget);
+      return { status: 'paused', reason: budget.reason };
+    }
   }
   const id = newId("run");
   const admittedAt=now(),windows=workflowBudgetWindows(Date.parse(admittedAt)),aiWindows=workflowAiBudgetWindows(Date.parse(admittedAt));
+  const credentialSource = workflow.steps.some(step => step.type === 'agent')
+    ? await workflowCredentialSource(env, orgId).catch(() => 'unresolved')
+    : 'none';
   // Store the definition and the run atomically. An approval always resumes
   // the same steps that were presented when the run started.
   const automationReleaseId=await managedAutomationRelease(env.DB,orgId,workflow.id);
@@ -521,8 +536,8 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   const tooLarge = stored !== null && stored.length > MAX_INPUT;
   const failed = tooLarge ? [{ step: 1, type: workflow.steps[0]?.type, at: now(), status: "failed", error: `What started this run is over ${MAX_INPUT} characters.` }] : [];
   const created = await env.DB.batch([
-    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at, finished_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at, finished_at, credential_source)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?30
       WHERE (?12 IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_held_events h JOIN hx_workflows w ON w.id=h.workflow_id AND w.org_id=h.org_id
         WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
       AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))
@@ -539,7 +554,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
           AND (s.monthly_ai_budget_micros=0 OR ((SELECT COALESCE(SUM(u.estimated_micros),0) FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27)<s.monthly_ai_budget_micros AND NOT EXISTS(SELECT 1 FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27 AND u.estimated_micros IS NULL))))))
       AND ${managedAutomationGuard('?2','?3','?14')}
       AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
-      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null,rowEventHash),
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null,rowEventHash,credentialSource),
     env.DB.prepare(`INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at)
       SELECT ?1,?2,json_set(?3,'$.definitionRevision',(
         SELECT MAX(h.revision) FROM hx_workflow_revisions h WHERE h.org_id=?2 AND h.workflow_id=json_extract(?3,'$.id')
@@ -653,6 +668,8 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     return failPreflightAuthorization('app', workflow.trigger.appId);
   }
   const authorize = async authorizationTrace => {
+    const activeRun = await db.prepare("SELECT 1 FROM hx_workflow_runs WHERE org_id=?1 AND id=?2 AND status='running'").bind(orgId, runId).first();
+    if (!activeRun) return false;
     const workflowAllowed = await managedAutomationMayRun(db, orgId, workflow.id, workflow.automationReleaseId)
       && await workflowSourceMayRun(db, orgId, workflow.id, workflow.createdBy);
     authorizationTrace?.record('workflow', workflow.id, workflowAllowed);
@@ -724,10 +741,17 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
         // every next Harness step that could dispatch work or mutate data.
         if (!entry && await getMode(db, orgId) === 'harness') {
           const budget = await workspaceBudgetAdmission(db, orgId);
-          if (!budget.allowed) entry = {status:'failed',error:budget.message,reason:budget.reason};
+          if (!budget.allowed) {
+            // Preserve completed step outcomes before the budget cancellation
+            // appends its terminal audit event to the durable run history.
+            await db.prepare("UPDATE hx_workflow_runs SET log=?1 WHERE org_id=?2 AND id=?3 AND status='running'")
+              .bind(JSON.stringify(log), orgId, runId).run();
+            await stopDeploymentRunsIfBudgetPaused(db, orgId, budget);
+            entry = {status:'failed',error:budget.message,reason:budget.reason};
+          }
         }
         if (!entry) entry = step.type==='code' ? await enqueueWorkflowProgram(db,{orgId,runId})
-          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, authorize, authorizationTrace });
+          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, authorize, authorizationTrace, credentialSource: run.credentialSource });
       }
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
@@ -736,6 +760,16 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
       ...(authorizationTrace.events.length ? { authorization: authorizationTrace.events } : {}) };
     log[index] = entry;
     scope.steps[index + 1] = entry;
+    if (await getMode(db, orgId) === 'harness') {
+      const budgetAfterStep = await workspaceBudgetAdmission(db, orgId);
+      if (!budgetAfterStep.allowed) {
+        await db.prepare("UPDATE hx_workflow_runs SET log=?1 WHERE org_id=?2 AND id=?3 AND status='running'")
+          .bind(JSON.stringify(log), orgId, runId).run();
+        await stopDeploymentRunsIfBudgetPaused(db, orgId, budgetAfterStep);
+        const currentRun = await getRun(db, orgId, runId);
+        if (currentRun?.status !== 'running') return currentRun;
+      }
+    }
     if(entry.status==='pending') {
       // A fast node may have already committed a terminal result. Do not
       // replace that result with the older queued display state.
@@ -744,6 +778,10 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     }
     if (entry.status === "failed") { status = "failed"; index += 1; break; }
     if (entry.status === "waiting") { status = "waiting"; cardId = entry.cardId; index += 1; break; }
+    // Persist each completed step so asynchronous budget cancellation retains
+    // the outcomes that were completed before the run was stopped.
+    await db.prepare("UPDATE hx_workflow_runs SET log=?1 WHERE org_id=?2 AND id=?3 AND status='running'")
+      .bind(JSON.stringify(log), orgId, runId).run();
   }
   await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = ?1, log = ?2, next_step = ?3, card_id = COALESCE(?4, card_id), finished_at = ?5 WHERE id = ?6 AND org_id = ?7 AND status='running'")
     .bind(status, JSON.stringify(log), index, cardId, status === "waiting" ? null : now(), runId, orgId),
@@ -783,7 +821,10 @@ async function workflowAgentRemoteTools(env, { orgId, agentRow, owner, reservedN
       parameters: offered.inputSchema,
       run: async args => {
         const budgetBeforeCall = await workspaceBudgetAdmission(env.DB, orgId);
-        if (!budgetBeforeCall.allowed) return 'Not searched: the workspace AI usage pause is active.';
+        if (!budgetBeforeCall.allowed) {
+          await stopDeploymentRunsIfBudgetPaused(env.DB, orgId, budgetBeforeCall);
+          return 'Not searched: the workspace AI usage pause is active.';
+        }
         const allowedBeforeCall = await workflowRemoteToolAllowed(env.DB, orgId, offered);
         authorizationTrace.record('connection', `${ref.serverId}/${ref.toolName}`, allowedBeforeCall);
         if (!allowedBeforeCall) {
@@ -805,7 +846,10 @@ async function workflowAgentRemoteTools(env, { orgId, agentRow, owner, reservedN
           return 'Not searched: workspace Remote MCP access changed while the request was running; the result was discarded.';
         }
         const budgetAfterCall = await workspaceBudgetAdmission(env.DB, orgId);
-        if (!budgetAfterCall.allowed) return 'Not searched: the workspace AI usage pause became active while the request was running; the result was discarded.';
+        if (!budgetAfterCall.allowed) {
+          await stopDeploymentRunsIfBudgetPaused(env.DB, orgId, budgetAfterCall);
+          return 'Not searched: the workspace AI usage pause became active while the request was running; the result was discarded.';
+        }
         if (!result || result.isError) return 'The workspace Remote MCP source could not return a result.';
         const text = (Array.isArray(result.content) ? result.content : [])
           .filter(part => part?.type === 'text' && typeof part.text === 'string')
@@ -819,7 +863,7 @@ async function workflowAgentRemoteTools(env, { orgId, agentRow, owner, reservedN
   return tools;
 }
 
-async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, authorize, authorizationTrace }) {
+async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, authorize, authorizationTrace, credentialSource }) {
   const db = env.DB;
   if (step.channel) {
     const canUseConversation = await mayUseConversation(db, orgId, owner, step.channel);
@@ -860,7 +904,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         }));
         return workflowAllowed && budget.allowed && agentAllowed && conversationAllowed && connectionsAllowed.every(Boolean);
       };
-      const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200,
+      const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200, credentialSource,
         usageContext: { roomSlug: step.channel?.startsWith("b:") ? step.channel.slice(2) : null, agentId: agentRow.id, workflowId: workflow.id } });
       if (!complete) return { status: "failed", error: "No AI model, or none left today." };
       const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "", userId: owner, allowPrivate: false });

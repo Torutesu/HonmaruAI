@@ -97,16 +97,39 @@ export async function saveAISettings(db, orgId, { model, openaiKey, typesafeKey,
 /// The provider for one workspace's call. A person's own key first, then
 /// the workspace's, then the deployment's. A workspace key is its own bill,
 /// so the ledger is told it is not ours.
-export async function providerFor(env, orgId, userKey) {
-  const settings = orgId ? await loadAISettings(env.DB, orgId) : {};
+export async function providerFor(env, orgId, userKey, { credentialSource } = {}) {
+  // Legacy active runs keep dynamic provider routing. New workflow runs pin a
+  // nonsecret source at admission so config changes cannot move charges.
+  const source = credentialSource === "unknown" ? undefined : credentialSource;
+  if (source !== undefined && (!['deployment', 'workspace'].includes(source) || userKey)) return undefined;
+  const settings = source === 'deployment' ? {} : (orgId ? await loadAISettings(env.DB, orgId) : {});
+  if (settings.settingsReadFailed) return undefined;
+  if (source === 'workspace' && !settings.openaiKey) return undefined;
   const scoped = {
+    ...env,
+    OPENAI_API_KEY: source === 'deployment' ? env.OPENAI_API_KEY
+      : source === 'workspace' ? settings.openaiKey : settings.openaiKey || env.OPENAI_API_KEY,
+    OPENAI_MODEL: source === 'deployment' ? env.OPENAI_MODEL
+      : source === 'workspace' ? settings.model || env.OPENAI_MODEL : settings.model || env.OPENAI_MODEL,
+    OPENROUTER_API_KEY: source === 'workspace' ? undefined : env.OPENROUTER_API_KEY,
+    OPENROUTER_MODEL: source === 'workspace' ? undefined : env.OPENROUTER_MODEL,
+  };
+  const provider = providerConfig(scoped, userKey);
+  if (provider && !userKey && (source === 'workspace' || (source === undefined && settings.openaiKey))) provider.byok = true;
+  if (provider && source === 'deployment') provider.byok = false;
+  return provider;
+}
+
+export async function workflowCredentialSource(env, orgId) {
+  const settings = orgId ? await loadAISettings(env.DB, orgId) : {};
+  if (settings.settingsReadFailed) return 'unresolved';
+  const provider = providerConfig({
     ...env,
     OPENAI_API_KEY: settings.openaiKey || env.OPENAI_API_KEY,
     OPENAI_MODEL: settings.model || env.OPENAI_MODEL,
-  };
-  const provider = providerConfig(scoped, userKey);
-  if (provider && !userKey && settings.openaiKey) provider.byok = true;
-  return provider;
+  });
+  if (!provider) return 'none';
+  return settings.openaiKey && provider.providerName === 'OpenAI' ? 'workspace' : 'deployment';
 }
 
 /// System One for one workspace: its own key, or the deployment's.

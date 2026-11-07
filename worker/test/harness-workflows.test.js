@@ -1886,9 +1886,9 @@ test('an Agent that crosses the workspace pause cannot dispatch the following po
    .reply(200,{choices:[{message:{content:'The report is ready.'}}],usage:{prompt_tokens:1000000,completion_tokens:1000000}});
  try {
   const run=await startRun({...env,OPENAI_API_KEY:'sk-test'},{orgId:ORG,workflow,trigger:'manual',startedBy:'9302'});
-  expect(run.status).toBe('failed');
+  expect(run.status).toBe('cancelled');
   expect(run.log[0]).toMatchObject({type:'agent',status:'ok'});
-  expect(run.log[1]).toMatchObject({type:'post',status:'failed',reason:'workspace_ai_budget'});
+  expect(run.log.at(-1)).toMatchObject({status:'cancelled',reason:'workspace_budget_exceeded'});
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_calls WHERE org_id=?1 AND byok=0').bind(ORG).first()).n).toBeGreaterThan(0);
   expect((await messages(mika)).map(message=>message.body)).not.toContain('Must not post after the budget is reached.');
   fetchMock.assertNoPendingInterceptors();
@@ -2097,4 +2097,27 @@ test('workflow row steps handle 39 valid relation fields',async()=>{
  const values={task:'Workflow'};for(let i=0;i<39;i++)values[`link_${i}`]=i%2?[seed.id]:seed.id;
  const {createWorkflow}=await import('../src/harness/workflows.js');const {workflow}=await createWorkflow(env.DB,ORG,{name:'Many links',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values},{type:'update_row',tableId:app.tableId,rowId:seed.id,values}]},'9302');
  const run=await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9302'});expect(run.status).toBe('done');expect(run.log).toHaveLength(2);
+});
+
+
+test("workflow admission stores the selected credential source before an approval wait", async () => {
+  const { createWorkflow } = await import("../src/harness/workflows.js");
+  const { agent } = await (await send("POST", "/channels/agents", mika, {
+    orgId: ORG, name: "Credential pin test", handle: "credential-pin-test",
+    instructions: "Return the source test result.", scope: "team",
+  })).json();
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: "Credential pin approval", trigger: { type: "manual" },
+    steps: [
+      { type: "approval", to: "toru", title: "Continue credential pin test" },
+      { type: "agent", agentId: agent.id, prompt: "Continue." },
+    ],
+  }, "9302");
+  const run = await startRun({ ...env, OPENAI_API_KEY: "sk-deployment-pin-test-abcdefghijkl" }, {
+    orgId: ORG, workflow, trigger: "manual", startedBy: "9302",
+  });
+  expect(run.status).toBe("waiting");
+  expect(run.credentialSource).toBe("deployment");
+  const stored = await env.DB.prepare("SELECT credential_source FROM hx_workflow_runs WHERE id=?1").bind(run.id).first();
+  expect(stored).toEqual({ credential_source: "deployment" });
 });
