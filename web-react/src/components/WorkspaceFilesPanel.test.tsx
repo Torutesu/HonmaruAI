@@ -348,7 +348,7 @@ test('file owner grants and revokes a named verified external collaborator',asyn
 })
 
 test('unregistered external email gets a one-time file invitation link and the invitation can be revoked',async()=>{
- const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[]}),externalInvites:vi.fn().mockResolvedValue({canManage:true,invites:[]}),inviteExternal:vi.fn().mockResolvedValue({invite:{id:'invite-1',invitedEmail:'new@example.test',inviteUrl:'https://app.example/#/external-invite/'+('a'.repeat(64))}}),revokeExternalInvite:vi.fn().mockResolvedValue({revoked:true})} as unknown as WorkspaceFileApi
+ const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[]}),grantExternal:vi.fn().mockResolvedValue({grant:{recipientGithubId:'known-1'},redemptionPath:'/external/files/org/file'}),externalInvites:vi.fn().mockResolvedValue({canManage:true,invites:[]}),inviteExternal:vi.fn().mockResolvedValue({invite:{id:'invite-1',invitedEmail:'new@example.test',inviteUrl:'https://app.example/#/external-invite/'+('a'.repeat(64))}}),revokeExternalInvite:vi.fn().mockResolvedValue({revoked:true})} as unknown as WorkspaceFileApi
  let renderer:ReturnType<typeof create>
  await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
  await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})
