@@ -1,7 +1,7 @@
 import { getSession, getUserByGithubId, isMember } from "./db.js";
 import { handleExternalFiles } from "./externalFiles.js";
 import { getMode } from "./harness/mode.js";
-import { resolveChannel, asksTheAI, getMessage, cleanEmoji } from "./channels.js";
+import { resolveChannel, asksTheAI, getMessage, cleanEmoji, viewOf } from "./channels.js";
 import { byteRange, deleteFileObject, getFileObject, MAX_FILES_PER_MESSAGE, sendable, UNSATISFIABLE, uploadFile } from "./files.js";
 import { audienceOf } from "./access.js";
 import { listMembers } from "./team.js";
@@ -10,8 +10,6 @@ import { sha256Hex } from "./auth.js";
 import { enforce } from "./ratelimit.js";
 import {
   externalResourcePermission,
-  grantExternalResource,
-  revokeExternalResource,
 } from "./harness/externalCollaborators.js";
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
@@ -53,9 +51,86 @@ async function manageableRoot(db, orgId, rootId, user) {
   ).bind(orgId, user.github_id).first();
   const role = String(membership?.role || "").toLowerCase();
   if (root.author_login !== user.login && !["owner", "admin"].includes(role)) return null;
+  // Stored DMs and Agent threads use canonical keys, while resolveChannel
+  // accepts the viewer-specific handle. Convert only those keys after loading
+  // current workspace members; this also makes a removed DM participant fail.
+  const members = root.channel.startsWith("dm:") || root.channel.startsWith("ag:")
+    ? await listMembers(db, orgId, user.github_id) : undefined;
+  const viewerChannel = members ? viewOf(root.channel, user.login, members) : root.channel;
   // A workspace role alone cannot reveal a private Room's thread.
-  if (!(await resolveChannel(db, orgId, user, root.channel))) return null;
+  if (!viewerChannel || !(await resolveChannel(db, orgId, user, viewerChannel, members))) return null;
   return root;
+}
+
+// Recheck the exact authority that manageableRoot() checks inside each
+// mutation. The initial route check provides a safe response shape; this SQL
+// fence prevents a concurrent membership, role, Room, Agent, or root change
+// from leaving a grant or approval behind after that check.
+function threadManagerFence(orgId, rootId, user, expectedChannel, firstParameter) {
+  const p = (offset) => `?${firstParameter + offset}`;
+  const org = p(0), rootIdParam = p(1), userId = p(2), login = p(3), channel = p(4);
+  return {
+    sql: `EXISTS (
+      SELECT 1 FROM channel_messages managedRoot
+      JOIN memberships managerMembership ON managerMembership.org_id=managedRoot.org_id
+        AND managerMembership.user_github_id=${userId}
+      WHERE managedRoot.org_id=${org} AND managedRoot.id=${rootIdParam}
+        AND managedRoot.channel=${channel}
+        AND managedRoot.parent_id IS NULL AND managedRoot.deleted_at IS NULL
+        AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
+          WHERE tombstone.org_id=managedRoot.org_id AND tombstone.channel=managedRoot.channel
+            AND tombstone.deleted_at IS NOT NULL)
+        AND (managedRoot.author_login=${login} OR LOWER(COALESCE(managerMembership.role,'')) IN ('owner','admin'))
+        AND (
+          (managedRoot.channel LIKE 'b:%' AND (
+            (LOWER(COALESCE(managerMembership.role,''))!='guest' AND COALESCE((
+              SELECT business.private FROM businesses business
+              WHERE business.org_id=managedRoot.org_id AND managedRoot.channel='b:'||business.slug
+            ),0)=0)
+            OR EXISTS(SELECT 1 FROM conversation_members roomMember
+              JOIN users roomUser ON roomUser.login=roomMember.login
+              WHERE roomMember.org_id=managedRoot.org_id AND roomMember.channel=managedRoot.channel
+                AND roomUser.github_id=${userId})
+          ))
+          OR (managedRoot.channel LIKE 'g:%' AND length(managedRoot.channel)=18
+            AND substr(managedRoot.channel,3) NOT GLOB '*[^0-9a-f]*'
+            AND EXISTS(SELECT 1 FROM conversation_members roomMember
+            JOIN users roomUser ON roomUser.login=roomMember.login
+            WHERE roomMember.org_id=managedRoot.org_id AND roomMember.channel=managedRoot.channel
+              AND roomUser.github_id=${userId}))
+          OR (managedRoot.channel LIKE 'dm:%' AND instr(managedRoot.channel,'|')>4
+            AND instr(substr(managedRoot.channel,instr(managedRoot.channel,'|')+1),'|')=0
+            AND (substr(managedRoot.channel,4,instr(managedRoot.channel,'|')-4)=${login}
+              OR substr(managedRoot.channel,instr(managedRoot.channel,'|')+1)=${login})
+            AND EXISTS(SELECT 1 FROM users dmOther
+              JOIN memberships dmOtherMembership ON dmOtherMembership.org_id=managedRoot.org_id
+                AND dmOtherMembership.user_github_id=dmOther.github_id
+              WHERE dmOther.login=CASE
+                WHEN substr(managedRoot.channel,4,instr(managedRoot.channel,'|')-4)=${login}
+                THEN substr(managedRoot.channel,instr(managedRoot.channel,'|')+1)
+                ELSE substr(managedRoot.channel,4,instr(managedRoot.channel,'|')-4) END))
+          OR (managedRoot.channel LIKE 'ag:%' AND EXISTS(
+            SELECT 1 FROM custom_agents agent
+            LEFT JOIN hx_agent_profiles profile ON profile.org_id=agent.org_id AND profile.agent_id=agent.id
+            WHERE agent.org_id=managedRoot.org_id AND agent.id=substr(managedRoot.channel,4,instr(managedRoot.channel,'|')-4)
+              AND agent.deleted_at IS NULL AND substr(managedRoot.channel,instr(managedRoot.channel,'|')+1)=${login}
+              AND (agent.scope='team' OR agent.owner_login=${login})
+              AND (agent.owner_login=${login} OR COALESCE(profile.access,'everyone')='everyone'
+                OR (profile.access='people' AND EXISTS(SELECT 1 FROM json_each(COALESCE(profile.people,'[]')) allowed
+                  WHERE allowed.value=${login}))
+                OR (agent.scope='team' AND profile.agent_id IS NOT NULL AND agent.provider IS NULL
+                  AND EXISTS(SELECT 1 FROM hx_agent_members agentMember
+                    JOIN memberships activeMember ON activeMember.org_id=agentMember.org_id
+                      AND activeMember.user_github_id=agentMember.user_id
+                      AND activeMember.created_at=agentMember.member_since
+                      AND LOWER(COALESCE(activeMember.role,'guest'))!='guest'
+                    WHERE agentMember.org_id=agent.org_id AND agentMember.agent_id=agent.id
+                      AND agentMember.user_id=${userId} AND agentMember.role IN ('admin','member')))
+            )))
+        )
+    )`,
+    bindings: [orgId, rootId, user.github_id, user.login, expectedChannel],
+  };
 }
 
 async function resolveRecipient(db, orgId, email, actorId) {
@@ -96,11 +171,28 @@ async function shareThread(request, env, orgId, rootId, actor) {
     if (!permission) return fail("Permission must be view or edit.", 400);
     let grant;
     try {
-      grant = await grantExternalResource(env.DB, {
-        orgId, resourceType: "thread", resourceId: rootId,
-        recipientGithubId: recipient.github_id, permission,
-        grantedBy: actor.user.github_id, expiresAt: input.expiresAt ?? null,
-      });
+      const now = new Date().toISOString();
+      const expiry = input.expiresAt == null ? null : String(input.expiresAt).trim();
+      if (expiry != null && (!expiry || expiry.length > 200 || !Number.isFinite(Date.parse(expiry)) || Date.parse(expiry) <= Date.now())) {
+        return fail("Expiry must be a future timestamp", 400);
+      }
+      const id = `xg_${crypto.randomUUID().replaceAll("-", "")}`;
+      const updateFence = threadManagerFence(orgId, rootId, actor.user, root.channel, 6);
+      const insertFence = threadManagerFence(orgId, rootId, actor.user, root.channel, 9);
+      const [revoked, inserted] = await env.DB.batch([
+        env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
+          WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4
+            AND recipient_github_id=?5 AND revoked_at IS NULL AND ${updateFence.sql}`)
+          .bind(now, actor.user.github_id, orgId, rootId, recipient.github_id,
+            ...updateFence.bindings),
+        env.DB.prepare(`INSERT INTO hx_external_resource_grants
+          (id,org_id,resource_type,resource_id,recipient_github_id,permission,granted_by,granted_at,expires_at)
+          SELECT ?1,?2,'thread',?3,?4,?5,?6,?7,?8 WHERE ${insertFence.sql}`)
+          .bind(id, orgId, rootId, recipient.github_id, permission, actor.user.github_id, now, expiry,
+            ...insertFence.bindings),
+      ]);
+      if (!inserted?.meta?.changes) return fail("Thread not found or cannot be shared.", 404);
+      grant = { id, permission, expiresAt: expiry };
     } catch (error) {
       return fail(error instanceof TypeError ? error.message : "Could not share this Thread.", error instanceof TypeError ? 400 : 503);
     }
@@ -110,24 +202,40 @@ async function shareThread(request, env, orgId, rootId, actor) {
   const now = new Date().toISOString();
   let revoked = 0;
   if (typeof input.grantId === "string" && input.grantId) {
-    const result = await env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
-      WHERE id=?3 AND org_id=?4 AND resource_type='thread' AND resource_id=?5 AND revoked_at IS NULL`)
-      .bind(now,actor.user.github_id,input.grantId,orgId,rootId).run();
-    revoked = Number(result.meta?.changes || 0);
-    if (revoked) await env.DB.prepare(`UPDATE hx_external_thread_send_requests SET status='cancelled',decided_at=?1,decided_by=?2
-      WHERE org_id=?3 AND root_message_id=?4 AND guest_github_id=(SELECT recipient_github_id FROM hx_external_resource_grants WHERE id=?5) AND status='pending'`)
-      .bind(now,actor.user.github_id,orgId,rootId,input.grantId).run();
+    const fence = threadManagerFence(orgId, rootId, actor.user, root.channel, 6);
+    const results = await env.DB.batch([
+      env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
+        WHERE id=?3 AND org_id=?4 AND resource_type='thread' AND resource_id=?5
+          AND revoked_at IS NULL AND ${fence.sql}`)
+        .bind(now,actor.user.github_id,input.grantId,orgId,rootId,...fence.bindings),
+      env.DB.prepare(`UPDATE hx_external_thread_send_requests SET status='cancelled',decided_at=?1,decided_by=?2
+        WHERE org_id=?3 AND root_message_id=?4 AND status='pending'
+          AND guest_github_id=(SELECT recipient_github_id FROM hx_external_resource_grants WHERE id=?5)
+          AND EXISTS(SELECT 1 FROM hx_external_resource_grants changed WHERE changed.id=?5
+            AND changed.revoked_at=?1 AND changed.revoked_by=?2)
+          AND ${threadManagerFence(orgId,rootId,actor.user,root.channel,6).sql}`)
+        .bind(now,actor.user.github_id,orgId,rootId,input.grantId,...fence.bindings),
+    ]);
+    revoked = Number(results?.[0]?.meta?.changes || 0);
   } else {
     const recipient = await resolveRecipient(env.DB, orgId, input.email, actor.user.github_id);
     if (!recipient) return fail("Recipient not found.", 404);
-    revoked = await revokeExternalResource(env.DB, {
-      orgId, resourceType: "thread", resourceId: rootId,
-      recipientGithubId: recipient.github_id, revokedBy: actor.user.github_id,
-    });
-    await env.DB.prepare(`UPDATE hx_external_thread_send_requests
-        SET status = 'cancelled', decided_at = ?1, decided_by = ?2
-      WHERE org_id = ?3 AND root_message_id = ?4 AND guest_github_id = ?5 AND status = 'pending'`)
-      .bind(now, actor.user.github_id, orgId, rootId, recipient.github_id).run();
+    const fence = threadManagerFence(orgId,rootId,actor.user,root.channel,6);
+    const results = await env.DB.batch([
+      env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
+        WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4
+          AND recipient_github_id=?5 AND revoked_at IS NULL AND ${fence.sql}`)
+        .bind(now,actor.user.github_id,orgId,rootId,recipient.github_id,...fence.bindings),
+      env.DB.prepare(`UPDATE hx_external_thread_send_requests SET status='cancelled',decided_at=?1,decided_by=?2
+        WHERE org_id=?3 AND root_message_id=?4 AND guest_github_id=?5 AND status='pending'
+          AND EXISTS(SELECT 1 FROM hx_external_resource_grants changed WHERE changed.org_id=?3
+            AND changed.resource_type='thread' AND changed.resource_id=?4
+            AND changed.recipient_github_id=?5 AND changed.revoked_at=?1 AND changed.revoked_by=?2)
+          AND ${threadManagerFence(orgId,rootId,actor.user,root.channel,6).sql}`)
+        .bind(now,actor.user.github_id,orgId,rootId,recipient.github_id,
+          ...threadManagerFence(orgId,rootId,actor.user,root.channel,6).bindings),
+    ]);
+    revoked = Number(results?.[0]?.meta?.changes || 0);
   }
   return json({ revoked: revoked > 0 });
 }
@@ -189,10 +297,13 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
     const code = randomInviteToken();
     const id = inviteId();
     try {
-      await env.DB.prepare(`INSERT INTO hx_external_thread_invites
+      const fence = threadManagerFence(orgId,rootId,actor.user,root.channel,11);
+      const inserted = await env.DB.prepare(`INSERT INTO hx_external_thread_invites
           (id,org_id,resource_type,resource_id,invited_email,permission,access_expires_at,token_hash,created_by,created_at,expires_at)
-        VALUES (?1,?2,'thread',?3,?4,?5,?6,?7,?8,?9,?10)`)
-        .bind(id,orgId,rootId,email,permission,accessExpiresAt,await sha256Hex(code),actor.user.github_id,nowIso,expiresAt).run();
+        SELECT ?1,?2,'thread',?3,?4,?5,?6,?7,?8,?9,?10 WHERE ${fence.sql}`)
+        .bind(id,orgId,rootId,email,permission,accessExpiresAt,await sha256Hex(code),actor.user.github_id,nowIso,expiresAt,
+          ...fence.bindings).run();
+      if (!inserted?.meta?.changes) return fail("Thread not found or cannot be shared.",404);
     } catch (error) {
       console.error("external Thread invitation create failed", error?.message || error);
       return fail("Could not create this invitation.", 503);
@@ -208,22 +319,23 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
     // Whichever transaction wins, the invite cannot be left revoked with a
     // live grant: a later redemption sees revoked_at; an earlier one exposes
     // created_grant_id to the following statement in this same batch.
+    const fence = threadManagerFence(orgId,rootId,actor.user,root.channel,6);
     const results = await env.DB.batch([
       env.DB.prepare(`UPDATE hx_external_thread_invites SET revoked_at=?1,revoked_by=?2
-        WHERE id=?3 AND org_id=?4 AND resource_id=?5 AND revoked_at IS NULL`)
-        .bind(now,actor.user.github_id,inviteRef,orgId,rootId),
+        WHERE id=?3 AND org_id=?4 AND resource_id=?5 AND revoked_at IS NULL AND ${fence.sql}`)
+        .bind(now,actor.user.github_id,inviteRef,orgId,rootId,...fence.bindings),
       env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
         WHERE id=(SELECT created_grant_id FROM hx_external_thread_invites
-          WHERE id=?3 AND org_id=?4 AND resource_id=?5)
+          WHERE id=?3 AND org_id=?4 AND resource_id=?5 AND revoked_at=?1 AND revoked_by=?2)
           AND org_id=?4 AND resource_type='thread' AND resource_id=?5 AND revoked_at IS NULL`)
         .bind(now,actor.user.github_id,inviteRef,orgId,rootId),
       env.DB.prepare(`UPDATE hx_external_thread_send_requests
         SET status='cancelled',decided_at=?1,decided_by=?2
         WHERE org_id=?3 AND root_message_id=?4
           AND guest_github_id=(SELECT redeemed_by FROM hx_external_thread_invites
-            WHERE id=?5 AND org_id=?3 AND resource_id=?4)
-          AND status='pending'`)
-        .bind(now,actor.user.github_id,orgId,rootId,inviteRef),
+            WHERE id=?5 AND org_id=?3 AND resource_id=?4 AND revoked_at=?1 AND revoked_by=?2)
+          AND status='pending' AND ${threadManagerFence(orgId,rootId,actor.user,root.channel,6).sql}`)
+        .bind(now,actor.user.github_id,orgId,rootId,inviteRef,...fence.bindings),
     ]);
     return json({ revoked: Number(results?.[0]?.meta?.changes || 0) > 0 });
   }
@@ -646,21 +758,25 @@ async function pendingRequests(env, orgId, rootId, owner) {
     ORDER BY r.requested_at, r.id`).bind(orgId, rootId, owner.user.github_id, new Date().toISOString()).all();
 }
 
-async function decideRequest(env, orgId, rootId, id, owner, action) {
+async function decideRequest(env, orgId, rootId, id, owner, action, channel) {
   const now = new Date().toISOString();
   if (action === "reject") {
+    const fence = threadManagerFence(orgId,rootId,owner.user,channel,6);
     const result = await env.DB.prepare(`UPDATE hx_external_thread_send_requests
        SET status='rejected', decided_at=?1, decided_by=?2
      WHERE org_id=?3 AND root_message_id=?4 AND id=?5 AND status='pending'
        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?3
          AND g.resource_type='thread' AND g.resource_id=?4 AND g.recipient_github_id=guest_github_id
          AND g.granted_by=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?1)
-         AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?3 AND member.user_github_id=guest_github_id))`)
-      .bind(now, owner.user.github_id, orgId, rootId, id).run();
+         AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?3 AND member.user_github_id=guest_github_id))
+       AND ${fence.sql}`)
+      .bind(now, owner.user.github_id, orgId, rootId, id, ...fence.bindings).run();
     return result.meta?.changes ? { rejected: true } : null;
   }
 
   const messageId = keyId();
+  const insertFence = threadManagerFence(orgId,rootId,owner.user,channel,9);
+  const updateFence = threadManagerFence(orgId,rootId,owner.user,channel,7);
   const [insert, update] = await env.DB.batch([
     env.DB.prepare(`INSERT INTO channel_messages
         (id, org_id, channel, author_login, kind, body, created_at, parent_id)
@@ -675,13 +791,16 @@ async function decideRequest(env, orgId, rootId, id, owner, action) {
          AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
            AND g.resource_type='thread' AND g.resource_id=?3 AND g.recipient_github_id=r.guest_github_id
            AND g.granted_by=?5 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8)
-           AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=r.guest_github_id))`)
-      .bind(messageId, orgId, rootId, id, owner.user.github_id, owner.user.github_id, now, now),
+           AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=r.guest_github_id))
+         AND ${insertFence.sql}`)
+      .bind(messageId, orgId, rootId, id, owner.user.github_id, owner.user.github_id, now, now,
+        ...insertFence.bindings),
     env.DB.prepare(`UPDATE hx_external_thread_send_requests
         SET status='approved', decided_at=?1, decided_by=?2, message_id=?3
       WHERE org_id=?4 AND root_message_id=?5 AND id=?6 AND status='pending'
-        AND EXISTS(SELECT 1 FROM channel_messages m WHERE m.org_id=?4 AND m.id=?3 AND m.parent_id=?5)`)
-      .bind(now, owner.user.github_id, messageId, orgId, rootId, id),
+        AND EXISTS(SELECT 1 FROM channel_messages m WHERE m.org_id=?4 AND m.id=?3 AND m.parent_id=?5)
+        AND ${updateFence.sql}`)
+      .bind(now, owner.user.github_id, messageId, orgId, rootId, id,...updateFence.bindings),
   ]);
   return insert.meta?.changes && update.meta?.changes ? { approved: true, messageId } : null;
 }
@@ -744,7 +863,7 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
     if (action !== "approve" && action !== "reject") return fail("Not found.", 404);
     const input = await request.json().catch(() => ({}));
     if (typeof input.requestId !== "string" || !input.requestId) return fail("requestId is required.", 400);
-    const decided = await decideRequest(env, orgId, rootId, input.requestId, actor, action);
+    const decided = await decideRequest(env, orgId, rootId, input.requestId, actor, action, manageable.channel);
     if (decided?.approved) {
       const message = await getMessage(env.DB, orgId, decided.messageId);
       const requestRow = await env.DB.prepare(
