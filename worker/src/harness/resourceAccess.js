@@ -134,7 +134,7 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
   }
   const at = new Date().toISOString(), token = crypto.randomUUID();
   const stmts = [];
-  const peopleJson = hasPeopleUpdate ? JSON.stringify(people.map(({ userId, permission }) => ({ userId, permission }))) : null;
+  const peopleJson = hasPeopleUpdate ? JSON.stringify(people.map(({ userId, permission }) => ({ userId: String(userId).trim(), permission }))) : null;
   const validPeople = param => hasPeopleUpdate ? `AND NOT EXISTS(
     SELECT 1 FROM json_each(${param}) selected
     LEFT JOIN memberships selectedMember ON selectedMember.org_id=?1
