@@ -611,7 +611,7 @@ test('app person permissions and inventory are not truncated at 500 people', asy
 });
 
 test('row write statements recheck app edit access after preflight authorization', async () => {
-  const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+  const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm',sample:false})).json();
   const { setAppAccess, mayEditTable } = await import('../src/harness/resourceAccess.js');
   await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
   const sharing=await setAppAccess(env.DB,ORG,app.id,'9102',{visibility:'private',version:0,people:[{userId:'9101',permission:'edit'}]});
