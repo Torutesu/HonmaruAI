@@ -92,7 +92,7 @@ export async function agentRunSnapshot(env, orgId, rowIds, viewer) {
   const hidden=await restrictedRunRows(env.DB,orgId,rowIds,viewer);
   const visible=results.filter(result=>!hidden.has(result.rowId));
   const decorated=await decorateAgentRequestStatuses(env.DB,orgId,visible);
-  const visibleWithAssignments=await decorateAssignmentStatuses(env.DB,orgId,decorated,viewer);
+  const visibleWithAssignments=await decorateAssignmentStatuses(env.DB,orgId,decorated,{...viewer,env});
   const byId=new Map(visibleWithAssignments.map(result=>[result.rowId,result]));
   return {available,results:rowIds.map(rowId=>byId.get(rowId)||{rowId,status:'unknown',answered:0})};
 }
