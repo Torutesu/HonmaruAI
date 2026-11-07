@@ -290,7 +290,11 @@
       "priority": "P2",
       "source": "https://docs.kylon.io/agents/acp-agent-contract",
       "code": "gateway/acp.mjs",
-      "acceptance": "ACP v1 initialize/session/prompt/cancelとローカルagent認証、隔離されたcapability、Workspace MCP tools、progress/permission updates、切断後復帰を実機検証"
+      "acceptance": "ACP v1 initialize/session/prompt/cancelとローカルagent認証、隔離されたcapability、Workspace MCP tools、progress/permission updates、切断後復帰を実機検証",
+      "evidence": {
+        "implemented": "ACP tool_call/tool_call_update/plan/message eventsを要約し、リース認証付きWorker経由で開始元会話に一時配信。引数・思考本文は送らず、UIは状態と計画だけ表示する。gateway、Worker、web-reactのテストとビルドをローカル通過。",
+        "remaining": "permission updatesの運用者ポリシー応答、Workspace MCP capabilityの一致、切断/再接続とcancelの実機検証は未完了。"
+      }
     },
     {
       "id": "KY-026",

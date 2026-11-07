@@ -169,7 +169,7 @@ async function startWorkspaceMcp(mcpCall) {
  * The job can select an allowlist key, but can never choose a command, args,
  * cwd, environment, MCP server, filesystem capability, or terminal.
  */
-export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 60000, mcpCall } = {}) {
+export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 60000, mcpCall, onProgress } = {}) {
   const cfg = agentConfig(acpAgents, payload?.agentKey);
   const prompt = String(payload?.prompt || '');
   if (!prompt.trim() || Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) throw new Error('Invalid ACP prompt.');
@@ -188,12 +188,38 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
   let loadedSession = false;
   let promptRequestId = null;
   let workspaceMcp = null;
+  let progressTail = Promise.resolve();
+  let lastProgress = '';
   let abort;
   const remaining = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
   const startedAt = Date.now();
   rpc.onNotification = message => {
     if (message.method !== 'session/update') return;
     const update = message.params?.update;
+    let progress = null;
+    if (update?.sessionUpdate === 'agent_message_chunk') progress = { kind: 'reply', title: 'Preparing a reply' };
+    else if (update?.sessionUpdate === 'agent_thought_chunk') progress = { kind: 'thinking', title: 'Thinking' };
+    else if (update?.sessionUpdate === 'tool_call' || update?.sessionUpdate === 'tool_call_update') {
+      const title = String(update.title || update.toolName || update.tool_name || 'Using a tool').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const status = ['pending', 'in_progress', 'completed', 'failed'].includes(update.status) ? update.status : 'in_progress';
+      progress = { kind: 'tool', title: title || 'Using a tool', status };
+    } else if (update?.sessionUpdate === 'plan') {
+      const entries = Array.isArray(update.entries) ? update.entries : Array.isArray(update.plan) ? update.plan : [];
+      const steps = entries.slice(0, 8).map(entry => ({
+        title: String(entry?.title || entry?.description || '').replace(/\s+/g, ' ').trim().slice(0, 100),
+        status: ['pending', 'in_progress', 'completed'].includes(entry?.status) ? entry.status : 'pending',
+      })).filter(entry => entry.title);
+      progress = { kind: 'plan', title: 'Working through a plan', steps };
+    }
+    if (progress && typeof onProgress === 'function') {
+      const key = JSON.stringify(progress);
+      // ACP text streams may emit one notification per token. Only report a
+      // changed summary; never send tool arguments, thought text or file data.
+      if (key !== lastProgress) {
+        lastProgress = key;
+        progressTail = progressTail.then(() => onProgress(progress)).catch(() => {});
+      }
+    }
     if (update?.sessionUpdate !== 'agent_message_chunk') return;
     const value = chunkText(update.content);
     if (value && textBytes < MAX_TEXT_BYTES) {
@@ -249,6 +275,7 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     if (prior) promptBlocks.push({ type: 'text', text: `Earlier conversation:\n${prior}` });
     promptBlocks.push({ type: 'text', text: prompt });
     const result = await rpc.request('session/prompt', { sessionId, prompt: promptBlocks }, remaining());
+    await progressTail;
     if (signal?.aborted) throw new Error('ACP run cancelled.');
     const answer = text.join('').trim();
     return { status: result.stopReason === 'cancelled' ? 'failed' : 'succeeded', stdout: JSON.stringify({ text: answer, sessionId, stopReason: result.stopReason || null }), stderr: '', exitCode: 0 };

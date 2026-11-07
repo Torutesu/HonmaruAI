@@ -30,6 +30,13 @@ test('execution returns only its assigned lease and structured result', async ()
   await processOne(call, { run: async (payload, options) => { assert.equal(payload.code, 'return 42'); assert.equal(options.timeoutMs, 60000); return { status: 'succeeded', stdout: '42', stderr: '', exitCode: 0 }; } });
   assert.deepEqual(calls[1], ['jobs/job/finish', { lease: 'lease', status: 'succeeded', stdout: '42', stderr: '', exitCode: 0 }]);
 });
+test('ACP progress is sent through the current job lease without affecting generic jobs',async()=>{
+ const calls=[];
+ const call=async(path,body)=>{calls.push([path,body]);return path==='claim'?{job:{id:'acp-job',lease:'lease',payload:{acp:true,agentKey:'fixture',prompt:'hello'}}}:{ok:true};};
+ await processOne(call,{runAcpAgent:async(_payload,{onProgress})=>{await onProgress({kind:'tool',title:'Run checks',status:'in_progress'});return {status:'succeeded',stdout:'done',stderr:'',exitCode:0};}});
+ assert.deepEqual(calls.find(([path])=>path==='jobs/acp-job/progress'),['jobs/acp-job/progress',{lease:'lease',progress:{kind:'tool',title:'Run checks',status:'in_progress'}}]);
+ assert.equal(calls.at(-1)[0],'jobs/acp-job/finish');
+});
 test('local runtime failures do not leak host error details', async () => {
   let result;
   await processOne(async (path, body) => path === 'claim' ? { job: { id: 'job', lease: 'lease', payload: { code: 'x' } } } : (result = body), { run: async () => { throw new Error('/Users/private/token'); } });

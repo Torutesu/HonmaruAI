@@ -19,11 +19,33 @@ const failure = (message, status = 400) => json({ message }, status);
 const activeMember = `(EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND m.role != 'guest') AND NOT EXISTS (SELECT 1 FROM hx_app_action_jobs j WHERE j.job_id=hx_gateway_jobs.id AND NOT EXISTS (SELECT 1 FROM hx_apps a LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=j.org_id AND a.id=j.app_id AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=hx_gateway_jobs.created_by))))`;
 
 
-export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp))\/?$/.test(pathname);
+export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp|progress))\/?$/.test(pathname);
 
 const ACP_READ_ONLY_TOOLS = new Set(['list_apps','read_app','list_tables','query_rows','list_workflows','list_followups']);
 const acpReadTools = () => HARNESS_TOOLS.filter(tool => ACP_READ_ONLY_TOOLS.has(tool.name))
   .map(({name,title,description,inputSchema}) => ({name,title,description,inputSchema}));
+
+function cleanAcpProgress(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const kinds = new Set(['reply', 'thinking', 'tool', 'plan']);
+  if (!kinds.has(value.kind) || typeof value.title !== 'string') return null;
+  const title = value.title.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!title) return null;
+  const status = ['pending', 'in_progress', 'completed', 'failed'].includes(value.status) ? value.status : null;
+  const progress = { kind: value.kind, title, ...(status ? { status } : {}) };
+  if (value.kind === 'plan') {
+    if (!Array.isArray(value.steps) || value.steps.length > 8) return null;
+    const steps = value.steps.map(step => {
+      if (!step || typeof step.title !== 'string') return null;
+      const stepTitle = step.title.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+      if (!stepTitle) return null;
+      return { title: stepTitle, status: ['pending', 'in_progress', 'completed'].includes(step.status) ? step.status : 'pending' };
+    });
+    if (steps.some(step => !step)) return null;
+    progress.steps = steps;
+  }
+  return progress;
+}
 
 async function acpWorkspacePrincipal(db, row, payload) {
   if (await getMode(db, row.org_id) !== 'harness' || !(await allowed(db,row.org_id,row.created_by,'harness.build'))) return null;
@@ -123,6 +145,15 @@ export async function handleGateways(request, env, url, input) {
     if (typeof input?.lease !== 'string' || input.lease.length > 150) return failure('Execution lease required.', 409);
     const leaseHash = await digest(input.lease);
     const guard = `id = ?1 AND gateway_id = ?2 AND status = 'running' AND lease_hash = ?3 AND lease_until > ?4 AND deadline > ?4 AND ${activeMember} AND ${workflowProgramJobAccess}`;
+    if (parts[3] === 'progress') {
+      const progress = cleanAcpProgress(input.progress);
+      if (!progress || new TextEncoder().encode(JSON.stringify(progress)).length > 2048) return failure('Invalid ACP progress update.');
+      const changed = await db.prepare(`UPDATE hx_gateway_jobs SET acp_progress=?5, acp_progress_at=?4
+        WHERE id=?1 AND gateway_id=?2 AND status='running' AND lease_hash=?3 AND lease_until>?4 AND deadline>?4 AND ${activeMember}
+          AND COALESCE(json_extract(payload,'$.acp'),0)=1`)
+        .bind(parts[2], g.id, leaseHash, at, JSON.stringify(progress)).run();
+      return changed.meta?.changes ? json({ ok: true }) : failure('ACP execution is no longer authorized.', 409);
+    }
     if (parts[3] === 'mcp') {
       const readJob = () => db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by FROM hx_gateway_jobs WHERE ${guard}`)
         .bind(parts[2],g.id,leaseHash,now()).first();

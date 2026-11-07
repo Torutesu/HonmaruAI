@@ -607,10 +607,14 @@ const acp = {
     return { remoteId: job.id, turn: run.remote_turn || null, tasks: 1 };
   },
   async read(t, run, { env } = {}) {
-    const row = await env.DB.prepare("SELECT status, result FROM hx_gateway_jobs WHERE id=?1 AND org_id=?2 AND gateway_id=?3")
+    const row = await env.DB.prepare("SELECT status, result, acp_progress, acp_progress_at FROM hx_gateway_jobs WHERE id=?1 AND org_id=?2 AND gateway_id=?3")
       .bind(run.remote_id, run.org_id, t.remote?.gatewayId).first().catch(() => null);
     if (!row) return { texts: [], stop: "terminated", last: null, error: "missing local execution", costCents: null };
-    if (row.status === "queued" || row.status === "running") return { texts: [], stop: null, last: null, costCents: null };
+    if (row.status === "queued" || row.status === "running") {
+      let progress = null;
+      try { progress = row.acp_progress ? { ...JSON.parse(row.acp_progress), updatedAt: row.acp_progress_at } : null; } catch {}
+      return { texts: [], stop: null, last: null, costCents: null, ...(progress ? { progress } : {}) };
+    }
     let result = null;
     try { result = row.result ? JSON.parse(row.result) : null; } catch {}
     if (row.status !== "succeeded" || !result || result.exitCode !== 0) return { texts: [], stop: "terminated", last: null, error: "local ACP run failed", costCents: null };
