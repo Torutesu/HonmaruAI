@@ -38,8 +38,8 @@
 | KY-015 | 制限したエージェントへの直接APIアクセス | 一部 | P0 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js), [worker/src/harness/routes.js](../../worker/src/harness/routes.js) | メモリ等・一覧・DM・編集の直接API、ルーム一覧への表示、Agent個別ロール、予約実行、Native接続・Remote MCP許可とOAuth資格情報を監査。現在のAgent権限がない利用者と大小文字違いのGuestを拒否する回帰テストを追加。残りのAPI/外部実行経路と複数利用者での本番隔離検証は継続 |
 | KY-016 | Simpleへの切替で権限を緩めない | 実装あり | P0 | [worker/test/harness-agents.test.js](../../worker/test/harness-agents.test.js) | 両モードで非許可ユーザーとworkspace adminの直接アクセスを拒否 |
 | KY-017 | メンション時のみ応答 | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 継続スレッド・直接DM・自動化の優先順位を統一 |
-| KY-018 | スレッドの単一リーダーと引継ぎ | 一部 | P0 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js) | 重複起動防止・明示handoff・失敗時のリーダー交代 |
-| KY-019 | エージェント同士のループ抑止 | 一部 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 明示宛先以外の自動再起動を防ぎ最大handoff回数を記録 |
+| KY-018 | スレッドの単一リーダーと引継ぎ | 一部 | P0 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js), [worker/src/harness/remoteHandoff.js](../../worker/src/harness/remoteHandoff.js) | 世代で重複実行を防ぎ、内部/外部Agentの明示引継ぎを永続キューへ渡す。外部Agentは利用可能な未訪問先だけを提示し、完了時に元ユーザー・ルーム・Agent権限を再検査。Mock Claude統合テストで成功/失効を検証。安全な自動失敗交代、他Provider実機、Kylon/本番のライブ比較は残る |
+| KY-019 | エージェント同士のループ抑止 | 一部 | P0 | [worker/src/harness/remoteHandoff.js](../../worker/src/harness/remoteHandoff.js), [worker/src/harness/agentAssignments.js](../../worker/src/harness/agentAssignments.js) | 通常返信からは起動せず、内部/外部とも明示操作だけ。外部制御は最終行マーカー、現在の未訪問ルームAgentに限定し、自己/循環/上限は世代トランザクションで拒否。実機の複数Agent動作と他Providerの検証は残る |
 | KY-020 | 実行停止・キャンセル伝播 | 一部 | P0 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js), [worker/src/teammates.js](../../worker/src/teammates.js) | 世代単位停止をローカルモデル／ツールに伝播。個人DMのAgentが開始したMac mini JavaScript・公開アプリ処理も中断時にジョブを取消し、ゲートウェイのリースを失効。Claude Managed AgentsとCursor Cloud Agentsは公式停止APIへ正確なrun IDで要求し、Devinも組織ID・正確なsession IDへ公式終了APIを呼ぶ。PR #599とWorker本番deploy #41286970630は成功。ACPローカル実行はsession/cancelと$/cancel_requestを先に送信し、最大3秒待ってSIGTERM、750ms後SIGKILLへ進む（応答/無視双方のGateway合成テスト成功、5秒契約内）。Codex停止、signal非対応ツールの進行中副作用、費用精算、ライブ外部停止確認は残る |
 | KY-021 | ターンごとの実行プロセス | 一部 | P1 | [worker/src/agentRunner.js](../../worker/src/agentRunner.js), [worker/src/harness/agentToolTraces.js](../../worker/src/harness/agentToolTraces.js), [web-react/src/components/AgentRunStatus.tsx](../../web-react/src/components/AgentRunStatus.tsx), [web-react/src/components/AgentToolTrace.tsx](../../web-react/src/components/AgentToolTrace.tsx) | チャット依頼の実行状態・引き継ぎ・時間に加え、Harnessのinline Agent返信にツール名・状態・時間だけの安全なtraceを保存し、返信から遅延表示。Simpleは対象外。外部provider/run traceの網羅、Web/mobile間の表示、実本番providerでの実行確認は残る |
 | KY-022 | クラウド隔離コンピューター | 一部・本番反映 | P0 | [gateway/runner.mjs](../../gateway/runner.mjs), [worker/src/agentRunner.js](../../worker/src/agentRunner.js) | クラウド提供VMはないが、ユーザー所有Mac miniのApple Container 1.5.0上で本番キューから任意JavaScriptを実行できる。2026-11-01、ログイン済み本番UIからMac miniを選択し、隔離ジョブ `return input * 2` に `21` を渡して `42` を取得。nodeはネットワークなし・DNSなし・read-only root・tmpfs・非root・capability全削除・CPU 1・512 MiB・最大60秒。追加課金なし。ユーザー所有端末の起動/スリープに依存しないクラウドVM、ファイル環境、永続workspaceは残る |
@@ -187,6 +187,8 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 既存のエージェント画像は公開URLを返すため、非公開ルーム画像へそのまま流用しない。既存MEDIA保存先は利用候補だが、ルームACLで認証する読み取り経路と失効後の表示破棄が必要。新規サービス契約は不要の設計方針とし、未実装を完了扱いしない。
 
 2026-10-24追記: KY-018は世代で所有権を管理する明示引き継ぎ・履歴・停止操作と外部エージェントへの引き継ぎを実装したため「一部」に更新。失敗時の安全な自動交代、外部エージェントからの引き継ぎ開始、本番での実動作比較は未完了。OpenRouterツール実行はローカル検証段階。要件件数は完成率ではない。詳細なコミットと検証範囲はverification.mdを参照。
+
+2026-11-08追記: 外部AgentのHarness実行から、明示した最終行マーカーで別のroom Agentへ引き継ぐ経路を追加。プロンプトにはその時点で利用可能かつ未訪問の相手だけを示し、結果受信時に元の人間リクエストと相手のroom/Agent権限を再確認して、既存の世代管理・原子的なhandoff outboxへ接続。Mock Claudeで成功と権限失効をテストした。本番・Kylonライブ比較、他Provider実機、安全な自動失敗交代は未完了。
 
 ### 2026-10-24 実画面追加差分
 

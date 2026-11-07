@@ -209,8 +209,8 @@
       "acceptance": "重複起動防止・明示handoff・失敗時のリーダー交代",
       "evidence": {
         "release": "Durable ownership/history/stop changes through ca7c25af are on main; deployment verification pending. OpenRouter tool loop and outage resilience are local follow-ups.",
-        "verified": "Generation-fenced assignments, atomic explicit handoff/outbox, duplicate delivery handling, scoped chain metadata and stop control; inbound external teammate completion publication and revocation tests. See agent-handoff-contract.md and verification.md for exact revisions and evidence.",
-        "remaining": "Remote teammates cannot initiate local handoff. Automatic safe failure takeover and authenticated production/Kylon comparison are incomplete; this is not 100% parity."
+        "verified": "Generation-fenced assignments, atomic explicit handoff/outbox, duplicate delivery handling, scoped chain metadata and stop control; inbound external teammate completion publication and revocation tests. See agent-handoff-contract.md and verification.md for exact revisions and evidence. External teammate replies can now use an explicit final-line HONMARU_HANDOFF control marker to transfer to another eligible room Agent; the prompt advertises only available non-visited targets, completion rechecks the current human grant and room/Agent eligibility, and the existing atomic generation/outbox rejects stale or cyclic transfers. Mocked Claude integration covers accepted and revoked-target results; no live provider call.",
+        "remaining": "Automatic safe failure takeover and authenticated production/Kylon comparison remain incomplete. Remote handoff is verified with a mocked Claude adapter; other provider-specific behavior and live production execution remain unverified."
       }
     },
     {
@@ -223,8 +223,8 @@
       "code": "worker/src/customAgents.js",
       "acceptance": "明示宛先以外の自動再起動を防ぎ最大handoff回数を記録",
       "evidence": {
-        "verified": "Ordinary agent replies remain inert. Explicit control tools use runtime-branded signals; handoffs reject self/cycles and cap generations at eight. Tests cover successful transfer suppressing ordinary sibling tools and source draft replies.",
-        "remaining": "Full live multi-agent behavior and remote outbound handoff coverage remain unverified. OpenRouter extension is local and awaiting full/deploy checks."
+        "verified": "Ordinary agent replies remain inert. Explicit control tools use runtime-branded signals; handoffs reject self/cycles and cap generations at eight. Tests cover successful transfer suppressing ordinary sibling tools and source draft replies. External teammate handoff now uses a bounded, strict final-line marker; target IDs are allowlisted from current room grants, visited agents are excluded, and access is rechecked before mutation. Mocked integration covers completion and access revocation without provider charges.",
+        "remaining": "Live multi-agent behavior and production/Kylon comparison remain unverified. Other provider-specific formatting and safe automatic failure recovery remain incomplete."
       }
     },
     {

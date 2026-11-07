@@ -434,3 +434,56 @@ test.each(['finish','stop','signout','publication_retry'])('a handed-off externa
  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:finished?'finished':'cancelled'});
  expect(await env.DB.prepare('SELECT status,payload FROM ai_teammate_result_dispatch WHERE run_id=?1').bind(remote.id).first()).toEqual({status:finished?'published':'cancelled',payload:null});
 });
+
+test.each([['active',true],['revoked',false]])('an external Harness Agent handoff to a %s local Agent is checked at completion',async(_state,eligible)=>{
+ await launch();
+ const {agent:source}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:'---\nname: Coordinator\nhandle: coordinator\nscope: team\n---\nCoordinate the task.'})).json();
+ const {agent:reviewer}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:'---\nname: Reviewer\nhandle: reviewer\nscope: team\n---\nReview the handoff.'})).json();
+ const external=await env.DB.prepare("SELECT id FROM custom_agents WHERE org_id=?1 AND provider='claude'").bind(ORG).first();
+ const {setMode}=await import('../src/harness/mode.js');const {postMessage}=await import('../src/channels.js');const {getSession}=await import('../src/db.js');
+ const {beginAuthorizedAssignment,acceptAgentHandoff}=await import('../src/harness/agentAssignmentGrant.js');
+ const {runQueuedHandoff}=await import('../src/harness/agentHandoffRun.js');
+ await setMode(env.DB,ORG,'harness','9701');
+ for(const id of [source.id,reviewer.id,external.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'9701','2026-10-24')").bind(ORG,id).run();
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@coordinator review the deployment'});
+ const begun=await beginAuthorizedAssignment(env,{orgId:ORG,rowId:row.id,token:(await getSession(env.DB,mika)).token},source.id);
+ expect(begun.started).toBe(true);
+ expect((await acceptAgentHandoff(env,{orgId:ORG,assignmentId:begun.assignment.id,generation:0,sourceAgentId:source.id,targetAgentId:external.id,operationId:'external-source-hop',brief:'Investigate the deployment.',messageBody:'Handing off to @claude'})).error).toBeUndefined();
+ const queued=[];
+ const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>{queued.push(JSON.parse(init.body));return new Response('Queued',{status:202})}})};
+ anthropic().intercept({path:'/v1/sessions?beta=true',method:'POST'}).reply(200,opts=>{
+  const request=JSON.parse(opts.body).initial_events[0].content[0].text;
+  expect(request).toContain('[[HONMARU_HANDOFF:');expect(request).toContain(reviewer.id);expect(request).toContain('@reviewer');
+  expect(request).not.toContain(source.id);expect(request).not.toContain(external.id);
+  return {id:'external-local-handoff',type:'session',status:'running'};
+ });
+ anthropic().intercept({path:p=>p.startsWith('/v1/sessions/external-local-handoff/events?'),method:'GET'}).reply(200,{data:[],next_page:null});
+ anthropic().intercept({path:p=>p.startsWith('/v1/sessions/external-local-handoff/events?'),method:'GET'}).reply(200,{data:[
+  {id:'handoff-answer',type:'agent.message',processed_at:'2026-10-24T10:00:00Z',content:[{type:'text',text:`I found the deployment risk.\n[[HONMARU_HANDOFF:{"targetAgentId":"${reviewer.id}","brief":"Review the deployment risk and recommend the safest next step."}]]`}]},
+  {id:'handoff-done',type:'session.status_idle',processed_at:'2026-10-24T10:00:01Z',stop_reason:{type:'end_turn'}},
+ ],next_page:null});
+ anthropic().intercept({path:'/v1/sessions/external-local-handoff?beta=true',method:'GET'}).reply(200,{id:'external-local-handoff',usage:{list_cost:{amount:'0',currency:'USD'}}});
+ const runtime={...env,AGENT_RUNNER:runner,AGENT_INLINE:'',TEAMMATE_WATCH_MS:'0'};
+ expect(await runQueuedHandoff(runtime,{orgId:ORG,rowId:'external-source-hop'})).toEqual({status:'awaiting_external',answered:0});
+ if(!eligible)await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1 AND channel='b:cafe' AND agent_id=?2").bind(ORG,reviewer.id).run();
+ const {watchTeammateRuns}=await import('../src/channelRoutes.js');
+ await watchTeammateRuns(runtime);
+ expect(queued).toHaveLength(eligible?1:0);
+ const assignment=await env.DB.prepare('SELECT current_agent_id,generation,status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,begun.assignment.id).first();
+ if(eligible) {
+  expect(assignment).toEqual({current_agent_id:reviewer.id,generation:2,status:'pending'});
+  const operationId=queued[0].rowId;
+  const handoff=await env.DB.prepare('SELECT target_agent_id,brief FROM hx_agent_handoffs WHERE org_id=?1 AND operation_id=?2').bind(ORG,operationId).first();
+  expect(handoff).toEqual({target_agent_id:reviewer.id,brief:'Review the deployment risk and recommend the safest next step.'});
+  expect((await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND kind='agent' ORDER BY created_at,id").bind(ORG,row.id).all()).results.map(item=>item.body)).toEqual([
+   'Handing off to @claude',`Handing off to Reviewer (@reviewer).\n\nReview the deployment risk and recommend the safest next step.`,
+  ]);
+ } else {
+  expect(assignment).toEqual({current_agent_id:external.id,generation:1,status:'finished'});
+  expect((await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND kind='agent' ORDER BY created_at,id").bind(ORG,row.id).all()).results.map(item=>item.body)).toEqual([
+   'Handing off to @claude',"I found the deployment risk.\n\nI couldn't hand this task to the requested Agent because it is no longer available. No transfer was made.",
+  ]);
+ }
+ const result=await env.DB.prepare('SELECT status,payload FROM ai_teammate_result_dispatch WHERE run_id=(SELECT id FROM ai_teammate_runs WHERE remote_id=\'external-local-handoff\')').first();
+ expect(result.status).toBe('published');expect(result.payload).toBeNull();
+});
