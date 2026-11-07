@@ -576,17 +576,26 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "Database Appにprivate/workspaceの明示ポリシーを追加。Table・MCP・Home・Workflowにも適用。Custom Appの公開ホスト・匿名public・room grantsは未実装"
+      "acceptance": "Database Appにprivate/workspaceの明示ポリシーを追加。Table・MCP・Home・Workflowにも適用。公開済みCustom Appには任意の独自ドメイン経由の匿名読み取りを追加。room grantsは未実装で、公開範囲・権限の完全な検証は残る。",
+      "evidence": {
+        "implementedScope": "PR #679 / 3c742f95 で公開済みCustom Appの独自ドメイン向け読み取り専用ページを追加。PR #680 / f951fecd で公開データの明示確認をサーバー側でも必須にし、ホスティング設定を作成者または管理者に制限。",
+        "remaining": "独自ドメイン接続には別途 Pages Write token の設定が必要で、設定されていなければ無効。room grantsは未実装。匿名公開を含む実運用とKylonの公開操作との完全な一致は未検証。"
+      }
     },
     {
       "id": "KY-050",
       "category": "Apps",
       "requirement": "独自ドメイン・DNS・環境変数",
-      "status": "missing",
+      "status": "partial",
       "priority": "P2",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/apps.js",
-      "acceptance": "ホスト競合・証明書・秘密値非表示・再デプロイ"
+      "code": "worker/src/harness/appHosting.js, docs/setup-secrets.md",
+      "acceptance": "ホスト競合・DNS確認・証明書・秘密値非表示・再デプロイを検証。任意の独自ドメイン接続と暗号化環境変数を追加したが、実環境での受入は未完了。",
+      "evidence": {
+        "implementedScope": "PR #679 / 3c742f95 で既存Cloudflare Pagesへの任意の独自ドメイン接続、DNS／検証状態、アプリ別の暗号化環境変数を追加。値は保存済みジョブ本文と分離し、そのアプリに割り当てた隔離 gateway action に渡す。PR #680 / f951fecd は公開データ確認と設定アクセスの制御を追加。",
+        "verification": "PR #679 は Worker integration 39、gateway 16、Pages middleware 3 テストおよび Web build 成功。#680 は対象 Worker test 18 件成功。ログアウト状態ではランディング画面のみ確認。",
+        "remaining": "専用 Pages Write token が設定されない場合は独自ドメイン接続は無効。実際の本番設定状態は未確認。ホスト競合、顧客DNS、証明書の発行・更新、秘密値非表示、再デプロイ、ログイン済み画面と公開アプリの本番往復の受入確認は未完了。"
+      }
     },
     {
       "id": "KY-051",
@@ -1032,8 +1041,8 @@
       "code": "worker/src/ledger.js, worker/src/workspaceAIBudget.js, worker/src/gate.js, worker/src/orgAI.js, worker/src/index.js, web-react/src/screens/Tools.tsx",
       "acceptance": "Honmaruデプロイキーで記録されたモデル参考価格に対するworkspace共通rolling 24h/7d/30d上限とwarn/pauseを追加。個人Free/Proと独立しCASで設定を更新。Kylon creditsやinvoiceとは扱わない",
       "evidence": {
-        "verified": "ワークスペース全体の記録済みai_callsを直近24時間/7日/30日で集計し、管理者がUSD参考価格の警告または次のdeployment-key AIリクエスト停止を設定できる。BYOKは対象外。管理者権限・revision競合・上限到達ゲートのWorker tests、exact-SHA CI 40219026947、Worker deployment 40219026929、Pages deployment 40221036459、ログイン済み本番AI設定画面を確認済み。詳細はverification.md。",
-        "remaining": "Kylon互換の購入/付与credit残高、実provider invoice換算、事前金額予約・確定・取消と厳密な同時実行上限は未実装。プロバイダーごとの請求と未記録usage・外部ツール費は対象外。"
+        "verified": "ワークスペース全体の記録済みai_callsを直近24時間/7日/30日で集計し、管理者がUSD参考価格の警告または次のdeployment-key AIリクエスト停止を設定できる。BYOKは対象外。管理者権限・revision競合・上限到達ゲートのWorker tests、exact-SHA CI 40219026947、Worker deployment 40219026929、Pages deployment 40221036459、ログイン済み本番AI設定画面を確認済み。詳細はverification.md。 PR #678 / 7bf01bb1 で記録済みdeployment-key AI利用量の日別・累積推移（30/90/180日）と管理者向け人・ルーム・Agent・App・自動化別内訳を追加。個人APIキー利用や価格不明分は推定額から除外し、provider請求額やKylon creditsとは扱わない。",
+        "remaining": "Kylon互換の購入/付与credit残高、実provider invoice換算、事前金額予約・確定・取消と厳密な同時実行上限は未実装。プロバイダーごとの請求と未記録usage・外部ツール費は対象外。 新しい内訳の本番実データ・請求書との照合は未確認。"
       }
     },
     {

@@ -90,8 +90,8 @@
 | KY-046 | 下書き・プレビュー・DB fork | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 個人用DB fork、複数entityのプレビューSDK、差分レビュー付きの一括本番反映を追加。競合は反映を拒否。1回50行まで・反映後は再forkが必要。自動競合解消・選択的マージは残る |
 | KY-047 | 承認されたcommitの公開 | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 保存済みversionをCASで公開し公開者を記録。Git commit単位の配布・別承認者の承認は残る |
 | KY-048 | DB migration journal | 一部 | P0 | [worker/src/harness/appDatabase.js](../../worker/src/harness/appDatabase.js) | 追加専用migrationを維持し、安定IDのrename、厳格なscalar/person変換、単一・複数Relationへの変換、null/空だけの列削除に対応。Relationはstable record IDまたはtarget entityのstable text-like列との完全一致で解決し、0件/複数一致をプレビューで拒否。プレビュー例に入力ラベルと解決record IDを表示し、リンク先とmatch列を含む全target rowを適用transactionで再確認。データ変更はchecksum・schema/row snapshot CASで保護し、`false`/`0`は空扱いしない。複数一致からの手動選択、500KB超snapshot、実画面Kylon比較は残る |
-| KY-049 | 公開範囲private/workspace/public | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | Database Appにprivate/workspaceの明示ポリシーを追加。Table・MCP・Home・Workflowにも適用。Custom Appの公開ホスト・匿名public・room grantsは未実装 |
-| KY-050 | 独自ドメイン・DNS・環境変数 | 未実装 | P2 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | ホスト競合・証明書・秘密値非表示・再デプロイ |
+| KY-049 | 公開範囲private/workspace/public | 一部 | P0 | [worker/src/harness/appHosting.js](../../worker/src/harness/appHosting.js) | Database Appのprivate/workspaceポリシーに加え、PR #679/#680で公開Custom Appの独自ドメイン経由の匿名読み取りと公開対象データの明示確認を追加。独自ドメイン接続は専用トークンが必要。room grantsは未実装で、実運用とKylonの公開操作の完全比較は残る |
+| KY-050 | 独自ドメイン・DNS・環境変数 | 一部 | P2 | [worker/src/harness/appHosting.js](../../worker/src/harness/appHosting.js) | PR #679/#680で任意の独自ドメイン接続、DNS／検証状態、暗号化したアプリ環境変数を追加。専用Pages Write token未設定時は接続無効。本番設定状態、顧客DNS、証明書、ホスト競合、秘密値非表示、再デプロイの受入検証は残る |
 | KY-051 | デプロイ履歴・ログ・ロールバック | 一部 | P1 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 現行定義のversionと実デプロイの復元を区別 |
 | KY-052 | App用Connection grant | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | 個人/アプリ/固定URL/HTTP操作のgrant、暗号化資格情報、確認付きproxyを追加。組織共有grantとOAuth更新は残る |
 | KY-053 | Appに同梱する自動化と差分検出 | 一部実装 | P1 | [worker/src/harness/appAutomationRelease.js](../../worker/src/harness/appAutomationRelease.js) | declared/liveのdrift・下書き停止・公開時反映 |
@@ -155,7 +155,7 @@
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-086 | workspace共有クレジット | 一部 | P0 | [worker/src/workspaceAIBudget.js](../../worker/src/workspaceAIBudget.js) | Honmaruデプロイキーの記録済み価格に対するworkspace共通rolling USD参考価格上限・CAS設定。Kylon credit残高、invoice換算、事前予約・精算は未実装 |
+| KY-086 | workspace共有クレジット | 一部 | P0 | [worker/src/workspaceAIBudget.js](../../worker/src/workspaceAIBudget.js) | Honmaruデプロイキーの記録済み価格に対するworkspace共通rolling USD参考価格上限・CAS設定。PR #678で日別・累積利用推移と管理者向け内訳を追加。Kylon credit残高、invoice換算、事前予約・精算と新しい内訳の本番実データ確認は残る |
 | KY-087 | 月次更新・trial・追加pack | 未実装 | P1 | 該当実装は未特定 | 期限・繰越・アップグレード/ダウングレード時期・二重請求防止 |
 | KY-088 | 残高不足時停止と通知 | 一部 | P0 | [worker/src/gate.js](../../worker/src/gate.js) | 上限後の新規deployment-key AIリクエストを拒否し呼出元へ返答。実行中処理・全tool/workflow/app・teammate provider・管理者通知の制御は未実装 |
 | KY-089 | agent数上限 | 一部 | P1 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 固定最大数ではなくplan別active数・trial数を制御 |
