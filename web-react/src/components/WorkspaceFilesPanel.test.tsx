@@ -332,3 +332,17 @@ test('pending public share can be declined without revealing a URL',async()=>{
  expect(JSON.stringify(renderer!.toJSON())).not.toContain('/hx/public-file-shares/')
  await act(async()=>renderer!.unmount())
 })
+
+test('file owner grants and revokes a named verified external collaborator',async()=>{
+ const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[]}),grantExternal:vi.fn().mockResolvedValue({grant:{recipientGithubId:'guest-1'},redemptionPath:'/external/files/org/file'}),revokeExternal:vi.fn().mockResolvedValue({revoked:true})} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})
+ const input=renderer!.root.findByProps({type:'email'})
+ await act(async()=>{input.props.onChange({target:{value:'person@example.test'}})})
+ await act(async()=>{renderer!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})})
+ expect(api.grantExternal).toHaveBeenCalledWith('file','person@example.test',7)
+ expect(JSON.stringify(renderer!.toJSON())).toContain('No email was sent')
+ expect(api.externalGrants).toHaveBeenCalledTimes(2)
+ act(()=>renderer!.unmount())
+})
