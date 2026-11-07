@@ -17,7 +17,7 @@ test('public Skill links preview and download without a signed-in API session, a
   let tree!: ReturnType<typeof create>
   const fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ share: {
     name: 'Onboarding steps', description: 'A reusable checklist.', fileCount: 2, totalBytes: 640,
-    expiresAt: '2026-11-07T00:00:00Z',
+    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
   } }) }))
   browserGlobals()
   vi.stubGlobal('fetch', fetch)
