@@ -111,7 +111,7 @@ export interface SharedSkillInfo { name: string; description: string; metadata: 
 export interface AgentRoleState { version: number; scope: 'team' | 'personal'; canManage: boolean; canAddMembers?: boolean; members: Array<{ref: string; name: string; role: 'admin' | 'member'; owner: boolean; mine?: boolean}>; candidates: Array<{ref: string; name: string}> }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
 export interface AgentAppConnection { server: string; name: string; description: string; iconUrl: string | null; verified: boolean; allowWrites: boolean; connectedAt: string; granted: boolean }
-export interface AgentNativeConnection { source: 'notion' | 'github'; available: boolean; enabled: boolean }
+export interface AgentNativeConnection { source: 'notion' | 'github'; available: boolean; enabled: boolean; workspaceAvailable?: boolean; workspaceEnabled?: boolean; canManageWorkspace?: boolean }
 export interface AgentRemoteMcpConnection { serverId: string; name: string; available: boolean; enabled: boolean; readOnlyToolCount: number; needsOAuth?: boolean }
 export interface AgentConnectionState { connections: AgentAppConnection[]; nativeConnections: AgentNativeConnection[]; remoteMcpConnections?: AgentRemoteMcpConnection[] }
 export interface HomeData {
@@ -273,7 +273,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     agentMembers: (agentId: string) => call<AgentRoleState>('GET', `/hx/agents/${agentId}/members`),
     agentApps: (agentId: string) => call<AgentConnectionState>('GET', `/hx/agents/${agentId}/apps`),
     setAgentApp: (agentId: string, server: string, granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { server } : undefined, granted ? undefined : { server }),
-    setAgentNativeSource: (agentId: string, source: AgentNativeConnection['source'], granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { source } : undefined, granted ? undefined : { source }),
+    setAgentNativeSource: (agentId: string, source: AgentNativeConnection['source'], granted: boolean, scope: 'member' | 'workspace' = 'member') => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { source, scope } : undefined, granted ? undefined : { source, scope }),
     setAgentRemoteMcpConnection: (agentId: string, serverId: string, granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { remoteMcpServerId: serverId } : undefined, granted ? undefined : { remoteMcpServerId: serverId }),
     transferAgentOwnership: (agentId:string,ref:string,expectedVersion:number)=>call<{version:number}>('PUT',`/hx/agents/${agentId}/ownership`,{ref,expectedVersion}),
     setAgentMember: (agentId: string, ref: string, role: 'admin' | 'member' | 'none', expectedVersion: number) => call<{version:number}>('PUT', `/hx/agents/${agentId}/members`, {ref,role,expectedVersion}),

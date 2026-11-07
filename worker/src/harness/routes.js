@@ -61,7 +61,7 @@ import { announceCards } from '../announce.js';
 import { notifyCard, anyChannelConfigured } from '../notify.js';
 import { handleRemoteMcp } from './remoteMcp.js';
 import { agentAppConnections, setAgentAppGrant } from '../smitheryApps.js';
-import { agentSourceConnections, setAgentSourceConnection } from './agentConnections.js';
+import { agentSourceConnections, setAgentSourceConnection, setAgentWorkspaceSourceConnection } from './agentConnections.js';
 import { agentRemoteMcpConnections, setAgentRemoteMcpConnection } from './agentRemoteMcp.js';
 // The harness routes (docs/kylon-gap-plan.md): the workspace's mode, Tables
 // and Apps. Every route asks for a member who is not a guest; building is a
@@ -353,7 +353,7 @@ export async function handleHarness(request, env, url, context = {}) {
   }
 
   const aiConversationRequest=parts[0]==='apps' && parts[2]==='conversation' && parts.length===3 && request.method==='POST' && typeof input?.body==='string' && asksAppAI(input.body);
-  const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && parts.length === 3 && request.method === 'POST') || (parts[0] === 'apps' && parts[2] === 'conversation-notifications' && parts.length === 3) });
+  const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && request.method === 'POST' && (parts.length === 3 || (parts.length === 5 && parts[4] === 'revoke'))) || (parts[0] === 'apps' && parts[2] === 'conversation-notifications' && parts.length === 3) });
   if (who.denied) return who.denied;
   const me = who.session.github_id;
   if (url.pathname === "/remote-mcp" || url.pathname.startsWith("/remote-mcp/")) {
@@ -815,7 +815,7 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(result, 201);
       }
       if (request.method === 'POST' && parts.length === 5 && parts[4] === 'revoke') {
-        const result = await revokeSkillShare(env.DB, orgId, skillId, parts[3]);
+        const result = await revokeSkillShare(env.DB, orgId, skillId, parts[3], me, who.membershipSince);
         if (!result.error) await audit(env, request, { orgId, action: 'skill.share_revoked', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: parts[3] } });
         return result.error ? fail(result) : json(result);
       }
@@ -938,7 +938,7 @@ export async function handleHarness(request, env, url, context = {}) {
       if (request.method === 'GET') {
         const [connections, nativeConnections, remoteMcpConnections] = await Promise.all([
           agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
-          agentSourceConnections(env, { orgId, agentId, session: who.session }),
+          agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') }),
           agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
         ]);
         return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections });
@@ -947,6 +947,21 @@ export async function handleHarness(request, env, url, context = {}) {
         const source = String(input?.source || url.searchParams.get('source') || '');
         if (source) {
           const granted = request.method === 'POST';
+          const scope = String(input?.scope || url.searchParams.get('scope') || 'member');
+          if (scope === 'workspace') {
+            if (!await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode')) return json({ message: 'Only workspace owners and admins can share this connection.' }, 403);
+            const result = await setAgentWorkspaceSourceConnection(env, { orgId, agentId, source, enabled: granted, actorId: who.session.github_id });
+            if (result.error) return json({ message: result.error }, result.status || 400);
+            await announceAgentAccessChanged(env, orgId, agentId, []);
+            await audit(env, request, { orgId, action: granted ? 'agent.workspace_connection_granted' : 'agent.workspace_connection_revoked', actor: person(who.user), entity: { type: 'custom_agent', id: agentId }, details: { source } });
+            const [connections, nativeConnections, remoteMcpConnections] = await Promise.all([
+              agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
+              agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: true }),
+              agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
+            ]);
+            return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections });
+          }
+          if (scope !== 'member') return json({ message: 'Unknown connection scope.' }, 400);
           const result = await setAgentSourceConnection(env, { orgId, agentId, session: who.session, source, enabled: granted });
           if (result.error) return json({ message: result.error }, result.status || 400);
           await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
@@ -959,7 +974,7 @@ export async function handleHarness(request, env, url, context = {}) {
           });
           return json({
             connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
-            nativeConnections: result.connections,
+            nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') })).connections,
             remoteMcpConnections: await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
           });
         }
@@ -978,7 +993,7 @@ export async function handleHarness(request, env, url, context = {}) {
           });
           return json({
             connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
-            nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session })).connections,
+            nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') })).connections,
             remoteMcpConnections: result.connections,
           });
         }
@@ -995,7 +1010,7 @@ export async function handleHarness(request, env, url, context = {}) {
         });
         return json({
           connections: result.connections,
-          nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session })).connections,
+          nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') })).connections,
           remoteMcpConnections: await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
         });
       }

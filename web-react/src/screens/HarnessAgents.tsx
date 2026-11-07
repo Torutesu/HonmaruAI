@@ -265,21 +265,38 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         {nativeConnections === null ? <div className="empty">{t('Loading…')}</div> : <div className="rows">
           {nativeConnections.map(connection => {
             const sourceName = connection.source === 'notion' ? 'Notion' : 'GitHub'
-            return <label className="row static" key={connection.source} data-agent-source={connection.source}>
-              <span className="row-icon"><Icon name={connection.source} size={18} /></span>
-              <span className="row-main">{sourceName}
-                <span className="row-sub">{connection.available ? t('Use the connected {source} source in this Agent’s private conversations.', { source: sourceName }) : t('Connect {source} for this workspace in Tools before allowing it.', { source: sourceName })}</span>
-              </span>
-              <input type="checkbox" aria-label={t('Allow {agent} to use the connected {source} source', { agent: agent.name, source: sourceName })} checked={connection.enabled} disabled={!connection.available || busy !== null} onChange={e => {
-                const granted = e.currentTarget.checked
-                void act('connection', async () => {
-                  const result = await api.setAgentNativeSource(agent.id, connection.source, granted)
-                  setAgentApps(result.connections || [])
-                  setNativeConnections(result.nativeConnections || [])
-                  setRemoteMcpConnections(result.remoteMcpConnections || [])
-                })
-              }} />
-            </label>
+            return <div className="rows" key={connection.source} data-agent-source={connection.source}>
+              <label className="row static">
+                <span className="row-icon"><Icon name={connection.source} size={18} /></span>
+                <span className="row-main">{sourceName}
+                  <span className="row-sub">{connection.available ? t('Use the connected {source} source in this Agent’s private conversations.', { source: sourceName }) : t('Connect {source} for this workspace in Tools before allowing it.', { source: sourceName })}</span>
+                </span>
+                <input type="checkbox" aria-label={t('Allow {agent} to use the connected {source} source', { agent: agent.name, source: sourceName })} checked={connection.enabled} disabled={!connection.available || busy !== null} onChange={e => {
+                  const granted = e.currentTarget.checked
+                  void act('connection', async () => {
+                    const result = await api.setAgentNativeSource(agent.id, connection.source, granted)
+                    setAgentApps(result.connections || [])
+                    setNativeConnections(result.nativeConnections || [])
+                    setRemoteMcpConnections(result.remoteMcpConnections || [])
+                  })
+                }} />
+              </label>
+              {connection.source === 'github' && connection.workspaceAvailable && <label className="row static">
+                <span className="row-icon"><Icon name="github" size={18} /></span>
+                <span className="row-main">{t('Share workspace GitHub with this Agent')}
+                  <span className="row-sub">{t('An owner or admin can let this Agent use the workspace GitHub connection in private conversations. The token is never shown.')}</span>
+                </span>
+                <input type="checkbox" aria-label={t('Share workspace GitHub with {agent}', { agent: agent.name })} checked={connection.workspaceEnabled === true} disabled={!connection.canManageWorkspace || busy !== null} onChange={e => {
+                  const granted = e.currentTarget.checked
+                  void act('connection', async () => {
+                    const result = await api.setAgentNativeSource(agent.id, 'github', granted, 'workspace')
+                    setAgentApps(result.connections || [])
+                    setNativeConnections(result.nativeConnections || [])
+                    setRemoteMcpConnections(result.remoteMcpConnections || [])
+                  })
+                }} />
+              </label>}
+            </div>
           })}
         </div>}
         <div className="rows-title">{t('Remote MCP sources')}</div>
