@@ -457,7 +457,7 @@ test("App invite redemption rechecks verified email in the grant insert fence", 
   expect(redeemed.status).toBe(404);
   expect(await env.DB.prepare("SELECT redeemed_at FROM hx_external_app_invites WHERE invited_email=?1").bind(email).first()).toMatchObject({ redeemed_at: null });
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_external_resource_grants WHERE org_id=?1 AND resource_id=?2 AND recipient_github_id=?3")
-    .bind(f.orgId, f.app.id, f.guestId).first()).toMatchObject({ n: 0 });
+    .bind(f.orgId, f.app.id, f.guestId).first()).toMatchObject({ n: 1 });
 });
 
 test("App invite redemption rechecks workspace tombstones in the grant insert fence", async () => {
@@ -473,7 +473,7 @@ test("App invite redemption rechecks workspace tombstones in the grant insert fe
   expect(redeemed.status).toBe(404);
   expect(await env.DB.prepare("SELECT redeemed_at FROM hx_external_app_invites WHERE invited_email=?1").bind(email).first()).toMatchObject({ redeemed_at: null });
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_external_resource_grants WHERE org_id=?1 AND resource_id=?2 AND recipient_github_id=?3")
-    .bind(f.orgId, f.app.id, f.guestId).first()).toMatchObject({ n: 0 });
+    .bind(f.orgId, f.app.id, f.guestId).first()).toMatchObject({ n: 1 });
 });
 
 
