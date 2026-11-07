@@ -35,6 +35,8 @@ test('ACP v1 keeps host capabilities disabled, reuses agent-owned auth, and pres
       }
       if (message.method === 'session/prompt') {
         const observed = {capabilities,sessionParams,prompt:message.params.prompt,authenticateCalled};
+        write({jsonrpc:'2.0',method:'session/update',params:{sessionId:message.params.sessionId,update:{sessionUpdate:'tool_call',toolCallId:'call-1',title:'Run checks',rawInput:{secret:'do not forward'}}}});
+        write({jsonrpc:'2.0',method:'session/update',params:{sessionId:message.params.sessionId,update:{sessionUpdate:'agent_thought_chunk',content:{type:'text',text:'private reasoning must not leave the Mac'}}}});
         write({jsonrpc:'2.0',method:'session/update',params:{sessionId:message.params.sessionId,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify(observed)}}}});
         write({jsonrpc:'2.0',id:message.id,result:{stopReason:'end_turn'}});
       }
@@ -42,7 +44,8 @@ test('ACP v1 keeps host capabilities disabled, reuses agent-owned auth, and pres
   `);
   const acpAgents = { fixture: { command: process.execPath, args: [agentFile], cwd: directory } };
   assert.deepEqual(configuredAcpAgentIds(acpAgents), ['fixture']);
-  const result = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Say hello', context: ['Earlier note', 'Last reply'] }, { acpAgents, timeoutMs: 5000 });
+  const progress=[];
+  const result = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Say hello', context: ['Earlier note', 'Last reply'] }, { acpAgents, timeoutMs: 5000, onProgress: update=>progress.push(update) });
   assert.equal(result.status, 'succeeded');
   const output = JSON.parse(result.stdout);
   const observed = JSON.parse(output.text);
@@ -54,6 +57,9 @@ test('ACP v1 keeps host capabilities disabled, reuses agent-owned auth, and pres
     { type: 'text', text: 'Say hello' },
   ]);
   assert.equal(observed.authenticateCalled, false);
+  assert.deepEqual(progress,[{kind:'tool',title:'Run checks',status:'in_progress'},{kind:'thinking',title:'Thinking'},{kind:'reply',title:'Preparing a reply'}]);
+  assert.ok(!JSON.stringify(progress).includes('private reasoning'));
+  assert.ok(!JSON.stringify(progress).includes('do not forward'));
 });
 
 test('ACP Workspace tools use the short-lived local MCP relay only when explicitly enabled', async () => {

@@ -1,4 +1,5 @@
 import {appActivityReadFailed} from '../utils/appActivityStatus'
+import {agentProgressLabel} from '../utils/agentProgress'
 import {workspaceFileForThread} from '../utils/workspaceFileThread'
 import {workspaceFileViewKey} from '../utils/workspaceFileView'
 import {RoomFilesPanel} from './WorkspaceFilesPanel'
@@ -263,7 +264,7 @@ interface ProfileData { name: string; handle: string | null; title: string; time
 /// to be put into the reader's language.
 interface Activity { channel: string; lastAt: string; preview: string; originalPreview?: string; lastBy: string | null; last?: ChannelMessage }
 /// One of the team's agents answering somewhere.
-interface AgentWriting { id: string; name: string; emoji: string | null; avatarUrl?: string | null; parentId: string | null; at?: number }
+interface AgentWriting { id: string; name: string; emoji: string | null; avatarUrl?: string | null; parentId: string | null; at?: number; activity?: {kind:'reply'|'thinking'|'tool'|'plan';title:string;status?:'pending'|'in_progress'|'completed'|'failed';steps?:Array<{title:string;status:'pending'|'in_progress'|'completed'}>} }
 /// Whose face goes beside something: a name, and their photo if they have one.
 /// `emoji`: an agent's face — a tile, not a person's photo.
 interface Face { name: string; url?: string | null; emoji?: string | null; picture?: string | null }
@@ -2100,7 +2101,7 @@ export const ClassicList: React.FC<Props> = ({
   // The AI's steps, as it takes them.
   useEffect(() => {
     const on = (e: Event) => {
-      const p = (e as CustomEvent<{ channel: string; step: string; parentId?: string | null; agent?: { id: string; name: string; emoji?: string | null; avatarUrl?: string | null } }>).detail
+      const p = (e as CustomEvent<{ channel: string; step: string; parentId?: string | null; agent?: { id: string; name: string; emoji?: string | null; avatarUrl?: string | null }; activity?:AgentWriting['activity'] }>).detail
       if (!p?.channel) return
       // One of the team's agents: its own line, not the AI's steps.
       if (p.agent?.id) {
@@ -2113,6 +2114,17 @@ export const ClassicList: React.FC<Props> = ({
           // A "done" that never came does not leave it writing forever. A
           // long research says it is still at it every round; only silence
           // for two minutes ends the line.
+          setTimeout(() => setAgentsWriting((prev) => {
+            const still = prev[p.channel]?.find((x) => x.id === a.id)
+            if (!still || Date.now() - (still.at || 0) < 119_000) return prev
+            return { ...prev, [p.channel]: prev[p.channel].filter((x) => x.id !== a.id) }
+          }), 120_000)
+        } else if (p.step === 'agent_progress' && p.activity) {
+          setAgentsWriting((prev) => {
+            const current=prev[p.channel]||[]
+            const next={id:a.id,name:a.name,emoji:a.emoji||null,avatarUrl:a.avatarUrl||null,parentId:p.parentId||null,at:Date.now(),activity:p.activity}
+            return {...prev,[p.channel]:[...current.filter(x=>x.id!==a.id),next]}
+          })
           setTimeout(() => setAgentsWriting((prev) => {
             const still = prev[p.channel]?.find((x) => x.id === a.id)
             if (!still || Date.now() - (still.at || 0) < 119_000) return prev
@@ -4801,13 +4813,15 @@ export const ClassicList: React.FC<Props> = ({
   const agentLines = (channel: string, only?: { parentId?: string; except?: string | null }) => {
     const list = (agentsWriting[channel] || []).filter((a) => (only?.parentId ? a.parentId === only.parentId : !only?.except || a.parentId !== only.except))
     if (!list.length) return null
+    const activityLabel=(a:AgentWriting)=>{const copy=agentProgressLabel(a.activity,a.name);return t(copy.key,copy.values)}
     return (
       <div className="slk-typing slk-agent-typing" role="status" aria-live="polite">
         {list.map((a) => (
-          <span key={a.id} className="slk-agent-writing" data-agent-writing={a.id}>
+          <div key={a.id} className="slk-agent-writing" data-agent-writing={a.id}>
             <span className="slk-dots" aria-hidden="true"><i /><i /><i /></span>
-            <AgentAvatar agent={a} /> {t('{name} is writing…', { name: a.name })}
-          </span>
+            <AgentAvatar agent={a} /> {activityLabel(a)}
+            {a.activity?.kind==='plan'&&Boolean(a.activity.steps?.length)&&<ol className="slk-agent-plan">{a.activity.steps?.map((step,i)=><li key={`${i}:${step.title}`} className={step.status}><span aria-hidden="true">{step.status==='completed'?'✓':step.status==='in_progress'?'›':'·'}</span>{step.title}</li>)}</ol>}
+          </div>
         ))}
       </div>
     )

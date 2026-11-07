@@ -76,6 +76,25 @@ test('ACP prompts require a local capability and carry only the configured agent
  expect(got.timeoutMs).toBe(110000);
  expect(got.payload).not.toHaveProperty('command');expect(got.payload).not.toHaveProperty('cwd');
 });
+test('ACP progress is lease-bound, bounded, and never persists tool arguments or reasoning',async()=>{
+ const {gateway,token}=await node();
+ await claim(token,['acp-v1'],['opencode']);
+ const queued=await enqueueAcpExecution(env.DB,orgId,'9501',{gatewayId:gateway.id,agentKey:'opencode',prompt:'Run the task'});
+ const running=await claim(token,['acp-v1'],['opencode']);
+ expect(running.id).toBe(queued.job.id);
+ expect((await api('POST',`/jobs/${running.id}/progress`,null,{lease:'wrong',progress:{kind:'tool',title:'Read files'}},token)).status).toBe(409);
+ const accepted=await api('POST',`/jobs/${running.id}/progress`,null,{lease:running.lease,progress:{kind:'tool',title:'  Run\tchecks  ',status:'in_progress',rawInput:{secret:'private'}}},token);
+ expect(accepted.status).toBe(200);
+ const stored=await env.DB.prepare('SELECT acp_progress FROM hx_gateway_jobs WHERE id=?').bind(running.id).first();
+ expect(JSON.parse(stored.acp_progress)).toEqual({kind:'tool',title:'Run checks',status:'in_progress'});
+ expect(stored.acp_progress).not.toContain('private');
+ expect((await api('POST',`/jobs/${running.id}/progress`,null,{lease:running.lease,progress:{kind:'thinking',title:'x'.repeat(1000)}},token)).status).toBe(200);
+ expect((await api('POST',`/jobs/${running.id}/finish`,null,{lease:running.lease,status:'succeeded',stdout:'done',exitCode:0},token)).status).toBe(200);
+ const generic=await enqueue(gateway.id);
+ const genericRunning=await claim(token,['acp-v1'],['opencode']);
+ expect(genericRunning.id).toBe(generic.id);
+ expect((await api('POST',`/jobs/${generic.id}/progress`,null,{lease:genericRunning.lease,progress:{kind:'tool',title:'Not ACP'}},token)).status).toBe(409);
+});
 test('a node whose finish reply was lost is told its result is in, and nothing changes', async () => {
   const { gateway, token } = await node();
   const second = await node();

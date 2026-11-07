@@ -66,7 +66,7 @@ export class WebSocketClient {
   /// The server's word that a message is for this person: what a phone is pushed for.
   onMessageForYou?: (v: { id: string; reason: string }) => void
   /// What the AI is doing with a message it was asked to make a decision of.
-  onChannelProgress?: (progress: { channel: string; parentId: string | null; messageId: string; step: string; cardId?: string; recipientName?: string | null; agent?: { id: string; handle: string; name: string; emoji: string | null; avatarUrl?: string | null } }) => void
+  onChannelProgress?: (progress: { channel: string; parentId: string | null; messageId: string; step: string; cardId?: string; recipientName?: string | null; agent?: { id: string; handle: string; name: string; emoji: string | null; avatarUrl?: string | null }; activity?: { kind: 'reply'|'thinking'|'tool'|'plan'; title: string; status?: 'pending'|'in_progress'|'completed'|'failed'; steps?: Array<{title:string;status:'pending'|'in_progress'|'completed'}>; updatedAt?: number } }) => void
   onComment?: (cardId: string, comment: { id: string; author: string; authorName?: string | null; body: string; mentions: string[]; createdAt: string }) => void
   onReaction?: (cardId: string, emoji: string, on: boolean, by: string, reactions: Record<string, number>) => void
   /// A Jam: who is talking where, this browser's place in one, the signals

@@ -103,6 +103,12 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  const nodeClaim=await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
  const claimed=(await nodeClaim.json()).job;
  expect(claimed.id).toBe(job.id);
+ const progressEvents=[];
+ const relay={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>{const body=JSON.parse(init.body);progressEvents.push(...(body.events||(body.deliveries||[]).map(item=>item.event)));return new Response('ok');}})};
+ const progressResponse=await worker.fetch(new Request(`https://example.com/gateways/jobs/${job.id}/progress`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({lease:claimed.lease,progress:{kind:'tool',title:'Run focused checks',status:'in_progress'}})}),env,ctx);
+ expect(progressResponse.status).toBe(200);
+ await watchTeammateRuns({...env,ORG_RELAY:relay},{ids:[run.id],deadline:Date.now()});
+ expect(progressEvents.some(event=>event.name==='channel_ai_progress'&&event.value?.step==='agent_progress'&&event.value?.activity?.title==='Run focused checks')).toBe(true);
  const finished=await worker.fetch(new Request(`https://example.com/gateways/jobs/${job.id}/finish`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({lease:claimed.lease,status:'succeeded',stdout:JSON.stringify({text:'Reviewed the local repository.',sessionId:'acp-session-1',stopReason:'end_turn'}),stderr:'',exitCode:0})}),env,ctx);
  expect(finished.status).toBe(200);
  await watchTeammateRuns(env,{ids:[run.id],deadline:Date.now()});

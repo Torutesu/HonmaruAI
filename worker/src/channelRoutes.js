@@ -805,6 +805,23 @@ async function runTeammate(env, { orgId, user, requesterId, resolved, row, membe
 /// thread it came from. Once (the minute cron), or until `deadline`.
 export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause = 8000, signal = null } = {}) {
   const publish=async payload=>postTeammateResult(env,payload.run,await loadTeammate(env.DB,payload.run.org_id,payload.run.provider),payload.read,payload.status,{clientId:`tmp-${payload.deliveryId}`,deliveryAgentId:payload.agentId});
+  const progressSeen=new Map();
+  const publishProgress=async(run,teammate,progress)=>{
+    if(!teammate?.agentId||!run.started_by)return;
+    const requester=await getUserByLogin(env.DB,run.started_by).catch(()=>null);
+    if(!requester?.login)return;
+    const activeRequester=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role!='guest'").bind(run.org_id,String(requester.github_id)).first().catch(()=>null);
+    if(!activeRequester)return;
+    const members=await listMembers(env.DB,run.org_id,requester.github_id).catch(()=>[]);
+    const resolved=await resolveChannel(env.DB,run.org_id,requester,run.channel,members);
+    if(!resolved)return;
+    const agent=await env.DB.prepare('SELECT id,handle,name,emoji FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL')
+      .bind(run.org_id,teammate.agentId).first().catch(()=>null);
+    if(!agent)return;
+    const make=(view)=>customEvent('channel_ai_progress',{channel:view,parentId:run.thread_id==='-'?null:run.thread_id,messageId:run.id,step:'agent_progress',agent:{...agent,emoji:agent.emoji||null},activity:progress});
+    if(resolved.kind==='business'&&!resolved.logins)await announceEvents(env,run.org_id,[make(resolved.key)]);
+    else await announceTo(env,run.org_id,resolved.logins.map(login=>({to:login,event:make(viewOf(resolved.key,login,members))})));
+  };
   if(signal?.aborted)return;
   if(ids) {for(const id of ids.slice(0,25)){if(signal?.aborted)return;await drainTeammateResults(env,publish,{runId:id});}}
   else await drainTeammateResults(env,publish);
@@ -819,6 +836,13 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
         const t = await loadTeammate(env.DB, run.org_id, run.provider);
         const read = canSignIn(t) ? await readRun(env, t, run,{signal}) : { texts: [], stop: "terminated", last: null, costCents: null };
         if(signal?.aborted)return;
+        if(read.progress) {
+          const key=JSON.stringify(read.progress);
+          if(progressSeen.get(run.id)!==key) {
+            progressSeen.set(run.id,key);
+            await publishProgress(run,t,read.progress).catch(err=>console.error('ACP progress broadcast failed',safe(err?.message)));
+          }
+        }
         const status = await settleRun(env.DB, run, read, new Date(), {deliveryAgentId:t?.agentId});
         if (read.stop || status) working -= 1;
         if (status) {

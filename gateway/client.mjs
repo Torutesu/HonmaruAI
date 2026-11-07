@@ -64,6 +64,7 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
       const options={timeoutMs:Math.min(job.timeoutMs||timeoutCap,timeoutCap),signal:cancel.signal};
       result=job.payload?.acp===true
         ? await runAcpAgent(job.payload,{...options,acpAgents,
+          onProgress: progress => call(`jobs/${job.id}/progress`,{lease:job.lease,progress},{signal:cancel.signal}),
           mcpCall: job.payload?.workspaceTools === true
             ? async (method,params) => (await call(`jobs/${job.id}/mcp`,{lease:job.lease,method,params},{signal:cancel.signal})).result
             : undefined,
