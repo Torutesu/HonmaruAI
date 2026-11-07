@@ -93,6 +93,9 @@ Remove a key with `node gateway/acp-config.mjs remove codex-local`.
 The protocol client negotiates ACP v1 with host filesystem and terminal
 capabilities disabled, creates or loads sessions, collects agent message and
 tool/plan progress, and sends prompt cancellation when the job is cancelled.
+It gives the ACP agent up to 3 seconds to settle the cancelled prompt, then
+sends SIGTERM and escalates to SIGKILL 750 ms later if the process remains.
+This keeps unresponsive agents within Kylon's 5-second cancellation window.
 Authentication is owned by the local agent; Honmaru does not call ACP `authenticate`. Headless
 terminal-login flows are not supported, so sign in to the local agent on the Mac
 first. ACP agents receive no Workspace MCP server by default. An administrator
