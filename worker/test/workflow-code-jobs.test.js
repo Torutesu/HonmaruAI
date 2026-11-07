@@ -7,6 +7,8 @@ import {readExecution,cancelExecution,enqueueExecution} from '../src/harness/exe
 import {expireGatewayJobs} from '../src/harness/gateways.js';
 import worker from '../src/index.js';
 import {createWorkflow,updateWorkflow,startRun,continueRun,normalizeSteps} from '../src/harness/workflows.js';
+import {setMode} from '../src/harness/mode.js';
+import {saveWorkspaceAIBudget} from '../src/workspaceAIBudget.js';
 let definition;
 beforeEach(async()=>{
  await upsertUser(env.DB,{githubId:'program-owner',login:'program-owner',name:'Owner'});
@@ -68,6 +70,31 @@ test('normal workflow create, edit and start preserve a whole TypeScript program
  await updateWorkflow(env.DB,'program-org',created.workflow.id,{steps:[{...definition.steps[0],code:'console.log("new revision")'}]});
  await continueRun(env,{orgId:'program-org',runId:run.id});
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_gateway_jobs').first()).n).toBe(1);
+});
+test('budget crossed after run admission blocks a TypeScript job before it enters the node queue',async()=>{
+ await setMode(env.DB,'program-org','harness','program-owner');
+ const at=new Date(Date.now()-1_000).toISOString();
+ await saveWorkspaceAIBudget(env.DB,'program-org',{revision:0,dailyLimitUsd:0.000001,weeklyLimitUsd:0,monthlyLimitUsd:0,action:'pause'},'program-owner',at);
+ const created=await createWorkflow(env.DB,'program-org',{name:'Budget raced code',trigger:{type:'manual'},steps:[{type:'code',code:'return 1;',gatewayId:'program-node'}]},'program-owner');
+ expect(created.error).toBeUndefined();
+ let crossed=false;
+ const racingDb=new Proxy(env.DB,{get(db,key){
+  if(key==='batch')return async statements=>{
+   const result=await db.batch(statements);
+   if(!crossed){
+    crossed=true;
+    await db.prepare(`INSERT INTO ai_calls(org_id,user_github_id,purpose,provider,model,input_tokens,output_tokens,usd,byok,created_at)
+      VALUES('program-org','program-owner','ask','OpenAI','gpt-4o-mini',10,10,0.000002,0,?1)`).bind(at).run();
+   }
+   return result;
+  };
+  const value=db[key];return typeof value==='function'?value.bind(db):value;
+ }});
+ const run=await startRun({...env,DB:racingDb},{orgId:'program-org',workflow:created.workflow,trigger:'manual',startedBy:'program-owner'});
+ expect(crossed).toBe(true);
+ expect(run.status).toBe('failed');
+ expect(run.log[0]).toMatchObject({type:'code',status:'failed',reason:'workspace_ai_budget'});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_gateway_jobs WHERE org_id=?1').bind('program-org').first()).toMatchObject({n:0});
 });
 test('program definitions reject mixed steps, missing nodes and source truncation',async()=>{
  expect(normalizeSteps([...definition.steps,{type:'post',channel:'b:ops',text:'hi'}]).error).toBeTruthy();

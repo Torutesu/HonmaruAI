@@ -7,6 +7,7 @@ import { joined, until } from "./helpers.js";
 import { render, runDueWorkflows, normalizeSteps, normalizeTrigger, onRowChange, onRowDelete, startRun, settleWorkflowApproval } from "../src/harness/workflows.js";
 import { signWorkflowWebhook } from "../src/harness/workflowWebhookSignature.js";
 import { runDueFollowups, followupRequest } from "../src/harness/followups.js";
+import { saveWorkspaceAIBudget } from "../src/workspaceAIBudget.js";
 
 // Workflows, follow-ups and approvals (docs/kylon-gap-plan.md): a trigger,
 // steps, every run kept; an approval is a card whose swipe carries the run
@@ -1854,6 +1855,44 @@ test('workflow run budgets enforce limits, reject stale editors, and resume afte
  await env.DB.prepare("UPDATE hx_workflow_runs SET started_at='2000-01-01T00:00:00.000Z' WHERE org_id=?1 AND workflow_id=?2").bind(ORG,workflow.id).run();
  const afterReset=await send('POST',`/workflows/${workflow.id}/run`,mika,{orgId:ORG,text:''});
  const afterResetBody=await afterReset.json();expect(afterReset.status,JSON.stringify(afterResetBody)).toBe(201);expect(afterResetBody.run.status).toBe('done');
+});
+
+test('workspace AI pause blocks a new Harness workflow run before it is created', async () => {
+ const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Workspace paused workflow',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Must not post'}]});
+ expect(created.status).toBe(201);
+ const {workflow}=await created.json();
+ const at=new Date(Date.now()-1_000).toISOString();
+ await saveWorkspaceAIBudget(env.DB,ORG,{revision:0,dailyLimitUsd:0.5,weeklyLimitUsd:0,monthlyLimitUsd:0,action:'pause'},'9302',at);
+ await env.DB.prepare(`INSERT INTO ai_calls(org_id,user_github_id,purpose,provider,model,input_tokens,output_tokens,usd,byok,created_at)
+   VALUES(?1,'9302','ask','OpenAI','gpt-4o-mini',100,100,0.5,0,?2)`).bind(ORG,at).run();
+
+ const response=await send('POST',`/workflows/${workflow.id}/run`,mika,{orgId:ORG,text:''});
+ expect(response.status).toBe(409);
+ expect(await response.json()).toMatchObject({reason:'workspace_ai_budget',message:expect.stringContaining('estimated AI usage limit')});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first()).toMatchObject({n:0});
+ expect((await messages(mika)).some(message=>message.body==='Must not post')).toBe(false);
+});
+
+test('an Agent that crosses the workspace pause cannot dispatch the following post step', async () => {
+ const {agent}=await(await send('POST','/channels/agents',mika,{orgId:ORG,name:'Budget reviewer',handle:'budget-reviewer',instructions:'Review and summarize.',scope:'team'})).json();
+ const {workflow}=await(await send('POST','/workflows',mika,{orgId:ORG,name:'Agent then post under workspace pause',trigger:{type:'manual'},steps:[
+   {type:'agent',agentId:agent.id,prompt:'Review the report.'},
+   {type:'post',channel:'b:ops',text:'Must not post after the budget is reached.'},
+ ]})).json();
+ const at=new Date(Date.now()-1_000).toISOString();
+ await saveWorkspaceAIBudget(env.DB,ORG,{revision:0,dailyLimitUsd:0.000001,weeklyLimitUsd:0,monthlyLimitUsd:0,action:'pause'},'9302',at);
+ fetchMock.activate();
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'})
+   .reply(200,{choices:[{message:{content:'The report is ready.'}}],usage:{prompt_tokens:1000000,completion_tokens:1000000}});
+ try {
+  const run=await startRun({...env,OPENAI_API_KEY:'sk-test'},{orgId:ORG,workflow,trigger:'manual',startedBy:'9302'});
+  expect(run.status).toBe('failed');
+  expect(run.log[0]).toMatchObject({type:'agent',status:'ok'});
+  expect(run.log[1]).toMatchObject({type:'post',status:'failed',reason:'workspace_ai_budget'});
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_calls WHERE org_id=?1 AND byok=0').bind(ORG).first()).n).toBeGreaterThan(0);
+  expect((await messages(mika)).map(message=>message.body)).not.toContain('Must not post after the budget is reached.');
+  fetchMock.assertNoPendingInterceptors();
+ } finally {fetchMock.deactivate();}
 });
 
 test.each([
