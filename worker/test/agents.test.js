@@ -595,18 +595,41 @@ test("an agent can wear a picture instead of its emoji: set by whoever may chang
   const up = await picture(mika, team.id);
   expect(up.status).toBe(200);
   const { agent } = await up.json();
-  expect(agent.avatarUrl).toMatch(/^https:\/\/example\.com\/agents\/avatar\/agent-avatar-[0-9a-f-]{36}$/);
+  const avatarUrl = new URL(agent.avatarUrl);
+  expect(avatarUrl.origin).toBe("https://example.com");
+  expect(avatarUrl.pathname).toMatch(/^\/agents\/avatar\/agent-avatar-[0-9a-f-]{36}$/);
+  expect(avatarUrl.searchParams.get("agent")).toBe(agent.id);
+  expect(avatarUrl.searchParams.has("revision")).toBe(true);
   expect(agent.emoji).toBe("🎨");
   const served = await worker.fetch(new Request(agent.avatarUrl), env);
   expect(served.headers.get("content-type")).toBe("image/png");
   expect(new Uint8Array(await served.arrayBuffer())).toEqual(PNG);
 
-  // Everywhere the agent shows: the list, the @ menu's overview, and what it writes.
-  expect((await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl).toBe(agent.avatarUrl);
-  expect((await (await get(`/channels?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl).toBe(agent.avatarUrl);
+  // Every serializer returns the same media bound to this Agent, with a fresh revision.
+  const expectScoped = (value) => {
+    const scoped = new URL(value);
+    expect(scoped.origin).toBe(avatarUrl.origin);
+    expect(scoped.pathname).toBe(avatarUrl.pathname);
+    expect(scoped.searchParams.get("agent")).toBe(team.id);
+    expect(scoped.searchParams.has("revision")).toBe(true);
+  };
+  expectScoped((await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl);
+  expectScoped((await (await get(`/channels?${q({ orgId: ORG })}`, kenji)).json()).agents.find((a) => a.id === team.id).avatarUrl);
+  await send("POST", "/channels/channel-agents", mika, { orgId: ORG, channel: "b:cafe", agentId: team.id });
+  const roomDetails = await (await get(`/channels/details?${q({ orgId: ORG, channel: "b:cafe" })}`, kenji)).json();
+  expectScoped(roomDetails.members.agents.find((a) => a.id === team.id).avatarUrl);
   const asked = await (await send("POST", "/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "@hayao which colour for the sign?" })).json();
   const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: asked.message.id })}`, kenji)).json();
-  expect(thread.replies[0]).toMatchObject({ kind: "agent", agent: { id: team.id, avatarUrl: agent.avatarUrl } });
+  expect(thread.replies[0]).toMatchObject({ kind: "agent", agent: { id: team.id } });
+  expectScoped(thread.replies[0].agent.avatarUrl);
+
+  await send("PUT", `/hx/agents/${team.id}/profile`, toru, { orgId: ORG, access: "people", people: ["toru"] });
+  const requestOptions = await (await get(`/hx/agent-access-options?${q({ orgId: ORG })}`, kenji)).json();
+  const requestable = requestOptions.agents.find((a) => a.id === team.id);
+  expect(requestable).toBeTruthy();
+  expect(requestable).not.toHaveProperty("avatarUrl");
+  const hiddenRoomDetails = await (await get(`/channels/details?${q({ orgId: ORG, channel: "b:cafe" })}`, kenji)).json();
+  expect(hiddenRoomDetails.members.agents.some((a) => a.id === team.id)).toBe(false);
 
   // Nobody else's personal agent, no guest, no SVG.
   expect((await picture(mika, mine.id)).status).toBe(404);
@@ -990,12 +1013,17 @@ test('assignment status is hidden from room readers without current grants to ea
  expect(restrictedProfiles.results.every(profile=>profile.access==='people' && profile.people==='[\"mika\"]')).toBe(true);
  await env.DB.prepare("UPDATE custom_agents SET owner_login='mika' WHERE org_id=?1 AND id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
  await env.DB.prepare("DELETE FROM hx_agent_members WHERE org_id=?1 AND agent_id IN (?2,?3)").bind(ORG,f.source.id,f.target.id).run();
- await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/reviewer.png',ORG,f.target.id).run();
+ await env.DB.prepare('UPDATE custom_agents SET emoji=?1,avatar_url=?2 WHERE org_id=?3 AND id=?4').bind('📝','https://example.com/agents/avatar/agent-avatar-00000000-0000-0000-0000-000000000000',ORG,f.target.id).run();
  const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:f.row.id})}`;
  for(const [token,canStop] of [[mika,true]]) {
   const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
   const body=await response.json();const a=body.results[0].assignments[0];
-  expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝',avatarUrl:'https://example.com/reviewer.png'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝',avatarUrl:'https://example.com/reviewer.png'}}]});
+  expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝'}}]});
+  const avatar = new URL(a.agent.avatarUrl);
+  expect(avatar.pathname).toBe('/agents/avatar/agent-avatar-00000000-0000-0000-0000-000000000000');
+  expect(avatar.searchParams.get('agent')).toBe(f.target.id);
+  expect(avatar.searchParams.has('revision')).toBe(true);
+  expect(a.hops[0].to.avatarUrl).toBe(a.agent.avatarUrl);
   expect(Number.isFinite(Date.parse(a.startedAt))).toBe(true);expect(Number.isFinite(Date.parse(a.updatedAt))).toBe(true);
   const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions'])expect(text).not.toContain(value);
  }
