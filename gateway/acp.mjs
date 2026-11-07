@@ -8,6 +8,8 @@ const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const MAX_PROMPT_BYTES = 48 * 1024;
 const MAX_LINE_BYTES = 1024 * 1024;
 const MAX_TEXT_BYTES = 48 * 1024;
+const ACP_CANCEL_GRACE_MS = 3000;
+const ACP_CANCEL_TERM_MS = 750;
 const ACP_PERMISSION_POLICIES = new Set(['default', 'strict']);
 const ACP_READ_TOOL_KINDS = new Set(['read', 'search', 'fetch', 'think']);
 
@@ -208,6 +210,8 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
   let progressTail = Promise.resolve();
   let lastProgress = '';
   let abort;
+  let cancelTermTimer = null;
+  let cancelKillTimer = null;
   const remaining = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
   const startedAt = Date.now();
   rpc.onNotification = message => {
@@ -247,8 +251,19 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
   abort = () => {
     if (sessionId) rpc.notify('session/cancel', { sessionId });
     if (promptRequestId !== null) rpc.notify('$/cancel_request', { id: promptRequestId });
-    signalAgent(child, 'SIGTERM');
-    setTimeout(() => signalAgent(child, 'SIGKILL'), 1500).unref?.();
+    // Give the agent time to settle the ACP turn itself. Kylon's ACP contract
+    // allows five seconds for cancellation; use a shorter grace period so
+    // process termination and transport cleanup still fit inside that bound.
+    cancelTermTimer = setTimeout(() => {
+      cancelTermTimer = null;
+      signalAgent(child, 'SIGTERM');
+      cancelKillTimer = setTimeout(() => {
+        cancelKillTimer = null;
+        signalAgent(child, 'SIGKILL');
+      }, ACP_CANCEL_TERM_MS);
+      cancelKillTimer.unref?.();
+    }, ACP_CANCEL_GRACE_MS);
+    cancelTermTimer.unref?.();
   };
   signal?.addEventListener('abort', abort, { once: true });
   try {
@@ -297,6 +312,8 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     const answer = text.join('').trim();
     return { status: result.stopReason === 'cancelled' ? 'failed' : 'succeeded', stdout: JSON.stringify({ text: answer, sessionId, stopReason: result.stopReason || null }), stderr: '', exitCode: 0 };
   } finally {
+    clearTimeout(cancelTermTimer);
+    clearTimeout(cancelKillTimer);
     if (workspaceMcp) {
       workspaceMcp.server.closeAllConnections?.();
       await new Promise(resolve => workspaceMcp.server.close(() => resolve()));

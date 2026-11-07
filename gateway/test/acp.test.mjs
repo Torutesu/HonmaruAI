@@ -1,6 +1,6 @@
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runAcp, configuredAcpAgentIds, validateAcpAgents } from '../acp.mjs';
@@ -126,6 +126,81 @@ test('ACP Workspace tools use the short-lived local MCP relay only when explicit
     {method:'tools/list',params:{}},
     {method:'tools/call',params:{name:'read_app',arguments:{appId:'synthetic-app'}}},
   ]);
+});
+
+test('ACP cancellation lets the agent settle its turn before terminating the process', async () => {
+  directory = await mkdtemp(join(tmpdir(), 'honmaru-acp-cancel-'));
+  const readyFile = join(directory, 'ready');
+  const eventFile = join(directory, 'events');
+  const agentFile = join(directory, 'agent.mjs');
+  await writeFile(agentFile, `
+    import fs from 'node:fs';
+    import readline from 'node:readline';
+    const input = readline.createInterface({input:process.stdin});
+    const write = message => process.stdout.write(JSON.stringify(message) + String.fromCharCode(10));
+    let promptId;
+    input.on('line', line => {
+      const message = JSON.parse(line);
+      if (message.method === 'initialize') write({jsonrpc:'2.0',id:message.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+      else if (message.method === 'session/new') write({jsonrpc:'2.0',id:message.id,result:{sessionId:'cancel-session'}});
+      else if (message.method === 'session/prompt') { promptId=message.id; fs.writeFileSync(process.env.READY_FILE,'ready'); }
+      else if (message.method === 'session/cancel' || message.method === '$/cancel_request') {
+        fs.appendFileSync(process.env.EVENT_FILE, message.method + String.fromCharCode(10));
+        if (message.method === 'session/cancel') setTimeout(() => write({jsonrpc:'2.0',id:promptId,result:{stopReason:'cancelled'}}),50);
+      }
+    });
+  `);
+  const controller = new AbortController();
+  const running = runAcp({agentKey:'fixture',prompt:'Wait for cancellation'}, {
+    acpAgents:{fixture:{command:process.execPath,args:[agentFile],cwd:directory,env:{READY_FILE:readyFile,EVENT_FILE:eventFile}}},
+    signal:controller.signal,
+    timeoutMs:10000,
+  });
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    try { await readFile(readyFile); break; } catch { await new Promise(resolve => setTimeout(resolve,10)); }
+  }
+  await assert.doesNotReject(readFile(readyFile), 'ACP prompt should start before cancellation');
+  controller.abort();
+  await assert.rejects(running,/cancelled/i);
+  const events = await readFile(eventFile,'utf8');
+  assert.match(events,/session\/cancel/);
+  assert.match(events,/\$\/cancel_request/);
+});
+
+test('ACP cancellation kills an agent that ignores cancel within the five-second contract', async () => {
+  directory = await mkdtemp(join(tmpdir(), 'honmaru-acp-cancel-timeout-'));
+  const readyFile = join(directory, 'ready');
+  const agentFile = join(directory, 'agent.mjs');
+  await writeFile(agentFile, `
+    import fs from 'node:fs';
+    import readline from 'node:readline';
+    const input = readline.createInterface({input:process.stdin});
+    const write = message => process.stdout.write(JSON.stringify(message) + String.fromCharCode(10));
+    input.on('line', line => {
+      const message = JSON.parse(line);
+      if (message.method === 'initialize') write({jsonrpc:'2.0',id:message.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+      else if (message.method === 'session/new') write({jsonrpc:'2.0',id:message.id,result:{sessionId:'stuck-session'}});
+      else if (message.method === 'session/prompt') { process.on('SIGTERM',()=>{}); fs.writeFileSync(process.env.READY_FILE,String(process.pid)); setInterval(()=>{},1000); }
+    });
+  `);
+  const controller = new AbortController();
+  const running = runAcp({agentKey:'fixture',prompt:'Ignore cancellation'}, {
+    acpAgents:{fixture:{command:process.execPath,args:[agentFile],cwd:directory,env:{READY_FILE:readyFile}}},
+    signal:controller.signal,
+    timeoutMs:10000,
+  });
+  const deadline = Date.now() + 3000;
+  let pid;
+  while (Date.now() < deadline) {
+    try { pid=Number(await readFile(readyFile,'utf8')); if(pid) break; } catch { await new Promise(resolve => setTimeout(resolve,10)); }
+  }
+  assert.ok(pid, 'ACP prompt should start before cancellation');
+  const cancelledAt = Date.now();
+  controller.abort();
+  await assert.rejects(running,/exited|cancelled/i);
+  assert.ok(Date.now()-cancelledAt < 5000, 'unresponsive ACP agent must be terminated within five seconds');
+  assert.throws(() => process.kill(pid,0), error => error?.code === 'ESRCH');
 });
 
 test('ACP agent launch settings must be local and valid', () => {
