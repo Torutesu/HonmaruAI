@@ -124,6 +124,11 @@ test("a verified non-member can read and reply only to an explicitly shared Thre
   const request = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest, "POST", { body: `@${ids.owner} @AI summarize the launch plan`, requestSend: true });
   expect(request.status).toBe(201);
   const sendRequest = await request.json();
+  // A view-only guest request is stored for owner review; it is neither a
+  // channel message nor a notification until the owner approves it.
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM channel_messages WHERE org_id=?1 AND body=?2")
+    .bind(orgId, `@${ids.owner} @AI summarize the launch plan`).first()).toMatchObject({ n: 0 });
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM push_queue WHERE org_id=?1 AND reason='mention'").bind(orgId).first()).toMatchObject({ n: 0 });
   expect((await call(`/external/threads/${orgId}/${rootId}/requests`, sessions.editor)).status).toBe(404);
   const pending = await call(`/external/threads/${orgId}/${rootId}/requests`, sessions.owner);
   expect((await pending.json()).requests).toMatchObject([{ id: sendRequest.requestId, body: `@${ids.owner} @AI summarize the launch plan` }]);
@@ -131,6 +136,8 @@ test("a verified non-member can read and reply only to an explicitly shared Thre
   expect(approved.status).toBe(200);
   const approvedMessage = await approved.json();
   await flushBackground();
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM channel_messages WHERE org_id=?1 AND id=?2")
+    .bind(orgId, approvedMessage.messageId).first()).toMatchObject({ n: 1 });
   expect(aiPrompt.messages.find((message) => message.role === "user").content).not.toContain(privateBody);
   expect(JSON.stringify(aiPrompt.messages)).not.toContain(privateBody);
 
@@ -584,4 +591,25 @@ test("view guests may read attachment ranges and react but cannot upload, attach
   expect(reaction.status).toBe(200);
   const refreshed = await (await call(`/external/threads/${orgId}/${rootId}`, sessions.guest)).json();
   expect(refreshed.thread.parent.reactions).toEqual([{ emoji: "👀", count: 1, mine: true }]);
+});
+test("external Thread guests never receive or create workspace shortcode reactions", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const email = `guest-${orgId.split("-").at(-1)}@example.test`;
+  const share = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", { email, permission: "edit" });
+  expect(share.status).toBe(201);
+
+  await env.DB.prepare(`INSERT INTO message_reactions (org_id,message_id,emoji,login,created_at)
+    VALUES (?1,?2,':private_mark:',?3,?4)`).bind(orgId, rootId, ids.owner, new Date().toISOString()).run();
+  const read = await call(`/external/threads/${orgId}/${rootId}`, sessions.guest);
+  expect(read.status).toBe(200);
+  const body = await read.text();
+  expect(body).not.toContain(":private_mark:");
+  expect(body).not.toContain("private_mark");
+
+  const toggle = await call(`/external/threads/${orgId}/${rootId}/reactions`, sessions.guest, "POST", {
+    messageId: rootId, emoji: ":private_mark:",
+  });
+  expect(toggle.status).toBe(400);
+  expect(await env.DB.prepare(`SELECT 1 FROM message_reactions WHERE org_id=?1 AND message_id=?2 AND login=?3 AND emoji=':private_mark:'`)
+    .bind(orgId, rootId, ids.guest).first()).toBeNull();
 });

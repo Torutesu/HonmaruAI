@@ -9,25 +9,26 @@ const grant={id:'grant-1',permission:'view',recipient:{name:'Ari',email:'ari@exa
 const ok=(value:any,status=200)=>({ok:status>=200&&status<300,status,json:async()=>value})
 const empty=()=>ok({shares:[]})
 const noInvites=()=>ok({invitations:[]})
+const noRequests=()=>ok({requests:[]})
 const flush=async()=>{await Promise.resolve();await Promise.resolve();await Promise.resolve()}
 afterEach(()=>vi.unstubAllGlobals())
 
 test('shows named active grants and revoke refreshes the list',async()=>{
- const fetch=vi.fn().mockResolvedValueOnce(ok({shares:[grant]})).mockResolvedValueOnce(noInvites()).mockResolvedValueOnce(ok({revoked:true})).mockResolvedValueOnce(empty()).mockResolvedValueOnce(noInvites())
+ const fetch=vi.fn().mockResolvedValueOnce(ok({shares:[grant]})).mockResolvedValueOnce(noInvites()).mockResolvedValueOnce(noRequests()).mockResolvedValueOnce(ok({revoked:true})).mockResolvedValueOnce(empty()).mockResolvedValueOnce(noInvites()).mockResolvedValueOnce(noRequests())
  vi.stubGlobal('fetch',fetch)
  let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<ExternalThreadShare api={api} threadId="root" onClose={()=>{}}/>);await flush()})
  expect(JSON.stringify(tree.toJSON())).toContain('Ari')
  expect(JSON.stringify(tree.toJSON())).toContain('ari@example.com')
  await act(async()=>{tree.root.findAllByType('button').find(b=>b.children.includes('Revoke access'))!.props.onClick();await flush()})
- expect(fetch.mock.calls.map(call=>call[1].method)).toEqual(['GET','GET','DELETE','GET','GET'])
+ expect(fetch.mock.calls.map(call=>call[1].method)).toEqual(['GET','GET','GET','DELETE','GET','GET','GET'])
  expect(JSON.stringify(tree.toJSON())).toContain('No one outside this workspace has access.')
  act(()=>tree.unmount())
 })
 
 test('creates and copies a named expiring invite link, and lists pending invites',async()=>{
  const invitation={id:'invite-1',email:'guest@example.com',permission:'edit',createdAt:'2026-11-06T00:00:00Z',expiresAt:'2026-11-13T00:00:00Z',accessExpiresAt:null}
- const fetch=vi.fn().mockResolvedValueOnce(empty()).mockResolvedValueOnce(noInvites()).mockResolvedValueOnce(ok({invited:true,invitationId:'invite-1',inviteUrl:'https://app.example/#/external-invite/secret',expiresAt:invitation.expiresAt})).mockResolvedValueOnce(empty()).mockResolvedValueOnce(ok({invitations:[invitation]}))
+ const fetch=vi.fn().mockResolvedValueOnce(empty()).mockResolvedValueOnce(noInvites()).mockResolvedValueOnce(noRequests()).mockResolvedValueOnce(ok({invited:true,invitationId:'invite-1',inviteUrl:'https://app.example/#/external-invite/secret',expiresAt:invitation.expiresAt})).mockResolvedValueOnce(empty()).mockResolvedValueOnce(ok({invitations:[invitation]})).mockResolvedValueOnce(noRequests())
  vi.stubGlobal('fetch',fetch)
  const writeText=vi.fn().mockResolvedValue(undefined)
  Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}})
@@ -51,7 +52,7 @@ test('creates and copies a named expiring invite link, and lists pending invites
 
 test('shows a workspace member paused grant and still lets the owner revoke it by grant id',async()=>{
  const memberGrant={...grant,recipientIsMember:true,suspended:true}
- const fetch=vi.fn().mockResolvedValueOnce(ok({shares:[memberGrant]})).mockResolvedValueOnce(noInvites()).mockResolvedValueOnce(ok({revoked:true})).mockResolvedValueOnce(empty()).mockResolvedValueOnce(noInvites())
+ const fetch=vi.fn().mockResolvedValueOnce(ok({shares:[memberGrant]})).mockResolvedValueOnce(noInvites()).mockResolvedValueOnce(noRequests()).mockResolvedValueOnce(ok({revoked:true})).mockResolvedValueOnce(empty()).mockResolvedValueOnce(noInvites()).mockResolvedValueOnce(noRequests())
  vi.stubGlobal('fetch',fetch)
  let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<ExternalThreadShare api={api} threadId="root" onClose={()=>{}}/>);await flush()})
@@ -61,6 +62,21 @@ test('shows a workspace member paused grant and still lets the owner revoke it b
  const revoke=tree.root.findAllByType('button').find(button=>button.children.includes('Revoke access'))!
  expect(revoke.props.disabled).toBe(false)
  await act(async()=>{revoke.props.onClick();await flush()})
- expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({grantId:'grant-1'})
+ expect(JSON.parse(fetch.mock.calls[3][1].body)).toEqual({grantId:'grant-1'})
+ act(()=>tree.unmount())
+})
+
+test('owner can approve or decline pending guest replies and the list refreshes',async()=>{
+ const pending={id:'request-1',body:'Please share the update',requested_at:'2026-11-06T10:00:00Z',guest_name:'Ari Guest',guest_email:'guest@example.com'}
+ const fetch=vi.fn().mockResolvedValueOnce(empty()).mockResolvedValueOnce(noInvites()).mockResolvedValueOnce(ok({requests:[pending]})).mockResolvedValueOnce(ok({approved:true})).mockResolvedValueOnce(empty()).mockResolvedValueOnce(noInvites()).mockResolvedValueOnce(ok({requests:[]}))
+ vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<ExternalThreadShare api={api} threadId="root" onClose={()=>{}}/>);await flush()})
+ expect(JSON.stringify(tree.toJSON())).toContain('Please share the update')
+ await act(async()=>{tree.root.findAllByType('button').find(b=>b.children.includes('Approve'))!.props.onClick();await flush()})
+ const decision=fetch.mock.calls.find(([url,init])=>String(url).endsWith('/requests/approve')&&init.method==='POST')
+ expect(decision).toBeDefined()
+ expect(JSON.parse(decision![1].body)).toEqual({requestId:'request-1'})
+ expect(JSON.stringify(tree.toJSON())).toContain('No pending guest reply requests.')
  act(()=>tree.unmount())
 })

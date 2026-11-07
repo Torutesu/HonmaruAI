@@ -101,3 +101,10 @@
   .hx-external-thread-invite-link { grid-template-columns: 1fr; }
   .hx-external-thread-invite-list li { align-items: flex-start; }
 }
+.hx-external-thread-requests { margin: 1.25rem 0; padding: 1rem; border: 1px solid var(--line, #dedee3); border-radius: 12px; background: var(--surface-subtle, #fafafa); }
+.hx-external-thread-requests h3 { margin: 0 0 .35rem; }
+.hx-external-thread-request { display: flex; justify-content: space-between; gap: 1rem; padding: .85rem 0; border-top: 1px solid var(--line, #dedee3); }
+.hx-external-thread-request p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .45rem 0; }
+.hx-external-thread-request small { display: block; color: var(--text-muted, #6b7280); }
+.hx-external-thread-request-actions { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+@media (max-width: 560px) { .hx-external-thread-request { flex-direction: column; } .hx-external-thread-request-actions { justify-content: flex-end; } }

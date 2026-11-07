@@ -11,6 +11,9 @@ import {
   createExternalThreadInvitation,
   revokeExternalThreadInvitation,
   type ExternalThreadInvitation,
+  listExternalThreadSendRequests,
+  decideExternalThreadSendRequest,
+  type ExternalThreadSendRequest,
 } from '../utils/externalThreadSharing'
 import './ExternalThreadShare.css'
 
@@ -29,6 +32,7 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
   const t = useT()
   const [shares, setShares] = useState<ExternalThreadGrant[]>([])
   const [invitations, setInvitations] = useState<ExternalThreadInvitation[]>([])
+  const [sendRequests, setSendRequests] = useState<ExternalThreadSendRequest[]>([])
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteUrl, setInviteUrl] = useState('')
   const [invitePermission, setInvitePermission] = useState<'view'|'edit'>('view')
@@ -49,8 +53,9 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
     void Promise.all([
       listExternalThreadShares(apiKey, threadId, controller.signal),
       listExternalThreadInvitations(apiKey, threadId, controller.signal),
+      listExternalThreadSendRequests(apiKey, threadId, controller.signal),
     ])
-      .then(([value, pending]) => { if (live) { setShares(value); setInvitations(pending); setDrafts(Object.fromEntries(value.map(item => [item.id,item.permission]))) } })
+      .then(([value, pending, requests]) => { if (live) { setShares(value); setInvitations(pending); setSendRequests(requests); setDrafts(Object.fromEntries(value.map(item => [item.id,item.permission]))) } })
       .catch(err => { if (live && !controller.signal.aborted) setError(errorText(err,t)) })
       .finally(() => { if (live) setLoading(false) })
     return () => { live = false; controller.abort() }
@@ -101,6 +106,9 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
   const revoke = (share: ExternalThreadGrant) => void mutate(async () => {
     await revokeExternalThreadShare(apiKey,threadId,share.id)
   })
+  const decideRequest = (request: ExternalThreadSendRequest, decision: 'approve'|'reject') => void mutate(async () => {
+    await decideExternalThreadSendRequest(apiKey, threadId, request.id, decision)
+  })
   const expires = (value: string | null) => value ? new Date(value).toLocaleString() : t('No expiry')
 
   return <Dialog
@@ -129,6 +137,16 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
       <button type="submit" className="pill-btn" disabled={busy||!email.trim()}>{busy?t('Saving…'):t('Share thread')}</button>
     </form>
     {error&&<p className="form-error" role="alert">{error}</p>}
+    <section className="hx-external-thread-requests" aria-label={t('Guest reply requests')}>
+      <h3>{t('Guest reply requests')}</h3>
+      <p className="row-sub">{t('View-only guests must be approved before their message is added to this thread or delivered to members.')}</p>
+      {loading&&<p role="status">{t('Loading…')}</p>}
+      {!loading&&!error&&!sendRequests.length&&<p className="row-sub">{t('No pending guest reply requests.')}</p>}
+      {sendRequests.map(request=><article className="hx-external-thread-request" key={request.id} data-request-id={request.id}>
+        <div><strong>{request.guest_name||request.guest_email||t('Guest')}</strong>{request.guest_email&&<small>{request.guest_email}</small>}<p>{request.body}</p><small>{new Date(request.requested_at).toLocaleString()}</small></div>
+        <div className="hx-external-thread-request-actions"><button type="button" className="pill-btn" disabled={busy} onClick={()=>decideRequest(request,'approve')}>{t('Approve')}</button><button type="button" className="btn-text" disabled={busy} onClick={()=>decideRequest(request,'reject')}>{t('Decline')}</button></div>
+      </article>)}
+    </section>
     <section className="hx-external-thread-invites" aria-label={t('Invite a guest')}>
       <h3>{t('Invite by link')}</h3>
       <p className="row-sub">{t('The recipient must verify this email address. No email is sent.')}</p>
