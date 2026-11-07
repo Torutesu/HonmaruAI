@@ -80,6 +80,16 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
     } catch {
       return null;
     }
+    // A missing row is also how legacy virtual public Rooms are represented.
+    // An explicit deletion tombstone is the only durable signal that a key
+    // used to identify a deleted Room; storage errors fail closed.
+    let tombstone;
+    try {
+      tombstone = await db.prepare("SELECT 1 AS deleted FROM hx_room_access WHERE org_id = ?1 AND channel = ?2 AND deleted_at IS NOT NULL").bind(orgId, channel).first();
+    } catch {
+      return null;
+    }
+    if (tombstone) return null;
     const deliveryBoundary = { businessCreatedAt: row?.created_at || null, allowVirtual: !row };
     if (!row?.private) {
       // With guests in the workspace, a public channel has a list of who
