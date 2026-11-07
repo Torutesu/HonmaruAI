@@ -684,6 +684,116 @@ test('an active normal request loses authorization when agent access becomes pri
  expect(await authorize(agentId)).toBe(false);
 });
 
+test("restricted Agent avatar URLs follow access, membership and revisions in Harness and Simple", async () => {
+  const DATA_KEY = btoa("s".repeat(32));
+  const keyed = { DATA_KEY };
+  const image = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  const uploaded = await call(`/channels/agents/avatar?${q({ orgId: ORG, id: agentId })}`, {
+    method: "POST", headers: { ...headers(mika), "content-type": "image/png" }, body: image,
+  }, keyed);
+  expect(uploaded.status).toBe(200);
+
+  const publicList = await (await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) })).json();
+  const publicUrl = publicList.agents.find((agent) => agent.id === agentId).avatarUrl;
+  expect(new URL(publicUrl).searchParams.get("agent")).toBe(agentId);
+  const publicImage = await call(new URL(publicUrl).pathname + new URL(publicUrl).search, { headers: {} });
+  expect(publicImage.status).toBe(200);
+  expect(publicImage.headers.get("cache-control")).toBe("no-store");
+
+  const storedAvatar = new URL(publicUrl).origin + new URL(publicUrl).pathname;
+  const mediaIdFromPublic = /agent-avatar-[0-9a-f-]{36}$/.exec(new URL(publicUrl).pathname)[0];
+  await env.DB.prepare("UPDATE custom_agents SET avatar_url=?3 WHERE org_id=?1 AND id=?2").bind(ORG, agentId, "https://evil.example/agents/avatar/" + mediaIdFromPublic).run();
+  const external = await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) });
+  expect((await external.json()).agents.find((agent) => agent.id === agentId).avatarUrl).toBeNull();
+  await env.DB.prepare("UPDATE custom_agents SET avatar_url=?3 WHERE org_id=?1 AND id=?2").bind(ORG, agentId, storedAvatar).run();
+
+  expect((await send("PUT", `/hx/agents/${agentId}/profile`, mika, {
+    orgId: ORG, access: "people", people: ["toru"],
+  })).status).toBe(200);
+  const oldPublic = await call(new URL(publicUrl).pathname + new URL(publicUrl).search, { headers: {} });
+  expect(oldPublic.status).toBe(404);
+  expect(oldPublic.headers.get("cache-control")).toBe("no-store");
+
+  const fresh = await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) }, keyed);
+  const privateList = await fresh.json();
+  const privateUrl = privateList.agents.find((agent) => agent.id === agentId).avatarUrl;
+  const protectedUrl = new URL(privateUrl);
+  expect(protectedUrl.searchParams.get("agent")).toBe(agentId);
+  expect(protectedUrl.searchParams.get("viewer")).toBe("9201");
+  expect(privateUrl).not.toContain("toru");
+  const allowed = await call(protectedUrl.pathname + protectedUrl.search, { headers: {} }, keyed);
+  expect(allowed.status).toBe(200);
+  expect(allowed.headers.get("cache-control")).toBe("no-store");
+
+  await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,kind,body,created_at) VALUES ('avatar-test-message',?1,'b:cafe',?2,'agent','A private reply',?3)")
+    .bind(ORG, `agent:${agentId}`, new Date().toISOString()).run();
+  const history = await call(`/channels/messages?${q({ orgId: ORG, channel: "b:cafe" })}`, { headers: headers(toru) }, keyed);
+  const message = (await history.json()).messages.find((row) => row.id === "avatar-test-message");
+  expect(message.agent.avatarUrl).toContain("viewer=9201");
+  expect((await call(new URL(message.agent.avatarUrl).pathname + new URL(message.agent.avatarUrl).search, { headers: {} }, keyed)).status).toBe(200);
+
+  const noKey = await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) }, { DATA_KEY: undefined, FILE_SIGNING_KEY: undefined });
+  expect((await noKey.json()).agents.find((agent) => agent.id === agentId).avatarUrl).toBeNull();
+
+  await env.DB.prepare("INSERT INTO hx_agent_assignments (id,org_id,source_message_id,initial_agent_id,current_agent_id,channel,thread_id,actor_id,session_key,source_hash,generation,status,visited,hop_limit,created_at,updated_at) VALUES ('avatar-status',?1,'avatar-status-source',?2,?2,'b:cafe','avatar-status-source','9201','session','hash',0,'running','[]',4,?3,?3)")
+    .bind(ORG, agentId, new Date().toISOString()).run();
+  const { decorateAssignmentStatuses } = await import("../src/harness/agentAssignmentStatus.js");
+  const { requestContext } = await import("../src/requestContext.js");
+  const status = await requestContext.run({ origin: "https://example.com" }, () =>
+    decorateAssignmentStatuses(env.DB, ORG, [{ rowId: "avatar-status-source", status: "running", answered: 0 }],
+      { actorId: "9201", login: "toru", env: { ...keyed, DB: env.DB } }));
+  const statusUrl = status[0].assignments[0].agent.avatarUrl;
+  expect(statusUrl).toContain("viewer=9201");
+  expect((await call(new URL(statusUrl).pathname + new URL(statusUrl).search, { headers: {} }, keyed)).status).toBe(200);
+
+  const replay = new URL(privateUrl);
+  replay.searchParams.set("viewer", "9202");
+  expect((await call(replay.pathname + replay.search, { headers: {} }, keyed)).status).toBe(404);
+
+  const otherOrg = "personal:avatar-replay";
+  const { upsertMembership } = await import("../src/db.js");
+  await upsertMembership(env.DB, otherOrg, "9201", "member");
+  await env.DB.prepare("UPDATE custom_agents SET org_id=?3,scope='personal',owner_login='toru' WHERE org_id=?1 AND id=?2").bind(ORG, agentId, otherOrg).run();
+  expect((await call(protectedUrl.pathname + protectedUrl.search, { headers: {} }, keyed)).status).toBe(404);
+  await env.DB.prepare("UPDATE custom_agents SET org_id=?3,scope='team',owner_login='mika' WHERE org_id=?1 AND id=?2").bind(otherOrg, agentId, ORG).run();
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9201'").bind(otherOrg).run();
+
+  const profile = await env.DB.prepare("SELECT updated_at FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2").bind(ORG, agentId).first();
+  const access = await env.DB.prepare("SELECT version FROM hx_agent_access WHERE org_id=?1 AND agent_id=?2").bind(ORG, agentId).first();
+  const membership = await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9201'").bind(ORG).first();
+  const mediaId = /agent-avatar-[0-9a-f-]{36}$/.exec(protectedUrl.pathname)[0];
+  const revision = `${profile.updated_at}:${access?.version || 0}:${membership.created_at}`;
+  const { addressMac } = await import("../src/addressSigning.js");
+  const expiredAt = Math.floor(Date.now() / 1000) - 1;
+  const expiredSig = await addressMac(keyed, "a1", ORG, `${mediaId}\n${agentId}\n9201\n${revision}`, expiredAt);
+  const expired = new URL(privateUrl);
+  expired.searchParams.set("e", String(expiredAt));
+  expired.searchParams.set("s", expiredSig);
+  expect((await call(expired.pathname + expired.search, { headers: {} }, keyed)).status).toBe(404);
+
+  // Simple mode still applies the same Agent ACL and gives authorized viewers
+  // a scoped image URL; the visual mode switch does not make the URL public.
+  expect((await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "simple" })).status).toBe(200);
+  const simple = await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) }, keyed);
+  const simpleUrl = new URL((await simple.json()).agents.find((agent) => agent.id === agentId).avatarUrl);
+  expect(simpleUrl.searchParams.get("viewer")).toBe("9201");
+  expect((await call(simpleUrl.pathname + simpleUrl.search, { headers: {} }, keyed)).status).toBe(200);
+
+  await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id='9201'").bind(ORG).run();
+  expect((await call(simpleUrl.pathname + simpleUrl.search, { headers: {} }, keyed)).status).toBe(404);
+  const demoted = await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) }, keyed);
+  expect((await demoted.json()).agents.find((agent) => agent.id === agentId).avatarUrl).toBeNull();
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9201'").bind(ORG).run();
+  const revoked = await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, access: "private", people: [] });
+  expect(revoked.status).toBe(200);
+  const denied = await call(protectedUrl.pathname + protectedUrl.search, { headers: {} }, keyed);
+  expect(denied.status).toBe(404);
+  expect(denied.headers.get("cache-control")).toBe("no-store");
+  const deniedBody = await denied.text();
+  expect(deniedBody).not.toContain("Billy");
+  expect(deniedBody).not.toContain(mediaId);
+});
+
 
 test("ordinary Agent callers create person memory by default and cannot publish shared memory", async () => {
   const base = `/hx/agents/${agentId}/memory`;
