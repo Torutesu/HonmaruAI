@@ -70,7 +70,8 @@ async function flush() {
       else if (data || res?.status === 403 || res?.status === 404) { failed.delete(id); refused.set(id, Date.now()) }
       else {
         const times = (failed.get(id)?.times || 0) + 1
-        failed.set(id, { times, at: Date.now() + retryAfter(times) })
+        const retryAt = Math.max(Date.now() + retryAfter(times), (asked.get(id) || 0) + 10_001)
+        failed.set(id, { times, at: retryAt })
       }
     }
     for (const fn of listeners) fn()
