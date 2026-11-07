@@ -5255,7 +5255,7 @@ export const ClassicList: React.FC<Props> = ({
               </label>}
               <span className="slk-composer-hint" />
               {harness && threadAlso && <span className="hx-reply-broadcast">{t('Also send to the conversation')}</span>}
-              {harness && <HarnessDictation key={`thread-dictation:${api.orgId}:${userId}:${thread.parent.id}`} value={threadDraft} onChange={setThreadDraft} locale={locale} disabled={threadUploads.busy}/>}
+              <HarnessDictation key={`thread-dictation:${api.orgId}:${userId}:${thread.parent.id}`} value={threadDraft} onChange={setThreadDraft} locale={locale} orgId={api.orgId} userId={userId} loadVocabulary={resourceClient.dictationVocabulary} saveVocabulary={resourceClient.saveDictationVocabulary} disabled={threadUploads.busy}/>
               <button type="submit" className="slk-send" disabled={threadUploads.busy || (!threadDraft.trim() && !threadUploads.ids.length)} aria-label={t('Send')}>
                 <Icon name="send" size={16} />
               </button>
@@ -5871,7 +5871,7 @@ export const ClassicList: React.FC<Props> = ({
               {!harness && <button type="button" className="slk-send ai" disabled={!draft.trim()} onClick={() => void send(thread.view!, true)} aria-label={t('Send as a decision')} title={t('Send as a decision')}>
                 <Icon name="sparkle" size={15} /><span className="slk-send-label">{t('Send as a decision')}</span>
               </button>}
-              {harness && <HarnessDictation key={`dictation:${api.orgId}:${userId}:${thread.view}`} value={draft} onChange={setDraft} locale={locale} disabled={resourceBuilding || uploads.busy}/>}
+              <HarnessDictation key={`dictation:${api.orgId}:${userId}:${thread.view}`} value={draft} onChange={setDraft} locale={locale} orgId={api.orgId} userId={userId} loadVocabulary={resourceClient.dictationVocabulary} saveVocabulary={resourceClient.saveDictationVocabulary} disabled={resourceBuilding || uploads.busy}/>
               <span className="slk-send-group">
                 <button type="submit" className="slk-send" disabled={resourceBuilding || uploads.busy || (!draft.trim() && !uploads.ids.length)} aria-label={t(startingThread?'Start a new thread':'Send')}>
                   <Icon name="send" size={16} />
