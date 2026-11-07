@@ -116,6 +116,17 @@ export async function exportAccount(db, githubId, login) {
     playbookRules: login
       ? await tryAll("SELECT org_id, text, origin, created_at FROM memories WHERE created_by = ?1", login)
       : [],
+    draftStylePreferences: await tryAll(
+      "SELECT org_id, source_app, preference_key, preference_text, source_card_id, updated_at FROM hx_user_draft_style_preferences WHERE user_github_id = ?1 ORDER BY org_id, source_app, updated_at DESC", id
+    ),
+    // These exports intentionally span every org the member belongs to;
+    // each row is still filtered by that member's immutable user id.
+    queuedAgentDraftEdits: await tryAll(
+      "SELECT org_id, agent_id, card_id, removed_text, added_text, created_at, expires_at FROM hx_agent_draft_edit_pending WHERE user_github_id = ?1 ORDER BY created_at DESC", id
+    ),
+    deliveredAgentDraftEdits: await tryAll(
+      "SELECT org_id, message_id, agent_id, card_id, removed_text, added_text, created_at, expires_at FROM hx_agent_draft_edit_context WHERE user_github_id = ?1 ORDER BY created_at DESC", id
+    ),
     // Export file identities/history, never object keys or reusable download
     // credentials. Contents remain available through the authorized download
     // path; leaving a private room must not grant access through this export.
@@ -185,6 +196,7 @@ export async function deleteAccount(db, githubId, login) {
     .prepare("UPDATE businesses SET created_by = ?1 WHERE created_by = ?2")
     .bind(ANONYMOUS, id)
     .run();
+  await db.prepare("DELETE FROM hx_user_draft_style_preferences WHERE user_github_id = ?1").bind(id).run().catch(() => {});
 
   // Cards addressed to this person, and the ones they sent that nobody has
   // acted on, are theirs. Cards they sent that someone else already holds stay
@@ -295,3 +307,4 @@ export async function deleteAccount(db, githubId, login) {
   }
   await anonymizeFileAccount(db,id,login);
 }
+

@@ -93,6 +93,8 @@ import {
 } from "./insights.js";
 import { answerQuestion, searchTermsFor } from "./ask.js";
 import { draftReply } from "./draft.js";
+import { forgetDraftPreferences, listDraftPreferences, rememberDraftPreferences } from "./draftPreferences.js";
+import { discardDraftEdit, draftEditDelta, queueDraftEdit } from "./draftEdits.js";
 import { providerFor, jevFor, aiStatus, saveAISettings } from "./orgAI.js";
 import { saveWorkspaceAIBudget } from "./workspaceAIBudget.js";
 import { githubStatus, connectWorkspaceGitHub, connectWorkspaceGitHubAs, disconnectWorkspaceGitHub, githubConnectLink, listMyRepositories, myGithubAccount, getWorkspaceGitHub } from "./githubWorkspace.js";
@@ -2529,6 +2531,90 @@ async function handle(request, env, url, ctx) {
       });
     }
 
+    // A reply draft's changed span is held privately for that member and
+    // exact Agent, then included once with their next direct message to it.
+    // It is never sent externally. The member can inspect its queued state
+    // or discard it before that message.
+    if (url.pathname === "/ai/draft-edits" && ["GET", "POST", "DELETE"].includes(request.method)) {
+      const limited = await enforce(env, request, request.method === "POST" ? "ai/route" : "team");
+      if (limited) return limited;
+      const body = request.method === "POST" ? await request.json().catch(() => null) : null;
+      if (request.method === "POST" && (!body || typeof body !== "object")) return json({ message: "Invalid JSON body." }, 400);
+      const orgId = request.method === "POST" ? String(body.orgId || "") : String(url.searchParams.get("orgId") || "");
+      const cardId = request.method === "POST" ? String(body.cardId || "") : String(url.searchParams.get("cardId") || "");
+      if (!orgId || !cardId) return json({ message: "orgId and cardId are required." }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session?.github_id) return json({ message: "Sign in to continue." }, 401);
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "No such card." }, 404);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (user?.login !== card.recipientUserID && user?.login !== card.senderUserID) return json({ message: "Only people on this card can share its edits with the Agent." }, 403);
+      const agentId = typeof card.sourceAgentId === "string" ? card.sourceAgentId : "";
+      if (!agentId) return json({ message: "This card has no stable originating Agent, so its edits cannot be routed safely." }, 409);
+      if (request.method === "GET") {
+        const pending = await env.DB.prepare(`SELECT created_at,expires_at FROM hx_agent_draft_edit_pending
+          WHERE org_id=?1 AND user_github_id=?2 AND agent_id=?3 AND card_id=?4 AND expires_at>?5`)
+          .bind(orgId,String(session.github_id),agentId,cardId,new Date().toISOString()).first();
+        return json({ queued: Boolean(pending), expiresAt: pending?.expires_at || null });
+      }
+      if (request.method === "DELETE") return json({ removed: await discardDraftEdit(env.DB,{orgId,githubId:session.github_id,cardId}) });
+      const original = typeof body.original === "string" ? body.original : "";
+      const revised = typeof body.revised === "string" ? body.revised : "";
+      if (!original.trim() || !revised.trim() || original.length > 4000 || revised.length > 4000) return json({ message: "Provide the original and edited draft (up to 4,000 characters each)." },400);
+      if (!card.decision || card.status === "pending") return json({ message: "Decide first; the reply follows the decision." },409);
+      const delta = draftEditDelta(original,revised);
+      if (delta?.tooLarge) return json({ message: "The changed section is too long to share safely. Shorten the edit and try again." },413);
+      if (!delta) return json({ queued: false, unchanged: true });
+      const result = await queueDraftEdit(env.DB,{orgId,githubId:session.github_id,agentId,cardId,delta});
+      if (!result.queued) return json({ message: "Could not queue this edit for the Agent." },409);
+      return json({ queued: true, expiresAt: result.expiresAt });
+    }
+
+    // A person's draft-style preferences are private to their account and
+    // workspace. This legacy explicit control stores only allowlisted style
+    // signals, never the draft text.
+    if (url.pathname === "/ai/draft-preferences" && ["GET", "POST", "DELETE"].includes(request.method)) {
+      const limited = await enforce(env, request, request.method === "POST" ? "ai/route" : "team");
+      if (limited) return limited;
+      const body = request.method === "POST" ? await request.json().catch(() => null) : null;
+      if (request.method === "POST" && (!body || typeof body !== "object")) return json({ message: "Invalid JSON body." }, 400);
+      const orgId = request.method === "POST" ? String(body.orgId || "") : String(url.searchParams.get("orgId") || "");
+      if (!orgId) return json({ message: "orgId is required" }, 400);
+      const denied = await requireMember(env, request, orgId);
+      if (denied) return denied;
+      const session = await getSession(env.DB, request.headers.get("x-session-token"));
+      if (!session?.github_id) return json({ message: "Sign in to continue." }, 401);
+      if (request.method === "GET") {
+        const sourceParam = url.searchParams.get("sourceApp");
+        const sourceApp = !sourceParam || sourceParam === "all" ? null : sourceParam;
+        return json({ preferences: await listDraftPreferences(env.DB, { orgId, githubId: session.github_id, sourceApp }) });
+      }
+      if (request.method === "DELETE") {
+        const sourceParam = url.searchParams.get("sourceApp");
+        const key = url.searchParams.get("key") || undefined;
+        const removed = await forgetDraftPreferences(env.DB, { orgId, githubId: session.github_id, sourceApp: !sourceParam || sourceParam === "all" ? null : sourceParam, key });
+        return json({ removed });
+      }
+      const cardId = typeof body.cardId === "string" ? body.cardId : "";
+      const original = typeof body.original === "string" ? body.original : "";
+      const revised = typeof body.revised === "string" ? body.revised : "";
+      if (!cardId || !original.trim() || !revised.trim() || original.length > 4000 || revised.length > 4000) {
+        return json({ message: "Provide the original and edited draft (up to 4,000 characters each)." }, 400);
+      }
+      const card = await getCard(env.DB, orgId, cardId);
+      if (!card) return json({ message: "no such card" }, 404);
+      const user = await getUserByGithubId(env.DB, session.github_id);
+      if (user?.login !== card.recipientUserID && user?.login !== card.senderUserID) return json({ message: "Only the people on this card can teach a draft preference." }, 403);
+      if (!card.decision || card.status === "pending") return json({ message: "Decide first; the reply follows the decision." }, 409);
+      const result = await rememberDraftPreferences(env.DB, {
+        orgId, githubId: session.github_id, sourceApp: card.sourceApp || "general", cardId,
+        original, revised,
+      });
+      return json({ ...result, preferences: await listDraftPreferences(env.DB, { orgId, githubId: session.github_id, sourceApp: card.sourceApp || "general" }) });
+    }
+
     // The message back to whoever asked, drafted from the decision. Only the
     // two people on the card can speak for it, and only once it is decided:
     // a reply to a pending card is a promise nobody has made.
@@ -2561,8 +2647,9 @@ async function handle(request, env, url, ctx) {
         return json({ message: "You have used today's AI answers. Tomorrow, or Pro, brings more.", quotaExceeded: true }, 429);
       }
       const playbook = await relevantMemories(env.DB, orgId, `${card.title || ""} ${card.summary || ""}`, { limit: 6 });
+      const draftPreferences = await listDraftPreferences(env.DB, { orgId, githubId: session.github_id, sourceApp: card.sourceApp || "general" }).catch(() => []);
       const result = await draftReply({
-        provider, card, decider: user?.name || user?.login, readerLanguage: body.readerLanguage, playbook,
+        provider, card, decider: user?.name || user?.login, readerLanguage: body.readerLanguage, playbook, draftPreferences,
       });
       if (result.called && allowance.metered) await allowance.consume();
       await settleUsage(env.DB, provider, { orgId, githubId: session.github_id, byok: Boolean(userKey) });

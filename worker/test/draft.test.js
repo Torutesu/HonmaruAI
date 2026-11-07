@@ -34,9 +34,17 @@ beforeEach(async () => {
   await saveCard(env.DB, ORG, {
     id: "d-1", recipientUserID: "toru", senderUserID: "mika", type: "approval", title: "Approve the supplier price +8%",
     summary: "Mika wants to move to the Ethiopian supplier.", context: "deadline: Friday · amount: +8%",
+    sourceApp: "Gmail",
     status: "rejected", priority: "high", createdAt: "2026-09-10T00:00:00Z",
     requestedBy: { name: "Mika", quote: "仕入価格を8%上げてもいいですか？" }, originalLanguage: "ja",
     decision: { action: "decline", actorUserID: "toru", decidedAt: "2026-09-11T00:00:00Z", replyText: "Not until the lease is settled" },
+  });
+  await env.DB.prepare(`INSERT INTO custom_agents (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,'agent-1','writer','Writer','Draft replies', 'personal','toru','2026-09-10T00:00:00Z','2026-09-10T00:00:00Z')`).bind(ORG).run();
+  await saveCard(env.DB, ORG, {
+    id: "d-agent", recipientUserID: "toru", senderUserID: "mika", type: "approval", title: "Reply from Agent",
+    sourceApp: "Agent", sourceDetail: "Writer", sourceAgentId: "agent-1", status: "approved", priority: "medium",
+    createdAt: "2026-09-10T00:00:00Z", decision: { action: "approve", actorUserID: "toru", decidedAt: "2026-09-11T00:00:00Z" },
   });
   await saveCard(env.DB, ORG, {
     id: "d-2", recipientUserID: "toru", senderUserID: "kenji", type: "approval", title: "Sign the hotel signage quote",
@@ -95,8 +103,82 @@ test("a model that says nothing is a 502, not an empty draft", async () => {
   expect((await draft(toru, "d-1")).status).toBe(502);
 });
 
+test("edited Agent drafts are queued privately and attached once to the next message for that Agent", async () => {
+  const original = "Hello team, here is the long update. Thanks!";
+  const revised = "Team, short update.";
+  const headersWithToken = { ...headers(toru), "x-session-token": toru };
+  const queued = await call("/ai/draft-edits", {
+    method: "POST", headers: headersWithToken,
+    body: JSON.stringify({ orgId: ORG, cardId: "d-agent", original, revised }),
+  });
+  expect(queued.status).toBe(200);
+  expect((await queued.json()).queued).toBe(true);
+  const state = await call(`/ai/draft-edits?orgId=${encodeURIComponent(ORG)}&cardId=d-agent`, { headers: { "x-session-token": toru } });
+  expect((await state.json()).queued).toBe(true);
+
+  const { attachDraftEditsToMessage, consumeDraftEditContext, draftEditPrompt } = await import("../src/draftEdits.js");
+  await attachDraftEditsToMessage(env.DB, { orgId: ORG, githubId: "8401", agentId: "agent-1", messageId: "msg-next" });
+  const edits = await consumeDraftEditContext(env.DB, { orgId: ORG, messageId: "msg-next", agentId: "agent-1" });
+  expect(edits).toHaveLength(1);
+  expect(edits[0].removed_text).toBe("Hello team, here is the long update. Thanks!");
+  expect(edits[0].added_text).toBe("Team, short update.");
+  expect(draftEditPrompt(edits)).toContain("ask the user whether they want you to remember it");
+  expect(await consumeDraftEditContext(env.DB, { orgId: ORG, messageId: "msg-next", agentId: "agent-1" })).toHaveLength(0);
+
+  const queuedAgain = await call("/ai/draft-edits", {
+    method: "POST", headers: headersWithToken,
+    body: JSON.stringify({ orgId: ORG, cardId: "d-agent", original, revised }),
+  });
+  expect(queuedAgain.status).toBe(200);
+  const removed = await call(`/ai/draft-edits?orgId=${encodeURIComponent(ORG)}&cardId=d-agent`, { method: "DELETE", headers: { "x-session-token": toru } });
+  expect((await removed.json()).removed).toBe(1);
+});
+
+test("draft edit sharing refuses cards with no stable Agent identity and outsiders", async () => {
+  const noOrigin = await call("/ai/draft-edits", {
+    method: "POST", headers: headers(toru),
+    body: JSON.stringify({ orgId: ORG, cardId: "d-1", original: "Hello", revised: "Hi" }),
+  });
+  expect(noOrigin.status).toBe(409);
+  const outsiderResponse = await call("/ai/draft-edits", {
+    method: "POST", headers: headers(outsider),
+    body: JSON.stringify({ orgId: ORG, cardId: "d-agent", original: "Hello", revised: "Hi" }),
+  });
+  expect(outsiderResponse.status).toBe(403);
+});
+
 test("the draft speaks the request's language when the card remembers one, else the reader's", () => {
   expect(draftLanguageFor({ originalLanguage: "ja" }, "en")).toBe("ja");
   expect(draftLanguageFor({}, "en")).toBe("en");
   expect(draftLanguageFor({}, undefined)).toBe("en");
 });
+
+test("a person explicitly saves style signals from an edited draft and only their later drafts receive them", async () => {
+  const original = `Hello Mika,\n\n${"The supplier price increase is being declined until we have confirmed the lease agreement and checked the related delivery schedule. ".repeat(2)}\n\nBest regards,\nToru`;
+  const revised = "The supplier increase is declined until the lease is settled.";
+  const learned = await call("/ai/draft-preferences", {
+    method: "POST", headers: headers(toru), body: JSON.stringify({ orgId: ORG, cardId: "d-1", original, revised }),
+  });
+  expect(learned.status).toBe(200);
+  expect((await learned.json()).learned).toContainEqual(expect.objectContaining({ key: "concise" }));
+  const stored = await env.DB.prepare("SELECT preference_text FROM hx_user_draft_style_preferences WHERE org_id=?1 AND user_github_id=?2").bind(ORG, "8401").all();
+  expect(stored.results.map((r) => r.preference_text)).toContain("Prefer concise replies; remove unnecessary wording.");
+  expect(JSON.stringify(stored.results)).not.toContain("supplier increase is declined");
+
+  const otherMember = await (await call(`/ai/draft-preferences?orgId=${encodeURIComponent(ORG)}&sourceApp=Gmail`, { headers: headers(kenji) })).json();
+  expect(otherMember.preferences).toEqual([]);
+  expect((await call(`/ai/draft-preferences?orgId=${encodeURIComponent(ORG)}`, { headers: headers(outsider) })).status).toBe(403);
+
+  let prompt;
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" })
+    .reply(200, (opts) => { prompt = JSON.parse(opts.body); return { choices: [{ message: { content: "Short reply" } }] }; });
+  expect((await draft(toru, "d-1")).status).toBe(200);
+  expect(prompt.messages.find((m) => m.role === "user").content).toContain("Prefer concise replies");
+
+  const erased = await call(`/ai/draft-preferences?orgId=${encodeURIComponent(ORG)}&sourceApp=Gmail&key=concise`, { method: "DELETE", headers: headers(toru) });
+  expect((await erased.json()).removed).toBeGreaterThan(0);
+  const afterErase = await (await call(`/ai/draft-preferences?orgId=${encodeURIComponent(ORG)}&sourceApp=Gmail`, { headers: headers(toru) })).json();
+  expect(afterErase.preferences.map((p) => p.key)).not.toContain("concise");
+});
+
+
