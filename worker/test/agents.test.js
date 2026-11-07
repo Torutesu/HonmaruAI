@@ -1028,7 +1028,9 @@ test('assignment status is hidden from room readers without current grants to ea
   const avatar = new URL(a.agent.avatarUrl);
   expect(avatar.pathname).toBe('/agents/avatar/agent-avatar-00000000-0000-0000-0000-000000000000');
   expect(avatar.searchParams.get('agent')).toBe(f.target.id);
-  expect(avatar.searchParams.has('revision')).toBe(true);
+  expect(avatar.searchParams.get('viewer')).toBe('8802');
+  expect(avatar.searchParams.get('v')).toBe('2');
+  expect(avatar.searchParams.has('s')).toBe(true);
   expect(a.hops[0].to.avatarUrl).toBe(a.agent.avatarUrl);
   expect(Number.isFinite(Date.parse(a.startedAt))).toBe(true);expect(Number.isFinite(Date.parse(a.updatedAt))).toBe(true);
   const text=JSON.stringify(body);for(const value of ['Private handoff brief','session_key','source_hash','actor_id','instructions'])expect(text).not.toContain(value);
