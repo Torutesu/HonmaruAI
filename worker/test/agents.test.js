@@ -4,6 +4,7 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { agentTalkFilter, agentsCalled, requestFor, parseAgentMarkdown, agentMarkdown, cleanAgentHandle, PRESETS, presetsFor, readResponse, forChat, MAX_CALLED } from "../src/customAgents.js";
+import { mayRunAgent } from "../src/harness/agents.js";
 
 // Agents a team writes for itself: "@hayao" answers in the thread under the
 // message that named it, as its Markdown instructions say. A team agent is
@@ -1270,4 +1271,21 @@ test('workspace admins cannot read a personal Agent trace outside its audience',
   expect(await mayAccessAgent(env.DB, ORG, {id: agent.id, scope: savedAgent.scope, ownerLogin: savedAgent.owner_login}, 'toru')).toBe(true);
   expect((await get(`/channels/agent-tool-traces?${q({orgId: ORG, channel: 'b:cafe', messageId: row.id})}`, toru)).status).toBe(200);
   expect((await get(`/channels/agent-tool-traces?${q({orgId: ORG, channel: 'b:cafe', messageId: row.id})}`, mika)).status).toBe(404);
+});
+
+
+test("workflow Agent fence uses current Agent state after a stale row was loaded", async () => {
+  const created = await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
+  expect(created.status).toBe(201);
+  const { agent } = await created.json();
+  await env.DB.prepare("UPDATE hx_agent_profiles SET access='everyone', people='[]' WHERE org_id=?1 AND agent_id=?2")
+    .bind(ORG, agent.id).run();
+  const stale = await env.DB.prepare("SELECT id, scope, owner_login FROM custom_agents WHERE org_id=?1 AND id=?2")
+    .bind(ORG, agent.id).first();
+  expect(stale).toMatchObject({ scope: "team" });
+  expect(await mayRunAgent(env.DB, ORG, stale, "8802")).toBe(true);
+
+  await env.DB.prepare("UPDATE custom_agents SET deleted_at=?1 WHERE org_id=?2 AND id=?3")
+    .bind(new Date().toISOString(), ORG, agent.id).run();
+  expect(await mayRunAgent(env.DB, ORG, stale, "8802")).toBe(false);
 });
