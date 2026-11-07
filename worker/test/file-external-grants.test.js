@@ -67,7 +67,8 @@ test('unregistered email invite is redeemed only by its verified address and rev
  const invites=await call(invitePath,f.ownerToken);
  expect((await invites.json()).invites[0]).toMatchObject({invitedEmail:'new@example.test',redeemedAt:expect.any(String)});
  const inviteId=created.invite.id;
- response=await call(invitePath+'/'+encodeURIComponent(inviteId),f.ownerToken,'DELETE',{});
+ const invitePathWithId='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grant-invites/'+encodeURIComponent(inviteId)+'?orgId='+encodeURIComponent(f.orgId);
+ response=await call(invitePathWithId,f.ownerToken,'DELETE',{});
  expect((await response.json()).revoked).toBe(true);
  expect((await call(fileRead,f.recipientToken)).status).toBe(404);
 });
