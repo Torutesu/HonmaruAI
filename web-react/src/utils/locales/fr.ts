@@ -2153,6 +2153,13 @@ const table: Record<string, string> = {
   'Read accessible Harness tables and their records.': 'Lire les tables Harness accessibles et leurs enregistrements.',
   'Update lists': 'Mettre à jour les listes',
   'Create and update accessible Harness tables and records.': 'Créer et mettre à jour les tables et enregistrements Harness accessibles.',
+  "Draft a message": "Rédiger un message",
+  "What would you like to say?": "Que souhaitez-vous dire ?",
+  "Choose a destination": "Choisir une destination",
+  "Search conversations and rooms": "Rechercher des conversations et des salons",
+  "Choosing opens a saved draft. Nothing is sent until you send it.": "Le choix ouvre un brouillon enregistré. Rien ne sera envoyé avant que vous appuyiez sur Envoyer.",
+  "Available destinations": "Destinations disponibles",
+  "No matching conversations or rooms": "Aucune conversation ni aucun salon ne correspond",
 }
 
 export default table

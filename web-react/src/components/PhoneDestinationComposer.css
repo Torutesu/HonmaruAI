@@ -1,0 +1,12 @@
+.phone-destination-sheet { display: grid; gap: 10px; }
+.phone-destination-head { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
+.phone-destination-head h2 { margin: 4px 0; font-size: 17px; }
+.phone-destination-head button { border: 0; border-radius: 999px; width: 36px; height: 36px; color: var(--sh-ink); background: var(--sh-field); font-size: 24px; cursor: pointer; }
+.phone-destination-label { padding: 0 8px; color: var(--sh-dim); font-size: 13px; font-weight: 600; }
+.phone-destination-field { box-sizing: border-box; width: 100%; border: 1px solid var(--sh-line); border-radius: 10px; padding: 11px 12px; color: var(--sh-ink); background: var(--sh-field); font: inherit; }
+.phone-destination-field:focus { outline: 2px solid var(--sh-accent); outline-offset: 1px; }
+.phone-destination-note { margin: 0; padding: 0 8px; color: var(--sh-dim); font-size: 12px; }
+.phone-destination-sheet .msheet-rows { max-height: 32vh; overflow-y: auto; }
+
+.phone-destination-actions { display: flex; justify-content: flex-end; padding: 2px 8px 6px; }
+.phone-destination-actions button { border: 1px solid var(--sh-line); border-radius: 9px; padding: 9px 14px; color: var(--sh-ink); background: var(--sh-field); font: inherit; font-weight: 600; cursor: pointer; }
