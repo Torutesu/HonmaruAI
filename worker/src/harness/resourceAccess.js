@@ -49,10 +49,11 @@ export async function appPeopleAccess(db, orgId, appId) {
     JOIN hx_apps app ON app.org_id=m.org_id AND app.id=?2
     LEFT JOIN hx_app_person_access p ON p.org_id=m.org_id AND p.app_id=?2 AND p.user_github_id=m.user_github_id
     WHERE m.org_id=?1 AND LOWER(COALESCE(m.role,'guest'))!='guest'
-    ORDER BY CASE WHEN p.user_github_id IS NULL THEN 1 ELSE 0 END,u.login LIMIT 500`).bind(orgId, appId).all();
+    ORDER BY CASE WHEN p.user_github_id IS NULL THEN 1 ELSE 0 END,u.login`).bind(orgId, appId).all();
   return results.map(row => {
     const role = String(row.role).toLowerCase();
-    const inherited = access.visibility === 'workspace' ? 'view' : 'none';
+    const inherited = String(row.ownerId) === String(row.userId) ? 'edit'
+      : access.visibility === 'workspace' ? (['owner','admin'].includes(role) ? 'edit' : 'view') : 'none';
     return { userId: String(row.userId), login: row.login, name: row.name || row.login,
       role, canOverride: !['owner','admin'].includes(role) && String(row.ownerId)!==String(row.userId),
       permission: row.permission || inherited, explicit: Boolean(row.explicit) };
@@ -122,7 +123,6 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
   const hasPeopleUpdate = Array.isArray(input.people);
   if (input.people !== undefined && !hasPeopleUpdate) return { error: 'People access must be a list.' };
   const people = hasPeopleUpdate ? input.people : [];
-  if (people.length > 500) return { error: 'Choose 500 people or fewer.' };
   const seen = new Set();
   for (const person of people) {
     const id = typeof person?.userId === 'string' ? person.userId.trim() : '';
@@ -134,27 +134,39 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
   }
   const at = new Date().toISOString(), token = crypto.randomUUID();
   const stmts = [];
+  const peopleJson = hasPeopleUpdate ? JSON.stringify(people.map(({ userId, permission }) => ({ userId, permission }))) : null;
+  const validPeople = param => hasPeopleUpdate ? `AND NOT EXISTS(
+    SELECT 1 FROM json_each(${param}) selected
+    LEFT JOIN memberships selectedMember ON selectedMember.org_id=?1
+      AND selectedMember.user_github_id=json_extract(selected.value,'$.userId')
+    WHERE selectedMember.user_github_id IS NULL
+      OR LOWER(COALESCE(selectedMember.role,'guest')) IN ('guest','owner','admin')
+  )` : '';
   if (input.version === 0) stmts.push(db.prepare(`INSERT OR IGNORE INTO hx_app_access(org_id,app_id,visibility,version,change_token)
-    SELECT ?1,?2,'workspace',0,NULL WHERE EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3 AND LOWER(m.role)!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?3)`)
-    .bind(orgId, appId, String(userId)));
+    SELECT ?1,?2,'workspace',0,NULL WHERE EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3 AND LOWER(m.role)!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?3)
+      ${validPeople('?4')}`)
+    .bind(...(hasPeopleUpdate ? [orgId, appId, String(userId), peopleJson] : [orgId, appId, String(userId)])));
   stmts.push(db.prepare(`UPDATE hx_app_access SET visibility=?3,version=version+1,change_token=?5
     WHERE org_id=?1 AND app_id=?2 AND version=?4
-      AND EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?6 AND LOWER(m.role)!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?6)`)
-    .bind(orgId,appId,input.visibility,input.version,token,String(userId)));
+      AND EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?6 AND LOWER(m.role)!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?6)
+      ${validPeople('?7')}`)
+    .bind(...(hasPeopleUpdate ? [orgId,appId,input.visibility,input.version,token,String(userId),peopleJson] : [orgId,appId,input.visibility,input.version,token,String(userId)])));
   if (hasPeopleUpdate) {
     stmts.push(db.prepare('DELETE FROM hx_app_person_access WHERE org_id=?1 AND app_id=?2 AND EXISTS(SELECT 1 FROM hx_app_access WHERE org_id=?1 AND app_id=?2 AND change_token=?3)').bind(orgId,appId,token));
-    for (const person of people) stmts.push(db.prepare(`INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at)
-      SELECT ?1,?2,?3,?4,?5 WHERE EXISTS(SELECT 1 FROM hx_app_access WHERE org_id=?1 AND app_id=?2 AND change_token=?6)
-        AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND LOWER(role) NOT IN ('guest','owner','admin'))`)
-      .bind(orgId,appId,person.userId,person.permission,at,token));
+    stmts.push(db.prepare(`INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at)
+      SELECT ?1,?2,json_extract(selected.value,'$.userId'),json_extract(selected.value,'$.permission'),?3
+      FROM json_each(?4) selected
+      WHERE EXISTS(SELECT 1 FROM hx_app_access WHERE org_id=?1 AND app_id=?2 AND change_token=?5)
+        AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=json_extract(selected.value,'$.userId') AND LOWER(COALESCE(role,'guest')) NOT IN ('guest','owner','admin'))`)
+      .bind(orgId,appId,at,peopleJson,token));
   }
   stmts.push(db.prepare('UPDATE hx_app_access SET change_token=NULL WHERE org_id=?1 AND app_id=?2 AND change_token=?3').bind(orgId,appId,token));
   const result = await db.batch(stmts);
   const changed = result[input.version === 0 ? 1 : 0];
   if (!changed?.meta?.changes) return { error: 'Sharing changed. Reload before saving.', status: 409 };
   if (hasPeopleUpdate) {
-    const firstPerson = (input.version === 0 ? 1 : 0) + 2;
-    if (people.some((_, index) => result[firstPerson + index]?.meta?.changes !== 1)) {
+    const insertIndex = (input.version === 0 ? 1 : 0) + 2;
+    if ((result[insertIndex]?.meta?.changes || 0) !== people.length) {
       return { error: 'A selected person changed workspace access. Reload sharing and try again.', status: 409 };
     }
   }
