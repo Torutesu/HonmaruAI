@@ -15,6 +15,7 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
   const [permission, setPermission] = useState<'view' | 'edit'>('view')
   const [expiry, setExpiry] = useState('never')
   const [inviteUrl, setInviteUrl] = useState('')
+  const [copyStatus, setCopyStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const base = `${httpBase}/external/apps/${encodeURIComponent(orgId)}/${encodeURIComponent(appId)}/sharing`
@@ -43,7 +44,7 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
   const selectedExpiry = () => expiry === 'never' ? null : new Date(Date.now() + Number(expiry) * 86400000).toISOString()
   const invite = async (event: React.FormEvent) => {
     event.preventDefault()
-    setBusy(true); setError(''); setInviteUrl('')
+    setBusy(true); setError(''); setInviteUrl(''); setCopyStatus('')
     try {
       const res = await fetch(base, { method: 'POST', headers: headers(sessionToken, true), body: JSON.stringify({ email, permission, expiresAt: selectedExpiry() }) })
       const data = await res.json()
@@ -54,6 +55,16 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
       await loadSharing()
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(false) }
+  }
+  const copyInviteLink = async () => {
+    if (!inviteUrl) return
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(inviteUrl)
+      setCopyStatus(t('Invite link copied.'))
+    } catch {
+      setCopyStatus(t('Copy was unavailable. Select the link above and copy it manually.'))
+    }
   }
   const updateGuest = async (guest: Guest, nextPermission: 'view' | 'edit', nextExpiry = guest.expiresAt) => {
     setBusy(true); setError('')
@@ -98,7 +109,7 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
         <label>{t('Access expires')}<select aria-label={t('Guest access expiry')} value={expiry} onChange={event => setExpiry(event.target.value)}><option value="never">{t('Never')}</option><option value="7">{t('In 7 days')}</option><option value="30">{t('In 30 days')}</option><option value="90">{t('In 90 days')}</option></select></label>
         <button className="btn btn-primary" type="submit" disabled={busy}>{t('Create invite')}</button>
       </form>
-      {inviteUrl && <div className="app-guest-link" role="status"><span>{t('Share this one-time link with the invited person')}</span><input aria-label={t('One-time invite link')} readOnly value={inviteUrl} onFocus={event => event.currentTarget.select()} /></div>}
+      {inviteUrl && <div className="app-guest-link"><span>{t('Honmaru does not email this invitation. Copy the one-time link and share it with the invited person.')}</span><div><input aria-label={t('One-time invite link')} readOnly value={inviteUrl} onFocus={event => event.currentTarget.select()} /><button className="btn" type="button" onClick={() => void copyInviteLink()}>{t('Copy link')}</button></div><span role="status" aria-live="polite">{copyStatus}</span></div>}
       </>}
       {!sharing.customUnsupported && sharing.requests.length > 0 && <div className="app-guest-approvals" aria-label={t('Pending message approvals')}>
         <h4>{t('Pending message approvals')}</h4>
