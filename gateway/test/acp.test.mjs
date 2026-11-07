@@ -1,9 +1,10 @@
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runAcp, configuredAcpAgentIds, validateAcpAgents } from '../acp.mjs';
+import { processOne } from '../client.mjs';
 
 let directory;
 afterEach(async () => {
@@ -120,6 +121,167 @@ test('ACP Workspace tools use the short-lived local MCP relay only when explicit
     {method:'tools/list',params:{}},
     {method:'tools/call',params:{name:'read_app',arguments:{appId:'synthetic-app'}}},
   ]);
+});
+
+test('cancelling one local ACP job suppresses its late reply without stopping another job', async () => {
+  directory = await mkdtemp(join(tmpdir(), 'honmaru-acp-cancel-'));
+  const agentFile = join(directory, 'agent.mjs');
+  const eventsFile = join(directory, 'events.jsonl');
+  await writeFile(agentFile, `
+    import { appendFileSync } from 'node:fs';
+    import readline from 'node:readline';
+    const input = readline.createInterface({ input: process.stdin });
+    const record = event => appendFileSync(process.env.FIXTURE_EVENTS, JSON.stringify(event) + String.fromCharCode(10));
+    const write = message => process.stdout.write(JSON.stringify(message) + String.fromCharCode(10));
+    let promptId = null, sessionId = null;
+    write({jsonrpc:'2.0',method:'fixture/started',params:{pid:process.pid}});
+    for await (const line of input) {
+      const message = JSON.parse(line);
+      if (message.method === 'initialize') write({jsonrpc:'2.0',id:message.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+      if (message.method === 'session/new') {
+        sessionId = 'fixture-' + process.pid;
+        write({jsonrpc:'2.0',id:message.id,result:{sessionId}});
+        record({type:'session',sessionId,pid:process.pid});
+      }
+      if (message.method === 'session/prompt') {
+        promptId = message.id;
+        const blocks = message.params.prompt || [];
+        const label = String(blocks.at(-1)?.text || '').trim();
+        record({type:'prompt',label,id:promptId,sessionId,pid:process.pid});
+        if (label === 'job-b') {
+          setTimeout(() => {
+            write({jsonrpc:'2.0',method:'session/update',params:{sessionId,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'job-b-result'}}}});
+            write({jsonrpc:'2.0',id:promptId,result:{stopReason:'end_turn'}});
+          }, 180);
+        }
+      }
+      if (message.method === 'session/cancel') {
+        record({type:'session-cancel',sessionId:message.params.sessionId,pid:process.pid});
+        // Model a provider that races cancellation and returns a normal
+        // completion. Honmaru must discard it after the exact job was stopped.
+        write({jsonrpc:'2.0',method:'session/update',params:{sessionId,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'job-a-late-result'}}}});
+        write({jsonrpc:'2.0',id:promptId,result:{stopReason:'end_turn'}});
+      }
+      if (message.method === '$/cancel_request') record({type:'request-cancel',id:message.params.id,pid:process.pid});
+    }
+  `);
+
+  const waitForEvents = async predicate => {
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const events = (await readFile(eventsFile, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line));
+      if (predicate(events)) return events;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const events = (await readFile(eventsFile, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line));
+    assert.fail(`Timed out waiting for fake ACP events: ${JSON.stringify({events,finishes})}`);
+  };
+  const waitForProcessExit = async pid => {
+    const target = process.platform === 'win32' ? pid : -pid;
+    const exists = () => {
+      try { process.kill(target, 0); return true; }
+      catch (error) { if (error.code === 'ESRCH') return false; if (error.code === 'EPERM') return true; throw error; }
+    };
+    const deadline = Date.now() + 2000;
+    while (exists() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(exists(), false, `ACP process group ${pid} must exit without leaving a child behind`);
+  };
+
+  const acpAgents = { fixture: { command: process.execPath, args: [agentFile], cwd: directory, env: { FIXTURE_EVENTS: eventsFile } } };
+  let nextJob = 0;
+  const finishes = [];
+  const call = async (path, body = {}) => {
+    if (path === 'claim') {
+      const id = nextJob++ === 0 ? 'job-a' : 'job-b';
+      return { job: { id, lease: `lease-${id}`, payload: { acp: true, agentKey: 'fixture', prompt: id }, timeoutMs: 5000 } };
+    }
+    if (path.endsWith('/heartbeat')) {
+      const jobId = path.split('/')[1];
+      if (jobId === 'job-a') {
+        await waitForEvents(events => events.some(event => event.type === 'prompt' && event.label === 'job-a'));
+        throw Object.assign(new Error('Job lease was cancelled.'), { status: 409, code: 'cancelled' });
+      }
+      return {};
+    }
+    if (path.endsWith('/finish')) {
+      finishes.push({ jobId: path.split('/')[1], ...body });
+      return {};
+    }
+    throw new Error(`Unexpected fake gateway request: ${path}`);
+  };
+
+  const [jobA, jobB] = await Promise.all([
+    processOne(call, { acpAgents, heartbeatIntervalMs: 5, heartbeatGraceMs: 100 }),
+    processOne(call, { acpAgents, heartbeatIntervalMs: 5, heartbeatGraceMs: 100 }),
+  ]);
+  assert.equal(jobA, true);
+  assert.equal(jobB, true);
+
+  const events = await waitForEvents(items => items.some(event => event.type === 'session-cancel' && event.sessionId) && items.some(event => event.type === 'request-cancel'));
+  const cancelledPrompt = events.find(event => event.type === 'prompt' && event.label === 'job-a');
+  assert.ok(cancelledPrompt);
+  assert.ok(events.some(event => event.type === 'session-cancel' && event.sessionId === cancelledPrompt.sessionId));
+  assert.ok(events.some(event => event.type === 'request-cancel' && event.id === cancelledPrompt.id));
+  assert.equal(finishes.filter(result => result.jobId === 'job-a').length, 0, 'cancelled job must not send a late finish/reply');
+  assert.deepEqual(finishes.filter(result => result.jobId === 'job-b').map(result => ({ status: result.status, exitCode: result.exitCode, text: JSON.parse(result.stdout).text })), [
+    { status: 'succeeded', exitCode: 0, text: 'job-b-result' },
+  ]);
+  const prompts = events.filter(event => event.type === 'prompt');
+  await Promise.all(prompts.map(event => waitForProcessExit(event.pid)));
+});
+
+test('a nonresponsive local ACP agent is force-stopped after the cancellation grace', async () => {
+  directory = await mkdtemp(join(tmpdir(), 'honmaru-acp-cancel-timeout-'));
+  const agentFile = join(directory, 'agent.mjs');
+  const eventsFile = join(directory, 'events.jsonl');
+  await writeFile(agentFile, `
+    import { appendFileSync } from 'node:fs';
+    import readline from 'node:readline';
+    const input = readline.createInterface({ input: process.stdin });
+    const record = event => appendFileSync(process.env.FIXTURE_EVENTS, JSON.stringify(event) + String.fromCharCode(10));
+    const write = message => process.stdout.write(JSON.stringify(message) + String.fromCharCode(10));
+    let promptId = null, sessionId = null;
+    process.on('SIGTERM', () => record({type:'term',pid:process.pid}));
+    for await (const line of input) {
+      const message = JSON.parse(line);
+      if (message.method === 'initialize') write({jsonrpc:'2.0',id:message.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+      if (message.method === 'session/new') {
+        sessionId = 'timeout-' + process.pid;
+        write({jsonrpc:'2.0',id:message.id,result:{sessionId}});
+      }
+      if (message.method === 'session/prompt') {
+        promptId = message.id;
+        record({type:'prompt',id:promptId,sessionId,pid:process.pid});
+      }
+      if (message.method === 'session/cancel') record({type:'session-cancel',sessionId:message.params.sessionId,pid:process.pid});
+      if (message.method === '$/cancel_request') record({type:'request-cancel',id:message.params.id,pid:process.pid});
+    }
+  `);
+
+  const waitForEvents = async predicate => {
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      const events = (await readFile(eventsFile, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line));
+      if (predicate(events)) return events;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.fail('Timed out waiting for nonresponsive fake ACP events.');
+  };
+  const acpAgents = { fixture: { command: process.execPath, args: [agentFile], cwd: directory, env: { FIXTURE_EVENTS: eventsFile } } };
+  const controller = new AbortController();
+  const started = Date.now();
+  const pending = runAcp({ agentKey: 'fixture', prompt: 'keep running' }, { acpAgents, signal: controller.signal, timeoutMs: 5000 });
+  const prompt = (await waitForEvents(events => events.some(event => event.type === 'prompt'))).find(event => event.type === 'prompt');
+  controller.abort();
+  await assert.rejects(pending);
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed >= 1700 && elapsed < 3500, `expected the bounded grace and force-stop, got ${elapsed} ms`);
+  const events = await waitForEvents(items => items.some(event => event.type === 'session-cancel') && items.some(event => event.type === 'request-cancel') && items.some(event => event.type === 'term'));
+  assert.ok(events.some(event => event.type === 'session-cancel' && event.sessionId === prompt.sessionId));
+  assert.ok(events.some(event => event.type === 'request-cancel' && event.id === prompt.id));
+  await new Promise(resolve => setTimeout(resolve, 10));
+  try { process.kill(process.platform === 'win32' ? prompt.pid : -prompt.pid, 0); assert.fail(`ACP process group ${prompt.pid} leaked`); }
+  catch (error) { if (error.code !== 'ESRCH') throw error; }
 });
 
 test('ACP agent launch settings must be local and valid', () => {

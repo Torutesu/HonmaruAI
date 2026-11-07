@@ -189,6 +189,8 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
   let promptRequestId = null;
   let workspaceMcp = null;
   let abort;
+  let abortTimer = null;
+  let abortForceTimer = null;
   const remaining = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
   const startedAt = Date.now();
   rpc.onNotification = message => {
@@ -204,8 +206,16 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
   abort = () => {
     if (sessionId) rpc.notify('session/cancel', { sessionId });
     if (promptRequestId !== null) rpc.notify('$/cancel_request', { id: promptRequestId });
-    signalAgent(child, 'SIGTERM');
-    setTimeout(() => signalAgent(child, 'SIGKILL'), 1500).unref?.();
+    // Give the ACP process a brief chance to consume the exact-session
+    // cancellation and stop its foreground work. The process group is still
+    // isolated to this job and is forcibly stopped if the agent does not
+    // return from cancellation promptly.
+    abortTimer = setTimeout(() => {
+      signalAgent(child, 'SIGTERM');
+      abortForceTimer = setTimeout(() => signalAgent(child, 'SIGKILL'), 1500);
+      abortForceTimer.unref?.();
+    }, 500);
+    abortTimer.unref?.();
   };
   signal?.addEventListener('abort', abort, { once: true });
   try {
@@ -258,6 +268,8 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
       await new Promise(resolve => workspaceMcp.server.close(() => resolve()));
     }
     signal?.removeEventListener('abort', abort);
+    clearTimeout(abortTimer);
+    clearTimeout(abortForceTimer);
     promptRequestId = null;
     signalAgent(child, 'SIGTERM');
     await new Promise(resolve => setTimeout(() => { signalAgent(child, 'SIGKILL'); resolve(); }, 300));
