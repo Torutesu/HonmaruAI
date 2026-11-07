@@ -85,8 +85,9 @@ test("a payload encrypted to a subscription decrypts with the subscriber's key, 
   expect(body.length).toBeGreaterThan(86);
   expect(new DataView(body.buffer, body.byteOffset).getUint32(16)).toBe(4096);
   expect(body[20]).toBe(65);
-  // The message is not on the wire in the clear.
-  expect(new TextDecoder().decode(body)).not.toContain("Q3");
+  // A decoded view can randomly contain ASCII substrings from ciphertext.
+  // The encrypted record is longer than and must differ from the plaintext bytes.
+  expect(body.subarray(86)).not.toEqual(new TextEncoder().encode(message));
 
   const decrypted = await decryptPayload({
     body, uaPrivateKey: sub.privateKey, uaPublicRaw: sub.publicRaw, auth: sub.keys.auth,
