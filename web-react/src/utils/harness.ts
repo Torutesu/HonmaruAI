@@ -6,7 +6,8 @@ export type SkillImportInput = string | { zipBase64: string } | { files: SkillFi
 export interface AppMessage { id:number; authorId:string; authorName:string; body:string; createdAt:string }
 export interface AppAnnotationMeta { target:string; x:number; y:number; section:'overview'|'data' }
 export interface AppAnnotation extends AppAnnotationMeta { id:string; tableId:string; rowId:string; messageSource:'app'|'channel'; messageId:string; authorId:string; authorName:string; body:string; createdAt:string }
-export interface AppConversation { threadId:string; messages:AppMessage[]; hasMore:boolean; annotations?:AppAnnotation[]; source?:{channel:string;threadId:string;messages:Array<{id:string;body:string;authorName?:string;kind?:string;createdAt:string}>}|null; aiReplies?:Array<{messageId:number;status:string;error?:string}> }
+export interface AppRecordProposal { id:string; status:'pending'|'applying'|'applied'|'rejected'|'stale'|'undone'; fields:Array<{id:string;name:string;value:unknown}>; expiresAt:string; appliedUpdatedAt?:string|null }
+export interface AppConversation { threadId:string; messages:AppMessage[]; hasMore:boolean; annotations?:AppAnnotation[]; source?:{channel:string;threadId:string;messages:Array<{id:string;body:string;authorName?:string;kind?:string;createdAt:string}>}|null; aiReplies?:Array<{messageId:number;status:string;error?:string}>; proposals?:AppRecordProposal[]; canEditRecord?:boolean }
 export interface PersonalViews { snapshot?: {app:App;table:Table;rows:Row[];views:View[];canCustomize:boolean}; activeView?: string; appVersion?:number; revision: number; views: View[]; computed: View[]; layouts: Record<string, {order:string[];widths:Record<string,number>;hidden?:string[];wrapText?:boolean}> }
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -152,6 +153,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     httpBase, orgId, drafts: appDrafts(httpBase,orgId,sessionToken), files: workspaceFileApi(httpBase,orgId,sessionToken),
     conversation: (id:string, scope:{tableId?:string;rowId?:string}={}, before?:number) => call<AppConversation>('GET',`/apps/${id}/conversation`,undefined,{...(scope.tableId?{tableId:scope.tableId}:{}),...(scope.rowId?{rowId:scope.rowId}:{}),...(before?{before:String(before)}:{})}),
     postConversation: (id:string, scope:{tableId?:string;rowId?:string}, body:string, requestId:string, annotation?:AppAnnotationMeta) => call<{threadId:string;messageId:number;annotationId?:string}>('POST',`/apps/${id}/conversation`,{...scope,body,requestId,...(annotation?{annotation}:{})}),
+    reviewRecordProposal: (appId:string,proposalId:string,action:'approve'|'reject'|'undo') => call<{ok:boolean;status:string}>('POST',`/apps/${appId}/record-proposals/${encodeURIComponent(proposalId)}`,{action}),
     markSourceRead: (channel:string,thread:string,at:string) => call('POST','/channels/read',{channel,thread,at}),
     conversationSources: (id:string) => call<{candidates:Array<{id:string;body:string;channel:string;createdAt:string}>}>('GET',`/apps/${id}/conversation-source`),
     inheritConversation: (id:string,messageId:string) => call('POST',`/apps/${id}/conversation-source`,{messageId}),

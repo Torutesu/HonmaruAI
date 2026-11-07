@@ -472,6 +472,40 @@ test('record conversation AI remains independent when the app source is inaccess
  expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
 });
 
+test('record AI changes stay a proposal until confirmed and can be undone with row CAS',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI change the title to Updated',requestId:'record_proposal_req_001',tableId:app.tableId,rowId:row.id};
+ const saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ const model=vi.fn().mockResolvedValue(JSON.stringify({reply:'Please review this change.',changes:{title:'Updated'}}));
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>model});
+ const proposal=await env.DB.prepare('SELECT id,status FROM hx_app_record_proposals WHERE org_id=? AND app_id=?').bind(org,app.id).first();
+ expect(proposal.status).toBe('pending');
+ expect((await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=? AND table_id=? AND id=?').bind(org,app.tableId,row.id).first()).data).toContain('First');
+ expect((await createRequest(`/apps/${app.id}/record-proposals/${proposal.id}`,guest,{action:'approve'})).status).toBe(403);
+ const approvals=await Promise.all([createRequest(`/apps/${app.id}/record-proposals/${proposal.id}`,owner,{action:'approve'}),createRequest(`/apps/${app.id}/record-proposals/${proposal.id}`,owner,{action:'approve'})]);
+ expect(approvals.map(response=>response.status).sort()).toEqual([200,409]);
+ expect(JSON.parse((await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=? AND table_id=? AND id=?').bind(org,app.tableId,row.id).first()).data).title).toBe('Updated');
+ const undone=await createRequest(`/apps/${app.id}/record-proposals/${proposal.id}`,owner,{action:'undo'});
+ expect(undone.status).toBe(200);
+ expect(JSON.parse((await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=? AND table_id=? AND id=?').bind(org,app.tableId,row.id).first()).data).title).toBe('First');
+ expect((await env.DB.prepare('SELECT status FROM hx_app_record_proposals WHERE id=?').bind(proposal.id).first()).status).toBe('undone');
+});
+
+test('stale record proposal is rejected and does not overwrite a newer edit',async()=>{
+ const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
+ const {appConversation}=await import('../src/harness/appConversations.js');
+ const input={body:'@AI change the title',requestId:'record_proposal_req_002',tableId:app.tableId,rowId:row.id};
+ const saved=await appConversation(env.DB,org,'9201',app.id,input,true);
+ await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>async()=>JSON.stringify({reply:'Review this.',changes:{title:'Proposed'}})});
+ const proposal=await env.DB.prepare('SELECT id FROM hx_app_record_proposals WHERE org_id=? AND app_id=?').bind(org,app.id).first();
+ const {updateRow}=await import('../src/harness/tables.js');
+ await updateRow(env.DB,org,app.tableId,row.id,{title:'Newer edit'},'9201',row.updatedAt,'strict','9201');
+ const response=await createRequest(`/apps/${app.id}/record-proposals/${proposal.id}`,owner,{action:'approve'});
+ expect(response.status).toBe(409);
+ expect(JSON.parse((await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=? AND table_id=? AND id=?').bind(org,app.tableId,row.id).first()).data).title).toBe('Newer edit');
+});
+
 test('source added during model generation discards the answer',async()=>{
  const {replyToApp}=await import('../src/harness/appConversationFeatures.js');
  const {appConversation}=await import('../src/harness/appConversations.js');
@@ -603,7 +637,7 @@ test('long 30-message history and record context fit the guarded D1 reply INSERT
  for(let n=0;n<32;n++)await appConversation(env.DB,org,'9201',app.id,{body:long,requestId:'long_history_'+String(n).padStart(10,'0'),tableId:app.tableId,rowId:row.id},true);
  const input={body:'@AI final',requestId:'long_context_req_01',tableId:app.tableId,rowId:row.id};
  const saved=await appConversation(env.DB,org,'9201',app.id,input,true);
- const model=vi.fn(async(_system,prompt)=>{const context=JSON.parse(prompt);expect(context.conversation).toHaveLength(30);expect(context.record.data).toContain(long);return 'Accepted';});
+ const model=vi.fn(async(_system,prompt)=>{const context=JSON.parse(prompt);expect(context.conversation).toHaveLength(30);expect(JSON.stringify(context.record.data)).toContain(long);return 'Accepted';});
  await replyToApp(env,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{requireRequestProof:true,requestProof:await replyRequestProof(owner),expectedSource:null,makeCompleter:async()=>model});
  expect(model).toHaveBeenCalledOnce();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(saved.messageId).first()).toEqual({status:'succeeded'});
 });

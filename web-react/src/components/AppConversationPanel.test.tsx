@@ -12,6 +12,18 @@ test('retry preserves the draft and request identity, and duplicate submits are 
  await act(async()=>{void tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()});await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});
  expect(api.postConversation).toHaveBeenCalledTimes(2);expect(api.postConversation.mock.calls[0][3]).toBe(api.postConversation.mock.calls[1][3]);expect(tree!.root.findByType('textarea').props.value).toBe('');act(()=>tree!.unmount())
 })
+test('record proposals require an explicit confirmation and expose undo after apply',async()=>{
+ vi.stubGlobal('document',{visibilityState:'visible'});
+ const proposal={id:'rp_1',status:'pending',fields:[{id:'title',name:'Title',value:'Updated'}],expiresAt:'2099-01-01T00:00:00.000Z'};
+ const api:any={conversation:vi.fn().mockResolvedValueOnce({threadId:'record',messages:[],hasMore:false,proposals:[proposal],canEditRecord:true}).mockResolvedValue({threadId:'record',messages:[],hasMore:false,proposals:[{...proposal,status:'applied',appliedUpdatedAt:'2026-11-08T00:00:00.000Z'}],canEditRecord:true}),reviewRecordProposal:vi.fn().mockResolvedValue({ok:true,status:'applied'})};let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" tableId="t" rowId="r" title="Record"/>)});
+ expect(JSON.stringify(tree!.toJSON())).toContain('Updated');
+ const approve=tree!.root.findAllByType('button').find(button=>button.children.includes('確認して適用'))!;
+ await act(async()=>{await approve.props.onClick()});
+ expect(api.reviewRecordProposal).toHaveBeenCalledWith('app','rp_1','approve');
+ expect(JSON.stringify(tree!.toJSON())).toContain('変更を適用しました');
+ act(()=>tree!.unmount())
+})
 test('late responses from a previous record cannot appear in the current conversation',async()=>{
  vi.stubGlobal('document',{visibilityState:'visible'});let resolve!:(v:any)=>void;
  const api:any={conversation:vi.fn().mockImplementationOnce(()=>new Promise(r=>resolve=r)).mockResolvedValue({threadId:'new',messages:[message(2,'new record')],hasMore:false})};let tree:ReturnType<typeof create>

@@ -2132,6 +2132,18 @@ CREATE TABLE IF NOT EXISTS hx_app_ai_replies (
  started_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+/* Agent-proposed edits are scoped to one visible record and require a human CAS confirmation. */
+CREATE TABLE IF NOT EXISTS hx_app_record_proposals (
+ id TEXT PRIMARY KEY, org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+ table_id TEXT NOT NULL, row_id TEXT NOT NULL, request_message_id INTEGER NOT NULL REFERENCES hx_app_messages(sequence) ON DELETE CASCADE,
+ reply_message_id INTEGER NOT NULL REFERENCES hx_app_messages(sequence) ON DELETE CASCADE,
+ requested_by TEXT NOT NULL, changes TEXT NOT NULL, before_data TEXT NOT NULL, expected_updated_at TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('pending','applying','applied','rejected','stale','undone')),
+ expires_at TEXT NOT NULL, created_at TEXT NOT NULL, reviewed_by TEXT, reviewed_at TEXT,
+ applied_updated_at TEXT, undone_by TEXT, undone_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hx_app_record_proposals_scope ON hx_app_record_proposals(org_id,app_id,table_id,row_id,created_at);
+
 /* Durable app creation retries and source capture. */
 CREATE TABLE IF NOT EXISTS hx_app_generation_jobs (
   org_id TEXT NOT NULL,
