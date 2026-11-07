@@ -39,7 +39,7 @@ export function externalAppWriteGuard(orgId, appId, userId, tableId) {
   return {
     binds: [orgId, appId, userId, tableId],
     sql(start) {
-      return `EXISTS(SELECT 1 FROM hx_apps a JOIN hx_external_resource_grants g ON g.org_id=a.org_id AND g.resource_type='app' AND g.resource_id=a.id WHERE a.org_id=?${start} AND a.id=?${start+1} AND g.recipient_github_id=?${start+2} AND g.permission='edit' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')) AND (a.table_id=?${start+3} OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?${start+3})) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=a.org_id AND m.user_github_id=?${start+2}) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))`;
+      return `EXISTS(SELECT 1 FROM hx_apps a JOIN hx_external_resource_grants g ON g.org_id=a.org_id AND g.resource_type='app' AND g.resource_id=a.id WHERE a.org_id=?${start} AND a.id=?${start+1} AND g.recipient_github_id=?${start+2} AND g.permission='edit' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')) AND (a.table_id=?${start+3} OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?${start+3})) AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=a.org_id AND s.mode='harness') AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=a.org_id AND m.user_github_id=?${start+2}) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))`;
     },
   };
 }
@@ -202,7 +202,7 @@ async function conversation(request, env, url, orgId, appId, actor, access) {
     if (!body || body.length > 4000) return fail("A message must be 1–4000 characters.", 400);
     const at = new Date().toISOString();
     const id = "xas_" + crypto.randomUUID().replaceAll("-", "");
-    const inserted = await env.DB.prepare("INSERT OR IGNORE INTO hx_external_app_send_requests (id,org_id,app_id,table_id,row_id,guest_github_id,body,status,requested_at) SELECT ?1,?2,?3,?4,?5,?6,?7,'pending',?8 WHERE EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2 AND g.resource_type='app' AND g.resource_id=?3 AND g.recipient_github_id=?6 AND g.permission='view' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8)) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?6) AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?3 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?2 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?2)) AND (?4='' OR EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?3 AND a.table_id=?4) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?2 AND e.app_id=?3 AND e.table_id=?4)) AND (?5='' OR EXISTS(SELECT 1 FROM hx_rows r WHERE r.org_id=?2 AND r.table_id=?4 AND r.id=?5))")
+    const inserted = await env.DB.prepare("INSERT OR IGNORE INTO hx_external_app_send_requests (id,org_id,app_id,table_id,row_id,guest_github_id,body,status,requested_at) SELECT ?1,?2,?3,?4,?5,?6,?7,'pending',?8 WHERE EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2 AND g.resource_type='app' AND g.resource_id=?3 AND g.recipient_github_id=?6 AND g.permission='view' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8)) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?6) AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=?2 AND s.mode='harness') AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?3 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?2 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?2)) AND (?4='' OR EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?3 AND a.table_id=?4) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?2 AND e.app_id=?3 AND e.table_id=?4)) AND (?5='' OR EXISTS(SELECT 1 FROM hx_rows r WHERE r.org_id=?2 AND r.table_id=?4 AND r.id=?5))")
       .bind(id, orgId, appId, scope.tableId, scope.rowId, actor.user.github_id, body, at).run();
     const request = Number(inserted.meta?.changes || 0)
       ? { id }
@@ -223,6 +223,7 @@ async function conversation(request, env, url, orgId, appId, actor, access) {
     WHERE EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1 AND g.resource_type='app'
       AND g.resource_id=?2 AND g.recipient_github_id=?5 AND g.permission='edit' AND g.revoked_at IS NULL
       AND (g.expires_at IS NULL OR g.expires_at>?8)
+      AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=?1 AND s.mode='harness')
       AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?5))
       AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2
         AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
@@ -257,6 +258,7 @@ function sharingManagerWriteGuard(orgParam, appParam, actorParam) {
     ON m.org_id=a.org_id AND m.user_github_id=${actorParam}
     WHERE a.org_id=${orgParam} AND a.id=${appParam}
       AND (a.created_by=${actorParam} OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin'))
+      AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=a.org_id AND s.mode='harness')
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))`;
 }
@@ -268,6 +270,7 @@ async function appSharingAccess(db, orgId, appId, userId) {
 }
 
 async function appSharing(request, env, url, orgId, appId, actor, parts) {
+  if ((await getMode(env.DB, orgId)) !== "harness") return fail();
   const manager = await appSharingAccess(env.DB, orgId, appId, actor.user.github_id);
   if (!manager) return fail();
   const customUnsupported = isCustomApp(manager.definition);
@@ -293,7 +296,7 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
     const messageId = "xappr_" + crypto.randomUUID().replaceAll("-", "");
     const requestId = "xasr_" + row.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
     const writes = await env.DB.batch([
-      env.DB.prepare(`INSERT OR IGNORE INTO hx_app_messages (org_id,app_id,table_id,row_id,author_id,request_id,body,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE EXISTS(SELECT 1 FROM hx_external_app_send_requests r WHERE r.org_id=?1 AND r.app_id=?2 AND r.id=?9 AND r.status='pending') AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1 AND g.resource_type='app' AND g.resource_id=?2 AND g.recipient_github_id=?5 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?5)) AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1) AND ${sharingManagerWriteGuard('?1','?2','?10')})`)
+      env.DB.prepare(`INSERT OR IGNORE INTO hx_app_messages (org_id,app_id,table_id,row_id,author_id,request_id,body,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE EXISTS(SELECT 1 FROM hx_external_app_send_requests r WHERE r.org_id=?1 AND r.app_id=?2 AND r.id=?9 AND r.status='pending') AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1 AND g.resource_type='app' AND g.resource_id=?2 AND g.recipient_github_id=?5 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?5)) AND (?3='' OR EXISTS(SELECT 1 FROM hx_apps scoped WHERE scoped.org_id=?1 AND scoped.id=?2 AND scoped.table_id=?3) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?1 AND e.app_id=?2 AND e.table_id=?3)) AND (?4='' OR EXISTS(SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=?3 AND r.id=?4)) AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1) AND ${sharingManagerWriteGuard('?1','?2','?10')})`)
         .bind(orgId, appId, row.table_id, row.row_id, row.guest_github_id, requestId, row.body, at, row.id, actor.user.github_id),
       env.DB.prepare(`UPDATE hx_external_app_send_requests SET status='approved',decided_at=?1,decided_by=?2,message_id=?3 WHERE org_id=?4 AND app_id=?5 AND id=?6 AND status='pending' AND EXISTS(SELECT 1 FROM hx_app_messages m WHERE m.org_id=?4 AND m.app_id=?5 AND m.table_id=?7 AND m.row_id=?8 AND m.author_id=?9 AND m.request_id=?10) AND ${sharingManagerWriteGuard('?4','?5','?2')}`)
         .bind(at, actor.user.github_id, messageId, orgId, appId, row.id, row.table_id, row.row_id, row.guest_github_id, requestId),
