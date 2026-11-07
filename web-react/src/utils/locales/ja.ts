@@ -591,6 +591,8 @@ const table: Record<string, string> = {
   "Automations do work on a schedule or when something happens in this room.": "オートメーションは、決まった時間や、このルームで何かが起きたときに仕事をこなします。",
   "Build an app": "アプリをつくる",
   "Set up an automation": "オートメーションを設定",
+  "Schedule configured": "スケジュール設定済み",
+  "No upcoming run": "次回実行は未定",
   "Manage all apps": "アプリを管理・作成",
   "Manage all workflows": "ワークフローを管理・作成",
   "Room schedules": "ルームの定期実行",

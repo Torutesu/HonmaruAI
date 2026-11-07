@@ -218,6 +218,19 @@
 .hx-resource-item > span:nth-child(2) { flex: 1; min-width: 0; }
 .hx-resource-item b { display: block; font-size: 13px; }
 .hx-resource-item small { display: block; color: var(--hx-muted); font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }
+.hx-workflow-resource-item { min-height: 76px; }
+.hx-workflow-resource-item:hover { background: var(--hx-hover); }
+.hx-workflow-resource-item:focus-visible, .hx-room-resource footer button:focus-visible, .hx-room-resource > header button:focus-visible, .hx-resource-create:focus-visible { outline: 2px solid var(--hx-accent); outline-offset: 2px; }
+.hx-workflow-resource-item .hx-workflow-resource-icon { width: 36px; height: 36px; border-radius: 11px; background: color-mix(in srgb, var(--hx-accent) 12%, var(--hx-chip-surface)); color: var(--hx-accent); }
+.hx-workflow-resource-item .hx-workflow-resource-icon.is-paused { background: color-mix(in srgb, #d28b31 14%, var(--hx-chip-surface)); color: #a86611; }
+.hx-workflow-resource-item .hx-resource-item-copy { align-self: center; }
+.hx-workflow-resource-item .hx-workflow-resource-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.hx-workflow-state { display: inline-flex; align-items: center; gap: 5px; color: var(--hx-muted); }
+.hx-workflow-state i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.hx-workflow-state.is-on { color: var(--hx-accent); }
+.hx-workflow-state.is-paused { color: #a86611; }
+.hx-workflow-resource-item .hx-workflow-resource-timing { font-size: 11px; line-height: 1.4; }
+.hx-resource-create:hover, .hx-resource-empty > button:hover { background: var(--hx-hover); }
 .hx-resource-create { display: flex; gap: 6px; margin: 16px auto; align-items: center; }
 .hx-resource-loading { padding: 24px; color: var(--hx-muted); font-size: 12px; }
 .hx-room-resource footer { padding: 12px; display: flex; justify-content: center; gap: 12px; }
