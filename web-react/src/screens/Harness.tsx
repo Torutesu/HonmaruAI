@@ -18,6 +18,7 @@ import { HarnessAppIcon } from '../components/HarnessAppIcon'
 import { CompanyApp } from '../components/CompanyApp'
 import { CustomAppEditor, CustomAppFrame } from "../components/CustomApp"
 import { AppSharing } from '../components/AppSharing'
+import { ExternalAppSharing } from '../components/ExternalAppSharing' 
 import { TemplateSharing } from '../components/TemplateSharing'
 import { AppCalendar } from '../components/AppCalendar'
 import { RemoteMcpServers } from '../components/RemoteMcpServers'
@@ -759,6 +760,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       <h2>{t('Fields')}</h2><div className="rows">{table.columns.map(column => <div className="row static" key={column.id}><span className="row-main">{column.name}</span><span className="row-sub">{column.type}</span></div>)}</div>
       {data.canCustomize !== false && <form className="hx-actions" onSubmit={event => { event.preventDefault(); void act('column', async () => { await api.updateApp(app.id, { columns: [...table.columns, { name: newColumn.trim(), type: newColumnType }] }); setNewColumn(''); await load() }) }}><input className="hx-cell-input" aria-label={t('Field name')} placeholder={t('Field name')} value={newColumn} onChange={e => setNewColumn(e.target.value)} /><select aria-label={t('Field type')} value={newColumnType} onChange={e => setNewColumnType(e.target.value as Column['type'])}>{(['text', 'number', 'date', 'checkbox', 'person', 'email', 'url'] as const).map(type => <option key={type} value={type}>{type}</option>)}</select><button className="pill-btn" disabled={busy !== null || !newColumn.trim()}>{t('Add field')}</button></form>}
       <AppSharing key={`${httpBase}:${orgId}:${appId}:${sessionToken}`} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} appId={appId} />
+      <ExternalAppSharing key={`external:${httpBase}:${orgId}:${appId}:${sessionToken}`} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} appId={appId} />
       <TemplateSharing key={`${orgId}:${appId}:${app.version}`} api={api} appId={app.id} appVersion={app.version} />
 
       {data.canCustomize !== false && <>
