@@ -1,6 +1,10 @@
 import { connectedSources } from '../context.js';
+import { getWorkspaceGitHub } from '../githubWorkspace.js';
+import { EMAIL_AUTH_TOKEN } from '../auth.js';
 
 export const AGENT_CONNECTION_SOURCES = ['notion', 'github'];
+
+const personalGithubAvailable = (session, orgId, workspaceRepo = null) => Boolean(session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(String(workspaceRepo || orgId || '')));
 
 async function grantsFor(db, orgId, agentId, githubId) {
   const { results = [] } = await db.prepare(`SELECT g.source FROM hx_agent_source_grants g
@@ -11,19 +15,52 @@ async function grantsFor(db, orgId, agentId, githubId) {
   return new Set(results.map(row => row.source));
 }
 
-export async function agentSourceConnections(env, { orgId, agentId, session }) {
+export async function agentSourceConnections(env, { orgId, agentId, session, canManageWorkspace = false }) {
   if (!session?.github_id || !orgId || !agentId) return { connections: [] };
-  const [available, grants] = await Promise.all([
+  const [available, grants, workspace, workspaceGrants] = await Promise.all([
     connectedSources(env, session, orgId).catch(() => ({})),
     grantsFor(env.DB, orgId, agentId, session.github_id).catch(() => new Set()),
+    getWorkspaceGitHub(env.DB, orgId).catch(() => null),
+    env.DB.prepare('SELECT source FROM hx_agent_workspace_source_grants WHERE org_id=?1 AND agent_id=?2')
+      .bind(orgId, agentId).all().then(({ results = [] }) => new Set(results.map(row => row.source))).catch(() => new Set()),
   ]);
+  const workspaceAvailable = Boolean(workspace?.repo && (workspace?.token || (workspace?.composioUser && env.COMPOSIO_API_KEY)));
   return {
-    connections: AGENT_CONNECTION_SOURCES.map(source => ({
-      source,
-      available: available[source] === true,
-      enabled: available[source] === true && grants.has(source),
-    })),
+    connections: AGENT_CONNECTION_SOURCES.map(source => {
+      const personalAvailable = source === 'github' ? personalGithubAvailable(session, orgId, workspace?.repo) : available[source] === true;
+      const personal = {
+        source,
+        available: personalAvailable,
+        enabled: personalAvailable && grants.has(source),
+      };
+      return source === 'github' && workspaceAvailable ? {
+        ...personal,
+        workspaceAvailable: true,
+        workspaceEnabled: workspaceGrants.has(source),
+        canManageWorkspace: canManageWorkspace === true,
+      } : personal;
+    }),
   };
+}
+
+export async function setAgentWorkspaceSourceConnection(env, { orgId, agentId, source, enabled, actorId }) {
+  if (source !== 'github' || typeof enabled !== 'boolean') return { error: 'Choose a supported workspace connection and whether to allow it.' };
+  if (!actorId) return { error: 'Sign in again before changing this connection.', status: 401 };
+  const workspace = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);
+  if (enabled && (!workspace?.repo || !(workspace?.token || (workspace?.composioUser && env.COMPOSIO_API_KEY)))) return { error: 'Connect a GitHub repository for this workspace before sharing it with the Agent.', status: 409 };
+  const agent = await env.DB.prepare('SELECT id FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL')
+    .bind(orgId, agentId).first();
+  if (!agent) return { error: 'Agent not found in this workspace.', status: 404 };
+  if (enabled) {
+    await env.DB.prepare(`INSERT INTO hx_agent_workspace_source_grants (org_id,agent_id,source,granted_by,created_at)
+      VALUES (?1,?2,'github',?3,?4)
+      ON CONFLICT(org_id,agent_id,source) DO UPDATE SET granted_by=excluded.granted_by,created_at=excluded.created_at`)
+      .bind(orgId, agentId, String(actorId), new Date().toISOString()).run();
+  } else {
+    await env.DB.prepare("DELETE FROM hx_agent_workspace_source_grants WHERE org_id=?1 AND agent_id=?2 AND source='github'")
+      .bind(orgId, agentId).run();
+  }
+  return { ok: true };
 }
 
 export async function setAgentSourceConnection(env, { orgId, agentId, session, source, enabled }) {
@@ -33,8 +70,10 @@ export async function setAgentSourceConnection(env, { orgId, agentId, session, s
   const githubId = String(session?.github_id || '');
   if (!githubId) return { error: 'Sign in again before changing this connection.', status: 401 };
   if (enabled) {
-    const available = await connectedSources(env, session, orgId).catch(() => ({}));
-    if (available[source] !== true) return { error: `Connect ${source === 'notion' ? 'Notion' : 'GitHub'} for this workspace before allowing the Agent to use it.`, status: 409 };
+    const available = source === 'github'
+      ? personalGithubAvailable(session, orgId, (await getWorkspaceGitHub(env.DB, orgId).catch(() => null))?.repo)
+      : (await connectedSources(env, session, orgId).catch(() => ({})))[source] === true;
+    if (!available) return { error: `Connect your ${source === 'notion' ? 'Notion' : 'personal GitHub'} connection before allowing the Agent to use it.`, status: 409 };
     const result = await env.DB.prepare(`INSERT INTO hx_agent_source_grants
         (org_id,agent_id,user_github_id,membership_since,source,created_at)
       SELECT ?1,?2,?3,m.created_at,?4,?5 FROM memberships m
@@ -53,12 +92,22 @@ export async function setAgentSourceConnection(env, { orgId, agentId, session, s
   return agentSourceConnections(env, { orgId, agentId, session });
 }
 
+export async function agentSourceCredential(env, { orgId, agentId, session, source }) {
+  if (!AGENT_CONNECTION_SOURCES.includes(source) || !session?.github_id || !agentId) return null;
+  const githubId = String(session.github_id);
+  if (source === 'github') {
+    const workspace = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);
+    const shared = await env.DB.prepare("SELECT 1 FROM hx_agent_workspace_source_grants WHERE org_id=?1 AND agent_id=?2 AND source='github'")
+      .bind(orgId, agentId).first().catch(() => null);
+    if (workspace?.repo && (workspace?.token || (workspace?.composioUser && env.COMPOSIO_API_KEY)) && shared) return 'workspace';
+    if (personalGithubAvailable(session, orgId, workspace?.repo) && (await grantsFor(env.DB, orgId, agentId, githubId)).has(source)) return 'personal';
+    return null;
+  }
+  const available = await connectedSources(env, session, orgId).catch(() => ({}));
+  return available[source] && (await grantsFor(env.DB, orgId, agentId, githubId)).has(source) ? 'personal' : null;
+}
+
 /// Check the live connection grant immediately before a native source call.
-export async function mayUseAgentSource(env, { orgId, agentId, session, source }) {
-  if (!AGENT_CONNECTION_SOURCES.includes(source) || !session?.github_id || !agentId) return false;
-  const [available, grants] = await Promise.all([
-    connectedSources(env, session, orgId).catch(() => ({})),
-    grantsFor(env.DB, orgId, agentId, session.github_id).catch(() => new Set()),
-  ]);
-  return available[source] === true && grants.has(source);
+export async function mayUseAgentSource(env, args) {
+  return Boolean(await agentSourceCredential(env, args));
 }

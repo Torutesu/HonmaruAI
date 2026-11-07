@@ -18,7 +18,7 @@ import { accessFor } from "./access.js";
 import { getUserByGithubId } from "./db.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 import { getMode } from "./harness/mode.js";
-import { mayUseAgentSource } from "./harness/agentConnections.js";
+import { agentSourceCredential } from "./harness/agentConnections.js";
 import { agentRemoteMcpTools, mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { callRemoteMcpTool } from "./harness/remoteMcp.js";
 import { agentRoomHistoryTools } from "./harness/agentRoomHistory.js";
@@ -82,11 +82,13 @@ export async function agentTools(env, { orgId, session, language = "en", persona
   // A missing mode read must never turn on ungranted native sources. Simple
   // retains its old private-DM behavior; Harness requires each caller's grant.
   const workspaceMode = await getMode(env.DB, orgId).catch(() => null);
-  const sourceAllowed = async source => {
+  const sourceCredential = async source => {
     const currentMode = await getMode(env.DB, orgId).catch(() => null);
-    if (currentMode === "simple") return true;
-    return currentMode === "harness" && await mayUseAgentSource(env, { orgId, agentId, session, source });
+    if (currentMode === "simple") return "auto";
+    if (currentMode !== "harness") return null;
+    return await agentSourceCredential(env, { orgId, agentId, session, source });
   };
+  const sourceAllowed = async source => Boolean(await sourceCredential(source));
   const connected = await connectedSources(env, session, orgId).catch(() => ({}));
   if (connected.notion && await sourceAllowed("notion")) {
     tools.search_notion = {
@@ -106,9 +108,10 @@ export async function agentTools(env, { orgId, session, language = "en", persona
       description: "Search the team's GitHub issues and pull requests. Use it for bugs, features, releases and who is working on what.",
       parameters: query("Key words to search issues and pull requests for."),
       run: async ({ query: q }) => {
-        if (!await sourceAllowed("github")) return "Not searched: this Agent no longer has permission to use your GitHub connection.";
-        const found = await searchGithubIssues(session, orgId, String(q || ""), env).catch(() => []);
-        if (!await sourceAllowed("github")) return "Not searched: GitHub access changed while the request was running; the result was discarded.";
+        const credential = await sourceCredential("github");
+        if (!credential) return "Not searched: this Agent no longer has permission to use your GitHub connection.";
+        const found = await searchGithubIssues(session, orgId, String(q || ""), env, credential).catch(() => []);
+        if (await sourceCredential("github") !== credential) return "Not searched: GitHub access changed while the request was running; the result was discarded.";
         if (found.length) { taint.value = true; onNativeSourceUsed?.("github"); }
         return formatSourcesForModel(found);
       },

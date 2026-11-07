@@ -83,6 +83,80 @@ test("which sources a person has: Notion when connected, GitHub only in a reposi
   expect((await connectedSources({ ...env, COMPOSIO_API_KEY: undefined }, { github_id: "9001", github_access_token: "gho_x" }, "acme/ops")).notion).toBe(false);
 });
 
+test("workspace GitHub credential selection fails closed if its grant disappears mid-call", async () => {
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  const result = await searchGithubIssues(
+    { github_id: "9001", github_access_token: "personal-token-must-not-fallback" },
+    "acme/ops",
+    "release",
+    env,
+    "workspace",
+  );
+  expect(result).toEqual([]);
+});
+
+test("workspace GitHub OAuth search runs through Composio, which owns token refresh", async () => {
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  await env.DB.prepare("INSERT INTO org_github (org_id,repo,token,composio_user,connected_by,updated_at) VALUES (?1,'acme/ops',NULL,'oauth-user-1','9001',?2)")
+    .bind("acme/ops", new Date().toISOString()).run();
+  const calls = [];
+  fetchMock.get("https://backend.composio.dev")
+    .intercept({ path: "/api/v3/tools/execute/GITHUB_SEARCH_ISSUES", method: "POST" })
+    .reply(200, opts => {
+      const body = JSON.parse(opts.body);
+      calls.push(body);
+      const pullRequest = body.arguments.q.includes("is:pull-request");
+      return {
+        successful: true,
+        data: { items: [{
+          number: pullRequest ? 22 : 21,
+          title: pullRequest ? "Fix the release" : "Release issue",
+          html_url: pullRequest ? "https://github.com/acme/ops/pull/22" : "https://github.com/acme/ops/issues/21",
+          repository_url: "https://api.github.com/repos/acme/ops",
+          state: "open",
+          updated_at: pullRequest ? "2026-11-02T00:00:00Z" : "2026-11-01T00:00:00Z",
+        }] },
+      };
+    }).times(2);
+
+  const found = await searchGithubIssues(
+    { github_id: "9001", github_access_token: "personal-token-must-not-be-sent" },
+    "acme/ops",
+    "release",
+    { ...env, COMPOSIO_API_KEY: "ck_test" },
+    "workspace",
+  );
+  expect(found.map(row => row.title)).toEqual(["#22 Fix the release", "#21 Release issue"]);
+  expect(calls).toHaveLength(2);
+  expect(calls.every(call => call.user_id === "oauth-user-1")).toBe(true);
+  expect(calls.every(call => call.arguments.q.startsWith("repo:acme/ops release "))).toBe(true);
+  expect(calls.every(call => JSON.stringify(call).includes("personal-token-must-not-be-sent") === false)).toBe(true);
+});
+
+test("a personal Agent grant keeps the workspace repo but uses only the member token", async () => {
+  await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  await env.DB.prepare("INSERT INTO org_github (org_id,repo,token,composio_user,connected_by,updated_at) VALUES (?1,'acme/ops','workspace-token',NULL,'9001',?2)")
+    .bind("personal:ctx", new Date().toISOString()).run();
+  let authorization;
+  let askedQuery;
+  fetchMock.get("https://api.github.com")
+    .intercept({ path: /^\/search\/issues/, method: "GET" })
+    .reply(200, opts => {
+      authorization = opts.headers.authorization;
+      askedQuery = new URL("https://api.github.com" + opts.path).searchParams.get("q");
+      return { items: [] };
+    });
+  await searchGithubIssues(
+    { github_id: "9002", github_access_token: "personal-token" },
+    "personal:ctx",
+    "bug",
+    env,
+    "personal",
+  );
+  expect(authorization).toBe("Bearer personal-token");
+  expect(askedQuery).toBe("repo:acme/ops bug");
+});
+
 test("GitHub issues are searched as the person, in the workspace's repository", async () => {
   let asked;
   fetchMock.get("https://api.github.com")

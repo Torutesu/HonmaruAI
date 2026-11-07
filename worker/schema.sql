@@ -2782,3 +2782,15 @@ CREATE TABLE IF NOT EXISTS hx_external_file_invites (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_external_file_invites_active ON hx_external_file_invites(org_id,file_id,revoked_at,expires_at);
 CREATE INDEX IF NOT EXISTS idx_hx_external_file_invites_redeemed ON hx_external_file_invites(org_id,redeemed_by,redeemed_at);
+
+/* Workspace owners/admins may share the workspace GitHub connection with an Agent.
+   This grant is separate from personal per-member grants. */
+CREATE TABLE IF NOT EXISTS hx_agent_workspace_source_grants (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('github')),
+  granted_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id, source),
+  FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
+);
