@@ -573,6 +573,43 @@ test('personal app grants inherit defaults, enforce deny precedence, and make vi
   expect((await get(`/apps/${app.id}?orgId=${ORG}`,guest)).status).toBe(200);
 });
 
+test('sharing saves keep the prior app policy when a target member leaves after preflight', async () => {
+  const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9103'").bind(ORG).run();
+  const accessPath=`/apps/${app.id}/access`;
+  const created=await send('PUT',accessPath,mika,{orgId:ORG,visibility:'private',version:0,people:[{userId:'9103',permission:'view'}]});
+  expect(created.status).toBe(200);
+  const racingDb=new Proxy(env.DB,{get(db,key){
+    if(key==='batch')return async statements=>{
+      await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG,'9103').run();
+      return db.batch(statements);
+    };
+    return typeof db[key]==='function'?db[key].bind(db):db[key];
+  }});
+  const {setAppAccess,appAccess}=await import('../src/harness/resourceAccess.js');
+  const denied=await setAppAccess(racingDb,ORG,app.id,'9102',{visibility:'workspace',version:1,people:[{userId:'9103',permission:'edit'}]});
+  expect(denied).toMatchObject({status:409});
+  expect(await appAccess(env.DB,ORG,app.id)).toMatchObject({visibility:'private',version:1});
+  expect(await env.DB.prepare('SELECT change_token FROM hx_app_access WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).toMatchObject({change_token:null});
+});
+
+test('app person permissions and inventory are not truncated at 500 people', async () => {
+  const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+  const {upsertUser,upsertMembership}=await import('../src/db.js');
+  const people=[];
+  for(let index=0;index<501;index++){
+    const userId=`app-person-${index}`;
+    await upsertUser(env.DB,{githubId:userId,login:userId,name:`Person ${index}`,avatarUrl:null,locale:'en'});
+    await upsertMembership(env.DB,ORG,userId,'member');
+    people.push({userId,permission:index===500?'edit':'view'});
+  }
+  const {setAppAccess}=await import('../src/harness/resourceAccess.js');
+  const saved=await setAppAccess(env.DB,ORG,app.id,'9102',{visibility:'workspace',version:0,people});
+  expect(saved.error).toBeUndefined();
+  expect(saved.people).toHaveLength(503);
+  expect(saved.people.find(person=>person.userId==='app-person-500')).toMatchObject({permission:'edit',explicit:true});
+});
+
 test('table workflows lose access when an app becomes private, including historical runs', async () => {
   const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, template: 'crm', sample: false })).json();
   const { createWorkflow, startRun, getRun, getWorkflow } = await import('../src/harness/workflows.js');
