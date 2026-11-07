@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 export const IMAGE = 'docker.io/library/node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402';
 // Trusted bootstraps run inside the VM. No task code executes on macOS.
-const BOOTSTRAP = `let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>raw+=s);process.stdin.on('end',async()=>{try{const task=JSON.parse(raw);const env=Object.freeze(Object.assign(Object.create(null),task.environment||{}));let result;if(task.language==='typescript'){const {stripTypeScriptTypes}=await import('node:module');const code=stripTypeScriptTypes(task.code,{mode:'transform',sourceUrl:'workflow.ts'});const module=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));if(typeof module.default!=='function')throw new Error('TypeScript modules must export a default function.');result=await module.default(task.input,env);}else{const fn=new (Object.getPrototypeOf(async function(){}).constructor)('input','env',task.code);result=await fn(task.input,env);}process.stdout.write(JSON.stringify(result===undefined?null:result));}catch(e){console.error(String(e?.stack||e));process.exitCode=1;}});`;
+const BOOTSTRAP = `let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>raw+=s);process.stdin.on('end',async()=>{try{const task=JSON.parse(raw);const env=Object.freeze(Object.assign(Object.create(null),task.environment||{}));if(task.files){const fs=await import('node:fs/promises');const path=await import('node:path');const root='/tmp/honmaru-work';await fs.mkdir(root,{recursive:true,mode:0o700});for(const file of task.files){const target=path.join(root,...file.path.split('/'));await fs.mkdir(path.dirname(target),{recursive:true,mode:0o700});await fs.writeFile(target,Buffer.from(file.base64,'base64'),{flag:'wx',mode:0o600});}process.chdir(root);}let result;if(task.language==='typescript'){const {stripTypeScriptTypes}=await import('node:module');const code=stripTypeScriptTypes(task.code,{mode:'transform',sourceUrl:'workflow.ts'});const module=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));if(typeof module.default!=='function')throw new Error('TypeScript modules must export a default function.');result=await module.default(task.input,env);}else{const fn=new (Object.getPrototypeOf(async function(){}).constructor)('input','env',task.code);result=await fn(task.input,env);}process.stdout.write(JSON.stringify(result===undefined?null:result));}catch(e){console.error(String(e?.stack||e));process.exitCode=1;}});`;
 
 export function validateEnvironment(value) {
   if (value === undefined) return {};
@@ -21,20 +21,51 @@ export function validateEnvironment(value) {
   return result;
 }
 
+export function validateFiles(files) {
+  if (files === undefined) return [];
+  if (!Array.isArray(files) || files.length > 8) throw new Error('Invalid execution files.');
+  const seen = new Set(), kinds = new Map();
+  let total = 0;
+  for (const file of files) {
+    if (!file || typeof file !== 'object' || Array.isArray(file) ||
+        Object.keys(file).sort().join(',') !== 'base64,path' ||
+        typeof file.path !== 'string' || typeof file.base64 !== 'string') throw new Error('Invalid execution file.');
+    const path=file.path;
+    if (!path || path.length>240 || path.startsWith('/') || path.includes('\\') || path.includes(':') ||
+        /[\u0000-\u001f\u007f]/.test(path) || path.endsWith('/')) throw new Error('Invalid execution file path.');
+    const parts=path.split('/');
+    if(parts.some(part=>!part||part==='.'||part==='..'||part.startsWith('.'))) throw new Error('Invalid execution file path.');
+    if(seen.has(path)) throw new Error('Duplicate execution file path.');
+    seen.add(path);
+    for(let i=1;i<parts.length;i++){const parent=parts.slice(0,i).join('/');if(seen.has(parent))throw new Error('Conflicting execution file paths.');kinds.set(parent,'directory');}
+    if(kinds.get(path)==='directory')throw new Error('Conflicting execution file paths.');
+    kinds.set(path,'file');
+    if(file.base64.length>4*Math.ceil(256*1024/3)||file.base64.length%4!==0||!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.base64))throw new Error('Invalid execution file encoding.');
+    const decoded=Buffer.from(file.base64,'base64');
+    if(decoded.toString('base64')!==file.base64)throw new Error('Invalid execution file encoding.');
+    const size=decoded.length;
+    if(size>256*1024)throw new Error('Execution file is too large or invalid.');
+    total+=size;if(total>1024*1024)throw new Error('Execution files are too large.');
+  }
+  return files;
+}
+
 export function validatePayload(payload, { environment } = {}) {
   if (!payload || typeof payload.code !== 'string' || !payload.code.trim()) throw new Error('JavaScript code is required.');
   if(payload.language!==undefined&&!['javascript','typescript'].includes(payload.language))throw new Error('Unsupported execution language.');
-  const clean = { code: payload.code, input: payload.input ?? null, ...(payload.language==='typescript'?{language:'typescript'}:{}) };
+  const files=validateFiles(payload.files);
+  const clean = { code: payload.code, input: payload.input ?? null, ...(payload.language==='typescript'?{language:'typescript'}:{}), ...(files.length?{files}:{}) };
   const env=validateEnvironment(environment);
-  if (Buffer.byteLength(JSON.stringify(clean)) > 65536) throw new Error('Execution input is too large.');
+  const baseBytes=Buffer.byteLength(JSON.stringify({code:clean.code,input:clean.input,...(clean.language?{language:clean.language}:{})}));
+  if (baseBytes > 65536) throw new Error('Execution input is too large.');
   if(Object.keys(env).length)clean.environment=env;
-  if (Buffer.byteLength(JSON.stringify(clean)) > 96000) throw new Error('Execution input is too large.');
+  if (Buffer.byteLength(JSON.stringify(clean)) > 1600000) throw new Error('Execution input is too large.');
   return clean;
 }
 
 export function containerArgs(name, bootstrap = BOOTSTRAP) {
   if (!/^honmaru-[a-f0-9-]{36}$/.test(name)) throw new Error('Invalid execution name.');
-  return ['run', '--rm', '--name', name, '--network', 'none', '--no-dns', '--read-only', '--tmpfs', '/tmp',
+  return ['run', '--rm', '--name', name, '--network', 'none', '--no-dns', '--read-only', '--tmpfs', '/tmp:size=16M,mode=1777',
     '--cap-drop', 'ALL', '--uid', '65534', '--gid', '65534', '--cpus', '1', '--memory', '512m',
     '--ulimit', 'nofile=256:256', '--ulimit', 'nproc=128:128', '--progress', 'none', '-i', IMAGE, 'node', '-e', bootstrap];
 }
@@ -48,19 +79,19 @@ function control(binary, args) {
   });
 }
 
-export async function runIsolated(payload, { binary = process.env.HONMARU_CONTAINER_BIN || 'container', timeoutMs = 60000, signal, environment } = {}) {
+export async function runIsolated(payload, { binary = process.env.HONMARU_CONTAINER_BIN || 'container', timeoutMs = 60000, signal, environment, spawnProcess = spawn, controlProcess = control } = {}) {
   const clean = validatePayload(payload,{environment});
   if (signal?.aborted) return { status: 'failed', stdout: '', stderr: 'Execution cancelled.', exitCode: null };
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60000) throw new Error('Invalid execution timeout.');
   const name = `honmaru-${randomUUID()}`;
   let status = null, killPromise, forceTimer;
   let stdout = Buffer.alloc(0), stderr = Buffer.alloc(0), seen = 0;
-  const child = spawn(binary, containerArgs(name), { stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+  const child = spawnProcess(binary, containerArgs(name), { stdio: ['pipe', 'pipe', 'pipe'], shell: false });
   const stop = reason => {
     if (status) return;
     status = reason;
     // Kill the VM workload, not just the CLI which is attached to it.
-    killPromise = control(binary, ['kill', '--signal', 'KILL', name]);
+    killPromise = controlProcess(binary, ['kill', '--signal', 'KILL', name]);
     forceTimer = setTimeout(() => child.kill('SIGKILL'), 6000);
   };
   const capture = target => chunk => {
@@ -92,6 +123,6 @@ export async function runIsolated(payload, { binary = process.env.HONMARU_CONTAI
   } finally {
     clearTimeout(timer); clearTimeout(forceTimer); signal?.removeEventListener('abort', abort);
     // Also cleans up boot failures; --rm covers normal exits.
-    await control(binary, ['delete', '--force', name]);
+    await controlProcess(binary, ['delete', '--force', name]);
   }
 }
