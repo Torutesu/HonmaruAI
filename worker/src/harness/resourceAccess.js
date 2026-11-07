@@ -1,12 +1,12 @@
-import { readableConversation } from './conversationAccess.js';
+import { readableConversation, mayUseConversation } from './conversationAccess.js';
 
 // Explicit app visibility. Absence means the legacy workspace-wide policy.
 // Room links are navigation only; they never grant access to a private app.
 export async function appAccess(db, orgId, appId) {
-  const row = await db.prepare(`SELECT a.created_by, p.visibility, p.version FROM hx_apps a
+  const row = await db.prepare(`SELECT a.created_by, p.visibility, p.version, p.room_channel FROM hx_apps a
     LEFT JOIN hx_app_access p ON p.org_id = a.org_id AND p.app_id = a.id
     WHERE a.org_id = ?1 AND a.id = ?2`).bind(orgId, appId).first();
-  return row ? { ownerId: row.created_by, visibility: row.visibility || 'workspace', version: row.version || 0 } : null;
+  return row ? { ownerId: row.created_by, visibility: row.room_channel ? 'room' : (row.visibility || 'workspace'), roomChannel: row.room_channel || null, version: row.version || 0 } : null;
 }
 
 export async function mayUseApp(db, orgId, appId, userId) {
@@ -26,7 +26,7 @@ export async function hasExplicitAppPermission(db, orgId, appId, userId) {
 }
 
 async function appPermission(db, orgId, appId, userId) {
-  const row = await db.prepare(`SELECT app.created_by AS ownerId, COALESCE(a.visibility,'workspace') AS visibility,
+  const row = await db.prepare(`SELECT app.created_by AS ownerId, COALESCE(a.visibility,'workspace') AS visibility, a.room_channel,
       m.role, p.permission
     FROM hx_apps app
     JOIN memberships m ON m.org_id=app.org_id AND m.user_github_id=?3
@@ -37,6 +37,7 @@ async function appPermission(db, orgId, appId, userId) {
   if (!row) return 'none';
   if (row.ownerId === String(userId)) return 'edit';
   if (row.permission) return row.permission;
+  if (row.room_channel) return await mayUseConversation(db, orgId, userId, row.room_channel) ? 'view' : 'none';
   return row.visibility === 'workspace' ? (String(row.role).toLowerCase()==='admin' ? 'edit' : 'view') : 'none';
 }
 
@@ -50,14 +51,16 @@ export async function appPeopleAccess(db, orgId, appId) {
     LEFT JOIN hx_app_person_access p ON p.org_id=m.org_id AND p.app_id=?2 AND p.user_github_id=m.user_github_id
     WHERE m.org_id=?1 AND LOWER(COALESCE(m.role,'guest'))!='guest'
     ORDER BY CASE WHEN p.user_github_id IS NULL THEN 1 ELSE 0 END,u.login`).bind(orgId, appId).all();
-  return results.map(row => {
+  return Promise.all(results.map(async row => {
     const role = String(row.role).toLowerCase();
     const inherited = String(row.ownerId) === String(row.userId) ? 'edit'
       : access.visibility === 'workspace' ? (['owner','admin'].includes(role) ? 'edit' : 'view') : 'none';
+    const roomMember = access.visibility === 'room' ? await mayUseConversation(db, orgId, row.userId, access.roomChannel) : false;
+    const defaultPermission = access.visibility === 'workspace' ? inherited : roomMember ? 'view' : 'none';
     return { userId: String(row.userId), login: row.login, name: row.name || row.login,
       role, canOverride: !['owner','admin'].includes(role) && String(row.ownerId)!==String(row.userId),
-      permission: row.permission || inherited, explicit: Boolean(row.explicit) };
-  });
+      permission: row.permission || defaultPermission, explicit: Boolean(row.explicit) };
+  }));
 }
 
 export async function mayUseTable(db, orgId, tableId, userId) {
@@ -87,6 +90,7 @@ export async function mayEditTable(db, orgId, tableId, userId) {
 // single SQL statement prevents an ACL change between individual checks.
 export async function mayReadAppRows(db, orgId, appId, tableId, userId) {
   if (!userId || !tableId) return false;
+  const roomAllowed = policy => `EXISTS(SELECT 1 FROM businesses rb WHERE rb.org_id=?1 AND 'b:'||rb.slug=${policy}.room_channel AND (rb.private=0 OR EXISTS(SELECT 1 FROM conversation_members cm JOIN users cu ON cu.login=cm.login WHERE cm.org_id=?1 AND cm.channel=${policy}.room_channel AND cu.github_id=?4)))`;
   const row = await db.prepare(`SELECT 1 AS allowed FROM hx_apps target
     JOIN hx_tables t ON t.org_id=target.org_id AND t.id=target.table_id
     JOIN memberships m ON m.org_id=target.org_id AND m.user_github_id=?4
@@ -97,13 +101,13 @@ export async function mayReadAppRows(db, orgId, appId, tableId, userId) {
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?1)
       AND (target.created_by=?4 OR personal.permission IN ('view','edit')
-        OR (personal.permission IS NULL AND COALESCE(policy.visibility,'workspace')='workspace'))
+        OR (personal.permission IS NULL AND (COALESCE(policy.visibility,'workspace')='workspace' OR (policy.room_channel IS NOT NULL AND ${roomAllowed('policy')}))))
       AND NOT EXISTS(SELECT 1 FROM hx_apps linked
         LEFT JOIN hx_app_access p ON p.org_id=linked.org_id AND p.app_id=linked.id
         WHERE linked.org_id=?1 AND (linked.table_id=?3 OR EXISTS(
           SELECT 1 FROM hx_app_entities e WHERE e.org_id=linked.org_id AND e.app_id=linked.id AND e.table_id=?3))
         AND (EXISTS(SELECT 1 FROM hx_app_person_access denied WHERE denied.org_id=linked.org_id AND denied.app_id=linked.id AND denied.user_github_id=?4 AND denied.permission='none')
-          OR (COALESCE(p.visibility,'workspace')!='workspace' AND linked.created_by IS NOT ?4
+          OR (COALESCE(p.visibility,'workspace')!='workspace' AND (p.room_channel IS NULL OR NOT ${roomAllowed('p')}) AND linked.created_by IS NOT ?4
             AND NOT EXISTS(SELECT 1 FROM hx_app_person_access granted WHERE granted.org_id=linked.org_id AND granted.app_id=linked.id AND granted.user_github_id=?4 AND granted.permission IN ('view','edit'))))
         )
       AND NOT EXISTS(SELECT 1 FROM hx_app_person_access denied WHERE denied.org_id=target.org_id AND denied.app_id=target.id AND denied.user_github_id=?4 AND denied.permission='none'
@@ -118,7 +122,9 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
   const current = await appAccess(db, orgId, appId);
   if (!current || !(await mayUseApp(db, orgId, appId, userId))) return { error: 'No such app.', status: 404 };
   if (current.ownerId !== String(userId)) return { error: 'Only the app owner can change sharing.', status: 403 };
-  if (!['workspace', 'private'].includes(input.visibility)) return { error: 'Invalid visibility.' };
+  if (!['workspace', 'private', 'room'].includes(input.visibility)) return { error: 'Invalid visibility.' };
+  const roomChannel = input.visibility === 'room' ? String(input.channel || '') : null;
+  if (input.visibility === 'room' && (!roomChannel || roomChannel.length > 200 || !(await mayUseConversation(db, orgId, userId, roomChannel)))) return { error: 'Choose a room you can access.', status: 400 };
   if (!Number.isSafeInteger(input.version) || input.version < 0) return { error: 'A current access version is required.' };
   const hasPeopleUpdate = Array.isArray(input.people);
   if (input.people !== undefined && !hasPeopleUpdate) return { error: 'People access must be a list.' };
@@ -133,6 +139,7 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
     if (!member || ['guest','owner','admin'].includes(String(member.role).toLowerCase())) return { error: 'Choose an active workspace member who can receive a personal app permission.' };
   }
   const at = new Date().toISOString(), token = crypto.randomUUID();
+  const storedVisibility = input.visibility === 'room' ? 'private' : input.visibility;
   const stmts = [];
   const peopleJson = hasPeopleUpdate ? JSON.stringify(people.map(({ userId, permission }) => ({ userId: String(userId).trim(), permission }))) : null;
   const validPeople = param => hasPeopleUpdate ? `AND NOT EXISTS(
@@ -146,11 +153,11 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
     SELECT ?1,?2,'workspace',0,NULL WHERE EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3 AND LOWER(m.role)!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?3)
       ${validPeople('?4')}`)
     .bind(...(hasPeopleUpdate ? [orgId, appId, String(userId), peopleJson] : [orgId, appId, String(userId)])));
-  stmts.push(db.prepare(`UPDATE hx_app_access SET visibility=?3,version=version+1,change_token=?5
+  stmts.push(db.prepare(`UPDATE hx_app_access SET visibility=?3,room_channel=?7,version=version+1,change_token=?5
     WHERE org_id=?1 AND app_id=?2 AND version=?4
       AND EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?6 AND LOWER(m.role)!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?6)
-      ${validPeople('?7')}`)
-    .bind(...(hasPeopleUpdate ? [orgId,appId,input.visibility,input.version,token,String(userId),peopleJson] : [orgId,appId,input.visibility,input.version,token,String(userId)])));
+      ${validPeople('?8')}`)
+    .bind(...(hasPeopleUpdate ? [orgId,appId,storedVisibility,input.version,token,String(userId),roomChannel,peopleJson] : [orgId,appId,storedVisibility,input.version,token,String(userId),roomChannel])));
   if (hasPeopleUpdate) {
     stmts.push(db.prepare('DELETE FROM hx_app_person_access WHERE org_id=?1 AND app_id=?2 AND EXISTS(SELECT 1 FROM hx_app_access WHERE org_id=?1 AND app_id=?2 AND change_token=?3)').bind(orgId,appId,token));
     stmts.push(db.prepare(`INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at)

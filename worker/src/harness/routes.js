@@ -45,6 +45,8 @@ import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection, invokeConnection } from './appCapabilities.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
+import { createAppShare, listAppShares, revokeAppShare, readAppShare } from './appShares.js';
+import { listPublicAppShareApprovals, reviewPublicAppShareApproval } from './appShareApproval.js';
 import { fetchGitHubCommitSource, verifyGitHubCommitRef } from './githubCommitSource.js';
 import { commitPublishScope, customCommitState, requestCustomCommitApproval, reviewCustomCommitApproval, publishApprovedCustomCommit, hashSource } from './appCommitRelease.js';
 import { servePublishedCommitAsset } from './appCommitAssets.js';
@@ -116,7 +118,7 @@ const fail = (result) => json({ message: result.error, ...(result.fields ? { fie
 const importMayBeSaved = 'A copy may have been created. After access is restored, check the Skill list before retrying.';
 
 /// The paths this module answers.
-const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-commit-assets|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|external\/files|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
+const OURS = /^\/(orgs\/mode|tables|apps|app-domains|app-shares|app-commit-assets|app-generation-v2|template-shares|skills|skill-shares|gateways|hx|external\/files|workflows|followups|approvals|harness\/home|remote-mcp)(\/|$)/;
 
 /// The caller, refused if a guest: the harness is the team's.
 export async function member(env, request, orgId, options) {
@@ -205,12 +207,22 @@ export async function handleHarness(request, env, url, context = {}) {
     return response;
   }
 
+  if (url.pathname.startsWith('/app-shares/') && request.method !== 'GET') {
+    return json({ message: 'This app link is unavailable.' }, 404);
+  }
   const visualRoute = url.pathname === "/hx/rooms/visual";
   const read = request.method === "GET" || request.method === "DELETE";
   const input = read || visualRoute ? null : await body(request);
   if (!read && !visualRoute && !input) return json({ message: "Invalid JSON body." }, 400);
   const orgId = read || visualRoute ? url.searchParams.get("orgId") : input.orgId;
   const parts = url.pathname.split("/").filter(Boolean);
+
+  // A public Custom App share is a narrowly scoped, read-only bearer link.
+  if (parts[0] === 'app-shares') {
+    if (request.method !== 'GET' || parts.length !== 2) return json({ message: 'This app link is unavailable.' }, 404);
+    const result = await readAppShare(env.DB, parts[1]);
+    return result.error ? fail(result) : json(result);
+  }
 
   // A share token is a narrowly scoped bearer credential: GET exposes only
   // the sanitized template blueprint, while importing also requires a valid
@@ -1464,14 +1476,48 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "access") {
       if (request.method === "GET") {
         const canEdit = app.createdBy === String(me);
-        return json({ access: await appAccess(env.DB, orgId, appId), people: canEdit ? await appPeopleAccess(env.DB,orgId,appId) : [], canEdit });
+        const canManage = await mayChange(env, orgId, who, app.createdBy);
+        const access = await appAccess(env.DB, orgId, appId);
+        const { results: rooms = [] } = await env.DB.prepare("SELECT channel FROM hx_app_links WHERE org_id=?1 AND app_id=?2 AND channel LIKE 'b:%' ORDER BY channel").bind(orgId, appId).all();
+        const custom = app.definition?.custom;
+        const canPublicShare = typeof custom?.published === 'string' && !custom.publishedCommit && !custom.publishedCommitApprovalId;
+        return json({ access, people: canEdit ? await appPeopleAccess(env.DB,orgId,appId) : [], canEdit, canManage, canPublicShare, rooms: rooms.map(row => row.channel) });
       }
       if (request.method === "PUT") {
         const result = await setAppAccess(env.DB, orgId, appId, me, input);
-        if (!result.error) await audit(env, request, { orgId, action: "app.access_changed", actor: person(who.user), entity: { type: "app", id: appId }, details: { visibility: result.access.visibility, version: result.access.version, explicitPeople: Array.isArray(input.people) ? input.people.length : null } });
+        if (!result.error) await audit(env, request, { orgId, action: "app.access_changed", actor: person(who.user), entity: { type: "app", id: appId }, details: { visibility: result.access.visibility, version: result.access.version, room: result.access.roomChannel || null, explicitPeople: Array.isArray(input.people) ? input.people.length : null } });
         return result.error ? fail(result) : json(result);
       }
       return json({ message: "Method not allowed." }, 405);
+    }
+    if (sub === 'public-shares') {
+      const canManage = await mayChange(env, orgId, who, app.createdBy);
+      if (!canManage) return json({ message: 'Only the app owner or an admin can manage public links.' }, 403);
+      if (request.method === 'GET' && parts.length === 3) return json(await listAppShares(env.DB, orgId, appId));
+      if (request.method === 'POST' && parts.length === 3) {
+        const access = await appAccess(env.DB, orgId, appId);
+        const result = await createAppShare(env.DB, orgId, app, me, input || {}, access);
+        if (result.error) return fail(result);
+        await audit(env, request, { orgId, action: 'app.public_share_created', actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: { shareId: result.share.id, version: result.share.appVersion, expiresAt: result.share.expiresAt } });
+        return json(result, 201);
+      }
+      if (request.method === 'POST' && parts.length === 5 && parts[4] === 'revoke') {
+        const result = await revokeAppShare(env.DB, orgId, appId, parts[3]);
+        if (!result.error) await audit(env, request, { orgId, action: 'app.public_share_revoked', actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: { shareId: parts[3] } });
+        return result.error ? fail(result) : json(result);
+      }
+      return json({ message: 'Method not allowed.' }, 405);
+    }
+    if (sub === 'public-share-approvals') {
+      if (!await mayChange(env, orgId, who, app.createdBy)) return json({ message: 'Only the app owner or an admin can review these requests.' }, 403);
+      if (request.method === 'GET' && parts.length === 3) return json(await listPublicAppShareApprovals(env.DB, orgId, appId));
+      if (request.method === 'POST' && parts.length === 3) {
+        const result = await reviewPublicAppShareApproval(env.DB, orgId, appId, String(input?.requestId || ''), String(me), input?.decision, env);
+        if (result.error) return fail(result);
+        await audit(env, request, { orgId, action: 'app.public_share_request_reviewed', actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: { requestId: input.requestId, decision: input.decision } });
+        return json(result);
+      }
+      return json({ message: 'Method not allowed.' }, 405);
     }
     if (sub === 'template-shares') {
       if (!(await mayChangeApp())) return json({ message: 'Only its maker, an editor, or an admin can share this app as a template.' }, 403);

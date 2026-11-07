@@ -85,3 +85,10 @@ test("public file bearer tokens are redacted from route labels and arbitrary mes
   expect(safe(token)).toBe("[redacted]");
   expect(safe(`/hx/public-file-shares/${token}%2Fextra`)).toBe("[redacted]");
 });
+
+
+test('public App share bearer paths are collapsed and redacted', () => {
+  const token = 'app_' + 'a'.repeat(64);
+  expect(routeLabel('GET', `/app-shares/${token}`)).toBe('GET /app-shares/:token');
+  expect(safe(`GET /app-shares/${token}`)).toBe('GET /app-shares/[redacted]');
+});
