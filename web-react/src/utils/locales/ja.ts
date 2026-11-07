@@ -3212,7 +3212,7 @@ const table: Record<string, string> = {
   'Can edit': '編集可能',
   'No people match this search.': '一致するメンバーがいません。',
   'Showing {{shown}} of {{count}} people.': '{{count}}名中{{shown}}名を表示しています。検索して対象メンバーを絞り込めます。',
-  'No access overrides workspace visibility for this person.': '「アクセス不可」は、このメンバーに限りワークスペースの公開設定より優先されます。'
+  'No access overrides workspace visibility for this person.': '「アクセス不可」は、このメンバーに限りワークスペースの公開設定より優先されます。',
   'All workspace members have already joined.': 'ワークスペースの全メンバーがすでに参加しています。',
   'Invite members to workspace': 'ワークスペースにメンバーを招待',
   'Add ({n})': '追加（{n}）',
