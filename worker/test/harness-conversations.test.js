@@ -869,8 +869,16 @@ test('sent app annotations persist with their message, scope and access checks',
  const secondSession=await createSession(env.DB,'9201','annotation-second');expect((await (await request('GET',secondSession)).json()).annotations[0].id).toBe(history.annotations[0].id);
  expect((await (await request('GET',owner,{tableId:app.tableId,rowId:row.id})).json()).annotations).toEqual([]);
  expect((await post(owner,'Invalid marker','annotation_request_002',{}, {...marker,x:101})).status).toBe(400);
- expect((await post(owner,'Record marker','annotation_request_003',{tableId:app.tableId,rowId:row.id},marker)).status).toBe(400);
- expect((await (await request('GET',owner,{tableId:app.tableId,rowId:row.id})).json()).messages).toEqual([]);
+ const recordScope={tableId:app.tableId,rowId:row.id},recordBody='注釈: Tasks · レコード First · 列「Title」\n選択フィールド: Title (title)\nChange the title';
+ expect((await post(owner,recordBody,'annotation_record_req_01',recordScope,marker)).status).toBe(200);
+ expect((await post(owner,recordBody,'annotation_record_req_01',recordScope,marker)).status).toBe(200);
+ const recordHistory=await (await request('GET',owner,recordScope)).json();
+ expect(recordHistory.messages.map(message=>message.body)).toEqual([recordBody]);
+ expect(recordHistory.annotations).toHaveLength(1);
+ expect(recordHistory.annotations[0]).toMatchObject({tableId:app.tableId,rowId:row.id,target:marker.target,body:recordBody,messageSource:'app'});
+ const otherRecord=await addRow(env.DB,org,app.tableId,{title:'Second'},'9201');
+ expect((await (await request('GET',owner,{tableId:app.tableId,rowId:otherRecord.row.id})).json()).annotations).toEqual([]);
+ expect((await (await request('GET',owner)).json()).annotations).toHaveLength(1);
  expect((await (await request('GET',owner)).json()).messages.map(message=>message.body)).toEqual([body]);
  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(org,app.id).run();
  expect((await request('GET',member)).status).toBe(404);

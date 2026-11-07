@@ -1209,7 +1209,6 @@ export async function handleHarness(request, env, url, context = {}) {
       const query=request.method==='GET'?Object.fromEntries(url.searchParams):input;
       const annotation=request.method==='POST'?normalizeAppAnnotation(input.annotation):null;
       if(annotation?.error)return fail(annotation);
-      if(annotation&&query.rowId)return json({message:'Annotations are only available in app conversations.'},400);
       // Validate both app and record before looking up any source thread.
       const access=await appConversation(env.DB,orgId,me,appId,query);
       if(access.error)return fail(access);

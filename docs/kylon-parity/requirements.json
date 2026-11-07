@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-07",
+  "asOf": "2026-11-08",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1199,6 +1199,20 @@
       "evidence": {
         "verified": "PR #788をmain commit 2070c40714b952e7ddff26c3b0052f4b8f98a002として公開。PR exact-head CI run 42348597887は全jobs成功、main CI 42349710775もWorker 4 shards・E2E・Web・relay・desktop・gateway・core/mobileが成功。Worker deployment 42349710789でD1 migration/column additions・Deploy・Verifyが成功し、本番healthは ok:true、encryption.all:true。Web deployment 42349710776はPages・domain checkが成功し、app.honmaruai.comがasset index-DQFLbTXr.jsを配信。",
         "remaining": "ログイン済みHonmaruとKylonで編集下書きを作り、次の同一Agent宛メッセージに一度だけ反映されること、破棄・個人設定・削除/エクスポートを画面操作で比較する。現状は本番デプロイと自動試験の確認までで、実データを使ったUI acceptanceは未実施。Simpleモードの既存経路は保持。"
+      }
+    },
+    {
+      "id": "KY-111",
+      "category": "Apps",
+      "requirement": "Point at an App table record or field and ask the Agent to update it",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "web-react/src/components/AppAnnotation.tsx, web-react/src/components/AppConversationPanel.tsx, worker/src/harness/routes.js",
+      "acceptance": "A selected visible field retains its column ID and record ID through the annotation draft, opens the exact ACL-protected record conversation, and includes the record snapshot and field identity in the Agent context. Persist the message and annotation only to that record; verify another record and unauthorized viewers cannot read it. Complete parity also requires a reviewable Agent-proposed record mutation and confirmation/undo flow, plus authenticated production comparison. Preserve the existing Simple mode and use no new paid service.",
+      "evidence": {
+        "verified": "The table drag-selection now carries visible column ID and row/table identity into the record conversation. Worker allows annotation only after appConversation validates that exact linked table/record under the viewer's current ACL. Regression covers idempotent send, scoped annotation persistence and cross-record isolation. Web component/screen suites: 61 tests passed; TypeScript passed. Worker conversation suite: 117 tests passed.",
+        "remaining": "No Agent tool currently mutates the row from this conversation; confirm/undo semantics, authenticated production acceptance and logged-in side-by-side Kylon comparison remain unimplemented. This is partial parity, not completion."
       }
     }
   ]

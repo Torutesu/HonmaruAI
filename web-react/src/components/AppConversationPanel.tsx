@@ -50,7 +50,7 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
   const restoredDraft=resolvedDraft.draft
   const suggestion=resolvedDraft.suggestion
   setDraft(restoredDraft);setSuggestedDraft(suggestion)
-  const restoredAnnotation=rowId||!restoredDraft?null:api.drafts?.readAnnotation?.(appId,tableId,rowId)||null
+  const restoredAnnotation=!restoredDraft?null:api.drafts?.readAnnotation?.(appId,tableId,rowId)||null
   setAnnotationMeta(restoredAnnotation)
   if(restoredDraft)api.drafts?.write(restoredDraft,appId,tableId,rowId)
   if(initialDraft&&!suggestion)onInitialDraftConsumed?.()
@@ -67,7 +67,7 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
  const send=async(e:React.FormEvent)=>{
   e.preventDefault();const body=draft.trim();if(!body||pending.current)return;const generation=epoch.current;pending.current=true;setSending(true);setError('');
   if(request.current?.body!==body)request.current={body,id:crypto.randomUUID()};
-  try {await api.postConversation(appId,{tableId,rowId},body,request.current.id,rowId?undefined:annotationMeta||undefined);if(generation!==epoch.current)return;saveDraft('');setAnnotationMeta(null);api.drafts?.writeAnnotation?.(null,appId,tableId,rowId);request.current=null;stickToBottom.current=true;await refresh(generation);list.current?.scrollTo({top:list.current.scrollHeight,behavior:'smooth'})}
+  try {await api.postConversation(appId,{tableId,rowId},body,request.current.id,annotationMeta||undefined);if(generation!==epoch.current)return;saveDraft('');setAnnotationMeta(null);api.drafts?.writeAnnotation?.(null,appId,tableId,rowId);request.current=null;stickToBottom.current=true;await refresh(generation);list.current?.scrollTo({top:list.current.scrollHeight,behavior:'smooth'})}
   catch(e){if(generation===epoch.current)setError(e instanceof Error?e.message:String(e))}
   finally{if(generation===epoch.current){pending.current=false;setSending(false)}}
  }
