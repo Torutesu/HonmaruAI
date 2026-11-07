@@ -68,9 +68,13 @@ ACP agents run as the logged-in Mac user; they do not run in the isolated Apple
 Container used for plain JavaScript jobs. Only configure an agent and project
 directory that the workspace owner trusts. The gateway never accepts an
 executable, arguments, environment or working directory from the Worker: an
-ACP job names a key from the Mac's local allowlist. ACP permission requests are
-rejected by default, and the client does not expose host filesystem or terminal
-capabilities. An ACP agent may still use its own local credentials and tools.
+ACP job names a key from the Mac's local allowlist. Permission requests use the
+operator policy configured on the Mac (`default` when omitted): it auto-selects
+an allow option, while `strict` only approves read-like tools and rejects other
+or unknown kinds. The
+client does not expose host filesystem or terminal capabilities. An ACP agent
+still runs as the logged-in user and may use that user's files, credentials and
+network; the policy is not an OS sandbox.
 
 On the Mac with a checkout of HonmaruAI, register a local command and project
 directory. Use the agent vendor's actual ACP v1 stdio invocation and the exact
