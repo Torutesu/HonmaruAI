@@ -52,6 +52,19 @@ export const appTableDisplayName = (appName: string, tableName: string, titleCol
 export const shouldShowRecordCount = (count: number, query: string, activeFilters: number) =>
   count > 0 || query.trim().length > 0 || activeFilters > 0
 
+// Route Customize app back to the readable creation conversation when one exists.
+// App conversations enforce the source thread's current ACL; a missing or
+// inaccessible source falls through to the existing editor.
+export async function appCustomizeSourceHash(api: Pick<HarnessApi, 'conversation'>, appId: string, orgId: string): Promise<string | null> {
+  try {
+    const source = (await api.conversation(appId)).source
+    if (!source?.threadId || !source.messages.some(message => String(message.id) === String(source.threadId))) return null
+    return hashForAppSource(appId, orgId)
+  } catch {
+    return null
+  }
+}
+
 // The harness screens (docs/kylon-gap-plan.md): Apps, Workflows, Approvals,
 // Skills and agents as members, and the hub that switches a workspace into
 // harness mode. Nothing here is reached from a simple workspace except the
@@ -452,6 +465,8 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
     return()=>{observer.disconnect();if(frame!==null)cancelAnimationFrame(frame)}
   },[floating,section,Boolean(data)])
   const [creating,setCreating]=useState(false),[fullscreen,setFullscreen]=useState(false)
+  const customizeIntent=useRef(0)
+  useEffect(()=>()=>{customizeIntent.current++},[api,appId])
   const [chatOpen,setChatOpen]=useState(false)
   const [annotationActive,setAnnotationActive]=useState(false)
   const [annotationSelection,setAnnotationSelection]=useState<AppAnnotationSelection|null>(null)
@@ -580,6 +595,13 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   useEffect(()=>{retryRefresh.current()},[busy,creating,editingRecord,annotationSelection])
 
   const selectSection=(next:AppSection)=>{annotationSection.current=next;setSection(next);onSectionChange?.(next);const hash=appSectionHash(location.hash,appId,orgId,next);if(!floating&&hash&&hash!==location.hash)location.hash=hash}
+  const customizeApp=async()=>{
+    const intent=++customizeIntent.current,previousHash=location.hash
+    const sourceHash=await appCustomizeSourceHash(api,appId,orgId)
+    if(intent!==customizeIntent.current||location.hash!==previousHash)return
+    if(sourceHash){location.hash=sourceHash;return}
+    selectSection('custom')
+  }
   if (!data || snapshotPending || loadedApi!==api || (personal.appVersion!==undefined&&personal.appVersion!==data.app.version)) return <Shell title={t('Apps')} onClose={onBack} nested>{error ? <div className="form-error">{error}<button className="pill-btn quiet" onClick={()=>void load()}>{t('Retry')}</button></div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   const { app, table } = data
   const allViews = [...data.views,...personal.computed]
@@ -649,7 +671,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       title={<span className="hx-app-title"><HarnessAppIcon icon={app.icon} size={16} /><button onClick={() => selectSection(app.definition.custom?.published ? 'overview' : 'data')}>{app.name}</button>{section !== 'overview' && <span className="hx-app-breadcrumb">/ {t(section === 'data' ? 'Data viewer' : section === 'custom' ? 'Customize app' : section === 'backend' ? '実行基盤' : 'Settings')}</span>}<button className="hx-app-icon-button" aria-label="データを更新" disabled={busy!==null} onClick={()=>void load(false,true)}><Icon name="refresh" size={14}/></button></span>}
       onClose={onBack}
       nested
-      actions={<><button className="pill-btn quiet" onClick={() => selectSection('custom')}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => selectSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><AppConversationInbox api={api} appId={app.id} onOpen={scope=>{setChatScope(scope);setChatOpen(true)}}/>{(section==='data'||section==='overview'&&Boolean(app.definition.custom?.published))&&<button className="hx-app-icon-button" aria-label={annotationActive?'注釈モードを終了':'注釈'} aria-pressed={annotationActive} title={annotationActive?'注釈モードを終了':'注釈'} onClick={()=>{setAnnotationSelection(null);setAnnotationActive(value=>!value)}}><Icon name="annotate" size={16}/></button>}<button className="hx-app-icon-button" aria-label={chatOpen?'アプリチャットを閉じる':'アプリチャットを開く'} aria-pressed={chatOpen} onClick={()=>{setChatScope({});setChatOpen(!chatOpen)}}><Icon name="message" size={16}/></button><button className="hx-app-icon-button" aria-label={fullscreen?'全画面表示を終了':'全画面表示'} aria-pressed={fullscreen} onClick={()=>setFullscreen(!fullscreen)}><Icon name={fullscreen?'minimize':'maximize'} size={16}/></button><HarnessAppMenu api={api} appId={app.id} orgId={orgId} onSection={selectSection} onFloat={!floating&&floatApp&&['overview','data'].includes(section)?()=>{floatApp(app.id,section);onClose()}:undefined} /><button className="hx-app-icon-button" aria-label={floating?'フローティングアプリを閉じる':'パネルを閉じる'} onClick={onClose}><Icon name="x" size={16}/></button></>}
+      actions={<><button className="pill-btn quiet" onClick={() => void customizeApp()}><Icon name="grid" size={14} />{t('Customize app')}</button><button className="pill-btn quiet" onClick={() => selectSection('settings')}><Icon name="share" size={14} />{t('Sharing')}</button><AppConversationInbox api={api} appId={app.id} onOpen={scope=>{setChatScope(scope);setChatOpen(true)}}/>{(section==='data'||section==='overview'&&Boolean(app.definition.custom?.published))&&<button className="hx-app-icon-button" aria-label={annotationActive?'注釈モードを終了':'注釈'} aria-pressed={annotationActive} title={annotationActive?'注釈モードを終了':'注釈'} onClick={()=>{setAnnotationSelection(null);setAnnotationActive(value=>!value)}}><Icon name="annotate" size={16}/></button>}<button className="hx-app-icon-button" aria-label={chatOpen?'アプリチャットを閉じる':'アプリチャットを開く'} aria-pressed={chatOpen} onClick={()=>{setChatScope({});setChatOpen(!chatOpen)}}><Icon name="message" size={16}/></button><button className="hx-app-icon-button" aria-label={fullscreen?'全画面表示を終了':'全画面表示'} aria-pressed={fullscreen} onClick={()=>setFullscreen(!fullscreen)}><Icon name={fullscreen?'minimize':'maximize'} size={16}/></button><HarnessAppMenu api={api} appId={app.id} orgId={orgId} onSection={selectSection} onFloat={!floating&&floatApp&&['overview','data'].includes(section)?()=>{floatApp(app.id,section);onClose()}:undefined} /><button className="hx-app-icon-button" aria-label={floating?'フローティングアプリを閉じる':'パネルを閉じる'} onClick={onClose}><Icon name="x" size={16}/></button></>}
     >
       {chatOpen&&<AppConversationPanel key={`${orgId}:${app.id}:${chatScope.rowId||"app"}`} api={api} appId={app.id} {...chatScope} title={chatScope.rowId?"レコードチャット":app.name} initialDraft={chatScope.rowId||consumedDraft.current===initialDraft?undefined:initialDraft} onInitialDraftConsumed={consumeDraft} annotationDraft={chatScope.rowId?null:annotationDraft} onAnnotationDraftConsumed={id=>setAnnotationDraft(current=>current?.id===id?null:current)} onAnnotationsChange={syncAnnotations} context={chatScope.rowId?(displayCellText(table.columns[0],data.rows.find(r=>r.id===chatScope.rowId)?.values[table.columns[0].id])||'選択したレコード'):section==='data'?`現在のデータ表示: ${view.name}`:undefined} onClose={()=>setChatOpen(false)}/>}
       <div ref={mainInteraction} className="hx-app-main">
@@ -665,7 +687,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       {section === 'custom' && data.canCustomize === false && <p>カスタムコードの編集・公開は、作成者または管理者が行えます。</p>}
       {section === 'custom' && data.canCustomize !== false && <CustomAppEditor httpBase={httpBase} app={app} table={table} rows={data.rows} api={api} reload={load} />}
       {section === 'overview' && app.definition.custom?.published && <CustomAppFrame appId={app.id} api={api} reload={load} httpBase={httpBase} html={app.definition.custom.published} table={table} rows={data.rows} />}
-      {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => selectSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => selectSection('custom')}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
+      {section === 'overview' && !app.definition.custom?.published && <div className="hx-app-overview"><span className="hx-resource-symbol"><Icon name="grid" size={24} /></span><h2>{t('Database app')}</h2><p>{app.description || t('Browse and manage this app’s data in the data viewer.')}</p><div className="hx-actions"><button className="pill-btn" onClick={() => selectSection('data')}>{t('Browse data')}</button><button className="pill-btn quiet" onClick={() => void customizeApp()}>{t('Customize app')}</button></div><small>{t('{n} records', { n: data.rows.length })} · {table.columns.length} {t('Fields')}</small></div>}
       {section === 'data' && <>
       <div className="hx-data-toolbar" ref={searchToolbar}><div className="hx-data-heading"><h2>{appTableDisplayName(app.name,table.name,table.columns[0]?.name)}</h2><button className="pill-btn hx-create-record" title={localizedRecordLabel} aria-label={localizedRecordLabel} onClick={addRow} disabled={busy !== null}><Icon name="plus" size={14} />{localizedRecordLabel}</button></div>
       <div className="hx-tabs">
