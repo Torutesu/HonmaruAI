@@ -215,13 +215,20 @@ input.on('line',line=>{const m=JSON.parse(line);if(m.method==='initialize')send(
  assert.deepEqual(JSON.parse(result.stdout),{text:'ACP answer',sessionId:'session-1',stopReason:'end_turn'});
 });
 
-test('ACP configuration is resolved locally and permission requests default to reject',async()=>{
+test('ACP configuration is resolved locally and permission requests follow the local policy',async()=>{
  const {execPath}=await import('node:process');
- const script=`const readline=require('node:readline');const input=readline.createInterface({input:process.stdin});const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');let promptId;input.on('line',line=>{const m=JSON.parse(line);if(m.method==='initialize')send({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});else if(m.method==='session/new')send({jsonrpc:'2.0',id:m.id,result:{sessionId:'s'}});else if(m.method==='session/prompt'){promptId=m.id;send({jsonrpc:'2.0',id:88,method:'session/request_permission',params:{sessionId:'s',toolCall:{toolCallId:'c'},options:[{optionId:'allow',name:'Allow',kind:'allow_once'},{optionId:'reject',name:'Reject',kind:'reject_once'}]}})}else if(m.id===88){send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'s',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:m.result.outcome.optionId}}}});send({jsonrpc:'2.0',id:promptId,result:{stopReason:'end_turn'}})}});`;
+ const script=`const r=require('node:readline').createInterface({input:process.stdin}),s=x=>process.stdout.write(JSON.stringify(x)+'\\n');let p;r.on('line',l=>{const m=JSON.parse(l);if(m.method==='initialize')s({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});if(m.method==='session/new')s({jsonrpc:'2.0',id:m.id,result:{sessionId:'s'}});if(m.method==='session/prompt'){p=m.id;s({jsonrpc:'2.0',id:88,method:'session/request_permission',params:{toolCall:{kind:process.env.TOOL_KIND||'execute'},options:['allow_once','allow_always','reject_once','reject_always'].map((kind,i)=>({kind,optionId:['allow-once','allow-always','reject-once','reject-always'][i]}))}})}if(m.id===88){s({jsonrpc:'2.0',method:'session/update',params:{sessionId:'s',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:m.result.outcome.optionId}}}});s({jsonrpc:'2.0',id:p,result:{stopReason:'end_turn'}})}});`;
  // This fixture intentionally emits the permission request before its turn result.
  const result=await runAcp({agentKey:'local-test',prompt:'Do the task'}, {timeoutMs:5000,acpAgents:{'local-test':{command:execPath,args:['-e',script],cwd:process.cwd()}}});
  assert.equal(result.status,'succeeded');
- assert.equal(JSON.parse(result.stdout).text,'reject');
+ assert.equal(JSON.parse(result.stdout).text,'allow-once');
+ const strictBase={command:execPath,args:['-e',script],cwd:process.cwd(),env:{TOOL_KIND:'execute'},permissionPolicy:'strict'};
+ const strict=await runAcp({agentKey:'local-test',prompt:'Do the task'}, {timeoutMs:5000,acpAgents:{'local-test':strictBase}});
+ assert.equal(strict.status,'succeeded');
+ assert.equal(JSON.parse(strict.stdout).text,'reject-once');
+ const strictRead=await runAcp({agentKey:'local-test',prompt:'Do the task'}, {timeoutMs:5000,acpAgents:{'local-test':{...strictBase,env:{TOOL_KIND:'read'}}}});
+ assert.equal(strictRead.status,'succeeded');
+ assert.equal(JSON.parse(strictRead.stdout).text,'allow-once');
  await assert.rejects(runAcp({agentKey:'../attacker',prompt:'Do the task'}, {acpAgents:{}}),/Unknown local ACP agent/);
 });
 
