@@ -30,6 +30,9 @@ export interface DecisionCard {
   githubIssueURL?: string
   githubRepository?: string
   agentRoute?: string
+  /// Stable origin when a custom Agent directly created this card; absent
+  /// for generic routing and MCP tokens that have no custom-agent identity.
+  sourceAgentId?: string
   routingReason?: string
   sourceInstruction?: string
   labels?: string[]
@@ -260,3 +263,4 @@ export interface ReplyQuote {
   source?: { channel: string; body: string; lang?: string | null; fileName: string | null }
   deleted: boolean
 }
+

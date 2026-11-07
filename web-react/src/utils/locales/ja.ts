@@ -1822,6 +1822,24 @@ const table: Record<string, string> = {
 
   // The reply draft
   'Draft the reply': '返信を下書き',
+  'Remember my edits': 'この修正を覚える',
+  'Remembering…': '学習中…',
+  'Could not remember that edit.': '修正を保存できませんでした。',
+  'Style preference saved for your drafts in this workspace. The draft was not sent.': 'このワークスペースで使う返信の好みを保存しました。下書きは送信されていません。',
+  'That edit did not reveal a reusable style preference.': 'この修正から再利用できる文体の好みは見つかりませんでした。',
+  'Could not share the edits with the Agent.': 'エージェントに修正を共有できませんでした。',
+  'Could not discard the queued edits.': '共有待ちの修正を破棄できませんでした。',
+  'Sharing your edits with the Agent…': 'エージェントに修正を共有しています…',
+  'Your next message to {agent} will include these edits. The reply draft has not been sent.': '次に{agent}へ送るメッセージにこの修正が含まれます。返信の下書きは送信されていません。',
+  'Your edits will be shared with {agent} with your next message to them.': '次に{agent}へメッセージを送ると、この修正が共有されます。',
+  'Discard queued edits': '共有待ちの修正を破棄',
+  'the Agent': 'エージェント',
+  'Your draft style': '返信の文体設定',
+  'Preferences you explicitly saved from edited drafts. They apply only to your replies in this workspace.': '編集した下書きから明示的に保存した好みです。このワークスペースでのあなたの返信だけに適用されます。',
+  'No draft style preferences saved.': '返信の文体設定はまだありません。',
+  'From {app} drafts': '{app}の下書きから学習',
+  'Forget all draft style preferences': '返信の文体設定をすべて削除',
+  'Remove all of your saved draft style preferences?': '保存した返信の文体設定をすべて削除しますか？',
   'The draft': '下書き',
   'Send via {app}': '{app}で送る',
   'Sending…': '送信中…',
@@ -2059,6 +2077,7 @@ const table: Record<string, string> = {
   'Written by {name}': '{name}さんが記入',
   'Delete this rule?': 'このルールを削除しますか？',
   'Forget everything learned': '学んだことをすべて忘れる',
+  'Forget all': 'すべて削除',
   'Rules people wrote stay. Only an admin can do this.': '人が書いたルールは残ります。管理者だけが実行できます。',
   'Your AI forgets the {n} rules it learned from decisions. This cannot be undone.': 'AIが判断から学んだ{n}件のルールを忘れます。元には戻せません。',
   'Keep them': '残す',
@@ -3515,3 +3534,4 @@ const table: Record<string, string> = {
 }
 
 export default table
+

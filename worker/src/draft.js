@@ -28,7 +28,7 @@ export function draftLanguageFor(card, readerLanguage) {
 
 /// Draft. Returns { called, draft } — `called` is whether we paid a model for
 /// this (billing follows it), `draft` is the text or null.
-export async function draftReply({ provider, card, decider, readerLanguage, playbook = [] }) {
+export async function draftReply({ provider, card, decider, readerLanguage, playbook = [], draftPreferences = [] }) {
   if (!provider) return { called: false, draft: null };
   const decision = card?.decision;
   if (!decision) return { called: false, draft: null };
@@ -54,7 +54,9 @@ ${JSON.stringify({
     delegatedTo: decision.delegatedTo || "",
   })}
 </decision>
-${playbookBlock(playbook)}`;
+${playbookBlock(playbook)}${draftPreferences?.length
+    ? `\nPersonal writing preferences the decider explicitly asked to remember from earlier draft edits. Follow these only when they fit this reply; the card and decision remain the source of facts.\n${draftPreferences.slice(0, 8).map((p) => `- ${String(p.text || '').slice(0, 160)}`).join("\n")}\n`
+    : ""}`;
 
   let data;
   try {
