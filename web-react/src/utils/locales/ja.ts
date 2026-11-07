@@ -3558,6 +3558,18 @@ const table: Record<string, string> = {
   'Could not download this file.': 'ファイルをダウンロードできませんでした。',
   'Could not update this reaction.': 'リアクションを更新できませんでした。',
 
+  'Invite an email address': 'メールアドレスを招待',
+  'Anyone can receive this link, but only the verified invited email can redeem it. No email is sent.': 'リンクは誰でも受け取れますが、招待先の認証済みメールでのみ引き換えできます。メールは送信されません。',
+  'Invited email': '招待先メールアドレス',
+  'Invitation expires': '招待リンクの有効期限',
+  'Create invitation link': '招待リンクを作成',
+  'Creating…': '作成中…',
+  'Invitation link created. Share it with the recipient; no email was sent.': '招待リンクを作成しました。メールは送信されていないため、相手にリンクを共有してください。',
+  'Could not create the invitation.': '招待リンクを作成できませんでした。',
+  'Share this invitation link:': 'この招待リンクを共有してください：',
+  'File invitations': 'ファイル招待',
+  'Redeemed': '引き換え済み',
+  'The File invitation was accepted.': 'ファイル招待を承認しました。',
 }
 
 export default table

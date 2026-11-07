@@ -282,6 +282,13 @@ function AccountApp() {
           })
             .then(async (response) => {
               const data = await response.json().catch(() => ({}))
+              if (response.ok && data.resourceType === 'file' && data.orgId && data.fileId) {
+                setPendingExternalInviteToken(null)
+                setPending((current) => ({ ...current, externalInviteToken: '' }))
+                try { sessionStorage.removeItem('externalThreadInviteToken') } catch { /* private mode */ }
+                location.hash = `#/external-file/${encodeURIComponent(data.orgId)}/${encodeURIComponent(data.fileId)}`
+                return
+              }
               if (response.ok && data.resourceType === 'app' && data.orgId && data.appId) {
                 setPendingExternalInviteToken(null)
                 setPending((current) => ({ ...current, externalInviteToken: '' }))
@@ -464,11 +471,12 @@ function AccountApp() {
 
   const finishAuthWithExternalInvite = async (
     token: string, uid: string, org: string, firstTime: boolean,
-    inviteNotice?: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' } }, alreadyRedeemed = false,
+    inviteNotice?: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' }; externalFile?: { orgId: string; fileId: string } }, alreadyRedeemed = false,
   ) => {
     let noticeAfter: { text: string; error?: boolean } | null = inviteNotice ? { text: inviteNotice.message, error: inviteNotice.error } : null
     let redeemedThread: ReturnType<typeof externalThreadAccessFromInvite> = null
     let redeemedApp: { orgId: string; appId: string } | null = null
+    let redeemedFile: { orgId: string; fileId: string } | null = null
     const inviteToken = pendingExternalInviteToken || pending.externalInviteToken
     if (inviteToken && !alreadyRedeemed) {
       try {
@@ -478,10 +486,11 @@ function AccountApp() {
           body: JSON.stringify({ token: inviteToken }),
         })
         const data = await response.json().catch(() => ({}))
-        if (response.ok && data.resourceType === 'app' && data.orgId && data.appId) redeemedApp = { orgId: data.orgId, appId: data.appId }
+        if (response.ok && data.resourceType === 'file' && data.orgId && data.fileId) redeemedFile = { orgId: data.orgId, fileId: data.fileId }
+        else if (response.ok && data.resourceType === 'app' && data.orgId && data.appId) redeemedApp = { orgId: data.orgId, appId: data.appId }
         else if (response.ok) redeemedThread = externalThreadAccessFromInvite(data)
         noticeAfter = response.ok
-          ? { text: redeemedApp ? t('The App invitation was accepted.') : data.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
+          ? { text: redeemedFile ? t('The File invitation was accepted.') : redeemedApp ? t('The App invitation was accepted.') : data.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
           : { text: t('This invitation is not valid, or has expired.'), error: true }
       } catch {
         noticeAfter = { text: t('Could not verify this invitation yet. Open its link again after signing in.'), error: true }
@@ -497,6 +506,11 @@ function AccountApp() {
     if (noticeAfter) setNotice(noticeAfter)
     if (redeemedApp) {
       history.replaceState(null, '', location.pathname + location.search + `#/external-app/${encodeURIComponent(redeemedApp.orgId)}/${encodeURIComponent(redeemedApp.appId)}`)
+      window.dispatchEvent(new Event('honmaru:session-ready'))
+    }
+    const externalFile = inviteNotice?.externalFile || redeemedFile
+    if (externalFile) {
+      history.replaceState(null, '', location.pathname + location.search + `#/external-file/${encodeURIComponent(externalFile.orgId)}/${encodeURIComponent(externalFile.fileId)}`)
       window.dispatchEvent(new Event('honmaru:session-ready'))
     }
     const externalThread = inviteNotice?.externalThread || redeemedThread

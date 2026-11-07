@@ -346,3 +346,18 @@ test('file owner grants and revokes a named verified external collaborator',asyn
  expect(api.externalGrants).toHaveBeenCalledTimes(2)
  act(()=>renderer!.unmount())
 })
+
+test('unregistered external email gets a one-time file invitation link and the invitation can be revoked',async()=>{
+ const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[]}),externalInvites:vi.fn().mockResolvedValue({canManage:true,invites:[]}),inviteExternal:vi.fn().mockResolvedValue({invite:{id:'invite-1',invitedEmail:'new@example.test',inviteUrl:'https://app.example/#/external-invite/'+('a'.repeat(64))}}),revokeExternalInvite:vi.fn().mockResolvedValue({revoked:true})} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})
+ const inputs=renderer!.root.findAllByProps({type:'email'})
+ await act(async()=>{inputs[1].props.onChange({target:{value:'new@example.test'}})})
+ const forms=renderer!.root.findAllByType('form')
+ await act(async()=>{forms[1].props.onSubmit({preventDefault:vi.fn()})})
+ expect(api.inviteExternal).toHaveBeenCalledWith('file','new@example.test',7,7)
+ expect(JSON.stringify(renderer!.toJSON())).toContain('/#/external-invite/')
+ expect(api.externalInvites).toHaveBeenCalledTimes(2)
+ act(()=>renderer!.unmount())
+})

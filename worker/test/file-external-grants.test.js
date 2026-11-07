@@ -50,3 +50,31 @@ test('revocation preserves history and applies expiry boundaries',async()=>{
  await call('/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants/'+encodeURIComponent(f.recipientId)+'?orgId='+encodeURIComponent(f.orgId),f.ownerToken,'DELETE',{});
  const result=await call(path,f.ownerToken);expect((await result.json()).grants[0].revokedAt).toBeTruthy();
 });
+test('unregistered email invite is redeemed only by its verified address and revocation removes the file grant',async()=>{
+ const invitePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grant-invites?orgId='+encodeURIComponent(f.orgId);
+ await env.DB.prepare("UPDATE users SET email='new@example.test',email_verified_at=?1 WHERE github_id=?2").bind(new Date().toISOString(),f.recipientId).run();
+ let response=await call(invitePath,f.ownerToken,'POST',{email:'new@example.test',expiresInDays:7,inviteExpiresInDays:1});
+ expect(response.status).toBe(201);
+ const created=await response.json();
+ expect(created.invite.inviteUrl).toContain('/#/external-invite/');
+ expect(created.invite.token).toMatch(/^[a-f0-9]{64}$/);
+ const fileRead='/external/files/'+encodeURIComponent(f.orgId)+'/'+encodeURIComponent(f.fileId);
+ response=await call('/external/invites/redeem',f.recipientToken,'POST',{token:created.invite.token});
+ expect(response.status).toBe(200);
+ expect(await response.json()).toMatchObject({redeemed:true,resourceType:'file',orgId:f.orgId,fileId:f.fileId,permission:'view'});
+ expect(await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(f.orgId,f.recipientId).first()).toBeNull();
+ expect((await call(fileRead,f.recipientToken)).status).toBe(200);
+ const invites=await call(invitePath,f.ownerToken);
+ expect((await invites.json()).invites[0]).toMatchObject({invitedEmail:'new@example.test',redeemedAt:expect.any(String)});
+ const inviteId=created.invite.id;
+ response=await call(invitePath+'/'+encodeURIComponent(inviteId),f.ownerToken,'DELETE',{});
+ expect((await response.json()).revoked).toBe(true);
+ expect((await call(fileRead,f.recipientToken)).status).toBe(404);
+});
+test('file invite redemption rejects an account with a different verified email',async()=>{
+ const invitePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grant-invites?orgId='+encodeURIComponent(f.orgId);
+ const response=await call(invitePath,f.ownerToken,'POST',{email:'different@example.test',expiresInDays:7,inviteExpiresInDays:7});
+ expect(response.status).toBe(201);const created=await response.json();
+ const denied=await call('/external/invites/redeem',f.recipientToken,'POST',{token:created.invite.token});
+ expect(denied.status).toBe(404);
+});
