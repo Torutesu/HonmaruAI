@@ -26,7 +26,6 @@ const table: Record<string, string> = {
   'This file is no longer shared.': 'このファイルは共有されていません。',
   'This file version is no longer available.': 'このファイルバージョンは利用できません。',
   'Could not open the shared file.': '共有ファイルを開けませんでした。',
-  'Could not download this file.': 'ファイルをダウンロードできませんでした。',
   'Manage fields': 'フィールドを管理',
   'Execution {id}: {message}': '実行 {id}: {message}',
   'Execution finished before it could be cancelled.': 'キャンセルする前に実行が終了しました。',
@@ -1670,7 +1669,6 @@ const table: Record<string, string> = {
   // Buttons and states mid-action
   'Routing…': '送信中…',
   'Saving…': '保存中…',
-  'Creating…': '作成中…',
   'Copy': 'コピー',
   'Copied': 'コピーしました',
   'Copied!': 'コピーしました',
