@@ -359,6 +359,12 @@
 @media (hover: none) {
   .classic.slk.slk .slk-msg:focus-within .slk-tools, .classic.slk.slk .slk-msg.tools-open .slk-tools { display: flex; position: static; margin: 6px 0 0; box-shadow: none; flex-wrap: wrap; width: fit-content; }
   .classic.slk.slk .slk-msg { flex-wrap: wrap; }
+  /* Opening a message menu must not expand the row beneath the fixed menu. */
+  .classic.slk.slk .slk-msg:has(.slk-menu-float) { flex-wrap: nowrap; }
+  .classic.slk.slk .slk-msg:has(.slk-menu-float) .slk-tools {
+    position: absolute; top: -12px; right: 20px; margin: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
+    flex-wrap: nowrap; width: fit-content;
+  }
 }
 .classic.slk.slk .slk-tool {
   display: inline-flex; align-items: center; gap: 5px;
