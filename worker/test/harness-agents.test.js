@@ -735,8 +735,11 @@ test("restricted Agent avatar URLs follow access, membership and revisions in Ha
   expect(simpleUrl.searchParams.get("viewer")).toBe("9201");
   expect((await call(simpleUrl.pathname + simpleUrl.search, { headers: {} }, keyed)).status).toBe(200);
 
-  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9201'").bind(ORG).run();
+  await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id='9201'").bind(ORG).run();
   expect((await call(simpleUrl.pathname + simpleUrl.search, { headers: {} }, keyed)).status).toBe(404);
+  const demoted = await call(`/channels/agents?${q({ orgId: ORG })}`, { headers: headers(toru) }, keyed);
+  expect((await demoted.json()).agents.find((agent) => agent.id === agentId).avatarUrl).toBeNull();
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9201'").bind(ORG).run();
   const revoked = await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, access: "private", people: [] });
   expect(revoked.status).toBe(200);
   const denied = await call(protectedUrl.pathname + protectedUrl.search, { headers: {} }, keyed);
