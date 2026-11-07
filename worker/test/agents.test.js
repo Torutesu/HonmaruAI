@@ -92,6 +92,22 @@ test("a message calls the agents it names, the particle going with the name", ()
   expect(requestFor("ポスター案を考えて＠hayao", { handle: "hayao" })).toBe("ポスター案を考えて");
 });
 
+test("Harness can address an Agent by its natural name without changing Simple mode", () => {
+  const agents = [
+    { id: "1", handle: "hayao", name: "Hayao", scope: "team" },
+    { id: "2", handle: "secretary", name: "秘書", scope: "team" },
+  ];
+  expect(agentsCalled("Hayao, please review this draft", agents)).toEqual([]);
+  expect(agentsCalled("Hayao, please review this draft", agents, { naturalNames: true }).map((a) => a.id)).toEqual(["1"]);
+  expect(agentsCalled("秘書にこれをまとめて", agents, { naturalNames: true }).map((a) => a.id)).toEqual(["2"]);
+  expect(requestFor("Hayao, please review this draft", agents[0])).toBe("Hayao, please review this draft");
+  expect(requestFor("Hayao, please review this draft", agents[0], { naturalNames: true })).toBe("please review this draft");
+  expect(requestFor("秘書にこれをまとめて", agents[1], { naturalNames: true })).toBe("これをまとめて");
+  expect(agentsCalled("Hayao wrote the old draft", agents, { naturalNames: true })).toEqual([]);
+  expect(agentsCalled("mail hayao@example.com", agents, { naturalNames: true })).toEqual([]);
+  expect(agentsCalled("> Hayao, please review this\n`秘書にまとめて`", agents, { naturalNames: true })).toEqual([]);
+});
+
 test("presets come in the reader's language, and one becomes a team agent anyone can call and improve", async () => {
   expect(presetsFor("ja").find((p) => p.id === "secretary")).toMatchObject({ name: "秘書", handle: "secretary" });
   expect(presetsFor("es").find((p) => p.id === "secretary").name).toBe("Secretary");
@@ -507,6 +523,47 @@ test("an agent you have can be added to a channel: listed among its members, cal
   expect(none.replies).toEqual([]);
   const audit = await env.DB.prepare("SELECT action FROM audit_events WHERE org_id = ?1 AND action LIKE 'channel.agent_%' ORDER BY seq").bind(ORG).all();
   expect(audit.results.map((r) => r.action)).toEqual(["channel.agent_added", "channel.agent_removed"]);
+});
+
+test("natural Agent names route only in Harness; Simple still requires an explicit mention", async () => {
+  const namedByDisplayName = HAYAO.replace("handle: hayao", "handle: art-director");
+  const { agent } = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: namedByDisplayName })).json();
+  await send("POST", "/channels/channel-agents", toru, { orgId: ORG, channel: "b:cafe", agentId: agent.id });
+  const { setMode } = await import("../src/harness/mode.js");
+  await setMode(env.DB, ORG, "harness", "8801");
+  let skipAgentTalk = await agentTalkFilter(env.DB, ORG);
+  expect(skipAgentTalk({ kind: "message", body: "Hayao, please review this draft." })).toBe(true);
+  const prompts = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    prompts.push(JSON.parse(opts.body));
+    return { output_text: "I reviewed it.", output: [] };
+  }).times(2);
+
+  const addressed = await (await send("POST", "/channels/messages", mika, {
+    orgId: ORG, channel: "b:cafe", body: "Hayao, please review this draft.",
+  }, { OPENAI_API_KEY: "sk-test" })).json();
+  const thread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: addressed.message.id })}`, mika)).json();
+  expect(thread.replies).toEqual([expect.objectContaining({ kind: "agent", authorName: "Hayao", body: "I reviewed it." })]);
+  expect(prompts[0].input).toContain("please review this draft.");
+
+  await send("POST", "/channels/messages", mika, {
+    orgId: ORG, channel: "b:cafe", parentId: addressed.message.id, body: "Hayao, please check one more detail.",
+  }, { OPENAI_API_KEY: "sk-test" });
+  const followed = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: addressed.message.id })}`, mika)).json();
+  expect(followed.replies.map(({ kind, authorName, body }) => [kind, authorName, body])).toEqual([
+    ["agent", "Hayao", "I reviewed it."], ["message", "Mika", "Hayao, please check one more detail."], ["agent", "Hayao", "I reviewed it."],
+  ]);
+  expect(prompts[1].input).toContain("please check one more detail.");
+
+  await setMode(env.DB, ORG, "simple", "8801");
+  skipAgentTalk = await agentTalkFilter(env.DB, ORG);
+  expect(skipAgentTalk({ kind: "message", body: "Hayao, please review another draft." })).toBe(false);
+  const ordinary = await (await send("POST", "/channels/messages", mika, {
+    orgId: ORG, channel: "b:cafe", body: "Hayao, please review another draft.",
+  }, { OPENAI_API_KEY: "sk-test" })).json();
+  const ordinaryThread = await (await get(`/channels/thread?${q({ orgId: ORG, channel: "b:cafe", messageId: ordinary.message.id })}`, mika)).json();
+  expect(ordinaryThread.replies).toEqual([]);
+  expect(prompts).toHaveLength(2);
 });
 
 test("in production an agent answers from AgentRunner's alarm, not the request that called it", async () => {
