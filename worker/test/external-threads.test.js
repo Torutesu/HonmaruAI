@@ -168,6 +168,47 @@ test("sharing authority is resource-owner/Admin scoped and grants do not cross w
     .toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
 });
 
+async function addDmRoot(orgId, ids) {
+  const channel = `dm:${[ids.owner, ids.editor].sort().join("|")}`;
+  const rootId = `dm-root-${suffix()}`;
+  await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES (?1, ?2, ?3, ?4, 'message', 'DM plan', ?5)")
+    .bind(rootId, orgId, channel, ids.owner, new Date().toISOString()).run();
+  return { channel, rootId };
+}
+
+test("a stored canonical DM Thread can be managed through its viewer handle", async () => {
+  const { orgId, ids, sessions } = await setup();
+  const { rootId } = await addDmRoot(orgId, ids);
+  const response = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", {
+    email: `guest-${orgId.split("-").at(-1)}@example.test`, permission: "view",
+  });
+  expect(response.status).toBe(201);
+});
+
+test("DM share write fence rejects removal of the other participant after preflight", async () => {
+  const { orgId, ids, sessions } = await setup();
+  const { rootId } = await addDmRoot(orgId, ids);
+  let removed = false;
+  const racingDb = new Proxy(env.DB, { get(db, key) {
+    if (key === "batch") return async statements => {
+      if (!removed) {
+        removed = true;
+        await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2")
+          .bind(orgId, ids.editor).run();
+      }
+      return db.batch(statements);
+    };
+    return typeof db[key] === "function" ? db[key].bind(db) : db[key];
+  }});
+  const response = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", {
+    email: `guest-${orgId.split("-").at(-1)}@example.test`, permission: "edit",
+  }, { DB: racingDb });
+  expect(response.status).toBe(404);
+  expect(await env.DB.prepare(`SELECT id FROM hx_external_resource_grants
+    WHERE org_id=?1 AND resource_type='thread' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL`)
+    .bind(orgId, rootId, ids.guest).first()).toBeNull();
+});
+
 test("share creation rechecks active workspace membership at the write boundary", async () => {
   const { orgId, rootId, ids, sessions } = await setup();
   const email = `guest-${orgId.split("-").at(-1)}@example.test`;
