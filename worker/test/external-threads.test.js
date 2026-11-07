@@ -168,6 +168,126 @@ test("sharing authority is resource-owner/Admin scoped and grants do not cross w
     .toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
 });
 
+async function addDmRoot(orgId, ids) {
+  const channel = `dm:${[ids.owner, ids.editor].sort().join("|")}`;
+  const rootId = `dm-root-${suffix()}`;
+  await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES (?1, ?2, ?3, ?4, 'message', 'DM plan', ?5)")
+    .bind(rootId, orgId, channel, ids.owner, new Date().toISOString()).run();
+  return { channel, rootId };
+}
+
+test("a stored canonical DM Thread can be managed through its viewer handle", async () => {
+  const { orgId, ids, sessions } = await setup();
+  const { rootId } = await addDmRoot(orgId, ids);
+  const response = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", {
+    email: `guest-${orgId.split("-").at(-1)}@example.test`, permission: "view",
+  });
+  expect(response.status).toBe(201);
+});
+
+test("DM share write fence rejects removal of the other participant after preflight", async () => {
+  const { orgId, ids, sessions } = await setup();
+  const { rootId } = await addDmRoot(orgId, ids);
+  let removed = false;
+  const racingDb = new Proxy(env.DB, { get(db, key) {
+    if (key === "batch") return async statements => {
+      if (!removed) {
+        removed = true;
+        await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2")
+          .bind(orgId, ids.editor).run();
+      }
+      return db.batch(statements);
+    };
+    return typeof db[key] === "function" ? db[key].bind(db) : db[key];
+  }});
+  const response = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST", {
+    email: `guest-${orgId.split("-").at(-1)}@example.test`, permission: "edit",
+  }, { DB: racingDb });
+  expect(response.status).toBe(404);
+  expect(await env.DB.prepare(`SELECT id FROM hx_external_resource_grants
+    WHERE org_id=?1 AND resource_type='thread' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL`)
+    .bind(orgId, rootId, ids.guest).first()).toBeNull();
+});
+
+test("share creation rechecks active workspace membership at the write boundary", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const email = `guest-${orgId.split("-").at(-1)}@example.test`;
+  let removed = false;
+  const racingDb = new Proxy(env.DB, { get(db, key) {
+    if (key === "batch") return async statements => {
+      if (!removed) {
+        removed = true;
+        await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2")
+          .bind(orgId, ids.owner).run();
+      }
+      return db.batch(statements);
+    };
+    return typeof db[key] === "function" ? db[key].bind(db) : db[key];
+  }});
+  const response = await call(`/external/threads/${orgId}/${rootId}/shares`, sessions.owner, "POST",
+    { email, permission: "edit" }, { DB: racingDb });
+  expect(response.status).toBe(404);
+  expect(await env.DB.prepare(`SELECT id FROM hx_external_resource_grants
+    WHERE org_id=?1 AND resource_type='thread' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL`)
+    .bind(orgId, rootId, ids.guest).first()).toBeNull();
+});
+
+test("invitation creation and send approval recheck membership at their write boundary", async () => {
+  const invitationFixture = await setup();
+  const invitePath = `/external/threads/${invitationFixture.orgId}/${invitationFixture.rootId}/invites`;
+  let removedBeforeInviteInsert = false;
+  const inviteDb = new Proxy(env.DB, { get(db, key) {
+    if (key !== "prepare") return typeof db[key] === "function" ? db[key].bind(db) : db[key];
+    return sql => {
+      const statement = db.prepare(sql);
+      if (!sql.startsWith("INSERT INTO hx_external_thread_invites")) return statement;
+      return { bind(...values) {
+        const bound = statement.bind(...values);
+        return { async run() {
+          if (!removedBeforeInviteInsert) {
+            removedBeforeInviteInsert = true;
+            await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2")
+              .bind(invitationFixture.orgId, invitationFixture.ids.owner).run();
+          }
+          return bound.run();
+        }};
+      }};
+    };
+  }});
+  const invite = await call(invitePath, invitationFixture.sessions.owner, "POST",
+    { email: `invite-${suffix()}@example.test`, permission: "view" }, { DB: inviteDb });
+  expect(invite.status).toBe(404);
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM hx_external_thread_invites WHERE org_id=?1 AND resource_id=?2")
+    .bind(invitationFixture.orgId, invitationFixture.rootId).first()).toMatchObject({ n: 0 });
+
+  const approvalFixture = await setup();
+  const email = `guest-${approvalFixture.orgId.split("-").at(-1)}@example.test`;
+  const shared = await call(`/external/threads/${approvalFixture.orgId}/${approvalFixture.rootId}/shares`,
+    approvalFixture.sessions.owner, "POST", { email, permission: "view" });
+  expect(shared.status).toBe(201);
+  const pending = await call(`/external/threads/${approvalFixture.orgId}/${approvalFixture.rootId}`,
+    approvalFixture.sessions.guest, "POST", { body: "Please send this", requestSend: true });
+  expect(pending.status).toBe(201);
+  const { requestId: pendingId } = await pending.json();
+  let removedBeforeDecision = false;
+  const approvalDb = new Proxy(env.DB, { get(db, key) {
+    if (key === "batch") return async statements => {
+      if (!removedBeforeDecision) {
+        removedBeforeDecision = true;
+        await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2")
+          .bind(approvalFixture.orgId, approvalFixture.ids.owner).run();
+      }
+      return db.batch(statements);
+    };
+    return typeof db[key] === "function" ? db[key].bind(db) : db[key];
+  }});
+  const approved = await call(`/external/threads/${approvalFixture.orgId}/${approvalFixture.rootId}/requests/approve`,
+    approvalFixture.sessions.owner, "POST", { requestId: pendingId }, { DB: approvalDb });
+  expect(approved.status).toBe(409);
+  expect(await env.DB.prepare("SELECT status,message_id FROM hx_external_thread_send_requests WHERE org_id=?1 AND id=?2")
+    .bind(approvalFixture.orgId, pendingId).first()).toMatchObject({ status: "pending", message_id: null });
+});
+
 test("revocation and expiry are rechecked on every read and write; Simple stays closed", async () => {
   const { orgId, rootId, sessions } = await setup();
   const email = `guest-${orgId.split("-").at(-1)}@example.test`;
