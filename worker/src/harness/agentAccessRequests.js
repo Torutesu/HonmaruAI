@@ -10,7 +10,7 @@ export async function requestableAgentOptions(db, orgId, login) {
   const member=await db.prepare(`SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
     WHERE m.org_id=?1 AND u.login=?2 AND LOWER(COALESCE(m.role,'guest'))!='guest'`).bind(orgId,String(login)).first();
   if(!member)return [];
-  const { results = [] } = await db.prepare(`SELECT a.id,a.name,a.emoji,a.avatar_url,a.owner_login,a.scope,a.provider
+  const { results = [] } = await db.prepare(`SELECT a.id,a.name,a.emoji,a.owner_login,a.scope,a.provider
     FROM custom_agents a
     JOIN memberships owner_m ON owner_m.org_id=a.org_id AND LOWER(COALESCE(owner_m.role,'guest'))!='guest'
     JOIN users owner_u ON owner_u.github_id=owner_m.user_github_id AND owner_u.login=a.owner_login
@@ -26,7 +26,7 @@ export async function requestableAgentOptions(db, orgId, login) {
         AND m.created_at=r.requester_membership AND LOWER(COALESCE(m.role,'guest'))!='guest'
       WHERE r.org_id=?1 AND r.agent_id=?2 AND u.login=?3 AND r.status='pending' LIMIT 1`)
       .bind(orgId,agent.id,String(login)).first();
-    options.push({id:agent.id,name:agent.name,emoji:agent.emoji||null,avatarUrl:agent.avatar_url||null,
+    options.push({id:agent.id,name:agent.name,emoji:agent.emoji||null,
       accessRequestStatus:pending?'pending':'none'});
   }
   return options;

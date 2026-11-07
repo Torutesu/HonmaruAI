@@ -13,3 +13,7 @@ export const requestContext = new AsyncLocalStorage();
 export function currentIp() {
   return requestContext.getStore()?.ip || null;
 }
+
+export function currentOrigin() {
+  return requestContext.getStore()?.origin || null;
+}
