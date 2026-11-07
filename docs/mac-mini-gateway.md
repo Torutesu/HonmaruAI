@@ -87,9 +87,9 @@ AI teammates, select that online node and key, then turn on the ACP teammate.
 Remove a key with `node gateway/acp-config.mjs remove codex-local`.
 
 The protocol client negotiates ACP v1 with host filesystem and terminal
-capabilities disabled, creates or loads sessions, collects agent message
-chunks, and sends prompt cancellation when the job is cancelled. Authentication
-is owned by the local agent; Honmaru does not call ACP `authenticate`. Headless
+capabilities disabled, creates or loads sessions, collects agent message and
+tool/plan progress, and sends prompt cancellation when the job is cancelled.
+Authentication is owned by the local agent; Honmaru does not call ACP `authenticate`. Headless
 terminal-login flows are not supported, so sign in to the local agent on the Mac
 first. ACP agents receive no Workspace MCP server by default. An administrator
 can explicitly enable the read-only Workspace tools for an ACP teammate in
@@ -109,9 +109,25 @@ The OpenCode ACP command configured on this Mac completed an end-to-end
 synthetic `list_apps` MCP call using the existing sign-in on 2026-11-01. The
 only returned row was a fixed test fixture; no Workspace records were sent.
 
-This read-only relay does not provide the full Kylon ACP contract: tool/progress
-updates are not streamed into the Honmaru UI, approval requests remain rejected,
-and runtime behavior with each third-party ACP implementation must be verified.
+Permission requests are answered by a local operator policy stored with the
+Mac's allowlisted ACP command. The default `default` policy follows Kylon's
+default and selects `allow_once` (or `allow_always` if that is the only offered
+allow option). To choose a conservative policy, register with
+`--permission-policy=strict`; it allows only ACP `read`, `search`, `fetch` and
+`think` tool kinds, and rejects other or unknown kinds. If the agent offers no
+matching option, the request is cancelled. No permission policy is accepted
+from the cloud Worker. Example:
+
+```sh
+node gateway/acp-config.mjs add codex-local /absolute/path/to/acp-agent /absolute/path/to/project --arg=--stdio --permission-policy=strict
+```
+
+ACP agents still execute as the logged-in Mac user and may have access to that
+user's files, credentials, and network. The ACP permission policy is an
+operator choice, not an OS sandbox; host filesystem and terminal client
+capabilities remain disabled, and ACP agents receive no Workspace MCP by
+default. Runtime behavior with each third-party ACP implementation must be
+verified.
 
 Run `node --test gateway/test/*.test.mjs` for client/argument tests, and
 `node gateway/smoke.mjs` for the actual VM isolation checks. The latter requires the

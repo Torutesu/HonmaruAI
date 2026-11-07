@@ -1,7 +1,7 @@
 // Add or remove an explicitly trusted local ACP command in the installed
 // gateway service configuration, then snapshot and restart its LaunchAgent.
 // Usage:
-//   node gateway/acp-config.mjs add <key> <absolute-command> <absolute-cwd> [--arg=value ...]
+//   node gateway/acp-config.mjs add <key> <absolute-command> <absolute-cwd> [--arg=value ...] [--permission-policy=default|strict]
 //   node gateway/acp-config.mjs remove <key>
 import { constants } from 'node:fs';
 import { access } from 'node:fs/promises';
@@ -15,7 +15,7 @@ import { validateAcpAgents } from './acp.mjs';
 const [action, key, command, cwd, ...flags] = process.argv.slice(2);
 const configPath = join(homedir(), '.local/share/honmaru/gateway/service.json');
 if (!['add', 'remove'].includes(action) || !key || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(key)) {
-  throw new Error('Usage: node gateway/acp-config.mjs add <key> <absolute-command> <absolute-cwd> [--arg=value ...] | remove <key>');
+  throw new Error('Usage: node gateway/acp-config.mjs add <key> <absolute-command> <absolute-cwd> [--arg=value ...] [--permission-policy=default|strict] | remove <key>');
 }
 const info = await stat(configPath);
 if ((info.mode & 0o077) !== 0 || info.uid !== process.getuid()) throw new Error('Installed gateway config must be owned by this user and private (0600).');
@@ -25,14 +25,20 @@ const acpAgents = { ...(config.acpAgents || {}) };
 if (action === 'add') {
   if (!command || !cwd || !isAbsolute(command) || !isAbsolute(cwd)) throw new Error('Command and working directory must be absolute paths.');
   const args = [];
+  let permissionPolicy = 'default';
+  let permissionPolicySeen = false;
   for (const flag of flags) {
-    if (!flag.startsWith('--arg=')) throw new Error('Only --arg=value options are supported.');
-    args.push(flag.slice('--arg='.length));
+    if (flag.startsWith('--arg=')) args.push(flag.slice('--arg='.length));
+    else if (flag.startsWith('--permission-policy=') && !permissionPolicySeen) {
+      permissionPolicySeen = true;
+      permissionPolicy = flag.slice('--permission-policy='.length);
+      if (!['default', 'strict'].includes(permissionPolicy)) throw new Error('Permission policy must be default or strict.');
+    } else throw new Error('Only --arg=value and --permission-policy=default|strict options are supported.');
   }
   if (args.length > 40 || args.some(arg => arg.length > 1024)) throw new Error('Use at most 40 arguments, each no longer than 1024 characters.');
   await access(command, constants.X_OK);
   if (!(await stat(cwd)).isDirectory()) throw new Error('The working directory must be an existing directory.');
-  acpAgents[key] = { command, args, cwd };
+  acpAgents[key] = { command, args, cwd, permissionPolicy };
   validateAcpAgents(acpAgents);
 } else {
   if (!Object.hasOwn(acpAgents, key)) throw new Error('No such local ACP agent key.');

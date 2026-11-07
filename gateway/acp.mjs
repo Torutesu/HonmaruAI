@@ -8,6 +8,21 @@ const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const MAX_PROMPT_BYTES = 48 * 1024;
 const MAX_LINE_BYTES = 1024 * 1024;
 const MAX_TEXT_BYTES = 48 * 1024;
+const ACP_PERMISSION_POLICIES = new Set(['default', 'strict']);
+const ACP_READ_TOOL_KINDS = new Set(['read', 'search', 'fetch', 'think']);
+
+function permissionResponse(options, toolCall, policy) {
+  const entries = Array.isArray(options) ? options : [];
+  const mayApprove = policy !== 'strict' || ACP_READ_TOOL_KINDS.has(toolCall?.kind);
+  const kinds = mayApprove ? ['allow_once', 'allow_always'] : ['reject_once', 'reject_always'];
+  for (const kind of kinds) {
+    const option = entries.find(item => item?.kind === kind && typeof item.optionId === 'string' && item.optionId.length > 0 && item.optionId.length <= 256);
+    if (option) return { outcome: { outcome: 'selected', optionId: option.optionId } };
+  }
+  // If the agent did not offer an option consistent with local policy, fail
+  // closed instead of selecting a contradictory option.
+  return { outcome: { outcome: 'cancelled' } };
+}
 
 function agentConfig(acpAgents, key) {
   if (!AGENT_ID.test(String(key || ''))) throw new Error('Unknown local ACP agent.');
@@ -15,6 +30,7 @@ function agentConfig(acpAgents, key) {
   if (!entry || typeof entry !== 'object' || !isAbsolute(entry.command) || !isAbsolute(entry.cwd)) throw new Error('Unknown local ACP agent.');
   if (!Array.isArray(entry.args) || entry.args.length > 40 || entry.args.some(arg => typeof arg !== 'string' || arg.length > 1024)) throw new Error('Invalid local ACP agent configuration.');
   if (entry.env !== undefined && (!entry.env || typeof entry.env !== 'object' || Array.isArray(entry.env) || Object.entries(entry.env).some(([k, v]) => !/^[A-Z_][A-Z0-9_]{0,63}$/.test(k) || typeof v !== 'string' || v.length > 4096))) throw new Error('Invalid local ACP agent configuration.');
+  if (entry.permissionPolicy !== undefined && !ACP_PERMISSION_POLICIES.has(entry.permissionPolicy)) throw new Error('Invalid local ACP permission policy.');
   return entry;
 }
 
@@ -64,11 +80,11 @@ class StdioJsonRpc {
     if (message?.jsonrpc !== '2.0') return this.#fail(new Error('ACP agent sent an invalid JSON-RPC message.'));
     if (message.id !== undefined && message.method) {
       // No host file, terminal, or other arbitrary client capability is
-      // advertised. Permission requests are explicitly rejected by default.
+      // advertised. Permission responses come from the operator policy saved
+      // on this Mac; no prompt or mutable policy is accepted from the Worker.
       if (message.method === 'session/request_permission') {
-        const options = Array.isArray(message.params?.options) ? message.params.options : [];
-        const reject = options.find(option => option.kind === 'reject_once') || options.find(option => option.kind === 'reject_always');
-        this.#write({ jsonrpc: '2.0', id: message.id, result: { outcome: reject ? { outcome: 'selected', optionId: reject.optionId } : { outcome: 'cancelled' } } });
+        const result = permissionResponse(message.params?.options, message.params?.toolCall, this.permissionPolicy || 'default');
+        this.#write({ jsonrpc: '2.0', id: message.id, result });
       } else {
         this.#write({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Client method is not supported.' } });
       }
@@ -182,6 +198,7 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     windowsHide: true,
   });
   const rpc = new StdioJsonRpc(child);
+  rpc.permissionPolicy = cfg.permissionPolicy || 'default';
   const text = [];
   let textBytes = 0;
   let sessionId = null;

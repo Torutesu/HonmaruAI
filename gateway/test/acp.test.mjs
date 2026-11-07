@@ -131,5 +131,6 @@ test('ACP Workspace tools use the short-lived local MCP relay only when explicit
 test('ACP agent launch settings must be local and valid', () => {
   assert.throws(() => validateAcpAgents({ bad: { command: 'node', args: [], cwd: '/tmp' } }), /Unknown local ACP agent/);
   assert.throws(() => validateAcpAgents({ bad: { command: '/usr/bin/node', args: ['x'], cwd: '/tmp', env: { PATH: 1 } } }), /Invalid local ACP agent configuration/);
+  assert.throws(() => validateAcpAgents({ bad: { command: '/usr/bin/node', args: [], cwd: '/tmp', permissionPolicy: 'approve-everything' } }), /Invalid local ACP permission policy/);
   assert.throws(() => validateAcpAgents(Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`agent-${i}`, { command: '/usr/bin/node', args: [], cwd: '/tmp' }]))), /at most 20/);
 });
