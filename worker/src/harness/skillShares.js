@@ -79,12 +79,27 @@ export async function listSkillShares(db, orgId, skillId) {
   }) };
 }
 
-export async function revokeSkillShare(db, orgId, skillId, shareId) {
+export async function revokeSkillShare(db, orgId, skillId, shareId, userId, memberSince) {
+  if (!userId || typeof memberSince !== 'string' || !memberSince) return { error: 'No active Skill share link was found.', status: 404 };
   const at = now();
-  const result = await db.prepare(`UPDATE hx_skill_shares SET revoked_at=?1
-    WHERE id=?2 AND org_id=?3 AND skill_id=?4 AND revoked_at IS NULL`).bind(at, shareId, orgId, skillId).run();
-  if (!result.meta?.changes) return { error: 'No active Skill share link was found.', status: 404 };
-  return { revoked: true, revokedAt: at };
+  // Ownership can change after the route checks `canShare`. Revoke only if the
+  // actor still owns the Skill and holds the same active membership at the
+  // mutation boundary, so a former owner cannot revoke the new owner's link.
+  const result = await db.prepare(`UPDATE hx_skill_shares AS sh SET revoked_at=?1
+    WHERE sh.id=?2 AND sh.org_id=?3 AND sh.skill_id=?4 AND sh.revoked_at IS NULL
+      AND EXISTS (SELECT 1 FROM hx_skills s
+        JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?5
+          AND m.created_at=?6 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+        WHERE s.org_id=?3 AND s.id=?4 AND COALESCE(s.owner_id,s.created_by)=?5
+          AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=s.org_id)
+          AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=s.org_id))`)
+    .bind(at, shareId, orgId, skillId, String(userId), memberSince).run();
+  if (result.meta?.changes) return { revoked: true, revokedAt: at };
+  const active = await db.prepare(`SELECT 1 AS active FROM hx_skill_shares
+    WHERE id=?1 AND org_id=?2 AND skill_id=?3 AND revoked_at IS NULL`).bind(shareId, orgId, skillId).first();
+  return active
+    ? { error: 'Skill ownership or membership changed. Reload before revoking.', status: 409 }
+    : { error: 'No active Skill share link was found.', status: 404 };
 }
 
 // A route may await auditing after creation. Recheck authority at the final

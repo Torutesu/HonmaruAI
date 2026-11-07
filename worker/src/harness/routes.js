@@ -353,7 +353,7 @@ export async function handleHarness(request, env, url, context = {}) {
   }
 
   const aiConversationRequest=parts[0]==='apps' && parts[2]==='conversation' && parts.length===3 && request.method==='POST' && typeof input?.body==='string' && asksAppAI(input.body);
-  const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && parts.length === 3 && request.method === 'POST') || (parts[0] === 'apps' && parts[2] === 'conversation-notifications' && parts.length === 3) });
+  const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && request.method === 'POST' && (parts.length === 3 || (parts.length === 5 && parts[4] === 'revoke'))) || (parts[0] === 'apps' && parts[2] === 'conversation-notifications' && parts.length === 3) });
   if (who.denied) return who.denied;
   const me = who.session.github_id;
   if (url.pathname === "/remote-mcp" || url.pathname.startsWith("/remote-mcp/")) {
@@ -815,7 +815,7 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(result, 201);
       }
       if (request.method === 'POST' && parts.length === 5 && parts[4] === 'revoke') {
-        const result = await revokeSkillShare(env.DB, orgId, skillId, parts[3]);
+        const result = await revokeSkillShare(env.DB, orgId, skillId, parts[3], me, who.membershipSince);
         if (!result.error) await audit(env, request, { orgId, action: 'skill.share_revoked', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: parts[3] } });
         return result.error ? fail(result) : json(result);
       }
