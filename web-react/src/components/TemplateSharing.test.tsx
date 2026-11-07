@@ -9,7 +9,7 @@ let tree: ReactTestRenderer | undefined
 afterEach(() => { act(() => tree?.unmount()); vi.unstubAllGlobals() })
 
 test('creates a version-pinned expiring link and can revoke it', async () => {
-  const share = { id: 'share_1', appVersion: 2, createdAt: '2026-10-31T00:00:00Z', expiresAt: '2026-11-07T00:00:00Z', revokedAt: null }
+  const share = { id: 'share_1', appVersion: 2, createdAt: '2026-10-31T00:00:00Z', expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), revokedAt: null }
   const api = {
     templateShares: vi.fn().mockResolvedValueOnce({ canManage: true, shares: [] }).mockResolvedValueOnce({ canManage: true, shares: [share] }).mockResolvedValueOnce({ canManage: true, shares: [{ ...share, revokedAt: '2026-10-31T01:00:00Z' }] }),
     versions: vi.fn().mockResolvedValue({ versions: [{ version: 3, note: 'Current', createdAt: '2026-10-31T00:00:00Z' }, { version: 2, note: null, createdAt: '2026-10-30T00:00:00Z' }] }),

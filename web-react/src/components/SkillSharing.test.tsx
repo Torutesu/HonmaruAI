@@ -9,7 +9,7 @@ let tree: ReactTestRenderer | undefined
 afterEach(() => { act(() => tree?.unmount()); vi.unstubAllGlobals() })
 
 test('requires public-link acknowledgement, creates an expiring link, and revokes it', async () => {
-  const share = { id: 'share_1', createdAt: '2026-10-31T00:00:00Z', expiresAt: '2026-11-07T00:00:00Z', revokedAt: null, fileCount: 2, totalBytes: 120 }
+  const share = { id: 'share_1', createdAt: '2026-10-31T00:00:00Z', expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), revokedAt: null, fileCount: 2, totalBytes: 120 }
   const api = {
     httpBase: 'https://api.example',
     skillShares: vi.fn().mockResolvedValueOnce({ shares: [] }).mockResolvedValueOnce({ shares: [share] }).mockResolvedValueOnce({ shares: [{ ...share, revokedAt: '2026-10-31T01:00:00Z' }] }),

@@ -15,7 +15,7 @@ test('a Skill share URL opens its public preview before account sign-in', async 
   vi.stubGlobal('window', { setTimeout: globalThis.setTimeout, addEventListener: vi.fn(), removeEventListener: vi.fn() })
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ share: {
     name: 'Public checklist', description: 'Steps to follow.', fileCount: 1, totalBytes: 120,
-    expiresAt: '2026-11-07T00:00:00Z',
+    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
   } }) })))
   let tree!: ReturnType<typeof create>
   try {

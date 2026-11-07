@@ -1048,6 +1048,15 @@ test('only the requester or agent manager can stop the observed assignment gener
  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(f.assignmentId).first()).toEqual({status:'cancelled'});
 });
 
+test('failed local execution cancellation remains visible after external stop lookup',async()=>{
+ const f=await assignmentStatusFixture();
+ const binding={idFromName:id=>id,get:()=>({fetch:async()=>new Response('Execution cancellation could not be confirmed.',{status:503})})};
+ const response=await send('POST','/channels/agent-runs/stop',mika,{orgId:ORG,channel:'b:cafe',messageId:f.row.id,assignmentId:f.assignmentId,generation:1},{AGENT_RUNNER:binding});
+ expect(response.status).toBe(200);
+ expect(await response.json()).toEqual({stopped:true,remoteStop:'failed'});
+ expect(await env.DB.prepare('SELECT status,remote_stop_status FROM hx_agent_assignments WHERE id=?1').bind(f.assignmentId).first()).toEqual({status:'cancelled',remote_stop_status:'failed'});
+});
+
 test.each(['missing','error','malformed'])('assignment history and stop rights survive queue status %s',async(kind)=>{
  const f=await assignmentStatusFixture();
  const over={AGENT_RUNNER:kind==='missing'?undefined:{idFromName:name=>name,get:()=>({fetch:async()=>kind==='error'?new Response('unavailable',{status:503}):Response.json({results:[{rowId:f.row.id,status:'running',answered:0},{rowId:'foreign',status:'running',answered:0}]})})}};
