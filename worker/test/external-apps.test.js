@@ -471,8 +471,7 @@ test("App invite redemption rechecks workspace tombstones in the grant insert fe
 
   const redeemed = await call("/external/invites/redeem", f.sessions.guest, "POST", { token }, racingDb);
   expect(redeemed.status).toBe(404);
-  expect(await env.DB.prepare("
-    SELECT redeemed_at FROM hx_external_app_invites WHERE invited_email=?1").bind(email).first()).toMatchObject({ redeemed_at: null });
+  expect(await env.DB.prepare("SELECT redeemed_at FROM hx_external_app_invites WHERE invited_email=?1").bind(email).first()).toMatchObject({ redeemed_at: null });
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_external_resource_grants WHERE org_id=?1 AND resource_id=?2 AND recipient_github_id=?3")
     .bind(f.orgId, f.app.id, f.guestId).first()).toMatchObject({ n: 0 });
 });
