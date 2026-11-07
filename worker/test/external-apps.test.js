@@ -476,3 +476,56 @@ test("App invite redemption rechecks workspace tombstones in the grant insert fe
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_external_resource_grants WHERE org_id=?1 AND resource_id=?2 AND recipient_github_id=?3")
     .bind(f.orgId, f.app.id, f.guestId).first()).toMatchObject({ n: 0 });
 });
+
+
+function switchModeBeforeStatement(db, orgId, prefix) {
+  let switched = false;
+  const wrapStatement = (statement, matches) => new Proxy(statement, {
+    get(target, property) {
+      if (property === "bind") return (...values) => wrapStatement(target.bind(...values), matches);
+      if (property === "run" && matches) return async (...args) => {
+        if (!switched) {
+          switched = true;
+          await db.prepare("UPDATE org_settings SET mode='simple',updated_by=?1,updated_at=?2 WHERE org_id=?3")
+            .bind("mode-race-test", new Date().toISOString(), orgId).run();
+        }
+        return target.run(...args);
+      };
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return new Proxy(db, {
+    get(target, property) {
+      if (property === "prepare") return sql => wrapStatement(target.prepare(sql), String(sql).startsWith(prefix));
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+test("App row write fences recheck Harness mode when it changes before the insert", async () => {
+  const f = await setup();
+  const guard = externalAppWriteGuard(f.orgId, f.app.id, f.guestId, f.app.tableId);
+  const racingDb = switchModeBeforeStatement(env.DB, f.orgId, "INSERT INTO hx_rows");
+  const before = await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=?1 AND table_id=?2")
+    .bind(f.orgId, f.app.tableId).first();
+
+  const result = await addRow(racingDb, f.orgId, f.app.tableId, { title: "must not commit after mode switch" }, f.guestId, "strict", null, guard);
+  expect(result.error).toBeTruthy();
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=?1 AND table_id=?2")
+    .bind(f.orgId, f.app.tableId).first()).toMatchObject({ n: before.n });
+});
+
+test("view guest message requests recheck Harness mode at the insert fence", async () => {
+  const f = await setup();
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET permission='view' WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(f.orgId, f.app.id, f.guestId).run();
+  const racingDb = switchModeBeforeStatement(env.DB, f.orgId, "INSERT OR IGNORE INTO hx_external_app_send_requests");
+  const response = await call(`/external/apps/${f.orgId}/${f.app.id}/conversation`, f.sessions.guest, "POST", {
+    tableId: f.app.tableId, rowId: f.primaryRowId, body: "must not enter a simple workspace", requestSend: true,
+  }, racingDb);
+  expect(response.status).toBe(404);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_external_app_send_requests WHERE org_id=?1 AND app_id=?2")
+    .bind(f.orgId, f.app.id).first()).toMatchObject({ n: 0 });
+});
