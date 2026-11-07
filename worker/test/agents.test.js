@@ -1129,3 +1129,52 @@ test('a file-thread question sends its saved text to the model and persists the 
  const reply=await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id=? AND kind='agent' AND body LIKE '%540 yen%'").bind(ORG).first();
  expect(reply?.body).toBe('The saved menu lists a chestnut latte for 540 yen (version 1).');
 });
+
+test('Harness agent tool traces are safe, reply-scoped, and filtered by the current Agent audience', async () => {
+  const {agent} = await (await send('POST', '/channels/agents', toru, {orgId: ORG, markdown: HAYAO})).json();
+  const {setMode} = await import('../src/harness/mode.js');
+  const {postMessage} = await import('../src/channels.js');
+  const {storeAgentToolTrace} = await import('../src/harness/agentToolTraces.js');
+  await setMode(env.DB, ORG, 'harness', '8801');
+  const {row: root} = await postMessage(env.DB, {orgId: ORG, key: 'b:cafe', authorLogin: 'mika', body: 'Run the lookup'});
+  const {row: answer} = await postMessage(env.DB, {orgId: ORG, key: 'b:cafe', authorLogin: `agent:${agent.id}`, body: 'Done', kind: 'agent', parentId: root.id});
+  const secretInput = 'private-query-932';
+  const secretResult = 'private-tool-result-718';
+  expect(await storeAgentToolTrace(env.DB, {orgId: ORG, messageId: answer.id, channel: 'b:cafe', agentId: agent.id, runBy: '8802', trace: {
+    startedAt: '2026-11-07T00:00:00.000Z', finishedAt: '2026-11-07T00:00:00.125Z', elapsedMs: 125,
+    steps: [{name: 'lookup_records', status: 'completed', elapsedMs: 125, arguments: secretInput, output: secretResult}],
+  }})).toBe(true);
+  const response = await get(`/channels/agent-tool-traces?${q({orgId: ORG, channel: 'b:cafe', messageId: answer.id})}`, mika);
+  expect(response.status).toBe(200);
+  const payload = await response.json();
+  expect(payload.trace).toEqual({startedAt: '2026-11-07T00:00:00.000Z', finishedAt: '2026-11-07T00:00:00.125Z', elapsedMs: 125, steps: [{name: 'lookup_records', status: 'completed', elapsedMs: 125}]});
+  expect(JSON.stringify(payload)).not.toContain(secretInput);
+  expect(JSON.stringify(payload)).not.toContain(secretResult);
+  const {deleteMessage} = await import('../src/channels.js');
+  await deleteMessage(env.DB, {orgId: ORG, id: root.id, authorLogin: 'mika', withThread: true});
+  expect(await env.DB.prepare('SELECT message_id FROM hx_agent_tool_traces WHERE org_id=?1 AND message_id=?2').bind(ORG, answer.id).first()).toBeNull();
+  expect((await get(`/channels/agent-tool-traces?${q({orgId: ORG, channel: 'b:cafe', messageId: answer.id})}`, mika)).status).toBe(404);
+  await setMode(env.DB, ORG, 'simple', '8801');
+  expect((await get(`/channels/agent-tool-traces?${q({orgId: ORG, channel: 'b:cafe', messageId: answer.id})}`, mika)).status).toBe(404);
+});
+
+test('workspace admins cannot read a personal Agent trace outside its audience', async () => {
+  const {agent} = await (await send('POST', '/channels/agents', toru, {orgId: ORG, markdown: HAYAO.replace('scope: team', 'scope: personal')})).json();
+  const {setMode} = await import('../src/harness/mode.js');
+  const {postMessage} = await import('../src/channels.js');
+  const {storeAgentToolTrace} = await import('../src/harness/agentToolTraces.js');
+  await setMode(env.DB, ORG, 'harness', '8801');
+  const {row} = await postMessage(env.DB, {orgId: ORG, key: 'b:cafe', authorLogin: `agent:${agent.id}`, body: 'Private result', kind: 'agent'});
+  await storeAgentToolTrace(env.DB, {orgId: ORG, messageId: row.id, channel: 'b:cafe', agentId: agent.id, runBy: '8801', trace: {
+    startedAt: '2026-11-07T00:00:00.000Z', finishedAt: '2026-11-07T00:00:00.010Z', elapsedMs: 10,
+    steps: [{name: 'lookup', status: 'completed', elapsedMs: 10}],
+  }});
+  const savedAgent = await env.DB.prepare('SELECT id, scope, owner_login FROM custom_agents WHERE org_id=?1 AND id=?2').bind(ORG, agent.id).first();
+  const savedTrace = await env.DB.prepare('SELECT * FROM hx_agent_tool_traces WHERE org_id=?1 AND message_id=?2').bind(ORG, row.id).first();
+  const {mayAccessAgent} = await import('../src/harness/agents.js');
+  expect(savedAgent).toMatchObject({scope: 'personal', owner_login: 'toru'});
+  expect(savedTrace).not.toBeNull();
+  expect(await mayAccessAgent(env.DB, ORG, {id: agent.id, scope: savedAgent.scope, ownerLogin: savedAgent.owner_login}, 'toru')).toBe(true);
+  expect((await get(`/channels/agent-tool-traces?${q({orgId: ORG, channel: 'b:cafe', messageId: row.id})}`, toru)).status).toBe(200);
+  expect((await get(`/channels/agent-tool-traces?${q({orgId: ORG, channel: 'b:cafe', messageId: row.id})}`, mika)).status).toBe(404);
+});

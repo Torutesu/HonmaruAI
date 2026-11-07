@@ -2671,3 +2671,20 @@ CREATE TABLE IF NOT EXISTS hx_app_git_assets (
 CREATE INDEX IF NOT EXISTS hx_app_git_assets_commit ON hx_app_git_assets(org_id,app_id,commit_sha,app_version);
 CREATE TRIGGER IF NOT EXISTS hx_app_git_assets_immutable
 BEFORE UPDATE ON hx_app_git_assets BEGIN SELECT RAISE(ABORT,'Git commit assets are immutable'); END;
+
+/* Safe, message-scoped summaries of tools used by a Harness agent reply.
+   Arguments and tool results are deliberately never stored here. */
+CREATE TABLE IF NOT EXISTS hx_agent_tool_traces (
+  org_id TEXT NOT NULL,
+  message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  run_by TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT NOT NULL,
+  elapsed_ms INTEGER NOT NULL CHECK(elapsed_ms BETWEEN 0 AND 86400000),
+  steps_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(org_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_tool_traces_access ON hx_agent_tool_traces(org_id, channel, agent_id, message_id);

@@ -1,6 +1,15 @@
 import {noteUsage} from './ledger.js';
 import {isControlTool, handoffOperation} from './agentToolControl.js';
 
+// At most sixteen tools can actually execute in one run. Two lifecycle
+// events per execution provide a hard upper bound on trace volume.
+const MAX_TOOL_TRACE_EVENTS = 32;
+
+function safeToolLabel(name, tools) {
+  if (!Object.hasOwn(tools, name)) return 'unknown_tool';
+  return String(name).replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 64) || 'tool';
+}
+
 async function raceSignal(promise,signal,value) {
   if(!signal)return promise;
   if(signal.aborted)return value;
@@ -17,9 +26,46 @@ export function canChatTools(provider) {
   return provider?.providerName === 'OpenRouter' && provider.endpoint === 'https://openrouter.ai/api/v1/chat/completions';
 }
 
-export async function chatTools({provider, instructions, input, tools, authorize = null, onRound = null, deadline = Date.now() + 240000, signal = null, usageContext = null}) {
+export async function chatTools({provider, instructions, input, tools, authorize = null, onRound = null, onToolEvent = null, deadline = Date.now() + 240000, signal = null, usageContext = null}) {
   let called = false, calls = 0, rounds = 0;
-  const done = (extra = {}) => ({called, answer: null, calls, rounds, ...extra});
+  let traceEvents = 0;
+  let traceStartedAt = null;
+  const traceSteps = [];
+  const done = (extra = {}) => {
+    const result = {called, answer: null, calls, rounds, ...extra};
+    if (traceStartedAt !== null) {
+      const finishedAtMs = Date.now();
+      result.toolTrace = {
+        startedAt: new Date(traceStartedAt).toISOString(),
+        finishedAt: new Date(finishedAtMs).toISOString(),
+        elapsedMs: Math.max(0, Math.min(24 * 60 * 60 * 1000, finishedAtMs - traceStartedAt)),
+        steps: traceSteps,
+      };
+    }
+    return result;
+  };
+  const emitToolEvent = async (name, phase, status, elapsedMs) => {
+    if (traceEvents >= MAX_TOOL_TRACE_EVENTS) return;
+    traceEvents++;
+    const safeName = safeToolLabel(name, tools);
+    const safeElapsedMs = Math.max(0, Math.min(24 * 60 * 60 * 1000, Math.round(elapsedMs)));
+    if (phase === 'started') {
+      if (traceStartedAt === null) traceStartedAt = Date.now();
+    } else if (traceSteps.length < MAX_TOOL_TRACE_EVENTS / 2) {
+      traceSteps.push({name: safeName, status, elapsedMs: safeElapsedMs});
+    }
+    const event = {
+      name: safeName,
+      phase,
+      status,
+      elapsedMs: safeElapsedMs,
+    };
+    // Tracing is observational: a storage/UI callback failure must never
+    // change whether an already-authorized tool is run or its result used.
+    if (typeof onToolEvent === 'function') {
+      try { await onToolEvent(event); } catch { /* best effort */ }
+    }
+  };
   const permitted = async () => !signal?.aborted && (!authorize || await authorize());
   const definitions = Object.entries(tools).map(([name, tool]) => ({type: 'function', function: {name, description: tool.description, parameters: tool.parameters}}));
   const messages = [{role: 'system', content: instructions}, {role: 'user', content: input}];
@@ -66,33 +112,73 @@ export async function chatTools({provider, instructions, input, tools, authorize
       if (calls >= 16 || Date.now() >= deadline) output = 'Tool budget spent. Answer from the results already available.';
       else {
         calls++;
+        const startedAt = Date.now();
+        const traceName = tool ? call.function.name : 'unknown_tool';
+        await emitToolEvent(traceName, 'started', 'started', 0);
+        let traceStatus = 'completed';
         try {
           const args = JSON.parse(call.function.arguments);
           if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Arguments must be an object');
           let value;
-          if (!tool) value = 'Unknown tool.';
+          let outputReady = false;
+          if (!tool) {
+            traceStatus = 'failed';
+            output = 'Unknown tool.';
+            outputReady = true;
+          }
           else {
             const remaining = deadline - Date.now();
-            if (remaining <= 0) return {interrupted: true};
+            if (remaining <= 0) {
+              traceStatus = 'interrupted';
+              await emitToolEvent(traceName, 'finished', traceStatus, Date.now() - startedAt);
+              return {interrupted: true};
+            }
             const expired = Symbol('tool deadline');
             let timer;
             try {
-              const operation=Promise.resolve().then(() => tool.run(args,{signal}));
-              operation.catch(()=>{});
-              value = await raceSignal(Promise.race([
+              // Convert rejection to data before racing it against abort and
+              // the deadline. This keeps a late rejected operation observed
+              // even when the caller has already stopped waiting for it.
+              const operation=Promise.resolve().then(() => tool.run(args,{signal})).then(
+                result => ({kind:'value',result}),
+                error => ({kind:'error',error}),
+              );
+              const outcome = await raceSignal(Promise.race([
                 operation,
                 new Promise(resolve => {timer = setTimeout(() => resolve(expired), remaining);}),
               ]),signal,expired);
+              if (outcome?.kind === 'error') {
+                traceStatus = 'failed';
+                output = `The tool failed: ${String(outcome.error?.message || outcome.error).slice(0, 200)}`;
+                outputReady = true;
+              } else value = outcome?.kind === 'value' ? outcome.result : outcome;
             } finally {clearTimeout(timer);}
-            if(signal?.aborted)return {cancelled:true};
+            if(signal?.aborted) {
+              traceStatus = 'interrupted';
+              await emitToolEvent(traceName, 'finished', traceStatus, Date.now() - startedAt);
+              return {cancelled:true};
+            }
             // Timeout cannot undo an already-started external operation. Do
             // not execute siblings, retry this tool or infer its outcome.
-            if (value === expired || Date.now() >= deadline) return {interrupted: true};
+            if (value === expired || Date.now() >= deadline) {
+              traceStatus = 'interrupted';
+              await emitToolEvent(traceName, 'finished', traceStatus, Date.now() - startedAt);
+              return {interrupted: true};
+            }
           }
-          const operationId = isControlTool(tool) ? handoffOperation(value) : null;
-          if (operationId) return {handedOff: {operationId}};
-          output = typeof value === 'string' ? value : JSON.stringify(value) ?? String(value);
-        } catch (error) { output = `The tool failed: ${String(error?.message || error).slice(0, 200)}`; }
+          if (!outputReady) {
+            const operationId = isControlTool(tool) ? handoffOperation(value) : null;
+            if (operationId) {
+              await emitToolEvent(traceName, 'finished', traceStatus, Date.now() - startedAt);
+              return {handedOff: {operationId}};
+            }
+            output = typeof value === 'string' ? value : JSON.stringify(value) ?? String(value);
+          }
+        } catch (error) {
+          traceStatus = 'failed';
+          output = `The tool failed: ${String(error?.message || error).slice(0, 200)}`;
+        }
+        await emitToolEvent(traceName, 'finished', traceStatus, Date.now() - startedAt);
       }
       output = output.slice(0, 20000);
       receipts.set(call.id, {signature: signature(call), output});

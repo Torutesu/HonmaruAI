@@ -499,6 +499,7 @@ export async function deleteMessage(db, { orgId, id, authorLogin, withThread = f
     db.prepare("UPDATE channel_messages SET body = '', deleted_at = ?3, pinned_at = NULL, pinned_by = NULL, content_version = content_version + 1 WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
       .bind(orgId, mid, now),
     db.prepare("DELETE FROM message_reactions WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
+    db.prepare("DELETE FROM hx_agent_tool_traces WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
     // A snapshot may contain this reply. Deleting source content also removes
     // its public copies, in the same transaction as the tombstone.
     db.prepare("UPDATE channel_thread_shares SET revoked_at=COALESCE(revoked_at,?3),snapshot='{}' WHERE org_id=?1 AND message_id=?2")

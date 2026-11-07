@@ -3951,3 +3951,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Private Simple room lifecycle protection merged as PR #612 (`9a49c6f1`) after all nine PR CI jobs passed. Worker deployment #41342196384 succeeded with version `aca641c0-fd17-4ebb-a67b-0b27e9e1273a`; the health endpoint reported OK. It protects future deletions, not already orphaned histories, and Jam eviction remains best effort.
 - Personal views merged as PR #614 (`69d3e660`) after all nine PR CI jobs passed, including a rerun of an iOS simulator failure. Worker deployment #41344109438 succeeded with version `5fa2aca1-de6a-4915-a6ca-4751d47f5a06`; Web deployment #41344109488 succeeded, the app returned HTTP 200 and the Worker health endpoint reported OK. Synchronization refreshes on focus, visibility and reconnect rather than live push.
 - The native automation tool reported the Mac as locked despite the user's confirmation that it was unlocked; a new browser tab was signed out. Authenticated production interaction and visual comparison were not verified. No production records were created for these checks.
+### 2026-11-07 — Harness Agent tool traces (local verification)
+
+- Harnessのinline Agentが実際にツールを呼び出した返信に、最大16ステップのツール名・完了/失敗/中断状態・所要時間だけを保存し、返信内の「Worked for」開示から遅延取得できる。引数、入力、ツール出力、例外内容はトレースに入れない。Simpleモードでは記録も表示もしない。
+- 読み取りごとに現在のworkspace membership、channel access、Agent audienceを再確認し、workspace adminでも個人Agentの権限を迂回できない。削除済み返信・親スレッド・Agent・Simple modeは404で閉じる。返信削除時は外部キーのcascadeに従う。
+- Worker focused tests passed (88 tests: `agent-chat-tools.test.js`, `agents.test.js`, `migration.test.js`); Agent trace component tests passed (2 tests); Web production build passed. The complete Worker/Web suites, CI, production deployment, authenticated UI inspection and side-by-side Kylon comparison remain pending. The parity item stays partial because durable/external provider traces and mobile rendering are not covered.
+

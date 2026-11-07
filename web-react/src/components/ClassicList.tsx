@@ -4,6 +4,7 @@ import {workspaceFileViewKey} from '../utils/workspaceFileView'
 import {RoomFilesPanel} from './WorkspaceFilesPanel'
 import {generationRetry,finishGenerationRetry} from '../utils/generationRetry'
 import {AgentRunStatus} from './AgentRunStatus'
+import {AgentToolTrace} from './AgentToolTrace'
 import { useComposerThreadMode } from '../utils/useComposerThreadMode'
 import { HarnessDictation } from './HarnessDictation'
 import { HarnessComposerMenu } from './HarnessComposerMenu'
@@ -5412,6 +5413,7 @@ export const ClassicList: React.FC<Props> = ({
             }, (
               <>
                 {words(thread.view!, m)}
+                {harness && m.kind === 'agent' && <AgentToolTrace api={api} channel={thread.view!} messageId={m.id}/>}
                 {recurringOffer(m)}
                 {m.cardId && <button className="slk-made" onClick={() => openCard(m.cardId!)}>{t('→ Decision')}</button>}
                 {underneath(thread.view!, m)}

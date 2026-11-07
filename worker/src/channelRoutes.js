@@ -27,6 +27,7 @@ import { appActivity, readAppActivity, appActivityProof, appActivityDeliveryKeys
 import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory, filterResponders } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
+import { storeAgentToolTrace, traceFromRow } from "./harness/agentToolTraces.js";
 import { mayUseAgentSource } from "./harness/agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
@@ -618,6 +619,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     await progress(agent, "agent");
     let text;
     let modelAnswered = false;
+    let toolTrace = null;
     try {
       // "@agent remember …": kept in the agent's own memory, no model
       // needed (harness/agents.js).
@@ -651,6 +653,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           onRound: () => progress(agent, "agent"), authorize, harnessTools: harness, signal,
           usageContext: { roomSlug: resolved.kind === "business" ? resolved.slug : null, agentId: agent.id },
         });
+        toolTrace = result.toolTrace || null;
         if (result.called && allowance.metered) await allowance.consume();
         if (result.cancelled || result.handedOff) return result.cancelled?{cancelled:true}:undefined;
         if (result.interrupted) return {interrupted:true};
@@ -667,6 +670,12 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       }
       const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId, roomHookSource, assignmentFence:replyFence, automationOfferId:recurringOfferId||null });
       if (out.row) {
+        if (harness && toolTrace && await (!authorize || authorize())) {
+          await storeAgentToolTrace(env.DB, {
+            orgId, messageId: out.row.id, channel: resolved.key, agentId: agent.id,
+            runBy: session.github_id, trace: toolTrace,
+          }).catch((err) => console.error("agent tool trace save failed", safe(err?.message)));
+        }
         if (modelAnswered) answered += 1;
         await queueMessagePushes(env, orgId, out.row, { members }).catch((err) => console.error("push queue failed", safe(err?.message)));
         await broadcastWithParent(env, orgId, resolved, out.row, members);
@@ -1242,6 +1251,36 @@ export async function handleChannels(request, env, url, { route, after }) {
     } catch {
       return json({message: 'Execution status unavailable.'}, 503);
     }
+  }
+
+  if (path === '/channels/agent-tool-traces' && request.method === 'GET') {
+    const orgId = url.searchParams.get('orgId');
+    const channel = url.searchParams.get('channel');
+    const messageId = url.searchParams.get('messageId');
+    if (!orgId || orgId.length > 200 || !messageId || messageId.length > 100) return json({message: 'Invalid message ID.'}, 400);
+    const access = await inChannel(env, request, {orgId, channel});
+    if (access.denied) return access.denied;
+    if (await getMode(env.DB, orgId).catch(() => 'simple') !== 'harness') return json({message: 'No execution trace.'}, 404);
+    const row = await env.DB.prepare(`SELECT t.* FROM hx_agent_tool_traces t
+      JOIN channel_messages m ON m.org_id=t.org_id AND m.id=t.message_id AND m.channel=t.channel
+      JOIN custom_agents a ON a.org_id=t.org_id AND a.id=t.agent_id AND a.deleted_at IS NULL
+      LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
+      WHERE t.org_id=?1 AND t.message_id=?2 AND t.channel=?3 AND t.agent_id=substr(m.author_login,7)
+        AND m.deleted_at IS NULL AND m.kind='agent' AND m.author_login LIKE 'agent:%'
+        AND (m.parent_id IS NULL OR EXISTS (SELECT 1 FROM channel_messages root
+          WHERE root.org_id=m.org_id AND root.id=m.parent_id AND root.channel=m.channel AND root.deleted_at IS NULL))
+        AND EXISTS (SELECT 1 FROM users u JOIN memberships wm ON wm.user_github_id=u.github_id
+          WHERE wm.org_id=t.org_id AND u.login=?4 AND LOWER(COALESCE(wm.role,'guest'))!='guest')
+        AND (a.owner_login=?4 OR (a.scope='team' AND (
+          p.access IS NULL OR p.access='everyone' OR
+          (p.access='people' AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(p.people) THEN p.people ELSE '[]' END) person WHERE person.value=?4)) OR
+          EXISTS (SELECT 1 FROM hx_agent_members r JOIN memberships rm ON rm.org_id=r.org_id
+            AND rm.user_github_id=r.user_id AND rm.created_at=r.member_since
+            AND LOWER(COALESCE(rm.role,'guest'))!='guest' JOIN users ru ON ru.github_id=rm.user_github_id
+            WHERE r.org_id=t.org_id AND r.agent_id=t.agent_id AND ru.login=?4)
+        )))`).bind(orgId, messageId, access.resolved.key, access.who.user.login).first().catch((err) => { console.error('agent trace authorization query failed', safe(err?.message)); return null; });
+    const trace = traceFromRow(row);
+    return trace ? json({trace}) : json({message: 'No execution trace.'}, 404);
   }
 
   if (path === "/channels/messages" && (request.method === "GET" || request.method === "POST")) {
