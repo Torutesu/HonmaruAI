@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { computeView, normalizeDefinition, specFromPrompt } from "../src/harness/apps.js";
-import { coerce, normalizeColumns } from "../src/harness/tables.js";
+import { addRow, coerce, deleteRow, normalizeColumns, updateRow } from "../src/harness/tables.js";
 import { joined, message } from "./helpers.js";
 
 // The harness (docs/kylon-gap-plan.md): a workspace's mode, its Tables, and
@@ -608,6 +608,34 @@ test('app person permissions and inventory are not truncated at 500 people', asy
   expect(saved.error).toBeUndefined();
   expect(saved.people).toHaveLength(503);
   expect(saved.people.find(person=>person.userId==='app-person-500')).toMatchObject({permission:'edit',explicit:true});
+});
+
+test('row write statements recheck app edit access after preflight authorization', async () => {
+  const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
+  const { setAppAccess, mayEditTable } = await import('../src/harness/resourceAccess.js');
+  await setAppAccess(env.DB,ORG,app.id,'9102',{visibility:'private',version:0,people:[{userId:'9101',permission:'edit'}]});
+  const seeded=await addRow(env.DB,ORG,app.tableId,{company:'Seed'},'9102',undefined,'9102');
+  expect(seeded.error).toBeUndefined();
+
+  expect(await mayEditTable(env.DB,ORG,app.tableId,'9101')).toBe(true);
+  await env.DB.prepare("UPDATE hx_app_person_access SET permission='view' WHERE org_id=?1 AND app_id=?2 AND user_github_id='9101'").bind(ORG,app.id).run();
+  const inserted=await addRow(env.DB,ORG,app.tableId,{company:'Denied insert'},'9101',undefined,'9101');
+  expect(inserted).toMatchObject({status:409});
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?1').bind(app.tableId).first()).n).toBe(1);
+
+  await env.DB.prepare("UPDATE hx_app_person_access SET permission='edit' WHERE org_id=?1 AND app_id=?2 AND user_github_id='9101'").bind(ORG,app.id).run();
+  expect(await mayEditTable(env.DB,ORG,app.tableId,'9101')).toBe(true);
+  await env.DB.prepare("UPDATE hx_app_person_access SET permission='view' WHERE org_id=?1 AND app_id=?2 AND user_github_id='9101'").bind(ORG,app.id).run();
+  const updated=await updateRow(env.DB,ORG,app.tableId,seeded.row.id,{company:'Denied update'},'9101',seeded.row.updatedAt,undefined,'9101');
+  expect(updated).toMatchObject({status:409});
+  expect((await env.DB.prepare('SELECT data FROM hx_rows WHERE id=?1').bind(seeded.row.id).first()).data).toContain('Seed');
+
+  await env.DB.prepare("UPDATE hx_app_person_access SET permission='edit' WHERE org_id=?1 AND app_id=?2 AND user_github_id='9101'").bind(ORG,app.id).run();
+  expect(await mayEditTable(env.DB,ORG,app.tableId,'9101')).toBe(true);
+  await env.DB.prepare("UPDATE hx_app_person_access SET permission='view' WHERE org_id=?1 AND app_id=?2 AND user_github_id='9101'").bind(ORG,app.id).run();
+  const deleted=await deleteRow(env.DB,ORG,app.tableId,seeded.row.id,seeded.row.updatedAt,'9101');
+  expect(deleted).toMatchObject({status:409});
+  expect(await env.DB.prepare('SELECT 1 FROM hx_rows WHERE id=?1').bind(seeded.row.id).first()).toBeTruthy();
 });
 
 test('table workflows lose access when an app becomes private, including historical runs', async () => {

@@ -540,19 +540,19 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if (sub === "rows") {
       if (!rowId && request.method === "POST") {
-        const r = await addRow(env.DB, orgId, tableId, input.values, me, input.validation);
+        const r = await addRow(env.DB, orgId, tableId, input.values, me, input.validation, me);
         if (r.error) return fail(r);
         await afterRowChange(env, { orgId, table: r.table, before: null, row: r.row, by: me });
         return json({ row: r.row }, 201);
       }
       if (rowId && (request.method === "PUT" || request.method === "PATCH")) {
-        const r = await updateRow(env.DB, orgId, tableId, rowId, input.values, me, input.expectedUpdatedAt, input.validation);
+        const r = await updateRow(env.DB, orgId, tableId, rowId, input.values, me, input.expectedUpdatedAt, input.validation, me);
         if (r.error) return fail(r);
         await afterRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by: me });
         return json({ row: r.row });
       }
       if (rowId && request.method === "DELETE") {
-        const r = await deleteRow(env.DB, orgId, tableId, rowId, url.searchParams.get("expectedUpdatedAt") ?? undefined);
+        const r = await deleteRow(env.DB, orgId, tableId, rowId, url.searchParams.get("expectedUpdatedAt") ?? undefined, me);
         if (r.error) return fail(r);
         await afterRowDelete(env, { orgId, table: r.table, row: r.before, by: me });
         return json({ deleted: true, before: r.before });

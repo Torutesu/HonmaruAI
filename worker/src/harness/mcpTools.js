@@ -142,14 +142,14 @@ export async function callHarnessTool(env, agent, name, args) {
     }
     case "add_row": {
       if (!(await mayEditTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
-      const r = await addRow(db, orgId, String(args.tableId || ""), args.values, by);
+      const r = await addRow(db, orgId, String(args.tableId || ""), args.values, by, undefined, by);
       if (r.error) return err(r.error);
       await onRowChange(env, { orgId, table: r.table, before: null, row: r.row, by });
       return out({ row: presentRow(r.row), rowVersions: { [r.row.id]: r.row.updatedAt } });
     }
     case "update_row": {
       if (!(await mayEditTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
-      const r = await updateRow(db, orgId, String(args.tableId || ""), String(args.rowId || ""), args.values, by, args.expectedUpdatedAt);
+      const r = await updateRow(db, orgId, String(args.tableId || ""), String(args.rowId || ""), args.values, by, args.expectedUpdatedAt, undefined, by);
       if (r.error) return err(r.error);
       await onRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by });
       return out({ row: presentRow(r.row), rowVersions: { [r.row.id]: r.row.updatedAt } });

@@ -865,7 +865,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       const canUseTable = await mayEditTable(db, orgId, step.tableId, owner);
       authorizationTrace.record('table', step.tableId, canUseTable);
       if (!canUseTable) return { status: "failed", error: "Table access required." };
-      const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`);
+      const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, owner);
       if (r.error) return { status: "failed", error: r.error };
       await onRowChange(env, { orgId, table: r.table, before: null, row: r.row, by: `workflow:${workflow.id}`, depth: depth + 1 });
       return { status: "ok", output: r.row.id, rowId: r.row.id };
@@ -893,7 +893,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       }
       if (!step.rowId && runTrigger === 'row' && !rowId) return { status: "failed", error: "The source record ID was not preserved for this older run. Start a new run to update the intended record safely." };
       if (!tableId || !rowId) return { status: "failed", error: "No row to change." };
-      const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`);
+      const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, undefined, owner);
       if (r.error) return { status: "failed", error: r.error };
       await onRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by: `workflow:${workflow.id}`, depth: depth + 1 });
       return { status: "ok", output: rowId, rowId };
