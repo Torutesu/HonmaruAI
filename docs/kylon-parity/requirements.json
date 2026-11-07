@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-06",
+  "asOf": "2026-11-07",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1185,6 +1185,20 @@
       "evidence": {
         "verified": "Kylon公式Changelogの2026-10-30項目は、Thread/File/Appを名前またはメールで共有し、Room/Workspace/リンク単位の対象と各人のCan view/Can editを選ぶこと、外部ユーザーはWorkspaceに参加せずサインインすること、Threadゲストの閲覧/返信/アップロード/リアクションと所有者承認付き送信、現時点でAgentは外部ゲストに返信しないことを明記。Files & Sharing docs §Share outside the workspaceは、公開リンクはスナップショットを公開するだけでlive File/Roomのアクセス権を与えないと明記。Honmaruでは既存のグローバルユーザー認証を使い、新規サービスを追加せず、resource-scoped grant/revoke ledgerとhuman-only lookupの基礎を追加。",
         "remaining": "現段階は永続grant/revokeとfail-closed lookupのみ。メール招待/検証/受諾、Share UI、既存ログインを使った外部アクセス入口、Thread/File/App/Room APIすべてへの認可統合、Thread返信/添付/リアクションと所有者承認キュー、link audienceの公開スナップショット経路、ゲストへのAgent自動返信抑止、複数ユーザー実環境の隔離検証は未実装。既存Simpleモードはこのgrantモデルを参照しない。"
+      }
+    },
+    {
+      "id": "KY-100",
+      "category": "Agents",
+      "requirement": "編集済みAI下書きの学習を元Agentへ引き継ぐ",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "worker/src/draftEdits.js, worker/src/draftPreferences.js, web-react/src/components/ReplyDraft.tsx",
+      "acceptance": "作成元のAgent返信を利用者が編集した場合、差分だけを利用者・workspace・Agent・cardに限定して保存し、次に同じAgentへ直接送るメッセージへ一度だけ引き継ぐ。明示的に希望した文体の記憶と編集例本文を分離し、利用者が削除・エクスポートできる。Simpleの既存体験、新規課金、外部送信への副作用を生まない。認証済み本番UIでKylonと比較する。",
+      "evidence": {
+        "verified": "PR #788をmain commit 2070c40714b952e7ddff26c3b0052f4b8f98a002として公開。PR exact-head CI run 42348597887は全jobs成功、main CI 42349710775もWorker 4 shards・E2E・Web・relay・desktop・gateway・core/mobileが成功。Worker deployment 42349710789でD1 migration/column additions・Deploy・Verifyが成功し、本番healthは ok:true、encryption.all:true。Web deployment 42349710776はPages・domain checkが成功し、app.honmaruai.comがasset index-DQFLbTXr.jsを配信。",
+        "remaining": "ログイン済みHonmaruとKylonで編集下書きを作り、次の同一Agent宛メッセージに一度だけ反映されること、破棄・個人設定・削除/エクスポートを画面操作で比較する。現状は本番デプロイと自動試験の確認までで、実データを使ったUI acceptanceは未実施。Simpleモードの既存経路は保持。"
       }
     }
   ]

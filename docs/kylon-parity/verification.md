@@ -3957,3 +3957,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - 読み取りごとに現在のworkspace membership、channel access、Agent audienceを再確認し、workspace adminでも個人Agentの権限を迂回できない。削除済み返信・親スレッド・Agent・Simple modeは404で閉じる。返信削除時は外部キーのcascadeに従う。
 - Worker focused tests passed (88 tests: `agent-chat-tools.test.js`, `agents.test.js`, `migration.test.js`); Agent trace component tests passed (2 tests); Web production build passed. The complete Worker/Web suites, CI, production deployment, authenticated UI inspection and side-by-side Kylon comparison remain pending. The parity item stays partial because durable/external provider traces and mobile rendering are not covered.
 
+
+### 2026-11-07 — KY-105 edited-draft handoff production release
+
+- PR #788 was restacked onto main and merged as 2070c40714b952e7ddff26c3b0052f4b8f98a002. The previous draft PR #773 was closed as superseded. The implementation keeps the changed span scoped to the user, workspace, originating Agent and card, passes it once to the next direct message to that Agent, supports explicitly saved personal writing preferences, and includes export/deletion handling. Simple-mode paths remain intact; no new paid service was added.
+- Exact-head PR CI 42348597887 and post-merge main CI 42349710775 passed. Worker deployment 42349710789 completed D1 migrations, column additions, deployment and production verification; health reported ok:true and encryption.all:true. Web deployment 42349710776 passed Pages deployment, domain verification, and confirmed app.honmaruai.com serves index-DQFLbTXr.js.
+- KY-100 remains partial: authenticated Kylon/Honmaru interaction comparison for editing, one-time next-message handoff, discard, preference management and export/deletion UI has not yet been done. No production content was used to verify those interactions.
