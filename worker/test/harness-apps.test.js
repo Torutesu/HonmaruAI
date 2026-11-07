@@ -218,6 +218,16 @@ test("room links require app authority and room access, and hidden room names ar
   expect(linked.status).toBe(200);
   expect((await (await get(`/apps/${memberApp.id}?orgId=${ORG}`, mika)).json()).app.channels).toEqual(["b:shared"]);
   expect((await send("DELETE", `/apps/${memberApp.id}/links?orgId=${encodeURIComponent(ORG)}&channel=b%3Ashared`, mika, { orgId: ORG })).status).toBe(200);
+
+  // A private room filter must be denied to nonmembers, even if the app itself
+  // is workspace-visible; a room member sees only resources linked to that room.
+  const deniedRoomList = await get(`/apps?orgId=${ORG}&channel=b:confidential`, mika);
+  expect(deniedRoomList.status).toBe(404);
+  const confidentialRoomList = await (await get(`/apps?orgId=${ORG}&channel=b:confidential`, toru)).json();
+  const confidentialAppIds = confidentialRoomList.apps.map(item => item.id);
+  expect(confidentialAppIds).toEqual(expect.arrayContaining([app.id, directApp.id, templateApp.id]));
+  expect(confidentialAppIds).not.toContain(memberApp.id);
+  expect(confidentialRoomList.apps.every(item => item.channels.includes("b:confidential"))).toBe(true);
 });
 
 test('shared app templates are pinned, sanitized, expiring and revocable bearer links', async () => {
