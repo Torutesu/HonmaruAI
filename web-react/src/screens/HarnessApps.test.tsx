@@ -20,6 +20,25 @@ vi.mock('../utils/appPins', () => ({ useAppPins: () => ({ pins: [], toggle: vi.f
 vi.mock('../components/AppRecordDialog',()=>({AppRecordDialog:()=>null}))
 let finish: (value: any) => void
 let tree: ReturnType<typeof create> | undefined
+test('an embedded source App exposes distinct Back and panel-close actions',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+ const view={id:'all',type:'table',name:'All',rows:[]}
+ state.api={
+  app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[view],canCustomize:false}),
+  personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),
+  conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+ }
+ const close=vi.fn(),back=vi.fn()
+ await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={close} api={state.api} appId="tasks" onBack={back} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+ const actions=tree!.root.findAllByType('button')
+ expect(actions.some(button=>button.props['aria-label']==='Back')).toBe(true)
+ expect(actions.some(button=>button.props['aria-label']==='パネルを閉じる')).toBe(true)
+ act(()=>tree!.root.findByProps({'aria-label':'Back'}).props.onClick())
+ act(()=>tree!.root.findByProps({'aria-label':'パネルを閉じる'}).props.onClick())
+ expect(back).toHaveBeenCalledOnce()
+ expect(close).toHaveBeenCalledOnce()
+})
+
 test('new record labels use the primary table when its title differs from the app',()=>{
   expect(newAppRecordLabel('UI確認用タスク','タスク')).toBe('新規タスク')
   expect(newAppRecordLabel('UI確認用タスク','UI確認用タスク','タスク名')).toBe('新規タスク')
