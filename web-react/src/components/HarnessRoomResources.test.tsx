@@ -12,9 +12,9 @@ beforeEach(() => {
   state.api = {
     apps: vi.fn().mockResolvedValue({ apps: [{ id: 'app-ops', tableId: 'table-ops' }] }),
     workflows: vi.fn().mockResolvedValue({ workflows: [
-      { id: 'from-room', name: 'Room source', sourceChannel: 'b:ops', steps: [], trigger: { type: 'manual' }, enabled: false },
+      { id: 'from-room', name: 'Room source', sourceChannel: 'b:ops', steps: [], trigger: { type: 'manual' }, enabled: false, lastRunAt: '2026-11-05T09:00:00.000Z' },
       { id: 'elsewhere', name: 'Other room', sourceChannel: 'b:sales', steps: [], trigger: { type: 'manual' }, enabled: false },
-      { id: 'posts-here', name: 'Posts here', steps: [{ type: 'post', channel: 'b:ops' }], trigger: { type: 'schedule' }, enabled: true },
+      { id: 'posts-here', name: 'Posts here', steps: [{ type: 'post', channel: 'b:ops' }], trigger: { type: 'schedule' }, enabled: true, nextRunAt: '2026-11-07T09:00:00.000Z' },
       { id: 'app-trigger', name: 'App record trigger', steps: [], trigger: { type: 'app_record_change', appId: 'app-ops' }, enabled: false },
     ] }),
   }
@@ -29,5 +29,8 @@ test('room automations include source-room workflows and omit workflows sourced 
   expect(rendered).toContain('Room source')
   expect(rendered).toContain('Posts here')
   expect(rendered).toContain('App record trigger')
+  expect(rendered).toContain('Next run {when}')
+  expect(rendered).toContain('Last run {when}')
+  expect(rendered).toContain('hx-workflow-state is-on')
   expect(rendered).not.toContain('Other room')
 })

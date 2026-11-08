@@ -2,7 +2,7 @@ import {WorkflowProgramEditor} from '../components/WorkflowProgramEditor'
 import {WorkflowHistory} from '../components/WorkflowHistory'
 import {describeWorkflowCondition} from '../utils/workflowCondition'
 import {getLocale} from '../utils/locale'
-import {runDuration} from '../utils/runDuration'
+import {runDuration,formatElapsedDuration} from '../utils/runDuration'
 import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHistory'
 import {stepLabel,triggerLabel,type WorkflowAppOption} from '../utils/workflowLabels'
 import {filterKeysForColumn,filterValueText,hasRemovedFilter,newFilterKey,unresolvedFilterKeys,type FilterMap} from '../utils/workflowFilters'
@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import {StepEditor} from '../components/WorkflowStepEditor'
-import type { Workflow, Run, Step, StepType, Trigger, TriggerType, Table, App, ConditionScalar, HeldWorkflowEvents, HarnessApi } from '../utils/harness'
+import type { Workflow, Run, WorkflowRunSummary, Step, StepType, Trigger, TriggerType, Table, App, ConditionScalar, HeldWorkflowEvents, HarnessApi } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Workflows (docs/kylon-gap-plan.md): a trigger and the steps after it,
@@ -295,8 +295,12 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [editing, setEditing] = useState<Workflow | null>(null)
   const [building, setBuilding] = useState(false)
   const [prompt, setPrompt] = useState('')
+  const [guidedMessages,setGuidedMessages]=useState<Array<{role:'you'|'assistant';text:string}>>([])
+  const [proposal,setProposal]=useState<Workflow|null>(null)
+  const [refinement,setRefinement]=useState('')
+  const [guidedError,setGuidedError]=useState('')
   const [manual, setManual] = useState(false)
-  const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; canEdit: boolean; held?: HeldWorkflowEvents } | null>(null)
+  const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; summary: WorkflowRunSummary; canEdit: boolean; held?: HeldWorkflowEvents } | null>(null)
   const [failedRunsOnly,setFailedRunsOnly]=useState(false)
   const [budgetDraft,setBudgetDraft]=useState({daily:'0',weekly:'0',monthly:'0',ai24h:'0',ai7d:'0',ai30d:'0',aiAction:'warn' as 'warn'|'pause'})
   const [hook, setHook] = useState<string | null>(null)
@@ -366,6 +370,50 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
       }
     })
   }
+  const startGuidedPreview = async () => {
+    const request=prompt.trim()
+    if(!request)return
+    const made=await api.previewWorkflow(request)
+    setProposal(made.workflow)
+    setGuidedMessages([
+      {role:'you',text:request},
+      {role:'assistant',text:t('I drafted a paused proposal. Review the trigger and every step below. Nothing has been saved or run yet.')},
+    ])
+    setGuidedError('')
+  }
+  const refineGuidedPreview = async () => {
+    const change=refinement.trim()
+    if(!change||!proposal)return
+    const steps=proposal.steps.map((step,index)=>[
+      `${index+1}. ${stepLabel(t,step.type)}`,
+      step.text||step.prompt||step.title||step.summary||'',
+      step.channel? `channel ${step.channel}`:'',
+      step.agentId? `agent ${step.agentId}`:'',
+      step.tableId? `table ${step.tableId}`:'',
+    ].filter(Boolean).join(' — ')).join('\n')
+    const request=`Original request: ${prompt.trim()}\nCurrent proposal: ${proposal.name}; ${triggerLabel(t,proposal.trigger,tables,triggerApps)}\n${steps}\nRequested change: ${change}`
+    if(request.length>4000){
+      setGuidedError(t('This refinement is too long to keep the original request and current plan. Start over with a shorter request or change.'));
+      return
+    }
+    const made=await api.previewWorkflow(request)
+    setProposal(made.workflow)
+    setGuidedMessages(current=>[...current,{role:'you',text:change},{role:'assistant',text:t('I updated the proposal. Review the trigger and every step below. Nothing has been saved or run yet.')}])
+    setRefinement('')
+    setGuidedError('')
+  }
+  const resetGuidedSetup = () => {
+    setGuidedMessages([]);setProposal(null);setRefinement('');setGuidedError('')
+  }
+  const saveGuidedProposal = async () => {
+    if(!proposal)return
+    const made=await api.createWorkflow({name:proposal.name,trigger:proposal.trigger,steps:proposal.steps,enabled:false})
+    setHook(made.hookUrl||null)
+    setBuilding(false);setManual(false);setPrompt('');resetGuidedSetup()
+    await load()
+    await openOne(made.workflow.id)
+  }
+
   const refreshOpen = async (id: string) => {
     const request = detailRequest.current
     const result = await api.workflow(id)
@@ -394,6 +442,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     const budgetDraftValid=['daily','weekly','monthly'].every(key=>{const value=budgetDraft[key as 'daily'|'weekly'|'monthly'];return value!==''&&Number.isSafeInteger(Number(value))&&Number(value)>=0&&Number(value)<=1_000_000})&&['ai24h','ai7d','ai30d'].every(key=>{const value=Number(budgetDraft[key as 'ai24h'|'ai7d'|'ai30d']);return budgetDraft[key as 'ai24h'|'ai7d'|'ai30d']!==''&&Number.isFinite(value)&&value>=0&&value<=1_000_000&&Math.abs(value*1_000_000-Math.round(value*1_000_000))<0.001})
     const visibleRuns=open.runs.filter(run=>!failedRunsOnly||run.status==='failed')
     const runDays=groupRunsByStartDay(visibleRuns)
+    const summary=open.summary
     return (
       <Shell className="hx-resource-screen" title={w.name} onClose={() => { detailRequest.current++; if(props.onNavigateWorkflow){props.onNavigateWorkflow();return}setOpen(null); load() }} nested actions={
         <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('refresh', async () => {
@@ -544,6 +593,19 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             </div>}
           </div>}
         </section>}
+        <section className="hx-run-summary" aria-label={t('Last 7 days')}>
+          {summary ? <>
+            <header><div><h3>{t('Last 7 days')}</h3><p>{t('Rolling 168 hours · UTC')}</p></div><span>{t('{count} runs',{count:summary.runCount.toLocaleString(getLocale())})}</span></header>
+            <div className="hx-run-summary-metrics">
+              <div><span>{t('Typical duration')}</span><strong>{summary.typicalDurationMs===null?t('No completed runs'):formatElapsedDuration(new Date(0).toISOString(),new Date(summary.typicalDurationMs).toISOString(),getLocale())}</strong><small>{t('Median of {count} completed runs',{count:summary.completedDurationCount.toLocaleString(getLocale())})}</small></div>
+              <div><span>{t('Estimated AI usage')}</span><strong>{new Intl.NumberFormat(getLocale(),{style:'currency',currency:'USD',maximumFractionDigits:6}).format(summary.usage.estimatedMicros/1_000_000)}</strong><small>{t('Recorded on {count} runs',{count:summary.usage.trackedRuns.toLocaleString(getLocale())})} · {t('{count} failed runs',{count:summary.failedCount.toLocaleString(getLocale())})}</small></div>
+            </div>
+            <p className="hx-run-summary-note">{t('Provider-reported token estimate only. This is not provider credits or an invoice; unpriced and unreported usage is excluded.')}{summary.usage.unpricedCalls>0&&<> · {t('{count} unpriced calls',{count:summary.usage.unpricedCalls.toLocaleString(getLocale())})}</>}{summary.usage.unknownCalls>0&&<> · {t('{count} calls with unknown token usage',{count:summary.usage.unknownCalls.toLocaleString(getLocale())})}</>}</p>
+            {summary.runCount===0&&<p className="hx-run-empty">{t('No runs in the last 7 days.')}</p>}
+            {summary.usage.calls===0&&<p className="hx-run-empty">{t('No recorded AI usage. This does not confirm zero usage.')}</p>}
+            {summary.truncated&&<p className="hx-run-empty">{t('Showing a partial summary: this workflow exceeded the 5,000 visible-run summary limit.')}</p>}
+          </> : <p className="hx-run-empty">{t('Summary unavailable. Reload to try again.')}</p>}
+        </section>
         <div className="rows-title">{t('Runs')}</div>
         {open.runs.length === 0 && <div className="empty">{t('It has not run yet.')}</div>}
         {!!open.runs.length&&<div className="hx-run-history-tools"><button type="button" className="pill-btn quiet hx-run-filter" aria-pressed={failedRunsOnly} onClick={()=>setFailedRunsOnly(value=>!value)}>{t('Failed runs only')}</button></div>}
@@ -595,11 +657,42 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
       <p className="lede">{t('Describe the outcome once: when it should happen, and what follows. A person approves what matters.')}</p>
       {(error||syncError) && <div className="form-error" role="alert">{error||syncError}</div>}
       {hook && <div className="form-note">{t('Call this address to start it:')} <code className="hx-code">{hook}</code></div>}
-      {building && !manual && <section className="hx-generation">
-        <label htmlFor="workflow-prompt">{t('Describe an automation')}</label>
-        <textarea id="workflow-prompt" className="context-input" rows={4} maxLength={4000} value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={t('e.g. Every weekday at 9, ask an agent to summarize tasks and post in #ops.')} />
-        <p className="row-sub">{t('Created paused. Review the steps before turning it on.')}</p>
-        <div className="hx-actions"><button className="pill-btn" disabled={busy !== null || !prompt.trim()} onClick={() => act('generate', async () => { const made = await api.generateWorkflow(prompt); await openOne(made.workflow.id); setBuilding(false); setPrompt('') })}>{t(busy === 'generate' ? 'Building…' : 'Build')}</button><button className="btn-text" onClick={() => setManual(v => !v)}>{t('Manual setup')}</button><button className="btn-text" onClick={() => setBuilding(false)}>{t('Cancel')}</button></div>
+      {building && !manual && <section className="hx-generation hx-guided-setup" aria-label={t('Guided automation setup')}>
+        {guidedMessages.length===0 ? <>
+          <label htmlFor="workflow-prompt">{t('Describe an automation')}</label>
+          <textarea id="workflow-prompt" className="context-input" rows={4} maxLength={4000} value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={t('e.g. Every weekday at 9, ask an agent to summarize tasks and post in #ops.')} />
+          <p className="row-sub">{t('Start a conversation to draft the trigger and steps. You can refine the proposal before saving.')}</p>
+          <div className="hx-actions">
+            <button className="pill-btn" disabled={busy!==null||!prompt.trim()} onClick={()=>act('generate',startGuidedPreview)}>{t(busy==='generate'?'Building…':'Build preview')}</button>
+            <button className="btn-text" onClick={()=>setManual(v=>!v)}>{t('Manual setup')}</button>
+            <button className="btn-text" onClick={()=>{setBuilding(false);resetGuidedSetup()}}>{t('Cancel')}</button>
+          </div>
+        </> : <>
+          <div className="hx-guided-thread" aria-live="polite">
+            {guidedMessages.map((message,index)=><div key={index} className={`hx-guided-message ${message.role}`}>
+              <strong>{t(message.role==='you'?'You':'Automation assistant')}</strong><p>{message.text}</p>
+            </div>)}
+          </div>
+          {proposal&&<section className="hx-plan-preview" aria-label={t('Suggested workflow')}>
+            <header><div><span>{t('Suggested workflow')}</span><h3>{proposal.name}</h3></div><span className="hx-paused-badge">{t('Paused')}</span></header>
+            <div className="hx-plan-trigger"><small>{t('Trigger')}</small><strong>{triggerLabel(t,proposal.trigger,tables,triggerApps)}</strong></div>
+            <ol>{proposal.steps.map((step,index)=><li key={index}><span>{stepLabel(t,step.type)}</span><strong>{step.text||step.prompt||step.title||step.summary||''}</strong>
+              {step.channel&&<small>{step.channel.startsWith('ag:')||step.channel.startsWith('dm:')?t('Private chat'):step.channel.replace(/^b:/,'#')}</small>}
+              {step.agentId&&<small>{t('Agent')}: {agents.find(agent=>agent.id===step.agentId)?.name||step.agentId}</small>}
+            </li>)}</ol>
+            <p className="row-sub">{t('Nothing has been saved or run yet.')}</p>
+          </section>}
+          <label htmlFor="workflow-refinement">{t('What should change?')}</label>
+          <textarea id="workflow-refinement" className="context-input" rows={3} maxLength={800} value={refinement} onChange={e=>{setRefinement(e.target.value);setGuidedError('')}} placeholder={t('e.g. Send a summary only when a row is overdue.')} />
+          {(guidedError||error) && <p className="form-error" role="alert">{guidedError||error}</p>}
+          <div className="hx-actions">
+            <button className="pill-btn quiet" disabled={busy!==null||!refinement.trim()} onClick={()=>act('generate',refineGuidedPreview)}>{t(busy==='generate'?'Building…':'Refine proposal')}</button>
+            <button className="pill-btn" disabled={busy!==null||!proposal} onClick={()=>act('save',saveGuidedProposal)}>{t(busy==='save'?'Saving…':'Save paused automation')}</button>
+            <button className="btn-text" disabled={busy!==null} onClick={()=>{resetGuidedSetup();setPrompt('')}}>{t('Start over')}</button>
+            <button className="btn-text" disabled={busy!==null} onClick={()=>setManual(v=>!v)}>{t('Manual setup')}</button>
+            <button className="btn-text" disabled={busy!==null} onClick={()=>{setBuilding(false);resetGuidedSetup()}}>{t('Cancel')}</button>
+          </div>
+        </>}
       </section>}
       {building && manual && (
         <Builder

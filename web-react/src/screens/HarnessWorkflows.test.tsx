@@ -9,13 +9,14 @@ vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text, t: (text: 
 const props = { httpBase: 'https://example.test', orgId: 'one', sessionToken: 'test', onClose: () => {} }
 const workflow = { id: 'wf_one', name: 'Billing', enabled: true, trigger: { type: 'webhook' }, steps: [], hookSecret: 'a'.repeat(48), hookUrl: 'https://example.test/hook?secret=old', webhookSignatureRequired: true }
 const aiBudget={revision:0,action:'warn' as const,'24h':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false},'7d':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false},'30d':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false}}
+const emptySummary={windowStart:'2026-10-17T00:00:00.000Z',windowEnd:'2026-10-24T00:00:00.000Z',timezone:'UTC' as const,windowHours:168,runCount:0,failedCount:0,completedDurationCount:0,typicalDurationMs:null,usage:{trackedRuns:0,calls:0,inputTokens:0,outputTokens:0,unknownCalls:0,unpricedCalls:0,estimatedMicros:0},truncated:false}
 let tree: ReturnType<typeof create>
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ agents: [] }) }))
   state.api = {
     workflowNotices: vi.fn().mockResolvedValue({items:[]}),
     workflows: vi.fn().mockResolvedValue({ workflows: [workflow] }), tables: vi.fn().mockResolvedValue({ tables: [] }),
-    workflow: vi.fn().mockResolvedValue({ workflow, runs: [], canEdit: true }),
+    workflow: vi.fn().mockResolvedValue({ workflow, runs: [], summary:emptySummary, canEdit: true }),
     recoverWorkflowRun: vi.fn().mockResolvedValue({run:{}}),
     changeWorkflowHook: vi.fn().mockResolvedValue({ workflow: { ...workflow, hookSecret: undefined, hookUrl: undefined } }),
   }
@@ -26,6 +27,20 @@ async function open() {
   await act(async () => { tree = create(<HarnessWorkflows {...props} />) })
   await act(async () => { tree.root.findByProps({ 'data-workflow': workflow.id }).props.onClick() })
 }
+test('workflow detail shows a rolling median and labels provider token estimates clearly',async()=>{
+ state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[],summary:{...emptySummary,runCount:2,failedCount:1,completedDurationCount:2,typicalDurationMs:5000,usage:{...emptySummary.usage,calls:2,trackedRuns:2,unpricedCalls:1,unknownCalls:1,estimatedMicros:1234}}});
+ await open();
+ const text=JSON.stringify(tree.toJSON());
+ expect(text).toContain('Last 7 days');
+ expect(text).toContain('Typical duration');
+ expect(text).toContain('Median of {count} completed runs');
+ expect(text).toContain('Estimated AI usage');
+ expect(text).toContain('This is not provider credits or an invoice');
+ expect(text).toContain('{count} unpriced calls');
+ expect(text).toContain('{count} calls with unknown token usage');
+ expect(text).toContain('Recorded on {count} runs');
+ expect(text).toContain('$0.001234');
+});
 test('stalled run recovery requires an explicit no-replay confirmation', async () => {
  const startedAt='2026-10-01T00:00:00.000Z'
  state.api.workflow.mockResolvedValue({workflow,runs:[{id:'stalled',status:'running',trigger:'manual',startedAt,finishedAt:null,log:[]}],canEdit:true})
@@ -684,9 +699,9 @@ test('refresh failure clears stale run details and reports the error',async()=>{
 test('manual setup focuses the builder instead of stacking the generation form above it',async()=>{
  await act(async()=>{tree=create(<HarnessWorkflows {...props}/>)});
  await act(async()=>{button('Set up an automation').props.onClick()});
- expect(tree.root.findAllByProps({className:'hx-generation'})).toHaveLength(1);
+ expect(tree.root.findAll(node=>node.props.className?.split(' ').includes('hx-generation'))).toHaveLength(1);
  await act(async()=>{button('Manual setup').props.onClick()});
- expect(tree.root.findAllByProps({className:'hx-generation'})).toHaveLength(0);
+ expect(tree.root.findAll(node=>node.props.className?.split(' ').includes('hx-generation'))).toHaveLength(0);
  expect(tree.root.findAllByProps({className:'hx-builder'})).toHaveLength(1);
 });
 test('workflow detail edits UTC run limits and displays usage with the saved revision',async()=>{
@@ -714,4 +729,24 @@ test('saving a loaded workflow without editing preserves zero and false values',
  expect(fields).toContain('0');expect(fields).toContain('false')
  await act(async()=>{await button('Save workflow').props.onClick()})
  expect(state.api.updateWorkflow).toHaveBeenCalledWith(workflow.id,expect.objectContaining({steps:[{type:'add_row',tableId:'tasks',values:{quantity:0,approved:false}}]}))
+})
+
+test('guided setup previews and refines before saving a paused workflow', async () => {
+ const proposed={id:'preview',name:'Daily summary',enabled:false,trigger:{type:'manual'},steps:[{type:'send_message',channel:'b:ops',text:'Summarize tasks'}]}
+ state.api.previewWorkflow=vi.fn().mockResolvedValue({workflow:proposed})
+ state.api.createWorkflow=vi.fn().mockResolvedValue({workflow:{...proposed,id:'saved'},hookUrl:null})
+ state.api.workflow.mockResolvedValue({workflow:{...proposed,id:'saved'},runs:[],summary:emptySummary,canEdit:true})
+ await act(async()=>{tree=create(<HarnessWorkflows {...props}/>)})
+ await act(async()=>button('Set up an automation').props.onClick())
+ await act(async()=>tree.root.findByProps({id:'workflow-prompt'}).props.onChange({target:{value:'Summarize tasks every morning'}}))
+ await act(async()=>button('Build preview').props.onClick())
+ expect(state.api.previewWorkflow).toHaveBeenCalledWith('Summarize tasks every morning')
+ expect(state.api.createWorkflow).not.toHaveBeenCalled()
+ expect(JSON.stringify(tree.toJSON())).toContain('Nothing has been saved or run yet.')
+ await act(async()=>tree.root.findByProps({id:'workflow-refinement'}).props.onChange({target:{value:'Post it in ops'}}))
+ await act(async()=>button('Refine proposal').props.onClick())
+ expect(state.api.previewWorkflow).toHaveBeenCalledTimes(2)
+ expect(state.api.createWorkflow).not.toHaveBeenCalled()
+ await act(async()=>button('Save paused automation').props.onClick())
+ expect(state.api.createWorkflow).toHaveBeenCalledWith(expect.objectContaining({enabled:false,name:'Daily summary',steps:proposed.steps}))
 })

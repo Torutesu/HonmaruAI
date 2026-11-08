@@ -102,6 +102,7 @@ export interface RunLog { step: number; type: StepType; status: string; outcome?
 export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
 export interface RunUsageCounters { calls:number; inputTokens:number; outputTokens:number; unknownCalls:number; unpricedCalls:number; estimatedMicros:number }
 export interface RunUsage extends RunUsageCounters { coverage:'priced-token-estimate'; estimatedUsd:number; steps:Array<RunUsageCounters & {stepNumber:number}> }
+export interface WorkflowRunSummary { windowStart:string; windowEnd:string; timezone:'UTC'; windowHours:168; runCount:number; failedCount:number; completedDurationCount:number; typicalDurationMs:number|null; usage:{trackedRuns:number;calls:number;inputTokens:number;outputTokens:number;unknownCalls:number;unpricedCalls:number;estimatedMicros:number}; truncated:boolean }
 export interface Run { definitionRevision?:number|null; definitionSnapshotAvailable?:boolean; usage?:RunUsage; id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
 export interface Followup { id: string; threadId?: string | null; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null; result?: string | null; doneAt?: string | null }
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null; acpAgents?: string[] }
@@ -228,9 +229,10 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     workflowRevisions: (id:string,before?:number) => call<{items:WorkflowRevision[];nextCursor:number|null}>('GET', `/workflows/${id}/revisions`,undefined,before===undefined?{}:{before:String(before)}),
     restoreWorkflowRevision: (id:string,input:{revision:number;expectedUpdatedAt:string;confirmAutoPaused?:boolean}) => call<WorkflowRevisionRestore>('POST',`/workflows/${id}/rollback`,input),
     workflows: () => call<{ workflows: Workflow[] }>('GET', '/workflows'),
-    workflow: (id: string) => call<{ workflow: Workflow; runs: Run[]; canEdit: boolean; held?: HeldWorkflowEvents }>('GET', `/workflows/${id}`),
+    workflow: (id: string) => call<{ workflow: Workflow; runs: Run[]; summary: WorkflowRunSummary; canEdit: boolean; held?: HeldWorkflowEvents }>('GET', `/workflows/${id}`),
     generateWorkflow: (prompt: string, channel?: string, options?: {requestId: string; captureSource?: boolean}) => call<{ workflow: Workflow; source: string }>('POST', '/workflows/generate', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...options }),
-    createWorkflow: (w: { name: string; trigger: Trigger; steps: Step[] }) => call<{ workflow: Workflow; hookUrl?: string }>('POST', '/workflows', w as unknown as Record<string, unknown>),
+    previewWorkflow: (prompt: string, channel?: string) => call<{ workflow: Workflow; source: string; preview: true }>('POST', '/workflows/preview', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    createWorkflow: (w: { name: string; trigger: Trigger; steps: Step[]; enabled?: boolean }) => call<{ workflow: Workflow; hookUrl?: string }>('POST', '/workflows', w as unknown as Record<string, unknown>),
     updateWorkflow: (id: string, patch: Record<string, unknown>) => call<{ workflow: Workflow }>('PUT', `/workflows/${id}`, patch),
     updateWorkflowBudget: (id:string,budget:{revision:number;dailyLimit:number;weeklyLimit:number;monthlyLimit:number;dailyAiLimitUsd:number;weeklyAiLimitUsd:number;monthlyAiLimitUsd:number;aiBudgetAction:'warn'|'pause'}) => call<{budget:WorkflowBudget;safety:WorkflowSafety}>('PUT',`/workflows/${id}/budget`,budget),
     changeWorkflowHook: (id: string, action: 'rotate' | 'revoke', expectedSecret: string | null) => call<{ workflow: Workflow }>('POST', `/workflows/${id}/webhook`, { action, expectedSecret }),
