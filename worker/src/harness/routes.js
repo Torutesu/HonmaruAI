@@ -1519,11 +1519,15 @@ export async function handleHarness(request, env, url, context = {}) {
       if (request.method === "GET") {
         const canEdit = app.createdBy === String(me);
         const canManage = await mayChange(env, orgId, who, app.createdBy);
-        const access = await appAccess(env.DB, orgId, appId);
+        const rawAccess = await appAccess(env.DB, orgId, appId);
+        const accessRoom = rawAccess?.roomChannel ? await readableConversation(env.DB, orgId, me, rawAccess.roomChannel) : null;
+        const access = rawAccess?.roomChannel && !accessRoom ? { ...rawAccess, roomChannel: null } : rawAccess;
         const { results: rooms = [] } = await env.DB.prepare("SELECT channel FROM hx_app_links WHERE org_id=?1 AND app_id=?2 AND channel LIKE 'b:%' ORDER BY channel").bind(orgId, appId).all();
+        const visibleRooms = [];
+        for (const row of rooms) if (await readableConversation(env.DB, orgId, me, row.channel)) visibleRooms.push(row.channel);
         const custom = app.definition?.custom;
         const canPublicShare = typeof custom?.published === 'string' && !custom.publishedCommit && !custom.publishedCommitApprovalId;
-        return json({ access, people: canEdit ? await appPeopleAccess(env.DB,orgId,appId) : [], canEdit, canManage, canPublicShare, rooms: rooms.map(row => row.channel) });
+        return json({ access, people: canEdit ? await appPeopleAccess(env.DB,orgId,appId) : [], canEdit, canManage, canPublicShare, rooms: visibleRooms });
       }
       if (request.method === "PUT") {
         const result = await setAppAccess(env.DB, orgId, appId, me, input);

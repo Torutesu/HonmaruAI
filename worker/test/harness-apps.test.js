@@ -193,6 +193,20 @@ test("room links require app authority and room access, and hidden room names ar
   expect(created.status).toBe(201);
   const { app } = await created.json();
   await env.DB.prepare("INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?1,?2,'b:confidential','9101',?3)").bind(app.id, ORG, at).run();
+  const accessPath = `/apps/${app.id}/access`;
+  const ownerAccess = await (await get(`${accessPath}?orgId=${ORG}`, toru)).json();
+  expect(ownerAccess.rooms).toEqual(['b:confidential']);
+  expect(ownerAccess.access.roomChannel).toBeNull();
+  const roomScopedCreated = await send('POST', '/apps', toru, { orgId: ORG, name: 'Room scoped app', columns: [{ name: 'Title', type: 'text' }] });
+  const { app: roomScopedApp } = await roomScopedCreated.json();
+  const roomScopedAccessPath = `/apps/${roomScopedApp.id}/access`;
+  expect((await send('PUT', roomScopedAccessPath, toru, { orgId: ORG, visibility: 'room', channel: 'b:confidential', version: 0, people: [{ userId: '9102', permission: 'view' }] })).status).toBe(200);
+  expect((await (await get(`${roomScopedAccessPath}?orgId=${ORG}`, toru)).json()).access.roomChannel).toBe('b:confidential');
+  const viewerAccessResponse = await get(`${roomScopedAccessPath}?orgId=${ORG}`, mika);
+  expect(viewerAccessResponse.status).toBe(200);
+  const viewerAccess = await viewerAccessResponse.json();
+  expect(viewerAccess.rooms).toEqual([]);
+  expect(viewerAccess.access).toMatchObject({ visibility: 'room', roomChannel: null });
 
   const privateDirect = await send("POST", "/apps", toru, { orgId: ORG, name: "Private direct app", channel: "b:confidential", columns: [{ name: "Title", type: "text" }] });
   expect(privateDirect.status).toBe(201);
@@ -232,6 +246,11 @@ test("room links require app authority and room access, and hidden room names ar
   const memberOwned = await send("POST", "/apps", mika, { orgId: ORG, name: "Member-owned app", columns: [{ name: "Title", type: "text" }] });
   expect(memberOwned.status).toBe(201);
   const { app: memberApp } = await memberOwned.json();
+  const { linkApp } = await import('../src/harness/apps.js');
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:confidential' AND login='toru'").bind(ORG).run();
+  expect(await linkApp(env.DB, ORG, memberApp.id, 'b:confidential', '9101')).toMatchObject({ error: 'No such room.', status: 404 });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_links WHERE org_id=?1 AND app_id=?2 AND channel='b:confidential'").bind(ORG, memberApp.id).first()).toEqual({ n: 0 });
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'b:confidential','toru','toru',?2)").bind(ORG, at).run();
   const deniedPrivateLink = await send("POST", `/apps/${memberApp.id}/links`, mika, { orgId: ORG, channel: "b:confidential" });
   expect(deniedPrivateLink.status).toBe(404);
   const before = await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_apps WHERE org_id=?1").bind(ORG).first();

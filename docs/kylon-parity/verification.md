@@ -3976,3 +3976,14 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Native connection credential reads now recheck the current workspace membership and Agent audience at the credential boundary, in addition to the source grant. Remote MCP execution checks and tool enumeration do the same. This prevents a future caller from relying only on a stale filtered Agent list.
 - Regression coverage changes the Agent audience to private after a grant and verifies Native credential access, Remote MCP execution, and Remote MCP tool enumeration all fail closed. Focused Worker tests passed: 66 tests across `harness-agents.test.js`, `remote-mcp.test.js`, and `smithery-apps.test.js`. `node --check` and `git diff --check` passed.
 - Full direct API/provider audit, exact-head CI, production release, authenticated multi-user isolation, and Kylon comparison remain pending; KY-015 stays partial.
+
+### 2026-11-08 — KY-006 room-name privacy and link-write fence (local verification)
+
+- Audit found that `GET /apps/:id/access` returned linked private room keys and a private room scope to an App viewer who was not a room member. The response now checks current room readability before returning linked room names or `access.roomChannel`; an explicitly granted App viewer still receives the App while the private room name stays hidden.
+- `linkApp` now includes `conversationWriteAuthority` in its conditional INSERT and verifies current authority for idempotent links. A room membership revoked between the route's read check and D1 write can no longer add the link.
+- `harness-apps.test.js` passed all 136 tests, including the new room-scope redaction and lower-level revocation check. Exact-head CI, production deployment and authenticated multi-user verification remain pending.
+
+### 2026-11-08 — KY-049/KY-050 implementation ledger correction
+
+- Re-audit confirmed that App `workspace/private/room` access already applies across Table, MCP, Home and Workflow; published Custom Apps already have consented, expiring, revocable read-only snapshot links and Cloudflare Pages custom-host support. Database Apps are explicitly rejected from anyone links. These items were previously incorrectly labeled unimplemented in the ledger.
+- The ledger now marks KY-049 and KY-050 partial instead of missing; actual Cloudflare DNS/certificate activation and anonymous production verification remain open.

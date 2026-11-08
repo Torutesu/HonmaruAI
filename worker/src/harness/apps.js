@@ -397,10 +397,15 @@ export async function deleteApp(db, orgId, id) {
 export async function linkApp(db, orgId, id, channel, by) {
   const key = String(channel || "").trim().slice(0, 200);
   if (!key) return { error: "channel is required" };
-  await db
-    .prepare("INSERT OR IGNORE INTO hx_app_links (app_id, org_id, channel, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5)")
-    .bind(id, orgId, key, String(by), now())
-    .run();
+  const authority = conversationWriteAuthority('?2', '?3', '?4');
+  const result = await db.prepare(`INSERT OR IGNORE INTO hx_app_links (app_id, org_id, channel, created_by, created_at)
+    SELECT ?1, ?2, ?3, ?4, ?5 WHERE ${authority}`)
+    .bind(id, orgId, key, String(by), now()).run();
+  if (!result.meta?.changes) {
+    const existing = await db.prepare(`SELECT 1 FROM hx_app_links WHERE app_id=?1 AND org_id=?2 AND channel=?3 AND ${authority}`)
+      .bind(id, orgId, key, String(by)).first();
+    if (!existing) return { error: "No such room.", status: 404 };
+  }
   return { linked: true };
 }
 
