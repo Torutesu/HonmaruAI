@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, expect, test } from "vitest";
 import worker from "../src/index.js";
-import { withRoomGuidelines } from "../src/harness/guidelines.js";
+import { withRoomGuidelines, withRoomGuidelinesRequest } from "../src/harness/guidelines.js";
 import { createSession, upsertUser, upsertMembership, upsertBusiness } from "../src/db.js";
 
 const ORG = "personal:guidelines";
@@ -39,6 +39,19 @@ test("concurrent saves cannot overwrite a newer version, and inputs are bounded"
   expect((await call("PUT", "b:private", owner, { body: "Second", version: 1 })).status).toBe(200);
   expect((await call("PUT", "b:private", owner, { body: "Stale again", version: 1 })).status).toBe(409);
   expect(await (await call("GET", "b:private", owner)).json()).toMatchObject({ guidelines: { body: "Second", version: 2 } });
+});
+
+test("the 4096-character limit is inclusive and the full revision reaches both prompt adapters", async () => {
+  const body = "r".repeat(4096);
+  const saved = await call("PUT", "b:private", owner, { body, version: 0 });
+  expect(saved.status).toBe(200);
+  expect((await saved.json()).guidelines).toMatchObject({ body, version: 1 });
+
+  const agent = await withRoomGuidelines(env.DB, ORG, "b:private", { instructions: "Be helpful" });
+  expect(agent.instructions).toContain(body);
+  const request = await withRoomGuidelinesRequest(env.DB, ORG, "b:private", "Do the task");
+  expect(request).toContain(body);
+  expect(request).toContain("revision 1");
 });
 
 test("rules are refreshed each turn and do not bleed into a different room or DM", async () => {
