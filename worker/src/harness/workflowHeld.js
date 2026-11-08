@@ -30,7 +30,7 @@ export async function discardWorkflowEvents(db, orgId, workflowId, eventIds) {
 
 export async function holdWorkflowEvent(db, workflow, secret, input, { eventId = null, payloadHash = null } = {}) {
   const at = new Date().toISOString();
-  const expires = new Date(Date.now() + HELD_TTL_MS).toISOString();
+  const expires = new Date(Date.parse(at) + HELD_TTL_MS).toISOString();
   const id = `held_${crypto.randomUUID().replace(/-/g, '')}`;
   // Purge expired bodies before accepting another delivery. The cap and live
   // credential/state check are in the insert, not a separate read-then-write.
