@@ -204,7 +204,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/agents/overview",
       "code": "worker/src/harness/agents.js",
-      "acceptance": "継続スレッド・直接DM・自動化の優先順位を統一"
+      "acceptance": "継続スレッドで@なしの自然名呼び出しを識別し、呼びかけ部分だけをAgent依頼として渡す。明示メンション・Agent DMは維持し、一般の人間返信やSimple modeでAgentを起動しない。進捗通知は抑制し、完了・自分宛メンションのみ通知する。"
     },
     {
       "id": "KY-018",
@@ -1269,8 +1269,8 @@
       "code": "web-react/src/components/MessageVisualization.tsx, web-react/src/components/ClassicList.tsx, worker/src/harness/agents.js",
       "acceptance": "Harness Agents may emit a bounded honmaru-visual JSON block for bar/line charts or explainer sections. Render charts with native accessible SVG plus a data-table view and selectable series; render explainer navigation using text-only rich rendering. Reject malformed/oversized schemas and leave them visible as literal code. Never evaluate HTML, script or arbitrary code. Verify responsive light/dark display, persisted message replay, and authenticated side-by-side Kylon behavior. Preserve Simple unchanged and add no paid dependency.",
       "evidence": {
-        "verified": "Harness message renderer recognizes the opt-in visualization fence, validates bounded chart/explainer JSON and renders native interactive cards. Agent preparation explains the supported schema and safety boundary. Simple messages continue through the existing rich text renderer.",
-        "remaining": "Focused and full Web/Worker CI, production deployment and asset verification, plus authenticated Kylon/Honmaru interaction comparison remain required; status is partial."
+        "verified": "Harness message renderer recognizes the opt-in visualization fence, validates bounded chart/explainer JSON and renders native interactive cards. Agent preparation explains the supported schema and safety boundary. Simple messages continue through the existing rich text renderer. PR #832 merged as f42a3dee; PR required CI #5474 and post-merge main CI #5475 passed. Worker deploy run 42520011958 and Web deploy run 42520011804 succeeded; production health returned ok with encryption.all=true. app.honmaruai.com and honmaru-web.pages.dev served the same JS asset (SHA256 070fa6fe8a458994058a824baa093e7302c6137fac440ff24b0301a5e16f7399).",
+        "remaining": "Responsive light/dark presentation, persisted replay, and authenticated side-by-side Kylon interaction comparison remain unverified. Native Mac screen capture was unavailable, so do not treat the visual QA as passed; status is partial."
       }
     }
   ]
