@@ -59,6 +59,20 @@ test('migration replay, conflict, partial failure and private entity ACL',async(
  expect((await run('database',{action:'migrate',id:'bad',version:1,operations:[{op:'create_entity',entity:'new_entity',name:'New',columns:[{name:'Name'}]},{op:'drop_entity',entity:'primary'}]})).status).toBe(400);
  expect((await (await run('database')).json()).entities).toHaveLength(2);
 });
+test('tampered migration journal plans are flagged and cannot be replayed',async()=>{
+ const req={action:'migrate',id:'integrity_check_v1',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Memo',type:'text'}]}]};
+ expect(await (await run('database',req)).json()).toMatchObject({applied:true,version:1});
+ await env.DB.prepare('UPDATE hx_app_migrations SET plan=?1 WHERE org_id=?2 AND app_id=?3 AND migration_id=?4')
+  .bind('[{"op":"drop_empty_column","entity":"primary","column":"task"}]',orgId,app.id,req.id).run();
+ const journal=await (await run('database')).json();
+ expect(journal.migrations[0]).toMatchObject({id:req.id,integrityValid:false,plan:null});
+ const replay=await run('database',req);
+ expect(replay.status).toBe(409);
+ expect(await replay.json()).toMatchObject({message:'Migration journal integrity check failed.'});
+ const current=await (await run('database')).json();
+ expect(current.version).toBe(1);
+ expect(current.entities[0].table.columns.map(column=>column.id)).toEqual(['task','memo']);
+});
 test('renaming a database column preserves its stable ID and existing row values',async()=>{
  const inserted=await worker.fetch(new Request(`https://example.com/tables/${app.tableId}/rows`,{method:'POST',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,values:{task:'Keep this value'}})}),{...env});
  const row=(await inserted.json()).row;

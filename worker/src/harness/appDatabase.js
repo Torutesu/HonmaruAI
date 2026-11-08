@@ -29,7 +29,13 @@ export async function databaseView(db, orgId, app) {
   const entities = [{ key: 'primary', table: await getTable(db, orgId, app.tableId) }];
   for (const r of results || []) entities.push({ key: r.entity_key, table: await getTable(db, orgId, r.table_id) });
   const journal = await db.prepare('SELECT migration_id AS id, version, checksum, plan, created_at AS createdAt FROM hx_app_migrations WHERE org_id=?1 AND app_id=?2 ORDER BY version DESC LIMIT 50').bind(orgId, app.id).all();
-  return { version: state?.version || 0, entities, migrations: (journal.results || []).map(r => ({ ...r, plan: JSON.parse(r.plan) })) };
+  const migrations = await Promise.all((journal.results || []).map(async r => {
+    let plan = null;
+    try { plan = JSON.parse(r.plan); } catch { /* malformed journal content is exposed as unverified, never as a plan */ }
+    const integrityValid = plan !== null && await digest(r.plan) === r.checksum;
+    return { ...r, plan: integrityValid ? plan : null, integrityValid };
+  }));
+  return { version: state?.version || 0, entities, migrations };
 }
 
 const MIGRATABLE_COLUMN_TYPES = new Set(COLUMN_TYPES);
@@ -378,8 +384,11 @@ export async function applyMigration(db, orgId, app, input, by) {
   const serializedInput = JSON.stringify(input.operations);
   if (!serializedInput || serializedInput.length > 30000) return err('Migration is too large.');
   const checksum = await digest(serializedInput);
-  const old = await db.prepare('SELECT checksum, version FROM hx_app_migrations WHERE org_id=?1 AND app_id=?2 AND migration_id=?3').bind(orgId, app.id, input.id).first();
-  if (old) return old.checksum === checksum ? { applied: true, replay: true, version: old.version } : err('This migration ID has different content.', 409);
+  const old = await db.prepare('SELECT checksum, version, plan FROM hx_app_migrations WHERE org_id=?1 AND app_id=?2 AND migration_id=?3').bind(orgId, app.id, input.id).first();
+  if (old) {
+    if (await digest(old.plan) !== old.checksum) return err('Migration journal integrity check failed.', 409);
+    return old.checksum === checksum ? { applied: true, replay: true, version: old.version } : err('This migration ID has different content.', 409);
+  }
   const preview = await buildMigrationPreview(db, orgId, app, input);
   if (preview.error) return preview;
   if (preview.blockers.length) return err('Resolve every blocked row in the preview before applying this migration.', 409);

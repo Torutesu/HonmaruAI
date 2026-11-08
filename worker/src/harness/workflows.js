@@ -425,10 +425,19 @@ export async function changeWorkflowHook(db, orgId, id, input) {
 }
 
 export async function deleteWorkflow(db, orgId, id) {
-  await db.batch([
-    db.prepare("DELETE FROM hx_workflow_runs WHERE workflow_id = ?1 AND org_id = ?2").bind(id, orgId),
-    db.prepare("DELETE FROM hx_workflows WHERE id = ?1 AND org_id = ?2").bind(id, orgId),
+  // Keep an active run attached to its definition until it reaches a terminal
+  // state. The same guard is applied to both statements inside the D1 batch,
+  // so a run admitted concurrently with deletion cannot be orphaned.
+  const active = `NOT EXISTS(SELECT 1 FROM hx_workflow_runs active
+    WHERE active.workflow_id=?1 AND active.org_id=?2 AND active.status IN ('running','waiting'))`;
+  const [history, workflow] = await db.batch([
+    db.prepare(`DELETE FROM hx_workflow_runs WHERE workflow_id=?1 AND org_id=?2 AND ${active}`).bind(id, orgId),
+    db.prepare(`DELETE FROM hx_workflows WHERE id=?1 AND org_id=?2 AND ${active}`).bind(id, orgId),
   ]);
+  if (!history.meta?.changes && !workflow.meta?.changes) {
+    const pending = await db.prepare("SELECT 1 FROM hx_workflow_runs WHERE workflow_id=?1 AND org_id=?2 AND status IN ('running','waiting') LIMIT 1").bind(id, orgId).first();
+    if (pending) return { error: 'This workflow has a running or approval-waiting run. Let it finish before deleting the workflow.', status: 409 };
+  }
   return { deleted: true };
 }
 
