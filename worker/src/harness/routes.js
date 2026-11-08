@@ -28,6 +28,7 @@ import {roomRoleState} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
 import {listBusinesses} from '../db.js';
 import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnership } from './agentRoles.js';
+import {agentPeerRoleState,setAgentPeerRole} from './agentPeerRoles.js';
 import { announceAgentAccessChanged } from './agentAccessEvents.js';
 import { memoryPage, memoryReviewHistory, reviewMemoryEntry, updateMemoryEntry } from './memoryEntries.js';
 import { previewSkillImport } from './skillImport.js';
@@ -960,6 +961,46 @@ export async function handleHarness(request, env, url, context = {}) {
         if (!r.error) {
           await announceAgentAccessChanged(env,orgId,agentId,[who.user.login,target.login]);
           await audit(env,request,{orgId,action:'agent.member_role_changed',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberRef:target.ref,role:input.role,version:r.version}});
+        }
+        return r.error?fail(r):json(r);
+      }
+    }
+    if(sub==='agent-members') {
+      const state=await agentPeerRoleState(env.DB,orgId,agentId);
+      if(!state)return json({message:'No such agent.'},404);
+      const humanRoles=await agentRoleState(env.DB,orgId,agentId);
+      const canManage=humanRoles.members.some(m=>m.userId===String(me)&&m.role==='admin');
+      if(request.method==='GET') {
+        const visible=await listAgents(env.DB,orgId,who.user.login),candidates=[];
+        const visibleMembers=[];
+        for(const candidate of visible) {
+          if(candidate.id===agentId)continue;
+          const record=await env.DB.prepare(`SELECT a.id,a.name,a.owner_login,a.scope FROM custom_agents a
+            JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
+            WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND a.provider IS NULL AND a.scope='team'`)
+            .bind(orgId,candidate.id).first();
+          if(record&&await mayAccessAgent(env.DB,orgId,{...record,ownerLogin:record.owner_login},who.user.login))candidates.push({id:record.id,name:record.name});
+        }
+        for(const member of state.members) {
+          const record=await env.DB.prepare(`SELECT a.id,a.name,a.owner_login,a.scope FROM custom_agents a
+            JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
+            WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND a.provider IS NULL AND a.scope='team'`)
+            .bind(orgId,member.agentId).first();
+          if(record&&await mayAccessAgent(env.DB,orgId,{...record,ownerLogin:record.owner_login},who.user.login))visibleMembers.push(member);
+        }
+        return json({version:state.version,scope:state.scope,managed:state.managed,canManage,members:visibleMembers,candidates:canManage?candidates:[]});
+      }
+      if(request.method==='PUT') {
+        if(!canManage)return json({message:'Only an agent admin can assign another Agent.'},403);
+        const candidate=(await listAgents(env.DB,orgId,who.user.login)).find(item=>item.id===input.memberAgentId);
+        const record=candidate&&await env.DB.prepare(`SELECT id,owner_login,scope FROM custom_agents WHERE org_id=?1 AND id=?2
+          AND deleted_at IS NULL AND provider IS NULL AND scope='team' AND EXISTS(SELECT 1 FROM hx_agent_profiles p WHERE p.org_id=custom_agents.org_id AND p.agent_id=custom_agents.id)`)
+          .bind(orgId,input.memberAgentId).first();
+        if(!record||!await mayAccessAgent(env.DB,orgId,{...record,ownerLogin:record.owner_login},who.user.login))return json({message:'Choose an accessible managed team Agent.'},404);
+        const r=await setAgentPeerRole(env.DB,orgId,agentId,{actorId:me,memberAgentId:record.id,role:input.role,expectedVersion:input.expectedVersion});
+        if(!r.error) {
+          await announceAgentAccessChanged(env,orgId,agentId,[who.user.login]);
+          await audit(env,request,{orgId,action:'agent.peer_role_changed',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberAgentId:record.id,role:input.role,version:r.version}});
         }
         return r.error?fail(r):json(r);
       }

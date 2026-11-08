@@ -2260,6 +2260,20 @@ CREATE TABLE IF NOT EXISTS hx_agent_members (
   PRIMARY KEY (org_id, agent_id, user_id),
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
+/* Managed Agents can be explicitly assigned to other managed Agents. */
+CREATE TABLE IF NOT EXISTS hx_agent_agent_members (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  member_agent_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role='member'),
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,agent_id,member_agent_id),
+  CHECK(agent_id != member_agent_id),
+  FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE,
+  FOREIGN KEY(org_id,member_agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_agent_members_peer ON hx_agent_agent_members(org_id,member_agent_id,agent_id);
 
 /* A person may let one Agent use their own native connection in that Agent's
    private conversation. The membership timestamp prevents a grant from

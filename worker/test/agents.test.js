@@ -917,10 +917,15 @@ test('handoff retains the human origin but resolves only the explicitly assigned
   const request={orgId:ORG,token:(await getSession(env.DB,kenji)).token,rowId:row.id};
   expect(await beginAuthorizedAssignment(env,request,source.id)).toBeNull();
   await setMode(env.DB,ORG,'harness','8801');
+  for(const id of [source.id,target.id])expect((await send('PUT',`/hx/agents/${id}/profile`,toru,{orgId:ORG,specialty:'Team review'})).status).toBe(200);
   for(const id of [source.id,target.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'8801','2026-10-24')").bind(ORG,id).run();
   const begun=await beginAuthorizedAssignment(env,request,source.id);expect(begun.started).toBe(true);
   const assignmentId=begun.assignment.id;
   const input={orgId:ORG,assignmentId,generation:0,sourceAgentId:source.id,targetAgentId:target.id,operationId:'handoff-test',brief:'Review the art direction',messageBody:'Handing off to @reviewer'};
+  expect(await acceptAgentHandoff(env,input)).toMatchObject({status:403});
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_handoff_dispatch WHERE org_id=?1 AND operation_id=?2').bind(ORG,input.operationId).first()).toBeNull();
+  expect((await env.DB.prepare('SELECT current_agent_id,generation,status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,assignmentId).first())).toMatchObject({current_agent_id:source.id,generation:0,status:'running'});
+  expect((await send('PUT',`/hx/agents/${target.id}/agent-members`,toru,{orgId:ORG,memberAgentId:source.id,role:'member',expectedVersion:0})).status).toBe(200);
   expect((await acceptAgentHandoff(env,input)).operation).toBeTruthy();
   expect((await acceptAgentHandoff(env,input)).replayed).toBe(true);
   expect(await assignmentExecutionGrant(env,{orgId:ORG,assignmentId,generation:0,agentId:source.id})).toBeNull();
@@ -995,6 +1000,8 @@ test('a Harness model handoff queues and executes the target once while suppress
   const {runQueuedAgents}=await import('../src/agentRunner.js');
   const {runQueuedHandoff}=await import('../src/harness/agentHandoffRun.js');
   await setMode(env.DB,ORG,'harness','8801');
+  for(const id of [source.id,target.id])expect((await send('PUT',`/hx/agents/${id}/profile`,toru,{orgId:ORG,specialty:'Team review'})).status).toBe(200);
+  expect((await send('PUT',`/hx/agents/${target.id}/agent-members`,toru,{orgId:ORG,memberAgentId:source.id,role:'member',expectedVersion:0})).status).toBe(200);
   for(const id of [source.id,target.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'8801','2026-10-24')").bind(ORG,id).run();
   const queued=[];
   const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>{queued.push(JSON.parse(init.body));return new Response('Queued',{status:202})}})};

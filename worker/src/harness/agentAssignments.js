@@ -47,12 +47,32 @@ export async function commitHandoff(db, {orgId, assignmentId, generation, source
   const replay = await previous();
   if (replay) return replay;
   if (sourceAgentId === targetAgentId) return {error: 'An agent cannot hand work to itself.', status: 409};
+  const targetIsManaged=await db.prepare(`SELECT 1 FROM custom_agents a JOIN hx_agent_profiles p
+    ON p.org_id=a.org_id AND p.agent_id=a.id
+    WHERE a.org_id=?1 AND a.id=?2 AND a.scope='team' AND a.deleted_at IS NULL AND a.provider IS NULL`)
+    .bind(orgId,targetAgentId).first();
+  if(targetIsManaged&&!await db.prepare(`SELECT 1 FROM hx_agent_agent_members peer
+    JOIN custom_agents source ON source.org_id=peer.org_id AND source.id=peer.member_agent_id
+      AND source.scope='team' AND source.provider IS NULL AND source.deleted_at IS NULL
+    JOIN hx_agent_profiles source_profile ON source_profile.org_id=source.org_id AND source_profile.agent_id=source.id
+    WHERE peer.org_id=?1 AND peer.agent_id=?2 AND peer.member_agent_id=?3`).bind(orgId,targetAgentId,sourceAgentId).first())
+    return {error:'This Agent is not assigned to the target Agent.',status:403};
   const now = new Date().toISOString(), messageId = crypto.randomUUID();
   const results = await db.batch([
     db.prepare(`UPDATE hx_agent_assignments SET current_agent_id=?5,generation=generation+1,status='pending',
       visited=json_insert(visited,'$[#]',?5),mutation_id=?6,updated_at=?7
       WHERE org_id=?1 AND id=?2 AND generation=?3 AND current_agent_id=?4 AND status='running'
         AND generation<hop_limit AND NOT EXISTS(SELECT 1 FROM json_each(visited) WHERE value=?5)
+        AND (NOT EXISTS(SELECT 1 FROM custom_agents target JOIN hx_agent_profiles p
+          ON p.org_id=target.org_id AND p.agent_id=target.id
+          WHERE target.org_id=?1 AND target.id=?5 AND target.scope='team' AND target.deleted_at IS NULL AND target.provider IS NULL)
+          OR EXISTS(SELECT 1 FROM hx_agent_agent_members peer JOIN custom_agents target
+            ON target.org_id=peer.org_id AND target.id=peer.agent_id AND target.scope='team' AND target.deleted_at IS NULL
+            JOIN hx_agent_profiles p ON p.org_id=target.org_id AND p.agent_id=target.id
+            JOIN custom_agents source ON source.org_id=peer.org_id AND source.id=peer.member_agent_id
+              AND source.scope='team' AND source.provider IS NULL AND source.deleted_at IS NULL
+            JOIN hx_agent_profiles source_profile ON source_profile.org_id=source.org_id AND source_profile.agent_id=source.id
+            WHERE peer.org_id=?1 AND peer.agent_id=?5 AND peer.member_agent_id=?4))
         AND NOT EXISTS(SELECT 1 FROM hx_agent_handoffs WHERE org_id=?1 AND operation_id=?6)`)
       .bind(orgId,assignmentId,generation,sourceAgentId,targetAgentId,operationId,now),
     db.prepare(`INSERT INTO hx_agent_handoffs(org_id,operation_id,assignment_id,source_generation,source_agent_id,target_agent_id,brief,message_body,message_id,created_at)

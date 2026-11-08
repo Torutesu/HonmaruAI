@@ -49,6 +49,17 @@ test("workflow usage dashboards have an organization and time-window index", asy
   expect(results.map((row) => row.name)).toContain("idx_hx_workflow_usage_org_created");
 });
 
+test("Agent peer-role migration creates its table and lookup index on the deploy path", async () => {
+  await applyDeploy(env.DB);
+  const table = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hx_agent_agent_members'").first();
+  const index = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_hx_agent_agent_members_peer'").first();
+  expect(table?.name).toBe('hx_agent_agent_members');
+  expect(index?.name).toBe('idx_hx_agent_agent_members_peer');
+  const columns=await env.DB.prepare('PRAGMA table_info(hx_agent_agent_members)').all();
+  expect(columns.results.map(column=>column.name)).toEqual(['org_id','agent_id','member_agent_id','role','updated_by','updated_at']);
+  await expect(applyDeploy(env.DB)).resolves.not.toThrow();
+});
+
 test("a deploy and membership writes canonicalize role casing and whitespace", async () => {
   await applyDeploy(env.DB);
   await env.DB.prepare("INSERT OR REPLACE INTO memberships(org_id,user_github_id,role,created_at) VALUES('legacy-role-org','legacy-guest',' Guest ','2026-01-01')").run();
