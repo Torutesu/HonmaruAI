@@ -697,8 +697,15 @@ export async function handleHarness(request, env, url, context = {}) {
       return json(result);
     }
     if (!sub) {
-      if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), summary: await workflowRunSummary(env.DB, orgId, wfId, me), canEdit: mine,
-        ...(mine && wf.trigger.type === 'webhook' ? { held: await heldWorkflowSummary(env.DB, orgId, wfId) } : {}) });
+      if (request.method === "GET") {
+        const rawHeldOffset = url.searchParams.get('heldOffset');
+        const heldOffset = rawHeldOffset === null ? 0 : Number(rawHeldOffset);
+        if (!Number.isSafeInteger(heldOffset) || heldOffset < 0 || heldOffset > 975 || heldOffset % 25 !== 0) {
+          return json({ message: 'heldOffset must be a page boundary from 0 to 975.' }, 400);
+        }
+        return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), summary: await workflowRunSummary(env.DB, orgId, wfId, me), canEdit: mine,
+          ...(mine && wf.trigger.type === 'webhook' ? { held: await heldWorkflowSummary(env.DB, orgId, wfId, heldOffset) } : {}) });
+      }
       if (!mine) return json({ message: "Only its maker or an admin can change this workflow." }, 403);
       if (request.method === "PUT") {
         const r = await updateWorkflow(env.DB, orgId, wfId, input, me);

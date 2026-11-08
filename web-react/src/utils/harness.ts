@@ -99,7 +99,7 @@ export interface AutomationPlanItem { key: string; workflowId: string | null; st
 export interface AppAutomationState { version: number; revision: number; draft: AutomationBundle; published: AutomationBundle | null; releaseId: string | null; publishedAt: string | null; plan?: AutomationPlanItem[] }
 export interface RunAuthorizationEvent { actorId:string; resourceType:'workflow'|'conversation'|'agent'|'table'|'app'|'connection'|'member'; resourceId:string; outcome:'allowed'|'denied'; checkedAt:string }
 export interface RunLog { step: number; type: StepType; status: string; outcome?: 'unknown'; actorId?: string; output?: string; error?: string; at: string; authorization?:RunAuthorizationEvent[] }
-export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
+export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; pageOffset?: number; previousOffset?: number | null; nextOffset?: number | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
 export interface RunUsageCounters { calls:number; inputTokens:number; outputTokens:number; unknownCalls:number; unpricedCalls:number; estimatedMicros:number }
 export interface RunUsage extends RunUsageCounters { coverage:'priced-token-estimate'; estimatedUsd:number; steps:Array<RunUsageCounters & {stepNumber:number}> }
 export interface WorkflowRunSummary { windowStart:string; windowEnd:string; timezone:'UTC'; windowHours:168; runCount:number; failedCount:number; completedDurationCount:number; typicalDurationMs:number|null; usage:{trackedRuns:number;calls:number;inputTokens:number;outputTokens:number;unknownCalls:number;unpricedCalls:number;estimatedMicros:number}; truncated:boolean }
@@ -230,7 +230,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     workflowRevisions: (id:string,before?:number) => call<{items:WorkflowRevision[];nextCursor:number|null}>('GET', `/workflows/${id}/revisions`,undefined,before===undefined?{}:{before:String(before)}),
     restoreWorkflowRevision: (id:string,input:{revision:number;expectedUpdatedAt:string;confirmAutoPaused?:boolean}) => call<WorkflowRevisionRestore>('POST',`/workflows/${id}/rollback`,input),
     workflows: () => call<{ workflows: Workflow[] }>('GET', '/workflows'),
-    workflow: (id: string) => call<{ workflow: Workflow; runs: Run[]; summary: WorkflowRunSummary; canEdit: boolean; held?: HeldWorkflowEvents }>('GET', `/workflows/${id}`),
+    workflow: (id: string, heldOffset = 0) => call<{ workflow: Workflow; runs: Run[]; summary: WorkflowRunSummary; canEdit: boolean; held?: HeldWorkflowEvents }>('GET', `/workflows/${id}`, undefined, { heldOffset: String(heldOffset) }),
     generateWorkflow: (prompt: string, channel?: string, options?: {requestId: string; captureSource?: boolean}) => call<{ workflow: Workflow; source: string }>('POST', '/workflows/generate', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...options }),
     previewWorkflow: (prompt: string, channel?: string) => call<{ workflow: Workflow; source: string; preview: true }>('POST', '/workflows/preview', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     createWorkflow: (w: { name: string; trigger: Trigger; steps: Step[]; enabled?: boolean }) => call<{ workflow: Workflow; hookUrl?: string }>('POST', '/workflows', w as unknown as Record<string, unknown>),

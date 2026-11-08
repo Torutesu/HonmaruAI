@@ -145,6 +145,8 @@ test('held events are replayed only after confirmation using the reviewed IDs', 
   await act(async () => { button('Cancel').props.onClick() })
   expect(state.api.replayWorkflowEvents).not.toHaveBeenCalled()
   await act(async () => { button('Review held events').props.onClick() })
+  const checkbox = tree.root.findByProps({ 'aria-label': 'Select held event {number}' })
+  await act(async () => checkbox.props.onChange())
   state.api.workflow.mockResolvedValue({ workflow, runs: [], canEdit: true, held: { count: 0, oldestExpiry: null, events: [] } })
   await act(async () => { await button('Replay {count} events').props.onClick() })
   expect(state.api.replayWorkflowEvents).toHaveBeenCalledWith(workflow.id, ['held_one'])
@@ -158,6 +160,26 @@ test('held events remain reviewable while replay stays disabled for a paused wor
   await act(async () => { button('Review held events').props.onClick() })
   expect(button('Replay {count} events').props.disabled).toBe(true)
 })
+test('held events paginate and replay only explicitly selected events across pages', async () => {
+  const pageOne = Array.from({length:25},(_,i)=>({id:`held_${i}`,receivedAt:'2026-10-23T00:00:00Z'}));
+  const pageTwo = [{id:'held_25',receivedAt:'2026-10-24T00:00:00Z'}];
+  state.api.workflow.mockImplementation(async (_id:string, offset=0) => ({workflow,canEdit:true,runs:[],held:{count:26,oldestExpiry:null,pageOffset:offset,previousOffset:offset ? 0 : null,nextOffset:offset ? null : 25,events:offset ? pageTwo : pageOne,discardEventIds:[...pageOne,...pageTwo].map(e=>e.id)}}));
+  state.api.replayWorkflowEvents=vi.fn().mockResolvedValue({runs:[],skipped:0});
+  await open();
+  await act(async()=>button('Review held events').props.onClick());
+  expect(button('Replay {count} events').props.disabled).toBe(true);
+  const checkbox1=tree.root.findAllByProps({'aria-label':'Select held event {number}'})[0];
+  await act(async()=>checkbox1.props.onChange());
+  await act(async()=>button('Next events').props.onClick());
+  expect(state.api.workflow).toHaveBeenLastCalledWith(workflow.id,25);
+  expect(JSON.stringify(tree.toJSON())).toContain('Showing events {start}–{end} of {total}');
+  const checkbox26=tree.root.findAllByProps({'aria-label':'Select held event {number}'})[0];
+  await act(async()=>checkbox26.props.onChange());
+  state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[],held:{count:0,events:[],discardEventIds:[]}});
+  await act(async()=>button('Replay {count} events').props.onClick());
+  expect(state.api.replayWorkflowEvents).toHaveBeenCalledWith(workflow.id,['held_0','held_25']);
+});
+
 test('paused workflows expose explicit manual run without resuming or replaying', async () => {
   state.api.workflow.mockResolvedValue({ workflow: { ...workflow, enabled: false }, runs: [], canEdit: true })
   state.api.runWorkflow = vi.fn().mockResolvedValue({ run: { id: 'manual_one' } })
@@ -184,6 +206,8 @@ test('discard requires confirmation and sends the displayed snapshot rather than
   await act(async () => { button('Cancel').props.onClick() })
   expect(state.api.discardWorkflowEvents).not.toHaveBeenCalled()
   await act(async () => { button('Discard held events').props.onClick() })
+  const checkbox = tree.root.findByProps({ 'aria-label': 'Select held event {number}' })
+  await act(async () => checkbox.props.onChange())
   state.api.workflow.mockResolvedValue({ workflow, runs: [], canEdit: true, held: { count: 0, events: [], discardEventIds: [] } })
   await act(async () => { await button('Discard {count} events').props.onClick() })
   expect(state.api.discardWorkflowEvents).toHaveBeenCalledWith(workflow.id, ['reviewed'])
@@ -342,7 +366,7 @@ test('a failed resume keeps the pause visible and read-only members cannot resum
 test('requested workflow URLs open details and back navigation clears the target',async()=>{
  const navigate=vi.fn()
  await act(async()=>{tree=create(<HarnessWorkflows {...props} requestedWorkflowId={workflow.id} onNavigateWorkflow={navigate}/> )})
- expect(state.api.workflow).toHaveBeenCalledWith(workflow.id)
+ expect(state.api.workflow).toHaveBeenCalledWith(workflow.id, 0)
  expect(JSON.stringify(tree.toJSON())).toContain('Billing')
  await act(async()=>{tree.root.findByProps({'aria-label':'Back'}).props.onClick()})
  expect(navigate).toHaveBeenCalledWith()
