@@ -450,6 +450,8 @@ test("structured memory reader rechecks identity and conversation and keeps full
   expect(JSON.parse(await tools.read_agent_memory.run({ memory_id: memory.id })).body).toBe(body.trim());
   expect(await agentMemoryTools(env.DB, ORG, agentId, { ...context, channel: '' }).read_agent_memory.run({ memory_id: memory.id })).toBe('Memory unavailable.');
   const ready = await prepareAgent(env, ORG, { id: agentId, instructions: 'You help.' }, null, context);
+  expect(ready.agent.instructions).toContain('honmaru-visual');
+  expect(ready.agent.instructions).toContain('Never put HTML, scripts, URLs, or executable code');
   expect(ready.agent.researchInstructions).toContain('read_agent_memory');
   expect(ready.agent.researchInstructions).toContain('Useful index');
   expect(ready.agent.researchInstructions).not.toContain('private detail');

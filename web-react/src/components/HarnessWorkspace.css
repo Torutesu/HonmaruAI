@@ -1088,3 +1088,38 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-app-viewport-preview[data-viewport="phone"] .hx-database-preview-meta { padding:10px 12px; }
 .hx-app-viewport-preview[data-viewport="phone"] .hx-database-preview-table-wrap { display:none; }
 .hx-app-viewport-preview[data-viewport="phone"] .hx-database-preview-mobile { display:flex; flex-direction:column; flex:1; min-height:0; overflow:auto; gap:10px; padding:12px; }
+
+/* Safe native chart and explainer cards inside Harness messages. */
+.hx-message-visual{display:flex;flex-direction:column;gap:12px;max-width:min(720px,100%);margin:12px 0;padding:16px;border:1px solid var(--hx-border);border-radius:14px;background:var(--hx-surface);color:var(--hx-text);box-shadow:0 1px 2px #0000000a}
+.hx-message-visual-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;min-width:0}
+.hx-message-visual-head h3{margin:0;font-size:14px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+.hx-message-visual-head p{margin:4px 0 0;color:var(--hx-muted);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.hx-message-visual-tabs,.hx-message-explainer-tabs{display:flex;gap:4px;flex-wrap:wrap}
+.hx-message-visual-tabs button,.hx-message-explainer-tabs button,.hx-message-explainer footer button{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--hx-border);border-radius:8px;background:var(--hx-app-surface,var(--hx-surface));color:var(--hx-muted);font:inherit;font-size:11px;cursor:pointer}
+.hx-message-visual button:hover{background:var(--hx-hover);color:var(--hx-text)}
+.hx-message-visual button:focus-visible{outline:2px solid var(--hx-accent);outline-offset:2px}
+.hx-message-visual button[aria-pressed="true"]{background:var(--hx-chip-surface,var(--hx-hover));color:var(--hx-text);border-color:var(--hx-accent)}
+.hx-message-chart-scroll{position:relative;min-width:0;overflow-x:auto}
+.hx-message-chart-scroll svg{display:block;width:100%;min-width:440px;height:auto;max-height:300px;overflow:visible}
+.hx-message-chart-grid{stroke:var(--hx-border);stroke-width:1;stroke-dasharray:3 4}
+.hx-message-chart-axis{stroke:var(--hx-muted);stroke-width:1}
+.hx-message-chart-label{fill:var(--hx-muted);font-size:11px}
+.hx-message-chart-empty{position:absolute;inset:40% 12px auto;text-align:center;color:var(--hx-muted);font-size:12px}
+.hx-message-chart-legend{display:flex;flex-wrap:wrap;gap:6px 12px}
+.hx-message-chart-legend button{display:inline-flex;align-items:center;gap:6px;padding:3px 4px;border:0;border-radius:5px;background:transparent;color:var(--hx-muted);font:inherit;font-size:11px;cursor:pointer}
+.hx-message-chart-legend i{width:9px;height:9px;border-radius:3px}
+.hx-message-chart-data{max-width:100%;overflow:auto}
+.hx-message-chart-data table{width:100%;border-collapse:collapse;font-size:12px}
+.hx-message-chart-data caption{text-align:left;color:var(--hx-muted);padding:0 0 8px}
+.hx-message-chart-data th,.hx-message-chart-data td{padding:8px 10px;border-bottom:1px solid var(--hx-border);text-align:left;white-space:nowrap}
+.hx-message-chart-data th{font-weight:550;color:var(--hx-muted)}
+.hx-message-explainer-tabs button{max-width:100%;text-align:left;overflow-wrap:anywhere}
+.hx-message-explainer-tabs button span{display:grid;place-items:center;width:18px;height:18px;flex:none;border-radius:50%;background:var(--hx-hover);font-size:10px}
+.hx-message-explainer-content{padding:12px;border:1px solid var(--hx-border);border-radius:10px;background:var(--hx-app-surface,var(--hx-surface));overflow-wrap:anywhere}
+.hx-message-explainer-content h4{margin:0 0 8px;font-size:13px}
+.hx-message-explainer-content>div{font-size:12px;line-height:1.65}
+.hx-message-explainer-content>div>:first-child{margin-top:0}
+.hx-message-explainer-content>div>:last-child{margin-bottom:0}
+.hx-message-explainer footer{display:flex;align-items:center;justify-content:flex-end;gap:10px;color:var(--hx-muted);font-size:11px}
+.hx-message-explainer footer button:disabled{opacity:.45;cursor:default}
+@media(max-width:600px){.hx-message-visual{padding:12px}.hx-message-visual-head{gap:8px}.hx-message-chart-scroll svg{min-width:400px}}
