@@ -76,7 +76,11 @@
       "priority": "P0",
       "source": "https://kylon.io/product/workspace",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "参照リンクは閲覧権限を付与しない。アプリ作成者/Adminだけが編集でき、参照先ルームへの現在のアクセスを検証する。一覧・詳細・Home・MCPから閲覧できないルーム名を除去する。非公開ルーム・DM由来の直接作成とテンプレート作成は初期非公開。実装後のPR CI・本番反映と本番隔離検証を確認する"
+      "acceptance": "参照リンクは閲覧権限を付与しない。アプリ作成者/Adminだけが編集でき、参照先ルームへの現在のアクセスを一覧・詳細・Home・MCP・アクセス設定API・リンク書込み時に検証する。非公開ルーム名を除去し、アクセス失効と同時にリンク書込みを拒否する。非公開ルーム・DM由来の直接作成とテンプレート作成は初期非公開。ログイン済み本番の複数利用者隔離とKylon UI比較は残る",
+      "evidence": {
+        "verified": "Room links are filtered from ordinary app responses, Home, MCP, and access settings based on current readableConversation. The access settings API also redacts the App's room scope for a viewer who has a personal App view grant but is not a room member. linkApp now uses conversationWriteAuthority in the INSERT and treats a concurrent membership/private-room revocation as not found. `npm test -- --run test/harness-apps.test.js` passed (136 tests), including private room-name redaction and a revoked-membership write regression.",
+        "remaining": "The exact-head PR CI and production release for the access-settings/API write-fence fix, authenticated multi-user production isolation, and Kylon UI comparison remain. DM/group source/template privacy remains less directly covered than private business rooms."
+      }
     },
     {
       "id": "KY-007",
@@ -175,8 +179,12 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
-      "code": "worker/src/harness/routes.js",
-      "acceptance": "今回メモリ等・一覧・DM・編集を修正。全API/外部実行の経路監査が残る"
+      "code": "worker/src/harness/routes.js, worker/src/harness/agentConnections.js, worker/src/harness/agentRemoteMcp.js",
+      "acceptance": "全API/外部実行の経路監査を継続。Native/Remote MCP資格情報ヘルパーも利用者の現在のAgent権限を毎回確認し、権限失効後の実行・ツール列挙を拒否する。全経路と複数利用者での本番隔離検証は残る",
+      "evidence": {
+        "verified": "Existing direct API, room list, role, schedule, and external execution routes were re-audited; no confirmed bypass was found. Native credential access now calls mayRunAgent at the credential boundary; Remote MCP authorization and tool enumeration do the same. Focused regressions prove workspace-granted Native credentials and Remote MCP tools are denied after the Agent audience becomes private. `npm test -- --run test/harness-agents.test.js test/remote-mcp.test.js test/smithery-apps.test.js` passed (66 tests).",
+        "remaining": "Full route/provider audit, exact-head CI and production deployment, authenticated multi-user isolation and visual comparison remain."
+      }
     },
     {
       "id": "KY-016",
@@ -579,18 +587,26 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/apps.js",
-      "acceptance": "Database Appにprivate/workspaceの明示ポリシーを追加。Table・MCP・Home・Workflowにも適用。Custom Appの公開ホスト・匿名public・room grantsは未実装"
+      "code": "worker/src/harness/resourceAccess.js, worker/src/harness/appShares.js, worker/src/harness/appHosting.js",
+      "acceptance": "Database Appのworkspace/private/room ACLをTable・MCP・Home・Workflowへ適用。公開Custom Appの匿名read-only snapshot linkとPages独自ドメインは明示同意・期限・失効で提供する。実DBの匿名CRUDは提供せず、公開Custom Appの認証済みマルチユーザー隔離と実ドメイン匿名アクセスの本番検証は残る",
+      "evidence": {
+        "verified": "The private/workspace/room policy is enforced across table, MCP, Home, workflow, and room-link responses. Custom App public shares hash random bearer tokens, require explicit data-exposure consent, pin app/access versions, expire, revoke, and return read-only snapshots; Database Apps are rejected. Cloudflare Pages custom host setup and public consent are implemented with mocked provider and middleware tests.",
+        "remaining": "Authenticated production multi-user ACL isolation, real custom-domain DNS/certificate activation, and anonymous production snapshot access have not been verified."
+      }
     },
     {
       "id": "KY-050",
       "category": "Apps",
       "requirement": "独自ドメイン・DNS・環境変数",
-      "status": "missing",
+      "status": "partial",
       "priority": "P2",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/apps.js",
-      "acceptance": "ホスト競合・証明書・秘密値非表示・再デプロイ"
+      "code": "worker/src/harness/appHosting.js, web-react/functions/_middleware.js",
+      "acceptance": "Cloudflare Pages domainの予約・ホスト競合確認・接続・解除・DNS target表示、公開同意、暗号化環境変数の非表示を実装。実DNS/証明書・本番独自ドメイン・環境変数が漏れないことのログイン済み画面検証は残る",
+      "evidence": {
+        "verified": "Provider-mocked tests cover custom-domain reservation, explicit public consent, hostname conflict, resolver exposure, removal and revocation. Middleware tests confirm custom hostnames proxy through the API resolver. Environment values use sealed storage and the read API returns only variable names and hasValue, never values.",
+        "remaining": "Production Cloudflare Pages custom-host attachment, actual DNS/certificate activation and authenticated UI verification remain unverified."
+      }
     },
     {
       "id": "KY-051",

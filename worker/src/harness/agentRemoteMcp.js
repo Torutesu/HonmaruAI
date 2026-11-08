@@ -1,5 +1,6 @@
 import { remoteMcpTools } from './remoteMcp.js';
 import { remoteMcpOAuthStatus } from './remoteMcpOAuth.js';
+import { mayRunAgent } from './agents.js';
 
 async function currentGrants(db, orgId, agentId, githubId) {
   const { results = [] } = await db.prepare(`SELECT g.server_id FROM hx_agent_remote_mcp_grants g
@@ -84,6 +85,7 @@ export async function setAgentRemoteMcpConnection(env, { orgId, agentId, session
 export async function mayUseAgentRemoteMcp(env, { orgId, agentId, session, serverId, toolName = null }) {
   const githubId = String(session?.github_id || '');
   if (!githubId || !orgId || !agentId || !serverId) return false;
+  if (!await mayRunAgent(env.DB, orgId, { id: agentId }, githubId).catch(() => false)) return false;
   const [grants, tools] = await Promise.all([
     currentGrants(env.DB, orgId, agentId, githubId).catch(() => new Set()),
     remoteMcpTools(env.DB, orgId, { readOnlyOnly: true }).catch(() => []),
@@ -93,6 +95,7 @@ export async function mayUseAgentRemoteMcp(env, { orgId, agentId, session, serve
 }
 
 export async function agentRemoteMcpTools(env, { orgId, agentId, session }) {
+  if (!session?.github_id || !await mayRunAgent(env.DB, orgId, { id: agentId }, session.github_id).catch(() => false)) return [];
   const connections = await agentRemoteMcpConnections(env.DB, {
     orgId, agentId, githubId: session?.github_id,
   });
