@@ -2,7 +2,7 @@
 
 調査基準日: 2026-11-09。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。
 
-全103項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
+全104項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
 2026-11-09 台帳一括整合: main 93951cea時点の要件102件と照合し、KY-112を未実装から一部へ修正（実装・main CI・Worker deploy証跡を追記）。KY-063/KY-111のCI・Worker deploy証跡も更新。ログイン済みKylonのData Viewerを読み取り専用で確認し、ビュー切替・新規ビュー・フィールド・フィルター・グループ・その他・列ソート・レコード追加を確認。表示中のテーブルは0件で、データ変更なし。操作レベルの比較・承認フローの本番受入は未確認。
 
@@ -240,4 +240,12 @@ Kylonの[2026-10-30 changelog](https://kylon.io/changelog)は、別Agentを起�
 
 ### 2026-11-09 — Agent呼び出し回帰
 
-Kylonの[2026-11-03 changelog](https://kylon.io/changelog)は、Agent名だけのスレッド呼び出し・進捗通知抑制を明記。既存Harnessルーティングの自然名認識について、`Billy, please review…` のスレッド呼び出し、依頼文から呼びかけを除く処理、Simple modeで起動しないことを1つの統合回帰テストに追加。Focused Worker test `harness-agents.test.js` は41件成功。短時間follow-up継続・通知タイミングのライブ比較は未確認。長時間タスクの文脈圧縮継続とHermes/Grok Build/Antigravity/Grok Botの個別セットアップは未実装差分として残す。
+Kylonの[2026-11-03 changelog](https://kylon.io/changelog)は、Agent名だけのスレッド呼び出し・進捗通知抑制を明記。既存Harnessルーティングの自然名認識について、`Billy, please review…` のスレッド呼び出し、依頼文から呼びかけを除く処理、Simple modeで起動しないことを1つの統合回帰テストに追加。Focused Worker test `harness-agents.test.js` は41件成功。短時間follow-up継続・通知タイミングのライブ比較は未確認。長時間タスクはKY-114で追跡する。
+
+### 2026-11-09 — 長時間タスクのコンテキスト継続
+
+Kylonの[2026-10-30 changelog](https://kylon.io/changelog)は、会話コンテキストが満ちてもAgentが内容を圧縮して継続すると説明。HonmaruのOpenAI Responsesループに、48,000 input-token到達時のローカルcheckpoint・新規Responses chain・completed tool result保持・同一tool callの重複抑止を追加。要約用の追加モデル呼び出しや別サービスは使わない。2回の圧縮、16 round/16 tool-call上限、実行ごとの既存deadlineと権限・キャンセルを維持。実行中Agent向けの部分実装であり、非OpenAI providerやSimpleは変更せず、ライブ長時間QA未実施のため一部扱い。
+
+| ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
+|---|---|---|---|---|---|
+| KY-114 | 長時間Agentタスクの文脈圧縮と継続 | 一部 | P1 | [agentResearch.js](../../worker/src/agentResearch.js), [agent-research.test.js](../../worker/test/agent-research.test.js) | 48,000 input tokensで元依頼・直近文脈・完了済みtoolと結果・最新進捗をcheckpointへ変換し、新規Responses chainで継続。圧縮は最大2回、16 model rounds、16 tool calls、実行deadline、権限確認・キャンセルを維持。完了済みの完全一致tool callを再実行しない。追加要約API/サービスなし。OpenAI research path限定。focused/full CI・本番反映・実Agent長時間UI・非OpenAI/BYO provider確認は残る。Simple modeには適用しない。 |
