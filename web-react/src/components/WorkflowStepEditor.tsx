@@ -5,11 +5,11 @@ import {useT} from '../utils/i18n'
 import {Icon} from './Icon'
 import type {Step,StepType,Table,HarnessApi} from '../utils/harness'
 export interface AgentFace {id:string;handle:string;name:string;emoji?:string|null}
-const STEP_TYPES:StepType[]=['post','agent','add_row','update_row','approval','followup']
-const blankStep=(type:StepType):Step=>({type,...(type==='followup'?{minutes:1440}:{})})
+const STEP_TYPES:StepType[]=['post','agent','connection','add_row','update_row','approval','followup']
+const blankStep=(type:StepType):Step=>({type,...(type==='followup'?{minutes:1440}:{}),...(type==='connection'?{source:'notion',action:'search'}:{})})
 function stepLabel(t: (k: string) => string, type: StepType) {
   return ({
-    post: t('Post in a room'), agent: t('Ask an agent'), add_row: t('Add a row'),
+    post: t('Post in a room'), agent: t('Ask an agent'), connection: t('Search a connection'), add_row: t('Add a row'),
     update_row: t('Change the row'), approval: t('Ask for approval'), followup: t('Follow up later'),
   } as Record<StepType, string>)[type]
 }
@@ -47,6 +47,20 @@ export function StepEditor({ api, step, onChange, onRemove, tables, agents, trig
           </select>
           <textarea className="context-input" rows={2} placeholder={t('What to ask it')} value={step.prompt || ''} onChange={(e) => set({ prompt: e.target.value })} aria-label={t('Prompt')} />
           <input className="hx-cell-input" placeholder={t('#room to post its answer (optional)')} value={(step.channel || '').replace(/^b:/, '#')} onChange={(e) => set({ channel: e.target.value ? `b:${e.target.value.replace(/^#/, '')}` : undefined })} aria-label={t('Room')} />
+        </>
+      )}
+      {step.type === 'connection' && (
+        <>
+          <select value={step.agentId || ''} onChange={(e) => set({ agentId: e.target.value })} aria-label={t('Agent')}>
+            <option value="">{t('Choose an agent')}</option>
+            {agents.map((a) => <option key={a.id} value={a.id}>{a.emoji ? `${a.emoji} ` : ''}{a.name} (@{a.handle})</option>)}
+          </select>
+          <select value={step.source || 'notion'} onChange={(e) => set({ source: e.target.value as 'notion'|'github', action: 'search' })} aria-label={t('Connection')}>
+            <option value="notion">Notion · {t('Search only')}</option>
+            <option value="github">GitHub · {t('Search only')}</option>
+          </select>
+          <textarea className="context-input" rows={2} placeholder={t('Search query')} value={step.query || ''} onChange={(e) => set({ query: e.target.value, action: 'search' })} aria-label={t('Search query')} />
+          <div className="row-sub">{t('Uses the selected Agent’s current connection grant. Read-only search; writes are not available.')}</div>
         </>
       )}
       {step.type === 'add_row' && (

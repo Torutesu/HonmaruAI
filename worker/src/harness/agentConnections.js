@@ -16,6 +16,11 @@ async function grantsFor(db, orgId, agentId, githubId) {
   return new Set(results.map(row => row.source));
 }
 
+export async function hasAgentSourceGrant(db, { orgId, agentId, githubId, source }) {
+  if (!AGENT_CONNECTION_SOURCES.includes(source) || !githubId || !agentId) return false;
+  return (await grantsFor(db, orgId, agentId, githubId)).has(source);
+}
+
 export async function agentSourceConnections(env, { orgId, agentId, session, canManageWorkspace = false }) {
   if (!session?.github_id || !orgId || !agentId) return { connections: [] };
   const [available, grants, workspace, workspaceGrants] = await Promise.all([

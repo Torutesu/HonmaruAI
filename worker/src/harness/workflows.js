@@ -11,6 +11,8 @@ import { WORKFLOW_WEBHOOK_REPLAY_TTL_MS, verifyWorkflowWebhook } from './workflo
 import { mayUseConversation } from './conversationAccess.js';
 import { getMode } from './mode.js';
 import { callRemoteMcpTool, remoteMcpTools } from './remoteMcp.js';
+import { searchNotion, searchGithubIssues, formatSourcesForModel } from '../context.js';
+import { agentSourceCredential, hasAgentSourceGrant } from './agentConnections.js';
 import { createWorkflowAuthorizationTrace, publicWorkflowAuthorizationEvents } from './workflowAuthorizationTrace.js';
 import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
 import { workflowCredentialSource } from '../orgAI.js';
@@ -28,7 +30,7 @@ import { cancelDeploymentBudgetWorkflowRuns } from '../workspaceBudgetStop.js';
 // is what carries it on (or ends it) — afterDecision in relay.js calls
 // settleWorkflowApproval.
 
-import { saveCard, getUserByLogin, isMember } from "../db.js";
+import { saveCard, getUserByLogin, getUserByGithubId, isMember } from "../db.js";
 import { postMessage } from "../channels.js";
 import { nextRunAt, nextScheduledRunAt, CADENCES, isTimeZone, isIsoInstant, MIN_SCHEDULE_INTERVAL_MS, MAX_SCHEDULE_INTERVAL_MS, validateCronExpression } from "../schedule.js";
 import { appendCardEvent } from "../events.js";
@@ -42,7 +44,7 @@ import { scheduleFollowup } from "./followups.js";
 import { withRoomGuidelines } from "./guidelines.js";
 
 export const TRIGGERS = ["manual", "schedule", "webhook", "row", "app_record_change"];
-export const STEP_TYPES = ["post", "agent", "add_row", "update_row", "approval", "followup", "code"];
+export const STEP_TYPES = ["post", "agent", "connection", "add_row", "update_row", "approval", "followup", "code"];
 export const MAX_STEPS = 12;
 export const MAX_WORKFLOWS = 100;
 /// A step that changes a row may start another workflow; a chain longer
@@ -174,6 +176,12 @@ export function normalizeSteps(raw) {
         if (!s.agentId || !s.prompt) return { error: "An agent step names the agent and what to ask it." };
         steps.push({ type: "agent", agentId: text("agentId", 64), prompt: text("prompt"), ...(s.channel ? { channel: text("channel", 200) } : {}) });
         break;
+      case "connection":
+        if (!s.agentId || !['notion', 'github'].includes(s.source) || s.action !== 'search' || typeof s.query !== 'string' || !s.query.trim()) {
+          return { error: "A connection step needs an Agent, a connected Notion or GitHub source, and a search query." };
+        }
+        steps.push({ type: 'connection', agentId: text('agentId', 64), source: s.source, action: 'search', query: text('query', 200) });
+        break;
       case "add_row":
         if (!s.tableId) return { error: "An add_row step names its table." };
         steps.push({ type: "add_row", tableId: text("tableId", 64), values: s.values && typeof s.values === "object" ? s.values : {} });
@@ -276,6 +284,36 @@ export async function unknownApprover(db, orgId, steps) {
   return null;
 }
 
+async function connectionStepsAvailable(db, orgId, steps, ownerId) {
+  if (steps.some(step => step.type === 'connection') && await getMode(db, orgId).catch(() => null) !== 'harness') {
+    return { error: 'Workflow Connection steps are available only in Harness mode.' };
+  }
+  for (const step of steps) {
+    if (step.type !== 'connection') continue;
+    const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
+    if (!agent || !(await mayRunAgent(db, orgId, agent, ownerId))
+      || !(await hasAgentSourceGrant(db, { orgId, agentId: step.agentId, githubId: ownerId, source: step.source }))) {
+      return { error: 'Choose an Agent with an active grant for this connection.' };
+    }
+  }
+  return null;
+}
+
+async function workflowConnectionPrincipal(env, { orgId, agentId, source, ownerId, actorId }) {
+  const db = env.DB;
+  if (await getMode(db, orgId).catch(() => null) !== 'harness') return null;
+  const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL").bind(orgId, agentId).first();
+  if (!agent || !(await mayRunAgent(db, orgId, agent, ownerId))
+    || !(await hasAgentSourceGrant(db, { orgId, agentId, githubId: ownerId, source }))) return null;
+  const ownerUser = await getUserByGithubId(db, String(ownerId)).catch(() => null);
+  if (!ownerUser) return null;
+  const actor = await getUserByGithubId(db, String(actorId)).catch(() => null);
+  if (!actor || !(await mayRunAgent(db, orgId, agent, actorId))) return null;
+  const credentialSource = await agentSourceCredential(env, { orgId, agentId, session: { github_id: String(actor.github_id) }, source });
+  if (!credentialSource) return null;
+  return { agent, actor, credentialSource };
+}
+
 async function unavailableProgramNode(db,orgId,steps) {
   const step=steps.find(step=>step.type==='code');
   if(!step)return null;
@@ -298,6 +336,7 @@ export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
     if (step.agentId) {
       const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
       if (!agent || !(await mayRunAgent(db, orgId, agent, viewerId))) return false;
+      if (step.type === 'connection' && !await hasAgentSourceGrant(db, { orgId, agentId: agent.id, githubId: viewerId, source: step.source })) return false;
     }
   }
   return true;
@@ -333,6 +372,8 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   if (t.error) return t;
   const s = normalizeSteps(input?.steps);
   if (s.error) return s;
+  const unavailableConnection = await connectionStepsAvailable(db, orgId, s.steps, by);
+  if (unavailableConnection) return unavailableConnection;
   const nobody = await unknownApprover(db, orgId, s.steps);
   if (nobody) return nobody;
   const unavailable=await unavailableProgramNode(db,orgId,s.steps);
@@ -387,6 +428,8 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
     if (nobody) return nobody;
     const unavailable=await unavailableProgramNode(db,orgId,s.steps);
     if(unavailable)return unavailable;
+    const unavailableConnection=await connectionStepsAvailable(db,orgId,s.steps,wf.createdBy);
+    if(unavailableConnection)return unavailableConnection;
     steps = s.steps;
   }
   const enabled = input.enabled !== undefined ? Boolean(input.enabled) : wf.enabled;
@@ -671,6 +714,16 @@ export async function replayWorkflowEvents(env, orgId, workflow, eventIds, start
   return { runs, skipped: eventIds.length - runs.length };
 }
 
+function workflowConnectionActorId(startedBy, workflowId, ownerId) {
+  if (startedBy == null) return String(ownerId);
+  const actor = String(startedBy);
+  if (/^\d+$/.test(actor)) return actor;
+  // A workflow's own row-write receipt is a system actor; it uses its maker's
+  // grant. Other non-human workflow identities cannot inherit that authority.
+  if (actor === `workflow:${workflowId}`) return String(ownerId);
+  return null;
+}
+
 /// Run steps from where the run stands until it finishes, fails, or waits.
 export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   const db = env.DB;
@@ -793,10 +846,17 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
           }
         }
         if (!entry) entry = step.type==='code' ? await enqueueWorkflowProgram(db,{orgId,runId})
-          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, authorize, authorizationTrace, credentialSource: run.credentialSource });
+          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, runActor: run.startedBy, authorize, authorizationTrace, credentialSource: run.credentialSource });
       }
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
+    }
+    if (step.type === 'connection' && entry.status === 'ok') {
+      const actorId = workflowConnectionActorId(run.startedBy, workflow.id, workflow.createdBy);
+      const stillAllowed = actorId && await authorize(authorizationTrace) && await workflowConnectionPrincipal(env, {
+        orgId, agentId: step.agentId, source: step.source, ownerId: workflow.createdBy, actorId,
+      });
+      if (!stillAllowed) entry = { status: 'failed', error: 'Connection access changed before the search result could be recorded; the result was discarded.' };
     }
     entry = { step: index + 1, type: step.type, at: now(), ...entry,
       ...(authorizationTrace.events.length ? { authorization: authorizationTrace.events } : {}) };
@@ -905,7 +965,7 @@ async function workflowAgentRemoteTools(env, { orgId, agentRow, owner, reservedN
   return tools;
 }
 
-async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, authorize, authorizationTrace, credentialSource }) {
+async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, runActor, authorize, authorizationTrace, credentialSource }) {
   const db = env.DB;
   if (step.channel) {
     const canUseConversation = await mayUseConversation(db, orgId, owner, step.channel);
@@ -970,6 +1030,24 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         await say(env, orgId, step.channel, answer, { authorLogin: `agent:${agentRow.id}`, kind: "agent" });
       }
       return { status: "ok", output: String(answer).slice(0, 4000) };
+    }
+    case "connection": {
+      const actorId = workflowConnectionActorId(runActor, workflow.id, owner);
+      if (!actorId) return { status: 'failed', error: 'The Workflow run actor is not a human connection principal.' };
+      const allowed = async () => await authorize(authorizationTrace) && await workflowConnectionPrincipal(env, {
+        orgId, agentId: step.agentId, source: step.source, ownerId: owner, actorId,
+      });
+      const principal = await allowed();
+      if (!principal) return { status: 'failed', error: 'The workflow owner or run actor no longer has access to this Agent connection.' };
+      const query = render(step.query, scope).slice(0, 200);
+      if (!query.trim()) return { status: 'failed', error: 'The connection search query is empty.' };
+      const found = step.source === 'notion'
+        ? await searchNotion(env, principal.actor.github_id, query).catch(() => null)
+        : await searchGithubIssues({ github_id: String(principal.actor.github_id) }, orgId, query, env, principal.credentialSource).catch(() => null);
+      if (!await allowed()) return { status: 'failed', error: 'Connection access changed while the search was running; the result was discarded.' };
+      if (!Array.isArray(found)) return { status: 'failed', error: 'The connected source could not return search results.' };
+      const output = formatSourcesForModel(found).slice(0, 4000);
+      return { status: 'ok', output, connection: { agentId: step.agentId, source: step.source, action: 'search', query, actorId } };
     }
     case "add_row": {
       const canUseTable = await mayEditTable(db, orgId, step.tableId, owner);
