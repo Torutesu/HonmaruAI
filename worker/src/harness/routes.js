@@ -1266,7 +1266,11 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({...r,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
     }
     const app = await getApp(env.DB, orgId, appId);
-    if (!app || !(await mayUseApp(env.DB, orgId, appId, me))) return json({ message: "No such app." }, 404);
+    // Workspace Admins may manage room-navigation links on a private App,
+    // but this narrow exception never grants access to App data or metadata.
+    const canManagePrivateLinks = sub === 'links' && ['POST', 'DELETE'].includes(request.method)
+      && await mayChange(env, orgId, who, app?.createdBy);
+    if (!app || (!(await mayUseApp(env.DB, orgId, appId, me)) && !canManagePrivateLinks)) return json({ message: "No such app." }, 404);
     if(sub==='record-proposals'&&parts.length===4){
       if(request.method!=='POST')return json({message:'Method not allowed.'},405);
       const proposal=await env.DB.prepare(`SELECT * FROM hx_app_record_proposals WHERE org_id=? AND app_id=? AND id=?`).bind(orgId,appId,parts[3]).first();
@@ -1645,11 +1649,13 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(result);
       }
       if (request.method === "DELETE") {
-        const channel = url.searchParams.get("channel");
-        if (!channel) return json({ message: 'channel is required' }, 400);
-        const result = await unlinkApp(env.DB, orgId, appId, channel);
+        const requested = url.searchParams.get("channel");
+        if (!requested) return json({ message: 'channel is required' }, 400);
+        const room = await readableConversation(env.DB, orgId, me, requested);
+        if (!room) return json({ message: 'No such room.' }, 404);
+        const result = await unlinkApp(env.DB, orgId, appId, room.key);
         if (result.error) return fail(result);
-        await audit(env, request, { orgId, action: 'app.room_unlinked', actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: {} });
+        await audit(env, request, { orgId, action: 'app.room_unlinked', actor: person(who.user), entity: { type: 'app', id: appId }, details: {} });
         return json(result);
       }
     }

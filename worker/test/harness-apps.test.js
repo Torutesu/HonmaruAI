@@ -275,6 +275,32 @@ test("room links require app authority and room access, and hidden room names ar
   expect(confidentialRoomList.apps.every(item => item.channels.includes("b:confidential"))).toBe(true);
 });
 
+test('workspace admins can manage links on a private app without reading the app or hidden rooms', async () => {
+  const at = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'shared-links','Shared links',0,'9101',?2)").bind(ORG, at).run();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'hidden-links','Hidden links',1,'9102',?2)").bind(ORG, at).run();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'b:hidden-links','mika','mika',?2)").bind(ORG, at).run();
+
+  const created = await send('POST', '/apps', mika, { orgId: ORG, name: 'Private app', columns: [{ name: 'Secret', type: 'text' }] });
+  expect(created.status).toBe(201);
+  const { app } = await created.json();
+  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?1,?2,'private',1)").bind(ORG, app.id).run();
+  await env.DB.prepare("INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?1,?2,'b:hidden-links','9102',?3)").bind(app.id, ORG, at).run();
+
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
+  const linked = await send('POST', `/apps/${app.id}/links`, toru, { orgId: ORG, channel: 'b:shared-links' });
+  expect(linked.status).toBe(200);
+  expect(await linked.json()).toEqual({ linked: true });
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
+
+  const removed = await send('DELETE', `/apps/${app.id}/links?orgId=${ORG}&channel=b%3Ashared-links`, toru, { orgId: ORG });
+  expect(removed.status).toBe(200);
+  expect(await removed.json()).toEqual({ unlinked: true });
+  const hiddenRemove = await send('DELETE', `/apps/${app.id}/links?orgId=${ORG}&channel=b%3Ahidden-links`, toru, { orgId: ORG });
+  expect(hiddenRemove.status).toBe(404);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_links WHERE app_id=?1 AND org_id=?2 AND channel='b:hidden-links'").bind(app.id, ORG).first()).toEqual({ n: 1 });
+});
+
 test('shared app templates are pinned, sanitized, expiring and revocable bearer links', async () => {
   const made = await send('POST', '/apps', mika, {
     orgId: ORG, name: 'Partner pipeline', tableName: 'Deals', description: 'Sales overview', icon: '💼',
