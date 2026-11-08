@@ -66,6 +66,14 @@ async function fixture(){
   for(const agent of [source,target]){
     await env.DB.prepare('INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,\'b:cafe\',?2,\'8801\',\'2026-11-05\')').bind(ORG,agent.id).run();
   }
+  for(const agent of [source,target]){
+    await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,updated_by,updated_at)
+      VALUES (?1,?2,'everyone','8801','2026-11-05')`).bind(ORG,agent.id).run();
+  }
+  // These cases exercise whether an explicit model control call is honored,
+  // not the separate owner-approval flow for a target with no peer grant.
+  await env.DB.prepare(`INSERT INTO hx_agent_agent_members(org_id,agent_id,member_agent_id,role,updated_by,updated_at)
+    VALUES (?1,?2,?3,'member','8801','2026-11-05')`).bind(ORG,target.id,source.id).run();
   const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@hayao review the evidence'});
   const runnerJobs=[];
   const runner={idFromName:name=>name,get:()=>({fetch:async(url,init)=>{
