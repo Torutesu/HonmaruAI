@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-08",
+  "asOf": "2026-11-09",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -764,8 +764,8 @@
       "acceptance": "再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止を実装。中断した実行は30分以上経過後に作成者/Adminが結果不明として記録できる。有効な実行リースがあれば拒否し、副作用の二重実行を避ける。保留イベント破棄UI、本番と実画面の確認は残る。",
       "evidence": {
         "reviewedAt": "2026-11-08",
-        "verified": "Added explicit stale-run reconciliation with 30-minute age threshold, exact started_at/log/next_step compare-and-swap, active node lease guard, no-replay outcome marker and workflow settlement/audit. Focused Worker workflow suite 110/110 and focused Web suite 57/57 passed; full Web suite 248 files/1,831 tests and Web TypeScript+build passed. Full local Worker suite did not complete because the sandbox Cloudflare emulator repeatedly lost its network connection and raised Durable Object internal errors; exact-head CI remains required.",
-        "remaining": "Exact-head CI and production deployment/UI verification. Uncertain side effects are never automatically replayed; users must reconcile externally before starting a new run."
+        "verified": "Added explicit stale-run reconciliation with 30-minute age threshold, exact started_at/log/next_step compare-and-swap, active node lease guard, no-replay outcome marker and workflow settlement/audit. Focused Worker workflow suite 110/110 and focused Web suite 57/57 passed; full Web suite 248 files/1,831 tests and Web TypeScript+build passed. The implementation is on main through eb977ae6 and is included in main CI run 42494741384 and Worker deployment run 42494741296; migrations, deploy and Verify passed.",
+        "remaining": "Production webhook detail/held-event UI acceptance and exact Kylon screen comparison remain. Uncertain side effects are never automatically replayed; users must reconcile externally before starting a new run."
       }
     },
     {
@@ -1237,22 +1237,22 @@
       "code": "web-react/src/components/AppAnnotation.tsx, web-react/src/components/AppConversationPanel.tsx, worker/src/harness/routes.js",
       "acceptance": "A selected visible field retains its column ID and record ID through the annotation draft, opens the exact ACL-protected record conversation, and includes the record snapshot and field identity in the Agent context. Persist the message and annotation only to that record; verify another record and unauthorized viewers cannot read it. Agent-proposed changes must require explicit confirmation, current edit ACL, schema validation and row CAS; Undo is allowed only while the row remains at the applied version. Authenticated production comparison remains required. Preserve the existing Simple mode and use no new paid service.",
       "evidence": {
-        "verified": "The table drag-selection now carries visible column ID and row/table identity into the record conversation. Worker allows annotation only after appConversation validates that exact linked table/record under the viewer's current ACL. Record-scoped AI can now return a bounded proposal; only an edit-authorized member can explicitly apply it through updateRow strict validation and expectedUpdatedAt CAS. Rejection does not write; stale proposals fail closed; successful changes can be undone only against the exact applied row version. Added Worker regressions for proposal/apply/undo/stale conflict and a Web confirmation-card regression. Web full suite: 246 files / 1,824 tests passed; TypeScript/production build passed. Worker conversation suite: 119 tests passed. Full Worker suite was attempted and stopped after known network-dependent tests reported Network connection lost.",
-        "remaining": "Exact-head CI, D1 migration deploy, production release and authenticated logged-in side-by-side Kylon comparison remain. The complete Worker suite did not finish locally because several unrelated network-dependent tests lost connectivity. This remains partial parity until production acceptance and real Kylon interaction are checked."
+        "verified": "The table drag-selection now carries visible column ID and row/table identity into the record conversation. Worker allows annotation only after appConversation validates that exact linked table/record under the viewer's current ACL. Record-scoped AI returns a bounded proposal; only an edit-authorized member can explicitly apply it through strict updateRow validation and expectedUpdatedAt CAS. Rejection does not write; stale proposals fail closed; undo is limited to the exact applied row version and rechecks permission. Worker regressions cover proposal/apply/undo/stale conflict; Web covers the confirmation card. The focused Worker conversation suite passed 119 tests and the implementation is included in main CI run 42494741384 and Worker deployment run 42494741296, including D1 migrations and Verify.",
+        "remaining": "The full Worker suite did not finish locally because unrelated network-dependent tests lost connectivity. Authenticated production record/field interaction and side-by-side Kylon comparison remain. This remains partial parity until those acceptance checks are completed."
       }
     },
     {
       "id": "KY-112",
       "category": "Agents",
       "requirement": "Per-run human approval for an Agent wake with bounded scope",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://kylon.io/changelog",
       "code": "worker/src/harness/agentAssignmentGrant.js, worker/src/harness/agentAssignments.js, worker/src/relay.js",
       "acceptance": "When an Agent requests a handoff to a room Agent without a static peer grant, persist one pending approval bound to the exact assignment generation, source/target Agent, room, thread, source message and operation. Create a private decision card and do not write a handoff message, create a dispatch outbox row, claim, or call the target before approval. Authorized human decisions grant one of: once, ten minutes (default), exact thread, exact room. Store expiry, use limit/count and exact room/thread bindings server-side; never trust scope from mutable card metadata. Revalidate current approver ACL, source and target availability/room access, request state, expiry and exact binding at decision and dispatch. Duplicate requests, decline, cancellation, expiration, simultaneous consumption and replay must fail closed. The grant creator can list and revoke their own grants; expired and consumed once grants remain distinguishable in history. Preserve Simple mode and add no paid service.",
       "evidence": {
-        "verified": "Kylon changelog dated 2026-10-30 describes Allow once, Allow for 10 min (default), Allow in this thread, and Always allow in this room for a per-run Agent wake request.",
-        "remaining": "Honmaru currently supports static peer assignment only. Scoped human approval, dispatch gating, UI choices, D1 race/replay regressions, authenticated production behavior and live Kylon comparison are not implemented or verified."
+        "verified": "Kylon changelog dated 2026-10-30 describes Allow once, Allow for 10 min (default), Allow in this thread, and Always allow in this room. Honmaru implements private pending decision cards; no target dispatch before approval; server-stored once/10-minute/thread/room scopes; current assignment, membership and room checks at decision and dispatch; creator grant listing/revocation; expiry, cancellation, duplicate, replay and race handling. Focused agent-wake-approvals tests and dispatch revalidation landed in PRs #823 and #826. Exact-head CI for #826 (42493079407), post-merge main CI (42494741384) and Worker deployment (42494741296) succeeded; deployment ran migrations, Deploy and Verify.",
+        "remaining": "Status stays partial pending authenticated production approval flow acceptance, full multi-actor race/replay verification on the live service, and side-by-side Kylon interaction comparison. A successful build/deploy alone is not parity acceptance. Simple mode remains unchanged; no paid service was added."
       }
     }
   ]

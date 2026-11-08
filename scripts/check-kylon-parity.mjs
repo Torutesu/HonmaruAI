@@ -3,14 +3,22 @@
 import { readFileSync } from 'node:fs';
 
 const root = new URL('../docs/kylon-parity/', import.meta.url);
-const { requirements } = JSON.parse(readFileSync(new URL('requirements.json', root), 'utf8'));
+const inventory = JSON.parse(readFileSync(new URL('requirements.json', root), 'utf8'));
+const { requirements } = inventory;
+const matrix = readFileSync(new URL('matrix.md', root), 'utf8');
 const rows = new Map();
-for (const line of readFileSync(new URL('matrix.md', root), 'utf8').split('\n')) {
+for (const line of matrix.split('\n')) {
   if (!line.startsWith('| KY-')) continue;
   const cells = line.split('|').slice(1, -1).map(s => s.trim());
   if (rows.has(cells[0])) throw new Error(`Duplicate matrix row: ${cells[0]}`);
   rows.set(cells[0], cells[2]);
 }
+const asOf = matrix.match(/^調査基準日: (\d{4}-\d{2}-\d{2})/m)?.[1];
+if (asOf !== inventory.asOf) {
+  throw new Error(`Matrix date=${asOf}, requirements.asOf=${inventory.asOf}`);
+}
+const matrixCount = Number(matrix.match(/^全(\d+)項目。/m)?.[1]);
+if (matrixCount !== requirements.length) throw new Error(`Matrix total=${matrixCount}, requirements=${requirements.length}`);
 const seen = new Set();
 const counts = {};
 for (const item of requirements) {

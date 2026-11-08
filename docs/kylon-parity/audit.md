@@ -110,3 +110,6 @@ Kylonのログイン済みMacアプリで確認。共有ダイアログのプレ
 作成応答が失われた場合の冪等性、権限変更の全経路での即時失効、実運用の端末間検証は未完了。
 現在の権限・参加者・公開範囲はリンク閲覧時にも照合するが、
 閲覧がない間に権限を変更して元に戻すケースまで即時失効を保証するものではない。
+# 2026-11-09 current-main reconciliation
+
+Current inventory is 102 requirements (95 partial, 4 implemented, 1 unverified, 2 missing). This is a bookkeeping distribution, not a completion percentage. KY-112 was already implemented on main through PRs #823/#826 and deployed; the old “missing” entry was stale. It is now partial pending authenticated production acceptance and direct Kylon interaction comparison. KY-063's no-replay stalled-run reconciliation and KY-111 record proposals are also present in main and covered by successful main CI `42494741384` and Worker deployment `42494741296` (migrations, deployment, Verify). The logged-in Kylon Data Viewer was inspected read-only; toolbar controls were visible, the table was empty, and no data was modified. Full behavioral parity remains unproven.

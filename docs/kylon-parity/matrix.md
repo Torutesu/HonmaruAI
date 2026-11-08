@@ -1,8 +1,10 @@
 # Kylon機能差分・受入条件
 
-調査基準日: 2026-11-01。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。
+調査基準日: 2026-11-09。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。
 
-全98項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
+全102項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
+
+2026-11-09 台帳一括整合: main 93951cea時点の要件102件と照合し、KY-112を未実装から一部へ修正（実装・main CI・Worker deploy証跡を追記）。KY-063/KY-111のCI・Worker deploy証跡も更新。ログイン済みKylonのData Viewerを読み取り専用で確認し、ビュー切替・新規ビュー・フィールド・フィルター・グループ・その他・列ソート・レコード追加を確認。表示中のテーブルは0件で、データ変更なし。操作レベルの比較・承認フローの本番受入は未確認。
 
 2026-10-23 公開状況: 原子的ルーム作成と3段階UI、保存色、役割変更・メンバーUIを本番公開済み。93c400d7のCIは全必須ジョブ成功。1dcf52cbで管理対象ルームの追加入口も共通化し、d8e85c76のWebデプロイで公開。10色パレット・Escape時の入力保持・CIバージョン修正もa673f31eで本番公開し、全必須CI成功と本番作成／再読み込みを確認。既定ルーム、プライバシー編集、全利用者・端末での検証は未完了。
 
@@ -111,7 +113,7 @@
 | KY-060 | 条件分岐・batch・制限付き並列 | 一部実装 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 部分失敗・ページング・取りこぼし率を結果に含める |
 | KY-061 | 実行履歴・step結果 | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js), [web-react/src/screens/HarnessWorkflows.tsx](../../web-react/src/screens/HarnessWorkflows.tsx), [web-react/src/utils/runHistory.ts](../../web-react/src/utils/runHistory.ts) | Kylonは日別グループと失敗フィルターを掲載 ([Run history](https://kylon.io/product/run-history))。Honmaruの同等表示・失敗のみ切替はcommit 1c80323で実装し、成功したDeploy Web #324に含まれる。全stepの入力・出力・エラー・コスト・権限追跡と本番の詳細状態確認は残る |
 | KY-062 | 署名付きWebhookと再送防止 | 実装あり | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 8c753f91 を本番反映。新規・再発行credentialはHMAC-SHA256、5分以内timestamp、event ID、7日間の原子的重複排除を検証。既存URL-only credentialは明示rotationまで互換動作。 |
-| KY-063 | Webhook rotation/revoke/held/replay | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止、保留イベント破棄UIを本番反映。中断した実行の復旧とWebhook詳細画面の実画面検証は残る。 |
+| KY-063 | Webhook rotation/revoke/held/replay | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止、30分後の結果不明記録（副作用を再実行しない）を本番反映。main CI 42494741384、Worker migrations/deploy/Verify 42494741296成功。保留イベント破棄UIとWebhook詳細画面・実画面検証は残る。 |
 | KY-064 | 承認待ち・継続 | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 承認者・操作内容・revisionを固定し二重承認を排除 |
 | KY-065 | 停止・再開・アーカイブ | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | スケジュール停止と実行キャンセルを区別 |
 | KY-066 | 実行者の権限を再検証 | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js), [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js), [worker/src/harness/modelToolLoop.js](../../worker/src/harness/modelToolLoop.js) | Workflow内Agentの各モデル往復・ツール呼び出し前後でmakerの現行Agent grantと会話アクセスを再検証し、回答公開直前にも確認。app_record_change元App/Table権限も認可fenceに含め、要求待機中にgrantを失った場合はWorkerのHTTP要求を中断し、未確定usageをunknown/unpricedとして記録。PR #579/#581をmain統合し、main CI #41224384637とWorker deploy #41224384634成功。PR #721 draftで既存Agent grantを使うWorkflow Connectionのread-only Notion/GitHub検索を追加し、request/response/output時点で権限を再検証。書込操作はConnection APIに分類・承認proxyがないため未対応。プロバイダー側の処理・請求まで止まる保証はない。その他Workflow副作用経路の監査は残る |
@@ -225,12 +227,12 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-111 | Appのレコード／フィールドを指してAgentに更新を依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [AppConversationPanel.tsx](../../web-react/src/components/AppConversationPanel.tsx), [worker/src/harness/routes.js](../../worker/src/harness/routes.js) | 表示中の列ID・レコードIDとレコードスナップショットを権限付き会話へ引き継ぎ、AIが変更案を出す。最大8フィールドの変更を24時間有効な提案として保存し、権限者の明示承認後のみupdateRowの型検証・CASで反映。拒否・期限切れ・競合を拒否し、未変更レコードへのCAS Undoを追加。undoの権限も再確認。Simple modeは変更なし、既存AI枠以外の課金なし。Worker全体・CI・本番・Kylon実画面比較は未完了。 |
+| KY-111 | Appのレコード／フィールドを指してAgentに更新を依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [AppConversationPanel.tsx](../../web-react/src/components/AppConversationPanel.tsx), [worker/src/harness/routes.js](../../worker/src/harness/routes.js) | 表示中の列ID・レコードIDとレコードスナップショットを権限付き会話へ引き継ぎ、AIが変更案を出す。最大8フィールドの変更を24時間有効な提案として保存し、権限者の明示承認後のみupdateRowの型検証・CASで反映。拒否・期限切れ・競合を拒否し、未変更レコードへのCAS Undoを追加。undoの権限も再確認。Simple modeは変更なし、既存AI枠以外の課金なし。main CI 42494741384、Worker migrations/deploy/Verify 42494741296成功。認証済みのレコード・フィールド操作とKylon実画面比較は未完了。 |
 
-### 2026-11-08 — Agent wake approval scopes
+### 2026-11-09 — Agent wake approval scopes release evidence
 
-Kylonの[2026-10-30 changelog](https://kylon.io/changelog)は、別Agentを起こす際に `Allow once` / `Allow for 10 min`（既定）/ `Allow in this thread` / `Always allow in this room` を人が選ぶ仕様を記載。KY-112として追跡する。Honmaru現行の静的peer許可に対する動的な人間承認、承認前dispatch遮断、範囲付きgrant、実画面QAは未実装。
+Kylonの[2026-10-30 changelog](https://kylon.io/changelog)は、別Agentを起こす際に `Allow once` / `Allow for 10 min`（既定）/ `Allow in this thread` / `Always allow in this room` を人が選ぶ仕様を記載。HonmaruはPR #823/#826で承認カード、範囲付きgrant、dispatch時権限再検証を実装し、exact-head CI 42493079407、main CI 42494741384、Worker deploy 42494741296（migration/deploy/Verify）が成功。ログイン済みKylon/Honmaru間の操作比較と本番複数利用者受入は残る。
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-112 | Agent起動の実行単位人間承認と期限付き範囲 | 未実装 | P0 | [agentAssignmentGrant.js](../../worker/src/harness/agentAssignmentGrant.js), [agentAssignments.js](../../worker/src/harness/agentAssignments.js), [relay.js](../../worker/src/relay.js) | D1にassignment世代・operation・room/thread/source/targetを結合したpendingを作り、承認前はメッセージ・dispatch outbox・claimを作らない。private decision cardから一度・10分（既定）・exact thread・exact roomを選択。D1の期限/使用回数/bindingをサーバー側で保存し、決定・dispatch双方で現行ACLを再検証。重複、取消、失効、同時消費、replayを拒否。Simple維持、新規課金なし。根拠は公開changelogのみで、ログイン済みKylonとHonmaruの画面/動作比較は残る。 |
+| KY-112 | Agent起動の実行単位人間承認と期限付き範囲 | 一部 | P0 | [agentAssignmentGrant.js](../../worker/src/harness/agentAssignmentGrant.js), [agentAssignments.js](../../worker/src/harness/agentAssignments.js), [relay.js](../../worker/src/relay.js) | assignment世代・operation・room/thread/source/targetに結合したpendingをD1に保存。承認前にhandoff message/outbox/claim/target callを作らない。private decision cardからonce/10分（既定）/thread/roomを選び、grantの期限・回数・bindingをサーバー側で検証。現行ACLをdecision/dispatch双方で再確認し、重複・取消・失効・競合・replayを拒否。PR #823/#826 exact-head CI 42493079407、main CI 42494741384、Worker migration/deploy/Verify 42494741296成功。Simple維持・新規課金なし。認証済み本番フローとKylon実画面比較は残る。 |
