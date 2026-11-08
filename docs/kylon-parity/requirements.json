@@ -1240,6 +1240,20 @@
         "verified": "The table drag-selection now carries visible column ID and row/table identity into the record conversation. Worker allows annotation only after appConversation validates that exact linked table/record under the viewer's current ACL. Record-scoped AI can now return a bounded proposal; only an edit-authorized member can explicitly apply it through updateRow strict validation and expectedUpdatedAt CAS. Rejection does not write; stale proposals fail closed; successful changes can be undone only against the exact applied row version. Added Worker regressions for proposal/apply/undo/stale conflict and a Web confirmation-card regression. Web full suite: 246 files / 1,824 tests passed; TypeScript/production build passed. Worker conversation suite: 119 tests passed. Full Worker suite was attempted and stopped after known network-dependent tests reported Network connection lost.",
         "remaining": "Exact-head CI, D1 migration deploy, production release and authenticated logged-in side-by-side Kylon comparison remain. The complete Worker suite did not finish locally because several unrelated network-dependent tests lost connectivity. This remains partial parity until production acceptance and real Kylon interaction are checked."
       }
+    },
+    {
+      "id": "KY-112",
+      "category": "Agents",
+      "requirement": "Per-run human approval for an Agent wake with bounded scope",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://kylon.io/changelog",
+      "code": "worker/src/harness/agentAssignmentGrant.js, worker/src/harness/agentAssignments.js, worker/src/relay.js",
+      "acceptance": "When an Agent requests a handoff to a room Agent without a static peer grant, persist one pending approval bound to the exact assignment generation, source/target Agent, room, thread, source message and operation. Create a private decision card and do not write a handoff message, create a dispatch outbox row, claim, or call the target before approval. Authorized human decisions grant one of: once, ten minutes (default), exact thread, exact room. Store expiry, use limit/count and exact room/thread bindings server-side; never trust scope from mutable card metadata. Revalidate current approver ACL, source and target availability/room access, request state, expiry and exact binding at decision and dispatch. Duplicate requests, decline, cancellation, expiration, simultaneous consumption and replay must fail closed. The grant creator can list and revoke their own grants; expired and consumed once grants remain distinguishable in history. Preserve Simple mode and add no paid service.",
+      "evidence": {
+        "verified": "Kylon changelog dated 2026-10-30 describes Allow once, Allow for 10 min (default), Allow in this thread, and Always allow in this room for a per-run Agent wake request.",
+        "remaining": "Honmaru currently supports static peer assignment only. Scoped human approval, dispatch gating, UI choices, D1 race/replay regressions, authenticated production behavior and live Kylon comparison are not implemented or verified."
+      }
     }
   ]
 }

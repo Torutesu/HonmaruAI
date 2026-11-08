@@ -1,4 +1,5 @@
 import {assignmentExecutionGrant} from './agentAssignmentGrant.js';
+import {validAgentWakeGrantForHandoff} from './agentWakeApprovals.js';
 import {endAssignment} from './agentAssignments.js';
 
 // Only queue delivery is retried. An accepted operation has one runner receipt
@@ -25,7 +26,7 @@ export async function drainAgentHandoffs(env,{now=Date.now(),limit=20,orgId=null
       // A completed/advanced generation proves this delivery already ran, even
       // if its queue acknowledgement was lost. Never queue its execution again.
       else if(assignment.generation>execution.generation || (assignment.generation===execution.generation && ['running','finished','failed','interrupted'].includes(assignment.status)))status='accepted';
-      else if(!await assignmentExecutionGrant(env,{...execution,allowPending:true})) {
+      else if(!await validAgentWakeGrantForHandoff(env.DB,operation,new Date(now).toISOString()) || !await assignmentExecutionGrant(env,{...execution,allowPending:true})) {
         await endAssignment(env.DB,{...execution,status:'cancelled'});
         status='cancelled';
       } else {

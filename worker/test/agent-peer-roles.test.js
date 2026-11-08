@@ -26,6 +26,7 @@ beforeEach(async()=>{
     await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
       VALUES (?1,?2,?2,?2,'Help','team','owner','now','now')`).bind(org,id).run();
     await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,updated_at) VALUES (?1,?2,'private','now')`).bind(org,id).run();
+    await env.DB.prepare(`INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:room',?2,'owner','now')`).bind(org,id).run();
   }
   await env.DB.prepare(`INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at)
     VALUES (?1,?2,?3,?4,'message',?5,'now')`).bind(row.id,org,row.channel,row.author_login,row.body).run();

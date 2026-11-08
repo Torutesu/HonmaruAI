@@ -6,8 +6,19 @@ const row = {id:'request', channel:'b:room', author_login:'alice', parent_id:nul
 const origin = {orgId:'org',row,agentId:'researcher',actorId:'person',sessionKey:'h1:session'};
 beforeEach(async () => {
   await env.DB.exec(schema.replace(/\n/g, ' '));
+  const {upsertUser,upsertMembership}=await import('../src/db.js');
+  await upsertUser(env.DB,{githubId:'person',login:'alice',name:'Alice',avatarUrl:null,locale:'en'});
+  await upsertMembership(env.DB,'org','person','member');
   await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at) VALUES (?1,'org',?2,?3,'message',?4,'2026-10-24')")
     .bind(row.id,row.channel,row.author_login,row.body).run();
+  const agents=['researcher','reviewer','analyst','other'];
+  for(const id of agents) {
+    await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES ('org',?1,?1,?1,'Test','team','alice','now','now')`).bind(id).run();
+    await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,updated_at) VALUES ('org',?1,'private','now')`).bind(id).run();
+    await env.DB.prepare(`INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES ('org','b:room',?1,'alice','now')`).bind(id).run();
+  }
+  for(const target of agents)for(const source of agents)if(target!==source)
+    await env.DB.prepare(`INSERT INTO hx_agent_agent_members(org_id,agent_id,member_agent_id,role,updated_by,updated_at) VALUES ('org',?1,?2,'member','alice','now')`).bind(target,source).run();
 });
 const start = async (extra={}) => (await beginAssignment(env.DB,{...origin,...extra})).assignment;
 const move = (assignment, extra={}) => ({orgId:'org',assignmentId:assignment.id,generation:0,sourceAgentId:'researcher',targetAgentId:'reviewer',operationId:'operation-1',brief:'Check the evidence',messageBody:'Handing off to @reviewer: Check the evidence',...extra});

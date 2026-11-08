@@ -370,6 +370,28 @@ export async function handleHarness(request, env, url, context = {}) {
   const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && request.method === 'POST' && (parts.length === 3 || (parts.length === 5 && parts[4] === 'revoke'))) || (parts[0] === 'apps' && parts[2] === 'conversation-notifications' && parts.length === 3) });
   if (who.denied) return who.denied;
   const me = who.session.github_id;
+  if (url.pathname === '/hx/agent-wake-grants') {
+    if (request.method === 'GET') {
+      const { results = [] } = await env.DB.prepare(`SELECT g.id,g.source_agent_id AS sourceAgentId,g.target_agent_id AS targetAgentId,
+        g.room_channel AS room,g.thread_id AS thread,g.scope,g.created_at AS createdAt,g.expires_at AS expiresAt,
+        g.use_limit AS useLimit,g.use_count AS useCount,g.revoked_at AS revokedAt,
+        CASE WHEN g.revoked_at IS NOT NULL THEN 'revoked' WHEN g.expires_at IS NOT NULL AND g.expires_at<=?3 THEN 'expired'
+          WHEN g.use_limit IS NOT NULL AND g.use_count>=g.use_limit THEN 'consumed' ELSE 'active' END AS state
+        FROM hx_agent_wake_grants g WHERE g.org_id=?1 AND g.requester_id=?2
+        ORDER BY g.created_at DESC LIMIT 200`).bind(orgId,me,new Date().toISOString()).all();
+      return json({ grants: results });
+    }
+    if (request.method === 'DELETE') {
+      if (typeof input.grantId !== 'string') return json({message:'A grant ID is required.'},400);
+      const result=await env.DB.prepare(`UPDATE hx_agent_wake_grants SET revoked_at=?4,updated_at=?4
+        WHERE org_id=?1 AND id=?2 AND requester_id=?3 AND revoked_at IS NULL AND scope IN ('ten_minutes','thread','room')`)
+        .bind(orgId,input.grantId,me,new Date().toISOString()).run();
+      if(!result.meta?.changes)return json({message:'No active revocable grant was found.'},404);
+      await audit(env,request,{orgId,action:'agent.wake_grant_revoked',actor:person(who.user),entity:{type:'agent_wake_grant',id:input.grantId}});
+      return json({revoked:true});
+    }
+    return json({message:'Method not allowed.'},405);
+  }
   if (url.pathname === "/remote-mcp" || url.pathname.startsWith("/remote-mcp/")) {
     if (request.method === "GET" && url.pathname === "/remote-mcp/registry") {
       const limited = await enforce(env, request, "remote-mcp/registry");

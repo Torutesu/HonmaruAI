@@ -6,8 +6,9 @@ export function externalIdentity(run) {
 }
 export async function externalAssignmentPending(db,{orgId,assignmentId,generation,agentId}) {
   return Boolean(await db.prepare(`SELECT 1 FROM ai_teammate_runs WHERE org_id=?1 AND assignment_id=?2 AND assignment_generation=?3 AND assignment_agent_id=?4 AND status='running'
-    UNION ALL SELECT 1 FROM ai_teammate_result_dispatch WHERE org_id=?1 AND assignment_id=?2 AND assignment_generation=?3 AND assignment_agent_id=?4 AND status='pending' LIMIT 1`)
-    .bind(orgId,assignmentId,generation,agentId).first());
+    UNION ALL SELECT 1 FROM ai_teammate_result_dispatch WHERE org_id=?1 AND assignment_id=?2 AND assignment_generation=?3 AND assignment_agent_id=?4 AND status='pending'
+    UNION ALL SELECT 1 FROM hx_agent_wake_approvals WHERE org_id=?1 AND assignment_id=?2 AND source_generation=?3 AND source_agent_id=?4 AND status='pending' AND request_expires_at>?5 LIMIT 1`)
+    .bind(orgId,assignmentId,generation,agentId,new Date().toISOString()).first());
 }
 export async function externalReplyGrant(env,run,agentId) {
   const identity=externalIdentity(run);

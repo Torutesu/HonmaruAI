@@ -23,6 +23,14 @@ const call = async (path, init, over = {}) => {
 const headers = (token) => ({ "content-type": "application/json", "x-session-token": token });
 const send = (method, path, token, body, over) => call(path, { method, headers: headers(token), body: JSON.stringify(body) }, over);
 const get = (path, token) => call(path, { headers: headers(token) });
+const permitPeer = async (targetAgentId, sourceAgentId) => {
+  // These fixtures create legacy team Agents in Simple mode. Give them the
+  // managed profiles required by the peer-role ACL before granting the role.
+  for (const agentId of [targetAgentId, sourceAgentId]) {
+    await env.DB.prepare(`INSERT OR IGNORE INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at) VALUES (?1,?2,'everyone','[]','8801','test')`).bind(ORG,agentId).run();
+  }
+  return env.DB.prepare(`INSERT OR IGNORE INTO hx_agent_agent_members(org_id,agent_id,member_agent_id,role,updated_by,updated_at) VALUES (?1,?2,?3,'member','8801','test')`).bind(ORG,targetAgentId,sourceAgentId).run();
+};
 const q = (o) => new URLSearchParams(o).toString();
 
 const HAYAO = `---
@@ -922,7 +930,7 @@ test('handoff retains the human origin but resolves only the explicitly assigned
   const begun=await beginAuthorizedAssignment(env,request,source.id);expect(begun.started).toBe(true);
   const assignmentId=begun.assignment.id;
   const input={orgId:ORG,assignmentId,generation:0,sourceAgentId:source.id,targetAgentId:target.id,operationId:'handoff-test',brief:'Review the art direction',messageBody:'Handing off to @reviewer'};
-  expect(await acceptAgentHandoff(env,input)).toMatchObject({status:403});
+  expect(await acceptAgentHandoff(env,input)).toMatchObject({approvalRequired:true,approval:{status:'pending'}});
   expect(await env.DB.prepare('SELECT 1 FROM hx_agent_handoff_dispatch WHERE org_id=?1 AND operation_id=?2').bind(ORG,input.operationId).first()).toBeNull();
   expect((await env.DB.prepare('SELECT current_agent_id,generation,status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,assignmentId).first())).toMatchObject({current_agent_id:source.id,generation:0,status:'running'});
   expect((await send('PUT',`/hx/agents/${target.id}/agent-members`,toru,{orgId:ORG,memberAgentId:source.id,role:'member',expectedVersion:0})).status).toBe(200);
@@ -1042,6 +1050,9 @@ test('handoff delivery retries a lost acknowledgement and cancels after source e
  const {postMessage}=await import('../src/channels.js');const {getSession}=await import('../src/db.js');
  await setMode(env.DB,ORG,'harness','8801');
  for(const id of [source.id,target.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'8801','2026-10-24')").bind(ORG,id).run();
+ await permitPeer(target.id,source.id);
+ const peerCheck=await env.DB.prepare(`SELECT 1 FROM hx_agent_agent_members peer JOIN custom_agents source ON source.org_id=peer.org_id AND source.id=peer.member_agent_id AND source.scope='team' AND source.provider IS NULL AND source.deleted_at IS NULL JOIN hx_agent_profiles sp ON sp.org_id=source.org_id AND sp.agent_id=source.id WHERE peer.org_id=?1 AND peer.agent_id=?2 AND peer.member_agent_id=?3`).bind(ORG,target.id,source.id).first();
+ expect(peerCheck).toBeTruthy();
  const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@hayao review evidence'});
  const begun=await beginAuthorizedAssignment(env,{orgId:ORG,rowId:row.id,token:(await getSession(env.DB,mika)).token},source.id);
  expect(begun.started).toBe(true);
@@ -1065,6 +1076,7 @@ async function assignmentStatusFixture() {
  const {beginAuthorizedAssignment,acceptAgentHandoff}=await import('../src/harness/agentAssignmentGrant.js');
  await setMode(env.DB,ORG,'harness','8801');
  for(const id of [source.id,target.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'8801','2026-10-24')").bind(ORG,id).run();
+ await permitPeer(target.id,source.id);
  const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@hayao review evidence'});
  const begun=await beginAuthorizedAssignment(env,{orgId:ORG,rowId:row.id,token:(await getSession(env.DB,mika)).token},source.id);
  expect(begun.started).toBe(true);

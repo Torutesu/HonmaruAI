@@ -4,6 +4,7 @@ import {channelAgents} from '../customAgents.js';
 import {filterResponders} from './agents.js';
 import {getMode} from './mode.js';
 import {beginAssignment, commitHandoff, sourceFingerprint} from './agentAssignments.js';
+import {activeAgentWakeGrant,requestAgentWakeApproval} from './agentWakeApprovals.js';
 
 // A delegation is not a forged human message. It retains the original human
 // session and source, with an explicitly assigned target checked separately.
@@ -51,6 +52,24 @@ export async function acceptAgentHandoff(env,input) {
   if (!grant) return {error:'Execution access changed.',status:403};
   const eligible = await assignmentTargets(env,grant);
   if (![input.sourceAgentId,input.targetAgentId].every(id=>eligible.some(agent=>agent.id===id))) return {error:'The handoff agents are not available in this room.',status:403};
+  const prior=await env.DB.prepare(`SELECT * FROM hx_agent_handoffs WHERE org_id=?1 AND operation_id=?2`).bind(input.orgId,input.operationId).first();
+  if(prior) {
+    if(prior.assignment_id!==input.assignmentId||prior.source_generation!==input.generation||prior.source_agent_id!==input.sourceAgentId
+      ||prior.target_agent_id!==input.targetAgentId||prior.brief!==input.brief||prior.message_body!==input.messageBody)
+      return {error:'This operation ID belongs to a different handoff.',status:409};
+    return {operation:prior,replayed:true};
+  }
+  const target=eligible.find(agent=>agent.id===input.targetAgentId);
+  const targetExists=Boolean(target);
+  const staticPermit=!targetExists || Boolean(await env.DB.prepare(`SELECT 1 FROM hx_agent_agent_members WHERE org_id=?1 AND agent_id=?2 AND member_agent_id=?3`).bind(input.orgId,input.targetAgentId,input.sourceAgentId).first());
+  if(targetExists&&!staticPermit) {
+    const wakeGrantId=await activeAgentWakeGrant(env.DB,{orgId:input.orgId,assignmentId:input.assignmentId,sourceAgentId:input.sourceAgentId,targetAgentId:input.targetAgentId,operationId:input.operationId});
+    if(!wakeGrantId) {
+      const request=await requestAgentWakeApproval(env,assignment,{requesterLogin:grant.user.login,targetName:target.name,...input});
+      return request.error?request:{approvalRequired:true,...request};
+    }
+    input={...input,wakeGrantId};
+  }
   // commitHandoff checks immutable replay identity before consuming ownership.
   // A valid retry can inspect its original result after the generation changed.
   return commitHandoff(env.DB,input);

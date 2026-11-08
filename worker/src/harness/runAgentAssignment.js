@@ -32,6 +32,7 @@ export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=
         const result=await acceptAgentHandoff(env,{...identity,generation:assignment.generation,sourceAgentId:agent.id,targetAgentId:target.id,operationId,brief:args.brief,
           messageBody:serverText(locale,'agent.handoff',{name:target.name,handle:target.handle,brief:args.brief})});
         if(result.error)return {error:result.error};
+        if(result.approvalRequired)return handoffControl(operationId);
         if(publish)await publish(result.operation.message_id).catch(()=>{});
         await drainAgentHandoffs(env,{orgId,operationId}).catch(()=>{});
         return handoffControl(operationId);

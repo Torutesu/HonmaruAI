@@ -285,6 +285,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     setAgentRemoteMcpConnection: (agentId: string, serverId: string, granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { remoteMcpServerId: serverId } : undefined, granted ? undefined : { remoteMcpServerId: serverId }),
     transferAgentOwnership: (agentId:string,ref:string,expectedVersion:number)=>call<{version:number}>('PUT',`/hx/agents/${agentId}/ownership`,{ref,expectedVersion}),
     setAgentMember: (agentId: string, ref: string, role: 'admin' | 'member' | 'none', expectedVersion: number) => call<{version:number}>('PUT', `/hx/agents/${agentId}/members`, {ref,role,expectedVersion}),
+    agentWakeGrants: () => call<{grants:Array<{id:string;sourceAgentId:string;targetAgentId:string;room:string;thread:string;scope:'once'|'ten_minutes'|'thread'|'room';createdAt:string;expiresAt:string|null;useLimit:number|null;useCount:number;revokedAt:string|null;state:'active'|'expired'|'consumed'|'revoked'}>}>('GET','/hx/agent-wake-grants'),
+    revokeAgentWakeGrant: (grantId:string) => call<{revoked:boolean}>('DELETE','/hx/agent-wake-grants',{grantId}),
     profile: (agentId: string) => call<{ profile: AgentProfile; canEdit: boolean }>('GET', `/hx/agents/${agentId}/profile`),
     saveProfile: (agentId: string, p: Partial<AgentProfile> & { name?: string; emoji?: string }) => call<{ profile: AgentProfile; identity?: { name: string; emoji: string | null } }>('PUT', `/hx/agents/${agentId}/profile`, p as Record<string, unknown>),
     memoryScopes: (agentId: string) => call<{ scopes: Array<{ channel: string; label: string }> }>('GET', `/hx/agents/${agentId}/memory/scopes`),

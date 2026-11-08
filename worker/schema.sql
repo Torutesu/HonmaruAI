@@ -2275,6 +2275,72 @@ CREATE TABLE IF NOT EXISTS hx_agent_agent_members (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_agent_agent_members_peer ON hx_agent_agent_members(org_id,member_agent_id,agent_id);
 
+/* A human's scoped approval to let one Agent hand off work to another.
+   Pending rows are requests only; they never authorize a dispatch. */
+CREATE TABLE IF NOT EXISTS hx_agent_wake_approvals (
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  assignment_id TEXT NOT NULL,
+  source_generation INTEGER NOT NULL,
+  source_agent_id TEXT NOT NULL,
+  target_agent_id TEXT NOT NULL,
+  room_channel TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  source_message_id TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  requester_id TEXT NOT NULL,
+  requester_login TEXT NOT NULL,
+  requester_membership TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  brief TEXT NOT NULL,
+  message_body TEXT NOT NULL,
+  card_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','approved','declined','expired','cancelled','revoked','consumed')),
+  grant_scope TEXT CHECK(grant_scope IS NULL OR grant_scope IN ('once','ten_minutes','thread','room')),
+  request_expires_at TEXT NOT NULL,
+  expires_at TEXT,
+  use_limit INTEGER,
+  use_count INTEGER NOT NULL DEFAULT 0 CHECK(use_count>=0),
+  created_at TEXT NOT NULL,
+  decided_at TEXT,
+  decided_by TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,id),
+  UNIQUE(org_id,assignment_id,source_generation),
+  UNIQUE(org_id,card_id),
+  UNIQUE(org_id,operation_id),
+  CHECK(source_agent_id!=target_agent_id),
+  CHECK((grant_scope='once' AND use_limit=1) OR (grant_scope IS NULL AND use_limit IS NULL) OR (grant_scope IN ('ten_minutes','thread','room') AND use_limit IS NULL)),
+  CHECK(expires_at IS NULL OR expires_at>created_at)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_wake_approvals_pending ON hx_agent_wake_approvals(org_id,requester_id,request_expires_at) WHERE status='pending';
+CREATE INDEX IF NOT EXISTS idx_hx_agent_wake_approvals_pair ON hx_agent_wake_approvals(org_id,source_agent_id,target_agent_id,status,expires_at);
+
+CREATE TABLE IF NOT EXISTS hx_agent_wake_grants (
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  approval_id TEXT NOT NULL,
+  requester_id TEXT NOT NULL,
+  requester_membership TEXT NOT NULL,
+  source_agent_id TEXT NOT NULL,
+  target_agent_id TEXT NOT NULL,
+  room_channel TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  scope TEXT NOT NULL CHECK(scope IN ('once','ten_minutes','thread','room')),
+  expires_at TEXT,
+  use_limit INTEGER,
+  use_count INTEGER NOT NULL DEFAULT 0 CHECK(use_count>=0),
+  revoked_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,id),
+  UNIQUE(org_id,approval_id),
+  FOREIGN KEY(org_id,approval_id) REFERENCES hx_agent_wake_approvals(org_id,id),
+  CHECK((scope='once' AND use_limit=1) OR (scope!='once' AND use_limit IS NULL)),
+  CHECK(expires_at IS NULL OR expires_at>created_at)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_wake_grants_lookup ON hx_agent_wake_grants(org_id,requester_id,source_agent_id,target_agent_id,scope,expires_at) WHERE revoked_at IS NULL;
+
 /* A person may let one Agent use their own native connection in that Agent's
    private conversation. The membership timestamp prevents a grant from
    silently returning after that person leaves and rejoins the workspace. */
@@ -2428,7 +2494,7 @@ CREATE TABLE IF NOT EXISTS hx_memory_skill_conversions (
 CREATE TABLE IF NOT EXISTS hx_agent_assignments (
   id TEXT PRIMARY KEY, org_id TEXT NOT NULL, source_message_id TEXT NOT NULL,
   initial_agent_id TEXT NOT NULL, current_agent_id TEXT NOT NULL, channel TEXT NOT NULL,
-  thread_id TEXT NOT NULL, actor_id TEXT NOT NULL, session_key TEXT NOT NULL,
+  thread_id TEXT NOT NULL, actor_id TEXT NOT NULL, actor_membership TEXT, session_key TEXT NOT NULL,
   source_hash TEXT NOT NULL, generation INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL CHECK(status IN ('running','pending','finished','failed','cancelled','interrupted')),
   visited TEXT NOT NULL, hop_limit INTEGER NOT NULL CHECK(hop_limit BETWEEN 1 AND 8),
@@ -2440,7 +2506,7 @@ CREATE INDEX IF NOT EXISTS idx_hx_agent_assignments_source ON hx_agent_assignmen
 CREATE TABLE IF NOT EXISTS hx_agent_handoffs (
   org_id TEXT NOT NULL, operation_id TEXT NOT NULL, assignment_id TEXT NOT NULL,
   source_generation INTEGER NOT NULL, source_agent_id TEXT NOT NULL, target_agent_id TEXT NOT NULL,
-  brief TEXT NOT NULL, message_body TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
+  brief TEXT NOT NULL, message_body TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, wake_grant_id TEXT, created_at TEXT NOT NULL,
   PRIMARY KEY(org_id,operation_id), UNIQUE(assignment_id,source_generation)
 );
 CREATE TABLE IF NOT EXISTS hx_agent_handoff_dispatch (

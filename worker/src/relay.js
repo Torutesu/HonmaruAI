@@ -21,6 +21,7 @@ import { providerFor } from "./orgAI.js";
 import { syncCardToGitHub, getWorkspaceGitHub } from "./githubWorkspace.js";
 import { allowanceFor } from "./gate.js";
 import { ANNOUNCE_PATH, EVICT_PATH, EVENTS_PATH } from "./announce.js";
+import { announceCards } from './announce.js';
 import { emitCard } from "./webhooks.js";
 import { validateIncomingCard, MAX_CONTEXT_BYTES, PRIORITIES } from "./agui/validate.js";
 import { applyAutoRule } from "./autorules.js";
@@ -30,6 +31,10 @@ import { isGuest, isPersonal, isPrivate, accessFor, mayReadCard } from "./access
 import { learnFromDecision } from "./memory.js";
 import { settleWorkflowApproval } from "./harness/workflows.js";
 import { settleAgentAccessRequest } from "./harness/agentAccessRequests.js";
+import { decideAgentWakeApproval } from './harness/agentWakeApprovals.js';
+import { acceptAgentHandoff, assignmentExecutionGrant, assignmentTargets } from './harness/agentAssignmentGrant.js';
+import { endAssignment } from './harness/agentAssignments.js';
+import { drainAgentHandoffs } from './harness/agentHandoffDispatch.js';
 import { reviewPublicAppShareApproval } from './harness/appShareApproval.js';
 import { agentRoleState } from "./harness/agentRoles.js";
 import { settleProposal } from "./proposals.js";
@@ -798,6 +803,12 @@ export class OrgRelay {
             card.senderUserID = existing.senderUserID;
             card.recipientUserID = existing.recipientUserID;
           }
+          if (existing.agentWakeApproval) {
+            card.agentWakeApproval = existing.agentWakeApproval;
+            card.visibility = 'personal';
+            card.senderUserID = existing.senderUserID;
+            card.recipientUserID = existing.recipientUserID;
+          }
         }
       }
       await saveCard(this.db, orgId, card);
@@ -1146,6 +1157,58 @@ export class OrgRelay {
           for(const ev of forEveryone)await this.broadcastCard(orgId,sibling,ev);
           for(const ev of forRecipient)this.sendTo(orgId,sibling.recipientUserID,ev);
           this.state.waitUntil(this.deliver(orgId,sibling,{kind:'decided',excludeLogin:actorLogin,translate:false}));
+        }
+      }
+      else if (card?.agentWakeApproval && ['approve','decline'].includes(card.decision?.action)) {
+        const pending=await this.db.prepare(`SELECT * FROM hx_agent_wake_approvals WHERE org_id=?1 AND card_id=?2`).bind(orgId,card.id).first();
+        let accessCurrent=true;
+        if(pending&&card.decision.action==='approve') {
+          const grant=await assignmentExecutionGrant(this.env,{orgId,assignmentId:pending.assignment_id,generation:pending.source_generation,agentId:pending.source_agent_id});
+          const eligible=grant?await assignmentTargets(this.env,grant):[];
+          accessCurrent=Boolean(eligible.some(a=>a.id===pending.source_agent_id)&&eligible.some(a=>a.id===pending.target_agent_id));
+        }
+        if(pending&&!accessCurrent) {
+          const closed=await this.db.prepare(`UPDATE hx_agent_wake_approvals SET status='cancelled',updated_at=?3 WHERE org_id=?1 AND id=?2 AND status='pending'`).bind(orgId,pending.id,new Date().toISOString()).run();
+          if(closed.meta?.changes) {
+            await endAssignment(this.db,{orgId,assignmentId:pending.assignment_id,generation:pending.source_generation,agentId:pending.source_agent_id,status:'cancelled'});
+            card.status='rejected'; card.summary='The Agent or room access changed before approval.';
+            await saveCard(this.db,orgId,card);
+            await announceCards(this.env,orgId,[card],{isNew:false});
+          }
+        }
+        const settled=accessCurrent?await decideAgentWakeApproval(this.db,orgId,card,actorLogin,actorGithubId):{settled:false};
+        if(pending&&settled?.expired) {
+          card.status='rejected'; card.summary='This approval expired before it could be applied.';
+          await saveCard(this.db,orgId,card);
+          await announceCards(this.env,orgId,[card],{isNew:false});
+        } else if(pending&&settled?.cancelled) {
+          card.status='rejected'; card.summary='The source message, Agent, or room access changed before approval.';
+          await saveCard(this.db,orgId,card);
+          await announceCards(this.env,orgId,[card],{isNew:false});
+        }
+        if(pending&&card.decision.action==='approve'&&accessCurrent&&!settled?.settled) {
+          const current=await this.db.prepare(`SELECT status FROM hx_agent_wake_approvals WHERE org_id=?1 AND id=?2`).bind(orgId,pending.id).first();
+          if(current?.status==='pending') {
+            const closed=await this.db.prepare(`UPDATE hx_agent_wake_approvals SET status='cancelled',updated_at=?3 WHERE org_id=?1 AND id=?2 AND status='pending'`).bind(orgId,pending.id,new Date().toISOString()).run();
+            if(closed.meta?.changes)await endAssignment(this.db,{orgId,assignmentId:pending.assignment_id,generation:pending.source_generation,agentId:pending.source_agent_id,status:'cancelled'});
+            card.status='rejected'; card.summary='This approval could not be applied because the request changed or expired.';
+            await saveCard(this.db,orgId,card);
+            await announceCards(this.env,orgId,[card],{isNew:false});
+          }
+        }
+        if(settled?.settled&&settled.action==='approve'&&settled.request) {
+          const r=settled.request;
+          const result=await acceptAgentHandoff(this.env,{orgId,assignmentId:r.assignment_id,generation:r.source_generation,
+            sourceAgentId:r.source_agent_id,targetAgentId:r.target_agent_id,operationId:r.operation_id,brief:r.brief,messageBody:r.message_body});
+          if(result.error) {
+            await this.db.prepare(`UPDATE hx_agent_wake_approvals SET status='revoked',updated_at=?3 WHERE org_id=?1 AND id=?2 AND status='approved'`).bind(orgId,r.id,new Date().toISOString()).run();
+            await endAssignment(this.db,{orgId,assignmentId:r.assignment_id,generation:r.source_generation,agentId:r.source_agent_id,status:'cancelled'});
+            card.status='rejected'; card.summary='Approval was recorded, but the Agent or room access changed before work could be handed off.';
+            await saveCard(this.db,orgId,card);
+            await announceCards(this.env,orgId,[card],{isNew:false});
+          } else if(result.operation) {
+            await drainAgentHandoffs(this.env,{orgId,operationId:r.operation_id}).catch(()=>{});
+          }
         }
       }
       else if (card?.proposal) await settleProposal(this.env, orgId, card);
