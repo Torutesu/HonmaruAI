@@ -3,6 +3,7 @@ import { beforeAll, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import migrationsSql from "../migrations.sql?raw";
 import {
+  EXTERNAL_RESOURCE_TYPES,
   externalResourcePermission,
   grantExternalResource,
   revokeExternalResource,
@@ -87,7 +88,7 @@ test("edit implies view; revocation takes effect immediately and keeps grant his
     .bind(grant.id).first()).toMatchObject({ revoked_by: owner });
 });
 
-test("regrant replaces the active permission without erasing the earlier grant", async () => {
+test("regrant replaces an exact-resource permission without erasing its history", async () => {
   const suffix = crypto.randomUUID();
   const orgId = `external-org-${suffix}`;
   const owner = `external-owner-${suffix}`;
@@ -96,18 +97,18 @@ test("regrant replaces the active permission without erasing the earlier grant",
   await identity(owner);
   await identity(guest);
   const first = await grantExternalResource(env.DB, {
-    orgId, resourceType: "room", resourceId: "b:planning",
+    orgId, resourceType: "thread", resourceId: "thread-1",
     recipientGithubId: guest, permission: "view", grantedBy: owner,
   });
   const second = await grantExternalResource(env.DB, {
-    orgId, resourceType: "room", resourceId: "b:planning",
+    orgId, resourceType: "thread", resourceId: "thread-1",
     recipientGithubId: guest, permission: "edit", grantedBy: owner,
   });
 
   expect(await externalResourcePermission(env.DB, {
-    orgId, resourceType: "room", resourceId: "b:planning", githubId: guest,
+    orgId, resourceType: "thread", resourceId: "thread-1", githubId: guest,
   })).toBe("edit");
-  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_external_resource_grants WHERE org_id = ?1 AND resource_type = 'room' AND resource_id = 'b:planning'")
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_external_resource_grants WHERE org_id = ?1 AND resource_type = 'thread' AND resource_id = 'thread-1'")
     .bind(orgId).first()).toMatchObject({ n: 2 });
   expect(await env.DB.prepare("SELECT id, revoked_at FROM hx_external_resource_grants WHERE id IN (?1, ?2) ORDER BY id")
     .bind(first.id, second.id).all()).toMatchObject({ results: expect.arrayContaining([
@@ -116,7 +117,7 @@ test("regrant replaces the active permission without erasing the earlier grant",
     ]) });
 });
 
-test("expired grants and malformed or cross-workspace scopes fail closed", async () => {
+test("expired grants and unsupported audience scopes fail closed", async () => {
   const suffix = crypto.randomUUID();
   const orgId = `external-org-${suffix}`;
   const owner = `external-owner-${suffix}`;
@@ -135,10 +136,12 @@ test("expired grants and malformed or cross-workspace scopes fail closed", async
     orgId, resourceType: "file", resourceId: "file-1", githubId: guest,
     now: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
   })).toBeNull();
-  await expect(grantExternalResource(env.DB, {
-    orgId, resourceType: "workspace", resourceId: `${orgId}-other`,
-    recipientGithubId: guest, permission: "edit", grantedBy: owner,
-  })).rejects.toThrow(/Workspace grants/);
+  for (const [resourceType, resourceId] of [["workspace", orgId], ["room", "b:planning"]]) {
+    await expect(grantExternalResource(env.DB, {
+      orgId, resourceType, resourceId, recipientGithubId: guest, permission: "edit", grantedBy: owner,
+    })).rejects.toThrow(/Unsupported external resource type/);
+  }
+  expect(EXTERNAL_RESOURCE_TYPES).toEqual(["thread", "app", "file"]);
   expect(await externalResourcePermission(env.DB, {
     orgId, resourceType: "unknown", resourceId: "file-1", githubId: guest,
   })).toBeNull();

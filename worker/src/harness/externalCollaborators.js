@@ -1,8 +1,9 @@
-// Workspace-scoped, named external collaborator grants. These grants are an
-// additional resource boundary; they do not create a workspace membership and
-// do not grant a guest access to rooms, files, Apps, or threads by themselves.
+// Named external collaborator grants are exact-resource grants. They do not
+// create workspace membership, and room/workspace audience selection is not
+// represented by this table: accepting those scopes here would imply access
+// that no external-resource route currently enforces.
 
-const RESOURCE_TYPES = new Set(["workspace", "room", "thread", "app", "file"]);
+const RESOURCE_TYPES = new Set(["thread", "app", "file"]);
 const PERMISSIONS = new Set(["view", "edit"]);
 
 function clean(value, label) {
@@ -20,9 +21,6 @@ function normalizeGrant(input) {
   const permission = clean(input?.permission, "permission");
   if (!RESOURCE_TYPES.has(resourceType)) throw new TypeError("Unsupported external resource type");
   if (!PERMISSIONS.has(permission)) throw new TypeError("Unsupported external permission");
-  if (resourceType === "workspace" && resourceId !== orgId) {
-    throw new TypeError("Workspace grants must target their own workspace");
-  }
   let expiresAt = input?.expiresAt == null ? null : clean(input.expiresAt, "expiry");
   if (expiresAt != null && (!Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now())) {
     throw new TypeError("Expiry must be a future timestamp");
