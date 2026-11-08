@@ -2,7 +2,7 @@
 
 調査基準日: 2026-11-09。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。
 
-全102項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
+全103項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
 2026-11-09 台帳一括整合: main 93951cea時点の要件102件と照合し、KY-112を未実装から一部へ修正（実装・main CI・Worker deploy証跡を追記）。KY-063/KY-111のCI・Worker deploy証跡も更新。ログイン済みKylonのData Viewerを読み取り専用で確認し、ビュー切替・新規ビュー・フィールド・フィルター・グループ・その他・列ソート・レコード追加を確認。表示中のテーブルは0件で、データ変更なし。操作レベルの比較・承認フローの本番受入は未確認。
 
@@ -236,3 +236,4 @@ Kylonの[2026-10-30 changelog](https://kylon.io/changelog)は、別Agentを起�
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
 | KY-112 | Agent起動の実行単位人間承認と期限付き範囲 | 一部 | P0 | [agentAssignmentGrant.js](../../worker/src/harness/agentAssignmentGrant.js), [agentAssignments.js](../../worker/src/harness/agentAssignments.js), [relay.js](../../worker/src/relay.js) | assignment世代・operation・room/thread/source/targetに結合したpendingをD1に保存。承認前にhandoff message/outbox/claim/target callを作らない。private decision cardからonce/10分（既定）/thread/roomを選び、grantの期限・回数・bindingをサーバー側で検証。現行ACLをdecision/dispatch双方で再確認し、重複・取消・失効・競合・replayを拒否。PR #823/#826 exact-head CI 42493079407、main CI 42494741384、Worker migration/deploy/Verify 42494741296成功。Simple維持・新規課金なし。認証済み本番フローとKylon実画面比較は残る。 |
+| KY-113 | 会話内インタラクティブチャートと解説ページ | 一部 | P1 | [MessageVisualization.tsx](../../web-react/src/components/MessageVisualization.tsx), [ClassicList.tsx](../../web-react/src/components/ClassicList.tsx), [agents.js](../../worker/src/harness/agents.js) | Harness会話内の限定JSONフェンスを検証し、native SVGの棒/折れ線チャート、系列切替、データ表、解説セクションを描画。HTML/JSは評価せず、不正データはコード表示。ライト/ダーク・レスポンシブ・保存後再表示・ログイン済みKylon比較は受入前。Simpleの既存rich text経路を維持、新規課金なし。 |

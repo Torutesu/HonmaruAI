@@ -1258,6 +1258,20 @@
         "verified": "Kylon changelog dated 2026-10-30 describes Allow once, Allow for 10 min (default), Allow in this thread, and Always allow in this room. Honmaru implements private pending decision cards; no target dispatch before approval; server-stored once/10-minute/thread/room scopes; current assignment, membership and room checks at decision and dispatch; creator grant listing/revocation; expiry, cancellation, duplicate, replay and race handling. Focused agent-wake-approvals tests and dispatch revalidation landed in PRs #823 and #826. Exact-head CI for #826 (42493079407), post-merge main CI (42494741384) and Worker deployment (42494741296) succeeded; deployment ran migrations, Deploy and Verify.",
         "remaining": "Status stays partial pending authenticated production approval flow acceptance, full multi-actor race/replay verification on the live service, and side-by-side Kylon interaction comparison. A successful build/deploy alone is not parity acceptance. Simple mode remains unchanged; no paid service was added."
       }
+    },
+    {
+      "id": "KY-113",
+      "category": "Messages",
+      "requirement": "Interactive charts and explainer pages inside Agent messages",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "web-react/src/components/MessageVisualization.tsx, web-react/src/components/ClassicList.tsx, worker/src/harness/agents.js",
+      "acceptance": "Harness Agents may emit a bounded honmaru-visual JSON block for bar/line charts or explainer sections. Render charts with native accessible SVG plus a data-table view and selectable series; render explainer navigation using text-only rich rendering. Reject malformed/oversized schemas and leave them visible as literal code. Never evaluate HTML, script or arbitrary code. Verify responsive light/dark display, persisted message replay, and authenticated side-by-side Kylon behavior. Preserve Simple unchanged and add no paid dependency.",
+      "evidence": {
+        "verified": "Harness message renderer recognizes the opt-in visualization fence, validates bounded chart/explainer JSON and renders native interactive cards. Agent preparation explains the supported schema and safety boundary. Simple messages continue through the existing rich text renderer.",
+        "remaining": "Focused and full Web/Worker CI, production deployment and asset verification, plus authenticated Kylon/Honmaru interaction comparison remain required; status is partial."
+      }
     }
   ]
 }

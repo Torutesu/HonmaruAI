@@ -25,6 +25,7 @@ import {useThreadPins} from '../utils/threadPins'
 import { HarnessThreadHeader } from './HarnessThreadHeader'
 import { RoomThreadDirectory } from './RoomThreadDirectory'
 import { MessageAppCards } from './MessageAppCards'
+import { MessageVisualText } from './MessageVisualization'
 import { DraftSuggestion } from './DraftSuggestion'
 import { resolveDraftSuggestion } from '../utils/draftSuggestion'
 import { AppView } from '../screens/Harness'
@@ -4559,7 +4560,7 @@ export const ClassicList: React.FC<Props> = ({
   // Only an @name that reaches somebody is drawn as a mention; one that
   // names nobody stays a word, so a typo reads as one.
   // A person's opens their card: the ref goes with it, for onMentionClick.
-  const rich = (text: string) => renderRich(text, (part) => {
+  const richText = (text: string) => renderRich(text, (part) => {
     const kind = mentionKind(part, withAI)
     if (!kind) return ''
     if (kind === 'ai') return 'slk-mention ai'
@@ -4572,6 +4573,11 @@ export const ClassicList: React.FC<Props> = ({
     if (who) return { className: 'slk-mention', ref: who.ref }
     return `slk-mention${kind === 'group' ? ' group' : ''}`
   })
+  // Structured inline visuals are a Harness feature. Keep the Simple message
+  // renderer byte-for-byte on its existing rich-text path.
+  const rich = (text: string) => harness
+    ? <MessageVisualText text={text} renderText={richText} />
+    : richText(text)
   /// Whether a message calls you (utils/mentionsMe.ts): read from what was
   /// written, not a translation of it; an unsent one calls nobody.
   const callsMe = (m: ChannelMessage) => !m.deleted && readsMe.mentionsMe(m)

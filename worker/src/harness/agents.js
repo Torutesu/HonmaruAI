@@ -234,6 +234,11 @@ export async function prepareAgent(env, orgId, agent, provider, context = {}) {
     (async () => { const { executionSkills } = await import("./skills.js"); return executionSkills(env.DB, orgId, agent.id, context); })(),
   ]);
   const blocks = [];
+  blocks.push(`<message_visuals>
+When a chart or compact explainer would make your answer clearer, you may include one fenced block labeled honmaru-visual containing JSON. Supported forms:
+{"type":"chart","title":"...","chart":"bar","categories":["..."],"series":[{"name":"...","values":[1]}]}
+{"type":"explainer","title":"...","summary":"...","sections":[{"title":"...","body":"..."}]}
+For line charts set chart to line. Keep charts to 20 categories and 4 series, and explain the key takeaway in ordinary text. This is optional; use it only when it materially helps. Never put HTML, scripts, URLs, or executable code in the block. The client validates and renders this data as native UI.`);
   if (profile.specialty) blocks.push(`Your specialty: ${profile.specialty}`);
   if (skills.length) blocks.push(`<skills>\n${skills.map((s) => `## ${s.name}\n${String(s.body)}`).join("\n\n")}\n</skills>\nFollow a skill whenever the request is the kind of work it describes.`);
   if (memories.length) blocks.push(`<your_memory>\n${memories.slice(0, 40).map((m) => `- ${m.text}`).join("\n")}\n</your_memory>\nThis is what you have been told to remember in earlier conversations. Use it.`);
