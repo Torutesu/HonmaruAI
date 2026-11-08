@@ -3992,3 +3992,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - External guests now receive only a valid published Custom App source; drafts are never returned. The UI runs that source in the existing opaque-origin sandbox, loads only App-linked tables, and routes edit-grant writes through the existing guest-authorized endpoints. Custom App server actions and external connections remain unavailable to guests. Simple mode is unchanged.
 - Focused Worker tests passed (16 tests, including published-only source, unpublished rejection, invite, and linked-entity table keys). Web tests passed (all 248 files / 1,829 tests; the focused external-App/Custom-App group passed 19 tests), and the Web typecheck/production build passed. The full local Worker suite did not complete because its 301-file run emitted repeated network-connection errors; exact-head CI, production release, and authenticated multi-user comparison remain pending. KY-099 stays partial.
+
+### 2026-11-08 — KY-029 memory provenance (local verification pending)
+
+- New memories created from a conversation now retain source conversation, message ID, and thread ID separately from their authorization scope. Memory list/detail data carries these references, and the UI shows IDs without copying source message content. Legacy rows remain explicitly unknown; no historical source is inferred. Person-scoped memory tests assert references do not widen owner-only visibility. Simple mode is unchanged and no new service is used.
+- Focused tests, migration validation, exact-head CI, production release, and authenticated visual verification are pending. KY-029 remains partial because cross-conversation person settings and legacy provenance cannot be reconstructed safely.

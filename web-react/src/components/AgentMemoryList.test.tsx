@@ -138,3 +138,16 @@ test('empty saved search distinguishes no matches from an agent with no memories
  expect(JSON.stringify(tree.toJSON())).not.toContain('No memories match these filters.')
  act(()=>tree.unmount())
 })
+
+test('memory provenance is available without exposing the source message body',()=>{
+ let tree!:ReturnType<typeof create>
+ const entry={id:'provenance',text:'Retain this preference',source:'person',createdAt:'2026-10-20',sourceChannel:'b:ops',sourceMessageId:'msg_source_1',sourceThreadId:'msg_root_1'}
+ act(()=>{tree=create(<AgentMemoryList memories={[entry]} canEdit={false} busy={false} onForget={vi.fn()}/> )})
+ const json=JSON.stringify(tree.toJSON())
+ expect(json).toContain('Source reference')
+ expect(json).toContain('msg_source_1')
+ expect(json).toContain('msg_root_1')
+ expect(json).toContain('b:ops')
+ expect(json).not.toContain('secret source text')
+ act(()=>tree.unmount())
+})

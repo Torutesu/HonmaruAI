@@ -662,6 +662,9 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       if (remember) {
         const kept = await addAgentMemory(env.DB, orgId, agent.id, remember, {
           by: session.github_id,
+          sourceChannel: resolved.key,
+          sourceMessageId: row.id,
+          sourceThreadId: row.parent_id || row.id,
           ...(isDirectSourceAgent ? { scope: 'person', userId: session.github_id, kind: 'preference' } : { channel: resolved.key }),
         });
         text = kept.error || serverText(locale, "agent.remembered", { text: kept.memory.text });

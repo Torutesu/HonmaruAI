@@ -98,6 +98,7 @@ test("told to remember, an agent keeps it without a model, and reads it, its spe
   expect(thread.replies[0]).toMatchObject({ kind: "agent", body: "Got it — I'll remember: Acme pays on the 25th" });
   const memory = await (await get(`/hx/agents/${agentId}/memory?${q({ orgId: ORG, channel: "b:ops" })}`, kenji)).json();
   expect(memory.memories.map((m) => m.text)).toEqual(["Acme pays on the 25th"]);
+  expect(memory.memories[0]).toMatchObject({ sourceChannel: "b:ops", sourceMessageId: asked.id, sourceThreadId: asked.id });
 
   const seen = nextCompletion("Nudge Acme after the 25th.");
   await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:ops", body: "@billy when should we chase Acme?" }, MODEL);

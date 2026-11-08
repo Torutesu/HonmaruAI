@@ -13,6 +13,7 @@ export function memoryEntry(row) {
   return { id: row.id, text: row.text, source: row.source, createdBy: row.created_by, createdAt: row.created_at,
     channel: row.channel || null, kind: row.kind || "context", title: row.title ?? row.text.slice(0, 120),
     description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at,
+    sourceChannel: row.source_channel || null, sourceMessageId: row.source_message_id || null, sourceThreadId: row.source_thread_id || null,
     scope: row.user_github_id ? "person" : (row.channel ? "conversation" : "shared"),
     review: row.reviewed_at ? { version: row.reviewed_version, evidence: row.review_evidence, by: row.reviewed_by, at: row.reviewed_at, current: row.reviewed_version === (row.version ?? 0) } : null };
 }
@@ -28,7 +29,7 @@ export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel
   if (fields.error) return fields;
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) return { error: "Expected memory version is required." };
   if (!["context", "preference", "feedback", "reference"].includes(input.kind)) return { error: "Invalid memory kind." };
-  const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, d.version FROM hx_agent_memories m
+  const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.version FROM hx_agent_memories m
     LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id
     WHERE m.org_id = ?1 AND m.agent_id = ?2 AND m.id = ?3 AND COALESCE(s.channel, '') = ?4 AND (s.user_github_id IS NULL OR s.user_github_id = ?5)`)
@@ -92,7 +93,7 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
       after = value.slice(6);
     } catch { return { error: 'Invalid memory cursor.', status: 400 }; }
   }
-  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, d.title, d.description, d.body, d.version, d.updated_at, r.reviewed_version, r.evidence AS review_evidence, r.reviewed_by, r.reviewed_at
+  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.title, d.description, d.body, d.version, d.updated_at, r.reviewed_version, r.evidence AS review_evidence, r.reviewed_by, r.reviewed_at
     FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
     LEFT JOIN hx_memory_reviews r ON r.memory_id=m.id AND r.org_id=m.org_id
@@ -114,7 +115,7 @@ export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel
     || !by) return { error: 'A memory version and review evidence are required.', status: 400 };
   if (!await memoryVisibleTo(db, orgId, agentId, id, channel, userId)) return {error:'No such memory.',status:404};
   if (input.verdict === 'update') {
-    const row = await db.prepare(`SELECT m.*,s.channel,s.kind,s.user_github_id,d.title,d.description,d.body,d.version FROM hx_agent_memories m
+    const row = await db.prepare(`SELECT m.*,s.channel,s.kind,s.user_github_id,s.source_channel,s.source_message_id,s.source_thread_id,d.title,d.description,d.body,d.version FROM hx_agent_memories m
       LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
       LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
       WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4`).bind(orgId,agentId,id,channel).first();

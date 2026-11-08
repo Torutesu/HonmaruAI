@@ -20,7 +20,7 @@ export async function convertMemoryToSkill(db, orgId, agentId, memoryId, input, 
   };
   const previous=await replay();
   if(previous)return previous;
-  const row=await db.prepare(`SELECT m.*,s.channel,s.kind,d.title,d.description,d.body,d.version,d.updated_at FROM hx_agent_memories m
+  const row=await db.prepare(`SELECT m.*,s.channel,s.kind,s.source_channel,s.source_message_id,s.source_thread_id,d.title,d.description,d.body,d.version,d.updated_at FROM hx_agent_memories m
     LEFT JOIN hx_memory_scopes s ON s.org_id=m.org_id AND s.memory_id=m.id
     LEFT JOIN hx_memory_entries d ON d.org_id=m.org_id AND d.memory_id=m.id
     WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4`).bind(orgId,agentId,memoryId,channel).first();
