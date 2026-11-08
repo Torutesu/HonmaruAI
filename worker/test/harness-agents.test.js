@@ -400,6 +400,39 @@ test('a thread reply that does not name the agent gets no answer, with or withou
   expect(await respondingAgents(env.DB, args)).toEqual([]);
   expect(await respondingAgents(env.DB, { ...args, row: namedInThread })).toEqual([]);
 });
+test('a quick same-author task follow-up in a thread stays with the single recently named Harness agent', async () => {
+  const { respondingAgents } = await import('../src/customAgents.js');
+  const { saveRoomResponses } = await import('../src/harness/roomResponses.js');
+  await env.DB.prepare("INSERT INTO channel_agents (org_id, channel, agent_id, added_by, added_at) VALUES (?1, 'b:ops', ?2, 'mika', ?3)").bind(ORG, agentId, new Date().toISOString()).run();
+  const base = Date.now() - 60000;
+  const rootAt = new Date(base).toISOString();
+  const followAt = new Date(base + 30000).toISOString();
+  await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, parent_id, created_at) VALUES ('recent-agent-call', ?1, 'b:ops', 'mika', 'Billy, please review the invoice', NULL, ?2)").bind(ORG, rootAt).run();
+  const followed = { id: 'recent-agent-followup', kind: 'message', channel: 'b:ops', author_login: 'mika', body: 'Also include the unpaid balance.', parent_id: 'recent-agent-call', created_at: followAt };
+  const args = { orgId: ORG, login: 'mika', resolved: { kind: 'business', key: 'b:ops' }, row: followed };
+  expect((await respondingAgents(env.DB, args)).map(agent => agent.id)).toEqual([agentId]);
+  await saveRoomResponses(env.DB, ORG, 'b:ops', { mentionedOnly: true, version: 0 }, 'mika');
+  expect((await respondingAgents(env.DB, args)).map(agent => agent.id)).toEqual([agentId]);
+  expect(await respondingAgents(env.DB, { ...args, row: { ...followed, body: 'Thanks!' } })).toEqual([]);
+
+  await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, parent_id, created_at) VALUES ('intervening-human', ?1, 'b:ops', 'kenji', 'I will handle it', 'recent-agent-call', ?2)").bind(ORG, new Date(base + 40000).toISOString()).run();
+  expect(await respondingAgents(env.DB, { ...args, row: { ...followed, body: 'Also include the unpaid balance.', created_at: new Date(base + 50000).toISOString() } })).toEqual([]);
+  const oldRootAt = new Date(Date.now() - 240000).toISOString();
+  const oldFollow = { ...followed, id: 'expired-agent-followup', parent_id: 'expired-agent-call', created_at: new Date(Date.parse(oldRootAt) + 121000).toISOString() };
+  await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, parent_id, created_at) VALUES ('expired-agent-call', ?1, 'b:ops', 'mika', 'Billy, please review the invoice', NULL, ?2)").bind(ORG, oldRootAt).run();
+  expect(await respondingAgents(env.DB, { ...args, row: oldFollow })).toEqual([]);
+
+  const secondMade = await send('POST', '/channels/agents', mika, { orgId: ORG, name: 'Charlie', handle: 'charlie', instructions: 'Check deadlines.', scope: 'team' });
+  const secondAgentId = (await secondMade.json()).agent.id;
+  await send('PUT', '/channels/agents', mika, { orgId: ORG, id: secondAgentId, scope: 'team' });
+  await env.DB.prepare("INSERT INTO channel_agents (org_id, channel, agent_id, added_by, added_at) VALUES (?1, 'b:ops', ?2, 'mika', ?3)").bind(ORG, secondAgentId, new Date().toISOString()).run();
+  const ambiguousAt = new Date(Date.now() - 10000).toISOString();
+  await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, body, parent_id, created_at) VALUES ('ambiguous-agent-call', ?1, 'b:ops', 'mika', 'Billy, please review this. Charlie, please review it too.', NULL, ?2)").bind(ORG, ambiguousAt).run();
+  expect(await respondingAgents(env.DB, { ...args, row: { ...followed, parent_id: 'ambiguous-agent-call', created_at: new Date(Date.now() - 5000).toISOString() } })).toEqual([]);
+
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
+  expect(await respondingAgents(env.DB, args)).toEqual([]);
+});
 test('Harness routes clear new requests only to accessible room members, leaving Simple and human threads unchanged', async () => {
   const { respondingAgents } = await import('../src/customAgents.js');
   const { saveRoomResponses } = await import('../src/harness/roomResponses.js');

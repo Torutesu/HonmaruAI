@@ -204,7 +204,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/agents/overview",
       "code": "worker/src/harness/agents.js",
-      "acceptance": "継続スレッドで@なしの自然名呼び出しを識別し、呼びかけ部分だけをAgent依頼として渡す。明示メンション・Agent DMは維持し、一般の人間返信やSimple modeでAgentを起動しない。進捗通知は抑制し、完了・自分宛メンションのみ通知する。"
+      "acceptance": "継続スレッドで@なしの自然名呼び出しを識別し、呼びかけ部分だけをAgent依頼として渡す。直前2分以内に同一利用者が同じスレッドで単一Agentを名前指定し、他の人間の発言が挟まらない場合、定型のタスク型フォローアップはそのAgentへ継続する。感謝など非タスク文、期限切れ、別人の割込み、複数Agentの曖昧な呼びかけでは継承しない。明示メンション・Agent DMは維持し、一般の人間返信やSimple modeでAgentを起動しない。進捗通知は抑制し、完了・自分宛メンションのみ通知する。"
     },
     {
       "id": "KY-018",
@@ -1284,7 +1284,8 @@
       "acceptance": "When a Responses chain grows large, checkpoint the original task, bounded recent context, completed tool calls and their results; begin a fresh chain and continue without repeating completed side effects. Maintain the same authorization check, cancellation, source collection, 16-call and 240-second execution limits, and cap compactions. Continue after eight model rounds up to the hard round limit. Use only the existing provider and record normal token usage; do not add a separate summarizer service. Verify small-context behavior, compaction and duplicate-call suppression, authorization revocation, cancellation, and authenticated long-task UX. Preserve Simple mode.",
       "evidence": {
         "verified": "Kylon's 2026-10-30 changelog states that long Agent tasks condense context and keep going. Honmaru now compacts locally from bounded original input, completed tool-call/result ledger and latest progress when provider-reported input reaches 48,000 tokens (or a conservative character-based estimate when usage is absent); it starts a new Responses chain, suppresses exact repeated calls after checkpoint, allows up to two checkpoints and 16 total model rounds while retaining 16 tool calls and existing per-execution deadlines. On reaching the checkpoint cap it stops running tools and requests a final answer from saved evidence. No extra summarizer request or vendor is introduced. Focused Worker tests pass: 60 tests across agent-research and harness-agents, including continuation beyond eight rounds, checkpoint content, duplicate suppression, estimate fallback, cap behavior and Simple-mode regression.",
-        "remaining": "Focused and full Worker CI, production deployment, live long-task acceptance, and behavior for non-OpenAI and Simple-mode agents remain. Responses are still bounded by the caller's deadline and existing tool-call budget, so this is partial parity rather than unlimited execution."
+        "release": "PR #834 merged as 48060e22; PR CI #5480 and main CI #5481 passed. Worker deployment #372 completed D1 migrations, Deploy and Verify; production health returned ok:true with encryption.all:true.",
+        "remaining": "Authenticated production long-task acceptance and behavior for non-OpenAI/BYO agents remain. Responses are bounded by the caller's deadline and existing tool-call budget; this is partial parity rather than unlimited execution."
       }
     }
   ]

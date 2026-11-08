@@ -447,6 +447,24 @@ export function requestFor(text, agent, { naturalNames = false } = {}) {
   return addressed.replace(natural, "$1").trim();
 }
 
+const QUICK_AGENT_FOLLOWUP_MS = 2 * 60 * 1000;
+const quickFollowup = (text) => /^(?:also\b|and\s+also\b|one more\b|another thing\b|what about\b|include\b|add\b|update\b|please\b|can you\b|could you\b|それと|あと[、, ]|追加で|もう一つ|もうひとつ|さらに|ついでに|こちらも)/iu.test(callingText(text).trim());
+
+async function recentlyNamedThreadAgent(db, { orgId, channel, login, row, agents }) {
+  if (!row.parent_id || !row.created_at || !quickFollowup(row.body)) return null;
+  const at = Date.parse(row.created_at);
+  if (!Number.isFinite(at)) return null;
+  const latest = await db.prepare(`SELECT author_login,body,created_at FROM channel_messages
+    WHERE org_id = ?1 AND channel = ?2 AND (id = ?3 OR parent_id = ?3) AND created_at < ?4
+      AND author_login NOT LIKE 'agent:%'
+    ORDER BY created_at DESC,id DESC LIMIT 1`).bind(orgId, channel, row.parent_id, row.created_at).first().catch(() => null);
+  if (!latest || latest.author_login !== login) return null;
+  const latestAt = Date.parse(latest.created_at);
+  if (!Number.isFinite(latestAt) || at < latestAt || at - latestAt > QUICK_AGENT_FOLLOWUP_MS) return null;
+  const named = agentsCalled(latest.body, agents, { naturalNames: true });
+  return named.length === 1 ? named[0] : null;
+}
+
 const RULES = `You are an agent in a team's chat, called by name by a teammate. The team wrote your instructions; follow them.
 
 Always:
@@ -588,6 +606,10 @@ export async function respondingAgents(db, { orgId, login, resolved, row, room =
   const here = await agentsHere(db, orgId, login, resolved.key, { added });
   const harness = (mode || await getMode(db, orgId)) === "harness";
   let agents = agentsCalled(row.body, here, { naturalNames: harness });
+  if (!agents.length && harness && ['business', 'group'].includes(resolved.kind)) {
+    const followup = await recentlyNamedThreadAgent(db, { orgId, channel: resolved.key, login, row, agents: here });
+    if (followup) agents = [followup];
+  }
   // Who was asked by name, or by talking to them in their own
   // conversation. In a thread an agent answered, a reply that does not name
   // it is to the people there: it answered every follow-up of the person who
