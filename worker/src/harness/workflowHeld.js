@@ -9,13 +9,23 @@ export async function readHeldWorkflowEvent(db, orgId, workflowId, eventId) {
   return row ? { ...row, input: JSON.parse(row.input) } : null;
 }
 
-export async function heldWorkflowSummary(db, orgId, workflowId) {
+export async function heldWorkflowSummary(db, orgId, workflowId, requestedOffset = 0) {
   const at = new Date().toISOString();
   const { results } = await db.prepare(`SELECT id,received_at AS receivedAt,expires_at AS expiresAt
     FROM hx_workflow_held_events WHERE org_id=?1 AND workflow_id=?2 AND run_id IS NULL AND expires_at>?3 ORDER BY received_at,id LIMIT 1000`)
     .bind(orgId, workflowId, at).all();
   // One read keeps the count, review batch and discard snapshot consistent.
-  return { count: results.length, oldestExpiry: results[0]?.expiresAt || null, events: results.slice(0, 25), discardEventIds: results.map(event => event.id) };
+  const maxOffset = Math.floor(Math.max(0, results.length - 1) / 25) * 25;
+  const pageOffset = Math.min(maxOffset, Math.max(0, Number.isSafeInteger(requestedOffset) ? requestedOffset : 0));
+  return {
+    count: results.length,
+    oldestExpiry: results[0]?.expiresAt || null,
+    pageOffset,
+    previousOffset: pageOffset > 0 ? Math.max(0, pageOffset - 25) : null,
+    nextOffset: pageOffset + 25 < results.length ? pageOffset + 25 : null,
+    events: results.slice(pageOffset, pageOffset + 25),
+    discardEventIds: results.map(event => event.id),
+  };
 }
 
 export async function discardWorkflowEvents(db, orgId, workflowId, eventIds) {

@@ -67,6 +67,27 @@ function HeldEventPreview({ receivedAt, load }: { receivedAt: string; load: () =
   </details>
 }
 
+function HeldEventSelectionList({ api, workflowId, events, pageOffset, selection, onToggle }: {
+  api: HarnessApi
+  workflowId: string
+  events: Array<{ id: string; receivedAt: string }>
+  pageOffset: number
+  selection: string[]
+  onToggle: (eventId: string) => void
+}) {
+  const t = useT()
+  return <ul className="hx-held-event-list" aria-label={t('Held events')}>
+    {events.map((event, index) => {
+      const number = pageOffset + index + 1
+      return <li key={event.id}>
+        <label><input type="checkbox" aria-label={t('Select held event {number}', { number })} checked={selection.includes(event.id)} onChange={() => onToggle(event.id)} />
+          {t('Held event {number}', { number })} · {new Date(event.receivedAt).toLocaleString()}</label>
+        <HeldEventPreview receivedAt={event.receivedAt} load={() => api.heldWorkflowEvent(workflowId, event.id)} />
+      </li>
+    })}
+  </ul>
+}
+
 interface AgentFace { id: string; handle: string; name: string; emoji?: string | null }
 interface AppTriggerChoice extends WorkflowAppOption { app: App }
 
@@ -307,6 +328,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
   const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
   const [discardSelection, setDiscardSelection] = useState<string[] | null>(null)
+  const [heldPageOffset, setHeldPageOffset] = useState(0)
   const [recoveringRun, setRecoveringRun] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [syncError,setSyncError]=useState('')
@@ -325,7 +347,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     const request=detailRequest.current
     const refresh=async()=>{
       try{
-        const result=await api.workflow(activeWorkflowId)
+        const result=await api.workflow(activeWorkflowId, heldPageOffset)
         if(stopped||detailRequest.current!==request)return
         setSyncError('')
         setOpen(current=>current?.workflow.id===activeWorkflowId?result:current)
@@ -339,7 +361,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     }
     timer=setTimeout(refresh,5000)
     return()=>{stopped=true;clearTimeout(timer)}
-  },[api,activeWorkflowId,busy])
+  },[api,activeWorkflowId,busy,heldPageOffset])
 
 
   const load = useCallback(() => act('load', async () => {
@@ -361,10 +383,10 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     if(props.onNavigateWorkflow && props.requestedWorkflowId!==id){props.onNavigateWorkflow(id);return Promise.resolve()}
     const request = ++detailRequest.current
     return act(`open:${id}`, async () => {
-      setSyncError(''); setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setConfirmDelete(false)
+      setSyncError(''); setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setHeldPageOffset(0); setConfirmDelete(false)
       try {
-        const result = await api.workflow(id)
-        if (detailRequest.current === request) setOpen(result)
+        const result = await api.workflow(id, 0)
+        if (detailRequest.current === request) { setOpen(result); setHeldPageOffset(result.held?.pageOffset ?? 0) }
       } catch (error) {
         if (detailRequest.current === request) throw error
       }
@@ -414,10 +436,18 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     await openOne(made.workflow.id)
   }
 
-  const refreshOpen = async (id: string) => {
+  const refreshOpen = async (id: string, offset = heldPageOffset) => {
     const request = detailRequest.current
-    const result = await api.workflow(id)
-    setOpen(current => detailRequest.current === request && current?.workflow.id === id ? result : current)
+    const result = await api.workflow(id, offset)
+    if (detailRequest.current === request && result.workflow.id === id) {
+      setOpen(current => current?.workflow.id === id ? result : current)
+      setHeldPageOffset(result.held?.pageOffset ?? 0)
+      const live = result.held?.discardEventIds
+      if (live) {
+        setReplaySelection(current => current ? current.filter(eventId => live.includes(eventId)) : null)
+        setDiscardSelection(current => current ? current.filter(eventId => live.includes(eventId)) : null)
+      }
+    }
   }
   useEffect(() => { if(props.requestedWorkflowId)void openOne(props.requestedWorkflowId);return()=>{detailRequest.current++} }, [])
 
@@ -568,22 +598,46 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             <p>{t('Held events: {count}', { count: open.held.count })}</p>
             {open.held.oldestExpiry && <p>{t('Oldest event expires: {when}', { when: new Date(open.held.oldestExpiry).toLocaleString() })}</p>}
             <p>{t('Resuming does not replay held events. Replay runs the saved workflow with real effects, oldest first.')}</p>
-            {replaySelection && <ul>{open.held.events.filter(event => replaySelection.includes(event.id)).map(event => <li key={event.id}><HeldEventPreview receivedAt={event.receivedAt} load={() => api.heldWorkflowEvent(w.id, event.id)} /></li>)}</ul>}
-            {replaySelection ? <div className="hx-actions">
-              <button className="pill-btn" disabled={!!busy || !w.enabled || !!w.safety?.paused_at} onClick={() => act('replay', async () => {
+            {(replaySelection !== null || discardSelection !== null) && <>
+              <p>{t('Selected {count} of {total}', { count: (replaySelection ?? discardSelection ?? []).length, total: open.held.count })}</p>
+              <div className="hx-actions">
+                <button className="btn-text" disabled={!!busy || !open.held.events.length} onClick={() => {
+                  const visible = open.held!.events.map(event => event.id)
+                  const setter = replaySelection !== null ? setReplaySelection : setDiscardSelection
+                  setter(current => [...new Set([...(current ?? []), ...visible])])
+                }}>{t('Select visible events')}</button>
+                <button className="btn-text" disabled={!!busy || !open.held.discardEventIds?.length} onClick={() => {
+                  const setter = replaySelection !== null ? setReplaySelection : setDiscardSelection
+                  setter([...open.held!.discardEventIds!])
+                }}>{t('Select all held events')}</button>
+                <button className="btn-text" disabled={!!busy} onClick={() => replaySelection !== null ? setReplaySelection([]) : setDiscardSelection([])}>{t('Clear selection')}</button>
+              </div>
+              <HeldEventSelectionList api={api} workflowId={w.id} events={open.held.events} pageOffset={open.held.pageOffset ?? heldPageOffset}
+                selection={replaySelection ?? discardSelection ?? []} onToggle={eventId => {
+                  const setter = replaySelection !== null ? setReplaySelection : setDiscardSelection
+                  setter(current => current?.includes(eventId) ? current.filter(id => id !== eventId) : [...(current ?? []), eventId])
+                }} />
+              <div className="hx-actions">
+                <button className="pill-btn quiet" disabled={!!busy || open.held.previousOffset == null} onClick={() => act('held-page', () => refreshOpen(w.id, open.held!.previousOffset!))}>{t('Previous events')}</button>
+                <span>{t('Showing events {start}–{end} of {total}', { start: open.held.events.length ? (open.held.pageOffset ?? heldPageOffset) + 1 : 0, end: (open.held.pageOffset ?? heldPageOffset) + open.held.events.length, total: open.held.count })}</span>
+                <button className="pill-btn quiet" disabled={!!busy || open.held.nextOffset == null} onClick={() => act('held-page', () => refreshOpen(w.id, open.held!.nextOffset!))}>{t('Next events')}</button>
+              </div>
+            </>}
+            {replaySelection !== null ? <div className="hx-actions">
+              <button className="pill-btn" disabled={!!busy || replaySelection.length === 0 || !w.enabled || !!w.safety?.paused_at} onClick={() => act('replay', async () => {
                 await api.replayWorkflowEvents(w.id, replaySelection)
                 setReplaySelection(null)
                 await refreshOpen(w.id)
               })}>{t('Replay {count} events', { count: replaySelection.length })}</button>
               <button className="btn-text" disabled={!!busy} onClick={() => setReplaySelection(null)}>{t('Cancel')}</button>
-            </div> : !discardSelection && <div className="hx-actions">
-              <button className="pill-btn quiet" disabled={!!busy} onClick={() => setReplaySelection(open.held!.events.map(e => e.id))}>{t('Review held events')}</button>
-              <button className="btn-text danger" disabled={!!busy || !open.held.discardEventIds?.length} onClick={() => setDiscardSelection([...open.held!.discardEventIds!])}>{t('Discard held events')}</button>
+            </div> : discardSelection === null && <div className="hx-actions">
+              <button className="pill-btn quiet" disabled={!!busy} onClick={() => { setDiscardSelection(null); setReplaySelection([]) }}>{t('Review held events')}</button>
+              <button className="btn-text danger" disabled={!!busy || !open.held.discardEventIds?.length} onClick={() => { setReplaySelection(null); setDiscardSelection([]) }}>{t('Discard held events')}</button>
             </div>}
-            {discardSelection && <div>
+            {discardSelection !== null && <div>
               <p>{t('These held events will be permanently discarded without running. New arrivals and existing runs are kept.')}</p>
               <div className="hx-actions">
-                <button className="pill-btn danger" disabled={!!busy} onClick={() => act('discard', async () => {
+                <button className="pill-btn danger" disabled={!!busy || discardSelection.length === 0} onClick={() => act('discard', async () => {
                   await api.discardWorkflowEvents(w.id, discardSelection)
                   setDiscardSelection(null)
                   await refreshOpen(w.id)

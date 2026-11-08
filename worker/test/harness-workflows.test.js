@@ -748,6 +748,31 @@ test("held payload preview is scoped to the editor and exact workflow and never 
   expect((await get(path,toru)).status).toBe(404);
 });
 
+test("held event review pages return at most 25 scoped items and reject invalid offsets", async () => {
+  const made = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Paged held events', enabled: false, trigger: { type: 'webhook' }, steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'Held only', Status: 'Draft' } }],
+  })).json();
+  const at = new Date().toISOString(), expires = new Date(Date.now()+86400000).toISOString();
+  for (let i=0; i<27; i++) await env.DB.prepare('INSERT INTO hx_workflow_held_events(id,org_id,workflow_id,input,received_at,expires_at) VALUES(?1,?2,?3,?4,?5,?6)')
+    .bind(`held_page_${String(i).padStart(2,'0')}`, ORG, made.workflow.id, '{}', new Date(Date.now()+i).toISOString(), expires).run();
+  const detail = offset => get(`/workflows/${made.workflow.id}?${q({orgId:ORG, ...(offset == null ? {} : {heldOffset:String(offset)})})}`, toru);
+  const first = await (await detail(null)).json();
+  expect(first.held.count).toBe(27);
+  expect(first.held.pageOffset).toBe(0);
+  expect(first.held.events).toHaveLength(25);
+  expect(first.held.previousOffset).toBeNull();
+  expect(first.held.nextOffset).toBe(25);
+  const last = await (await detail(25)).json();
+  expect(last.held.events.map(event=>event.id)).toEqual(['held_page_25','held_page_26']);
+  expect(last.held.previousOffset).toBe(0);
+  expect(last.held.nextOffset).toBeNull();
+  expect((await detail(3)).status).toBe(400);
+  expect((await detail(1000)).status).toBe(400);
+  expect((await get(`/workflows/${made.workflow.id}?${q({orgId:ORG,heldOffset:'25'})}`, mika)).status).toBe(200);
+  const viewer = await (await get(`/workflows/${made.workflow.id}?${q({orgId:ORG,heldOffset:'25'})}`, mika)).json();
+  expect(viewer.held).toBeUndefined();
+});
+
 test("scheduled expiry cleanup removes old payloads across workspaces and preserves unexpired events", async () => {
   const made = await (await send('POST', '/workflows', toru, {
     orgId: ORG, name: 'Expiry sweep', enabled: false, trigger: { type: 'webhook' },
