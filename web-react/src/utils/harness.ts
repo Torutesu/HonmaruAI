@@ -111,6 +111,7 @@ export interface Skill { sourceScope?: { agentId: string; channel: string | null
 export interface SkillShareLink { id: string; createdAt: string; expiresAt: string; revokedAt: string | null; fileCount: number; totalBytes: number }
 export interface SharedSkillInfo { name: string; description: string; metadata: Record<string, unknown>; fileCount: number; totalBytes: number; expiresAt: string }
 export interface AgentRoleState { version: number; scope: 'team' | 'personal'; canManage: boolean; canAddMembers?: boolean; members: Array<{ref: string; name: string; role: 'admin' | 'member'; owner: boolean; mine?: boolean}>; candidates: Array<{ref: string; name: string}> }
+export interface AgentPeerRoleState { version:number; scope:'team'|'personal'; managed:boolean; canManage:boolean; members:Array<{agentId:string;name:string;role:'member'}>; candidates:Array<{id:string;name:string}> }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
 export interface AgentAppConnection { server: string; name: string; description: string; iconUrl: string | null; verified: boolean; allowWrites: boolean; connectedAt: string; granted: boolean }
 export interface AgentNativeConnection { source: 'notion' | 'github'; available: boolean; enabled: boolean; workspaceAvailable?: boolean; workspaceEnabled?: boolean; canManageWorkspace?: boolean }
@@ -276,6 +277,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     deleteSkill: (id: string) => call<{ deleted: boolean }>('DELETE', `/skills/${id}`),
 
     agentMembers: (agentId: string) => call<AgentRoleState>('GET', `/hx/agents/${agentId}/members`),
+    agentPeerMembers: (agentId:string) => call<AgentPeerRoleState>('GET', `/hx/agents/${encodeURIComponent(agentId)}/agent-members`),
+    setAgentPeerMember: (agentId:string, memberAgentId:string, role:'member'|'none', expectedVersion:number) => call<{version:number}>('PUT', `/hx/agents/${encodeURIComponent(agentId)}/agent-members`, {memberAgentId,role,expectedVersion}),
     agentApps: (agentId: string) => call<AgentConnectionState>('GET', `/hx/agents/${agentId}/apps`),
     setAgentApp: (agentId: string, server: string, granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { server } : undefined, granted ? undefined : { server }),
     setAgentNativeSource: (agentId: string, source: AgentNativeConnection['source'], granted: boolean, scope: 'member' | 'workspace' = 'member') => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { source, scope } : undefined, granted ? undefined : { source, scope }),
