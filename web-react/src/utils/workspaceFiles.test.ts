@@ -63,7 +63,7 @@ test('public file sharing API requests expose metadata without tokens and send a
  expect(fetcher.mock.calls[4][1].method).toBe('POST')
 })
 
-test('external grants use verified-email view-only requests and revocation keeps credentials in headers',async()=>{const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({canManage:true,grants:[]}))).mockResolvedValueOnce(new Response(JSON.stringify({grant:{recipientGithubId:'u-1',permission:'view'},redemptionPath:'/external/files/org/file'}))).mockResolvedValueOnce(new Response(JSON.stringify({revoked:true,recipientGithubId:'u-1'})));vi.stubGlobal('fetch',fetcher);const api=workspaceFileApi('https://api.example','org','session');expect((await api.externalGrants('file/one')).canManage).toBe(true);await api.grantExternal('file/one','user@example.test',7);expect(fetcher.mock.calls[1][0]).toBe('https://api.example/hx/files/file%2Fone/external-grants?orgId=org');expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({email:'user@example.test',expiresInDays:7});await api.revokeExternal('file/one','u-1');expect(fetcher.mock.calls[2][0]).toContain('/hx/files/file%2Fone/external-grants/u-1?orgId=org');expect(fetcher.mock.calls[2][1].method).toBe('DELETE');expect(api.externalLink('file/one')).toContain('/#/external-file/org/file%2Fone')})
+test('external grants send view/edit permission and revocation keeps credentials in headers',async()=>{const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({canManage:true,grants:[]}))).mockResolvedValueOnce(new Response(JSON.stringify({grant:{recipientGithubId:'u-1',permission:'edit'},redemptionPath:'/external/files/org/file'}))).mockResolvedValueOnce(new Response(JSON.stringify({revoked:true,recipientGithubId:'u-1'})));vi.stubGlobal('fetch',fetcher);const api=workspaceFileApi('https://api.example','org','session');expect((await api.externalGrants('file/one')).canManage).toBe(true);await api.grantExternal('file/one','user@example.test','edit',7);expect(fetcher.mock.calls[1][0]).toBe('https://api.example/hx/files/file%2Fone/external-grants?orgId=org');expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({email:'user@example.test',permission:'edit',expiresInDays:7});await api.revokeExternal('file/one','u-1');expect(fetcher.mock.calls[2][0]).toContain('/hx/files/file%2Fone/external-grants/u-1?orgId=org');expect(fetcher.mock.calls[2][1].method).toBe('DELETE');expect(api.externalLink('file/one')).toContain('/#/external-file/org/file%2Fone')})
 
 test('external File invitation API returns a one-time redeem link and can revoke the invitation',async()=>{
  const fetcher=vi.fn()
@@ -73,10 +73,10 @@ test('external File invitation API returns a one-time redeem link and can revoke
  vi.stubGlobal('fetch',fetcher)
  const api=workspaceFileApi('https://api.example','org','session')
  expect((await api.externalInvites('file/one')).canManage).toBe(true)
- const invite=await api.inviteExternal('file/one','new@example.test',30,7)
+ const invite=await api.inviteExternal('file/one','new@example.test','edit',30,7)
  expect(invite.invite.inviteUrl).toContain('/#/external-invite/')
  expect(fetcher.mock.calls[1][0]).toContain('/external-grant-invites?orgId=org')
- expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({email:'new@example.test',expiresInDays:30,inviteExpiresInDays:7})
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({email:'new@example.test',permission:'edit',expiresInDays:30,inviteExpiresInDays:7})
  expect((await api.revokeExternalInvite('file/one','invite-1')).revoked).toBe(true)
  expect(fetcher.mock.calls[2][0]).toContain('/external-grant-invites/invite-1?orgId=org')
 })

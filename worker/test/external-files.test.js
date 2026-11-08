@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { env } from "cloudflare:test";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import filesSql from "../workspace-files.sql?raw";
 import { createSession, upsertMembership, upsertUser } from "../src/db.js";
 import { setMode } from "../src/harness/mode.js";
@@ -48,10 +48,10 @@ async function setup() {
 
 beforeEach(async () => { await setup(); });
 
-async function call(path, token, method = "GET") {
+async function call(path, token, method = "GET", body, contentType = "text/plain") {
   const { default: worker } = await import("../src/index.js");
   return worker.fetch(new Request(`https://example.com${path}`, {
-    method, headers: { "x-session-token": token },
+    method, headers: { "x-session-token": token, ...(body===undefined?{}:{"content-type":contentType}) }, ...(body===undefined?{}:{body}),
   }), env, context);
 }
 
@@ -98,27 +98,62 @@ test("an exact external file grant reads only its metadata, versions and content
   expect((await call(`/external/files/${fixture.orgId}-other/${fixture.fileId}`, fixture.guestSession)).status).toBe(404);
   expect((await call(`/external/files/${fixture.orgId}`, fixture.guestSession)).status).toBe(404);
   expect((await call(filePath(), fixture.guestSession, "POST")).status).toBe(405);
+  expect((await call(filePath(),fixture.guestSession,'DELETE')).status).toBe(405);
+  expect((await call(`${filePath()}/restore`,fixture.guestSession,'POST')).status).toBe(405);
+  expect((await call(`${filePath()}/purge`,fixture.guestSession,'POST')).status).toBe(405);
+  expect((await call('/external/files/'+encodeURIComponent(fixture.orgId)+'/new/content?expectedVersion=1&size=0',fixture.guestSession,'PUT',new Blob([]).stream())).status).toBe(404);
 });
 
-test("an edit grant is read-only here; revocation and expiry block every read", async () => {
+test("an edit grant uploads a new exact-file version; revocation and expiry block access", async () => {
   await share("edit");
   expect((await call(filePath(), fixture.guestSession)).status).toBe(200);
   expect((await call(`${filePath()}/versions/1/content`, fixture.guestSession, "PUT")).status).toBe(405);
 
+  const replacement=new TextEncoder().encode('updated by guest');
+  const uploaded=await call(`${filePath()}/content?expectedVersion=1&size=${replacement.byteLength}`,fixture.guestSession,'PUT',new Blob([replacement]).stream());
+  expect(uploaded.status).toBe(200);expect(await uploaded.json()).toMatchObject({saved:true,version:2});
+  expect(new Uint8Array(await (await call(`${filePath()}/versions/2/content`,fixture.guestSession)).arrayBuffer())).toEqual(replacement);
+  expect((await call(`${filePath()}/content?expectedVersion=1&size=0`,fixture.guestSession,'PUT',new Blob([]).stream())).status).toBe(409);
+  expect((await call(`${filePath()}/content?expectedVersion=2&size=0`,fixture.guestSession,'PUT',new Blob([]).stream(),'bad-type')).status).toBe(400);
+  expect((await call(`${filePath()}/content?expectedVersion=2&size=26214401`,fixture.guestSession,'PUT',new Blob([]).stream())).status).toBe(400);
+  expect((await call(`${filePath()}/content?expectedVersion=2&size=1`,fixture.guestSession,'PUT',new Blob([]).stream())).status).toBe(400);
+  const finalBytes=new Blob(['final version']);
+  expect((await call(`${filePath()}/content?expectedVersion=2&size=${finalBytes.size}`,fixture.guestSession,'PUT',finalBytes.stream())).status).toBe(200);
+
   await env.DB.prepare("UPDATE hx_external_resource_grants SET revoked_at = ?1 WHERE org_id = ?2 AND resource_id = ?3 AND recipient_github_id = ?4")
     .bind(new Date().toISOString(), fixture.orgId, fixture.fileId, fixture.guestId).run();
+  expect((await call(`${filePath()}/content?expectedVersion=3&size=0`,fixture.guestSession,'PUT',new Blob([]).stream())).status).toBe(404);
   expect((await call(filePath(), fixture.guestSession)).status).toBe(404);
   expect((await call(`${filePath()}/versions`, fixture.guestSession)).status).toBe(404);
   expect((await call(`${filePath()}/versions/1/content`, fixture.guestSession)).status).toBe(404);
 
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
-  await share("view", expiresAt);
+  await share("edit", expiresAt);
   const pastGrant = new Date(Date.now() - 120_000).toISOString();
   const pastExpiry = new Date(Date.now() - 60_000).toISOString();
   await env.DB.prepare("UPDATE hx_external_resource_grants SET granted_at = ?1, expires_at = ?2 WHERE org_id = ?3 AND resource_id = ?4 AND recipient_github_id = ?5 AND revoked_at IS NULL")
     .bind(pastGrant, pastExpiry, fixture.orgId, fixture.fileId, fixture.guestId).run();
   expect((await call(filePath(), fixture.guestSession)).status).toBe(404);
   expect((await call(`${filePath()}/versions/1/content`, fixture.guestSession)).status).toBe(404);
+  expect((await call(`${filePath()}/content?expectedVersion=3&size=0`,fixture.guestSession,'PUT',new Blob([]).stream())).status).toBe(404);
+});
+
+test("view grants cannot upload and access is rechecked after R2 staging", async () => {
+  await share('view');
+  const body=new Blob([new TextEncoder().encode('new version')]);
+  expect((await call(`${filePath()}/content?expectedVersion=1&size=${body.size}`,fixture.guestSession,'PUT',body.stream())).status).toBe(403);
+  await share('edit');
+  const originalPut=env.MEDIA.put.bind(env.MEDIA);
+  const spy=vi.spyOn(env.MEDIA,'put').mockImplementation(async(...args)=>{
+    const stored=await originalPut(...args);
+    await env.DB.prepare("UPDATE hx_external_resource_grants SET revoked_at=?1 WHERE org_id=?2 AND resource_id=?3 AND recipient_github_id=?4 AND permission='edit'")
+      .bind(new Date().toISOString(),fixture.orgId,fixture.fileId,fixture.guestId).run();
+    return stored;
+  });
+  const response=await call(`${filePath()}/content?expectedVersion=1&size=${body.size}`,fixture.guestSession,'PUT',body.stream());
+  spy.mockRestore();
+  expect(response.status).toBe(409);
+  expect(await env.DB.prepare('SELECT current_version FROM hx_workspace_files WHERE org_id=?1 AND id=?2').bind(fixture.orgId,fixture.fileId).first()).toEqual({current_version:1});
 });
 
 test("Simple mode, a deleted Room and a deleted current File all deny a live grant", async () => {

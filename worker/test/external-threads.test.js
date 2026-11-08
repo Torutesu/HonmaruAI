@@ -16,6 +16,9 @@ const grantMigrations = [
   ...migrationLines.filter((line) => /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_thread_send_requests_/.test(line)),
   migrationLines.find((line) => /^CREATE TABLE IF NOT EXISTS hx_external_thread_invites /.test(line)),
   ...migrationLines.filter((line) => /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_thread_invites_/.test(line)),
+  migrationLines.find((line) => /^CREATE TABLE IF NOT EXISTS hx_external_thread_link_shares /.test(line)),
+  ...migrationLines.filter((line) => /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_thread_link_shares_/.test(line)),
+  migrationLines.find((line) => /^CREATE TABLE IF NOT EXISTS hx_external_thread_link_redemptions /.test(line)),
 ].filter(Boolean);
 
 async function setup() {
@@ -31,7 +34,9 @@ async function setup() {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   if (!grantMigrations.some((line) => line.startsWith("CREATE TABLE IF NOT EXISTS hx_external_resource_grants ")) ||
       !grantMigrations.some((line) => line.startsWith("CREATE TABLE IF NOT EXISTS hx_external_thread_send_requests ")) ||
-      !grantMigrations.some((line) => line.startsWith("CREATE TABLE IF NOT EXISTS hx_external_thread_invites "))) {
+      !grantMigrations.some((line) => line.startsWith("CREATE TABLE IF NOT EXISTS hx_external_thread_invites ")) ||
+      !grantMigrations.some((line) => line.startsWith("CREATE TABLE IF NOT EXISTS hx_external_thread_link_shares ")) ||
+      !grantMigrations.some((line) => line.startsWith("CREATE TABLE IF NOT EXISTS hx_external_thread_link_redemptions "))) {
     throw new Error("external Thread sharing migration is missing");
   }
   for (const sql of grantMigrations) await env.DB.exec(sql);
@@ -150,6 +155,29 @@ test("a verified non-member can read and reply only to an explicitly shared Thre
   expect(await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2").bind(orgId, approvedMessage.messageId).all())
     .toMatchObject({ results: [{ login: ids.owner, reason: "mention" }] });
   expect(await env.DB.prepare("SELECT count(*) AS n FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND kind='agent'").bind(orgId, rootId).first()).toMatchObject({ n: 0 });
+});
+
+test("anyone-with-link redeems only an exact Thread grant and revoke removes the redeemed access", async () => {
+  const {orgId,rootId,ids,sessions}=await setup();
+  const path=`/external/threads/${orgId}/${rootId}/links`;
+  const created=await call(path,sessions.owner,"POST",{permission:"edit",expiresAt:new Date(Date.now()+60_000).toISOString()});
+  expect(created.status).toBe(201);
+  const payload=await created.json();
+  const token=payload.inviteUrl?.match(/external-invite\/([a-f0-9]{64})$/i)?.[1]||payload.token;
+  expect(token).toMatch(/^[a-f0-9]{64}$/i);
+  expect(await env.DB.prepare("SELECT token_hash FROM hx_external_thread_link_shares WHERE id=?1").bind(payload.link.id).first()).toMatchObject({token_hash:expect.not.stringMatching(token)});
+  expect((await call("/external/invites/redeem","","POST",{token})).status).toBe(401);
+  const redeemed=await call("/external/invites/redeem",sessions.guest,"POST",{token});
+  expect(redeemed.status).toBe(200);
+  expect(await redeemed.json()).toMatchObject({redeemed:true,resourceType:"thread",resourceId:rootId,permission:"edit"});
+  expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,ids.guest).first()).toBeNull();
+  expect((await call(`/external/threads/${orgId}/${rootId}`,sessions.guest)).status).toBe(200);
+  expect((await call(`/channels/messages?orgId=${orgId}&channel=b%3Aprivate-room`,sessions.guest)).status).toBe(403);
+  expect((await call("/external/invites/redeem",sessions.guest,"POST",{token})).status).toBe(200);
+  expect((await call(`${path}/${payload.link.id}`,sessions.editor,"DELETE")).status).toBe(404);
+  expect((await call(`${path}/${payload.link.id}`,sessions.owner,"DELETE")).status).toBe(200);
+  expect((await call(`/external/threads/${orgId}/${rootId}`,sessions.guest)).status).toBe(404);
+  expect((await call("/external/invites/redeem",sessions.guest,"POST",{token})).status).toBe(404);
 });
 
 test("sharing authority is resource-owner/Admin scoped and grants do not cross workspaces", async () => {

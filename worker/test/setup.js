@@ -146,4 +146,4 @@ env.DB.exec = async (source) => {
 // the cumulative schema. Create them after schema setup and before replaying
 // migration indexes/backfills in the test bootstrap.
 const externalCollaboratorTables = migrationsSql.split("\n").filter((line) =>
-  /^CREATE TABLE IF NOT EXISTS hx_external_(?:resource_grants|thread_send_requests|thread_invites|app_invites|app_send_requests) /.test(line));
+  /^CREATE TABLE IF NOT EXISTS hx_external_(?:resource_grants|thread_send_requests|thread_invites|app_invites|app_send_requests|thread_link_shares|thread_link_redemptions) /.test(line));

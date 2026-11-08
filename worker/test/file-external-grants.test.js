@@ -28,11 +28,11 @@ beforeEach(setup);
 async function call(path,token,method='GET',body){return worker.fetch(new Request('https://example.test'+path,{method,headers:{'x-session-token':token,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})}),env,{waitUntil(){}})}
 test('owner creates a verified-email view grant, recipient redeems it, and owner revokes it',async()=>{
  const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
- let response=await call(path,f.ownerToken,'POST',{email:f.recipientId+'@example.test',expiresInDays:7});
- expect(response.status).toBe(201);const created=await response.json();expect(created.grant).toMatchObject({recipientGithubId:f.recipientId,permission:'view'});expect(created.redemptionPath).toContain('/external/files/');
+ let response=await call(path,f.ownerToken,'POST',{email:f.recipientId+'@example.test',permission:'edit',expiresInDays:7});
+ expect(response.status).toBe(201);const created=await response.json();expect(created.grant).toMatchObject({recipientGithubId:f.recipientId,permission:'edit'});expect(created.redemptionPath).toContain('/external/files/');
  const guestPath=created.redemptionPath;
- response=await call(guestPath,f.recipientToken);expect(response.status).toBe(200);expect(await response.json()).toMatchObject({permission:'view',file:{id:f.fileId,path:'handoff.txt'}});
- response=await call(path,f.ownerToken);expect((await response.json()).grants[0]).toMatchObject({recipientLogin:f.recipientId,permission:'view',revokedAt:null});
+ response=await call(guestPath,f.recipientToken);expect(response.status).toBe(200);expect(await response.json()).toMatchObject({permission:'edit',file:{id:f.fileId,path:'handoff.txt'}});
+ response=await call(path,f.ownerToken);expect((await response.json()).grants[0]).toMatchObject({recipientLogin:f.recipientId,permission:'edit',revokedAt:null});
  response=await call('/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants/'+encodeURIComponent(f.recipientId)+'?orgId='+encodeURIComponent(f.orgId),f.ownerToken,'DELETE',{});
  expect(response.status).toBe(200);expect((await response.json()).revoked).toBe(true);
  expect((await call(guestPath,f.recipientToken)).status).toBe(404);
@@ -40,20 +40,21 @@ test('owner creates a verified-email view grant, recipient redeems it, and owner
 test('only file owner/Admin can manage grants; emails must resolve to a verified nonmember',async()=>{
  const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
  expect((await call(path,f.recipientToken,'POST',{email:f.ownerId+'@example.test',expiresInDays:7})).status).toBe(403);
- expect((await call(path,f.ownerToken,'POST',{email:'missing@example.test',expiresInDays:7})).status).toBe(404);
+ expect((await call(path,f.ownerToken,'POST',{email:'missing@example.test',permission:'view',expiresInDays:7})).status).toBe(404);
  await upsertMembership(env.DB,f.orgId,f.recipientId,'member');
- expect((await call(path,f.ownerToken,'POST',{email:f.recipientId+'@example.test',expiresInDays:7})).status).toBe(409);
+ const memberResponse=await call(path,f.ownerToken,'POST',{email:f.recipientId+'@example.test',permission:'view',expiresInDays:7});
+ expect(memberResponse.status).toBe(409);expect(await memberResponse.json()).toMatchObject({message:'Workspace members should use their existing workspace access.'});
 });
 test('revocation preserves history and applies expiry boundaries',async()=>{
  const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
- const created=await call(path,f.ownerToken,'POST',{email:f.recipientId+'@example.test',expiresInDays:1});expect(created.status).toBe(201);
+ const created=await call(path,f.ownerToken,'POST',{email:f.recipientId+'@example.test',permission:'view',expiresInDays:1});expect(created.status).toBe(201);
  await call('/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants/'+encodeURIComponent(f.recipientId)+'?orgId='+encodeURIComponent(f.orgId),f.ownerToken,'DELETE',{});
  const result=await call(path,f.ownerToken);expect((await result.json()).grants[0].revokedAt).toBeTruthy();
 });
 test('unregistered email invite is redeemed only by its verified address and revocation removes the file grant',async()=>{
  const invitePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grant-invites?orgId='+encodeURIComponent(f.orgId);
  await env.DB.prepare("UPDATE users SET email='new@example.test',email_verified_at=?1 WHERE github_id=?2").bind(new Date().toISOString(),f.recipientId).run();
- let response=await call(invitePath,f.ownerToken,'POST',{email:'new@example.test',expiresInDays:7,inviteExpiresInDays:1});
+ let response=await call(invitePath,f.ownerToken,'POST',{email:'new@example.test',permission:'edit',expiresInDays:7,inviteExpiresInDays:1});
  expect(response.status).toBe(201);
  const created=await response.json();
  expect(created.invite.inviteUrl).toContain('/#/external-invite/');
@@ -61,7 +62,7 @@ test('unregistered email invite is redeemed only by its verified address and rev
  const fileRead='/external/files/'+encodeURIComponent(f.orgId)+'/'+encodeURIComponent(f.fileId);
  response=await call('/external/invites/redeem',f.recipientToken,'POST',{token:created.invite.token});
  expect(response.status).toBe(200);
- expect(await response.json()).toMatchObject({redeemed:true,resourceType:'file',orgId:f.orgId,fileId:f.fileId,permission:'view'});
+ expect(await response.json()).toMatchObject({redeemed:true,resourceType:'file',orgId:f.orgId,fileId:f.fileId,permission:'edit'});
  expect(await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(f.orgId,f.recipientId).first()).toBeNull();
  expect((await call(fileRead,f.recipientToken)).status).toBe(200);
  const invites=await call(invitePath,f.ownerToken);
@@ -74,7 +75,7 @@ test('unregistered email invite is redeemed only by its verified address and rev
 });
 test('file invite redemption rejects an account with a different verified email',async()=>{
  const invitePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grant-invites?orgId='+encodeURIComponent(f.orgId);
- const response=await call(invitePath,f.ownerToken,'POST',{email:'different@example.test',expiresInDays:7,inviteExpiresInDays:7});
+ const response=await call(invitePath,f.ownerToken,'POST',{email:'different@example.test',permission:'view',expiresInDays:7,inviteExpiresInDays:7});
  expect(response.status).toBe(201);const created=await response.json();
  const denied=await call('/external/invites/redeem',f.recipientToken,'POST',{token:created.invite.token});
  expect(denied.status).toBe(404);

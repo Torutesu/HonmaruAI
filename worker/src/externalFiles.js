@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { getSession, getUserByGithubId } from "./db.js";
 import { getMode } from "./harness/mode.js";
+import { uploadFileVersion } from "./harness/fileUpload.js";
+import { FileVersionInputError } from "./harness/fileVersionLedger.js";
+import { externalFileEditAuthority } from "./harness/fileAuthority.js";
 
 // External File access is intentionally a separate, exact-resource read path.
 // It never accepts a scope, directory, search, cursor, or write command.
@@ -172,16 +175,36 @@ async function downloadVersion(env, orgId, fileId, userId, version) {
 
 export async function handleExternalFiles(request, env, url) {
   if (!url.pathname.startsWith("/external/files/")) return null;
-  if (request.method !== "GET") return fail("Method not allowed.", 405);
   const parsed = fileParts(url);
   if (!parsed) return fail();
   const { parts, orgId, fileId } = parsed;
-  if (parts.length !== 4 && !(parts.length === 5 && parts[4] === "versions")
+  const upload = request.method === 'PUT' && parts.length === 5 && parts[4] === 'content';
+  if (request.method !== 'GET' && !upload) return fail("Method not allowed.", 405);
+  if (parts.length !== 4 && !(parts.length === 5 && (parts[4] === "versions" || upload))
       && !(parts.length === 7 && parts[4] === "versions" && parts[6] === "content")) return fail();
   if (await getMode(env.DB, orgId) !== "harness") return fail("External File sharing is unavailable in Simple mode.");
   const actor = await actorFor(request, env.DB);
   if (!actor) return fail("Sign in to continue.", 401);
   const now = new Date().toISOString();
+
+  if (upload) {
+    const target = await readableFile(env.DB, orgId, fileId, actor.user.github_id, now);
+    if (!target) return fail();
+    if (target.permission !== 'edit') return fail('Can edit access is required to upload a new version.', 403);
+    const expectedValue=url.searchParams.get('expectedVersion'),sizeValue=url.searchParams.get('size');
+    const expectedVersion=expectedValue!==null&&/^[1-9]\d*$/.test(expectedValue)?Number(expectedValue):NaN;
+    const size=sizeValue!==null&&/^(0|[1-9]\d*)$/.test(sizeValue)?Number(sizeValue):NaN;
+    if(!Number.isSafeInteger(expectedVersion)||!Number.isSafeInteger(size)||size>FILE_MAX||!request.body)return fail('Invalid upload.',400);
+    const contentType=(request.headers.get('content-type')||'application/octet-stream').split(';')[0].trim().toLowerCase();
+    if(!validContentType(contentType))return fail('Invalid content type.',400);
+    try {
+      const result=await uploadFileVersion(env,{orgId,fileId,userId:actor.user.github_id,expectedVersion,size,contentType,stream:request.body,authoritySql:externalFileEditAuthority('f.org_id','f.id','?3'),commitAuthoritySql:externalFileEditAuthority('f.org_id','f.id','?10')});
+      return result.saved?json({saved:true,version:result.version}):fail('File access changed or the version is stale.',409);
+    } catch(error) {
+      console.error('external file guest upload failed', error instanceof Error ? error.message : String(error));
+      return fail(error instanceof FileVersionInputError?'Invalid upload.':'File upload failed.',error instanceof FileVersionInputError?400:500);
+    }
+  }
 
   if (parts.length === 4) {
     const file = await readableFile(env.DB, orgId, fileId, actor.user.github_id, now);
