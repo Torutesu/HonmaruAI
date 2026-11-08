@@ -213,7 +213,7 @@ async function shareThread(request, env, orgId, rootId, actor) {
         .bind(now,actor.user.github_id,input.grantId,orgId,rootId,...fence.bindings),
       env.DB.prepare(`UPDATE hx_external_thread_send_requests SET status='cancelled',decided_at=?1,decided_by=?2
         WHERE org_id=?3 AND root_message_id=?4 AND status='pending'
-          AND guest_github_id=(SELECT recipient_github_id FROM hx_external_resource_grants WHERE id=?5)
+          AND guest_github_id=(SELECT recipient_github_id FROM hx_external_resource_grants WHERE org_id=?3 AND id=?5)
           AND EXISTS(SELECT 1 FROM hx_external_resource_grants changed WHERE changed.id=?5
             AND changed.revoked_at=?1 AND changed.revoked_by=?2)
           AND ${threadManagerFence(orgId,rootId,actor.user,root.channel,6).sql}`)
@@ -420,8 +420,8 @@ async function redeemExternalThreadLink(env,{token,userId}) {
   if(!root||!owner||!(await manageableRoot(env.DB,link.org_id,link.resource_id,owner))) return deny;
   const existing=await env.DB.prepare(`SELECT g.id,g.permission FROM hx_external_thread_link_redemptions r
     JOIN hx_external_resource_grants g ON g.id=r.grant_id
-    WHERE r.link_id=?1 AND r.recipient_github_id=?2 AND g.revoked_at IS NULL
-      AND (g.expires_at IS NULL OR g.expires_at>?3)`).bind(link.id,String(userId),now).first();
+    WHERE r.link_id=?1 AND r.recipient_github_id=?2 AND g.org_id=?4 AND g.revoked_at IS NULL
+      AND (g.expires_at IS NULL OR g.expires_at>?3)`).bind(link.id,String(userId),now,link.org_id).first();
   if(existing) return {redeemed:true,orgId:link.org_id,resourceType:"thread",resourceId:link.resource_id,permission:existing.permission};
   // Preserve direct shares and grants minted through other links. Never replace
   // a stronger or weaker existing grant as a side effect of redeeming a link.
