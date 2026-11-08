@@ -209,7 +209,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       {wakeGrantsOpen && <section className="hx-profile-card" aria-label={t('Agent wake permissions')}>
         <header><span>{t('Agent wake permissions')}</span></header>
         {wakeGrants.length===0 ? <p>{t('No Agent wake permissions.')}</p> : wakeGrants.map(g=><div className="row" key={g.id}>
-          <div><strong>{g.sourceAgentId} → {g.targetAgentId}</strong><div className="row-sub">{g.scope} · {g.room}{g.scope==='thread'?` / ${g.thread}`:''} · {t(g.state)}</div></div>
+          <div><strong>{g.sourceAgentId} → {g.targetAgentId}</strong><div className="row-sub">{t(g.scope==='ten_minutes'?'Allow for 10 min':g.scope==='once'?'Allow once':g.scope==='thread'?'Allow in this thread':'Always allow in this room')} · {g.room}{g.scope==='thread'?` / ${g.thread}`:''} · {t(g.state)}</div></div>
           {g.state==='active'&&g.scope!=='once'&&<button className="btn-text danger" disabled={wakeGrantsBusy} onClick={()=>{setWakeGrantsBusy(true);void api.revokeAgentWakeGrant(g.id).then(()=>api.agentWakeGrants()).then(r=>setWakeGrants(r.grants)).finally(()=>setWakeGrantsBusy(false))}}>{t('Revoke')}</button>}
         </div>)}
       </section>}

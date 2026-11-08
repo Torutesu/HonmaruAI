@@ -571,7 +571,7 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             <div className="decide-row">
               {card.agentWakeApproval ? <>
                 <button className="decide decline" onClick={() => decide('decline')} aria-label={t('Decline')}><Icon name="x" size={22} /></button>
-                {(['ten_minutes','once','thread','room'] as const).map((scope) => <button key={scope} className="decide approve" onClick={() => decide('approve',scope)} aria-label={scope}>{t(scope==='ten_minutes'?'Allow for 10 min':scope==='once'?'Allow once':scope==='thread'?'Allow in this thread':'Always allow in this room')}</button>)}
+                {(['ten_minutes','once','thread','room'] as const).map((scope) => {const label=scope==='ten_minutes'?'Allow for 10 min':scope==='once'?'Allow once':scope==='thread'?'Allow in this thread':'Always allow in this room';return <button key={scope} className="decide approve" onClick={() => decide('approve',scope)} aria-label={t(label)}>{t(label)}</button>})}
               </> : <>
                 <button className="decide decline" onClick={() => decide('decline')} aria-label={t('Decline')} aria-keyshortcuts="d"><Icon name="x" size={22} /></button>
                 <button className="decide approve" onClick={() => decide('approve')} aria-label={t('Approve')} aria-keyshortcuts="a"><Icon name="check" size={22} /></button>
