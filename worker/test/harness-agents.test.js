@@ -86,6 +86,29 @@ test('profile audience changes refresh only the affected members without sharing
  expect(deliveries.every(item=>item.event.name==='agent_access_changed'&&item.event.value.agentId===agentId&&Object.keys(item.event.value).sort().join(',')==='agentId,version')).toBe(true);
 });
 
+test('generic app connection grant and revoke notify each current agent device with an opaque invalidation', async () => {
+ const at = new Date().toISOString();
+ await env.DB.prepare(`INSERT INTO org_apps (org_id,server,name,added_at) VALUES (?1,'linear','Linear',?2)`).bind(ORG,at).run();
+ await env.DB.prepare(`INSERT INTO app_connections (id,org_id,user_github_id,server,status,created_at,updated_at)
+   VALUES ('mika-linear',?1,'9202','linear','connected',?2,?2)`).bind(ORG,at).run();
+ const roles=await(await get(`/hx/agents/${agentId}/members?${q({orgId:ORG})}`,mika)).json();
+ const kenjiRef=roles.candidates.find(person=>person.name==='Kenji').ref;
+ expect((await send('PUT',`/hx/agents/${agentId}/members`,mika,{orgId:ORG,ref:kenjiRef,role:'member',expectedVersion:roles.version})).status).toBe(200);
+ const deliveries=[];
+ const relayStub={fetch:async(_url,init)=>{deliveries.push(JSON.parse(init.body));return new Response('{}')}};
+ const relay={idFromName:id=>id,get:()=>relayStub};
+ const path=`/hx/agents/${agentId}/apps`;
+ const granted=await send('POST',path,mika,{orgId:ORG,server:'linear'},{ORG_RELAY:relay});
+ expect(granted.status).toBe(200);
+ const revoked=await send('DELETE',`${path}?${q({orgId:ORG,server:'linear'})}`,mika,{}, {ORG_RELAY:relay});
+ expect(revoked.status).toBe(200);
+ expect(deliveries).toHaveLength(2);
+ for (const {deliveries: targets} of deliveries) {
+   expect(targets.map(target=>target.to).sort()).toEqual(['kenji','mika']);
+   expect(targets.every(target=>target.event.name==='agent_access_changed'&&target.event.value.agentId===agentId&&Object.keys(target.event.value).sort().join(',')==='agentId,version')).toBe(true);
+ }
+});
+
 test("told to remember, an agent keeps it without a model, and reads it, its specialty and skills next time, at its tier", async () => {
   await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, specialty: "Accounts receivable", tier: "max" });
   const skill = (await (await send("POST", "/skills", mika, { orgId: ORG, name: "Dunning", body: "Day 7: polite nudge. Day 14: call." })).json()).skill;

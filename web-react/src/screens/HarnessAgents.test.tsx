@@ -87,11 +87,13 @@ test('a targeted Agent access event reloads the open profile permissions',async(
  let tree!:ReturnType<typeof create>
  const requests:string[]=[]
  let profileReads=0
+  let appReads=0
  const delayedProfile=new Promise<void>(()=>{})
  vi.stubGlobal('fetch',vi.fn(async(input:string)=>{
   requests.push(input)
   const path=new URL(input).pathname
   if(path==='/hx/agents/a/profile'&&++profileReads===2)await delayedProfile
+    if(path==='/hx/agents/a/apps')appReads++
   return {ok:true,json:async()=>({agents:[{id:'a',name:'Shared agent',handle:'shared',scope:'team'}],profile:{tier:'standard',people:[],access:'private'},canEdit:false,memories:[],skills:[],followups:[],scopes:[]})}
  }))
  vi.stubGlobal('window',new EventTarget())
@@ -99,9 +101,11 @@ test('a targeted Agent access event reloads the open profile permissions',async(
   await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="first" onClose={vi.fn()}/>)})
   await act(async()=>tree.root.findByProps({'data-agent':'a'}).props.onClick())
   const profileReads=()=>requests.filter(raw=>new URL(raw).pathname==='/hx/agents/a/profile').length
+  expect(appReads).toBe(1)
   expect(profileReads()).toBe(1)
   await act(async()=>{window.dispatchEvent(new CustomEvent('honmaru:agent-access-changed',{detail:{agentId:'a',version:2}}))})
   expect(profileReads()).toBe(2)
+  expect(appReads).toBe(2)
   expect(JSON.stringify(tree.toJSON())).toContain('Loading…')
  }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })

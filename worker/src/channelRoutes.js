@@ -32,6 +32,8 @@ import { appActivity, readAppActivity, appActivityProof, appActivityDeliveryKeys
 import { checkOutgoing } from "./dlp.js";
 import { prepareAgent, rememberRequest, addAgentMemory, listAgentMemories, filterResponders } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
+import { searchHarnessResources } from "./harness/unifiedSearch.js";
+import { getDisplayPreference } from "./harness/displayPreferences.js";
 import { storeAgentToolTrace, traceFromRow } from "./harness/agentToolTraces.js";
 import { mayUseAgentSource } from "./harness/agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
@@ -1305,7 +1307,15 @@ export async function handleChannels(request, env, url, { route, after }) {
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
     const members = await listMembers(env.DB, orgId, who.session.github_id);
-    return json(await searchMessages(env.DB, orgId, who.user.login, members, url.searchParams.get("q") || ""));
+    const raw = url.searchParams.get("q") || "";
+    const messages = await searchMessages(env.DB, orgId, who.user.login, members, raw);
+    // Harness content search is additive. Simple mode keeps its historical
+    // response shape and message-only behavior.
+    if (await getMode(env.DB, orgId) !== "harness" || (await getDisplayPreference(env.DB, orgId, who.session.github_id)).simpleOnly) return json(messages);
+    return json({ ...messages, ...(await searchHarnessResources(env, orgId, who.user.github_id, raw, {
+      file: url.searchParams.get('fileCursor'), record: url.searchParams.get('recordCursor'),
+      skipFiles: url.searchParams.get('skipFiles') === '1', skipRecords: url.searchParams.get('skipRecords') === '1',
+    })) });
   }
 
   if (path === '/channels/agent-runs/stop' && request.method === 'POST') {
