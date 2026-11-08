@@ -306,6 +306,24 @@ test('workspace admins can manage links on a private app without reading the app
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_links WHERE app_id=?1 AND org_id=?2 AND channel='b:hidden-links'").bind(app.id, ORG).first()).toEqual({ n: 1 });
 });
 
+test('a room link never grants visibility to a private app in the room-filtered listing', async () => {
+  const at = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'linked-room','Linked room',0,'9101',?2)").bind(ORG, at).run();
+  const made = await send('POST', '/apps', toru, {
+    orgId: ORG, name: 'Private linked app', privateByDefault: true,
+    columns: [{ name: 'Title', type: 'text' }],
+  });
+  expect(made.status).toBe(201);
+  const { app } = await made.json();
+  await env.DB.prepare("INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?1,?2,'b:linked-room','9101',?3)").bind(app.id, ORG, at).run();
+
+  // Mika can open the linked room, but the app's private ACL still governs visibility.
+  const roomListing = await get(`/apps?orgId=${encodeURIComponent(ORG)}&channel=b%3Alinked-room`, mika);
+  expect(roomListing.status).toBe(200);
+  expect((await roomListing.json()).apps).toEqual([]);
+  expect((await get(`/apps/${app.id}?orgId=${encodeURIComponent(ORG)}`, mika)).status).toBe(404);
+});
+
 test('shared app templates are pinned, sanitized, expiring and revocable bearer links', async () => {
   const made = await send('POST', '/apps', mika, {
     orgId: ORG, name: 'Partner pipeline', tableName: 'Deals', description: 'Sales overview', icon: '💼',
