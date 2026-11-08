@@ -504,17 +504,134 @@ export async function listRuns(db, orgId, workflowId, limit = 50, viewerId) {
   return visible;
 }
 
+
+/**
+ * Summary for the rolling 168-hour window ending at now (UTC instants).
+ * Every candidate is passed through getRun's detail ACL before it can
+ * contribute to any aggregate. Workspace administrators receive no bypass.
+ */
+function createRunAccessCache() {
+  return { workflows: new Map(), tables: new Map(), apps: new Map() };
+}
+
+async function mayViewRunRecord(db, orgId, run, viewerId, cache = createRunAccessCache()) {
+  let definition = null;
+  if (typeof run.definition_snapshot === 'string') {
+    try { definition = JSON.parse(run.definition_snapshot); } catch { return false; }
+  } else {
+    definition = await getWorkflow(db, orgId, run.workflow_id);
+  }
+  if (!definition) return false;
+  const definitionKey = JSON.stringify(definition);
+  if (!cache.workflows.has(definitionKey)) cache.workflows.set(definitionKey, await mayViewWorkflow(db, orgId, definition, viewerId));
+  if (!cache.workflows.get(definitionKey)) return false;
+
+  const input = parse(run.input, null);
+  if (input?.tableId) {
+    const key = String(input.tableId);
+    if (!cache.tables.has(key)) cache.tables.set(key, await mayUseTable(db, orgId, input.tableId, viewerId));
+    if (!cache.tables.get(key)) return false;
+  }
+  const inputAppId = input?.records?.find(record => record?.appId)?.appId;
+  if (inputAppId) {
+    const key = String(inputAppId);
+    if (!cache.apps.has(key)) cache.apps.set(key, await mayUseApp(db, orgId, inputAppId, viewerId));
+    if (!cache.apps.get(key)) return false;
+  }
+  return true;
+}
+
+/**
+ * Summary for the rolling 168-hour window ending at now (UTC instants).
+ * Every candidate is checked against the same per-run detail ACL before it
+ * can contribute. Admins receive no bypass for private apps or other sources.
+ */
+export async function workflowRunSummary(db, orgId, workflowId, viewerId, { nowMs = Date.now(), maxRuns = 5000 } = {}) {
+  if (!viewerId) throw new TypeError('A viewer is required to summarize workflow runs.');
+  const windowEnd = new Date(nowMs).toISOString();
+  const windowStart = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const pageSize = 200;
+  const revisions = await workflowRevisionRows(db, orgId, workflowId);
+  const accessCache = createRunAccessCache();
+  const visibleRuns = [];
+  let cursor = null;
+  let truncated = false;
+
+  // The limit applies to authorized records only. Hidden runs are checked but
+  // do not affect any aggregate or the partial-summary indicator.
+  while (true) {
+    const cursorClause = cursor ? " AND (r.started_at < ?5 OR (r.started_at = ?5 AND r.id < ?6))" : "";
+    const bindings = cursor
+      ? [orgId, workflowId, windowStart, windowEnd, cursor.startedAt, cursor.id, pageSize]
+      : [orgId, workflowId, windowStart, windowEnd, pageSize];
+    const limitParameter = cursor ? "?7" : "?5";
+    const { results = [] } = await db.prepare(`SELECT r.*,d.definition AS definition_snapshot
+      FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d
+        ON d.run_id=r.id AND d.org_id=r.org_id
+      WHERE r.org_id=?1 AND r.workflow_id=?2 AND r.started_at>=?3 AND r.started_at<=?4${cursorClause}
+      ORDER BY r.started_at DESC,r.id DESC LIMIT ${limitParameter}`).bind(...bindings).all();
+    if (!results.length) break;
+
+    for (const row of results) {
+      const run = publicRun(row, revisions);
+      if (!(await mayViewRunRecord(db, orgId, row, viewerId, accessCache))) continue;
+      if (visibleRuns.length === maxRuns) {
+        truncated = true;
+        break;
+      }
+      visibleRuns.push(run);
+    }
+    if (truncated || results.length < pageSize) break;
+    const last = results[results.length - 1];
+    cursor = { startedAt: last.started_at, id: last.id };
+  }
+
+  const durations = visibleRuns
+    .filter(run => ['done', 'failed', 'declined', 'cancelled'].includes(run.status) && run.finishedAt)
+    .map(run => Date.parse(run.finishedAt) - Date.parse(run.startedAt))
+    .filter(value => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b);
+  const middle = Math.floor(durations.length / 2);
+  const typicalDurationMs = durations.length
+    ? durations.length % 2 ? durations[middle] : Math.round((durations[middle - 1] + durations[middle]) / 2)
+    : null;
+
+  const usageByRun = new Map();
+  for (let offset = 0; offset < visibleRuns.length; offset += 80) {
+    const ids = visibleRuns.slice(offset, offset + 80).map(run => run.id);
+    if (!ids.length) continue;
+    const placeholders = ids.map((_, index) => `?${index + 2}`).join(',');
+    const { results = [] } = await db.prepare(`SELECT run_id AS runId,COUNT(*) AS calls,
+      COALESCE(SUM(input_tokens),0) AS inputTokens,COALESCE(SUM(output_tokens),0) AS outputTokens,
+      SUM(CASE WHEN input_tokens IS NULL OR output_tokens IS NULL THEN 1 ELSE 0 END) AS unknownCalls,
+      COALESCE(SUM(estimated_micros),0) AS estimatedMicros,
+      SUM(CASE WHEN estimated_micros IS NULL THEN 1 ELSE 0 END) AS unpricedCalls
+      FROM hx_workflow_usage WHERE org_id=?1 AND run_id IN (${placeholders}) GROUP BY run_id`).bind(orgId, ...ids).all();
+    for (const row of results) usageByRun.set(row.runId, row);
+  }
+  const usage = [...usageByRun.values()].reduce((total, value) => ({
+    trackedRuns: total.trackedRuns + 1,
+    calls: total.calls + value.calls,
+    inputTokens: total.inputTokens + value.inputTokens,
+    outputTokens: total.outputTokens + value.outputTokens,
+    unknownCalls: total.unknownCalls + value.unknownCalls,
+    unpricedCalls: total.unpricedCalls + value.unpricedCalls,
+    estimatedMicros: total.estimatedMicros + value.estimatedMicros,
+  }), { trackedRuns: 0, calls: 0, inputTokens: 0, outputTokens: 0, unknownCalls: 0, unpricedCalls: 0, estimatedMicros: 0 });
+
+  return {
+    windowStart, windowEnd, timezone: 'UTC', windowHours: 168,
+    runCount: visibleRuns.length,
+    failedCount: visibleRuns.filter(run => run.status === 'failed').length,
+    completedDurationCount: durations.length, typicalDurationMs,
+    usage, truncated,
+  };
+}
+
 export async function getRun(db, orgId, runId, { viewerId, revisions } = {}) {
   const row = await db.prepare("SELECT r.*,d.definition AS definition_snapshot FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d ON d.run_id=r.id AND d.org_id=r.org_id WHERE r.id = ?1 AND r.org_id = ?2").bind(runId, orgId).first();
   const run = row ? publicRun(row, revisions || await workflowRevisionRows(db, orgId, row.workflow_id)) : null;
-  if (run && viewerId) {
-    const frozen = await db.prepare("SELECT definition FROM hx_workflow_run_definitions WHERE run_id = ?1 AND org_id = ?2").bind(runId, orgId).first();
-    const definition = frozen ? JSON.parse(frozen.definition) : await getWorkflow(db, orgId, run.workflowId);
-    if (!(await mayViewWorkflow(db, orgId, definition, viewerId))) return null;
-    if (run.input?.tableId && !(await mayUseTable(db, orgId, run.input.tableId, viewerId))) return null;
-    const inputAppId = run.input?.records?.find(record => record?.appId)?.appId;
-    if (inputAppId && !(await mayUseApp(db, orgId, inputAppId, viewerId))) return null;
-  }
+  if (run && viewerId && !(await mayViewRunRecord(db, orgId, row, viewerId))) return null;
   if(run)run.usage=await workflowRunUsage(db,orgId,runId);
   return run;
 }

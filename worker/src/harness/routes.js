@@ -90,10 +90,10 @@ import { createTemplateShare, listTemplateShares, revokeTemplateShare, readTempl
 import { getProfile, saveProfile, listAgentMemories, addAgentMemory, deleteAgentMemory, TIERS, ACCESS } from "./agents.js";
 import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill, takeSkill, skillsOf } from "./skills.js";
 import { skillMarkdown } from "./skillMarkdown.js";
-import { generateWorkflow } from './workflowCreation.js';
+import { generateWorkflow, previewWorkflow } from './workflowCreation.js';
 import { respondToRecurringAutomationOffer } from './recurringAutomationOffers.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, recoverStalledRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, workflowRunSummary, startRun, recoverStalledRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange, onRowDelete } from "./workflows.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
@@ -632,6 +632,12 @@ export async function handleHarness(request, env, url, context = {}) {
       if(!r.replay)await audit(env, request, { orgId, action: 'workflow.created', actor: person(who.user), entity: { type: 'workflow', id: r.workflow.id, name: r.workflow.name }, details: { source: r.source } });
       return json({ ...r, workflow: { ...r.workflow, hookSecret: undefined } }, 201);
     }
+    if (wfId === 'preview' && request.method === 'POST') {
+      const r = await previewWorkflow(env, request, orgId, who, input);
+      if (r.response) return r.response;
+      if (r.error) return fail(r);
+      return json({ ...r, workflow: { ...r.workflow, hookSecret: undefined } });
+    }
 
     if (!wfId) {
       if (request.method === "GET") return json({ workflows: await listWorkflows(env.DB, orgId, { viewerId: me }), triggers: TRIGGERS, steps: (await getMode(env.DB, orgId)) === 'harness' ? STEP_TYPES : STEP_TYPES.filter(type => type !== 'connection') });
@@ -667,7 +673,7 @@ export async function handleHarness(request, env, url, context = {}) {
       return json(result);
     }
     if (!sub) {
-      if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), canEdit: mine,
+      if (request.method === "GET") return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), summary: await workflowRunSummary(env.DB, orgId, wfId, me), canEdit: mine,
         ...(mine && wf.trigger.type === 'webhook' ? { held: await heldWorkflowSummary(env.DB, orgId, wfId) } : {}) });
       if (!mine) return json({ message: "Only its maker or an admin can change this workflow." }, 403);
       if (request.method === "PUT") {

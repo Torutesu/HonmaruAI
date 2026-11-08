@@ -92,6 +92,18 @@
 .hx-run-authorization li time { grid-column: 1 / -1; color: var(--ash); }
 .hx-run-authorization code { font-family: var(--font-mono); font-size: 11px; }
 .hx-run-history-panel > summary { cursor: pointer; }
+.hx-run-summary { margin: 10px 0 18px; padding: 16px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-card); background: var(--hx-surface, var(--signal-white)); }
+.hx-run-summary > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.hx-run-summary h3 { margin: 0; color: var(--hx-text, var(--ink)); font-size: 14px; font-weight: 650; }
+.hx-run-summary header p, .hx-run-summary-note { margin: 4px 0 0; color: var(--hx-muted, var(--ash)); font-size: 11px; line-height: 1.5; }
+.hx-run-summary > header > span { color: var(--hx-muted, var(--ash)); font-size: 12px; white-space: nowrap; }
+.hx-run-summary-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.hx-run-summary-metrics > div { display: grid; gap: 4px; min-width: 0; }
+.hx-run-summary-metrics span { color: var(--hx-muted, var(--ash)); font-size: 11px; }
+.hx-run-summary-metrics strong { color: var(--hx-text, var(--ink)); font-size: 20px; font-weight: 650; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.hx-run-summary-metrics small { color: var(--hx-muted, var(--ash)); font-size: 11px; }
+.hx-run-summary-note { margin-top: 12px; }
+@media (max-width: 520px) { .hx-run-summary { padding: 12px; } .hx-run-summary-metrics { gap: 8px; } .hx-run-summary-metrics strong { font-size: 17px; } }
 .hx-run-history-tools { display: flex; justify-content: flex-end; margin: 10px 0 6px; }
 .hx-run-filter[aria-pressed="true"] { border-color: color-mix(in srgb, #d14343 48%, var(--hx-border, var(--bone))); color: var(--hx-danger, #c04444); background: color-mix(in srgb, #d14343 8%, var(--hx-surface, var(--signal-white))); }
 .hx-run-filter:focus-visible,
@@ -279,3 +291,22 @@
 .hx-skill-import-success p { margin: 0; color: var(--hx-muted, var(--ash)); }
 .hx-skill-import-success div { flex: 1; min-width: 180px; }
 @media (max-width: 560px) { .hx-skill-share-link-row { align-items: stretch; flex-direction: column; } .hx-skill-share-link-row .pill-btn { align-self: flex-start; } .hx-skill-import-success { align-items: flex-start; } }
+
+
+/* Guided workflow setup: a conversation, a readable proposed plan, and an explicit save step. */
+.hx-guided-setup { display: flex; flex-direction: column; gap: 12px; }
+.hx-guided-thread { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow: auto; }
+.hx-guided-message { max-width: min(720px, 92%); border: 1px solid var(--bone); border-radius: var(--radius-card); padding: 10px 12px; background: var(--signal-white); }
+.hx-guided-message.you { align-self: flex-end; background: var(--mist); }
+.hx-guided-message p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hx-plan-preview { border: 1px solid var(--bone); border-radius: var(--radius-card); padding: 14px; background: var(--signal-white); }
+.hx-plan-preview > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid var(--bone); padding-bottom: 10px; }
+.hx-plan-preview > header span:first-child, .hx-plan-trigger small { display: block; color: var(--ash); font-size: 12px; }
+.hx-plan-preview h3 { margin: 3px 0 0; font-size: 17px; }
+.hx-paused-badge { border-radius: var(--radius-pill); padding: 3px 9px; color: var(--ash); background: var(--mist); font-size: 12px; white-space: nowrap; }
+.hx-plan-trigger { display: grid; gap: 3px; padding: 10px 0; }
+.hx-plan-preview ol { margin: 0; padding-left: 24px; display: grid; gap: 8px; }
+.hx-plan-preview li { padding: 8px 10px; border: 1px solid var(--bone); border-radius: var(--radius-input); display: grid; gap: 3px; overflow-wrap: anywhere; }
+.hx-plan-preview li > span, .hx-plan-preview li > small { color: var(--ash); font-size: 12px; }
+.hx-plan-preview li > strong { font-weight: 600; }
+.hx-plan-preview > .row-sub { margin: 10px 0 0; }
