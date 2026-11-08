@@ -1201,7 +1201,11 @@ export class OrgRelay {
           const result=await acceptAgentHandoff(this.env,{orgId,assignmentId:r.assignment_id,generation:r.source_generation,
             sourceAgentId:r.source_agent_id,targetAgentId:r.target_agent_id,operationId:r.operation_id,brief:r.brief,messageBody:r.message_body});
           if(result.error) {
-            await this.db.prepare(`UPDATE hx_agent_wake_approvals SET status='revoked',updated_at=?3 WHERE org_id=?1 AND id=?2 AND status='approved'`).bind(orgId,r.id,new Date().toISOString()).run();
+            const revokedAt=new Date().toISOString();
+            await this.db.batch([
+              this.db.prepare(`UPDATE hx_agent_wake_approvals SET status='revoked',updated_at=?3 WHERE org_id=?1 AND id=?2 AND status='approved'`).bind(orgId,r.id,revokedAt),
+              this.db.prepare(`UPDATE hx_agent_wake_grants SET revoked_at=COALESCE(revoked_at,?3),updated_at=?3 WHERE org_id=?1 AND approval_id=?2`).bind(orgId,r.id,revokedAt),
+            ]);
             await endAssignment(this.db,{orgId,assignmentId:r.assignment_id,generation:r.source_generation,agentId:r.source_agent_id,status:'cancelled'});
             card.status='rejected'; card.summary='Approval was recorded, but the Agent or room access changed before work could be handed off.';
             await saveCard(this.db,orgId,card);

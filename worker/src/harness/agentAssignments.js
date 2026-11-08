@@ -69,6 +69,8 @@ export async function commitHandoff(db, {orgId, assignmentId, generation, source
     WHERE peer.org_id=?1 AND peer.agent_id=?2 AND peer.member_agent_id=?3`).bind(orgId,targetAgentId,sourceAgentId).first()
     && !await db.prepare(`SELECT 1 FROM hx_agent_wake_grants g JOIN hx_agent_assignments a ON a.org_id=g.org_id AND a.id=?6
       WHERE g.org_id=?1 AND g.id=?2 AND g.source_agent_id=?3 AND g.target_agent_id=?4 AND g.requester_id=a.actor_id
+        AND g.requester_membership=a.actor_membership
+        AND EXISTS(SELECT 1 FROM hx_agent_wake_approvals approval WHERE approval.org_id=g.org_id AND approval.id=g.approval_id AND approval.status='approved')
         AND g.room_channel=a.channel AND (g.scope!='thread' OR g.thread_id=a.thread_id)
         AND (g.scope!='once' OR EXISTS(SELECT 1 FROM hx_agent_wake_approvals r WHERE r.org_id=g.org_id AND r.id=g.approval_id AND r.assignment_id=a.id AND r.source_generation=a.generation AND r.operation_id=?7))
         AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?5) AND (g.use_limit IS NULL OR g.use_count<g.use_limit)`)
@@ -101,7 +103,9 @@ export async function commitHandoff(db, {orgId, assignmentId, generation, source
             JOIN hx_agent_profiles source_profile ON source_profile.org_id=source.org_id AND source_profile.agent_id=source.id
             WHERE peer.org_id=?1 AND peer.agent_id=?5 AND peer.member_agent_id=?4)
           OR EXISTS(SELECT 1 FROM hx_agent_wake_grants g WHERE g.org_id=?1 AND g.id=?8 AND g.source_agent_id=?4 AND g.target_agent_id=?5
+            AND EXISTS(SELECT 1 FROM hx_agent_wake_approvals approval WHERE approval.org_id=g.org_id AND approval.id=g.approval_id AND approval.status='approved')
             AND g.requester_id=(SELECT actor_id FROM hx_agent_assignments WHERE org_id=?1 AND id=?2)
+            AND g.requester_membership=(SELECT actor_membership FROM hx_agent_assignments WHERE org_id=?1 AND id=?2)
             AND g.requester_membership=(SELECT m.created_at FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=g.requester_id AND LOWER(COALESCE(m.role,'guest'))!='guest' LIMIT 1)
             AND g.room_channel=(SELECT channel FROM hx_agent_assignments WHERE org_id=?1 AND id=?2)
             AND (g.scope!='thread' OR g.thread_id=(SELECT thread_id FROM hx_agent_assignments WHERE org_id=?1 AND id=?2))

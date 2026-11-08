@@ -1,5 +1,5 @@
 import {externalAssignmentPending} from './externalAssignment.js';
-import {assignmentExecutionGrant} from './agentAssignmentGrant.js';
+import {assignmentExecutionGrant,assignmentHandoffAgents} from './agentAssignmentGrant.js';
 import {claimHandoff,endAssignment} from './agentAssignments.js';
 import {validAgentWakeGrantForHandoff} from './agentWakeApprovals.js';
 import {runAgents} from '../channelRoutes.js';
@@ -21,6 +21,9 @@ export async function runQueuedHandoff(env,{orgId,rowId},{registerAssignment=nul
   if(!execution)return {status:'cancelled',answered:0};
   const {operation,identity}=execution;
   if(!await validAgentWakeGrantForHandoff(env.DB,operation)) {await endAssignment(env.DB,{...identity,status:'cancelled'});return {status:'cancelled',answered:0};}
+  if(!await assignmentHandoffAgents(env,{...identity,sourceAgentId:operation.source_agent_id,targetAgentId:operation.target_agent_id})) {
+    await endAssignment(env.DB,{...identity,status:'cancelled'});return {status:'cancelled',answered:0};
+  }
   const grant=await assignmentExecutionGrant(env,{...identity,allowPending:true});
   if(!grant) {await endAssignment(env.DB,{...identity,status:'cancelled'});return {status:'cancelled',answered:0};}
   if(grant.assignment.status==='running' && await externalAssignmentPending(env.DB,identity))return {status:'awaiting_external',answered:0};

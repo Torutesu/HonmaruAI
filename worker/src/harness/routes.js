@@ -375,9 +375,10 @@ export async function handleHarness(request, env, url, context = {}) {
       const { results = [] } = await env.DB.prepare(`SELECT g.id,g.source_agent_id AS sourceAgentId,g.target_agent_id AS targetAgentId,
         g.room_channel AS room,g.thread_id AS thread,g.scope,g.created_at AS createdAt,g.expires_at AS expiresAt,
         g.use_limit AS useLimit,g.use_count AS useCount,g.revoked_at AS revokedAt,
-        CASE WHEN g.revoked_at IS NOT NULL THEN 'revoked' WHEN g.expires_at IS NOT NULL AND g.expires_at<=?3 THEN 'expired'
+        CASE WHEN g.revoked_at IS NOT NULL OR approval.status='revoked' THEN 'revoked' WHEN g.expires_at IS NOT NULL AND g.expires_at<=?3 THEN 'expired'
           WHEN g.use_limit IS NOT NULL AND g.use_count>=g.use_limit THEN 'consumed' ELSE 'active' END AS state
-        FROM hx_agent_wake_grants g WHERE g.org_id=?1 AND g.requester_id=?2
+        FROM hx_agent_wake_grants g JOIN hx_agent_wake_approvals approval ON approval.org_id=g.org_id AND approval.id=g.approval_id
+        WHERE g.org_id=?1 AND g.requester_id=?2
         ORDER BY g.created_at DESC LIMIT 200`).bind(orgId,me,new Date().toISOString()).all();
       return json({ grants: results });
     }
