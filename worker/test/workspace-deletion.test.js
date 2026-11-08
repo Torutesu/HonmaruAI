@@ -172,6 +172,17 @@ test("a deletion a run claimed and did not finish cannot be taken back, and the 
 // recordings were kept under names of their own, and the rows naming the
 // icon and emoji went first. Those go too now, and nobody else's.
 
+test("workspace purge cascades App connection grants with their Apps", async () => {
+  const now = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO hx_apps (id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES (?1,?2,'Private App','table-1','{}','own',?3,?3)")
+    .bind("app-delete", ORG, now).run();
+  await env.DB.prepare("INSERT INTO hx_app_connection_grants (org_id,app_id,connection_owner_id,connection_name,connection_version,owner_membership_since,source_agent_id,endpoint,method,granted_by,created_at) VALUES (?1,?2,?3,?4,1,'membership-since','agent-1','https://api.github.com/user','GET',?3,?5)")
+    .bind(ORG, "app-delete", "9501", "github", now).run();
+  await post("/orgs/delete", owner, { orgId: ORG, confirm: "Going Co" });
+  expect(await purgeDueWorkspaces(env, { now: Date.now() + 31 * DAY })).toEqual([ORG]);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=?1").bind(ORG).first()).toEqual({ n: 0 });
+});
+
 async function keptByName(orgId, tag) {
   const now = new Date().toISOString();
   const icon = `org-icon-${tag}`; const emoji = `emoji-${tag}`; const picture = `agent-avatar-00000000-0000-4000-8000-0000000000${tag}`;

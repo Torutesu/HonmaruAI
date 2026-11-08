@@ -2060,6 +2060,15 @@ CREATE TABLE IF NOT EXISTS hx_app_actions (org_id TEXT NOT NULL, app_id TEXT NOT
 CREATE TABLE IF NOT EXISTS hx_app_action_versions (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, name TEXT NOT NULL, version INTEGER NOT NULL, code TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id,name,version));
 CREATE TABLE IF NOT EXISTS hx_app_action_jobs (org_id TEXT NOT NULL, app_id TEXT NOT NULL, job_id TEXT NOT NULL PRIMARY KEY, action_name TEXT NOT NULL, action_version INTEGER NOT NULL, created_by TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS hx_app_connections (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, created_by TEXT NOT NULL, name TEXT NOT NULL, version INTEGER NOT NULL, endpoint TEXT NOT NULL, method TEXT NOT NULL DEFAULT 'GET', token TEXT, enabled INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(org_id,app_id,created_by,name));
+CREATE TABLE IF NOT EXISTS hx_app_connection_grants (
+  org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  connection_owner_id TEXT NOT NULL, connection_name TEXT NOT NULL, connection_version INTEGER NOT NULL,
+  owner_membership_since TEXT NOT NULL,
+  source_agent_id TEXT NOT NULL, endpoint TEXT NOT NULL, method TEXT NOT NULL,
+  granted_by TEXT NOT NULL, created_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,app_id,connection_owner_id,connection_name)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_app_connection_grants_target ON hx_app_connection_grants(org_id,app_id,connection_name);
 CREATE TABLE IF NOT EXISTS hx_app_domains (org_id TEXT NOT NULL, app_id TEXT NOT NULL UNIQUE REFERENCES hx_apps(id) ON DELETE CASCADE, hostname TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK(status IN ('configuring','initializing','pending','active','deactivated','blocked','error')), validation_status TEXT NOT NULL DEFAULT 'pending', verification_status TEXT NOT NULL DEFAULT 'pending', error_message TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id));
 CREATE TABLE IF NOT EXISTS hx_app_env_vars (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, name TEXT NOT NULL, value TEXT NOT NULL, version INTEGER NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id,name));
 
