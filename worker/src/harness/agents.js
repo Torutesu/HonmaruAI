@@ -228,9 +228,21 @@ export function modelForTier(env, provider, tier) {
 /// its instructions, and the provider at its tier's model. The provider
 /// shares its usage list, so the ledger still sees every call.
 export async function prepareAgent(env, orgId, agent, provider, context = {}) {
+  // A conversation-scoped memory is only available when the current caller
+  // can still read that exact conversation. Call sites normally authorize
+  // before preparing an Agent, but this second check keeps a stale or
+  // incomplete internal context from exporting room memory to a model.
+  let canReadMemoryScope = true;
+  if (context?.channel) {
+    if (!context.userId) canReadMemoryScope = false;
+    else {
+      const { mayUseConversation } = await import('./conversationAccess.js');
+      canReadMemoryScope = await mayUseConversation(env.DB, orgId, context.userId, context.channel);
+    }
+  }
   const [profile, memories, skills] = await Promise.all([
     getProfile(env.DB, orgId, agent.id),
-    listAgentMemories(env.DB, orgId, agent.id, context),
+    canReadMemoryScope ? listAgentMemories(env.DB, orgId, agent.id, context) : Promise.resolve([]),
     (async () => { const { executionSkills } = await import("./skills.js"); return executionSkills(env.DB, orgId, agent.id, context); })(),
   ]);
   const blocks = [];
