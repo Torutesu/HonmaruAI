@@ -818,6 +818,26 @@ test('an automatic refresh does not overwrite an inline edit while its save is p
   await act(async()=>{resolveWrite();await delayedWrite;await new Promise(resolve=>setTimeout(resolve,0))})
   expect(input().props.value).toBe('User edit')
 })
+test('an invalid inline number cell exposes an accessible error state until corrected',async()=>{
+  vi.stubGlobal('document',{visibilityState:'visible',addEventListener:vi.fn(),removeEventListener:vi.fn()})
+  const row={id:'row_1',values:{amount:1},updatedAt:'2026-11-01T00:00:00Z'}
+  const view={id:'all',type:'table',name:'All',rows:[row]}
+  state.api={
+    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'amount',name:'Amount',type:'number'}]},rows:[row],views:[view],canCustomize:true}),
+    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),
+    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),
+    conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  }
+  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  const amount=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Amount')!
+  act(()=>amount().props.onChange({target:{value:'9007199254740993',validity:{badInput:false}}}))
+  act(()=>amount().props.onBlur({currentTarget:{validity:{badInput:false}}}))
+  expect(amount().props['aria-invalid']).toBe(true)
+  expect(tree!.root.findByProps({role:'alert'}).children.join('')).toContain('cannot be saved')
+  act(()=>amount().props.onChange({target:{value:'2',validity:{badInput:false}}}))
+  expect(amount().props['aria-invalid']).toBeUndefined()
+  expect(tree!.root.findAllByProps({role:'alert'})).toHaveLength(0)
+})
 test('an automatic refresh does not undo a tab selection while its save is pending',async()=>{
   const windowHandlers=new Map<string,()=>void>(),documentHandlers=new Map<string,()=>void>()
   vi.stubGlobal('window',{addEventListener:(name:string,fn:()=>void)=>windowHandlers.set(name,fn),removeEventListener:(name:string)=>windowHandlers.delete(name)})
