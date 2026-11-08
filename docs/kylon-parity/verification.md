@@ -3987,3 +3987,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Re-audit confirmed that App `workspace/private/room` access already applies across Table, MCP, Home and Workflow; published Custom Apps already have consented, expiring, revocable read-only snapshot links and Cloudflare Pages custom-host support. Database Apps are explicitly rejected from anyone links. These items were previously incorrectly labeled unimplemented in the ledger.
 - The ledger now marks KY-049 and KY-050 partial instead of missing; actual Cloudflare DNS/certificate activation and anonymous production verification remain open.
+
+### 2026-11-08 — KY-099 published Custom App guest runtime (local verification)
+
+- External guests now receive only a valid published Custom App source; drafts are never returned. The UI runs that source in the existing opaque-origin sandbox, loads only App-linked tables, and routes edit-grant writes through the existing guest-authorized endpoints. Custom App server actions and external connections remain unavailable to guests. Simple mode is unchanged.
+- Focused Worker tests passed (16 tests, including published-only source, unpublished rejection, invite, and linked-entity table keys). Web tests passed (all 248 files / 1,829 tests; the focused external-App/Custom-App group passed 19 tests), and the Web typecheck/production build passed. The full local Worker suite did not complete because its 301-file run emitted repeated network-connection errors; exact-head CI, production release, and authenticated multi-user comparison remain pending. KY-099 stays partial.

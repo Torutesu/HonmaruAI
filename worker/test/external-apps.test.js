@@ -112,6 +112,11 @@ test("an exact App grant exposes only its primary and linked table rows", async 
   expect(app.status).toBe(200);
   expect(await app.json()).toMatchObject({ app: { id: f.app.id, name: "Shared app" } });
   expect((await call(`/external/apps/${f.orgId}/${f.otherApp.id}`, f.sessions.guest)).status).toBe(404);
+  const tableList = await call(`/external/apps/${f.orgId}/${f.app.id}/tables`, f.sessions.guest);
+  expect(tableList.status).toBe(200);
+  expect((await tableList.json()).tables.map(({ id, key }) => ({ id, key }))).toEqual([
+    { id: f.app.tableId, key: "primary" }, { id: f.linkedTable.id, key: "linked" },
+  ]);
 
   const primary = await call(`/external/apps/${f.orgId}/${f.app.id}/tables/${f.app.tableId}/rows`, f.sessions.guest);
   expect(primary.status).toBe(200);
@@ -295,16 +300,30 @@ test("external App row writes honor exact edit grants, linked table scope, and d
   })).status).toBe(404);
 });
 
-test("external App guests are told when a published Custom App runtime is not supported", async () => {
+test("external App guests receive only the published Custom App source and can be invited to it", async () => {
   const f = await setup();
   await env.DB.prepare("UPDATE hx_apps SET definition=?1 WHERE org_id=?2 AND id=?3")
-    .bind(JSON.stringify({ custom: { published: true, html: "<p>custom</p>" } }), f.orgId, f.app.id).run();
+    .bind(JSON.stringify({ custom: { draft: "<p>private draft</p>", published: "<main>Published custom App</main>" } }), f.orgId, f.app.id).run();
   const appPath = `/external/apps/${f.orgId}/${f.app.id}`;
   const appResponse = await call(appPath, f.sessions.guest);
-  expect(appResponse.status).toBe(409);
-  expect(await appResponse.json()).toMatchObject({ code: "CUSTOM_APP_GUEST_UNSUPPORTED" });
+  expect(appResponse.status).toBe(200);
+  const shared = await appResponse.json();
+  expect(shared.app.customHtml).toBe("<main>Published custom App</main>");
+  expect(JSON.stringify(shared)).not.toContain("private draft");
   const managerResponse = await call(`${appPath}/sharing`, f.sessions.owner);
-  expect((await managerResponse.json()).customUnsupported).toBe(true);
+  expect((await managerResponse.json()).customUnsupported).toBe(false);
+  const invite = await call(`${appPath}/sharing`, f.sessions.owner, "POST", {
+    email: "custom-guest@example.com", permission: "view",
+  });
+  expect(invite.status).toBe(201);
+});
+
+test("an unpublished Custom App cannot be shared with an external guest", async () => {
+  const f = await setup();
+  await env.DB.prepare("UPDATE hx_apps SET definition=?1 WHERE org_id=?2 AND id=?3")
+    .bind(JSON.stringify({ custom: { draft: "<p>draft only</p>" } }), f.orgId, f.app.id).run();
+  const appPath = `/external/apps/${f.orgId}/${f.app.id}`;
+  expect((await call(appPath, f.sessions.guest)).status).toBe(409);
   expect((await call(`${appPath}/sharing`, f.sessions.owner, "POST", {
     email: "custom-guest@example.com", permission: "view",
   })).status).toBe(409);

@@ -3,6 +3,7 @@ import { getMode } from "./harness/mode.js";
 import { sha256Hex } from "./auth.js";
 import { addRow, updateRow, deleteRow } from "./harness/tables.js";
 import { deliverExternalInvite } from "./externalInviteMail.js";
+import { MAX_PREVIEW_SOURCE, validateSource } from "./harness/customApps.js";
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -34,6 +35,13 @@ async function actorFor(request, db) {
 
 function isCustomApp(definition) {
   try { return Boolean(JSON.parse(definition || "{}")?.custom); } catch { return false; }
+}
+
+function publishedCustomSource(definition) {
+  try {
+    const html = JSON.parse(definition || "{}").custom?.published;
+    return validateSource(html) && html.length <= MAX_PREVIEW_SOURCE ? html : null;
+  } catch { return null; }
 }
 
 export function externalAppWriteGuard(orgId, appId, userId, tableId) {
@@ -106,6 +114,8 @@ function parseColumns(raw) {
       name: String(column?.name || ""),
       type: String(column?.type || "text"),
       ...(column?.options ? { options: column.options } : {}),
+      ...(typeof column?.targetEntity === "string" ? { targetEntity: column.targetEntity } : {}),
+      ...(column?.multiple != null ? { multiple: Boolean(column.multiple) } : {}),
       ...(column?.required != null ? { required: Boolean(column.required) } : {}),
     })).filter((column) => column.id && column.name);
   } catch {
@@ -274,7 +284,7 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
   if ((await getMode(env.DB, orgId)) !== "harness") return fail();
   const manager = await appSharingAccess(env.DB, orgId, appId, actor.user.github_id);
   if (!manager) return fail();
-  const customUnsupported = isCustomApp(manager.definition);
+  const customUnsupported = isCustomApp(manager.definition) && !publishedCustomSource(manager.definition);
   if (parts.length === 6 && parts[5] === "requests" && request.method === "GET") {
     const rows = await env.DB.prepare("SELECT r.id,r.table_id AS tableId,r.row_id AS rowId,r.guest_github_id AS guestGithubId,u.name,u.login,u.email,r.body,r.requested_at AS requestedAt FROM hx_external_app_send_requests r JOIN users u ON u.github_id=r.guest_github_id WHERE r.org_id=?1 AND r.app_id=?2 AND r.status='pending' ORDER BY r.requested_at")
       .bind(orgId, appId).all();
@@ -413,7 +423,8 @@ export async function handleExternalApps(request, env, url) {
   if (parts[4] === "sharing") return appSharing(request, env, url, orgId, appId, actor, parts);
   const access = await appAccess(env.DB, env, orgId, appId, actor.user.github_id);
   if (!access) return fail();
-  if (isCustomApp(access.app.definition)) return json({ code: "CUSTOM_APP_GUEST_UNSUPPORTED", message: "Custom Apps cannot be opened by external guests yet. Ask the owner for a Database App share." }, 409);
+  const customHtml = publishedCustomSource(access.app.definition);
+  if (isCustomApp(access.app.definition) && !customHtml) return json({ code: "CUSTOM_APP_NOT_PUBLISHED", message: "This Custom App has no published version to share." }, 409);
   if (parts.length === 5 && parts[4] === "conversation") {
     return conversation(request, env, url, orgId, appId, actor, access);
   }
@@ -422,12 +433,13 @@ export async function handleExternalApps(request, env, url) {
     return json({ app: {
       id: access.app.id, name: access.app.name, description: access.app.description || "",
       icon: access.app.icon || null, tableId: access.app.table_id, version: access.app.version, permission: access.permission,
+      ...(customHtml ? { customHtml } : {}),
       createdAt: access.app.created_at, updatedAt: access.app.updated_at,
     } });
   }
   if (parts.length === 5 && parts[4] === "tables") {
     if (request.method !== "GET") return fail("Method not allowed.", 405);
-    const tables = await env.DB.prepare("SELECT t.id,t.name,t.columns,t.created_at AS createdAt,t.updated_at AS updatedAt FROM hx_tables t JOIN hx_apps a ON a.org_id=t.org_id AND a.id=?2 WHERE t.org_id=?1 AND (a.table_id=t.id OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=t.id)) AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=a.org_id AND g.resource_type='app' AND g.resource_id=a.id AND g.recipient_github_id=?3 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4)) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=a.org_id AND m.user_github_id=?3) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones tombstone WHERE tombstone.org_id=a.org_id) ORDER BY CASE WHEN t.id=a.table_id THEN 0 ELSE 1 END,t.name")
+    const tables = await env.DB.prepare("SELECT t.id,t.name,t.columns,t.created_at AS createdAt,t.updated_at AS updatedAt,CASE WHEN t.id=a.table_id THEN 'primary' ELSE COALESCE((SELECT e.entity_key FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=t.id ORDER BY e.entity_key LIMIT 1),'') END AS key FROM hx_tables t JOIN hx_apps a ON a.org_id=t.org_id AND a.id=?2 WHERE t.org_id=?1 AND (a.table_id=t.id OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=t.id)) AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=a.org_id AND g.resource_type='app' AND g.resource_id=a.id AND g.recipient_github_id=?3 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4)) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=a.org_id AND m.user_github_id=?3) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones tombstone WHERE tombstone.org_id=a.org_id) ORDER BY CASE WHEN t.id=a.table_id THEN 0 ELSE 1 END,t.name")
       .bind(orgId, appId, actor.user.github_id, new Date().toISOString()).all();
     return json({ tables: (tables.results || []).map(table => ({ ...table, columns: parseColumns(table.columns) })) });
   }

@@ -46,6 +46,9 @@
 .external-app-guest__error, .external-app-guest__notice { max-width: 1080px; margin: 0 auto 14px; padding: 12px 14px; border-radius: 10px; }
 .external-app-guest__error { color: #a32626; background: #fef0f0; }
 .external-app-guest__notice { color: #145c3d; background: #e9f8ef; }
+.external-app-guest__custom { max-width: 1080px; margin: 16px auto; padding: clamp(16px, 3vw, 24px); border: 1px solid var(--guest-border); border-radius: 16px; background: var(--guest-panel); box-shadow: 0 8px 24px rgb(15 23 42 / 4%); }
+.external-app-guest__custom .hx-custom-frame { display: block; width: 100%; height: min(76vh, 860px); min-height: 480px; margin: 0; border: 0; border-radius: 10px; background: var(--guest-panel); }
+.external-app-guest__custom-note { margin: 12px 2px 0; color: var(--guest-muted); font-size: 12px; }
 @media (max-width: 680px) {
   .external-app-guest__header { flex-wrap: wrap; }
   .external-app-guest__header > div { order: 2; width: 100%; }

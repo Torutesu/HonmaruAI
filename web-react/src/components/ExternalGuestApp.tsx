@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import './ExternalGuestApp.css'
+import { CustomAppFrame } from './CustomApp'
+import type { Column, HarnessApi, Row, Table } from '../utils/harness'
 
-interface AppMeta { id: string; name: string; description: string; icon: string | null; tableId: string; permission: 'view' | 'edit' }
-interface AppColumn { id: string; name: string; type: string; options?: string[] }
-interface AppTable { id: string; name: string; columns: AppColumn[] }
+interface AppMeta { id: string; name: string; description: string; icon: string | null; tableId: string; permission: 'view' | 'edit'; customHtml?: string }
+type AppColumn = Column
+interface AppTable { id: string; name: string; key: string; columns: AppColumn[] }
 interface AppRow { id: string; data: Record<string, unknown>; createdAt: string; updatedAt: string }
 interface AppMessage { sequence: number; body: string; createdAt: string; authorName: string; mine: boolean }
 
@@ -14,6 +16,7 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
   const [tables, setTables] = useState<AppTable[]>([])
   const [activeTableId, setActiveTableId] = useState('')
   const [rows, setRows] = useState<AppRow[]>([])
+  const [runtimeRows, setRuntimeRows] = useState<Row[]>([])
   const [hasMoreRows, setHasMoreRows] = useState(false)
   const [loadingMoreRows, setLoadingMoreRows] = useState(false)
   const [messages, setMessages] = useState<AppMessage[]>([])
@@ -25,7 +28,7 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
   const [notice, setNotice] = useState('')
   const base = `${httpBase}/external/apps/${encodeURIComponent(orgId)}/${encodeURIComponent(appId)}`
   const headers = { 'x-session-token': sessionToken, 'content-type': 'application/json' }
-  const rowsUrl = useCallback((tableId: string, offset = 0) => `${base}/tables/${encodeURIComponent(tableId)}/rows?limit=51&offset=${offset}`, [base])
+  const rowsUrl = useCallback((tableId: string, offset = 0, limit = 51) => `${base}/tables/${encodeURIComponent(tableId)}/rows?limit=${limit}&offset=${offset}`, [base])
   const loadRows = useCallback(async (tableId: string) => {
     if (!tableId) return
     const response = await fetch(rowsUrl(tableId), { headers: { 'x-session-token': sessionToken } })
@@ -35,6 +38,38 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
     setRows(page.slice(0, 50))
     setHasMoreRows(page.length > 50)
   }, [rowsUrl, sessionToken])
+  const loadEntity = useCallback(async (key: string) => {
+    const table = tables.find(item => item.key === key)
+    if (!table) throw new Error('This table is not linked to the shared App.')
+    const loaded: Row[] = []
+    for (let offset = 0; offset <= 10000; offset += 100) {
+      const response = await fetch(rowsUrl(table.id, offset, 100), { headers: { 'x-session-token': sessionToken } })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message || String(response.status))
+      const page = Array.isArray(data.rows) ? data.rows : []
+      loaded.push(...page.map((row: AppRow) => ({ id: row.id, values: row.data, createdAt: row.createdAt, updatedAt: row.updatedAt })))
+      if (page.length < 100) break
+    }
+    return { table: { id: table.id, name: table.name, columns: table.columns }, rows: loaded }
+  }, [rowsUrl, sessionToken, tables])
+  const customApi = React.useMemo(() => {
+    if (app?.permission !== 'edit') return undefined
+    const write = async (tableId: string, rowId: string | null, method: 'POST' | 'PATCH' | 'DELETE', payload: Record<string, unknown>) => {
+      const suffix = `/tables/${encodeURIComponent(tableId)}/rows${rowId ? `/${encodeURIComponent(rowId)}` : ''}`
+      const response = await fetch(`${base}${suffix}`, { method, headers, body: JSON.stringify(payload) })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || `Could not save App records (${response.status}).`)
+      return data
+    }
+    // The same opaque-origin runtime is used for workspace Apps. This adapter
+    // exposes only the exact linked-table row API; connections, server actions,
+    // and other workspace capabilities are intentionally absent and fail closed.
+    return {
+      addRow: (tableId: string, values: Record<string, unknown>) => write(tableId, null, 'POST', { values, validation: 'strict' }),
+      updateRow: (tableId: string, rowId: string, values: Record<string, unknown>, expectedUpdatedAt?: string) => write(tableId, rowId, 'PATCH', { values, expectedUpdatedAt, validation: 'strict' }),
+      deleteRow: (tableId: string, rowId: string, expectedUpdatedAt?: string) => write(tableId, rowId, 'DELETE', { expectedUpdatedAt }),
+    } as unknown as HarnessApi
+  }, [app?.permission, base, sessionToken])
   const loadMoreRows = async () => {
     if (!activeTableId || loadingMoreRows || !hasMoreRows) return
     setLoadingMoreRows(true)
@@ -144,6 +179,13 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
     return <input type={type} value={String(value ?? '')} onChange={event => setDraft(current => ({ ...current, [column.id]: event.target.value === '' ? null : column.type === 'number' ? Number(event.target.value) : event.target.value }))} />
   }
   const activeTable = tables.find(table => table.id === activeTableId)
+  const customTable = activeTable ? { id: activeTable.id, name: activeTable.name, columns: activeTable.columns } as Table : null
+  useEffect(() => {
+    if (!app?.customHtml || !tables.some(table => table.id === app.tableId && table.key === 'primary')) return
+    let active = true
+    loadEntity('primary').then(entity => { if (active) setRuntimeRows(entity.rows) }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : String(reason)) })
+    return () => { active = false }
+  }, [app?.customHtml, app?.tableId, loadEntity, tables])
   return <main className="external-app-guest">
     <header className="external-app-guest__header">
       <button type="button" className="external-app-guest__back" onClick={onExit || (() => { location.hash = '#/feed' })}>← Back</button>
@@ -152,6 +194,11 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
     </header>
     {error && <div className="external-app-guest__error" role="alert">{error}</div>}
     {notice && <div className="external-app-guest__notice" role="status">{notice}</div>}
+    {app?.customHtml && customTable && activeTableId === app.tableId && <section className="external-app-guest__custom" aria-label="Custom App">
+      <CustomAppFrame html={app.customHtml} table={customTable} rows={runtimeRows} httpBase={httpBase} appId={appId}
+        api={customApi} loadEntity={loadEntity} reload={async () => { const entity=await loadEntity('primary');setRuntimeRows(entity.rows);await loadRows(app.tableId) }} />
+      <p className="external-app-guest__custom-note">The published App runs in an isolated frame. Guests can access this App’s linked tables; connected services and server actions are not exposed.</p>
+    </section>}
     <section className="external-app-guest__panel" aria-label="App records">
       <div className="external-app-guest__section-title"><div><span className="external-app-guest__eyebrow">Linked data</span><h2>{activeTable?.name || (app ? 'Records' : 'Loading records')}</h2></div><span>{rows.length} shown</span></div>
       <div className="external-app-guest__table-tools">

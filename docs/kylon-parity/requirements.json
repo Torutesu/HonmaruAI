@@ -1200,11 +1200,11 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://kylon.io/changelog",
-      "code": "worker/src/harness/externalCollaborators.js, worker/migrations.sql",
+      "code": "worker/src/harness/externalCollaborators.js, worker/src/externalApps.js, web-react/src/components/ExternalGuestApp.tsx, worker/migrations.sql",
       "acceptance": "名前または検証済みメールで招待した外部ユーザーがワークスペースメンバー化せずサインインでき、Room/Workspace/リンクの対象ごとにThread・File・AppのCan view/Can editを個別設定できる。Threadのゲストは閲覧・返信・アップロード・リアクションができ、送信要求は所有者承認を経る。失効は即時反映され、Workspace/Room/別リソース間のACL隔離、期限、監査履歴、ゲストにAgentが自動返信しないことを検証する。",
       "evidence": {
         "verified": "Kylon公式Changelogの2026-10-30項目は、Thread/File/Appを名前またはメールで共有し、Room/Workspace/リンク単位の対象と各人のCan view/Can editを選ぶこと、外部ユーザーはWorkspaceに参加せずサインインすること、Threadゲストの閲覧/返信/アップロード/リアクションと所有者承認付き送信、現時点でAgentは外部ゲストに返信しないことを明記。Files & Sharing docs §Share outside the workspaceは、公開リンクはスナップショットを公開するだけでlive File/Roomのアクセス権を与えないと明記。Honmaruでは既存のグローバルユーザー認証を使い、新規サービスを追加せず、resource-scoped grant/revoke ledgerとhuman-only lookupの基礎を追加。",
-        "remaining": "現段階は永続grant/revokeとfail-closed lookupのみ。メール招待/検証/受諾、Share UI、既存ログインを使った外部アクセス入口、Thread/File/App/Room APIすべてへの認可統合、Thread返信/添付/リアクションと所有者承認キュー、link audienceの公開スナップショット経路、ゲストへのAgent自動返信抑止、複数ユーザー実環境の隔離検証は未実装。既存Simpleモードはこのgrantモデルを参照しない。"
+        "remaining": "Thread/File/Appの個別招待・権限・失効、Threadリンク共有、File版追加、Appの外部ゲスト行操作と公開済みCustom Appの隔離実行は実装済み。Custom Appゲストにserver action/外部接続は公開しない。workspace/room audience、人物検索招待、File/Thread/App以外のKylon audience、認証済み複数利用者の本番比較は未完了。既存Simpleモードはこのgrantモデルを参照しない。"
       }
     },
     {
