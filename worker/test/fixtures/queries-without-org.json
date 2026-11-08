@@ -33,5 +33,6 @@
   "harness/remoteMcpOAuth.js": 1,
   "harness/templateShares.js": 1,
   "externalApps.js": 1,
-  "harness/externalFileGrants.js": 3
+  "harness/externalFileGrants.js": 3,
+  "harness/agentWakeApprovals.js": 1
 }

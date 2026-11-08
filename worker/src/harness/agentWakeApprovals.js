@@ -146,6 +146,8 @@ export async function validAgentWakeGrantForHandoff(db,operation,now=nowIso()) {
 
 export async function expireAgentWakeApprovals(env,now=nowIso()) {
   const db=env.DB;
+  // This scheduled sweep intentionally spans tenants; every row mutation below
+  // binds the selected request's org_id so tenant data cannot cross over.
   const {results=[]}=await db.prepare(`SELECT * FROM hx_agent_wake_approvals WHERE status='pending' AND request_expires_at<=?1 LIMIT 100`).bind(now).all();
   const changed=[];
   for(const request of results) {
