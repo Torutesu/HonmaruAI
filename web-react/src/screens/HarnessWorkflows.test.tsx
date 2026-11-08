@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async original => ({ ...(await original<any>()), useApi: () => state.api }))
 vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text, t: (text: string) => text }))
 const props = { httpBase: 'https://example.test', orgId: 'one', sessionToken: 'test', onClose: () => {} }
-const workflow = { id: 'wf_one', name: 'Billing', enabled: true, trigger: { type: 'webhook' }, steps: [], hookSecret: 'a'.repeat(48), hookUrl: 'https://example.test/hook?secret=old', webhookSignatureRequired: true }
+const workflow = { id: 'wf_one', name: 'Billing', updatedAt: '2026-10-29T10:00:00.000Z', enabled: true, trigger: { type: 'webhook' }, steps: [], hookSecret: 'a'.repeat(48), hookUrl: 'https://example.test/hook?secret=old', webhookSignatureRequired: true }
 const aiBudget={revision:0,action:'warn' as const,'24h':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false},'7d':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false},'30d':{limitUsd:0,usedUsd:0,unpricedCalls:0,resetAt:null,exhausted:false}}
 const emptySummary={windowStart:'2026-10-17T00:00:00.000Z',windowEnd:'2026-10-24T00:00:00.000Z',timezone:'UTC' as const,windowHours:168,runCount:0,failedCount:0,completedDurationCount:0,typicalDurationMs:null,usage:{trackedRuns:0,calls:0,inputTokens:0,outputTokens:0,unknownCalls:0,unpricedCalls:0,estimatedMicros:0},truncated:false}
 let tree: ReturnType<typeof create>
@@ -103,13 +103,13 @@ test('webhook revocation requires confirmation, uses the observed secret, and di
   expect(state.api.changeWorkflowHook).not.toHaveBeenCalled()
   await act(async () => { button('Revoke webhook').props.onClick() })
   await act(async () => { await button('Revoke webhook').props.onClick() })
-  expect(state.api.changeWorkflowHook).toHaveBeenCalledWith(workflow.id, 'revoke', workflow.hookSecret)
+  expect(state.api.changeWorkflowHook).toHaveBeenCalledWith(workflow.id, 'revoke', workflow.hookSecret, workflow.updatedAt)
   expect(JSON.stringify(tree.toJSON())).toContain('This webhook is revoked.')
   expect(JSON.stringify(tree.toJSON())).not.toContain(workflow.hookUrl)
   state.api.changeWorkflowHook.mockResolvedValue({ workflow: { ...workflow, hookSecret: 'b'.repeat(48), hookUrl: 'https://example.test/hook?secret=new' } })
   await act(async () => { button('Generate new webhook URL').props.onClick() })
   await act(async () => { await button('Generate new webhook URL').props.onClick() })
-  expect(state.api.changeWorkflowHook).toHaveBeenLastCalledWith(workflow.id, 'rotate', null)
+  expect(state.api.changeWorkflowHook).toHaveBeenLastCalledWith(workflow.id, 'rotate', null, workflow.updatedAt)
   expect(JSON.stringify(tree.toJSON())).toContain('https://example.test/hook?secret=new')
 })
 test('legacy webhook senders remain compatible until their credential is rotated', async () => {
@@ -150,11 +150,13 @@ test('held events are replayed only after confirmation using the reviewed IDs', 
   expect(state.api.replayWorkflowEvents).toHaveBeenCalledWith(workflow.id, ['held_one'])
   expect(button('Review held events')).toBeUndefined()
 })
-test('held event replay remains disabled while the workflow is paused', async () => {
+test('held events remain reviewable while replay stays disabled for a paused workflow', async () => {
   state.api.workflow.mockResolvedValue({ workflow: { ...workflow, enabled: false }, runs: [], canEdit: true,
     held: { count: 1, oldestExpiry: null, events: [{ id: 'held_one', receivedAt: '2026-10-23T00:00:00Z' }] } })
   await open()
-  expect(button('Review held events').props.disabled).toBe(true)
+  expect(button('Review held events').props.disabled).toBe(false)
+  await act(async () => { button('Review held events').props.onClick() })
+  expect(button('Replay {count} events').props.disabled).toBe(true)
 })
 test('paused workflows expose explicit manual run without resuming or replaying', async () => {
   state.api.workflow.mockResolvedValue({ workflow: { ...workflow, enabled: false }, runs: [], canEdit: true })
