@@ -127,6 +127,9 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [memoryKind, setMemoryKind] = useState<MemoryKind>('context')
   const [people, setPeople] = useState('')
   const [saved, setSaved] = useState(false)
+  const [wakeGrants, setWakeGrants] = useState<Array<{id:string;sourceAgentId:string;targetAgentId:string;room:string;thread:string;scope:string;expiresAt:string|null;useLimit:number|null;useCount:number;state:string}>>([])
+  const [wakeGrantsOpen, setWakeGrantsOpen] = useState(false)
+  const [wakeGrantsBusy, setWakeGrantsBusy] = useState(false)
   const { busy, error, act } = useAct()
 
   const load = useCallback(() => act('load', async () => {
@@ -202,6 +205,14 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         <dt><Icon name="lock" size={14}/>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' ? 'Only its owner' : profile.access === 'private' ? 'Owner and assigned members' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd>
       </dl>
       <button className="btn-text" onClick={()=>setAccessDialog(true)}>{t('Agent access')}</button>
+      <button className="btn-text" onClick={()=>{setWakeGrantsOpen(v=>!v);if(!wakeGrantsOpen)void api.agentWakeGrants().then(r=>setWakeGrants(r.grants)).catch(()=>setWakeGrants([]))}}>{t('Agent wake permissions')}</button>
+      {wakeGrantsOpen && <section className="hx-profile-card" aria-label={t('Agent wake permissions')}>
+        <header><span>{t('Agent wake permissions')}</span></header>
+        {wakeGrants.length===0 ? <p>{t('No Agent wake permissions.')}</p> : wakeGrants.map(g=><div className="row" key={g.id}>
+          <div><strong>{g.sourceAgentId} → {g.targetAgentId}</strong><div className="row-sub">{t(g.scope==='ten_minutes'?'Allow for 10 min':g.scope==='once'?'Allow once':g.scope==='thread'?'Allow in this thread':'Always allow in this room')} · {g.room}{g.scope==='thread'?` / ${g.thread}`:''} · {t(g.state)}</div></div>
+          {g.state==='active'&&g.scope!=='once'&&<button className="btn-text danger" disabled={wakeGrantsBusy} onClick={()=>{setWakeGrantsBusy(true);void api.revokeAgentWakeGrant(g.id).then(()=>api.agentWakeGrants()).then(r=>setWakeGrants(r.grants)).finally(()=>setWakeGrantsBusy(false))}}>{t('Revoke')}</button>}
+        </div>)}
+      </section>}
       {peerManaged&&<button className="btn-text" onClick={()=>setPeerAccessDialog(true)}>{t('Agent roles')}</button>}
       {canEdit && <button className="btn-text" onClick={() => setEditingProfile(v => !v)}>{t('Advanced settings')}</button>}
       {editingProfile && <>

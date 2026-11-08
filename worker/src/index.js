@@ -1,6 +1,7 @@
 import {maintainDocumentJobs} from './harness/documentMaintenance.js';
 import {retryWorkflowNotices} from './harness/workflowNoticeDelivery.js';
 import {drainAgentHandoffs} from './harness/agentHandoffDispatch.js';
+import {expireAgentWakeApprovals} from './harness/agentWakeApprovals.js';
 import {drainAgentRequests} from './agentRequestDispatch.js';
 import { drainRoomHookDispatch } from './harness/roomHookDispatch.js';
 import { handleRoomHook } from './harness/roomHookRoute.js';
@@ -257,6 +258,7 @@ export default {
       for (const kind of ['live', 'push']) ctx.waitUntil(deliverAcceptedMessages(env, { kind }));
       ctx.waitUntil(drainAgentRequests(env).catch(() => console.error("agent request dispatch failed")));
       ctx.waitUntil(drainAgentHandoffs(env).catch(() => console.error("agent handoff dispatch failed")));
+      ctx.waitUntil(expireAgentWakeApprovals(env).catch(() => console.error("agent wake approval expiry failed")));
       ctx.waitUntil(drainRoomHookDispatch(env).catch(() => console.error("room webhook dispatch failed")));
       ctx.waitUntil(maintainDocumentJobs(env.DB).catch(() => console.error("document expiry failed")));
       ctx.waitUntil(expireGatewayJobs(env.DB).catch(() => console.error("gateway expiry failed")));
@@ -3148,4 +3150,4 @@ export function json(body, status = 200, extraHeaders) {
       ...CORS_HEADERS,
     },
   });
-} 
+}

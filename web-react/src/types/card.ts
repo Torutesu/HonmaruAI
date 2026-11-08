@@ -73,6 +73,8 @@ export interface DecisionCard {
   // A private approval card that grants one named requester use of one
   // shared team Agent. It does not change room membership.
   agentAccessRequest?: { requestId: string; agentId: string }
+  /// A one-run Agent handoff permission request. Scope values are validated by the Worker.
+  agentWakeApproval?: { requestId: string; scopes: Array<'once' | 'ten_minutes' | 'thread' | 'room'> }
   // Your daily report, drafted in your voice: you read it, change it, and
   // post it to its channel yourself.
   dailyReport?: DailyReport

@@ -1,6 +1,7 @@
 import {externalAssignmentPending} from './externalAssignment.js';
 import {assignmentExecutionGrant} from './agentAssignmentGrant.js';
 import {claimHandoff,endAssignment} from './agentAssignments.js';
+import {validAgentWakeGrantForHandoff} from './agentWakeApprovals.js';
 import {runAgents} from '../channelRoutes.js';
 
 export async function handoffExecution(db,orgId,operationId) {
@@ -19,6 +20,7 @@ export async function runQueuedHandoff(env,{orgId,rowId},{registerAssignment=nul
   const execution=await handoffExecution(env.DB,orgId,rowId);
   if(!execution)return {status:'cancelled',answered:0};
   const {operation,identity}=execution;
+  if(!await validAgentWakeGrantForHandoff(env.DB,operation)) {await endAssignment(env.DB,{...identity,status:'cancelled'});return {status:'cancelled',answered:0};}
   const grant=await assignmentExecutionGrant(env,{...identity,allowPending:true});
   if(!grant) {await endAssignment(env.DB,{...identity,status:'cancelled'});return {status:'cancelled',answered:0};}
   if(grant.assignment.status==='running' && await externalAssignmentPending(env.DB,identity))return {status:'awaiting_external',answered:0};

@@ -147,7 +147,7 @@ interface Props {
   onOpen: (cardId: string) => void
   onNudge: (cardId: string) => void
   /// Decide a card where it is shown, the way a chat app's buttons do.
-  onDecide: (cardId: string, action: string) => void
+  onDecide: (cardId: string, action: string, options?: { optionId?: string; replyText?: string; note?: string }) => void
   /// Where the channels' messages come from.
   api: { httpBase: string; orgId: string; sessionToken: string }
   onSearch: () => void
@@ -4472,8 +4472,16 @@ export const ClassicList: React.FC<Props> = ({
           {note && <span className="slk-note">“{note}”</span>}
         </div>
         <div className="slk-actions">
-          {isUnread(c) && (awaitsPost(c) ? (
+          {(isUnread(c) || (Boolean(c.agentWakeApproval) && c.status === 'pending')) && (awaitsPost(c) ? (
             <button className="slk-action primary" onClick={() => openCard(c.id)}>{t('Review and post')}</button>
+          ) : c.agentWakeApproval ? (
+            <>
+              <button className="slk-action primary" onClick={() => onDecide(c.id, 'approve', { optionId: 'ten_minutes' })}>{t('Allow for 10 min')}</button>
+              <button className="slk-action" onClick={() => onDecide(c.id, 'approve', { optionId: 'once' })}>{t('Allow once')}</button>
+              <button className="slk-action" onClick={() => onDecide(c.id, 'approve', { optionId: 'thread' })}>{t('Allow in this thread')}</button>
+              <button className="slk-action" onClick={() => onDecide(c.id, 'approve', { optionId: 'room' })}>{t('Always allow in this room')}</button>
+              <button className="slk-action danger" onClick={() => onDecide(c.id, 'decline')}>{t('Decline')}</button>
+            </>
           ) : fyi ? (
             <button className="slk-action primary" onClick={() => onDecide(c.id, 'acknowledge')}>{t('Got it')}</button>
           ) : (

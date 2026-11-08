@@ -226,3 +226,11 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
 | KY-111 | Appのレコード／フィールドを指してAgentに更新を依頼 | 一部 | P1 | [AppAnnotation.tsx](../../web-react/src/components/AppAnnotation.tsx), [AppConversationPanel.tsx](../../web-react/src/components/AppConversationPanel.tsx), [worker/src/harness/routes.js](../../worker/src/harness/routes.js) | 表示中の列ID・レコードIDとレコードスナップショットを権限付き会話へ引き継ぎ、AIが変更案を出す。最大8フィールドの変更を24時間有効な提案として保存し、権限者の明示承認後のみupdateRowの型検証・CASで反映。拒否・期限切れ・競合を拒否し、未変更レコードへのCAS Undoを追加。undoの権限も再確認。Simple modeは変更なし、既存AI枠以外の課金なし。Worker全体・CI・本番・Kylon実画面比較は未完了。 |
+
+### 2026-11-08 — Agent wake approval scopes
+
+Kylonの[2026-10-30 changelog](https://kylon.io/changelog)は、別Agentを起こす際に `Allow once` / `Allow for 10 min`（既定）/ `Allow in this thread` / `Always allow in this room` を人が選ぶ仕様を記載。KY-112として追跡する。Honmaru現行の静的peer許可に対する動的な人間承認、承認前dispatch遮断、範囲付きgrant、実画面QAは未実装。
+
+| ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
+|---|---|---|---|---|---|
+| KY-112 | Agent起動の実行単位人間承認と期限付き範囲 | 未実装 | P0 | [agentAssignmentGrant.js](../../worker/src/harness/agentAssignmentGrant.js), [agentAssignments.js](../../worker/src/harness/agentAssignments.js), [relay.js](../../worker/src/relay.js) | D1にassignment世代・operation・room/thread/source/targetを結合したpendingを作り、承認前はメッセージ・dispatch outbox・claimを作らない。private decision cardから一度・10分（既定）・exact thread・exact roomを選択。D1の期限/使用回数/bindingをサーバー側で保存し、決定・dispatch双方で現行ACLを再検証。重複、取消、失効、同時消費、replayを拒否。Simple維持、新規課金なし。根拠は公開changelogのみで、ログイン済みKylonとHonmaruの画面/動作比較は残る。 |

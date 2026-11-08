@@ -27,7 +27,7 @@ interface Props {
   /// Whether the feed is the thing on screen. A sheet or a screen over it
   /// takes the keyboard: A and D must not decide a card nobody is looking at.
   active: boolean
-  onDecide: (cardId: string, action: string, options?: { replyText?: string }) => void
+  onDecide: (cardId: string, action: string, options?: { optionId?: string; replyText?: string }) => void
   onAsk: (text: string, card: DecisionCard) => void
   /// "This card is wrong" — and why. The one signal the router learns from.
   onFlag: (cardId: string, reason: FlagReason) => void
@@ -345,12 +345,12 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
   // way of deciding goes through here: a drag, a flick, a trackpad swipe,
   // a button, a key.
   const [flying, setFlying] = useState<'approve' | 'decline' | null>(null)
-  const decide = useCallback((action: string) => {
+  const decide = useCallback((action: string, optionId?: string) => {
     if (decided || flying) return
     const direction = action === 'decline' ? 'decline' : 'approve'
     setFlying(direction)
     const reduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    setTimeout(() => onDecide(card.id, action), reduced ? 0 : 230)
+    setTimeout(() => onDecide(card.id, action, optionId ? { optionId } : undefined), reduced ? 0 : 230)
   }, [decided, flying, onDecide, card.id])
   useEffect(() => {
     flingers.set(card.id, decide)
@@ -569,8 +569,13 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             </div>
           ) : (
             <div className="decide-row">
-              <button className="decide decline" onClick={() => decide('decline')} aria-label={t('Decline')} aria-keyshortcuts="d"><Icon name="x" size={22} /></button>
-              <button className="decide approve" onClick={() => decide('approve')} aria-label={t('Approve')} aria-keyshortcuts="a"><Icon name="check" size={22} /></button>
+              {card.agentWakeApproval ? <>
+                <button className="decide decline" onClick={() => decide('decline')} aria-label={t('Decline')}><Icon name="x" size={22} /></button>
+                {(['ten_minutes','once','thread','room'] as const).map((scope) => {const label=scope==='ten_minutes'?'Allow for 10 min':scope==='once'?'Allow once':scope==='thread'?'Allow in this thread':'Always allow in this room';return <button key={scope} className="decide approve" onClick={() => decide('approve',scope)} aria-label={t(label)}>{t(label)}</button>})}
+              </> : <>
+                <button className="decide decline" onClick={() => decide('decline')} aria-label={t('Decline')} aria-keyshortcuts="d"><Icon name="x" size={22} /></button>
+                <button className="decide approve" onClick={() => decide('approve')} aria-label={t('Approve')} aria-keyshortcuts="a"><Icon name="check" size={22} /></button>
+              </>}
               {layout === 'desk' && <span className="swipe-hint-desk" aria-hidden="true">{t('Swipe, drag, or ← →')}</span>}
             </div>
           )
