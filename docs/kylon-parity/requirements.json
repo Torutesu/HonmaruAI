@@ -776,7 +776,11 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "承認者・操作内容・revisionを固定し二重承認を排除"
+      "acceptance": "承認先・実行定義・run・stepをapproval cardに固定し、宛先の現workspace membershipとcard/run/step bindingを承認時に検証。二重承認やreplayを拒否し、membership失効後の既存socketも副作用を再開できない。",
+      "evidence": {
+        "verified": "Workflow approval settlement compare-and-swaps the exact waiting run/card and next step, preserves one card per step, and resumes the run's frozen definition. Added current-membership revalidation at both relay decision protocols and an atomic membership predicate on the run claim, closing the stale-socket window after membership removal. `harness-workflows.test.js` and `relay-auth.test.js` passed together (136 tests), including card_updated, AG-UI tool_result and lower-level settlement after revocation.",
+        "remaining": "Exact-head CI and production release for the membership fence, plus authenticated Kylon approval-screen and multi-device behavior comparison, remain."
+      }
     },
     {
       "id": "KY-065",

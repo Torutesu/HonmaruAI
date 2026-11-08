@@ -754,6 +754,15 @@ export class OrgRelay {
           ws.send(JSON.stringify(runError("Only the recipient can update this decision.")));
           return;
         }
+        // A long-lived socket may outlive the workspace membership that
+        // authorized its join. Re-check that authority at the decision
+        // boundary for Workflow approvals; the generic ten-minute socket
+        // recheck is too late for an approval that can resume side effects.
+        if (card.decision?.action && existing.workflowApproval
+          && !(await isOrgMemberLogin(this.db, orgId, att.userId))) {
+          ws.send(JSON.stringify(runError("Only a current workspace member can decide this workflow approval.")));
+          return;
+        }
         card.recipientUserID = owner;
         // Who asked is a fact about the card's creation; it does not change
         // on an update, and it is not the updater's to set.
@@ -1233,6 +1242,10 @@ export class OrgRelay {
       const target = await getCard(this.db, orgId, content.cardId);
       if (target && target.recipientUserID !== actorUserId) {
         throw new Error("Only the recipient can decide this card.");
+      }
+      if (target?.workflowApproval && content?.action
+        && !(await isOrgMemberLogin(this.db, orgId, actorUserId))) {
+        throw new Error("Only a current workspace member can decide this workflow approval.");
       }
       if (target?.dailyReport?.status === "draft") throw new Error(DRAFT_MUST_POST);
     }

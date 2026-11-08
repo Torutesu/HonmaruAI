@@ -1270,8 +1270,11 @@ export async function settleWorkflowApproval(env, orgId, card) {
   const approved = action === "approve" || action === "choose";
   if (!approved && action !== "decline") return null;
   const claimed = await env.DB
-    .prepare("UPDATE hx_workflow_runs SET status = 'running' WHERE id = ?1 AND org_id = ?2 AND status = 'waiting' AND card_id = ?3")
-    .bind(run.id, orgId, card.id)
+    .prepare(`UPDATE hx_workflow_runs SET status = 'running'
+      WHERE id = ?1 AND org_id = ?2 AND status = 'waiting' AND card_id = ?3
+        AND EXISTS (SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
+          WHERE m.org_id=?2 AND u.login=?4)`)
+    .bind(run.id, orgId, card.id, card.recipientUserID)
     .run();
   if (!claimed.meta?.changes) return null;
   const log = run.log;
