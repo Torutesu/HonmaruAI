@@ -3,7 +3,7 @@ import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { joined, until } from "./helpers.js";
+import { joined, message, until } from "./helpers.js";
 import { render, runDueWorkflows, normalizeSteps, normalizeTrigger, onRowChange, onRowDelete, startRun, settleWorkflowApproval } from "../src/harness/workflows.js";
 import { signWorkflowWebhook } from "../src/harness/workflowWebhookSignature.js";
 import { runDueFollowups, followupRequest } from "../src/harness/followups.js";
@@ -1083,6 +1083,55 @@ test("a decision on a run's first approval, replayed, does not answer its second
   const done = await settleWorkflowApproval(env, ORG, decided(await getCard(env.DB, ORG, atSecond.cardId)));
   expect(done.status).toBe("done");
   expect((await messages(mika)).map((m) => m.body)).toContain("Reached the final step");
+});
+
+test('a workflow approval cannot resume after its approver loses workspace membership', async () => {
+  const { createWorkflow, getRun } = await import('../src/harness/workflows.js');
+  const { getCard } = await import('../src/db.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Member-gated approval', trigger: { type: 'manual' },
+    steps: [{ type: 'approval', to: 'toru', title: 'Approve while still a member?' },
+      { type: 'post', channel: 'b:ops', text: 'This must not run after access is removed.' }],
+  }, '9302');
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+  const card = await getCard(env.DB, ORG, run.cardId);
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9301'").bind(ORG).run();
+
+  const settled = await settleWorkflowApproval(env, ORG, {
+    ...card, status: 'approved', decision: { action: 'approve', actorUserID: 'toru', decidedAt: new Date().toISOString() },
+  });
+  expect(settled).toBeNull();
+  expect(await getRun(env.DB, ORG, run.id)).toMatchObject({ status: 'waiting', cardId: card.id });
+  expect((await messages(mika)).map(m => m.body)).not.toContain('This must not run after access is removed.');
+});
+
+test('a connected but removed approver cannot decide a workflow approval over either relay protocol', async () => {
+  const { createWorkflow, getRun } = await import('../src/harness/workflows.js');
+  const { getCard } = await import('../src/db.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Stale socket approval', trigger: { type: 'manual' },
+    steps: [{ type: 'approval', to: 'toru', title: 'Still authorized?' },
+      { type: 'post', channel: 'b:ops', text: 'No stale approval side effect.' }],
+  }, '9302');
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+  const original = await getCard(env.DB, ORG, run.cardId);
+  const { ws, messages: socketMessages } = await joined(ORG, toru);
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9301'").bind(ORG).run();
+
+  ws.send(JSON.stringify({ type: 'card_updated', payload: { card: {
+    ...original, status: 'approved', decision: { action: 'approve', decidedAt: new Date().toISOString() },
+  } } }));
+  expect(await message(socketMessages, m => m.type === 'RUN_ERROR' && /current workspace member/.test(m.message))).toBeTruthy();
+  expect((await getCard(env.DB, ORG, original.id)).status).toBe('pending');
+
+  socketMessages.length = 0;
+  ws.send(JSON.stringify({ type: 'tool_result', payload: {
+    toolCallId: 'stale-workflow-approval', content: { cardId: original.id, action: 'approve' },
+  } }));
+  expect(await message(socketMessages, m => m.type === 'RUN_ERROR' && /current workspace member/.test(m.message))).toBeTruthy();
+  expect((await getCard(env.DB, ORG, original.id)).status).toBe('pending');
+  expect(await getRun(env.DB, ORG, run.id)).toMatchObject({ status: 'waiting', cardId: original.id });
+  expect((await messages(mika)).map(m => m.body)).not.toContain('No stale approval side effect.');
 });
 
 test("a workflow's approval card has a priority every client reads, and old ones are repaired", async () => {
