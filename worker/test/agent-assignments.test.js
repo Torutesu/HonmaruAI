@@ -32,6 +32,13 @@ test('independent requested agents have independent assignments and retries neve
   expect(await beginAssignment(env.DB,{...origin,sessionKey:'raw-token'})).toMatchObject({status:400});
 });
 
+test('assignment creation fails closed if workspace membership disappears before the durable claim',async()=>{
+  const existing=await start();
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind('org','person').run();
+  expect(await beginAssignment(env.DB,origin)).toMatchObject({status:409});
+  expect((await env.DB.prepare('SELECT * FROM hx_agent_assignments WHERE org_id=?1').bind('org').all()).results).toEqual([existing]);
+});
+
 test('handoff atomically fences old ownership, creates a visible event and queues exactly one delivery',async()=>{
   const a=await start(),input=move(a),first=await commitHandoff(env.DB,input);
   expect(first.replayed).toBe(false);expect(await owns(a)).toBe(false);
@@ -53,6 +60,15 @@ test('competing handoffs from one generation have only one winner',async()=>{
   expect(results.filter(r=>r.operation)).toHaveLength(1);expect(results.filter(r=>r.status===409)).toHaveLength(1);
   expect((await env.DB.prepare('SELECT * FROM hx_agent_handoff_dispatch').all()).results).toHaveLength(1);
   expect((await env.DB.prepare("SELECT * FROM channel_messages WHERE kind='agent'").all()).results).toHaveLength(1);
+});
+
+test('handoff rejects an assignment whose original membership generation is no longer current',async()=>{
+  const a=await start();
+  await env.DB.prepare("UPDATE memberships SET created_at='rejoined' WHERE org_id='org' AND user_github_id='person'").run();
+  expect(await commitHandoff(env.DB,move(a))).toMatchObject({status:409});
+  expect(await owns(a)).toBe(true);
+  expect((await env.DB.prepare('SELECT * FROM hx_agent_handoffs WHERE org_id=?1').bind('org').all()).results).toEqual([]);
+  expect((await env.DB.prepare("SELECT * FROM channel_messages WHERE org_id='org' AND author_login='agent:researcher'").all()).results).toEqual([]);
 });
 
 test('self-handoff, cycles and hop exhaustion do not transfer ownership',async()=>{
