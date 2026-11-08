@@ -342,7 +342,7 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/concepts/memory",
       "code": "worker/src/harness/agents.js",
-      "acceptance": "新規チャット記憶を会話で分離。直接API・一覧・削除・実行時の隔離を検証。既存記憶の出典復元と人単位の横断設定は残る"
+      "acceptance": "新規記憶の出典会話・メッセージ・スレッド参照を保持し画面で確認。旧記憶の出典は推測しない。直接API・一覧・削除・実行時と個人スコープの隔離を検証。人単位の横断設定と実画面検証は残る"
     },
     {
       "id": "KY-030",

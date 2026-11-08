@@ -384,6 +384,9 @@ ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN workflow_id TEXT;
 ALTER TABLE ai_calls ADD COLUMN app_id TEXT;
 ALTER TABLE hx_memory_scopes ADD COLUMN user_github_id TEXT;
+ALTER TABLE hx_memory_scopes ADD COLUMN source_channel TEXT;
+ALTER TABLE hx_memory_scopes ADD COLUMN source_message_id TEXT;
+ALTER TABLE hx_memory_scopes ADD COLUMN source_thread_id TEXT;
 /* Rebuild durable audit rows for surviving legacy review-history records. */
 INSERT OR IGNORE INTO hx_memory_review_audit (id,memory_id,org_id,agent_id,channel,reviewed_version,verdict,evidence,reviewed_by,reviewed_at) SELECT h.id,h.memory_id,h.org_id,m.agent_id,COALESCE(s.channel,''),h.reviewed_version,h.verdict,h.evidence,h.reviewed_by,h.reviewed_at FROM hx_memory_review_history h JOIN hx_agent_memories m ON m.id=h.memory_id AND m.org_id=h.org_id LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id;
 

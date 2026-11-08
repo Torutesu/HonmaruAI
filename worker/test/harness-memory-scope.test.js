@@ -30,7 +30,32 @@ test('deduplication and deletion do not cross conversation boundaries', async ()
 
 test('legacy memories remain readable without rewriting existing data', async () => {
   await env.DB.prepare('INSERT INTO hx_agent_memories (id, org_id, agent_id, text, created_at) VALUES (?, ?, ?, ?, ?)').bind('legacy', org, agent, 'Legacy', new Date().toISOString()).run();
-  expect((await listAgentMemories(env.DB, org, agent, { channel: 'b:one' }))[0].text).toBe('Legacy');
+  expect((await listAgentMemories(env.DB, org, agent, { channel: 'b:one' }))[0]).toMatchObject({text:'Legacy',sourceChannel:null,sourceMessageId:null,sourceThreadId:null});
+});
+
+test('new memory provenance is retained across edits and duplicate requests without inferring legacy sources',async()=>{
+  const {updateMemoryEntry}=await import('../src/harness/memoryEntries.js');
+  const source={sourceChannel:'b:ops',sourceMessageId:'source_message_1',sourceThreadId:'source_root_1'};
+  const made=await addAgentMemory(env.DB,org,agent,{title:'One instruction',description:'From a decision',body:'Keep the launch date private.'},{channel:'b:ops',kind:'reference',...source});
+  expect(made.memory).toMatchObject(source);
+  const repeated=await addAgentMemory(env.DB,org,agent,{title:'One instruction',description:'From a decision',body:'Keep the launch date private.'},{channel:'b:ops',kind:'reference',...source});
+  expect(repeated.duplicate).toBe(true);
+  const saved=await updateMemoryEntry(env.DB,org,agent,made.memory.id,{title:'Updated instruction',description:'Revised',body:'Keep the date private.',kind:'reference',expectedVersion:1},{channel:'b:ops',by:'writer'});
+  expect(saved.memory).toMatchObject(source);
+  const listed=(await listAgentMemories(env.DB,org,agent,{channel:'b:ops'})).find(item=>item.id===made.memory.id);
+  expect(listed).toMatchObject({...source,title:'Updated instruction'});
+  expect((await listAgentMemories(env.DB,org,agent,{channel:'b:elsewhere'})).some(item=>item.id===made.memory.id)).toBe(false);
+  await env.DB.prepare('INSERT INTO hx_agent_memories (id, org_id, agent_id, text, created_at) VALUES (?, ?, ?, ?, ?)').bind('legacy-source-unknown',org,agent,'No inferred source',new Date().toISOString()).run();
+  expect((await listAgentMemories(env.DB,org,agent,{channel:'b:ops'})).find(item=>item.id==='legacy-source-unknown')).toMatchObject({sourceChannel:null,sourceMessageId:null,sourceThreadId:null});
+});
+
+test('personal memory source references do not widen the owner-only scope',async()=>{
+  const source={sourceChannel:'dm:alice|agent',sourceMessageId:'private_message_1',sourceThreadId:'private_thread_1'};
+  const made=await addAgentMemory(env.DB,org,agent,'Personal preference',{scope:'person',userId:'alice',kind:'preference',...source});
+  expect(made.memory).toMatchObject({...source,scope:'person'});
+  expect(await listAgentMemories(env.DB,org,agent,{userId:'alice'})).toEqual([expect.objectContaining({id:made.memory.id,sourceMessageId:source.sourceMessageId})]);
+  expect(await listAgentMemories(env.DB,org,agent,{userId:'bob'})).toEqual([]);
+  expect(await listAgentMemories(env.DB,org,agent,{})).toEqual([]);
 });
 
 test('unprofiled personal agents are still private', async () => {

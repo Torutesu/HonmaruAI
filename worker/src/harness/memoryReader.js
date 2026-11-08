@@ -40,7 +40,7 @@ export function agentMemoryTools(db, orgId, agentId, context) {
         const denied = 'Memory unavailable.';
         if (!userId || typeof args?.memory_id !== 'string' || args.memory_id.length > 100) return denied;
         if (!await authorized()) return denied;
-        const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, d.title, d.description, d.body, d.version, d.updated_at FROM hx_agent_memories m
+        const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.title, d.description, d.body, d.version, d.updated_at FROM hx_agent_memories m
           LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
           LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
           WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'') IN ('',?4) AND (s.user_github_id IS NULL OR s.user_github_id=?5)`)
