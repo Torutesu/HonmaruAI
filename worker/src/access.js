@@ -21,22 +21,24 @@
 
 export const MAX_GROUP = 9;
 const GROUP_ID = /^g:[0-9a-f]{16}$/;
-
 export const isGroupKey = (key) => GROUP_ID.test(String(key || ""));
 
 /// What one person can see beyond the public channels: the closed
 /// conversations they are in, and which channels are closed at all.
 export async function accessFor(db, orgId, login) {
-  const [mine, closed, guest] = await Promise.all([
+  const [mine, rooms, tombstones, guest] = await Promise.all([
     db.prepare("SELECT channel FROM conversation_members WHERE org_id = ?1 AND login = ?2").bind(orgId, login).all(),
-    db.prepare("SELECT slug FROM businesses WHERE org_id = ?1 AND private = 1").bind(orgId).all(),
+    db.prepare("SELECT slug, private FROM businesses WHERE org_id = ?1").bind(orgId).all(),
+    db.prepare("SELECT channel FROM hx_room_access WHERE org_id = ?1 AND deleted_at IS NOT NULL").bind(orgId).all(),
     isGuestLogin(db, orgId, login),
   ]);
+  const known = rooms.results || [];
   return {
     login,
     guest,
     in: new Set((mine.results || []).map((r) => r.channel)),
-    closed: new Set((closed.results || []).map((r) => `b:${r.slug}`)),
+    deleted: new Set((tombstones.results || []).map((r) => String(r.channel || "")).filter((key) => key.startsWith("b:")).map((key) => key.slice(2))),
+    closed: new Set(known.filter((r) => Boolean(r.private)).map((r) => `b:${r.slug}`)),
   };
 }
 
@@ -79,7 +81,13 @@ export async function publicAudience(db, orgId, key) {
 /// decided by its key; the rest by membership.
 export function mayRead(key, access) {
   const k = String(key || "");
-  if (k.startsWith("b:")) return access.guest ? access.in.has(k) : (!access.closed.has(k) || access.in.has(k));
+  if (k.startsWith("b:")) {
+    const slug = k.slice(2);
+    // A missing businesses row can be a legacy virtual public Room. Only an
+    // authoritative deletion tombstone closes that key across internal paths.
+    if (access.deleted?.has(slug)) return false;
+    return access.guest ? access.in.has(k) : (!access.closed.has(k) || access.in.has(k));
+  }
   if (k.startsWith("g:")) return access.in.has(k);
   if (k.startsWith("dm:")) return k.slice(3).split("|").includes(access.login);
   // A conversation with an agent is its one person's.
@@ -118,7 +126,9 @@ export function mayReadCard(card, access) {
   if (card.recipientUserID === access.login || card.senderUserID === access.login) return true;
   if (access.guest || isPersonal(card)) return false;
   const k = card.business ? `b:${card.business}` : null;
-  return !k || !access.closed.has(k) || access.in.has(k);
+  if (!k) return true;
+  if (access.deleted?.has(String(card.business))) return false;
+  return !access.closed.has(k) || access.in.has(k);
 }
 
 /// Everyone in a closed conversation, by login — or null for a public
@@ -129,11 +139,21 @@ export async function audienceOf(db, orgId, key) {
   const k = String(key || "");
   if (k.startsWith("dm:")) return k.slice(3).split("|");
   if (k.startsWith("ag:")) return [k.split("|")[1]].filter(Boolean);
-  if (k.startsWith("g:") || (k.startsWith("b:") && await isPrivate(db, orgId, k.slice(2)))) {
+  if (k.startsWith("g:")) {
     const { results } = await db.prepare("SELECT login FROM conversation_members WHERE org_id = ?1 AND channel = ?2 ORDER BY added_at, login").bind(orgId, k).all();
     return (results || []).map((r) => r.login);
   }
-  if (k.startsWith("b:") && await hasGuests(db, orgId)) return publicAudience(db, orgId, k);
+  if (k.startsWith("b:")) {
+    const tombstone = await db.prepare("SELECT 1 AS deleted FROM hx_room_access WHERE org_id = ?1 AND channel = ?2 AND deleted_at IS NOT NULL").bind(orgId, k).first();
+    if (tombstone) return [];
+    const room = await db.prepare("SELECT private FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, k.slice(2)).first();
+    if (room?.private) {
+      const { results } = await db.prepare("SELECT login FROM conversation_members WHERE org_id = ?1 AND channel = ?2 ORDER BY added_at, login").bind(orgId, k).all();
+      return (results || []).map((r) => r.login);
+    }
+    if (await hasGuests(db, orgId)) return publicAudience(db, orgId, k);
+    return null;
+  }
   return null;
 }
 
