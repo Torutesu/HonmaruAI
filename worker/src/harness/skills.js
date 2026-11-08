@@ -150,8 +150,37 @@ export async function giveSkill(db, orgId, agentId, skillId, by) {
   const skill = await getSkill(db,orgId,skillId,by);
   if (!skill) return {error:"No such skill.",status:404};
   if (skill.sourceScope && skill.sourceScope.agentId !== agentId) return {error:"This skill is restricted to its source agent.",status:409};
-  await db.prepare("INSERT OR IGNORE INTO hx_agent_skills (org_id, agent_id, skill_id, added_by, added_at) VALUES (?1, ?2, ?3, ?4, ?5)")
-    .bind(orgId, agentId, skillId, String(by), now()).run();
+  const userId = String(by);
+  const managesAgent = await db.prepare(`SELECT 1 AS ok WHERE ${skillAgentManager('?1', '?2', '?3')}`)
+    .bind(orgId, agentId, userId).first();
+  if (!managesAgent) return {error:"Only an agent's maker or an admin can change it.",status:403};
+
+  // Keep this service-level grant authoritative even when a caller bypasses
+  // the HTTP route. Recheck both the manager role and the skill's current
+  // visibility in the INSERT so a concurrent role or sharing change wins.
+  const inserted = await db.prepare(`INSERT OR IGNORE INTO hx_agent_skills
+    (org_id, agent_id, skill_id, added_by, added_at)
+    SELECT ?1, ?2, ?3, ?4, ?5
+    WHERE ${skillAgentManager('?1', '?2', '?4')}
+      AND EXISTS (SELECT 1 FROM hx_skills s
+        LEFT JOIN hx_skill_access p ON p.org_id=s.org_id AND p.skill_id=s.id
+        LEFT JOIN hx_skill_source_scopes ss ON ss.org_id=s.org_id AND ss.skill_id=s.id
+        WHERE s.org_id=?1 AND s.id=?3
+          AND (ss.skill_id IS NULL OR ss.agent_id=?2)
+          AND (COALESCE(p.visibility,'workspace')='workspace' OR COALESCE(s.owner_id,s.created_by)=?4))`)
+    .bind(orgId, agentId, skillId, userId, now()).run();
+  if (!inserted.meta?.changes) {
+    const stillAuthorized = await db.prepare(`SELECT 1 AS ok
+      WHERE ${skillAgentManager('?1', '?2', '?3')}
+        AND EXISTS (SELECT 1 FROM hx_skills s
+          LEFT JOIN hx_skill_access p ON p.org_id=s.org_id AND p.skill_id=s.id
+          LEFT JOIN hx_skill_source_scopes ss ON ss.org_id=s.org_id AND ss.skill_id=s.id
+          WHERE s.org_id=?1 AND s.id=?4
+            AND (ss.skill_id IS NULL OR ss.agent_id=?2)
+            AND (COALESCE(p.visibility,'workspace')='workspace' OR COALESCE(s.owner_id,s.created_by)=?3))`)
+      .bind(orgId, agentId, userId, skillId).first();
+    if (!stillAuthorized) return {error:'Skill or agent access changed. Reload before installing.',status:409};
+  }
   return { given: true };
 }
 
