@@ -15,11 +15,32 @@ import { noteUsage, noteSearches } from "./ledger.js";
 /// gpt-4o-mini searches once and summarises the snippets; a reasoning model
 /// searches, reads, and searches again.
 export const DEFAULT_AGENT_MODEL = "gpt-5-mini";
-const MAX_ROUNDS = 8;
+// A compacted task can start a fresh Responses chain and keep using the
+// original wall-clock and tool budgets. This is a hard ceiling, not a retry
+// loop; the deadline and MAX_FUNCTION_CALLS still bound provider usage.
+const MAX_ROUNDS = 16;
 const MAX_FUNCTION_CALLS = 16;
+const COMPACT_AFTER_INPUT_TOKENS = 48000;
+const MAX_CONTEXT_COMPACTIONS = 2;
 // Room for a whole video transcript (links.js keeps those to 16,000).
 const MAX_TOOL_OUTPUT = 20000;
 const CALL_TIMEOUT_MS = 150000;
+
+function boundedText(value, limit) {
+  const text = String(value ?? "");
+  if (text.length <= limit) return text;
+  const left = Math.floor((limit - 30) / 2);
+  const right = limit - 30 - left;
+  return `${text.slice(0, left)}\n[… middle omitted at context checkpoint …]\n${text.slice(-right)}`;
+}
+
+function contextCheckpoint(originalInput, completedTools, lastNote) {
+  const original = typeof originalInput === "string" ? originalInput : JSON.stringify(originalInput ?? "");
+  const steps = completedTools.map((item, index) =>
+    `${index + 1}. ${item.name}(${boundedText(item.arguments, 500)})\nResult: ${boundedText(item.output, 1000)}`,
+  ).join("\n\n");
+  return `Continue the same task from this compacted checkpoint. The tool results below are completed work: do not repeat the exact same tool call or side effect. Use these results as facts, retain the original request and its constraints, and continue any remaining work. If the request is complete, answer the user.\n\n<original_request_and_recent_context>\n${boundedText(original, 12000)}\n</original_request_and_recent_context>\n\n<completed_tool_calls>\n${steps || "No tools completed."}\n</completed_tool_calls>\n\n<last_agent_progress>\n${boundedText(lastNote, 3000) || "No intermediate note."}\n</last_agent_progress>`;
+}
 
 async function raceSignal(promise,signal,value) {
   if(!signal)return promise;
@@ -85,8 +106,13 @@ export async function research({ provider, env, instructions, input, tools = {},
   let rounds = 0;
   let previous = null;
   let next = input;
+  // Provider usage is authoritative when available; this conservative
+  // estimate covers compatible Responses endpoints that omit usage details.
+  let estimatedContextChars = instructions.length + JSON.stringify(input ?? "").length;
   let last = null;
   let finalOnly = false;
+  let compactions = 0;
+  const completedTools = [];
   const cancelled = () => ({ called, answer: null, sources: [], rounds, calls, cancelled: true });
   while (rounds < MAX_ROUNDS + 1) {
     if (signal?.aborted || (authorize && !await authorize())) return cancelled();
@@ -134,6 +160,7 @@ export async function research({ provider, env, instructions, input, tools = {},
     called = true;
     noteUsage(provider, "agent", data, usageContext);
     noteSearches(provider, "agent", data.model || model, (Array.isArray(data.output) ? data.output : []).filter((i) => i?.type === "web_search_call").length, usageContext);
+    estimatedContextChars += JSON.stringify(data.output || []).length;
     last = data;
     previous = data.id || null;
     if (signal?.aborted || (authorize && !await authorize())) return cancelled();
@@ -141,6 +168,17 @@ export async function research({ provider, env, instructions, input, tools = {},
     for (const c of readResponse(data).sources) note(cited, c.url, c.title);
     const pending = (Array.isArray(data.output) ? data.output : []).filter((item) => item?.type === "function_call");
     if (!pending.length || finalOnly) break;
+    const reportedInputTokens = Number(data?.usage?.input_tokens || 0);
+    const contextInputTokens = Math.max(reportedInputTokens, Math.ceil(estimatedContextChars / 4));
+    if (contextInputTokens >= COMPACT_AFTER_INPUT_TOKENS && compactions >= MAX_CONTEXT_COMPACTIONS) {
+      finalOnly = true;
+      next = pending.map(call => ({
+        type: "function_call_output",
+        call_id: call.call_id,
+        output: "The context checkpoint limit has been reached. Do not run more tools; answer from the completed evidence already provided.",
+      }));
+      continue;
+    }
 
     // Trusted ownership-changing tools run alone before ordinary siblings.
     // A committed handoff ends this turn even if the model also returned text
@@ -153,6 +191,9 @@ export async function research({ provider, env, instructions, input, tools = {},
         const tool = tools[call.name];
         let args = {};
         try { args = JSON.parse(call.arguments || "{}"); } catch { /* the tool says so below */ }
+        const canonicalArgs = JSON.stringify(args);
+        const repeatedAfterCheckpoint = compactions > 0 && completedTools.find(item => item.name === call.name && item.arguments === canonicalArgs);
+        if (repeatedAfterCheckpoint) return { type: "function_call_output", call_id: call.call_id, output: "This exact tool call already completed before the context checkpoint. Use its saved result and continue without repeating the side effect." };
         try {
           if (signal?.aborted || (authorize && !await authorize())) return { type: "function_call_output", call_id: call.call_id, output: "Access changed. Execution stopped." };
           const cancelledTool=Symbol('cancelled tool');
@@ -187,13 +228,35 @@ export async function research({ provider, env, instructions, input, tools = {},
     }
     await Promise.all(pending.filter(call => !isControlTool(tools[call.name])).map(async call => results.set(call, await runCall(call))));
     if(signal?.aborted)return cancelled();
-    next = pending.map(call => results.get(call));
+    for (const call of pending) {
+      const result = results.get(call);
+      if (result?.type !== "function_call_output") continue;
+      let args = {};
+      try { args = JSON.parse(call.arguments || "{}"); } catch { /* retain the raw arguments below */ }
+      const canonicalArgs = JSON.stringify(args);
+      if (!completedTools.some(item => item.name === call.name && item.arguments === canonicalArgs)) {
+        completedTools.push({ name: call.name, arguments: canonicalArgs, output: result.output });
+      }
+    }
+    const outputsForNextRound = pending.map(call => results.get(call));
+    estimatedContextChars += JSON.stringify(outputsForNextRound).length;
+    const shouldCompact = contextInputTokens >= COMPACT_AFTER_INPUT_TOKENS && compactions < MAX_CONTEXT_COMPACTIONS;
+    if (shouldCompact) {
+      compactions += 1;
+      previous = null;
+      next = contextCheckpoint(input, completedTools, readResponse(data).text);
+      estimatedContextChars = instructions.length + next.length;
+    } else {
+      next = outputsForNextRound;
+      const tokensAfterToolResults = Math.max(reportedInputTokens, Math.ceil(estimatedContextChars / 4));
+      if (tokensAfterToolResults >= COMPACT_AFTER_INPUT_TOKENS && compactions >= MAX_CONTEXT_COMPACTIONS) finalOnly = true;
+    }
     if (calls >= MAX_FUNCTION_CALLS || rounds >= MAX_ROUNDS || Date.now() > deadline - 30000) finalOnly = true;
   }
 
   const text = last ? readResponse(last).text : "";
   const sources = [...cited.entries(), ...[...read.entries()].filter(([url]) => !cited.has(url))].map(([url, title]) => ({ url, title }));
-  return { called, answer: text.trim() ? text : null, sources, rounds, calls };
+  return { called, answer: text.trim() ? text : null, sources, rounds, calls, compactions };
 }
 
 /// The text of a Responses API reply, and the pages its citations point to.

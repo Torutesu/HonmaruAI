@@ -44,6 +44,100 @@ test("past its tool budget the loop stops calling tools and asks for the answer"
   fetchMock.get("https://api.openai.com").interceptors = [];
 });
 
+test("a long research task continues past eight rounds within the existing tool and deadline budgets", async () => {
+  let response = 0;
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    response += 1;
+    const body = JSON.parse(opts.body);
+    if (response === 10 || body.tool_choice === "none") return { id: `long-${response}`, output_text: "Finished after continuing.", output: [] };
+    return { id: `long-${response}`, output: [{ type: "function_call", call_id: `long-call-${response}`, name: "lookup", arguments: JSON.stringify({ page: response }) }] };
+  }).persist();
+  let ran = 0;
+  const out = await research({ provider: provider(), env: {}, instructions: "Continue the task", input: "Review every page", webSearch: false,
+    tools: { lookup: { description: "Read one page", parameters: { type: "object", properties: { page: { type: "integer" } }, required: ["page"], additionalProperties: false }, run: async () => { ran += 1; return `page ${ran}`; } } },
+  });
+  expect(out.answer).toBe("Finished after continuing.");
+  expect(out.rounds).toBe(10);
+  expect(ran).toBe(9);
+  fetchMock.get("https://api.openai.com").interceptors = [];
+});
+
+test("a full context starts a bounded continuation checkpoint with completed tool results", async () => {
+  const bodies = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    bodies.push(JSON.parse(opts.body));
+    return { id: "before-compaction", usage: { input_tokens: 1000 }, output: [{ type: "function_call", call_id: "compact-call-1", name: "lookup", arguments: '{"page":"alpha"}' }] };
+  });
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    bodies.push(JSON.parse(opts.body));
+    return { id: "large-context", usage: { input_tokens: 48000 }, output_text: "The second page is complete.", output: [{ type: "function_call", call_id: "compact-call-2", name: "lookup", arguments: '{"page":"beta"}' }] };
+  });
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    bodies.push(JSON.parse(opts.body));
+    return { id: "after-compaction", output: [{ type: "function_call", call_id: "duplicate-call", name: "lookup", arguments: '{"page":"alpha"}' }] };
+  });
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    bodies.push(JSON.parse(opts.body));
+    return { id: "after-duplicate", output_text: "The task is complete.", output: [] };
+  });
+  let ran = 0;
+  const out = await research({ provider: provider(), env: {}, instructions: "Use the findings and continue", input: "Review all pages and preserve the key conclusion", webSearch: false,
+    tools: { lookup: { description: "Read a page", parameters: { type: "object", properties: { page: { type: "string" } }, required: ["page"], additionalProperties: false }, run: async ({ page }) => { ran += 1; return `${page} page proves the deadline is Friday.`; } } },
+  });
+  expect(out.answer).toBe("The task is complete.");
+  expect(out.compactions).toBe(1);
+  expect(ran).toBe(2);
+  expect(bodies[2]).not.toHaveProperty("previous_response_id");
+  expect(bodies[2].input).toContain("Review all pages and preserve the key conclusion");
+  expect(bodies[2].input).toContain("alpha page proves the deadline is Friday.");
+  expect(bodies[2].input).toContain("beta page proves the deadline is Friday.");
+  expect(bodies[2].input).toContain("do not repeat the exact same tool call");
+  expect(bodies[3].input[0].output).toContain("already completed before the context checkpoint");
+});
+
+test("context compaction falls back to a bounded estimate when the provider omits usage", async () => {
+  const bodies = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    bodies.push(JSON.parse(opts.body));
+    return { id: "no-usage-large-context", output: [{ type: "function_call", call_id: "estimated-call", name: "lookup", arguments: "{}" }] };
+  });
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    bodies.push(JSON.parse(opts.body));
+    return { id: "estimated-checkpoint-answer", output_text: "Continued from the checkpoint.", output: [] };
+  });
+  const out = await research({ provider: provider(), env: {}, instructions: "Continue", input: `Start ${"context ".repeat(25000)}finish`, webSearch: false,
+    tools: { lookup: { description: "Read", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, run: async () => "Saved lookup result" } },
+  });
+  expect(out.answer).toBe("Continued from the checkpoint.");
+  expect(out.compactions).toBe(1);
+  expect(typeof bodies[1].input).toBe("string");
+  expect(bodies[1].input.length).toBeLessThan(16000);
+  expect(bodies[1].input).toContain("Saved lookup result");
+});
+
+test("after the compaction cap the research asks for an answer without running more tools", async () => {
+  const bodies = [];
+  for (let page = 1; page <= 3; page += 1) {
+    fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+      bodies.push(JSON.parse(opts.body));
+      return { id: `full-${page}`, usage: { input_tokens: 48000 }, output: [{ type: "function_call", call_id: `full-call-${page}`, name: "lookup", arguments: JSON.stringify({ page }) }] };
+    });
+  }
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    bodies.push(JSON.parse(opts.body));
+    return { id: "answer-after-cap", output_text: "Answered from saved evidence.", output: [] };
+  });
+  let ran = 0;
+  const out = await research({ provider: provider(), env: {}, instructions: "Continue", input: "Review these pages", webSearch: false,
+    tools: { lookup: { description: "Read", parameters: { type: "object", properties: { page: { type: "integer" } }, required: ["page"], additionalProperties: false }, run: async () => { ran += 1; return "Read result"; } } },
+  });
+  expect(out.answer).toBe("Answered from saved evidence.");
+  expect(out.compactions).toBe(2);
+  expect(ran).toBe(2);
+  expect(bodies[3].tool_choice).toBe("none");
+  expect(bodies[3].input[0].output).toContain("checkpoint limit has been reached");
+});
+
 test("a tool that throws, or one that does not exist, is told to the model rather than ending the research", async () => {
   const outputs = [];
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, {
