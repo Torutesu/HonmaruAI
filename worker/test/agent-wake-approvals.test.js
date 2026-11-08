@@ -97,3 +97,36 @@ test('atomic handoff rejects an Agent access revocation after the grant was appr
   expect(await env.DB.prepare(`SELECT 1 FROM hx_agent_handoffs WHERE org_id=?1`).bind(org).first()).toBeNull();
   expect(await env.DB.prepare(`SELECT status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2`).bind(org,assignment.id).first()).toMatchObject({status:'running'});
 });
+
+test('queued wake grant is rechecked against its exact room, thread, membership and approval',async()=>{
+  const pending=await request();
+  const card={id:pending.approval.cardId,recipientUserID:'owner',senderUserID:'agent:source',decision:{action:'approve',actorUserID:'owner',optionId:'once'}};
+  await decideAgentWakeApproval(env.DB,org,card,'owner','wake-human');
+  const grantId=await activeAgentWakeGrant(env.DB,{orgId:org,assignmentId:assignment.id,sourceAgentId:'source',targetAgentId:'target',operationId:move.operationId});
+  const committed=await commitHandoff(env.DB,{...move,wakeGrantId:grantId});
+  expect(await validAgentWakeGrantForHandoff(env.DB,committed.operation)).toBe(true); // exact once operation may retry delivery
+  await env.DB.prepare(`UPDATE hx_agent_wake_approvals SET status='revoked' WHERE org_id=?1 AND id=?2`).bind(org,pending.approval.id).run();
+  expect(await validAgentWakeGrantForHandoff(env.DB,committed.operation)).toBe(false);
+});
+
+test('static peer grant is rechecked at dispatch time',async()=>{
+  await env.DB.prepare(`INSERT INTO hx_agent_agent_members(org_id,agent_id,member_agent_id,role,updated_by,updated_at) VALUES (?1,'target','source','member','owner','now')`).bind(org).run();
+  const committed=await commitHandoff(env.DB,{...move});
+  expect(committed.operation.wake_grant_id).toBeNull();
+  expect(await validAgentWakeGrantForHandoff(env.DB,committed.operation)).toBe(true);
+  await env.DB.prepare(`DELETE FROM hx_agent_agent_members WHERE org_id=?1 AND agent_id='target' AND member_agent_id='source'`).bind(org).run();
+  expect(await validAgentWakeGrantForHandoff(env.DB,committed.operation)).toBe(false);
+});
+
+test('room-scoped approval remains usable for later assignments in the same room',async()=>{
+  const pending=await request();
+  const card={id:pending.approval.cardId,recipientUserID:'owner',senderUserID:'agent:source',decision:{action:'approve',actorUserID:'owner',optionId:'room'}};
+  await decideAgentWakeApproval(env.DB,org,card,'owner','wake-human');
+  const grantId=await activeAgentWakeGrant(env.DB,{orgId:org,assignmentId:assignment.id,sourceAgentId:'source',targetAgentId:'target',operationId:move.operationId});
+  await commitHandoff(env.DB,{...move,wakeGrantId:grantId});
+  await env.DB.prepare(`INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at) VALUES ('later-request',?1,?2,?3,'message','Another task','now')`).bind(org,origin.channel,origin.author_login).run();
+  const later=(await beginAssignment(env.DB,{orgId:org,row:{...origin,id:'later-request',body:'Another task'},agentId:'source',actorId:'wake-human',sessionKey:'h1:later'})).assignment;
+  const laterOperation=await commitHandoff(env.DB,{orgId:org,assignmentId:later.id,generation:0,sourceAgentId:'source',targetAgentId:'target',operationId:'later-op',brief:'Another task',messageBody:'Passing it on',wakeGrantId:grantId});
+  expect(laterOperation.operation).toBeTruthy();
+  expect(await validAgentWakeGrantForHandoff(env.DB,laterOperation.operation)).toBe(true);
+});

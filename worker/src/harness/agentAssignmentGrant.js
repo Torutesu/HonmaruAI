@@ -46,6 +46,18 @@ export async function assignmentExecutionGrant(env,{orgId,assignmentId,generatio
   return agent ? {...grant,agents:[agent]} : null;
 }
 
+// Re-resolve both ends of a queued handoff against the original message,
+// room placement, and current Agent access immediately before delivery/run.
+export async function assignmentHandoffAgents(env,{orgId,assignmentId,generation,sourceAgentId,targetAgentId}) {
+  const assignment=await env.DB.prepare('SELECT * FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(orgId,assignmentId).first();
+  if(!assignment||assignment.generation!==generation||assignment.current_agent_id!==targetAgentId
+    ||!['pending','running'].includes(assignment.status))return false;
+  const grant=await originGrant(env,assignment);
+  if(!grant)return false;
+  const available=await assignmentTargets(env,grant);
+  return available.some(agent=>agent.id===sourceAgentId)&&available.some(agent=>agent.id===targetAgentId);
+}
+
 export async function acceptAgentHandoff(env,input) {
   const assignment = await env.DB.prepare('SELECT * FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(input.orgId,input.assignmentId).first();
   const grant = await originGrant(env,assignment);

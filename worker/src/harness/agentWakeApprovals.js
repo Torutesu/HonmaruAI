@@ -125,6 +125,7 @@ export async function activeAgentWakeGrant(db,{orgId,assignmentId,sourceAgentId,
     JOIN hx_agent_wake_approvals approval ON approval.org_id=g.org_id AND approval.id=g.approval_id
     JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.requester_id AND m.created_at=g.requester_membership AND LOWER(COALESCE(m.role,'guest'))!='guest'
     WHERE g.org_id=?1 AND g.source_agent_id=?3 AND g.target_agent_id=?4 AND g.requester_id=a.actor_id
+      AND g.requester_membership=a.actor_membership
       AND g.room_channel=a.channel AND (g.scope!='thread' OR g.thread_id=a.thread_id)
       AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?)
       AND (g.scope!='once' OR (approval.assignment_id=a.id AND approval.source_generation=a.generation AND approval.operation_id=?6))
@@ -134,14 +135,41 @@ export async function activeAgentWakeGrant(db,{orgId,assignmentId,sourceAgentId,
 }
 
 export async function validAgentWakeGrantForHandoff(db,operation,now=nowIso()) {
-  if(!operation?.wake_grant_id)return true;
+  if(!operation?.org_id||!operation.assignment_id||!operation.operation_id)return false;
+  // Provider-backed targets retain their explicit external execution path.
+  const managed=await db.prepare(`SELECT 1 FROM custom_agents WHERE org_id=?1 AND id=?2 AND provider IS NULL AND deleted_at IS NULL`)
+    .bind(operation.org_id,operation.target_agent_id).first();
+  if(!managed)return true;
+  const assignment=await db.prepare(`SELECT * FROM hx_agent_assignments WHERE org_id=?1 AND id=?2 AND generation=?3
+    AND current_agent_id=?4 AND mutation_id=?5 AND status IN ('pending','running')`)
+    .bind(operation.org_id,operation.assignment_id,operation.source_generation+1,operation.target_agent_id,operation.operation_id).first();
+  if(!assignment||assignment.channel==null||assignment.source_hash==null)return false;
+  if(!operation.wake_grant_id) {
+    return Boolean(await db.prepare(`SELECT 1 FROM hx_agent_agent_members peer
+      JOIN custom_agents target ON target.org_id=peer.org_id AND target.id=peer.agent_id AND target.scope='team' AND target.provider IS NULL AND target.deleted_at IS NULL
+      JOIN custom_agents source ON source.org_id=peer.org_id AND source.id=peer.member_agent_id AND source.scope='team' AND source.provider IS NULL AND source.deleted_at IS NULL
+      JOIN hx_agent_profiles source_profile ON source_profile.org_id=source.org_id AND source_profile.agent_id=source.id
+      WHERE peer.org_id=?1 AND peer.agent_id=?2 AND peer.member_agent_id=?3`)
+      .bind(operation.org_id,operation.target_agent_id,operation.source_agent_id).first());
+  }
   return Boolean(await db.prepare(`SELECT 1 FROM hx_agent_wake_grants g
-    JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.requester_id AND m.created_at=g.requester_membership AND LOWER(COALESCE(m.role,'guest'))!='guest'
-    WHERE g.org_id=?1 AND g.id=?2 AND g.source_agent_id=?3 AND g.target_agent_id=?4 AND g.revoked_at IS NULL
-      AND (g.expires_at IS NULL OR g.expires_at>?5)
-      AND (g.use_limit IS NULL OR g.use_count<g.use_limit OR (g.scope='once' AND g.use_count=g.use_limit AND EXISTS(
-        SELECT 1 FROM hx_agent_wake_approvals a WHERE a.org_id=g.org_id AND a.id=g.approval_id AND a.operation_id=?6)))`)
-    .bind(operation.org_id,operation.wake_grant_id,operation.source_agent_id,operation.target_agent_id,now,operation.operation_id).first());
+    JOIN hx_agent_wake_approvals approval ON approval.org_id=g.org_id AND approval.id=g.approval_id AND approval.status='approved'
+    JOIN hx_agent_assignments a ON a.org_id=?1 AND a.id=?6 AND a.generation=?7+1
+      AND a.current_agent_id=?4 AND a.mutation_id=?5 AND a.status IN ('pending','running')
+    JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.requester_id
+      AND m.created_at=g.requester_membership AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    WHERE g.org_id=?1 AND g.id=?2 AND g.source_agent_id=?3 AND g.target_agent_id=?4
+      AND approval.source_agent_id=?3 AND approval.target_agent_id=?4
+      AND approval.requester_id=g.requester_id AND approval.requester_membership=g.requester_membership
+      AND g.requester_id=a.actor_id AND g.requester_membership=a.actor_membership
+      AND g.room_channel=approval.room_channel AND g.room_channel=a.channel
+      AND g.thread_id=approval.thread_id AND (g.scope!='thread' OR g.thread_id=a.thread_id)
+      AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8)
+      AND (g.use_limit IS NULL OR g.use_count<g.use_limit OR (g.scope='once' AND g.use_count=g.use_limit))
+      AND (g.scope!='once' OR (approval.assignment_id=a.id AND approval.source_generation=?7
+        AND approval.operation_id=?5))`)
+    .bind(operation.org_id,operation.wake_grant_id,operation.source_agent_id,operation.target_agent_id,
+      operation.operation_id,operation.assignment_id,operation.source_generation,now).first());
 }
 
 export async function expireAgentWakeApprovals(env,now=nowIso()) {
