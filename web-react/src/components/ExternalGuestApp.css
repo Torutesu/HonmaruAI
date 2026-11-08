@@ -28,6 +28,9 @@
 .external-app-guest__section-title h2 { margin: 4px 0 0; font-size: 20px; }
 .external-app-guest__section-title > span { color: var(--guest-muted); font-size: 13px; }
 .external-app-guest__table-wrap { overflow: auto; }
+.external-app-guest__pagination { display: flex; justify-content: center; padding-top: 14px; }
+.external-app-guest__pagination button { border: 1px solid var(--guest-border); border-radius: 8px; padding: 9px 14px; color: var(--guest-fg); background: var(--guest-panel); font: inherit; cursor: pointer; }
+.external-app-guest__pagination button:disabled { opacity: .55; cursor: progress; }
 .external-app-guest table { width: 100%; border-collapse: collapse; text-align: left; }
 .external-app-guest th, .external-app-guest td { padding: 11px 13px; border-bottom: 1px solid var(--guest-border); font-size: 13px; }
 .external-app-guest th { color: var(--guest-muted); font-weight: 650; }

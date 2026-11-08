@@ -14,6 +14,8 @@ import {
   listExternalThreadSendRequests,
   decideExternalThreadSendRequest,
   type ExternalThreadSendRequest,
+  listExternalThreadLinkShares, createExternalThreadLinkShare, revokeExternalThreadLinkShare,
+  type ExternalThreadLinkShare,
 } from '../utils/externalThreadSharing'
 import './ExternalThreadShare.css'
 
@@ -33,6 +35,10 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
   const [shares, setShares] = useState<ExternalThreadGrant[]>([])
   const [invitations, setInvitations] = useState<ExternalThreadInvitation[]>([])
   const [sendRequests, setSendRequests] = useState<ExternalThreadSendRequest[]>([])
+  const [linkShares, setLinkShares] = useState<ExternalThreadLinkShare[]>([])
+  const [publicLink, setPublicLink] = useState('')
+  const [linkPermission, setLinkPermission] = useState<'view'|'edit'>('view')
+  const [linkExpiry, setLinkExpiry] = useState<Expiry>('7d')
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteUrl, setInviteUrl] = useState('')
   const [inviteDelivery, setInviteDelivery] = useState<'sent'|'failed'|'not_configured'|''>('')
@@ -55,8 +61,9 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
       listExternalThreadShares(apiKey, threadId, controller.signal),
       listExternalThreadInvitations(apiKey, threadId, controller.signal),
       listExternalThreadSendRequests(apiKey, threadId, controller.signal),
+      listExternalThreadLinkShares(apiKey, threadId, controller.signal),
     ])
-      .then(([value, pending, requests]) => { if (live) { setShares(value); setInvitations(pending); setSendRequests(requests); setDrafts(Object.fromEntries(value.map(item => [item.id,item.permission]))) } })
+      .then(([value, pending, requests, links]) => { if (live) { setShares(value); setInvitations(pending); setSendRequests(requests); setLinkShares(links); setDrafts(Object.fromEntries(value.map(item => [item.id,item.permission]))) } })
       .catch(err => { if (live && !controller.signal.aborted) setError(errorText(err,t)) })
       .finally(() => { if (live) setLoading(false) })
     return () => { live = false; controller.abort() }
@@ -82,6 +89,11 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
       setInviteEmail('')
     })
   }
+  const createLink = (event:React.FormEvent) => {
+    event.preventDefault()
+    void mutate(async()=>{const created=await createExternalThreadLinkShare(apiKey,threadId,{permission:linkPermission,expiresAt:nextExpiry(linkExpiry)});setPublicLink(created.inviteUrl)})
+  }
+  const revokeLink = (link:ExternalThreadLinkShare) => void mutate(async()=>{await revokeExternalThreadLinkShare(apiKey,threadId,link.id)})
   const copyInvite = async () => {
     if (!inviteUrl) return
     await navigator.clipboard.writeText(inviteUrl)
@@ -148,6 +160,21 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
         <div><strong>{request.guest_name||request.guest_email||t('Guest')}</strong>{request.guest_email&&<small>{request.guest_email}</small>}<p>{request.body}</p><small>{new Date(request.requested_at).toLocaleString()}</small></div>
         <div className="hx-external-thread-request-actions"><button type="button" className="pill-btn" disabled={busy} onClick={()=>decideRequest(request,'approve')}>{t('Approve')}</button><button type="button" className="btn-text" disabled={busy} onClick={()=>decideRequest(request,'reject')}>{t('Decline')}</button></div>
       </article>)}
+    </section>
+    <section className="hx-external-thread-invites" aria-label={t('Invite a guest')}>
+      <h3>{t('Anyone with the link')}</h3>
+      <p className="row-sub">{t('Anyone who signs in can access only this Thread. They will not join the workspace or its Rooms.')}</p>
+      <form className="hx-external-thread-share-form" onSubmit={createLink}>
+        <div className="hx-external-thread-share-options">
+          <label>{t('Permission')}<select aria-label={t('Link permission')} value={linkPermission} disabled={busy} onChange={event=>setLinkPermission(event.target.value as 'view'|'edit')}><option value="view">{t('Can view')}</option><option value="edit">{t('Can edit')}</option></select></label>
+          <label>{t('Expires')}<select aria-label={t('Link expiry')} value={linkExpiry} disabled={busy} onChange={event=>setLinkExpiry(event.target.value as Expiry)}><option value="7d">{t('In 7 days')}</option><option value="30d">{t('In 30 days')}</option><option value="never">{t('Never')}</option></select></label>
+        </div>
+        <button type="submit" className="pill-btn" disabled={busy}>{busy?t('Saving…'):t('Create share link')}</button>
+      </form>
+      {publicLink&&<div className="hx-external-thread-invite-link"><label>{t('Copy this share link')}<input readOnly value={publicLink} aria-label={t('Share link')} /></label><button type="button" className="btn-text" onClick={()=>void navigator.clipboard.writeText(publicLink)}>{t('Copy link')}</button></div>}
+      <ul className="hx-external-thread-invite-list" aria-label={t('Active share links')}>
+        {linkShares.map(link=><li key={link.id}><span><strong>{t(link.permission==='edit'?'Can edit':'Can view')}</strong><small>{t('Expires')} {expires(link.expiresAt)}</small></span><button type="button" className="btn-text" disabled={busy} onClick={()=>revokeLink(link)}>{t('Revoke link')}</button></li>)}
+      </ul>
     </section>
     <section className="hx-external-thread-invites" aria-label={t('Invite a guest')}>
       <h3>{t('Invite by link')}</h3>

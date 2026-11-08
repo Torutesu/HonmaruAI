@@ -213,7 +213,7 @@ async function shareThread(request, env, orgId, rootId, actor) {
         .bind(now,actor.user.github_id,input.grantId,orgId,rootId,...fence.bindings),
       env.DB.prepare(`UPDATE hx_external_thread_send_requests SET status='cancelled',decided_at=?1,decided_by=?2
         WHERE org_id=?3 AND root_message_id=?4 AND status='pending'
-          AND guest_github_id=(SELECT recipient_github_id FROM hx_external_resource_grants WHERE id=?5)
+          AND guest_github_id=(SELECT recipient_github_id FROM hx_external_resource_grants WHERE org_id=?3 AND id=?5)
           AND EXISTS(SELECT 1 FROM hx_external_resource_grants changed WHERE changed.id=?5
             AND changed.revoked_at=?1 AND changed.revoked_by=?2)
           AND ${threadManagerFence(orgId,rootId,actor.user,root.channel,6).sql}`)
@@ -345,6 +345,114 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
     return json({ revoked: Number(results?.[0]?.meta?.changes || 0) > 0 });
   }
   return fail("Method not allowed.", 405);
+}
+
+async function manageThreadLinkShares(request, env, orgId, rootId, actor, linkRef = null) {
+  const root = await manageableRoot(env.DB, orgId, rootId, actor.user);
+  if (!root) return fail("Thread not found or cannot be shared.", 404);
+  if (!linkRef && request.method === "GET") {
+    const now = new Date().toISOString();
+    const { results = [] } = await env.DB.prepare(`SELECT id,permission,created_at,expires_at
+      FROM hx_external_thread_link_shares WHERE org_id=?1 AND resource_id=?2 AND revoked_at IS NULL
+        AND (expires_at IS NULL OR expires_at>?3) ORDER BY created_at DESC,id LIMIT 100`)
+      .bind(orgId,rootId,now).all();
+    return json({ links: results.map(row => ({id:row.id,permission:row.permission,createdAt:row.created_at,expiresAt:row.expires_at||null})) });
+  }
+  if (!linkRef && request.method === "POST") {
+    const limited = await enforce(env,request,"team");
+    if (limited) return limited;
+    const input = await request.json().catch(() => null);
+    if (!input) return fail("Invalid JSON body.",400);
+    const permission = input.permission === "view" || input.permission === "edit" ? input.permission : null;
+    if (!permission) return fail("Permission must be view or edit.",400);
+    const now = new Date();
+    let expiresAt = input.expiresAt == null ? null : String(input.expiresAt).trim();
+    if (expiresAt && (!Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= now.getTime())) return fail("Expiry must be a future timestamp.",400);
+    if (expiresAt) expiresAt = new Date(expiresAt).toISOString();
+    const token = randomInviteToken();
+    const id = `xtl_${crypto.randomUUID().replaceAll("-","")}`;
+    const fence = threadManagerFence(orgId,rootId,actor.user,root.channel,9);
+    try {
+      const inserted = await env.DB.prepare(`INSERT INTO hx_external_thread_link_shares
+        (id,org_id,resource_id,permission,token_hash,created_by,created_at,expires_at)
+        SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE ${fence.sql}`)
+        .bind(id,orgId,rootId,permission,await sha256Hex(token),actor.user.github_id,now.toISOString(),expiresAt,...fence.bindings).run();
+      if (!inserted?.meta?.changes) return fail("Thread not found or cannot be shared.",404);
+    } catch (error) {
+      console.error("external Thread link create failed",error?.message||error);
+      return fail("Could not create this share link.",503);
+    }
+    return json({created:true,link:{id,permission,createdAt:now.toISOString(),expiresAt},token,inviteUrl:externalInviteLink(env,token)},201);
+  }
+  if (linkRef && request.method === "DELETE") {
+    const now = new Date().toISOString();
+    const fence = threadManagerFence(orgId,rootId,actor.user,root.channel,6);
+    const results = await env.DB.batch([
+      env.DB.prepare(`UPDATE hx_external_thread_link_shares SET revoked_at=?1,revoked_by=?2
+        WHERE id=?3 AND org_id=?4 AND resource_id=?5 AND revoked_at IS NULL AND ${fence.sql}`)
+        .bind(now,actor.user.github_id,linkRef,orgId,rootId,...fence.bindings),
+      env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
+        WHERE id IN (SELECT grant_id FROM hx_external_thread_link_redemptions WHERE link_id=?3)
+          AND org_id=?4 AND resource_type='thread' AND resource_id=?5 AND revoked_at IS NULL
+          AND EXISTS(SELECT 1 FROM hx_external_thread_link_shares l WHERE l.id=?3 AND l.org_id=?4
+            AND l.resource_id=?5 AND l.revoked_at=?1 AND l.revoked_by=?2)`)
+        .bind(now,actor.user.github_id,linkRef,orgId,rootId),
+    ]);
+    return json({revoked:Number(results?.[0]?.meta?.changes||0)>0});
+  }
+  return fail("Method not allowed.",405);
+}
+
+/** Redeem reusable anyone-with-link capability into an exact Thread grant. */
+async function redeemExternalThreadLink(env,{token,userId}) {
+  const deny={error:"This share link is not valid, or has expired.",status:404};
+  if(typeof token!=="string"||!/^[a-f0-9]{64}$/i.test(token)||!userId) return deny;
+  const tokenHash=await sha256Hex(token.toLowerCase());
+  const now=new Date().toISOString();
+  const link=await env.DB.prepare(`SELECT l.* FROM hx_external_thread_link_shares l
+    WHERE l.token_hash=?1 AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>?2)`)
+    .bind(tokenHash,now).first();
+  if(!link||(await getMode(env.DB,link.org_id))!=="harness") return deny;
+  const person=await env.DB.prepare("SELECT github_id FROM users WHERE github_id=?1").bind(String(userId)).first();
+  if(!person||await isMember(env.DB,link.org_id,String(userId))) return deny;
+  const root=await rootFor(env.DB,link.org_id,link.resource_id);
+  const owner=await getUserByGithubId(env.DB,link.created_by);
+  if(!root||!owner||!(await manageableRoot(env.DB,link.org_id,link.resource_id,owner))) return deny;
+  const existing=await env.DB.prepare(`SELECT g.id,g.permission FROM hx_external_thread_link_redemptions r
+    JOIN hx_external_resource_grants g ON g.id=r.grant_id
+    WHERE r.link_id=?1 AND r.recipient_github_id=?2 AND g.org_id=?4 AND g.revoked_at IS NULL
+      AND (g.expires_at IS NULL OR g.expires_at>?3)`).bind(link.id,String(userId),now,link.org_id).first();
+  if(existing) return {redeemed:true,orgId:link.org_id,resourceType:"thread",resourceId:link.resource_id,permission:existing.permission};
+  // Preserve direct shares and grants minted through other links. Never replace
+  // a stronger or weaker existing grant as a side effect of redeeming a link.
+  const priorGrant=await env.DB.prepare(`SELECT permission FROM hx_external_resource_grants
+    WHERE org_id=?1 AND resource_type='thread' AND resource_id=?2 AND recipient_github_id=?3
+      AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?4)
+    ORDER BY granted_at DESC LIMIT 1`).bind(link.org_id,link.resource_id,String(userId),now).first();
+  if(priorGrant) return {redeemed:true,orgId:link.org_id,resourceType:"thread",resourceId:link.resource_id,permission:priorGrant.permission};
+  const redemption=env.DB.prepare(`INSERT OR IGNORE INTO hx_external_thread_link_redemptions(link_id,recipient_github_id,redeemed_at)
+    SELECT ?1,?2,?3 WHERE EXISTS(SELECT 1 FROM hx_external_thread_link_shares l WHERE l.id=?1
+      AND l.token_hash=?4 AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>?3))
+      AND EXISTS(SELECT 1 FROM channel_messages root WHERE root.org_id=?5 AND root.id=?6 AND root.parent_id IS NULL AND root.deleted_at IS NULL)
+      AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?5 AND m.user_github_id=?2)`)
+    .bind(link.id,String(userId),now,tokenHash,link.org_id,link.resource_id);
+  const grantId=`xg_${crypto.randomUUID().replaceAll("-","")}`;
+  const ownerFence=threadManagerFence(link.org_id,link.resource_id,owner,root.channel,5);
+  const grant=env.DB.prepare(`INSERT INTO hx_external_resource_grants(id,org_id,resource_type,resource_id,recipient_github_id,permission,granted_by,granted_at,expires_at)
+    SELECT ?1,l.org_id,'thread',l.resource_id,?2,l.permission,l.created_by,?3,l.expires_at
+    FROM hx_external_thread_link_shares l JOIN hx_external_thread_link_redemptions r ON r.link_id=l.id AND r.recipient_github_id=?2
+    WHERE l.id=?4 AND r.grant_id IS NULL AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>?3)
+      AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=l.org_id AND m.user_github_id=?2)
+      AND EXISTS(SELECT 1 FROM channel_messages root WHERE root.org_id=l.org_id AND root.id=l.resource_id AND root.parent_id IS NULL AND root.deleted_at IS NULL)
+      AND ${ownerFence.sql}`)
+    .bind(grantId,String(userId),now,link.id,...ownerFence.bindings);
+  const remember=env.DB.prepare(`UPDATE hx_external_thread_link_redemptions SET grant_id=?1
+    WHERE link_id=?2 AND recipient_github_id=?3 AND grant_id IS NULL
+      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.id=?1 AND g.org_id=?4 AND g.resource_type='thread' AND g.resource_id=?5 AND g.recipient_github_id=?3)`)
+    .bind(grantId,link.id,String(userId),link.org_id,link.resource_id);
+  const results=await env.DB.batch([redemption,grant,remember]);
+  if(results?.[1]?.meta?.changes&&results?.[2]?.meta?.changes) return {redeemed:true,orgId:link.org_id,resourceType:"thread",resourceId:link.resource_id,permission:link.permission};
+  return deny;
 }
 
 /** Redeem a link only after the signed-in identity has proved its email address. */
@@ -826,7 +934,9 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
     const fileRedeemed = await redeemExternalFileInvite(env,{token:input.token,userId:actor.user.github_id});
     if (!fileRedeemed.error) return json(fileRedeemed);
     const redeemed = await redeemExternalThreadInvite(env,{token:input.token,userId:actor.user.github_id});
-    return redeemed.error ? fail(redeemed.error,redeemed.status) : json(redeemed);
+    if(!redeemed.error) return json(redeemed);
+    const linked=await redeemExternalThreadLink(env,{token:input.token,userId:actor.user.github_id});
+    return linked.error ? fail(linked.error,linked.status) : json(linked);
   }
   if (!url.pathname.startsWith("/external/threads/")) return null;
   const parts = url.pathname.split("/").filter(Boolean);
@@ -841,6 +951,11 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
   if (!actor) return fail("Sign in to continue.", 401);
   if (parts.length === 5 && parts[4] === "shares") return shareThread(request, env, orgId, rootId, actor);
   if (parts.length === 5 && parts[4] === "invites") return manageThreadInvites(request,env,orgId,rootId,actor);
+  if (parts.length === 5 && parts[4] === "links") return manageThreadLinkShares(request,env,orgId,rootId,actor);
+  if (parts.length === 6 && parts[4] === "links" && request.method === "DELETE") {
+    let linkRef; try { linkRef=decodeURIComponent(parts[5]); } catch { return fail("Not found.",404); }
+    return manageThreadLinkShares(request,env,orgId,rootId,actor,linkRef);
+  }
   if (parts.length === 6 && parts[4] === "invites" && request.method === "DELETE") {
     let inviteRef;
     try { inviteRef = decodeURIComponent(parts[5]); } catch { return fail("Not found.",404); }

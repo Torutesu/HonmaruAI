@@ -14,6 +14,8 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
   const [tables, setTables] = useState<AppTable[]>([])
   const [activeTableId, setActiveTableId] = useState('')
   const [rows, setRows] = useState<AppRow[]>([])
+  const [hasMoreRows, setHasMoreRows] = useState(false)
+  const [loadingMoreRows, setLoadingMoreRows] = useState(false)
   const [messages, setMessages] = useState<AppMessage[]>([])
   const [body, setBody] = useState('')
   const [draft, setDraft] = useState<Record<string, unknown>>({})
@@ -23,14 +25,29 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
   const [notice, setNotice] = useState('')
   const base = `${httpBase}/external/apps/${encodeURIComponent(orgId)}/${encodeURIComponent(appId)}`
   const headers = { 'x-session-token': sessionToken, 'content-type': 'application/json' }
-  const rowsUrl = useCallback((tableId: string) => `${base}/tables/${encodeURIComponent(tableId)}/rows?limit=50`, [base])
+  const rowsUrl = useCallback((tableId: string, offset = 0) => `${base}/tables/${encodeURIComponent(tableId)}/rows?limit=51&offset=${offset}`, [base])
   const loadRows = useCallback(async (tableId: string) => {
     if (!tableId) return
     const response = await fetch(rowsUrl(tableId), { headers: { 'x-session-token': sessionToken } })
     const data = await response.json()
     if (!response.ok) throw new Error(data.message || String(response.status))
-    setRows(data.rows || [])
+    const page = Array.isArray(data.rows) ? data.rows : []
+    setRows(page.slice(0, 50))
+    setHasMoreRows(page.length > 50)
   }, [rowsUrl, sessionToken])
+  const loadMoreRows = async () => {
+    if (!activeTableId || loadingMoreRows || !hasMoreRows) return
+    setLoadingMoreRows(true)
+    try {
+      const response = await fetch(rowsUrl(activeTableId, rows.length), { headers: { 'x-session-token': sessionToken } })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message || String(response.status))
+      const page = Array.isArray(data.rows) ? data.rows : []
+      setRows(current => [...current, ...page.slice(0, 50)])
+      setHasMoreRows(page.length > 50)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setLoadingMoreRows(false) }
+  }
   const loadConversation = useCallback(async () => {
     const response = await fetch(`${base}/conversation`, { headers: { 'x-session-token': sessionToken } })
     const data = await response.json()
@@ -55,7 +72,9 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
         if (!controller.signal.aborted) {
           setTables(tablesData.tables || [])
           setActiveTableId(metadata.tableId)
-          setRows(tableData.rows || [])
+          const page = Array.isArray(tableData.rows) ? tableData.rows : []
+          setRows(page.slice(0, 50))
+          setHasMoreRows(page.length > 50)
           setMessages(conversationData.messages || [])
         }
       })
@@ -63,7 +82,7 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
     return () => controller.abort()
   }, [base, sessionToken, rowsUrl])
   const selectTable = async (tableId: string) => {
-    setActiveTableId(tableId); setRows([]); setError('')
+    setActiveTableId(tableId); setRows([]); setHasMoreRows(false); setError('')
     try { await loadRows(tableId) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
   }
   const saveRow = async (event: React.FormEvent) => {
@@ -140,6 +159,7 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
         {app?.permission === 'edit' && !editing && <button type="button" disabled={busy} onClick={() => { setDraft({}); setEditing({ id: '', data: {}, createdAt: '', updatedAt: '' }) }}>Add record</button>}
       </div>
       {rows.length ? <div className="external-app-guest__table-wrap"><table><thead><tr>{activeTable?.columns.map(column => <th key={column.id}>{column.name}</th>)}{app?.permission === 'edit' && <th>Actions</th>}</tr></thead><tbody>{rows.map(row => <tr key={row.id}>{activeTable?.columns.map(column => <td key={column.id}>{String(row.data?.[column.id] ?? '—')}</td>)}{app?.permission === 'edit' && <td className="external-app-guest__row-actions"><button type="button" disabled={busy} onClick={() => { setEditing(row); setDraft({ ...row.data }) }}>Edit</button><button type="button" disabled={busy} onClick={() => void removeRow(row)}>Delete</button></td>}</tr>)}</tbody></table></div> : <p className="external-app-guest__empty">{app ? 'No records are available in this App yet.' : 'Loading…'}</p>}
+      {hasMoreRows && <div className="external-app-guest__pagination"><button type="button" disabled={loadingMoreRows || busy} onClick={() => void loadMoreRows()}>{loadingMoreRows ? 'Loading…' : 'Load more records'}</button></div>}
       {app?.permission === 'edit' && editing && <form className="external-app-guest__row-form" onSubmit={saveRow}>
         <h3>{editing.id ? 'Edit record' : 'New record'}</h3>
         {activeTable?.columns.map(column => <label key={column.id}>{column.name}{inputFor(column)}</label>)}

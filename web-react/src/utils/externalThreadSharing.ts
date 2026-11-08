@@ -37,6 +37,8 @@ export type ExternalThreadShareInput = {
   expiresAt: string | null
 }
 
+export type ExternalThreadLinkShare = { id:string; permission:'view'|'edit'; createdAt:string; expiresAt:string|null }
+
 export class ExternalThreadShareError extends Error {
   constructor(message: string, readonly status: number) { super(message) }
 }
@@ -102,6 +104,23 @@ export async function createExternalThreadInvitation(api: Client, threadId: stri
 
 export async function revokeExternalThreadInvitation(api: Client, threadId: string, invitationId: string): Promise<boolean> {
   const value=await request<{revoked?:boolean}>(api,threadId,'DELETE',undefined,undefined,`invites/${encodeURIComponent(invitationId)}`)
+  return value.revoked===true
+}
+
+export async function listExternalThreadLinkShares(api:Client,threadId:string,signal?:AbortSignal):Promise<ExternalThreadLinkShare[]> {
+  const value=await request<{links?:ExternalThreadLinkShare[]}>(api,threadId,'GET',undefined,signal,'links')
+  if(!Array.isArray(value.links)) throw new ExternalThreadShareError('The link service returned an invalid list.',502)
+  return value.links
+}
+export async function createExternalThreadLinkShare(api:Client,threadId:string,input:{permission:'view'|'edit';expiresAt:string|null}):Promise<{link:ExternalThreadLinkShare;inviteUrl:string}> {
+  const value=await request<{created?:boolean;link?:ExternalThreadLinkShare;inviteUrl?:string|null;token?:string}>(api,threadId,'POST',input,undefined,'links')
+  let inviteUrl=value.inviteUrl||''
+  if(!inviteUrl&&value.token){const url=new URL(window.location.href);url.hash=`#/external-invite/${value.token}`;inviteUrl=url.toString()}
+  if(!value.created||!value.link?.id||!inviteUrl) throw new ExternalThreadShareError('The share link service returned an invalid link.',502)
+  return {link:value.link,inviteUrl}
+}
+export async function revokeExternalThreadLinkShare(api:Client,threadId:string,linkId:string):Promise<boolean> {
+  const value=await request<{revoked?:boolean}>(api,threadId,'DELETE',undefined,undefined,`links/${encodeURIComponent(linkId)}`)
   return value.revoked===true
 }
 

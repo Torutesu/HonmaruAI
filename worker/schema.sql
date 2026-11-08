@@ -2795,6 +2795,9 @@ CREATE TABLE IF NOT EXISTS hx_external_file_invites (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_external_file_invites_active ON hx_external_file_invites(org_id,file_id,revoked_at,expires_at);
 CREATE INDEX IF NOT EXISTS idx_hx_external_file_invites_redeemed ON hx_external_file_invites(org_id,redeemed_by,redeemed_at);
+CREATE TABLE IF NOT EXISTS hx_external_file_invites_v2 ( id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, file_id TEXT NOT NULL, invited_email TEXT NOT NULL CHECK(length(trim(invited_email)) BETWEEN 3 AND 254), permission TEXT NOT NULL CHECK(permission IN ('view','edit')), access_expires_at TEXT, token_hash TEXT NOT NULL UNIQUE, created_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL CHECK(expires_at>created_at), redemption_id TEXT UNIQUE, redeemed_at TEXT, redeemed_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, created_grant_id TEXT REFERENCES hx_external_resource_grants(id) ON DELETE SET NULL, revoked_at TEXT, revoked_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE );
+CREATE INDEX IF NOT EXISTS idx_hx_external_file_invites_v2_active ON hx_external_file_invites_v2(org_id,file_id,revoked_at,expires_at);
+CREATE INDEX IF NOT EXISTS idx_hx_external_file_invites_v2_redeemed ON hx_external_file_invites_v2(org_id,redeemed_by,redeemed_at);
 
 /* Workspace owners/admins may share the workspace GitHub connection with an Agent.
    This grant is separate from personal per-member grants. */

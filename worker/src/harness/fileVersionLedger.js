@@ -23,7 +23,7 @@ export async function createFileLedger(db,{orgId,fileId,scope,path,createdBy,ori
  const result=origin===null?await insert.run():(await db.batch([insert,db.prepare("INSERT INTO hx_workspace_file_origins(org_id,file_id,source) SELECT ?1,?2,?3 WHERE changes()=1").bind(orgId,fileId,origin)]))[0];
  return {created:result.meta.changes===1};
 }
-export async function appendFileVersion(db,{orgId,fileId,expectedVersion,createdBy,kind='content',objectKey=null,contentHash=null,contentType=null,size=null,restoredFrom=null,stageId=null,at=new Date().toISOString()}) {
+export async function appendFileVersion(db,{orgId,fileId,expectedVersion,createdBy,kind='content',objectKey=null,contentHash=null,contentType=null,size=null,restoredFrom=null,stageId=null,at=new Date().toISOString(),authoritySql=null}) {
  for(const [name,value] of Object.entries({orgId,fileId,createdBy,at}))required(value,name);
  if(!Number.isSafeInteger(expectedVersion)||expectedVersion<0||expectedVersion>=Number.MAX_SAFE_INTEGER)throw new FileVersionInputError('Expected version is required.');
  if(!['content','deleted'].includes(kind))throw new FileVersionInputError('Invalid version kind.');
@@ -40,7 +40,7 @@ export async function appendFileVersion(db,{orgId,fileId,expectedVersion,created
   db.prepare(`INSERT INTO hx_workspace_file_versions(org_id,file_id,version,operation_id,kind,object_key,content_hash,content_type,size,created_by,created_login,created_at,restored_from)
    SELECT f.org_id,f.id,?3,?4,?5,?6,?7,?8,?9,?10,(SELECT login FROM users WHERE github_id=?10),?11,?12 FROM hx_workspace_files f
    WHERE f.org_id=?1 AND f.id=?2 AND f.current_version=?13
-    AND ${fileScopeAuthority('f.org_id','f.scope','?10')}
+    AND ${authoritySql||fileScopeAuthority('f.org_id','f.scope','?10')}
     AND (?5!='deleted' OR ${fileDeleteAuthority('f.org_id','f.created_by','?10','f.scope')})
     AND (?5='deleted' OR (NOT EXISTS(SELECT 1 FROM media_deletions pending WHERE pending.key=?6)
      AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_versions retired JOIN hx_workspace_file_purges gone ON gone.org_id=retired.org_id AND gone.file_id=retired.file_id AND gone.version=retired.version WHERE retired.org_id=f.org_id AND retired.object_key=?6)))

@@ -5,7 +5,7 @@ import {deleteMediaKeys} from '../files.js';
 
 // Internal: not mounted until retention, purge, download and account cleanup
 // are integrated. Each upload gets its own key; never overwrite a prior blob.
-export async function uploadFileVersion(env,{orgId,fileId,userId,expectedVersion,stream,size,contentType='application/octet-stream',restoredFrom=null}) {
+export async function uploadFileVersion(env,{orgId,fileId,userId,expectedVersion,stream,size,contentType='application/octet-stream',restoredFrom=null,authoritySql=null,commitAuthoritySql=authoritySql}) {
  if(!env.MEDIA)throw Error('File storage is unavailable.');
  if(!Number.isSafeInteger(size)||size<0||size>25*1024*1024||!Number.isSafeInteger(expectedVersion)||expectedVersion<0||expectedVersion>=Number.MAX_SAFE_INTEGER)throw new FileVersionInputError('Invalid upload size or version.');
  if(restoredFrom!==null&&(!Number.isSafeInteger(restoredFrom)||restoredFrom<1||restoredFrom>expectedVersion))throw new FileVersionInputError('Invalid restore version.');
@@ -14,7 +14,7 @@ export async function uploadFileVersion(env,{orgId,fileId,userId,expectedVersion
  const stageId=crypto.randomUUID(),objectKey=`org/${encodeURIComponent(orgId)}/workspace-files/${stageId}`,created=Date.now();
  const staged=await env.DB.prepare(`INSERT INTO hx_workspace_file_uploads(org_id,id,file_id,object_key,created_by,expected_version,created_at,expires_at,status)
   SELECT f.org_id,?4,f.id,?5,?3,?6,?7,?8,'uploading' FROM hx_workspace_files f
-  WHERE f.org_id=?1 AND f.id=?2 AND f.current_version=?6 AND ${fileScopeAuthority('f.org_id','f.scope','?3')}`)
+  WHERE f.org_id=?1 AND f.id=?2 AND f.current_version=?6 AND ${authoritySql||fileScopeAuthority('f.org_id','f.scope','?3')}`)
   .bind(orgId,fileId,userId,stageId,objectKey,expectedVersion,created,created+5*60*1000).run();
  if(staged.meta.changes!==1){await stream.cancel().catch(()=>{});return {saved:false};}
  try {
@@ -35,7 +35,7 @@ export async function uploadFileVersion(env,{orgId,fileId,userId,expectedVersion
   await env.MEDIA.put(objectKey,body,{httpMetadata:{contentType}});
   const head=await env.MEDIA.head(objectKey);
   if(!head||head.size!==size)throw Error('Stored upload could not be verified.');
-  const result=await appendFileVersion(env.DB,{orgId,fileId,createdBy:userId,expectedVersion,objectKey,contentHash:hash.digest('hex'),contentType,size,stageId,restoredFrom});
+  const result=await appendFileVersion(env.DB,{orgId,fileId,createdBy:userId,expectedVersion,objectKey,contentHash:hash.digest('hex'),contentType,size,stageId,restoredFrom,authoritySql:commitAuthoritySql});
   if(!result.saved){await discardUpload(env,orgId,stageId,objectKey);return result;}
   // This deletion can fail after a successful commit; the cleanup path below
   // checks the authoritative version record before deleting any object.
