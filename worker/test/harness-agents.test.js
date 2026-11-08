@@ -391,9 +391,14 @@ test('a thread reply that does not name the agent gets no answer, with or withou
   const { runQueuedAgents } = await import('../src/agentRunner.js');
   expect(await runQueuedAgents(env, { orgId: ORG, token: mika, rowId: row.id, locale: 'en' })).toBe(0);
   expect((await respondingAgents(env.DB, { ...args, row: { ...row, body: '@billy Continue' } })).map(x => x.id)).toEqual([agentId]);
+  const namedInThread = { ...row, body: 'Billy, please review the next invoice', parent_id: 'root-response' };
+  expect((await respondingAgents(env.DB, { ...args, row: namedInThread })).map(x => x.id)).toEqual([agentId]);
+  const { requestFor } = await import('../src/customAgents.js');
+  expect(requestFor(namedInThread.body, { handle: 'billy', name: 'Billy' }, { naturalNames: true })).toBe('please review the next invoice');
   expect((await respondingAgents(env.DB, { ...args, resolved: { kind: 'agent', key: `agent:${agentId}`, agent: { id: agentId } } })).map(x => x.id)).toEqual([agentId]);
   await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
   expect(await respondingAgents(env.DB, args)).toEqual([]);
+  expect(await respondingAgents(env.DB, { ...args, row: namedInThread })).toEqual([]);
 });
 test('Harness routes clear new requests only to accessible room members, leaving Simple and human threads unchanged', async () => {
   const { respondingAgents } = await import('../src/customAgents.js');
