@@ -33,7 +33,7 @@ function appValues(table: Table, values: Record<string, unknown>): Record<string
 }
 
 // Two opaque-origin frames isolate generated code and its navigation.
-export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId, previewEntities, decorative = false }: { decorative?: boolean; previewEntities?: Array<AppEntity & {rows:Row[]}>; appId?: string; html: string; table: Table; rows: Row[]; httpBase: string; api?: HarnessApi; reload?: () => unknown }) {
+export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId, previewEntities, loadEntity, decorative = false }: { decorative?: boolean; previewEntities?: Array<AppEntity & {rows:Row[]}>; loadEntity?: (key:string)=>Promise<{table:Table;rows:Row[]}>; appId?: string; html: string; table: Table; rows: Row[]; httpBase: string; api?: HarnessApi; reload?: () => unknown }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const initialized = useRef(false)
   const renderId = useRef('')
@@ -90,6 +90,11 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
       const { id, operation, args } = event.data
       if (operation === 'read') { reply(id, { table, rows: appRows(table, rows) }); return }
       if (operation === 'entity' && previewEntities) { const entity=previewEntities.find(e=>e.key===args?.entity); entity?reply(id,{table:entity.table,rows:appRows(entity.table,entity.rows)}):reply(id,undefined,'No such preview entity.');return }
+      if (operation === 'entity' && loadEntity) {
+        try { const key=typeof args?.entity==='string'&&args.entity?args.entity:'primary';const entity=await loadEntity(key);reply(id,{table:entity.table,rows:appRows(entity.table,entity.rows)}) }
+        catch(error){reply(id,undefined,error instanceof Error?error.message:'No such entity in this App.')}
+        return
+      }
       if (!api) { reply(id, undefined, 'Preview is read-only.'); return }
       let size = Infinity
       try { size = JSON.stringify(args).length } catch { /* cyclic input is invalid */ }
@@ -102,6 +107,8 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
         if(['run','connect','job','entity'].includes(operation) || args.entity && args.entity !== 'primary') {
           if(previewEntities && args.entity && !['run','connect','job'].includes(operation)) {
             const entity=previewEntities.find(e=>e.key===args.entity);if(!entity)throw new Error('No such preview entity.');request.targetTable=entity.table;request.before=entity.rows.find(r=>r.id===args.id)
+          } else if(loadEntity&&args.entity&&args.entity!=='primary'&&!['run','connect','job'].includes(operation)) {
+            const entity=await loadEntity(String(args.entity));request.targetTable=entity.table;request.before=entity.rows.find(r=>r.id===args.id)
           } else {
           if(!appId) throw new Error('This capability is unavailable in preview.')
           if(operation==='job') { reply(id,await api.actionJob(appId,String(args.id||'')));pending.current=null;return }
@@ -136,7 +143,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
     }
     window.addEventListener('message', listener)
     return () => window.removeEventListener('message', listener)
-  }, [table, rows, html, theme, api, appId, previewEntities, httpBase, attempt])
+  }, [table, rows, html, theme, api, appId, previewEntities, loadEntity, httpBase, attempt])
   const labeled = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values).map(([id, value]) => [(change?.targetTable || table).columns.find(c => c.id === id)?.name || id, value]))
   if (html.length > MAX_PREVIEW_SOURCE) return <p role="alert">表示できるコードの上限は119800文字です。コードを短くして保存してください。</p>
   return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : 'データ変更の確認'}</h3><p>{change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre><button disabled={working} onClick={() => decide(false)}>キャンセル</button><button disabled={working} onClick={() => decide(true)}>この変更を許可</button></div>}{renderState !== 'ready' && <div className="hx-custom-status" role="status">{renderState === 'loading' ? 'アプリを読み込んでいます…' : <><span>アプリを表示できませんでした。</span><button type="button" onClick={() => setAttempt(value => value + 1)}>再試行</button></>}</div>}<iframe tabIndex={decorative ? -1 : undefined} ref={frame} onLoad={() => initialize()} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={`${html}:${theme}:${appId}:${httpBase}:${attempt}`} src={`${httpBase}/custom-app-runner?v=4`} className="hx-custom-frame" /></>

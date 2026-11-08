@@ -103,7 +103,7 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
     {sharing?.canManage && <div className="app-guest-sharing">
       <h3>{t('External guests')}</h3>
       <p className="row-sub">{t('Invite a named person to this App. They must verify the invited email address. Access stays limited to this App and its linked records.')}</p>
-      {sharing.customUnsupported && <div className="form-error" role="status">{t('Custom Apps cannot be opened by external guests yet. Ask the owner for a Database App share.')}</div>}
+      {sharing.customUnsupported && <div className="form-error" role="status">{t('Publish this Custom App before inviting external guests.')}</div>}
       {!sharing.customUnsupported && <>
       <form onSubmit={invite} className="app-guest-invite">
         <label>{t('Email')}<input aria-label={t('Guest email')} type="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} /></label>
