@@ -98,7 +98,7 @@ export interface AutomationBundle { version: 1; items: Array<AutomationDefinitio
 export interface AutomationPlanItem { key: string; workflowId: string | null; status: 'added'|'changed'|'unchanged'|'removed'|'retired'|'drifted'|'missing'; declared: AutomationDefinition | null; published: AutomationDefinition | null; live: AutomationDefinition | null }
 export interface AppAutomationState { version: number; revision: number; draft: AutomationBundle; published: AutomationBundle | null; releaseId: string | null; publishedAt: string | null; plan?: AutomationPlanItem[] }
 export interface RunAuthorizationEvent { actorId:string; resourceType:'workflow'|'conversation'|'agent'|'table'|'app'|'connection'|'member'; resourceId:string; outcome:'allowed'|'denied'; checkedAt:string }
-export interface RunLog { step: number; type: StepType; status: string; output?: string; error?: string; at: string; authorization?:RunAuthorizationEvent[] }
+export interface RunLog { step: number; type: StepType; status: string; outcome?: 'unknown'; actorId?: string; output?: string; error?: string; at: string; authorization?:RunAuthorizationEvent[] }
 export interface HeldWorkflowEvents { count: number; oldestExpiry: string | null; events: Array<{ id: string; receivedAt: string; expiresAt: string }>; discardEventIds?: string[] }
 export interface RunUsageCounters { calls:number; inputTokens:number; outputTokens:number; unknownCalls:number; unpricedCalls:number; estimatedMicros:number }
 export interface RunUsage extends RunUsageCounters { coverage:'priced-token-estimate'; estimatedUsd:number; steps:Array<RunUsageCounters & {stepNumber:number}> }
@@ -236,6 +236,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     changeWorkflowHook: (id: string, action: 'rotate' | 'revoke', expectedSecret: string | null) => call<{ workflow: Workflow }>('POST', `/workflows/${id}/webhook`, { action, expectedSecret }),
     replayWorkflowEvents: (id: string, eventIds: string[]) => call<{ runs: Array<{ eventId: string; runId: string; status: string }>; skipped: number }>('POST', `/workflows/${id}/webhook/replay`, { eventIds }),
     heldWorkflowEvent: (id: string, eventId: string) => call<{ event: { id: string; receivedAt: string; expiresAt: string; input: unknown } }>('GET', `/workflows/${id}/webhook/events/${encodeURIComponent(eventId)}`),
+    recoverWorkflowRun: (workflowId: string, runId: string, expectedStartedAt: string) => call<{ run: Run }>('POST', `/workflows/${workflowId}/runs/${encodeURIComponent(runId)}/recover`, { expectedStartedAt, confirmNoReplay: true }),
     discardWorkflowEvents: (id: string, eventIds: string[]) => call<{ discarded: number }>('POST', `/workflows/${id}/webhook/discard`, { eventIds }),
     deleteWorkflow: (id: string) => call<{ deleted: boolean }>('DELETE', `/workflows/${id}`),
     workflowSource: (id:string,before?:number) => call<WorkflowSourceState>('GET',`/workflows/${id}/source`,undefined,{candidates:'1',...(before?{before:String(before)}:{})}),

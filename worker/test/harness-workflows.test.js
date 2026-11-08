@@ -1500,6 +1500,38 @@ test('follow-ups reject invalid thread destinations and fail if their root is de
   expect(stored.result).toContain('thread is unavailable');
 });
 
+test('a maker can reconcile a stale workflow run without replaying its uncertain step', async () => {
+  const created = await send('POST', '/workflows', mika, { orgId: ORG, name: 'Stalled recovery', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Do not replay' }] });
+  expect(created.status).toBe(201);
+  const { workflow } = await created.json();
+  const runId = 'run-stalled-recovery';
+  const startedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at)
+    VALUES(?1,?2,?3,'manual','running','{}','[]',0,'9302',?4)`).bind(runId, ORG, workflow.id, startedAt).run();
+  const response = await send('POST', `/workflows/${workflow.id}/runs/${runId}/recover`, mika, { orgId: ORG, expectedStartedAt: startedAt, confirmNoReplay: true });
+  expect(response.status).toBe(200);
+  const { run } = await response.json();
+  expect(run.status).toBe('failed');
+  expect(run.log).toEqual([expect.objectContaining({ step: 1, status: 'interrupted', outcome: 'unknown', error: expect.stringContaining('was not replayed') })]);
+  expect((await messages(mika)).map(message => message.body)).not.toContain('Do not replay');
+  expect((await send('POST', `/workflows/${workflow.id}/run`, mika, { orgId: ORG, text: 'new run' })).status).toBe(201);
+});
+
+test('stale-run reconciliation rejects fresh runs and runs with live node leases', async () => {
+  const { recoverStalledRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await (await send('POST', '/workflows', mika, { orgId: ORG, name: 'Lease recovery', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Lease' }] })).json();
+  const now = Date.now();
+  const freshId = 'run-fresh-recovery';
+  const freshAt = new Date(now - 5 * 60 * 1000).toISOString();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,next_step,started_at) VALUES(?1,?2,?3,'manual','running','[]',0,?4)`).bind(freshId, ORG, workflow.id, freshAt).run();
+  expect(await recoverStalledRun(env.DB, { orgId: ORG, workflowId: workflow.id, runId: freshId, expectedStartedAt: freshAt, actorId: '9302', at: now })).toMatchObject({ error: expect.stringContaining('not stale'), status: 409 });
+  const leasedId = 'run-leased-recovery';
+  const oldAt = new Date(now - 31 * 60 * 1000).toISOString();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,next_step,started_at) VALUES(?1,?2,?3,'manual','running','[]',0,?4)`).bind(leasedId, ORG, workflow.id, oldAt).run();
+  await env.DB.prepare(`INSERT INTO hx_workflow_node_checkpoints(org_id,run_id,node_id,fingerprint,effect,status,owner,attempt,lease_until) VALUES(?1,?2,'program','hash',1,'running','worker',1,?3)`).bind(ORG, leasedId, now + 60000).run();
+  expect(await recoverStalledRun(env.DB, { orgId: ORG, workflowId: workflow.id, runId: leasedId, expectedStartedAt: oldAt, actorId: '9302', at: now })).toMatchObject({ error: expect.stringContaining('active execution lease'), status: 409 });
+});
+
 test('continuation does not advance waiting or terminal workflow runs',async()=>{
  const {continueRun}=await import('../src/harness/workflows.js');
  const workflow={id:'protected-flow',name:'Protected',createdBy:'9301',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Must not be posted'}]};

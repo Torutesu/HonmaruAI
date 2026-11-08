@@ -303,6 +303,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
   const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
   const [discardSelection, setDiscardSelection] = useState<string[] | null>(null)
+  const [recoveringRun, setRecoveringRun] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [syncError,setSyncError]=useState('')
   const detailRequest = useRef(0)
@@ -566,6 +567,20 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                     <time dateTime={l.at}>{new Date(l.at).toLocaleString(getLocale())}</time>
                   </details> : <span key={l.step} className="row-sub hx-log">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span></span>
                 )})}
+                {open.canEdit && r.status === 'running' && Date.now() - Date.parse(r.startedAt) >= 30 * 60 * 1000 && <section className="form-note hx-run-recovery">
+                  <p>{t('This run has been active for over 30 minutes and may have stopped responding.')}</p>
+                  {recoveringRun === r.id ? <>
+                    <p>{t('The current step may already have changed data or sent a message. Reconciliation will mark its outcome unknown and will never replay it.')}</p>
+                    <div className="hx-actions">
+                      <button type="button" className="pill-btn danger" disabled={!!busy} onClick={() => act('recover-run', async () => {
+                        await api.recoverWorkflowRun(w.id, r.id, r.startedAt)
+                        setRecoveringRun(null)
+                        await refreshOpen(w.id)
+                      })}>{t('Mark interrupted without replay')}</button>
+                      <button type="button" className="btn-text" disabled={!!busy} onClick={() => setRecoveringRun(null)}>{t('Cancel')}</button>
+                    </div>
+                  </> : <button type="button" className="pill-btn quiet" disabled={!!busy} onClick={() => setRecoveringRun(r.id)}>{t('Review stalled run')}</button>}
+                </section>}
               </div>
             </div>
           ))}

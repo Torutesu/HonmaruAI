@@ -467,6 +467,39 @@ export async function getRun(db, orgId, runId, { viewerId, revisions } = {}) {
   return run;
 }
 
+// Reconcile a run whose execution stopped updating. Never replay its current
+// step: ordinary workflow effects do not all have provider idempotency keys.
+export async function recoverStalledRun(db, { orgId, workflowId, runId, expectedStartedAt, actorId, at = Date.now() }) {
+  const staleBefore = new Date(at - 30 * 60 * 1000).toISOString();
+  const row = await db.prepare(`SELECT id,started_at,log,next_step FROM hx_workflow_runs
+    WHERE org_id=?1 AND workflow_id=?2 AND id=?3 AND status='running' AND started_at=?4 AND started_at<=?5`)
+    .bind(orgId, workflowId, runId, expectedStartedAt, staleBefore).first();
+  if (!row) return { error: 'This run is not stale anymore. Refresh its history before trying again.', status: 409 };
+  const liveLease = await db.prepare(`SELECT 1 AS active FROM hx_workflow_node_checkpoints
+    WHERE org_id=?1 AND run_id=?2 AND status='running' AND lease_until>?3 LIMIT 1`)
+    .bind(orgId, runId, at).first();
+  if (liveLease) return { error: 'A workflow step still has an active execution lease. Wait for it to expire before reconciling this run.', status: 409 };
+  const log = parse(row.log, []);
+  const step = Number(row.next_step) || 0;
+  log[step] = {
+    step: step + 1,
+    type: log[step]?.type || 'unknown',
+    at: new Date(at).toISOString(),
+    status: 'interrupted',
+    outcome: 'unknown',
+    actorId: String(actorId),
+    error: 'This run stopped responding. Its effects may have completed; the step was not replayed.',
+  };
+  const settled = await db.batch([db.prepare(`UPDATE hx_workflow_runs SET status='failed',log=?1,next_step=?2,finished_at=?3
+    WHERE org_id=?4 AND workflow_id=?5 AND id=?6 AND status='running' AND started_at=?7 AND log=?8 AND next_step=?9
+      AND NOT EXISTS(SELECT 1 FROM hx_workflow_node_checkpoints c WHERE c.org_id=?4 AND c.run_id=?6 AND c.status='running' AND c.lease_until>?10)`)
+    .bind(JSON.stringify(log), step + 1, new Date(at).toISOString(), orgId, workflowId, runId,
+      expectedStartedAt, row.log, row.next_step, at),
+    ...workflowSettlementStatements(db, orgId, runId)]);
+  if (!settled[0].meta?.changes) return { error: 'This run changed while it was being reconciled. Refresh its history.', status: 409 };
+  return { run: await getRun(db, orgId, runId) };
+}
+
 // ── Running ─────────────────────────────────────────────────────────────
 
 /// "{{row.Company}} owes {{row.Amount}}" against what the run knows. A
