@@ -324,6 +324,12 @@
 .hx-company-app pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; padding: 12px; background: var(--hx-hover); border-radius: 10px; font-size: 12px; }
 .hx-company-app details { border: 1px solid var(--hx-border); border-radius: 10px; padding: 12px; }
 .hx-company-app summary { cursor: pointer; }
+.hx-company-app .hx-db-migration-history { display: grid; gap: 8px; margin: 0; padding-left: 24px; }
+.hx-company-app .hx-db-migration-history > li::marker { color: var(--hx-muted); font-variant-numeric: tabular-nums; }
+.hx-company-app .hx-db-migration-history > li > details { background: var(--hx-surface); }
+.hx-company-app .hx-db-migration-history > li > details[open] > summary { margin-bottom: 8px; }
+.hx-company-app .hx-db-migration-history [role="alert"] { margin-top: 8px; padding: 10px 12px; border-left: 3px solid var(--hx-danger); border-radius: 6px; color: var(--hx-danger); background: color-mix(in srgb, var(--hx-danger) 8%, var(--hx-surface)); line-height: 1.5; }
+.hx-company-app .hx-db-migration-history [role="status"] { color: var(--hx-muted); font-size: 12px; }
 .hx-company-app h2, .hx-company-app h3, .hx-company-app p { margin: 0; }
 .hx-company-app small { overflow-wrap: anywhere; }
 

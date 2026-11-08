@@ -4015,3 +4015,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Durable Agent assignment creation and idempotent replay now require the actor's current non-guest workspace membership. This prevents an auth-to-write race from creating an assignment with a null membership generation and prevents a revoked actor from retrieving a prior assignment as though it were still executable.
 - Atomic handoff now requires the assignment's exact original membership generation to remain active. Removal, rejoin, guest downgrade, and legacy null-generation assignments cannot advance Agent ownership or emit a handoff message/outbox entry.
 - Regression batch: `npm test -- --run test/agent-assignments.test.js test/agent-peer-roles.test.js test/agent-wake-approvals.test.js test/agents.test.js` passed, 4 files / 87 tests. This is local evidence; exact-head CI, production deployment and multi-user live verification remain pending. No production Agent or user data was touched.
+
+### 2026-11-09 — Company App migration journal visibility
+
+- Company App now displays the persisted database migration journal with schema version, migration ID, timestamp, and checksum status. It renders a migration plan only when the server reports a valid checksum; tampered history is marked with an alert and its plan stays hidden.
+- Existing Worker coverage includes replay/idempotency, conflicting plan IDs, tamper detection, failed-apply atomicity, and stale schema/data snapshots. Web regression coverage verifies valid-plan visibility and tampered-plan suppression; `npm test -- --run src/components/CompanyApp.test.tsx` passed (5 tests).
+- Local verification only; web typecheck/build, exact-head CI, production release, authenticated screen check, and Kylon side-by-side comparison remain pending. No production data or schema changed.

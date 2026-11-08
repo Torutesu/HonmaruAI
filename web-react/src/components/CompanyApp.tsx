@@ -59,6 +59,14 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
     {tab==='database'&&db&&<>
       <p>スキーマ v{db.version} · テーブル／列の追加、列名変更、型・Person・Relation変換、空列削除をプレビューしてから適用します。Relation名の解決結果と行データを確認し、適用時に競合を再検証します。検証DBの編集は本番に反映されません。</p>
       {db.entities.map(e=><details key={e.key}><summary>{e.table.name} · {e.key} · {e.table.columns.length}項目</summary><pre>{JSON.stringify(e.table.columns,null,2)}</pre></details>)}
+      <section aria-label="DB変更履歴">
+        <h3>DB変更履歴</h3>
+        {!db.migrations.length?<p>適用済みの変更はありません。</p>:<ol className="hx-db-migration-history">{db.migrations.map(migration=><li key={`${migration.id}:${migration.version}`}>
+          <details><summary>v{migration.version} · {migration.id} · {new Date(migration.createdAt).toLocaleString()}</summary>
+            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre></>}
+          </details>
+        </li>)}</ol>}
+      </section>
       {canManage&&<><form onSubmit={e=>{e.preventDefault();void run(async()=>{const r=await api.databaseChange(app.id,{action:'generate',prompt});setPlan(JSON.stringify(r.operations,null,2));setMigrationId('migration_'+Date.now());setMigrationPreview(null);setConfirmMigration(false)})}}><label>データ構造・型をどう変更するか<textarea value={prompt} maxLength={4000} onChange={e=>setPrompt(e.target.value)} placeholder="例：担当者テキストをPeople表の氏名と完全一致でRelationに変換し、結果をプレビュー" /></label><button className="pill-btn" disabled={busy||!prompt.trim()}>DB変更案を生成</button></form>
       <label>変更ID<input value={migrationId} onChange={e=>{setMigrationId(e.target.value);setMigrationPreview(null);setConfirmMigration(false)}} placeholder="convert_amount_v1" /></label>
       <label>変更案（JSON）<textarea aria-label="DB変更案" className="hx-code-editor" value={plan} onChange={e=>{setPlan(e.target.value);setMigrationPreview(null);setConfirmMigration(false)}} maxLength={30000} /></label>
