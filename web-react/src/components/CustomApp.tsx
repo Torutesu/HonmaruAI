@@ -3,6 +3,7 @@ import { useAppearance } from '../utils/appearance'
 import type { App, AppAction, AppConnection, AppFork, AppEntity, HarnessApi, Row, Table } from '../utils/harness'
 
 import {MAX_PREVIEW_SOURCE} from '../utils/customAppLimits'
+import { AppViewportPreview } from './AppViewportPreview'
 
 // Generated apps often refer to a field by the label a person sees, while the
 // database API stores values by immutable column ID. Keep IDs intact and add
@@ -290,5 +291,5 @@ function ForkPreview({appId,api,httpBase,html,table,rows}:{appId:string;api:Harn
   const primary=fork?.entities.find(e=>e.key==='primary')
   // Do not let generated code read production before its private snapshot loads.
   if(loadedAppId!==appId)return error?<p role="alert">{error}<button onClick={()=>void load()}>再読み込み</button></p>:<p role="status">検証DBを読み込み中…</p>
-  return <><p>{fork?'検証DBのプレビュー（本番データは変更しません）':'読み取り専用プレビュー · 実行基盤 → データベースから検証DBを作成できます。'}</p>{error&&<p role="alert">{error}</p>}<CustomAppFrame html={html} httpBase={httpBase} table={primary?.table||table} rows={primary?.rows||rows} api={adapter} previewEntities={fork?.entities} /></>
+  return <><p>{fork?'検証DBのプレビュー（本番データは変更しません）':'読み取り専用プレビュー · 実行基盤 → データベースから検証DBを作成できます。'}</p>{error&&<p role="alert">{error}</p>}<AppViewportPreview><CustomAppFrame html={html} httpBase={httpBase} table={primary?.table||table} rows={primary?.rows||rows} api={adapter} previewEntities={fork?.entities} /></AppViewportPreview></>
 }
