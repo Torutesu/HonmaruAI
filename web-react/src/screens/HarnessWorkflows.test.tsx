@@ -16,6 +16,7 @@ beforeEach(() => {
     workflowNotices: vi.fn().mockResolvedValue({items:[]}),
     workflows: vi.fn().mockResolvedValue({ workflows: [workflow] }), tables: vi.fn().mockResolvedValue({ tables: [] }),
     workflow: vi.fn().mockResolvedValue({ workflow, runs: [], canEdit: true }),
+    recoverWorkflowRun: vi.fn().mockResolvedValue({run:{}}),
     changeWorkflowHook: vi.fn().mockResolvedValue({ workflow: { ...workflow, hookSecret: undefined, hookUrl: undefined } }),
   }
 })
@@ -25,6 +26,16 @@ async function open() {
   await act(async () => { tree = create(<HarnessWorkflows {...props} />) })
   await act(async () => { tree.root.findByProps({ 'data-workflow': workflow.id }).props.onClick() })
 }
+test('stalled run recovery requires an explicit no-replay confirmation', async () => {
+ const startedAt='2026-10-01T00:00:00.000Z'
+ state.api.workflow.mockResolvedValue({workflow,runs:[{id:'stalled',status:'running',trigger:'manual',startedAt,finishedAt:null,log:[]}],canEdit:true})
+ await open()
+ await act(async()=>button('Review stalled run').props.onClick())
+ expect(state.api.recoverWorkflowRun).not.toHaveBeenCalled()
+ expect(JSON.stringify(tree.toJSON())).toContain('will never replay it')
+ await act(async()=>button('Mark interrupted without replay').props.onClick())
+ expect(state.api.recoverWorkflowRun).toHaveBeenCalledWith(workflow.id,'stalled',startedAt)
+})
 test('workflow history shows elapsed time without inventing duration for unfinished runs',async()=>{
  state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[
   {id:'done-run',status:'done',trigger:'manual',startedAt:'2026-10-24T09:00:00Z',finishedAt:'2026-10-24T09:01:10Z',log:[]},

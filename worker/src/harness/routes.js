@@ -92,7 +92,7 @@ import { skillMarkdown } from "./skillMarkdown.js";
 import { generateWorkflow } from './workflowCreation.js';
 import { respondToRecurringAutomationOffer } from './recurringAutomationOffers.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, startRun, recoverStalledRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange, onRowDelete } from "./workflows.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
@@ -730,12 +730,22 @@ export async function handleHarness(request, env, url, context = {}) {
       if (!run) return json({ message: 'This automation is no longer available in its current published release.' }, 409);
       return json({ run }, 201);
     }
-    if (sub === "runs" && request.method === "GET") {
-      if (runId) {
+    if (sub === "runs") {
+      if (runId && parts[4] === 'recover' && request.method === 'POST') {
+        if (!mine) return json({ message: 'Only its maker or an admin can reconcile this workflow run.' }, 403);
+        if (input?.confirmNoReplay !== true || typeof input?.expectedStartedAt !== 'string') {
+          return json({ message: 'Confirm that the uncertain step will not be replayed and refresh the run before reconciling it.' }, 400);
+        }
+        const result = await recoverStalledRun(env.DB, { orgId, workflowId: wfId, runId, expectedStartedAt: input.expectedStartedAt, actorId: me });
+        if (result.error) return json({ message: result.error }, result.status);
+        await audit(env, request, { orgId, action: 'workflow.run_reconciled', actor: person(who.user), entity: { type: 'workflow_run', id: runId, name: wf.name }, details: { outcome: 'unknown', replayed: false } });
+        return json(result);
+      }
+      if (request.method === 'GET' && runId) {
         const run = await getRun(env.DB, orgId, runId, { viewerId: me });
         return run && run.workflowId === wfId ? json({ run }) : json({ message: "No such run." }, 404);
       }
-      return json({ runs: await listRuns(env.DB, orgId, wfId, url.searchParams.get("limit"), me) });
+      if (request.method === 'GET') return json({ runs: await listRuns(env.DB, orgId, wfId, url.searchParams.get("limit"), me) });
     }
     return null;
   }

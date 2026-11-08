@@ -759,8 +759,13 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js",
-      "acceptance": "再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止を実装。確認時点の保留イベントを破棄するUIもローカル実装。中断した実行の復旧・本番と実画面の確認は残る。"
+      "code": "worker/src/harness/workflows.js; worker/src/harness/routes.js; web-react/src/screens/HarnessWorkflows.tsx",
+      "acceptance": "再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止を実装。中断した実行は30分以上経過後に作成者/Adminが結果不明として記録できる。有効な実行リースがあれば拒否し、副作用の二重実行を避ける。保留イベント破棄UI、本番と実画面の確認は残る。",
+      "evidence": {
+        "reviewedAt": "2026-11-08",
+        "verified": "Added explicit stale-run reconciliation with 30-minute age threshold, exact started_at/log/next_step compare-and-swap, active node lease guard, no-replay outcome marker and workflow settlement/audit. Focused Worker workflow suite 110/110 and focused Web suite 57/57 passed; full Web suite 248 files/1,831 tests and Web TypeScript+build passed. Full local Worker suite did not complete because the sandbox Cloudflare emulator repeatedly lost its network connection and raised Durable Object internal errors; exact-head CI remains required.",
+        "remaining": "Exact-head CI and production deployment/UI verification. Uncertain side effects are never automatically replayed; users must reconcile externally before starting a new run."
+      }
     },
     {
       "id": "KY-064",
