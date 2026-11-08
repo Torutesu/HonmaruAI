@@ -3,10 +3,10 @@ import {act,create} from 'react-test-renderer'
 import {expect,test,vi} from 'vitest'
 import {CompanyApp} from './CompanyApp'
 
-async function setup(conflicts:unknown[]=[]) {
+async function setup(conflicts:unknown[]=[],database:any=null) {
  const fork={id:'private-fork',revision:4,entities:[{key:'primary',table:{id:'table',name:'Tasks',columns:[]},rows:[]}]}
  const review={forkId:fork.id,revision:4,checksum:'reviewed-digest',conflicts,changes:[{entity:'primary',tableId:'table',tableName:'Tasks',id:'row',operation:'create',before:null,after:{name:'Draft'}}]}
- const api={appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),appDatabase:vi.fn().mockResolvedValue({fork,version:1,entities:fork.entities,migrations:[]}),mergePreview:vi.fn().mockResolvedValue(review),previewDatabaseMigration:vi.fn().mockResolvedValue({previewChecksum:'reviewed-schema-digest',canApply:true,changes:[{entity:'primary',tableName:'Tasks',operations:['convert_column'],rowsScanned:1,rowsChanged:1,examples:[{id:'row',before:{amount:'12'},after:{amount:12}}],blockers:[]}],blockers:[],blockerCount:0}),databaseChange:vi.fn().mockResolvedValue({merged:true})}
+ const api={appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),appDatabase:vi.fn().mockResolvedValue(database||{fork,version:1,entities:fork.entities,migrations:[]}),mergePreview:vi.fn().mockResolvedValue(review),previewDatabaseMigration:vi.fn().mockResolvedValue({previewChecksum:'reviewed-schema-digest',canApply:true,changes:[{entity:'primary',tableName:'Tasks',operations:['convert_column'],rowsScanned:1,rowsChanged:1,examples:[{id:'row',before:{amount:'12'},after:{amount:12}}],blockers:[]}],blockers:[],blockerCount:0}),databaseChange:vi.fn().mockResolvedValue({merged:true})}
  const reload=vi.fn();let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<CompanyApp app={{id:'app'}as any} api={api as any} canManage reload={reload}/> )})
  const button=(name:string)=>tree!.root.findAllByType('button').find(b=>b.children.join('')===name)!
@@ -46,6 +46,19 @@ test('database changes require a fresh data preview and apply its checksum',asyn
  await act(async()=>button('このDB変更を適用').props.onClick())
  expect(api.databaseChange).toHaveBeenCalledWith('app',{action:'migrate',id:'convert_amount_v2',version:1,operations:[change],previewChecksum:'reviewed-schema-digest'})
  expect(reload).toHaveBeenCalledOnce()
+ act(()=>tree.unmount())
+})
+
+test('database migration history shows verified plans and hides tampered plans',async()=>{
+ const verified={id:'schema_v1',version:2,checksum:'abcdef1234567890',plan:[{op:'add_columns',entity:'primary',columns:[{name:'Priority',type:'number'}]}],createdAt:'2026-11-09T00:00:00.000Z',integrityValid:true}
+ const tampered={id:'schema_v2',version:3,checksum:'deadbeef01234567',plan:null,createdAt:'2026-11-09T01:00:00.000Z',integrityValid:false}
+ const {tree}=await setup([],{fork:null,version:3,entities:[],migrations:[verified,tampered]})
+ const history=tree.root.findByProps({'aria-label':'DB変更履歴'})
+ expect(history.findAllByType('summary').map(item=>item.children.join(''))).toEqual(expect.arrayContaining([expect.stringContaining('schema_v1'),expect.stringContaining('schema_v2')]))
+ expect(history.findByProps({role:'alert'}).children.join('')).toContain('整合性を確認できません')
+ const plans=history.findAllByType('pre').map(item=>item.children.join(''))
+ expect(plans).toHaveLength(1)
+ expect(plans[0]).toContain('Priority')
  act(()=>tree.unmount())
 })
 

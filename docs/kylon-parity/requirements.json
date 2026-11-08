@@ -570,14 +570,14 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/appDatabase.js",
-      "acceptance": "migrationを一度だけ適用し改変検知・再試行を検証",
+      "code": "worker/src/harness/appDatabase.js, web-react/src/components/CompanyApp.tsx",
+      "acceptance": "適用・同一ID再試行・異なるplan競合・改変検知を一度に検証し、権限付きApp画面でjournal履歴を読める。改変されたplanは非表示にして再適用を拒否する。",
       "evidence": {
-        "reviewedAt": "2026-10-18",
-        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
-        "implementedScope": "Additive migration journal, checksums, retry IDs and database revision checks commit atomically.",
-        "remaining": "Destructive changes and data-transforming migrations are not implemented.",
-        "verification": "docs/kylon-parity/verification.md"
+        "reviewedAt": "2026-11-09",
+        "inspectedMain": "28d9f4c5ea3ddf031a9628239368c7d87290fc24",
+        "implementedScope": "Atomically applies a revision-CAS migration with a stable id, checksum and audit plan; exact retries return the committed version, reused IDs with different content and tampered plans are rejected. The App database API returns verified journal entries, and Company App now renders version/id/time/checksum status and only shows plans whose checksum is valid.",
+        "verified": "Existing Worker integration tests cover idempotent replay, conflicting IDs/plans, tamper detection, no schema changes on rejected replay, strict conversions, preview checksum and concurrent row/schema guards. CompanyApp tests verify valid plans are visible and tampered plans are hidden with an integrity alert. `npm test -- --run src/components/CompanyApp.test.tsx` passed (5 tests).",
+        "remaining": "No general rollback or manual resolution path for destructive/data conversion blockers; snapshots above 500 KB must be split. Authenticated production acceptance and direct Kylon UI comparison remain."
       }
     },
     {
