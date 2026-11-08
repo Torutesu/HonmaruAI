@@ -15,7 +15,7 @@ function triggerText(trigger:Trigger) {
  const day=trigger.cadence==='weekly'?` ${['日','月','火','水','木','金','土'][trigger.weekday??0]}曜日`:trigger.cadence==='monthly'?` ${trigger.monthday}日`:''
  return `${cadence}${day} ${String(trigger.hour??0).padStart(2,'0')}:${String(trigger.minute??0).padStart(2,'0')}（${trigger.timezone}）`
 }
-const labels={code:'TypeScriptプログラム',post:'ルームに投稿',agent:'エージェントに依頼',add_row:'レコードを追加',update_row:'レコードを更新',approval:'承認を依頼',followup:'後でフォローアップ'}
+const labels={code:'TypeScriptプログラム',post:'ルームに投稿',agent:'エージェントに依頼',connection:'接続を検索',add_row:'レコードを追加',update_row:'レコードを更新',approval:'承認を依頼',followup:'後でフォローアップ'}
 interface Resources {tables?:Table[];agents?:Array<{id:string;name:string}>;apps?:TriggerAppOption[]}
 function StepSummary({step,tables=[],agents=[],triggerTable}:{step:Step;triggerTable?:Table}&Resources) {
  const table=tables.find(t=>t.id===step.tableId)||triggerTable
@@ -23,6 +23,7 @@ function StepSummary({step,tables=[],agents=[],triggerTable}:{step:Step;triggerT
   {step.type==='code'&&<pre className="hx-program-source">{step.code}</pre>}
   {step.channel&&<p>投稿先: {step.channel.replace(/^b:/,'#')}</p>}
   {step.agentId&&<p>エージェント: {agents.find(a=>a.id===step.agentId)?.name||step.agentId}</p>}
+  {step.type==='connection'&&<><p>接続: {step.source==='github'?'GitHub':'Notion'} · 検索のみ</p><p className="hx-automation-content">{step.query}</p></>}
   {step.tableId&&<p>テーブル: {tables.find(t=>t.id===step.tableId)?.name||step.tableId}</p>}
   {step.to&&<p>承認者: {step.to}</p>}
   {step.minutes!==undefined&&<p>{step.minutes}分後</p>}

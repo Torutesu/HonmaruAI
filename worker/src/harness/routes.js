@@ -634,7 +634,7 @@ export async function handleHarness(request, env, url, context = {}) {
     }
 
     if (!wfId) {
-      if (request.method === "GET") return json({ workflows: await listWorkflows(env.DB, orgId, { viewerId: me }), triggers: TRIGGERS, steps: STEP_TYPES });
+      if (request.method === "GET") return json({ workflows: await listWorkflows(env.DB, orgId, { viewerId: me }), triggers: TRIGGERS, steps: (await getMode(env.DB, orgId)) === 'harness' ? STEP_TYPES : STEP_TYPES.filter(type => type !== 'connection') });
       if (request.method === "POST") {
         const r = await createWorkflow(env.DB, orgId, input, me);
         if (!r.error) await audit(env, request, { orgId, action: "workflow.created", actor: person(who.user), entity: { type: "workflow", id: r.workflow.id, name: r.workflow.name } });

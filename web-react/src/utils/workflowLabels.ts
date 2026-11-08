@@ -7,7 +7,7 @@ export interface WorkflowAppOption {app:Pick<App,'id'|'name'>;entities:AppEntity
 
 export function stepLabel(t: (k: string) => string, type: StepType) {
   return ({
-    code: t('TypeScript program'), post: t('Post in a room'), agent: t('Ask an agent'), add_row: t('Add a row'),
+    code: t('TypeScript program'), post: t('Post in a room'), agent: t('Ask an agent'), connection: t('Search a connection'), add_row: t('Add a row'),
     update_row: t('Change the row'), approval: t('Ask for approval'), followup: t('Follow up later'),
   } as Record<StepType, string>)[type]
 }

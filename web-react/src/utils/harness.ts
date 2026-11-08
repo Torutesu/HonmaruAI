@@ -67,14 +67,14 @@ export interface Trigger {
   kind?: 'cron' | 'every' | 'at'; expr?: string; everyMs?: number; at?: string
   cadence?: string; hour?: number; minute?: number; weekday?: number; monthday?: number; timezone?: string
 }
-export type StepType = 'post' | 'agent' | 'add_row' | 'update_row' | 'approval' | 'followup' | 'code'
+export type StepType = 'post' | 'agent' | 'connection' | 'add_row' | 'update_row' | 'approval' | 'followup' | 'code'
 export type ConditionScalar = string | number | boolean | null
 export type WorkflowCondition = {all:WorkflowCondition[]} | {any:WorkflowCondition[]} | {not:WorkflowCondition} | {path:string[];op:'eq'|'neq'|'gt'|'gte'|'lt'|'lte'|'contains'|'in'|'exists';value:ConditionScalar|ConditionScalar[]}
 export interface Step {
   code?: string; gatewayId?: string
   when?: WorkflowCondition
   type: StepType
-  channel?: string; text?: string; agentId?: string; prompt?: string; tableId?: string; rowId?: string
+  channel?: string; text?: string; agentId?: string; prompt?: string; source?: 'notion'|'github'; action?: 'search'; query?: string; tableId?: string; rowId?: string
   values?: Record<string, unknown>; to?: string; title?: string; summary?: string; minutes?: number
 }
 export interface WorkflowSourceState {source:{threadId:string;channel:string;body:string;createdAt:string}|null;canBind:boolean;candidates:Array<{id:string;channel:string;body:string;createdAt:string}>;nextCursor:number|null}

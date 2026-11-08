@@ -100,6 +100,26 @@ const overdueFlow = () => ({
   ],
 });
 
+test('Workflow Connection definitions allow only bounded native read-only searches', () => {
+  expect(normalizeSteps([{ type: 'connection', agentId: 'agent-1', source: 'github', action: 'search', query: 'release {{input.version}}' }]).steps).toEqual([
+    { type: 'connection', agentId: 'agent-1', source: 'github', action: 'search', query: 'release {{input.version}}' },
+  ]);
+  expect(normalizeSteps([{ type: 'connection', agentId: 'agent-1', source: 'github', action: 'create_issue', query: 'release' }]).error).toContain('search query');
+  expect(normalizeSteps([{ type: 'connection', agentId: 'agent-1', source: 'arbitrary', action: 'search', query: 'release' }]).error).toContain('search query');
+});
+
+test('Simple mode does not expose or save Workflow Connection steps', async () => {
+  expect((await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' })).status).toBe(200);
+  const listed = await (await get(`/workflows?${q({ orgId: ORG })}`, mika)).json();
+  expect(listed.steps).not.toContain('connection');
+  const response = await send('POST', '/workflows', mika, {
+    orgId: ORG, name: 'Hidden connection', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', agentId: 'agent-1', source: 'notion', action: 'search', query: 'policy' }],
+  });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ message: 'Workflow Connection steps are available only in Harness mode.' });
+});
+
 test("a row turning overdue runs the workflow: it posts, waits on a person's approval, and goes on when approved", async () => {
   const made = await send("POST", "/workflows", mika, overdueFlow());
   expect(made.status).toBe(201);
@@ -1432,6 +1452,114 @@ test('a personal-agent follow-up drops native-source results if its grant is rev
   expect(await env.DB.prepare('SELECT status,result FROM hx_followups WHERE id=?1').bind(followupId).first())
     .toMatchObject({ status: 'failed', result: 'The follow-up did not receive a result. No completion was posted.' });
   expect((await messages(mika)).some(message => /Private payroll policy|confidential details/i.test(message.body))).toBe(false);
+});
+
+async function workflowNotionAgent() {
+  const agent = (await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Policy finder', handle: 'policy-finder', instructions: 'Find relevant policy pages.', scope: 'team',
+  })).json()).agent;
+  const at = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('9302',?1,?2)").bind(at, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('9302','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), at).run();
+  const grant = await call(`/hx/agents/${agent.id}/apps`, {
+    method: 'POST', headers: headers(mika), body: JSON.stringify({ orgId: ORG, source: 'notion' }),
+  }, { COMPOSIO_API_KEY: 'ck-test' });
+  expect(grant.status).toBe(200);
+  return agent;
+}
+
+test('Workflow Connection search uses the selected Agent grant and records an auditable read-only result', async () => {
+  const agent = await workflowNotionAgent();
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Find policy', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', agentId: agent.id, source: 'notion', action: 'search', query: '{{input.query}}' }],
+  }, '9302');
+  expect(workflow.steps[0]).toMatchObject({ type: 'connection', source: 'notion', action: 'search' });
+
+  fetchMock.activate();
+  fetchMock.get('https://backend.composio.dev').intercept({ path: '/api/v3/tools/execute/NOTION_SEARCH_NOTION_PAGE', method: 'POST' })
+    .reply(200, { results: [{ response: { data: { results: [{
+      properties: { Title: { type: 'title', title: [{ plain_text: 'Travel policy' }] }, Notes: { type: 'rich_text', rich_text: [{ plain_text: 'Book refundable fares.' }] } },
+      url: 'https://notion.so/travel-policy', last_edited_time: '2026-11-05T10:00:00.000Z',
+    }] } } }] });
+  try {
+    const run = await startRun({ ...env, COMPOSIO_API_KEY: 'ck-test' }, { orgId: ORG, workflow, trigger: 'manual', input: { query: 'travel policy' }, startedBy: '9302' });
+    expect(run).toMatchObject({ status: 'done', log: [expect.objectContaining({ status: 'ok', connection: expect.objectContaining({ source: 'notion', action: 'search', query: 'travel policy', agentId: agent.id, actorId: '9302' }) })] });
+    expect(run.log[0].output).toContain('Travel policy');
+    expect(run.log[0].output).toContain('Book refundable fares.');
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('Workflow run-log reads hide past Connection output from a member without the Agent source grant', async () => {
+  const agent = await workflowNotionAgent();
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { mayRunAgent } = await import('../src/harness/agents.js');
+  const memberState = await (await get(`/hx/agents/${agent.id}/members?${q({ orgId: ORG })}`, mika)).json();
+  const toruCandidate = memberState.candidates.find(candidate => candidate.name === 'Toru');
+  expect(toruCandidate).toBeTruthy();
+  expect((await send('PUT', `/hx/agents/${agent.id}/members`, mika, { orgId: ORG, ref: toruCandidate.ref, role: 'member', expectedVersion: memberState.version })).status).toBe(200);
+  const agentRow = await env.DB.prepare('SELECT * FROM custom_agents WHERE org_id=?1 AND id=?2').bind(ORG, agent.id).first();
+  expect(await mayRunAgent(env.DB, ORG, agentRow, '9301')).toBe(true);
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Private connection output', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', agentId: agent.id, source: 'notion', action: 'search', query: 'payroll' }],
+  }, '9302');
+  fetchMock.activate();
+  fetchMock.get('https://backend.composio.dev').intercept({ path: '/api/v3/tools/execute/NOTION_SEARCH_NOTION_PAGE', method: 'POST' })
+    .reply(200, { results: [{ response: { data: { results: [{
+      properties: { Title: { type: 'title', title: [{ plain_text: 'Restricted payroll procedure' }] } },
+      url: 'https://notion.so/restricted-payroll-procedure',
+    }] } } }] });
+  try {
+    const run = await startRun({ ...env, COMPOSIO_API_KEY: 'ck-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    expect(run.status).toBe('done');
+    const response = await get(`/workflows/${workflow.id}/runs/${run.id}?${q({ orgId: ORG })}`, toru);
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain('Restricted payroll procedure');
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('Workflow Connection fails closed for an unrecognized nonnumeric run actor', async () => {
+  const agent = await workflowNotionAgent();
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Unknown actor lookup', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', agentId: agent.id, source: 'notion', action: 'search', query: 'policy' }],
+  }, '9302');
+  const run = await startRun({ ...env, COMPOSIO_API_KEY: 'ck-test' }, {
+    orgId: ORG, workflow, trigger: 'manual', startedBy: 'unrecognized-login',
+  });
+  expect(run.status).toBe('failed');
+  expect(run.log[0]).toMatchObject({ status: 'failed', error: 'The Workflow run actor is not a human connection principal.' });
+});
+
+test('Workflow Connection discards provider results when the selected Agent grant is revoked in flight', async () => {
+  const agent = await workflowNotionAgent();
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Private policy lookup', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', agentId: agent.id, source: 'notion', action: 'search', query: 'payroll' }],
+  }, '9302');
+  fetchMock.activate();
+  fetchMock.get('https://backend.composio.dev').intercept({ path: '/api/v3/tools/execute/NOTION_SEARCH_NOTION_PAGE', method: 'POST' })
+    .reply(async () => {
+      await env.DB.prepare("DELETE FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9302' AND source='notion'").bind(ORG, agent.id).run();
+      return { results: [{ response: { data: { results: [{
+        properties: { Title: { type: 'title', title: [{ plain_text: 'Private payroll policy' }] }, Notes: { type: 'rich_text', rich_text: [{ plain_text: 'Secret details.' }] } },
+        url: 'https://notion.so/private-payroll-policy',
+      }] } } }] };
+    });
+  try {
+    const run = await startRun({ ...env, COMPOSIO_API_KEY: 'ck-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    expect(run.status).toBe('failed');
+    expect(run.log[0]).toMatchObject({ status: 'failed', error: 'Connection access changed while the search was running; the result was discarded.' });
+    expect(JSON.stringify(run.log)).not.toMatch(/Private payroll policy|Secret details/);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
 });
 
 test("a follow-up with no model result fails instead of posting its instruction as a completed answer", async () => {
