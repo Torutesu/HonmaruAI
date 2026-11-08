@@ -60,7 +60,7 @@ export async function commitHandoff(db, {orgId, assignmentId, generation, source
   if (replay) return replay;
   if (sourceAgentId === targetAgentId) return {error: 'An agent cannot hand work to itself.', status: 409};
   const targetIsManaged=await db.prepare(`SELECT 1 FROM custom_agents a
-    WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL`)
+    WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND a.provider IS NULL`)
     .bind(orgId,targetAgentId).first();
   if(targetIsManaged&&!await db.prepare(`SELECT 1 FROM hx_agent_agent_members peer
     JOIN custom_agents source ON source.org_id=peer.org_id AND source.id=peer.member_agent_id
@@ -92,7 +92,7 @@ export async function commitHandoff(db, {orgId, assignmentId, generation, source
         AND ${actorMayUseAgent('?4')}
         AND ${actorMayUseAgent('?5')}
         AND (NOT EXISTS(SELECT 1 FROM custom_agents target
-          WHERE target.org_id=?1 AND target.id=?5 AND target.deleted_at IS NULL)
+          WHERE target.org_id=?1 AND target.id=?5 AND target.deleted_at IS NULL AND target.provider IS NULL)
           OR EXISTS(SELECT 1 FROM hx_agent_agent_members peer JOIN custom_agents target
             ON target.org_id=peer.org_id AND target.id=peer.agent_id AND target.scope='team' AND target.deleted_at IS NULL
             JOIN hx_agent_profiles p ON p.org_id=target.org_id AND p.agent_id=target.id

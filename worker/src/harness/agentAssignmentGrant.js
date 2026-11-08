@@ -61,7 +61,11 @@ export async function acceptAgentHandoff(env,input) {
   }
   const target=eligible.find(agent=>agent.id===input.targetAgentId);
   const targetExists=Boolean(target);
-  const staticPermit=!targetExists || Boolean(await env.DB.prepare(`SELECT 1 FROM hx_agent_agent_members WHERE org_id=?1 AND agent_id=?2 AND member_agent_id=?3`).bind(input.orgId,input.targetAgentId,input.sourceAgentId).first());
+  // Provider-backed agents are explicit external execution targets. Preserve
+  // their existing room-based handoff path; wake approvals govern local
+  // managed Agent-to-Agent execution.
+  const staticPermit=!targetExists || Boolean(target.provider)
+    || Boolean(await env.DB.prepare(`SELECT 1 FROM hx_agent_agent_members WHERE org_id=?1 AND agent_id=?2 AND member_agent_id=?3`).bind(input.orgId,input.targetAgentId,input.sourceAgentId).first());
   if(targetExists&&!staticPermit) {
     const wakeGrantId=await activeAgentWakeGrant(env.DB,{orgId:input.orgId,assignmentId:input.assignmentId,sourceAgentId:input.sourceAgentId,targetAgentId:input.targetAgentId,operationId:input.operationId});
     if(!wakeGrantId) {

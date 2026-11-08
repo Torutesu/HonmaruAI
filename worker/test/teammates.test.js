@@ -468,16 +468,15 @@ test.each([['active',true],['revoked',false]])('an external Harness Agent handof
  if(!eligible)await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1 AND channel='b:cafe' AND agent_id=?2").bind(ORG,reviewer.id).run();
  const {watchTeammateRuns}=await import('../src/channelRoutes.js');
  await watchTeammateRuns(runtime);
- expect(queued).toHaveLength(eligible?1:0);
+ // A remote Agent may keep its existing room handoff path, but waking a
+ // local managed Agent now waits for the requester's private approval card.
+ expect(queued).toHaveLength(0);
  const assignment=await env.DB.prepare('SELECT current_agent_id,generation,status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,begun.assignment.id).first();
  if(eligible) {
-  expect(assignment).toEqual({current_agent_id:reviewer.id,generation:2,status:'pending'});
-  const operationId=queued[0].rowId;
-  const handoff=await env.DB.prepare('SELECT target_agent_id,brief FROM hx_agent_handoffs WHERE org_id=?1 AND operation_id=?2').bind(ORG,operationId).first();
-  expect(handoff).toEqual({target_agent_id:reviewer.id,brief:'Review the deployment risk and recommend the safest next step.'});
-  expect((await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND kind='agent' ORDER BY created_at,id").bind(ORG,row.id).all()).results.map(item=>item.body)).toEqual([
-   'Handing off to @claude',`Handing off to Reviewer (@reviewer).\n\nReview the deployment risk and recommend the safest next step.`,
-  ]);
+  expect(assignment).toEqual({current_agent_id:external.id,generation:1,status:'running'});
+  const approval=await env.DB.prepare("SELECT status,target_agent_id,brief FROM hx_agent_wake_approvals WHERE org_id=?1 AND assignment_id=?2").bind(ORG,begun.assignment.id).first();
+  expect(approval).toEqual({status:'pending',target_agent_id:reviewer.id,brief:'Review the deployment risk and recommend the safest next step.'});
+  expect((await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND kind='agent' ORDER BY created_at,id").bind(ORG,row.id).all()).results.map(item=>item.body)).toEqual(['Handing off to @claude']);
  } else {
   expect(assignment).toEqual({current_agent_id:external.id,generation:1,status:'finished'});
   expect((await env.DB.prepare("SELECT body FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND kind='agent' ORDER BY created_at,id").bind(ORG,row.id).all()).results.map(item=>item.body)).toEqual([
@@ -485,5 +484,6 @@ test.each([['active',true],['revoked',false]])('an external Harness Agent handof
   ]);
  }
  const result=await env.DB.prepare('SELECT status,payload FROM ai_teammate_result_dispatch WHERE run_id=(SELECT id FROM ai_teammate_runs WHERE remote_id=\'external-local-handoff\')').first();
- expect(result.status).toBe('published');expect(result.payload).toBeNull();
+ expect(result.status).toBe(eligible?'pending':'published');
+ if(eligible)expect(result.payload).toEqual(expect.any(String));else expect(result.payload).toBeNull();
 });
