@@ -93,7 +93,13 @@ export async function agentSourceProvider(env, { orgId, agentId, session, source
   if (!await currentAgentAccess(env.DB, orgId, agentId, githubId).catch(() => false)) return null;
   if (source === 'github') {
     const credential = await agentSourceCredential(env, { orgId, agentId, session, source });
-    return credential ? githubId : null;
+    if (credential === 'workspace') {
+      const workspace = await getWorkspaceGitHub(env.DB, orgId).catch(() => null);
+      return workspace?.repo
+        ? `${githubId}:workspace:${workspace.repo.toLowerCase()}:${workspace.updatedAt || ''}:${workspace.composioUser ? 'oauth' : 'token'}`
+        : null;
+    }
+    return credential === 'personal' ? `${githubId}:personal` : null;
   }
   const [available, grants] = await Promise.all([
     connectedSources(env, session, orgId).catch(() => ({})),
