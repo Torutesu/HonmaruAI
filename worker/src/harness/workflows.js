@@ -19,6 +19,8 @@ import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
 import { workflowCredentialSource } from '../orgAI.js';
 import { cancelDeploymentBudgetWorkflowRuns } from '../workspaceBudgetStop.js';
 import { claimWorkflowNode, finishWorkflowNode, markWorkflowNodeUnknown, renewWorkflowNode, commitWorkflowNodeEffects } from './workflowCheckpoints.js';
+import { prepareWorkflowRowEvent, drainWorkflowRowEvents } from './workflowRowEventDispatch.js';
+import { rowEventFingerprint } from './workflowRowEventFingerprint.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
 //
@@ -774,7 +776,7 @@ async function rowScope(db, orgId, tableId, row, tableSnapshot) {
 
 /// Start a run. `input` is what started it: { text } by hand, the posted
 /// JSON for a webhook, { row, before } for a row.
-export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null, incomingHookEvent = null, rowEventHash = null }) {
+export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null, incomingHookEvent = null, rowEventHash = null, rowEventPersistent = false }) {
   let safety=await ensureWorkflowSafety(env.DB,orgId,workflow.id);
   if(!safety)return null;
   if(safety.pause_reason?.startsWith('budget_'))safety=await recoverWorkflowBudgetPause(env.DB,orgId,workflow.id,safety);
@@ -807,7 +809,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
         WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
       AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))
       AND (?28 IS NULL OR NOT EXISTS(SELECT 1 FROM hx_workflow_webhook_receipts h WHERE h.org_id=?2 AND h.workflow_id=?3 AND h.event_id=?28 AND h.expires_at>?10))
-      AND (?29 IS NULL OR NOT EXISTS(SELECT 1 FROM hx_workflow_row_receipts h WHERE h.org_id=?2 AND h.workflow_id=?3 AND h.event_hash=?29 AND h.expires_at>?10))
+      AND (?29 IS NULL OR NOT EXISTS(SELECT 1 FROM hx_workflow_row_receipts h WHERE h.org_id=?2 AND h.workflow_id=?3 AND h.event_hash=?29 AND (?31=1 OR h.expires_at>?10)))
       AND NOT EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?2 AND workflow_id=?3 AND status IN ('running','waiting'))
       AND EXISTS(SELECT 1 FROM hx_workflow_safety s WHERE s.org_id=?2 AND s.workflow_id=?3 AND s.generation=?19 AND s.paused_at IS NULL
         AND (s.daily_run_limit=0 OR (SELECT COUNT(*) FROM hx_workflow_runs r WHERE r.org_id=?2 AND r.workflow_id=?3 AND r.started_at>=?20 AND r.started_at<=?23)<s.daily_run_limit)
@@ -819,7 +821,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
           AND (s.monthly_ai_budget_micros=0 OR ((SELECT COALESCE(SUM(u.estimated_micros),0) FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27)<s.monthly_ai_budget_micros AND NOT EXISTS(SELECT 1 FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27 AND u.estimated_micros IS NULL))))))
       AND ${managedAutomationGuard('?2','?3','?14')}
       AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
-      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null,rowEventHash,credentialSource),
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null,rowEventHash,credentialSource,rowEventPersistent?1:0),
     env.DB.prepare(`INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at)
       SELECT ?1,?2,json_set(?3,'$.definitionRevision',(
         SELECT MAX(h.revision) FROM hx_workflow_revisions h WHERE h.org_id=?2 AND h.workflow_id=json_extract(?3,'$.id')
@@ -847,6 +849,9 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
       ON CONFLICT(org_id,workflow_id,event_hash) DO UPDATE SET received_at=excluded.received_at,expires_at=excluded.expires_at,run_id=excluded.run_id
       WHERE hx_workflow_row_receipts.expires_at<=excluded.received_at`)
       .bind(id,orgId,workflow.id,rowEventHash,admittedAt,new Date(Date.parse(admittedAt)+ROW_EVENT_DEDUPE_TTL_MS).toISOString())] : []),
+    ...(rowEventHash && rowEventPersistent ? [env.DB.prepare(`UPDATE hx_workflow_row_receipts SET received_at=?4,expires_at=?5
+      WHERE org_id=?1 AND workflow_id=?2 AND event_hash=?3`)
+      .bind(orgId,workflow.id,rowEventHash,admittedAt,new Date(Date.parse(admittedAt)+ROW_EVENT_DEDUPE_TTL_MS).toISOString())] : []),
     ...(heldEventId ? [env.DB.prepare(`UPDATE hx_workflow_webhook_receipts SET status='replayed',run_id=?1
       WHERE org_id=?2 AND workflow_id=?3 AND held_event_id=?4 AND expires_at>?5
       AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2)`)
@@ -1303,8 +1308,9 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       if (!canUseTable) return { status: "failed", error: "Table access required." };
       const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, owner, undefined, { deferWrite: true });
       if (r.error) return { status: "failed", error: r.error };
+      const event=await prepareWorkflowRowEvent(db,{orgId,table:r.table,row:r.row,by:`workflow:${workflow.id}`,depth:depth+1});
       return { status: "ok", output: r.row.id, rowId: r.row.id,
-        __workflowLocalEffects: { statements: [r.statement], afterCommit: () => onRowChange(env, { orgId, table: r.table, before: null, row: r.row, by: `workflow:${workflow.id}`, depth: depth + 1 }) } };
+        __workflowLocalEffects: { statements: [r.statement,event.statement], afterCommit: () => drainWorkflowRowEvents(env,{eventId:event.id,limit:1}) } };
     }
     case "update_row": {
       const tableId = step.tableId || scope.input?.tableId || (workflow.trigger?.type==='app_record_change'?await appEntityTable(db,orgId,workflow.trigger.appId,workflow.trigger.entityId):null);
@@ -1331,8 +1337,9 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       if (!tableId || !rowId) return { status: "failed", error: "No row to change." };
       const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, undefined, owner, undefined, { deferWrite: true });
       if (r.error) return { status: "failed", error: r.error };
+      const event=await prepareWorkflowRowEvent(db,{orgId,table:r.table,before:r.before,row:r.row,by:`workflow:${workflow.id}`,depth:depth+1});
       return { status: "ok", output: rowId, rowId,
-        __workflowLocalEffects: { statements: [r.statement], afterCommit: () => onRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by: `workflow:${workflow.id}`, depth: depth + 1 }) } };
+        __workflowLocalEffects: { statements: [r.statement,event.statement], afterCommit: () => drainWorkflowRowEvents(env,{eventId:event.id,limit:1}) } };
     }
     case "approval": {
       // Checked again here: a placeholder names someone only now, and a
@@ -1442,36 +1449,24 @@ export async function workflowStepFingerprint(step) {
  return hex(new Uint8Array(digest));
 }
 
-async function rowEventFingerprint(table, before, row) {
-  const payload = {
-    tableId: table.id,
-    rowId: (row || before).id,
-    before: before ? { updatedAt: before.updatedAt || null, values: before.values || {} } : null,
-    after: row ? { updatedAt: row.updatedAt || null, values: row.values || {} } : null,
-    // Keep the established add/change fingerprint stable across deploys so
-    // an in-flight redelivery still matches its receipt. Deletions are new.
-    ...(!row ? { event: "deleted" } : {}),
-  };
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(payload)));
-  return hex(new Uint8Array(digest));
-}
-
-async function appRecordWorkflows(db, orgId, tableId) {
-  const { results } = await db.prepare(`SELECT w.* FROM hx_workflows w
+async function appRecordWorkflows(db, orgId, tableId, {strict=false}={}) {
+  let results;
+  try { ({results}=await db.prepare(`SELECT w.* FROM hx_workflows w
     WHERE w.org_id=?1 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='app_record_change'
       AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=w.org_id AND a.id=json_extract(w.trigger,'$.appId')
         AND ((a.table_id=?2 AND json_extract(w.trigger,'$.entityId')='primary') OR EXISTS(
           SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?2
-            AND e.entity_key=json_extract(w.trigger,'$.entityId'))))`).bind(orgId, tableId).all().catch(() => ({ results: [] }));
+            AND e.entity_key=json_extract(w.trigger,'$.entityId'))))`).bind(orgId, tableId).all()); }
+  catch(error) { if(strict)throw error; return []; }
   return results || [];
 }
 
-async function startAppRecordRuns(env, { orgId, table, before, row, by, depth }) {
+async function startAppRecordRuns(env, { orgId, table, before, row, by, depth, strict=false }) {
   const isDelete = row == null;
   const event = isDelete ? 'delete' : before ? 'update' : 'insert';
   if (!isDelete && before && !valuesChanged(before.values, row.values)) return 0;
   let started = 0;
-  for (const record of await appRecordWorkflows(env.DB, orgId, table.id)) {
+  for (const record of await appRecordWorkflows(env.DB, orgId, table.id,{strict})) {
     const workflow = publicWorkflow(record), trigger = workflow.trigger;
     if (!trigger.events.includes(event) || (by === `workflow:${workflow.id}`)) continue;
     if (!(await mayUseApp(env.DB, orgId, trigger.appId, workflow.createdBy))) continue;
@@ -1486,7 +1481,7 @@ async function startAppRecordRuns(env, { orgId, table, before, row, by, depth })
     const rowEventHash = await rowEventFingerprint(table, before, row);
     const result = await startRun(env, {
       orgId, workflow, trigger: 'app_record_change', startedBy: by, depth,
-      input: { tableId: table.id, rowIdentityAliases: isDelete ? ['id'] : rowIdentityAliases(table), records: [appRecord], totalCount: 1, truncated: false }, rowEventHash,
+      input: { tableId: table.id, rowIdentityAliases: isDelete ? ['id'] : rowIdentityAliases(table), records: [appRecord], totalCount: 1, truncated: false }, rowEventHash, rowEventPersistent:strict,
     });
     if (result?.id) started += 1;
   }
@@ -1496,13 +1491,14 @@ async function startAppRecordRuns(env, { orgId, table, before, row, by, depth })
 /// A row added or changed: every enabled workflow watching that table runs,
 /// when the change is the kind it watches and the row now matches. A
 /// change that leaves the watched column as it was starts nothing.
-export async function onRowChange(env, { orgId, table, before, row, by, depth = 0 }) {
+export async function onRowChange(env, { orgId, table, before, row, by, depth = 0, strict=false }) {
   if (depth >= MAX_DEPTH) return 0;
-  const { results } = await env.DB
+  let results;
+  try { ({results}=await env.DB
     .prepare("SELECT * FROM hx_workflows WHERE org_id = ?1 AND enabled = 1 AND json_extract(trigger, '$.type') = 'row' AND json_extract(trigger, '$.tableId') = ?2")
     .bind(orgId, table.id)
-    .all()
-    .catch(() => ({ results: [] }));
+    .all()); }
+  catch(error) { if(strict)throw error; results=[]; }
   let started = 0;
   for (const r of results || []) {
     const wf = publicWorkflow(r);
@@ -1533,11 +1529,11 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
     const run = await startRun(env, {
       orgId, workflow: wf, trigger: "row", startedBy: by, depth,
       input: { tableId: table.id, recordId: row.id, rowIdentityAliases: rowIdentityAliases(table), ...(Object.keys(rowFields).length ? { rowFields } : {}), ...(Object.keys(beforeFields).length ? { beforeFields } : {}), row: await rowScope(env.DB, orgId, table.id, row, table), before: before ? await rowScope(env.DB, orgId, table.id, before, table) : null },
-      rowEventHash,
+      rowEventHash, rowEventPersistent:strict,
     });
     if (run?.id) started += 1;
   }
-  started += await startAppRecordRuns(env, { orgId, table, before, row, by, depth });
+  started += await startAppRecordRuns(env, { orgId, table, before, row, by, depth, strict });
   return started;
 }
 
@@ -1586,7 +1582,18 @@ function valuesChanged(before = {}, after = {}) {
 }
 
 /// The cron's part: scheduled workflows whose time has come.
+export async function cleanupExpiredRowEventReceipts(db, at) {
+  const timestamp = at instanceof Date ? at.toISOString() : at;
+  const expiredRowReceiptOrgs = await db.prepare(`SELECT DISTINCT r.org_id FROM hx_workflow_row_receipts r
+    WHERE r.expires_at<=?1 AND NOT EXISTS(SELECT 1 FROM hx_workflow_row_event_outbox o WHERE o.org_id=r.org_id AND o.status='pending' AND o.event_hash=r.event_hash) LIMIT 100`)
+    .bind(timestamp).all();
+  if (expiredRowReceiptOrgs.results.length) await db.batch(expiredRowReceiptOrgs.results.map(({ org_id }) =>
+    db.prepare(`DELETE FROM hx_workflow_row_receipts WHERE org_id=?1 AND expires_at<=?2
+      AND NOT EXISTS(SELECT 1 FROM hx_workflow_row_event_outbox o WHERE o.org_id=?1 AND o.status='pending' AND o.event_hash=hx_workflow_row_receipts.event_hash)`).bind(org_id, timestamp)));
+}
+
 export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } = {}) {
+  await drainWorkflowRowEvents(env,{limit}).catch(error=>console.error('workflow row event drain failed',error?.message||error));
   // The scheduler enumerates workspaces globally; each payload deletion is
   // explicitly scoped to one workspace, like the runs started below.
   const expiredOrgs = await env.DB.prepare('SELECT DISTINCT org_id FROM hx_workflow_held_events WHERE expires_at<=?1 LIMIT 100')
@@ -1597,10 +1604,7 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
     .bind(at.toISOString()).all();
   if (expiredReceiptOrgs.results.length) await env.DB.batch(expiredReceiptOrgs.results.map(({ org_id }) =>
     env.DB.prepare('DELETE FROM hx_workflow_webhook_receipts WHERE org_id=?1 AND expires_at<=?2').bind(org_id, at.toISOString())));
-  const expiredRowReceiptOrgs = await env.DB.prepare('SELECT DISTINCT org_id FROM hx_workflow_row_receipts WHERE expires_at<=?1 LIMIT 100')
-    .bind(at.toISOString()).all();
-  if (expiredRowReceiptOrgs.results.length) await env.DB.batch(expiredRowReceiptOrgs.results.map(({ org_id }) =>
-    env.DB.prepare('DELETE FROM hx_workflow_row_receipts WHERE org_id=?1 AND expires_at<=?2').bind(org_id, at.toISOString())));
+  await cleanupExpiredRowEventReceipts(env.DB, at);
   const { results } = await env.DB
     // Every workspace's, by design: the cron's sweep. Each run then acts
     // only in its workflow's own org_id.

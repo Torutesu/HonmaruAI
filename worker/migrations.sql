@@ -500,6 +500,10 @@ CREATE INDEX IF NOT EXISTS idx_hx_agent_wake_approvals_pair ON hx_agent_wake_app
 CREATE TABLE IF NOT EXISTS hx_agent_wake_grants (org_id TEXT NOT NULL,id TEXT NOT NULL,approval_id TEXT NOT NULL,requester_id TEXT NOT NULL,requester_membership TEXT NOT NULL,source_agent_id TEXT NOT NULL,target_agent_id TEXT NOT NULL,room_channel TEXT NOT NULL,thread_id TEXT NOT NULL,scope TEXT NOT NULL CHECK(scope IN ('once','ten_minutes','thread','room')),expires_at TEXT,use_limit INTEGER,use_count INTEGER NOT NULL DEFAULT 0 CHECK(use_count>=0),revoked_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(org_id,id),UNIQUE(org_id,approval_id),FOREIGN KEY(org_id,approval_id) REFERENCES hx_agent_wake_approvals(org_id,id),CHECK((scope='once' AND use_limit=1) OR (scope!='once' AND use_limit IS NULL)),CHECK(expires_at IS NULL OR expires_at>created_at));
 CREATE INDEX IF NOT EXISTS idx_hx_agent_wake_grants_lookup ON hx_agent_wake_grants(org_id,requester_id,source_agent_id,target_agent_id,scope,expires_at) WHERE revoked_at IS NULL;
 
+CREATE TABLE IF NOT EXISTS hx_workflow_row_event_outbox (id TEXT PRIMARY KEY,org_id TEXT NOT NULL,table_id TEXT NOT NULL,event_hash TEXT NOT NULL DEFAULT '',payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','done')),attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),next_attempt INTEGER NOT NULL DEFAULT 0,lease TEXT,lease_until INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,completed_at INTEGER,last_error TEXT);
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_event_outbox_due ON hx_workflow_row_event_outbox(status,next_attempt,lease_until,created_at);
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_event_outbox_org_pending ON hx_workflow_row_event_outbox(org_id) WHERE status='pending';
+
 ALTER TABLE hx_agent_assignments ADD COLUMN actor_membership TEXT;
 ALTER TABLE hx_agent_handoffs ADD COLUMN wake_grant_id TEXT;
 

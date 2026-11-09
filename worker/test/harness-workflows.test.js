@@ -2078,6 +2078,8 @@ test('checkpoint replay returns committed add_row and update_row results without
   const {workflow}=await createWorkflow(env.DB,ORG,{...spec,trigger:{type:'manual'}},'9302');
   const first=await startRun(env,{orgId:ORG,workflow,trigger:'manual',input:{},startedBy:'9302'});
   expect(first.status).toBe('done');
+  expect(await env.DB.prepare("SELECT status FROM hx_workflow_row_event_outbox WHERE org_id=?1 AND table_id=?2 ORDER BY created_at DESC LIMIT 1").bind(ORG,invoices).first())
+   .toEqual({status:'done'});
   const before=await env.DB.prepare('SELECT data,updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(ORG,invoices,spec.name==='Checkpoint update row'?seed.id:first.log[0].rowId).first();
   await env.DB.prepare("UPDATE hx_workflow_runs SET status='running',next_step=0,log='[]',finished_at=NULL WHERE org_id=?1 AND id=?2").bind(ORG,first.id).run();
   const replay=await continueRun(env,{orgId:ORG,runId:first.id});
@@ -2085,6 +2087,39 @@ test('checkpoint replay returns committed add_row and update_row results without
   const after=await env.DB.prepare('SELECT data,updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(ORG,invoices,spec.name==='Checkpoint update row'?seed.id:first.log[0].rowId).first();
   expect(after).toEqual(before);
  }
+});
+
+test('durable row-event retries refresh row receipts so long outbox delays do not start duplicate runs',async()=>{
+ const {createWorkflow,startRun}=await import('../src/harness/workflows.js');
+ const {workflow}=await createWorkflow(env.DB,ORG,{name:'Durable row receipt',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'A durable row event.'}]},'9302');
+ const rowEventHash='durable-row-event-receipt';
+ const input={tableId:invoices,recordId:'row-1',row:{id:'row-1'},rowIdentityAliases:['id']};
+ const first=await startRun(env,{orgId:ORG,workflow,trigger:'row',input,startedBy:'9302',rowEventHash,rowEventPersistent:true});
+ expect(first.status).toBe('done');
+ await env.DB.prepare("UPDATE hx_workflow_row_receipts SET expires_at='2000-01-01T00:00:00.000Z' WHERE org_id=?1 AND workflow_id=?2 AND event_hash=?3")
+  .bind(ORG,workflow.id,rowEventHash).run();
+ const retry=await startRun(env,{orgId:ORG,workflow,trigger:'row',input,startedBy:'9302',rowEventHash,rowEventPersistent:true});
+ expect(retry).toMatchObject({status:'duplicate',runId:first.id});
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first()).n).toBe(1);
+ expect(Date.parse((await env.DB.prepare('SELECT expires_at FROM hx_workflow_row_receipts WHERE org_id=?1 AND workflow_id=?2 AND event_hash=?3')
+  .bind(ORG,workflow.id,rowEventHash).first()).expires_at)).toBeGreaterThan(Date.now());
+});
+
+test('expired row receipts stay available while an outbox event for that workspace is pending',async()=>{
+ const {cleanupExpiredRowEventReceipts,createWorkflow}=await import('../src/harness/workflows.js');
+ const {workflow}=await createWorkflow(env.DB,ORG,{name:'Receipt cleanup guard',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Receipt cleanup guard'}]},'9302');
+ await env.DB.prepare(`INSERT INTO hx_workflow_row_receipts(org_id,workflow_id,event_hash,received_at,expires_at,run_id)
+  VALUES(?1,?2,'matching-hash','2000-01-01T00:00:00.000Z','2000-01-02T00:00:00.000Z',NULL),
+        (?1,?2,'unrelated-hash','2000-01-01T00:00:00.000Z','2000-01-02T00:00:00.000Z',NULL)`).bind(ORG,workflow.id).run();
+ await env.DB.prepare(`INSERT INTO hx_workflow_row_event_outbox(id,org_id,table_id,event_hash,payload,status,created_at)
+  VALUES('pending-row-event',?1,'table-1','matching-hash','{}','pending',1)`).bind(ORG).run();
+ await cleanupExpiredRowEventReceipts(env.DB,'2000-01-03T00:00:00.000Z');
+ expect(await env.DB.prepare(`SELECT event_hash FROM hx_workflow_row_receipts WHERE org_id=?1 AND workflow_id=?2`).bind(ORG,workflow.id).first())
+  .toEqual({event_hash:'matching-hash'});
+ expect(await env.DB.prepare(`SELECT event_hash FROM hx_workflow_row_receipts WHERE org_id=?1 AND workflow_id=?2 AND event_hash='unrelated-hash'`).bind(ORG,workflow.id).first()).toBeNull();
+ await env.DB.prepare("UPDATE hx_workflow_row_event_outbox SET status='done' WHERE id='pending-row-event'").run();
+ await cleanupExpiredRowEventReceipts(env.DB,'2000-01-03T00:00:00.000Z');
+ expect(await env.DB.prepare(`SELECT event_hash FROM hx_workflow_row_receipts WHERE org_id=?1 AND workflow_id=?2`).bind(ORG,workflow.id).first()).toBeNull();
 });
 
 test('a redelivered continuation reuses a saved step result instead of posting twice',async()=>{

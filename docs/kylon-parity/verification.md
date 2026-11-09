@@ -4051,22 +4051,29 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Added definition-hash scoped step claims for ordinary Workflow actions, fenced leases with periodic renewal, reuse of persisted results after continuation redelivery, and no replay when a lease expires. Every ordinary action, including external reads that may consume provider quota, is conservatively treated as effectful; only pure declarative conditions can be reclaimed. TypeScript code jobs keep their existing dedicated checkpoint path.
 - Added run-history errors that explicitly say an uncertain step was not replayed, and reconciled KY-059/app automation contract evidence. This is at-most-once protection for uncertain dispatch; row effects and checkpoint completion are not yet one D1 transaction, and unknown-outcome resolution UI remains open.
-- Worker `test/harness-workflows.test.js` and `test/workflow-checkpoints.test.js`: 142/142 passed; `node --check`, `node scripts/check-kylon-parity.mjs`, and `git diff --check` passed. PR #857 exact-head CI run `42643217690` passed all 13 jobs and merged as `9ccd3d9c`. Production `/health` returned `ok: true`; the available GitHub connector did not expose main-push deployment runs, so commit-specific Worker deploy completion was unverified.
+- Worker `test/harness-workflows.test.js` and `test/workflow-checkpoints.test.js`: 142/142 passed; `node --check`, `node scripts/check-kylon-parity.mjs`, and `git diff --check` passed. PR #857 exact-head CI run `42643217690` passed all 13 jobs and merged as `9ccd3d9c`. Main CI `42647126810` and Worker deploy `42647126743` passed, including Verify.
 
 ### 2026-11-10 — Workflow cursor-safe cancellation and recovery
 
 - Advance the durable `next_step` with each completed step log and with the post-step budget check. Cancellation and stale-run recovery now see the actual active step rather than the original cursor.
 - Added an in-flight Agent-step cancellation test that pauses the model reply, cancels after step 1, then releases a late response and verifies the prior success remains, the active step is unknown, and no later step or late Agent answer is posted.
-- Worker workflow tests passed 144/144. PR #858 and push CI runs `42649250258` and `42649219190` both passed on exact head `0b8a4c17`; all applicable jobs succeeded (Windows Edge/iOS skipped on push and passed on PR). PR #858 merged as `7ddd649f5c6f47c39c3194b6eb1b5cdbcf40581a`. Current production health and the commit-specific Worker deployment remain unverified; the connected API exposes only PR-triggered workflow runs and this environment cannot resolve the Worker health hostname.
+- Worker workflow tests passed 144/144. PR #858 and push CI runs `42649250258` and `42649219190` both passed on exact head `0b8a4c17`; all applicable jobs succeeded (Windows Edge/iOS skipped on push and passed on PR). PR #858 merged as `7ddd649f5c6f47c39c3194b6eb1b5cdbcf40581a`. Main CI `42652533194` and Worker deploy `42652533030` passed, including D1 migrations, Deploy, and Verify.
 
 ### 2026-11-10 — Atomic Workflow local row effects
 
 - Route `add_row` and `update_row` through the existing D1 transaction helper so the permission/schema/CAS-guarded row change and checkpoint result are committed together. Add row capacity to the insert statement itself to preserve the maximum under concurrent writes; a guarded statement that changes no rows rolls the transaction back.
 - Regression coverage verifies a replayed checkpoint does not repeat add/update writes and that a zero-row guarded write does not complete the checkpoint. Row-trigger dispatch remains post-commit without a durable outbox; no exactly-once trigger delivery claim is made.
-- Focused tests, full CI, and deployment are pending.
+- Worker workflow/checkpoint/budget suites passed together: 151/151 across three test files. PR #859 exact-head CI runs `42654659653` and `42654614749` both passed; PR #859 merged as `705372da66b44ca38643c78bb9df82f7e66736a9`. Main CI `42658394690` and Worker deploy `42658394610` passed, including D1 migrations, Deploy, and Verify.
 
 ### 2026-11-10 — Unknown model price guard for workspace pause budgets
 
 - Workspace budget reporting now counts deployment-key model names that do not match a known `PRICES` family as `unpricedCalls` / `indeterminate`. With `budget_action='pause'`, a configured daily, weekly, or monthly window containing such a call fails closed; `warn` mode remains admissive. Explicit `web_search` and `jev-latest` list-price entries remain known.
 - Did not infer missing usage from zero token/price rows: the legacy ledger writes missing token counts as zero, and zero alone cannot distinguish missing data from a valid zero-priced operation.
-- Focused workspace budget tests: 7/7 passed before combining with Workflow atomicity changes. Combined focused tests and exact-head CI are pending.
+- Focused workspace budget tests: 7/7 passed. Combined Workflow atomicity and budget tests passed 151/151 before the later outbox addition.
+
+### 2026-11-10 — Durable outbox for Workflow local row changes
+
+- Workflow `add_row` / `update_row` now add a JSON row-event outbox record (200KB per event, 100 pending per workspace) in the same D1 batch as the guarded row mutation and checkpoint completion. An immediate best-effort drain preserves normal latency; the existing minute cron retries pending events with CAS leases and capped exponential backoff. Trigger-query failures are retried, and per-workflow row receipts extend as durable retries arrive to protect already-started fan-out runs beyond the normal seven-day dedupe window.
+- Each outbox record stores the established stable row-event fingerprint. Expired receipts are retained only while a pending event with the same fingerprint exists, so unrelated receipts continue to clean up even if another event is stuck.
+- Scope is intentionally limited to Workflow-local add/update. Manual/API/connection row writers and row deletions still dispatch after their write without a durable outbox. Pending events retain their row snapshot until delivery; completed events are removed after seven days.
+- Final combined batch including Workflow, checkpoint, workspace budget, row-event outbox, and migration suites: **190/190 passed** across 6 files. Syntax checks, parity inventory consistency, and `git diff --check` passed. Exact-head CI and deployment for this outbox change remain pending.
