@@ -1777,6 +1777,51 @@ test('a maker can reconcile a stale workflow run without replaying its uncertain
   expect((await send('POST', `/workflows/${workflow.id}/run`, mika, { orgId: ORG, text: 'new run' })).status).toBe(201);
 });
 
+test('a maker or admin can cancel a running workflow and fence later steps', async () => {
+  const { workflow } = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Cancelable', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Must not post after cancellation' }],
+  })).json();
+  const runId = 'run-cancel-active';
+  const startedAt = new Date().toISOString();
+  const { ensureWorkflowSafety } = await import('../src/harness/workflowSafety.js');
+  const safety = await ensureWorkflowSafety(env.DB, ORG, workflow.id);
+  const definition = { id: workflow.id, name: workflow.name, enabled: true, trigger: workflow.trigger, steps: workflow.steps, createdBy: '9301', safetyGeneration: safety.generation };
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at)
+      VALUES(?1,?2,?3,'manual','running','{}','[]',0,'9301',?4)`).bind(runId, ORG, workflow.id, startedAt),
+    env.DB.prepare('INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES(?1,?2,?3,?4)')
+      .bind(runId, ORG, JSON.stringify(definition), startedAt),
+  ]);
+  const cancelled = await send('POST', `/workflows/${workflow.id}/runs/${runId}/cancel`, toru, { orgId: ORG, expectedStartedAt: startedAt });
+  expect(cancelled.status).toBe(200);
+  const { run } = await cancelled.json();
+  expect(run).toMatchObject({ id: runId, status: 'cancelled', log: [expect.objectContaining({ step: 1, status: 'cancelled', outcome: 'unknown', actorId: '9301' })] });
+  const { continueRun } = await import('../src/harness/workflows.js');
+  expect((await continueRun(env, { orgId: ORG, runId, workflow: definition })).status).toBe('cancelled');
+  expect((await messages(toru)).map(message => message.body)).not.toContain('Must not post after cancellation');
+  const duplicate = await send('POST', `/workflows/${workflow.id}/runs/${runId}/cancel`, toru, { orgId: ORG, expectedStartedAt: startedAt });
+  expect(duplicate.status).toBe(409);
+});
+
+test('a non-owner member cannot cancel another maker\'s workflow run', async () => {
+  const { workflow } = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Admin-owned cancel target', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Still running' }],
+  })).json();
+  const runId = 'run-cancel-forbidden';
+  const startedAt = new Date().toISOString();
+  const { ensureWorkflowSafety } = await import('../src/harness/workflowSafety.js');
+  const safety = await ensureWorkflowSafety(env.DB, ORG, workflow.id);
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at)
+      VALUES(?1,?2,?3,'manual','running','{}','[]',0,'9301',?4)`).bind(runId, ORG, workflow.id, startedAt),
+    env.DB.prepare('INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES(?1,?2,?3,?4)')
+      .bind(runId, ORG, JSON.stringify({ id: workflow.id, name: workflow.name, enabled: true, trigger: workflow.trigger, steps: workflow.steps, createdBy: '9301', safetyGeneration: safety.generation }), startedAt),
+  ]);
+  const denied = await send('POST', `/workflows/${workflow.id}/runs/${runId}/cancel`, mika, { orgId: ORG, expectedStartedAt: startedAt });
+  expect(denied.status).toBe(403);
+  expect((await env.DB.prepare('SELECT status FROM hx_workflow_runs WHERE id=?1').bind(runId).first()).status).toBe('running');
+});
+
 test('stale-run reconciliation rejects fresh runs and runs with live node leases', async () => {
   const { recoverStalledRun } = await import('../src/harness/workflows.js');
   const { workflow } = await (await send('POST', '/workflows', mika, { orgId: ORG, name: 'Lease recovery', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Lease' }] })).json();

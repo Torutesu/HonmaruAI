@@ -673,6 +673,36 @@ export async function recoverStalledRun(db, { orgId, workflowId, runId, expected
   return { run: await getRun(db, orgId, runId) };
 }
 
+// A human can stop the remaining steps of a live run. The currently executing
+// step may already have caused an external effect; record that uncertainty and
+// atomically fence all later steps through the run's status.
+export async function cancelWorkflowRun(db, { orgId, workflowId, runId, expectedStartedAt, actorId, at = new Date().toISOString() }) {
+  if (typeof expectedStartedAt !== 'string' || !Number.isFinite(Date.parse(expectedStartedAt))) {
+    return { error: 'Reload the workflow run before cancelling it.', status: 400 };
+  }
+  const row = await db.prepare(`SELECT r.started_at,r.log,r.next_step,w.definition
+    FROM hx_workflow_runs r JOIN hx_workflow_run_definitions w ON w.run_id=r.id AND w.org_id=r.org_id
+    WHERE r.org_id=?1 AND r.workflow_id=?2 AND r.id=?3 AND r.status='running' AND r.started_at=?4`)
+    .bind(orgId, workflowId, runId, expectedStartedAt).first();
+  if (!row) return { error: 'This run is no longer running. Refresh the workflow before cancelling it.', status: 409 };
+  const definition = parse(row.definition, {});
+  const log = parse(row.log, []);
+  const stepIndex = Number(row.next_step) || 0;
+  const stepType = definition.steps?.[stepIndex]?.type || log[stepIndex]?.type || 'unknown';
+  log[stepIndex] = {
+    step: stepIndex + 1, type: stepType, at, status: 'cancelled', outcome: 'unknown', actorId: String(actorId),
+    error: 'Cancellation stopped later steps. The current step may already have completed an external effect.',
+  };
+  const result = await db.batch([
+    db.prepare(`UPDATE hx_workflow_runs SET status='cancelled',log=?1,finished_at=?2
+      WHERE org_id=?3 AND workflow_id=?4 AND id=?5 AND started_at=?6 AND status='running' AND log=?7 AND next_step=?8`)
+      .bind(JSON.stringify(log), at, orgId, workflowId, runId, expectedStartedAt, row.log, row.next_step),
+    ...workflowSettlementStatements(db, orgId, runId),
+  ]);
+  if (!result[0].meta?.changes) return { error: 'This run changed while it was being cancelled. Refresh the workflow.', status: 409 };
+  return { run: await getRun(db, orgId, runId) };
+}
+
 // ── Running ─────────────────────────────────────────────────────────────
 
 /// "{{row.Company}} owes {{row.Amount}}" against what the run knows. A
@@ -972,6 +1002,11 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
     }
+    // Cancellation can arrive while a step is awaiting a model, provider, or
+    // external API. Its terminal status is authoritative; never write a stale
+    // result or dispatch the following step when that await resolves.
+    const afterStep = await getRun(db, orgId, runId);
+    if (afterStep?.status !== 'running') return afterStep;
     if (step.type === 'connection' && entry.status === 'ok') {
       const actorId = workflowConnectionActorId(run.startedBy, workflow.id, workflow.createdBy);
       const stillAllowed = actorId && await authorize(authorizationTrace) && await workflowConnectionPrincipal(env, {

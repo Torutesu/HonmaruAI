@@ -330,6 +330,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [discardSelection, setDiscardSelection] = useState<string[] | null>(null)
   const [heldPageOffset, setHeldPageOffset] = useState(0)
   const [recoveringRun, setRecoveringRun] = useState<string | null>(null)
+  const [cancellingRun, setCancellingRun] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [syncError,setSyncError]=useState('')
   const detailRequest = useRef(0)
@@ -671,6 +672,19 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                 <span className={`hx-status ${r.status}`}>{t(r.status)}</span> <time dateTime={Number.isFinite(new Date(r.startedAt).getTime())?r.startedAt:undefined}>{runTimestampLabel(r.startedAt,getLocale(),t('Date unavailable'))}</time> · {t(r.trigger)}{r.definitionRevision ? <span className="row-sub">{t('Version {version}',{version:r.definitionRevision})}</span> : r.definitionSnapshotAvailable===true ? <span className="row-sub">{t('Version not recorded')}</span> : r.definitionSnapshotAvailable===false ? <span className="row-sub">{t('Original definition snapshot unavailable')}</span> : null}
                 {runDuration(r)!==null&&<> · <span title={t('Elapsed time, including approval waits')}>{runDuration(r)}</span></>}
                 <WorkflowRunUsage usage={r.usage}/>
+                {open.canEdit && r.status === 'running' && <section className="form-note hx-run-cancel">
+                  {cancellingRun === r.id ? <>
+                    <p>{t('Cancel this run now? Its current step may already have sent a message, changed data, or completed an external action. Later steps will stop, but work already in flight may still finish.')}</p>
+                    <div className="hx-actions">
+                      <button type="button" className="pill-btn danger" disabled={!!busy} onClick={() => act('cancel-run', async () => {
+                        await api.cancelWorkflowRun(w.id, r.id, r.startedAt)
+                        setCancellingRun(null)
+                        await refreshOpen(w.id)
+                      })}>{t('Stop this run')}</button>
+                      <button type="button" className="btn-text" disabled={!!busy} onClick={() => setCancellingRun(null)}>{t('Keep running')}</button>
+                    </div>
+                  </> : <button type="button" className="btn-text danger" disabled={!!busy} onClick={() => setCancellingRun(r.id)}>{t('Stop run…')}</button>}
+                </section>}
                 {r.log.map((l) => {
                   const output=l.status==='skipped'&&l.output==='Condition did not match.'?t('Condition did not match.'):l.output
                   return (
