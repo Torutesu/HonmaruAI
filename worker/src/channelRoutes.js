@@ -35,7 +35,7 @@ import { getMode } from "./harness/mode.js";
 import { searchHarnessResources } from "./harness/unifiedSearch.js";
 import { getDisplayPreference } from "./harness/displayPreferences.js";
 import { storeAgentToolTrace, traceFromRow } from "./harness/agentToolTraces.js";
-import { mayUseAgentSource, agentSourceProvider } from "./harness/agentConnections.js";
+import { agentSourceProvider } from "./harness/agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
 import { createRecurringAutomationOffer, isRecurringWorkPrompt } from "./harness/recurringAutomationOffers.js";
@@ -543,11 +543,6 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const nativeSourcesUsed = new Map();
   const remoteMcpToolsUsed = new Map();
   const sourceGrantAgentId = resolved.kind === "agent" && !row.parent_id && agents.length === 1 ? agents[0].id : null;
-  const mayResearchSource = async (source, available) => {
-    if (!available) return false;
-    if (workspaceMode === "simple") return true;
-    return harness && sourceGrantAgentId !== null && await mayUseAgentSource(env, { orgId, agentId: sourceGrantAgentId, session, source });
-  };
   if (!row.parent_id && resolved.kind === "agent" && provider && allowance?.allowed) {
     try {
       const terms = searchTermsFor(taskText, null);
@@ -560,11 +555,20 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         }
         return null;
       };
-      const [notionProvider, githubAllowed] = await Promise.all([
+      const githubProviderForResearch = async () => {
+        const currentMode = await getMode(env.DB, orgId).catch(() => null);
+        if (currentMode === "simple") return available.github && session?.github_id ? `${String(session.github_id)}:personal` : null;
+        if (currentMode === "harness" && sourceGrantAgentId !== null) {
+          return agentSourceProvider(env, { orgId, agentId: sourceGrantAgentId, session, source: "github" });
+        }
+        return null;
+      };
+      const [notionProvider, githubProvider] = await Promise.all([
         notionProviderForResearch(),
-        mayResearchSource("github", available.github),
+        githubProviderForResearch(),
       ]);
       const notionAllowed = Boolean(notionProvider);
+      const githubAllowed = Boolean(githubProvider);
       // The decisions this person may open, as their own search finds them:
       // a guest's are the ones they are on.
       const access = terms ? await accessFor(env.DB, orgId, user.login) : null;
@@ -573,14 +577,14 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         notionAllowed && terms ? searchNotion(env, notionProvider, terms).catch(() => []) : [],
         githubAllowed && terms ? searchGithubIssues(session, orgId, terms, env).catch(() => []) : [],
       ]);
-      const [notionProviderAfter, githubStillAllowed] = await Promise.all([
+      const [notionProviderAfter, githubProviderAfter] = await Promise.all([
         notionProviderForResearch(),
-        mayResearchSource("github", githubAllowed),
+        githubProviderForResearch(),
       ]);
       const safeNotion = notionProviderAfter === notionProvider ? notion : [];
-      const safeGithub = githubStillAllowed ? github : [];
+      const safeGithub = githubProviderAfter === githubProvider ? github : [];
       if (safeNotion.length) nativeSourcesUsed.set("notion", notionProvider);
-      if (safeGithub.length) nativeSourcesUsed.set("github", String(session?.github_id || ""));
+      if (safeGithub.length) nativeSourcesUsed.set("github", githubProvider);
       const lines = decisions.slice(0, 8).map((d) => `- ${d.decidedAt ? String(d.decidedAt).slice(0, 10) : "pending"}${d.recipient ? ` ${d.recipient}` : ""} ${d.status || ""}: ${String(d.title || "").slice(0, 140)}`);
       const tools = [...safeNotion, ...safeGithub].slice(0, 8);
       if (lines.length) research += `Past decisions that match:\n${lines.join("\n")}\n`;
