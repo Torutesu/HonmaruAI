@@ -65,7 +65,7 @@ import { custom as customEvent } from "./agui/events.js";
 import {
   resolveChannel, listMessages, postMessage, getMessage, linkCard, transcriptUpTo, channelActivity,
   viewOf, asksTheAI, asksForDecision, withoutAI, MAX_MESSAGE_CHARS,
-  present, referenceMessages, listThread, threadPageRequest, listPins, editMessage, deleteMessage, toggleReaction, setPinned, setPreviewsHidden,
+  present, toMessage, referenceMessages, listThread, threadPageRequest, listPins, editMessage, deleteMessage, toggleReaction, setPinned, setPreviewsHidden,
   markRead, markUnreadFrom, markActivitySeen, readThreadsSeenInActivity, readsFor, activityFeed, searchMessages, threadsFor, roomThreads,
 } from "./channels.js";
 import { safe } from "./log.js";
@@ -122,12 +122,14 @@ export async function caller(env, request, orgId, { withMembership = false } = {
   const session = await getSession(env.DB, request.headers.get("x-session-token"));
   if (!session) return { denied: json({ message: "Please sign in." }, 401) };
   if (!orgId || typeof orgId !== "string") return { denied: json({ message: "orgId is required" }, 400) };
-  const membership = withMembership
-    ? await env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, String(session.github_id)).first()
-    : await isMember(env.DB, orgId, session.github_id);
+  const [membership, user] = await Promise.all([
+    withMembership
+      ? env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, String(session.github_id)).first()
+      : isMember(env.DB, orgId, session.github_id),
+    getUserByGithubId(env.DB, session.github_id),
+  ]);
   if (!membership) return { denied: json({ message: "not a member of this org" }, 403) };
   { const { policyDenial } = await import("./policy.js"); const held = await policyDenial(env, session, orgId); if (held) return { denied: json(held.body, held.status) }; }
-  const user = await getUserByGithubId(env.DB, session.github_id);
   if (!user?.login) return { denied: json({ message: "Please sign in." }, 401) };
   return { session, user: { ...user, github_id: session.github_id }, ...(withMembership ? { membershipSince: membership.created_at } : {}) };
 }
@@ -944,22 +946,28 @@ async function postTeammateResult(env, run, t, read, status, {clientId=null,deli
   return {published:false};
 }
 
-/// The sidebar's previews in the language the reader set: kept translations
-/// at once, new ones by the model in one batch.
-async function previewsInLanguage(env, orgId, user, items) {
+/// The sidebar reads kept translations only. New translations are requested
+/// by the client after the directory arrives; model latency cannot hold up
+/// members, DM references, read positions, or the channel list.
+async function previewsInLanguage(env, orgId, user, items, members) {
   const rows = items.map((i) => i._row).filter((r) => r?.body);
-  let byId = {};
+  let byId = {}, missing = {};
   if (rows.length && Number(user.translate_messages ?? 1) !== 0) {
     try {
-      const provider = await providerFor(env, orgId);
-      ({ byId } = await translateMessages(env.DB, orgId, rows, { locale: String(user.locale || "en").slice(0, 2), provider }));
+      ({ byId, failed: missing } = await translateMessages(env.DB, orgId, rows, { locale: String(user.locale || "en").slice(0, 2), provider: null }));
     } catch (err) {
       console.error("preview translation failed", safe(err?.message));
     }
   }
   return items.map(({ _row, ...item }) => {
     const text = _row && byId[_row.id];
-    return text && text.trim() !== String(_row.body).trim() ? { ...item, originalPreview: item.preview, preview: text.replace(/\s+/g, " ").trim().slice(0, 120) } : { ...item, originalPreview: item.preview };
+    const preview = { ...item, originalPreview: item.preview };
+    if (text && text.trim() !== String(_row.body).trim()) return { ...preview, preview: text.replace(/\s+/g, " ").trim().slice(0, 120) };
+    // The existing live-preview translation path also handles uncached initial
+    // previews, after the directory is already usable.
+    return missing[_row?.id] && _row.author_login !== user.login
+      ? { ...preview, last: toMessage(_row, user.login, item.channel, members) }
+      : preview;
   });
 }
 
@@ -998,7 +1006,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       groups: (await groupsOf(env.DB, orgId, who.user.login)).map((g) => ({
         view: g.key, refs: g.logins.filter((l) => l !== who.user.login).map(refOf).filter(Boolean),
       })),
-      activity: await previewsInLanguage(env, orgId, who.user, await channelActivity(env.DB, orgId, who.user.login, members)),
+      activity: await previewsInLanguage(env, orgId, who.user, await channelActivity(env.DB, orgId, who.user.login, members), members),
       prefs,
       // Your own away settings, with the delegate as a ref you can show.
       mine: me ? { status: me.status, awayUntil: me.awayUntil, delegateRef: members.find((m) => m.login === me.delegateLogin)?.ref || null } : null,
@@ -1418,9 +1426,12 @@ export async function handleChannels(request, env, url, { route, after }) {
     const channel = request.method === "GET" ? url.searchParams.get("channel") : body.channel;
     const who = await caller(env, request, orgId);
     if (who.denied) return who.denied;
+    const tCaller = Date.now();
     const members = await listMembers(env.DB, orgId, who.session.github_id);
+    const tMembers = Date.now();
     const resolved = await resolveChannel(env.DB, orgId, who.user, channel, members);
     if (!resolved) return json({ message: "No such channel." }, 404);
+    const tResolved = Date.now();
     const view = viewOf(resolved.key, who.user.login, members);
     if (request.method === "GET") {
       // Revalidate references outside the loaded page without searching another channel.
@@ -1438,7 +1449,9 @@ export async function handleChannels(request, env, url, { route, after }) {
       const beforeId = url.searchParams.get("beforeId") || undefined;
       // `{ messages, more }`: `more` says whether older messages are there
       // to page back to, so a client need not guess it from the count.
-      return json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before, beforeId }));
+      const response = json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before, beforeId }));
+      response.headers.set('server-timing', `caller;dur=${tCaller-tStart}, members;dur=${tMembers-tCaller}, resolve;dur=${tResolved-tMembers}, messages;dur=${Date.now()-tResolved}, total;dur=${Date.now()-tStart}`);
+      return response;
     }
     const prepared = await prepareConversationMessage(env, request, { orgId, user: who.user, resolved, body });
     if (prepared.denied) return prepared.denied;

@@ -74,18 +74,16 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
     // so it lets nobody in: treating it as public handed a private channel
     // (and everything broadcast in it) to the whole workspace whenever one
     // read failed.
-    let row;
+    // Legacy virtual rooms lack a business row; an explicit deletion
+    // tombstone distinguishes those from rooms that were removed.
+    // Start independent reads together; both must succeed before resolving
+    // a deleted or private room.
+    let row, tombstone;
     try {
-      row = await db.prepare("SELECT private, created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first();
-    } catch {
-      return null;
-    }
-    // A missing row is also how legacy virtual public Rooms are represented.
-    // An explicit deletion tombstone is the only durable signal that a key
-    // used to identify a deleted Room; storage errors fail closed.
-    let tombstone;
-    try {
-      tombstone = await db.prepare("SELECT 1 AS deleted FROM hx_room_access WHERE org_id = ?1 AND channel = ?2 AND deleted_at IS NOT NULL").bind(orgId, channel).first();
+      [row, tombstone] = await Promise.all([
+        db.prepare("SELECT private, created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first(),
+        db.prepare("SELECT 1 AS deleted FROM hx_room_access WHERE org_id = ?1 AND channel = ?2 AND deleted_at IS NOT NULL").bind(orgId, channel).first(),
+      ]);
     } catch {
       return null;
     }
@@ -362,6 +360,14 @@ export async function hydrate(db, orgId, rows, members = null) {
 export async function present(db, orgId, rows, viewerLogin, view, members) {
   const [extras, files, agents, originals] = await Promise.all([hydrate(db, orgId, rows, members), filesFor(db, orgId, rows.map((r) => r.id)), agentsOf(db, orgId, rows), originalsOf(db, orgId, rows)]);
   const now = Date.now();
+  // One viewer and one snapshot per presentation. Repeated messages from an
+  // agent share its pending lookup, but the next request checks access again.
+  const avatarUrls = new Map();
+  const avatarOf = (agent) => {
+    if (!avatarUrls.has(agent.id)) avatarUrls.set(agent.id, clientAgentAvatarUrl(mediaEnv() || { DB: db }, orgId,
+      { ...agent, avatarUrl: agent.avatar_url || null, ownerLogin: agent.owner_login }, viewerLogin));
+    return avatarUrls.get(agent.id);
+  };
   return Promise.all(rows.map(async (r) => {
     const x = extras.get(r.id) || {};
     const replyRefs = (x.replyLogins || []).map((l) => (l === "ai" || String(l).startsWith("agent:") ? l : members.find((m) => m.login === l)?.ref)).filter(Boolean).slice(0, 5);
@@ -370,8 +376,7 @@ export async function present(db, orgId, rows, viewerLogin, view, members) {
     const agent = sourceAgent ? {
       ...sourceAgent,
       avatar_url: null,
-      avatarUrl: await clientAgentAvatarUrl(mediaEnv() || { DB: db }, orgId,
-        { ...sourceAgent, avatarUrl: sourceAgent.avatar_url || null, ownerLogin: sourceAgent.owner_login }, viewerLogin),
+      avatarUrl: await avatarOf(sourceAgent),
     } : null;
     return toMessage(r, viewerLogin, typeof view === "function" ? view(r) : view, members, { ...x, replyRefs, files: own, agent, original: originals.get(r.reply_to_id) || null, threadParent: r.also_channel ? originals.get(r.parent_id) || null : null });
   }));
@@ -899,7 +904,7 @@ export async function channelActivity(db, orgId, viewerLogin, members) {
     if (!view) continue;
     out.push({
       // For the caller to put the preview in the reader's language; not sent.
-      _row: { id: r.id, body: r.body },
+      _row: r,
       channel: view,
       lastAt: r.created_at,
       preview: (String(r.body).replace(/\s+/g, " ").trim() || (r.file_name ? `📎 ${r.file_name}` : "")).slice(0, 120),
