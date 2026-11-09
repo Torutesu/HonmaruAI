@@ -2,7 +2,8 @@ import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { expect, test, vi } from 'vitest'
 import { AgentMemoryList, MemoryKindSelect } from './AgentMemoryList'
-vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
+vi.mock('../utils/i18n', () => ({ useT: () => (text: string, values?: Record<string, string | number>) =>
+  Object.entries(values || {}).reduce((result, [key, value]) => result.replaceAll(`{${key}}`, String(value)), text) }))
 const memories = [
   { id: '1', text: 'Weekly report', source: 'person', createdAt: '2026-10-20', kind: 'preference', channel: 'dm:a|b' },
   { id: '2', text: 'Weekly budget', source: 'person', createdAt: '2026-10-20', kind: 'reference' },
@@ -166,5 +167,15 @@ test('memory provenance is available without exposing the source message body',(
  expect(json).toContain('msg_root_1')
  expect(json).toContain('b:ops')
  expect(json).not.toContain('secret source text')
+ act(()=>tree.unmount())
+})
+
+test('shared memory shows its creator and most recent editor',()=>{
+ let tree!:ReturnType<typeof create>
+ const entry={...memories[0],createdByName:'Memory Creator',updatedByName:'Memory Editor',updatedAt:'2026-10-28T12:00:00Z'}
+ act(()=>{tree=create(<AgentMemoryList memories={[entry]} canEdit={false} busy={false} onForget={vi.fn()}/> )})
+ const json=JSON.stringify(tree.toJSON())
+ expect(json).toContain('Created by Memory Creator')
+ expect(json).toContain('Last updated by Memory Editor')
  act(()=>tree.unmount())
 })

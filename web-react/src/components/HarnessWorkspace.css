@@ -306,6 +306,11 @@
 .hx-custom-editor summary { cursor: pointer; padding: 12px 0; font-weight: 600; }
 .hx-custom-editor form { margin-bottom: 16px; }
 .hx-custom-editor .hx-actions { margin: 14px 0; flex-wrap: wrap; }
+.hx-custom-history-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 14px; padding: 10px 12px; margin: 8px 0; border: 1px solid var(--hx-border); border-radius: 10px; background: var(--hx-surface); }
+.hx-custom-history-entry > p { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.hx-custom-history-entry > p:first-child { color: var(--hx-text); }
+.hx-custom-history-entry > button { grid-column: 2; grid-row: 1 / span 2; white-space: nowrap; }
+@media(max-width:600px) { .hx-custom-history-entry { grid-template-columns: minmax(0, 1fr); } .hx-custom-history-entry > button { grid-column: auto; grid-row: auto; justify-self: start; } }
 
 :root .shell.harness-workspace :is(.form-error, .hx-danger, .btn-text.danger) { color: var(--hx-danger); }
 

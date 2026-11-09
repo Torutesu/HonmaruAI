@@ -10,9 +10,10 @@ export function memoryFields(input) {
   return { title: input.title.trim(), description: (input.description || "").trim(), body: input.body.replace(/\r\n?/g, "\n").trim() };
 }
 export function memoryEntry(row) {
-  return { id: row.id, text: row.text, source: row.source, createdBy: row.created_by, createdAt: row.created_at,
+  return { id: row.id, text: row.text, source: row.source, createdBy: row.created_by, createdByName: row.created_by_name || null, createdAt: row.created_at,
     channel: row.channel || null, kind: row.kind || "context", title: row.title ?? row.text.slice(0, 120),
     description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at,
+    updatedBy: row.updated_by || null, updatedByName: row.updated_by_name || null,
     sourceChannel: row.source_channel || null, sourceMessageId: row.source_message_id || null, sourceThreadId: row.source_thread_id || null,
     scope: row.user_github_id ? "person" : (row.channel ? "conversation" : "shared"),
     isOwner: Boolean(row.user_github_id),
@@ -30,9 +31,13 @@ export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel
   if (fields.error) return fields;
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) return { error: "Expected memory version is required." };
   if (!["context", "preference", "feedback", "reference"].includes(input.kind)) return { error: "Invalid memory kind." };
-  const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.version FROM hx_agent_memories m
+  const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.version,
+      COALESCE(cu.name,cu.login) AS created_by_name, COALESCE(uu.name,uu.login) AS updated_by_name, d.updated_by
+    FROM hx_agent_memories m
     LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id
+    LEFT JOIN users cu ON cu.github_id = m.created_by
+    LEFT JOIN users uu ON uu.github_id = d.updated_by
     WHERE m.org_id = ?1 AND m.agent_id = ?2 AND m.id = ?3 AND COALESCE(s.channel, '') = ?4 AND (s.user_github_id IS NULL OR s.user_github_id = ?5)`)
     .bind(orgId, agentId, id, channel, userId ? String(userId) : "").first();
   if (!row) return { error: "No such memory.", status: 404 };
@@ -81,7 +86,8 @@ export async function updateMemoryEntry(db, orgId, agentId, id, input, { channel
   const saved = results[reviewId ? 5 : 4].results?.[0];
   if (!saved) return { error: "This memory changed. Reload before saving.", status: 409 };
   const review = reviewId ? {version:saved.version,evidence:reviewEvidence.trim(),by:String(by),at:stamp,current:true} : undefined;
-  return { ...(review ? {review} : {}), memory: { ...memoryEntry(row), ...(review ? {review} : {}), ...fields, text: fields.body.replace(/\s+/g, " ").slice(0, 500), kind: input.kind, version: saved.version, updatedAt: stamp } };
+  const updatedByName = by ? await db.prepare("SELECT COALESCE(name,login) AS name FROM users WHERE github_id=?1").bind(String(by)).first() : null;
+  return { ...(review ? {review} : {}), memory: { ...memoryEntry(row), ...(review ? {review} : {}), ...fields, text: fields.body.replace(/\s+/g, " ").slice(0, 500), kind: input.kind, version: saved.version, updatedAt: stamp, updatedBy: by ? String(by) : null, updatedByName: updatedByName?.name || null } };
 }
 
 export async function memoryPage(db, orgId, agentId, { channel = '', cursor, query = '', kind = 'all', userId = null } = {}) {
@@ -98,9 +104,12 @@ export async function memoryPage(db, orgId, agentId, { channel = '', cursor, que
       after = value.slice(6);
     } catch { return { error: 'Invalid memory cursor.', status: 400 }; }
   }
-  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.title, d.description, d.body, d.version, d.updated_at, r.reviewed_version, r.evidence AS review_evidence, r.reviewed_by, r.reviewed_at
+  const {results = []} = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.title, d.description, d.body, d.version, d.updated_at, d.updated_by,
+      COALESCE(cu.name,cu.login) AS created_by_name, COALESCE(uu.name,uu.login) AS updated_by_name, r.reviewed_version, r.evidence AS review_evidence, r.reviewed_by, r.reviewed_at
     FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
+    LEFT JOIN users cu ON cu.github_id=m.created_by
+    LEFT JOIN users uu ON uu.github_id=d.updated_by
     LEFT JOIN hx_memory_reviews r ON r.memory_id=m.id AND r.org_id=m.org_id
     WHERE m.org_id=?1 AND m.agent_id=?2 AND COALESCE(s.channel,'') IN ('',?3)
       AND (?4 IS NULL OR m.created_at < ?4 OR (m.created_at = ?4 AND m.id < ?5))

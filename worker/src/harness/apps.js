@@ -362,10 +362,25 @@ export async function listVersions(db, orgId, id) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
   const { results } = await db
-    .prepare("SELECT version, note, created_by, created_at FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2 ORDER BY version DESC")
+    .prepare("SELECT v.version, v.definition, v.note, v.created_by, v.created_at, COALESCE(pu.name, pu.login) AS published_by_name FROM hx_app_versions v LEFT JOIN users pu ON pu.github_id = json_extract(v.definition, '$.custom.publishedBy') WHERE v.app_id = ?1 AND v.org_id = ?2 ORDER BY v.version DESC")
     .bind(id, orgId)
     .all();
-  return { versions: (results || []).map((v) => ({ version: v.version, note: v.note, createdBy: v.created_by, createdAt: v.created_at })) };
+  const currentPublishedAt = app.definition?.custom?.published ? app.definition.custom.publishedAt : null;
+  return { versions: (results || []).map((v) => {
+    let custom = null;
+    try { custom = JSON.parse(v.definition || "{}").custom || null; } catch {}
+    const published = typeof custom?.published === "string" && custom.published.trim().length > 0;
+    const commit = custom?.publishedCommit;
+    const release = published ? {
+      publishedAt: typeof custom.publishedAt === "string" ? custom.publishedAt : v.created_at,
+      publishedBy: typeof custom.publishedBy === "string" ? custom.publishedBy : v.created_by,
+      publishedByName: v.published_by_name || null,
+      source: typeof commit?.sha === "string" ? "github-commit" : "inline",
+      ...(typeof commit?.sha === "string" ? { commitSha: commit.sha } : {}),
+      current: Boolean(currentPublishedAt && currentPublishedAt === custom.publishedAt),
+    } : null;
+    return { version: v.version, note: v.note, createdBy: v.created_by, createdAt: v.created_at, release };
+  }) };
 }
 
 /// Go back to an earlier version — as a new version, so nothing is lost.

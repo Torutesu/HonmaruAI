@@ -151,7 +151,14 @@ export async function filterResponders(db, orgId, login, agents, { named = null,
 
 export async function listAgentMemories(db, orgId, agentId, { channel = "", userId = null } = {}) {
   const { results } = await db
-    .prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.title, d.description, d.body, d.version, d.updated_at FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id WHERE m.org_id = ?1 AND m.agent_id = ?2 AND (s.memory_id IS NULL OR s.channel = '' OR s.channel = ?4) AND (s.user_github_id IS NULL OR s.user_github_id = ?5) ORDER BY m.created_at DESC LIMIT ?3`)
+    .prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id,
+      d.title, d.description, d.body, d.version, d.updated_at, d.updated_by,
+      COALESCE(cu.name,cu.login) AS created_by_name, COALESCE(uu.name,uu.login) AS updated_by_name
+      FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id
+      LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id
+      LEFT JOIN users cu ON cu.github_id = m.created_by LEFT JOIN users uu ON uu.github_id = d.updated_by
+      WHERE m.org_id = ?1 AND m.agent_id = ?2 AND (s.memory_id IS NULL OR s.channel = '' OR s.channel = ?4)
+        AND (s.user_github_id IS NULL OR s.user_github_id = ?5) ORDER BY m.created_at DESC LIMIT ?3`)
     .bind(orgId, agentId, MAX_MEMORIES, channel, userId ? String(userId) : "")
     .all();
   return (results || []).map(memoryEntry);
@@ -172,9 +179,11 @@ export async function addAgentMemory(db, orgId, agentId, text, { by = null, sour
   const body = structured ? fields.body : String(text || "").replace(/\s+/g, " ").trim().slice(0, MAX_MEMORY_CHARS);
   const clean = body.replace(/\s+/g, " ").slice(0, MAX_MEMORY_CHARS);
   if (!clean) return { error: "Say what to remember." };
-  const dup = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.title, d.description, d.body, d.version, d.updated_at
+  const dup = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.title, d.description, d.body, d.version, d.updated_at, d.updated_by,
+      COALESCE(cu.name,cu.login) AS created_by_name, COALESCE(uu.name,uu.login) AS updated_by_name
     FROM hx_agent_memories m LEFT JOIN hx_memory_scopes s ON s.memory_id = m.id AND s.org_id = m.org_id
     LEFT JOIN hx_memory_entries d ON d.memory_id = m.id AND d.org_id = m.org_id
+    LEFT JOIN users cu ON cu.github_id = m.created_by LEFT JOIN users uu ON uu.github_id = d.updated_by
     WHERE m.org_id = ?1 AND m.agent_id = ?2 AND COALESCE(d.body, m.text) = ?3 AND COALESCE(s.channel, '') = ?4 AND COALESCE(s.kind, 'context') = ?5 AND COALESCE(s.user_github_id, '') = ?6 AND COALESCE(s.source_message_id, '') = ?7`)
     .bind(orgId, agentId, body, channel, kind, memoryOwner || "", sourceMessageId || "").first();
   if (dup) return { memory: memoryEntry(dup), duplicate: true };
@@ -188,8 +197,9 @@ export async function addAgentMemory(db, orgId, agentId, text, { by = null, sour
   if (structured) writes.push(db.prepare("INSERT INTO hx_memory_entries (memory_id, org_id, title, description, body, version, updated_by, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)")
     .bind(id, orgId, fields.title, fields.description, fields.body, by ? String(by) : null, stamp));
   await db.batch(writes);
+  const actor = by ? await db.prepare("SELECT COALESCE(name,login) AS name FROM users WHERE github_id=?1").bind(String(by)).first() : null;
   // The recent prompt index is bounded; saved memory is retained until explicitly removed.
-  return { memory: memoryEntry({ id, text: clean, source, channel, kind, user_github_id: memoryOwner, source_channel: sourceChannel, source_message_id: sourceMessageId, source_thread_id: sourceThreadId, created_by: by ? String(by) : null, created_at: stamp, ...(structured ? { ...fields, version: 1, updated_at: stamp } : {}) }) };
+  return { memory: memoryEntry({ id, text: clean, source, channel, kind, user_github_id: memoryOwner, source_channel: sourceChannel, source_message_id: sourceMessageId, source_thread_id: sourceThreadId, created_by: by ? String(by) : null, created_by_name: actor?.name || null, created_at: stamp, ...(structured ? { ...fields, version: 1, updated_by: by ? String(by) : null, updated_by_name: actor?.name || null, updated_at: stamp } : {}) }) };
 }
 
 export async function deleteAgentMemory(db, orgId, agentId, id, { channel = "", userId = null } = {}) {
