@@ -38,10 +38,12 @@ test('all four memory kinds can be selected',()=>{
 test('personal memory owners can manage only their personal entries without gaining shared edit rights',()=>{
  const shared={...memories[1],id:'shared',scope:'shared' as const}
  const personal={...memories[1],id:'personal',scope:'person' as const,isOwner:true}
- const edit=vi.fn(),forget=vi.fn(),review=vi.fn(),convert=vi.fn();let tree!:ReturnType<typeof create>
- act(()=>{tree=create(<AgentMemoryList memories={[shared,personal]} canEdit={false} busy={false} onForget={forget} onEdit={edit} onReview={review} onConvert={convert}/> )})
+ const edit=vi.fn(),forget=vi.fn(),review=vi.fn(),convert=vi.fn(),promote=vi.fn();let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<AgentMemoryList memories={[shared,personal]} canEdit={false} busy={false} onForget={forget} onEdit={edit} onReview={review} onConvert={convert} onPromote={promote}/> )})
  const buttons=tree.root.findAllByType('button')
- expect(buttons.map(button=>button.children.join(''))).toEqual(['Review memory','Edit memory','Forget'])
+ expect(buttons.map(button=>button.children.join(''))).toEqual(['Review memory','Request shared copy','Edit memory','Forget'])
+ act(()=>buttons.find(button=>button.children.includes('Request shared copy'))!.props.onClick())
+ expect(promote).toHaveBeenCalledWith(personal)
  act(()=>buttons.find(button=>button.children.includes('Edit memory'))!.props.onClick())
  expect(edit).toHaveBeenCalledWith(personal)
  expect(convert).not.toHaveBeenCalled()

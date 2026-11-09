@@ -2439,6 +2439,35 @@ CREATE TABLE IF NOT EXISTS hx_memory_review_history (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_memory_review_history ON hx_memory_review_history(org_id,memory_id,reviewed_at,id);
 
+/* Immutable requests and decisions for promoting an owned person memory into
+   Agent-shared knowledge. Content is copied only after approval. */
+CREATE TABLE IF NOT EXISTS hx_memory_promotion_requests (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  source_memory_id TEXT NOT NULL,
+  source_version INTEGER NOT NULL,
+  source_scope TEXT NOT NULL CHECK(source_scope='person'),
+  source_owner_id TEXT NOT NULL,
+  source_channel TEXT NOT NULL DEFAULT '',
+  requester_id TEXT NOT NULL,
+  requester_login TEXT NOT NULL,
+  request_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(org_id, requester_id, agent_id, request_key),
+  UNIQUE(org_id, agent_id, source_memory_id, source_version, requester_id)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_memory_promotion_requests_queue
+  ON hx_memory_promotion_requests(org_id,agent_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS hx_memory_promotion_decisions (
+  request_id TEXT PRIMARY KEY REFERENCES hx_memory_promotion_requests(id),
+  org_id TEXT NOT NULL,
+  decision TEXT NOT NULL CHECK(decision IN ('approved','rejected')),
+  decided_by TEXT NOT NULL,
+  decided_at TEXT NOT NULL,
+  shared_memory_id TEXT
+);
+
 INSERT OR IGNORE INTO hx_memory_review_history (id,memory_id,org_id,reviewed_version,verdict,evidence,reviewed_by,reviewed_at)
 SELECT 'legacy:' || r.memory_id,r.memory_id,r.org_id,r.reviewed_version,'keep',r.evidence,r.reviewed_by,r.reviewed_at
 FROM hx_memory_reviews r WHERE NOT EXISTS (

@@ -1,5 +1,6 @@
 import { AgentMemoryConversion } from '../components/AgentMemoryConversion'
 import { AgentMemoryHistory } from '../components/AgentMemoryHistory'
+import { AgentMemoryPromotions } from '../components/AgentMemoryPromotions'
 import { AgentMemoryReview } from '../components/AgentMemoryReview'
 import { AgentFollowups } from '../components/AgentFollowups'
 import { AgentAccessDialog } from '../components/AgentAccessDialog'
@@ -126,6 +127,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [remember, setRemember] = useState('')
   const [memoryKind, setMemoryKind] = useState<MemoryKind>('context')
   const [memorySharing, setMemorySharing] = useState<'shared'|'personal'>('shared')
+  const [promotionRevision, setPromotionRevision] = useState(0)
   const [people, setPeople] = useState('')
   const [saved, setSaved] = useState(false)
   const [wakeGrants, setWakeGrants] = useState<Array<{id:string;sourceAgentId:string;targetAgentId:string;room:string;thread:string;scope:string;expiresAt:string|null;useLimit:number|null;useCount:number;state:string}>>([])
@@ -155,6 +157,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         ++memoryLoad.current
         setProfile(null); setCanEdit(false); setPeople(''); setAgentApps(null); setNativeConnections(null)
         setMemories([]); setMemoryCursor(null); setSkills([]); setAllSkills([]); setMemoryScopes([])
+        setPromotionRevision(value => value + 1)
         setHistoryMemory(null); setConvertingMemory(null); setReviewingMemory(null); setMemoryDraft(null); setRemember('')
         void load()
       }
@@ -399,11 +402,12 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
           if (version === memoryLoad.current) setMemories(current => [result.memory, ...current.filter(item => item.id !== result.memory.id)])
         }}/>}
         <button className="btn-text" onClick={() => setHistoryMemory('all')}>{t('Review log')}</button>
+        <AgentMemoryPromotions key={`${agent.id}:${memoryChannel}`} refreshKey={promotionRevision} load={() => api.memoryPromotions(agent.id)} decide={(id, decision) => api.decideMemoryPromotion(agent.id, id, decision)} />
         {historyMemory === 'all' && <AgentMemoryHistory key={`log:${memoryChannel}`} onClose={() => setHistoryMemory(null)} load={cursor => api.memoryReviewLog(agent.id, memoryChannel, cursor)}/>}
         {historyMemory && historyMemory !== 'all' && <AgentMemoryHistory key={historyMemory.id} memory={historyMemory} onClose={() => setHistoryMemory(null)} load={cursor => api.memoryReviews(agent.id, historyMemory.id, historyMemory.channel ? memoryChannel : '', cursor)}/>}
         {convertingMemory && <AgentMemoryConversion key={convertingMemory.id} memory={convertingMemory} agentName={agent.name} conversationName={memoryScopes.find(scope=>scope.channel===memoryChannel)?.label} onClose={()=>{setConvertingMemory(null);void load()}} onSave={(keep,requestId)=>api.convertMemory(agent.id,convertingMemory,convertingMemory.channel?memoryChannel:'',keep,requestId).then(()=>{})}/>}
         {reviewingMemory && <AgentMemoryReview memory={reviewingMemory} onClose={() => { setReviewingMemory(null); void load() }} onSave={(evidence, entry, remove) => api.reviewMemory(agent.id, reviewingMemory, evidence, reviewingMemory.channel ? memoryChannel : '', entry, remove).then(() => {})}/>}
-        <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} filtered={Boolean(memorySearch.query || memorySearch.kind !== 'all')} loading={busy === 'load' || busy === 'memory-page'} onSearch={(query, kind) => { memoryLoad.current++; setMemories([]); setMemoryCursor(null); setMemorySearch({ query, kind }) }} canEdit={canEdit} busy={busy !== null} onEdit={setMemoryDraft} onReview={setReviewingMemory} onConvert={setConvertingMemory} onHistory={setHistoryMemory} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
+        <AgentMemoryList key={`${props.orgId}:${agent.id}:${memoryChannel}`} memories={memories} filtered={Boolean(memorySearch.query || memorySearch.kind !== 'all')} loading={busy === 'load' || busy === 'memory-page'} onSearch={(query, kind) => { memoryLoad.current++; setMemories([]); setMemoryCursor(null); setMemorySearch({ query, kind }) }} canEdit={canEdit} busy={busy !== null} onEdit={setMemoryDraft} onReview={setReviewingMemory} onConvert={setConvertingMemory} onHistory={setHistoryMemory} onPromote={memory => act(`promote:${memory.id}`, async () => { await api.promoteMemory(agent.id, memory, `mem-promo-${crypto.randomUUID().replaceAll('-', '')}`); setPromotionRevision(value => value + 1) })} onForget={m => act(`forget:${m.id}`, async () => { await api.forget(agent.id, m.id, m.channel ? memoryChannel : ''); setMemories(x => x.filter(y => y.id !== m.id)) })} />
         {memoryCursor && <button className="btn-text" disabled={busy !== null} onClick={() => act('memory-page', async () => {
           const version = memoryLoad.current
           const page = await api.memoryPage(agent.id, memoryChannel, memoryCursor, memorySearch)

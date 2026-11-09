@@ -985,3 +985,65 @@ test("person memory owners can edit, review, and delete only their own entry", a
   expect((await get(`${item}/reviews?${q({ orgId: ORG })}`, toru)).status).toBe(200);
   expect((await (await get(`${item}/reviews?${q({ orgId: ORG })}`, toru)).json()).reviews).toEqual([]);
 });
+
+test('KY-030 promotion exposes only submitted personal memory and approval copies it without changing the private source', async () => {
+  const made=await send('POST',`/hx/agents/${agentId}/memory`,kenji,{orgId:ORG,title:'Private playbook',description:'Submitted for review',body:'Check the vendor account before invoicing',kind:'reference'});
+  expect(made.status).toBe(201);
+  const source=(await made.json()).memory;
+  expect(source.scope).toBe('person');
+  expect((await (await get(`/hx/agents/${agentId}/memory?${q({orgId:ORG})}`,mika)).json()).memories.map(row=>row.id)).not.toContain(source.id);
+  const requestPath=`/hx/agents/${agentId}/memory/promotions`;
+  const proposed=await send('POST',requestPath,kenji,{orgId:ORG,memoryId:source.id,expectedVersion:source.version,requestKey:'promote-v1'});
+  expect(proposed.status).toBe(201);
+  const proposal=(await proposed.json()).request;
+  expect(proposal).toMatchObject({memoryId:source.id,sourceVersion:1,status:'pending',scope:'person'});
+  const duplicate=await send('POST',requestPath,kenji,{orgId:ORG,memoryId:source.id,expectedVersion:1,requestKey:'new-browser-key'});
+  expect(duplicate.status).toBe(200);
+  expect((await duplicate.json()).request.id).toBe(proposal.id);
+  const queue=await (await get(`${requestPath}?${q({orgId:ORG})}`,mika)).json();
+  expect(queue.canDecide).toBe(true);
+  expect(queue.requests[0]).toMatchObject({id:proposal.id,sourceCurrent:true,sourceAccess:true,source:{title:'Private playbook',body:'Check the vendor account before invoicing'}});
+  const approved=await send('PUT',`${requestPath}/${proposal.id}`,mika,{orgId:ORG,decision:'approve'});
+  expect(approved.status).toBe(200);
+  const decision=(await approved.json()).request;
+  expect(decision).toMatchObject({status:'approved',memoryId:source.id,sharedMemoryId:expect.any(String)});
+  expect(decision.sharedMemoryId).not.toBe(source.id);
+  const ownerRows=(await (await get(`/hx/agents/${agentId}/memory?${q({orgId:ORG})}`,kenji)).json()).memories;
+  const sharedRows=(await (await get(`/hx/agents/${agentId}/memory?${q({orgId:ORG})}`,mika)).json()).memories;
+  expect(ownerRows.find(row=>row.id===source.id)).toMatchObject({scope:'person',body:'Check the vendor account before invoicing'});
+  expect(ownerRows.find(row=>row.id===decision.sharedMemoryId)).toMatchObject({scope:'shared',body:'Check the vendor account before invoicing'});
+  expect(sharedRows.find(row=>row.id===source.id)).toBeUndefined();
+  expect(sharedRows.find(row=>row.id===decision.sharedMemoryId)).toMatchObject({scope:'shared',body:'Check the vendor account before invoicing'});
+  const replay=await send('PUT',`${requestPath}/${proposal.id}`,mika,{orgId:ORG,decision:'approve'});
+  expect((await replay.json()).request.sharedMemoryId).toBe(decision.sharedMemoryId);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM hx_agent_memories WHERE org_id=?1 AND agent_id=?2 AND text=?3').bind(ORG,agentId,'Check the vendor account before invoicing').first()).count).toBe(2);
+});
+
+test('KY-030 rejects cross-owner and cross-Agent sources and non-admin decisions without leaking their contents', async () => {
+  const privateRow=(await (await send('POST',`/hx/agents/${agentId}/memory`,kenji,{orgId:ORG,title:'Kenji only',body:'secret phrase',kind:'reference'})).json()).memory;
+  const otherAgent=(await (await send('POST','/channels/agents',kenji,{orgId:ORG,name:'Other agent',handle:'other-agent',instructions:'Other'})).json()).agent;
+  const path=`/hx/agents/${agentId}/memory/promotions`;
+  expect((await send('POST',path,mika,{orgId:ORG,memoryId:privateRow.id,expectedVersion:1,requestKey:'foreign-owner'})).status).toBe(409);
+  expect((await send('POST',`/hx/agents/${otherAgent.id}/memory/promotions`,kenji,{orgId:ORG,memoryId:privateRow.id,expectedVersion:1,requestKey:'foreign-agent'})).status).toBe(409);
+  const proposal=(await (await send('POST',path,kenji,{orgId:ORG,memoryId:privateRow.id,expectedVersion:1,requestKey:'admin-check'})).json()).request;
+  const denied=await send('PUT',`${path}/${proposal.id}`,toru,{orgId:ORG,decision:'approve'});
+  expect(denied.status).toBe(403);
+  const outsider=(await (await get(`${path}?${q({orgId:ORG})}`,toru)).json());
+  expect(outsider.canDecide).toBe(false);
+  expect(outsider.requests).toEqual([]);
+  expect(JSON.stringify(outsider)).not.toContain('secret phrase');
+});
+
+test.each(['edit','delete'])('KY-030 approval creates no shared copy after source %s', async operation => {
+  const source=(await (await send('POST',`/hx/agents/${agentId}/memory`,kenji,{orgId:ORG,title:'Source',body:'Version one private',kind:'reference'})).json()).memory;
+  const path=`/hx/agents/${agentId}/memory/promotions`;
+  const proposal=(await (await send('POST',path,kenji,{orgId:ORG,memoryId:source.id,expectedVersion:1,requestKey:`stale-${operation}`})).json()).request;
+  if(operation==='edit') await send('PUT',`/hx/agents/${agentId}/memory/${source.id}`,kenji,{orgId:ORG,title:'Changed',body:'Version two private',kind:'reference',expectedVersion:1});
+  else await call(`/hx/agents/${agentId}/memory/${source.id}?${q({orgId:ORG})}`,{method:'DELETE',headers:headers(kenji)});
+  const queue=await(await get(`${path}?${q({orgId:ORG})}`,mika)).json();
+  expect(queue.requests[0]).toMatchObject({id:proposal.id,sourceCurrent:false,source:null});
+  const result=await send('PUT',`${path}/${proposal.id}`,mika,{orgId:ORG,decision:'approve'});
+  expect(result.status).toBe(409);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM hx_agent_memories WHERE org_id=?1 AND agent_id=?2 AND text=?3').bind(ORG,agentId,'Version one private').first()).count).toBe(0);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM hx_memory_promotion_decisions WHERE request_id=?1').bind(proposal.id).first()).count).toBe(0);
+});
