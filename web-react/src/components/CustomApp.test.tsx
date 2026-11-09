@@ -20,7 +20,8 @@ test('custom app history distinguishes the active published release from a resto
   expect(statuses[1]).toContain('公開した版')
   expect(tree!.root.findAllByType('p').some(node => node.children.join('').includes('公開されていない版'))).toBe(true)
   const buttons = tree!.root.findAllByType('button')
-  act(() => { buttons[1].props.onClick() })
+  expect(buttons[0].children.join('')).toBe('この公開版を下書きに復元')
+  act(() => { buttons[0].props.onClick() })
   expect(restore).toHaveBeenCalledWith(3)
 })
 test('generated code cannot mutate data before host approval or choose another table', async () => {
