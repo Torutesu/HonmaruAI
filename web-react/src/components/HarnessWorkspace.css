@@ -1105,6 +1105,7 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-message-visual button[aria-pressed="true"]{background:var(--hx-chip-surface,var(--hx-hover));color:var(--hx-text);border-color:var(--hx-accent)}
 .hx-message-chart-scroll{position:relative;min-width:0;overflow-x:auto}
 .hx-message-chart-scroll svg{display:block;width:100%;min-width:440px;height:auto;max-height:300px;overflow:visible}
+.hx-message-illustration>svg{display:block;width:100%;max-height:min(560px,72vh);aspect-ratio:1;border-radius:10px;background:var(--hx-app-surface,var(--hx-surface));color:var(--hx-text)}
 .hx-message-chart-grid{stroke:var(--hx-border);stroke-width:1;stroke-dasharray:3 4}
 .hx-message-chart-axis{stroke:var(--hx-muted);stroke-width:1}
 .hx-message-chart-label{fill:var(--hx-muted);font-size:11px}
