@@ -709,10 +709,10 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "再開時に完了済み外部操作を繰り返さない",
+      "acceptance": "通常のWorkflow stepは凍結定義hashに基づくfenced leaseで実行を排他し、完了結果を再利用する。期限切れのeffectful stepは結果不明として再送しない。D1副作用との原子的commitとTypeScript SDKの全Runtime parityは引き続き必要",
       "evidence": {
-        "verified": "Unreleased candidate 966084c1 (CI 40114790679) includes saved whole-program TypeScript forms, frozen job admission, isolated top-level SDK state.get/set transport, D1 CAS/metadata/retention, current permission fences, terminal recovery and code/history UI. Focused Worker coverage passed 108 tests plus 26 program regressions; Web UI 32 tests/build and gateway/dependency/migration 35 tests passed. Earlier real Mac VM smoke validated the SDK bridge with an in-memory callback only. Candidate CI is still running.",
-        "remaining": "Candidate full CI and browser screenshots, production deployment/runtime install and a real VM-to-D1 production round trip remain unverified. Broader SDK agent/tool/external-effect operations, general multi-step resume and complete Kylon runtime parity remain missing. No 100% or external-effect replay guarantee is claimed."
+        "verified": "The existing TypeScript program checkpoint path remains available. This batch adds per-step definition-hash claims and fenced leases for ordinary Workflow steps, heartbeats long-running steps, persists bounded results and reuses them on redelivery. A failed/expired effectful step becomes outcome-unknown and is not dispatched again. Exact-head CI and release evidence are tracked in verification.md.",
+        "remaining": "Same-D1 row mutations and checkpoint completion are not yet committed atomically; ambiguous outcomes need an explicit operator-resolution UI; TypeScript SDK/tool runtime parity, broad continuation recovery, production browser verification and complete Kylon runtime parity remain open. This is partial at-most-once protection, not an exactly-once guarantee."
       }
     },
     {
