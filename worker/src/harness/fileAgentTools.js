@@ -1,4 +1,5 @@
 import {documentAgentTools} from './documentAgentTools.js';
+import {mediaAgentTools} from './mediaGeneration.js';
 import {getMode} from './mode.js';
 import {fileScopeAuthority} from './fileAuthority.js';
 import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
@@ -52,7 +53,8 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
   }];
  }));
  const publicShareTool=publicFileShareTool({env,orgId,userId,login:user.login,fileScope,sourceAgentId:owner.id,sourceMessageId,sessionToken:session.token,taint,current});
- return {...fileTools,request_public_file_share:publicShareTool,...await documentAgentTools(env,{actor,fileScope,current,taint,fileUrl:fileId=>conversationFileUrl(env.APP_WEB_URL,{orgId,fileScope,fileId})})};
+ const fileUrl=fileId=>conversationFileUrl(env.APP_WEB_URL,{orgId,fileScope,fileId});
+ return {...fileTools,request_public_file_share:publicShareTool,...await documentAgentTools(env,{actor,fileScope,current,taint,fileUrl}),...await mediaAgentTools(env,{actor,fileScope,current,taint,fileUrl})};
 }
 
 

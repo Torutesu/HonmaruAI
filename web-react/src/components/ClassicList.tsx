@@ -4585,7 +4585,7 @@ export const ClassicList: React.FC<Props> = ({
   // Structured inline visuals are a Harness feature. Keep the Simple message
   // renderer byte-for-byte on its existing rich-text path.
   const rich = (text: string) => harness
-    ? <MessageVisualText text={text} renderText={richText} />
+    ? <MessageVisualText text={text} renderText={richText} api={api} />
     : richText(text)
   /// Whether a message calls you (utils/mentionsMe.ts): read from what was
   /// written, not a translation of it; an unsent one calls nobody.

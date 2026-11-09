@@ -7,6 +7,7 @@ import { prepareAppGuidelines } from './appGuidelinesFence.js';
 import { mayUseDatabase } from './databaseAccess.js';
 import { mayGenerateFromSchema, finishSchemaGeneration } from './generationAccess.js';
 import {handleDocuments,isDocumentNodeRoute} from './documentRoutes.js';
+import {handleMediaJobs} from './mediaGenerationRoutes.js';
 import { createSkillShare, finalizeSkillShare, listSkillShares, revokeSkillShare, readSkillShare, downloadSkillShare, importSkillShare, mayDeliverImportedSkill } from './skillShares.js';
 import { currentSkillPolicy } from './skillPolicyProof.js';
 import {workflowRevisions,restoreWorkflowRevision} from './workflowRevisions.js';
@@ -171,6 +172,7 @@ export async function handleHarness(request, env, url, context = {}) {
   }
 
   if (isDocumentNodeRoute(url.pathname)||/^\/hx\/documents(?:\/|$)/.test(url.pathname)) return handleDocuments(request,env,url);
+  if (/^\/hx\/media-jobs(?:\/|$)/.test(url.pathname)) return handleMediaJobs(request,env,url);
 
   if (/^\/hx\/files(?:\/|$)/.test(url.pathname)) {
     const orgId=url.searchParams.get('orgId'),who=await member(env,request,orgId);

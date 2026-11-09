@@ -1,7 +1,7 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
-import { describe, expect, it } from 'vitest'
-import { MessageVisualization, parseMessageVisualization, splitMessageVisualizations, type MessageChart, type MessageExplainer } from './MessageVisualization'
+import { describe, expect, it, vi } from 'vitest'
+import { MessageVisualization, parseMessageVisualization, splitMessageVisualizations, type MessageChart, type MessageExplainer, type MessageImageJob } from './MessageVisualization'
 
 const chart = {
   type: 'chart', title: 'Quarterly revenue', chart: 'bar', categories: ['Q1', 'Q2'],
@@ -17,6 +17,8 @@ describe('message visualizations', () => {
       { type: 'line', x1: 320, y1: 80, x2: 500, y2: 80, stroke: 'currentColor', strokeWidth: 8 },
       { type: 'text', x: 40, y: 90, text: 'Agent A' },
     ] }))?.type).toBe('illustration')
+    expect(parseMessageVisualization(JSON.stringify({type:'image_job',title:'Generate an image',jobId:'job-123'}))).toEqual({type:'image_job',title:'Generate an image',jobId:'job-123'})
+    expect(parseMessageVisualization(JSON.stringify({type:'image_job',title:'Generate an image',jobId:'job-123',openUrl:'https://evil.example'}))).toBeNull()
   })
 
   it('rejects malformed, oversized and executable-looking payloads as visuals', () => {
@@ -64,5 +66,31 @@ describe('message visualizations', () => {
     expect(tree.root.findAllByType('rect')).toHaveLength(1)
     expect(tree.root.findAllByType('img')).toHaveLength(0)
     expect(JSON.stringify(tree.toJSON())).toContain('<img src=x>')
+  })
+
+  it('requires an explicit variable-cost confirmation before approving an image job', async () => {
+    const value:MessageImageJob={type:'image_job',title:'Image generation',jobId:'job-123'}
+    const originalFetch=globalThis.fetch
+    const fetchMock=vi.fn(async (input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=String(input)
+      if(!init?.method)return new Response(JSON.stringify({job:{status:'awaiting_approval',prompt:'A red bicycle beside a cedar tree',model:'gpt-image-2.6-flare',size:'1024x1024',quality:'low'}}),{status:200})
+      expect(url).toContain('/hx/media-jobs/job-123/approve?orgId=org-1')
+      expect(JSON.parse(String(init.body))).toEqual({confirmCostVariability:true})
+      return new Response(JSON.stringify({job:{status:'succeeded',fileId:'f1',openUrl:'https://honmaru.example/#/c/ag%3Aa?file=f1'}}),{status:200})
+    })
+    globalThis.fetch=fetchMock as typeof fetch
+    let tree!:ReturnType<typeof create>
+    try{
+      await act(async()=>{tree=create(<MessageVisualization value={value} api={{httpBase:'https://honmaru.example',orgId:'org-1',sessionToken:'session'}}/>);await Promise.resolve()})
+      const approve=()=>tree.root.findAllByType('button').find(button=>button.children.join('')==='Approve and generate')!
+      expect(approve().props.disabled).toBe(true)
+      expect(JSON.stringify(tree.toJSON())).toContain('A red bicycle beside a cedar tree')
+      const checkbox=tree.root.findByType('input')
+      await act(async()=>{checkbox.props.onChange({target:{checked:true}})})
+      expect(approve().props.disabled).toBe(false)
+      await act(async()=>{approve().props.onClick();await Promise.resolve();await Promise.resolve()})
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(tree.root.findAllByType('a').some(link=>link.props.href.includes('file=f1'))).toBe(true)
+    }finally{globalThis.fetch=originalFetch}
   })
 })
