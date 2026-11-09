@@ -24,8 +24,10 @@ import { callRemoteMcpTool } from "./harness/remoteMcp.js";
 import { agentRoomHistoryTools } from "./harness/agentRoomHistory.js";
 
 export function agentInstructionsForTools(instructions, tools) {
-  if (!["list_document_nodes", "create_document", "get_document_status"].every(name => typeof tools?.[name]?.run === "function")) return instructions;
-  return `${instructions}\n\nWhen the user requests a PDF or Word document and these tools are available, use list_document_nodes, create_document, and get_document_status to complete the request in this private conversation. This capability complements your specialty. Do not ask the user to grant a capability already included in this turn's tool list, and do not claim a listed tool is unavailable unless it returns an error. Confirm success with get_document_status and include only the returned file link.`;
+  let result=instructions;
+  if (["list_document_nodes", "create_document", "get_document_status"].every(name => typeof tools?.[name]?.run === "function")) result+=`\n\nWhen the user requests a PDF or Word document and these tools are available, use list_document_nodes, create_document, and get_document_status to complete the request in this private conversation. This capability complements your specialty. Do not ask the user to grant a capability already included in this turn's tool list, and do not claim a listed tool is unavailable unless it returns an error. Confirm success with get_document_status and include only the returned file link.`;
+  if (typeof tools?.prepare_image_generation?.run==='function'&&typeof tools?.get_image_generation_status?.run==='function') result+="\n\nWhen the user asks for an image in this private Harness conversation, prepare it with prepare_image_generation. This only creates a pending job; do not call or claim provider execution. Present the pending approval in a fenced ```honmaru-visual JSON block with {\"type\":\"image_job\",\"title\":\"Image generation\",\"jobId\":\"<returned id>\"}. A person must approve the variable provider charge in that card. Check get_image_generation_status before claiming completion, and provide only its returned file link.";
+  return result;
 }
 
 const query = (what) => ({

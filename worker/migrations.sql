@@ -514,3 +514,8 @@ CREATE TRIGGER IF NOT EXISTS hx_app_publish_revoke_requester_removal AFTER DELET
 -- #845: the chat's own waits, measured from the apps.
 CREATE TABLE IF NOT EXISTS perf_samples ( kind TEXT NOT NULL, value REAL NOT NULL, client TEXT NOT NULL, created_at TEXT NOT NULL );
 CREATE INDEX IF NOT EXISTS perf_samples_kind_at ON perf_samples(kind, created_at);
+
+-- Human-approved, workspace-key image generation jobs.
+CREATE TABLE IF NOT EXISTS hx_media_generation_jobs (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, created_by TEXT NOT NULL, scope TEXT NOT NULL, request_id TEXT NOT NULL, model TEXT NOT NULL, size TEXT NOT NULL, quality TEXT NOT NULL, prompt TEXT NOT NULL, estimated_micros INTEGER, status TEXT NOT NULL CHECK(status IN ('awaiting_approval','queued','running','succeeded','failed','cancelled')), created_at INTEGER NOT NULL, approved_at INTEGER, started_at INTEGER, finished_at INTEGER, file_id TEXT, file_version INTEGER, error_code TEXT, provider_request_id TEXT, lease_hash TEXT, lease_until INTEGER, deadline INTEGER, UNIQUE(org_id,created_by,request_id));
+CREATE INDEX IF NOT EXISTS hx_media_generation_queue ON hx_media_generation_jobs(status,created_at,id);
+CREATE INDEX IF NOT EXISTS hx_media_generation_history ON hx_media_generation_jobs(org_id,created_by,scope,created_at DESC,id DESC);

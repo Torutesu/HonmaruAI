@@ -21,7 +21,8 @@ export type IllustrationElement =
   | { type: 'polygon'; points: Array<[number, number]>; fill?: string; stroke?: string; strokeWidth?: number }
   | { type: 'text'; x: number; y: number; text: string; fontSize?: number; fill?: string; anchor?: 'start' | 'middle' | 'end'; bold?: boolean }
 export type MessageIllustration = { type: 'illustration'; title: string; description?: string; elements: IllustrationElement[] }
-export type MessageVisualizationData = MessageChart | MessageExplainer | MessageIllustration
+export type MessageImageJob = { type: 'image_job'; title: string; jobId: string }
+export type MessageVisualizationData = MessageChart | MessageExplainer | MessageIllustration | MessageImageJob
 export type MessageSegment = { kind: 'text'; text: string } | { kind: 'visualization'; value: MessageVisualizationData }
 
 const MAX_SOURCE = 16_000
@@ -98,6 +99,8 @@ export function parseMessageVisualization(source: string): MessageVisualizationD
     if (elements.some(element => element === null)) return null
     return { type: 'illustration', title: value.title as string, ...(typeof value.description === 'string' ? { description: value.description } : {}), elements: elements as IllustrationElement[] }
   }
+  if (value.type === 'image_job' && onlyKeys(value, ['type','title','jobId']) && typeof value.jobId === 'string' && /^[\w-]{1,100}$/.test(value.jobId))
+    return { type: 'image_job', title: value.title as string, jobId: value.jobId }
   return null
 }
 
@@ -120,8 +123,32 @@ export function splitMessageVisualizations(source: string): MessageSegment[] {
 
 const PALETTE = ['var(--hx-accent, #6657d9)', '#1d9a80', '#d1872a', '#cf6072']
 
-export function MessageVisualization({ value }: { value: MessageVisualizationData }) {
-  return value.type === 'chart' ? <ChartCard value={value} /> : value.type === 'explainer' ? <ExplainerCard value={value} /> : <IllustrationCard value={value} />
+export type MediaJobApi = { httpBase: string; orgId: string; sessionToken: string }
+export function MessageVisualization({ value, api }: { value: MessageVisualizationData; api?: MediaJobApi }) {
+  return value.type === 'chart' ? <ChartCard value={value} /> : value.type === 'explainer' ? <ExplainerCard value={value} /> : value.type === 'illustration' ? <IllustrationCard value={value} /> : <ImageJobCard value={value} api={api} />
+}
+
+function ImageJobCard({value,api}:{value:MessageImageJob;api?:MediaJobApi}){
+ const [job,setJob]=useState<{status:string;prompt?:string;model?:string;size?:string;quality?:string;fileId?:string;openUrl?:string;errorCode?:string}|null>(null),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false),[error,setError]=useState('')
+ const load=async()=>{
+  if(!api)return
+  const query=new URLSearchParams({orgId:api.orgId})
+  const response=await fetch(`${api.httpBase}/hx/media-jobs/${encodeURIComponent(value.jobId)}?${query}`,{headers:{'x-session-token':api.sessionToken}})
+  const data=await response.json().catch(()=>null)
+  if(!response.ok||!data?.job)throw Error(data?.message||'Image job is unavailable.')
+  setJob(data.job)
+ }
+ React.useEffect(()=>{let active=true;void load().catch(e=>active&&setError(e.message));return()=>{active=false}},[api?.httpBase,api?.orgId,api?.sessionToken,value.jobId])
+ React.useEffect(()=>{if(!job||!['queued','running'].includes(job.status)||!api)return;let active=true;const timer=setInterval(()=>{void load().catch(e=>active&&setError(e.message))},3000);return()=>{active=false;clearInterval(timer)}},[job?.status,api?.httpBase,api?.orgId,api?.sessionToken,value.jobId])
+ const act=async(action:'approve'|'cancel')=>{if(!api)return;setBusy(true);setError('');try{const response=await fetch(`${api.httpBase}/hx/media-jobs/${encodeURIComponent(value.jobId)}/${action}?orgId=${encodeURIComponent(api.orgId)}`,{method:'POST',headers:{'content-type':'application/json','x-session-token':api.sessionToken},body:JSON.stringify(action==='approve'?{confirmCostVariability:true}:{})});const data=await response.json().catch(()=>null);if(!response.ok||!data?.job)throw Error(data?.message||'Image request failed.');setJob(data.job);setConfirm(false)}catch(e){setError(e instanceof Error?e.message:'Image request failed.')}finally{setBusy(false)}}
+ const status=job?.status
+ return <section className="hx-message-visual hx-image-job" aria-label={value.title}>
+  <header className="hx-message-visual-head"><div><h3>{value.title}</h3><p>{status==='awaiting_approval'?'Ready for your approval':status==='queued'?'Queued':status==='running'?'Generating image':status==='succeeded'?'Image ready':status==='failed'?'Generation failed':status==='cancelled'?'Cancelled':'Checking image job'}</p></div></header>
+  {status==='awaiting_approval'&&<div className="hx-image-job-approval"><p className="hx-image-job-prompt">{job?.prompt}</p><p>{job?.model} · {job?.size} · {job?.quality}</p><p>Approving sends this prompt to OpenAI using the workspace key and incurs a variable charge. The exact amount depends on generated output. Review your provider usage limits before continuing.</p><label><input type="checkbox" checked={confirm} onChange={event=>setConfirm(event.target.checked)}/> I understand the prompt is sent to OpenAI and provider charges vary. Approve this generation.</label><button type="button" disabled={!confirm||busy} onClick={()=>void act('approve')}>{busy?'Approving…':'Approve and generate'}</button><button type="button" disabled={busy} onClick={()=>void act('cancel')}>Cancel</button></div>}
+  {status==='queued'&&<p role="status">Waiting for the image worker.</p>}{status==='running'&&<p role="status">The image worker is generating your image.</p>}
+  {status==='succeeded'&&job?.openUrl&&<a href={job.openUrl}>Open generated image</a>}{status==='failed'&&<p role="status">This request ended without an automatic retry. Reference: {job?.errorCode||'provider_error'}.</p>}
+  {error&&<p role="alert">{error}</p>}
+ </section>
 }
 
 function IllustrationCard({ value }: { value: MessageIllustration }) {
@@ -193,9 +220,9 @@ function ExplainerCard({ value }: { value: MessageExplainer }) {
   </section>
 }
 
-export function MessageVisualText({ text, renderText }: { text: string; renderText: (text: string) => React.ReactNode }) {
+export function MessageVisualText({ text, renderText, api }: { text: string; renderText: (text: string) => React.ReactNode; api?: MediaJobApi }) {
   const segments = useMemo(() => splitMessageVisualizations(text), [text])
   return <>{segments.map((segment, index) => segment.kind === 'visualization'
-    ? <MessageVisualization key={`visual-${index}`} value={segment.value} />
+    ? <MessageVisualization key={`visual-${index}`} value={segment.value} api={api} />
     : <React.Fragment key={`text-${index}`}>{renderText(segment.text)}</React.Fragment>)}</>
 }
