@@ -2067,6 +2067,26 @@ test('stale recovery marks the actual later step unknown without replacing earli
  ]});
 });
 
+test('checkpoint replay returns committed add_row and update_row results without repeating row writes',async()=>{
+ const {createWorkflow,startRun,continueRun}=await import('../src/harness/workflows.js');
+ const seed=(await(await send('POST',`/tables/${invoices}/rows`,mika,{orgId:ORG,values:{Client:'Checkpoint replay',Status:'Draft'}})).json()).row;
+ const specs=[
+  {name:'Checkpoint add row',steps:[{type:'add_row',tableId:invoices,values:{Client:'Once only',Status:'Draft'}}]},
+  {name:'Checkpoint update row',steps:[{type:'update_row',tableId:invoices,rowId:seed.id,values:{Status:'Reviewed'}}]},
+ ];
+ for(const spec of specs){
+  const {workflow}=await createWorkflow(env.DB,ORG,{...spec,trigger:{type:'manual'}},'9302');
+  const first=await startRun(env,{orgId:ORG,workflow,trigger:'manual',input:{},startedBy:'9302'});
+  expect(first.status).toBe('done');
+  const before=await env.DB.prepare('SELECT data,updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(ORG,invoices,spec.name==='Checkpoint update row'?seed.id:first.log[0].rowId).first();
+  await env.DB.prepare("UPDATE hx_workflow_runs SET status='running',next_step=0,log='[]',finished_at=NULL WHERE org_id=?1 AND id=?2").bind(ORG,first.id).run();
+  const replay=await continueRun(env,{orgId:ORG,runId:first.id});
+  expect(replay.status).toBe('done');
+  const after=await env.DB.prepare('SELECT data,updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(ORG,invoices,spec.name==='Checkpoint update row'?seed.id:first.log[0].rowId).first();
+  expect(after).toEqual(before);
+ }
+});
+
 test('a redelivered continuation reuses a saved step result instead of posting twice',async()=>{
  const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Checkpoint result replay',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Already sent once'}]});
  const {workflow}=await created.json(),runId='run-step-checkpoint-replay',startedAt=new Date().toISOString();

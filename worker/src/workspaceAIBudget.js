@@ -1,4 +1,5 @@
 import { aad, openField } from './secrets.js';
+import { PRICES } from './ledger.js';
 
 // A workspace-wide guard for model usage that is paid by this deployment.
 // Amounts use the ledger's estimated list prices, never provider invoices or
@@ -13,6 +14,13 @@ const WINDOWS = [
 ];
 
 const usd = (micros) => Math.round((Number(micros) || 0)) / 1_000_000;
+// The ledger applies a fallback price to unknown model names for reporting.
+// Workspace pause decisions are stricter: that fallback may be lower than a
+// newly introduced model's real list price, so it cannot prove the configured
+// cap was respected. Explicit per-search and Jev entries have their own known
+// non-token pricing and remain trusted.
+const knownModelPredicate = `lower(model) IN ('web_search','jev-latest') OR ${Object.keys(PRICES)
+  .map((model) => `substr(lower(model),1,${model.length})='${model}'`).join(' OR ')}`;
 
 export async function workspaceAIBudgetStatus(db, orgId, now = Date.now(), savedSettings = null) {
   if (!db || !orgId) return null;
@@ -27,15 +35,20 @@ export async function workspaceAIBudgetStatus(db, orgId, now = Date.now(), saved
     COALESCE(SUM(MAX(0,ROUND(usd*1000000))),0) AS d30,
     SUM(CASE WHEN created_at>=?2 THEN 1 ELSE 0 END) AS c24,
     SUM(CASE WHEN created_at>=?3 THEN 1 ELSE 0 END) AS c7,
-    COUNT(*) AS c30
+    COUNT(*) AS c30,
+    SUM(CASE WHEN created_at>=?2 AND NOT (${knownModelPredicate}) THEN 1 ELSE 0 END) AS u24,
+    SUM(CASE WHEN created_at>=?3 AND NOT (${knownModelPredicate}) THEN 1 ELSE 0 END) AS u7,
+    SUM(CASE WHEN NOT (${knownModelPredicate}) THEN 1 ELSE 0 END) AS u30
     FROM ai_calls WHERE org_id=?1 AND byok=0 AND created_at>=?4 AND created_at<=?5`)
     .bind(orgId, new Date(now - DAY).toISOString(), new Date(now - 7 * DAY).toISOString(), since, at).first();
-  const values = { '24h': [usage?.d24, usage?.c24, config.daily_budget_micros], '7d': [usage?.d7, usage?.c7, config.weekly_budget_micros], '30d': [usage?.d30, usage?.c30, config.monthly_budget_micros] };
-  const periods = Object.fromEntries(Object.entries(values).map(([key, [used, calls, limit]]) => {
+  const values = { '24h': [usage?.d24, usage?.c24, usage?.u24, config.daily_budget_micros], '7d': [usage?.d7, usage?.c7, usage?.u7, config.weekly_budget_micros], '30d': [usage?.d30, usage?.c30, usage?.u30, config.monthly_budget_micros] };
+  const periods = Object.fromEntries(Object.entries(values).map(([key, [used, calls, unpriced, limit]]) => {
     const usedMicros = Math.max(0, Math.round(Number(used) || 0));
     const limitMicros = Math.max(0, Math.round(Number(limit) || 0));
+    const unpricedCalls = Math.max(0, Number(unpriced) || 0);
     return [key, { usedMicros, usedUsd: usd(usedMicros), calls: Number(calls) || 0,
       limitMicros, limitUsd: usd(limitMicros), exhausted: limitMicros > 0 && usedMicros >= limitMicros,
+      unpricedCalls, indeterminate: limitMicros > 0 && unpricedCalls > 0,
       warning: limitMicros > 0 && usedMicros >= limitMicros * 0.8 }];
   }));
   return { revision: Number(config.budget_revision) || 0,
@@ -45,7 +58,8 @@ export async function workspaceAIBudgetStatus(db, orgId, now = Date.now(), saved
 
 export function workspaceAIBudgetExceeded(status) {
   if (!status || status.action !== 'pause') return false;
-  return WINDOWS.some(([key]) => status.periods?.[key]?.exhausted);
+  return WINDOWS.some(([key]) => status.periods?.[key]?.limitMicros > 0
+    && (status.periods?.[key]?.exhausted || status.periods?.[key]?.indeterminate));
 }
 
 // Harness side effects that can continue work after a model request has
@@ -65,11 +79,14 @@ export async function workspaceBudgetAdmission(db, orgId, now = Date.now(), { ig
     }
     const status = await workspaceAIBudgetStatus(db, orgId, now, settings || {});
     if (!workspaceAIBudgetExceeded(status)) return { allowed: true, status };
+    const hasUnpriced = WINDOWS.some(([key]) => status.periods?.[key]?.limitMicros > 0 && status.periods?.[key]?.indeterminate);
     return {
       allowed: false,
       reason: 'workspace_ai_budget',
       status: 409,
-      message: "The workspace's estimated AI usage limit has been reached. An admin can raise the limit; the window also clears as older usage ages out.",
+      message: hasUnpriced
+        ? "The workspace AI usage includes a model without a known list price, so its configured usage limit cannot be verified. An admin can change the limit; the window clears as older usage ages out."
+        : "The workspace's estimated AI usage limit has been reached. An admin can raise the limit; the window also clears as older usage ages out.",
     };
   } catch (err) {
     console.error('workspace AI budget admission check failed', err?.message || err);
