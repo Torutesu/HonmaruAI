@@ -794,6 +794,13 @@ test('strict record contract rejects invalid fields atomically while legacy coer
   expect(spec.openapi).toBe('3.1.0');
   expect(spec.components.schemas.Values.additionalProperties).toBe(false);
   expect(spec.components.schemas.Values.properties.amount.type).toEqual(['number', 'null']);
+  expect(spec.components.schemas.RowPage.properties.nextOffset.type).toEqual(['integer', 'null']);
+  expect(spec.paths[`/tables/${table.id}`].get.operationId).toBe('listTableRows');
+  expect(spec.paths[`/tables/${table.id}`].get.parameters.map(parameter => parameter.name)).toEqual(['orgId', 'limit', 'offset', 'q', 'sort', 'where']);
+  expect(spec.paths[`/tables/${table.id}`].get.parameters.find(parameter => parameter.name === 'sort').schema.enum).toEqual(['amount', '-amount', 'day', '-day', 'link', '-link', 'done', '-done', 'stage', '-stage']);
+  expect(spec.paths[`/tables/${table.id}`].get.responses[200].content['application/json'].schema).toEqual({ $ref: '#/components/schemas/RowPage' });
+  expect(spec.paths[`/tables/${table.id}/rows/{rowId}`].patch.requestBody.content['application/json'].schema.properties.expectedUpdatedAt.format).toBe('date-time');
+  expect(spec.paths[`/tables/${table.id}/rows/{rowId}`].delete.responses[200].content['application/json'].schema).toEqual({ $ref: '#/components/schemas/DeleteResult' });
   expect((await get(`/tables/${table.id}/contract?orgId=${ORG}`, outsider)).status).toBe(403);
   for (const values of [{ amount: '120' }, { day: '2026-02-30' }, { link: 'https://' }, { done: 'yes' }, { stage: 'Closed' }, { unknown: 1 }, { constructor: 'bad' }, [], null]) {
     const invalid = await send('POST', `/tables/${table.id}/rows`, mika, { orgId: ORG, values, validation: 'strict' });
@@ -870,6 +877,29 @@ test('custom releases require owner permission, separate drafts and reject stale
   current = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
   expect(current.app.definition.custom.published).toBeUndefined();
   expect(current.app.definition.custom.draft).toBe(draft.html);
+});
+
+test('app version history identifies immutable published releases and clears the active marker after unpublish', async () => {
+  const { upsertUser } = await import('../src/db.js');
+  await upsertUser(env.DB, { githubId: '9101', login: 'toru', name: 'Toru Tanaka' });
+  const { app } = await (await send('POST', '/apps', toru, { orgId: ORG, template: 'tracker', sample: false })).json();
+  const path = `/apps/${app.id}/custom`;
+  await send('POST', path, toru, { orgId: ORG, action: 'draft', version: 1, html: '<h1>release one</h1>' });
+  await send('POST', path, toru, { orgId: ORG, action: 'publish', version: 2 });
+  let history = (await (await get(`/apps/${app.id}/versions?orgId=${ORG}`, toru)).json()).versions;
+  expect(history[0]).toMatchObject({ version: 3, release: { source: 'inline', current: true, publishedBy: '9101', publishedByName: 'Toru Tanaka' } });
+  expect(history[0].release.publishedAt).toEqual(expect.any(String));
+  expect(history[0]).not.toHaveProperty('definition');
+  expect(history[1]).toMatchObject({ version: 2, release: null });
+
+  await send('POST', path, toru, { orgId: ORG, action: 'draft', version: 3, html: '<h1>next draft</h1>' });
+  history = (await (await get(`/apps/${app.id}/versions?orgId=${ORG}`, toru)).json()).versions;
+  expect(history.find(version => version.version === 3).release.current).toBe(true);
+
+  await send('POST', path, toru, { orgId: ORG, action: 'unpublish', version: 4 });
+  history = (await (await get(`/apps/${app.id}/versions?orgId=${ORG}`, toru)).json()).versions;
+  expect(history.find(version => version.version === 3).release).toMatchObject({ source: 'inline', current: false });
+  expect(history[0]).toMatchObject({ version: 5, release: null });
 });
 
 test('custom generation validates source and fails without an existing AI allowance', async () => {

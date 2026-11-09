@@ -59,6 +59,35 @@ test('personal memory source references do not widen the owner-only scope',async
   expect(await listAgentMemories(env.DB,org,agent,{})).toEqual([]);
 });
 
+test('shared and personal memory records retain a visible creator and last editor', async () => {
+  const { upsertUser } = await import('../src/db.js');
+  const { updateMemoryEntry } = await import('../src/harness/memoryEntries.js');
+  await upsertUser(env.DB, { githubId: 'memory-creator', login: 'creator', name: 'Memory Creator' });
+  await upsertUser(env.DB, { githubId: 'memory-editor', login: 'editor', name: 'Memory Editor' });
+  const created = await addAgentMemory(env.DB, org, agent,
+    { title: 'Team decision', description: 'Approved by the team', body: 'Keep the renewal date visible.' },
+    { by: 'memory-creator', channel: 'b:ops', kind: 'reference' });
+  expect(created.memory).toMatchObject({ createdBy: 'memory-creator', createdByName: 'Memory Creator', updatedByName: 'Memory Creator' });
+
+  const edited = await updateMemoryEntry(env.DB, org, agent, created.memory.id, {
+    title: 'Team decision', description: 'Approved by the team', body: 'Keep the renewal date current.', kind: 'reference', expectedVersion: 1,
+  }, { channel: 'b:ops', by: 'memory-editor' });
+  expect(edited.memory).toMatchObject({ createdByName: 'Memory Creator', updatedBy: 'memory-editor', updatedByName: 'Memory Editor' });
+
+  const listed = (await listAgentMemories(env.DB, org, agent, { channel: 'b:ops' })).find(memory => memory.id === created.memory.id);
+  expect(listed).toMatchObject({ createdByName: 'Memory Creator', updatedByName: 'Memory Editor' });
+  const paged = await memoryPage(env.DB, org, agent, { channel: 'b:ops' });
+  expect(paged.memories.find(memory => memory.id === created.memory.id)).toMatchObject({
+    createdByName: 'Memory Creator', updatedByName: 'Memory Editor',
+  });
+
+  const personal = await addAgentMemory(env.DB, org, agent, 'Private preference', {
+    by: 'memory-editor', scope: 'person', userId: 'memory-editor', kind: 'preference',
+  });
+  expect(personal.memory).toMatchObject({ scope: 'person', createdByName: 'Memory Editor' });
+  expect((await listAgentMemories(env.DB, org, agent, { userId: 'memory-creator' })).some(memory => memory.id === personal.memory.id)).toBe(false);
+});
+
 test('unprofiled personal agents are still private', async () => {
   expect(await filterResponders(env.DB, org, 'outsider', [{ id: agent, scope: 'personal', ownerLogin: 'owner' }])).toEqual([]);
 });

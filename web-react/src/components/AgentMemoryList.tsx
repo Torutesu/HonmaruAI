@@ -21,6 +21,8 @@ export function AgentMemoryList({ memories, canEdit, busy, onForget, onEdit, onR
     <p className="row-sub" role="status">{onSearch ? t('{count} memories loaded', { count: memories.length }) : t('{shown} of {total} memories', { shown: visible.length, total: memories.length })}</p>
     {visible.map(m => <div key={m.id} className="row static memory-row">
       <div className="row-main">{m.body && (m.body !== m.text || m.description || m.title !== m.text) ? <details className="hx-memory-entry"><summary>{m.title || m.text}</summary>{m.description && <p className="row-sub">{m.description}</p>}<div className="memory-text">{m.body}</div></details> : <span className="memory-text">{m.text}</span>}<span className="row-sub">{t(labels[(m.kind || 'context') as MemoryKind] || m.kind!)} · {t(m.scope === 'person' || m.scope === 'personal' ? 'Only me' : m.channel ? 'Conversation memory' : 'Agent memory')} · {new Date(m.createdAt).toLocaleDateString()}</span>
+      {m.createdByName && <span className="row-sub">{t('Created by {name}', { name: m.createdByName })}</span>}
+      {m.updatedByName && <span className="row-sub">{t('Last updated by {name}', { name: m.updatedByName })} · {new Date(m.updatedAt || m.createdAt).toLocaleDateString()}</span>}
       {m.review && <details className="hx-run-detail"><summary>{t(m.review.current ? 'Memory reviewed' : 'Changed since review')}</summary><p className="memory-text">{m.review.evidence}</p><time dateTime={m.review.at}>{new Date(m.review.at).toLocaleString()}</time></details>}
       {(m.sourceChannel || m.sourceMessageId || m.sourceThreadId) && <details className="hx-run-detail"><summary>{t('Source reference')}</summary><dl>
         {m.sourceChannel && <><dt>{t('Conversation')}</dt><dd>{m.sourceChannel}</dd></>}

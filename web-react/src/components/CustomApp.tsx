@@ -149,6 +149,13 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
   if (html.length > MAX_PREVIEW_SOURCE) return <p role="alert">表示できるコードの上限は119800文字です。コードを短くして保存してください。</p>
   return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : 'データ変更の確認'}</h3><p>{change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre><button disabled={working} onClick={() => decide(false)}>キャンセル</button><button disabled={working} onClick={() => decide(true)}>この変更を許可</button></div>}{renderState !== 'ready' && <div className="hx-custom-status" role="status">{renderState === 'loading' ? 'アプリを読み込んでいます…' : <><span>アプリを表示できませんでした。</span><button type="button" onClick={() => setAttempt(value => value + 1)}>再試行</button></>}</div>}<iframe tabIndex={decorative ? -1 : undefined} ref={frame} onLoad={() => initialize()} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={`${html}:${theme}:${appId}:${httpBase}:${attempt}`} src={`${httpBase}/custom-app-runner?v=4`} className="hx-custom-frame" /></>
 }
+
+type CustomAppHistoryEntry = { version: number; note: string | null; createdAt: string; release?: { publishedAt: string; publishedBy: string; publishedByName?: string | null; source: 'inline' | 'github-commit'; commitSha?: string; current: boolean } | null }
+
+export function CustomAppReleaseHistory({ history, busy, restore }: { history: CustomAppHistoryEntry[]; busy: boolean; restore: (version: number) => void }) {
+  return <>{history.filter(v => v.note?.startsWith('Custom app:')).map(v => <article key={v.version} className="hx-custom-history-entry"><p><strong>v{v.version}</strong> · {v.note}</p>{v.release ? <p role="status">{v.release.current ? '現在公開中' : '公開した版'} · {new Date(v.release.publishedAt).toLocaleString()} · {v.release.source === 'github-commit' ? `GitHub ${v.release.commitSha?.slice(0, 12)}` : 'カスタムコード'} · 公開者 {v.release.publishedByName || v.release.publishedBy}</p> : <p>公開されていない版</p>}<button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>下書きに復元</button></article>)}</>
+}
+
 export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { app: App; table: Table; rows: Row[]; api: HarnessApi; reload: () => unknown; httpBase: string }) {
   const scope=useMemo(()=>({}),[app.id,api]),activeScope=useRef<object|null>(scope);activeScope.current=scope
   const [html, setHtml] = useState(app.definition.custom?.draft || '')
@@ -160,7 +167,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
   const [preview, setPreview] = useState(Boolean(app.definition.custom?.draft))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [history, setHistory] = useState<Array<{version: number; note: string | null}>>([])
+  const [history, setHistory] = useState<CustomAppHistoryEntry[]>([])
   const [commitState,setCommitState]=useState<Awaited<ReturnType<typeof api.customCommitState>>|null>(null)
   const [publishGate,setPublishGate]=useState<Awaited<ReturnType<typeof api.customPublishState>>|null>(null)
   const [gitOwner,setGitOwner]=useState(''),[gitRepo,setGitRepo]=useState(''),[gitBranch,setGitBranch]=useState('main'),[gitSha,setGitSha]=useState('')
@@ -284,7 +291,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
       {app.definition.custom?.published && <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'unpublish', app.version); if(activeScope.current===scope)await reload() })}>公開を停止</button>}
     </div>
     {html.length > MAX_PREVIEW_SOURCE && <p role="alert" className="form-error">プレビューして公開するには、コードを119800文字以下に短くしてください。下書きは保持されます。</p>}
-    <details onToggle={e => { if (e.currentTarget.open) void api.versions(app.id).then(r => {if(activeScope.current===scope)setHistory(r.versions)}).catch(e => {if(activeScope.current===scope)setError(String(e))}) }}><summary>コードの履歴</summary>{history.filter(v => v.note?.startsWith('Custom app:')).map(v => <p key={v.version}>v{v.version} · {v.note} <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'restore', app.version, undefined, v.version); if(activeScope.current===scope)await reload() })}>下書きに復元</button></p>)}</details>
+    <details onToggle={e => { if (e.currentTarget.open) void api.versions(app.id).then(r => {if(activeScope.current===scope)setHistory(r.versions)}).catch(e => {if(activeScope.current===scope)setError(String(e))}) }}><summary>公開・コード履歴</summary><CustomAppReleaseHistory history={history} busy={busy} restore={version => void run(async () => { await api.saveCustom(app.id, 'restore', app.version, undefined, version); if(activeScope.current===scope)await reload() })} /></details>
     <small>{changed ? '未保存の変更があります' : `バージョン ${app.version}`} · 直接の外部通信なし・接続は確認付き · アプリの閲覧権限を継承 · 公開操作は監査ログに記録</small>
     {preview && <ForkPreview appId={app.id} api={api} httpBase={httpBase} html={html} table={table} rows={rows} />}
   </section>

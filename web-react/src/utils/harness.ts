@@ -132,7 +132,7 @@ export interface HomeData {
 export type MemoryKind = 'context' | 'preference' | 'feedback' | 'reference'
 export interface MemoryEntryInput { title: string; description: string; body: string; kind: MemoryKind; scope?: 'shared' | 'personal' }
 export interface MemoryReview { id: string; memoryId?: string; version: number; verdict: string; evidence: string; by: string; reviewerName: string; at: string }
-export interface AgentMemory { review?: { version: number; evidence: string; by: string; at: string; current: boolean } | null; title?: string; description?: string; body?: string; version?: number; updatedAt?: string; id: string; text: string; source: string; createdAt: string; channel?: string | null; sourceChannel?: string | null; sourceMessageId?: string | null; sourceThreadId?: string | null; kind?: string; scope?: 'shared' | 'person' | 'personal' | 'conversation'; isOwner?: boolean }
+export interface AgentMemory { review?: { version: number; evidence: string; by: string; at: string; current: boolean } | null; title?: string; description?: string; body?: string; version?: number; updatedAt?: string; createdBy?: string | null; createdByName?: string | null; updatedBy?: string | null; updatedByName?: string | null; id: string; text: string; source: string; createdAt: string; channel?: string | null; sourceChannel?: string | null; sourceMessageId?: string | null; sourceThreadId?: string | null; kind?: string; scope?: 'shared' | 'person' | 'personal' | 'conversation'; isOwner?: boolean }
 
 /// One client for every harness route: the session on each call, the
 /// server's own message on a refusal.
@@ -218,7 +218,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     changeAppHosting: (id:string, body:Record<string,unknown>) => call<Partial<AppHosting> & {saved?:boolean;deleted?:boolean;name?:string;version?:number}>('POST', `/apps/${id}/hosting`, body),
     entityRows: (tableId: string) => call<{table: Table; rows: Row[]}>('GET', `/tables/${tableId}`, undefined, {limit:'5000'}),
     deleteApp: (id: string) => call<{ deleted: boolean }>('DELETE', `/apps/${id}`),
-    versions: (id: string) => call<{ versions: Array<{ version: number; note: string | null; createdAt: string }> }>('GET', `/apps/${id}/versions`),
+    versions: (id: string) => call<{ versions: Array<{ version: number; note: string | null; createdBy: string; createdAt: string; release: null | { publishedAt: string; publishedBy: string; publishedByName?: string | null; source: 'inline' | 'github-commit'; commitSha?: string; current: boolean } }> }>('GET', `/apps/${id}/versions`),
     restore: (id: string, version: number) => call<{ app: App }>('POST', `/apps/${id}/versions`, { version }),
     link: (id: string, channel: string) => call<{ linked: boolean }>('POST', `/apps/${id}/links`, { channel }),
     unlink: (id: string, channel: string) => call<{ unlinked: boolean }>('DELETE', `/apps/${id}/links`, undefined, { channel }),

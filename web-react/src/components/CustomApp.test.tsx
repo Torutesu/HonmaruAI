@@ -1,10 +1,28 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, expect, test, vi } from 'vitest'
-import { CustomAppEditor, CustomAppFrame } from './CustomApp'
+import { CustomAppEditor, CustomAppFrame, CustomAppReleaseHistory } from './CustomApp'
 vi.mock('../utils/appearance', () => ({ useAppearance: () => ({ theme: 'dark' }) }))
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 const table = { id: 'only-this-table', name: 'Tasks', columns: [] }
+test('custom app history distinguishes the active published release from a restorable old release', () => {
+  const restore = vi.fn()
+  let tree: ReturnType<typeof create>
+  act(() => { tree = create(<CustomAppReleaseHistory history={[
+    { version: 5, note: 'Custom app: publish', createdAt: '2026-11-10T00:00:00Z', release: { publishedAt: '2026-11-10T00:00:00Z', publishedBy: '9101', publishedByName: 'Custom Publisher', source: 'github-commit', commitSha: '0123456789abcdef', current: true } },
+    { version: 3, note: 'Custom app: publish', createdAt: '2026-11-08T00:00:00Z', release: { publishedAt: '2026-11-08T00:00:00Z', publishedBy: '9102', source: 'inline', current: false } },
+    { version: 4, note: 'Custom app: draft', createdAt: '2026-11-09T00:00:00Z', release: null },
+  ]} busy={false} restore={restore} />) })
+  const statuses = tree!.root.findAllByProps({ role: 'status' }).map(node => node.children.join(''))
+  expect(statuses[0]).toContain('現在公開中')
+  expect(statuses[0]).toContain('GitHub 0123456789ab')
+  expect(statuses[0]).toContain('公開者 Custom Publisher')
+  expect(statuses[1]).toContain('公開した版')
+  expect(tree!.root.findAllByType('p').some(node => node.children.join('').includes('公開されていない版'))).toBe(true)
+  const buttons = tree!.root.findAllByType('button')
+  act(() => { buttons[1].props.onClick() })
+  expect(restore).toHaveBeenCalledWith(3)
+})
 test('generated code cannot mutate data before host approval or choose another table', async () => {
   let handler: (e: any) => void = () => {}
   const postMessage = vi.fn(), addRow = vi.fn().mockResolvedValue({ row: { id: 'new' } })

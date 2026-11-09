@@ -3264,6 +3264,8 @@ const table: Record<string, string> = {
   'Shared knowledge': '共有知識',
   '{count} memories loaded': '{count}件の記憶を読み込み済み',
   "Memory review history": "記憶の確認履歴",
+  "Created by {name}": "作成者：{name}",
+  "Last updated by {name}": "最終更新者：{name}",
   "Source reference": "出典の参照情報",
   "Source message ID": "元メッセージID",
   "Source thread ID": "元スレッドID",
