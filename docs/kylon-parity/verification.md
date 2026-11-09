@@ -4077,3 +4077,10 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Each outbox record stores the established stable row-event fingerprint. Expired receipts are retained only while a pending event with the same fingerprint exists, so unrelated receipts continue to clean up even if another event is stuck.
 - Scope is intentionally limited to Workflow-local add/update. Manual/API/connection row writers and row deletions still dispatch after their write without a durable outbox. Pending events retain their row snapshot until delivery; completed events are removed after seven days.
 - Final combined batch including Workflow, checkpoint, workspace budget, row-event outbox, and migration suites: **190/190 passed** across 6 files. Syntax checks, parity inventory consistency, and `git diff --check` passed. Exact-head CI and deployment for this outbox change remain pending.
+
+
+### 2026-11-10 — Agent progress notification boundary (KY-109)
+
+- Add an end-to-end Worker regression through a real inline Agent answer: transient `channel_ai_progress` events are socket-only, while the completed reply produces exactly one `message_for_you` event and one push-queue entry for the requester.
+- Focused `worker/test/agents.test.js` and `worker/test/pushes.test.js`: **65/65 passed**. The test mocks the provider and Relay; it makes no paid model call and sends no real push.
+- Multi-user device notification acceptance and every external Agent runtime remain unverified; this test does not mark KY-109 complete.
