@@ -98,7 +98,7 @@ function smithery() {
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
-  await env.DB.exec("DELETE FROM rate_limits; DELETE FROM audit_events; DELETE FROM sessions; DELETE FROM memberships; DELETE FROM users; DELETE FROM org_apps; DELETE FROM app_connections; DELETE FROM hx_agent_app_grants; DELETE FROM hx_agent_source_grants; DELETE FROM app_connection_tombstones; DELETE FROM connector_sync_state; DELETE FROM connector_config; DELETE FROM org_settings;");
+  await env.DB.exec("DELETE FROM rate_limits; DELETE FROM audit_events; DELETE FROM sessions; DELETE FROM memberships; DELETE FROM users; DELETE FROM org_apps; DELETE FROM app_connections; DELETE FROM hx_agent_app_grants; DELETE FROM hx_agent_source_grants; DELETE FROM hx_agent_source_shares; DELETE FROM app_connection_tombstones; DELETE FROM connector_sync_state; DELETE FROM connector_config; DELETE FROM org_settings;");
   forgetPolicies();
   fake = smithery();
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
@@ -368,8 +368,8 @@ test("Harness native Notion access needs an agent grant and discards a result re
   const path = `/hx/agents/${agentId}/apps`;
   const initial = await (await call(`${path}?${q}`, mika)).json();
   expect(initial.nativeConnections).toEqual([
-    { source: "notion", available: true, enabled: false },
-    { source: "github", available: false, enabled: false },
+    { source: "notion", available: true, enabled: false, canShare: true, shareEnabled: false, shared: false },
+    { source: "github", available: false, enabled: false, canShare: false, shareEnabled: false, shared: false },
   ]);
   const session = await sessionOf(mika);
   const denied = await agentTools(apiEnv(), { orgId: ORG, session, personal: true, agentId });
@@ -425,6 +425,85 @@ test("Harness native Notion access needs an agent grant and discards a result re
     await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "simple" } });
     const simple = await agentTools(apiEnv(), { orgId: ORG, session, personal: true });
     expect(simple.search_notion).toBeDefined();
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("an owner-shared Notion connection follows Agent access and is discarded after revocation", async () => {
+  await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "harness" } });
+  const agentId = "agent-shared-notion";
+  const createdAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'shared-reader','Shared Reader','Read explicitly shared sources.','team','mika',?3,?3)`)
+    .bind(ORG, agentId, createdAt).run();
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9703'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('9702',?1,?2)")
+    .bind(createdAt, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('9702','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), createdAt).run();
+
+  const path = `/hx/agents/${agentId}/apps`;
+  const shared = await call(path, mika, { method: "POST", body: { orgId: ORG, source: "notion", shareWithAgent: true } });
+  const sharedBody = await shared.json();
+  expect(shared.status, JSON.stringify(sharedBody)).toBe(200);
+  expect(sharedBody.nativeConnections[0]).toMatchObject({ source: "notion", shareEnabled: true, shared: true });
+  const gina = await sessionOf(guest);
+  const { agentSourceProvider } = await import("../src/harness/agentConnections.js");
+  const grant = { orgId: ORG, agentId, session: gina, source: "notion" };
+  expect(await agentSourceProvider(apiEnv(), grant)).toBe("9702");
+
+  await call(`/hx/agents/${agentId}/profile`, mika, { method: "PUT", body: { orgId: ORG, access: "people", people: ["mika"] } });
+  expect(await agentSourceProvider(apiEnv(), grant)).toBeNull();
+  await call(`/hx/agents/${agentId}/profile`, mika, { method: "PUT", body: { orgId: ORG, access: "everyone", people: [] } });
+  // Reauthorizing the same connected account preserves the explicit share.
+  await env.DB.prepare("UPDATE connector_config SET config=?1,updated_at=?2 WHERE user_github_id='9702' AND connector='notion'")
+    .bind(JSON.stringify({ connected: true, authorizedAgain: true }), new Date().toISOString()).run();
+  expect(await agentSourceProvider(apiEnv(), grant)).toBe("9702");
+
+  const tools = await agentTools(apiEnv(), { orgId: ORG, session: gina, personal: true, agentId });
+  expect(tools.search_notion).toBeDefined();
+  const real = globalThis.fetch;
+  let usedAccount;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.origin === "https://backend.composio.dev") {
+      usedAccount = JSON.parse(init.body).user_id;
+      return Response.json({ results: [{ response: { data: { results: [{
+        properties: { Title: { type: "title", title: [{ plain_text: "Private owner page" }] } },
+        url: "https://notion.so/private-owner-page",
+      }] } } }] });
+    }
+    return real(input, init);
+  };
+  try {
+    expect(await tools.search_notion.run({ query: "private" })).toContain("Private owner page");
+    expect(usedAccount).toBe("9702");
+
+    let finishSearch;
+    let signalSearchStarted;
+    const searchStarted = new Promise(resolve => { signalSearchStarted = resolve; });
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === "string" ? input : input.url);
+      if (url.origin === "https://backend.composio.dev") {
+        signalSearchStarted();
+        return await new Promise(resolve => { finishSearch = () => resolve(Response.json({ results: [{ response: { data: { results: [{
+          properties: { Title: { type: "title", title: [{ plain_text: "Revoked private page" }] } },
+          url: "https://notion.so/revoked-private-page",
+        }] } } }] })); });
+      }
+      return real(input, init);
+    };
+    const search = tools.search_notion.run({ query: "private" });
+    await searchStarted;
+    const revoked = await call(`${path}?${q}&source=notion&shareWithAgent=1`, mika, { method: "DELETE" });
+    expect(revoked.status).toBe(200);
+    finishSearch();
+    const output = await search;
+    expect(output).toContain("access changed while the request was running");
+    expect(output).not.toContain("Revoked private page");
+    expect(await agentSourceProvider(apiEnv(), grant)).toBeNull();
   } finally {
     globalThis.fetch = real;
   }
