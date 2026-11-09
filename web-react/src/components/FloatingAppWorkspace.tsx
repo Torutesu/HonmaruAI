@@ -3,36 +3,43 @@ import {FloatingAppContext} from './FloatingAppContext'
 import {AppView} from '../screens/Harness'
 import {harnessApi,type HarnessApi} from '../utils/harness'
 import {hashForApp,type AppSection} from '../utils/route'
-import {fitFloatingRect,initialFloatingRect,type FloatingRect} from '../utils/floatingApp'
+import {fitFloatingRect,floatingRectStorageKey,initialFloatingRect,readFloatingRect,writeFloatingRect,type FloatingRect} from '../utils/floatingApp'
 
-type Pane={appId:string;section:AppSection;initialSection:AppSection;rect:FloatingRect;owner:HarnessApi}
-export function FloatingAppWorkspace({children,httpBase,orgId,sessionToken,enabled,interactive=true}:{children:React.ReactNode;httpBase:string;orgId:string;sessionToken:string;enabled:boolean;interactive?:boolean}) {
+type Pane={appId:string;section:AppSection;initialSection:AppSection;rect:FloatingRect;storageKey:string|null;owner:HarnessApi}
+export function FloatingAppWorkspace({children,httpBase,orgId,userId,sessionToken,enabled,interactive=true}:{children:React.ReactNode;httpBase:string;orgId:string;userId:string;sessionToken:string;enabled:boolean;interactive?:boolean}) {
  const [pane,setPane]=useState<Pane|null>(null)
  const api=useMemo(()=>harnessApi(httpBase,orgId,sessionToken),[httpBase,orgId,sessionToken])
- useEffect(()=>{setPane(null)},[api,enabled])
+ useEffect(()=>{setPane(null)},[api,enabled,orgId,userId])
  const root=useRef<HTMLDivElement|null>(null)
  const interactionRoot=useCallback((node:HTMLDivElement|null)=>{root.current=node;node?.toggleAttribute('inert',!interactive)},[interactive])
- const drag=useRef<{id:number;x:number;y:number;rect:FloatingRect;resize:boolean}|null>(null)
+ const storage=()=>{try{return typeof localStorage==='undefined'?undefined:localStorage}catch{return undefined}}
+ const drag=useRef<{id:number;x:number;y:number;rect:FloatingRect;currentRect:FloatingRect;storageKey:string|null;resize:boolean}|null>(null)
  const open=useCallback((appId:string,section:AppSection)=>{
   if(!/^[\w-]{1,80}$/.test(appId))return
-  setPane({appId,section,initialSection:section,owner:api,rect:initialFloatingRect(innerWidth,innerHeight)})
- },[api])
+  const viewport={width:innerWidth,height:innerHeight},key=floatingRectStorageKey(userId,orgId,appId)
+  setPane({appId,section,initialSection:section,owner:api,storageKey:key,rect:readFloatingRect(storage(),key,viewport)||initialFloatingRect(viewport.width,viewport.height)})
+ },[api,orgId,userId])
  useEffect(()=>{const resize=()=>setPane(p=>p?{...p,rect:fitFloatingRect(p.rect,{width:innerWidth,height:innerHeight})}:p);window.addEventListener('resize',resize);return()=>window.removeEventListener('resize',resize)},[])
  useEffect(()=>{if(pane)root.current?.focus()},[pane?.appId])
- const move=(rect:FloatingRect)=>setPane(p=>p?{...p,rect:fitFloatingRect(rect,{width:innerWidth,height:innerHeight})}:p)
+ const move=(rect:FloatingRect,persist=false)=>{
+  const fitted=fitFloatingRect(rect,{width:innerWidth,height:innerHeight})
+  setPane(p=>p?{...p,rect:fitted}:p)
+  if(persist&&pane)writeFloatingRect(storage(),pane.storageKey,fitted)
+  return fitted
+ }
  const start=(event:React.PointerEvent<HTMLDivElement>)=>{
   if(!pane||event.button!==0)return
   const target=event.target as HTMLElement,resize=Boolean(target.closest('.hx-floating-resize'))
   if(!resize&&(!target.closest('.screen-head')||target.closest('button,a,input,select,textarea')))return
   event.preventDefault();event.currentTarget.setPointerCapture(event.pointerId)
-  drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,rect:pane.rect,resize}
+  drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,rect:pane.rect,currentRect:pane.rect,storageKey:pane.storageKey,resize}
  }
- const finish=(event:React.PointerEvent<HTMLDivElement>)=>{if(drag.current?.id===event.pointerId){drag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId)}}
+ const finish=(event:React.PointerEvent<HTMLDivElement>)=>{const current=drag.current;if(current?.id===event.pointerId){const dx=event.clientX-current.x,dy=event.clientY-current.y;const rect=fitFloatingRect(current.resize?{...current.rect,width:current.rect.width+dx,height:current.rect.height+dy}:{...current.rect,x:current.rect.x+dx,y:current.rect.y+dy},{width:innerWidth,height:innerHeight});setPane(p=>p?{...p,rect}:p);writeFloatingRect(storage(),current.storageKey,rect);drag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId)}}
  return <FloatingAppContext.Provider value={enabled?open:null}>
   {children}
   {enabled&&pane&&pane.owner===api&&<div ref={interactionRoot} className="hx-floating-app" data-compact={pane.rect.width<720?'':undefined} role="region" aria-label="フローティングアプリ" aria-description="矢印キーで移動、Shiftと矢印キーでサイズ変更" tabIndex={0} style={{left:pane.rect.x,top:pane.rect.y,width:pane.rect.width,height:pane.rect.height}}
-   onPointerDown={start} onPointerMove={event=>{const d=drag.current;if(!d||d.id!==event.pointerId)return;const dx=event.clientX-d.x,dy=event.clientY-d.y;move(d.resize?{...d.rect,width:d.rect.width+dx,height:d.rect.height+dy}:{...d.rect,x:d.rect.x+dx,y:d.rect.y+dy})}} onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={()=>{drag.current=null}}
-   onKeyDown={event=>{if(event.target!==event.currentTarget||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();const dx=event.key==='ArrowLeft'?-16:event.key==='ArrowRight'?16:0,dy=event.key==='ArrowUp'?-16:event.key==='ArrowDown'?16:0;move(event.shiftKey?{...pane.rect,width:pane.rect.width+dx,height:pane.rect.height+dy}:{...pane.rect,x:pane.rect.x+dx,y:pane.rect.y+dy})}}>
+   onPointerDown={start} onPointerMove={event=>{const d=drag.current;if(!d||d.id!==event.pointerId)return;const dx=event.clientX-d.x,dy=event.clientY-d.y;d.currentRect=move(d.resize?{...d.rect,width:d.rect.width+dx,height:d.rect.height+dy}:{...d.rect,x:d.rect.x+dx,y:d.rect.y+dy})}} onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={()=>{if(drag.current){writeFloatingRect(storage(),drag.current.storageKey,drag.current.currentRect);drag.current=null}}}
+   onKeyDown={event=>{if(event.target!==event.currentTarget||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();const dx=event.key==='ArrowLeft'?-16:event.key==='ArrowRight'?16:0,dy=event.key==='ArrowUp'?-16:event.key==='ArrowDown'?16:0;move(event.shiftKey?{...pane.rect,width:pane.rect.width+dx,height:pane.rect.height+dy}:{...pane.rect,x:pane.rect.x+dx,y:pane.rect.y+dy},true)}}>
     <AppView key={pane.appId} api={api} appId={pane.appId} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} initialSection={pane.initialSection} onSectionChange={section=>setPane(p=>p?{...p,section}:p)} floating floatingCompact={pane.rect.width<720} onClose={()=>setPane(null)} onBack={()=>{location.hash=hashForApp(pane.appId,orgId,undefined,pane.section);setPane(null)}} />
     <div className="hx-floating-resize" aria-hidden="true" />
   </div>}
