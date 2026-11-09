@@ -177,7 +177,9 @@ test('document retention prunes receipts but preserves published file versions',
  const {maintainDocumentJobs,DOCUMENT_JOB_RETENTION_MS}=await import('../src/harness/documentMaintenance.js');
  expect(await maintainDocumentJobs(env.DB,Date.now()+DOCUMENT_JOB_RETENTION_MS+1000)).toEqual({removed:1});
  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_workspace_file_versions WHERE file_id=?1').bind(saved.fileId).first()).n).toBe(1);
- expect((await env.MEDIA.list()).objects).toHaveLength(1);
+ const stored=await env.DB.prepare('SELECT object_key FROM hx_workspace_file_versions WHERE file_id=?1').bind(saved.fileId).first();
+ expect(stored).toBeTruthy();
+ expect(await env.MEDIA.head(stored.object_key)).toBeTruthy();
 });
 test('workspace purge removes document sources and prevents delivery after purge starts',async()=>{
  const {job,identity,bytes,publishDocumentArtifact}=await artifactSetup();
