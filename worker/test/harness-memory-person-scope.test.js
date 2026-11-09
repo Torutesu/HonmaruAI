@@ -67,3 +67,25 @@ test("person memories stay private across list, page, search, read, edit, review
   expect((await memoryReviewHistory(env.DB, ORG, agentId, personalId, { userId: "9212" })).reviews).toHaveLength(1);
   expect((await memoryReviewHistory(env.DB, ORG, agentId, personalId, { userId: "9213" })).reviews).toHaveLength(0);
 });
+
+test("personal memory edit fails closed if ownership changes between read and write", async () => {
+  const personal = await addAgentMemory(env.DB, ORG, agentId, {
+    title: "Race protected", description: "private", body: "Original body"
+  }, { by: "9212", userId: "9212", scope: "person" });
+  const racedDb = {
+    prepare: (...args) => env.DB.prepare(...args),
+    batch: async statements => {
+      await env.DB.prepare("UPDATE hx_memory_scopes SET user_github_id='9213' WHERE org_id=?1 AND memory_id=?2")
+        .bind(ORG, personal.memory.id).run();
+      return env.DB.batch(statements);
+    },
+  };
+  const result = await updateMemoryEntry(racedDb, ORG, agentId, personal.memory.id, {
+    title: "Overwritten", description: "", body: "Must not be saved", kind: "context", expectedVersion: 1
+  }, { userId: "9212", by: "9212" });
+  expect(result).toMatchObject({ error: "This memory changed. Reload before saving.", status: 409 });
+  const visibleToNewOwner = await listAgentMemories(env.DB, ORG, agentId, { userId: "9213" });
+  expect(visibleToNewOwner.find(memory => memory.id === personal.memory.id)).toMatchObject({
+    title: "Race protected", body: "Original body", version: 1
+  });
+});

@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { expect, test } from 'vitest';
 import { addAgentMemory, listAgentMemories, deleteAgentMemory, prepareAgent, filterResponders } from '../src/harness/agents.js';
+import { memoryPage } from '../src/harness/memoryEntries.js';
 
 const org = 'memory-scope';
 const agent = 'a';
@@ -288,4 +289,45 @@ test('delete review removes only the checked version and retains its scoped audi
  expect((await reviewMemoryEntry(env.DB,org,agent,made.memory.id,input,{channel:'b:delete-review',by:'reviewer'})).status).toBe(409);
  expect((await reviewMemoryReviewCount()).n).toBe(1);
  function reviewMemoryReviewCount(){return env.DB.prepare('SELECT count(*) AS n FROM hx_memory_review_audit WHERE memory_id=?').bind(made.memory.id).first()}
+});
+
+test('personal memories are indexed, paged, and deleted only for their owner', async () => {
+  await addAgentMemory(env.DB, org, agent, 'Shared guidance');
+  const a = await addAgentMemory(env.DB, org, agent, 'Only Alice', { by: 'u1', userId: 'u1', scope: 'person' });
+  const b = await addAgentMemory(env.DB, org, agent, 'Only Bob', { by: 'u2', userId: 'u2', scope: 'person' });
+  const texts = async userId => (await listAgentMemories(env.DB, org, agent, { userId })).map(m => m.text);
+  expect(await texts('u1')).toEqual(expect.arrayContaining(['Shared guidance', 'Only Alice']));
+  expect(await texts('u1')).not.toContain('Only Bob');
+  expect(await texts('u2')).toEqual(expect.arrayContaining(['Shared guidance', 'Only Bob']));
+  expect(await texts('u2')).not.toContain('Only Alice');
+  const prepared = await prepareAgent({ DB: env.DB }, org, { id: agent, instructions: 'Base instructions' }, null, { userId: 'u1' });
+  expect(prepared.agent.instructions).toContain('Only Alice');
+  expect(prepared.agent.instructions).not.toContain('Only Bob');
+  expect((await memoryPage(env.DB, org, agent, { userId: 'u1' })).memories.map(m => m.text)).not.toContain('Only Bob');
+  expect((await memoryPage(env.DB, org, agent, { userId: 'u2' })).memories.map(m => m.text)).not.toContain('Only Alice');
+  expect((await deleteAgentMemory(env.DB, org, agent, b.memory.id, { userId: 'u1' })).deleted).toBe(0);
+  expect((await deleteAgentMemory(env.DB, org, agent, a.memory.id, { userId: 'u1' })).deleted).toBe(1);
+});
+
+test('personal review evidence stays with its owner after deletion', async () => {
+  const { reviewMemoryEntry, memoryReviewHistory } = await import('../src/harness/memoryEntries.js');
+  const saved = await addAgentMemory(env.DB, org, agent, 'Private review note', { by: 'u1', userId: 'u1', scope: 'person' });
+  const input = { expectedVersion: 0, evidence: 'Reviewed by owner', verdict: 'keep' };
+  expect((await reviewMemoryEntry(env.DB, org, agent, saved.memory.id, input, { by: 'u1', userId: 'u1' })).review).toBeTruthy();
+  const deleted = await reviewMemoryEntry(env.DB, org, agent, saved.memory.id, { ...input, verdict: 'delete' }, { by: 'u1', userId: 'u1' });
+  expect(deleted.deleted).toBe(1);
+  const own = await memoryReviewHistory(env.DB, org, agent, null, { userId: 'u1' });
+  const other = await memoryReviewHistory(env.DB, org, agent, null, { userId: 'u2' });
+  expect(own.reviews.map(review => review.evidence)).toContain('Reviewed by owner');
+  expect(other.reviews.map(review => review.evidence)).not.toContain('Reviewed by owner');
+});
+
+test('memory continuation cursors are bound to the owner identity', async () => {
+  for (let i = 0; i < 51; i++) {
+    await addAgentMemory(env.DB, org, agent, `Cursor-only ${i}`, { userId: 'cursor-owner', scope: 'person' });
+  }
+  const first = await memoryPage(env.DB, org, agent, { userId: 'cursor-owner' });
+  expect(first.nextCursor).toBeTruthy();
+  const reused = await memoryPage(env.DB, org, agent, { userId: 'other-owner', cursor: first.nextCursor });
+  expect(reused).toMatchObject({ error: 'Invalid memory cursor.', status: 400 });
 });

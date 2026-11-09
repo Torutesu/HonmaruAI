@@ -12,9 +12,22 @@ test('memory editor keeps multiline draft after conflict and prevents overlappin
  const submit=()=>tree.root.findAllByType('button').find(button=>button.children.includes('Save'))!
  await act(async()=>{submit().props.onClick();submit().props.onClick()})
  expect(save).toHaveBeenCalledTimes(1)
- expect(save).toHaveBeenCalledWith({title:'Legacy note',description:'',body:'# Draft\n\nStill here',kind:'context'})
+ expect(save).toHaveBeenCalledWith({title:'Legacy note',description:'',body:'# Draft\n\nStill here',kind:'context',scope:'shared'})
  expect(close).not.toHaveBeenCalled()
  expect(tree.root.findByProps({maxLength:16000}).props.value).toContain('Still here')
  expect(tree.root.findByProps({role:'alert'}).children.join('')).toContain('Reload')
+ act(()=>tree.unmount())
+})
+
+test('new memories can be made personal', async () => {
+ const save=vi.fn().mockResolvedValue(undefined), close=vi.fn()
+ let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<AgentMemoryEditor onSave={save} onClose={close}/>)})
+ act(()=>tree.root.findByProps({ 'aria-label': 'Memory sharing' }).props.onChange({target:{value:'personal'}}))
+ act(()=>tree.root.findByProps({maxLength:120}).props.onChange({target:{value:'Personal'}}))
+ act(()=>tree.root.findByProps({maxLength:16000}).props.onChange({target:{value:'Private note'}}))
+ await act(async()=>{tree.root.findAllByType('button').find(button=>button.children.includes('Save'))!.props.onClick()})
+ expect(save).toHaveBeenCalledWith({title:'Personal',description:'',body:'Private note',kind:'context',scope:'personal'})
+ expect(close).toHaveBeenCalled()
  act(()=>tree.unmount())
 })
