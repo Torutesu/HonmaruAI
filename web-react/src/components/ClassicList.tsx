@@ -95,6 +95,7 @@ import { Sheet, SheetRow, MessageSheet, PeoplePicker, ForwardSheet, longPress } 
 import { PhoneDestinationComposer } from './PhoneDestinationComposer'
 import { useUploads, PendingUploads, MessageFiles } from './Attachments'
 import { configureMediaUrls } from '../utils/mediaUrls'
+import { perfSample, serverTotal, configurePerfSamples } from '../utils/perfSamples'
 import { playSound, setOpenView, rememberLevels, rememberLevel, startRing, stopRing } from '../utils/sound'
 import { closeMessageNotifications, closeThreadNotifications } from '../utils/notifications'
 import { hasOlder, olderThan } from '../utils/historyPage'
@@ -369,6 +370,7 @@ export const ClassicList: React.FC<Props> = ({
   const interactionRoot = useCallback((node: HTMLDivElement | null) => { node?.toggleAttribute('inert', !active) }, [active])
   // Files' addresses are renewed for the workspace open now (mediaUrls).
   useEffect(() => { configureMediaUrls(api) }, [api.httpBase, api.orgId, api.sessionToken])
+  useEffect(() => { configurePerfSamples({ httpBase: api.httpBase, sessionToken: api.sessionToken }) }, [api.httpBase, api.sessionToken])
   const threadPins = useThreadPins(api,harness)
   const t = useT()
   // Cozy or compact, as chosen on You: the stylesheet does the rest.
@@ -2154,7 +2156,7 @@ export const ClassicList: React.FC<Props> = ({
   /// this page loaded, and not drawn yet.
   type Outgoing = {
     tempId: string; channel: string; body: string; decide: boolean; parentId?: string; files: FileRef[]; said: ChannelMessage
-    landing?: Promise<ChannelMessage | null>; abort?: () => void; lateAt?: number; going?: boolean
+    landing?: Promise<ChannelMessage | null>; abort?: () => void; lateAt?: number; going?: boolean; queuedAt?: number
     failed?: string; refused?: boolean; restored?: boolean; onDelivered?: (root:ChannelMessage)=>void
   }
   const outbox = useRef(new Map<string, Outgoing>())
@@ -2400,6 +2402,10 @@ export const ClassicList: React.FC<Props> = ({
   /// Send what shows as on its way, once whatever went before it in that
   /// conversation has had its answer.
   const deliver = (out: Outgoing): Promise<ChannelMessage | null> => {
+    // How many of this conversation's are still ahead of it, and from when
+    // it waits (#845, finding 6).
+    perfSample('send.depth', [...outbox.current.values()].filter((o) => o !== out && o.channel === out.channel && o.going).length)
+    out.queuedAt = Date.now()
     out.going = true
     const turn = (inLine.current.get(out.channel) || Promise.resolve()).then(() => post(out)).finally(() => { out.going = false })
     inLine.current.set(out.channel, turn.catch(() => null))
@@ -2415,6 +2421,8 @@ export const ClassicList: React.FC<Props> = ({
     const ctrl = new AbortController()
     out.abort = () => ctrl.abort()
     const stopClock = sendDeadline(ctrl, SEND_TIMEOUT, askingAboutData)
+    const startedAt = Date.now()
+    if (out.queuedAt) { perfSample('send.queue', startedAt - out.queuedAt); out.queuedAt = undefined }
     const res = await fetch(`${api.httpBase}/channels/messages`, {
       method: 'POST',
       headers: { ...authHeaders, 'content-type': 'application/json' },
@@ -2423,6 +2431,7 @@ export const ClassicList: React.FC<Props> = ({
     }).catch(() => null)
     const data = res ? await res.json().catch(() => ({})) : {}
     stopClock()
+    if (res?.ok) { perfSample('send.http', Date.now() - startedAt); const server = serverTotal(res); if (server !== null) perfSample('send.server', server) }
     out.abort = undefined
     const msg = res?.ok ? (data.message as ChannelMessage | undefined) : undefined
     // Deleted while it went, and it did not land: nothing more to say.

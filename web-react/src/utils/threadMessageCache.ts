@@ -1,4 +1,5 @@
 import type { ChannelMessage } from '../types/card'
+import { perfSample } from './perfSamples'
 import { isTemp, arrive } from './pendingSend'
 import { reconcileMessage } from './messageState'
 import { refreshQuotes } from './replies'
@@ -87,8 +88,10 @@ export class ThreadMessageCache {
         let cursor = older ? baseline?.nextCursor || undefined : undefined
         let snapshot: ThreadSnapshot | undefined
         const visited = new Set<string>()
+        let pages = 0
         do {
           let response
+          pages += 1
           try { response = await fetchThread(cursor) } catch { return lifetime === this.lifetime ? failed() : 'obsolete' }
           if (lifetime !== this.lifetime) return 'obsolete'
           if (generation !== this.generation) break
@@ -105,6 +108,8 @@ export class ThreadMessageCache {
         } while (cursor)
         if (generation !== this.generation) { older = false; continue }
         if (!snapshot) return failed()
+        // A refresh through what was on screen (a reconnect): how many pages it took (#845).
+        if (oldest) perfSample('thread.pages', pages)
         if (older && baseline) {
           const known = new Set(baseline.replies.map(row => row.id))
           snapshot.replies = [...snapshot.replies.filter(row => !known.has(row.id)), ...baseline.replies]

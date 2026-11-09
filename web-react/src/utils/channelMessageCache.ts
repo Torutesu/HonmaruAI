@@ -3,6 +3,7 @@ import { isTemp } from './pendingSend'
 import { ViewCache } from './viewCache'
 import { reconcileMessage } from './messageState'
 import { ThreadMessageCache } from './threadMessageCache'
+import { perfSample } from './perfSamples'
 
 // Memory only: message contents and session identities never go to disk.
 // A bounded cache survives switching away from the chat screen in this tab.
@@ -21,6 +22,10 @@ export class ChannelMessageCache {
   private pending = new Map<string, Promise<void>>()
   private generation = 0
   private touched = new Map<string, number>()
+  /// When each was last read, kept through invalidate(): what tells a read
+  /// that only happened because the chat screen was left and re-entered
+  /// (#845, finding 7) from one that was due anyway.
+  private lastRead = new Map<string, { at: number; generation: number }>()
   private sequence = 0
   remember(messages: Record<string, ChannelMessage[]>, more: Record<string, boolean>) {
     for (const [channel, rows] of Object.entries(messages)) {
@@ -34,17 +39,27 @@ export class ChannelMessageCache {
     }
   }
   invalidate() { this.threads.invalidate(); this.generation++; this.fetched.clear(); this.pending.clear() }
-  clear() { this.invalidate(); this.messages = {}; this.more = {}; this.views.clear(); this.threads.clear() }
-  forget(channel: string) { delete this.messages[channel]; delete this.more[channel]; this.fetched.delete(channel) }
+  clear() { this.invalidate(); this.messages = {}; this.more = {}; this.views.clear(); this.threads.clear(); this.lastRead.clear() }
+  forget(channel: string) { delete this.messages[channel]; delete this.more[channel]; this.fetched.delete(channel); this.lastRead.delete(channel) }
   load(channel: string, fetchPage: (isCurrent: () => boolean) => Promise<boolean>, force = false): Promise<void> {
     this.touched.set(channel, ++this.sequence)
     const active = this.pending.get(channel)
     if (active) return active
     const at = this.fetched.get(channel)
-    if (!force && at !== undefined && Date.now() - at < FRESH_MS) return Promise.resolve()
+    if (!force && at !== undefined && Date.now() - at < FRESH_MS) { perfSample('open.fresh', 1); return Promise.resolve() }
     const generation = this.generation
+    // Opening, not a refresh: why it is read, measured with how long it takes.
+    const last = this.lastRead.get(channel)
+    const why = force ? null
+      : last && last.generation !== generation && Date.now() - last.at < FRESH_MS ? 'open.remount'
+        : this.messages[channel]?.length ? 'open.revalidate' : 'open.cold'
+    const started = Date.now()
     const task = Promise.resolve().then(() => fetchPage(() => generation === this.generation)).then((ok) => {
-      if (ok && generation === this.generation) this.fetched.set(channel, Date.now())
+      if (ok && generation === this.generation) {
+        this.fetched.set(channel, Date.now())
+        this.lastRead.set(channel, { at: Date.now(), generation })
+        if (why) perfSample(why, Date.now() - started)
+      }
     }).finally(() => { if (this.pending.get(channel) === task) this.pending.delete(channel) })
     this.pending.set(channel, task)
     return task
