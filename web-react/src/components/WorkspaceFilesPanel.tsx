@@ -74,7 +74,7 @@ export function WorkspaceFilesPanel({api,scope,targetFileId,inlinePreview=false,
    <WorkspaceFileUpload key={scope} api={api} scope={scope} directory={folderMode?directory:''} onSaved={()=>setRevision(value=>value+1)}/>
    {api.shareRequests&&<button type="button" className="hx-files-share-open" onClick={()=>setShowShares(true)}><Icon name="share" size={15}/>{t('Public link approvals')}</button>}
   </div>
-  {showShares?<WorkspaceFileShareQueue api={api} onClose={()=>setShowShares(false)}/>:selected?<WorkspaceFileHistory key={`${scope}:${selected.id}`} api={api} file={selected} inlinePreview={inlinePreview} refreshRevision={revision} onBack={()=>setSelected(null)} onChanged={()=>setRevision(value=>value+1)}/>:<>
+  {showShares?<WorkspaceFileShareQueue api={api} onClose={()=>setShowShares(false)}/>:selected?<WorkspaceFileHistory key={`${scope}:${selected.id}`} api={api} file={selected} inlinePreview={inlinePreview} enablePublicMediaUrls={enablePublicMediaUrls} refreshRevision={revision} onBack={()=>setSelected(null)} onChanged={()=>setRevision(value=>value+1)}/>:<>
    {folderMode&&<nav className="hx-files-breadcrumbs" aria-label={t('Folder path')}><button onClick={()=>openDirectory('')}>{t('All files')}</button>{directory.split('/').filter(Boolean).map((name,index,parts)=><React.Fragment key={index}><Icon name="chevron-right" size={12}/><button aria-current={index===parts.length-1?'location':undefined} onClick={()=>openDirectory(parts.slice(0,index+1).join('/')+'/')}>{name}</button></React.Fragment>)}</nav>}
    <label className="hx-files-deleted"><input type="checkbox" checked={includeDeleted} onChange={event=>{setCursor(null);setFolderCursor(undefined);setIncludeDeleted(event.target.checked)}}/>{t('Include deleted files')}</label>
    <form className="hx-files-search" onSubmit={event=>{event.preventDefault();setCursor(null);setFolderCursor(undefined);setSearch(query)}}><Icon name="search" size={15}/><input maxLength={1024} aria-label={t('Search files')} placeholder={t('Search files')} value={query} onChange={event=>setQuery(event.target.value)}/><button type="submit" aria-label={t('Search')}><Icon name="chevron-right" size={15}/></button></form>
@@ -86,7 +86,7 @@ export function WorkspaceFilesPanel({api,scope,targetFileId,inlinePreview=false,
   <footer><button type="button" onClick={onAttachments}><Icon name="paperclip" size={14}/>{t('Message attachments')}</button></footer>
  </aside>
 }
-function WorkspaceFileHistory({api,file,inlinePreview,refreshRevision,onBack,onChanged}:{api:WorkspaceFileApi;file:WorkspaceFile;inlinePreview:boolean;refreshRevision:number;onBack:()=>void;onChanged:()=>void}){
+function WorkspaceFileHistory({api,file,inlinePreview,enablePublicMediaUrls,refreshRevision,onBack,onChanged}:{api:WorkspaceFileApi;file:WorkspaceFile;inlinePreview:boolean;enablePublicMediaUrls:boolean;refreshRevision:number;onBack:()=>void;onChanged:()=>void}){
  const replacement=useRef<HTMLInputElement>(null)
  const [preview,setPreview]=useState<FileVersion|null>(null)
  const [before,setBefore]=useState<number|undefined>(undefined)

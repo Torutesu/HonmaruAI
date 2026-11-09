@@ -41,7 +41,7 @@ test('media URL controls stay hidden for non-media files and outside Harness mod
 })
 
 test('media URL controls accept uncommon types from the supported MIME categories',async()=>{
- const api:any={filePublicUrl:vi.fn().mockResolvedValue({url:null,version:2,contentType:'image/vnd.adobe.photoshop',canCreate:true,canRevoke:false})}
+ const api:any={filePublicUrl:vi.fn().mockResolvedValue({url:null,version:2,contentType:'image/vnd.adobe.photoshop',canCreate:true,canRevoke:false}),createFilePublicUrl:vi.fn(),revokeFilePublicUrls:vi.fn()}
  let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<FilePublicUrlControls api={api} file={{...file,contentType:'image/vnd.adobe.photoshop'}} current={{...current,contentType:'image/vnd.adobe.photoshop'}} enabled/>)})
  expect(api.filePublicUrl).toHaveBeenCalledWith('f_photo',expect.any(AbortSignal))

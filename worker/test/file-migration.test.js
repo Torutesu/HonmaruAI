@@ -12,8 +12,9 @@ test('production file migration creates all tables and immutable history on an e
  const objects=(await env.DB.prepare("SELECT name,type FROM sqlite_master WHERE name LIKE 'hx_workspace_file%' OR name LIKE 'hx_file_account%' ORDER BY name").all()).results;
  expect(objects.filter(row=>row.type==='table')).toHaveLength(7);
  expect(objects.some(row=>row.name==='hx_workspace_file_version_immutable'&&row.type==='trigger')).toBe(true);
- const normalized=source.replace(/\s+/g,' ').trim();
- for(const statement of statements){expect(normalized).toContain(statement)}
+ const normalizeSql=value=>value.replace(/\s+/g,' ').replace(/\s*([(),])\s*/g,'$1').trim();
+ const normalized=normalizeSql(source);
+ for(const statement of statements){expect(normalized).toContain(normalizeSql(statement))}
  const columns=(await env.DB.prepare('PRAGMA table_info(hx_workspace_files)').all()).results;
  expect(columns.map(row=>row.name)).toEqual(expect.arrayContaining(['created_login','scope','path','current_version']));
 });
