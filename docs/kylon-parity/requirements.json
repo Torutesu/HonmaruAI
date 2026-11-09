@@ -1027,11 +1027,11 @@
       "id": "KY-083",
       "category": "Connections",
       "requirement": "画像・動画・音声生成",
-      "status": "missing",
+      "status": "partial",
       "priority": "P2",
       "source": "https://docs.kylon.io/proxy/tools-api",
-      "code": "worker/src/agentTools.js",
-      "acceptance": "job進捗・失敗・成果物保持・事前費用見積もり"
+      "code": "worker/src/harness/mediaGeneration.js",
+      "acceptance": "Harness所有Agent内の承認付き画像生成、進捗・失敗・キャンセル・private成果物の保存を提供。動画/音声生成と固定額の事前費用見積りは未対応"
     },
     {
       "id": "KY-084",
