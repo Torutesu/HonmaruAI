@@ -18,6 +18,7 @@ import { createWorkflowAuthorizationTrace, publicWorkflowAuthorizationEvents } f
 import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
 import { workflowCredentialSource } from '../orgAI.js';
 import { cancelDeploymentBudgetWorkflowRuns } from '../workspaceBudgetStop.js';
+import { claimWorkflowNode, finishWorkflowNode, markWorkflowNodeUnknown, renewWorkflowNode } from './workflowCheckpoints.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
 //
@@ -1024,8 +1025,20 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
             entry = {status:'failed',error:budget.message,reason:budget.reason};
           }
         }
-        if (!entry) entry = step.type==='code' ? await enqueueWorkflowProgram(db,{orgId,runId})
-          : await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, runActor: run.startedBy, authorize, authorizationTrace, credentialSource: run.credentialSource });
+        if (!entry && step.type === 'code') entry = await enqueueWorkflowProgram(db,{orgId,runId});
+        if (!entry && step.type !== 'code') {
+          const checkpoint = await executeCheckpointedWorkflowStep(db, {
+            orgId, runId, stepNumber: index + 1, step, effect: true,
+            execute: async () => {
+              const result = await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, runActor: run.startedBy, authorize, authorizationTrace, credentialSource: run.credentialSource });
+              return { ...result, ...(authorizationTrace.events.length ? { authorization: authorizationTrace.events } : {}) };
+            },
+          });
+          if (checkpoint.state === 'done') entry = checkpoint.result;
+          else if (checkpoint.state === 'unknown') entry = {status:'failed',outcome:'unknown',error:'The prior step may have completed an effect. It was not replayed; review the run before starting another one.'};
+          else if (checkpoint.state === 'conflict') entry = {status:'failed',outcome:'unknown',error:'The saved step definition differs from its checkpoint. The step was not replayed.'};
+          else entry = {status:'pending'};
+        }
       }
     } catch (e) {
       entry = { status: "failed", error: String(e?.message || e).slice(0, 300) };
@@ -1074,6 +1087,42 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     ...workflowSettlementStatements(db,orgId,runId)]);
   await tryWorkflowNotice(env,orgId,workflow.id);
     return getRun(db, orgId, runId);
+}
+
+// Checkpoint ordinary steps so a redelivered continuation can recover a
+// committed result without dispatching the effect again. Read-only connection
+// searches can be reclaimed; every other step is conservatively effectful.
+async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,effect,execute}) {
+ const nodeId=`step:${stepNumber}`,fingerprint=await workflowStepFingerprint(step),ttl=120_000;
+ const identity={orgId,runId,nodeId,fingerprint,effect};
+ const claim=await claimWorkflowNode(db,{...identity,at:Date.now(),ttl});
+ if(claim.status==='done')return {state:'done',result:claim.result};
+ if(claim.status==='unknown')return {state:'unknown'};
+ if(claim.status==='conflict')return {state:'conflict'};
+ if(claim.status!=='acquired')return {state:'pending'};
+ let stopped=false,leaseLost=false,timer=null,pulse=Promise.resolve();
+ const heartbeat=async()=>{
+  if(stopped)return;
+  try{if(!await renewWorkflowNode(db,{...identity,...claim,at:Date.now(),ttl}))leaseLost=true;}
+  catch{leaseLost=true;}
+  if(!stopped&&!leaseLost)timer=setTimeout(()=>{pulse=heartbeat();},30_000);
+ };
+ timer=setTimeout(()=>{pulse=heartbeat();},30_000);
+ try{
+  let result;
+  try{result=await execute();}
+  catch{
+   stopped=true;clearTimeout(timer);await pulse;
+   await markWorkflowNodeUnknown(db,{...identity,...claim,at:Date.now()});
+   return {state:'unknown'};
+  }
+  stopped=true;clearTimeout(timer);await pulse;
+  if(leaseLost){await markWorkflowNodeUnknown(db,{...identity,...claim,at:Date.now()});return {state:'unknown'};}
+  const saved=await finishWorkflowNode(db,{...identity,...claim,result,at:Date.now()});
+  if(saved)return {state:'done',result};
+  await markWorkflowNodeUnknown(db,{...identity,...claim,at:Date.now()});
+  return {state:'unknown'};
+ }finally{stopped=true;clearTimeout(timer);await pulse;}
 }
 
 async function say(env, orgId, channel, body, { authorLogin = null, kind = "ai", parentId = null, workflowFence = null } = {}) {
@@ -1373,6 +1422,11 @@ function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
   return JSON.stringify(value);
+}
+
+export async function workflowStepFingerprint(step) {
+ const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonicalJson(step)));
+ return hex(new Uint8Array(digest));
 }
 
 async function rowEventFingerprint(table, before, row) {

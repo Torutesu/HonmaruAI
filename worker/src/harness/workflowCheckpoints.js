@@ -33,6 +33,13 @@ export async function finishWorkflowNode(db,{orgId,runId,nodeId,owner,attempt,re
   .bind(orgId,runId,nodeId,owner,attempt,serialized,at).run();
  return !!saved.meta?.changes;
 }
+export async function markWorkflowNodeUnknown(db,{orgId,runId,nodeId,owner,attempt,at=Date.now()}) {
+ scope(orgId,runId,nodeId);clock(at);if(!valid(owner)||!Number.isSafeInteger(attempt)||attempt<1)throw Error('Invalid checkpoint claim.');
+ const saved=await db.prepare(`UPDATE hx_workflow_node_checkpoints SET status='unknown',lease_until=0
+  WHERE org_id=?1 AND run_id=?2 AND node_id=?3 AND owner=?4 AND attempt=?5 AND effect=1 AND status='running'`)
+  .bind(orgId,runId,nodeId,owner,attempt).run();
+ return !!saved.meta?.changes;
+}
 export async function renewWorkflowNode(db,{orgId,runId,nodeId,owner,attempt,at=Date.now(),ttl=30000}) {
  scope(orgId,runId,nodeId);clock(at,ttl);if(!valid(owner)||!Number.isSafeInteger(attempt)||attempt<1)throw Error('Invalid checkpoint claim.');
  const saved=await db.prepare(`UPDATE hx_workflow_node_checkpoints SET lease_until=MAX(lease_until,?6) WHERE org_id=?1 AND run_id=?2 AND node_id=?3 AND owner=?4 AND attempt=?5 AND status='running' AND lease_until>?7

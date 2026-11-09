@@ -2045,6 +2045,46 @@ test('a maker can reconcile a stale workflow run without replaying its uncertain
   expect((await send('POST', `/workflows/${workflow.id}/run`, mika, { orgId: ORG, text: 'new run' })).status).toBe(201);
 });
 
+test('a redelivered continuation reuses a saved step result instead of posting twice',async()=>{
+ const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Checkpoint result replay',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Already sent once'}]});
+ const {workflow}=await created.json(),runId='run-step-checkpoint-replay',startedAt=new Date().toISOString();
+ const {ensureWorkflowSafety}=await import('../src/harness/workflowSafety.js');
+ const {claimWorkflowNode,finishWorkflowNode}=await import('../src/harness/workflowCheckpoints.js');
+ const {workflowStepFingerprint,continueRun}=await import('../src/harness/workflows.js');
+ const safety=await ensureWorkflowSafety(env.DB,ORG,workflow.id);
+ const definition={id:workflow.id,name:workflow.name,enabled:true,trigger:workflow.trigger,steps:workflow.steps,createdBy:'9302',safetyGeneration:safety.generation};
+ await env.DB.batch([
+  env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at) VALUES(?1,?2,?3,'manual','running','{}','[]',0,'9302',?4)`).bind(runId,ORG,workflow.id,startedAt),
+  env.DB.prepare('INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES(?1,?2,?3,?4)').bind(runId,ORG,JSON.stringify(definition),startedAt),
+ ]);
+ const step=definition.steps[0],lease=await claimWorkflowNode(env.DB,{orgId:ORG,runId,nodeId:'step:1',fingerprint:await workflowStepFingerprint(step),effect:true,at:Date.now()});
+ expect(lease.status).toBe('acquired');
+ expect(await finishWorkflowNode(env.DB,{orgId:ORG,runId,nodeId:'step:1',fingerprint:await workflowStepFingerprint(step),effect:true,...lease,result:{status:'ok',output:'Already sent once',messageId:'prior-post'}})).toBe(true);
+ const run=await continueRun(env,{orgId:ORG,runId,workflow:definition});
+ expect(run).toMatchObject({status:'done',log:[expect.objectContaining({status:'ok',output:'Already sent once',messageId:'prior-post'})]});
+ expect((await messages(mika)).map(message=>message.body)).not.toContain('Already sent once');
+});
+
+test('an expired effectful Workflow step is recorded as unknown and is never dispatched again',async()=>{
+ const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Checkpoint unknown recovery',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Must not be repeated'}]});
+ const {workflow}=await created.json(),runId='run-step-checkpoint-unknown',startedAt=new Date().toISOString();
+ const {ensureWorkflowSafety}=await import('../src/harness/workflowSafety.js');
+ const {claimWorkflowNode}=await import('../src/harness/workflowCheckpoints.js');
+ const {workflowStepFingerprint,continueRun}=await import('../src/harness/workflows.js');
+ const safety=await ensureWorkflowSafety(env.DB,ORG,workflow.id);
+ const definition={id:workflow.id,name:workflow.name,enabled:true,trigger:workflow.trigger,steps:workflow.steps,createdBy:'9302',safetyGeneration:safety.generation};
+ await env.DB.batch([
+  env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at) VALUES(?1,?2,?3,'manual','running','{}','[]',0,'9302',?4)`).bind(runId,ORG,workflow.id,startedAt),
+  env.DB.prepare('INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES(?1,?2,?3,?4)').bind(runId,ORG,JSON.stringify(definition),startedAt),
+ ]);
+ const step=definition.steps[0];
+ expect((await claimWorkflowNode(env.DB,{orgId:ORG,runId,nodeId:'step:1',fingerprint:await workflowStepFingerprint(step),effect:true,at:Date.now()-10_000,ttl:1000})).status).toBe('acquired');
+ const run=await continueRun(env,{orgId:ORG,runId,workflow:definition});
+ expect(run).toMatchObject({status:'failed',log:[expect.objectContaining({status:'failed',outcome:'unknown',error:expect.stringContaining('not replayed')})]});
+ expect((await messages(mika)).map(message=>message.body)).not.toContain('Must not be repeated');
+ expect((await env.DB.prepare("SELECT status FROM hx_workflow_node_checkpoints WHERE run_id=?1 AND node_id='step:1'").bind(runId).first()).status).toBe('unknown');
+});
+
 test('a maker or admin can cancel a running workflow and fence later steps', async () => {
   const { workflow } = await (await send('POST', '/workflows', toru, {
     orgId: ORG, name: 'Cancelable', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Must not post after cancellation' }],
@@ -2320,7 +2360,7 @@ test('conditional steps save their decision, skip unmatched effects and retain s
  const bodies=(await messages(mika)).map(message=>message.body);
  expect(bodies).toContain('Large invoice');expect(bodies).not.toContain('Small invoice');
  const checkpoints=await env.DB.prepare('SELECT node_id,status,result FROM hx_workflow_node_checkpoints WHERE org_id=?1 AND run_id=?2 ORDER BY node_id').bind(ORG,run.id).all();
- expect(checkpoints.results.map(row=>[row.node_id,row.status,JSON.parse(row.result).matches])).toEqual([['condition:1','done',true],['condition:2','done',false]]);
+ expect(checkpoints.results.map(row=>[row.node_id,row.status,JSON.parse(row.result).matches??null])).toEqual([['condition:1','done',true],['condition:2','done',false],['step:1','done',null]]);
  expect(normalizeSteps([{type:'post',channel:'b:ops',text:'bad',when:{path:['input','__proto__'],op:'exists',value:true}}]).error).toBeTruthy();
 });
 
