@@ -166,6 +166,28 @@ jobs:
             npx -y wrangler@4 r2 bucket lock add "$bucket" --name audit-400d --prefix audit/ --retention-days 400 --force || echo "::warning::Could not add the bucket lock; add it by hand (docs/setup-secrets.md)."
           fi
 
+      # The media bucket keeps what it holds. Attachments, workspace emoji,
+      # profile photos and logos live there, and the app deletes each when
+      # somebody removes it, never by age. A 30-day expiry put on the whole
+      # bucket by hand for video clips (August 2026) deleted every older
+      # picture and file (#824). Any rule that expires objects is taken off
+      # here, on every deploy, so it cannot come back unnoticed. A list that
+      # cannot be read is a warning, never "no rules".
+      - name: Media bucket keeps what it holds
+        if: ${{ !inputs.migrate_only }}
+        run: |
+          bucket="tiktokforwork-media"
+          [ "$TARGET" = "staging" ] && bucket="tiktokforwork-media-staging"
+          if ! rules="$(npx -y wrangler@4 r2 bucket lifecycle list "$bucket" 2>&1)"; then
+            echo "::warning::Could not read the lifecycle rules of $bucket: $(printf '%s' "$rules" | tail -n 1)"
+            exit 0
+          fi
+          printf '%s\n' "$rules"
+          printf '%s\n' "$rules" | awk '/^name:/ {sub(/^name:[ \t]+/, ""); n=$0} /^action:/ && /Expire objects/ {print n}' | while IFS= read -r name; do
+            npx -y wrangler@4 r2 bucket lifecycle remove "$bucket" --name "$name"
+            echo "::warning::Removed lifecycle rule '$name' from $bucket: it deleted attachments and pictures by age (#824)."
+          done
+
       # Keys the Worker makes once and must never lose: the audit log's key
       # wrapper and pseudonym key (docs/audit-log-phase2.md §2). Created here
       # the first time, when the Worker has none — never replaced, because
