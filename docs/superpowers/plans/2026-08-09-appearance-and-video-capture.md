@@ -402,6 +402,8 @@ Expected: "Created bucket tiktokforwork-media". (If it already exists, wrangler 
 
 - [ ] **Step 2: Add the 30-day expiry lifecycle rule (cost control)**
 
+> **Withdrawn (November 2026, #824).** Do not add this rule. The bucket now holds attachments, workspace emoji, profile photos and logos too, and an expiry on the whole bucket deleted every one older than 30 days. The deploy removes any expiry rule from it (deploy-worker.yml, "Media bucket keeps what it holds").
+
 Run: `cd worker && npx wrangler r2 bucket lifecycle add tiktokforwork-media --name expire-30d --expire-days 30`
 Then verify: `npx wrangler r2 bucket lifecycle list tiktokforwork-media`
 Expected: the listing shows a rule expiring objects after 30 days. This is what

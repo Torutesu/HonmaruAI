@@ -131,6 +131,8 @@ R2 bills stored bytes (egress is free, unlike S3), so cost is driven by
 accumulation, not by playback. Three measures keep it inside the 10 GB free tier
 indefinitely:
 
+> **Withdrawn (November 2026, #824).** Do not add this rule. The bucket now holds attachments, workspace emoji, profile photos and logos too, and an expiry on the whole bucket deleted every one older than 30 days. The deploy removes any expiry rule from it (deploy-worker.yml, "Media bucket keeps what it holds").
+
 1. **Compress + cap on device** (above): ~1–2 MB per clip instead of 15–30 MB.
 2. **Expire after 30 days.** An R2 **lifecycle rule** deletes objects 30 days
    after upload:
