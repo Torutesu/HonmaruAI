@@ -28,6 +28,45 @@ const send = (method, path, token, body) => call(path, { method, headers: header
 const get = (path, token) => call(path, { headers: headers(token) });
 const q = (o) => new URLSearchParams(o).toString();
 const messages = async (token) => (await (await get(`/channels/messages?${q({ orgId: ORG, channel: "b:ops" })}`, token)).json()).messages || [];
+function revokeSourceBeforeWrite(db, appId, targetSql) {
+  let revoked = false;
+  const guarded = new Proxy(db, {
+    get(target, property) {
+      if (property !== 'prepare') {
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      }
+      return sql => {
+        const statement = target.prepare(sql);
+        if (revoked || !targetSql.test(String(sql))) return statement;
+        return new Proxy(statement, {
+          get(prepared, method) {
+            if (method === 'bind') return (...values) => {
+              const bound = prepared.bind(...values);
+              return new Proxy(bound, {
+                get(boundStatement, boundMethod) {
+                  if (boundMethod === 'run') return async (...args) => {
+                    if (!revoked) {
+                      revoked = true;
+                      await db.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
+                        ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, appId).run();
+                    }
+                    return boundStatement.run(...args);
+                  };
+                  const value = Reflect.get(boundStatement, boundMethod, boundStatement);
+                  return typeof value === 'function' ? value.bind(boundStatement) : value;
+                },
+              });
+            };
+            const value = Reflect.get(prepared, method, prepared);
+            return typeof value === 'function' ? value.bind(prepared) : value;
+          },
+        });
+      };
+    },
+  });
+  return { db: guarded, wasRevoked: () => revoked };
+}
 let webhookNumber = 0;
 const signedWebhook = async (hookUrl, secret, body = '{}', eventId = `evt-${++webhookNumber}`, { timestamp = String(Math.floor(Date.now() / 1000)), signature } = {}) => {
   const text = typeof body === 'string' ? body : JSON.stringify(body);
@@ -384,6 +423,67 @@ test('app record triggers scope to an app entity, filter insert/update data, and
   expect(deleteRuns).toHaveLength(1);
   expect(deleteRuns[0].input.records[0]).toEqual({event:'delete',appId:invoicesAppId,entityId:'primary',recordId:privateRow.id});
   expect(JSON.stringify(deleteRuns[0].input)).not.toContain('Private Customer');
+});
+
+test('an app record run stops if its entity is remapped while the agent is answering', async () => {
+  const agent = (await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Record reviewer', handle: 'record-reviewer', instructions: 'Review the changed record.', scope: 'team',
+  })).json()).agent;
+  const replacement = (await (await send('POST', '/apps', mika, {
+    orgId: ORG, name: 'Replacement entity table', columns: [{ name: 'Status', type: 'text' }],
+  })).json()).app;
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Review source record',
+    trigger: { type: 'app_record_change', appId: invoicesAppId, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Review this record.' }],
+  }, '9302');
+  let providerCalls = 0;
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, async () => {
+    providerCalls += 1;
+    await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(replacement.tableId, ORG, invoicesAppId).run();
+    return { choices: [{ message: { content: 'Sensitive result from the old table.' } }], usage: { prompt_tokens: 8, completion_tokens: 4 } };
+  });
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, {
+      orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+      input: { tableId: invoices, totalCount: 1, truncated: false, records: [{ event: 'update', appId: invoicesAppId, entityId: 'primary', recordId: 'record-from-old-table', data: { status: 'Overdue' } }] },
+    });
+    expect(result.status).toBe('failed');
+    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
+    expect(providerCalls).toBe(1);
+    const posted = await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?1 AND body='Sensitive result from the old table.'").bind(ORG).first();
+    expect(posted.n).toBe(0);
+
+    await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(invoices, ORG, invoicesAppId).run();
+    let sourceLookups = 0;
+    const racingDb = {
+      prepare(sql) {
+        const statement = env.DB.prepare(sql);
+        if (sql !== 'SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2') return statement;
+        return { bind(...args) {
+          const bound = statement.bind(...args);
+          return { async first() {
+            const row = await bound.first();
+            if (args[1] === invoicesAppId && sourceLookups++ === 0) {
+              await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(replacement.tableId, ORG, invoicesAppId).run();
+              return row && { ...row, table_id: null };
+            }
+            return row;
+          } };
+        } };
+      },
+      batch(statements) { return env.DB.batch(statements); },
+    };
+    const missingSource = await startRun({ ...env, DB: racingDb, OPENAI_API_KEY: 'sk-test' }, {
+      orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+      input: { totalCount: 1, truncated: false, records: [{ event: 'update', appId: invoicesAppId, entityId: 'primary', recordId: 'record-without-source-table', data: { status: 'Overdue' } }] },
+    });
+    expect(missingSource.status).toBe('failed');
+    expect(sourceLookups).toBe(2);
+    expect(providerCalls).toBe(1);
+  } finally { fetchMock.deactivate(); }
 });
 
 test('admin editors cannot redirect a workflow to an app they cannot access',async()=>{
@@ -1360,6 +1460,51 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
   } finally { fetchMock.deactivate(); }
 });
 
+test('a Workflow Agent discards a read-only Remote MCP result when its source App is revoked during the tool call', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'App source reviewer', handle: 'app-source-reviewer', instructions: 'Review the changed record.', scope: 'team',
+  })).json();
+  await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+  ], ['search_policy']);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Review app record with policy',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Review the changed record and policy.' }],
+  }, '9302');
+  const requests = [];
+  let remoteToolName = null;
+  fetchMock.activate();
+  interceptWorkflowRemoteMcp(async () => {
+    await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
+      ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, sourceApp.id).run();
+  });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(opts => {
+    const body = JSON.parse(opts.body);
+    requests.push(body);
+    const names = (body.tools || []).map(tool => tool.function.name);
+    remoteToolName = names.find(name => name.startsWith('mcp_'));
+    return { statusCode: 200, data: {
+      choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'source-policy-search', type: 'function', function: { name: remoteToolName, arguments: JSON.stringify({ query: 'record policy' }) } }] } }],
+      usage: { prompt_tokens: 10, completion_tokens: 4 },
+    } };
+  }).times(1);
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, {
+      orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+      input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'private' } }], totalCount: 1, truncated: false },
+    });
+    expect(remoteToolName).toBeTruthy();
+    expect(result.status).toBe('failed');
+    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
+    expect(requests).toHaveLength(1);
+    expect((await messages(mika)).some(message => message.body.includes('Workspace policy: keep all keys private.'))).toBe(false);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
 test('Workflow Agent steps do not receive Remote MCP tools in Simple mode', async () => {
   const { agent } = await (await send('POST', '/channels/agents', mika, {
     orgId: ORG, name: 'Simple reviewer', handle: 'simple-reviewer', instructions: 'Review the prompt.', scope: 'team',
@@ -1442,6 +1587,129 @@ test('an app record workflow stops its Agent after its maker loses app access du
     expect(requestBody.messages.some(message => message.content?.includes('Review the changed record.'))).toBe(true);
     fetchMock.assertNoPendingInterceptors();
   } finally { fetchMock.deactivate(); }
+});
+
+test('an app record post is fenced atomically when source access is revoked before message insertion', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Post current app record',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'post', channel: 'b:ops', text: 'Source data: {{row.Status}}' }],
+  }, '9302');
+  const fenced = revokeSourceBeforeWrite(env.DB, sourceApp.id, /^INSERT INTO channel_messages\b/);
+  const result = await startRun({ ...env, DB: fenced.db }, {
+    orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'PRIVATE-CANARY' } }], totalCount: 1, truncated: false },
+  });
+  expect(fenced.wasRevoked()).toBe(true);
+  expect(result.status).toBe('failed');
+  expect((await messages(mika)).some(message => message.body.includes('PRIVATE-CANARY'))).toBe(false);
+});
+
+test('an app record approval is fenced atomically when source access is revoked before card insertion', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Approve current app record',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'approval', to: 'toru', title: 'Review {{row.Status}}?' }],
+  }, '9302');
+  const fenced = revokeSourceBeforeWrite(env.DB, sourceApp.id, /^INSERT INTO cards\b/);
+  const result = await startRun({ ...env, DB: fenced.db }, {
+    orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'PRIVATE-CANARY' } }], totalCount: 1, truncated: false },
+  });
+  expect(fenced.wasRevoked()).toBe(true);
+  expect(result.status).toBe('failed');
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM cards WHERE org_id=?1 AND card_id=?2').bind(ORG, `wf-${result.id}-1`).first()).n).toBe(0);
+});
+
+test('an app record follow-up is fenced when source access is revoked before scheduling', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Schedule app record follow-up',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'followup', channel: 'b:ops', text: 'Check {{row.Status}}', minutes: 60 }],
+  }, '9302');
+  const fenced = revokeSourceBeforeWrite(env.DB, sourceApp.id, /^INSERT INTO hx_followups\b/);
+  const result = await startRun({ ...env, DB: fenced.db }, {
+    orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'PRIVATE-CANARY' } }], totalCount: 1, truncated: false },
+  });
+  expect(fenced.wasRevoked()).toBe(true);
+  expect(result.status).toBe('failed');
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_followups WHERE org_id=?1').bind(ORG).first()).n).toBe(0);
+});
+
+test('a scheduled app record follow-up fails closed after its source App access is revoked', async () => {
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Check an app record later',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'followup', channel: 'b:ops', text: 'Check {{row.Status}}', minutes: 60 }],
+  }, '9302');
+  const result = await startRun(env, {
+    orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'PRIVATE-CANARY' } }], totalCount: 1, truncated: false },
+  });
+  expect(result.status).toBe('done');
+  const followupId = result.log[0].output;
+  expect(await env.DB.prepare('SELECT source_app_id,source_entity_id,source_table_id FROM hx_followups WHERE id=?1').bind(followupId).first())
+    .toEqual({ source_app_id: sourceApp.id, source_entity_id: 'primary', source_table_id: sourceApp.tableId });
+  await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
+    ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, sourceApp.id).run();
+  await env.DB.prepare('UPDATE hx_followups SET due_at=?1 WHERE id=?2').bind(new Date(Date.now() - 1_000).toISOString(),followupId).run();
+  await runDueFollowups(env, { now: new Date() });
+  const stored = await env.DB.prepare('SELECT status,result FROM hx_followups WHERE id=?1').bind(followupId).first();
+  expect(stored.status).toBe('failed');
+  expect(stored.result).toMatch(/source app, entity, or table/i);
+  expect((await messages(mika)).some(message => message.body.includes('PRIVATE-CANARY'))).toBe(false);
+});
+
+test('follow-up provenance keeps standalone and non-App legacy rows while rejecting known App-trigger legacy rows', async () => {
+  const { followupSourceAuthority } = await import('../src/harness/appRecordSourceAuthority.js');
+  const standaloneId = 'legacy_standalone_followup';
+  await env.DB.prepare(`INSERT INTO hx_followups(id,org_id,channel,instruction,due_at,status,created_by,created_at)
+    VALUES(?1,?2,'b:ops','Standalone',?3,'scheduled','9302',?3)`)
+    .bind(standaloneId, ORG, new Date(Date.now() + 60_000).toISOString()).run();
+  const isAuthorized = id => env.DB.prepare(`SELECT 1 AS allowed FROM hx_followups f WHERE f.org_id=?1 AND f.id=?2 AND ${followupSourceAuthority('f')}`).bind(ORG, id).first();
+  expect(await isAuthorized(standaloneId)).toEqual({ allowed: 1 });
+
+  const sourceApp = (await (await send('POST', '/apps', toru, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const appWorkflow = (await createWorkflow(env.DB, ORG, {
+    name: 'Legacy app follow-up source',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'followup', channel: 'b:ops', text: 'App follow-up', minutes: 60 }],
+  }, '9302')).workflow;
+  const appRun = await startRun(env, {
+    orgId: ORG, workflow: appWorkflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'legacy-row', data: {} }], totalCount: 1, truncated: false },
+  });
+  const appFollowupId = appRun.log[0].output;
+  await env.DB.prepare('UPDATE hx_followups SET source_app_id=NULL,source_entity_id=NULL,source_table_id=NULL,source_authority_version=0 WHERE id=?1').bind(appFollowupId).run();
+  expect(await isAuthorized(appFollowupId)).toBeNull();
+
+  // Deleting a workflow removes the run log used to classify legacy v0
+  // follow-ups. That must not turn an App-sourced reminder into a standalone
+  // one after a later access change.
+  const { deleteWorkflow } = await import('../src/harness/workflows.js');
+  await deleteWorkflow(env.DB, ORG, appWorkflow.id);
+  expect(await env.DB.prepare('SELECT 1 FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2').bind(ORG, appWorkflow.id).first()).toBeNull();
+  expect(await isAuthorized(appFollowupId)).toBeNull();
+  expect((await env.DB.prepare('SELECT source_authority_version FROM hx_followups WHERE org_id=?1 AND id=?2').bind(ORG, appFollowupId).first()).source_authority_version).toBe(-1);
+
+  const manualWorkflow = (await createWorkflow(env.DB, ORG, {
+    name: 'Legacy manual follow-up source', trigger: { type: 'manual' },
+    steps: [{ type: 'followup', channel: 'b:ops', text: 'Manual follow-up', minutes: 60 }],
+  }, '9302')).workflow;
+  const manualRun = await startRun(env, { orgId: ORG, workflow: manualWorkflow, trigger: 'manual', startedBy: '9302', input: { text: 'legacy' } });
+  const manualFollowupId = manualRun.log[0].output;
+  await env.DB.prepare('UPDATE hx_followups SET source_authority_version=0 WHERE id=?1').bind(manualFollowupId).run();
+  expect(await isAuthorized(manualFollowupId)).toEqual({ allowed: 1 });
 });
 
 test('a workflow Agent grant revoked during its model turn prevents publishing the reply', async () => {
