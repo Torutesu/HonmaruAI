@@ -256,6 +256,7 @@ export const MessageFiles: React.FC<{ files?: FileRef[]; base: string }> = ({ fi
           files={pictures}
           at={open}
           src={url}
+          onStale={addr.stale}
           onMove={setOpen}
           onClose={() => setOpen(null)}
         />
@@ -393,8 +394,13 @@ const Player: React.FC<{ file: FileRef; kind: 'video' | 'audio'; src: string; on
 }
 
 /// One picture at a time, the whole screen, with the others a swipe away.
-const Lightbox: React.FC<{ files: FileRef[]; at: number; src: (f: FileRef) => string; onMove: (i: number) => void; onClose: () => void }> = ({ files, at, src, onMove, onClose }) => {
+export const Lightbox: React.FC<{ files: FileRef[]; at: number; src: (f: FileRef) => string; onStale: (f: FileRef) => void; onMove: (i: number) => void; onClose: () => void }> = ({ files, at, src, onStale, onMove, onClose }) => {
   const t = useT()
+  // The address that would not open. Its file is asked for a new one, as
+  // the thumbnail does; until that comes, or if it never does (removed,
+  // no longer yours to see), it says so, with a way to try again.
+  const [failed, setFailed] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
   const startX = useRef<number | null>(null)
   const startY = useRef<number | null>(null)
   const f = files[at]
@@ -423,7 +429,13 @@ const Lightbox: React.FC<{ files: FileRef[]; at: number; src: (f: FileRef) => st
         <a href={downloadUrl(src(f))} target="_blank" rel="noopener noreferrer" aria-label={t('Download')}><Icon name="download" size={18} /></a>
         <button type="button" onClick={onClose} aria-label={t('Close')}><Icon name="x" size={20} /></button>
       </header>
-      <img src={src(f)} alt={f.name} onClick={(e) => e.stopPropagation()} />
+      {failed === src(f)
+        ? <div className="att-light-missing" role="status" onClick={(e) => e.stopPropagation()}>
+            <Icon name="image" size={28} />
+            <p>{t('This picture could not be opened.')}</p>
+            <button type="button" className="btn" onClick={() => { setFailed(null); setAttempt((n) => n + 1); onStale(f) }}>{t('Try again')}</button>
+          </div>
+        : <img key={`${f.id}:${attempt}`} src={src(f)} alt={f.name} onClick={(e) => e.stopPropagation()} onError={() => { setFailed(src(f)); onStale(f) }} />}
     </div>,
     document.body,
   )

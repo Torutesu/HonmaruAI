@@ -18,8 +18,11 @@ export function useWorkspaceColors() {
 export function WorkspaceIdentity({ workspace, fallback }: { workspace?: Workspace; fallback: string }) {
   const c = useWorkspaceColors()
   const name = workspaceName(workspace, fallback)
+  // A logo that will not load shows the letter, as one never set does; a
+  // new logo (or this screen opened again) is tried afresh (#824).
+  const [failed, setFailed] = useState<string | null>(null)
   return <View style={styles.identity}>
-    {workspace?.icon ? <Image source={{ uri: workspace.icon }} style={styles.icon} accessibilityIgnoresInvertColors /> : <View style={[styles.icon, styles.letter, { backgroundColor: c.text }]}><Text style={{ color: c.bg, fontSize: 22, fontWeight: '700' }}>{name[0]?.toUpperCase()}</Text></View>}
+    {workspace?.icon && failed !== workspace.icon ? <Image source={{ uri: workspace.icon }} style={styles.icon} accessibilityIgnoresInvertColors onError={() => setFailed(workspace.icon || null)} /> : <View style={[styles.icon, styles.letter, { backgroundColor: c.text }]}><Text style={{ color: c.bg, fontSize: 22, fontWeight: '700' }}>{name[0]?.toUpperCase()}</Text></View>}
     <View style={{ flex: 1 }}><Text style={[styles.name, { color: c.text }]} numberOfLines={2}>{name}</Text><Text style={{ color: c.secondary, fontSize: 13 }}>{workspace?.memberCount != null ? `${workspace.memberCount} ${fallback === 'ワークスペース' ? '人のメンバー' : 'members'}` : fallback}</Text></View>
   </View>
 }

@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React from 'react'
+import { useImageRetry } from '../utils/imageRetry'
 
 /// A person's face: their photo when they have one, and otherwise the first
 /// letter of their name on a colour of its own — the same colour for the
@@ -32,16 +33,18 @@ interface Props {
 }
 
 export const Avatar: React.FC<Props> = ({ name, url, size = 32, className, round = false }) => {
-  const [broken, setBroken] = useState(false)
+  // A failed photo shows the letter; a new address (a photo replaced or
+  // put back) is tried again, and so, a little later, is the same one.
+  const image = useImageRetry(url)
   const [bg, fg] = tintFor(name)
   const style: React.CSSProperties = {
     width: size, height: size, borderRadius: round ? '50%' : Math.max(4, Math.round(size * 0.22)),
     fontSize: Math.max(10, Math.round(size * 0.42)),
   }
-  if (url && !broken) {
+  if (url && !image.failed) {
     return (
       <span className={`avatar-img${className ? ` ${className}` : ''}`} style={style} aria-hidden="true">
-        <img src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} />
+        <img key={image.attempt} src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={image.onError} />
       </span>
     )
   }
