@@ -34,5 +34,6 @@
   "harness/templateShares.js": 1,
   "externalApps.js": 1,
   "harness/externalFileGrants.js": 3,
-  "harness/agentWakeApprovals.js": 1
+  "harness/agentWakeApprovals.js": 1,
+  "harness/workflowRowEventDispatch.js": 4
 }

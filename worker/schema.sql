@@ -2657,6 +2657,28 @@ CREATE TABLE IF NOT EXISTS hx_workflow_row_receipts (
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_receipts_expiry
   ON hx_workflow_row_receipts(expires_at);
 
+-- Workflow add/update row mutations commit a durable trigger event beside the
+-- row and its step checkpoint. Other row writers keep their existing paths.
+CREATE TABLE IF NOT EXISTS hx_workflow_row_event_outbox (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  table_id TEXT NOT NULL,
+  event_hash TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','done')),
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+  next_attempt INTEGER NOT NULL DEFAULT 0,
+  lease TEXT,
+  lease_until INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_event_outbox_due
+  ON hx_workflow_row_event_outbox(status,next_attempt,lease_until,created_at);
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_event_outbox_org_pending
+  ON hx_workflow_row_event_outbox(org_id) WHERE status='pending';
+
 -- Durable, independent live and notification preparation for accepted sends.
 CREATE TABLE IF NOT EXISTS channel_message_delivery (org_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('live','push')), business_created_at TEXT, allow_virtual INTEGER NOT NULL DEFAULT 0 CHECK(allow_virtual IN (0,1)), status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','done','failed')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(org_id,message_id,kind));
 CREATE INDEX IF NOT EXISTS idx_channel_message_delivery_due ON channel_message_delivery(kind,status,next_attempt,lease_until);
