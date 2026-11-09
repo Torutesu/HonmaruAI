@@ -278,7 +278,7 @@ function appRowWriteGuard(orgParam, tableParam, userParam) {
         AND NOT EXISTS(SELECT 1 FROM hx_apps linked WHERE linked.org_id=orphan.org_id AND linked.id=orphan.app_id))`;
 }
 
-export async function addRow(db, orgId, tableId, values, by, validation, writeUserId, writeGuard) {
+export async function addRow(db, orgId, tableId, values, by, validation, writeUserId, writeGuard, { deferWrite = false } = {}) {
   const observed = await tableForWrite(db, orgId, tableId);
   if (!observed) return { error: "No such table.", status: 404 };
   const {table}=observed;
@@ -300,18 +300,20 @@ export async function addRow(db, orgId, tableId, values, by, validation, writeUs
   const guardParam = authorityParam + authorityBinds.length;
   const guardSql = writeGuard ? writeGuard.sql(guardParam) : "1";
   const guardBinds = writeGuard?.binds || [];
-  const inserted = await db
+  const statement = db
     .prepare(`INSERT INTO hx_rows (id, table_id, org_id, data, position, created_by, updated_by, created_at, updated_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7 WHERE (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?2 AND org_id=?3 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) AND (${authoritySql}) AND (${guardSql})`)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7 WHERE (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?2 AND org_id=?3 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) AND (${authoritySql}) AND (${guardSql})
+      AND (SELECT COUNT(*) FROM hx_rows WHERE table_id=?2 AND org_id=?3) < ${MAX_ROWS}`)
     .bind(id, tableId, orgId, JSON.stringify(storedValues), Number(count?.p || 0) + 1, String(by), at, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt,...authorityBinds,...guardBinds)
-    .run();
-  if (!inserted.meta?.changes) return { error: 'The table schema or a linked record changed before this record could be saved. Reload and try again.', status: 409 };
+  if (deferWrite) return { table, row: { id, tableId, values: storedValues, position: Number(count?.p || 0) + 1, createdBy: String(by), updatedBy: String(by), createdAt: at, updatedAt: at }, statement };
+  const inserted = await statement.run();
+  if (!inserted.meta?.changes) return { error: (Number(count?.n || 0) >= MAX_ROWS ? `A table holds at most ${MAX_ROWS} rows.` : 'The table schema or a linked record changed before this record could be saved. Reload and try again.'), status: 409 };
   return { table, row: await getRow(db, orgId, tableId, id) };
 }
 
 /// Change some values of a row; the others stay. Returns the row before and
 /// after, so a caller can tell what changed (Workflows trigger on it).
-export async function updateRow(db, orgId, tableId, rowId, values, by, expectedUpdatedAt, validation, writeUserId, writeGuard) {
+export async function updateRow(db, orgId, tableId, rowId, values, by, expectedUpdatedAt, validation, writeUserId, writeGuard, { deferWrite = false } = {}) {
   const observed = await tableForWrite(db, orgId, tableId);
   if (!observed) return { error: "No such table.", status: 404 };
   const {table}=observed;
@@ -334,10 +336,11 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
   const guardParam = authorityParam + authorityBinds.length;
   const guardSql = writeGuard ? writeGuard.sql(guardParam) : "1";
   const guardBinds = writeGuard?.binds || [];
-  const changed = await db
+  const statement = db
     .prepare(`UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 AND (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?5 AND org_id=?6 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) AND (${authoritySql}) AND (${guardSql}) RETURNING *`)
     .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt,...authorityBinds,...guardBinds)
-    .first();
+  if (deferWrite) return { table, before, row: { ...before, values: merged, updatedBy: String(by), updatedAt: at }, statement };
+  const changed = await statement.first();
   if (!changed) return rowConflict();
   return { table, before, row: publicRow(changed) };
 }

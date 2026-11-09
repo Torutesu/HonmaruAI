@@ -18,7 +18,7 @@ import { createWorkflowAuthorizationTrace, publicWorkflowAuthorizationEvents } f
 import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
 import { workflowCredentialSource } from '../orgAI.js';
 import { cancelDeploymentBudgetWorkflowRuns } from '../workspaceBudgetStop.js';
-import { claimWorkflowNode, finishWorkflowNode, markWorkflowNodeUnknown, renewWorkflowNode } from './workflowCheckpoints.js';
+import { claimWorkflowNode, finishWorkflowNode, markWorkflowNodeUnknown, renewWorkflowNode, commitWorkflowNodeEffects } from './workflowCheckpoints.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
 //
@@ -1119,6 +1119,18 @@ async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,e
   }
   stopped=true;clearTimeout(timer);await pulse;
   if(leaseLost){await markWorkflowNodeUnknown(db,{...identity,...claim,at:Date.now()});return {state:'unknown'};}
+  const localEffects=result?.__workflowLocalEffects;
+  if(localEffects){
+   const checkpointResult={...result};delete checkpointResult.__workflowLocalEffects;
+   try{
+    await commitWorkflowNodeEffects(db,{...identity,...claim,result:checkpointResult,statements:localEffects.statements,at:Date.now()});
+   }catch{
+    await markWorkflowNodeUnknown(db,{...identity,...claim,at:Date.now()});
+    return {state:'unknown'};
+   }
+   try{await localEffects.afterCommit?.();}catch{}
+   return {state:'done',result:checkpointResult};
+  }
   const saved=await finishWorkflowNode(db,{...identity,...claim,result,at:Date.now()});
   if(saved)return {state:'done',result};
   await markWorkflowNodeUnknown(db,{...identity,...claim,at:Date.now()});
@@ -1289,10 +1301,10 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       const canUseTable = await mayEditTable(db, orgId, step.tableId, owner);
       authorizationTrace.record('table', step.tableId, canUseTable);
       if (!canUseTable) return { status: "failed", error: "Table access required." };
-      const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, owner);
+      const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, owner, undefined, { deferWrite: true });
       if (r.error) return { status: "failed", error: r.error };
-      await onRowChange(env, { orgId, table: r.table, before: null, row: r.row, by: `workflow:${workflow.id}`, depth: depth + 1 });
-      return { status: "ok", output: r.row.id, rowId: r.row.id };
+      return { status: "ok", output: r.row.id, rowId: r.row.id,
+        __workflowLocalEffects: { statements: [r.statement], afterCommit: () => onRowChange(env, { orgId, table: r.table, before: null, row: r.row, by: `workflow:${workflow.id}`, depth: depth + 1 }) } };
     }
     case "update_row": {
       const tableId = step.tableId || scope.input?.tableId || (workflow.trigger?.type==='app_record_change'?await appEntityTable(db,orgId,workflow.trigger.appId,workflow.trigger.entityId):null);
@@ -1317,10 +1329,10 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       }
       if (!step.rowId && runTrigger === 'row' && !rowId) return { status: "failed", error: "The source record ID was not preserved for this older run. Start a new run to update the intended record safely." };
       if (!tableId || !rowId) return { status: "failed", error: "No row to change." };
-      const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, undefined, owner);
+      const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, undefined, owner, undefined, { deferWrite: true });
       if (r.error) return { status: "failed", error: r.error };
-      await onRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by: `workflow:${workflow.id}`, depth: depth + 1 });
-      return { status: "ok", output: rowId, rowId };
+      return { status: "ok", output: rowId, rowId,
+        __workflowLocalEffects: { statements: [r.statement], afterCommit: () => onRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by: `workflow:${workflow.id}`, depth: depth + 1 }) } };
     }
     case "approval": {
       // Checked again here: a placeholder names someone only now, and a

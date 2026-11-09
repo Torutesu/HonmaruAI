@@ -68,7 +68,16 @@ export async function commitWorkflowNodeEffects(db,{orgId,runId,nodeId,owner,att
  const complete=db.prepare(`UPDATE hx_workflow_node_checkpoints SET status='done',result=?6,lease_until=0
   WHERE org_id=?1 AND run_id=?2 AND node_id=?3 AND owner=?4 AND attempt=?5`)
   .bind(orgId,runId,nodeId,owner,attempt,serialized);
- // All effects and completion roll back together if any statement fails.
- await db.batch([fence,complete,...statements]);
+ const guardedStatements=statements.flatMap(statement=>[
+  statement,
+  // A guarded UPDATE/INSERT that affects no row is a conflict, not a saved
+  // success. Make D1 roll the transaction back, including checkpoint `done`.
+  db.prepare(`INSERT INTO hx_workflow_node_checkpoints(org_id,run_id,node_id,fingerprint,effect,status,owner,attempt,lease_until)
+   SELECT ?1,?2,?3,'effect-fence',1,'invalid-effect',?4,?5,0 WHERE changes()=0`)
+   .bind(orgId,runId,nodeId,owner,attempt),
+ ]);
+ // All effects and completion roll back together if a write errors or its
+ // guarded statement affects no row.
+ await db.batch([fence,complete,...guardedStatements]);
  return {status:'done',result};
 }

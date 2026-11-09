@@ -73,6 +73,15 @@ test('a failed local effect rolls back earlier writes and checkpoint completion'
  expect((await env.DB.prepare("SELECT value FROM checkpoint_test_effects WHERE id='effect'").first()).value).toBe('Test');
  expect((await env.DB.prepare("SELECT status,result FROM hx_workflow_node_checkpoints WHERE run_id='run'").first())).toEqual({status:'running',result:null});
 });
+
+test('a guarded local effect that changes no row cannot complete its checkpoint',async()=>{
+ const lease=await claim(env.DB,{...id,effect:true,at:1000});
+ await expect(commit(env.DB,{...id,...lease,at:2000,result:'done',statements:[
+  env.DB.prepare("UPDATE checkpoint_test_effects SET value='changed' WHERE id='missing'")
+ ]})).rejects.toThrow();
+ expect((await env.DB.prepare("SELECT value FROM checkpoint_test_effects WHERE id='effect'").first()).value).toBe('Test');
+ expect((await env.DB.prepare("SELECT status,result FROM hx_workflow_node_checkpoints WHERE run_id='run'").first())).toEqual({status:'running',result:null});
+});
 test('expired, wrong-owner, pure and stopped claims cannot commit local effects',async()=>{
  const lease=await claim(env.DB,{...id,effect:true,at:1000,ttl:1000});
  const statements=[env.DB.prepare("UPDATE checkpoint_test_effects SET value='changed' WHERE id='effect'")];

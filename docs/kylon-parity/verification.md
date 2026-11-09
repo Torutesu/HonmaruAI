@@ -4051,10 +4051,22 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Added definition-hash scoped step claims for ordinary Workflow actions, fenced leases with periodic renewal, reuse of persisted results after continuation redelivery, and no replay when a lease expires. Every ordinary action, including external reads that may consume provider quota, is conservatively treated as effectful; only pure declarative conditions can be reclaimed. TypeScript code jobs keep their existing dedicated checkpoint path.
 - Added run-history errors that explicitly say an uncertain step was not replayed, and reconciled KY-059/app automation contract evidence. This is at-most-once protection for uncertain dispatch; row effects and checkpoint completion are not yet one D1 transaction, and unknown-outcome resolution UI remains open.
-- Worker `test/harness-workflows.test.js` and `test/workflow-checkpoints.test.js`: 142/142 passed; `node --check`, `node scripts/check-kylon-parity.mjs`, and `git diff --check` passed. PR #857 exact-head CI run `42643217690` passed all 13 jobs and merged as `9ccd3d9c`. Production `/health` returns `ok: true`; the available GitHub connector does not expose main-push deployment runs, so commit-specific Worker deploy completion remains unverified.
+- Worker `test/harness-workflows.test.js` and `test/workflow-checkpoints.test.js`: 142/142 passed; `node --check`, `node scripts/check-kylon-parity.mjs`, and `git diff --check` passed. PR #857 exact-head CI run `42643217690` passed all 13 jobs and merged as `9ccd3d9c`. Production `/health` returned `ok: true`; the available GitHub connector did not expose main-push deployment runs, so commit-specific Worker deploy completion was unverified.
 
 ### 2026-11-10 — Workflow cursor-safe cancellation and recovery
 
 - Advance the durable `next_step` with each completed step log and with the post-step budget check. Cancellation and stale-run recovery now see the actual active step rather than the original cursor.
 - Added an in-flight Agent-step cancellation test that pauses the model reply, cancels after step 1, then releases a late response and verifies the prior success remains, the active step is unknown, and no later step or late Agent answer is posted.
-- Focused regression tests and exact-head CI are pending.
+- Worker workflow tests passed 144/144. PR #858 and push CI runs `42649250258` and `42649219190` both passed on exact head `0b8a4c17`; all applicable jobs succeeded (Windows Edge/iOS skipped on push and passed on PR). PR #858 merged as `7ddd649f5c6f47c39c3194b6eb1b5cdbcf40581a`. Current production health and the commit-specific Worker deployment remain unverified; the connected API exposes only PR-triggered workflow runs and this environment cannot resolve the Worker health hostname.
+
+### 2026-11-10 — Atomic Workflow local row effects
+
+- Route `add_row` and `update_row` through the existing D1 transaction helper so the permission/schema/CAS-guarded row change and checkpoint result are committed together. Add row capacity to the insert statement itself to preserve the maximum under concurrent writes; a guarded statement that changes no rows rolls the transaction back.
+- Regression coverage verifies a replayed checkpoint does not repeat add/update writes and that a zero-row guarded write does not complete the checkpoint. Row-trigger dispatch remains post-commit without a durable outbox; no exactly-once trigger delivery claim is made.
+- Focused tests, full CI, and deployment are pending.
+
+### 2026-11-10 — Unknown model price guard for workspace pause budgets
+
+- Workspace budget reporting now counts deployment-key model names that do not match a known `PRICES` family as `unpricedCalls` / `indeterminate`. With `budget_action='pause'`, a configured daily, weekly, or monthly window containing such a call fails closed; `warn` mode remains admissive. Explicit `web_search` and `jev-latest` list-price entries remain known.
+- Did not infer missing usage from zero token/price rows: the legacy ledger writes missing token counts as zero, and zero alone cannot distinguish missing data from a valid zero-priced operation.
+- Focused workspace budget tests: 7/7 passed before combining with Workflow atomicity changes. Combined focused tests and exact-head CI are pending.
