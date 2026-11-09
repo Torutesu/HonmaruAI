@@ -3,6 +3,7 @@ import { ThreadMessageCache, type ThreadSnapshot } from './threadMessageCache'
 import { channelMessageCache, clearMessageCaches, mergeLatestMessages } from './channelMessageCache'
 import type { ChannelMessage } from '../types/card'
 import { withHeld } from './pendingSend'
+import { configurePerfSamples, pendingPerfSamples } from './perfSamples'
 const message = (id: string, parentId?: string, body = id) => ({ id, parentId, body, channel: 'b:a', createdAt: `2026-10-01T00:00:${id.padStart(2, '0')}Z` } as ChannelMessage)
 const snapshot = (parent = 'root', replies = [message('1', parent)]): ThreadSnapshot => ({ parent: message(parent), replies })
 const ok = (data = snapshot()) => ({ status: 200, data })
@@ -146,8 +147,12 @@ it('reconnect walks a new offline gap through all loaded history and removes del
     if (cursor === 'new-71') return ok({ ...page(21, 70, 'new-21'), replies: page(21, 70).replies.filter(row => row.id !== '50') })
     return ok(page(1, 20))
   })
+  configurePerfSamples({ httpBase: 'https://api.test', sessionToken: 'a' })
   const result = await cache.load('b:a', 'root', read, true)
   expect(read.mock.calls.map(([cursor]) => cursor)).toEqual([undefined, 'new-121', 'new-71', 'new-21'])
+  // How many pages the refresh took is measured (#845).
+  expect(pendingPerfSamples()).toEqual([{ k: 'thread.pages', v: 4 }])
+  configurePerfSamples(null)
   expect(result && typeof result === 'object' && result.replies.map(row => row.id)).toEqual(Array.from({ length: 171 }, (_, i) => String(i + 1)).filter(id => id !== '50'))
   expect(cache.get('b:a', 'root')!.replies.find(row => row.id === '75')!.body).toBe('live edit')
 })

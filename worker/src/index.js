@@ -71,6 +71,7 @@ import { settleCors } from "./cors.js";
 import { handleMcp, authenticateMcpRequest } from "./mcp.js";
 import { handleMcpContentUpload } from "./mcpContentTools.js";
 import { handleMcpOAuth, sweepMcpOAuth } from "./mcpOAuth.js";
+import { handlePerf, sweepPerfSamples } from "./perfSamples.js";
 import { handleGovernance, pruneMessages, expireExports } from "./governance.js";
 import { sealPending, weeklyVerify } from "./auditArchive.js";
 import { pruneAudit, handleOps } from "./auditRetention.js";
@@ -284,6 +285,7 @@ export default {
     ctx.waitUntil(runScheduledSync(env, ctx));
     // App connections whose person left or whose app was taken away, ended.
     ctx.waitUntil(sweepMcpOAuth(env).catch(err => console.error("MCP OAuth sweep failed", err?.message)));
+    ctx.waitUntil(sweepPerfSamples(env).catch(err => console.error("perf sweep failed", err?.message)));
     ctx.waitUntil(sweepAppConnections(env).catch((err) => console.error("app sweep failed", err?.message || err)));
     // SSO sign-ins the identity provider no longer stands behind, ended.
     ctx.waitUntil(checkSsoGrants(env, { now: event?.scheduledTime || Date.now(), limit: 200 }).catch((err) => console.error("sso grant check failed", err?.message || err)));
@@ -504,6 +506,9 @@ async function handle(request, env, url, ctx) {
     // Agents brought in by link.
     const agentJoin = await handleAgentInvites(request, env, url);
     if (agentJoin) return agentJoin;
+    // Timing samples from the apps (#845).
+    const perf = await handlePerf(request, env, url);
+    if (perf) return perf;
     // A person's own photo.
     const avatar = await handleUserAvatar(request, env, url);
     if (avatar) return avatar;

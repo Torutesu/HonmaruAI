@@ -1,0 +1,40 @@
+# The chat's own waits, as the apps measured them (#845, findings 6–7).
+#
+# The web and desktop apps send timing samples to POST /perf: how long a
+# message waits in its conversation's send queue against how long its own
+# POST takes, and whether opening a conversation used what was kept or read
+# it again (and why). This reads the last few days of them from production
+# and writes p50/p95 per kind to the run's summary. Read only.
+#
+# Secrets: CLOUDFLARE_API_TOKEN (D1 read), CLOUDFLARE_ACCOUNT_ID.
+name: Perf report
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days back (1–14)"
+        type: string
+        default: "7"
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DAYS: ${{ inputs.days }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Read the samples
+        run: node scripts/perf-report.mjs "$DAYS"
