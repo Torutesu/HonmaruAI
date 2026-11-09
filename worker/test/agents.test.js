@@ -437,6 +437,58 @@ test("Harness auto-research honors per-agent native source grants", async () => 
   }
 });
 
+test("Harness auto-research uses a shared Notion owner for share-only and locally connected ungranted callers", async () => {
+  const made = await (await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO })).json();
+  await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "harness" });
+  const connectedAt = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('8802',?1,?2)")
+    .bind(connectedAt, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('8802','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), connectedAt).run();
+
+  const share = await send("POST", `/hx/agents/${made.agent.id}/apps`, mika,
+    { orgId: ORG, source: "notion", shareWithAgent: true }, { COMPOSIO_API_KEY: "ck-test" });
+  expect(share.status).toBe(200);
+
+  const prompts = [];
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, (opts) => {
+    prompts.push(JSON.parse(opts.body));
+    return { id: `shared_${prompts.length}`, model: "gpt-5-mini", output: [{ type: "message", content: [{ type: "output_text", text: "Done." }] }], usage: { input_tokens: 50, output_tokens: 10 } };
+  }).times(2);
+
+  const realFetch = globalThis.fetch;
+  const searchedAccounts = [];
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.origin === "https://backend.composio.dev") {
+      searchedAccounts.push(JSON.parse(init.body).user_id);
+      return Response.json({ results: [{ response: { data: { results: [{
+        properties: { Title: { type: "title", title: [{ plain_text: "Shared payroll policy" }] } },
+        url: "https://notion.so/shared-payroll-policy",
+      }] } } }] });
+    }
+    return realFetch(input, init);
+  };
+  try {
+    // Kenji has no Notion connection; he can use Mika's explicit Agent share.
+    await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "Find our payroll policy" }, { OPENAI_API_KEY: "sk-test", COMPOSIO_API_KEY: "ck-test" });
+    expect(searchedAccounts).toEqual(["8802"]);
+    expect(JSON.stringify(prompts[0])).toContain("Shared payroll policy");
+
+    // Kenji connects Notion but does not grant his own connection to the Agent.
+    // Auto-research must keep using Mika's shared owner identity.
+    await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('8803',?1,?2)")
+      .bind(connectedAt, ORG).run();
+    await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('8803','notion',?1,?2)")
+      .bind(JSON.stringify({ connected: true }), connectedAt).run();
+    await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: `ag:${made.agent.id}`, body: "Find our payroll policy" }, { OPENAI_API_KEY: "sk-test", COMPOSIO_API_KEY: "ck-test" });
+    expect(searchedAccounts).toEqual(["8802", "8802"]);
+    expect(JSON.stringify(prompts[1])).toContain("Shared payroll policy");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("an agent that cannot answer says why in the thread, never silence", async () => {
   await send("POST", "/channels/agents", toru, { orgId: ORG, markdown: HAYAO });
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(401, { error: { message: "bad key" } }).times(2);
@@ -1067,6 +1119,42 @@ test('handoff delivery retries a lost acknowledgement and cancels after source e
  expect(await drainAgentHandoffs({...env,AGENT_RUNNER:runner},{...input,now:pending.next_attempt+1})).toEqual({accepted:0,cancelled:1,retried:0});
  expect(calls).toBe(1);
  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:'cancelled'});
+});
+
+test.each(['room placement','explicit Agent role','workspace membership'])('a target revoked after preflight cannot publish a handoff reply when %s is removed',async(revocation)=>{
+ const {agent:source}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
+ const {agent:target}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO.replaceAll('Hayao','Reviewer').replaceAll('hayao','reviewer')})).json();
+ const {setMode}=await import('../src/harness/mode.js');
+ const {beginAuthorizedAssignment,assignmentExecutionGrant,acceptAgentHandoff}=await import('../src/harness/agentAssignmentGrant.js');
+ const {claimHandoff}=await import('../src/harness/agentAssignments.js');
+ const {postMessage}=await import('../src/channels.js');const {getSession}=await import('../src/db.js');
+ const {setAgentRole,agentRoleState}=await import('../src/harness/agentRoles.js');const {saveProfile}=await import('../src/harness/agents.js');
+ await setMode(env.DB,ORG,'harness','8801');
+ for(const id of [source.id,target.id])await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'8801','2026-10-24')").bind(ORG,id).run();
+ await permitPeer(target.id,source.id);
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@hayao review evidence'});
+ const begun=await beginAuthorizedAssignment(env,{orgId:ORG,rowId:row.id,token:(await getSession(env.DB,mika)).token},source.id);
+ expect(begun.started).toBe(true);
+ await saveProfile(env.DB,ORG,target.id,{access:'private'},'8801');
+ const roleState=await agentRoleState(env.DB,ORG,target.id);
+ expect(await setAgentRole(env.DB,ORG,target.id,{actorId:'8801',targetId:'8802',role:'member',expectedVersion:roleState.version})).toMatchObject({version:roleState.version+1});
+ const operationId='reply-revocation-fence';
+ expect((await acceptAgentHandoff(env,{orgId:ORG,assignmentId:begun.assignment.id,generation:0,sourceAgentId:source.id,targetAgentId:target.id,operationId,brief:'Review evidence',messageBody:'@reviewer review'})).error).toBeUndefined();
+ expect(await claimHandoff(env.DB,{orgId:ORG,operationId})).not.toBeNull();
+ const identity={orgId:ORG,assignmentId:begun.assignment.id,generation:1,agentId:target.id};
+ expect(await assignmentExecutionGrant(env,identity)).not.toBeNull();
+ if(revocation==='room placement') {
+  await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1 AND channel='b:cafe' AND agent_id=?2").bind(ORG,target.id).run();
+ } else if(revocation==='explicit Agent role') {
+  const latest=await agentRoleState(env.DB,ORG,target.id);
+  expect(await setAgentRole(env.DB,ORG,target.id,{actorId:'8801',targetId:'8802',role:'none',expectedVersion:latest.version})).toMatchObject({version:latest.version+1});
+ } else {
+  await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id='8802'").bind(ORG).run();
+ }
+ expect(await assignmentExecutionGrant(env,identity)).toBeNull();
+ const denied=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:`agent:${target.id}`,kind:'agent',parentId:row.id,body:'Late revoked result',assignmentFence:{assignmentId:identity.assignmentId,generation:1,sourceId:row.id,sourceBody:row.body,sourceAuthor:row.author_login,sourceParent:row.parent_id}});
+ expect(denied).toMatchObject({code:'execution_changed',status:409});
+ expect((await env.DB.prepare("SELECT id FROM channel_messages WHERE org_id=?1 AND body='Late revoked result'").bind(ORG).all()).results).toEqual([]);
 });
 
 async function assignmentStatusFixture() {

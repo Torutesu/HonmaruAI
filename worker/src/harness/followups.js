@@ -10,8 +10,10 @@ import { completer } from "./model.js";
 import { prepareAgent, mayRunAgent } from "./agents.js";
 import { withRoomGuidelines } from "./guidelines.js";
 import { getMode } from "./mode.js";
-import { mayUseAgentSource } from "./agentConnections.js";
+import { agentSourceProvider } from "./agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./agentRemoteMcp.js";
+import { followupSourceAuthority } from './appRecordSourceAuthority.js';
+import { workflowFollowupScheduleAuthority } from './workflowEffectAuthority.js';
 
 export const MAX_PER_CHANNEL = 50;
 
@@ -48,8 +50,11 @@ async function validThread(db, orgId, channel, threadId) {
   return Boolean(root && !root.deleted_at && !root.parent_id && root.channel === channel);
 }
 
-export async function scheduleFollowup(db, { orgId, channel, threadId = null, agentId = null, instruction, dueAt, by, originWorkflowId = null, originReleaseId = null }) {
+export async function scheduleFollowup(db, { orgId, channel, threadId = null, agentId = null, instruction, dueAt, by, originWorkflowId = null, originReleaseId = null, workflowFence = null, sourceAppId = null, sourceEntityId = null, sourceTableId = null }) {
   if(Boolean(originWorkflowId)!==Boolean(originReleaseId))return {error:'Incomplete automation origin.',status:400};
+  const sourceParts=[sourceAppId,sourceEntityId,sourceTableId];
+  if(sourceParts.some(value=>value!==null&&value!==undefined)&&sourceParts.some(value=>typeof value!=='string'||!value))return {error:'Incomplete app record source.',status:400};
+  if(sourceParts.some(value=>value!==null&&value!==undefined)&&!workflowFence?.runId)return {error:'An app record follow-up needs its originating workflow run.',status:400};
   const text = String(instruction || "").trim().slice(0, 2000);
   if (!text) return { error: "Say what to follow up on." };
   const due = new Date(dueAt);
@@ -64,11 +69,15 @@ export async function scheduleFollowup(db, { orgId, channel, threadId = null, ag
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_followups WHERE org_id = ?1 AND channel = ?2 AND status = 'scheduled'").bind(orgId, channel).first();
   if (Number(n?.n || 0) >= MAX_PER_CHANNEL) return { error: "This conversation has as many follow-ups waiting as it can hold." };
   const id = newId("fu");
+  const snapshot={appId:sourceAppId||null,entityId:sourceEntityId||null,tableId:sourceTableId||null};
+  const workflowAuthority=workflowFence?workflowFollowupScheduleAuthority({org:'?2',runId:'?15',ownerId:'?8',channel:'?3',agentId:workflowFence.agentId?'?5':null,sourceSnapshot:{appId:'?12',entityId:'?13',tableId:'?14'}}):null;
   const inserted = await db
-    .prepare(`INSERT INTO hx_followups (id, org_id, channel, thread_id, agent_id, instruction, due_at, status, created_by, created_at, origin_workflow_id, origin_release_id)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'scheduled', ?8, ?9, ?10, ?11
-      WHERE (?10 IS NULL OR ${managedAutomationGuard('?2','?10','?11')})`)
-    .bind(id, orgId, String(channel), threadId, agentId, text, due.toISOString(), String(by), now(), originWorkflowId, originReleaseId)
+    .prepare(`INSERT INTO hx_followups (id, org_id, channel, thread_id, agent_id, instruction, due_at, status, created_by, created_at, origin_workflow_id, origin_release_id, source_app_id, source_entity_id, source_table_id, source_authority_version)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'scheduled', ?8, ?9, ?10, ?11, ?12, ?13, ?14, 1
+      WHERE (?10 IS NULL OR ${managedAutomationGuard('?2','?10','?11')})
+        ${workflowAuthority?`AND ${workflowAuthority}`:''}`)
+    .bind(id, orgId, String(channel), threadId, agentId, text, due.toISOString(), String(by), now(), originWorkflowId, originReleaseId,
+      snapshot.appId,snapshot.entityId,snapshot.tableId,...(workflowFence?[workflowFence.runId]:[]))
     .run();
   if(!inserted.meta?.changes)return {error:'The app automation was stopped or its published release changed.',status:409};
   return { followup: pub(await db.prepare("SELECT * FROM hx_followups WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first()) };
@@ -162,6 +171,8 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
     const accessFailure=async()=>{
       if(Boolean(r.origin_workflow_id)!==Boolean(r.origin_release_id))return 'Incomplete automation origin.';
       if(r.origin_workflow_id&&!await managedAutomationMayRun(env.DB,r.org_id,r.origin_workflow_id,r.origin_release_id))return 'The app automation was stopped or its published release changed.';
+      const source=await env.DB.prepare(`SELECT 1 FROM hx_followups f WHERE f.org_id=?1 AND f.id=?2 AND ${followupSourceAuthority('f')}`).bind(r.org_id,r.id).first();
+      if(!source)return 'The source app, entity, or table is no longer available to this person.';
       if(!await mayUseConversation(env.DB,r.org_id,r.created_by,r.channel))return 'Conversation access required.';
       if(!await validThread(env.DB,r.org_id,r.channel,r.thread_id))return 'Follow-up thread is unavailable.';
       if(r.agent_id){
@@ -170,7 +181,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       }
       return null;
     };
-    const nativeSourcesUsed = new Set();
+    const nativeSourcesUsed = new Map();
     const remoteMcpToolsUsed = new Map();
     const nativeSourcesStillAllowed = async () => {
       if (!nativeSourcesUsed.size || !r.agent_id) return true;
@@ -178,8 +189,8 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       if (mode === "simple") return true;
       if (mode !== "harness") return false;
       const session = { github_id: String(r.created_by) };
-      for (const source of nativeSourcesUsed) {
-        if (!await mayUseAgentSource(env, { orgId: r.org_id, agentId: r.agent_id, session, source })) return false;
+      for (const [source, expectedProvider] of nativeSourcesUsed) {
+        if (await agentSourceProvider(env, { orgId: r.org_id, agentId: r.agent_id, session, source }) !== expectedProvider) return false;
       }
       return true;
     };
@@ -218,7 +229,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
         const prepared = agentRow
           ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: r.channel || "", userId: r.created_by })
           : { agent: { name: "AI", handle: "AI", instructions: "You are the team's AI." } };
-        const personalTools = await personalFollowupTools(env, r, source => nativeSourcesUsed.add(source), (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }));
+        const personalTools = await personalFollowupTools(env, r, (source, providerId) => nativeSourcesUsed.set(source, String(providerId || r.created_by)), (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }));
         const tools = { ...prepared.skillTools, ...personalTools };
         const setupFailure=await accessFailure();
         if(setupFailure)throw new Error(setupFailure);
@@ -236,7 +247,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       }
       const deliveryFailure=await accessFailure() || (!await nativeSourcesStillAllowed() ? 'Connected source access required.' : null) || (!await remoteMcpStillAllowed() ? 'Remote MCP access required.' : null);
       if(deliveryFailure)throw new Error(deliveryFailure);
-      const out = await postMessage(env.DB, { orgId: r.org_id, key: r.channel, authorLogin: author, body: String(body).slice(0, 8000), kind, parentId: r.thread_id || null });
+      const out = await postMessage(env.DB, { orgId: r.org_id, key: r.channel, authorLogin: author, body: String(body).slice(0, 8000), kind, parentId: r.thread_id || null, followupFence: { id: r.id, ownerId: r.created_by, agentId: r.agent_id || null } });
       if (!out?.row) throw new Error(out?.error || "The follow-up could not be delivered.");
       if (out.row) {
         const { broadcastStored } = await import("../channelRoutes.js");

@@ -4,7 +4,7 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { rememberRequest, modelForTier, filterResponders } from "../src/harness/agents.js";
-import { agentSourceCredential } from "../src/harness/agentConnections.js";
+import { agentSourceCredential, agentSourceProvider } from "../src/harness/agentConnections.js";
 
 // Agents as members (docs/kylon-gap-plan.md): a specialty, a tier, a memory
 // of its own, skills, who may call it, and whether it waits to be named.
@@ -775,6 +775,10 @@ test("workspace GitHub sharing is admin-only, scoped to the workspace, and keeps
   expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe("workspace");
   const personalSession = { github_id: "9202", github_access_token: "personal-token" };
   expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: personalSession, source: "github" })).toBe("workspace");
+  const workspaceIdentity = await env.DB.prepare('SELECT repo,updated_at AS updatedAt FROM org_github WHERE org_id=?1').bind(ORG).first();
+  const workspaceFingerprint = `workspace:${workspaceIdentity.repo}:${workspaceIdentity.updatedAt}:token`;
+  expect(await agentSourceProvider(env, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe(`9203:${workspaceFingerprint}`);
+  expect(await agentSourceProvider(env, { orgId: ORG, agentId, session: personalSession, source: "github" })).toBe(`9202:${workspaceFingerprint}`);
 
   const otherOrg = "personal:other-org";
   const crossOrg = await get(`${path}?${q({ orgId: otherOrg })}`, kenji);
@@ -783,6 +787,7 @@ test("workspace GitHub sharing is admin-only, scoped to the workspace, and keeps
   expect((await call(`${path}?${q({ orgId: ORG, source: "github", scope: "workspace" })}`, { method: "DELETE", headers: headers(toru) })).status).toBe(200);
   expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: memberSession, source: "github" })).toBe(null);
   expect(await agentSourceCredential(env, { orgId: ORG, agentId, session: personalSession, source: "github" })).toBe("personal");
+  expect(await agentSourceProvider(env, { orgId: ORG, agentId, session: personalSession, source: "github" })).toBe("9202:personal");
   const personalAfter = await env.DB.prepare("SELECT count(*) AS n FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9202' AND source='github'")
     .bind(ORG, agentId).first();
   expect(personalAfter.n).toBe(1);

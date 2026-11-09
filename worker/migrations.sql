@@ -264,6 +264,10 @@ CREATE TABLE IF NOT EXISTS hx_app_automation_releases (org_id TEXT NOT NULL, app
 
 ALTER TABLE hx_followups ADD COLUMN origin_workflow_id TEXT;
 ALTER TABLE hx_followups ADD COLUMN origin_release_id TEXT;
+ALTER TABLE hx_followups ADD COLUMN source_app_id TEXT;
+ALTER TABLE hx_followups ADD COLUMN source_entity_id TEXT;
+ALTER TABLE hx_followups ADD COLUMN source_table_id TEXT;
+ALTER TABLE hx_followups ADD COLUMN source_authority_version INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_hx_runs_active ON hx_workflow_runs(org_id, workflow_id) WHERE status IN ('running','waiting');
 
@@ -336,6 +340,7 @@ CREATE TABLE IF NOT EXISTS hx_workflow_row_receipts (org_id TEXT NOT NULL, workf
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_receipts_expiry ON hx_workflow_row_receipts(expires_at);
 
 CREATE TABLE IF NOT EXISTS hx_agent_source_grants (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('notion','github')), created_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,user_github_id,source), FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS hx_agent_source_shares (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, owner_github_id TEXT NOT NULL, owner_membership_since TEXT NOT NULL, source TEXT NOT NULL CHECK(source='notion'), created_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,source), FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS hx_agent_remote_mcp_grants (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, created_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,user_github_id,server_id), FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
 
 ALTER TABLE hx_remote_mcp_servers ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'headers' CHECK(auth_mode IN ('headers','oauth'));

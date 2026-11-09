@@ -9,6 +9,7 @@ beforeEach(async () => {
   const {upsertUser,upsertMembership}=await import('../src/db.js');
   await upsertUser(env.DB,{githubId:'person',login:'alice',name:'Alice',avatarUrl:null,locale:'en'});
   await upsertMembership(env.DB,'org','person','member');
+  await env.DB.prepare("INSERT INTO sessions(token,github_id,github_access_token,created_at,expires_at) VALUES ('h1:session','person','unused','2026-10-24',NULL)").run();
   await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at) VALUES (?1,'org',?2,?3,'message',?4,'2026-10-24')")
     .bind(row.id,row.channel,row.author_login,row.body).run();
   const agents=['researcher','reviewer','analyst','other'];
