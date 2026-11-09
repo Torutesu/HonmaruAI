@@ -165,11 +165,35 @@ test('LINE room hooks verify raw signatures, deduplicate inbound events and do n
   expect(await first.json()).toEqual({received:1,duplicates:0,ignored:0});
   const replay=await deliver(channelSecret);
   expect(await replay.json()).toEqual({received:0,duplicates:1,ignored:0});
+  const inboxPath=`/hx/rooms/line-inbox?orgId=${org}&channel=${encodeURIComponent(channel)}&hookId=${connection.hook.id}`;
+  const inbox=await worker.fetch(new Request(`https://example.test${inboxPath}`,{headers:{'x-session-token':session}}),env,{waitUntil(){}});
+  expect(inbox.status).toBe(200);
+  expect(inbox.headers.get('cache-control')).toBe('no-store');
+  const firstInbox=await inbox.json();
+  expect(firstInbox.conversations).toHaveLength(1);
+  expect(firstInbox.conversations[0]).toMatchObject({messageCount:1,unreadCount:1,preview:expect.stringContaining('Need a delivery update')});
+  expect(firstInbox.conversations[0].customerKey).toMatch(/^customer-[a-f0-9]{10}$/);
+  expect(JSON.stringify(firstInbox)).not.toContain('U-do-not-store-this-id');
+  const customerKey=firstInbox.conversations[0].customerKey;
+  const detail=await worker.fetch(new Request(`https://example.test${inboxPath}&customerKey=${encodeURIComponent(customerKey)}`,{headers:{'x-session-token':session}}),env,{waitUntil(){}});
+  expect(await detail.json()).toMatchObject({customerKey,hasMore:false,messages:[{body:expect.stringContaining('Need a delivery update')}]});
+  const read=await worker.fetch(new Request(`https://example.test/hx/rooms/line-inbox?orgId=${org}`,{
+    method:'POST',headers:{'content-type':'application/json','x-session-token':session},
+    body:JSON.stringify({orgId:org,channel,hookId:connection.hook.id,customerKey}),
+  }),env,{waitUntil(){}});
+  expect(read.status).toBe(200);
+  expect((await (await worker.fetch(new Request(`https://example.test${inboxPath}`,{headers:{'x-session-token':session}}),env,{waitUntil(){}})).json()).conversations[0].unreadCount).toBe(0);
+  const outsiderSession=await createSession(env.DB,'outsider','line-inbox-outsider');
+  const privateRead=await worker.fetch(new Request(`https://example.test${inboxPath}`,{headers:{'x-session-token':outsiderSession}}),env,{waitUntil(){}});
+  expect(privateRead.status).toBeGreaterThanOrEqual(400);
   const rows=await env.DB.prepare('SELECT id,body,author_login FROM channel_messages WHERE org_id=?1 AND channel=?2').bind(org,channel).all();
   expect(rows.results).toHaveLength(1);
   expect(rows.results[0].body).toContain('Need a delivery update');
   expect(rows.results[0].body).not.toContain('U-do-not-store-this-id');
   expect(rows.results[0].author_login).toBe(`webhook:${connection.hook.id}`);
+  const inboxRows=await env.DB.prepare('SELECT customer_key,event_key,hook_id,message_id FROM hx_line_inbox_messages WHERE org_id=?1 AND channel=?2').bind(org,channel).all();
+  expect(inboxRows.results).toHaveLength(1);
+  expect(JSON.stringify(inboxRows.results)).not.toContain('U-do-not-store-this-id');
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_room_hook_dispatch WHERE message_id=?1').bind(rows.results[0].id).first()).n).toBe(0);
   const replaced=await worker.fetch(new Request(`https://example.test/hx/rooms/webhooks?orgId=${org}&channel=${encodeURIComponent(channel)}`,{
     method:'PUT',headers:{'content-type':'application/json','x-session-token':session},

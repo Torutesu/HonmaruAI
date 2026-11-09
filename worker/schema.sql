@@ -2391,6 +2391,10 @@ CREATE INDEX IF NOT EXISTS idx_hx_room_hooks_room ON hx_room_hooks(org_id,channe
 CREATE TABLE IF NOT EXISTS hx_room_hook_events (event_key TEXT PRIMARY KEY, hook_id TEXT NOT NULL, org_id TEXT NOT NULL, channel TEXT NOT NULL, payload_hash TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
 /* LINE's per-channel secret is encrypted and receives signed inbound events. */
 CREATE TABLE IF NOT EXISTS hx_line_room_hooks (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel_secret TEXT, created_at TEXT NOT NULL);
+/* Customer pseudonyms and local read cursors only; raw LINE profile IDs are never persisted. */
+CREATE TABLE IF NOT EXISTS hx_line_inbox_messages (event_key TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_hx_line_inbox_customer ON hx_line_inbox_messages(org_id,channel,hook_id,customer_key,created_at,message_id);
+CREATE TABLE IF NOT EXISTS hx_line_inbox_reads (org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, actor_id TEXT NOT NULL, last_read_at TEXT NOT NULL, PRIMARY KEY(org_id,channel,hook_id,customer_key,actor_id));
 
 CREATE TABLE IF NOT EXISTS hx_room_hook_dispatch (message_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_hx_room_hook_dispatch_due ON hx_room_hook_dispatch(status,next_attempt,lease_until);

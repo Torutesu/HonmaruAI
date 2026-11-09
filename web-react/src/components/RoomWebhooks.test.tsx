@@ -150,3 +150,24 @@ test('keyboard creation ignores conversion Enter and submits a trimmed name once
  expect(JSON.parse(fetcher.mock.calls[1][1].body).name).toBe('デプロイ通知');
  act(()=>tree.unmount());
 });
+
+test('LINE Inbox lists conversations, opens messages, and marks a thread read',async()=>{
+ const hook={id:'123e4567-e89b-12d3-a456-426614174000',name:'Support',version:1,revokedAt:null,provider:'line'}
+ const customerKey='customer-0123456789'
+ const fetcher=vi.fn()
+  .mockResolvedValueOnce({ok:true,json:async()=>({hooks:[hook]})})
+  .mockResolvedValueOnce({ok:true,json:async()=>({hook,conversations:[{customerKey,latestAt:'2026-11-08T12:00:00.000Z',messageCount:1,unreadCount:1,preview:'Need help'}]})})
+  .mockResolvedValueOnce({ok:true,json:async()=>({hook,customerKey,hasMore:false,messages:[{messageId:'msg-1',createdAt:'2026-11-08T12:00:00.000Z',body:'Need help'}]})})
+  .mockResolvedValueOnce({ok:true,json:async()=>({lastReadAt:'2026-11-09T12:00:00.000Z'})})
+ vi.stubGlobal('fetch',fetcher);let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<RoomWebhooks api={api} channel="b:room"/>)});
+ await act(async()=>tree.root.findAllByType('button').find(b=>b.props.children==='Open Inbox')!.props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('Need help')
+ await act(async()=>tree.root.findByProps({className:'room-line-inbox-customer'}).props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('View conversation')
+ await act(async()=>tree.root.findAllByType('button').find(b=>b.props.children==='Mark as read')!.props.onClick())
+ expect(fetcher.mock.calls[3][0]).toContain('/hx/rooms/line-inbox')
+ expect(fetcher.mock.calls[3][1]).toMatchObject({method:'POST'})
+ expect(JSON.parse(fetcher.mock.calls[3][1].body)).toMatchObject({hookId:hook.id,customerKey})
+ act(()=>tree.unmount())
+})

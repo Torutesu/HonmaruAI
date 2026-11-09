@@ -1006,8 +1006,8 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/proxy/tools-api",
-      "code": null,
-      "acceptance": "署名検証・接続単位のイベント保存・LINE Inbox"
+      "code": "worker/src/harness/roomHooks.js",
+      "acceptance": "署名検証・仮名顧客単位のInbox/既読・ルーム会話連携。自動返信/メディア取得なし。送信接続・手動返信・実LINE往復は未対応"
     },
     {
       "id": "KY-082",
