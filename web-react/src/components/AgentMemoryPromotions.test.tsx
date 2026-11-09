@@ -61,3 +61,10 @@ test('refresh clears previously visible source text immediately and keeps it cle
   expect(JSON.stringify(tree.toJSON())).toContain('Access changed')
   act(() => tree.unmount())
 })
+
+test('a missing promotion list renders empty instead of unmounting the memory screen', async () => {
+  let tree!: ReturnType<typeof create>
+  await act(async () => { tree = create(<AgentMemoryPromotions load={async () => ({ requests: undefined, canDecide: undefined } as any)} decide={vi.fn()} />) })
+  expect(JSON.stringify(tree.toJSON())).toContain('No memory sharing requests.')
+  act(() => tree.unmount())
+})

@@ -21,7 +21,10 @@ export function AgentMemoryPromotions({ load, decide, refreshKey = 0 }: {
     setRequests(null); setCanDecide(false); setError('')
     try {
       const page = await loadRef.current()
-      if (current === generation.current) { setRequests(page.requests); setCanDecide(page.canDecide) }
+      if (current === generation.current) {
+        setRequests(Array.isArray(page?.requests) ? page.requests : [])
+        setCanDecide(page?.canDecide === true)
+      }
     } catch (reason) {
       if (current === generation.current) { setRequests(null); setCanDecide(false); setError(reason instanceof Error ? reason.message : String(reason)) }
     }
