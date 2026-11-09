@@ -2164,6 +2164,7 @@ const table: Record<string, string> = {
   "Choosing opens a saved draft. Nothing is sent until you send it.": "Al elegir, se abre un borrador guardado. No se envía nada hasta que pulses Enviar.",
   "Available destinations": "Destinos disponibles",
   "No matching conversations or rooms": "No hay conversaciones ni canales que coincidan",
+  'This picture could not be opened.': 'No se pudo abrir esta imagen.',
 }
 
 export default table

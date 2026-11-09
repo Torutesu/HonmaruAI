@@ -1,0 +1,51 @@
+# Which pictures the database points at are missing from the media bucket.
+#
+# Custom emoji, workspace logos, profile photos and agent pictures are one R2
+# object each, named by a row. When the object is gone the picture answers
+# 404 everywhere it is used (#824). This reads every one of those keys, and
+# a sample of attachments, from production and writes what it found to the
+# run's summary. Nothing is ever deleted, and nothing present written over.
+#
+# With "restore", a missing workspace emoji whose picture is kept in this
+# repository (assets/emoji/shogunai) is put back under the id its row has,
+# so every message and reaction that used it shows it again. Pictures people
+# uploaded have no copy here: they are listed, for their owners to add again.
+#
+# Run it from Actions → "Media inventory" → Run workflow: first as it is, to
+# read the list, then with "restore" ticked.
+#
+# Secrets: CLOUDFLARE_API_TOKEN (D1 and R2 edit), CLOUDFLARE_ACCOUNT_ID.
+name: Media inventory
+
+on:
+  workflow_dispatch:
+    inputs:
+      restore:
+        description: "Put back missing emoji this repository has the pictures of"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-inventory
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Read the bucket
+        run: node scripts/media-inventory.mjs ${{ inputs.restore && '--restore' || '' }}

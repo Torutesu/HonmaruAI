@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from './Icon'
 import { isMacPlatform, formatCombo, composing } from '../utils/keys'
+import { useImageRetry } from '../utils/imageRetry'
 
 export interface Workspace {
   id: string
@@ -38,11 +39,14 @@ export function workspaceLabel(w: Workspace | undefined, t: (k: string, v?: Reco
   return w.founder ? t("{name}'s team", { name: w.founder }) : t('A team you joined')
 }
 
-export const WorkspaceMark: React.FC<{ workspace?: Workspace; label: string; size?: number }> = ({ workspace, label, size = 32 }) => (
-  workspace?.icon
-    ? <img className="ws-mark" src={workspace.icon} alt="" width={size} height={size} style={{ width: size, height: size }} />
+/// A logo that will not load shows the letter, as one never set does, and
+/// is tried again when it is set anew, a little later, or back online.
+export const WorkspaceMark: React.FC<{ workspace?: Workspace; label: string; size?: number }> = ({ workspace, label, size = 32 }) => {
+  const image = useImageRetry(workspace?.icon)
+  return workspace?.icon && !image.failed
+    ? <img key={image.attempt} className="ws-mark" src={workspace.icon} alt="" width={size} height={size} style={{ width: size, height: size }} onError={image.onError} />
     : <span className="ws-mark ws-mark-letter" aria-hidden="true" style={{ width: size, height: size, fontSize: Math.round(size * 0.5) }}>{(label.trim()[0] || '?').toUpperCase()}</span>
-)
+}
 
 const isMac = isMacPlatform()
 

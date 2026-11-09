@@ -3666,6 +3666,7 @@ const table: Record<string, string> = {
   'Start over': '最初からやり直す',
   'I updated the proposal. Review the trigger and every step below. Nothing has been saved or run yet.': '提案を更新しました。以下のトリガーと各手順を確認してください。まだ保存も実行もしていません。',
   'This refinement is too long to keep the original request and current plan. Start over with a shorter request or change.': '元の依頼と現在の案を保持するには変更内容が長すぎます。短くして再入力してください。',
+  'This picture could not be opened.': 'この画像を開けませんでした。',
 }
 
 export default table

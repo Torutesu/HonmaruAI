@@ -998,7 +998,9 @@ function inline(line: string, mentionClass: (name: string) => MentionLook, neste
     if (/^`[^`]+`$/.test(part)) return <code key={i} className="slk-code">{part.slice(1, -1)}</code>
     if (CUSTOM_EMOJI.test(part)) {
       const url = customEmojiUrl(part)
-      if (url) return <img key={i} className={`slk-custom-emoji${onlyEmoji ? ' big' : ''}`} src={url} alt={part} title={part} draggable={false} />
+      // Recovered as a reaction's is: the list read again, a replaced
+      // picture drawn at its new address, a gone one as its name.
+      if (url) return <img key={i} className={`slk-custom-emoji${onlyEmoji ? ' big' : ''}`} src={url} alt={part} title={part} draggable={false} onError={() => void customEmojiFailed(url)} />
       return <React.Fragment key={i}>{part}</React.Fragment>
     }
     // A Jam's recording plays where it was posted.
