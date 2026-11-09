@@ -1,5 +1,7 @@
 import { createMcpClient } from "./client.js";
 import { formatGatewayStatus, getGatewayStatus, runGatewayForeground } from "./gateway.js";
+import { writeFile } from "node:fs/promises";
+import { generateTableSdk } from "./sdk.js";
 
 const HELP = `Honmaru workspace CLI
 
@@ -12,6 +14,7 @@ Usage:
   honmaru workspace app action run <app-id> <name> --version N --gateway-id NODE --request-id ID --input JSON
   honmaru workspace app action read <app-id> <job-id>
   honmaru workspace table list
+  honmaru workspace sdk generate <table-id> --out <file.ts>
   honmaru workspace row list <table-id> [--query TEXT] [--where JSON] [--sort FIELD] [--limit N] [--offset N]
   honmaru workspace row create <table-id> --values JSON
   honmaru workspace row update <table-id> <row-id> --values JSON [--expected-updated-at ISO]
@@ -63,7 +66,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "text", "room", "instruction", "minutes", "scope", "origin", "type", "created-by",
   "direction", "title", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version",
-  "gateway-id", "request-id", "code", "input", "app-id",
+  "gateway-id", "request-id", "code", "input", "app-id", "out",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted"]);
 
@@ -389,6 +392,20 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
     const apiUrl = options.apiUrl || env.HONMARU_API_URL;
     const token = env.HONMARU_API_TOKEN;
     const client = createMcpClient({ apiUrl, token, fetcher });
+
+    if (action === "sdk") {
+      const [sdkAction, tableId] = positional;
+      onlyFlags(options, ["out"]);
+      if (sdkAction !== "generate" || !tableId || positional.length !== 2 || !options.out) {
+        throw new Error("Usage: honmaru workspace sdk generate <table-id> --out <file.ts>.");
+      }
+      const result = await client.callTool("list_tables");
+      const table = result?.structuredContent?.tables?.find((item) => item.id === tableId);
+      if (!table) throw new Error("No accessible table matches that ID.");
+      await writeFile(options.out, generateTableSdk(table), { encoding: "utf8", flag: "w" });
+      writeOut(`Generated typed client for ${table.name} at ${options.out}`);
+      return 0;
+    }
 
     if (action === "tools") {
       if (positional.length) throw new Error("Usage: honmaru workspace tools [--json] [--api-url URL].");

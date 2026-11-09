@@ -2464,6 +2464,38 @@ async function approveCustomRelease(path, state, reviewer=toru, token=reviewer) 
   return send('POST',path,token,{orgId:ORG,action:'review',decision:'approve',approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash});
 }
 
+test('restoring an older published custom app release creates a gated draft and preserves release history', async()=>{
+  const {app,path}=await customApprovalFixture();
+  const publishDraft=async version=>{
+    expect((await requestCustomApproval(path,version)).status).toBe(200);
+    const state=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
+    expect((await approveCustomRelease(path,state)).status).toBe(200);
+    const response=await send('POST',path,mika,{orgId:ORG,action:'publish',version});
+    expect(response.status,await response.clone().text()).toBe(200);
+    return response.json();
+  };
+  const first=await publishDraft(app.version);
+  const firstReleaseVersion=first.version;
+  const secondDraft=await send('POST',path,mika,{orgId:ORG,action:'draft',version:first.version,html:'<h1>New release</h1>'});
+  const second=await publishDraft((await secondDraft.json()).version);
+  const currentRelease=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app.definition.custom.published;
+  expect(currentRelease).toBe('<h1>New release</h1>');
+  const beforeRestore=(await(await get(`/apps/${app.id}/versions?orgId=${ORG}`,mika)).json()).versions;
+  const restore=await send('POST',path,mika,{orgId:ORG,action:'restore_release',version:second.version,restoreVersion:firstReleaseVersion});
+  expect(restore.status,await restore.clone().text()).toBe(200);
+  const restored=await restore.json();
+  const appAfterRestore=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
+  expect(appAfterRestore.version).toBe(restored.version);
+  expect(appAfterRestore.definition.custom.draft).toBe('<h1>Release candidate</h1>');
+  expect(appAfterRestore.definition.custom.published).toBe('<h1>New release</h1>');
+  const gate=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
+  expect(gate.approval?.status).not.toBe('approved');
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:restored.version})).status).toBe(409);
+  const afterRestore=(await(await get(`/apps/${app.id}/versions?orgId=${ORG}`,mika)).json()).versions;
+  expect(afterRestore.map(v=>v.version)).toEqual([restored.version,...beforeRestore.map(v=>v.version)]);
+  expect(afterRestore.find(v=>v.version===firstReleaseVersion).release.current).toBe(false);
+});
+
 test('custom app approval requires a distinct Owner or Admin and can only publish once', async()=>{
   const {app,path}=await customApprovalFixture();
   await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=?1 AND user_github_id='9102'").bind(ORG).run();

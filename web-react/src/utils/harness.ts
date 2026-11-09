@@ -199,7 +199,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     customPublishState: (id:string) => call<{publishGate:{policy:{enabled:boolean};draftVersion:number;sourceHash:string;scope:string;approval:null|{id:string;status:string;requestedBy:string;reviewerId:string|null;sourceHash:string;draftVersion:number;scope:string}}}>('GET', `/apps/${id}/custom`).then(result=>result.publishGate),
     customCommit: (id:string, input:Record<string,unknown>) => call('POST', `/apps/${id}/custom`, input),
     customPublish: (id:string, input:Record<string,unknown>) => call('POST', `/apps/${id}/custom`, input),
-    saveCustom: (id: string, action: 'draft' | 'publish' | 'unpublish' | 'restore', version: number, html?: string, restoreVersion?: number) => call('POST', `/apps/${id}/custom`, { action, version, html, restoreVersion }),
+    saveCustom: (id: string, action: 'draft' | 'publish' | 'unpublish' | 'restore' | 'restore_release', version: number, html?: string, restoreVersion?: number) => call('POST', `/apps/${id}/custom`, { action, version, html, restoreVersion }),
     generateAppAutomation: (id: string, prompt: string, timezone: string) => call<{automation:AutomationBundle['items'][number]}>('POST', `/apps/${id}/automations`, {action:'generate',prompt,timezone}),
     appAutomations: (id: string, stateOnly = false) => call<AppAutomationState>('GET', `/apps/${id}/automations`, undefined, stateOnly ? {stateOnly:'1'} : {}),
     saveAppAutomations: (id: string, version: number, revision: number, automations: AutomationBundle) => call<{saved:boolean;revision:number}>('PUT', `/apps/${id}/automations`, {version,revision,automations}),

@@ -26,6 +26,7 @@ npm exec --workspace @honmaru/cli -- honmaru workspace decision pending --direct
 npm exec --workspace @honmaru/cli -- honmaru workspace decision search "release approval"
 npm exec --workspace @honmaru/cli -- honmaru workspace decision request --title "Approve deploy?" --to "Aiko" --priority high
 npm exec --workspace @honmaru/cli -- honmaru workspace call query_rows --args '{"tableId":"tbl_…","limit":25}'
+npm exec --workspace @honmaru/cli -- honmaru workspace sdk generate tbl_… --out ./pipeline-client.ts
 npm exec --workspace @honmaru/cli -- honmaru workspace app list
 npm exec --workspace @honmaru/cli -- honmaru workspace app action list
 npm exec --workspace @honmaru/cli -- honmaru workspace app action run app_… recalculate --version 4 --gateway-id gw_… --request-id recalc-01 --input '{"invoiceId":"inv_9"}'
@@ -42,6 +43,8 @@ npm exec --workspace @honmaru/cli -- honmaru workspace execution cancel job_…
 ```
 
 Resource commands are concise aliases for the same scoped MCP tools: Apps, tables, rows, workflows, follow-ups, and accessible workspace files. Add `--json` for machine-readable output. `workspace call` remains available for other tools and prints the complete JSON result. The workspace server remains the authority for input validation and permissions; in particular, stale row edits are rejected by `--expected-updated-at` compare-and-set checks. Review mutating commands and their arguments before running them.
+
+`workspace sdk generate` reads an accessible table's current columns and writes a dependency-free TypeScript module. The generated client exposes typed `listRows`, `createRow`, and `updateRow` methods using column IDs; it does not embed credentials. Pass `apiUrl` and an active API token when creating the client, and regenerate after changing the table schema.
 
 Member, playbook, and decision aliases use the existing tools in both Simple and Harness workspaces. Harness-only aliases for Apps, tables, rows, workflows, follow-ups, files, and execution require Harness mode and the matching token scope. In Simple workspaces, those Harness-only aliases stay unavailable while the existing Simple tools continue to work through `workspace tools`, `workspace call`, and the member/playbook/decision aliases.
 

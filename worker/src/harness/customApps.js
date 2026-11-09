@@ -40,12 +40,18 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
   const nextVersion = app.version + 1;
   if (!Number.isInteger(input.version) || input.version !== app.version) return { error: 'This app changed. Reload before saving.', status: 409 };
   const custom = { ...(app.definition.custom || {}) };
-  if (input.action === 'restore') {
+  if (input.action === 'restore' || input.action === 'restore_release') {
     const old = await db.prepare('SELECT definition FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2 AND version = ?3').bind(app.id, orgId, Number(input.restoreVersion)).first();
     let source;
-    try { const snapshot = JSON.parse(old?.definition || '{}'); source = snapshot.custom?.draft || snapshot.custom?.published; } catch {}
-    if (!validateSource(source)) return { error: 'This version has no custom source.', status: 400 };
+    try {
+      const snapshot = JSON.parse(old?.definition || '{}');
+      source = input.action === 'restore_release' ? snapshot.custom?.published : snapshot.custom?.draft || snapshot.custom?.published;
+    } catch {}
+    if (!validateSource(source)) return { error: input.action === 'restore_release' ? 'This version has no published custom release.' : 'This version has no custom source.', status: 400 };
     custom.draft = source;
+    // Restoring a release creates a new draft. Its prior GitHub approval does not
+    // transfer: republishing still uses the normal current-version approval gate.
+    if (input.action === 'restore_release') delete custom.draftCommit;
   } else if (input.action === 'draft') {
     if (!validateSource(input.html)) return { error: 'HTML source must contain 1–120000 characters.', status: 400 };
     custom.draft = input.html;
@@ -79,7 +85,7 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
       .bind(JSON.stringify(definition), version, at, app.id, orgId, app.version),
     db.prepare('INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE changes() = 1')
       .bind(app.id, orgId, version, JSON.stringify({ ...definition, name: app.name, columns: table.columns }), trusted.commit ? `Custom app: GitHub commit ${trusted.commit.owner}/${trusted.commit.repo}@${trusted.commit.sha}` : `Custom app: ${input.action}`, String(by), at),
-    ...((input.action === 'draft' || input.action === 'restore') ? [
+    ...((input.action === 'draft' || input.action === 'restore' || input.action === 'restore_release') ? [
       db.prepare("UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=?1 WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved') AND consumed_at IS NULL AND draft_version<?4").bind(at,orgId,app.id,version),
       db.prepare(`UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=?1
         WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved') AND consumed_at IS NULL
