@@ -35,7 +35,7 @@ import { getMode } from "./harness/mode.js";
 import { searchHarnessResources } from "./harness/unifiedSearch.js";
 import { getDisplayPreference } from "./harness/displayPreferences.js";
 import { storeAgentToolTrace, traceFromRow } from "./harness/agentToolTraces.js";
-import { mayUseAgentSource } from "./harness/agentConnections.js";
+import { mayUseAgentSource, agentSourceProvider } from "./harness/agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
 import { createRecurringAutomationOffer, isRecurringWorkPrompt } from "./harness/recurringAutomationOffers.js";
@@ -540,7 +540,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   // what this person's connected tools hold are theirs to read, and would
   // be somebody else's to read if the answer went into a shared channel.
   let research = "";
-  const nativeSourcesUsed = new Set();
+  const nativeSourcesUsed = new Map();
   const remoteMcpToolsUsed = new Map();
   const sourceGrantAgentId = resolved.kind === "agent" && !row.parent_id && agents.length === 1 ? agents[0].id : null;
   const mayResearchSource = async (source, available) => {
@@ -552,26 +552,35 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     try {
       const terms = searchTermsFor(taskText, null);
       const available = await connectedSources(env, session, orgId);
-      const [notionAllowed, githubAllowed] = await Promise.all([
-        mayResearchSource("notion", available.notion),
+      const notionProviderForResearch = async () => {
+        const currentMode = await getMode(env.DB, orgId).catch(() => null);
+        if (currentMode === "simple") return available.notion ? String(session?.github_id || "") || null : null;
+        if (currentMode === "harness" && sourceGrantAgentId !== null) {
+          return agentSourceProvider(env, { orgId, agentId: sourceGrantAgentId, session, source: "notion" });
+        }
+        return null;
+      };
+      const [notionProvider, githubAllowed] = await Promise.all([
+        notionProviderForResearch(),
         mayResearchSource("github", available.github),
       ]);
+      const notionAllowed = Boolean(notionProvider);
       // The decisions this person may open, as their own search finds them:
       // a guest's are the ones they are on.
       const access = terms ? await accessFor(env.DB, orgId, user.login) : null;
       const [decisions, notion, github] = await Promise.all([
         terms ? searchDecisions(env.DB, orgId, terms, { viewer: user.login, access }).catch(() => []) : [],
-        notionAllowed && terms ? searchNotion(env, session.github_id, terms).catch(() => []) : [],
+        notionAllowed && terms ? searchNotion(env, notionProvider, terms).catch(() => []) : [],
         githubAllowed && terms ? searchGithubIssues(session, orgId, terms, env).catch(() => []) : [],
       ]);
-      const [notionStillAllowed, githubStillAllowed] = await Promise.all([
-        mayResearchSource("notion", notionAllowed),
+      const [notionProviderAfter, githubStillAllowed] = await Promise.all([
+        notionProviderForResearch(),
         mayResearchSource("github", githubAllowed),
       ]);
-      const safeNotion = notionStillAllowed ? notion : [];
+      const safeNotion = notionProviderAfter === notionProvider ? notion : [];
       const safeGithub = githubStillAllowed ? github : [];
-      if (safeNotion.length) nativeSourcesUsed.add("notion");
-      if (safeGithub.length) nativeSourcesUsed.add("github");
+      if (safeNotion.length) nativeSourcesUsed.set("notion", notionProvider);
+      if (safeGithub.length) nativeSourcesUsed.set("github", String(session?.github_id || ""));
       const lines = decisions.slice(0, 8).map((d) => `- ${d.decidedAt ? String(d.decidedAt).slice(0, 10) : "pending"}${d.recipient ? ` ${d.recipient}` : ""} ${d.status || ""}: ${String(d.title || "").slice(0, 140)}`);
       const tools = [...safeNotion, ...safeGithub].slice(0, 8);
       if (lines.length) research += `Past decisions that match:\n${lines.join("\n")}\n`;
@@ -601,7 +610,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       agentId: sourceGrantAgentId,
       agentName: agents.length === 1 ? agents[0].name : null,
       agentLogin: user.login,
-      onNativeSourceUsed: source => nativeSourcesUsed.add(source),
+      onNativeSourceUsed: (source, providerId) => nativeSourcesUsed.set(source, String(providerId || session?.github_id || "")),
       onRemoteMcpUsed: (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }),
       // An app that may write does so only for agents the person wrote
       // themselves: a teammate's agent's instructions never steer it.
@@ -629,8 +638,8 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     const authorize = authorizeAgent || (harness && sourceGrantAgentId === agent.id) ? async () => {
       if (authorizeAgent && !await authorizeAgent(agent.id)) return false;
       if (harness && sourceGrantAgentId === agent.id) {
-        for (const source of nativeSourcesUsed) {
-          if (!await mayUseAgentSource(env, { orgId, agentId: agent.id, session, source })) return false;
+        for (const [source, expectedProvider] of nativeSourcesUsed) {
+          if (await agentSourceProvider(env, { orgId, agentId: agent.id, session, source }) !== expectedProvider) return false;
         }
         for (const { serverId, toolName } of remoteMcpToolsUsed.values()) {
           if (!await mayUseAgentRemoteMcp(env, { orgId, agentId: agent.id, session, serverId, toolName })) return false;
