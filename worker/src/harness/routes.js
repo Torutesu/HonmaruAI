@@ -95,7 +95,7 @@ import { skillMarkdown } from "./skillMarkdown.js";
 import { generateWorkflow, previewWorkflow } from './workflowCreation.js';
 import { respondToRecurringAutomationOffer } from './recurringAutomationOffers.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, workflowRunSummary, startRun, recoverStalledRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, workflowRunSummary, startRun, cancelWorkflowRun, recoverStalledRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { onRowChange, onRowDelete } from "./workflows.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
@@ -788,6 +788,13 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({ run }, 201);
     }
     if (sub === "runs") {
+      if (runId && parts[4] === 'cancel' && request.method === 'POST') {
+        if (!mine) return json({ message: 'Only its maker or an admin can cancel this workflow run.' }, 403);
+        const result = await cancelWorkflowRun(env.DB, { orgId, workflowId: wfId, runId, expectedStartedAt: input?.expectedStartedAt, actorId: me });
+        if (result.error) return json({ message: result.error }, result.status);
+        await audit(env, request, { orgId, action: 'workflow.run_cancelled', actor: person(who.user), entity: { type: 'workflow_run', id: runId, name: wf.name }, details: { outcome: 'unknown', laterStepsStopped: true } });
+        return json(result);
+      }
       if (runId && parts[4] === 'recover' && request.method === 'POST') {
         if (!mine) return json({ message: 'Only its maker or an admin can reconcile this workflow run.' }, 403);
         if (input?.confirmNoReplay !== true || typeof input?.expectedStartedAt !== 'string') {

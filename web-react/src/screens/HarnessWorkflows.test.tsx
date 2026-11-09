@@ -18,6 +18,7 @@ beforeEach(() => {
     workflows: vi.fn().mockResolvedValue({ workflows: [workflow] }), tables: vi.fn().mockResolvedValue({ tables: [] }),
     workflow: vi.fn().mockResolvedValue({ workflow, runs: [], summary:emptySummary, canEdit: true }),
     recoverWorkflowRun: vi.fn().mockResolvedValue({run:{}}),
+    cancelWorkflowRun: vi.fn().mockResolvedValue({run:{}}),
     changeWorkflowHook: vi.fn().mockResolvedValue({ workflow: { ...workflow, hookSecret: undefined, hookUrl: undefined } }),
   }
 })
@@ -50,6 +51,17 @@ test('stalled run recovery requires an explicit no-replay confirmation', async (
  expect(JSON.stringify(tree.toJSON())).toContain('will never replay it')
  await act(async()=>button('Mark interrupted without replay').props.onClick())
  expect(state.api.recoverWorkflowRun).toHaveBeenCalledWith(workflow.id,'stalled',startedAt)
+})
+test('cancelling a running workflow requires confirmation and refreshes run history', async () => {
+ const startedAt='2026-11-01T00:00:00.000Z'
+ state.api.workflow.mockResolvedValue({workflow,runs:[{id:'active',status:'running',trigger:'manual',startedAt,finishedAt:null,log:[]}],canEdit:true})
+ await open()
+ await act(async()=>button('Stop run…').props.onClick())
+ expect(state.api.cancelWorkflowRun).not.toHaveBeenCalled()
+ expect(JSON.stringify(tree.toJSON())).toContain('current step may already have sent a message')
+ await act(async()=>button('Stop this run').props.onClick())
+ expect(state.api.cancelWorkflowRun).toHaveBeenCalledWith(workflow.id,'active',startedAt)
+ expect(state.api.workflow).toHaveBeenCalledTimes(2)
 })
 test('workflow history shows elapsed time without inventing duration for unfinished runs',async()=>{
  state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[

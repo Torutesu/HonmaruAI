@@ -791,7 +791,11 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "スケジュール停止と実行キャンセルを区別"
+      "acceptance": "スケジュール停止と実行キャンセルを区別",
+      "evidence": {
+        "verified": "2026-11-09 batch adds a maker/admin-only explicit cancel action for running Workflow runs. The API compares the exact run start timestamp, atomically marks the run cancelled, records the in-flight step outcome as unknown, and settles safety accounting. The runner re-reads the terminal status after each awaited step and will not persist a stale result or dispatch later steps. Focused Worker `harness-workflows.test.js` passed (123 tests), Web `HarnessWorkflows.test.tsx` passed (61 tests), and the Web production build passed locally; exact-head CI and production deployment are pending.",
+        "remaining": "Cancellation cannot guarantee that an already-issued external request is interrupted or rolled back. Production and multi-device behavior plus Kylon side-by-side verification remain. This is still partial parity."
+      }
     },
     {
       "id": "KY-066",

@@ -242,6 +242,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     replayWorkflowEvents: (id: string, eventIds: string[]) => call<{ runs: Array<{ eventId: string; runId: string; status: string }>; skipped: number }>('POST', `/workflows/${id}/webhook/replay`, { eventIds }),
     heldWorkflowEvent: (id: string, eventId: string) => call<{ event: { id: string; receivedAt: string; expiresAt: string; input: unknown } }>('GET', `/workflows/${id}/webhook/events/${encodeURIComponent(eventId)}`),
     recoverWorkflowRun: (workflowId: string, runId: string, expectedStartedAt: string) => call<{ run: Run }>('POST', `/workflows/${workflowId}/runs/${encodeURIComponent(runId)}/recover`, { expectedStartedAt, confirmNoReplay: true }),
+    cancelWorkflowRun: (workflowId: string, runId: string, expectedStartedAt: string) => call<{ run: Run }>('POST', `/workflows/${workflowId}/runs/${encodeURIComponent(runId)}/cancel`, { expectedStartedAt }),
     discardWorkflowEvents: (id: string, eventIds: string[]) => call<{ discarded: number }>('POST', `/workflows/${id}/webhook/discard`, { eventIds }),
     deleteWorkflow: (id: string) => call<{ deleted: boolean }>('DELETE', `/workflows/${id}`),
     workflowSource: (id:string,before?:number) => call<WorkflowSourceState>('GET',`/workflows/${id}/source`,undefined,{candidates:'1',...(before?{before:String(before)}:{})}),
