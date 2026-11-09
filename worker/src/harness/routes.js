@@ -47,6 +47,7 @@ import { databaseView, previewMigration, applyMigration, generateMigration, fork
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection } from './appCapabilities.js';
 import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
+import { customPublishState, setCustomPublishPolicy, requestCustomPublishApproval, reviewCustomPublishApproval } from './customAppPublishApproval.js';
 import { createAppShare, listAppShares, revokeAppShare, readAppShare } from './appShares.js';
 import { listPublicAppShareApprovals, reviewPublicAppShareApproval } from './appShareApproval.js';
 import { fetchGitHubCommitSource, verifyGitHubCommitRef } from './githubCommitSource.js';
@@ -1553,9 +1554,28 @@ export async function handleHarness(request, env, url, context = {}) {
       return result.error?fail(result):json(result);
     }
     if (sub === "custom") {
-      if (request.method === 'GET') return json(await customCommitState(env.DB,orgId,app));
+      if (request.method === 'GET') return json({...await customCommitState(env.DB,orgId,app),publishGate:await customPublishState(env.DB,orgId,app)});
       if (!(await mayChangeApp())) return json({ message: "Only its maker, an editor, or an admin can change custom code." }, 403);
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
+      if (input.action === 'policy') {
+        if (!await allowed(env.DB,orgId,who.session.github_id,'harness.delete_others')) return json({message:'Only a workspace Owner or Admin can change the publish approval policy.'},403);
+        if (typeof input.enabled !== 'boolean') return json({message:'Choose whether independent approval is required.'},400);
+        const result=await setCustomPublishPolicy(env.DB,orgId,app,input.enabled,me);
+        await audit(env,request,{orgId,action:'app.custom_publish_policy_changed',actor:person(who.user),entity:{type:'app',id:appId},details:{enabled:input.enabled}});
+        return json(result);
+      }
+      if (input.action === 'review') {
+        if (!await allowed(env.DB,orgId,who.session.github_id,'harness.delete_others')) return json({message:'Only a workspace Owner or Admin can review a custom app release.'},403);
+        const result=await reviewCustomPublishApproval(env.DB,orgId,app,input,me,true);
+        if(!result.error)await audit(env,request,{orgId,action:'app.custom_publish_'+input.decision,actor:person(who.user),entity:{type:'app',id:appId},details:{version:app.version,sourceHash:result.approval?.sourceHash,scope:result.approval?.scope}});
+        return result.error?fail(result):json(result);
+      }
+      if (input.action === 'request_approval') {
+        if(!Number.isInteger(input.version)||input.version!==app.version)return json({message:'The app changed. Reload before requesting approval.'},409);
+        const result=await requestCustomPublishApproval(env.DB,orgId,app,me);
+        if(!result.error)await audit(env,request,{orgId,action:'app.custom_publish_approval_requested',actor:person(who.user),entity:{type:'app',id:appId},details:{version:result.approval.draftVersion,sourceHash:result.approval.sourceHash,scope:result.approval.scope}});
+        return result.error?fail(result):json(result);
+      }
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
         const entities=(await databaseView(env.DB,orgId,app)).entities;

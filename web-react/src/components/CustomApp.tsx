@@ -162,6 +162,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
   const [error, setError] = useState('')
   const [history, setHistory] = useState<Array<{version: number; note: string | null}>>([])
   const [commitState,setCommitState]=useState<Awaited<ReturnType<typeof api.customCommitState>>|null>(null)
+  const [publishGate,setPublishGate]=useState<Awaited<ReturnType<typeof api.customPublishState>>|null>(null)
   const [gitOwner,setGitOwner]=useState(''),[gitRepo,setGitRepo]=useState(''),[gitBranch,setGitBranch]=useState('main'),[gitSha,setGitSha]=useState('')
   const [hosting,setHosting]=useState<Awaited<ReturnType<typeof api.appHosting>>|null>(null)
   const [domainHostname,setDomainHostname]=useState(''),[publicDataConfirmed,setPublicDataConfirmed]=useState(false),[hostingError,setHostingError]=useState('')
@@ -176,6 +177,12 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
     let active=true
     if(typeof api.customCommitState!=='function')return()=>{active=false}
     api.customCommitState(app.id).then(state=>{if(active)setCommitState(state)}).catch(e=>{if(active)setError(e instanceof Error?e.message:String(e))})
+    return()=>{active=false}
+  },[api,app.id,app.version,app.definition.custom?.draft])
+  useEffect(()=>{
+    let active=true
+    if(typeof api.customPublishState!=='function')return()=>{active=false}
+    api.customPublishState(app.id).then(state=>{if(active)setPublishGate(state)}).catch(e=>{if(active)setError(e instanceof Error?e.message:String(e))})
     return()=>{active=false}
   },[api,app.id,app.version,app.definition.custom?.draft])
   useEffect(()=>{
@@ -261,10 +268,19 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
           {hosting&&!hosting.configured&&<p role="status">独自ドメイン管理はこの環境で設定されていません。</p>}
         </div>}
     </section>
+    <section className="hx-release-approval" aria-label="公開承認ポリシー">
+      <h3>公開ガバナンス</h3>
+      <p>{publishGate?.policy.enabled?'Owner または Admin による、作成者と異なる人の承認が必要です。承認は現在の下書き・バージョンに結びつきます。':'現在は従来どおり、作成者または管理者が直接公開できます。'}</p>
+      <button type="button" className="pill-btn quiet" disabled={busy||!publishGate} onClick={()=>void run(async()=>{await api.customPublish(app.id,{action:'policy',enabled:!publishGate?.policy.enabled});setPublishGate(await api.customPublishState(app.id))})}>{publishGate?.policy.enabled?'独立承認を必須にする設定を解除':'公開前に Owner / Admin の独立承認を必須にする'}</button>
+      {publishGate?.policy.enabled&&<div>
+        {!publishGate.approval||['rejected','revoked'].includes(publishGate.approval.status)?<button type="button" className="pill-btn" disabled={busy||changed||remoteConflict||!html||html.length>MAX_PREVIEW_SOURCE} onClick={()=>void run(async()=>{await api.customPublish(app.id,{action:'request_approval',version:app.version});setPublishGate(await api.customPublishState(app.id))})}>この保存済み下書きの承認を依頼</button>:<><p role="status">承認状態: {publishGate.approval.status} · v{publishGate.approval.draftVersion} · 公開範囲: {publishGate.approval.scope} · SHA-256: {publishGate.approval.sourceHash.slice(0,12)}…</p><p>公開できるのは承認者以外の作成者または Owner / Admin です。サーバーが承認者と公開者の分離を確認します。</p></>}
+        {publishGate.approval?.status==='pending'&&<div className="hx-actions"><button type="button" className="pill-btn" disabled={busy} onClick={()=>void run(async()=>{await api.customPublish(app.id,{action:'review',decision:'approve',approvalId:publishGate.approval?.id,version:app.version,sourceHash:publishGate.sourceHash});setPublishGate(await api.customPublishState(app.id))})}>Owner / Admin として承認</button><button type="button" className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>{await api.customPublish(app.id,{action:'review',decision:'reject',approvalId:publishGate.approval?.id,version:app.version,sourceHash:publishGate.sourceHash});setPublishGate(await api.customPublishState(app.id))})}>却下</button></div>}
+      </div>}
+    </section>
     <div className="hx-actions">
       <button className="pill-btn quiet" disabled={!html || busy} onClick={() => setPreview(v => !v)}>{preview ? 'プレビューを閉じる' : 'プレビュー'}</button>
       <button className="pill-btn" disabled={busy || remoteConflict || !html || !changed} onClick={() => {if(remoteConflict)return;void run(async () => { await api.saveCustom(app.id, 'draft', app.version, html); if(activeScope.current===scope)await reload() })}}>下書きを保存</button>
-      <button className="pill-btn" disabled={busy || remoteConflict || changed || !html || html.length > MAX_PREVIEW_SOURCE || html === app.definition.custom?.published || Boolean(commitState?.commit && commitState.approval?.status!=='approved')} onClick={() => {if(remoteConflict||html.length > MAX_PREVIEW_SOURCE)return;void run(async () => { if(commitState?.commit){await api.customCommit(app.id,{action:'publish_commit',version:app.version,approvalId:commitState.approval?.id})}else{await api.saveCustom(app.id, 'publish', app.version)} if(activeScope.current===scope)await reload();setCommitState(await api.customCommitState(app.id)) })}}>{commitState?.commit?'承認済みGitHub commitを公開':'保存した下書きを公開'}</button>
+      <button className="pill-btn" disabled={busy || !publishGate || remoteConflict || changed || !html || html.length > MAX_PREVIEW_SOURCE || html === app.definition.custom?.published || Boolean(commitState?.commit && commitState.approval?.status!=='approved') || Boolean(publishGate?.policy.enabled && publishGate.approval?.status!=='approved')} onClick={() => {if(remoteConflict||html.length > MAX_PREVIEW_SOURCE)return;void run(async () => { if(commitState?.commit){await api.customCommit(app.id,{action:'publish_commit',version:app.version,approvalId:commitState.approval?.id})}else{await api.saveCustom(app.id, 'publish', app.version)} if(activeScope.current===scope)await reload();setCommitState(await api.customCommitState(app.id));setPublishGate(await api.customPublishState(app.id)) })}}>{commitState?.commit?'承認済みGitHub commitを公開':publishGate?.policy.enabled?'承認済みの下書きを公開':'保存した下書きを公開'}</button>
       {app.definition.custom?.published && <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'unpublish', app.version); if(activeScope.current===scope)await reload() })}>公開を停止</button>}
     </div>
     {html.length > MAX_PREVIEW_SOURCE && <p role="alert" className="form-error">プレビューして公開するには、コードを119800文字以下に短くしてください。下書きは保持されます。</p>}
