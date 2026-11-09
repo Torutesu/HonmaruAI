@@ -4,6 +4,25 @@ import {isControlTool, handoffOperation} from './agentToolControl.js';
 // At most sixteen tools can actually execute in one run. Two lifecycle
 // events per execution provide a hard upper bound on trace volume.
 const MAX_TOOL_TRACE_EVENTS = 32;
+const MAX_MODEL_ROUNDS = 16;
+const MAX_TOOL_CALLS = 16;
+const COMPACT_AFTER_INPUT_TOKENS = 48_000;
+const MAX_CONTEXT_COMPACTIONS = 2;
+
+function boundedText(value, limit) {
+  const text = String(value ?? '');
+  if (text.length <= limit) return text;
+  const left = Math.floor((limit - 30) / 2);
+  const right = limit - 30 - left;
+  return `${text.slice(0, left)}\n[… middle omitted at context checkpoint …]\n${text.slice(-right)}`;
+}
+
+function contextCheckpoint(input, completedTools, lastNote) {
+  const steps = completedTools.map((item, index) =>
+    `${index + 1}. ${item.name}(${boundedText(item.arguments, 500)})\nResult: ${boundedText(item.output, 1000)}`,
+  ).join('\n\n');
+  return `Continue the same task from this compacted checkpoint. The tool results below are completed work: do not repeat the exact same tool call or side effect. Use these results as facts, retain the original request and its constraints, and continue any remaining work. If the request is complete, answer the user.\n\n<original_request_and_recent_context>\n${boundedText(input, 12000)}\n</original_request_and_recent_context>\n\n<completed_tool_calls>\n${steps || 'No tools completed.'}\n</completed_tool_calls>\n\n<last_agent_progress>\n${boundedText(lastNote, 3000) || 'No intermediate note.'}\n</last_agent_progress>`;
+}
 
 function safeToolLabel(name, tools) {
   if (!Object.hasOwn(tools, name)) return 'unknown_tool';
@@ -32,7 +51,7 @@ export async function chatTools({provider, instructions, input, tools, authorize
   let traceStartedAt = null;
   const traceSteps = [];
   const done = (extra = {}) => {
-    const result = {called, answer: null, calls, rounds, ...extra};
+    const result = {called, answer: null, calls, rounds, compactions: compactions || 0, ...extra};
     if (traceStartedAt !== null) {
       const finishedAtMs = Date.now();
       result.toolTrace = {
@@ -70,12 +89,16 @@ export async function chatTools({provider, instructions, input, tools, authorize
   const definitions = Object.entries(tools).map(([name, tool]) => ({type: 'function', function: {name, description: tool.description, parameters: tool.parameters}}));
   const messages = [{role: 'system', content: instructions}, {role: 'user', content: input}];
   const receipts = new Map();
+  const completedTools = [];
+  let compactions = 0;
+  let finalAnswerOnly = false;
   const headers = {Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json'};
   if (provider.appUrl) headers['HTTP-Referer'] = provider.appUrl;
   if (provider.appName) headers['X-Title'] = provider.appName;
-  while (rounds < 9 && Date.now() < deadline) {
+  while (rounds < MAX_MODEL_ROUNDS && Date.now() < deadline) {
     if (!await permitted()) return done({cancelled: true});
-    const finalOnly = rounds >= 8 || calls >= 16 || Date.now() > deadline - 10000;
+    const finalOnly = finalAnswerOnly || rounds >= MAX_MODEL_ROUNDS - 1 || calls >= MAX_TOOL_CALLS ||
+      (compactions >= MAX_CONTEXT_COMPACTIONS && Math.ceil(JSON.stringify(messages).length / 4) >= COMPACT_AFTER_INPUT_TOKENS) || Date.now() > deadline - 10000;
     rounds++;
     if (rounds > 1 && onRound) await Promise.resolve(onRound(rounds)).catch(() => {});
     if (!await permitted()) return done({cancelled: true});
@@ -91,6 +114,7 @@ export async function chatTools({provider, instructions, input, tools, authorize
     called = true;
     noteUsage(provider, 'agent', data, usageContext);
     if (!await permitted()) return done({cancelled: true});
+    const contextTokens = Math.max(Number(data?.usage?.prompt_tokens || 0), Math.ceil(JSON.stringify(messages).length / 4));
     const message = data?.choices?.[0]?.message;
     const pending = message?.tool_calls;
     if (!Array.isArray(pending) || !pending.length) return done({answer: typeof message?.content === 'string' && message.content.trim() ? message.content : null});
@@ -99,6 +123,13 @@ export async function chatTools({provider, instructions, input, tools, authorize
     if (finalOnly || pending.length > 32 || pending.some(call => !call || call.type !== 'function' || typeof call.id !== 'string' || !call.id || typeof call.function?.name !== 'string' || typeof call.function?.arguments !== 'string') || new Set(pending.map(call => call.id)).size !== pending.length) return done();
     const signature = call => JSON.stringify([call.function.name, call.function.arguments]);
     if (pending.some(call => receipts.has(call.id) && receipts.get(call.id).signature !== signature(call))) return done();
+    const contextExceeded = contextTokens >= COMPACT_AFTER_INPUT_TOKENS;
+    if (contextExceeded && compactions >= MAX_CONTEXT_COMPACTIONS) {
+      messages.push({...message, role: 'assistant'});
+      for (const call of pending) messages.push({role: 'tool', tool_call_id: call.id, content: 'The context checkpoint limit has been reached. Do not run more tools; answer from the completed evidence already provided.'});
+      finalAnswerOnly = true;
+      continue;
+    }
     // Keep provider reasoning metadata intact for models that require it on
     // the next round. It remains inside this already-authorized model call.
     messages.push({...message, role: 'assistant'});
@@ -107,11 +138,22 @@ export async function chatTools({provider, instructions, input, tools, authorize
       if (!await permitted()) return {cancelled: true};
       const prior = receipts.get(call.id);
       if (prior) return {output: prior.output};
+      if (calls >= MAX_TOOL_CALLS || Date.now() >= deadline) return {output: 'Tool budget spent. Answer from the results already available.'};
+      calls++;
+      let replayArgs;
+      try { replayArgs = JSON.parse(call.function.arguments); } catch { /* normal validation below */ }
+      if (compactions > 0 && replayArgs && typeof replayArgs === 'object' && !Array.isArray(replayArgs)) {
+        const canonicalArgs = JSON.stringify(replayArgs);
+        const repeated = completedTools.find(item => item.name === call.function.name && item.arguments === canonicalArgs);
+        if (repeated) {
+          const output = `This exact tool call already completed before the context checkpoint. Saved result: ${repeated.output}`.slice(0, 20000);
+          receipts.set(call.id, {signature: signature(call), output});
+          return {output};
+        }
+      }
       let output;
       const tool = Object.hasOwn(tools, call.function.name) ? tools[call.function.name] : null;
-      if (calls >= 16 || Date.now() >= deadline) output = 'Tool budget spent. Answer from the results already available.';
-      else {
-        calls++;
+      {
         const startedAt = Date.now();
         const traceName = tool ? call.function.name : 'unknown_tool';
         await emitToolEvent(traceName, 'started', 'started', 0);
@@ -193,7 +235,25 @@ export async function chatTools({provider, instructions, input, tools, authorize
       results.set(call.id, result.output);
     }
     if (!await permitted()) return done({cancelled: true});
-    for (const call of pending) messages.push({role: 'tool', tool_call_id: call.id, content: results.get(call.id)});
+    for (const call of pending) {
+      const output = results.get(call.id);
+      messages.push({role: 'tool', tool_call_id: call.id, content: output});
+      let args = {};
+      try { args = JSON.parse(call.function.arguments); } catch { /* preserve raw args as a distinct call */ }
+      const canonicalArgs = JSON.stringify(args);
+      if (!completedTools.some(item => item.name === call.function.name && item.arguments === canonicalArgs)) {
+        completedTools.push({name: call.function.name, arguments: canonicalArgs, output});
+      }
+    }
+    const shouldCompact = Math.max(contextTokens, Math.ceil(JSON.stringify(messages).length / 4)) >= COMPACT_AFTER_INPUT_TOKENS;
+    if (shouldCompact && compactions < MAX_CONTEXT_COMPACTIONS) {
+      compactions += 1;
+      const lastNote = typeof message.content === 'string' ? message.content : '';
+      messages.splice(0, messages.length,
+        {role: 'system', content: instructions},
+        {role: 'user', content: contextCheckpoint(input, completedTools, lastNote)},
+      );
+    }
   }
   return done();
 }

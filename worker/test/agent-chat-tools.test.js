@@ -21,6 +21,70 @@ test('continues tool results and reasoning metadata, records usage, and answers'
  expect(await run({provider:p,tools:{lookup:tool(async()=>{ran++;return 'found';})}})).toMatchObject({answer:'Answer',called:true,calls:1,rounds:2});
  expect(ran).toBe(1);expect(p.usage).toHaveLength(2);
 });
+test('continues OpenRouter tool work past eight rounds within the sixteen-round budget',async()=>{
+ let requests=0,ran=0;
+ fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,opts=>{
+  requests++;
+  const body=JSON.parse(opts.body);
+  if(requests===10){expect(body.tool_choice).toBe('auto');return {choices:[{message:{content:'Finished after ten rounds.'}}]};}
+  expect(body.tool_choice).toBe('auto');
+  return {choices:[{message:{tool_calls:[call(`round-${requests}`,'lookup',JSON.stringify({page:requests}))]}}]};
+ }).times(10);
+ const out=await run({tools:{lookup:tool(async()=>{ran++;return 'page read';})}});
+ expect(out).toMatchObject({answer:'Finished after ten rounds.',rounds:10,calls:9,compactions:0});
+ expect(requests).toBe(10);expect(ran).toBe(9);
+});
+test('compacts a large OpenRouter context and reuses completed exact calls without repeating side effects',async()=>{
+ const bodies=[];let ran=0;
+ fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,opts=>{
+  bodies.push(JSON.parse(opts.body));
+  return {usage:{prompt_tokens:50000},choices:[{message:{content:'Page one is complete.',tool_calls:[call('first','lookup','{"page":1}')]}}]};
+ });
+ fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,opts=>{
+  bodies.push(JSON.parse(opts.body));
+  return {choices:[{message:{tool_calls:[call('replayed','lookup','{"page":1}')]}}]};
+ });
+ fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,opts=>{
+  bodies.push(JSON.parse(opts.body));
+  return {choices:[{message:{content:'Continued from the checkpoint.'}}]};
+ });
+ const out=await run({tools:{lookup:tool(async()=>{ran++;return 'Saved page 1';})}});
+ expect(out).toMatchObject({answer:'Continued from the checkpoint.',rounds:3,calls:2,compactions:1});
+ expect(bodies[1].messages).toHaveLength(2);
+ expect(bodies[1].messages[1].content).toContain('original_request_and_recent_context');
+ expect(bodies[1].messages[1].content).toContain('Page one is complete.');
+ expect(bodies[1].messages[1].content).toContain('Saved page 1');
+ expect(bodies[2].messages.at(-1).content).toContain('already completed before the context checkpoint');
+ expect(ran).toBe(1);
+});
+test('compacts when large tool results grow the context even if the provider omits usage',async()=>{
+ const bodies=[];let ran=0;
+ fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,{
+  choices:[{message:{tool_calls:Array.from({length:10},(_,index)=>call(`call-${index+1}`,'lookup',JSON.stringify({page:index+1})))}}],
+ });
+ fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,opts=>{
+  bodies.push(JSON.parse(opts.body));
+  return {choices:[{message:{content:'Done from the saved results.'}}]};
+ });
+ const out=await run({tools:{lookup:tool(async({page})=>{ran++;return `page-${page}-result-${'x'.repeat(20000)}`;})}});
+ expect(out).toMatchObject({answer:'Done from the saved results.',rounds:2,calls:10,compactions:1});
+ expect(bodies[0].messages).toHaveLength(2);
+ expect(bodies[0].messages[1].content).toContain('page-1-result-');
+ expect(bodies[0].messages[1].content).toContain('page-10-result-');
+ expect(ran).toBe(10);
+});
+test('after two OpenRouter checkpoints, asks for a final answer without running further tools',async()=>{
+ let requests=0,ran=0;
+ fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(200,opts=>{
+  requests++;
+  const body=JSON.parse(opts.body);
+  if(requests===4){expect(body.tool_choice).toBe('none');return {choices:[{message:{content:'Answered from completed evidence.'}}]};}
+  return {usage:{prompt_tokens:50000},choices:[{message:{tool_calls:[call(`call-${requests}`,'lookup',JSON.stringify({page:requests}))]}}]};
+ }).times(4);
+ const out=await run({tools:{lookup:tool(async()=>{ran++;return `page ${ran}`;})}});
+ expect(out).toMatchObject({answer:'Answered from completed evidence.',rounds:4,calls:2,compactions:2});
+ expect(ran).toBe(2);expect(requests).toBe(4);
+});
 test('tool traces contain only a safe name, lifecycle status, and bounded elapsed time',async()=>{
  const secretInput='private-input-8b0d';const secretOutput='private-result-316d';const events=[];
  reply({tool_calls:[call('one','lookup',JSON.stringify({query:secretInput}))]});reply({content:'Done'});

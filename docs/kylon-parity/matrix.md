@@ -10,6 +10,8 @@
 
 2026-11-10 PR #864反映: main `14018bcbc58032a9ae2c2a91075cc39dc7fd77c8` にsquash merge。PR exact-head CI #42702894844 はWorker 4 shard・Web・Gateway・共有core/mobile・E2E・iOS・Windows・Desktop・relayを含む全必須ジョブ成功。マージ後のWorker `/health` は `ok:true`、Web appはHTTP 200。KY-030に個人Agent記憶の承認付き共有コピーを追加。マージ後main CI/デプロイのrun IDと配信SHAは未確認のため、health応答だけでマージcommitの配信証明とは扱わない。
 
+2026-11-10 PR #865反映: main `4848312ad19bfc36b634cb1438bb320c026ec43b`。StoreKit/RevenueCat契約の状態表示を追加。main CI #42712593730、Worker deploy #42712593632、Web deploy #42712593582 が成功し、Worker `/health` は `ok:true`、appはHTTP 200。KY-087のcredits/rollover/packsは未実装のまま。KY-114のOpenRouter/BYO長時間継続は次PRで検証中。
+
 2026-11-09 台帳一括整合: main 93951cea時点の要件102件と照合し、KY-112を未実装から一部へ修正（実装・main CI・Worker deploy証跡を追記）。KY-063/KY-111のCI・Worker deploy証跡も更新。ログイン済みKylonのData Viewerを読み取り専用で確認し、ビュー切替・新規ビュー・フィールド・フィルター・グループ・その他・列ソート・レコード追加を確認。表示中のテーブルは0件で、データ変更なし。操作レベルの比較・承認フローの本番受入は未確認。
 
 2026-10-23 公開状況: 原子的ルーム作成と3段階UI、保存色、役割変更・メンバーUIを本番公開済み。93c400d7のCIは全必須ジョブ成功。1dcf52cbで管理対象ルームの追加入口も共通化し、d8e85c76のWebデプロイで公開。10色パレット・Escape時の入力保持・CIバージョン修正もa673f31eで本番公開し、全必須CI成功と本番作成／再読み込みを確認。既定ルーム、プライバシー編集、全利用者・端末での検証は未完了。
@@ -254,4 +256,4 @@ Kylonの[2026-10-30 changelog](https://kylon.io/changelog)は、会話コンテ�
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-114 | 長時間Agentタスクの文脈圧縮と継続 | 一部 | P1 | [agentResearch.js](../../worker/src/agentResearch.js), [agent-research.test.js](../../worker/test/agent-research.test.js) | 48,000 input tokensで元依頼・直近文脈・完了済みtoolと結果・最新進捗をcheckpointへ変換し、新規Responses chainで継続。圧縮は最大2回、16 model rounds、16 tool calls、実行deadline、権限確認・キャンセルを維持。完了済みの完全一致tool callを再実行しない。追加要約API/サービスなし。OpenAI research path限定。focused/full CI・本番反映・実Agent長時間UI・非OpenAI/BYO provider確認は残る。Simple modeには適用しない。 |
+| KY-114 | 長時間Agentタスクの文脈圧縮と継続 | 一部 | P1 | [agentResearch.js](../../worker/src/agentResearch.js), [agentChatTools.js](../../worker/src/agentChatTools.js), [agent-research.test.js](../../worker/test/agent-research.test.js), [agent-chat-tools.test.js](../../worker/test/agent-chat-tools.test.js) | OpenAI ResponsesとOpenRouter chat-tool経路の両方で、48,000 input tokensまたは累積tool結果が同じ推定文脈量に達した時点で、元依頼・直近文脈・完了済みtoolと結果・最新進捗をcheckpointへ変換し、新規chainで継続。圧縮は最大2回、16 model rounds、16 tool calls、実行deadline、権限確認・キャンセルを維持。完了済みの完全一致tool callを再実行しない。追加要約API/サービスなし。関連5スイート149件成功。BYO長時間の実画面QA・本番反映は残る。Simple modeには適用しない。 |
