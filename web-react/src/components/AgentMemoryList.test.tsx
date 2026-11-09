@@ -34,6 +34,19 @@ test('all four memory kinds can be selected',()=>{
  act(()=>tree.unmount())
 })
 
+test('personal memory owners can manage only their personal entries without gaining shared edit rights',()=>{
+ const shared={...memories[1],id:'shared',scope:'shared' as const}
+ const personal={...memories[1],id:'personal',scope:'person' as const,isOwner:true}
+ const edit=vi.fn(),forget=vi.fn(),review=vi.fn(),convert=vi.fn();let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<AgentMemoryList memories={[shared,personal]} canEdit={false} busy={false} onForget={forget} onEdit={edit} onReview={review} onConvert={convert}/> )})
+ const buttons=tree.root.findAllByType('button')
+ expect(buttons.map(button=>button.children.join(''))).toEqual(['Review memory','Edit memory','Forget'])
+ act(()=>buttons.find(button=>button.children.includes('Edit memory'))!.props.onClick())
+ expect(edit).toHaveBeenCalledWith(personal)
+ expect(convert).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
+
 test('memory creation sends selected kind and conversation without changing legacy default', async()=>{
  const {harnessApi}=await import('../utils/harness')
  const fetcher=vi.fn().mockResolvedValue({ok:true,json:async()=>({memory:{}})})
@@ -44,6 +57,8 @@ test('memory creation sends selected kind and conversation without changing lega
   expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({orgId:'org',text:'A preference',channel:'dm:other',kind:'preference'})
   await api.remember('agent','Legacy')
   expect(JSON.parse(fetcher.mock.calls[1][1].body).kind).toBe('context')
+  await api.remember('agent','Personal','', 'preference','personal')
+  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toMatchObject({text:'Personal',scope:'personal'})
  } finally {vi.unstubAllGlobals()}
 })
 
@@ -68,8 +83,10 @@ test('structured memory API preserves full fields and sends the loaded version a
   const api=harnessApi('https://example.test','org','session'),entry={title:'Policy',description:'Team rules',body:'Line one\n\nLine two',kind:'reference' as const}
   await api.rememberEntry('a',entry,'b:ops')
   expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({orgId:'org',...entry,channel:'b:ops'})
+  await api.rememberEntry('a',{...entry,scope:'personal'})
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({scope:'personal',body:entry.body})
   await api.updateMemory('a',{...memories[0],version:7},entry,'')
-  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'org',...entry,id:'1',expectedVersion:7,channel:''})
+  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({orgId:'org',...entry,id:'1',expectedVersion:7,channel:''})
  } finally {vi.unstubAllGlobals()}
 })
 

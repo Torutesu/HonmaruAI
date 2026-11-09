@@ -1185,7 +1185,8 @@ export async function handleHarness(request, env, url, context = {}) {
         return r.error?fail(r):json(r,r.replayed?200:201);
       }
       if (request.method === "POST") {
-        const requestedScope = input.scope || (!canEdit && !channel ? "person" : "shared");
+        const requestedScope = input.scope === "personal" ? "person" : (input.scope || (!canEdit && !channel ? "person" : "shared"));
+        if (!['person', 'shared'].includes(requestedScope)) return json({ message: "Invalid memory scope." }, 400);
         if (!canEdit && !channel && requestedScope !== "person") {
           return json({ message: "Only the agent's maker or an admin can create shared memory." }, 403);
         }

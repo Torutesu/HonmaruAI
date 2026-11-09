@@ -130,9 +130,9 @@ export interface HomeData {
   followups: Followup[]
 }
 export type MemoryKind = 'context' | 'preference' | 'feedback' | 'reference'
-export interface MemoryEntryInput { title: string; description: string; body: string; kind: MemoryKind }
+export interface MemoryEntryInput { title: string; description: string; body: string; kind: MemoryKind; scope?: 'shared' | 'personal' }
 export interface MemoryReview { id: string; memoryId?: string; version: number; verdict: string; evidence: string; by: string; reviewerName: string; at: string }
-export interface AgentMemory { review?: { version: number; evidence: string; by: string; at: string; current: boolean } | null; title?: string; description?: string; body?: string; version?: number; updatedAt?: string; id: string; text: string; source: string; createdAt: string; channel?: string | null; sourceChannel?: string | null; sourceMessageId?: string | null; sourceThreadId?: string | null; kind?: string }
+export interface AgentMemory { review?: { version: number; evidence: string; by: string; at: string; current: boolean } | null; title?: string; description?: string; body?: string; version?: number; updatedAt?: string; id: string; text: string; source: string; createdAt: string; channel?: string | null; sourceChannel?: string | null; sourceMessageId?: string | null; sourceThreadId?: string | null; kind?: string; scope?: 'shared' | 'person' | 'personal' | 'conversation'; isOwner?: boolean }
 
 /// One client for every harness route: the session on each call, the
 /// server's own message on a refusal.
@@ -296,8 +296,11 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     convertMemory: (agentId: string, memory: AgentMemory, channel: string, keepEntry: boolean, requestId: string) => call<{skill: Skill; keptMemory: boolean; replayed: boolean}>('POST', `/hx/agents/${agentId}/memory/${encodeURIComponent(memory.id)}/to-skill`, {expectedVersion: memory.version ?? 0, channel, keepEntry, requestId}),
     memoryPage: (agentId: string, channel = '', cursor?: string, filters: { query?: string; kind?: string } = {}) => call<{ memories: AgentMemory[]; canEdit: boolean; nextCursor: string | null }>('GET', `/hx/agents/${agentId}/memory`, undefined, { channel, paged: '1', ...filters, ...(cursor ? { cursor } : {}) }),
     memory: (agentId: string, channel = '') => call<{ memories: AgentMemory[]; canEdit: boolean }>('GET', `/hx/agents/${agentId}/memory`, undefined, { channel }),
-    remember: (agentId: string, text: string, channel = '', kind: MemoryKind = 'context') => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { text, channel, kind }),
-    rememberEntry: (agentId: string, entry: MemoryEntryInput, channel = '') => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { ...entry, channel }),
+    remember: (agentId: string, text: string, channel = '', kind: MemoryKind = 'context', scope: 'shared' | 'personal' = 'shared') => call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { text, channel, kind, ...(scope === 'personal' ? { scope } : {}) }),
+    rememberEntry: (agentId: string, entry: MemoryEntryInput, channel = '') => {
+      const { scope, ...fields } = entry
+      return call<{ memory: AgentMemory }>('POST', `/hx/agents/${agentId}/memory`, { ...fields, ...(scope === 'personal' ? { scope } : {}), channel })
+    },
     updateMemory: (agentId: string, memory: AgentMemory, entry: MemoryEntryInput, channel = '') => call<{ memory: AgentMemory }>('PUT', `/hx/agents/${agentId}/memory`, { ...entry, id: memory.id, expectedVersion: memory.version ?? 0, channel }),
     forget: (agentId: string, id: string, channel = '') => call<{ deleted: number }>('DELETE', `/hx/agents/${agentId}/memory`, undefined, { id, channel }),
     agentSkills: (agentId: string) => call<{ skills: Skill[] }>('GET', `/hx/agents/${agentId}/skills`),
