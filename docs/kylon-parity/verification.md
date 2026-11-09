@@ -4051,4 +4051,10 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Added definition-hash scoped step claims for ordinary Workflow actions, fenced leases with periodic renewal, reuse of persisted results after continuation redelivery, and no replay when a lease expires. Every ordinary action, including external reads that may consume provider quota, is conservatively treated as effectful; only pure declarative conditions can be reclaimed. TypeScript code jobs keep their existing dedicated checkpoint path.
 - Added run-history errors that explicitly say an uncertain step was not replayed, and reconciled KY-059/app automation contract evidence. This is at-most-once protection for uncertain dispatch; row effects and checkpoint completion are not yet one D1 transaction, and unknown-outcome resolution UI remains open.
-- Worker `test/harness-workflows.test.js` and `test/workflow-checkpoints.test.js`: 142/142 passed; `node --check`, `node scripts/check-kylon-parity.mjs`, and `git diff --check` passed. Exact-head CI and production deployment remain pending.
+- Worker `test/harness-workflows.test.js` and `test/workflow-checkpoints.test.js`: 142/142 passed; `node --check`, `node scripts/check-kylon-parity.mjs`, and `git diff --check` passed. PR #857 exact-head CI run `42643217690` passed all 13 jobs and merged as `9ccd3d9c`. Production `/health` returns `ok: true`; the available GitHub connector does not expose main-push deployment runs, so commit-specific Worker deploy completion remains unverified.
+
+### 2026-11-10 — Workflow cursor-safe cancellation and recovery
+
+- Advance the durable `next_step` with each completed step log and with the post-step budget check. Cancellation and stale-run recovery now see the actual active step rather than the original cursor.
+- Added an in-flight Agent-step cancellation test that pauses the model reply, cancels after step 1, then releases a late response and verifies the prior success remains, the active step is unknown, and no later step or late Agent answer is posted.
+- Focused regression tests and exact-head CI are pending.
