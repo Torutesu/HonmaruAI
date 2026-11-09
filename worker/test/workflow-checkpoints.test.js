@@ -2,7 +2,7 @@ import {checkpointWorkflowCondition} from '../src/harness/workflowConditions.js'
 import {env} from 'cloudflare:test';
 import {beforeEach,expect,test} from 'vitest';
 import schema from '../schema.sql?raw';
-import {claimWorkflowNode as claim,finishWorkflowNode as finish,renewWorkflowNode as renew,commitWorkflowNodeEffects as commit} from '../src/harness/workflowCheckpoints.js';
+import {claimWorkflowNode as claim,finishWorkflowNode as finish,markWorkflowNodeUnknown as markUnknown,renewWorkflowNode as renew,commitWorkflowNodeEffects as commit} from '../src/harness/workflowCheckpoints.js';
 const id={orgId:'cp',runId:'run',nodeId:'step:1',fingerprint:'definition-1'};
 beforeEach(async()=>{
  await env.DB.exec(schema.replace(/\n/g,' '));
@@ -30,6 +30,12 @@ test('ambiguous external effects are never automatically repeated or completed b
  expect(await claim(env.DB,{...id,effect:true,at:2000})).toEqual({status:'unknown'});
  expect(await claim(env.DB,{...id,effect:true,at:90000})).toEqual({status:'unknown'});
  expect(await finish(env.DB,{...id,...first,at:2001,result:'late'})).toBe(false);
+});
+test('an uncertain effect can be marked unknown and its stale lease cannot finish',async()=>{
+ const lease=await claim(env.DB,{...id,effect:true,at:1000});
+ expect(await markUnknown(env.DB,{...id,...lease,at:2000})).toBe(true);
+ expect(await finish(env.DB,{...id,...lease,at:2001,result:{status:'ok'}})).toBe(false);
+ expect(await claim(env.DB,{...id,effect:true,at:3000})).toEqual({status:'unknown'});
 });
 test('scope, definition and terminal run status fence checkpoints',async()=>{
  expect(await claim(env.DB,{...id,orgId:'other',at:1000})).toEqual({status:'unavailable'});
