@@ -522,8 +522,8 @@
       "code": "worker/src/harness/customRunner.js",
       "acceptance": "任意UI/サーバー処理を既存Honmaruと隔離して実行",
       "evidence": {
-        "reviewedAt": "2026-10-18",
-        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
+        "reviewedAt": "2026-11-09",
+        "inspectedMain": "integration branch based on b9dcebd5",
         "implementedScope": "Generated HTML/CSS/JS runs in opaque-origin sandboxes; host-mediated approved CRUD and published Mac server actions are available. PR #445 production runner v3 was observed rendering saved HTML and SDK data.",
         "remaining": "Cloud arbitrary-server deployment and full Kylon editing/runtime parity remain incomplete.",
         "verification": "docs/kylon-parity/verification.md"
@@ -558,8 +558,9 @@
       "evidence": {
         "reviewedAt": "2026-10-18",
         "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
-        "implementedScope": "Saved source versions publish with compare-and-swap and publisher attribution.",
-        "remaining": "Git-commit deployment and an independent approver are not implemented.",
+        "implementedScope": "Custom apps can import a pinned GitHub commit and static assets, review the exact bundle and visibility scope with a different Owner/Admin, and publish only after the approval is revalidated. For directly edited source, workspaces can enable an additional independent Owner/Admin gate bound to the saved app version and SHA-256 draft; publish consumes that approval atomically with the version snapshot. Draft changes, policy changes, membership loss and replay revoke or reject stale approvals. Existing direct publish remains available when the opt-in policy is disabled.",
+        "verified": "On the current integration branch, Worker harness-apps, workspace-deletion, agent-access-requests and migration suites passed together (198 tests), including approver separation, replay, stale source/version, requester/reviewer access loss and races. CustomApp UI tests passed (16 tests) and the production TypeScript/Vite build passed. No paid service was added; Simple mode routes are unchanged.",
+        "remaining": "Kylon-native Git-linked editing/build/deployment targets and authenticated production acceptance with side-by-side Kylon interaction comparison remain.",
         "verification": "docs/kylon-parity/verification.md"
       }
     },

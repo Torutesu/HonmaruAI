@@ -1,4 +1,5 @@
 import { getTable } from "./tables.js";
+import { consumeCustomPublishApproval } from "./customAppPublishApproval.js";
 // Custom UI releases share the app's tenant, ACL, version history and audit trail.
 // Source is never executed in the Worker. The client runs it in an opaque-origin iframe.
 export const MAX_SOURCE = 120000;
@@ -65,6 +66,10 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
   } else return { error: 'Unknown release action.', status: 400 };
   const table = await getTable(db, orgId, app.tableId);
   const definition = { ...app.definition, custom };
+  if (input.action === 'publish') {
+    const gated = await consumeCustomPublishApproval(db,orgId,app,by,definition,nextVersion,new Date().toISOString(),table);
+    if (gated.enabled || gated.error) return gated;
+  }
   const at = new Date().toISOString();
   const version = nextVersion;
   const stoppedRelease = crypto.randomUUID();
@@ -75,6 +80,7 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
     db.prepare('INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE changes() = 1')
       .bind(app.id, orgId, version, JSON.stringify({ ...definition, name: app.name, columns: table.columns }), trusted.commit ? `Custom app: GitHub commit ${trusted.commit.owner}/${trusted.commit.repo}@${trusted.commit.sha}` : `Custom app: ${input.action}`, String(by), at),
     ...((input.action === 'draft' || input.action === 'restore') ? [
+      db.prepare("UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=?1 WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved') AND consumed_at IS NULL AND draft_version<?4").bind(at,orgId,app.id,version),
       db.prepare(`UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=?1
         WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved') AND consumed_at IS NULL
           AND app_version < ?4`).bind(at,orgId,app.id,version),
