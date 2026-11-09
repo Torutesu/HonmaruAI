@@ -2045,6 +2045,28 @@ test('a maker can reconcile a stale workflow run without replaying its uncertain
   expect((await send('POST', `/workflows/${workflow.id}/run`, mika, { orgId: ORG, text: 'new run' })).status).toBe(201);
 });
 
+test('stale recovery marks the actual later step unknown without replacing earlier success',async()=>{
+ const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Recover second step',trigger:{type:'manual'},steps:[
+  {type:'post',channel:'b:ops',text:'Completed before interruption'},
+  {type:'post',channel:'b:ops',text:'Unknown current step'},
+ ]});
+ const {workflow}=await created.json(),runId='run-recover-second-step',startedAt=new Date(Date.now()-31*60*1000).toISOString();
+ const {ensureWorkflowSafety}=await import('../src/harness/workflowSafety.js');
+ const {recoverStalledRun}=await import('../src/harness/workflows.js');
+ const safety=await ensureWorkflowSafety(env.DB,ORG,workflow.id);
+ const definition={id:workflow.id,name:workflow.name,enabled:true,trigger:workflow.trigger,steps:workflow.steps,createdBy:'9302',safetyGeneration:safety.generation};
+ const prior=[{step:1,type:'post',status:'ok',output:'Completed before interruption',messageId:'prior'}];
+ await env.DB.batch([
+  env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at) VALUES(?1,?2,?3,'manual','running','{}',?4,1,'9302',?5)`).bind(runId,ORG,workflow.id,JSON.stringify(prior),startedAt),
+  env.DB.prepare('INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES(?1,?2,?3,?4)').bind(runId,ORG,JSON.stringify(definition),startedAt),
+ ]);
+ const result=await recoverStalledRun(env.DB,{orgId:ORG,workflowId:workflow.id,runId,expectedStartedAt:startedAt,actorId:'9302'});
+ expect(result.run).toMatchObject({status:'failed',nextStep:2,log:[
+  expect.objectContaining({step:1,status:'ok',output:'Completed before interruption'}),
+  expect.objectContaining({step:2,status:'interrupted',outcome:'unknown'}),
+ ]});
+});
+
 test('a redelivered continuation reuses a saved step result instead of posting twice',async()=>{
  const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Checkpoint result replay',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Already sent once'}]});
  const {workflow}=await created.json(),runId='run-step-checkpoint-replay',startedAt=new Date().toISOString();
@@ -2109,6 +2131,47 @@ test('a maker or admin can cancel a running workflow and fence later steps', asy
   expect((await messages(toru)).map(message => message.body)).not.toContain('Must not post after cancellation');
   const duplicate = await send('POST', `/workflows/${workflow.id}/runs/${runId}/cancel`, toru, { orgId: ORG, expectedStartedAt: startedAt });
   expect(duplicate.status).toBe(409);
+});
+
+test('cancelling during a later step preserves prior completions and marks only the active step unknown',async()=>{
+ const {agent}=await(await send('POST','/channels/agents',mika,{orgId:ORG,name:'Paused workflow reviewer',handle:'paused-reviewer',instructions:'Review the release.',scope:'team'})).json();
+ const {createWorkflow}=await import('../src/harness/workflows.js');
+ const {workflow}=await createWorkflow(env.DB,ORG,{name:'Cancel second step',trigger:{type:'manual'},steps:[
+  {type:'post',channel:'b:ops',text:'First step completed'},
+  {type:'agent',agentId:agent.id,channel:'b:ops',prompt:'Wait for review.'},
+  {type:'post',channel:'b:ops',text:'Must not run after cancellation'},
+ ]},'9302');
+ let releaseProvider,providerStarted=false;
+ const providerReply=new Promise(resolve=>{releaseProvider=resolve;});
+ fetchMock.activate();
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(async()=>{
+  providerStarted=true;
+  return providerReply;
+ });
+ try{
+  const execution=startRun({...env,OPENAI_API_KEY:'sk-test'},{orgId:ORG,workflow,trigger:'manual',startedBy:'9302'});
+  expect(await until(()=>providerStarted)).toBe(true);
+  const active=await until(()=>env.DB.prepare("SELECT id,started_at,status,log,next_step FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2 AND status='running'").bind(ORG,workflow.id).first());
+  expect(active).toMatchObject({next_step:1,status:'running'});
+  expect(JSON.parse(active.log)).toEqual([expect.objectContaining({step:1,status:'ok',output:'First step completed'})]);
+  const response=await send('POST',`/workflows/${workflow.id}/runs/${active.id}/cancel`,mika,{orgId:ORG,expectedStartedAt:active.started_at});
+  expect(response.status).toBe(200);
+  const cancelled=await response.json();
+  expect(cancelled.run).toMatchObject({status:'cancelled',log:[
+   expect.objectContaining({step:1,status:'ok',output:'First step completed'}),
+   expect.objectContaining({step:2,status:'cancelled',outcome:'unknown'}),
+  ]});
+  releaseProvider({choices:[{message:{content:'A late answer.'}}],usage:{prompt_tokens:10,completion_tokens:4}});
+  expect((await execution).status).toBe('cancelled');
+  expect((await messages(mika)).map(message=>message.body)).toContain('First step completed');
+  expect((await messages(mika)).map(message=>message.body)).not.toContain('A late answer.');
+  expect((await messages(mika)).map(message=>message.body)).not.toContain('Must not run after cancellation');
+  expect((await env.DB.prepare("SELECT status FROM hx_workflow_node_checkpoints WHERE org_id=?1 AND run_id=?2 AND node_id='step:2'").bind(ORG,active.id).first()).status).toBe('unknown');
+  fetchMock.assertNoPendingInterceptors();
+ }finally{
+  releaseProvider?.({choices:[{message:{content:'Test cleanup.'}}],usage:{prompt_tokens:1,completion_tokens:1}});
+  fetchMock.deactivate();
+ }
 });
 
 test('a non-owner member cannot cancel another maker\'s workflow run', async () => {

@@ -1062,8 +1062,8 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     if (await getMode(db, orgId) === 'harness') {
       const budgetAfterStep = await workspaceBudgetAdmission(db, orgId);
       if (!budgetAfterStep.allowed) {
-        await db.prepare("UPDATE hx_workflow_runs SET log=?1 WHERE org_id=?2 AND id=?3 AND status='running'")
-          .bind(JSON.stringify(log), orgId, runId).run();
+        await db.prepare("UPDATE hx_workflow_runs SET log=?1,next_step=?2 WHERE org_id=?3 AND id=?4 AND status='running'")
+          .bind(JSON.stringify(log), index + 1, orgId, runId).run();
         await stopDeploymentRunsIfBudgetPaused(db, orgId, budgetAfterStep);
         const currentRun = await getRun(db, orgId, runId);
         if (currentRun?.status !== 'running') return currentRun;
@@ -1077,10 +1077,11 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     }
     if (entry.status === "failed") { status = "failed"; index += 1; break; }
     if (entry.status === "waiting") { status = "waiting"; cardId = entry.cardId; index += 1; break; }
-    // Persist each completed step so asynchronous budget cancellation retains
-    // the outcomes that were completed before the run was stopped.
-    await db.prepare("UPDATE hx_workflow_runs SET log=?1 WHERE org_id=?2 AND id=?3 AND status='running'")
-      .bind(JSON.stringify(log), orgId, runId).run();
+    // Persist the completion and cursor together. Cancellation or stale-run
+    // recovery must identify the actual next step instead of overwriting a
+    // previously completed log entry with an unknown outcome.
+    await db.prepare("UPDATE hx_workflow_runs SET log=?1,next_step=?2 WHERE org_id=?3 AND id=?4 AND status='running'")
+      .bind(JSON.stringify(log), index + 1, orgId, runId).run();
   }
   await db.batch([db.prepare("UPDATE hx_workflow_runs SET status = ?1, log = ?2, next_step = ?3, card_id = COALESCE(?4, card_id), finished_at = ?5 WHERE id = ?6 AND org_id = ?7 AND status='running'")
     .bind(status, JSON.stringify(log), index, cardId, status === "waiting" ? null : now(), runId, orgId),
