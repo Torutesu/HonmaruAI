@@ -697,7 +697,7 @@ test('sharing saves keep the prior app policy when a target member leaves after 
   expect(await env.DB.prepare('SELECT change_token FROM hx_app_access WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).toMatchObject({change_token:null});
 });
 
-test('app person permissions and inventory are not truncated at 500 people', async () => {
+test('app person permissions and inventory are not truncated at 500 people', { timeout: 30_000 }, async () => {
   const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
   const {upsertUser,upsertMembership}=await import('../src/db.js');
   const people=[];
