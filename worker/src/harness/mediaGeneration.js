@@ -120,8 +120,8 @@ export async function runImageGenerationJob(env,job,lease){
   const data=await response.json();
   const encoded=data?.data?.[0]?.b64_json;if(typeof encoded!=='string'){await failClaimedImageGeneration(env.DB,job,lease,'outcome_unknown');return;}
   const bytes=bytesFromBase64(encoded),file=await saveGeneratedImage(env,job,bytes);
-  const result=await env.DB.prepare(`UPDATE hx_media_generation_jobs SET status='succeeded',finished_at=?4,file_id=?5,file_version=?6,provider_request_id=?7,lease_hash=NULL
-   WHERE id=?1 AND org_id=?2 AND status='running' AND lease_hash=?3 AND ${mediaAccess('created_by')}`)
+  const result=await env.DB.prepare(`UPDATE hx_media_generation_jobs AS j SET status='succeeded',finished_at=?4,file_id=?5,file_version=?6,provider_request_id=?7,lease_hash=NULL
+   WHERE j.id=?1 AND j.org_id=?2 AND j.status='running' AND j.lease_hash=?3 AND ${mediaAccess('j.created_by')}`)
    .bind(job.id,job.org_id,leaseHash,Date.now(),file.fileId,file.version,response.headers.get('x-request-id')?.slice(0,120)||null).run();
   if(!result.meta?.changes)throw Error('job_authority_changed');
  }catch(error){

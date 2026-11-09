@@ -4040,3 +4040,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - UI asks for confirmation and explains that a current external action may already have completed or may still finish. Approval-waiting runs are not included; their existing approve/decline controls remain authoritative.
 - Focused Worker workflow tests and Web `HarnessWorkflows.test.tsx` passed; the Web production build passed. Parity inventory consistency and `git diff --check` passed. Exact-head CI and production release are pending.
 - Cancellation does not guarantee interruption or rollback of an external request already issued. Kylon side-by-side and production behavior remain unverified; KY-065 remains partial. No new paid service was added and Simple mode is unchanged.
+
+### 2026-11-09 — KY-083 image job acceptance and persistence QA
+
+- Reconciled KY-083 from missing to partial after PR #855 merged the Harness-only, owner-Agent image-generation flow. Video/audio creation and fixed-amount pre-cost quotes remain unimplemented; generated output costs vary, so the UI asks for explicit approval of that uncertainty.
+- Expanded mocked-provider QA across successful private R2/file-ledger persistence, duplicate dispatch prevention, provider rejection, unknown outcomes after lease expiry, and cancellation before dispatch. The success case exposed a SQL alias error in the final ownership-fenced success update; fixed it by qualifying the update target consistently.
+- Focused Worker suite `test/media-generation.test.js`: 5/5 passed after the fix. Full Worker CI, exact-head CI, and deployment for this fix remain pending. No live provider request or new paid service was used; Simple mode is unchanged.
