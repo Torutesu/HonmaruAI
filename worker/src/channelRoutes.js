@@ -122,12 +122,18 @@ export async function caller(env, request, orgId, { withMembership = false } = {
   const session = await getSession(env.DB, request.headers.get("x-session-token"));
   if (!session) return { denied: json({ message: "Please sign in." }, 401) };
   if (!orgId || typeof orgId !== "string") return { denied: json({ message: "orgId is required" }, 400) };
+  // The person's own record does not depend on the checks below, so it is
+  // read alongside them rather than after (#845); it is used only once
+  // every check has passed, and a failed read is thrown there, as before.
+  const userRead = getUserByGithubId(env.DB, session.github_id).then((value) => ({ value }), (error) => ({ error }));
   const membership = withMembership
     ? await env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, String(session.github_id)).first()
     : await isMember(env.DB, orgId, session.github_id);
   if (!membership) return { denied: json({ message: "not a member of this org" }, 403) };
   { const { policyDenial } = await import("./policy.js"); const held = await policyDenial(env, session, orgId); if (held) return { denied: json(held.body, held.status) }; }
-  const user = await getUserByGithubId(env.DB, session.github_id);
+  const read = await userRead;
+  if (read.error) throw read.error;
+  const user = read.value;
   if (!user?.login) return { denied: json({ message: "Please sign in." }, 401) };
   return { session, user: { ...user, github_id: session.github_id }, ...(withMembership ? { membershipSince: membership.created_at } : {}) };
 }
@@ -944,15 +950,26 @@ async function postTeammateResult(env, run, t, read, status, {clientId=null,deli
   return {published:false};
 }
 
-/// The sidebar's previews in the language the reader set: kept translations
-/// at once, new ones by the model in one batch.
-async function previewsInLanguage(env, orgId, user, items) {
+/// The sidebar's previews in the language the reader set. Only translations
+/// already kept are read here: the directory never waits on a model, whose
+/// one call can take tens of seconds (#845). Previews not yet translated go
+/// out as written, and are translated past the response (`after`), into the
+/// same store, so the next directory read has them.
+async function previewsInLanguage(env, orgId, user, items, after = null) {
   const rows = items.map((i) => i._row).filter((r) => r?.body);
   let byId = {};
   if (rows.length && Number(user.translate_messages ?? 1) !== 0) {
+    const locale = String(user.locale || "en").slice(0, 2);
     try {
-      const provider = await providerFor(env, orgId);
-      ({ byId } = await translateMessages(env.DB, orgId, rows, { locale: String(user.locale || "en").slice(0, 2), provider }));
+      let failed;
+      ({ byId, failed } = await translateMessages(env.DB, orgId, rows, { locale, provider: null }));
+      const missing = rows.filter((r) => failed[r.id]);
+      if (missing.length && after) after(async () => {
+        try {
+          const provider = await providerFor(env, orgId);
+          if (provider) await translateMessages(env.DB, orgId, missing, { locale, provider });
+        } catch (err) { console.error("preview translation failed", safe(err?.message)); }
+      });
     } catch (err) {
       console.error("preview translation failed", safe(err?.message));
     }
@@ -998,7 +1015,7 @@ export async function handleChannels(request, env, url, { route, after }) {
       groups: (await groupsOf(env.DB, orgId, who.user.login)).map((g) => ({
         view: g.key, refs: g.logins.filter((l) => l !== who.user.login).map(refOf).filter(Boolean),
       })),
-      activity: await previewsInLanguage(env, orgId, who.user, await channelActivity(env.DB, orgId, who.user.login, members)),
+      activity: await previewsInLanguage(env, orgId, who.user, await channelActivity(env.DB, orgId, who.user.login, members), after),
       prefs,
       // Your own away settings, with the delegate as a ref you can show.
       mine: me ? { status: me.status, awayUntil: me.awayUntil, delegateRef: members.find((m) => m.login === me.delegateLogin)?.ref || null } : null,

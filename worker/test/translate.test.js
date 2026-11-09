@@ -199,3 +199,23 @@ test('sidebar keeps canonical preview available while the viewer disables cached
   await call('/me', { method: 'PUT', headers: headers(mika), body: JSON.stringify({ translateMessages: false }) });
   expect(await read()).toMatchObject({ preview: said.body, originalPreview: said.body });
 });
+
+test('the sidebar never waits on the model: a new preview goes out as written, translated past the response for the next read (#845)', async () => {
+  const said = (await (await post('/channels/messages', toru, { orgId: ORG, channel: 'b:cafe', body: '金曜日から始めます' })).json()).message;
+  let calls = 0;
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, () => {
+    calls += 1;
+    return { choices: [{ message: { content: JSON.stringify({ items: [{ id: said.id, text: 'Starts Friday' }] }) } }] };
+  });
+  const pending = [];
+  const later = { waitUntil: (p) => { pending.push(p); return p; }, passThroughOnException() {} };
+  const read = async () => (await (await worker.fetch(new Request(`https://example.com/channels?orgId=${encodeURIComponent(ORG)}`, { headers: headers(mika) }), { ...env, OPENAI_API_KEY: 'sk-test' }, later)).json()).activity.find(a => a.channel === 'b:cafe');
+  // Answered with what is already known: the message as written.
+  expect(await read()).toMatchObject({ preview: said.body, originalPreview: said.body });
+  await Promise.all(pending);
+  expect(calls).toBe(1);
+  // Kept by the work past the response: the next read has it, no model.
+  expect(await read()).toMatchObject({ preview: 'Starts Friday', originalPreview: said.body });
+  await Promise.all(pending);
+  expect(calls).toBe(1);
+});

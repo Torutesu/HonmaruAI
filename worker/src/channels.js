@@ -74,18 +74,18 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
     // so it lets nobody in: treating it as public handed a private channel
     // (and everything broadcast in it) to the whole workspace whenever one
     // read failed.
-    let row;
-    try {
-      row = await db.prepare("SELECT private, created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first();
-    } catch {
-      return null;
-    }
+    //
     // A missing row is also how legacy virtual public Rooms are represented.
     // An explicit deletion tombstone is the only durable signal that a key
-    // used to identify a deleted Room; storage errors fail closed.
+    // used to identify a deleted Room; storage errors fail closed. The two
+    // reads do not depend on each other and are made together (#845).
+    let row;
     let tombstone;
     try {
-      tombstone = await db.prepare("SELECT 1 AS deleted FROM hx_room_access WHERE org_id = ?1 AND channel = ?2 AND deleted_at IS NOT NULL").bind(orgId, channel).first();
+      [row, tombstone] = await Promise.all([
+        db.prepare("SELECT private, created_at FROM businesses WHERE org_id = ?1 AND slug = ?2").bind(orgId, slug).first(),
+        db.prepare("SELECT 1 AS deleted FROM hx_room_access WHERE org_id = ?1 AND channel = ?2 AND deleted_at IS NOT NULL").bind(orgId, channel).first(),
+      ]);
     } catch {
       return null;
     }
@@ -362,17 +362,22 @@ export async function hydrate(db, orgId, rows, members = null) {
 export async function present(db, orgId, rows, viewerLogin, view, members) {
   const [extras, files, agents, originals] = await Promise.all([hydrate(db, orgId, rows, members), filesFor(db, orgId, rows.map((r) => r.id)), agentsOf(db, orgId, rows), originalsOf(db, orgId, rows)]);
   const now = Date.now();
+  // One agent's picture, as this reader may see it, is looked up once for
+  // the whole page, not once per message it wrote (#845). Only within this
+  // call: the next request asks again, so access taken away is not cached.
+  const avatars = new Map();
+  const avatarOf = (sourceAgent) => {
+    const key = `${sourceAgent.id}\n${sourceAgent.avatar_url || ""}`;
+    if (!avatars.has(key)) avatars.set(key, clientAgentAvatarUrl(mediaEnv() || { DB: db }, orgId,
+      { ...sourceAgent, avatarUrl: sourceAgent.avatar_url || null, ownerLogin: sourceAgent.owner_login }, viewerLogin));
+    return avatars.get(key);
+  };
   return Promise.all(rows.map(async (r) => {
     const x = extras.get(r.id) || {};
     const replyRefs = (x.replyLogins || []).map((l) => (l === "ai" || String(l).startsWith("agent:") ? l : members.find((m) => m.login === l)?.ref)).filter(Boolean).slice(0, 5);
     const own = await Promise.all((files.get(r.id) || []).map((f) => toFile(db, f, now)));
     const sourceAgent = agents.get(r.author_login) || null;
-    const agent = sourceAgent ? {
-      ...sourceAgent,
-      avatar_url: null,
-      avatarUrl: await clientAgentAvatarUrl(mediaEnv() || { DB: db }, orgId,
-        { ...sourceAgent, avatarUrl: sourceAgent.avatar_url || null, ownerLogin: sourceAgent.owner_login }, viewerLogin),
-    } : null;
+    const agent = sourceAgent ? { ...sourceAgent, avatar_url: null, avatarUrl: await avatarOf(sourceAgent) } : null;
     return toMessage(r, viewerLogin, typeof view === "function" ? view(r) : view, members, { ...x, replyRefs, files: own, agent, original: originals.get(r.reply_to_id) || null, threadParent: r.also_channel ? originals.get(r.parent_id) || null : null });
   }));
 }
@@ -1073,13 +1078,15 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
     const inThread = row.parent_id ? (readAt.get(`t:${row.parent_id}`) || "") : "";
     return row.parent_id ? inThread >= at : inConversation >= at;
   };
-  const out = [];
+  // Each entry is decided first, from the rows alone; then only the ones
+  // that are kept are drawn, all in one presentation (#845), however many
+  // entries point at the same message.
+  const entries = [];
   for (const { row, type, keyword } of picked) {
     const view = viewOf(row.channel, login, members, access);
     if (!view) continue;
-    const [message] = await present(db, orgId, [row], login, view, members);
     const key = `m:${row.id}`;
-    out.push({ key, type, message, unread: row.created_at > lastRead && !seen(row, row.created_at) && !looked.has(key), at: row.created_at, ...(keyword ? { keyword } : {}) });
+    entries.push({ row, view, item: { key, type, unread: row.created_at > lastRead && !seen(row, row.created_at) && !looked.has(key), at: row.created_at, ...(keyword ? { keyword } : {}) } });
   }
   // What others said with a reaction to what you wrote: one entry each, as
   // a notification — who, which, on what.
@@ -1097,12 +1104,17 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
     const view = viewOf(r.channel, login, members, access);
     if (!view) continue;
     const { r_emoji: emoji, r_at: at, r_login: byLogin, r_name: by, r_avatar: byAvatar, ...row } = r;
-    const [message] = await present(db, orgId, [row], login, view, members);
     const key = reactionKey(row.id, byLogin, emoji);
-    out.push({ key, type: "reaction", message, unread: at > lastRead && !seen(row, at) && !looked.has(key), at, emoji, by: by || null, byAvatar: byAvatar || null });
+    entries.push({ row, view, item: { key, type: "reaction", unread: at > lastRead && !seen(row, at) && !looked.has(key), at, emoji, by: by || null, byAvatar: byAvatar || null } });
   }
-  out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
-  return { items: out.slice(0, limit), lastRead };
+  entries.sort((a, b) => String(b.item.at).localeCompare(String(a.item.at)));
+  const kept = entries.slice(0, limit);
+  const rows = new Map();
+  const views = new Map();
+  for (const { row, view } of kept) if (!rows.has(row.id)) { rows.set(row.id, row); views.set(row.id, view); }
+  const drawn = await present(db, orgId, [...rows.values()], login, (r) => views.get(r.id), members);
+  const byId = new Map(drawn.map((message, i) => [[...rows.keys()][i], message]));
+  return { items: kept.map(({ row, item }) => { const { key, type, ...rest } = item; return { key, type, message: byId.get(row.id), ...rest }; }), lastRead };
 }
 
 export async function roomThreads(db, orgId, key, login, view, members, { limit = 20, before, beforeId } = {}) {
@@ -1328,13 +1340,11 @@ export async function searchMessages(db, orgId, login, members, raw, { limit = 3
   const more = paged && (results || []).length > limit;
   const rows = paged ? (results || []).slice(0, limit) : results || [];
   const access = await accessFor(db, orgId, login);
-  const out = [];
-  for (const r of rows) {
-    const view = viewOf(r.channel, login, members, access);
-    if (!view) continue;
-    const [message] = await present(db, orgId, [r], login, view, members);
-    out.push(message);
-  }
+  // The results this reader may see, drawn in one presentation, each in
+  // its own conversation's view and in the order found (#845).
+  const views = new Map();
+  const visible = rows.filter((r) => { const view = viewOf(r.channel, login, members, access); if (view) views.set(r, view); return Boolean(view); });
+  const out = await present(db, orgId, visible, login, (r) => views.get(r), members);
   const last = rows.at(-1);
   return { messages: out, query: q, ...(paged ? { nextCursor: more && last ? [last.created_at, last.mcp_rowid] : null } : {}) };
 }
