@@ -7,6 +7,8 @@ type Api={httpBase:string;orgId:string;sessionToken:string}
 type HookEvent={messageId:string;hookId:string;createdAt:string;status:string;version?:number;canRetry?:boolean}
 const eventLabels:Record<string,string>={external_running:'External agent working',external_failed:'External agent failed or reached its limit',external_finished:'External processing ended',pending:'Waiting for dispatch',queued:'Queued',running:'Running',answered:'Reply saved',finished:'Processing ended',failed:'Failed',interrupted:'Interrupted',cancelled:'Cancelled',no_agents:'No responding agent',unknown:'Status unavailable'}
 type Hook={id:string;name:string;version:number;revokedAt:string|null;provider?:'room'|'line'}
+type LineConversation={customerKey:string;latestAt:string;messageCount:number;unreadCount:number;preview:string|null}
+type LineMessage={messageId:string;createdAt:string;body:string}
 export function RoomWebhooks({api,channel,onOpenThread}:{api:Api;channel:string;onOpenThread?:()=>void}) {
  return <ScopedRoomWebhooks key={JSON.stringify([api.httpBase,api.orgId,api.sessionToken,channel])} api={api} channel={channel} onOpenThread={onOpenThread}/>
 }
@@ -15,6 +17,7 @@ function ScopedRoomWebhooks({api,channel,onOpenThread}:{api:Api;channel:string;o
  const [hooks,setHooks]=useState<Hook[]>([]),[name,setName]=useState(''),[provider,setProvider]=useState<'room'|'line'>('room'),[channelSecret,setChannelSecret]=useState(''),[lineSecretDrafts,setLineSecretDrafts]=useState<Record<string,string>>({}),[busy,setBusy]=useState(false),[error,setError]=useState(''),[uncertain,setUncertain]=useState(false),[loaded,setLoaded]=useState(false)
  const [credential,setCredential]=useState<{id:string;secret?:string;provider:'room'|'line'}|null>(null)
  const [copyNotice,setCopyNotice]=useState('')
+ const [inboxHook,setInboxHook]=useState<Hook|null>(null),[inbox,setInbox]=useState<LineConversation[]>([]),[conversation,setConversation]=useState<{customerKey:string;messages:LineMessage[]}|null>(null),[inboxBusy,setInboxBusy]=useState(false),[inboxError,setInboxError]=useState('')
  const copyGeneration=useRef(0)
  const [events,setEvents]=useState<HookEvent[]>([])
  const [retryConfirm,setRetryConfirm]=useState<string|null>(null)
@@ -51,6 +54,17 @@ function ScopedRoomWebhooks({api,channel,onOpenThread}:{api:Api;channel:string;o
   try {if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(value);message='Copied'}} catch {}
   if(alive.current&&copyGeneration.current===generation)setCopyNotice(message)
  }
+ const inboxRequest=async(hook:Hook,customerKey?:string,method:'GET'|'POST'='GET')=>{
+  setInboxBusy(true);setInboxError('')
+  try{
+   const query=new URLSearchParams({orgId:api.orgId,channel,hookId:hook.id,...(customerKey?{customerKey}:{})})
+   const response=await fetch(`${api.httpBase}/hx/rooms/line-inbox?${query}`,{method,headers:{'content-type':'application/json','x-session-token':api.sessionToken},...(method==='POST'?{body:JSON.stringify({orgId:api.orgId,channel,hookId:hook.id,customerKey})}:{})})
+   const data=await response.json();if(!response.ok)throw Error(data.message||t('The request failed.'))
+   if(method==='POST'){setInbox(items=>items.map(item=>item.customerKey===customerKey?{...item,unreadCount:0}:item));return}
+   if(customerKey){setConversation({customerKey,messages:data.messages||[]});return}
+   setInbox(data.conversations||[])
+  }catch(e){setInboxError(e instanceof Error?e.message:String(e))}finally{setInboxBusy(false)}
+ }
  useEffect(()=>{void run('GET')},[])
  return <section aria-label={t("Manage webhooks")} className="room-webhooks">
   <label className="dlg-label" htmlFor={nameId}>{t("Name")}</label>
@@ -70,12 +84,20 @@ function ScopedRoomWebhooks({api,channel,onOpenThread}:{api:Api;channel:string;o
    <button type="button" className="dlg-btn" onClick={()=>{setCredential(null);setCopyNotice('');copyGeneration.current++}}>{t("Hide secret")}</button>
   </div>}
   {loaded&&!busy&&!error&&!hooks.length&&<p>{t("No webhooks yet.")}</p>}
+  {hooks.some(h=>h.provider==='line'&&!h.revokedAt)&&<p>{t('LINE Inbox stores verified text messages in this room. Automatic replies and media downloads are off.')}</p>}
   <ul>{hooks.map(hook=><li key={hook.id}><strong>{hook.name}</strong> <span>{hook.provider==='line'?t('LINE Official Account'):t('Room webhook')}</span> {hook.revokedAt?<span>{t("Revoked")}</span>:<>
+   {hook.provider==='line'&&<button type="button" className="dlg-btn" disabled={inboxBusy} onClick={()=>{setInboxHook(hook);setConversation(null);void inboxRequest(hook)}}>{t('Open Inbox')}</button>}
    {hook.provider==='line'&&<button type="button" className="dlg-btn room-webhook-copy" onClick={()=>void copyCredential(`${api.httpBase}/hooks/line/${hook.id}`)}><Icon name="copy" size={14}/>{t('Copy webhook URL')}</button>}
    {hook.provider==='line'&&<details className="room-webhook-line-secret"><summary>{t('Replace channel secret')}</summary><form onSubmit={e=>{e.preventDefault();const draft=lineSecretDrafts[hook.id]||'';if(!busy&&!uncertain&&draft.trim().length>=16)void run('PUT',{id:hook.id,version:hook.version,action:'replace-line-secret',channelSecret:draft})}}><input className="dlg-input" type="password" autoComplete="new-password" maxLength={256} value={lineSecretDrafts[hook.id]||''} aria-label={t('LINE channel secret')} onChange={e=>setLineSecretDrafts(items=>({...items,[hook.id]:e.target.value}))}/><button type="submit" className="dlg-btn" disabled={busy||uncertain||(lineSecretDrafts[hook.id]||'').trim().length<16}>{t('Save channel secret')}</button></form></details>}
    {hook.provider!=='line'&&<button type="button" className="dlg-btn" disabled={busy||uncertain} onClick={()=>void run('PUT',{id:hook.id,version:hook.version,action:'rotate'})}>{t("Rotate key")}</button>}
    <button type="button" className="dlg-btn" disabled={busy||uncertain} onClick={()=>void run('PUT',{id:hook.id,version:hook.version,action:'revoke'})}>{t("Revoke")}</button>
   </>}</li>)}</ul>
+  {inboxHook&&<section className="room-line-inbox" aria-label={t('LINE Inbox')}><header><h3>{inboxHook.name} · {t('Inbox')}</h3><button type="button" className="dlg-btn" disabled={inboxBusy} onClick={()=>{setInboxHook(null);setConversation(null)}}>{t('Close')}</button></header>
+   {inboxError&&<p role="alert" className="dlg-error">{t(inboxError)}</p>}{inboxBusy&&<p role="status">{t('Loading…')}</p>}
+   {!conversation&&<ul>{inbox.map(item=><li key={item.customerKey}><button type="button" className="room-line-inbox-customer" disabled={inboxBusy} onClick={()=>{setConversation({customerKey:item.customerKey,messages:[]});void inboxRequest(inboxHook,item.customerKey)}}><strong>{item.customerKey==='unknown'?t('Unknown customer'):item.customerKey}</strong><time dateTime={item.latestAt}>{new Date(item.latestAt).toLocaleString()}</time><span>{item.preview||t('No message text')}</span><small>{item.unreadCount?`${item.unreadCount} ${t('unread')}`:t('Read')} · {item.messageCount} {t('messages')}</small></button></li>)}</ul>}
+   {conversation&&<><button type="button" className="dlg-btn" onClick={()=>setConversation(null)}>{t('All conversations')}</button><h4>{conversation.customerKey}</h4>{conversation.messages.length===0&&!inboxBusy&&<p>{t('No messages yet.')}</p>}<ol className="room-line-inbox-messages">{conversation.messages.map(message=><li key={message.messageId}><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleString()}</time><p>{message.body}</p><a className="room-webhook-thread-link" href={hashForThread(message.messageId,api.orgId)} aria-disabled={busy} onClick={e=>{if(busy)e.preventDefault();else onOpenThread?.()}}>{t('View conversation')}</a></li>)}</ol><button type="button" className="dlg-btn" disabled={inboxBusy} onClick={()=>void inboxRequest(inboxHook,conversation.customerKey,'POST')}>{t('Mark as read')}</button></>}
+   <p>{t('Replies are not sent from this inbox. Open the linked room conversation to continue.')}</p>
+  </section>}
   {events.length>0&&<section className="room-webhook-events" aria-label={t('Recent webhook events')}><h3>{t('Recent webhook events')}</h3><ul>{events.map(event=><li key={event.messageId}><div><strong>{hooks.find(h=>h.id===event.hookId)?.name||'Webhook'}</strong><time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString()}</time></div><a className="room-webhook-thread-link" href={hashForThread(event.messageId,api.orgId)} aria-disabled={busy} onClick={e=>{if(busy)e.preventDefault();else onOpenThread?.()}}>{t('View conversation')}</a><span>{t(eventLabels[event.status]||'Status unavailable')}</span>{event.canRetry&&<button type="button" className="dlg-btn" disabled={busy||uncertain} onClick={()=>event.status==='interrupted'?setRetryConfirm(event.messageId):void run('PUT',{action:'retry',messageId:event.messageId,version:event.version})}>{t('Retry execution')}</button>}{retryConfirm===event.messageId&&<div className="room-webhook-retry-confirm"><p>{t('The previous execution may have reached the external service. Retrying may repeat its work. Check the existing result first.')}</p><button type="button" className="dlg-btn" disabled={busy||uncertain} onClick={()=>void run('PUT',{action:'retry',messageId:event.messageId,version:event.version,confirmInterrupted:true})}>{t('Retry this interrupted execution')}</button><button type="button" className="dlg-btn" disabled={busy} onClick={()=>setRetryConfirm(null)}>{t('Cancel')}</button></div>}</li>)}</ul></section>}
  </section>
 }

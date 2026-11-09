@@ -45,7 +45,7 @@ export async function lineMessagesFromWebhook(accountId, payload) {
     else if(['image','video','audio','file','location','sticker'].includes(message.type)) content=`Attachment received (${message.type}). This connection stores text events only.`;
     else content=`Unsupported LINE message type: ${String(message.type||'unknown').slice(0,40)}.`;
     const body=`LINE · ${alias}\n${content}`.slice(0,4000);
-    messages.push({eventId:id,body});
+    messages.push({eventId:id,body,customerKey:alias});
   }
   return {messages,ignored};
 }

@@ -132,9 +132,10 @@ export async function authenticateLineRoomHook(db, id, rawBody, signature, verif
 
 // A receipt and its root message commit together. The authenticated grant is
 // checked again inside the write, not merely before reading the request body.
-export async function receiveRoomHookEvent(db, hook, { eventId, body }, { dispatch = true } = {}) {
+export async function receiveRoomHookEvent(db, hook, { eventId, body, customerKey }, { dispatch = true } = {}) {
   if (!hook || typeof eventId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(eventId)
-    || typeof body !== 'string' || !body.trim() || body.length > 4000) return fail('A validated event is required.', 400);
+    || typeof body !== 'string' || !body.trim() || body.length > 4000
+    || (hook.provider === 'line' && !lineCustomerKey(customerKey))) return fail('A validated event is required.', 400);
   const identity = await roomWebhookEventIdentity(hook.orgId, hook.id, eventId, body);
   const messageId = crypto.randomUUID(), at = new Date().toISOString();
   const grant = `EXISTS(SELECT 1 FROM hx_room_hooks WHERE org_id=?1 AND channel=?2 AND id=?5
@@ -155,6 +156,12 @@ export async function receiveRoomHookEvent(db, hook, { eventId, body }, { dispat
       AND EXISTS(SELECT 1 FROM channel_messages WHERE id=?9 AND org_id=?1 AND channel=?2)
       ON CONFLICT(message_id) DO NOTHING`)
       .bind(...values, identity.eventKey, identity.payloadHash, messageId, at));
+  if (hook.provider === 'line') statements.push(db.prepare(`INSERT INTO hx_line_inbox_messages(event_key,org_id,channel,hook_id,customer_key,message_id,created_at)
+      SELECT ?7,?1,?2,?5,?11,?9,?10 WHERE ${grant}
+      AND EXISTS(SELECT 1 FROM hx_room_hook_events WHERE event_key=?7 AND payload_hash=?8 AND message_id=?9)
+      AND EXISTS(SELECT 1 FROM channel_messages WHERE id=?9 AND org_id=?1 AND channel=?2)
+      ON CONFLICT(event_key) DO NOTHING`)
+      .bind(...values, identity.eventKey, identity.payloadHash, messageId, at, customerKey));
   statements.push(db.prepare(`SELECT e.message_id,e.payload_hash FROM hx_room_hook_events e
       WHERE e.event_key=?7 AND e.org_id=?1 AND e.channel=?2 AND ${grant}`)
       .bind(...values, identity.eventKey));
@@ -163,4 +170,68 @@ export async function receiveRoomHookEvent(db, hook, { eventId, body }, { dispat
   if (!receipt) return fail('Webhook or room access changed.', 403);
   if (receipt.payload_hash !== identity.payloadHash) return fail('This eventId was already used with different content.', 409);
   return { messageId: receipt.message_id, replay: !result[0].meta?.changes };
+}
+
+const lineCustomerKey = value => typeof value === 'string' && /^(?:customer-[a-f0-9]{10}|unknown)$/.test(value);
+
+export async function listLineInbox(db, orgId, channel, actorId, hookId) {
+  const current = await actorInRoom(db, orgId, channel, actorId);
+  if (current.error) return current;
+  if (typeof hookId !== 'string' || !/^[0-9a-f-]{36}$/i.test(hookId)) return fail('A LINE connection is required.', 400);
+  const hook = await db.prepare(`SELECT h.id,h.name,h.version,h.revoked_at AS revokedAt
+    FROM hx_room_hooks h JOIN hx_line_room_hooks l ON l.id=h.id AND l.org_id=h.org_id
+    WHERE h.id=?1 AND h.org_id=?2 AND h.channel=?3`).bind(hookId, orgId, channel).first();
+  if (!hook) return fail('No such LINE connection.', 404);
+  const {results} = await db.prepare(`SELECT m.customer_key AS customerKey,MAX(m.created_at) AS latestAt,
+    COUNT(*) AS messageCount,
+    SUM(CASE WHEN r.last_read_at IS NULL OR m.created_at>r.last_read_at THEN 1 ELSE 0 END) AS unreadCount,
+    (SELECT msg.body FROM hx_line_inbox_messages latest JOIN channel_messages msg ON msg.id=latest.message_id
+      WHERE latest.org_id=m.org_id AND latest.channel=m.channel AND latest.hook_id=m.hook_id
+        AND latest.customer_key=m.customer_key AND msg.deleted_at IS NULL
+      ORDER BY latest.created_at DESC,latest.message_id DESC LIMIT 1) AS preview
+    FROM hx_line_inbox_messages m
+    LEFT JOIN hx_line_inbox_reads r ON r.org_id=m.org_id AND r.channel=m.channel AND r.hook_id=m.hook_id
+      AND r.customer_key=m.customer_key AND r.actor_id=?5
+    WHERE m.org_id=?1 AND m.channel=?2 AND m.hook_id=?6
+      AND ${currentMembership}
+    GROUP BY m.org_id,m.channel,m.hook_id,m.customer_key
+    ORDER BY latestAt DESC,m.customer_key LIMIT 200`).bind(orgId, channel, String(actorId), current.actor.membership, String(actorId), hookId).all();
+  return {hook, conversations:results};
+}
+
+export async function readLineInboxConversation(db, orgId, channel, actorId, hookId, customerKey, before = '') {
+  const current = await actorInRoom(db, orgId, channel, actorId);
+  if (current.error) return current;
+  if (typeof hookId !== 'string' || !/^[0-9a-f-]{36}$/i.test(hookId) || !lineCustomerKey(customerKey)) return fail('A LINE connection and customer are required.', 400);
+  const hook = await db.prepare(`SELECT h.id,h.name,h.version,h.revoked_at AS revokedAt
+    FROM hx_room_hooks h JOIN hx_line_room_hooks l ON l.id=h.id AND l.org_id=h.org_id
+    WHERE h.id=?1 AND h.org_id=?2 AND h.channel=?3`).bind(hookId, orgId, channel).first();
+  if (!hook) return fail('No such LINE connection.', 404);
+  if (before && !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z\|[0-9a-f-]{36}$/i.test(before)) return fail('The conversation cursor is invalid.', 400);
+  const cursor = before.split('|');
+  const params = [orgId, channel, String(actorId), current.actor.membership, hookId, customerKey, before ? cursor[0] : '', before ? cursor[1] : ''];
+  const {results} = await db.prepare(`SELECT m.message_id AS messageId,m.created_at AS createdAt,msg.body
+    FROM hx_line_inbox_messages m JOIN channel_messages msg ON msg.id=m.message_id AND msg.org_id=m.org_id AND msg.channel=m.channel
+    WHERE m.org_id=?1 AND m.channel=?2 AND m.hook_id=?5 AND m.customer_key=?6 AND msg.deleted_at IS NULL
+      AND ${currentMembership}
+      AND (?7='' OR m.created_at<?7 OR (m.created_at=?7 AND m.message_id<?8))
+    ORDER BY m.created_at DESC,m.message_id DESC LIMIT 51`).bind(...params).all();
+  const hasMore=results.length>50, page=results.slice(0,50).reverse();
+  return {hook,customerKey,messages:page,hasMore,nextCursor:hasMore?`${page[0]?.createdAt}|${page[0]?.messageId}`:null};
+}
+
+export async function markLineInboxRead(db, orgId, channel, actorId, hookId, customerKey) {
+  const current = await actorInRoom(db, orgId, channel, actorId);
+  if (current.error) return current;
+  if (typeof hookId !== 'string' || !/^[0-9a-f-]{36}$/i.test(hookId) || !lineCustomerKey(customerKey)) return fail('A LINE connection and customer are required.', 400);
+  const at = new Date().toISOString();
+  const result = await db.prepare(`INSERT INTO hx_line_inbox_reads(org_id,channel,hook_id,customer_key,actor_id,last_read_at)
+    SELECT ?1,?2,?5,?6,?3,?7 WHERE EXISTS(
+      SELECT 1 FROM hx_line_room_hooks l JOIN hx_room_hooks h ON h.id=l.id AND h.org_id=l.org_id
+      WHERE l.id=?5 AND l.org_id=?1 AND h.channel=?2
+    ) AND EXISTS(SELECT 1 FROM hx_line_inbox_messages WHERE org_id=?1 AND channel=?2 AND hook_id=?5 AND customer_key=?6)
+    AND ${currentMembership}
+    ON CONFLICT(org_id,channel,hook_id,customer_key,actor_id) DO UPDATE SET last_read_at=excluded.last_read_at`)
+    .bind(orgId, channel, String(actorId), current.actor.membership, hookId, customerKey, at).run();
+  return result.meta?.changes ? {lastReadAt:at} : fail('No LINE inbox conversation was found.', 404);
 }

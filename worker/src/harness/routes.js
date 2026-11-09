@@ -22,7 +22,7 @@ import { retryRoomHook } from './roomHookRetryRoute.js';
 import { heldWorkflowSummary, discardWorkflowEvents, readHeldWorkflowEvent } from './workflowHeld.js';
 import { roomHookStatuses } from './roomHookStatus.js';
 import {roomVisualState,setRoomVisual} from './roomVisuals.js';
-import { createRoomHook, listRoomHooks, changeRoomHook } from './roomHooks.js';
+import { createRoomHook, listRoomHooks, changeRoomHook, listLineInbox, readLineInboxConversation, markLineInboxRead } from './roomHooks.js';
 import {readRoomVisualImage} from './roomVisualImage.js';
 import {roomRoleState} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
@@ -422,6 +422,22 @@ export async function handleHarness(request, env, url, context = {}) {
       return {id:a.id,name:a.name,avatarUrl:await clientAgentAvatarUrl(env,orgId,a,who.user.login),missingAccessMembers:plan.missing.map(m=>({ref:memberRefs.get(m.id),name:m.name})).filter(m=>m.ref),canGrantAccess:plan.canGrantAccess};
     }));
     return json({ agents, addableAgents });
+  }
+  if (url.pathname === '/hx/rooms/line-inbox') {
+    if (!['GET','POST'].includes(request.method)) return json({message:'Method not allowed.'},405);
+    const channel = request.method === 'GET' ? url.searchParams.get('channel') : input.channel;
+    const room = await resolveChannel(env.DB,orgId,who.user,channel);
+    if (!room || room.kind !== 'business') return json({message:'No such room.'},404);
+    if (!await allowed(env.DB,orgId,me,'harness.build')) return json({message:'You cannot manage integrations in this workspace.'},403);
+    const hookId = request.method === 'GET' ? url.searchParams.get('hookId') : input.hookId;
+    const customerKey = request.method === 'GET' ? url.searchParams.get('customerKey') : input.customerKey;
+    const result = request.method === 'POST'
+      ? await markLineInboxRead(env.DB,orgId,room.key,me,hookId,customerKey)
+      : customerKey
+        ? await readLineInboxConversation(env.DB,orgId,room.key,me,hookId,customerKey,url.searchParams.get('before')||'')
+        : await listLineInbox(env.DB,orgId,room.key,me,hookId);
+    if (result.error) return fail(result);
+    const response=json(result);response.headers.set('Cache-Control','no-store');return response;
   }
   if (url.pathname === '/hx/rooms/webhooks') {
     if (!['GET','POST','PUT'].includes(request.method)) return json({message:'Method not allowed.'},405);
