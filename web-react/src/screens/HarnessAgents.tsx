@@ -281,7 +281,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
           </label>)}
         </div>}
         <div className="rows-title">{t('Connected workspace sources')}</div>
-        <p className="row-sub">{t('Your grant applies to this Agent and your account. The Agent can read a connected source only in your private conversation; other people do not inherit your grant.')}</p>
+        <p className="row-sub">{t('By default, each connection grant is for your account in private conversations. A Notion owner can also share that connection with people who already have access to this Agent.')}</p>
         {nativeConnections === null ? <div className="empty">{t('Loading…')}</div> : <div className="rows">
           {nativeConnections.map(connection => {
             const sourceName = connection.source === 'notion' ? 'Notion' : 'GitHub'
@@ -289,7 +289,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
               <label className="row static">
                 <span className="row-icon"><Icon name={connection.source} size={18} /></span>
                 <span className="row-main">{sourceName}
-                  <span className="row-sub">{connection.available ? t('Use the connected {source} source in this Agent’s private conversations.', { source: sourceName }) : t('Connect {source} for this workspace in Tools before allowing it.', { source: sourceName })}</span>
+                  <span className="row-sub">{connection.available || connection.shared ? t('Use the connected {source} source in this Agent’s private conversations.', { source: sourceName }) : t('Connect {source} for this workspace in Tools before allowing it.', { source: sourceName })}</span>
                 </span>
                 <input type="checkbox" aria-label={t('Allow {agent} to use the connected {source} source', { agent: agent.name, source: sourceName })} checked={connection.enabled} disabled={!connection.available || busy !== null} onChange={e => {
                   const granted = e.currentTarget.checked
@@ -301,6 +301,22 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
                   })
                 }} />
               </label>
+              {connection.source === 'notion' && connection.shared && !connection.shareEnabled && <p className="row-sub" data-agent-source-shared="notion">{t('An Agent member shared a Notion connection. You can search it in this Agent’s private conversations.')}</p>}
+              {connection.source === 'notion' && (connection.canShare || connection.shareEnabled) && <label className="row static" data-agent-source-share="notion">
+                <span className="row-icon"><Icon name="plug" size={18} /></span>
+                <span className="row-main">{t('Share your Notion connection with people who can access this Agent')}
+                  <span className="row-sub">{t('Only people allowed to use this Agent can search the connection in private conversations. You can revoke access any time.')}</span>
+                </span>
+                <input type="checkbox" aria-label={t('Share your Notion connection with people who can access {agent}', { agent: agent.name })} checked={connection.shareEnabled === true} disabled={busy !== null} onChange={e => {
+                  const shared = e.currentTarget.checked
+                  void act('connection', async () => {
+                    const result = await api.setAgentNativeSourceShare(agent.id, 'notion', shared)
+                    setAgentApps(result.connections || [])
+                    setNativeConnections(result.nativeConnections || [])
+                    setRemoteMcpConnections(result.remoteMcpConnections || [])
+                  })
+                }} />
+              </label>}
               {connection.source === 'github' && connection.workspaceAvailable && <label className="row static">
                 <span className="row-icon"><Icon name="github" size={18} /></span>
                 <span className="row-main">{t('Share workspace GitHub with this Agent')}
