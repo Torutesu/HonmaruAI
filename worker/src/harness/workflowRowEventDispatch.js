@@ -34,6 +34,10 @@ async function deliverWorkflowRowEvent(env,payload) {
 }
 
 // The same minute cron that runs scheduled Workflows also drains this queue.
+// These four global maintenance/claim statements intentionally span orgs so a
+// single bounded cron can drain the shared outbox; rows are inserted with
+// org_id, claims are keyed by globally unique event id/lease, and payload scope
+// is checked against the claimed row before any Workflow trigger is evaluated.
 // Row receipts inside startRun make each per-workflow fan-out safe to retry if
 // a Worker stops after starting only some of the matching Workflows.
 export async function drainWorkflowRowEvents(env,{limit=25,now=Date.now(),eventId=null,deliver=deliverWorkflowRowEvent}={}) {
