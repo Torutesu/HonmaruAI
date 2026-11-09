@@ -9,7 +9,7 @@ let tree:ReactTestRenderer
 beforeEach(()=>{vi.stubGlobal('innerWidth',1200);vi.stubGlobal('innerHeight',800);vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn()});vi.stubGlobal('location',{hash:'#/list'})})
 afterEach(()=>{if(tree)act(()=>tree.unmount());vi.unstubAllGlobals()})
 function Launcher(){const open=useFloatingApp();return <button disabled={!open} onClick={()=>open?.('test_app','data')}>Float</button>}
-function view(org='team:one',session='one',enabled=true,interactive=true){return <FloatingAppWorkspace httpBase="https://api" orgId={org} sessionToken={session} enabled={enabled} interactive={interactive}><Launcher/><input defaultValue="Conversation draft"/></FloatingAppWorkspace>}
+function view(org='team:one',session='one',enabled=true,interactive=true,userId='person:one'){return <FloatingAppWorkspace httpBase="https://api" orgId={org} userId={userId} sessionToken={session} enabled={enabled} interactive={interactive}><Launcher/><input defaultValue="Conversation draft"/></FloatingAppWorkspace>}
 const button=(label:string)=>tree.root.findAllByType('button').find(node=>node.props.children===label)!
 const regions=()=>tree.root.findAllByProps({role:'region'})
 test('keeps underlying conversation mounted, supports keyboard movement and returns current section',()=>{
@@ -46,4 +46,20 @@ test('mode discovery preserves the underlying editor while resetting floating co
  act(()=>button('Float').props.onClick())
  act(()=>tree.update(view('team:one','one',false)))
  expect(tree.root.findByType('input')).toBe(input);expect(regions()).toHaveLength(0)
+})
+
+test('remembers explicit floating placement after close and reopen for the same account only',()=>{
+ const values=new Map<string,string>()
+ vi.stubGlobal('localStorage',{getItem:(key:string)=>values.get(key)||null,setItem:(key:string,value:string)=>{values.set(key,value)}})
+ act(()=>{tree=create(view())});act(()=>button('Float').props.onClick())
+ const root=regions()[0],target={}
+ act(()=>root.props.onKeyDown({target,currentTarget:target,key:'ArrowLeft',shiftKey:false,preventDefault:vi.fn()}))
+ act(()=>root.props.onKeyDown({target,currentTarget:target,key:'ArrowRight',shiftKey:true,preventDefault:vi.fn()}))
+ const saved={...regions()[0].props.style}
+ expect(saved.left).toBe(692);expect(saved.width).toBe(496)
+ act(()=>button('Close').props.onClick());act(()=>button('Float').props.onClick())
+ expect(regions()[0].props.style).toEqual(saved)
+ act(()=>tree.update(view('team:one','other-token',true,true,'person:two')))
+ expect(regions()).toHaveLength(0);act(()=>button('Float').props.onClick())
+ expect(regions()[0].props.style).not.toEqual(saved)
 })
