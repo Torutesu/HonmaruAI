@@ -1965,7 +1965,11 @@ CREATE TABLE IF NOT EXISTS hx_followups (
   done_at       TEXT,
   result        TEXT,
   origin_workflow_id TEXT,
-  origin_release_id TEXT
+  origin_release_id TEXT,
+  source_app_id TEXT,
+  source_entity_id TEXT,
+  source_table_id TEXT,
+  source_authority_version INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_hx_followups_due ON hx_followups(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_hx_followups_channel ON hx_followups(org_id, channel, status);
@@ -2352,6 +2356,20 @@ CREATE TABLE IF NOT EXISTS hx_agent_source_grants (
   source TEXT NOT NULL CHECK (source IN ('notion','github')),
   created_at TEXT NOT NULL,
   PRIMARY KEY (org_id, agent_id, user_github_id, source),
+  FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
+);
+
+/* The connection owner may share one native Notion connection with people
+   who already have access to this Agent. A membership stamp prevents a
+   departed owner's prior share from reviving if they rejoin. */
+CREATE TABLE IF NOT EXISTS hx_agent_source_shares (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  owner_github_id TEXT NOT NULL,
+  owner_membership_since TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source = 'notion'),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id, source),
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
 
