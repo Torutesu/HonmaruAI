@@ -32,6 +32,7 @@ import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnershi
 import {agentPeerRoleState,setAgentPeerRole} from './agentPeerRoles.js';
 import { announceAgentAccessChanged } from './agentAccessEvents.js';
 import { memoryPage, memoryReviewHistory, reviewMemoryEntry, updateMemoryEntry } from './memoryEntries.js';
+import { proposeMemoryPromotion, listMemoryPromotions, decideMemoryPromotion, canDecideMemoryPromotion } from './memoryPromotion.js';
 import { previewSkillImport } from './skillImport.js';
 import { writeSkillZip } from './skillZip.js';
 import { listSkillFiles, readSkillFile } from './skillFiles.js';
@@ -1219,6 +1220,22 @@ export async function handleHarness(request, env, url, context = {}) {
       }
     }
     if (sub === "memory") {
+      if (parts[4] === 'promotions') {
+        if (request.method === 'GET' && parts.length === 5) {
+          return json(await listMemoryPromotions(env.DB, orgId, agentId, me, who.user.login));
+        }
+        if (request.method === 'POST' && parts.length === 5) {
+          const result=await proposeMemoryPromotion(env.DB,orgId,agentId,{memoryId:input.memoryId,expectedVersion:input.expectedVersion,requestKey:input.requestKey,requesterId:me,requesterLogin:who.user.login});
+          if(!result.error&&!result.replayed) await audit(env,request,{orgId,action:'agent.memory_promotion_requested',actor:person(who.user),entity:{type:'custom_agent',id:agentId,name:agent.name},details:{requestId:result.request.id,memoryId:result.request.memoryId,version:result.request.sourceVersion}});
+          return result.error?fail(result):json(result,result.created?201:200);
+        }
+        if (request.method === 'PUT' && parts.length === 6) {
+          if(!await canDecideMemoryPromotion(env.DB,orgId,agentId,who.user.login))return json({message:'Only the current Agent owner or an active Agent admin can decide a memory promotion.'},403);
+          const result=await decideMemoryPromotion(env.DB,orgId,agentId,parts[5],{decision:input.decision,actorId:me,actorLogin:who.user.login});
+          if(!result.error&&!result.replayed) await audit(env,request,{orgId,action:result.request.status==='approved'?'agent.memory_promotion_approved':'agent.memory_promotion_rejected',actor:person(who.user),entity:{type:'custom_agent',id:agentId,name:agent.name},details:{requestId:parts[5],memoryId:result.request.memoryId,sharedMemoryId:result.request.sharedMemoryId||undefined,version:result.request.sourceVersion}});
+          return result.error?fail(result):json(result);
+        }
+      }
       if (parts[4] === "scopes" && request.method === "GET") {
         const members = await memoryMembers(env.DB, orgId, me);
         const { results } = await env.DB.prepare(`SELECT channel FROM (SELECT s.channel FROM hx_memory_scopes s JOIN hx_agent_memories m ON m.id = s.memory_id AND m.org_id=s.org_id WHERE s.org_id=?1 AND m.agent_id=?2 UNION SELECT channel FROM hx_memory_review_audit WHERE org_id=?1 AND agent_id=?2) WHERE channel != '' ORDER BY channel LIMIT 200`).bind(orgId, agentId).all();

@@ -390,6 +390,11 @@ CREATE TABLE IF NOT EXISTS hx_app_domain_public_consents (org_id TEXT NOT NULL, 
 CREATE TABLE IF NOT EXISTS hx_app_env_vars (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, name TEXT NOT NULL, value TEXT NOT NULL, version INTEGER NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id,name));
 CREATE TABLE IF NOT EXISTS hx_recurring_automation_offers (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, user_github_id TEXT NOT NULL, login TEXT NOT NULL, channel TEXT NOT NULL, thread_id TEXT NOT NULL, source_message_id TEXT NOT NULL, source_root_hash TEXT NOT NULL, prompt TEXT NOT NULL, prompt_hash TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('offered','declined','created')), workflow_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(org_id,channel,user_github_id,prompt_hash));
 CREATE INDEX IF NOT EXISTS hx_recurring_automation_offers_member ON hx_recurring_automation_offers(org_id,user_github_id,created_at DESC);
+/* KY-030: promotion requests and immutable decisions; no source text is
+   stored here, and shared content is materialized only on approval. */
+CREATE TABLE IF NOT EXISTS hx_memory_promotion_requests (id TEXT PRIMARY KEY,org_id TEXT NOT NULL,agent_id TEXT NOT NULL,source_memory_id TEXT NOT NULL,source_version INTEGER NOT NULL,source_scope TEXT NOT NULL CHECK(source_scope='person'),source_owner_id TEXT NOT NULL,source_channel TEXT NOT NULL DEFAULT '',requester_id TEXT NOT NULL,requester_login TEXT NOT NULL,request_key TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(org_id,requester_id,agent_id,request_key),UNIQUE(org_id,agent_id,source_memory_id,source_version,requester_id));
+CREATE INDEX IF NOT EXISTS idx_hx_memory_promotion_requests_queue ON hx_memory_promotion_requests(org_id,agent_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS hx_memory_promotion_decisions (request_id TEXT PRIMARY KEY REFERENCES hx_memory_promotion_requests(id),org_id TEXT NOT NULL,decision TEXT NOT NULL CHECK(decision IN ('approved','rejected')),decided_by TEXT NOT NULL,decided_at TEXT NOT NULL,shared_memory_id TEXT);
 /* Optional dimensions for admin usage reports. Old calls remain unattributed. */
 ALTER TABLE ai_calls ADD COLUMN room_slug TEXT;
 ALTER TABLE ai_calls ADD COLUMN agent_id TEXT;

@@ -215,6 +215,10 @@
 .hx-memory-actions { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .hx-memory-actions:empty { display: none; }
 .hx-memory-actions .btn-text { min-height: 32px; }
+.hx-memory-promotions { margin-top: 16px; }
+.hx-memory-promotions > p { margin: 8px 0; }
+.hx-memory-promotion { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--hx-border); }
+.hx-memory-promotion .row-sub { display: block; margin-top: 4px; overflow-wrap: anywhere; }
 
 .hx-program-editor { min-width: 0; display: grid; gap: 12px; margin: 14px 0; }
 .hx-program-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--hx-muted, var(--ash)); font-size: 12px; }
