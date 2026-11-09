@@ -1075,11 +1075,11 @@
       "id": "KY-087",
       "category": "Commercial",
       "requirement": "月次更新・trial・追加pack",
-      "status": "missing",
+      "status": "partial",
       "priority": "P1",
       "source": "https://kylon.io/pricing",
-      "code": null,
-      "acceptance": "期限・繰越・アップグレード/ダウングレード時期・二重請求防止"
+      "code": "worker/src/entitlements.js, worker/src/plans.js, web-react/src/screens/Plans.tsx",
+      "acceptance": "既存StoreKit/RevenueCatの利用期間・trial・解約検知・請求問題・grace periodをPlan画面に表示し、購入/更新と権利判定は正規のApp Store結果に委ねる。Kylonは公開pricingでcredit amounts/eligibilityを未確定のconcept previewとしているため、購入packやクレジット条件は確定するまで模倣しない。Honmaru側のcredit残高・繰越・追加pack・plan変更適用時期は未実装。"
     },
     {
       "id": "KY-088",

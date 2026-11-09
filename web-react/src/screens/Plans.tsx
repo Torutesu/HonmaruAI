@@ -85,6 +85,9 @@ const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose, orgId 
   }
 
   const cancellationNote = t('Free access does not cancel an existing Apple subscription. Cancel it in iPhone Settings → your name → Subscriptions to stop future renewals.')
+  const subscriptionDate = (value: string | null) => value
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(value))
+    : null
 
   return (
     <div className="screen">
@@ -127,6 +130,20 @@ const AccountPlans: React.FC<Props> = ({ httpBase, sessionToken, onClose, orgId 
                 <p className="form-note">{t('Your free access is saved. You do not need to enter the code again. Retry to sync iPhone access.')}</p>
                 <button className="btn btn-secondary" disabled={checking || redeeming} onClick={retryStatus}>{t(checking ? 'Checking access…' : 'Retry iPhone sync')}</button>
               </>}
+              {status.pro && status.subscription && (() => {
+                const periodEnd = subscriptionDate(status.subscription.expiresAt)
+                const accessLine = status.subscription.periodType === 'trial'
+                  ? periodEnd ? t('Your free trial is active through {date}.', { date: periodEnd }) : t('Your free trial is active.')
+                  : status.subscription.cancellationDetectedAt
+                    ? periodEnd ? t('Cancellation was detected. Pro access remains active through {date}.', { date: periodEnd }) : t('Cancellation was detected for this subscription.')
+                    : periodEnd ? t('Your current App Store period ends {date}. The App Store controls renewal.', { date: periodEnd }) : t('The App Store controls subscription renewal.')
+                return <div className="form-note" role="status" aria-label={t('Subscription period')}>
+                  <p>{accessLine}</p>
+                  {status.subscription.billingIssueDetectedAt && <p role="alert">{t('The App Store reported a billing issue. Check your payment details. Your current access status is shown above.')}</p>}
+                  {status.subscription.gracePeriodExpiresAt && <p>{t('Billing grace period through {date}.', { date: subscriptionDate(status.subscription.gracePeriodExpiresAt) || '' })}</p>}
+                  {status.subscription.sandbox && <p>{t('This is a sandbox subscription.')}</p>}
+                </div>
+              })()}
             </section>
 
             {status.complimentary ? (

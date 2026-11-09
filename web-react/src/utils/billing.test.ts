@@ -20,6 +20,21 @@ describe('Account billing requests', () => {
     })
   })
 
+  it('accepts only safe subscription lifecycle fields from the signed-in status response', async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ ...free, pro: true, remainingToday: null, subscription: {
+      periodType: 'trial', expiresAt: '2099-02-03T04:05:06Z', purchaseDate: '2099-01-03T04:05:06Z',
+      cancellationDetectedAt: null, billingIssueDetectedAt: null, gracePeriodExpiresAt: null, sandbox: true,
+      productIdentifier: 'must-not-reach-ui',
+    } }))
+    vi.stubGlobal('fetch', fetcher)
+    const status = await loadBillingStatus('https://api.example', 'account-a', signal())
+    expect(status.subscription).toEqual({
+      periodType: 'trial', expiresAt: '2099-02-03T04:05:06.000Z', purchaseDate: '2099-01-03T04:05:06.000Z',
+      cancellationDetectedAt: null, billingIssueDetectedAt: null, gracePeriodExpiresAt: null, sandbox: true,
+    })
+    expect(JSON.stringify(status)).not.toContain('must-not-reach-ui')
+  })
+
   it('sends a code only in the authenticated POST body and confirms the server grant', async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(granted)))
     vi.stubGlobal('fetch', fetcher)

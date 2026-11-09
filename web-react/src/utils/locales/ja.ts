@@ -1877,6 +1877,16 @@ const table: Record<string, string> = {
   'Billing is not switched on yet': '課金はまだ有効になっていません',
   'plans.trial': '{days}日間無料、その後は月${price}。いつでも解約できます。',
   'plans.trial.seat': '{days}日間無料、その後は1人あたり月${price}。いつでも解約できます。',
+  'Your free trial is active.': '無料トライアル期間中です。',
+  'Your free trial is active through {date}.': '無料トライアルは{date}まで有効です。',
+  'Cancellation was detected for this subscription.': 'このサブスクリプションの解約が確認されました。',
+  'Cancellation was detected. Pro access remains active through {date}.': '解約が確認されました。Proの利用権は{date}まで有効です。',
+  'Your current App Store period ends {date}. The App Store controls renewal.': '現在のApp Store利用期間は{date}までです。更新はApp Storeで管理されます。',
+  'The App Store controls subscription renewal.': 'サブスクリプションの更新はApp Storeで管理されます。',
+  'The App Store reported a billing issue. Check your payment details. Your current access status is shown above.': 'App Storeから請求上の問題が報告されました。お支払い情報を確認してください。現在の利用状態は上に表示されています。',
+  'Billing grace period through {date}.': '請求猶予期間は{date}までです。',
+  'This is a sandbox subscription.': 'これはサンドボックスのサブスクリプションです。',
+  'Subscription period': 'サブスクリプション期間',
   'plans.notForSale': 'この環境ではまだ何も販売していません。その間、全員が1日{n}件までAIの振り分けを使えます。',
 
   // The record

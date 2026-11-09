@@ -13,6 +13,33 @@ export interface BillingStatus {
   dailyLimit: number
   usedToday: number
   remainingToday: number | null
+  subscription: null | {
+    periodType: 'trial' | 'intro' | 'normal' | 'promotional' | null
+    expiresAt: string | null
+    purchaseDate: string | null
+    cancellationDetectedAt: string | null
+    billingIssueDetectedAt: string | null
+    gracePeriodExpiresAt: string | null
+    sandbox: boolean
+  }
+}
+
+function subscriptionFrom(value: unknown): BillingStatus['subscription'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const row = value as Record<string, unknown>
+  const date = (key: string) => typeof row[key] === 'string' && Number.isFinite(Date.parse(row[key] as string)) ? new Date(row[key] as string).toISOString() : null
+  const period = ['trial', 'intro', 'normal', 'promotional'].includes(String(row.periodType))
+    ? row.periodType as NonNullable<BillingStatus['subscription']>['periodType']
+    : null
+  return {
+    periodType: period,
+    expiresAt: date('expiresAt'),
+    purchaseDate: date('purchaseDate'),
+    cancellationDetectedAt: date('cancellationDetectedAt'),
+    billingIssueDetectedAt: date('billingIssueDetectedAt'),
+    gracePeriodExpiresAt: date('gracePeriodExpiresAt'),
+    sandbox: row.sandbox === true,
+  }
 }
 
 function statusFrom(body: Record<string, unknown>): BillingStatus {
@@ -35,6 +62,7 @@ function statusFrom(body: Record<string, unknown>): BillingStatus {
     dailyLimit: body.dailyLimit,
     usedToday: body.usedToday,
     remainingToday: body.remainingToday,
+    subscription: body.pro ? subscriptionFrom(body.subscription) : null,
   }
 }
 
