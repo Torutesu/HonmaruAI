@@ -117,9 +117,17 @@ export async function agentTools(env, { orgId, session, language = "en", persona
       run: async ({ query: q }) => {
         const credential = await sourceCredential("github");
         if (!credential) return "Not searched: this Agent no longer has permission to use your GitHub connection.";
+        const providerId = credential === 'auto'
+          ? `${String(session?.github_id || '')}:personal`
+          : await agentSourceProvider(env, { orgId, agentId, session, source: "github" });
+        if (!providerId) return "Not searched: this Agent no longer has permission to use your GitHub connection.";
         const found = await searchGithubIssues(session, orgId, String(q || ""), env, credential).catch(() => []);
-        if (await sourceCredential("github") !== credential) return "Not searched: GitHub access changed while the request was running; the result was discarded.";
-        if (found.length) { taint.value = true; onNativeSourceUsed?.("github", String(session?.github_id || "")); }
+        const credentialAfter = await sourceCredential("github");
+        const providerAfter = credentialAfter === 'auto'
+          ? `${String(session?.github_id || '')}:personal`
+          : credentialAfter ? await agentSourceProvider(env, { orgId, agentId, session, source: "github" }) : null;
+        if (credentialAfter !== credential || providerAfter !== providerId) return "Not searched: GitHub access changed while the request was running; the result was discarded.";
+        if (found.length) { taint.value = true; onNativeSourceUsed?.("github", providerId); }
         return formatSourcesForModel(found);
       },
     };
