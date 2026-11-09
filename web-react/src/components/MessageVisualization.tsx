@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useId, useMemo, useState } from 'react'
 import { renderRich } from './MessageParts'
 
 export type MessageChart = {
@@ -14,12 +14,58 @@ export type MessageExplainer = {
   summary?: string
   sections: Array<{ title: string; body: string }>
 }
-export type MessageVisualizationData = MessageChart | MessageExplainer
+export type IllustrationElement =
+  | { type: 'rect'; x: number; y: number; width: number; height: number; rx?: number; fill?: string; stroke?: string; strokeWidth?: number }
+  | { type: 'circle'; cx: number; cy: number; r: number; fill?: string; stroke?: string; strokeWidth?: number }
+  | { type: 'line'; x1: number; y1: number; x2: number; y2: number; stroke?: string; strokeWidth?: number }
+  | { type: 'polygon'; points: Array<[number, number]>; fill?: string; stroke?: string; strokeWidth?: number }
+  | { type: 'text'; x: number; y: number; text: string; fontSize?: number; fill?: string; anchor?: 'start' | 'middle' | 'end'; bold?: boolean }
+export type MessageIllustration = { type: 'illustration'; title: string; description?: string; elements: IllustrationElement[] }
+export type MessageVisualizationData = MessageChart | MessageExplainer | MessageIllustration
 export type MessageSegment = { kind: 'text'; text: string } | { kind: 'visualization'; value: MessageVisualizationData }
 
 const MAX_SOURCE = 16_000
 const cleanText = (value: unknown, max: number) => typeof value === 'string' && value.trim().length > 0 && value.length <= max
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value))
+const safeColor = (value: unknown) => typeof value === 'string' && (/^#[\da-f]{3}(?:[\da-f]{3})?$/i.test(value) || ['none', 'currentColor'].includes(value))
+const coordinate = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1024
+const onlyKeys = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).every(key => keys.includes(key))
+
+function parseIllustrationElement(value: unknown): IllustrationElement | null {
+  if (!isRecord(value) || typeof value.type !== 'string') return null
+  const colorFields = ['fill', 'stroke']
+  if (colorFields.some(key => value[key] !== undefined && !safeColor(value[key]))) return null
+  const width = value.strokeWidth
+  if (width !== undefined && (typeof width !== 'number' || !Number.isFinite(width) || width < 0 || width > 32)) return null
+  const optionalPaint = { ...(typeof value.fill === 'string' ? { fill: value.fill } : {}), ...(typeof value.stroke === 'string' ? { stroke: value.stroke } : {}), ...(typeof width === 'number' ? { strokeWidth: width } : {}) }
+  if (value.type === 'rect' && onlyKeys(value, ['type','x','y','width','height','rx','fill','stroke','strokeWidth'])
+    && coordinate(value.x) && coordinate(value.y) && typeof value.width === 'number' && Number.isFinite(value.width) && value.width > 0 && value.width <= 1024 - value.x
+    && typeof value.height === 'number' && Number.isFinite(value.height) && value.height > 0 && value.height <= 1024 - value.y
+    && (value.rx === undefined || (typeof value.rx === 'number' && Number.isFinite(value.rx) && value.rx >= 0 && value.rx <= 64))) {
+    return { type: 'rect', x: value.x, y: value.y, width: value.width, height: value.height, ...(typeof value.rx === 'number' ? { rx: value.rx } : {}), ...optionalPaint }
+  }
+  if (value.type === 'circle' && onlyKeys(value, ['type','cx','cy','r','fill','stroke','strokeWidth'])
+    && coordinate(value.cx) && coordinate(value.cy) && typeof value.r === 'number' && Number.isFinite(value.r) && value.r > 0 && value.r <= 512
+    && value.cx - value.r >= 0 && value.cx + value.r <= 1024 && value.cy - value.r >= 0 && value.cy + value.r <= 1024) {
+    return { type: 'circle', cx: value.cx, cy: value.cy, r: value.r, ...optionalPaint }
+  }
+  if (value.type === 'line' && onlyKeys(value, ['type','x1','y1','x2','y2','stroke','strokeWidth'])
+    && coordinate(value.x1) && coordinate(value.y1) && coordinate(value.x2) && coordinate(value.y2)) {
+    return { type: 'line', x1: value.x1, y1: value.y1, x2: value.x2, y2: value.y2, ...optionalPaint }
+  }
+  if (value.type === 'polygon' && onlyKeys(value, ['type','points','fill','stroke','strokeWidth']) && Array.isArray(value.points) && value.points.length >= 3 && value.points.length <= 20
+    && value.points.every(point => Array.isArray(point) && point.length === 2 && coordinate(point[0]) && coordinate(point[1]))) {
+    return { type: 'polygon', points: value.points as Array<[number, number]>, ...optionalPaint }
+  }
+  if (value.type === 'text' && onlyKeys(value, ['type','x','y','text','fontSize','fill','anchor','bold'])
+    && coordinate(value.x) && coordinate(value.y) && cleanText(value.text, 160)
+    && (value.fontSize === undefined || (typeof value.fontSize === 'number' && Number.isFinite(value.fontSize) && value.fontSize >= 10 && value.fontSize <= 96))
+    && (value.anchor === undefined || ['start','middle','end'].includes(String(value.anchor)))
+    && (value.bold === undefined || typeof value.bold === 'boolean')) {
+    return { type: 'text', x: value.x, y: value.y, text: value.text as string, ...(typeof value.fontSize === 'number' ? { fontSize: value.fontSize } : {}), ...(typeof value.fill === 'string' ? { fill: value.fill } : {}), ...(typeof value.anchor === 'string' ? { anchor: value.anchor as 'start'|'middle'|'end' } : {}), ...(typeof value.bold === 'boolean' ? { bold: value.bold } : {}) }
+  }
+  return null
+}
 
 export function parseMessageVisualization(source: string): MessageVisualizationData | null {
   if (source.length > MAX_SOURCE) return null
@@ -45,6 +91,13 @@ export function parseMessageVisualization(source: string): MessageVisualizationD
     return { type: 'explainer', title: value.title as string, ...(typeof value.summary === 'string' ? { summary: value.summary } : {}),
       sections: value.sections.map(section => ({ title: section.title as string, body: section.body as string })) }
   }
+  if (value.type === 'illustration' && onlyKeys(value, ['type','title','description','elements'])
+    && (value.description === undefined || typeof value.description === 'string' && value.description.length <= 800)
+    && Array.isArray(value.elements) && value.elements.length > 0 && value.elements.length <= 80) {
+    const elements = value.elements.map(parseIllustrationElement)
+    if (elements.some(element => element === null)) return null
+    return { type: 'illustration', title: value.title as string, ...(typeof value.description === 'string' ? { description: value.description } : {}), elements: elements as IllustrationElement[] }
+  }
   return null
 }
 
@@ -68,7 +121,24 @@ export function splitMessageVisualizations(source: string): MessageSegment[] {
 const PALETTE = ['var(--hx-accent, #6657d9)', '#1d9a80', '#d1872a', '#cf6072']
 
 export function MessageVisualization({ value }: { value: MessageVisualizationData }) {
-  return value.type === 'chart' ? <ChartCard value={value} /> : <ExplainerCard value={value} />
+  return value.type === 'chart' ? <ChartCard value={value} /> : value.type === 'explainer' ? <ExplainerCard value={value} /> : <IllustrationCard value={value} />
+}
+
+function IllustrationCard({ value }: { value: MessageIllustration }) {
+  const titleId = useId(), descriptionId = useId()
+  return <section className="hx-message-visual hx-message-illustration" aria-label={value.title}>
+    <header className="hx-message-visual-head"><div><h3>{value.title}</h3>{value.description && <p>{value.description}</p>}</div></header>
+    <svg viewBox="0 0 1024 1024" role="img" aria-labelledby={`${titleId}${value.description ? ` ${descriptionId}` : ''}`}>
+      <title id={titleId}>{value.title}</title>{value.description && <desc id={descriptionId}>{value.description}</desc>}
+      {value.elements.map((element, index) => {
+        if (element.type === 'rect') return <rect key={index} x={element.x} y={element.y} width={element.width} height={element.height} rx={element.rx} fill={element.fill || 'none'} stroke={element.stroke || 'none'} strokeWidth={element.strokeWidth} />
+        if (element.type === 'circle') return <circle key={index} cx={element.cx} cy={element.cy} r={element.r} fill={element.fill || 'none'} stroke={element.stroke || 'none'} strokeWidth={element.strokeWidth} />
+        if (element.type === 'line') return <line key={index} x1={element.x1} y1={element.y1} x2={element.x2} y2={element.y2} stroke={element.stroke || 'currentColor'} strokeWidth={element.strokeWidth || 2} />
+        if (element.type === 'polygon') return <polygon key={index} points={element.points.map(point => point.join(',')).join(' ')} fill={element.fill || 'none'} stroke={element.stroke || 'none'} strokeWidth={element.strokeWidth} />
+        return <text key={index} x={element.x} y={element.y} fontSize={element.fontSize || 32} fill={element.fill || 'currentColor'} textAnchor={element.anchor || 'start'} fontWeight={element.bold ? 700 : 400}>{element.text}</text>
+      })}
+    </svg>
+  </section>
 }
 
 function ChartCard({ value }: { value: MessageChart }) {
