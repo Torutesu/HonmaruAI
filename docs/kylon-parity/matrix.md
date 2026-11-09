@@ -8,6 +8,8 @@
 
 2026-11-10 PR #863反映: main `20c603199918c5ece30ddfc1606985fa37384c42` にマージ済み。PR exact-head CI #42690260184、main CI #42693865694、Worker deploy #42693865965、Web deploy #42693865973が成功。`https://app.honmaruai.com` はHTTP 200、Worker `/health` は `ok: true`。KY-044のCLI TypeScript SDK生成とKY-051の過去公開版からの下書き復元を本番反映。全104項目の数は維持し、同等性の残差は各項目に記載。
 
+2026-11-10 PR #864反映: main `14018bcbc58032a9ae2c2a91075cc39dc7fd77c8` にsquash merge。PR exact-head CI #42702894844 はWorker 4 shard・Web・Gateway・共有core/mobile・E2E・iOS・Windows・Desktop・relayを含む全必須ジョブ成功。マージ後のWorker `/health` は `ok:true`、Web appはHTTP 200。KY-030に個人Agent記憶の承認付き共有コピーを追加。マージ後main CI/デプロイのrun IDと配信SHAは未確認のため、health応答だけでマージcommitの配信証明とは扱わない。
+
 2026-11-09 台帳一括整合: main 93951cea時点の要件102件と照合し、KY-112を未実装から一部へ修正（実装・main CI・Worker deploy証跡を追記）。KY-063/KY-111のCI・Worker deploy証跡も更新。ログイン済みKylonのData Viewerを読み取り専用で確認し、ビュー切替・新規ビュー・フィールド・フィルター・グループ・その他・列ソート・レコード追加を確認。表示中のテーブルは0件で、データ変更なし。操作レベルの比較・承認フローの本番受入は未確認。
 
 2026-10-23 公開状況: 原子的ルーム作成と3段階UI、保存色、役割変更・メンバーUIを本番公開済み。93c400d7のCIは全必須ジョブ成功。1dcf52cbで管理対象ルームの追加入口も共通化し、d8e85c76のWebデプロイで公開。10色パレット・Escape時の入力保持・CIバージョン修正もa673f31eで本番公開し、全必須CI成功と本番作成／再読み込みを確認。既定ルーム、プライバシー編集、全利用者・端末での検証は未完了。
@@ -63,7 +65,7 @@
 | KY-027 | エージェント固有の永続記憶 | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 型・title・description・最大16,000字のbodyを後方互換で保存し、競合検知付き編集を追加。対応する研究実行は索引とフレーズ検索から必要な本文だけを権限再確認付きツールで取得。実画面・本番・全実行方式の検証は残る |
 | KY-028 | preference/feedback/reference/context | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 4種のkind、型別・全文検索、詳細編集を追加。本文全体で重複を判定。意味的な重複統合・レビュー状態は残る |
 | KY-029 | ルーム・人単位の記憶スコープ | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 新規記憶に会話・元メッセージ・スレッドの参照IDを保存し、記憶画面で確認できる。旧記憶の出典は推測せず不明のまま。会話スコープ・人単位の隔離は維持。人単位の横断設定、実機QAは残る |
-| KY-030 | 共有ナレッジと個人記憶の分離 | 一部・本番反映 | P0 | [memoryEntries.js](../../worker/src/harness/memoryEntries.js), [memoryPromotion.js](../../worker/src/harness/memoryPromotion.js), [AgentMemoryPromotions.tsx](../../web-react/src/components/AgentMemoryPromotions.tsx) | 個人スコープを保った記憶の作成者・編集者表示に加え、本バッチで個人記憶の共有コピー申請、Agent所有者/明示管理者の承認・拒否、元の個人記憶を維持する別コピー、版/アクセス再確認、申請・決定履歴、UIを追加。Worker 70件・Web 19件の関連テストとWebビルドはローカル成功。PR exact-head CI・本番反映待ち。記憶自体の所有者移管、意味的な統合、Kylon実画面との完全一致は未達 |
+| KY-030 | 共有ナレッジと個人記憶の分離 | 一部 | P0 | [memoryEntries.js](../../worker/src/harness/memoryEntries.js), [memoryPromotion.js](../../worker/src/harness/memoryPromotion.js), [AgentMemoryPromotions.tsx](../../web-react/src/components/AgentMemoryPromotions.tsx) | 個人スコープを保った記憶の作成者・編集者表示に加え、PR #864で個人記憶の共有コピー申請、Agent所有者/明示管理者の承認・拒否、元の個人記憶を維持する別コピー、版/アクセス再確認、申請・決定履歴、UIを追加。exact-head CI全必須ジョブ成功。マージ後healthとWebのHTTP応答を確認したが、配信SHAと認証済み本番の申請/承認往復は未確認。記憶自体の所有者移管、意味的な統合、Kylon実画面との完全一致は未達 |
 | KY-031 | 記憶のレビュー・スキル変換 | 一部 | P2 | [worker/src/harness/memoryEntries.js](../../worker/src/harness/memoryEntries.js) | 保持/修正/削除レビュー・版付き履歴・削除後の範囲付き証跡・本文と閲覧/実行範囲を維持するスキル変換は本番反映済み。再送時の重複防止と失敗時の一括取消はローカル全体テスト済み。変換の本番E2E、期限による再確認判定は残る |
 
 ## Skills
@@ -162,7 +164,7 @@
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
 | KY-086 | workspace共有クレジット | 一部 | P0 | [worker/src/workspaceAIBudget.js](../../worker/src/workspaceAIBudget.js) | Honmaruデプロイキーの記録済み価格に対するworkspace共通rolling USD参考価格上限・CAS設定。Kylon credit残高、invoice換算、事前予約・精算は未実装 |
-| KY-087 | 月次更新・trial・追加pack | 未実装 | P1 | 該当実装は未特定 | 期限・繰越・アップグレード/ダウングレード時期・二重請求防止 |
+| KY-087 | 月次更新・trial・追加pack | 一部 | P1 | [entitlements.js](../../worker/src/entitlements.js), [plans.js](../../worker/src/plans.js), [Plans.tsx](../../web-react/src/screens/Plans.tsx) | 既存StoreKit/RevenueCatの利用期間・trial・解約検知・請求問題・grace periodをPlan画面に表示し、購入/更新と権利の判定はApp Store/RevenueCatの正規結果に委ねる。新規課金サービスや購入商品は追加しない。Kylon公開料金ページは credit amounts/eligibility を未確定のconcept previewとし、Pro/Ultra・packの提供条件を確定できないため模倣しない。ボーナス/月次creditの残高・繰越・購入pack、plan変更のcredit適用時点・重複防止は未実装。自動テストではProvider payload検証済み、App Store実契約での本番表示QAは未実施 |
 | KY-088 | 残高不足時停止と通知 | 一部 | P0 | [workspaceAIBudget.js](../../worker/src/workspaceAIBudget.js), [gate.js](../../worker/src/gate.js), [workspaceBudgetStop.js](../../worker/src/workspaceBudgetStop.js), [workflowSafety.js](../../worker/src/harness/workflowSafety.js), [workspace-ai-budget.test.js](../../worker/test/workspace-ai-budget.test.js), [harness-execution-budget-admission.test.js](../../worker/test/harness-execution-budget-admission.test.js), [workspace-budget-stop.test.js](../../worker/test/workspace-budget-stop.test.js) | 記録済みモデル/API価格のrolling 24h/7d/30d workspace上限、80%警告、warn/pause、価格不明時pauseのfail-closed、新規deployment-keyモデル要求の拒否を実装。上限超過時はdeployment由来と特定できる実行中Workflow runと関連Gateway jobをキャンセルし、該当するApp action enqueue/外部fetchの事前admission拒否もテスト。Simpleは従来動作を維持。Kylon残高・請求/外部toolやprovider費用・BYOKを含む一元計測、実行中モデル/provider呼出しや他の副作用の停止、全実行経路の網羅、管理者への能動通知は未実装（警告は設定画面と拒否応答で確認する方式） |
 | KY-089 | agent数上限 | 一部 | P1 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 固定最大数ではなくplan別active数・trial数を制御 |
 | KY-090 | 音声入力・AIとの音声会話 | 一部 | P2 | [web-react/src/components/JamPanel.tsx](../../web-react/src/components/JamPanel.tsx) | 人同士のJamとAI音声通話を区別して検証 |

@@ -1,6 +1,6 @@
 // StoreKit is the source of truth for prices, periods, and offer eligibility.
 // The web shows account access and directs paid purchases to the iOS app.
-import { isPro } from "./entitlements.js";
+import { proSubscription } from "./entitlements.js";
 import { hasComplimentaryAccess, complimentaryAvailable, ensureComplimentarySynced } from "./complimentary.js";
 import { usedToday } from "./db.js";
 import { FREE_DAILY_ROUTES, UNBILLED_DAILY_ROUTES } from "./gate.js";
@@ -40,7 +40,8 @@ export async function billingStatus(env, githubId, orgId) {
   }
   const complimentary = await hasComplimentaryAccess(env, githubId);
   const complimentarySyncPending = complimentary && !(await ensureComplimentarySynced(env, githubId));
-  const pro = complimentary || await isPro(env, githubId);
+  const currentSubscription = complimentary ? null : await proSubscription(env, githubId);
+  const pro = complimentary || currentSubscription.pro;
   const used = await usedToday(env.DB, githubId, new Date().toISOString().slice(0, 10));
   const ceiling = purchasable ? FREE_DAILY_ROUTES : UNBILLED_DAILY_ROUTES;
   return {
@@ -52,6 +53,7 @@ export async function billingStatus(env, githubId, orgId) {
     workspaceKey,
     complimentary,
     complimentarySyncPending,
+    subscription: currentSubscription?.subscription || null,
     complimentaryAvailable: complimentaryAvailable(env),
     freeDailyRoutes: FREE_DAILY_ROUTES,
     dailyLimit: ceiling,
