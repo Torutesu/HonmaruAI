@@ -15,6 +15,13 @@ CREATE TABLE IF NOT EXISTS hx_workspace_file_versions (
  OR (kind='content' AND object_key IS NOT NULL AND content_hash IS NOT NULL AND content_type IS NOT NULL AND size>=0)),
  CHECK(restored_from IS NULL OR (restored_from>0 AND restored_from<version))
 );
+CREATE TABLE IF NOT EXISTS hx_workspace_file_public_urls (
+ org_id TEXT NOT NULL, file_id TEXT NOT NULL, version INTEGER NOT NULL,
+ id TEXT NOT NULL UNIQUE, token_hash TEXT NOT NULL UNIQUE CHECK(length(token_hash)=64),
+ created_by TEXT NOT NULL, created_login TEXT NOT NULL, created_at TEXT NOT NULL,
+ PRIMARY KEY(org_id,file_id,version),
+ FOREIGN KEY(org_id,file_id,version) REFERENCES hx_workspace_file_versions(org_id,file_id,version) ON DELETE CASCADE
+);
 CREATE INDEX IF NOT EXISTS hx_workspace_files_listing ON hx_workspace_files(org_id,path,id);
 CREATE TABLE IF NOT EXISTS hx_workspace_file_purges (
  org_id TEXT NOT NULL, file_id TEXT NOT NULL, version INTEGER NOT NULL,
