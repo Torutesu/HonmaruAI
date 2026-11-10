@@ -2708,6 +2708,12 @@ CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_event_outbox_due
   ON hx_workflow_row_event_outbox(status,next_attempt,lease_until,created_at);
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_row_event_outbox_org_pending
   ON hx_workflow_row_event_outbox(org_id) WHERE status='pending';
+CREATE TRIGGER IF NOT EXISTS hx_workflow_row_event_outbox_capacity
+BEFORE INSERT ON hx_workflow_row_event_outbox
+WHEN NEW.status='pending' AND (SELECT COUNT(*) FROM hx_workflow_row_event_outbox WHERE org_id=NEW.org_id AND status='pending')>=100
+BEGIN
+  SELECT RAISE(ABORT, 'workflow row event queue is full');
+END;
 
 -- Durable, independent live and notification preparation for accepted sends.
 CREATE TABLE IF NOT EXISTS channel_message_delivery (org_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('live','push')), business_created_at TEXT, allow_virtual INTEGER NOT NULL DEFAULT 0 CHECK(allow_virtual IN (0,1)), status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','done','failed')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(org_id,message_id,kind));

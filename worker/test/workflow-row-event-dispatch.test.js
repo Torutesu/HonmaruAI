@@ -6,6 +6,7 @@ import {drainWorkflowRowEvents,prepareWorkflowRowEvent} from '../src/harness/wor
 beforeEach(async()=>{
  await env.DB.exec(schema.replace(/\n/g,' '));
  await env.DB.exec('CREATE TABLE row_event_test_runs(event_hash TEXT NOT NULL,workflow_id TEXT NOT NULL,PRIMARY KEY(event_hash,workflow_id));');
+ await env.DB.exec('CREATE TABLE row_event_test_rows(id TEXT PRIMARY KEY,value TEXT NOT NULL);');
 });
 
 const event=overrides=>({orgId:'outbox-org',table:{id:'table-1',columns:[{id:'name',name:'Name',type:'text'}]},before:null,
@@ -70,12 +71,16 @@ test('outbox payloads are bounded before they enter the row-write batch',async()
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox').first()).toEqual({n:0});
 });
 
-test('pending events are capped per workspace so a stuck drain cannot grow without bound',async()=>{
+test('a full pending queue rejects the whole row-write batch instead of silently dropping its trigger',async()=>{
  const insert=env.DB.prepare(`INSERT INTO hx_workflow_row_event_outbox(id,org_id,table_id,event_hash,payload,status,attempts,next_attempt,lease_until,created_at)
   VALUES(?1,'outbox-org','table-1','test-hash','{}','pending',0,0,0,1000)`);
  await env.DB.batch(Array.from({length:100},(_,index)=>insert.bind(`queued-${index}`)));
  const next=await prepareWorkflowRowEvent(env.DB,event());
- expect((await next.statement.run()).meta.changes).toBe(0);
+ await expect(env.DB.batch([
+  env.DB.prepare("INSERT INTO row_event_test_rows(id,value) VALUES('new-row','saved')"),
+  next.statement,
+ ])).rejects.toThrow(/workflow row event queue is full/i);
  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox WHERE org_id='outbox-org' AND status='pending'").first())
   .toEqual({n:100});
+ expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM row_event_test_rows WHERE id='new-row'").first()).toEqual({n:0});
 });
