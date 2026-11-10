@@ -6,7 +6,7 @@ import {ensureWorkflowSafety} from '../src/harness/workflowSafety.js';
 import {readExecution,cancelExecution,enqueueExecution} from '../src/harness/executions.js';
 import {expireGatewayJobs} from '../src/harness/gateways.js';
 import worker from '../src/index.js';
-import {createWorkflow,updateWorkflow,startRun,continueRun,normalizeSteps} from '../src/harness/workflows.js';
+import {createWorkflow,updateWorkflow,startRun,continueRun,normalizeSteps,cancelWorkflowRun} from '../src/harness/workflows.js';
 import {setMode} from '../src/harness/mode.js';
 import {saveWorkspaceAIBudget} from '../src/workspaceAIBudget.js';
 let definition;
@@ -175,6 +175,17 @@ test('offline program node cannot leave its workflow running forever',async()=>{
 test('authorized cancellation settles the associated workflow',async()=>{
  const {jobId}=await enqueue();
  expect((await cancelExecution(env.DB,'program-org','program-owner',jobId)).job.status).toBe('cancelled');
+ expect((await env.DB.prepare("SELECT status FROM hx_workflow_runs WHERE id='program-run'").first()).status).toBe('cancelled');
+});
+test('cancelling a workflow immediately revokes its active code job lease',async()=>{
+ const {jobId}=await enqueue();
+ const at='2026-11-10T00:00:00.000Z';
+ const startedAt='2026-11-09T23:59:00.000Z';
+ await env.DB.prepare("UPDATE hx_workflow_runs SET started_at=?1 WHERE id='program-run'").bind(startedAt).run();
+ const cancelled=await cancelWorkflowRun(env.DB,{orgId:'program-org',workflowId:'program-wf',runId:'program-run',expectedStartedAt:startedAt,actorId:'program-owner',at});
+ expect(cancelled.error).toBeUndefined();
+ expect((await env.DB.prepare('SELECT status,lease_hash,finished_at FROM hx_gateway_jobs WHERE id=?1').bind(jobId).first()))
+  .toEqual({status:'cancelled',lease_hash:null,finished_at:Date.parse(at)});
  expect((await env.DB.prepare("SELECT status FROM hx_workflow_runs WHERE id='program-run'").first()).status).toBe('cancelled');
 });
 test('terminal program result settles the run and checkpoint exactly once',async()=>{
