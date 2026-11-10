@@ -2890,7 +2890,8 @@ CREATE TABLE IF NOT EXISTS hx_app_commit_approvals (
   status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','revoked','published')),
   created_at TEXT NOT NULL,
   reviewed_at TEXT,
-  consumed_at TEXT
+  consumed_at TEXT,
+  preview_candidate_id TEXT
 );
 CREATE INDEX IF NOT EXISTS hx_app_commit_approvals_current ON hx_app_commit_approvals(org_id,app_id,status,app_version);
 CREATE UNIQUE INDEX IF NOT EXISTS hx_app_commit_approvals_one_open
@@ -3018,8 +3019,22 @@ CREATE TABLE IF NOT EXISTS hx_app_publish_approvals (
   status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','revoked')),
   created_at TEXT NOT NULL,
   reviewed_at TEXT,
-  consumed_at TEXT
+  consumed_at TEXT,
+  preview_candidate_id TEXT
 );
+CREATE TABLE IF NOT EXISTS hx_app_preview_candidates (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  app_version INTEGER NOT NULL,
+  source_hash TEXT NOT NULL,
+  fork_id TEXT NOT NULL,
+  fork_revision INTEGER NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hx_app_preview_candidates_current ON hx_app_preview_candidates(org_id,app_id,app_version,created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS hx_app_preview_candidates_identity ON hx_app_preview_candidates(org_id,app_id,app_version,source_hash,fork_id,fork_revision,created_by);
 CREATE INDEX IF NOT EXISTS hx_app_publish_approvals_current ON hx_app_publish_approvals(org_id,app_id,status,draft_version);
 CREATE UNIQUE INDEX IF NOT EXISTS hx_app_publish_approvals_one_open ON hx_app_publish_approvals(org_id,app_id,draft_version,source_hash,scope) WHERE status IN ('pending','approved');
 

@@ -26,6 +26,7 @@ const statusLabels = {added:'追加',changed:'変更',unchanged:'変更なし',r
 export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:()=>unknown}) {
   const [prompt,setPrompt]=useState('')
   const [state,setState]=useState<AppAutomationState|null>(null)
+  const [previewGate,setPreviewGate]=useState<Awaited<ReturnType<HarnessApi['customPublishState']>>|null>(null)
   const [draft,setDraft]=useState<AutomationBundle>({version:1,items:[]})
   const [draftGeneration,setDraftGeneration]=useState(0)
   const [tables,setTables]=useState<Table[]>([]),[agents,setAgents]=useState<AgentFace[]>([])
@@ -47,6 +48,7 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
     setState(result);setDraft(result.draft);setChecked([]);setError(warning)
   }
   useEffect(()=>{if(state && JSON.stringify(draft)!==JSON.stringify(state.draft) && state.version!==app.version){setError('アプリが別の操作で更新されました。未保存の下書きは保持しています。内容を控えてから再読み込みしてください。');return}void refresh().catch(e=>setError(String(e)));void api.tables?.().then(r=>setTables(r.tables)).catch(()=>{});if(api.appDatabase)void api.appDatabase(app.id).then(database=>setTriggerApps([{app:{id:app.id,name:app.name},entities:database.entities}])).catch(()=>setTriggerApps([]));void api.workflowAgents?.().then(r=>setAgents(r.agents)).catch(()=>{});return()=>{generation.current++}},[app.id,app.name,app.version,api])
+  useEffect(()=>{let active=true;if(typeof api.customPublishState!=='function'){setPreviewGate(null);return()=>{active=false}}void api.customPublishState(app.id).then(result=>{if(active)setPreviewGate(result)}).catch(()=>{if(active)setPreviewGate(null)});return()=>{active=false}},[api,app.id,app.version,app.definition.custom?.draft])
   const loadChoices=async(force=false)=>{
     if(!force&&choicePending.current?.scope===choiceScope)return
     const operation={scope:choiceScope};choicePending.current=operation
@@ -86,11 +88,11 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
   })
   const conflicts=state?.plan?.filter(item=>item.status==='drifted'||item.status==='missing')||[]
   const sourceTooLarge=includeSource && (app.definition.custom?.draft?.length || 0)>MAX_PREVIEW_SOURCE
-  const canPublish=!sourceTooLarge && state && state.version===app.version && state.revision>0 && state.plan && !dirty && conflicts.every(item=>checked.includes(item.key) && item.workflowId && (item.status!=='missing'||item.declared))
+  const canPublish=!sourceTooLarge && (!includeSource || Boolean(previewGate?.candidate?.current&&previewGate.candidate.sourceHash===previewGate.sourceHash)) && state && state.version===app.version && state.revision>0 && state.plan && !dirty && conflicts.every(item=>checked.includes(item.key) && item.workflowId && (item.status!=='missing'||item.declared))
   const run=async(fn:()=>Promise<void>)=>{if(busy)return;setBusy(true);setError('');setNotice('');try{await fn()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
   const release=async(action:'publish'|'unpublish')=>{
     if(!state)return
-    const body={action,version:state.version,revision:state.revision,includeSource:action==='publish'&&includeSource,reviewed:action==='publish'?conflicts.map(item=>({key:item.key,workflowId:item.workflowId,action:item.status==='missing'?'recreate':'replace',live:item.live})):[]}
+    const body={action,version:state.version,revision:state.revision,includeSource:action==='publish'&&includeSource,candidateId:action==='publish'&&includeSource?previewGate?.candidate?.id:undefined,reviewed:action==='publish'?conflicts.map(item=>({key:item.key,workflowId:item.workflowId,action:item.status==='missing'?'recreate':'replace',live:item.live})):[]}
     const fingerprint=JSON.stringify(body)
     if(pending.current?.fingerprint!==fingerprint)pending.current={fingerprint,requestId:crypto.randomUUID()}
     await api.releaseAppAutomations(app.id,{...body,requestId:pending.current.requestId})
@@ -115,6 +117,7 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
       <button className="pill-btn" disabled={busy||!dirty||state.version!==app.version} onClick={()=>void run(async()=>{setDraftGeneration(value=>value+1);await api.saveAppAutomations(app.id,state.version,state.revision,draft);await refresh();setNotice('下書きを保存しました。公開中の処理は変わりません。')})}>下書きを保存</button>
       <h4>公開する変更</h4>{removedPublishedConditions&&<p role="alert">公開中の処理から条件または監視列が解除されています。公開すると実行対象が広がる可能性があります。</p>}{dirty?<p>下書きを保存すると、公開中の処理との差分を確認できます。</p>:state.plan?.map(item=><details key={item.key}><summary>{item.declared?.name||item.published?.name||item.key} · {statusLabels[item.status]}</summary><div className="hx-automation-diff"><div><strong>現在</strong><AutomationSummary definition={item.live} tables={tables} agents={agents} apps={triggerApps}/></div><div><strong>公開後</strong><AutomationSummary definition={item.declared} tables={tables} agents={agents} apps={triggerApps}/></div></div>{item.workflowId&&item.status!=='missing'&&<AutomationRuns key={item.workflowId} workflowId={item.workflowId} api={api}/>} {conflicts.includes(item)&&<label><input type="checkbox" disabled={busy} checked={checked.includes(item.key)} onChange={e=>setChecked(e.target.checked?[...checked,item.key]:checked.filter(k=>k!==item.key))}/>{item.status==='missing'?'この処理を復旧する':'現在の変更を確認し、アプリの定義で置き換える'}</label>}</details>)}
       {app.definition.custom&&<label><input type="checkbox" checked={includeSource} disabled={busy} onChange={e=>setIncludeSource(e.target.checked)}/>保存済みのアプリ画面も同時に公開する</label>}
+      {includeSource&&<p role={previewGate?.candidate?.current?'status':'alert'}>{previewGate?.candidate?.current?'確認済みのアプリ画面プレビューを自動化と一緒に公開します。':'先にカスタムアプリのプレビューを開き、検証DBで表示を確認して「このプレビューを確認済みにする」を押してください。'}</p>}
       {sourceTooLarge&&<p role="alert" className="form-error">アプリ画面を同時に公開するには、コードを119800文字以下に短くしてください。</p>}
       <div className="hx-actions"><button className="pill-btn" disabled={busy||!canPublish} onClick={()=>void run(()=>release('publish'))}>確認した内容を公開</button>{state.published&&<button className="pill-btn quiet" disabled={busy} onClick={()=>void run(()=>release('unpublish'))}>自動化を停止</button>}</div>
     </>}

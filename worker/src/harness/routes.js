@@ -51,6 +51,7 @@ import { actions, generateAction, saveAction, runAction, readActionJob, connecti
 import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { customPublishState, setCustomPublishPolicy, requestCustomPublishApproval, reviewCustomPublishApproval } from './customAppPublishApproval.js';
+import { createCustomPreviewCandidate, currentCustomPreviewCandidate } from './customAppPreview.js';
 import { createAppShare, listAppShares, revokeAppShare, readAppShare } from './appShares.js';
 import { listPublicAppShareApprovals, reviewPublicAppShareApproval } from './appShareApproval.js';
 import { fetchGitHubCommitSource, verifyGitHubCommitRef } from './githubCommitSource.js';
@@ -1696,10 +1697,16 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (input.action === 'request_approval') {
         if(!Number.isInteger(input.version)||input.version!==app.version)return json({message:'The app changed. Reload before requesting approval.'},409);
-        const result=await requestCustomPublishApproval(env.DB,orgId,app,me);
+        const result=await requestCustomPublishApproval(env.DB,orgId,app,me,input.candidateId);
         if(!result.error)await audit(env,request,{orgId,action:'app.custom_publish_approval_requested',actor:person(who.user),entity:{type:'app',id:appId},details:{version:result.approval.draftVersion,sourceHash:result.approval.sourceHash,scope:result.approval.scope}});
         return result.error?fail(result):json(result);
       }
+      if (input.action === 'preview_candidate') {
+        const result=await createCustomPreviewCandidate(env.DB,orgId,app,me,input);
+        if(!result.error)await audit(env,request,{orgId,action:'app.custom_preview_reviewed',actor:person(who.user),entity:{type:'app',id:appId},details:{version:app.version,sourceHash:result.candidate.sourceHash,forkRevision:result.candidate.forkRevision}});
+        return result.error?fail(result):json(result);
+      }
+      if (input.action === 'review' && !input.candidateId) return json({message:'Review the current preview before approving this release.'},409);
       if (input.action === 'generate') {
         const table = await getTable(env.DB, orgId, app.tableId);
         const entities=(await databaseView(env.DB,orgId,app)).entities;
@@ -1731,7 +1738,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if(!commit)return json({message:'Import a GitHub commit into the saved draft first.'},409);
         const current=await verifyGitHubCommitRef(who.session.github_access_token,commit);
         if(current.error)return fail(current);
-        const result=await requestCustomCommitApproval(env.DB,orgId,app,me,{version:input.version,commit,sourceHash:commit.sourceHash});
+        const result=await requestCustomCommitApproval(env.DB,orgId,app,me,{version:input.version,commit,sourceHash:commit.sourceHash,candidateId:input.candidateId});
         if(result.error)return fail(result);
         await audit(env,request,{orgId,action:'app.custom_commit_approval_requested',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{version:app.version,repo:commit.owner+'/'+commit.repo,commitSha:commit.sha,sourceHash:commit.sourceHash,scope:result.approval.visibility_scope}});
         return json(result);
@@ -1752,6 +1759,8 @@ export async function handleHarness(request, env, url, context = {}) {
         if(verified.commit.sourceHash!==commit.sourceHash||verified.commit.htmlHash!==commit.htmlHash
           ||JSON.stringify(verified.commit.assets)!==JSON.stringify(commit.assets))return json({message:'The pinned GitHub bundle changed. Import and request approval again.'},409);
         const scope=await commitPublishScope(env.DB,orgId,appId);
+        const preview=await currentCustomPreviewCandidate(env.DB,orgId,app,input.candidateId);
+        if(!preview?.current || commit.htmlHash!==preview.sourceHash)return json({message:'Review this exact commit in the current preview before publishing.'},409);
         const result=await publishApprovedCustomCommit(env.DB,orgId,app,{...input,sourceHash:commit.sourceHash},me,scope);
         if(result.error)return fail(result);
         await audit(env,request,{orgId,action:'app.custom_commit_published',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{version:result.version,repo:commit.owner+'/'+commit.repo,commitSha:commit.sha,sourceHash:commit.sourceHash,visibility:scope?.visibility}});

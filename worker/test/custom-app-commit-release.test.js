@@ -69,6 +69,14 @@ async function importCommit(app) {
   });
   return result;
 }
+async function confirmCustomPreview(app, version, token=toru) {
+  const path=`/apps/${app.id}/database`;
+  let state=await(await get(`${path}?orgId=${ORG}`,token)).json();
+  if(!state.fork){await send('POST',path,token,{action:'fork'});state=await(await get(`${path}?orgId=${ORG}`,token)).json();}
+  const result=await send('POST',`/apps/${app.id}/custom`,token,{action:'preview_candidate',version,forkId:state.fork.id,revision:state.fork.revision});
+  expect(result.status,await result.clone().text()).toBe(200);
+  return (await result.json()).candidate.id;
+}
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\\n/g, ' '));
@@ -89,12 +97,13 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   const imported = await importCommit(app);
   expect(imported.status).toBe(200);
   const importedBody = await imported.json();
+  const candidateId=await confirmCustomPreview(app,importedBody.version);
   expect(importedBody.commit).toMatchObject({ owner: 'acme', repo: 'static-app', sha: commitSha, appVersion: app.version + 1 });
   expect(JSON.stringify(importedBody)).not.toContain('gho-release-maker');
 
   const state = await (await get(`/apps/${app.id}/custom?orgId=${ORG}`, toru)).json();
   const requested = await send('POST', `/apps/${app.id}/custom`, toru, {
-    action: 'request_commit_approval', version: importedBody.version, commit: importedBody.commit, sourceHash: importedBody.commit.sourceHash,
+    action: 'request_commit_approval', version: importedBody.version, commit: importedBody.commit, sourceHash: importedBody.commit.sourceHash,candidateId,
   });
   expect(requested.status).toBe(200);
   const approval = (await requested.json()).approval;
@@ -103,20 +112,20 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
 
   const selfReview = await send('POST', `/apps/${app.id}/custom`, toru, {
     action: 'review_commit_approval', decision: 'approve', approvalId: approval.id, version: importedBody.version,
-    commitSha, sourceHash: importedBody.commit.sourceHash,
+    commitSha, sourceHash: importedBody.commit.sourceHash,candidateId,
   });
   expect(selfReview.status).toBe(409);
 
   const review = await send('POST', `/apps/${app.id}/custom`, gina, {
     action: 'review_commit_approval', decision: 'approve', approvalId: approval.id, version: importedBody.version,
-    commitSha, sourceHash: importedBody.commit.sourceHash,
+    commitSha, sourceHash: importedBody.commit.sourceHash,candidateId,
   });
   expect(review.status).toBe(200);
   expect((await review.json()).approval.status).toBe('approved');
 
   const beforeRelease=await readReleaseState(app.id,approval.id);
   const published = await send('POST', `/apps/${app.id}/custom`, toru, {
-    action: 'publish_commit', version: importedBody.version, approvalId: approval.id,
+    action: 'publish_commit', version: importedBody.version, approvalId: approval.id,candidateId,
   });
   const releaseState=await readReleaseState(app.id,approval.id);
   const guardState=await readCommitPublishGuardState(app.id,approval.id,'9101');
@@ -126,7 +135,7 @@ test('HTTP import requires an independent Owner/Admin review and publishes captu
   expect(releaseState).toMatchObject({version:importedBody.version+1,publishedApproval:approval.id,approvalStatus:'published'});
   expect(releaseState.consumedAt).toBeTruthy();
   const replay=await send('POST', `/apps/${app.id}/custom`, toru, {
-    action:'publish_commit',version:importedBody.version+1,approvalId:approval.id,
+    action:'publish_commit',version:importedBody.version+1,approvalId:approval.id,candidateId,
   });
   expect(replay.status).toBe(409);
   expect(await readReleaseState(app.id,approval.id)).toEqual(releaseState);
@@ -165,16 +174,17 @@ test('HTTP publish rejects branch movement after independent approval', async ()
   });
   const app = await makeApp();
   const imported = await (await importCommit(app)).json();
-  const request = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'request_commit_approval', version: imported.version, commit: imported.commit, sourceHash: imported.commit.sourceHash });
+  const candidateId=await confirmCustomPreview(app,imported.version);
+  const request = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'request_commit_approval', version: imported.version, commit: imported.commit, sourceHash: imported.commit.sourceHash,candidateId });
   const approval = (await request.json()).approval;
   const review = await send('POST', `/apps/${app.id}/custom`, gina, {
     action: 'review_commit_approval', decision: 'approve', approvalId: approval.id, version: imported.version,
-    commitSha, sourceHash: imported.commit.sourceHash,
+    commitSha, sourceHash: imported.commit.sourceHash,candidateId,
   });
   expect(review.status).toBe(200);
   branch = 'f'.repeat(40);
   const beforeRelease=await readReleaseState(app.id,approval.id);
-  const publish = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'publish_commit', version: imported.version, approvalId: approval.id });
+  const publish = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'publish_commit', version: imported.version, approvalId: approval.id,candidateId });
   expect(publish.status).toBe(409);
   expect(await readReleaseState(app.id,approval.id)).toEqual(beforeRelease);
 });
@@ -183,16 +193,17 @@ test('HTTP publish rejects a changed visibility scope and stale app revision', a
   vi.stubGlobal('fetch', githubFetch());
   const app = await makeApp();
   const imported = await (await importCommit(app)).json();
-  const request = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'request_commit_approval', version: imported.version, commit: imported.commit, sourceHash: imported.commit.sourceHash });
+  const candidateId=await confirmCustomPreview(app,imported.version);
+  const request = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'request_commit_approval', version: imported.version, commit: imported.commit, sourceHash: imported.commit.sourceHash,candidateId });
   const approval = (await request.json()).approval;
   expect((await send('POST', `/apps/${app.id}/custom`, gina, {
     action: 'review_commit_approval', decision: 'approve', approvalId: approval.id, version: imported.version,
-    commitSha, sourceHash: imported.commit.sourceHash,
+    commitSha, sourceHash: imported.commit.sourceHash,candidateId,
   })).status).toBe(200);
 
   await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)`).bind(ORG, app.id).run();
   const beforeScopeReject=await readReleaseState(app.id,approval.id);
-  const changedScope = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'publish_commit', version: imported.version, approvalId: approval.id });
+  const changedScope = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'publish_commit', version: imported.version, approvalId: approval.id,candidateId });
   expect(changedScope.status).toBe(409);
   expect(await readReleaseState(app.id,approval.id)).toEqual(beforeScopeReject);
 
@@ -200,7 +211,7 @@ test('HTTP publish rejects a changed visibility scope and stale app revision', a
   const edited = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'draft', version: current.app.version, html: '<p>edited</p>' });
   expect(edited.status).toBe(200);
   const beforeStaleReject=await readReleaseState(app.id,approval.id);
-  const stale = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'publish_commit', version: imported.version, approvalId: approval.id });
+  const stale = await send('POST', `/apps/${app.id}/custom`, toru, { action: 'publish_commit', version: imported.version, approvalId: approval.id,candidateId });
   expect(stale.status).toBe(409);
   expect(await readReleaseState(app.id,approval.id)).toEqual(beforeStaleReject);
 });
@@ -212,6 +223,7 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
   const imported=await importCommit(app);
   expect(imported.status).toBe(200);
   const data=await imported.json();
+  const candidateId=await confirmCustomPreview(app,data.version);
   const stored=await env.DB.prepare('SELECT length(content_bytes) AS bytes FROM hx_app_git_assets WHERE org_id=?1 AND app_id=?2 AND path=\'app.js\'').bind(ORG,app.id).first();
   expect(stored).toEqual({bytes:1_500_000});
   const at=new Date().toISOString();
@@ -219,10 +231,10 @@ test('stores and serves a maximum-size static asset as a D1 BLOB without base64 
     VALUES(?1,?2,'max-asset.example','active','9101',?3,?3)`).bind(ORG,app.id,at).run();
   await env.DB.prepare(`INSERT INTO hx_app_domain_public_consents(org_id,app_id,hostname,domain_created_at,confirmed_by,confirmed_at,confirmation_version)
     VALUES(?1,?2,'max-asset.example',?3,'9101',?3,1)`).bind(ORG,app.id,at).run();
-  const approval=(await (await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:data.version,commit:data.commit,sourceHash:data.commit.sourceHash})).json()).approval;
-  expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:data.version,commitSha,sourceHash:data.commit.sourceHash})).status).toBe(200);
+  const approval=(await (await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:data.version,commit:data.commit,sourceHash:data.commit.sourceHash,candidateId})).json()).approval;
+  expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:data.version,commitSha,sourceHash:data.commit.sourceHash,candidateId})).status).toBe(200);
   const beforeRelease=await readReleaseState(app.id,approval.id);
-  const published=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:data.version,approvalId:approval.id});
+  const published=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:data.version,approvalId:approval.id,candidateId});
   const releaseState=await readReleaseState(app.id,approval.id);
   const guardState=await readCommitPublishGuardState(app.id,approval.id,'9101');
   if(published.status===409) expect(releaseState).toEqual(beforeRelease);
@@ -239,12 +251,13 @@ test('reviewer membership loss permanently revokes an approval even after access
   vi.stubGlobal('fetch',githubFetch());
   const app=await makeApp();
   const imported=await (await importCommit(app)).json();
-  const request=await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:imported.version,commit:imported.commit,sourceHash:imported.commit.sourceHash});
+  const candidateId=await confirmCustomPreview(app,imported.version);
+  const request=await send('POST',`/apps/${app.id}/custom`,toru,{action:'request_commit_approval',version:imported.version,commit:imported.commit,sourceHash:imported.commit.sourceHash,candidateId});
   const approval=(await request.json()).approval;
-  expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:imported.version,commitSha,sourceHash:imported.commit.sourceHash})).status).toBe(200);
+  expect((await send('POST',`/apps/${app.id}/custom`,gina,{action:'review_commit_approval',decision:'approve',approvalId:approval.id,version:imported.version,commitSha,sourceHash:imported.commit.sourceHash,candidateId})).status).toBe(200);
   await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG,'9103').run();
   await upsertMembership(env.DB,ORG,'9103','admin');
-  const publish=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:imported.version,approvalId:approval.id});
+  const publish=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish_commit',version:imported.version,approvalId:approval.id,candidateId});
   expect(publish.status).toBe(409);
 });
 
@@ -253,7 +266,8 @@ test('ordinary saved custom app drafts keep the legacy publish route', async () 
   const draft=await send('POST',`/apps/${app.id}/custom`,toru,{action:'draft',version:app.version,html:'<main>legacy release</main>'});
   expect(draft.status).toBe(200);
   const saved=await draft.json();
-  const published=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish',version:saved.version});
+  const candidateId=await confirmCustomPreview(app,saved.version);
+  const published=await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish',version:saved.version,candidateId});
   expect(published.status).toBe(200);
   const state=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
   expect(state.app.definition.custom.published).toBe('<main>legacy release</main>');
@@ -263,7 +277,8 @@ test('custom domain consent is bound to its attachment and exposes only after ex
   const app=await makeApp();
   const draft=await send('POST',`/apps/${app.id}/custom`,toru,{action:'draft',version:app.version,html:'<main>public app snapshot</main>'});
   const saved=await draft.json();
-  expect((await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish',version:saved.version})).status).toBe(200);
+  const candidateId=await confirmCustomPreview(app,saved.version);
+  expect((await send('POST',`/apps/${app.id}/custom`,toru,{action:'publish',version:saved.version,candidateId})).status).toBe(200);
   await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)`).bind(ORG,app.id).run();
 
   const hostname='private-data.example';

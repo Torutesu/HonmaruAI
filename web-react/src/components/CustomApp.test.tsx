@@ -317,15 +317,15 @@ test('custom domain publishing requires a visible explicit all-records consent',
 
 test('custom app editor exposes the independent approval gate for a saved draft',async()=>{
  const {CustomAppEditor}=await import('./CustomApp')
- let state:any={policy:{enabled:true},draftVersion:2,sourceHash:'hash',scope:'custom-app.publish',approval:null}
+ let state:any={policy:{enabled:true},draftVersion:2,sourceHash:'hash',scope:'custom-app.publish',candidate:{id:'preview-1',appVersion:2,sourceHash:'hash',forkId:'fork',forkRevision:1,current:true},approval:null}
  vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn(),confirm:vi.fn(()=>true)})
  const api={customPublishState:vi.fn(async()=>state),customPublish:vi.fn(async(_id:string,input:any)=>{if(input.action==='request_approval')state={...state,approval:{id:'approval',status:'pending',requestedBy:'maker',reviewerId:null,sourceHash:'hash',draftVersion:2,scope:'custom-app.publish'}};return {saved:true}}),appDatabase:vi.fn().mockResolvedValue({fork:null})}as any
  let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:2,definition:{custom:{draft:'<h1>saved</h1>'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>)} )
  expect(tree!.root.findAllByProps({'aria-label':'公開承認ポリシー'})).toHaveLength(1)
- const request=tree!.root.findAllByType('button').find(b=>b.children.join('')==='この保存済み下書きの承認を依頼')!
+ const request=tree!.root.findAllByType('button').find(b=>b.children.join('')==='このプレビューの承認を依頼')!
  await act(async()=>request.props.onClick())
- expect(api.customPublish).toHaveBeenCalledWith('app',expect.objectContaining({action:'request_approval',version:2}))
+ expect(api.customPublish).toHaveBeenCalledWith('app',expect.objectContaining({action:'request_approval',version:2,candidateId:'preview-1'}))
  expect(tree!.root.findAllByProps({role:'status'}).some(n=>n.children.join('').includes('pending'))).toBe(true)
  act(()=>tree!.unmount())
 })
