@@ -4,6 +4,7 @@ import {StringDecoder} from 'node:string_decoder';
 import {containerArgs} from './runner.mjs';
 import {WORKFLOW_BOOTSTRAP} from './workflow-guest.mjs';
 import {createStateBroker,createWorkflowOutputParser} from './workflow-bridge.mjs';
+import {normalizeWorkflowDraft} from './workflow-sdk.mjs';
 
 export const WORKFLOW_EXECUTION_TIMEOUT_MS=15*60*1000;
 function control(binary,args){return new Promise(resolve=>{const child=spawn(binary,args,{stdio:'ignore',shell:false});const timer=setTimeout(()=>child.kill('SIGKILL'),5000);const done=()=>{clearTimeout(timer);resolve()};child.once('error',done);child.once('close',done);});}
@@ -19,6 +20,7 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
  const name=`honmaru-${randomUUID()}`,nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce;
  const child=spawn(binary,containerArgs(name,WORKFLOW_BOOTSTRAP),{stdio:['pipe','pipe','pipe'],shell:false});
  let closed=false,status=null,killPromise,forceTimer,wireBytes=0,responseBytes=0,logBytes=0;
+ const messages=[],requestIds=new Set();let messageBytes=0;
  let stdout=Buffer.alloc(0),stderr=Buffer.alloc(0);
  const decoder=new StringDecoder('utf8');
  const stop=reason=>{
@@ -34,7 +36,15 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
  };
  const parser=createWorkflowOutputParser(prefix,{text:value=>log('stdout',value),request:request=>{
   if(closed||controller.signal.aborted)return;
-  broker(request).then(reply=>{
+  if(!request||!Number.isSafeInteger(request.id)||request.id<1||request.id>64||requestIds.has(request.id)){stop('failed');return;}
+  requestIds.add(request.id);
+  const operation=request.method==='message.stage'?Promise.resolve().then(()=>{
+   if(!request.params||typeof request.params!=='object'||Array.isArray(request.params)||Object.keys(request.params).some(key=>!['text','mention'].includes(key)))throw Error('Invalid staged message.');
+   const draft=normalizeWorkflowDraft(request.params.text,request.params.mention===undefined?{}:{mention:request.params.mention});
+   if(messages.length>=32||messageBytes+Buffer.byteLength(JSON.stringify(draft))>30000)throw Error('Staged message limit exceeded.');
+   messageBytes+=Buffer.byteLength(JSON.stringify(draft));messages.push(draft);return {staged:true,index:messages.length};
+  }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'Message draft was rejected.'})):broker(request);
+  operation.then(reply=>{
    if(closed||controller.signal.aborted)return;
    const encoded=JSON.stringify(reply)+'\n';responseBytes+=Buffer.byteLength(encoded);
    if(responseBytes>2_000_000){stop('failed');return;}
@@ -56,7 +66,7 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
   const exitCode=await completion;closed=true;controller.abort();
   if(killPromise)await killPromise;
   try{parser.push(decoder.end());parser.end();}catch{status||='failed';}
-  const result={status:status||(exitCode===0?'succeeded':'failed'),stdout:stdout.toString('utf8'),stderr:stderr.toString('utf8'),exitCode};
+  const result={status:status||(exitCode===0?'succeeded':'failed'),stdout:stdout.toString('utf8'),stderr:stderr.toString('utf8'),exitCode,messages};
   if(logBytes>32768)result.stderr+='\nOutput limit exceeded.';
   if(signal?.aborted)result.stderr+='\nExecution cancelled.';
   while(Buffer.byteLength(JSON.stringify(result))>65000){result.stdout=result.stdout.slice(0,Math.floor(result.stdout.length/2));result.stderr=result.stderr.slice(0,Math.floor(result.stderr.length/2));}

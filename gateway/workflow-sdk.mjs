@@ -54,6 +54,18 @@ export async function pipeline(items, ...stepsAndOptions) {
   return values;
 }
 
-export function workflowSdkSource() {
-  return `const parallel=${parallel.toString()};\nconst pipeline=${pipeline.toString()};\nexport {parallel,pipeline};`;
+export function normalizeWorkflowDraft(text, options = {}) {
+  if (typeof text !== 'string' || !text.trim() || new TextEncoder().encode(text).length > 12000) throw Error('sendMessage expects non-empty text up to 12 KB.');
+  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => key !== 'mention')) throw Error('Invalid sendMessage options.');
+  let mention;
+  if (options.mention !== undefined) {
+    const values = Array.isArray(options.mention) ? options.mention : [options.mention];
+    if (!values.length || values.length > 25 || values.some(value => typeof value !== 'string' || !value.trim() || value.length > 100)) throw Error('Invalid sendMessage mention.');
+    mention = Array.isArray(options.mention) ? values.map(value => value.trim()) : options.mention.trim();
+  }
+  return { text, ...(mention !== undefined ? { mention } : {}) };
+}
+
+export function workflowSdkSource(bridgeExpression = 'undefined') {
+  return `const parallel=${parallel.toString()};\nconst pipeline=${pipeline.toString()};\nconst normalizeWorkflowDraft=${normalizeWorkflowDraft.toString()};\nconst workflowBridge=()=>${bridgeExpression};\nexport async function sendMessage(text,options={}){const draft=normalizeWorkflowDraft(text,options);const bridge=workflowBridge();if(typeof bridge?.stageMessage!==\"function\")throw Error(\"Workflow message staging is unavailable.\");return bridge.stageMessage(draft)}\nexport {parallel,pipeline};`;
 }

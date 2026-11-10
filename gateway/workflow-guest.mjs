@@ -14,7 +14,7 @@ export const WORKFLOW_BOOTSTRAP=`
   pending.delete(reply.id);reply.ok?wait.resolve(reply.value):wait.reject(Error(reply.error));
  });
  const rpc=(method,params)=>new Promise((resolve,reject)=>{
-  if(sequence>=64)return reject(Error('State operation limit exceeded.'));
+  if(sequence>=64)return reject(Error('Workflow operation limit exceeded.'));
   const id=++sequence;pending.set(id,{resolve,reject});
   send('\\x1e'+task.nonce+JSON.stringify({id,method,params})+'\\n');
  });
@@ -28,8 +28,8 @@ export const WORKFLOW_BOOTSTRAP=`
   }
  };
  const bridgeKey='__honmaru_'+task.nonce;
- Object.defineProperty(globalThis,bridgeKey,{value:{state,ctx:Object.freeze({...task.context,now:()=>new Date().toISOString()})},configurable:false});
- const sdkSource='const bridge=globalThis['+JSON.stringify(bridgeKey)+'];export const state=bridge.state;export const ctx=bridge.ctx;\\n${workflowSdkSource()}';
+ Object.defineProperty(globalThis,bridgeKey,{value:{state,ctx:Object.freeze({...task.context,now:()=>new Date().toISOString()}),stageMessage:draft=>rpc('message.stage',draft)},configurable:false});
+ const sdkSource='const bridge=globalThis['+JSON.stringify(bridgeKey)+'];export const state=bridge.state;export const ctx=bridge.ctx;\\n'+${JSON.stringify(workflowSdkSource('bridge'))};
  const sdk='data:text/javascript;base64,'+Buffer.from(sdkSource).toString('base64');
  registerHooks({resolve(specifier,context,next){return specifier==='@honmaru/workflow-sdk'?{url:sdk,shortCircuit:true}:next(specifier,context);}});
  try {

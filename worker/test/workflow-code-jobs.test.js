@@ -170,13 +170,13 @@ test.each([false,true])('node finish HTTP settles a program even after an interr
  await cancelExecution(env.DB,'program-org','program-owner',ordinary.job.id);
  const claimed=await api('/claim',{capabilities:['workflow-program-v1']});expect(claimed.status).toBe(200);
  const {job}=await claimed.json();expect(job.id).toBe(jobId);expect(job.workflow).toBe(true);
- const result={stdout:'HTTP result',stderr:'',exitCode:0};
+ const result={stdout:'HTTP result',stderr:'',exitCode:0,messages:[{text:'The review is ready.',mention:['program-owner']}]};
  if(interrupted)await env.DB.prepare("UPDATE hx_gateway_jobs SET status='succeeded',result=?2,finished_at=?3 WHERE id=?1").bind(jobId,JSON.stringify(result),Date.now()).run();
  const complete=()=>api(`/jobs/${jobId}/finish`,{lease:job.lease,status:'succeeded',...result});
  expect((await complete()).status).toBe(interrupted?409:200);
  expect((await complete()).status).toBe(409);
  const run=await env.DB.prepare("SELECT status,log FROM hx_workflow_runs WHERE id='program-run'").first();
- expect(run.status).toBe('done');expect(JSON.parse(run.log)[0].output).toBe('HTTP result');
+ expect(run.status).toBe('done');expect(JSON.parse(run.log)[0]).toMatchObject({output:'HTTP result',messages:[{text:'The review is ready.',mention:['program-owner']}]});
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_outcomes').first()).n).toBe(1);
 });
 test('periodic reconciliation recovers terminal results and expires queued programs before checkpoint loss',async()=>{
