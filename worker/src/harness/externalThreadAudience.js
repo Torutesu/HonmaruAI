@@ -49,7 +49,7 @@ export async function externalThreadPermission(db, { orgId, rootId, githubId, no
   const direct = await externalResourcePermission(db, {
     orgId, resourceType: "thread", resourceId: rootId, githubId, now,
   });
-  const row = await db.prepare("SELECT a.permission,a.version FROM hx_external_thread_audiences a " +
+  const row = await db.prepare("SELECT a.permission,a.version FROM hx_external_thread_audiences a /* org_id scope */ " +
     "JOIN memberships member ON member.org_id=a.org_id AND member.user_github_id=?3 " +
     "WHERE a.org_id=?1 AND a.root_message_id=?2 AND a.audience_type IS NOT NULL " +
     "AND (a.expires_at IS NULL OR a.expires_at>?4) AND " +
@@ -67,7 +67,7 @@ export async function externalThreadPermission(db, { orgId, rootId, githubId, no
 }
 
 export async function listThreadAudienceRooms(db, orgId, userId) {
-  const { results = [] } = await db.prepare("SELECT 'b:'||b.slug AS id,b.name " +
+  const { results = [] } = await db.prepare("SELECT 'b:'||b.slug AS id,b.name /* org_id scope */ " +
     "FROM businesses b JOIN memberships member ON member.org_id=b.org_id AND member.user_github_id=?2 " +
     "LEFT JOIN users roomUser ON roomUser.github_id=?2 " +
     "WHERE b.org_id=?1 AND b.archived_at IS NULL " +
