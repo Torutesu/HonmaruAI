@@ -690,12 +690,14 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                 {r.log.map((l) => {
                   const output=l.status==='skipped'&&l.output==='Condition did not match.'?t('Condition did not match.'):l.output
                   return (
-                  l.output || l.error ? <details key={l.step} className="hx-run-detail">
+                  l.output || l.error || l.durationMs!==undefined || l.operationId ? <details key={l.step} className="hx-run-detail">
                     <summary className="row-sub">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span>
                       {`: ${(l.error || output || '').slice(0, 160)}${(l.error || output || '').length > 160 ? '…' : ''}`}
                     </summary>
                     {l.output && <div><strong>{t('Output')}</strong><pre>{output}</pre></div>}
                     {l.error && <div><strong>{t('Error')}</strong><pre>{l.error}</pre></div>}
+                    {l.durationMs!==undefined&&Number.isFinite(l.durationMs)&&<div><strong>{t('Step duration')}</strong><span>{l.durationMs>=1000?`${(l.durationMs/1000).toLocaleString(getLocale(),{maximumFractionDigits:2})} s`:`${l.durationMs} ms`}</span></div>}
+                    {l.operationId&&<div><strong>{t('Operation ID')}</strong><code>{l.operationId}</code></div>}
                     <time dateTime={l.at}>{new Date(l.at).toLocaleString(getLocale())}</time>
                   </details> : <span key={l.step} className="row-sub hx-log">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span></span>
                 )})}

@@ -55,7 +55,7 @@ test('a permitted engineer workflow accepts an authorized program result',async(
  expect(await settleWorkflowProgram(env.DB,jobId)).toEqual({settled:true});
  const run=await env.DB.prepare("SELECT status,log FROM hx_workflow_runs WHERE id='program-run'").first();
  expect(run.status).toBe('done');
- expect(JSON.parse(run.log)[0].output).toBe('Program result');
+ expect(JSON.parse(run.log)[0]).toMatchObject({output:'Program result',operationId:'workflow:program-run:step:1',startedAt:'1970-01-01T00:00:03.000Z',finishedAt:'1970-01-01T00:00:04.000Z',durationMs:1000});
 });
 test('normal workflow create, edit and start preserve a whole TypeScript program',async()=>{
  const created=await createWorkflow(env.DB,'program-org',{name:'Saved code',trigger:{type:'manual'},steps:definition.steps},'program-owner');
@@ -64,7 +64,7 @@ test('normal workflow create, edit and start preserve a whole TypeScript program
  const updated=await updateWorkflow(env.DB,'program-org',created.workflow.id,{steps:[{...definition.steps[0],code}],expectedUpdatedAt:created.workflow.updatedAt});
  expect(updated.workflow.steps[0].code).toBe(code);
  const run=await startRun(env,{orgId:'program-org',workflow:updated.workflow,trigger:'manual',startedBy:'program-owner'});
- expect(run.status).toBe('running');expect(run.log[0]).toMatchObject({type:'code',status:'pending'});
+ expect(run.status).toBe('running');expect(run.log[0]).toMatchObject({type:'code',status:'pending',operationId:`workflow:${run.id}:step:1`,startedAt:expect.any(String)});
  const jobId=run.log[0].jobId;
  expect(JSON.parse((await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(jobId).first()).payload).code).toBe(code);
  await updateWorkflow(env.DB,'program-org',created.workflow.id,{steps:[{...definition.steps[0],code:'console.log("new revision")'}]});

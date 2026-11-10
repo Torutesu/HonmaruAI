@@ -113,7 +113,7 @@ export async function settleWorkflowProgram(db,jobId) {
  if(!binding)return {settled:false};
  const fingerprint=await digest(binding.definition);
  const update=db.prepare(`WITH terminal AS (
-  SELECT r.org_id,r.id,j.id AS job_id,j.status AS job_status,j.result,j.finished_at,
+  SELECT r.org_id,r.id,j.id AS job_id,j.status AS job_status,j.result,j.finished_at,j.started_at AS job_started_at,j.created_at AS job_created_at,
    (j.status='succeeded' AND j.started_at IS NOT NULL AND j.finished_at>=j.started_at
     AND j.finished_at<j.lease_until AND j.finished_at<j.deadline AND j.finished_at<c.lease_until
     AND ${workflowStateAuthority}
@@ -130,7 +130,11 @@ export async function settleWorkflowProgram(db,jobId) {
    AND j.status IN ('succeeded','failed','timed_out','cancelled') AND j.finished_at IS NOT NULL
  ), outcome AS (
   SELECT *,CASE WHEN accepted THEN 'done' WHEN job_status='cancelled' THEN 'cancelled' ELSE 'failed' END AS run_status,
-    json_object('step',1,'type','code','jobId',job_id,'at',strftime('%Y-%m-%dT%H:%M:%fZ',finished_at/1000.0,'unixepoch'),
+    json_object('step',1,'type','code','jobId',job_id,'operationId','workflow:'||id||':step:1',
+    'startedAt',strftime('%Y-%m-%dT%H:%M:%fZ',COALESCE(job_started_at,job_created_at)/1000.0,'unixepoch'),
+    'finishedAt',strftime('%Y-%m-%dT%H:%M:%fZ',finished_at/1000.0,'unixepoch'),
+    'durationMs',MAX(0,finished_at-COALESCE(job_started_at,job_created_at)),
+    'at',strftime('%Y-%m-%dT%H:%M:%fZ',finished_at/1000.0,'unixepoch'),
     'status',CASE WHEN accepted THEN 'done' ELSE 'failed' END,
     'output',CASE WHEN accepted THEN COALESCE(json_extract(result,'$.stdout'),'') ELSE NULL END,
     'messages',json(CASE WHEN accepted AND json_type(result,'$.messages')='array' THEN json_extract(result,'$.messages') ELSE '[]' END),
