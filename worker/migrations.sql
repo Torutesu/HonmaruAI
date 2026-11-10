@@ -518,6 +518,7 @@ CREATE TABLE IF NOT EXISTS hx_app_publish_policies (org_id TEXT NOT NULL,app_id 
 CREATE TABLE IF NOT EXISTS hx_app_publish_approvals (id TEXT PRIMARY KEY,org_id TEXT NOT NULL,app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,draft_version INTEGER NOT NULL,source_hash TEXT NOT NULL,scope TEXT NOT NULL CHECK(scope='custom-app.publish'),requested_by TEXT NOT NULL,reviewer_id TEXT,status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','revoked')),created_at TEXT NOT NULL,reviewed_at TEXT,consumed_at TEXT);
 ALTER TABLE hx_app_publish_approvals ADD COLUMN preview_candidate_id TEXT;
 ALTER TABLE hx_app_commit_approvals ADD COLUMN preview_candidate_id TEXT;
+ALTER TABLE hx_room_responses ADD COLUMN default_agent_id TEXT;
 CREATE TABLE IF NOT EXISTS hx_app_preview_candidates (id TEXT PRIMARY KEY,org_id TEXT NOT NULL,app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,app_version INTEGER NOT NULL,source_hash TEXT NOT NULL,fork_id TEXT NOT NULL,fork_revision INTEGER NOT NULL,created_by TEXT NOT NULL,created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS hx_app_preview_candidates_current ON hx_app_preview_candidates(org_id,app_id,app_version,created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS hx_app_preview_candidates_identity ON hx_app_preview_candidates(org_id,app_id,app_version,source_hash,fork_id,fork_revision,created_by);

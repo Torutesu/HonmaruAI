@@ -182,7 +182,7 @@
 
 ### Room response update (2026-10-21)
 
-KY-017 remains partial: room-level Mentioned only has versioned saves; Harness suppresses implicit continuations, proxy replies, and automatic issue work while retaining explicit mentions and DMs. Natural-name calls and a guarded same-author task follow-up in the same thread are also supported. Follow-up inheritance currently uses a provisional 2-minute window and task-cue list; compare against authenticated Kylon behavior before treating it as parity. Production and native verification are pending.
+KY-017 remains partial: room-level Mentioned only has versioned saves; Harness suppresses implicit continuations, proxy replies, and automatic issue work while retaining explicit mentions and DMs. Managed rooms now have a shared default-agent selector, and a clear request with a positive specialty match routes to that specialist; otherwise it uses the selected default, then a stable eligible-room fallback. Natural-name calls and a guarded same-author task follow-up in the same thread are also supported. Follow-up inheritance currently uses a provisional 2-minute window and task-cue list; compare against authenticated Kylon behavior before treating it as parity. Candidate grants are rechecked at route and commit time. Production and native verification are pending.
 
 Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing and a Mentioned only switch; it explicitly has no separate user-facing Orchestrator role. KY-018 remains an unfulfilled tracking requirement for leadership/handoff/concurrency, but no unobserved leader-selection UI is invented. Automatic suitable-agent routing and explicit agent-to-agent handoff remain gaps.
 

@@ -8,6 +8,12 @@ test('clear requests route by specialty with a stable room-member fallback', () 
   expect(chooseRoomAgent('Please explain the next steps', agents, profiles).id).toBe('general');
   expect(chooseRoomAgent('Please help', [])).toBeNull();
 });
+test('room default is used when no specialty matches and only among eligible members', () => {
+  const agents = [{ id: 'general' }, { id: 'finance' }];
+  expect(chooseRoomAgent('Please explain the next steps', agents, new Map(), 'finance').id).toBe('finance');
+  expect(chooseRoomAgent('Please review these invoices', agents, new Map([['general',{specialty:'invoices'}]]), 'finance').id).toBe('general');
+  expect(chooseRoomAgent('Please explain the next steps', agents, new Map(), 'outside').id).toBe('general');
+});
 test('ordinary status, acknowledgements and greetings do not trigger routing', () => {
   for (const text of ['Thanks for the review', 'ありがとう、確認してくれて助かりました', 'Hello everyone', 'The release is complete', 'I will review it tomorrow', 'Toru, can you review this?', '田中さん、請求書を確認してください', '確認してくれました', '本日の売上は昨日と同じです', '了解しました']) expect(isRoomRequest(text)).toBe(false);
 });

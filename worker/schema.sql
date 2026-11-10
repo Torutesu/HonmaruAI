@@ -2228,6 +2228,7 @@ CREATE TABLE IF NOT EXISTS hx_skill_share_files (
 /* Room-level explicit addressing policy, independent of presentation mode. */
 CREATE TABLE IF NOT EXISTS hx_room_responses (
   org_id TEXT NOT NULL, channel TEXT NOT NULL, mentioned_only INTEGER NOT NULL DEFAULT 0,
+  default_agent_id TEXT,
   version INTEGER NOT NULL DEFAULT 1, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL,
   PRIMARY KEY (org_id, channel)
 );

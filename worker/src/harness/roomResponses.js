@@ -1,7 +1,7 @@
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
 export async function roomResponses(db, orgId, channel) {
-  const row = await db.prepare('SELECT mentioned_only, version FROM hx_room_responses WHERE org_id = ?1 AND channel = ?2').bind(orgId, channel).first();
-  return { mentionedOnly: Boolean(row?.mentioned_only), version: row?.version || 0 };
+  const row = await db.prepare('SELECT mentioned_only, default_agent_id, version FROM hx_room_responses WHERE org_id = ?1 AND channel = ?2').bind(orgId, channel).first();
+  return { mentionedOnly: Boolean(row?.mentioned_only), defaultAgentId: row?.default_agent_id || null, version: row?.version || 0 };
 }
 export async function saveRoomResponses(db, orgId, channel, input, by) {
   if (typeof input.mentionedOnly !== 'boolean' || !Number.isSafeInteger(input.version) || input.version < 0) return { error: 'A response setting and its current version are required.', status: 400 };
@@ -10,7 +10,7 @@ export async function saveRoomResponses(db, orgId, channel, input, by) {
     const current=await managedRoomSettings(db,orgId,channel,by);
     if(current.error)return current;
     const result=await saveManagedRoomSettings(db,orgId,channel,by,{...current.settings,mentionedOnly:input.mentionedOnly,responseVersion:input.version});
-    return result.error?result:{responses:{mentionedOnly:result.settings.mentionedOnly,version:result.settings.responseVersion}};
+    return result.error?result:{responses:{mentionedOnly:result.settings.mentionedOnly,defaultAgentId:result.settings.defaultAgentId,version:result.settings.responseVersion}};
   }
   const at = new Date().toISOString();
   const result = input.version === 0

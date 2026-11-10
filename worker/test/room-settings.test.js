@@ -22,13 +22,26 @@ const input=async(overrides={})=>({...((await read()).settings),name:'Renamed',c
 const call=(method,token,data,view=channel)=>worker.fetch(new Request('https://test/hx/rooms/settings'+(method==='GET'?`?orgId=${org}&channel=${encodeURIComponent(view)}`:''),{method,headers:{'x-session-token':token,'content-type':'application/json'},...(data?{body:JSON.stringify({orgId:org,channel:view,...data})}:{})}),env);
 test('saves the name, appearance and response policy together without changing creation receipts',async()=>{
  const before=await env.DB.prepare('SELECT * FROM hx_room_creations WHERE org_id=?1').bind(org).first();
- expect((await read()).settings).toEqual({name:'Original',color:'teal',mentionedOnly:false,version:1,responseVersion:0});
+ expect((await read()).settings).toEqual({name:'Original',color:'teal',mentionedOnly:false,defaultAgentId:null,version:1,responseVersion:0});
  const saved=await saveManagedRoomSettings(env.DB,org,channel,'creator',await input());
- expect(saved.settings).toEqual({name:'Renamed',color:'lake',mentionedOnly:true,version:2,responseVersion:1});
+ expect(saved.settings).toEqual({name:'Renamed',color:'lake',mentionedOnly:true,defaultAgentId:null,version:2,responseVersion:1});
  expect((await listBusinesses(env.DB,org,{viewer:'creator'}))[0]).toMatchObject({name:'Renamed',color:'lake'});
- expect(await roomResponses(env.DB,org,channel)).toEqual({mentionedOnly:true,version:1});
+ expect(await roomResponses(env.DB,org,channel)).toEqual({mentionedOnly:true,defaultAgentId:null,version:1});
  expect(await env.DB.prepare('SELECT * FROM hx_room_creations WHERE org_id=?1').bind(org).first()).toEqual(before);
  expect(await createManagedRoom(env.DB,org,'creator',draft)).toMatchObject({created:false,room:{name:'Renamed',color:'lake'}});
+});
+test('room default agent is restricted to eligible room members and survives the inline response toggle',async()=>{
+ const at=new Date().toISOString();
+ await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+   VALUES (?1,'room-agent','room-agent','Room agent','Help with planning.','team','creator',?2,?2)`).bind(org,at).run();
+ await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,?2,'room-agent','creator',?3)").bind(org,channel,at).run();
+ const initial=await read();
+ expect(initial.availableAgents).toContainEqual(expect.objectContaining({id:'room-agent',name:'Room agent'}));
+ const saved=await saveManagedRoomSettings(env.DB,org,channel,'creator',await input({defaultAgentId:'room-agent'}));
+ expect(saved.settings.defaultAgentId).toBe('room-agent');
+ expect(await roomResponses(env.DB,org,channel)).toMatchObject({defaultAgentId:'room-agent'});
+ expect(await saveRoomResponses(env.DB,org,channel,{mentionedOnly:true,version:saved.settings.responseVersion},'creator')).toMatchObject({responses:{defaultAgentId:'room-agent'}});
+ expect((await saveManagedRoomSettings(env.DB,org,channel,'creator',await input({defaultAgentId:'not-in-room'}))).status).toBe(400);
 });
 test('stale rename or response forms cannot overwrite any field',async()=>{
  const stale=await input();
