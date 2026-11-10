@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { containerArgs, validatePayload, validateFiles, runIsolated, IMAGE } from '../runner.mjs';
 import { gatewayClient, processOne } from '../client.mjs';
 import { runAcp } from '../acp.mjs';
+import {WORKFLOW_EXECUTION_TIMEOUT_MS,runWorkflowIsolated} from '../workflow-runner.mjs';
 const token = `hgw_${'a'.repeat(72)}`;
 test('remote payload cannot choose host mounts, image, environment or command', () => {
   assert.deepEqual(validatePayload({ code: 'return 42', image: 'evil', mounts: ['/Users'], env: { SECRET: 'x' } }), { code: 'return 42', input: null });
@@ -29,6 +30,13 @@ test('execution returns only its assigned lease and structured result', async ()
   const call = async (path, body) => { calls.push([path, body]); return path === 'claim' ? { job: { id: 'job', lease: 'lease', payload: { code: 'return 42' }, timeoutMs: 60000 } } : { ok: true }; };
   await processOne(call, { run: async (payload, options) => { assert.equal(payload.code, 'return 42'); assert.equal(options.timeoutMs, 60000); return { status: 'succeeded', stdout: '42', stderr: '', exitCode: 0 }; } });
   assert.deepEqual(calls[1], ['jobs/job/finish', { lease: 'lease', status: 'succeeded', stdout: '42', stderr: '', exitCode: 0 }]);
+});
+test('workflow programs receive the Kylon-aligned fifteen-minute hard cap while generic jobs stay short',async()=>{
+ let observed;
+ const call=async path=>path==='claim'?{job:{id:'workflow-job',lease:'lease',workflow:true,payload:{workflowProgram:true,code:'await work()'}}}:{ok:true};
+ await processOne(call,{runWorkflow:async(_payload,options)=>{observed=options.timeoutMs;return {status:'succeeded',stdout:'done',stderr:'',exitCode:0};}});
+ assert.equal(WORKFLOW_EXECUTION_TIMEOUT_MS,900000);assert.equal(observed,WORKFLOW_EXECUTION_TIMEOUT_MS);
+ await assert.rejects(()=>runWorkflowIsolated({code:'console.log(1)'},{timeoutMs:WORKFLOW_EXECUTION_TIMEOUT_MS+1}),/Invalid execution timeout/);
 });
 test('ACP progress is sent through the current job lease without affecting generic jobs',async()=>{
  const calls=[];

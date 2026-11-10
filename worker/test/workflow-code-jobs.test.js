@@ -121,6 +121,23 @@ test('row-trigger input is fenced when its app becomes private',async()=>{
  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(jobId).first()).status).toBe('failed');
 });
 const finishJob=async(jobId,status='succeeded',finishedAt=4000)=>env.DB.prepare("UPDATE hx_gateway_jobs SET status=?2,started_at=3000,finished_at=?3,lease_until=90000,deadline=120000,result='{\"stdout\":\"Program result\",\"stderr\":\"\",\"exitCode\":0}' WHERE id=?1").bind(jobId,status,finishedAt).run();
+test('workflow program claims allow fifteen minutes and heartbeat renews the job and activation checkpoint together',async()=>{
+ const token=`hgw_${crypto.randomUUID()}${crypto.randomUUID()}`;
+ const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))),byte=>byte.toString(16).padStart(2,'0')).join('');
+ await env.DB.prepare("UPDATE hx_gateways SET token_hash=?1 WHERE id='program-node'").bind(hash).run();
+ const {jobId}=await enqueue({at:Date.now()});
+ const api=(path,body={})=>worker.fetch(new Request(`https://example.com/gateways${path}`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)}),env,{waitUntil(){}});
+ const claimed=await api('/claim',{capabilities:['workflow-program-v1']});expect(claimed.status).toBe(200);
+ const {job}=await claimed.json();expect(job.id).toBe(jobId);expect(job.workflow).toBe(true);expect(job.timeoutMs).toBe(900000);
+ const before=await env.DB.prepare("SELECT j.started_at,j.deadline,c.lease_until AS checkpoint_lease,j.lease_until AS job_lease FROM hx_gateway_jobs j JOIN hx_workflow_activations a ON a.job_id=j.id JOIN hx_workflow_node_checkpoints c ON c.org_id=a.org_id AND c.run_id=a.run_id AND c.node_id=a.node_id WHERE j.id=?1").bind(jobId).first();
+ expect(before.deadline-before.started_at).toBe(930000);
+ await env.DB.prepare("UPDATE hx_gateway_jobs SET lease_until=?2 WHERE id=?1").bind(jobId,Date.now()+50000).run();
+ await env.DB.prepare("UPDATE hx_workflow_node_checkpoints SET lease_until=?1 WHERE org_id='program-org' AND run_id='program-run' AND node_id='program'").bind(Date.now()+50000).run();
+ const heartbeat=await api(`/jobs/${jobId}/heartbeat`,{lease:job.lease});expect(heartbeat.status).toBe(200);
+ const after=await env.DB.prepare("SELECT j.lease_until AS job_lease,c.lease_until AS checkpoint_lease FROM hx_gateway_jobs j JOIN hx_workflow_activations a ON a.job_id=j.id JOIN hx_workflow_node_checkpoints c ON c.org_id=a.org_id AND c.run_id=a.run_id AND c.node_id=a.node_id WHERE j.id=?1").bind(jobId).first();
+ expect(after.job_lease).toBeGreaterThan(before.started_at+50000);
+ expect(after.checkpoint_lease).toBeGreaterThan(after.job_lease);
+});
 test('an in-flight app-record program loses its heartbeat when the exact App entity is rebound',async()=>{
  await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('program-table','program-org','Details','[]','someone-else','now','now')").run();
  await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('primary-table','program-org','Primary','[]','someone-else','now','now')").run();

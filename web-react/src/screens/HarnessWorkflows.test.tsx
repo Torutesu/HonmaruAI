@@ -696,6 +696,7 @@ test('program and form drafts survive format switches and save whole source',asy
  const format=(value:string)=>tree.root.findByProps({'aria-label':'Workflow format'}).props.onChange({target:{value}});
  await act(async()=>{format('code')});
  expect(button('Save workflow').props.disabled).toBe(true);
+ expect(JSON.stringify(tree.toJSON())).toContain('Workflow programs can run for up to 15 minutes.');
  const code="import {state} from '@honmaru/workflow-sdk';\nawait state.get();\nconsole.log('<safe>');";
  await act(async()=>{tree.root.findByProps({'aria-label':'TypeScript source'}).props.onChange({target:{value:code}})});
  await act(async()=>{tree.root.findByProps({'aria-label':'Execution node'}).props.onChange({target:{value:'mini'}})});
