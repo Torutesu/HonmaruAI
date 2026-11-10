@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-10",
+  "asOf": "2026-11-11",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1064,11 +1064,11 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/proxy/tools-api",
-      "code": "worker/src/mcp.js",
-      "acceptance": "JSON出力・scope・ユーザー/agent principal・終了コード・失敗閉鎖",
+      "code": "packages/cli/src/cli.js",
+      "acceptance": "Room・Message・Threadを含む全操作をCLIで利用可能。JSON出力・scope・ユーザー/agent principal・終了コード・失敗閉鎖",
       "evidence": {
-        "verified": "2026-10-31 main 2481adb0 / PR #569で実行ノード一覧、隔離JavaScript実行のqueue/read/cancel、公開App actionのlist/run/read CLIを追加。既存MCPツールへのaliasとして動作し、サーバーがscope・membership・実行結果の所有者を再検証する。App actionは公開versionを固定し、request IDで再試行を冪等化。SimpleではHarness専用aliasを拒否し、既存Simple tool/callは維持。CLI 24/24テストとPR CI全9ジョブ成功。",
-        "remaining": "Workspace MCPで提供する全操作は未alias（Room/message/Agent/connection/skillなど）。全aliasのJSON・失敗終了コード・user/agent principal・SSO/IP restrictionを含む受入検証と、CLIからの本番実行は未完了。"
+        "verified": "PR #569で実行ノード/App action aliases、PR #881でfile lifecycle aliases、現在の未マージブランチでRoom list/create/read、Message search/get/send、Thread get/msg、Reaction get/add/removeを追加。既存MCP toolへ接続し、Workerがscope・membership・private/DM/file grants・冪等性を再検証する。現ブランチでCLI suite 31/31とWorker mcp-chat suite 31/31が成功。",
+        "remaining": "Room discover/join/leave/archive/update/member管理、Thread create/activate/participants/pin/rename/attach、Message edit/delete/forward、Connections/Agents/Skills、browser/device auth、credential helper、Gateway repair/upgradeは未aliasまたは未実装。全コマンドのJSON・終了コード・user/agent principal・SSO/IP restriction受入とKylonライブ比較も未完了。"
       }
     },
     {

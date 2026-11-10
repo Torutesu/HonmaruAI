@@ -20,6 +20,15 @@ npm install
 npm exec --workspace @honmaru/cli -- honmaru workspace tools
 npm exec --workspace @honmaru/cli -- honmaru workspace tools --json
 npm exec --workspace @honmaru/cli -- honmaru workspace call list_apps
+npm exec --workspace @honmaru/cli -- honmaru workspace room list --query "ops" --type channel
+npm exec --workspace @honmaru/cli -- honmaru workspace room create --name "Launch" --scope private --request-id launch-room-01 --members user_ref_1,user_ref_2
+npm exec --workspace @honmaru/cli -- honmaru workspace room read b:ops --limit 30
+npm exec --workspace @honmaru/cli -- honmaru workspace message search "release approval" --limit 20
+npm exec --workspace @honmaru/cli -- honmaru workspace message get msg_…
+npm exec --workspace @honmaru/cli -- honmaru workspace message send --room b:ops --text "Release is ready" --request-id release-note-01
+npm exec --workspace @honmaru/cli -- honmaru workspace thread get b:ops msg_…
+npm exec --workspace @honmaru/cli -- honmaru workspace thread msg b:ops msg_… --text "I will verify" --request-id verify-reply-01
+npm exec --workspace @honmaru/cli -- honmaru workspace reaction add msg_… --emoji "✅"
 npm exec --workspace @honmaru/cli -- honmaru workspace member list
 npm exec --workspace @honmaru/cli -- honmaru workspace playbook read
 npm exec --workspace @honmaru/cli -- honmaru workspace decision pending --direction mine
@@ -46,7 +55,7 @@ npm exec --workspace @honmaru/cli -- honmaru workspace execution read job_…
 npm exec --workspace @honmaru/cli -- honmaru workspace execution cancel job_…
 ```
 
-Resource commands are concise aliases for the same scoped MCP tools: Apps, tables, rows, workflows, follow-ups, and accessible workspace files. Add `--json` for machine-readable output. `workspace call` remains available for other tools and prints the complete JSON result. The workspace server remains the authority for input validation and permissions; stale row edits are rejected by `--expected-updated-at` compare-and-set checks, and file edits require `--expected-version` from the current file version. File create/update aliases handle UTF-8 text only; binary upload and download are not exposed by this CLI. Review mutating commands and their arguments before running them.
+Resource commands are concise aliases for the same scoped MCP tools: rooms/conversations, messages, threads, Apps, tables, rows, workflows, follow-ups, and accessible workspace files. Add `--json` for machine-readable output. `workspace call` remains available for other tools and prints the complete JSON result. The workspace server remains the authority for input validation and permissions; private Rooms, DMs and file attachments still require their matching token scopes. Message writes need a stable `--request-id` reused only for identical retries; stale row edits are rejected by `--expected-updated-at` compare-and-set checks, and file edits require `--expected-version` from the current file version. File create/update aliases handle UTF-8 text only; binary upload and download are not exposed by this CLI. Review mutating commands and their arguments before running them.
 
 `workspace sdk generate` reads an accessible table's current columns and writes a dependency-free TypeScript module. The generated client exposes typed `listRows`, `createRow`, and `updateRow` methods using column IDs; it does not embed credentials. Pass `apiUrl` and an active API token when creating the client, and regenerate after changing the table schema.
 
@@ -72,4 +81,4 @@ npm exec --workspace @honmaru/cli -- honmaru gateway run
 
 `gateway status` reports whether the macOS LaunchAgent is installed and loaded, including its process state and PID when available. It does not read the service configuration or token. `gateway run` starts the repository's existing outbound-only worker in the foreground; stop it with Ctrl+C. The node token is inherited through the environment and is never added to process arguments or printed. This does not install or manage the launch-at-login service.
 
-The aliases are an incremental CLI surface, not full Kylon CLI parity. Gateway repair/upgrade, browser/device sign-in, secure credential storage, resource commands for Rooms/messages/Agents/connections/Skills and the remaining Kylon command families are still open.
+The aliases are an incremental CLI surface, not full Kylon CLI parity. Room management covers listing, creation, and conversation history; archive, join/leave, notification settings, membership editing, agent assignment, and directory discovery are still open. Thread/message management covers read, search, create replies, and sending, while edit/delete/forward, participant management, pins, title changes, and agent activation are still open. Gateway repair/upgrade, browser/device sign-in, secure credential storage, Connections, Skills, and the remaining Kylon command families are also still open.
