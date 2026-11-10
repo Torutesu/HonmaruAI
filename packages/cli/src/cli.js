@@ -39,6 +39,8 @@ Usage:
   honmaru workspace file versions <file-id> [--before N] [--limit N]
   honmaru workspace file create --scope ROOM --path PATH --request-id file-UUID --text TEXT --content-type MIME
   honmaru workspace file update <file-id> --expected-version N --text TEXT
+  honmaru workspace file delete <file-id> --expected-version N
+  honmaru workspace file revert <file-id> --version N --expected-version N
   honmaru workspace member list
   honmaru workspace playbook read
   honmaru workspace decision pending [--direction mine|sent]
@@ -362,6 +364,18 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
       const expectedVersion = integerOption(options, "expectedVersion", { min: 1, required: true });
       return { tool: "update_file_text", args: { fileId: positional[0], expectedVersion, text: options.text } };
     }
+    case "file delete": {
+      onlyFlags(options, ["expectedVersion"]); positionalCount(positional, 1, "honmaru workspace file delete <file-id> --expected-version N");
+      const expectedVersion = integerOption(options, "expectedVersion", { min: 1, required: true });
+      return { tool: "delete_file", args: { fileId: positional[0], expectedVersion } };
+    }
+    case "file revert": {
+      onlyFlags(options, ["expectedVersion", "version"]); positionalCount(positional, 1, "honmaru workspace file revert <file-id> --version N --expected-version N");
+      const expectedVersion = integerOption(options, "expectedVersion", { min: 1, required: true });
+      const version = integerOption(options, "version", { min: 1, required: true });
+      if (version > expectedVersion) throw new Error("--version must not be newer than --expected-version.");
+      return { tool: "restore_file_version", args: { fileId: positional[0], version, expectedVersion } };
+    }
     case "folders list": {
       onlyFlags(options, ["scope", "directory", "origin", "cursor", "limit", "includeDeleted"]); positionalCount(positional, 0, "honmaru workspace folders list --scope ROOM [options]");
       if (!options.scope || options.scope === "all") throw new Error("--scope is required; choose one accessible Room (folder listing does not support all).");
@@ -448,6 +462,8 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "read_file_text" && typeof value.text === "string") return value.text;
   if (command?.tool === "create_file_text") return `Created file ${value.fileId} as version ${value.version}.`;
   if (command?.tool === "update_file_text") return `Saved file ${value.fileId} as version ${value.version}.`;
+  if (command?.tool === "delete_file") return `Deleted file ${value.fileId} as version ${value.version}; its history can be restored.`;
+  if (command?.tool === "restore_file_version") return `Restored file ${value.fileId} from version ${value.restoredFrom} as version ${value.version}.`;
   if (Array.isArray(value.conversations)) return value.conversations.length ? value.conversations.map((conversation) => `${conversation.id}\t${conversation.type}\t${conversation.name || "(unnamed)"}${conversation.private ? "\tprivate" : ""}`).join("\n") : "No conversations found.";
   if (command?.tool === "create_conversation" && value.conversation) return `${value.created ? "Created" : "Reused"} ${value.conversation.type} ${value.conversation.id}${value.conversation.name ? ` (${value.conversation.name})` : ""}.`;
   if (command?.tool === "send_message" && value.message) return `Sent message ${value.message.id}${value.replayed ? " (idempotent retry)" : ""}.`;

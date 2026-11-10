@@ -312,6 +312,34 @@ test('file edits require write scope and preserve history while rejecting stale 
  expect(await names(writer)).not.toContain('update_file_text');
 });
 
+test('file delete and restore are version-fenced, reversible and require live write authority',async()=>{
+ const {createFileLedger,listFileVersions}=await import('../src/harness/fileVersionLedger.js');
+ const {uploadFileVersion}=await import('../src/harness/fileUpload.js');
+ await env.DB.exec((await import('../workspace-files.sql?raw')).default.replace(/\n/g,' '));
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ const reader=await mint(['read']),writer=await mint(['read','write']);
+ expect(await names(writer)).toEqual(expect.arrayContaining(['delete_file','restore_file_version']));
+ expect(await names(reader)).not.toContain('delete_file');
+ await createFileLedger(env.DB,{orgId:ORG,fileId:'reversible',scope:'workspace',path:'notes/reversible.md',createdBy:'9401'});
+ await uploadFileVersion(env,{orgId:ORG,fileId:'reversible',userId:'9401',expectedVersion:0,size:3,contentType:'text/markdown',stream:new Blob(['old']).stream()});
+ await uploadFileVersion(env,{orgId:ORG,fileId:'reversible',userId:'9401',expectedVersion:1,size:3,contentType:'text/markdown',stream:new Blob(['new']).stream()});
+ const deleteArgs={fileId:'reversible',expectedVersion:2,orgId:'spoof',userId:'spoof'};
+ expect((await tool(reader,'delete_file',deleteArgs)).result.isError).toBe(true);
+ expect((await tool(writer,'delete_file',{...deleteArgs,expectedVersion:1})).result.isError).toBe(true);
+ expect((await tool(writer,'delete_file',deleteArgs)).result.structuredContent).toEqual({fileId:'reversible',version:3,deleted:true});
+ expect((await tool(writer,'delete_file',deleteArgs)).result.isError).toBe(true);
+ expect((await tool(reader,'list_workspace_files',{scope:'workspace'})).result.structuredContent.files).toEqual([]);
+ expect((await tool(reader,'list_workspace_files',{scope:'workspace',includeDeleted:true})).result.structuredContent.files).toEqual([expect.objectContaining({id:'reversible',deleted:true})]);
+ expect((await tool(reader,'read_file_text',{fileId:'reversible',version:1})).result.structuredContent.text).toBe('old');
+ expect((await tool(reader,'restore_file_version',{fileId:'reversible',expectedVersion:3,version:1})).result.isError).toBe(true);
+ expect((await tool(writer,'restore_file_version',{fileId:'reversible',expectedVersion:2,version:1})).result.isError).toBe(true);
+ expect((await tool(writer,'restore_file_version',{fileId:'reversible',expectedVersion:3,version:1})).result.structuredContent).toEqual({fileId:'reversible',version:4,restoredFrom:1,saved:true});
+ expect((await tool(reader,'read_file_text',{fileId:'reversible',version:4})).result.structuredContent.text).toBe('old');
+ expect((await listFileVersions(env.DB,{orgId:ORG,fileId:'reversible',userId:'9401'})).map(v=>[v.version,v.kind,v.isCurrent])).toEqual([[4,'content',true],[3,'deleted',false],[2,'content',false],[1,'content',false]]);
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'simple'})});
+ expect(await names(writer)).not.toContain('delete_file');
+});
+
 test('file editing rejects binary files and current permission loss',async()=>{
  const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
  const {uploadFileVersion}=await import('../src/harness/fileUpload.js');
