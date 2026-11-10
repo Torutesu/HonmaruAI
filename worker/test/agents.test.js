@@ -965,6 +965,35 @@ test('cancellation after starting an agent clears its writing indicator without 
   expect(replies.results).toEqual([]);
 });
 
+test('agent progress stays live-only while the completed answer notifies its requester', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', toru, { orgId: ORG, markdown: HAYAO })).json();
+  await send('POST', '/channels/channel-agents', toru, { orgId: ORG, channel: 'b:cafe', agentId: agent.id });
+  const events = [];
+  const relay = { idFromName: name => name, get: () => ({ fetch: async (_url, init) => {
+    const body = JSON.parse(init.body);
+    events.push(...(body.events || body.deliveries?.map(item => item.event) || []));
+    return new Response('ok');
+  } }) };
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/responses', method: 'POST' })
+    .reply(200, { id: 'progress-reply-final', output_text: 'The final art direction is ready.' });
+
+  const response = await send('POST', '/channels/messages', mika,
+    { orgId: ORG, channel: 'b:cafe', body: '@hayao prepare an art direction' },
+    { OPENAI_API_KEY: 'sk-test', AGENT_INLINE: '1', ORG_RELAY: relay });
+  expect(response.status).toBe(201);
+  const progress = events.filter(event => event.name === 'channel_ai_progress');
+  expect(progress.some(event => event.value.step === 'agent')).toBe(true);
+  expect(progress.some(event => event.value.step === 'done')).toBe(true);
+  const attention = events.filter(event => event.name === 'message_for_you');
+  expect(attention).toHaveLength(1);
+  const pushRows = await env.DB.prepare('SELECT login,reason FROM push_queue WHERE org_id=?1').bind(ORG).all();
+  expect(pushRows.results).toEqual([{ login: 'mika', reason: 'thread' }]);
+  const final = await env.DB.prepare("SELECT id,body FROM channel_messages WHERE org_id=?1 AND kind='agent' AND body=?2")
+    .bind(ORG, 'The final art direction is ready.').first();
+  expect(final).not.toBeNull();
+  expect(attention[0].value.id).toBe(final.id);
+});
+
 test('handoff retains the human origin but resolves only the explicitly assigned eligible room agent', async () => {
   const {agent: source} = await (await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO})).json();
   const {agent: target} = await (await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO.replaceAll('Hayao','Reviewer').replaceAll('hayao','reviewer')})).json();
