@@ -20,6 +20,7 @@ import { relevantMemories, playbookBlock } from "./memory.js";
 import { noteUsage } from "./ledger.js";
 import { research as researchLoop, canResearch, readResponse } from "./agentResearch.js";
 import {chatTools, canChatTools} from "./agentChatTools.js";
+import { agentSubagentTool } from "./agentSubagents.js";
 
 export { readResponse };
 import { chooseRoomAgent } from "./harness/roomRouting.js";
@@ -505,7 +506,7 @@ Research — whenever the request needs facts from outside this chat (anything c
 /// helpers: `called` is whether a model was paid for. `tools` are the
 /// function tools it may call while researching (see agentResearch.js);
 /// `env` names the research model.
-export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, authorize = null, harnessTools = false, signal = null, usageContext = null }) {
+export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, authorize = null, harnessTools = false, allowSubagents = true, signal = null, usageContext = null }) {
   if (!provider) return { called: false, answer: null };
   if (signal?.aborted || (authorize && !await authorize())) return { called: false, answer: null, cancelled: true };
   const today = new Date().toISOString().slice(0, 10);
@@ -519,23 +520,30 @@ ${transcript.length ? transcript.join("\n") : "(nothing said before)"}
 </conversation>
 ${playbookBlock(playbook)}${research ? `\n<team_knowledge>\n${research.slice(0, 5000)}</team_knowledge>\nUse this where it answers the request; name the decision or page you drew on.\n` : ""}${links}
 Request to you (@${agent.handle}): ${request || "(no words beyond your name — help with the conversation above)"}`;
+  // Parallel helpers are a Harness-only capability. They inherit only the
+  // caller's already scoped read tools; Simple and legacy agent calls stay put.
+  const activeTools = { ...tools };
+  if (harnessTools && allowSubagents) {
+    const delegate = agentSubagentTool({ provider, env, agent, parentInput: user, tools, language: readerLanguage, deadline, authorize, usageContext });
+    if (delegate) activeTools.delegate_subagents = delegate;
+  }
   // With OpenAI, a research loop: a reasoning model, web search, and our
   // tools (agentResearch.js). A model or key that cannot do it tries once
   // more with the workspace's own model and the search tool bare, and
   // failing that answers the ordinary way.
-  if (harnessTools && canChatTools(provider) && Object.keys(tools).length) {
-    const instructions = agent.researchInstructions && tools.read_installed_skill
+  if (harnessTools && canChatTools(provider) && Object.keys(activeTools).length) {
+    const instructions = agent.researchInstructions && activeTools.read_installed_skill
       ? `${RULES}\n\nToday is ${today}.\n\nYou are ${agent.name} (@${agent.handle}).\n\n<agent_instructions>\n${agent.researchInstructions}\n</agent_instructions>` : system;
-    const out = await chatTools({provider, instructions, input: user, tools, authorize, onRound, deadline, signal, usageContext});
+    const out = await chatTools({provider, instructions, input: user, tools: activeTools, authorize, onRound, deadline, signal, usageContext});
     return {...out, answer: out.answer ? forChat(out.answer).slice(0, MAX_ANSWER) : null};
   }
   if (canResearch(provider)) {
     // A shared video or page whose words could not be read: the agent
     // looks for them elsewhere before it answers.
     const mustLook = /Transcript: could not be read/.test(links);
-    const researchSystem = agent.researchInstructions && tools.read_installed_skill
+    const researchSystem = agent.researchInstructions && activeTools.read_installed_skill
       ? `${RULES}\n\nToday is ${today}.\n\nYou are ${agent.name} (@${agent.handle}).\n\n<agent_instructions>\n${agent.researchInstructions}\n</agent_instructions>` : system;
-    const opts = { provider, env, instructions: researchSystem, input: user, tools, language: readerLanguage, deadline, onRound, mustLook, authorize, signal, usageContext };
+    const opts = { provider, env, instructions: researchSystem, input: user, tools: activeTools, language: readerLanguage, deadline, onRound, mustLook, authorize, signal, usageContext };
     let out = await runResearch(opts);
     // The retry keeps our own tools — reading a page is what most answers
     // need — and drops only what a plain model might refuse.
