@@ -112,6 +112,21 @@ describe('WebSocketClient', () => {
     expect(afterToolCall.cardsById).not.toBe(afterSnapshot.cardsById)
   })
 
+  it('forwards workspace AI budget notices to the active app only with a valid scope', async () => {
+    const target = new EventTarget()
+    vi.stubGlobal('window', target)
+    const received: any[] = []
+    target.addEventListener('honmaru:workspace-ai-budget-reached', (event: Event) => received.push((event as CustomEvent).detail))
+    const { socket } = await connectedClient()
+
+    socket.emit({ type:'CUSTOM', name:'workspace_ai_budget_reached', value:{orgId:'core-team',periods:['24h'],revision:3} })
+    socket.emit({ type:'CUSTOM', name:'workspace_ai_budget_reached', value:{orgId:'core-team',periods:'24h',revision:3} })
+    socket.emit({ type:'CUSTOM', name:'workspace_ai_budget_reached', value:{orgId:'core-team',periods:['24h']} })
+    socket.emit({ type:'CUSTOM', name:'workspace_ai_budget_reached', value:{orgId:'core-team',periods:['24h'],revision:-1} })
+
+    expect(received).toEqual([{orgId:'core-team',periods:['24h'],revision:3}])
+  })
+
   it('sendDecision attributes the decision to the userId passed to connect(), not localStorage', async () => {
     const { client, socket } = await connectedClient('user-bob')
     socket.emit({ type: 'STATE_SNAPSHOT', snapshot: { cardsById: { 'card-1': { id: 'card-1' } } } })

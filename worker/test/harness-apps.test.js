@@ -2397,6 +2397,43 @@ test('App connection grant lists only metadata, decrypts as its owner, and revoc
  } finally {vi.unstubAllGlobals();useSecretKey({});}
 });
 
+test('a different current Agent member can explicitly grant their own App connection',async()=>{
+ const {app}=await makeDirectAgentApp({access:'people',people:['toru','mika']});
+ const {useSecretKey}=await import('../src/secrets.js');
+ const keyEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ const fetch=vi.fn(async()=>new Response(JSON.stringify({viewer:'authorized'}),{headers:{'content-type':'application/json'}}));
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const save=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'save',name:'mika_api',version:0,endpoint:'https://api.github.com/user',method:'GET',token:'MIKA_OWNED_SYNTHETIC_TOKEN'});
+  expect(save.status,JSON.stringify(await save.clone().json())).toBe(200);
+  const listed=await(await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,mika)).json();
+  expect(listed.connections).toContainEqual(expect.objectContaining({name:'mika_api',owned:true,canShare:true,sourceAgentName:'Connection Agent'}));
+  const grant=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'grant',name:'mika_api'});
+  expect(grant.status,JSON.stringify(await grant.clone().json())).toBe(200);
+  const invoke=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'request',name:'mika_api',version:1});
+  expect(invoke.status,JSON.stringify(await invoke.clone().json())).toBe(200);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch.mock.calls[0][1].headers.authorization).toBe('Bearer MIKA_OWNED_SYNTHETIC_TOKEN');
+  expect(JSON.stringify(listed)).not.toContain('MIKA_OWNED_SYNTHETIC_TOKEN');
+ } finally {vi.unstubAllGlobals();useSecretKey({});}
+});
+
+test('a member without current source-Agent access cannot grant their own App connection',async()=>{
+ const {app,agentId}=await makeDirectAgentApp({access:'people',people:['toru']});
+ const save=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'save',name:'mika_api',version:0,endpoint:'https://api.github.com/user',method:'GET'});
+ expect(save.status).toBe(200);
+ const listed=await(await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,mika)).json();
+ expect(listed.connections).toContainEqual(expect.objectContaining({name:'mika_api',owned:true,canShare:false}));
+ const grant=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'grant',name:'mika_api'});
+ expect(grant.status).toBe(403);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).toEqual({n:0});
+ await env.DB.prepare("UPDATE hx_agent_profiles SET people='[\"mika\"]' WHERE org_id=? AND agent_id=?").bind(ORG,agentId).run();
+ const stillPrivate=(await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'grant',name:'mika_api'}));
+ expect(stillPrivate.status).toBe(200);
+});
+
 test('shared connection rechecks App and both source-Agent ACLs and discards a revoked in-flight result',async()=>{
  const {app,agentId}=await makeDirectAgentApp({access:'people',people:['toru','mika']},'mika');
  const {useSecretKey}=await import('../src/secrets.js');

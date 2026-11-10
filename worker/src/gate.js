@@ -1,7 +1,9 @@
 import { isPro } from "./entitlements.js";
 import { countAIUse, reserveAIUse, releaseAIUse } from "./db.js";
-import { workspaceBudgetAdmission } from "./workspaceAIBudget.js";
+import { claimWorkspaceBudgetNotice, workspaceBudgetAdmission } from "./workspaceAIBudget.js";
 import { cancelDeploymentBudgetWorkflowRuns } from "./workspaceBudgetStop.js";
+import { announceTo } from "./announce.js";
+import { custom as customEvent } from "./agui/events.js";
 
 export const FREE_DAILY_ROUTES = 3;
 
@@ -94,6 +96,15 @@ export async function allowanceFor(env, orgId, { githubId, userKey, credentialSo
       if (budget.reason === 'workspace_ai_budget') {
         try { await cancelDeploymentBudgetWorkflowRuns(env.DB, orgId); }
         catch (err) { console.error("workspace budget workflow stop failed", err?.message || err); }
+        try {
+          const notice = await claimWorkspaceBudgetNotice(env.DB, orgId, budget.budget);
+          if (notice?.logins?.length) {
+            await announceTo(env, orgId, notice.logins.map((login) => ({
+              to: login,
+              event: customEvent('workspace_ai_budget_reached', { orgId, periods: notice.periods, revision: notice.revision }),
+            })));
+          }
+        } catch (err) { console.error("workspace AI budget notice failed", err?.message || err); }
       }
       return {
       ...DENIED_WORKSPACE_BUDGET,
