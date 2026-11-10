@@ -4,6 +4,7 @@ import { sha256Hex } from "./auth.js";
 import { addRow, updateRow, deleteRow } from "./harness/tables.js";
 import { deliverExternalInvite } from "./externalInviteMail.js";
 import { MAX_PREVIEW_SOURCE, validateSource } from "./harness/customApps.js";
+import { resourceAudienceAccessSql, resourceAudiencePermission, listResourceAudienceRooms, readResourceAudience, writeResourceAudience } from "./harness/externalResourceAudiences.js";
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -44,33 +45,46 @@ function publishedCustomSource(definition) {
   } catch { return null; }
 }
 
+function sendRequestAccessSql(requestAlias, userExpr, nowExpr) {
+  const direct = resourceAudienceAccessSql({resourceType:'app',org:`${requestAlias}.org_id`,resource:`${requestAlias}.app_id`,user:userExpr,now:nowExpr,requiredPermission:'view'});
+  const group = resourceAudienceAccessSql({resourceType:'app',org:`${requestAlias}.org_id`,resource:`${requestAlias}.app_id`,user:userExpr,now:nowExpr,requiredPermission:'view',audienceOnly:true});
+  return `((NOT EXISTS(SELECT 1 FROM hx_external_audience_requests ar WHERE ar.request_id=${requestAlias}.id)
+       AND ${direct}) OR EXISTS(SELECT 1 FROM hx_external_audience_requests ar
+       WHERE ar.request_id=${requestAlias}.id AND ar.org_id=${requestAlias}.org_id AND ar.resource_type='app'
+         AND ar.resource_id=${requestAlias}.app_id AND ar.guest_github_id=${userExpr}
+         AND ${group} AND EXISTS(SELECT 1 FROM hx_external_resource_audiences current
+           WHERE current.org_id=ar.org_id AND current.resource_type='app' AND current.resource_id=ar.resource_id
+             AND current.version=ar.audience_version AND current.audience_type IS NOT NULL
+             AND (current.expires_at IS NULL OR current.expires_at>${nowExpr}))))`;
+}
+
 export function externalAppWriteGuard(orgId, appId, userId, tableId) {
   return {
     binds: [orgId, appId, userId, tableId],
     sql(start) {
-      return `EXISTS(SELECT 1 FROM hx_apps a JOIN hx_external_resource_grants g ON g.org_id=a.org_id AND g.resource_type='app' AND g.resource_id=a.id WHERE a.org_id=?${start} AND a.id=?${start+1} AND g.recipient_github_id=?${start+2} AND g.permission='edit' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')) AND (a.table_id=?${start+3} OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?${start+3})) AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=a.org_id AND s.mode='harness') AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=a.org_id AND m.user_github_id=?${start+2}) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))`;
+      return `EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?${start} AND a.id=?${start+1} AND ${resourceAudienceAccessSql({resourceType:'app',org:`a.org_id`,resource:'a.id',user:`?${start+2}`,now:"strftime('%Y-%m-%dT%H:%M:%fZ','now')",requiredPermission:'edit'})} AND (a.table_id=?${start+3} OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=?${start+3})) AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=a.org_id AND s.mode='harness') AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))`;
     },
   };
 }
 
 async function liveEditGrant(db, orgId, appId, userId) {
-  const row = await db.prepare("SELECT 1 FROM hx_external_resource_grants g JOIN hx_apps a ON a.org_id=g.org_id AND a.id=g.resource_id WHERE g.org_id=?1 AND g.resource_type='app' AND g.resource_id=?2 AND g.recipient_github_id=?3 AND g.permission='edit' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?3) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)")
+  const row = await db.prepare(`SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND ${resourceAudienceAccessSql({resourceType:'app',org:'a.org_id',resource:'a.id',user:'?3',now:'?4',requiredPermission:'edit'})} AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id)`)
     .bind(orgId, appId, userId, new Date().toISOString()).first();
   return Boolean(row);
 }
 async function appAccess(db, env, orgId, appId, userId) {
   if ((await getMode(db, orgId)) !== "harness") return null;
-  const row = await db.prepare(`SELECT a.id,a.name,a.description,a.icon,a.table_id,a.version,a.definition,a.created_at,a.updated_at,g.permission
+  const row = await db.prepare(`SELECT a.id,a.name,a.description,a.icon,a.table_id,a.version,a.definition,a.created_at,a.updated_at,
+      ${resourceAudiencePermissionSql({resourceType:'app',org:'a.org_id',resource:'a.id',user:'?3',now:'?4'})} AS permission
     FROM hx_apps a
-    JOIN hx_external_resource_grants g ON g.org_id=a.org_id AND g.resource_type='app' AND g.resource_id=a.id
-      AND g.recipient_github_id=?3 AND g.revoked_at IS NULL
-      AND (g.expires_at IS NULL OR g.expires_at>?4)
     WHERE a.org_id=?1 AND a.id=?2
-      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=a.org_id AND member.user_github_id=?3)
+      AND (${resourceAudienceAccessSql({resourceType:'app',org:'a.org_id',resource:'a.id',user:'?3',now:'?4'})})
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id)`)
     .bind(orgId, appId, userId, new Date().toISOString()).first();
-  return row ? { app: row, permission: row.permission } : null;
+  if (!row?.permission) return null;
+  const audience = await resourceAudiencePermission(db,{orgId,resourceType:'app',resourceId:appId,githubId:userId});
+  return { app: row, permission: row.permission, audienceVersion: audience?.audienceVersion ?? null, source: audience?.source || 'grant' };
 }
 
 async function linkedTable(db, orgId, appId, tableId, userId) {
@@ -79,10 +93,7 @@ async function linkedTable(db, orgId, appId, tableId, userId) {
     WHERE t.org_id=?1 AND t.id=?3
       AND (a.table_id=t.id OR EXISTS(
         SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=t.id))
-      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=a.org_id AND g.resource_type='app'
-        AND g.resource_id=a.id AND g.recipient_github_id=?4 AND g.revoked_at IS NULL
-        AND (g.expires_at IS NULL OR g.expires_at>?5)
-        AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=a.org_id AND m.user_github_id=?4))
+      AND ${resourceAudienceAccessSql({resourceType:'app',org:'a.org_id',resource:'a.id',user:'?4',now:'?5'})}
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id)`)
     .bind(orgId, appId, tableId, userId, new Date().toISOString()).first();
@@ -132,10 +143,7 @@ async function readRows(db, orgId, appId, table, url, userId, rowId = null) {
           AND (a.table_id=?2 OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?1 AND e.app_id=?4 AND e.table_id=?2)))
         AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
         AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)
-        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1 AND g.resource_type='app'
-          AND g.resource_id=?4 AND g.recipient_github_id=?5 AND g.revoked_at IS NULL
-          AND (g.expires_at IS NULL OR g.expires_at>?6)
-          AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?5))`)
+        AND ${resourceAudienceAccessSql({resourceType:'app',org:'?1',resource:'?4',user:'?5',now:'?6'})}`)
       .bind(orgId, table.id, rowId, appId, userId, new Date().toISOString()).first();
     return row ? [formatRow(row, columns)] : null;
   }
@@ -149,10 +157,7 @@ async function readRows(db, orgId, appId, table, url, userId, rowId = null) {
         AND (a.table_id=?2 OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?1 AND e.app_id=?3 AND e.table_id=?2)))
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)
-      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1 AND g.resource_type='app'
-        AND g.resource_id=?3 AND g.recipient_github_id=?6 AND g.revoked_at IS NULL
-        AND (g.expires_at IS NULL OR g.expires_at>?7)
-        AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?6))
+      AND ${resourceAudienceAccessSql({resourceType:'app',org:'?1',resource:'?3',user:'?6',now:'?7'})}
     ORDER BY position,id LIMIT ?4 OFFSET ?5`)
     .bind(orgId, table.id, appId, limit, offset, userId, new Date().toISOString()).all();
   return results.map((row) => formatRow(row, columns));
@@ -181,10 +186,7 @@ async function readConversation(db, orgId, appId, userId, scope) {
       AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2
         AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
         AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1))
-      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1 AND g.resource_type='app'
-        AND g.resource_id=?2 AND g.recipient_github_id=?5 AND g.revoked_at IS NULL
-        AND (g.expires_at IS NULL OR g.expires_at>?6)
-        AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?5))
+      AND ${resourceAudienceAccessSql({resourceType:'app',org:'?1',resource:'?2',user:'?5',now:'?6'})}
       AND (?3='' OR EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND a.table_id=?3)
         OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?1 AND e.app_id=?2 AND e.table_id=?3))
       AND (?4='' OR EXISTS(SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=?3 AND r.id=?4))
@@ -213,12 +215,17 @@ async function conversation(request, env, url, orgId, appId, actor, access) {
     if (!body || body.length > 4000) return fail("A message must be 1–4000 characters.", 400);
     const at = new Date().toISOString();
     const id = "xas_" + crypto.randomUUID().replaceAll("-", "");
-    const inserted = await env.DB.prepare("INSERT OR IGNORE INTO hx_external_app_send_requests (id,org_id,app_id,table_id,row_id,guest_github_id,body,status,requested_at) SELECT ?1,?2,?3,?4,?5,?6,?7,'pending',?8 WHERE EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2 AND g.resource_type='app' AND g.resource_id=?3 AND g.recipient_github_id=?6 AND g.permission='view' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8)) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?6) AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=?2 AND s.mode='harness') AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?3 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?2 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?2)) AND (?4='' OR EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?3 AND a.table_id=?4) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?2 AND e.app_id=?3 AND e.table_id=?4)) AND (?5='' OR EXISTS(SELECT 1 FROM hx_rows r WHERE r.org_id=?2 AND r.table_id=?4 AND r.id=?5))")
+    const audienceFence = resourceAudienceAccessSql({resourceType:'app',org:'?2',resource:'?3',user:'?6',now:'?8',requiredPermission:'view',audienceVersion:access.source==='audience'?access.audienceVersion:null,...(access.source==='audience'?{audienceOnly:true}:{})});
+    const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO hx_external_app_send_requests (id,org_id,app_id,table_id,row_id,guest_github_id,body,status,requested_at) SELECT ?1,?2,?3,?4,?5,?6,?7,'pending',?8 WHERE ${audienceFence} AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=?2 AND s.mode='harness') AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?3 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?2 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?2)) AND (?4='' OR EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?3 AND a.table_id=?4) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?2 AND e.app_id=?3 AND e.table_id=?4)) AND (?5='' OR EXISTS(SELECT 1 FROM hx_rows r WHERE r.org_id=?2 AND r.table_id=?4 AND r.id=?5))`)
       .bind(id, orgId, appId, scope.tableId, scope.rowId, actor.user.github_id, body, at).run();
+    if (Number(inserted.meta?.changes || 0) && access.source === 'audience') {
+      await env.DB.prepare(`INSERT OR IGNORE INTO hx_external_audience_requests (request_id,org_id,resource_type,resource_id,guest_github_id,audience_version,created_at) SELECT ?1,?2,'app',?3,?4,?5,?6 WHERE ${resourceAudienceAccessSql({resourceType:'app',org:'?2',resource:'?3',user:'?4',now:'?6',requiredPermission:'view',audienceVersion:access.audienceVersion,audienceOnly:true})}`)
+        .bind(id,orgId,appId,actor.user.github_id,access.audienceVersion,at).run();
+    }
     const request = Number(inserted.meta?.changes || 0)
       ? { id }
-      : await env.DB.prepare("SELECT id FROM hx_external_app_send_requests WHERE org_id=?1 AND app_id=?2 AND table_id=?3 AND row_id=?4 AND guest_github_id=?5 AND status='pending'")
-        .bind(orgId, appId, scope.tableId, scope.rowId, actor.user.github_id).first();
+      : await env.DB.prepare(`SELECT r.id FROM hx_external_app_send_requests r WHERE r.org_id=?1 AND r.app_id=?2 AND r.table_id=?3 AND r.row_id=?4 AND r.guest_github_id=?5 AND r.status='pending' AND ${sendRequestAccessSql('r','?5','?6')}`)
+        .bind(orgId, appId, scope.tableId, scope.rowId, actor.user.github_id, at).first();
     return request?.id ? json({ requestId: request.id, status: "pending" }, inserted.meta?.changes ? 201 : 200) : fail("App access was revoked.", 404);
   }
   if (access.permission !== "edit") return fail("An edit grant is required to send a message.", 403);
@@ -228,14 +235,11 @@ async function conversation(request, env, url, orgId, appId, actor, access) {
     return fail("A message and valid requestId are required.", 400);
   }
   const at = new Date().toISOString();
-  const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO hx_app_messages
+    const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO hx_app_messages
       (org_id,app_id,table_id,row_id,author_id,request_id,body,created_at)
     SELECT ?1,?2,?3,?4,?5,?6,?7,?8
-    WHERE EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1 AND g.resource_type='app'
-      AND g.resource_id=?2 AND g.recipient_github_id=?5 AND g.permission='edit' AND g.revoked_at IS NULL
-      AND (g.expires_at IS NULL OR g.expires_at>?8)
+    WHERE ${resourceAudienceAccessSql({resourceType:'app',org:'?1',resource:'?2',user:'?5',now:'?8',requiredPermission:'edit'})}
       AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=?1 AND s.mode='harness')
-      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?5))
       AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2
         AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
         AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1))
@@ -245,10 +249,7 @@ async function conversation(request, env, url, orgId, appId, actor, access) {
     .bind(orgId, appId, scope.tableId, scope.rowId, actor.user.github_id, requestId, body, at).run();
   const message = await env.DB.prepare(`SELECT m.sequence,m.body,m.created_at FROM hx_app_messages m
     WHERE m.org_id=?1 AND m.app_id=?2 AND m.table_id=?3 AND m.row_id=?4 AND m.author_id=?5 AND m.request_id=?6
-      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=m.org_id AND g.resource_type='app'
-        AND g.resource_id=m.app_id AND g.recipient_github_id=?5 AND g.permission='edit' AND g.revoked_at IS NULL
-        AND (g.expires_at IS NULL OR g.expires_at>?7)
-        AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=m.org_id AND member.user_github_id=?5))
+      AND ${resourceAudienceAccessSql({resourceType:'app',org:'m.org_id',resource:'m.app_id',user:'?5',now:'?7',requiredPermission:'edit'})}
       AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=m.org_id AND a.id=m.app_id
         AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=m.org_id AND d.purge_started_at IS NOT NULL)
         AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=m.org_id))
@@ -286,8 +287,8 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
   if (!manager) return fail();
   const customUnsupported = isCustomApp(manager.definition) && !publishedCustomSource(manager.definition);
   if (parts.length === 6 && parts[5] === "requests" && request.method === "GET") {
-    const rows = await env.DB.prepare("SELECT r.id,r.table_id AS tableId,r.row_id AS rowId,r.guest_github_id AS guestGithubId,u.name,u.login,u.email,r.body,r.requested_at AS requestedAt FROM hx_external_app_send_requests r JOIN users u ON u.github_id=r.guest_github_id WHERE r.org_id=?1 AND r.app_id=?2 AND r.status='pending' ORDER BY r.requested_at")
-      .bind(orgId, appId).all();
+    const rows = await env.DB.prepare(`SELECT r.id,r.table_id AS tableId,r.row_id AS rowId,r.guest_github_id AS guestGithubId,u.name,u.login,u.email,r.body,r.requested_at AS requestedAt FROM hx_external_app_send_requests r JOIN users u ON u.github_id=r.guest_github_id WHERE r.org_id=?1 AND r.app_id=?2 AND r.status='pending' AND ${sendRequestAccessSql('r','r.guest_github_id','?3')} ORDER BY r.requested_at`)
+      .bind(orgId, appId, new Date().toISOString()).all();
     return json({ requests: rows.results || [] });
   }
   if (parts.length === 7 && parts[5] === "requests" && request.method === "POST") {
@@ -297,7 +298,7 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
       .bind(orgId, appId, parts[6]).first();
     if (!row || row.status !== "pending") return fail("Request not found or already decided.");
     if (input.decision === "reject") {
-      const result = await env.DB.prepare(`UPDATE hx_external_app_send_requests SET status='rejected',decided_at=?1,decided_by=?2 WHERE org_id=?3 AND app_id=?4 AND id=?5 AND status='pending' AND ${sharingManagerWriteGuard('?3','?4','?2')}`)
+      const result = await env.DB.prepare(`UPDATE hx_external_app_send_requests AS r SET status='rejected',decided_at=?1,decided_by=?2 WHERE r.org_id=?3 AND r.app_id=?4 AND r.id=?5 AND r.status='pending' AND ${sendRequestAccessSql('r','r.guest_github_id','?1')} AND ${sharingManagerWriteGuard('?3','?4','?2')}`)
         .bind(new Date().toISOString(), actor.user.github_id, orgId, appId, row.id).run();
       return Number(result.meta?.changes || 0) ? json({ rejected: true }) : fail("Request not found or already decided.");
     }
@@ -307,7 +308,7 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
     const messageId = "xappr_" + crypto.randomUUID().replaceAll("-", "");
     const requestId = "xasr_" + row.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
     const writes = await env.DB.batch([
-      env.DB.prepare(`INSERT OR IGNORE INTO hx_app_messages (org_id,app_id,table_id,row_id,author_id,request_id,body,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE EXISTS(SELECT 1 FROM hx_external_app_send_requests r WHERE r.org_id=?1 AND r.app_id=?2 AND r.id=?9 AND r.status='pending') AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1 AND g.resource_type='app' AND g.resource_id=?2 AND g.recipient_github_id=?5 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?5)) AND (?3='' OR EXISTS(SELECT 1 FROM hx_apps scoped WHERE scoped.org_id=?1 AND scoped.id=?2 AND scoped.table_id=?3) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?1 AND e.app_id=?2 AND e.table_id=?3)) AND (?4='' OR EXISTS(SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=?3 AND r.id=?4)) AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1) AND ${sharingManagerWriteGuard('?1','?2','?10')})`)
+      env.DB.prepare(`INSERT OR IGNORE INTO hx_app_messages (org_id,app_id,table_id,row_id,author_id,request_id,body,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE EXISTS(SELECT 1 FROM hx_external_app_send_requests r WHERE r.org_id=?1 AND r.app_id=?2 AND r.id=?9 AND r.status='pending' AND ${sendRequestAccessSql('r','?5','?8')}) AND ${resourceAudienceAccessSql({resourceType:'app',org:'?1',resource:'?2',user:'?5',now:'?8'})} AND (?3='' OR EXISTS(SELECT 1 FROM hx_apps scoped WHERE scoped.org_id=?1 AND scoped.id=?2 AND scoped.table_id=?3) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=?1 AND e.app_id=?2 AND e.table_id=?3)) AND (?4='' OR EXISTS(SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=?3 AND r.id=?4)) AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1) AND ${sharingManagerWriteGuard('?1','?2','?10')})`)
         .bind(orgId, appId, row.table_id, row.row_id, row.guest_github_id, requestId, row.body, at, row.id, actor.user.github_id),
       env.DB.prepare(`UPDATE hx_external_app_send_requests SET status='approved',decided_at=?1,decided_by=?2,message_id=?3 WHERE org_id=?4 AND app_id=?5 AND id=?6 AND status='pending' AND EXISTS(SELECT 1 FROM hx_app_messages m WHERE m.org_id=?4 AND m.app_id=?5 AND m.table_id=?7 AND m.row_id=?8 AND m.author_id=?9 AND m.request_id=?10) AND ${sharingManagerWriteGuard('?4','?5','?2')}`)
         .bind(at, actor.user.github_id, messageId, orgId, appId, row.id, row.table_id, row.row_id, row.guest_github_id, requestId),
@@ -439,7 +440,7 @@ export async function handleExternalApps(request, env, url) {
   }
   if (parts.length === 5 && parts[4] === "tables") {
     if (request.method !== "GET") return fail("Method not allowed.", 405);
-    const tables = await env.DB.prepare("SELECT t.id,t.name,t.columns,t.created_at AS createdAt,t.updated_at AS updatedAt,CASE WHEN t.id=a.table_id THEN 'primary' ELSE COALESCE((SELECT e.entity_key FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=t.id ORDER BY e.entity_key LIMIT 1),'') END AS key FROM hx_tables t JOIN hx_apps a ON a.org_id=t.org_id AND a.id=?2 WHERE t.org_id=?1 AND (a.table_id=t.id OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=t.id)) AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=a.org_id AND g.resource_type='app' AND g.resource_id=a.id AND g.recipient_github_id=?3 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4)) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=a.org_id AND m.user_github_id=?3) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones tombstone WHERE tombstone.org_id=a.org_id) ORDER BY CASE WHEN t.id=a.table_id THEN 0 ELSE 1 END,t.name")
+    const tables = await env.DB.prepare(`SELECT t.id,t.name,t.columns,t.created_at AS createdAt,t.updated_at AS updatedAt,CASE WHEN t.id=a.table_id THEN 'primary' ELSE COALESCE((SELECT e.entity_key FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=t.id ORDER BY e.entity_key LIMIT 1),'') END AS key FROM hx_tables t JOIN hx_apps a ON a.org_id=t.org_id AND a.id=?2 WHERE t.org_id=?1 AND (a.table_id=t.id OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.table_id=t.id)) ${resourceAudienceAccessSql({resourceType:'app',org:'a.org_id',resource:'a.id',user:'?3',now:'?4'})} AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones tombstone WHERE tombstone.org_id=a.org_id) ORDER BY CASE WHEN t.id=a.table_id THEN 0 ELSE 1 END,t.name`)
       .bind(orgId, appId, actor.user.github_id, new Date().toISOString()).all();
     return json({ tables: (tables.results || []).map(table => ({ ...table, columns: parseColumns(table.columns) })) });
   }

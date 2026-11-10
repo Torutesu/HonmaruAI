@@ -80,3 +80,21 @@ test('external File invitation API returns a one-time redeem link and can revoke
  expect((await api.revokeExternalInvite('file/one','invite-1')).revoked).toBe(true)
  expect(fetcher.mock.calls[2][0]).toContain('/external-grant-invites/invite-1?orgId=org')
 })
+
+test('File audience API reads Rooms and sends versioned compare-and-set updates',async()=>{
+ const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({audience:null,version:4,rooms:[{id:'room-1',name:'Design'}]}))).mockResolvedValueOnce(new Response(JSON.stringify({audience:{type:'room',roomId:'room-1',permission:'edit',expiresAt:null,version:5},version:5,rooms:[{id:'room-1',name:'Design'}]})))
+ vi.stubGlobal('fetch',fetcher)
+ const api=workspaceFileApi('https://api.example','org one','session')
+ expect(await api.externalAudience('file/one')).toMatchObject({version:4,rooms:[{id:'room-1',name:'Design'}]})
+ expect(fetcher.mock.calls[0][0]).toBe('https://api.example/hx/files/file%2Fone/external-audience?orgId=org+one')
+ await api.updateExternalAudience('file/one',{version:4,type:'room',roomId:'room-1',permission:'edit',expiresAt:null})
+ expect(fetcher.mock.calls[1][1].method).toBe('PUT')
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({version:4,type:'room',roomId:'room-1',permission:'edit',expiresAt:null})
+})
+
+test('File audience API preserves CAS conflicts for a reload instead of retrying',async()=>{
+ const fetcher=vi.fn().mockResolvedValue(new Response('{"message":"Room changed"}',{status:409}));vi.stubGlobal('fetch',fetcher)
+ const api=workspaceFileApi('https://api.example','org','session')
+ await expect(api.updateExternalAudience('file',{version:2,type:'workspace',permission:'view'})).rejects.toMatchObject({status:409})
+ expect(fetcher).toHaveBeenCalledTimes(1)
+})

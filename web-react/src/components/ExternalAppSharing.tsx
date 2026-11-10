@@ -6,6 +6,7 @@ interface Guest { githubId: string; login: string; name?: string | null; email?:
 interface Invite { id: string; invitedEmail: string; permission: 'view' | 'edit'; accessExpiresAt: string | null; inviteExpiresAt: string }
 interface SendRequest { id: string; tableId: string; rowId: string; guestGithubId: string; name?: string | null; login: string; email?: string | null; body: string; requestedAt: string }
 interface ShareState { guests: Guest[]; invites: Invite[]; requests: SendRequest[]; canManage: boolean; customUnsupported?: boolean }
+interface AudienceState { audience: null | { type: 'workspace'|'room'; roomId?: string; permission: 'view'|'edit'; expiresAt: string|null; version: number }; version: number; rooms: Array<{id:string;name:string}> }
 const headers = (sessionToken: string, json = false) => ({ 'x-session-token': sessionToken, ...(json ? { 'content-type': 'application/json' } : {}) })
 
 export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { httpBase: string; orgId: string; sessionToken: string; appId: string }) {
@@ -19,7 +20,12 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
   const [copyStatus, setCopyStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [audience, setAudience] = useState<AudienceState|null>(null)
+  const [audienceType, setAudienceType] = useState<'none'|'workspace'|'room'>('none')
+  const [audienceRoom, setAudienceRoom] = useState('')
+  const [audiencePermission, setAudiencePermission] = useState<'view'|'edit'>('view')
   const base = `${httpBase}/external/apps/${encodeURIComponent(orgId)}/${encodeURIComponent(appId)}/sharing`
+  const audienceUrl = `${httpBase}/hx/apps/${encodeURIComponent(appId)}/external-audience?orgId=${encodeURIComponent(orgId)}`
   const loadSharing = useCallback(async (signal?: AbortSignal) => {
     const res = await fetch(base, { headers: headers(sessionToken), signal })
     if (res.status === 404 || res.status === 403) { setSharing(null); return }
@@ -34,7 +40,13 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
       canManage: data.canManage === true,
       customUnsupported: data.customUnsupported === true,
     })
-  }, [base, sessionToken])
+    const audienceRes = await fetch(audienceUrl, { headers: headers(sessionToken), signal })
+    if (audienceRes.ok) {
+      const current = await audienceRes.json() as AudienceState
+      setAudience(current); setAudienceType(current.audience?.type || 'none'); setAudienceRoom(current.audience?.roomId || '')
+      setAudiencePermission(current.audience?.permission || 'view')
+    }
+  }, [base, audienceUrl, sessionToken])
   useEffect(() => {
     const controller = new AbortController()
     setError(''); setSharing(null)
@@ -98,9 +110,27 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(false) }
   }
+  const saveAudience = async () => {
+    if (!audience) return
+    setBusy(true); setError('')
+    try {
+      const res = await fetch(audienceUrl, { method:'PUT', headers:headers(sessionToken,true), body:JSON.stringify({version:audience.version,type:audienceType==='none'?null:audienceType,roomId:audienceType==='room'?audienceRoom:null,permission:audienceType==='none'?null:audiencePermission,expiresAt:audience.audience?.expiresAt||null}) })
+      const data = await res.json().catch(()=>({}))
+      if (!res.ok) throw new Error(data.message || String(res.status))
+      await loadSharing()
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setBusy(false) }
+  }
   if (!sharing?.canManage) return null
   return <>
     {sharing?.canManage && <div className="app-guest-sharing">
+      {audience && <section className="app-guest-audience" aria-label={t('Workspace and Room access')}>
+        <h3>{t('Workspace and Room access')}</h3>
+        <label>{t('Audience')}<select value={audienceType} disabled={busy} onChange={event=>setAudienceType(event.target.value as 'none'|'workspace'|'room')}><option value="none">{t('No audience')}</option><option value="workspace">{t('Workspace members')}</option><option value="room">{t('Room members')}</option></select></label>
+        {audienceType==='room' && <label>{t('Room')}<select value={audienceRoom} disabled={busy} onChange={event=>setAudienceRoom(event.target.value)}><option value="">{t('Choose a Room')}</option>{audience.rooms.map(room=><option key={room.id} value={room.id}>{room.name}</option>)}</select></label>}
+        {audienceType!=='none' && <label>{t('Permission')}<select value={audiencePermission} disabled={busy} onChange={event=>setAudiencePermission(event.target.value as 'view'|'edit')}><option value="view">{t('View')}</option><option value="edit">{t('Edit')}</option></select></label>}
+        <button className="btn" type="button" disabled={busy || (audienceType==='room'&&!audienceRoom)} onClick={()=>void saveAudience()}>{t('Save audience')}</button>
+      </section>}
       <h3>{t('External guests')}</h3>
       <p className="row-sub">{t('Invite a named person to this App. They must verify the invited email address. Access stays limited to this App and its linked records.')}</p>
       {sharing.customUnsupported && <div className="form-error" role="status">{t('Publish this Custom App before inviting external guests.')}</div>}

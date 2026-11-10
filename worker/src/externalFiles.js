@@ -4,6 +4,9 @@ import { getMode } from "./harness/mode.js";
 import { uploadFileVersion } from "./harness/fileUpload.js";
 import { FileVersionInputError } from "./harness/fileVersionLedger.js";
 import { externalFileEditAuthority } from "./harness/fileAuthority.js";
+import {
+  resourceAudienceAccessSql, resourceAudiencePermissionSql,
+} from "./harness/externalResourceAudiences.js";
 
 // External File access is intentionally a separate, exact-resource read path.
 // It never accepts a scope, directory, search, cursor, or write command.
@@ -66,18 +69,13 @@ const currentFile = `EXISTS (
 
 async function readableFile(db, orgId, fileId, userId, now = new Date().toISOString()) {
   return db.prepare(`SELECT f.id, f.scope, f.path, f.created_by, f.created_at, f.updated_at,
-      f.current_version, v.content_type, v.size, g.permission
+      f.current_version, v.content_type, v.size,
+      ${resourceAudiencePermissionSql({ resourceType: "file", org: "f.org_id", resource: "f.id", user: "?3", now: "?4" })} AS permission
     FROM hx_workspace_files f
     JOIN hx_workspace_file_versions v
       ON v.org_id = f.org_id AND v.file_id = f.id AND v.version = f.current_version
-    JOIN hx_external_resource_grants g
-      ON g.org_id = f.org_id AND g.resource_type = 'file' AND g.resource_id = f.id
-     AND g.recipient_github_id = ?3 AND g.revoked_at IS NULL
-     AND (g.expires_at IS NULL OR g.expires_at > ?4)
-     AND EXISTS(SELECT 1 FROM users verified WHERE verified.github_id=g.recipient_github_id AND verified.email_verified_at IS NOT NULL)
     WHERE f.org_id = ?1 AND f.id = ?2 AND v.kind = 'content'
-      AND NOT EXISTS (SELECT 1 FROM memberships member
-        WHERE member.org_id = f.org_id AND member.user_github_id = ?3)
+      AND ${resourceAudienceAccessSql({ resourceType: "file", org: "f.org_id", resource: "f.id", user: "?3", now: "?4" })}
       AND ${liveWorkspace} AND ${liveScope} AND ${currentFile}
       AND NOT EXISTS (SELECT 1 FROM hx_workspace_file_purges purged
         WHERE purged.org_id = v.org_id AND purged.file_id = v.file_id
@@ -92,15 +90,10 @@ async function listVersions(db, orgId, fileId, userId, before, limit, now) {
       purged.version IS NOT NULL AS purged
     FROM hx_workspace_files f
     JOIN hx_workspace_file_versions v ON v.org_id = f.org_id AND v.file_id = f.id
-    JOIN hx_external_resource_grants g
-      ON g.org_id = f.org_id AND g.resource_type = 'file' AND g.resource_id = f.id
-     AND g.recipient_github_id = ?3 AND g.revoked_at IS NULL
-     AND (g.expires_at IS NULL OR g.expires_at > ?4)
     LEFT JOIN hx_workspace_file_purges purged
       ON purged.org_id = v.org_id AND purged.file_id = v.file_id AND purged.version = v.version
     WHERE f.org_id = ?1 AND f.id = ?2 AND ( ?5 IS NULL OR v.version < ?5 )
-      AND NOT EXISTS (SELECT 1 FROM memberships member
-        WHERE member.org_id = f.org_id AND member.user_github_id = ?3)
+      AND ${resourceAudienceAccessSql({ resourceType: "file", org: "f.org_id", resource: "f.id", user: "?3", now: "?4" })}
       AND ${liveWorkspace} AND ${liveScope} AND ${currentFile}
       AND NOT EXISTS (SELECT 1 FROM hx_workspace_file_purges current_purge
         WHERE current_purge.org_id = f.org_id AND current_purge.file_id = f.id
@@ -114,13 +107,8 @@ async function contentSource(db, orgId, fileId, userId, version, now) {
   return db.prepare(`SELECT v.version, v.object_key, v.content_hash, v.content_type, v.size
     FROM hx_workspace_files f
     JOIN hx_workspace_file_versions v ON v.org_id = f.org_id AND v.file_id = f.id
-    JOIN hx_external_resource_grants g
-      ON g.org_id = f.org_id AND g.resource_type = 'file' AND g.resource_id = f.id
-     AND g.recipient_github_id = ?3 AND g.revoked_at IS NULL
-     AND (g.expires_at IS NULL OR g.expires_at > ?5)
     WHERE f.org_id = ?1 AND f.id = ?2 AND v.version = ?4 AND v.kind = 'content'
-      AND NOT EXISTS (SELECT 1 FROM memberships member
-        WHERE member.org_id = f.org_id AND member.user_github_id = ?3)
+      AND ${resourceAudienceAccessSql({ resourceType: "file", org: "f.org_id", resource: "f.id", user: "?3", now: "?5" })}
       AND ${liveWorkspace} AND ${liveScope} AND ${currentFile}
       AND NOT EXISTS (SELECT 1 FROM hx_workspace_file_purges purged
         WHERE purged.org_id = v.org_id AND purged.file_id = v.file_id

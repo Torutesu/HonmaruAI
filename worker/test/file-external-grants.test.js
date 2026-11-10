@@ -80,3 +80,44 @@ test('file invite redemption rejects an account with a different verified email'
  const denied=await call('/external/invites/redeem',f.recipientToken,'POST',{token:created.invite.token});
  expect(denied.status).toBe(404);
 });
+
+test('File audience uses workspace membership, optimistic versions, and owner-only management',async()=>{
+ const audiencePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-audience?orgId='+encodeURIComponent(f.orgId);
+ let response=await call(audiencePath,f.ownerToken);
+ expect(response.status).toBe(200);
+ expect(await response.json()).toMatchObject({audience:null,version:0});
+ expect((await call(audiencePath,f.recipientToken)).status).toBe(403);
+ response=await call(audiencePath,f.ownerToken,'PUT',{version:0,type:'workspace',permission:'view'});
+ expect(response.status).toBe(200);
+ expect(await response.json()).toMatchObject({audience:{type:'workspace',permission:'view',version:1},version:1});
+ expect((await call(audiencePath,f.ownerToken,'PUT',{version:0,type:'workspace',permission:'edit'})).status).toBe(409);
+
+ await upsertMembership(env.DB,f.orgId,f.recipientId,'member');
+ const filePath='/external/files/'+encodeURIComponent(f.orgId)+'/'+encodeURIComponent(f.fileId);
+ expect((await call(filePath,f.recipientToken)).status).toBe(200);
+ response=await call(audiencePath,f.ownerToken,'PUT',{version:1,type:null});
+ expect(response.status).toBe(200);
+ expect(await response.json()).toMatchObject({audience:null,version:2});
+ expect((await call(filePath,f.recipientToken)).status).toBe(404);
+});
+
+test('File Room audience requires live Room membership and expired audiences stop granting access',async()=>{
+ const audiencePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-audience?orgId='+encodeURIComponent(f.orgId);
+ await upsertMembership(env.DB,f.orgId,f.recipientId,'member');
+ await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='general'").bind(f.orgId).run();
+ const owner=await env.DB.prepare('SELECT login FROM users WHERE github_id=?1').bind(f.ownerId).first();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:general',?2,?3,?4)")
+  .bind(f.orgId,owner.login,f.ownerId,new Date().toISOString()).run();
+ let response=await call(audiencePath,f.ownerToken,'PUT',{version:0,type:'room',roomId:'b:general',permission:'edit'});
+ expect(response.status).toBe(200);
+ const filePath='/external/files/'+encodeURIComponent(f.orgId)+'/'+encodeURIComponent(f.fileId);
+ expect((await call(filePath,f.recipientToken)).status).toBe(404);
+ const recipient=await env.DB.prepare('SELECT login FROM users WHERE github_id=?1').bind(f.recipientId).first();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:general',?2,?3,?4)")
+  .bind(f.orgId,recipient.login,f.ownerId,new Date().toISOString()).run();
+ expect((await call(filePath,f.recipientToken)).status).toBe(200);
+ const expired=new Date(Date.now()-60_000).toISOString();
+ await env.DB.prepare("UPDATE hx_external_resource_audiences SET expires_at=?1 WHERE org_id=?2 AND resource_type='file' AND resource_id=?3")
+  .bind(expired,f.orgId,f.fileId).run();
+ expect((await call(filePath,f.recipientToken)).status).toBe(404);
+});

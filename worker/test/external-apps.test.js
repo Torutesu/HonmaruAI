@@ -35,6 +35,8 @@ async function setup() {
   for (const [githubId, name] of [[ownerId, "Owner"], [guestId, "Guest"], [memberId, "Member"]]) {
     await upsertUser(env.DB, { githubId, login: githubId, name, avatarUrl: null, locale: "en" });
   }
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3")
+    .bind(`${guestId}@example.com`,new Date().toISOString(),guestId).run();
   await env.DB.prepare("INSERT INTO orgs (id,name,created_at) VALUES (?1,?2,?3)")
     .bind(orgId, orgId, new Date().toISOString()).run();
   await upsertMembership(env.DB, orgId, ownerId, "admin");
@@ -254,6 +256,29 @@ test("view guests can request App conversation sends for owner approval only", a
   expect(second.status).toBe(201);
   const rejected = await call(`${queuePath}/${(await second.json()).requestId}`, f.sessions.owner, "POST", { decision: "reject" });
   expect(rejected.status).toBe(200);
+});
+
+test("App audience CAS shares with current workspace members and fences stale approval requests", async () => {
+  const f = await setup();
+  const audienceUrl=`/hx/apps/${f.app.id}/external-audience?orgId=${f.orgId}`;
+  const current=await call(audienceUrl,f.sessions.owner);
+  expect(current.status).toBe(200);
+  const initial=await current.json();
+  const saved=await call(audienceUrl,f.sessions.owner,'PUT',{version:initial.version,type:'workspace',permission:'view',expiresAt:null});
+  expect(saved.status).toBe(200);
+  expect((await saved.json()).version).toBe(initial.version+1);
+  expect((await call(audienceUrl,f.sessions.owner,'PUT',{version:initial.version,type:'room',roomId:'b:missing',permission:'edit'})).status).toBe(400);
+  await upsertMembership(env.DB,f.orgId,f.guestId,'member');
+  const appPath=`/external/apps/${f.orgId}/${f.app.id}`;
+  expect((await call(appPath,f.sessions.guest)).status).toBe(200);
+  const requested=await call(`${appPath}/conversation`,f.sessions.guest,'POST',{body:'Audience request',requestSend:true});
+  expect(requested.status).toBe(201);
+  const requestId=(await requested.json()).requestId;
+  const cleared=await call(audienceUrl,f.sessions.owner,'PUT',{version:initial.version+1,type:null});
+  expect(cleared.status).toBe(200);
+  const queue=await call(`/external/apps/${f.orgId}/${f.app.id}/sharing/requests`,f.sessions.owner);
+  expect((await queue.json()).requests).toEqual([]);
+  expect((await call(`/external/apps/${f.orgId}/${f.app.id}/sharing/requests/${requestId}`,f.sessions.owner,'POST',{decision:'approve'})).status).toBe(404);
 });
 
 test("external App row writes honor exact edit grants, linked table scope, and declared columns", async () => {

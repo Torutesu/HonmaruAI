@@ -1,6 +1,10 @@
+Warning: truncated output (original token count: 37358)
+Total output lines: 1969
+
 import {currentIp} from '../requestContext.js';
 import {handleFileShareRoutes,servePublicFileShare} from './fileShareApprovals.js';
 import { handleExternalFileGrantRoutes } from './externalFileGrants.js';
+import { cleanResourceAudienceInput, listResourceAudienceRooms, readResourceAudience, writeResourceAudience } from './externalResourceAudiences.js';
 import {annotationProofRequiresIp} from './appReplyRequestProof.js';
 import {appActivityProof,visibleAppNotifications} from './appActivity.js';
 import { prepareAppGuidelines } from './appGuidelinesFence.js';
@@ -826,410 +830,7 @@ export async function handleHarness(request, env, url, context = {}) {
       if(run?.status==='paused')return json({message:run.reason?.startsWith('workspace_ai_budget')?"The workspace's estimated AI usage limit has been reached. An admin can raise the limit; the window also clears as older usage ages out.":run.reason?.startsWith('budget_ai_')?'This workflow reached its estimated AI usage budget or has unpriced usage. It can run again after the rolling window resets or after you change its budget.':run.reason?.startsWith('budget_')?'This workflow reached its run budget. It can run again on its next trigger after the window resets, or as soon as you raise the limit.':'This workflow paused after repeated failures. Review its history and resume it.',reason:run.reason},409);
       if (run?.status === 'skipped') return json({ message: 'This workflow is already running or waiting for approval.', reason: run.reason }, 409);
       if (!run) return json({ message: 'This automation is no longer available in its current published release.' }, 409);
-      return json({ run }, 201);
-    }
-    if (sub === "runs") {
-      if (runId && parts[4] === 'cancel' && request.method === 'POST') {
-        if (!mine) return json({ message: 'Only its maker or an admin can cancel this workflow run.' }, 403);
-        const result = await cancelWorkflowRun(env.DB, { orgId, workflowId: wfId, runId, expectedStartedAt: input?.expectedStartedAt, actorId: me });
-        if (result.error) return json({ message: result.error }, result.status);
-        await audit(env, request, { orgId, action: 'workflow.run_cancelled', actor: person(who.user), entity: { type: 'workflow_run', id: runId, name: wf.name }, details: { outcome: 'unknown', laterStepsStopped: true } });
-        return json(result);
-      }
-      if (runId && parts[4] === 'recover' && request.method === 'POST') {
-        if (!mine) return json({ message: 'Only its maker or an admin can reconcile this workflow run.' }, 403);
-        if (input?.confirmNoReplay !== true || typeof input?.expectedStartedAt !== 'string') {
-          return json({ message: 'Confirm that the uncertain step will not be replayed and refresh the run before reconciling it.' }, 400);
-        }
-        const result = await recoverStalledRun(env.DB, { orgId, workflowId: wfId, runId, expectedStartedAt: input.expectedStartedAt, actorId: me });
-        if (result.error) return json({ message: result.error }, result.status);
-        await audit(env, request, { orgId, action: 'workflow.run_reconciled', actor: person(who.user), entity: { type: 'workflow_run', id: runId, name: wf.name }, details: { outcome: 'unknown', replayed: false } });
-        return json(result);
-      }
-      if (request.method === 'GET' && runId) {
-        const run = await getRun(env.DB, orgId, runId, { viewerId: me });
-        return run && run.workflowId === wfId ? json({ run }) : json({ message: "No such run." }, 404);
-      }
-      if (request.method === 'GET') return json({ runs: await listRuns(env.DB, orgId, wfId, url.searchParams.get("limit"), me) });
-    }
-    return null;
-  }
-
-  // ── Follow-ups ────────────────────────────────────────────────────────
-  if (parts[0] === "followups") {
-    const [, fuId] = parts;
-    if (!fuId && request.method === "GET") {
-      if (url.searchParams.get("paged") === "1") {
-        const result = await followupHistory(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined, agentId: url.searchParams.get("agentId") || undefined, status: url.searchParams.get("status") || "scheduled", viewerId: me, cursor: url.searchParams.get("cursor") });
-        return result.error ? json({ message: result.error }, result.status) : json(result);
-      }
-      return json({ followups: await listFollowups(env.DB, orgId, { channel: url.searchParams.get("channel") || undefined, agentId: url.searchParams.get("agentId") || undefined, status: url.searchParams.get("status") || "scheduled", viewerId: me }) });
-    }
-    if (!fuId && request.method === "POST") {
-      const dueAt = input.dueAt || (Number(input.minutes) > 0 ? new Date(Date.now() + Number(input.minutes) * 60000).toISOString() : null);
-      const r = await scheduleFollowup(env.DB, { orgId, channel: input.channel, threadId: input.threadId || null, agentId: input.agentId || null, instruction: input.instruction, dueAt, by: me });
-      return r.error ? fail(r) : json(r, 201);
-    }
-    if (fuId && request.method === "DELETE") {
-      const followup = await env.DB.prepare("SELECT channel FROM hx_followups WHERE org_id = ?1 AND id = ?2").bind(orgId, fuId).first();
-      if (!followup || !(await mayUseConversation(env.DB, orgId, me, followup.channel))) return json({ message: "Nothing scheduled by that id." }, 404);
-      const r = await cancelFollowup(env.DB, orgId, fuId);
-      return r.error ? fail(r) : json(r);
-    }
-    return null;
-  }
-
-  // ── Approvals ─────────────────────────────────────────────────────────
-  // What agents and workflows are waiting on: for me to decide, and what I
-  // started that waits on someone else.
-  if (parts[0] === "approvals" && request.method === "GET") {
-    return json(await approvalsFor(env, orgId, who.user.login, me));
-  }
-
-  // ── Home ──────────────────────────────────────────────────────────────
-  // The harness's front page in one call: what waits on me, the apps with
-  // their headline number, the agents with their roles, the workflows with
-  // how they last ran, and the follow-ups to come.
-  if (parts[0] === "harness" && parts[1] === "home" && request.method === "GET") {
-    return json(await homeFor(env, orgId, who, me));
-  }
-
-  // ── Skills ────────────────────────────────────────────────────────────
-  if (parts[0] === "skills") {
-    const [, skillId] = parts;
-    if (skillId === 'preview-import' && parts.length === 2 && request.method === 'POST') {
-      const result = previewSkillImport(input);
-      return result.error ? fail(result) : json(result);
-    }
-    if (!skillId) {
-      if (request.method === "GET") {
-        const skills = await listSkills(env.DB, orgId, me);
-        for (const skill of skills) skill.canEdit = (skill.canShare || await allowed(env.DB, orgId, who.session.github_id, 'harness.delete_others'));
-        return json({ skills });
-      }
-      if (request.method === "POST") {
-        const r = await createSkill(env.DB, orgId, input, me);
-        return r.error ? fail(r) : json(r, 201);
-      }
-      return null;
-    }
-    const skill = await getSkill(env.DB, orgId, skillId, me);
-    if (!skill) return json({ message: "No such skill." }, 404);
-    if (parts[2] === 'shares') {
-      if (skill.sourceScope) return json({ message: 'Only workspace custom Skills can be shared by link.' }, 409);
-      if (!skill.canShare) return json({ message: 'Only its owner can create or revoke Skill share links.' }, 403);
-      if (request.method === 'GET' && parts.length === 3) return json(await listSkillShares(env.DB, orgId, skillId));
-      if (request.method === 'POST' && parts.length === 3) {
-        const initialPolicy = await currentSkillPolicy(env, orgId, me, who.session.token);
-        if (!initialPolicy.allowed) return json({ message: 'Workspace access changed. Sign in again or contact an administrator.' }, 403);
-        const result = await createSkillShare(env.DB, orgId, skill, me, { ...input, memberSince: who.membershipSince, sessionToken: who.session.token, policyFingerprint: initialPolicy.fingerprint, ssoDeadline: initialPolicy.ssoDeadline });
-        if (result.error) return fail(result);
-        await audit(env, request, { orgId, action: 'skill.share_created', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: result.share.id, expiresAt: result.share.expiresAt } });
-        let deliverable;
-        try {
-          const currentPolicy = await currentSkillPolicy(env, orgId, me, who.session.token);
-          deliverable = await finalizeSkillShare(env.DB, orgId, skillId, me, result, who.membershipSince, who.session.token, currentPolicy.allowed && currentPolicy.fingerprint === initialPolicy.fingerprint ? currentPolicy.fingerprint : 'policy-denied', currentPolicy.ssoDeadline);
-        }
-        catch (error) {
-          try { await finalizeSkillShare(env.DB, orgId, skillId, me, result, who.membershipSince, who.session.token, 'policy-denied'); } catch { /* Token is never returned. */ }
-          await audit(env, request, { orgId, action: 'skill.share_delivery_denied', outcome: 'failure', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: result.share.id, reason: 'verification_failed' } });
-          throw error;
-        }
-        if (!deliverable) {
-          await audit(env, request, { orgId, action: 'skill.share_delivery_denied', outcome: 'failure', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: result.share.id, reason: 'authorization_changed' } });
-          return json({ message: 'Skill or sharing permissions changed. Reload before sharing.' }, 409);
-        }
-        return json(result, 201);
-      }
-      if (request.method === 'POST' && parts.length === 5 && parts[4] === 'revoke') {
-        const result = await revokeSkillShare(env.DB, orgId, skillId, parts[3], me, who.membershipSince);
-        if (!result.error) await audit(env, request, { orgId, action: 'skill.share_revoked', actor: person(who.user), entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId: parts[3] } });
-        return result.error ? fail(result) : json(result);
-      }
-      return json({ message: 'Method not allowed.' }, 405);
-    }
-    if (parts[2] === 'files' && parts.length === 3 && request.method === 'GET') {
-      const path = url.searchParams.get('path');
-      if (!path) return json({ files: await listSkillFiles(env.DB,orgId,skillId,me) });
-      const file = await readSkillFile(env.DB,orgId,skillId,path,me);
-      if (!file) return json({message:'No such skill file.'},404);
-      return new Response(file.bytes,{headers:{...CORS_HEADERS,'cache-control':'private, no-store','content-type':'application/octet-stream','x-content-type-options':'nosniff','content-disposition':`attachment; filename*=UTF-8''${encodeURIComponent(file.path.split('/').pop())}`}});
-    }
-    if (parts[2] === 'export' && parts.length === 3 && request.method === 'GET') {
-      if (!skill.description.trim()) return json({ message: 'Add a description before exporting SKILL.md.' }, 400);
-      if (url.searchParams.get('format') === 'zip') {
-        const files = await listSkillFiles(env.DB,orgId,skillId,me);
-        const entries = [{path:'SKILL.md',bytes:new TextEncoder().encode(skillMarkdown(skill))}];
-        for (const file of files || []) {
-          const stored=await readSkillFile(env.DB,orgId,skillId,file.path,me);
-          if(!stored)return json({message:'Skill files changed. Retry the export.'},409);
-          entries.push(stored);
-        }
-        const result=writeSkillZip(entries);
-        if(result.error)return fail(result);
-        return new Response(result.bytes,{headers:{...CORS_HEADERS,'content-type':'application/zip','content-disposition':'attachment; filename="skill.zip"','cache-control':'private, no-store','x-content-type-options':'nosniff'}});
-      }
-      return json({ filename: 'SKILL.md', markdown: skillMarkdown(skill) });
-    }
-    if (parts[2] === 'access' && request.method === 'PUT') {
-      const r = await setSkillAccess(env.DB, orgId, skillId, me, input);
-      return r.error ? fail(r) : json(r);
-    }
-    if (request.method === "GET") return json({ skill });
-    if (!(skill.canShare || await allowed(env.DB, orgId, who.session.github_id, 'harness.delete_others'))) return json({ message: "Only its owner or an admin can change this skill." }, 403);
-    if (request.method === "PUT") {
-      const r = await updateSkill(env.DB, orgId, skillId, input, me);
-      return r.error ? fail(r) : json(r);
-    }
-    if (request.method === "DELETE") {
-      const r = await deleteSkill(env.DB, orgId, skillId, me);
-      return r.error ? fail(r) : json(r);
-    }
-    return null;
-  }
-
-  // ── Agents as members ─────────────────────────────────────────────────
-  if (parts[0] === "hx" && parts[1] === "agents" && parts[2]) {
-    const agentId = parts[2];
-    const sub = parts[3];
-    const agent = await env.DB
-      .prepare("SELECT id, owner_login, scope FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
-      .bind(orgId, agentId)
-      .first();
-    // Someone else's personal agent is theirs alone: it is not here at all.
-    if (!agent || (agent.scope === "personal" && agent.owner_login !== who.user.login)) return json({ message: "No such agent." }, 404);
-    if (sub === 'access-request' && request.method === 'POST') {
-      if (agent.scope !== 'team') return json({ message: 'No such shared team agent.' }, 404);
-      const result = await createAgentAccessRequest(env.DB, orgId, { agentId, requesterId: me, requestKey: input.requestKey });
-      if (result.error) return fail(result);
-      if (result.created) {
-        const cards=result.cards||[result.card];
-        await announceCards(env, orgId, cards);
-        if (anyChannelConfigured(env)) await Promise.all(cards.map(card=>notifyCard(env, { card, kind: 'created', excludeLogin: null, orgId }).catch(() => {})));
-        await audit(env, request, { orgId, action: 'agent.access_requested', actor: person(who.user), entity: { type: 'custom_agent', id: agentId, name: agent.name }, details: { requestId: result.request.id } });
-      }
-      return json({ request: result.request }, result.created ? 201 : 200);
-    }
-    if (!(await mayAccessAgent(env.DB, orgId, { ...agent, ownerLogin: agent.owner_login }, who.user.login))) return json({ message: "No such agent." }, 404);
-    const delegatedRole=(await explicitAgentRoles(env.DB,orgId,[agentId],who.user.login)).get(agentId);
-    const managedProfile=!!await env.DB.prepare('SELECT 1 FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).first();
-    const canEdit = agent.owner_login === who.user.login || delegatedRole==='admin' || (!managedProfile&&await allowed(env.DB, orgId, me, "agent.manage_others"));
-    // Person owners may manage only their exact private memory row. This
-    // does not grant access to shared, room-scoped, or Agent settings.
-    const requestedMemoryId = parts[4] || input?.id || url.searchParams.get("id") || "";
-    const ownsPersonalMemory = sub === "memory" && !!requestedMemoryId && requestedMemoryId !== "*"
-      && ["PUT", "DELETE"].includes(request.method)
-      ? !!await env.DB.prepare(`SELECT 1 FROM hx_memory_scopes
-          WHERE org_id=?1 AND memory_id=?2 AND channel='' AND user_github_id=?3`)
-          .bind(orgId, requestedMemoryId, String(me)).first()
-      : false;
-    if (!read && !canEdit && sub !== 'members' && sub !== 'apps'
-      && !(sub === "memory" && request.method === "POST") && !ownsPersonalMemory) {
-      return json({ message: "Only the agent's maker or an admin can change it." }, 403);
-    }
-    if (sub === 'ownership' && request.method==='PUT') {
-      const people=await memoryMembers(env.DB,orgId,me);
-      const target=people.find(p=>p.ref===input.ref);
-      if(!target)return json({message:'No such workspace member.'},404);
-      const r=await transferAgentOwnership(env.DB,orgId,agentId,{actorId:me,targetId:target.userId,expectedVersion:input.expectedVersion});
-      if(!r.error){
-        await announceAgentAccessChanged(env,orgId,agentId,[who.user.login,target.login]);
-        await audit(env,request,{orgId,action:'agent.ownership_transferred',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberRef:target.ref,version:r.version}});
-      }
-      return r.error?fail(r):json(r);
-    }
-    if (sub === 'members') {
-      const state=await agentRoleState(env.DB,orgId,agentId);
-      if (!state) return json({message:'No such agent.'},404);
-      const people=await memoryMembers(env.DB,orgId,me);
-      const canManage=state.members.some(m=>m.userId===String(me)&&m.role==='admin');
-      const canAddMembers=canManage||state.members.some(m=>m.userId===String(me)&&m.role==='member');
-      if (request.method==='GET') {
-        const shown=state.members.flatMap(m=>{const person=people.find(p=>p.userId===m.userId);return person?[{ref:person.ref,name:person.name,role:m.role,owner:!!m.owner,mine:m.userId===String(me)}]:[]});
-        return json({version:state.version,scope:state.scope,canManage,canAddMembers,members:shown,candidates:canAddMembers?people.filter(p=>p.role!=='guest').map(p=>({ref:p.ref,name:p.name})):[]});
-      }
-      if (request.method==='PUT') {
-        if (!canAddMembers) return json({message:'Only an agent member can manage assigned members.'},403);
-        const target=people.find(p=>p.ref===input.ref);
-        if (!target) return json({message:'No such workspace member.'},404);
-        const r=await setAgentRole(env.DB,orgId,agentId,{actorId:me,targetId:target.userId,role:input.role,expectedVersion:input.expectedVersion});
-        if (!r.error) {
-          await announceAgentAccessChanged(env,orgId,agentId,[who.user.login,target.login]);
-          await audit(env,request,{orgId,action:'agent.member_role_changed',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberRef:target.ref,role:input.role,version:r.version}});
-        }
-        return r.error?fail(r):json(r);
-      }
-    }
-    if(sub==='agent-members') {
-      const state=await agentPeerRoleState(env.DB,orgId,agentId);
-      if(!state)return json({message:'No such agent.'},404);
-      const humanRoles=await agentRoleState(env.DB,orgId,agentId);
-      const canManage=humanRoles.members.some(m=>m.userId===String(me)&&m.role==='admin');
-      if(request.method==='GET') {
-        const visible=await listAgents(env.DB,orgId,who.user.login),candidates=[];
-        const visibleMembers=[];
-        for(const candidate of visible) {
-          if(candidate.id===agentId)continue;
-          const record=await env.DB.prepare(`SELECT a.id,a.name,a.owner_login,a.scope FROM custom_agents a
-            JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
-            WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND a.provider IS NULL AND a.scope='team'`)
-            .bind(orgId,candidate.id).first();
-          if(record&&await mayAccessAgent(env.DB,orgId,{...record,ownerLogin:record.owner_login},who.user.login))candidates.push({id:record.id,name:record.name});
-        }
-        for(const member of state.members) {
-          const record=await env.DB.prepare(`SELECT a.id,a.name,a.owner_login,a.scope FROM custom_agents a
-            JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
-            WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND a.provider IS NULL AND a.scope='team'`)
-            .bind(orgId,member.agentId).first();
-          if(record&&await mayAccessAgent(env.DB,orgId,{...record,ownerLogin:record.owner_login},who.user.login))visibleMembers.push(member);
-        }
-        return json({version:state.version,scope:state.scope,managed:state.managed,canManage,members:visibleMembers,candidates:canManage?candidates:[]});
-      }
-      if(request.method==='PUT') {
-        if(!canManage)return json({message:'Only an agent admin can assign another Agent.'},403);
-        const candidate=(await listAgents(env.DB,orgId,who.user.login)).find(item=>item.id===input.memberAgentId);
-        const record=candidate&&await env.DB.prepare(`SELECT id,owner_login,scope FROM custom_agents WHERE org_id=?1 AND id=?2
-          AND deleted_at IS NULL AND provider IS NULL AND scope='team' AND EXISTS(SELECT 1 FROM hx_agent_profiles p WHERE p.org_id=custom_agents.org_id AND p.agent_id=custom_agents.id)`)
-          .bind(orgId,input.memberAgentId).first();
-        if(!record||!await mayAccessAgent(env.DB,orgId,{...record,ownerLogin:record.owner_login},who.user.login))return json({message:'Choose an accessible managed team Agent.'},404);
-        const r=await setAgentPeerRole(env.DB,orgId,agentId,{actorId:me,memberAgentId:record.id,role:input.role,expectedVersion:input.expectedVersion});
-        if(!r.error) {
-          await announceAgentAccessChanged(env,orgId,agentId,[who.user.login]);
-          await audit(env,request,{orgId,action:'agent.peer_role_changed',actor:person(who.user),entity:{type:'custom_agent',id:agentId},details:{memberAgentId:record.id,role:input.role,version:r.version}});
-        }
-        return r.error?fail(r):json(r);
-      }
-    }
-    if (sub === 'apps') {
-      if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Agent app permissions are available in Harness mode.' }, 404);
-      if (request.method === 'GET') {
-        const [connections, nativeConnections, remoteMcpConnections] = await Promise.all([
-          agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
-          agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') }),
-          agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
-        ]);
-        return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections });
-      }
-      if (request.method === 'POST' || request.method === 'DELETE') {
-        const source = String(input?.source || url.searchParams.get('source') || '');
-        if (source) {
-          const granted = request.method === 'POST';
-          const shareFlag = input?.shareWithAgent === true || ['1', 'true'].includes(String(url.searchParams.get('shareWithAgent') || '').toLowerCase());
-          if (shareFlag) {
-            const result = await setAgentSourceShare(env, { orgId, agentId, session: who.session, source, enabled: granted });
-            if (result.error) return json({ message: result.error }, result.status || 400);
-            await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
-            await audit(env, request, {
-              orgId,
-              action: granted ? 'agent.native_connection_shared' : 'agent.native_connection_unshared',
-              actor: person(who.user),
-              entity: { type: 'custom_agent', id: agentId },
-              details: { source, audience: 'agent_access' },
-            });
-            return json({
-              connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
-              nativeConnections: result.connections,
-              remoteMcpConnections: await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
-            });
-          }
-          const scope = String(input?.scope || url.searchParams.get('scope') || 'member');
-          if (scope === 'workspace') {
-            if (!await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode')) return json({ message: 'Only workspace owners and admins can share this connection.' }, 403);
-            const result = await setAgentWorkspaceSourceConnection(env, { orgId, agentId, source, enabled: granted, actorId: who.session.github_id });
-            if (result.error) return json({ message: result.error }, result.status || 400);
-            await announceAgentAccessChanged(env, orgId, agentId, []);
-            await audit(env, request, { orgId, action: granted ? 'agent.workspace_connection_granted' : 'agent.workspace_connection_revoked', actor: person(who.user), entity: { type: 'custom_agent', id: agentId }, details: { source } });
-            const [connections, nativeConnections, remoteMcpConnections] = await Promise.all([
-              agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
-              agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: true }),
-              agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
-            ]);
-            return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections });
-          }
-          if (scope !== 'member') return json({ message: 'Unknown connection scope.' }, 400);
-          const result = await setAgentSourceConnection(env, { orgId, agentId, session: who.session, source, enabled: granted });
-          if (result.error) return json({ message: result.error }, result.status || 400);
-          await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
-          await audit(env, request, {
-            orgId,
-            action: granted ? 'agent.native_connection_granted' : 'agent.native_connection_revoked',
-            actor: person(who.user),
-            entity: { type: 'custom_agent', id: agentId },
-            details: { source },
-          });
-          return json({
-            connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
-            nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') })).connections,
-            remoteMcpConnections: await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
-          });
-        }
-        const remoteMcpServerId = String(input?.remoteMcpServerId || url.searchParams.get('remoteMcpServerId') || '');
-        if (remoteMcpServerId) {
-          const granted = request.method === 'POST';
-          const result = await setAgentRemoteMcpConnection(env, { orgId, agentId, session: who.session, serverId: remoteMcpServerId, enabled: granted });
-          if (result.error) return json({ message: result.error }, result.status || 400);
-          await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
-          await audit(env, request, {
-            orgId,
-            action: granted ? 'agent.remote_mcp_granted' : 'agent.remote_mcp_revoked',
-            actor: person(who.user),
-            entity: { type: 'custom_agent', id: agentId },
-            details: { serverId: remoteMcpServerId },
-          });
-          return json({
-            connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
-            nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') })).connections,
-            remoteMcpConnections: result.connections,
-          });
-        }
-        const server = String(input?.server || url.searchParams.get('server') || '');
-        const granted = request.method === 'POST';
-        const result = await setAgentAppGrant(env.DB, { orgId, agentId, githubId: me, server, granted });
-        if (result.error) return json({ message: result.error }, result.status || 400);
-        await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
-        await audit(env, request, {
-          orgId,
-          action: granted ? 'agent.connection_granted' : 'agent.connection_revoked',
-          actor: person(who.user),
-          entity: { type: 'custom_agent', id: agentId },
-          details: { app: server },
-        });
-        return json({
-          connections: result.connections,
-          nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') })).connections,
-          remoteMcpConnections: await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
-        });
-      }
-      return json({ message: 'Method not allowed.' }, 405);
-    }
-    if (sub === "profile") {
-      if (request.method === "GET") return json({ profile: await getProfile(env.DB, orgId, agentId), tiers: TIERS, access: ACCESS, canEdit });
-      if (request.method === "PUT") {
-        const accessFieldsChanged=input.access!==undefined||input.people!==undefined;
-        const previousAccess=accessFieldsChanged?await getProfile(env.DB,orgId,agentId):null;
-        const r = await saveProfile(env.DB, orgId, agentId, input, me);
-        if (!r.error) {
-          if(previousAccess&&(previousAccess.access!==r.profile.access||JSON.stringify(previousAccess.people)!==JSON.stringify(r.profile.people))){
-            const affected=[...previousAccess.people,...r.profile.people,who.user.login];
-            if(previousAccess.access==='everyone'||r.profile.access==='everyone')affected.push(...(await memoryMembers(env.DB,orgId,me)).map(member=>member.login));
-            await announceAgentAccessChanged(env,orgId,agentId,affected);
-          }
-          await audit(env, request, { orgId, action: "agent.profile_changed", actor: person(who.user), entity: { type: "agent", id: agentId }, details: { tier: r.profile.tier, access: r.profile.access, mentionOnly: r.profile.mentionOnly } });
-        }
-        return r.error ? fail(r) : json({ ...r, canEdit });
-      }
-    }
-    if (sub === "memory") {
-      if (parts[4] === 'promotions') {
-        if (request.method === 'GET' && parts.length === 5) {
-          return json(await listMemoryPromotions(env.DB, orgId, agentId, me, who.user.login));
-        }
-        if (request.method === 'POST' && parts.length === 5) {
-          const result=await proposeMemoryPromotion(env.DB,orgId,agentId,{memoryId:input.memoryId,expectedVersion:input.expectedVersion,requestKey:input.requestKey,requesterId:me,requesterLogin:who.user.login});
-          if(!result.error&&!result.replayed) await audit(env,request,{orgId,action:'agent.memory_promotion_requested',actor:person(who.user),entity:{type:'custom_agent',id:agentId,name:agent.name},details:{requestId:result.request.id,memoryId:result.request.memoryId,version:result.request.sourceVersion}});
-          return result.error?fail(result):json(result,result.created?201:200);
-        }
-        if (request.method === 'PUT' && parts.length === 6) {
+      return json({ run…7358 tokens truncated… === 'PUT' && parts.length === 6) {
           if(!await canDecideMemoryPromotion(env.DB,orgId,agentId,who.user.login))return json({message:'Only the current Agent owner or an active Agent admin can decide a memory promotion.'},403);
           const result=await decideMemoryPromotion(env.DB,orgId,agentId,parts[5],{decision:input.decision,actorId:me,actorLogin:who.user.login});
           if(!result.error&&!result.replayed) await audit(env,request,{orgId,action:result.request.status==='approved'?'agent.memory_promotion_approved':'agent.memory_promotion_rejected',actor:person(who.user),entity:{type:'custom_agent',id:agentId,name:agent.name},details:{requestId:parts[5],memoryId:result.request.memoryId,sharedMemoryId:result.request.sharedMemoryId||undefined,version:result.request.sourceVersion}});
@@ -1369,6 +970,28 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(r, 201);
       }
       return null;
+    }
+    if (sub === 'external-audience' && parts.length === 3) {
+      const manager = await env.DB.prepare(`SELECT a.id FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3
+        WHERE a.org_id=?1 AND a.id=?2 AND (a.created_by=?3 OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin'))
+          AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=a.org_id AND s.mode='harness')
+          AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
+          AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id)`).bind(orgId,appId,me).first();
+      if (!manager) return json({message:'App not found.'},404);
+      if (request.method === 'GET') return json(await readResourceAudience(env.DB,{orgId,resourceType:'app',resourceId:appId,userId:me}));
+      if (request.method !== 'PUT') return json({message:'Method not allowed.'},405);
+      let audience;
+      try { audience=cleanResourceAudienceInput(input); } catch (error) { return json({message:error.message},400); }
+      const rooms = await listResourceAudienceRooms(env.DB,orgId,me);
+      if (audience.type === 'room' && !rooms.some(room=>room.id===audience.roomId)) return json({message:'Choose a Room in this workspace.'},400);
+      const managerFence = first => ({sql:`EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?${first+2}
+        WHERE a.org_id=?${first} AND a.id=?${first+1} AND (a.created_by=?${first+2} OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin'))
+          AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=a.org_id AND s.mode='harness')
+          AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
+          AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))`,bindings:[orgId,appId,me]});
+      const result=await writeResourceAudience(env.DB,{orgId,resourceType:'app',resourceId:appId,actorId:me,audience,managerFence});
+      return result ? json({...result,audience:audience.type?{type:audience.type,...(audience.roomId?{roomId:audience.roomId}:{}),permission:audience.permission,expiresAt:audience.expiresAt,version:result.version}:null})
+        : json({message:'Audience changed elsewhere. Reload and try again.'},409);
     }
     if (['conversation-source','conversation-notifications'].includes(sub) && parts.length === 3) {
       if(!['GET','POST'].includes(request.method))return json({message:'Method not allowed.'},405);
