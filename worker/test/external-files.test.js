@@ -177,3 +177,44 @@ test("Simple mode, a deleted Room and a deleted current File all deny a live gra
   expect((await call(filePath(), fixture.guestSession)).status).toBe(404);
   expect((await call(`${filePath()}/versions/1/content`, fixture.guestSession)).status).toBe(404);
 });
+
+test("workspace audience enables member edits and audience revocation is fenced after R2 staging", async () => {
+  await upsertMembership(env.DB, fixture.orgId, fixture.guestId, "member");
+  const audiencePath=`/hx/files/${encodeURIComponent(fixture.fileId)}/external-audience?orgId=${encodeURIComponent(fixture.orgId)}`;
+  const audience=await call(audiencePath,fixture.ownerSession,"PUT",JSON.stringify({version:0,type:"workspace",permission:"edit"}),"application/json");
+  expect(audience.status).toBe(200);
+  const body=new Blob(["group edit"]);
+  const uploaded=await call(`${filePath()}/content?expectedVersion=1&size=${body.size}`,fixture.guestSession,"PUT",body.stream());
+  expect(uploaded.status).toBe(200);
+  expect(await uploaded.json()).toMatchObject({saved:true,version:2});
+
+  const next=new Blob(["revoked during upload"]),originalPut=env.MEDIA.put.bind(env.MEDIA);
+  const spy=vi.spyOn(env.MEDIA,"put").mockImplementation(async(...args)=>{
+    const stored=await originalPut(...args);
+    await env.DB.prepare("UPDATE hx_external_resource_audiences SET version=version+1,audience_type='workspace',permission='view' WHERE org_id=?1 AND resource_type='file' AND resource_id=?2")
+      .bind(fixture.orgId,fixture.fileId).run();
+    return stored;
+  });
+  const rejected=await call(`${filePath()}/content?expectedVersion=2&size=${next.size}`,fixture.guestSession,"PUT",next.stream());
+  spy.mockRestore();
+  expect(rejected.status).toBe(409);
+  expect(await env.DB.prepare("SELECT current_version FROM hx_workspace_files WHERE org_id=?1 AND id=?2").bind(fixture.orgId,fixture.fileId).first()).toEqual({current_version:2});
+});
+
+test("workspace audience permissions do not inherit an external grant after membership", async () => {
+  await upsertMembership(env.DB, fixture.orgId, fixture.guestId, "member");
+  await share("edit");
+  const audiencePath=`/hx/files/${encodeURIComponent(fixture.fileId)}/external-audience?orgId=${encodeURIComponent(fixture.orgId)}`;
+  const audience=await call(audiencePath,fixture.ownerSession,"PUT",JSON.stringify({version:0,type:"workspace",permission:"view"}),"application/json");
+  expect(audience.status).toBe(200);
+  // Exact external grants do not create or override workspace member access.
+  const allowedUpload=new Blob(["union permission"]);
+  expect((await call(`${filePath()}/content?expectedVersion=1&size=${allowedUpload.size}`,fixture.guestSession,"PUT",allowedUpload.stream())).status).toBe(403);
+
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET revoked_at=?1 WHERE org_id=?2 AND resource_id=?3 AND recipient_github_id=?4")
+    .bind(new Date().toISOString(),fixture.orgId,fixture.fileId,fixture.guestId).run();
+  await env.DB.prepare("UPDATE hx_external_resource_audiences SET audience_type='room',room_id='b:general',permission='edit',version=version+1 WHERE org_id=?1 AND resource_type='file' AND resource_id=?2")
+    .bind(fixture.orgId,fixture.fileId).run();
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='general'").bind(fixture.orgId).run();
+  expect((await call(filePath(),fixture.guestSession)).status).toBe(404);
+});

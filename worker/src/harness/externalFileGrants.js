@@ -3,6 +3,10 @@ import { allowed } from '../permissions.js';
 import { getMode } from './mode.js';
 import { sha256Hex } from '../auth.js';
 import { deliverExternalInvite } from '../externalInviteMail.js';
+import {
+  cleanResourceAudienceInput, listResourceAudienceRooms, readResourceAudience,
+  writeResourceAudience,
+} from './externalResourceAudiences.js';
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
@@ -11,6 +15,12 @@ const fileRoute = url => {
   const match = url.pathname.match(/^\/hx\/files\/([^/]+)\/external-grants(?:\/([^/]+))?$/);
   if (!match) return null;
   try { return { fileId: decodeURIComponent(match[1]), recipientId: match[2] ? decodeURIComponent(match[2]) : null }; }
+  catch { return { malformed: true }; }
+};
+const fileAudienceRoute = url => {
+  const match = url.pathname.match(/^\/hx\/files\/([^/]+)\/external-audience$/);
+  if (!match) return null;
+  try { return { fileId: decodeURIComponent(match[1]) }; }
   catch { return { malformed: true }; }
 };
 const expiry = value => {
@@ -79,6 +89,52 @@ async function handleFileInviteRoutes(request,env,url,{orgId,userId},route) {
  }
  return json({message:'Method not allowed.'},405);
 }
+
+async function handleFileAudienceRoute(request,env,url,{orgId,userId},route) {
+ const db=env.DB;
+ if(route.malformed||!route.fileId)return json({message:'File not found.'},404);
+ if(request.method!=='GET'&&request.method!=='PUT')return json({message:'Method not allowed.'},405);
+ if(await getMode(db,orgId)!=='harness')return json({message:'External File sharing is unavailable in Simple mode.'},404);
+ const file=await fileRecord(db,orgId,route.fileId);
+ if(!file||file.kind!=='content')return json({message:'File not found.'},404);
+ if(!await canManage(db,orgId,userId,file.created_by))return json({message:'Only the file owner or a workspace admin can manage external access.'},403);
+ if(request.method==='GET')return json(await readResourceAudience(db,{orgId,resourceType:'file',resourceId:route.fileId,userId:String(userId)}));
+ const input=await request.json().catch(()=>null);
+ let audience;
+ try{audience=cleanResourceAudienceInput(input)}catch(error){return json({message:error.message||'Invalid audience.'},400)}
+ if(audience.type==='room'){
+  const rooms=await listResourceAudienceRooms(db,orgId,String(userId));
+  if(!rooms.some(room=>room.id===audience.roomId))return json({message:'Choose an accessible Room.'},400);
+ }
+ const updated=await writeResourceAudience(db,{
+  orgId,resourceType:'file',resourceId:route.fileId,actorId:String(userId),audience,
+  managerFence:first=>({
+   sql:`EXISTS(SELECT 1 /* org_id scope */ FROM hx_workspace_files f
+    WHERE f.org_id=?${first} AND f.id=?${first+1}
+      AND (f.created_by=?${first+2} OR EXISTS(SELECT 1 /* org_id scope */ FROM memberships manager
+        WHERE manager.org_id=f.org_id AND manager.user_github_id=?${first+2} AND lower(manager.role) IN ('owner','admin')))
+      AND EXISTS(SELECT 1 /* org_id scope */ FROM hx_workspace_file_versions current
+        WHERE current.org_id=f.org_id AND current.file_id=f.id AND current.version=f.current_version AND current.kind='content'
+          AND NOT EXISTS(SELECT 1 /* org_id scope */ FROM hx_workspace_file_purges purged
+            WHERE purged.org_id=current.org_id AND purged.file_id=current.file_id AND purged.version=current.version))
+      AND NOT EXISTS(SELECT 1 /* org_id scope */ FROM workspace_deletions deletion WHERE deletion.org_id=f.org_id AND deletion.purge_started_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 /* org_id scope */ FROM workspace_tombstones deleted WHERE deleted.org_id=f.org_id)
+      AND COALESCE((SELECT mode FROM org_settings setting WHERE setting.org_id=f.org_id),'simple')='harness'
+      AND NOT EXISTS(SELECT 1 /* org_id scope */ FROM hx_room_access removed WHERE removed.org_id=f.org_id AND removed.channel=f.scope AND removed.deleted_at IS NOT NULL)
+      AND (substr(f.scope,1,2)!='b:' OR EXISTS(SELECT 1 /* org_id scope */ FROM businesses business
+        WHERE business.org_id=f.org_id AND 'b:'||business.slug=f.scope AND business.archived_at IS NULL))
+      ${audience.type==='room'?`AND EXISTS(SELECT 1 /* org_id scope */ FROM businesses targetRoom
+        JOIN users managerUser ON managerUser.github_id=?${first+2}
+        WHERE targetRoom.org_id=f.org_id AND 'b:'||targetRoom.slug=?${first+3} AND targetRoom.archived_at IS NULL
+          AND NOT EXISTS(SELECT 1 /* org_id scope */ FROM hx_room_access roomDeleted WHERE roomDeleted.org_id=targetRoom.org_id AND roomDeleted.channel=?${first+3} AND roomDeleted.deleted_at IS NOT NULL)
+          AND (targetRoom.private=0 OR EXISTS(SELECT 1 /* org_id scope */ FROM conversation_members roomMember
+            WHERE roomMember.org_id=targetRoom.org_id AND roomMember.channel=?${first+3} AND roomMember.login=managerUser.login)))`:''})`,
+   bindings:[orgId,route.fileId,String(userId),...(audience.type==='room'?[audience.roomId]:[])],
+  }),
+ });
+ if(!updated)return json({message:'Audience changed or access revoked. Reload and retry.'},409);
+ return json(await readResourceAudience(db,{orgId,resourceType:'file',resourceId:route.fileId,userId:String(userId)}));
+}
 export async function redeemExternalFileInvite(env,{token,userId}) {
  const deny={error:'This File invitation is unavailable or expired.',status:404};
  if(typeof token!=='string'||!/^[a-f0-9]{64}$/i.test(token))return deny;
@@ -108,6 +164,8 @@ export async function redeemExternalFileInvite(env,{token,userId}) {
 }
 
 export async function handleExternalFileGrantRoutes(request, env, url, { orgId, userId }) {
+  const audienceRoute=fileAudienceRoute(url);
+  if(audienceRoute)return handleFileAudienceRoute(request,env,url,{orgId,userId},audienceRoute);
   const inviteRoute=fileInviteRoute(url);
   if(inviteRoute)return handleFileInviteRoutes(request,env,url,{orgId,userId},inviteRoute);
   const route=fileRoute(url);

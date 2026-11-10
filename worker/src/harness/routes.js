@@ -1,6 +1,7 @@
 import {currentIp} from '../requestContext.js';
 import {handleFileShareRoutes,servePublicFileShare} from './fileShareApprovals.js';
 import { handleExternalFileGrantRoutes } from './externalFileGrants.js';
+import { cleanResourceAudienceInput, listResourceAudienceRooms, readResourceAudience, writeResourceAudience } from './externalResourceAudiences.js';
 import {annotationProofRequiresIp} from './appReplyRequestProof.js';
 import {appActivityProof,visibleAppNotifications} from './appActivity.js';
 import { prepareAppGuidelines } from './appGuidelinesFence.js';
@@ -147,6 +148,8 @@ async function mayChange(env, orgId, who, createdBy) {
 
 export async function handleHarness(request, env, url, context = {}) {
   if (!OURS.test(url.pathname)) return null;
+  const appAudiencePath = url.pathname.match(new RegExp('^/hx/apps/([^/]+)/external-audience(?:$)'));
+  if (appAudiencePath) { const normalizedUrl = new URL(url); normalizedUrl.pathname = '/apps/' + appAudiencePath[1] + '/external-audience'; return handleHarness(request, env, normalizedUrl, context); }
   if (request.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
   const limited = await enforce(env, request, (isGatewayNodeRoute(url.pathname)||isDocumentNodeRoute(url.pathname)) ? "gateway/edge" : "team");
   if (limited) return limited;
@@ -178,8 +181,8 @@ export async function handleHarness(request, env, url, context = {}) {
   if (/^\/hx\/files(?:\/|$)/.test(url.pathname)) {
     const orgId=url.searchParams.get('orgId'),who=await member(env,request,orgId);
     if(who.denied)return who.denied;
-    const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins','hx_external_resource_grants','hx_external_file_invites','hx_workspace_file_public_urls')").all();
-    if(results.length!==9)return json({message:'Workspace file storage is not ready.'},503);
+    const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins','hx_external_resource_grants','hx_external_file_invites')").all();
+    if(results.length!==8)return json({message:'Workspace file storage is not ready.'},503);
     const identity={orgId,userId:String(who.session.github_id),headers:CORS_HEADERS};
     const fileParts=url.pathname.split('/').filter(Boolean);
     if(fileParts[3]==='public-url'){
@@ -255,7 +258,8 @@ export async function handleHarness(request, env, url, context = {}) {
   const read = request.method === "GET" || request.method === "DELETE";
   const input = read || visualRoute ? null : await body(request);
   if (!read && !visualRoute && !input) return json({ message: "Invalid JSON body." }, 400);
-  const orgId = read || visualRoute ? url.searchParams.get("orgId") : input.orgId;
+  const appAudienceRoute = url.pathname.startsWith("/apps/") && url.pathname.endsWith("/external-audience");
+  const orgId = appAudienceRoute || read || visualRoute ? url.searchParams.get("orgId") : input.orgId;
   const parts = url.pathname.split("/").filter(Boolean);
 
   // A public Custom App share is a narrowly scoped, read-only bearer link.
@@ -1369,6 +1373,28 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(r, 201);
       }
       return null;
+    }
+    if (sub === 'external-audience' && parts.length === 3) {
+      const manager = await env.DB.prepare(`SELECT a.id FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3
+        WHERE a.org_id=?1 AND a.id=?2 AND (a.created_by=?3 OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin'))
+          AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=a.org_id AND s.mode='harness')
+          AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
+          AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id)`).bind(orgId,appId,me).first();
+      if (!manager) return json({message:'App not found.'},404);
+      if (request.method === 'GET') return json(await readResourceAudience(env.DB,{orgId,resourceType:'app',resourceId:appId,userId:me}));
+      if (request.method !== 'PUT') return json({message:'Method not allowed.'},405);
+      let audience;
+      try { audience=cleanResourceAudienceInput(input); } catch (error) { return json({message:error.message},400); }
+      const rooms = await listResourceAudienceRooms(env.DB,orgId,me);
+      if (audience.type === 'room' && !rooms.some(room=>room.id===audience.roomId)) return json({message:'Choose a Room in this workspace.'},400);
+      const managerFence = first => ({sql:`EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?${first+2}
+        WHERE a.org_id=?${first} AND a.id=?${first+1} AND (a.created_by=?${first+2} OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin'))
+          AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=a.org_id AND s.mode='harness')
+          AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
+          AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))`,bindings:[orgId,appId,me]});
+      const result=await writeResourceAudience(env.DB,{orgId,resourceType:'app',resourceId:appId,actorId:me,audience,managerFence});
+      return result ? json({...result,audience:audience.type?{type:audience.type,...(audience.roomId?{roomId:audience.roomId}:{}),permission:audience.permission,expiresAt:audience.expiresAt,version:result.version}:null})
+        : json({message:'Audience changed elsewhere. Reload and try again.'},409);
     }
     if (['conversation-source','conversation-notifications'].includes(sub) && parts.length === 3) {
       if(!['GET','POST'].includes(request.method))return json({message:'Method not allowed.'},405);

@@ -5,6 +5,7 @@ import {WorkspaceFilesPanel} from './WorkspaceFilesPanel'
 import type {WorkspaceFileApi,FileVersion,WorkspaceFile} from '../utils/workspaceFiles'
 vi.mock('../utils/i18n',()=>({useT:()=>((text:string)=>text)}))
 vi.mock('./Icon',()=>({Icon:()=>null}))
+vi.mock('./Dialog',()=>({Dialog:({children}:React.PropsWithChildren)=>children}))
 const file={id:'file',scope:'workspace',path:'history.txt',version:51,size:1,contentType:'text/plain'} as WorkspaceFile
 const version=(n:number)=>({version:n,kind:'content',isCurrent:n===51,createdAt:'2026-10-25T00:00:00Z',purged:false}) as FileVersion
 
@@ -97,6 +98,21 @@ test('folder navigation requests direct children, scopes search and resets pagin
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'Alpha/',directOnly:false,query:'note'})
  await act(async()=>{button('All files')!.props.onClick()})
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'',directOnly:true,query:''})
+ act(()=>renderer!.unmount())
+})
+
+test('file Share exposes Room audience and saves the current audience version',async()=>{
+ const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalAudience:vi.fn().mockResolvedValue({audience:null,version:8,rooms:[{id:'room-1',name:'Design'}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[]}),externalInvites:vi.fn().mockResolvedValue({canManage:true,invites:[]}),updateExternalAudience:vi.fn().mockResolvedValue({audience:{type:'room',roomId:'room-1',permission:'view',expiresAt:null,version:9},version:9,rooms:[{id:'room-1',name:'Design'}]})} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})
+ await act(async()=>{renderer!.root.findByProps({className:'hx-file-share-trigger'}).props.onClick()})
+ expect(JSON.stringify(renderer!.toJSON())).toContain('Workspace and Room access')
+ const selects=renderer!.root.findAllByType('select')
+ const audience=selects.find(select=>select.props.value==='none')!
+ await act(async()=>{audience.props.onChange({target:{value:'room'}})})
+ expect(JSON.stringify(renderer!.toJSON())).toContain('Design')
+ expect(renderer!.root.findAllByType('button').some(button=>button.children.includes('Save access'))).toBe(true)
  act(()=>renderer!.unmount())
 })
 
