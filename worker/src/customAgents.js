@@ -26,6 +26,7 @@ export { readResponse };
 import { chooseRoomAgent } from "./harness/roomRouting.js";
 import { filterResponders, mayAccessAgent, profilesFor } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
+import { executionSkills } from "./harness/skills.js";
 
 export const MAX_INSTRUCTIONS = 20000;
 export const MAX_AGENTS = 60;
@@ -641,7 +642,13 @@ export async function respondingAgents(db, { orgId, login, resolved, row, room =
     || mentionTokens(callingText(row.body)).length) return permitted;
   const members = await added;
   const eligible = await filterResponders(db, orgId, login, members, { named: new Set(), channel: resolved.key });
-  const routed = chooseRoomAgent(callingText(row.body), eligible, await profilesFor(db, orgId, eligible.map(agent => agent.id)), roomPolicy?.defaultAgentId);
+  const ids = eligible.map(agent => agent.id);
+  const [profiles, skillEntries] = await Promise.all([
+    profilesFor(db, orgId, ids),
+    Promise.all(eligible.map(async agent => [agent.id, await executionSkills(db, orgId, agent.id, { channel: resolved.key, allowPrivate: false })])),
+  ]);
+  const skills = new Map(skillEntries);
+  const routed = chooseRoomAgent(callingText(row.body), eligible, profiles, roomPolicy?.defaultAgentId, skills);
   return routed ? [routed] : [];
 }
 
