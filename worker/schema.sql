@@ -480,6 +480,7 @@ CREATE TABLE IF NOT EXISTS org_ai_settings (
   monthly_budget_micros INTEGER NOT NULL DEFAULT 0,
   budget_action TEXT NOT NULL DEFAULT 'warn',
   budget_revision INTEGER NOT NULL DEFAULT 0,
+  budget_notified_revision INTEGER NOT NULL DEFAULT -1,
   updated_by    TEXT,
   updated_at    TEXT NOT NULL
 );

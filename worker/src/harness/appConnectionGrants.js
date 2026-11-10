@@ -65,7 +65,11 @@ async function getGrant(db, orgId, appId, name, viewerId) {
 async function sourceAgentGrantAuthority(db, orgId, appId, actorId) {
   const source = await sourceAgent(db, orgId, appId);
   const actor = await memberLogin(db, orgId, actorId);
-  if (!source || !actor || actor.login !== source.sourceLogin || !await mayUseSourceAgent(db, orgId, source, actorId)) return null;
+  // The connection owner may be a different workspace member from the
+  // person who opened the source Agent DM. Sharing is safe only when the
+  // owner opts in with their own credential and still has current access to
+  // both this App and its source Agent.
+  if (!source || !actor || !await mayUseSourceAgent(db, orgId, source, actorId)) return null;
   return { ...source, actor, membershipSince: actor.membershipSince };
 }
 
@@ -99,7 +103,7 @@ export async function appConnectionsForViewer(db, orgId, appId, viewerId) {
       .bind(orgId, appId, String(viewerId), row.name).first();
     const live = Boolean(grant && sourceAccess && grant.sourceAgentId === source?.id && grant.connectionVersion === row.version && grant.endpoint === row.endpoint && grant.method === row.method && Number(row.enabled) === 1);
     const collision = Number((await db.prepare('SELECT COUNT(*) AS n FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND name=?3').bind(orgId, appId, row.name).first())?.n || 0) !== 1;
-    const canShare = Boolean(source && sourceAccess && source.sourceLogin === (await memberLogin(db, orgId, viewerId))?.login && !collision && Number(row.enabled) === 1);
+    const canShare = Boolean(source && sourceAccess && !collision && Number(row.enabled) === 1);
     ownRows.push({ ...row, ownerId: String(viewerId), owned: true, shared: live, grantExists: Boolean(grant), canShare, ...(sourceAccess ? { sourceAgentName: source.name || source.id } : {}) });
   }
   return { connections: [...ownRows, ...visible], hosts: own.hosts, ...(sourceAccess ? { sourceAgent: { id: source.id, name: source.name || source.id } } : {}) };
@@ -142,12 +146,12 @@ export async function changeAppConnectionGrant(db, orgId, appId, actorId, input)
         JOIN channel_messages root ON root.org_id=source.org_id AND root.channel=source.channel
           AND root.id=source.thread_id AND root.deleted_at IS NULL AND root.parent_id IS NULL
         JOIN custom_agents agent ON agent.org_id=source.org_id AND agent.id=?7 AND agent.deleted_at IS NULL
-        JOIN users actor ON actor.github_id=?3 AND actor.login=?11
+        JOIN users actor ON actor.github_id=?3
         JOIN memberships member ON member.org_id=agent.org_id AND member.user_github_id=actor.github_id
           AND LOWER(COALESCE(member.role,'guest'))!='guest'
         LEFT JOIN hx_agent_profiles profile ON profile.org_id=agent.org_id AND profile.agent_id=agent.id
-        WHERE source.org_id=?1 AND source.app_id=?2 AND source.channel=?12
-          AND actor.login=?11 AND (agent.scope!='personal' OR agent.owner_login=actor.login)
+        WHERE source.org_id=?1 AND source.app_id=?2 AND source.channel=?11
+          AND (agent.scope!='personal' OR agent.owner_login=actor.login)
           AND (COALESCE(profile.access,'everyone') NOT IN ('people','private') OR agent.owner_login=actor.login
             OR (profile.access='people' AND EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(profile.people) THEN profile.people ELSE '[]' END) person WHERE person.value=actor.login))
             OR (agent.scope='team' AND agent.provider IS NULL AND profile.agent_id IS NOT NULL
@@ -170,7 +174,7 @@ export async function changeAppConnectionGrant(db, orgId, appId, actorId, input)
           AND (COALESCE(policy.visibility,'workspace')='workspace' OR app.created_by=excluded.connection_owner_id)
           AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=excluded.org_id AND d.purge_started_at IS NOT NULL)
           AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=excluded.org_id))`)
-    .bind(orgId, appId, String(actorId), name, connection.version, authority.membershipSince, authority.id, connection.endpoint, connection.method, at, authority.sourceLogin, authority.channel).run();
+    .bind(orgId, appId, String(actorId), name, connection.version, authority.membershipSince, authority.id, connection.endpoint, connection.method, at, authority.channel).run();
   if(!saved.meta?.changes)return err('Connection changed while sharing. Reload and try again.',409);
   return { granted: true };
 }

@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { allowanceFor } from "../src/gate.js";
-import { saveWorkspaceAIBudget, workspaceAIBudgetStatus, workspaceBudgetAdmission } from "../src/workspaceAIBudget.js";
+import { claimWorkspaceBudgetNotice, saveWorkspaceAIBudget, workspaceAIBudgetStatus, workspaceBudgetAdmission } from "../src/workspaceAIBudget.js";
 
 const ORG = "workspace:shared-budget";
 const NOW = () => new Date(Date.now() - 1_000).toISOString();
@@ -31,6 +31,50 @@ test("the shared stop affects new deployment-key requests after estimated usage 
   expect(await allowanceFor({ DB: env.DB }, ORG, { githubId: "42" })).toMatchObject({
     allowed: false, workspaceBudgetExceeded: true,
   });
+});
+
+test("a reached pause budget notifies current admins once per settings revision", async () => {
+  const saved = await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 0.5, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", NOW());
+  await env.DB.prepare(`INSERT INTO users(github_id,login,created_at) VALUES
+    ('owner-1','owner-one',?1),('admin-1','admin-one',?1),('member-1','member-one',?1)`).bind(NOW()).run();
+  await env.DB.prepare(`INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES
+    (?1,'owner-1','owner',?2),(?1,'admin-1','admin',?2),(?1,'member-1','member',?2)`).bind(ORG,NOW()).run();
+  await env.DB.prepare(`INSERT INTO ai_calls(org_id,user_github_id,purpose,provider,model,input_tokens,output_tokens,usd,byok,created_at)
+    VALUES(?1,'42','ask','OpenAI','gpt-4o-mini',100,100,0.5,0,?2)`).bind(ORG,NOW()).run();
+  const admission = await workspaceBudgetAdmission(env.DB, ORG);
+  expect(admission).toMatchObject({ allowed:false, reason:'workspace_ai_budget', budget:{revision:saved.status.revision} });
+  expect(await claimWorkspaceBudgetNotice(env.DB, ORG, admission.budget)).toMatchObject({
+    revision: saved.status.revision, periods:['24h'], logins:['admin-one','owner-one'],
+  });
+  expect(await claimWorkspaceBudgetNotice(env.DB, ORG, admission.budget)).toBeNull();
+
+  await saveWorkspaceAIBudget(env.DB, ORG, { revision:saved.status.revision, dailyLimitUsd:0.4 }, '42', NOW());
+  const next = await workspaceBudgetAdmission(env.DB, ORG);
+  expect(await claimWorkspaceBudgetNotice(env.DB, ORG, next.budget)).toMatchObject({ revision:saved.status.revision+1, periods:['24h'] });
+});
+
+test("budget admission announces one scoped event only to current workspace admins", async () => {
+  const orgId = `${ORG}:relay`;
+  await saveWorkspaceAIBudget(env.DB, orgId, {
+    revision:0, dailyLimitUsd:0.5, weeklyLimitUsd:0, monthlyLimitUsd:0, action:'pause',
+  }, '42', NOW());
+  await env.DB.prepare(`INSERT INTO users(github_id,login,created_at) VALUES
+    ('owner-r','owner-relay',?1),('admin-r','admin-relay',?1),('member-r','member-relay',?1)`).bind(NOW()).run();
+  await env.DB.prepare(`INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES
+    (?1,'owner-r','owner',?2),(?1,'admin-r','admin',?2),(?1,'member-r','member',?2)`).bind(orgId,NOW()).run();
+  await env.DB.prepare(`INSERT INTO ai_calls(org_id,user_github_id,purpose,provider,model,input_tokens,output_tokens,usd,byok,created_at)
+    VALUES(?1,'42','ask','OpenAI','gpt-4o-mini',100,100,0.5,0,?2)`).bind(orgId,NOW()).run();
+  const sent=[];
+  const notificationEnv={DB:env.DB,ORG_RELAY:{idFromName:(id)=>id,get:()=>({fetch:async(_url,init)=>{sent.push(JSON.parse(init.body));return new Response('{}')}})}};
+
+  await allowanceFor(notificationEnv,orgId,{githubId:'42'});
+  await allowanceFor(notificationEnv,orgId,{githubId:'42'});
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0].deliveries.map((delivery)=>delivery.to).sort()).toEqual(['admin-relay','owner-relay']);
+  expect(sent[0].deliveries[0].event).toMatchObject({type:'CUSTOM',name:'workspace_ai_budget_reached',value:{orgId,periods:['24h'],revision:1}});
 });
 
 test("warn-only and BYOK usage do not block the deployment-key budget", async () => {

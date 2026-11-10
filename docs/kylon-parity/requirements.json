@@ -638,7 +638,13 @@
         "implementationBase": "0c24e52156fc06d47a7c4c1e5d96a57e7952206a",
         "implementedScope": "The main baseline supports personal App-scoped exact endpoint/method connections with encrypted credentials. This local increment adds explicit grants for existing allowlisted native connections sourced from a direct Agent DM. Visitor calls recheck membership, current App visibility, source-Agent access for visitor and owner, grant/version, and exact endpoint/method; credentials are decrypted server-side using the owner identity and never returned. Same-target reauthorization preserves grants; endpoint/method changes, disable, or explicit revoke remove them.",
         "remaining": "Source-Agent resolution for group/business conversation sources, grants for connections owned by a different member, and OAuth refresh remain incomplete. Remote MCP grants and arbitrary URL proxying are outside this native-connection slice.",
-        "verification": "docs/kylon-parity/verification.md"
+        "verification": "docs/kylon-parity/verification.md",
+        "latestIncrement": {
+          "base": "bc79dfae",
+          "scope": "An App source Agent owner and another current Agent member may each grant only their own allowlisted native Connection to that App. Server-side credential storage, current App visibility and source-Agent access are rechecked; grant rows bind the owner, Agent, endpoint, method and connection version.",
+          "verification": "Focused worker/src/harness/apps tests: 159/159 passed, including no grant without current Agent access, server-side secret use, revoke/version behavior and in-flight permission invalidation. git diff --check passed.",
+          "remaining": "Group/business-source Apps still do not persist a source Agent ID, so source identity is not inferred from ambiguous history. OAuth refresh, broad per-connection people/Agent/workspace sharing and authenticated production comparison remain."
+        }
       }
     },
     {
@@ -1096,7 +1102,13 @@
       "acceptance": "個別workflowのpauseに加え、記録済みworkspace共通AI参考価格上限で新しいdeployment-keyのモデルリクエストを停止。既存BYOK上限と分離",
       "evidence": {
         "verified": "rolling 24h/7d/30d estimated usageの到達を共通AI gateで検出し、新しいdeployment-key AIリクエストを拒否して説明を返すwarn/stop設定を実装。管理者とメンバーのAPI権限、gate tests、exact-SHA CI 40219026947、Worker deployment 40219026929、Pages deployment 40221036459、ログイン済み本番AI設定画面を確認済み。詳細はverification.md。",
-        "remaining": "現在実行中の処理は中断せず、workspace設定画面以外の管理者向け通知も未実装。workflow/app/tool実行全体、独立AI teammate provider、外部connector費、事前予約の厳密な上限制御は含まない。"
+        "remaining": "現在実行中の処理は中断せず、workspace設定画面以外の管理者向け通知も未実装。workflow/app/tool実行全体、独立AI teammate provider、外部connector費、事前予約の厳密な上限制御は含まない。",
+        "latestIncrement": {
+          "base": "bc79dfae",
+          "scope": "When a deployment-key pause budget is first reached, claim one notice per saved budget revision and notify current workspace owners/admins through the existing Relay. The Harness Dashboard restores the notice from existing AI status on initial load/reconnect, offers a link to AI usage settings, and suppresses duplicates per revision. The notice includes no amount or credential. Simple mode is unchanged.",
+          "verification": "Focused Worker budget tests: 9/9; Web notice/WebSocket tests: 34/34; migration-column checks: 8/8; TypeScript and production Web build passed; git diff --check passed. Build emitted existing Vite chunk/dynamic-import warnings.",
+          "remaining": "This is an in-app notice and does not add email/push, Kylon credits, provider invoices, external connector costs, strict preauthorization or stopping of all currently running provider-side work. Authenticated production and Kylon UI acceptance remain."
+        }
       }
     },
     {
@@ -1223,7 +1235,13 @@
       "acceptance": "名前または検証済みメールで招待した外部ユーザーがワークスペースメンバー化せずサインインでき、Room/Workspace/リンクの対象ごとにThread・File・AppのCan view/Can editを個別設定できる。Threadのゲストは閲覧・返信・アップロード・リアクションができ、送信要求は所有者承認を経る。失効は即時反映され、Workspace/Room/別リソース間のACL隔離、期限、監査履歴、ゲストにAgentが自動返信しないことを検証する。",
       "evidence": {
         "verified": "Kylon公式Changelogの2026-10-30項目は、Thread/File/Appを名前またはメールで共有し、Room/Workspace/リンク単位の対象と各人のCan view/Can editを選ぶこと、外部ユーザーはWorkspaceに参加せずサインインすること、Threadゲストの閲覧/返信/アップロード/リアクションと所有者承認付き送信、現時点でAgentは外部ゲストに返信しないことを明記。Files & Sharing docs §Share outside the workspaceは、公開リンクはスナップショットを公開するだけでlive File/Roomのアクセス権を与えないと明記。Honmaruでは既存のグローバルユーザー認証を使い、新規サービスを追加せず、resource-scoped grant/revoke ledgerとhuman-only lookupの基礎を追加。",
-        "remaining": "Thread/File/Appの個別招待・権限・失効、Threadリンク共有、File版追加、Appの外部ゲスト行操作と公開済みCustom Appの隔離実行、PR #870でのFiles/Apps/Threads向けWorkspace/Room audienceはmainに存在する。Workspace既定viewのメンバーによるHTTP/MCP/Workflow書込みは拒否し、workspace owner/adminはedit、一般メンバーは明示edit grantを要求する。Custom Appゲストにserver action/外部接続は公開しない。名前検索招待、File/Thread/App以外のKylon audience、認証済み複数利用者の本番比較は未完了。既存Simpleモードはこのgrantモデルを参照しない。"
+        "remaining": "Thread/File/Appの個別招待・権限・失効、Threadリンク共有、File版追加、Appの外部ゲスト行操作と公開済みCustom Appの隔離実行、PR #870でのFiles/Apps/Threads向けWorkspace/Room audienceはmainに存在する。Workspace既定viewのメンバーによるHTTP/MCP/Workflow書込みは拒否し、workspace owner/adminはedit、一般メンバーは明示edit grantを要求する。Custom Appゲストにserver action/外部接続は公開しない。名前検索招待、File/Thread/App以外のKylon audience、認証済み複数利用者の本番比較は未完了。既存Simpleモードはこのgrantモデルを参照しない。",
+        "latestMainFix": {
+          "release": "PR #872 merged as bc79dfae. Exact-head CI, main CI and Worker deploy succeeded; post-deploy Worker health and app.honmaruai.com returned HTTP 200.",
+          "scope": "Room-audience File/App grants now require the referenced room to exist unarchived and have no deletion tombstone, in addition to current room membership. Regression proved stale conversation_members rows no longer retain access after archive/delete.",
+          "verification": "Integrated 9 Worker suites: 451/451 tests passed; PR CI eventually passed after one unrelated pre-existing Agent handoff timeout passed on shard retry and single-test rerun.",
+          "remaining": "This closes the archived/deleted-room stale audience gap only. Named external invitation, production multi-user isolation and Kylon interaction comparison remain."
+        }
       }
     },
     {

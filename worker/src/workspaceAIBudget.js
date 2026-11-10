@@ -62,6 +62,29 @@ export function workspaceAIBudgetExceeded(status) {
     && (status.periods?.[key]?.exhausted || status.periods?.[key]?.indeterminate));
 }
 
+/// One in-app notice per saved budget revision. A failed request can be
+/// retried many times (or by many members); only the first request that sees
+/// an exceeded pause budget claims the notice. Updating the budget creates a
+/// new revision and allows one new notice if that configuration is later hit.
+export async function claimWorkspaceBudgetNotice(db, orgId, status, now = new Date().toISOString()) {
+  if (!db || !orgId || !workspaceAIBudgetExceeded(status)) return null;
+  const periods = WINDOWS.filter(([key]) => {
+    const period = status.periods?.[key];
+    return Number(period?.limitMicros) > 0 && (period.exhausted || period.indeterminate);
+  }).map(([key]) => key);
+  if (!periods.length) return null;
+  const revision = Number(status.revision) || 0;
+  const claimed = await db.prepare(`UPDATE org_ai_settings SET budget_notified_revision=?2
+    WHERE org_id=?1 AND budget_revision=?2 AND budget_notified_revision<?2`)
+    .bind(orgId, revision).run();
+  if (!claimed.meta?.changes) return null;
+  const { results } = await db.prepare(`SELECT u.login FROM memberships m JOIN users u ON u.github_id=m.user_github_id
+    WHERE m.org_id=?1 AND m.role IN ('owner','admin') AND u.login IS NOT NULL ORDER BY m.created_at,m.user_github_id`)
+    .bind(orgId).all();
+  const logins = [...new Set((results || []).map((row) => String(row.login || '').trim()).filter(Boolean))];
+  return { revision, periods, logins, createdAt: now };
+}
+
 // Harness side effects that can continue work after a model request has
 // already reached the workspace's pause threshold share the same stop. This
 // does not estimate or meter external-provider/connector charges. A workspace
@@ -84,6 +107,7 @@ export async function workspaceBudgetAdmission(db, orgId, now = Date.now(), { ig
       allowed: false,
       reason: 'workspace_ai_budget',
       status: 409,
+      budget: status,
       message: hasUnpriced
         ? "The workspace AI usage includes a model without a known list price, so its configured usage limit cannot be verified. An admin can change the limit; the window clears as older usage ages out."
         : "The workspace's estimated AI usage limit has been reached. An admin can raise the limit; the window also clears as older usage ages out.",

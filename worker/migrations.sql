@@ -94,6 +94,7 @@ ALTER TABLE org_ai_settings ADD COLUMN weekly_budget_micros INTEGER NOT NULL DEF
 ALTER TABLE org_ai_settings ADD COLUMN monthly_budget_micros INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE org_ai_settings ADD COLUMN budget_action TEXT NOT NULL DEFAULT 'warn';
 ALTER TABLE org_ai_settings ADD COLUMN budget_revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE org_ai_settings ADD COLUMN budget_notified_revision INTEGER NOT NULL DEFAULT -1;
 ALTER TABLE channel_messages ADD COLUMN previews_hidden INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sso_connections ADD COLUMN idp_slo_url TEXT;
 ALTER TABLE custom_agents ADD COLUMN avatar_url TEXT;

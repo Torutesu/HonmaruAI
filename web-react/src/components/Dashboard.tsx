@@ -1,5 +1,6 @@
 import {useJamSnapshot} from '../utils/useJamSnapshot'
 import {sessionFence} from '../utils/sessionFence'
+import { isWorkspaceBudgetNoticeContextCurrent, shouldRestoreWorkspaceBudgetNotice, workspaceBudgetNoticeDismissalKey } from '../utils/workspaceBudgetNotice'
 import {WorkspaceModeLoading} from './WorkspaceModeLoading'
 import { FloatingAppWorkspace } from './FloatingAppWorkspace'
 import { HarnessRail } from './HarnessRail'
@@ -168,6 +169,8 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // relay was unreachable. Shown, so the person knows it is on its way.
   const [unsent, setUnsent] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [workspaceBudgetNoticeRevision, setWorkspaceBudgetNoticeRevision] = useState<number | null>(null)
+  const dismissedBudgetNoticeKeyRef = useRef<string | null>(null)
   // The decision just made, for six seconds: long enough to take it back. A
   // swipe is fast and a card leaves the screen the moment it is decided, so
   // without this a slip of the thumb is an approval nobody meant.
@@ -297,6 +300,49 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // Simple or harness (docs/kylon-gap-plan.md): what the rail offers.
   const jamSnapshot=useJamSnapshot(JSON.stringify([relayUrl,userId,orgId,sessionToken]))
   const { mode: workspaceMode, simpleOnly, loaded: workspaceModeLoaded,offline:workspaceModeOffline,error:workspaceModeError,retry:retryWorkspaceMode,setSimpleOnly } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
+  const workspaceBudgetNoticeScope = JSON.stringify([relayHttpUrl, orgId, userId, sessionToken])
+  const workspaceBudgetNoticeContextRef = useRef({ scope: workspaceBudgetNoticeScope, workspaceMode, simpleOnly, workspaceModeLoaded })
+  workspaceBudgetNoticeContextRef.current = { scope: workspaceBudgetNoticeScope, workspaceMode, simpleOnly, workspaceModeLoaded }
+  const workspaceBudgetRequestRef = useRef(0)
+  const restoreWorkspaceBudgetNotice = useCallback(async () => {
+    const request = ++workspaceBudgetRequestRef.current
+    if (!workspaceModeLoaded || workspaceMode !== 'harness' || simpleOnly || !orgId || !sessionToken) return
+    const fence = sessionFence(relayHttpUrl, sessionToken)
+    try {
+      const response = await fetch(`${relayHttpUrl}/orgs/ai?orgId=${encodeURIComponent(orgId)}`, {
+        headers: { 'x-session-token': sessionToken },
+      })
+      if (!response.ok || !fence.current() || request !== workspaceBudgetRequestRef.current) return
+      const status = await response.json()
+      const current = workspaceBudgetNoticeContextRef.current
+      const revision = status?.aiBudget?.revision
+      if (!fence.current() || !isWorkspaceBudgetNoticeContextCurrent({
+        request, latestRequest: workspaceBudgetRequestRef.current, expectedScope: workspaceBudgetNoticeScope,
+        currentScope: current.scope, workspaceMode: current.workspaceMode, simpleOnly: current.simpleOnly,
+        workspaceModeLoaded: current.workspaceModeLoaded,
+      })
+        || !Number.isSafeInteger(revision)) return
+      const shouldShow = shouldRestoreWorkspaceBudgetNotice({
+        workspaceMode, simpleOnly, canEdit: status?.canEdit, aiBudget: status?.aiBudget,
+      })
+      const dismissalKey = workspaceBudgetNoticeDismissalKey(workspaceBudgetNoticeScope, revision)
+      setWorkspaceBudgetNoticeRevision(shouldShow && dismissedBudgetNoticeKeyRef.current !== dismissalKey ? revision : null)
+    } catch { /* relay may be offline; the durable status will be retried on resync */ }
+    finally { fence.release() }
+  }, [relayHttpUrl, orgId, userId, sessionToken, workspaceMode, simpleOnly, workspaceModeLoaded, workspaceBudgetNoticeScope])
+  useEffect(() => {
+    setWorkspaceBudgetNoticeRevision(null)
+    void restoreWorkspaceBudgetNotice()
+    return () => { workspaceBudgetRequestRef.current++ }
+  }, [restoreWorkspaceBudgetNotice])
+  useEffect(() => {
+    window.addEventListener('honmaru:resync', restoreWorkspaceBudgetNotice)
+    return () => window.removeEventListener('honmaru:resync', restoreWorkspaceBudgetNotice)
+  }, [restoreWorkspaceBudgetNotice])
+  const dismissWorkspaceBudgetNotice = useCallback(() => {
+    if (workspaceBudgetNoticeRevision !== null) dismissedBudgetNoticeKeyRef.current = workspaceBudgetNoticeDismissalKey(workspaceBudgetNoticeScope, workspaceBudgetNoticeRevision)
+    setWorkspaceBudgetNoticeRevision(null)
+  }, [workspaceBudgetNoticeScope, workspaceBudgetNoticeRevision])
   useEffect(()=>{if(route.appSource && route.appOrg===orgId && workspaceModeLoaded && workspaceMode!=='harness')navigate(hashForMode('classic'),true)},[route.appSource,route.appOrg,orgId,workspaceModeLoaded,workspaceMode,navigate])
   useEffect(() => {
     if (simpleOnly && screen && screen !== 'harness' && HARNESS_SCREENS.has(screen)) closeScreen()
@@ -823,6 +869,17 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     const id = setTimeout(() => setUndo(null), 6000)
     return () => clearTimeout(id)
   }, [undo])
+  useEffect(() => {
+    const onWorkspaceBudget = (event: Event) => {
+      const detail = (event as CustomEvent<{ orgId?: string; revision?: number }>).detail
+      if (detail?.orgId !== orgId || !Number.isSafeInteger(detail?.revision)
+        || !workspaceModeLoaded || workspaceMode !== 'harness' || simpleOnly) return
+      const dismissalKey = workspaceBudgetNoticeDismissalKey(workspaceBudgetNoticeScope, detail.revision!)
+      if (dismissedBudgetNoticeKeyRef.current !== dismissalKey) setWorkspaceBudgetNoticeRevision(detail.revision!)
+    }
+    window.addEventListener('honmaru:workspace-ai-budget-reached', onWorkspaceBudget)
+    return () => window.removeEventListener('honmaru:workspace-ai-budget-reached', onWorkspaceBudget)
+  }, [orgId, workspaceModeLoaded, workspaceMode, simpleOnly, workspaceBudgetNoticeScope])
 
   /// "Ask anything" on a card: a question, answered from the card and what
   /// the team decided before — not routed to somebody as a new card. The
@@ -1244,6 +1301,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
 
       <div className="toasts">
         {error && <div className="toast error" role="alert" onClick={() => setError(null)}>{error}</div>}
+        {workspaceBudgetNoticeRevision !== null && <div className="toast" role="status" data-workspace-budget-notice="1">
+          <span className="undo-text">{t('The shared workspace AI usage limit was reached. New deployment-key AI requests are paused.')}</span>
+          <button className="undo-button" onClick={() => { dismissWorkspaceBudgetNotice(); setScreen('tools') }}>{t('Review AI usage')}</button>
+          <button className="undo-button quiet" aria-label={t('Dismiss')} onClick={dismissWorkspaceBudgetNotice}>{t('Not now')}</button>
+        </div>}
         {suggestRule && !error && (
           <div className="toast rule-offer" role="status" data-rule-offer="1">
             <span className="undo-text">{suggestRule.business

@@ -451,7 +451,12 @@ export class WebSocketClient {
   }
 
   private handleCustom(event: any): void {
-    if (event.name === 'presence' && event.value) {
+    if (event.name === 'workspace_ai_budget_reached' && typeof event.value?.orgId === 'string' && Array.isArray(event.value?.periods)
+      && Number.isSafeInteger(event.value?.revision) && event.value.revision >= 0) {
+      // A budget notice is sent only to current workspace owners/admins. Keep
+      // it as a small local event so the active client can show a settings link.
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('honmaru:workspace-ai-budget-reached', { detail: event.value }))
+    } else if (event.name === 'presence' && event.value) {
       this.onPresence?.(event.value.userId, event.value.status)
     } else if (event.name === 'comment' && event.value?.comment) {
       this.onComment?.(event.value.cardId, event.value.comment)
