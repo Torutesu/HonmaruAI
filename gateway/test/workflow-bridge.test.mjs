@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createStateBroker,validateStateRequest,createWorkflowOutputParser} from '../workflow-bridge.mjs';
-import {workflowSdkSource,normalizeWorkflowDraft} from '../workflow-sdk.mjs';
+import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable} from '../workflow-sdk.mjs';
 test('guest cannot choose activation identity or call arbitrary host operations',()=>{
  for(const request of [{id:1,method:'shell',params:{}},{id:1,method:'state.get',params:{runId:'other'}},{id:1,method:'state.set',params:{state:{},expectedRevision:0,owner:'other'}},{id:65,method:'state.get',params:{}}])assert.throws(()=>validateStateRequest(request));
 });
@@ -67,4 +67,19 @@ test('sendMessage stages bounded report drafts without posting or accepting arbi
   assert.throws(()=>normalizeWorkflowDraft('ok',{mention:['']}),/mention/);
   assert.throws(()=>normalizeWorkflowDraft('x'.repeat(12001)),/12 KB/);
  } finally { delete globalThis.__honmaruWorkflowTestBridge; }
+});
+
+test('table.query follows stable cursors and reports a bounded incomplete result',async()=>{
+ const requests=[];const pages=[
+  {rows:[{id:'r1'},{id:'r2'}],complete:false,cursor:'cursor-1'},
+  {rows:[{id:'r3'}],complete:true,cursor:null},
+ ];
+ const bridge={tableSource:{appId:'app',entityId:'primary',tableId:'table'},queryTable:async params=>{requests.push(params);return pages.shift()}};
+ const result=await queryWorkflowTable({where:{status:['open']},pageSize:2},bridge);
+ assert.deepEqual(result,{rows:[{id:'r1'},{id:'r2'},{id:'r3'}],complete:true,cursor:null,pages:2});
+ assert.equal(requests[0].cursor,undefined);assert.equal(requests[1].cursor,'cursor-1');
+ const capped=await queryWorkflowTable({pageSize:1,maxPages:1},{...bridge,queryTable:async()=>({rows:[{id:'r1'}],complete:false,cursor:'next'})});
+ assert.deepEqual(capped,{rows:[{id:'r1'}],complete:false,cursor:'next',pages:1,incompleteReason:'page_limit'});
+ await assert.rejects(()=>queryWorkflowTable({pageSize:101},bridge),/pageSize/);
+ await assert.rejects(()=>queryWorkflowTable({},{}),/no explicitly authorized/);
 });

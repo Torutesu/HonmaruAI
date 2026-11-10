@@ -1420,6 +1420,13 @@ test("workflow Agent fence uses current Agent state after a stale row was loaded
     .bind(ORG, agent.id).first();
   expect(stale).toMatchObject({ scope: "team" });
   expect(await mayRunAgent(env.DB, ORG, stale, "8802")).toBe(true);
+  // Membership role values are case/space tolerant, while a padded Guest is
+  // still denied at the execution boundary.
+  await env.DB.prepare("UPDATE memberships SET role=' MeMbEr ' WHERE org_id=?1 AND user_github_id='8802'").bind(ORG).run();
+  expect(await mayRunAgent(env.DB, ORG, stale, "8802")).toBe(true);
+  await env.DB.prepare("UPDATE memberships SET role=' Guest ' WHERE org_id=?1 AND user_github_id='8802'").bind(ORG).run();
+  expect(await mayRunAgent(env.DB, ORG, stale, "8802")).toBe(false);
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='8802'").bind(ORG).run();
 
   await env.DB.prepare("UPDATE custom_agents SET deleted_at=?1 WHERE org_id=?2 AND id=?3")
     .bind(new Date().toISOString(), ORG, agent.id).run();

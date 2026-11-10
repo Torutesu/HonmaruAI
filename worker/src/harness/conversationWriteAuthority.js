@@ -2,7 +2,7 @@
 // pass trusted SQL expressions; this runs in the same statement as the write.
 export function conversationWriteAuthority(org, channel, actor) {
   return `EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
-    WHERE m.org_id=${org} AND m.user_github_id=${actor} AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    WHERE m.org_id=${org} AND m.user_github_id=${actor} AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     AND NOT EXISTS(SELECT 1 FROM workspace_deletions deletion WHERE deletion.org_id=m.org_id AND deletion.purge_started_at IS NOT NULL)
     AND NOT EXISTS(SELECT 1 FROM workspace_tombstones deleted WHERE deleted.org_id=m.org_id) AND (
       (substr(${channel},1,2)='b:' AND EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=m.org_id AND 'b:'||b.slug=${channel}

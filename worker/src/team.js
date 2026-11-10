@@ -30,7 +30,7 @@ export function membershipIsOurs(orgId) {
   return !String(orgId).includes("/");
 }
 
-const rank = (role) => ROLE_RANK.get(String(role || "member").toLowerCase()) ?? 0;
+const rank = (role) => ROLE_RANK.get(String(role || "member").trim().toLowerCase()) ?? 0;
 
 /// A stable, non-secret name for an invite code.
 ///
@@ -97,7 +97,7 @@ export async function listMembers(db, orgId, viewerId) {
     const { results: rows } = await db.prepare(
       `SELECT c.login, substr(c.channel, 3) AS slug FROM conversation_members c
         JOIN users u ON u.login = c.login JOIN memberships m ON m.user_github_id = u.github_id AND m.org_id = c.org_id
-        WHERE c.org_id = ?1 AND m.role = 'guest' AND c.channel LIKE 'b:%' ORDER BY c.added_at`
+        WHERE c.org_id = ?1 AND LOWER(TRIM(COALESCE(m.role,'guest')))='guest' AND c.channel LIKE 'b:%' ORDER BY c.added_at`
     ).bind(orgId).all().catch(() => ({ results: [] }));
     for (const r of rows || []) guestChannels.set(r.login, [...(guestChannels.get(r.login) || []), r.slug]);
   }
@@ -109,7 +109,7 @@ export async function listMembers(db, orgId, viewerId) {
       // remove by `ref` — and nothing that names an inbox.
       ref: await memberRef(orgId, String(r.userId)),
       name: r.name,
-      role: String(r.role || "member").toLowerCase(),
+      role: String(r.role || "member").trim().toLowerCase(),
       // What they say they do, when that differs from the standing they hold.
       title: r.title || null,
       // Other names they answer to, for "@美香" reaching Mika.
@@ -152,7 +152,7 @@ export async function listMembersForClient(db, orgId, viewerId) {
 
 /// The condition on a write that takes an owner away (?1 the workspace, ?2
 /// the owner): that they are still one, and somebody else is too.
-const ANOTHER_OWNER = " AND role = 'owner' AND EXISTS (SELECT 1 FROM memberships o WHERE o.org_id = ?1 AND o.role = 'owner' AND o.user_github_id != ?2)";
+const ANOTHER_OWNER = " AND role = 'owner' AND EXISTS (SELECT 1 FROM memberships o WHERE o.org_id = ?1 AND LOWER(TRIM(o.role))='owner' AND o.user_github_id != ?2)";
 
 /// Take someone out of a workspace, or leave it yourself.
 ///
@@ -297,7 +297,7 @@ export async function listInvites(env, { orgId, viewerId }) {
         code: readable ? r.code : null,
         // The link is what is handed over; the code is what is inside it.
         link: readable ? inviteLink(env, r.code) : null,
-        role: String(r.role || "member").toLowerCase(),
+        role: String(r.role || "member").trim().toLowerCase(),
         creator: r.creator,
         mine,
         createdAt: r.created_at,

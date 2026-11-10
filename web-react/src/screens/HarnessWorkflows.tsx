@@ -125,7 +125,9 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
   const [formSteps,setSteps]=useState<Step[]>(initial?.steps[0]?.type!=='code'&&initial?structuredClone(initial.steps):[blankStep('post')])
   const [program,setProgram]=useState<Step>(initial?.steps[0]?.type==='code'?structuredClone(initial.steps[0]):{type:'code',code:'console.log("Hello from your workflow");'})
   const steps=format==='code'?[program]:formSteps
-  const programValid=format!=='code'||Boolean(program.gatewayId&&program.code?.trim()&&new TextEncoder().encode(program.code).length<=48000)
+  const programHasSource=Boolean(program.sourceAppId||program.sourceEntityId||program.sourceTableId)
+  const programSourceValid=!programHasSource||Boolean(program.sourceAppId&&program.sourceEntityId&&program.sourceTableId)
+  const programValid=format!=='code'||Boolean(program.gatewayId&&program.code?.trim()&&new TextEncoder().encode(program.code).length<=48000&&programSourceValid)
   const appTriggerValid=trigger.type!=='app_record_change'||Boolean(trigger.appId&&trigger.entityId&&trigger.events?.length)
   const scheduleValid = trigger.type !== 'schedule' || (()=>{
     if (trigger.kind === 'every') return Number.isSafeInteger(trigger.everyMs) && trigger.everyMs! >= 600000 && trigger.everyMs! <= 8640000000000000-Date.now()
@@ -276,7 +278,7 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
       <label className="hx-inline">{t('Workflow format')} <select aria-label={t('Workflow format')} value={format} onChange={event=>setFormat(event.target.value)}>
         <option value="form">{t('Form steps')}</option><option value="code">{t('TypeScript program')}</option>
       </select></label>
-      {format==='code'?<WorkflowProgramEditor api={api} step={program} onChange={setProgram}/>:<>
+      {format==='code'?<WorkflowProgramEditor api={api} step={program} onChange={setProgram} sourceApps={triggerApps}/>:<>
       <div className="rows-title">{t('Steps')}</div>
       {steps.map((s, i) => (
         <StepEditor

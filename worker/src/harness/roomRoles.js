@@ -2,8 +2,8 @@
 // to the current membership/assignment, so leaving and returning never revives it.
 import {roomAgentAccessPlan} from './agentAccessRequests.js';
 const subjects = `SELECT 'person' AS kind,u.github_id AS id,u.name,u.login,
-    m.created_at||'/'||c.added_at AS membership,CASE WHEN LOWER(COALESCE(m.role,'guest'))='guest' THEN 0 ELSE 1 END AS eligible,
-    CASE WHEN LOWER(COALESCE(m.role,'guest'))='guest' THEN 'member' ELSE COALESCE(r.role,'member') END AS role
+    m.created_at||'/'||c.added_at AS membership,CASE WHEN LOWER(TRIM(COALESCE(m.role,'guest')))='guest' THEN 0 ELSE 1 END AS eligible,
+    CASE WHEN LOWER(TRIM(COALESCE(m.role,'guest')))='guest' THEN 'member' ELSE COALESCE(r.role,'member') END AS role
   FROM businesses b JOIN memberships m ON m.org_id=b.org_id
   JOIN users u ON u.github_id=m.user_github_id
   LEFT JOIN conversation_members c ON c.org_id=b.org_id AND c.channel=?2 AND c.login=u.login
@@ -36,14 +36,14 @@ export async function initializeRoomRoles(db, orgId, channel, actorId) {
   actorId=String(actorId||'');
   const state=await roomRoleState(db,orgId,channel);
   if(!state)return {error:'No such room.',status:404};
-  const actor=await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'guest'))!='guest'").bind(orgId,actorId).first();
+  const actor=await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest'").bind(orgId,actorId).first();
   if(!actor||(state.private&&!state.members.some(m=>m.kind==='person'&&m.id===actorId))||String(state.createdBy)!==actorId)return {error:'Only the room creator can initialize its roles.',status:403};
   if(state.managed)return {version:state.version};
   const nonce=crypto.randomUUID(),at=new Date().toISOString();
   const result=await db.batch([
     db.prepare(`INSERT OR IGNORE INTO hx_room_access(org_id,channel,version,mutation_id)
       SELECT ?1,?2,1,?4 WHERE EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND created_by=?3 AND archived_at IS NULL)
-      AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND LOWER(COALESCE(role,'guest'))!='guest' AND created_at=?5)
+      AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest' AND created_at=?5)
       AND EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND (b.private=0 OR EXISTS(
         SELECT 1 FROM conversation_members c JOIN users u ON u.login=c.login WHERE c.org_id=?1 AND c.channel=?2 AND u.github_id=?3)))`)
       .bind(orgId,channel,actorId,nonce,actor.created_at),
@@ -142,7 +142,7 @@ export async function deleteManagedRoom(db,orgId,channel,{actorId,version}) {
     if(policy)return {error:'Room roles changed. Reload before deleting.',status:409};
     return {managed:false};
   }
-  const membership=await db.prepare("SELECT LOWER(COALESCE(role,'guest')) AS role,created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,actorId).first();
+  const membership=await db.prepare("SELECT LOWER(TRIM(COALESCE(role,'guest'))) AS role,created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,actorId).first();
   if(!membership)return {error:'Your workspace membership changed. Reload before deleting.',status:409};
   const actor=state.members.find(m=>m.kind==='person'&&m.id===actorId);
   const workspaceAdmin=['admin','owner'].includes(membership?.role);
@@ -153,8 +153,8 @@ export async function deleteManagedRoom(db,orgId,channel,{actorId,version}) {
   const gate='EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3)';
   const result=await db.batch([
     db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?4 WHERE org_id=?1 AND channel=?2 AND version=?5
-      AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND created_at=?6 AND LOWER(COALESCE(role,'guest'))!='guest')
-      AND (EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND role IN('admin','owner'))
+      AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND created_at=?6 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')
+      AND (EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND LOWER(TRIM(role)) IN ('admin','owner'))
         OR EXISTS(SELECT 1 FROM (${allSubjects}) WHERE kind='person' AND id=?3 AND role='admin' AND eligible=1 AND membership=?7))`)
       .bind(orgId,channel,actorId,nonce,state.version,membership.created_at,actor?.membership||''),
     db.prepare(`UPDATE businesses SET private=1,archived_at=?4 WHERE org_id=?1 AND 'b:'||slug=?2 AND ${gate}`).bind(orgId,channel,nonce,new Date().toISOString()),
@@ -217,14 +217,14 @@ export const LAST_HUMAN_ROOM_ADMIN = `EXISTS(
  SELECT 1 FROM hx_room_roles r
  JOIN hx_room_access p ON p.org_id=r.org_id AND p.channel=r.channel AND p.deleted_at IS NULL
  JOIN businesses b ON b.org_id=r.org_id AND 'b:'||b.slug=r.channel
- JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.subject_id AND LOWER(COALESCE(m.role,'guest'))!='guest'
+ JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.subject_id AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
  JOIN users u ON u.github_id=m.user_github_id
  JOIN conversation_members c ON c.org_id=r.org_id AND c.channel=r.channel AND c.login=u.login
  WHERE r.org_id=?1 AND r.subject_kind='person' AND r.subject_id=?2 AND r.role='admin'
  AND r.member_since=m.created_at||'/'||c.added_at
  AND NOT EXISTS(
   SELECT 1 FROM hx_room_roles other
-  JOIN memberships om ON om.org_id=other.org_id AND om.user_github_id=other.subject_id AND LOWER(COALESCE(om.role,'guest'))!='guest'
+  JOIN memberships om ON om.org_id=other.org_id AND om.user_github_id=other.subject_id AND LOWER(TRIM(COALESCE(om.role,'guest')))!='guest'
   JOIN users ou ON ou.github_id=om.user_github_id
   JOIN conversation_members oc ON oc.org_id=other.org_id AND oc.channel=other.channel AND oc.login=ou.login
   WHERE other.org_id=r.org_id AND other.channel=r.channel AND other.subject_kind='person'
@@ -243,7 +243,7 @@ export async function joinPublicRoom(db, orgId, channel, actorId) {
       WHERE org_id=?1 AND channel=?2 AND deleted_at IS NULL
       AND EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND private=0 AND archived_at IS NULL)
       AND EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
-        WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+        WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
         AND NOT EXISTS(SELECT 1 FROM conversation_members c WHERE c.org_id=?1 AND c.channel=?2 AND c.login=u.login))`)
       .bind(orgId,channel,actorId,nonce),
     db.prepare(`DELETE FROM hx_room_roles WHERE org_id=?1 AND channel=?2 AND subject_kind='person' AND subject_id=?3 AND ${gate}`)
@@ -255,7 +255,7 @@ export async function joinPublicRoom(db, orgId, channel, actorId) {
   if(result[0].meta?.changes)return {joined:true};
   const current=await db.prepare(`SELECT c.login FROM businesses b
     JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel=?2 AND p.deleted_at IS NULL
-    JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=?3 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     JOIN users u ON u.github_id=m.user_github_id
     JOIN conversation_members c ON c.org_id=b.org_id AND c.channel=?2 AND c.login=u.login
     WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.private=0 AND b.archived_at IS NULL`).bind(orgId,channel,actorId).first();
@@ -272,7 +272,7 @@ export async function publicRooms(db, orgId, actorId) {
     + (SELECT COUNT(*) FROM channel_agents ca JOIN custom_agents a ON a.org_id=ca.org_id AND a.id=ca.agent_id AND a.deleted_at IS NULL
       WHERE ca.org_id=b.org_id AND ca.channel=p.channel) AS memberCount
     FROM businesses b JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel='b:'||b.slug AND p.deleted_at IS NULL
-    JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=?2 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=?2 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     JOIN users u ON u.github_id=m.user_github_id
     WHERE b.org_id=?1 AND b.private=0 AND b.archived_at IS NULL
     ORDER BY b.name COLLATE NOCASE,p.channel`).bind(orgId,String(actorId)).all();
@@ -297,13 +297,13 @@ export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,gran
   const grant=grantIds.length>0,nonce=crypto.randomUUID(),accessNonce=crypto.randomUUID(),at=new Date().toISOString();
   const gate='EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3 AND deleted_at IS NULL)';
   const agentGrantAuthority=`EXISTS(SELECT 1 FROM custom_agents a JOIN users au ON au.github_id=?5
-    JOIN memberships am ON am.org_id=a.org_id AND am.user_github_id=au.github_id AND LOWER(COALESCE(am.role,'guest'))!='guest'
+    JOIN memberships am ON am.org_id=a.org_id AND am.user_github_id=au.github_id AND LOWER(TRIM(COALESCE(am.role,'guest')))!='guest'
     WHERE a.org_id=?1 AND a.id=?7 AND a.deleted_at IS NULL AND a.provider IS NULL
       AND ((a.scope='personal' AND a.owner_login=au.login) OR (a.scope='team' AND
         (a.owner_login=au.login OR EXISTS(SELECT 1 FROM hx_agent_members ar
           JOIN memberships arm ON arm.org_id=ar.org_id AND arm.user_github_id=ar.user_id
-            AND arm.created_at=ar.member_since AND LOWER(COALESCE(arm.role,'guest'))!='guest'
-          WHERE ar.org_id=a.org_id AND ar.agent_id=a.id AND ar.user_id=au.github_id AND ar.role IN('admin','member'))))))`;
+            AND arm.created_at=ar.member_since AND LOWER(TRIM(COALESCE(arm.role,'guest')))!='guest'
+          WHERE ar.org_id=a.org_id AND ar.agent_id=a.id AND ar.user_id=au.github_id AND LOWER(TRIM(ar.role)) IN ('admin','member'))))))`;
   const agentGrantAuthorityAfterNonce=agentGrantAuthority.replaceAll('?5','?6');
   const grantSnapshotSql=`SELECT json_group_array(json_array(id,membership,login)) FROM (
     SELECT CAST(m.user_github_id AS TEXT) AS id,m.created_at||'/'||c.added_at AS membership,u.login
@@ -312,13 +312,13 @@ export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,gran
     JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?7 AND a.deleted_at IS NULL AND a.provider IS NULL
     LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
     WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?9))
-      AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       AND NOT ((a.scope!='personal' OR a.owner_login=u.login) AND (
         p.agent_id IS NULL OR p.access='everyone' OR a.owner_login=u.login
         OR (p.access='people' AND EXISTS(SELECT 1 FROM json_each(p.people) WHERE value=u.login))
         OR (a.scope='team' AND EXISTS(SELECT 1 FROM hx_agent_members ar
           WHERE ar.org_id=a.org_id AND ar.agent_id=a.id AND ar.user_id=u.github_id
-            AND ar.member_since=m.created_at AND LOWER(COALESCE(m.role,'guest'))!='guest'))
+            AND ar.member_since=m.created_at AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'))
       )) ORDER BY m.user_github_id)`;
   const result=await db.batch([
     db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?3
@@ -326,7 +326,7 @@ export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,gran
       AND EXISTS(SELECT 1 FROM (${subjects}) WHERE kind='person' AND id=?5 AND eligible=1 AND membership=?6)
       AND (?8=0 OR (${agentGrantAuthority}) AND (${grantSnapshotSql})=?10)
       AND EXISTS(SELECT 1 FROM custom_agents a LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
-        JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?5 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+        JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?5 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
         JOIN users u ON u.github_id=m.user_github_id
         WHERE a.org_id=?1 AND a.id=?7 AND a.deleted_at IS NULL AND (a.scope='team' OR a.owner_login=u.login)
         AND (p.agent_id IS NULL OR p.access='everyone' OR a.owner_login=u.login
@@ -355,7 +355,7 @@ export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,gran
       .bind(orgId,channel,nonce,accessNonce,actor.login,at,agentId),
     db.prepare(`INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since)
       SELECT ?1,?7,m.user_github_id,'member',?5,?6,m.created_at FROM memberships m JOIN users u ON u.github_id=m.user_github_id
-      WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?9)) AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?9)) AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
         AND EXISTS(SELECT 1 FROM hx_agent_access WHERE org_id=?1 AND agent_id=?7 AND mutation_id=?4)
         AND ${gate}
       ON CONFLICT(org_id,agent_id,user_id) DO UPDATE SET
@@ -380,7 +380,7 @@ export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,vers
     return policy?{error:'No such active room.',status:404}:{managed:false};
   }
   actorId=String(actorId);
-  const membership=await db.prepare("SELECT LOWER(COALESCE(role,'guest')) AS role,created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,actorId).first();
+  const membership=await db.prepare("SELECT LOWER(TRIM(COALESCE(role,'guest'))) AS role,created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId,actorId).first();
   const actor=state.members.find(m=>m.kind==='person'&&m.id===actorId&&m.eligible);
   if(!membership||membership.role==='guest'||(!actor&&!['admin','owner'].includes(membership.role)))return {error:'Only a room member or workspace admin can archive this room.',status:403};
   if(name!==undefined&&!actor)return {error:'Only a room member can rename this room.',status:403};
@@ -389,8 +389,8 @@ export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,vers
   const allSubjects=subjects.replaceAll(' AND b.archived_at IS NULL','');
   const result=await db.batch([
     db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?3 WHERE org_id=?1 AND channel=?2 AND version=?4 AND deleted_at IS NULL
-      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?5 AND m.created_at=?6 AND LOWER(COALESCE(m.role,'guest'))!='guest'
-        AND (LOWER(m.role) IN('admin','owner') OR EXISTS(SELECT 1 FROM (${allSubjects}) WHERE kind='person' AND id=?5 AND eligible=1 AND membership=?7)))
+      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?5 AND m.created_at=?6 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+        AND (lower(trim(m.role)) IN('admin','owner') OR EXISTS(SELECT 1 FROM (${allSubjects}) WHERE kind='person' AND id=?5 AND eligible=1 AND membership=?7)))
       AND (?8=0 OR EXISTS(SELECT 1 FROM (${allSubjects}) WHERE kind='person' AND id=?5 AND eligible=1 AND membership=?7))`)
       .bind(orgId,channel,nonce,state.version,actorId,membership.created_at,actor?.membership||'',name===undefined?0:1),
     db.prepare(`UPDATE businesses SET archived_at=CASE WHEN ?7 THEN ?4 ELSE archived_at END,name=CASE WHEN ?5 THEN ?6 ELSE name END WHERE org_id=?1 AND 'b:'||slug=?2

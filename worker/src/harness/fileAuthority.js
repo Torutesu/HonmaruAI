@@ -4,7 +4,7 @@ import { resourceAudienceAccessSql } from "./externalResourceAudiences.js";
 // Check live membership and the exact stored audience in the mutation itself.
 export function fileScopeAuthority(org,scope,actor) {
  return `EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
- WHERE m.org_id=${org} AND m.user_github_id=${actor} AND lower(m.role) IN ('owner','admin','member','designer','engineer','triager','maintainer')
+ WHERE m.org_id=${org} AND m.user_github_id=${actor} AND lower(trim(m.role)) IN ('owner','admin','member','designer','engineer','triager','maintainer')
  AND NOT EXISTS(SELECT 1 FROM workspace_deletions deletion WHERE deletion.org_id=m.org_id AND deletion.purge_started_at IS NOT NULL)
  AND NOT EXISTS(SELECT 1 FROM workspace_tombstones deleted WHERE deleted.org_id=m.org_id)
  AND (
@@ -23,14 +23,14 @@ export function fileScopeAuthority(org,scope,actor) {
  ))`;
 }
 export function fileDeleteAuthority(org,creator,actor,scope) {
- return `(${creator}=${actor} OR EXISTS(SELECT 1 FROM memberships admin WHERE admin.org_id=${org} AND admin.user_github_id=${actor} AND lower(admin.role) IN ('owner','admin'))
+ return `(${creator}=${actor} OR EXISTS(SELECT 1 FROM memberships admin WHERE admin.org_id=${org} AND admin.user_github_id=${actor} AND lower(trim(admin.role)) IN ('owner','admin'))
  OR EXISTS(SELECT 1 FROM hx_room_roles role
   JOIN hx_room_access access ON access.org_id=role.org_id AND access.channel=role.channel AND access.deleted_at IS NULL
   JOIN memberships member ON member.org_id=role.org_id AND member.user_github_id=role.subject_id
   JOIN users person ON person.github_id=member.user_github_id
   JOIN conversation_members room_member ON room_member.org_id=role.org_id AND room_member.channel=role.channel AND room_member.login=person.login
   WHERE role.org_id=${org} AND role.channel=${scope} AND role.subject_kind='person' AND role.subject_id=${actor} AND role.role='admin'
-   AND lower(member.role) IN ('owner','admin','member','designer','engineer','triager','maintainer') AND role.member_since=member.created_at||'/'||room_member.added_at))`;
+   AND lower(trim(member.role)) IN ('owner','admin','member','designer','engineer','triager','maintainer') AND role.member_since=member.created_at||'/'||room_member.added_at))`;
 }
 
 // Exact-file guest edits are intentionally narrower than workspace authority:

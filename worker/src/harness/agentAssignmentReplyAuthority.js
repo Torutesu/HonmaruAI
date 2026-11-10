@@ -13,7 +13,7 @@ export function assignmentReplyAuthority(assignment = 'a') {
         WHERE placement.org_id=ca.org_id AND placement.channel=${assignment}.channel AND placement.agent_id=ca.id)
       AND EXISTS (SELECT 1 FROM memberships member
         WHERE member.org_id=ca.org_id AND member.user_github_id=${assignment}.actor_id
-          AND LOWER(COALESCE(member.role,'guest'))!='guest')
+          AND LOWER(TRIM(COALESCE(member.role,'guest')))!='guest')
       AND EXISTS (SELECT 1 FROM sessions session
         WHERE session.token=${assignment}.session_key AND session.github_id=${assignment}.actor_id
           AND (session.expires_at IS NULL OR session.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')))
@@ -26,7 +26,7 @@ export function assignmentReplyAuthority(assignment = 'a') {
           SELECT 1 FROM hx_agent_members role
           JOIN hx_agent_profiles roleProfile ON roleProfile.org_id=ca.org_id AND roleProfile.agent_id=ca.id
           JOIN memberships roleMember ON roleMember.org_id=role.org_id AND roleMember.user_github_id=role.user_id
-            AND LOWER(COALESCE(roleMember.role,'guest'))!='guest' AND roleMember.created_at=role.member_since
+            AND LOWER(TRIM(COALESCE(roleMember.role,'guest')))!='guest' AND roleMember.created_at=role.member_since
           WHERE role.org_id=ca.org_id AND role.agent_id=ca.id AND role.user_id=${assignment}.actor_id
             AND role.member_since=roleMember.created_at AND role.role IN ('admin','member')))
       )

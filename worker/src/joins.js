@@ -23,7 +23,7 @@ export async function announceJoin(env, orgId, login) {
   const who = await db.prepare(
     `SELECT u.login, u.name, u.locale, m.role FROM users u JOIN memberships m ON m.user_github_id = u.github_id AND m.org_id = ?1 WHERE u.login = ?2`
   ).bind(orgId, login).first().catch(() => null);
-  if (!who || String(who.role || "").toLowerCase() === "guest") return null;
+  if (!who || String(who.role || "").trim().toLowerCase() === "guest") return null;
   // The welcome DM first: it keeps itself to once (not when the two have
   // already talked), whatever has been said in the channels.
   await welcome(env, orgId, who).catch((err) => console.error("welcome DM failed", err?.message || err));
@@ -55,7 +55,7 @@ async function welcome(env, orgId, who) {
   const db = env.DB;
   const owner = await db.prepare(
     `SELECT u.login, u.name FROM memberships m JOIN users u ON u.github_id = m.user_github_id
-      WHERE m.org_id = ?1 AND m.role IN ('owner', 'admin') AND u.login != ?2
+      WHERE m.org_id = ?1 AND LOWER(TRIM(m.role)) IN ('owner', 'admin') AND u.login != ?2
       ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END, m.created_at ASC LIMIT 1`
   ).bind(orgId, who.login).first().catch(() => null);
   if (!owner?.login) return null;

@@ -47,14 +47,14 @@ export async function setAgentPeerRole(db,orgId,agentId,{actorId,memberAgentId,r
         AND EXISTS(SELECT 1 FROM custom_agents peer JOIN hx_agent_profiles p ON p.org_id=peer.org_id AND p.agent_id=peer.id
           JOIN users actor ON actor.github_id=?6
           JOIN memberships active ON active.org_id=peer.org_id AND active.user_github_id=actor.github_id
-            AND LOWER(COALESCE(active.role,'guest'))!='guest'
+            AND LOWER(TRIM(COALESCE(active.role,'guest')))!='guest'
           WHERE peer.org_id=?1 AND peer.id=?5 AND peer.scope='team' AND peer.deleted_at IS NULL AND peer.provider IS NULL
             AND (peer.owner_login=actor.login OR p.access='everyone'
               OR (p.access='people' AND EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(p.people) THEN p.people ELSE '[]' END) person WHERE person.value=actor.login))
               OR EXISTS(SELECT 1 FROM hx_agent_members grant_row WHERE grant_row.org_id=peer.org_id AND grant_row.agent_id=peer.id
                 AND grant_row.user_id=actor.github_id AND grant_row.member_since=active.created_at)))
         AND EXISTS(SELECT 1 FROM custom_agents a JOIN users u ON u.login=a.owner_login
-          JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id AND LOWER(COALESCE(m.role,'guest'))!='guest'
+          JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
           WHERE a.org_id=?1 AND a.id=?2 AND (a.owner_login=(SELECT login FROM users WHERE github_id=?6)
             OR EXISTS(SELECT 1 FROM hx_agent_members r WHERE r.org_id=?1 AND r.agent_id=?2 AND r.user_id=?6
               AND r.member_since=m.created_at AND r.role='admin')))

@@ -10,10 +10,10 @@ const canonical=value=>JSON.stringify(value, Object.keys(value).sort());
 // also be linked from another app, whose private policy must be respected.
 const mergeAuthority=ids=>`EXISTS(SELECT 1 FROM memberships m JOIN hx_apps target ON target.org_id=m.org_id AND target.id=?2
   LEFT JOIN hx_app_access target_policy ON target_policy.org_id=target.org_id AND target_policy.app_id=target.id
-  WHERE m.org_id=?1 AND m.user_github_id=?3 AND lower(coalesce(m.role,'member'))!='guest'
+  WHERE m.org_id=?1 AND m.user_github_id=?3 AND lower(trim(coalesce(m.role,'member')))!='guest'
     AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=m.org_id AND d.purge_started_at IS NOT NULL)
     AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=m.org_id)
-    AND (target.created_by=?3 OR lower(coalesce(m.role,'member')) IN ('admin','owner'))
+    AND (target.created_by=?3 OR lower(trim(coalesce(m.role,'member'))) IN ('admin','owner'))
     AND (coalesce(target_policy.visibility,'workspace')='workspace' OR target.created_by=?3)
     AND NOT EXISTS(SELECT 1 FROM json_each(${ids}) selected WHERE
       NOT EXISTS(SELECT 1 FROM hx_tables t WHERE t.org_id=?1 AND t.id=selected.value)

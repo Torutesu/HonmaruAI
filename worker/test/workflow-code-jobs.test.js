@@ -324,3 +324,70 @@ test('a program requires a sole code definition and rejects oversized inputs wit
  expect((await enqueue()).status).toBe('failed');
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_gateway_jobs').first()).n).toBe(0);
 });
+
+async function setupProgramTableSource({privateApp=false}={}){
+ await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('query-table','program-org','Query Source','[{\"id\":\"status\",\"name\":\"Status\",\"type\":\"text\"}]','program-owner','now','now')").run();
+ await upsertUser(env.DB,{githubId:'query-app-owner',login:'query-app-owner',name:'App Owner'});
+ await upsertMembership(env.DB,'program-org','query-app-owner','admin');
+ await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('query-app','program-org','Query App','query-table','{}','query-app-owner','now','now')").run();
+ if(privateApp){
+  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES('program-org','query-app','private',1)").run();
+  await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES('program-org','query-app','program-owner','view','now')").run();
+ }
+ for(let index=1;index<=3;index++){
+  const at=new Date(Date.now()-10000+index*1000).toISOString();
+  await env.DB.prepare(`INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,created_at,updated_at)
+   VALUES(?1,'query-table','program-org',?2,?3,'query-app-owner',?4,?4)`).bind(`query-row-${index}`,JSON.stringify({status:index===2?'closed':'open'}),index,at).run();
+ }
+ definition.steps=[{...definition.steps[0],sourceAppId:'query-app',sourceEntityId:'primary',sourceTableId:'query-table'}];
+ await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=?1 WHERE run_id='program-run'").bind(JSON.stringify(definition)).run();
+ const queued=await enqueue({at:Date.now()});expect(queued.status).toBe('pending');
+ const token=`hgw_${crypto.randomUUID()}${crypto.randomUUID()}`;
+ const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))),byte=>byte.toString(16).padStart(2,'0')).join('');
+ await env.DB.prepare("UPDATE hx_gateways SET token_hash=?1 WHERE id='program-node'").bind(hash).run();
+ const api=(path,body={})=>worker.fetch(new Request(`https://example.com/gateways${path}`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)}),env,{waitUntil(){}});
+ const claimed=await api('/claim',{capabilities:['workflow-program-v1']});expect(claimed.status).toBe(200);
+ const job=(await claimed.json()).job;expect(job.id).toBe(queued.jobId);expect(job.workflow).toBe(true);
+ return {api,job,privateApp};
+}
+
+test('saved TypeScript sources are normalized to one accessible App entity and cannot name another workspace resource',async()=>{
+ await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('saved-primary','program-org','Primary','[]','program-owner','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('saved-details','program-org','Details','[]','program-owner','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('saved-app','program-org','Saved App','saved-primary','{}','program-owner','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES('program-org','saved-app','details','saved-details')").run();
+ const step={type:'code',code:'import {table} from \'@honmaru/workflow-sdk\';',gatewayId:'program-node',sourceAppId:'saved-app',sourceEntityId:'details',sourceTableId:'saved-details'};
+ const created=await createWorkflow(env.DB,'program-org',{name:'Bound source',trigger:{type:'manual'},steps:[step]},'program-owner');
+ expect(created.error).toBeUndefined();expect(created.workflow.steps[0]).toMatchObject({sourceAppId:'saved-app',sourceEntityId:'details',sourceTableId:'saved-details'});
+ const foreign=await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('foreign-table','other-org','Foreign','[]','someone','now','now')").run();
+ expect(foreign.meta.changes).toBe(1);
+ const rejected=await createWorkflow(env.DB,'program-org',{name:'Foreign source',trigger:{type:'manual'},steps:[{...step,sourceAppId:'foreign-app',sourceTableId:'foreign-table'}]},'program-owner');
+ expect(rejected.error).toContain('App/Table source');
+});
+
+test('workflow table query pages the exact frozen App/Table source and denies scope or cursor injection',async()=>{
+ const {api,job}=await setupProgramTableSource();
+ const first=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2}});
+ expect(first.status).toBe(200);const page1=await first.json();
+ expect(page1.rows.map(row=>row.id)).toEqual(['query-row-1','query-row-2']);
+ expect(page1.complete).toBe(false);expect(page1.cursor).toEqual(expect.any(String));
+ const second=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,cursor:page1.cursor}});
+ expect(second.status).toBe(200);expect(await second.json()).toMatchObject({rows:[{id:'query-row-3'}],complete:true,cursor:null});
+ const filtered=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,where:{status:['closed']}}});
+ expect((await filtered.json()).rows.map(row=>row.id)).toEqual(['query-row-2']);
+ const escaped=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,tableId:'foreign-table',orgId:'other-org'}});
+ expect(escaped.status).toBe(400);
+ const invalidCursor=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,cursor:'not-a-cursor'}});
+ expect(invalidCursor.status).toBe(400);
+ const tooLarge=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:101}});
+ expect(tooLarge.status).toBe(400);
+});
+
+test('workflow table query marks a page-limited result incomplete and denies a revoked App source grant mid-run',async()=>{
+ const {api,job}=await setupProgramTableSource({privateApp:true});
+ const first=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:1}});
+ expect(first.status).toBe(200);const page=await first.json();expect(page.complete).toBe(false);expect(page.cursor).toEqual(expect.any(String));
+ await env.DB.prepare("DELETE FROM hx_app_person_access WHERE org_id='program-org' AND app_id='query-app' AND user_github_id='program-owner'").run();
+ const second=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:1,cursor:page.cursor}});
+ expect(second.status).toBe(404);expect((await second.json()).message).toContain('no longer accessible');
+});

@@ -22,7 +22,7 @@ async function generationContext(db,orgId,by,channel,sourceThreadId,room,request
   const current=row=>row && (!requestId || (Number.isFinite(Number(row.leaseUntil)) && Number(row.leaseUntil)>Date.now())) ? row : null;
   const binds=[orgId,by,channel,sourceThreadId,room?.createdAt||null,room?Number(room.private):null,requestId||null,token,Date.now(),sourceBody];
   if(!channel) {
-    const member=await db.prepare(`SELECT 1 AS allowed,${leaseUntil} FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?2 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    const member=await db.prepare(`SELECT 1 AS allowed,${leaseUntil} FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?2 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=m.org_id AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=m.org_id) AND ${liveJob} AND (?10 IS NULL OR ?10 IS NOT NULL)`).bind(...binds).first();
     return current(member)?{body:'',version:0}:null;
@@ -188,7 +188,7 @@ export async function generateApp(env, request, orgId, who, input, {makeComplete
     }
     // Model work can outlive a membership or room grant.
     if(channel && !await mayUseConversation(env.DB,orgId,by,channel)){await release();return {error:'No such room.',status:403};}
-    const member=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=? AND user_github_id=? AND role!='guest'").bind(orgId,by).first();
+    const member=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=? AND user_github_id=? AND LOWER(TRIM(COALESCE(role,'guest')))!='guest'").bind(orgId,by).first();
     if(!member){await release();return {error:'Workspace membership is required.',status:403};}
     const spec=made.spec;
     const result=await createApp(env.DB,{orgId,by,name:name||spec.name,tableName:spec.tableName||spec.name,description:spec.description,icon:spec.icon,

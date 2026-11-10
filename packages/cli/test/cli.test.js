@@ -205,6 +205,65 @@ test("resource aliases preserve row compare-and-set inputs and file version scop
   assert.equal(stderr.read(), "");
 });
 
+test("file lifecycle aliases expose folders, versions, and version-fenced text writes", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    const name = req.params.name;
+    const structuredContent = name === "list_workspace_folders"
+      ? { folders: [{ name: "reports", path: "reports/" }], next: null }
+      : name === "list_file_versions"
+        ? { versions: [{ version: 2, contentType: "text/markdown", size: 18, createdAt: "2026-11-10T00:00:00.000Z", isCurrent: true, purged: false }] }
+        : name === "read_file_text"
+          ? { fileId: "file_1", version: 2, contentType: "text/markdown", size: 18, text: "# Current", untrustedContent: true }
+          : name === "create_file_text"
+            ? { fileId: req.params.arguments.requestId, version: 1, saved: true }
+            : { fileId: "file_1", version: 3, saved: true };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "folders", "list", "--scope", "b:ops", "--directory", "reports"]), 0);
+  assert.equal(stdout.read(), "reports/\n"); stdout.clear();
+  assert.equal(await run(["workspace", "file", "versions", "file_1", "--before", "4", "--limit", "10"]), 0);
+  assert.match(stdout.read(), /^v2\tcurrent\ttext\/markdown\t18 bytes/); stdout.clear();
+  assert.equal(await run(["workspace", "file", "read", "file_1", "--version", "2"]), 0);
+  assert.equal(stdout.read(), "# Current\n"); stdout.clear();
+  assert.equal(await run(["workspace", "file", "create", "--scope", "b:ops", "--path", "notes/today.md", "--request-id", "file-123e4567-e89b-12d3-a456-426614174000", "--text", "# Daily", "--content-type", "text/markdown"]), 0);
+  assert.match(stdout.read(), /Created file file-123e4567-e89b-12d3-a456-426614174000 as version 1/); stdout.clear();
+  assert.equal(await run(["workspace", "file", "update", "file_1", "--expected-version", "2", "--text", "# Revised"]), 0);
+  assert.match(stdout.read(), /Saved file file_1 as version 3/);
+  assert.deepEqual(calls, [
+    { name: "list_workspace_folders", arguments: { scope: "b:ops", directory: "reports" } },
+    { name: "list_file_versions", arguments: { fileId: "file_1", before: 4, limit: 10 } },
+    { name: "read_file_text", arguments: { fileId: "file_1", version: 2 } },
+    { name: "create_file_text", arguments: { scope: "b:ops", path: "notes/today.md", requestId: "file-123e4567-e89b-12d3-a456-426614174000", text: "# Daily", contentType: "text/markdown" } },
+    { name: "update_file_text", arguments: { fileId: "file_1", expectedVersion: 2, text: "# Revised" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("file lifecycle aliases reject unsafe or unsupported requests before calling the server", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "file", "create", "--scope", "b:ops", "--path", "x.bin", "--request-id", "bad", "--text", "x", "--content-type", "application/octet-stream"]), 1);
+  assert.match(stderr.read(), /request-id must be file- followed by a UUID/); stderr.clear();
+  assert.equal(await run(["workspace", "file", "update", "file_1", "--expected-version", "0", "--text", "x"]), 1);
+  assert.match(stderr.read(), /must be an integer from 1/); stderr.clear();
+  assert.equal(await run(["workspace", "folders", "list", "--scope", "all"]), 1);
+  assert.match(stderr.read(), /choose one accessible Room/); stderr.clear();
+  assert.equal(await run(["workspace", "file", "download", "file_1"]), 1);
+  assert.match(stderr.read(), /Unknown workspace command/);
+  assert.equal(requests, 0);
+});
+
 test("workflow, follow-up, and file aliases keep explicit scopes and typed values", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {

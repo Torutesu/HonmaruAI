@@ -7,8 +7,8 @@ import { conversationWriteAuthority } from './conversationWriteAuthority.js';
 // not globally unique IDs; same-timestamp replacement is still ambiguous.
 async function snapshot(db, orgId, appId, userId, source) {
   const common=`a.org_id=?1 AND a.id=?2 AND m.user_github_id=?3
-    AND LOWER(COALESCE(m.role,'guest'))!='guest'
-    AND (a.created_by=?3 OR LOWER(m.role) IN ('admin','owner'))
+    AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+    AND (a.created_by=?3 OR LOWER(TRIM(m.role)) IN ('admin','owner'))
     AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=?3)
     AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
     AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=a.org_id)`;

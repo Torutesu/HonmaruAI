@@ -43,7 +43,7 @@ export const roomHookReplyGuard = `EXISTS (
  LEFT JOIN hx_agent_profiles profile ON profile.org_id=agent.org_id AND profile.agent_id=agent.id
  WHERE e.org_id=?2 AND e.channel=?3 AND e.message_id=?9
  AND h.revoked_at IS NULL AND b.archived_at IS NULL AND a.deleted_at IS NULL
- AND LOWER(COALESCE(m.role,'guest'))!='guest' AND m.created_at||'/'||c.added_at=h.member_since
+ AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' AND m.created_at||'/'||c.added_at=h.member_since
  AND root.deleted_at IS NULL AND root.parent_id IS NULL AND root.kind='message' AND root.author_login='webhook:'||h.id
  AND (
    (profile.agent_id IS NULL AND EXISTS(SELECT 1 FROM channel_agents placed

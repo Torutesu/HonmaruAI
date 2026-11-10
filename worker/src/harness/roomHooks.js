@@ -9,7 +9,7 @@ const currentMembership = `EXISTS(SELECT 1 FROM businesses b
  JOIN users u ON u.login=c.login
  JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=u.github_id
  WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.archived_at IS NULL
- AND u.github_id=?3 AND LOWER(COALESCE(m.role,'member'))!='guest' AND m.created_at||'/'||c.added_at=?4)`;
+ AND u.github_id=?3 AND lower(trim(coalesce(m.role,'member')))!='guest' AND m.created_at||'/'||c.added_at=?4)`;
 
 async function actorInRoom(db, orgId, channel, actorId) {
   const room = await roomRoleState(db, orgId, channel);

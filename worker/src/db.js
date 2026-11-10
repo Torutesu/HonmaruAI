@@ -535,7 +535,7 @@ export async function ownTitle(db, orgId, githubId) {
   if (!row) return null;
   const title = String(row.title || "").trim();
   if (title) return SELF_ASSIGNABLE_ROLES.includes(title.toLowerCase()) ? title.toLowerCase() : title;
-  return String(row.role || "member").toLowerCase();
+  return String(row.role || "member").trim().toLowerCase();
 }
 
 /// Remove everyone from an org except the github ids given.
@@ -1003,7 +1003,7 @@ export async function createPrivateBusiness(db, orgId, { name, actorId, actorLog
   const result=await db.batch([
     db.prepare(`INSERT OR IGNORE INTO businesses(org_id,slug,name,created_by,created_at,private)
       SELECT ?1,?2,?3,?4,?5,1 WHERE EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
-        WHERE m.org_id=?1 AND m.user_github_id=?4 AND m.created_at=?6 AND LOWER(COALESCE(m.role,'guest'))!='guest' AND u.login=?7)
+        WHERE m.org_id=?1 AND m.user_github_id=?4 AND m.created_at=?6 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' AND u.login=?7)
       AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2)
       AND NOT EXISTS(SELECT 1 FROM conversation_members WHERE org_id=?1 AND channel='b:'||?2)
       -- An orphan's room generation is unknowable. Never attach its history
@@ -1041,7 +1041,7 @@ export async function removeBusiness(db, orgId, slug, { actorId, createdAt, wasP
     SELECT ?1,'b:'||?2,1,?3,CASE WHEN ?6=1 THEN ?7 ELSE NULL END
     FROM businesses b JOIN memberships m ON m.org_id=b.org_id JOIN users u ON u.github_id=m.user_github_id
     WHERE b.org_id=?1 AND b.slug=?2 AND b.created_at=?4 AND b.private=?6 AND m.user_github_id=?5
-      AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=b.org_id AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=b.org_id)
       AND (b.private=0 OR EXISTS(SELECT 1 FROM conversation_members c WHERE c.org_id=b.org_id AND c.channel='b:'||b.slug AND c.login=u.login))`)

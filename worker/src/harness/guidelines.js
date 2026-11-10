@@ -24,7 +24,7 @@ export async function saveGuidelines(db, orgId, channel, input, by) {
         AND EXISTS(SELECT 1 FROM businesses b JOIN conversation_members c ON c.org_id=b.org_id AND c.channel=?2
           JOIN users u ON u.login=c.login JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=u.github_id
           WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.archived_at IS NULL AND u.github_id=?5
-            AND m.role!='guest' AND m.created_at||'/'||c.added_at=?8)
+            AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' AND m.created_at||'/'||c.added_at=?8)
       ON CONFLICT(org_id,channel) DO UPDATE SET body=excluded.body,version=excluded.version,updated_by=excluded.updated_by,updated_at=excluded.updated_at
         WHERE hx_room_guidelines.version=?4
       RETURNING body,version,updated_at AS updatedAt`).bind(orgId,channel,text,input.version,String(by),at,state.version,actor.membership).first();

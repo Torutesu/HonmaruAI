@@ -55,7 +55,7 @@ export const PERMISSIONS = {
   "harness.delete_others": "admin",
 };
 
-export const rankOf = (role) => ROLE_RANK.get(String(role || "member").toLowerCase()) ?? 0;
+export const rankOf = (role) => ROLE_RANK.get(String(role || "member").trim().toLowerCase()) ?? 0;
 
 /// Whether a role may take an action. An action the table does not name is
 /// refused: a new route has to be written into it to be allowed at all.
@@ -79,7 +79,7 @@ export async function roleIn(db, orgId, userId) {
     .bind(orgId, String(userId))
     .first();
   if (!row) return null;
-  const role = String(row.role || "member").toLowerCase();
+  const role = String(row.role || "member").trim().toLowerCase();
   if (!ours(orgId)) return role === "admin" ? "owner" : role;
   if (role === "admin") await ensureOwner(db, orgId);
   // Read again: ensureOwner may just have made this admin the owner.
@@ -107,7 +107,7 @@ export function legacyDeletionOwnerPromotion(db, orgId, userId, authoritySql, au
     AND user_github_id=(SELECT user_github_id FROM memberships WHERE org_id=?1 AND role='admin' ORDER BY created_at ASC,user_github_id ASC LIMIT 1)
     AND user_github_id=?2
     AND NOT EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND role='owner')
-    AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'member'))='admin')
+    AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(TRIM(COALESCE(role,'member')))='admin')
     AND EXISTS(SELECT 1 FROM workspace_deletions WHERE org_id=?1 AND COALESCE(due_at,'')!='' AND purge_started_at IS NULL)
     AND NOT EXISTS(SELECT 1 FROM workspace_tombstones WHERE org_id=?1)
     AND EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?2 ${authoritySql})`)
@@ -155,10 +155,10 @@ export async function soleOwnerships(db, userId) {
   const { results } = await db
     .prepare(
       `SELECT m.org_id AS orgId, o.name AS name,
-              (SELECT COUNT(*) FROM memberships x WHERE x.org_id = m.org_id AND x.role = 'owner') AS owners,
+              (SELECT COUNT(*) FROM memberships x WHERE x.org_id = m.org_id AND LOWER(TRIM(x.role))='owner') AS owners,
               (SELECT COUNT(*) FROM memberships y WHERE y.org_id = m.org_id) AS members
          FROM memberships m LEFT JOIN orgs o ON o.id = m.org_id
-        WHERE m.user_github_id = ?1 AND m.role = 'owner'`
+        WHERE m.user_github_id = ?1 AND LOWER(TRIM(m.role))='owner'`
     )
     .bind(String(userId))
     .all();

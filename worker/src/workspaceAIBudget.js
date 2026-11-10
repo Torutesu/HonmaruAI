@@ -79,7 +79,7 @@ export async function claimWorkspaceBudgetNotice(db, orgId, status, now = new Da
     .bind(orgId, revision).run();
   if (!claimed.meta?.changes) return null;
   const { results } = await db.prepare(`SELECT u.login FROM memberships m JOIN users u ON u.github_id=m.user_github_id
-    WHERE m.org_id=?1 AND m.role IN ('owner','admin') AND u.login IS NOT NULL ORDER BY m.created_at,m.user_github_id`)
+    WHERE m.org_id=?1 AND LOWER(TRIM(m.role)) IN ('owner','admin') AND u.login IS NOT NULL ORDER BY m.created_at,m.user_github_id`)
     .bind(orgId).all();
   const logins = [...new Set((results || []).map((row) => String(row.login || '').trim()).filter(Boolean))];
   return { revision, periods, logins, createdAt: now };

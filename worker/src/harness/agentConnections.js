@@ -10,7 +10,7 @@ const personalGithubAvailable = (session, orgId, workspaceRepo = null) => Boolea
 async function grantsFor(db, orgId, agentId, githubId) {
   const { results = [] } = await db.prepare(`SELECT g.source FROM hx_agent_source_grants g
     JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.user_github_id
-      AND m.created_at=g.membership_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND m.created_at=g.membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     WHERE g.org_id=?1 AND g.agent_id=?2 AND g.user_github_id=?3`)
     .bind(orgId, agentId, String(githubId)).all();
   return new Set(results.map(row => row.source));
@@ -19,7 +19,7 @@ async function grantsFor(db, orgId, agentId, githubId) {
 async function currentAgentAccess(db, orgId, agentId, githubId) {
   const row = await db.prepare(`SELECT a.id,a.scope,a.owner_login AS ownerLogin,u.login FROM custom_agents a
     JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3
-      AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     JOIN users u ON u.github_id=m.user_github_id
     WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL`)
     .bind(orgId, agentId, String(githubId)).first();
@@ -29,7 +29,7 @@ async function currentAgentAccess(db, orgId, agentId, githubId) {
 async function activeNotionShare(db, orgId, agentId) {
   const share = await db.prepare(`SELECT s.owner_github_id,s.owner_membership_since,s.created_at FROM hx_agent_source_shares s
     JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=s.owner_github_id
-      AND m.created_at=s.owner_membership_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND m.created_at=s.owner_membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     JOIN custom_agents a ON a.org_id=s.org_id AND a.id=s.agent_id AND a.deleted_at IS NULL
     WHERE s.org_id=?1 AND s.agent_id=?2 AND s.source='notion'`)
     .bind(orgId, agentId).first();
@@ -122,13 +122,13 @@ export async function setAgentSourceShare(env, { orgId, agentId, session, source
     const available = await connectedSources(env, session, orgId).catch(() => ({}));
     if (available.notion !== true) return { error: 'Connect Notion for this workspace before sharing it.', status: 409 };
     const stamp = new Date().toISOString();
-    const member = await env.DB.prepare(`SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'guest'))!='guest'`)
+    const member = await env.DB.prepare(`SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest'`)
       .bind(orgId, githubId).first();
     if (!member) return { error: 'The workspace membership changed. Reload and try again.', status: 409 };
     await env.DB.prepare(`DELETE FROM hx_agent_source_shares WHERE org_id=?1 AND agent_id=?2 AND source='notion'
       AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=hx_agent_source_shares.org_id
         AND m.user_github_id=hx_agent_source_shares.owner_github_id AND m.created_at=hx_agent_source_shares.owner_membership_since
-        AND LOWER(COALESCE(m.role,'guest'))!='guest')`).bind(orgId, agentId).run();
+        AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')`).bind(orgId, agentId).run();
     await env.DB.prepare(`INSERT INTO hx_agent_source_shares (org_id,agent_id,owner_github_id,owner_membership_since,source,created_at)
       VALUES (?1,?2,?3,?4,'notion',?5) ON CONFLICT(org_id,agent_id,source) DO UPDATE SET
         owner_membership_since=excluded.owner_membership_since,created_at=excluded.created_at WHERE owner_github_id=excluded.owner_github_id`)
@@ -179,7 +179,7 @@ export async function setAgentSourceConnection(env, { orgId, agentId, session, s
         (org_id,agent_id,user_github_id,membership_since,source,created_at)
       SELECT ?1,?2,?3,m.created_at,?4,?5 FROM memberships m
       JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?2 AND a.deleted_at IS NULL
-      WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       ON CONFLICT(org_id,agent_id,user_github_id,source) DO UPDATE SET
         membership_since=excluded.membership_since,created_at=excluded.created_at`)
       .bind(orgId, agentId, githubId, source, new Date().toISOString()).run();

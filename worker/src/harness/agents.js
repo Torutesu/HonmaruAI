@@ -117,7 +117,7 @@ export async function mayRunAgent(db, orgId, row, userId) {
     FROM custom_agents a
     JOIN users u ON u.github_id = ?2
     JOIN memberships m ON m.org_id = a.org_id AND m.user_github_id = u.github_id
-      AND LOWER(COALESCE(m.role,'guest')) != 'guest'
+      AND LOWER(TRIM(COALESCE(m.role,'guest'))) != 'guest'
     WHERE a.org_id = ?1 AND a.id = ?3 AND a.deleted_at IS NULL`)
     .bind(orgId, String(userId), String(row.id)).first();
   return Boolean(current && await mayAccessAgent(db, orgId,

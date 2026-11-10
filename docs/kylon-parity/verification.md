@@ -1,5 +1,12 @@
 # 検証記録
 
+### 2026-11-11 — KY-059 bound Workflow `table.query` (local, not deployed)
+
+- Based on main `1dc9a9c0`, added a TypeScript `table.query()` helper only for a saved program with an explicit App/entity/Table binding. The source choice is visible in the program editor; Worker rejects an incomplete or inaccessible binding at save/enqueue and derives the live scope from the frozen definition on every broker page. App/Table membership, entity mapping and visibility grant are rechecked before and after each read. The Linux VM still has no direct network or database capability.
+- Paging uses a createdAt/id keyset cursor bound to App, entity, Table and canonical filter, with a first-page timestamp cutoff. Page size is capped at 100; `table.query({maxPages})` caps at 32 pages and aggregate output at 1 MB. Both SDK and Worker return `complete:false` plus a continuation cursor when bounded work cannot finish; malformed/cross-source cursors and injected org/table scope are rejected. Row values are live between pages, not a historical database snapshot.
+- Focused acceptance covers accessible source normalization, another-workspace source rejection, a complete two-page read and filter, malformed cursor/oversized page request, scope injection, page-cap incomplete result and revoking a private App's explicit view grant between pages. Gateway guest forwarding is tested without host/network functions. See commit SHA in the adjacent implementation branch report; this is local evidence only and not a production release or Kylon runtime parity acceptance.
+- No `app()`, `agent()`, provider proxy, general Connection operation or write helper was added. KY-059 remains partial. No new service or charge; Simple path is untouched.
+
 ### 2026-11-05 — KY-042 personal-view suggestions (production release)
 
 - PR [#675](https://github.com/Torutesu/HonmaruAI/pull/675) added the personal-view adjustment route, and PR [#676](https://github.com/Torutesu/HonmaruAI/pull/676) fixed a draft collision in app chat and the source thread. The new suggestion appears separately while preserving an existing unsent draft; it remains available until the user appends or dismisses it. No app settings are changed by opening the route. Exact-head CI passed all nine jobs; Web deployment [run 41972220196](https://github.com/Torutesu/HonmaruAI/actions/runs/41972220196) succeeded.

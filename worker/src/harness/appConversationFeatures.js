@@ -62,7 +62,7 @@ export async function sourceHistory(db,orgId,user,source){
 export async function notifyAppMentions(db,orgId,user,appId,input,messageId,env=null){
  const members=await listMembers(db,orgId,user.github_id);
  for(const recipient of resolveMentions(input.body,members)){
-  if(recipient.userId===String(user.github_id)||recipient.role==='guest')continue;
+  if(recipient.userId===String(user.github_id)||String(recipient.role||'guest').trim().toLowerCase()==='guest')continue;
   if((await appConversation(db,orgId,recipient.userId,appId,scopeOf(input))).error)continue;
   const saved=await db.prepare('INSERT OR IGNORE INTO hx_app_notifications(org_id,app_id,message_id,user_id,kind) VALUES (?,?,?,?,?)').bind(orgId,appId,messageId,recipient.userId,'mention').run();
   if(env&&saved.meta?.changes)await announceTo(env,orgId,[{to:recipient.login,event:custom('app_activity_changed',{appId})}]);

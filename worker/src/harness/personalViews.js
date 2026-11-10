@@ -17,7 +17,7 @@ const personalAuthority=(org,user,app,version='NULL',columns='NULL',updatedAt='N
     ) reference LEFT JOIN hx_apps linked ON linked.org_id=a.org_id AND linked.id=reference.id
       LEFT JOIN hx_app_access linked_access ON linked_access.org_id=linked.org_id AND linked_access.app_id=linked.id
       WHERE linked.id IS NULL OR (COALESCE(linked_access.visibility,'workspace')!='workspace' AND COALESCE(linked.created_by,'')!=${user}))
-    AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
     AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=a.org_id)
     AND (COALESCE(access.visibility,'workspace')='workspace' OR a.created_by=${user}))`;

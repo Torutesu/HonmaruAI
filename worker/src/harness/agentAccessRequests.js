@@ -8,11 +8,11 @@ const failure = (error, status = 409) => ({ error, status });
 // remain private and are never disclosed through this list.
 export async function requestableAgentOptions(db, orgId, login) {
   const member=await db.prepare(`SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
-    WHERE m.org_id=?1 AND u.login=?2 AND LOWER(COALESCE(m.role,'guest'))!='guest'`).bind(orgId,String(login)).first();
+    WHERE m.org_id=?1 AND u.login=?2 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'`).bind(orgId,String(login)).first();
   if(!member)return [];
   const { results = [] } = await db.prepare(`SELECT a.id,a.name,a.emoji,a.owner_login,a.scope,a.provider
     FROM custom_agents a
-    JOIN memberships owner_m ON owner_m.org_id=a.org_id AND LOWER(COALESCE(owner_m.role,'guest'))!='guest'
+    JOIN memberships owner_m ON owner_m.org_id=a.org_id AND LOWER(TRIM(COALESCE(owner_m.role,'guest')))!='guest'
     JOIN users owner_u ON owner_u.github_id=owner_m.user_github_id AND owner_u.login=a.owner_login
     WHERE a.org_id=?1 AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL
       AND a.owner_login!=?2
@@ -23,7 +23,7 @@ export async function requestableAgentOptions(db, orgId, login) {
     const pending=await db.prepare(`SELECT status FROM hx_agent_access_requests r
       JOIN users u ON u.github_id=r.requester_id
       JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.requester_id
-        AND m.created_at=r.requester_membership AND LOWER(COALESCE(m.role,'guest'))!='guest'
+        AND m.created_at=r.requester_membership AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       WHERE r.org_id=?1 AND r.agent_id=?2 AND u.login=?3 AND r.status='pending' LIMIT 1`)
       .bind(orgId,agent.id,String(login)).first();
     options.push({id:agent.id,name:agent.name,emoji:agent.emoji||null,
@@ -43,11 +43,11 @@ export async function roomAgentAccessPlan(db,orgId,agentId,roomMembers,actorId) 
       OR (p.access='people' AND EXISTS(SELECT 1 FROM json_each(p.people) WHERE value=u.login))
       OR (a.scope='team' AND EXISTS(SELECT 1 FROM hx_agent_members r
         WHERE r.org_id=a.org_id AND r.agent_id=a.id AND r.user_id=u.github_id
-          AND r.member_since=m.created_at AND LOWER(COALESCE(m.role,'guest'))!='guest'))
+          AND r.member_since=m.created_at AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'))
     ) THEN 1 ELSE 0 END AS has_access
     FROM custom_agents a JOIN users u ON u.github_id IN (SELECT value FROM json_each(?3))
     JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id
-      AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
     WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL
     ORDER BY u.name COLLATE NOCASE,u.github_id`).bind(orgId,agentId,JSON.stringify(memberIds)).all();
@@ -73,18 +73,18 @@ export async function roomAgentAccessPlans(db,orgId,agentIds,roomMembers,actorId
       OR (p.access='people' AND EXISTS(SELECT 1 FROM json_each(p.people) WHERE value=u.login))
       OR (a.scope='team' AND EXISTS(SELECT 1 FROM hx_agent_members r
         WHERE r.org_id=a.org_id AND r.agent_id=a.id AND r.user_id=u.github_id
-          AND r.member_since=m.created_at AND LOWER(COALESCE(m.role,'guest'))!='guest'))
+          AND r.member_since=m.created_at AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'))
     ) THEN 1 ELSE 0 END AS has_access,
     CASE WHEN a.owner_login=?4 OR (a.scope='team' AND EXISTS(SELECT 1 FROM hx_agent_members ar
       JOIN users au ON au.github_id=ar.user_id AND au.login=?4
       JOIN memberships am ON am.org_id=ar.org_id AND am.user_github_id=ar.user_id
-        AND am.created_at=ar.member_since AND LOWER(COALESCE(am.role,'guest'))!='guest'
+        AND am.created_at=ar.member_since AND LOWER(TRIM(COALESCE(am.role,'guest')))!='guest'
       WHERE ar.org_id=a.org_id AND ar.agent_id=a.id AND ar.role IN('admin','member'))
     ) THEN 1 ELSE 0 END AS can_grant
     FROM custom_agents a JOIN json_each(?2) aid ON aid.value=a.id
     JOIN users u ON u.github_id IN(SELECT value FROM json_each(?3))
     JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id
-      AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
     WHERE a.org_id=?1 AND a.deleted_at IS NULL AND a.provider IS NULL
     ORDER BY a.id,u.name COLLATE NOCASE,u.github_id`).bind(orgId,JSON.stringify(agents),JSON.stringify(memberIds),String(actorId)).all();
@@ -104,13 +104,13 @@ export async function createAgentAccessRequest(db,orgId,{agentId,requesterId,req
   if(typeof agentId!=='string'||!agentId||agentId.length>200||typeof requestKey!=='string'||!/^[-A-Za-z0-9_]{16,100}$/.test(requestKey))
     return failure('A valid team agent and request key are required.',400);
   const identity=await db.prepare(`SELECT u.github_id AS requesterId,u.login AS requesterLogin,u.name AS requesterName,
-      m.created_at AS requesterMembership,LOWER(COALESCE(m.role,'guest')) AS requesterRole,
+      m.created_at AS requesterMembership,LOWER(TRIM(COALESCE(m.role,'guest'))) AS requesterRole,
       a.name AS agentName,a.owner_login AS ownerLogin,owner.name AS ownerName
     FROM users u JOIN memberships m ON m.user_github_id=u.github_id
     JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?3
     JOIN users owner ON owner.login=a.owner_login
-    JOIN memberships owner_m ON owner_m.org_id=m.org_id AND owner_m.user_github_id=owner.github_id AND LOWER(COALESCE(owner_m.role,'guest'))!='guest'
-    WHERE m.org_id=?1 AND u.github_id=?2 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    JOIN memberships owner_m ON owner_m.org_id=m.org_id AND owner_m.user_github_id=owner.github_id AND LOWER(TRIM(COALESCE(owner_m.role,'guest')))!='guest'
+    WHERE m.org_id=?1 AND u.github_id=?2 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL AND a.owner_login!=u.login`)
     .bind(orgId,requesterId,agentId).first();
   if(!identity)return failure('No such shared team agent.',404);
@@ -145,14 +145,14 @@ export async function createAgentAccessRequest(db,orgId,{agentId,requesterId,req
       (org_id,id,agent_id,requester_id,requester_login,requester_membership,owner_login,request_key,card_id,nonce,status,created_at)
       SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'pending',?11
       WHERE EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
-        WHERE m.org_id=?1 AND m.user_github_id=?4 AND u.login=?5 AND m.created_at=?6 AND LOWER(COALESCE(m.role,'guest'))!='guest')
+        WHERE m.org_id=?1 AND m.user_github_id=?4 AND u.login=?5 AND m.created_at=?6 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
         AND EXISTS(SELECT 1 FROM custom_agents a JOIN users o ON o.login=a.owner_login
-          JOIN memberships om ON om.org_id=a.org_id AND om.user_github_id=o.github_id AND LOWER(COALESCE(om.role,'guest'))!='guest'
+          JOIN memberships om ON om.org_id=a.org_id AND om.user_github_id=o.github_id AND LOWER(TRIM(COALESCE(om.role,'guest')))!='guest'
           WHERE a.org_id=?1 AND a.id=?3 AND a.owner_login=?7 AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL)
         AND NOT EXISTS(SELECT 1 FROM hx_agent_access_requests r WHERE r.org_id=?1 AND r.agent_id=?3
           AND r.requester_id=?4 AND r.requester_membership=?6 AND r.status='pending')
         AND NOT EXISTS(SELECT 1 FROM hx_agent_members r JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.user_id
-          AND m.created_at=r.member_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
+          AND m.created_at=r.member_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
           WHERE r.org_id=?1 AND r.agent_id=?3 AND r.user_id=?4)
         AND NOT EXISTS(SELECT 1 FROM hx_agent_profiles p WHERE p.org_id=?1 AND p.agent_id=?3
           AND (p.access='everyone' OR (p.access='people' AND EXISTS(SELECT 1 FROM json_each(p.people) WHERE value=?5))))`)
@@ -161,11 +161,11 @@ export async function createAgentAccessRequest(db,orgId,{agentId,requesterId,req
       db.prepare(`INSERT INTO hx_agent_access_request_approvers(org_id,request_id,card_id,recipient_login,created_at)
         SELECT ?1,?2,?3,?4,?5 WHERE EXISTS(SELECT 1 FROM hx_agent_access_requests WHERE org_id=?1 AND id=?2 AND nonce=?6)
           AND EXISTS(SELECT 1 FROM custom_agents a JOIN users au ON au.login=?4 JOIN memberships am
-            ON am.org_id=a.org_id AND am.user_github_id=au.github_id AND LOWER(COALESCE(am.role,'guest'))!='guest'
+            ON am.org_id=a.org_id AND am.user_github_id=au.github_id AND LOWER(TRIM(COALESCE(am.role,'guest')))!='guest'
             WHERE a.org_id=?1 AND a.id=?7 AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL
               AND (a.owner_login=au.login OR EXISTS(SELECT 1 FROM hx_agent_members ar JOIN memberships arm
                 ON arm.org_id=ar.org_id AND arm.user_github_id=ar.user_id AND arm.created_at=ar.member_since
-                  AND LOWER(COALESCE(arm.role,'guest'))!='guest'
+                  AND LOWER(TRIM(COALESCE(arm.role,'guest')))!='guest'
                 WHERE ar.org_id=a.org_id AND ar.agent_id=a.id AND ar.user_id=au.github_id AND ar.role='admin')))`)
         .bind(orgId,id,card.id,approver.login,createdAt,nonce,agentId),
       db.prepare(`INSERT INTO cards(org_id,card_id,recipient_user_id,sender_user_id,created_at,data,status,priority,decided_at,updated_at)
@@ -219,11 +219,11 @@ export async function settleAgentAccessRequest(db,orgId,card) {
     return results.flatMap(({data})=>{try{return [JSON.parse(data)]}catch{return []}});
   };
   const authority=`EXISTS(SELECT 1 FROM custom_agents a JOIN users au ON au.login=?4
-    JOIN memberships am ON am.org_id=a.org_id AND am.user_github_id=au.github_id AND LOWER(COALESCE(am.role,'guest'))!='guest'
+    JOIN memberships am ON am.org_id=a.org_id AND am.user_github_id=au.github_id AND LOWER(TRIM(COALESCE(am.role,'guest')))!='guest'
     WHERE a.org_id=?1 AND a.id=?3 AND a.provider IS NULL AND a.deleted_at IS NULL AND a.scope='team'
       AND (a.owner_login=au.login OR EXISTS(SELECT 1 FROM hx_agent_members ar
         JOIN memberships arm ON arm.org_id=ar.org_id AND arm.user_github_id=ar.user_id
-          AND arm.created_at=ar.member_since AND LOWER(COALESCE(arm.role,'guest'))!='guest'
+          AND arm.created_at=ar.member_since AND LOWER(TRIM(COALESCE(arm.role,'guest')))!='guest'
         WHERE ar.org_id=a.org_id AND ar.agent_id=a.id AND ar.user_id=au.github_id AND ar.role='admin'))) `;
   if(action==='declined') {
     const result=await db.batch([
@@ -252,7 +252,7 @@ export async function settleAgentAccessRequest(db,orgId,card) {
         AND ap.card_id=?6 AND ap.recipient_login=?4 AND ap.status='pending'
       JOIN memberships target
       ON target.org_id=r.org_id AND target.user_github_id=r.requester_id AND target.created_at=r.requester_membership
-        AND LOWER(COALESCE(target.role,'guest'))!='guest'
+        AND LOWER(TRIM(COALESCE(target.role,'guest')))!='guest'
       WHERE r.org_id=?1 AND r.id=?2 AND r.agent_id=?3 AND r.status='pending')`;
   const result=await db.batch([
     db.prepare(`INSERT OR IGNORE INTO hx_agent_access(org_id,agent_id,version)

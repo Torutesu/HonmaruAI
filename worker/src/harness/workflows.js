@@ -150,6 +150,14 @@ async function appEntityTable(db, orgId, appId, entityId) {
   return (await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId, appId, entityId).first())?.table_id || null;
 }
 
+async function validProgramTableSource(db,orgId,step,viewerId) {
+  if(!step?.sourceAppId&&!step?.sourceEntityId&&!step?.sourceTableId)return true;
+  if(!step.sourceAppId||!step.sourceEntityId||!step.sourceTableId)return false;
+  const mapped=await appEntityTable(db,orgId,step.sourceAppId,step.sourceEntityId);
+  return mapped===step.sourceTableId&&Boolean(await getTable(db,orgId,step.sourceTableId))
+    &&await mayUseApp(db,orgId,step.sourceAppId,viewerId)&&await mayUseTable(db,orgId,step.sourceTableId,viewerId);
+}
+
 async function validAppRecordTrigger(db, orgId, trigger, expectedTableId = undefined) {
   if (trigger.type !== 'app_record_change') return true;
   const tableId=await appEntityTable(db, orgId, trigger.appId, trigger.entityId);
@@ -170,7 +178,13 @@ export function normalizeSteps(raw) {
         if(raw.length!==1)return {error:'A TypeScript program is a whole workflow and cannot be mixed with form steps.'};
         if(typeof s.code!=='string'||!s.code.trim()||new TextEncoder().encode(s.code).length>48000)return {error:'A TypeScript program needs source code of at most 48 KB.'};
         if(typeof s.gatewayId!=='string'||!s.gatewayId.trim()||s.gatewayId.length>200)return {error:'Choose an execution node for the TypeScript program.'};
-        steps.push({type:'code',code:s.code,gatewayId:s.gatewayId});
+        {
+          const sourceFields=['sourceAppId','sourceEntityId','sourceTableId'];
+          const hasSource=sourceFields.some(key=>s[key]!==undefined&&s[key]!==null&&s[key]!=='');
+          if(hasSource&&sourceFields.some(key=>typeof s[key]!=='string'||!s[key].trim()||s[key].length>200))return {error:'Choose one complete App/Table source for the TypeScript program.'};
+          if(hasSource&&!/^[a-z][a-z0-9_]{0,39}$/.test(s.sourceEntityId))return {error:'Choose a valid App entity for the TypeScript program.'};
+          steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,...(hasSource?{sourceAppId:text('sourceAppId',200),sourceEntityId:text('sourceEntityId',40),sourceTableId:text('sourceTableId',200)}:{})});
+        }
         break;
       case "post":
         if (!s.channel || !s.text) return { error: "A post step names a channel and its text." };
@@ -335,7 +349,7 @@ async function unavailableProgramNode(db,orgId,steps) {
   const step=steps.find(step=>step.type==='code');
   if(!step)return null;
   const node=await db.prepare(`SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by
-    WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL AND lower(m.role) IN ('owner','admin')`).bind(orgId,step.gatewayId).first();
+    WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL AND LOWER(TRIM(m.role)) IN ('owner','admin')`).bind(orgId,step.gatewayId).first();
   return node?null:{error:'Choose an available execution node in this workspace.'};
 }
 
@@ -349,6 +363,7 @@ export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
   if (workflow.trigger?.type === 'app_record_change' && !(await mayUseApp(db, orgId, workflow.trigger.appId, viewerId))) return false;
   for (const step of workflow.steps || []) {
     if (step.tableId && !(await mayUseTable(db, orgId, step.tableId, viewerId))) return false;
+    if (step.type==='code' && !(await validProgramTableSource(db,orgId,step,viewerId))) return false;
     if (step.channel && !(await mayUseConversation(db, orgId, viewerId, step.channel))) return false;
     if (step.agentId) {
       const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
@@ -395,6 +410,8 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   if (nobody) return nobody;
   const unavailable=await unavailableProgramNode(db,orgId,s.steps);
   if(unavailable)return unavailable;
+  const programSource=s.steps.find(step=>step.type==='code');
+  if(programSource&&!await validProgramTableSource(db,orgId,programSource,by))return {error:'Choose an App/Table source you can access.'};
   if (t.trigger.type === "row" && !(await getTable(db, orgId, t.trigger.tableId))) return { error: "No such table." };
   if (t.trigger.type === 'app_record_change' && (!(await validAppRecordTrigger(db, orgId, t.trigger)) || !(await mayUseApp(db, orgId, t.trigger.appId, by)))) return { error: "Choose an app and entity you can access." };
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id = ?1").bind(orgId).first();
@@ -409,7 +426,7 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
     .bind(id, orgId, name, input?.enabled === false ? 0 : 1, JSON.stringify(t.trigger), JSON.stringify(s.steps), secret, t.trigger.type === 'webhook' ? 1 : 0, next, String(by), at);
   const statements = [...(commitGuard ? [commitGuard(id)] : []), insert];
   if(source) statements.push(db.prepare(`INSERT INTO hx_workflow_sources(org_id,workflow_id,channel,thread_id,created_by)
-    VALUES(?1,?2,?3,(SELECT id FROM channel_messages WHERE org_id=?1 AND id=?4 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL AND body=?6 AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?5 AND role!='guest')),?5)`)
+    VALUES(?1,?2,?3,(SELECT id FROM channel_messages WHERE org_id=?1 AND id=?4 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL AND body=?6 AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?5 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')),?5)`)
     .bind(orgId,id,source.channel,source.threadId,String(by),source.body));
   const announcementId=source&&announcementLocale!==undefined?`workflow-created-${id}`:null;
   if(announcementId){
@@ -445,6 +462,8 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
     if (nobody) return nobody;
     const unavailable=await unavailableProgramNode(db,orgId,s.steps);
     if(unavailable)return unavailable;
+    const programSource=s.steps.find(step=>step.type==='code');
+    if(programSource&&(!await validProgramTableSource(db,orgId,programSource,wf.createdBy)||(changedBy!==null&&!await validProgramTableSource(db,orgId,programSource,changedBy))))return {error:'Choose an App/Table source you can access.'};
     const unavailableConnection=await connectionStepsAvailable(db,orgId,s.steps,wf.createdBy);
     if(unavailableConnection)return unavailableConnection;
     steps = s.steps;

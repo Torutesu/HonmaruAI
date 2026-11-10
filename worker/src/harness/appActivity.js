@@ -16,7 +16,7 @@ const activityFrom=`FROM hx_app_notifications n
   LEFT JOIN channel_messages root ON root.org_id=source.org_id AND root.id=source.thread_id AND root.channel=source.channel`;
 const workspaceAuthority=`NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND (d.purge_started_at IS NOT NULL OR (COALESCE(d.due_at,'')!='' AND NOT (LOWER(member.role)='owner' OR (instr(?1,'/')>0 AND LOWER(member.role)='admin')))))
   AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?1)`;
-const activityAuthority=`n.org_id=?1 AND n.user_id=?2 AND LOWER(COALESCE(member.role,'guest'))!='guest'
+const activityAuthority=`n.org_id=?1 AND n.user_id=?2 AND LOWER(TRIM(COALESCE(member.role,'guest')))!='guest'
   AND (COALESCE(policy.visibility,'workspace')='workspace' OR a.created_by=?2)
   AND ${workspaceAuthority}
   AND length(m.table_id)<=100 AND length(m.row_id)<=100

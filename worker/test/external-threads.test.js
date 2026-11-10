@@ -489,8 +489,8 @@ test("invitation email mismatch, expiry, revoke, and new workspace membership ca
   await upsertMembership(env.DB,orgId,memberId,"member");
   const memberSession=await createSession(env.DB,memberId,"external-invite-test");
   const memberRedemption=await call("/external/invites/redeem",memberSession,"POST",{token:membershipToken});
-  expect(memberRedemption.status).toBe(200);
-  expect(await memberRedemption.json()).toMatchObject({redeemed:true,alreadyMember:true});
+  expect(memberRedemption.status).toBe(404);
+  expect(await env.DB.prepare("SELECT redeemed_at FROM hx_external_thread_invites WHERE id=?1").bind(membershipInvite.invitationId).first()).toMatchObject({redeemed_at:null});
   expect(await env.DB.prepare("SELECT 1 FROM hx_external_resource_grants WHERE org_id=?1 AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL").bind(orgId,rootId,memberId).first()).toBeNull();
 
   const expiredEmail=`expired-${suffix()}@example.test`;

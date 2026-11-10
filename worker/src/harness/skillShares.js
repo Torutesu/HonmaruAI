@@ -43,7 +43,7 @@ export async function createSkillShare(db, orgId, skill, userId, { expiresInDays
   const writes = [db.prepare(`INSERT INTO hx_skill_shares
     (id, org_id, skill_id, token_hash, snapshot, created_by, created_at, expires_at)
     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 FROM hx_skills s
-    JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?6 AND m.created_at=?14 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?6 AND m.created_at=?14 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     WHERE s.org_id=?2 AND s.id=?3 AND COALESCE(s.owner_id,s.created_by)=?6
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=s.org_id)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=s.org_id)
@@ -89,7 +89,7 @@ export async function revokeSkillShare(db, orgId, skillId, shareId, userId, memb
     WHERE sh.id=?2 AND sh.org_id=?3 AND sh.skill_id=?4 AND sh.revoked_at IS NULL
       AND EXISTS (SELECT 1 FROM hx_skills s
         JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?5
-          AND m.created_at=?6 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+          AND m.created_at=?6 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
         WHERE s.org_id=?3 AND s.id=?4 AND COALESCE(s.owner_id,s.created_by)=?5
           AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=s.org_id)
           AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=s.org_id))`)
@@ -119,7 +119,7 @@ export async function finalizeSkillShare(db, orgId, skillId, userId, { token, sh
   }
   const at = now();
   const allowed = `sh.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') AND EXISTS(SELECT 1 FROM hx_skills s
-    JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?4 AND m.created_at=?7 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?4 AND m.created_at=?7 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     WHERE s.org_id=sh.org_id AND s.id=sh.skill_id AND COALESCE(s.owner_id,s.created_by)=?4
       AND NOT EXISTS(SELECT 1 FROM hx_skill_source_scopes ss WHERE ss.org_id=s.org_id AND ss.skill_id=s.id))
     AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=sh.org_id)
@@ -220,7 +220,7 @@ export async function importSkillShare(db, token, { orgId, userId, name, agentId
 export async function mayDeliverImportedSkill(db, orgId, skill, userId, memberSince, agentId, sessionToken = null, policyFingerprint = null, ssoDeadline = null) {
   if (!skill?.id || typeof memberSince !== 'string' || !memberSince) return false;
   const sql = `SELECT 1 AS ok FROM hx_skills s
-    JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?3 AND m.created_at=?4 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?3 AND m.created_at=?4 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     LEFT JOIN hx_skill_access p ON p.org_id=s.org_id AND p.skill_id=s.id
     WHERE s.org_id=?1 AND s.id=?2 AND (COALESCE(p.visibility,'workspace')='workspace' OR COALESCE(s.owner_id,s.created_by)=?3)
       AND s.name=?5 AND COALESCE(s.description,'')=?6 AND s.body=?7 AND s.updated_at=?8

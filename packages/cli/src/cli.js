@@ -23,7 +23,11 @@ Usage:
   honmaru workspace followup list [--room ROOM]
   honmaru workspace followup schedule --room ROOM --instruction TEXT --minutes N
   honmaru workspace file list --scope ROOM|all [--query TEXT] [--limit N]
+  honmaru workspace folders list --scope ROOM [--directory PATH] [--origin human|agent|unknown] [--limit N]
   honmaru workspace file read <file-id> --version N
+  honmaru workspace file versions <file-id> [--before N] [--limit N]
+  honmaru workspace file create --scope ROOM --path PATH --request-id file-UUID --text TEXT --content-type MIME
+  honmaru workspace file update <file-id> --expected-version N --text TEXT
   honmaru workspace member list
   honmaru workspace playbook read
   honmaru workspace decision pending [--direction mine|sent]
@@ -65,8 +69,9 @@ const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
   "text", "room", "instruction", "minutes", "scope", "origin", "type", "created-by",
   "direction", "title", "to", "summary", "context", "priority",
-  "since", "until", "directory", "order", "cursor", "version",
+  "since", "until", "directory", "order", "cursor", "version", "before",
   "gateway-id", "request-id", "code", "input", "app-id", "out",
+  "path", "content-type", "expected-version",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted"]);
 
@@ -247,6 +252,43 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
       const version = integerOption(options, "version", { min: 1, required: true });
       return { tool: "read_file_text", args: { fileId: positional[0], version } };
     }
+    case "file versions": {
+      onlyFlags(options, ["before", "limit"]); positionalCount(positional, 1, "honmaru workspace file versions <file-id> [--before N] [--limit N]");
+      const args = { fileId: positional[0] };
+      const before = integerOption(options, "before", { min: 1 });
+      const limit = integerOption(options, "limit", { min: 1, max: 100 });
+      if (before !== undefined) args.before = before;
+      if (limit !== undefined) args.limit = limit;
+      return { tool: "list_file_versions", args };
+    }
+    case "file create": {
+      onlyFlags(options, ["scope", "path", "requestId", "text", "contentType"]); positionalCount(positional, 0, "honmaru workspace file create --scope ROOM --path PATH --request-id file-UUID --text TEXT --content-type MIME");
+      for (const key of ["scope", "path", "requestId", "text", "contentType"]) {
+        if (typeof options[key] !== "string" || !options[key].trim()) throw new Error(`--${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)} is required.`);
+      }
+      if (!/^file-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(options.requestId)) throw new Error("--request-id must be file- followed by a UUID; reuse it only for the identical retry.");
+      const contentTypes = ["text/plain", "text/markdown", "text/csv", "text/html", "application/json", "application/xml", "application/yaml", "application/javascript"];
+      if (!contentTypes.includes(options.contentType)) throw new Error(`--content-type must be one of: ${contentTypes.join(", ")}.`);
+      return { tool: "create_file_text", args: { scope: options.scope, path: options.path, requestId: options.requestId, text: options.text, contentType: options.contentType } };
+    }
+    case "file update": {
+      onlyFlags(options, ["expectedVersion", "text"]); positionalCount(positional, 1, "honmaru workspace file update <file-id> --expected-version N --text TEXT");
+      if (options.text === undefined || options.text.length === 0) throw new Error("--text is required.");
+      const expectedVersion = integerOption(options, "expectedVersion", { min: 1, required: true });
+      return { tool: "update_file_text", args: { fileId: positional[0], expectedVersion, text: options.text } };
+    }
+    case "folders list": {
+      onlyFlags(options, ["scope", "directory", "origin", "cursor", "limit", "includeDeleted"]); positionalCount(positional, 0, "honmaru workspace folders list --scope ROOM [options]");
+      if (!options.scope || options.scope === "all") throw new Error("--scope is required; choose one accessible Room (folder listing does not support all).");
+      if (options.origin !== undefined && !["human", "agent", "unknown"].includes(options.origin)) throw new Error("--origin must be human, agent, or unknown.");
+      const args = { scope: options.scope };
+      for (const key of ["directory", "origin"]) if (options[key] !== undefined) args[key] = options[key];
+      if (options.cursor !== undefined) args.cursor = options.cursor;
+      if (options.includeDeleted !== undefined) args.includeDeleted = options.includeDeleted;
+      const limit = integerOption(options, "limit", { min: 1, max: 100 });
+      if (limit !== undefined) args.limit = limit;
+      return { tool: "list_workspace_folders", args };
+    }
     case "member list":
       onlyFlags(options, []); positionalCount(positional, 0, "honmaru workspace member list");
       return { tool: "list_members", args: {} };
@@ -316,6 +358,11 @@ function formatWorkspaceResult(result, json, command = null) {
   if (Array.isArray(value.tables)) return value.tables.length ? value.tables.map((table) => `${table.id}\t${table.name}\t${(table.columns || []).map((column) => column.name).join(", ")}`).join("\n") : "No tables are available.";
   if (Array.isArray(value.rows)) return value.rows.length ? value.rows.map((row) => `${row.id}\t${JSON.stringify(row)}`).join("\n") : `No rows found (total ${value.total ?? 0}).`;
   if (Array.isArray(value.files)) return value.files.length ? value.files.map((file) => `${file.id}\t${file.path || file.name || "(unnamed)"}`).join("\n") : "No files found.";
+  if (Array.isArray(value.folders)) return value.folders.length ? value.folders.map((folder) => `${folder.path || folder.name}`).join("\n") : "No folders found.";
+  if (Array.isArray(value.versions)) return value.versions.length ? value.versions.map((version) => `v${version.version}${version.isCurrent ? "\tcurrent" : ""}${version.purged ? "\tpurged" : ""}\t${version.contentType || version.kind}\t${version.size ?? 0} bytes\t${version.createdAt || ""}`).join("\n") : "No file versions found.";
+  if (command?.tool === "read_file_text" && typeof value.text === "string") return value.text;
+  if (command?.tool === "create_file_text") return `Created file ${value.fileId} as version ${value.version}.`;
+  if (command?.tool === "update_file_text") return `Saved file ${value.fileId} as version ${value.version}.`;
   if (Array.isArray(value.members)) return value.members.length ? value.members.map((member) => `${member.name}${member.title ? `\t${member.title}` : ""}`).join("\n") : "No members found.";
   if (Array.isArray(value.gateways)) return value.gateways.length ? value.gateways.map((gateway) => `${gateway.id}\t${gateway.name}${gateway.lastSeenAt ? `\t${gateway.lastSeenAt}` : ""}`).join("\n") : "No execution nodes are registered.";
   if (value.job?.id && command?.tool === "run_app_action") return `App action ${value.job.id}: ${value.job.status}. Read the result with honmaru workspace app action read ${command.args.appId} ${value.job.id}.`;

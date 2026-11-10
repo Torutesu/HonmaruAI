@@ -6,7 +6,7 @@ import { emitMessage } from './webhooks.js';
 
 export async function deliverMcpScheduledMessage(env, row, authority) {
   const membership = await env.DB.prepare('SELECT created_at,role FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(row.org_id, authority.user_id).first();
-  if (!membership || membership.created_at !== authority.membership_since || String(membership.role).toLowerCase() === 'guest') return { sent: false };
+  if (!membership || membership.created_at !== authority.membership_since || String(membership.role).trim().toLowerCase() === 'guest') return { sent: false };
   let actor;
   if (authority.grant_id) {
     const { resolveMcpGrantActor } = await import('./mcpOAuth.js');

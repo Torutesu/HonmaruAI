@@ -189,7 +189,7 @@ export async function emitWebhook(env, orgId, type, data, scope = {}) {
     const { results } = await env.DB.prepare(
       `SELECT h.* FROM org_webhooks h
          JOIN users u ON u.login = h.created_by
-         JOIN memberships m ON m.org_id = h.org_id AND m.user_github_id = u.github_id AND m.role != 'guest'
+         JOIN memberships m ON m.org_id = h.org_id AND m.user_github_id = u.github_id AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
         WHERE h.org_id = ?1 AND h.events LIKE ?2`
     ).bind(orgId, `%"${type}"%`).all();
     const hooks = (results || []).filter((h) => reaches(h, scope));

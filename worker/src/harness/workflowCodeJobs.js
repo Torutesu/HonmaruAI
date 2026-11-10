@@ -4,6 +4,7 @@ import {allowed} from '../permissions.js';
 import {workflowSettlementStatements} from './workflowSafety.js';
 import {getMode} from './mode.js';
 import {workspaceBudgetAdmission} from '../workspaceAIBudget.js';
+import {mayUseApp,mayUseTable} from './resourceAccess.js';
 const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
 export const WORKFLOW_PROGRAM_TIMEOUT_MS=15*60*1000;
 export const WORKFLOW_PROGRAM_RESULT_GRACE_MS=30*1000;
@@ -35,6 +36,13 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  const definition=JSON.parse(run.definition),step=definition.steps?.[0];
  if(definition.id!==run.workflow_id||!definition.safetyGeneration||definition.steps?.length!==1||step?.type!=='code'||typeof step.code!=='string'||!step.code.trim()||typeof step.gatewayId!=='string')return {status:'failed',error:'A program requires one frozen TypeScript definition.'};
  if(!await allowed(db,orgId,definition.createdBy,'harness.build'))return {status:'failed',error:'Workflow execution access was removed.'};
+ if(step.sourceAppId||step.sourceEntityId||step.sourceTableId){
+  const mapped=step.sourceEntityId==='primary'
+   ? await db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId,step.sourceAppId).first()
+   : await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId,step.sourceAppId,step.sourceEntityId).first();
+  if(!step.sourceAppId||!step.sourceEntityId||!step.sourceTableId||mapped?.table_id!==step.sourceTableId
+   ||!await mayUseApp(db,orgId,step.sourceAppId,definition.createdBy)||!await mayUseTable(db,orgId,step.sourceTableId,definition.createdBy))return {status:'failed',error:'The Workflow App/Table source is no longer accessible.'};
+ }
  const node=await db.prepare('SELECT * FROM hx_gateways WHERE org_id=?1 AND id=?2 AND revoked_at IS NULL').bind(orgId,step.gatewayId).first();
  if(!node||!await allowed(db,orgId,node.created_by,'workspace.mode'))return {status:'failed',error:'Execution node is unavailable.'};
  if(await getMode(db,orgId)==='harness'){
@@ -44,7 +52,7 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,run.workflow_id).first();
  const input=run.input?JSON.parse(run.input):null;
  const trigger={kind:run.trigger,...(run.trigger==='app_record_change'&&input?.records?{records:input.records,totalCount:input.totalCount??input.records.length,truncated:Boolean(input.truncated)}:{input})};
- const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
+ const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSource:{appId:step.sourceAppId,entityId:step.sourceEntityId,tableId:step.sourceTableId}}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
  if(new TextEncoder().encode(payload).length>65536)return {status:'failed',error:'Workflow code and input exceed the execution limit.'};
  const nodeId='program',fingerprint=await digest(run.definition),lease=await claimWorkflowNode(db,{orgId,runId,nodeId,fingerprint,effect:true,at,ttl:300000});
  if(lease.status==='done')return lease.result;
@@ -62,7 +70,7 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
    JOIN hx_workflow_node_checkpoints c ON c.org_id=r.org_id AND c.run_id=r.id
    WHERE r.org_id=?2 AND r.id=?3 AND r.status='running' AND d.definition=?8 AND ${workflowStateAuthority}
    AND c.node_id='program' AND c.owner=?9 AND c.attempt=?10 AND c.status='running' AND c.lease_until>?7
-   AND EXISTS(SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by WHERE g.org_id=r.org_id AND g.id=?4 AND g.revoked_at IS NULL AND lower(m.role) IN ('owner','admin'))
+   AND EXISTS(SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by WHERE g.org_id=r.org_id AND g.id=?4 AND g.revoked_at IS NULL AND LOWER(TRIM(m.role)) IN ('owner','admin'))
    AND (SELECT COUNT(*) FROM hx_gateway_jobs WHERE org_id=r.org_id AND status IN ('queued','running'))<100`)
    .bind(jobId,orgId,runId,step.gatewayId,requestId,payload,at,run.definition,lease.owner,lease.attempt),
   db.prepare(`INSERT INTO hx_workflow_activations(org_id,job_id,run_id,node_id,node_owner,node_attempt)
@@ -110,7 +118,7 @@ export async function settleWorkflowProgram(db,jobId) {
     AND j.finished_at<j.lease_until AND j.finished_at<j.deadline AND j.finished_at<c.lease_until
     AND ${workflowStateAuthority}
     AND (json_extract(j.payload,'$.context.roomId') IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=r.org_id AND source.workflow_id=r.workflow_id AND source.channel=json_extract(j.payload,'$.context.roomId')))
-    AND EXISTS(SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by WHERE g.id=j.gateway_id AND g.org_id=r.org_id AND g.revoked_at IS NULL AND lower(m.role) IN ('admin','owner'))
+    AND EXISTS(SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by WHERE g.id=j.gateway_id AND g.org_id=r.org_id AND g.revoked_at IS NULL AND LOWER(TRIM(m.role)) IN ('admin','owner'))
    ) AS accepted
   FROM hx_workflow_activations a JOIN hx_gateway_jobs j ON j.id=a.job_id AND j.org_id=a.org_id
   JOIN hx_workflow_runs r ON r.id=a.run_id AND r.org_id=a.org_id

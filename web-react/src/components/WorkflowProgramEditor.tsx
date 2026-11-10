@@ -1,9 +1,9 @@
 import React,{useCallback,useEffect,useRef,useState} from 'react'
-import type {Gateway,HarnessApi,Step} from '../utils/harness'
+import type {App,AppEntity,Gateway,HarnessApi,Step} from '../utils/harness'
 import {useT} from '../utils/i18n'
 import {Icon} from './Icon'
 
-export function WorkflowProgramEditor({api,step,onChange}:{api:HarnessApi;step:Step;onChange:(step:Step)=>void}) {
+export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:HarnessApi;step:Step;onChange:(step:Step)=>void;sourceApps?:Array<{app:App;entities:AppEntity[]}>}) {
  const t=useT(),generation=useRef(0)
  const lineNumbers=useRef<HTMLPreElement>(null)
  const [nodes,setNodes]=useState<Gateway[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState('')
@@ -16,6 +16,8 @@ export function WorkflowProgramEditor({api,step,onChange}:{api:HarnessApi;step:S
  useEffect(()=>{void load();return()=>{generation.current++}},[load])
  const bytes=new TextEncoder().encode(step.code||'').length
  const lineCount=(step.code||'').split('\n').length
+ const selectedApp=sourceApps.find(choice=>choice.app.id===step.sourceAppId)
+ const selectedEntity=selectedApp?.entities.find(entity=>entity.key===step.sourceEntityId)
  return <section className="hx-program-editor">
   <div className="hx-program-toolbar"><strong><Icon name="code" size={16}/> {t('TypeScript program')}</strong><span>workflow.ts</span></div>
   <p className="row-sub">{t('Runs from the top of the file. Exported functions are not called automatically.')}</p>
@@ -27,11 +29,27 @@ export function WorkflowProgramEditor({api,step,onChange}:{api:HarnessApi;step:S
   {busy&&<p role="status">{t('Loading…')}</p>}
   {error&&<p className="form-error" role="alert">{error}</p>}
   {!busy&&!error&&!nodes.length&&<p className="row-sub">{t('Connect an execution node in Settings to run this program.')}</p>}
+  <label className="hx-inline">{t('Read-only App/Table source')} <select aria-label={t('Read-only App/Table source')} value={step.sourceAppId||''} onChange={event=>{
+   const choice=sourceApps.find(item=>item.app.id===event.target.value),entity=choice?.entities[0]
+   onChange({...step,...(choice&&entity?{sourceAppId:choice.app.id,sourceEntityId:entity.key,sourceTableId:entity.table.id}:{sourceAppId:undefined,sourceEntityId:undefined,sourceTableId:undefined})})
+  }}>
+   <option value="">{t('No App/Table source')}</option>
+   {step.sourceAppId&&!selectedApp&&<option value={step.sourceAppId}>{t('Selected App unavailable')}</option>}
+   {sourceApps.map(choice=><option key={choice.app.id} value={choice.app.id}>{choice.app.name}</option>)}
+  </select></label>
+  {step.sourceAppId&&<label className="hx-inline">{t('Table')} <select aria-label={t('Workflow source table')} value={step.sourceEntityId||''} onChange={event=>{
+   const entity=selectedApp?.entities.find(item=>item.key===event.target.value)
+   onChange({...step,...(entity?{sourceEntityId:entity.key,sourceTableId:entity.table.id}:{sourceEntityId:undefined,sourceTableId:undefined})})
+  }}>
+   {!selectedApp&&<option value={step.sourceEntityId||''}>{t('Selected table unavailable')}</option>}
+   {selectedApp?.entities.map(entity=><option key={entity.key} value={entity.key}>{entity.table.name}</option>)}
+  </select></label>}
+  <p className="row-sub">{t('The table.query helper reads only this saved source. It uses bounded pages and reports incomplete results; no VM network or database access is enabled.')}</p>
   <div className="hx-program-code" style={{'--program-gutter':`${Math.max(2,String(lineCount).length)+2}ch`} as React.CSSProperties}>
    <div className="hx-program-gutter" aria-hidden="true"><pre ref={lineNumbers}>{Array.from({length:lineCount},(_,index)=>index+1).join('\n')}</pre></div>
    <textarea className="hx-program-source hx-program-input" aria-label={t('TypeScript source')} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={18} value={step.code||''} onScroll={event=>{if(lineNumbers.current)lineNumbers.current.style.transform=`translateY(-${event.currentTarget.scrollTop}px)`}} onChange={event=>onChange({...step,code:event.target.value})}/>
   </div>
-  <div className="hx-program-toolbar"><span>{t('Saved state is available through @honmaru/workflow-sdk.')}</span><span>{t('Use parallel and pipeline for bounded batches; failed items return null and call onError.')}</span><span>{t('sendMessage(text) stages a report draft in run history; it never posts to a Room.')}</span><span>{t('Workflow programs can run for up to 15 minutes.')}</span><span>{bytes.toLocaleString()} / 48,000 B</span></div>
+  <div className="hx-program-toolbar"><span>{t('Saved state is available through @honmaru/workflow-sdk.')}</span><span>{t('Use parallel and pipeline for bounded batches; failed items return null and call onError.')}</span><span>{t('table.query reads rows from the saved App/Table source only.')}</span><span>{t('sendMessage(text) stages a report draft in run history; it never posts to a Room.')}</span><span>{t('Workflow programs can run for up to 15 minutes.')}</span><span>{bytes.toLocaleString()} / 48,000 B</span></div>
   {bytes>48000&&<p className="form-error" role="alert">{t('Program source exceeds 48 KB.')}</p>}
  </section>
 }

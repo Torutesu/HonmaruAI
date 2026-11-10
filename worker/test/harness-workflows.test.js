@@ -1256,6 +1256,26 @@ test('a workflow approval cannot resume after its approver loses workspace membe
   expect((await messages(mika)).map(m => m.body)).not.toContain('This must not run after access is removed.');
 });
 
+test('a workflow maker with padded Guest role cannot resume to perform side effects', async () => {
+  const { createWorkflow, startRun, getRun } = await import('../src/harness/workflows.js');
+  const { getCard } = await import('../src/db.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Padded guest fence', trigger: { type: 'manual' },
+    steps: [{ type: 'approval', to: 'toru', title: 'Review first' },
+      { type: 'post', channel: 'b:ops', text: 'Padded guest must not post.' }],
+  }, '9302');
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+  expect(run.status).toBe('waiting');
+  const card = await getCard(env.DB, ORG, run.cardId);
+  await env.DB.prepare("UPDATE memberships SET role=' gUeSt ' WHERE org_id=?1 AND user_github_id='9302'").bind(ORG).run();
+  const settled = await settleWorkflowApproval(env, ORG, {
+    ...card, status: 'approved', decision: { action: 'approve', actorUserID: 'toru', decidedAt: new Date().toISOString() },
+  });
+  expect(settled).toBeNull();
+  expect(await getRun(env.DB, ORG, run.id)).toMatchObject({ status: 'waiting' });
+  expect((await messages(mika)).map(m => m.body)).not.toContain('Padded guest must not post.');
+});
+
 test('a connected but removed approver cannot decide a workflow approval over either relay protocol', async () => {
   const { createWorkflow, getRun } = await import('../src/harness/workflows.js');
   const { getCard } = await import('../src/db.js');

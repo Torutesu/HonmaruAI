@@ -455,9 +455,9 @@ export async function handleHarness(request, env, url, context = {}) {
     if (request.method !== 'GET') return json({ message: 'Method not allowed.' }, 405);
     const roster=await memoryMembers(env.DB,orgId,me);
     const actor=roster.find(m=>String(m.userId)===String(me));
-    if(!actor||String(actor.role||'guest').toLowerCase()==='guest')return json({agents:[],addableAgents:[]});
+    if(!actor||String(actor.role||'guest').trim().toLowerCase()==='guest')return json({agents:[],addableAgents:[]});
     const agents=await requestableAgentOptions(env.DB,orgId,who.user.login);
-    const workspacePeople=roster.filter(m=>String(m.role||'guest').toLowerCase()!=='guest')
+    const workspacePeople=roster.filter(m=>String(m.role||'guest').trim().toLowerCase()!=='guest')
       .map(m=>({kind:'person',id:String(m.userId),eligible:true,membership:m.joinedAt}));
     const accessible=await listAgents(env.DB,orgId,who.user.login);
     const plans=await roomAgentAccessPlans(env.DB,orgId,accessible.map(a=>a.id),workspacePeople,me);

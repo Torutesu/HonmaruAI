@@ -28,7 +28,8 @@ export const WORKFLOW_BOOTSTRAP=`
   }
  };
  const bridgeKey='__honmaru_'+task.nonce;
- Object.defineProperty(globalThis,bridgeKey,{value:{state,ctx:Object.freeze({...task.context,now:()=>new Date().toISOString()}),stageMessage:draft=>rpc('message.stage',draft)},configurable:false});
+ const tableSource=task.context.tableSource?Object.freeze({...task.context.tableSource}):null;
+ Object.defineProperty(globalThis,bridgeKey,{value:{state,ctx:Object.freeze({...task.context,now:()=>new Date().toISOString()}),tableSource,queryTable:params=>rpc('table.query',params),stageMessage:draft=>rpc('message.stage',draft)},configurable:false});
  const sdkSource='const bridge=globalThis['+JSON.stringify(bridgeKey)+'];export const state=bridge.state;export const ctx=bridge.ctx;\\n'+${JSON.stringify(workflowSdkSource('bridge'))};
  const sdk='data:text/javascript;base64,'+Buffer.from(sdkSource).toString('base64');
  registerHooks({resolve(specifier,context,next){return specifier==='@honmaru/workflow-sdk'?{url:sdk,shortCircuit:true}:next(specifier,context);}});

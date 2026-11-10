@@ -37,7 +37,7 @@ export function workflowEffectAuthority({ org, runId, ownerId, status = 'running
       ON builder_membership.org_id=w.org_id AND builder_membership.user_github_id=w.created_by
       WHERE w.org_id=r.org_id AND w.id=r.workflow_id AND w.created_by=${ownerId}
         AND json_extract(d.definition,'$.id')=w.id AND json_extract(d.definition,'$.createdBy')=w.created_by
-        AND LOWER(COALESCE(builder_membership.role,'guest')) IN (${builderRoles}))`),
+        AND LOWER(TRIM(COALESCE(builder_membership.role,'guest'))) IN (${builderRoles}))`),
     runExists(`(NOT EXISTS(SELECT 1 FROM hx_workflow_sources missing_source WHERE missing_source.org_id=r.org_id AND missing_source.workflow_id=r.workflow_id)
       OR EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=r.org_id AND source.workflow_id=r.workflow_id
         AND source.created_by=${ownerId} AND ${conversationWriteAuthority(org,'source.channel',ownerId)}))`)];
@@ -46,7 +46,7 @@ export function workflowEffectAuthority({ org, runId, ownerId, status = 'running
   if (recipientLogin) checks.push(`EXISTS(SELECT 1 FROM users workflow_recipient
     JOIN memberships recipient_membership ON recipient_membership.org_id=${org}
       AND recipient_membership.user_github_id=workflow_recipient.github_id
-      AND LOWER(COALESCE(recipient_membership.role,'guest'))!='guest'
+      AND LOWER(TRIM(COALESCE(recipient_membership.role,'guest')))!='guest'
     WHERE workflow_recipient.login=${recipientLogin})`);
   if (sourceSnapshot) checks.push(runExists(`((json_extract(d.definition,'$.trigger.type')='app_record_change'
       AND ${sourceSnapshot.appId}=json_extract(d.definition,'$.trigger.appId')
@@ -70,10 +70,10 @@ export function workflowApprovalClaimAuthority({ org, runId, recipientLogin }) {
     WHERE r.org_id=${org} AND r.id=${runId} AND r.status='waiting'
       AND d.definition IS NOT NULL AND json_extract(d.definition,'$.id')=w.id
       AND json_extract(d.definition,'$.createdBy')=w.created_by
-      AND LOWER(COALESCE(builder_membership.role,'guest')) IN (${builderRoles})
+      AND LOWER(TRIM(COALESCE(builder_membership.role,'guest'))) IN (${builderRoles})
       AND EXISTS(SELECT 1 FROM users recipient JOIN memberships member
         ON member.org_id=${org} AND member.user_github_id=recipient.github_id
-        WHERE recipient.login=${recipientLogin} AND LOWER(COALESCE(member.role,'guest'))!='guest')
+        WHERE recipient.login=${recipientLogin} AND LOWER(TRIM(COALESCE(member.role,'guest')))!='guest')
       AND (json_extract(d.definition,'$.trigger.type') IS NOT 'app_record_change' OR (
         json_extract(r.input,'$.records[0].appId')=json_extract(d.definition,'$.trigger.appId')
         AND json_extract(r.input,'$.records[0].entityId')=json_extract(d.definition,'$.trigger.entityId')
@@ -91,7 +91,7 @@ export function workflowFollowupScheduleAuthority({ org, runId, ownerId, channel
       ON builder_membership.org_id=w.org_id AND builder_membership.user_github_id=w.created_by
       WHERE w.org_id=r.org_id AND w.id=r.workflow_id AND w.created_by=${ownerId}
         AND json_extract(d.definition,'$.id')=w.id AND json_extract(d.definition,'$.createdBy')=w.created_by
-        AND LOWER(COALESCE(builder_membership.role,'guest')) IN (${builderRoles}))`,
+        AND LOWER(TRIM(COALESCE(builder_membership.role,'guest'))) IN (${builderRoles}))`,
     `(${conversationWriteAuthority(org, channel, ownerId)})`,
     `(NOT EXISTS(SELECT 1 FROM hx_workflow_sources missing_source WHERE missing_source.org_id=r.org_id AND missing_source.workflow_id=r.workflow_id)
       OR EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=r.org_id AND source.workflow_id=r.workflow_id
