@@ -290,6 +290,9 @@ test('workspace admins can manage links on a private app without reading the app
   expect(created.status).toBe(201);
   const { app } = await created.json();
   await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?1,?2,'private',1)").bind(ORG, app.id).run();
+  // A no-access person grant must not revoke the explicitly narrow workspace
+  // admin capability to manage navigation links on a private app.
+  await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES (?1,?2,'9101','none',?3)").bind(ORG, app.id, at).run();
   await env.DB.prepare("INSERT INTO hx_app_links(app_id,org_id,channel,created_by,created_at) VALUES (?1,?2,'b:hidden-links','9102',?3)").bind(app.id, ORG, at).run();
 
   expect((await get(`/apps/${app.id}?orgId=${ORG}`, toru)).status).toBe(404);
