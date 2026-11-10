@@ -9,6 +9,7 @@ import { listMembers } from '../src/team.js';
 import { createApiToken } from '../src/mcp.js';
 import { uploadFile } from '../src/files.js';
 import { runMinuteJobs, cancelScheduled } from '../src/later.js';
+import { deliverMcpScheduledMessage } from '../src/mcpScheduled.js';
 import sql from '../mcp-chat.sql?raw';
 
 const orgId = 'personal:mcp-chat';
@@ -128,6 +129,13 @@ test('removed members and guessed cross-workspace IDs cannot read', async () => 
 
 test('old read/write scopes do not grant chat tools', async () => {
   await expect(call('list_conversations', {}, { ...actor, scopes: ['read', 'write'] })).rejects.toThrow('chat:read');
+});
+
+test('MCP scheduled delivery rejects a padded case-variant guest membership', async () => {
+  await env.DB.prepare("UPDATE memberships SET role=' gUeSt ' WHERE org_id=?1 AND user_github_id=?2").bind(orgId, actor.githubId).run();
+  const result = await deliverMcpScheduledMessage(env, { org_id: orgId }, { user_id: actor.githubId, membership_since: (await env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, actor.githubId).first()).created_at });
+  expect(result).toEqual({ sent: false });
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM channel_messages WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
 });
 
 test('scheduled retry is stable and revoking its token prevents delivery', async () => {

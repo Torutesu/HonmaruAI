@@ -9,7 +9,7 @@ const responsibilities = `SELECT a.id,a.name,a.owner_login,a.scope,COALESCE(v.ve
     AND (a.owner_login=?3 OR (a.scope='team' AND EXISTS (
       SELECT 1 FROM hx_agent_members r JOIN memberships m
         ON m.org_id=r.org_id AND m.user_github_id=r.user_id
-        AND m.created_at=r.member_since AND m.role!='guest'
+        AND m.created_at=r.member_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       WHERE r.org_id=a.org_id AND r.agent_id=a.id AND r.user_id=?2 AND r.role='admin')))
   ORDER BY a.id`;
 const snapshotQuery = `SELECT json_group_array(json_array(id,owner_login,scope,version)) FROM (${responsibilities})`;
@@ -22,7 +22,7 @@ const skillSnapshotQuery = `SELECT json_group_array(json_array(id,owner_id,visib
 const roomResponsibilities = `SELECT p.channel,b.name,p.version FROM hx_room_access p
  JOIN businesses b ON b.org_id=p.org_id AND 'b:'||b.slug=p.channel
  JOIN hx_room_roles r ON r.org_id=p.org_id AND r.channel=p.channel AND r.subject_kind='person' AND r.subject_id=?2 AND r.role='admin'
- JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.subject_id AND m.role!='guest'
+ JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.subject_id AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
  JOIN users u ON u.github_id=m.user_github_id
  JOIN conversation_members c ON c.org_id=r.org_id AND c.channel=r.channel AND c.login=u.login
  WHERE p.org_id=?1 AND p.deleted_at IS NULL AND r.member_since=m.created_at||'/'||c.added_at ORDER BY p.channel`;
@@ -67,7 +67,7 @@ export async function removeWithResourceHandoff(db, orgId, context, {transferTo,
       EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role=?6 AND created_at=?7)
       AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?8 AND role=?9 AND created_at=?10)
       AND (?6!='owner' OR EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND role='owner' AND user_github_id!=?2))
-      AND (?11 IS NULL OR EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?11 AND role!='guest' AND created_at=?12))
+      AND (?11 IS NULL OR EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?11 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest' AND created_at=?12))
       AND (${completeSnapshotQuery})=?13
       AND NOT EXISTS(SELECT 1 FROM (${roomResponsibilities}) room WHERE NOT EXISTS(
         SELECT 1 FROM conversation_members c JOIN users u ON u.login=c.login

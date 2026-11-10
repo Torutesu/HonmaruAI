@@ -27,7 +27,7 @@ export async function setRoomVisual(db,orgId,channel,actorId,{version,objectKey=
    AND EXISTS(SELECT 1 FROM businesses b JOIN conversation_members c ON c.org_id=b.org_id AND c.channel=?2
     JOIN users u ON u.login=c.login JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=u.github_id
     WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.archived_at IS NULL AND u.github_id=?5
-    AND m.role!='guest' AND m.created_at||'/'||c.added_at=?6)`)
+    AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' AND m.created_at||'/'||c.added_at=?6)`)
    .bind(orgId,channel,nonce,version,String(actorId),current.actor.membership),
   objectKey===null
    ?db.prepare(`DELETE FROM hx_room_visuals WHERE org_id=?1 AND channel=?2 AND ${gate}`).bind(orgId,channel,nonce)

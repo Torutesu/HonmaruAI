@@ -18,8 +18,8 @@ export async function mayGenerateFromSchema(db, orgId, appId, userId, entities, 
     JOIN users u ON u.github_id=m.user_github_id
     JOIN hx_apps target ON target.org_id=m.org_id AND target.id=?2
     LEFT JOIN hx_app_access policy ON policy.org_id=target.org_id AND policy.app_id=target.id
-    WHERE m.org_id=?1 AND m.user_github_id=?3 AND lower(coalesce(m.role,'guest'))!='guest'
-      AND (target.created_by=?3 OR lower(m.role) IN ('admin','owner'))
+    WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+      AND (target.created_by=?3 OR LOWER(TRIM(m.role)) IN ('admin','owner'))
       AND (coalesce(policy.visibility,'workspace')='workspace' OR target.created_by=?3)
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?1)

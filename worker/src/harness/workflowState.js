@@ -30,7 +30,7 @@ const appRecordSourceAuthority=`(json_extract(d.definition,'$.trigger.type') IS 
 export const workflowStateAuthority=`${sourceTableAuthority} AND ${appRecordSourceAuthority} AND ${managedAutomationGuard('r.org_id','r.workflow_id',"json_extract(d.definition,'$.automationReleaseId')")} AND (json_type(d.definition,'$.safetyGeneration') IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_safety safety WHERE safety.org_id=r.org_id AND safety.workflow_id=r.workflow_id AND safety.generation=json_extract(d.definition,'$.safetyGeneration') AND safety.paused_at IS NULL)) AND EXISTS(SELECT 1 FROM hx_workflows w
  JOIN memberships m ON m.org_id=w.org_id AND m.user_github_id=w.created_by
  JOIN users u ON u.github_id=w.created_by
- WHERE w.org_id=r.org_id AND w.id=r.workflow_id AND json_extract(d.definition,'$.id')=w.id AND json_extract(d.definition,'$.createdBy')=w.created_by AND lower(m.role) IN (${workflowBuilderRoles})
+ WHERE w.org_id=r.org_id AND w.id=r.workflow_id AND json_extract(d.definition,'$.id')=w.id AND json_extract(d.definition,'$.createdBy')=w.created_by AND LOWER(TRIM(m.role)) IN (${workflowBuilderRoles})
  AND (NOT EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=r.org_id AND source.workflow_id=w.id)
  OR EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=r.org_id AND source.workflow_id=w.id
  AND source.created_by=w.created_by AND (

@@ -48,7 +48,7 @@ async function restrictedRunRows(db,orgId,rowIds,viewer) {
           JOIN hx_agent_profiles rp ON rp.org_id=r.org_id AND rp.agent_id=r.agent_id
           JOIN users u ON u.github_id=r.user_id AND u.login=?2
           JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.user_id
-            AND m.created_at=r.member_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
+            AND m.created_at=r.member_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
           WHERE r.org_id=a.org_id AND r.agent_id=a.id AND a.provider IS NULL
         ) THEN 1
         WHEN a.scope='personal' AND a.owner_login!=?2 THEN 0

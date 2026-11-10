@@ -5,7 +5,7 @@ import {conversationWriteAuthority} from './conversationWriteAuthority.js';
 // Trusted parameter expressions, shared by the snapshot read and the reply
 // INSERT. Record conversations remain independent of app source threads.
 const replyAuthority = (org,app,user,table,row,channel,thread) => `
-  a.org_id=${org} AND a.id=${app} AND m.user_github_id=${user} AND LOWER(COALESCE(m.role,'guest'))!='guest'
+  a.org_id=${org} AND a.id=${app} AND m.user_github_id=${user} AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
   AND (COALESCE(policy.visibility,'workspace')='workspace' OR a.created_by=${user})
   AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=${org} AND d.purge_started_at IS NOT NULL)
   AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=${org})

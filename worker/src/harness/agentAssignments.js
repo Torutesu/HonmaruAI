@@ -29,12 +29,12 @@ export async function beginAssignment(db, {orgId, row, agentId, actorId, session
   const inserted = await db.prepare(`INSERT INTO hx_agent_assignments
     (id,org_id,source_message_id,initial_agent_id,current_agent_id,channel,thread_id,actor_id,actor_membership,session_key,source_hash,status,visited,hop_limit,created_at,updated_at)
     SELECT ?1,?2,?3,?4,?4,?5,?6,?7,m.created_at,?8,?9,'running',?10,?11,?12,?12 FROM channel_messages cm
-      JOIN memberships m ON m.org_id=cm.org_id AND m.user_github_id=?7 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      JOIN memberships m ON m.org_id=cm.org_id AND m.user_github_id=?7 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     WHERE cm.org_id=?2 AND cm.id=?3 AND cm.channel=?5 AND cm.body=?13 AND cm.author_login=?14 AND COALESCE(cm.parent_id,'')=?15 AND cm.kind='message' AND cm.deleted_at IS NULL
     ON CONFLICT(org_id,source_message_id,initial_agent_id) DO NOTHING`)
     .bind(id,orgId,row.id,agentId,row.channel,row.parent_id || row.id,String(actorId),sessionKey,sourceHash,JSON.stringify([agentId]),hopLimit,now,row.body,row.author_login,row.parent_id || '').run();
   const assignment = await db.prepare(`SELECT a.* FROM hx_agent_assignments a JOIN memberships m
-    ON m.org_id=a.org_id AND m.user_github_id=a.actor_id AND m.created_at=a.actor_membership AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    ON m.org_id=a.org_id AND m.user_github_id=a.actor_id AND m.created_at=a.actor_membership AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     WHERE a.org_id=?1 AND a.source_message_id=?2 AND a.initial_agent_id=?3`).bind(orgId,row.id,agentId).first();
   if (!assignment || assignment.source_hash !== sourceHash || assignment.actor_id !== String(actorId) || assignment.session_key !== sessionKey) return conflict();
   return {assignment, started: Boolean(inserted.meta?.changes)};
@@ -85,7 +85,7 @@ export async function commitHandoff(db, {orgId, assignmentId, generation, source
       WHERE org_id=?1 AND id=?2 AND generation=?3 AND current_agent_id=?4 AND status='running'
         AND generation<hop_limit AND NOT EXISTS(SELECT 1 FROM json_each(visited) WHERE value=?5)
         AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=hx_agent_assignments.actor_id
-          AND m.created_at=hx_agent_assignments.actor_membership AND LOWER(COALESCE(m.role,'guest'))!='guest')
+          AND m.created_at=hx_agent_assignments.actor_membership AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
         AND (NOT EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?1 AND b.slug=substr(hx_agent_assignments.channel,3) AND b.private=1)
           OR EXISTS(SELECT 1 FROM users u JOIN conversation_members cm ON cm.org_id=?1 AND cm.channel=hx_agent_assignments.channel AND cm.login=u.login
             WHERE u.github_id=hx_agent_assignments.actor_id))
@@ -108,10 +108,10 @@ export async function commitHandoff(db, {orgId, assignmentId, generation, source
             AND EXISTS(SELECT 1 FROM hx_agent_wake_approvals approval WHERE approval.org_id=g.org_id AND approval.id=g.approval_id AND approval.status='approved')
             AND g.requester_id=(SELECT actor_id FROM hx_agent_assignments WHERE org_id=?1 AND id=?2)
             AND g.requester_membership=(SELECT actor_membership FROM hx_agent_assignments WHERE org_id=?1 AND id=?2)
-            AND g.requester_membership=(SELECT m.created_at FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=g.requester_id AND LOWER(COALESCE(m.role,'guest'))!='guest' LIMIT 1)
+            AND g.requester_membership=(SELECT m.created_at FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=g.requester_id AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' LIMIT 1)
             AND g.room_channel=(SELECT channel FROM hx_agent_assignments WHERE org_id=?1 AND id=?2)
             AND (g.scope!='thread' OR g.thread_id=(SELECT thread_id FROM hx_agent_assignments WHERE org_id=?1 AND id=?2))
-            AND g.requester_membership=(SELECT m.created_at FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=g.requester_id AND LOWER(COALESCE(m.role,'guest'))!='guest' LIMIT 1)
+            AND g.requester_membership=(SELECT m.created_at FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=g.requester_id AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' LIMIT 1)
             AND (g.scope!='once' OR EXISTS(SELECT 1 FROM hx_agent_wake_approvals r WHERE r.org_id=g.org_id AND r.id=g.approval_id AND r.assignment_id=?2 AND r.source_generation=?3 AND r.operation_id=?6))
             AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?7) AND (g.use_limit IS NULL OR g.use_count<g.use_limit)))
         AND NOT EXISTS(SELECT 1 FROM hx_agent_handoffs WHERE org_id=?1 AND operation_id=?6)`)

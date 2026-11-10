@@ -98,7 +98,7 @@ export async function generateWorkflow(env,request,orgId,who,input,{makeComplete
     if(!saved.meta?.changes)return conflict();
    }
   }
-  const member=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=? AND user_github_id=? AND role!='guest'").bind(orgId,by).first();
+  const member=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=? AND user_github_id=? AND LOWER(TRIM(COALESCE(role,'guest')))!='guest'").bind(orgId,by).first();
   if(!member||(channel&&!await mayUseConversation(env.DB,orgId,by,channel))||!await mayViewWorkflow(env.DB,orgId,made.workflow,by)){
    await release();return {error:'The automation resources are no longer accessible.',status:403};
   }
@@ -143,7 +143,7 @@ export async function previewWorkflow(env, request, orgId, who, input, {makeComp
  const complete=input.useModel===false?null:await makeCompleter(env,orgId,by,'workflow_generate',{maxTokens:2400});
  const made=await workflowFromPrompt(env.DB,orgId,by,{prompt,channel,timezone:input.timezone,complete,tables,agents});
  if(made.error)return made;
- const member=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=? AND user_github_id=? AND role!='guest'").bind(orgId,by).first();
+ const member=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=? AND user_github_id=? AND LOWER(TRIM(COALESCE(role,'guest')))!='guest'").bind(orgId,by).first();
  if(!member||(channel&&!await mayUseConversation(env.DB,orgId,by,channel))||!await mayViewWorkflow(env.DB,orgId,made.workflow,by)){
   return {error:'The automation resources are no longer accessible.',status:403};
  }

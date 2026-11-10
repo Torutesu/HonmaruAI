@@ -847,7 +847,7 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
     if(!teammate?.agentId||!run.started_by)return;
     const requester=await getUserByLogin(env.DB,run.started_by).catch(()=>null);
     if(!requester?.login)return;
-    const activeRequester=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role!='guest'").bind(run.org_id,String(requester.github_id)).first().catch(()=>null);
+    const activeRequester=await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest'").bind(run.org_id,String(requester.github_id)).first().catch(()=>null);
     if(!activeRequester)return;
     const members=await listMembers(env.DB,run.org_id,requester.github_id).catch(()=>[]);
     const resolved=await resolveChannel(env.DB,run.org_id,requester,run.channel,members);

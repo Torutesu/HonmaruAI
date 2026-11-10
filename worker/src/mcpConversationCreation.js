@@ -24,7 +24,7 @@ export async function createMcpConversation(env, actor, args) {
   const fingerprint = await sha256Hex(JSON.stringify({ type: args.type, name: args.name || '', private: Boolean(args.private), memberRefs: refs }));
   const binds = [actor.orgId, String(actor.githubId), connection, args.requestId];
   await env.DB.prepare(`INSERT OR IGNORE INTO mcp_conversation_requests(org_id,user_id,connection_id,request_id,fingerprint,membership_since,created_at)
-    SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND created_at=?6 AND LOWER(role)!='guest')`)
+    SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND created_at=?6 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')`)
     .bind(...binds, fingerprint, current.joinedAt, new Date().toISOString()).run();
   const receipt = await env.DB.prepare('SELECT * FROM mcp_conversation_requests WHERE org_id=?1 AND user_id=?2 AND connection_id=?3 AND request_id=?4').bind(...binds).first();
   if (!receipt || receipt.fingerprint !== fingerprint || receipt.membership_since !== current.joinedAt) throw new McpInputError('This requestId belongs to different conversation content or membership. Use a new requestId.');

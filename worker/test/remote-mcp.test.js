@@ -278,7 +278,7 @@ test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each 
     const otherMember = await callRemoteMcpTool(secureEnv, { ...agent, githubId: "9552" }, tool, {});
     expect(otherMember.isError).toBe(true);
     expect(otherMember.content[0].text).toContain("own OAuth account");
-    await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id='9551'").bind(ORG).run();
+    await env.DB.prepare("UPDATE memberships SET role=' gUeSt ' WHERE org_id=?1 AND user_github_id='9551'").bind(ORG).run();
     expect(await remoteMcpOAuthStatus(env.DB, ORG, server.id, "9551")).toBe(false);
     expect(await remoteMcpOAuthAccessToken(secureEnv, { orgId: ORG, serverId: server.id, userId: "9551" }))
       .toMatchObject({ token: null });
@@ -517,7 +517,7 @@ test("a mixed-case Guest cannot keep or reacquire a Remote MCP Agent grant", asy
   expect(granted.connections[0]).toMatchObject({ serverId, available: true, enabled: true, readOnlyToolCount: 1 });
   expect(await mayUseAgentRemoteMcp(env, { orgId: ORG, agentId, session: agentSession, serverId })).toBe(true);
 
-  await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=?1 AND user_github_id='9551'").bind(ORG).run();
+  await env.DB.prepare("UPDATE memberships SET role=' gUeSt ' WHERE org_id=?1 AND user_github_id='9551'").bind(ORG).run();
   expect(await mayUseAgentRemoteMcp(env, { orgId: ORG, agentId, session: agentSession, serverId })).toBe(false);
   expect(await agentRemoteMcpConnections(env.DB, { orgId: ORG, agentId, githubId: agentSession.github_id }))
     .toMatchObject([{ serverId, available: true, enabled: false, readOnlyToolCount: 1 }]);

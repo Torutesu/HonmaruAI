@@ -57,7 +57,7 @@ export async function requestCustomCommitApproval(db, orgId, app, by, input) {
       AND COALESCE((SELECT visibility FROM hx_app_access WHERE org_id=?2 AND app_id=?3),'workspace')=?11
       AND COALESCE((SELECT version FROM hx_app_access WHERE org_id=?2 AND app_id=?3),0)=?12
       AND COALESCE((SELECT hostname||'#'||status FROM hx_app_domains WHERE org_id=?2 AND app_id=?3),'')=?13
-      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?14 AND m.role<>'guest')`)
+      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?14 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')`)
     .bind(id,orgId,app.id,app.version,commit.owner,commit.repo,commit.branch,commit.sha,commit.path,commit.sourceHash,scope.visibility,scope.accessVersion,scope.domainScope,String(by),at).run();
   if (!saved.meta?.changes) return err('The app or its visibility changed. Reload and request approval again.', 409);
   const row = await db.prepare('SELECT * FROM hx_app_commit_approvals WHERE id=?1 AND org_id=?2 AND app_id=?3').bind(id,orgId,app.id).first();
@@ -81,8 +81,8 @@ export async function reviewCustomCommitApproval(db, orgId, app, input, by, isAd
       AND COALESCE((SELECT visibility FROM hx_app_access WHERE org_id=?4 AND app_id=?5),'workspace')=?10
       AND COALESCE((SELECT version FROM hx_app_access WHERE org_id=?4 AND app_id=?5),0)=?11
       AND COALESCE((SELECT hostname||'#'||status FROM hx_app_domains WHERE org_id=?4 AND app_id=?5),'')=?12
-      AND EXISTS(SELECT 1 FROM memberships r WHERE r.org_id=?4 AND r.user_github_id=?2 AND r.role IN ('owner','admin'))
-      AND EXISTS(SELECT 1 FROM memberships q WHERE q.org_id=?4 AND q.user_github_id=(SELECT requested_by FROM hx_app_commit_approvals WHERE id=?6 AND org_id=?4 AND app_id=?5) AND q.role<>'guest')`)
+      AND EXISTS(SELECT 1 FROM memberships r WHERE r.org_id=?4 AND r.user_github_id=?2 AND LOWER(TRIM(r.role)) IN ('owner','admin'))
+      AND EXISTS(SELECT 1 FROM memberships q WHERE q.org_id=?4 AND q.user_github_id=(SELECT requested_by FROM hx_app_commit_approvals WHERE id=?6 AND org_id=?4 AND app_id=?5) AND LOWER(TRIM(COALESCE(q.role,'guest')))!='guest')`)
     .bind(input.decision === 'approve' ? 'approved' : 'rejected',String(by),at,orgId,app.id,input.approvalId,app.version,input.commitSha,input.sourceHash,scope.visibility,scope.accessVersion,scope.domainScope).run();
   if (!out.meta?.changes) return err('The commit changed or the reviewer is no longer an independent Owner or Admin.', 409);
   const approval = await db.prepare('SELECT * FROM hx_app_commit_approvals WHERE org_id=?1 AND app_id=?2 AND id=?3').bind(orgId,app.id,input.approvalId).first();
@@ -122,9 +122,9 @@ export async function publishApprovedCustomCommit(db, orgId, app, input, by, sco
           WHERE a.org_id=?4 AND a.app_id=?5 AND a.id=?9 AND a.app_version=?6
             AND a.commit_sha=?7 AND a.source_hash=?8 AND a.status='approved' AND a.consumed_at IS NULL
             AND a.reviewer_id<>?10 AND a.visibility_scope=?11 AND a.access_version=?12 AND a.domain_scope=?13
-            AND EXISTS(SELECT 1 FROM memberships r WHERE r.org_id=a.org_id AND r.user_github_id=a.reviewer_id AND r.role IN ('owner','admin'))
-            AND EXISTS(SELECT 1 FROM memberships p WHERE p.org_id=a.org_id AND p.user_github_id=?10 AND p.role<>'guest'))
-        AND (created_by=?10 OR EXISTS(SELECT 1 FROM memberships admin WHERE admin.org_id=?4 AND admin.user_github_id=?10 AND admin.role IN ('owner','admin')))
+            AND EXISTS(SELECT 1 FROM memberships r WHERE r.org_id=a.org_id AND r.user_github_id=a.reviewer_id AND LOWER(TRIM(r.role)) IN ('owner','admin'))
+            AND EXISTS(SELECT 1 FROM memberships p WHERE p.org_id=a.org_id AND p.user_github_id=?10 AND LOWER(TRIM(COALESCE(p.role,'guest')))!='guest'))
+        AND (created_by=?10 OR EXISTS(SELECT 1 FROM memberships admin WHERE admin.org_id=?4 AND admin.user_github_id=?10 AND LOWER(TRIM(admin.role)) IN ('owner','admin')))
         AND COALESCE((SELECT visibility FROM hx_app_access WHERE org_id=?4 AND app_id=?5),'workspace')=?11
         AND COALESCE((SELECT version FROM hx_app_access WHERE org_id=?4 AND app_id=?5),0)=?12
         AND COALESCE((SELECT hostname||'#'||status FROM hx_app_domains WHERE org_id=?4 AND app_id=?5),'')=?13`)

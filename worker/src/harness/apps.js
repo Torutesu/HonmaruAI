@@ -249,7 +249,7 @@ export async function createApp(db, { orgId, by, name, tableName, description, i
     .prepare(
       `INSERT INTO hx_apps (id, org_id, name, description, icon, table_id, template, version, definition, created_by, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8,
-         CASE WHEN EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=?9 AND LOWER(COALESCE(member.role,'guest'))!='guest'
+         CASE WHEN EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=?9 AND LOWER(TRIM(COALESCE(member.role,'guest')))!='guest'
            AND NOT EXISTS(SELECT 1 FROM workspace_deletions deletion WHERE deletion.org_id=member.org_id AND deletion.purge_started_at IS NOT NULL)
            AND NOT EXISTS(SELECT 1 FROM workspace_tombstones deleted WHERE deleted.org_id=member.org_id)) THEN ?9 ELSE NULL END, ?10, ?10)`,
     )

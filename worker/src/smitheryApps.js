@@ -139,7 +139,7 @@ export async function sweepAppConnections(env, { limit = 100 } = {}) {
     `SELECT c.* FROM app_connections c
        LEFT JOIN memberships m ON m.org_id = c.org_id AND m.user_github_id = c.user_github_id
        LEFT JOIN org_apps a ON a.org_id = c.org_id AND a.server = c.server
-      WHERE m.user_github_id IS NULL OR LOWER(COALESCE(m.role, 'member')) = 'guest' OR a.server IS NULL
+      WHERE m.user_github_id IS NULL OR LOWER(TRIM(COALESCE(m.role,'member'))) = 'guest' OR a.server IS NULL
       LIMIT ?1`
   ).bind(limit).all().catch(() => ({ results: [] }));
   for (const row of results || []) await endConnection(env, row, "sweep");
@@ -209,7 +209,7 @@ export async function agentAppConnections(db, { orgId, agentId, githubId }) {
         ON g.org_id = c.org_id AND g.agent_id = ?3
        AND g.user_github_id = c.user_github_id AND g.server = c.server
      WHERE c.org_id = ?1 AND c.user_github_id = ?2
-       AND c.status = 'connected' AND LOWER(COALESCE(m.role, 'member')) != 'guest'
+       AND c.status = 'connected' AND LOWER(TRIM(COALESCE(m.role,'member'))) != 'guest'
      ORDER BY a.name COLLATE NOCASE, c.server
      LIMIT 100`)
     .bind(orgId, String(githubId), String(agentId)).all().catch(() => ({ results: [] }));
@@ -230,7 +230,7 @@ export async function setAgentAppGrant(db, { orgId, agentId, githubId, server, g
         JOIN org_apps a ON a.org_id = c.org_id AND a.server = c.server
         JOIN memberships m ON m.org_id = c.org_id AND m.user_github_id = c.user_github_id
        WHERE c.org_id = ?1 AND c.user_github_id = ?3 AND c.server = ?4
-         AND c.status = 'connected' AND LOWER(COALESCE(m.role, 'member')) != 'guest'
+         AND c.status = 'connected' AND LOWER(TRIM(COALESCE(m.role,'member'))) != 'guest'
       RETURNING server`)
       .bind(orgId, String(agentId), String(githubId), name, new Date().toISOString()).all();
     if (!changed.results?.length) {
@@ -259,7 +259,7 @@ export async function appTools(env, { orgId, session, taint, writes = false, req
        JOIN memberships m ON m.org_id = c.org_id AND m.user_github_id = c.user_github_id
        ${requireAgentGrant ? `JOIN hx_agent_app_grants g ON g.org_id = c.org_id AND g.agent_id = ?3
           AND g.user_github_id = c.user_github_id AND g.server = c.server` : ''}
-      WHERE c.org_id = ?1 AND c.user_github_id = ?2 AND LOWER(COALESCE(m.role, 'member')) != 'guest'
+      WHERE c.org_id = ?1 AND c.user_github_id = ?2 AND LOWER(TRIM(COALESCE(m.role,'member'))) != 'guest'
         ${requireAgentGrant ? `AND c.status = 'connected'` : ''}
       ORDER BY c.created_at LIMIT ?${requireAgentGrant ? '4' : '3'}`;
   const { results } = await env.DB.prepare(sql)
@@ -296,7 +296,7 @@ export async function appTools(env, { orgId, session, taint, writes = false, req
               JOIN org_apps a ON a.org_id = c.org_id AND a.server = c.server
               JOIN memberships m ON m.org_id = c.org_id AND m.user_github_id = c.user_github_id
               WHERE g.org_id = ?1 AND g.agent_id = ?2 AND g.user_github_id = ?3 AND g.server = ?4
-                AND LOWER(COALESCE(m.role, 'member')) != 'guest'`).bind(orgId, String(agentId), githubId, row.server).first().catch(() => null);
+                AND LOWER(TRIM(COALESCE(m.role,'member'))) != 'guest'`).bind(orgId, String(agentId), githubId, row.server).first().catch(() => null);
             if (!stillGranted) return `${row.name} is no longer allowed for this agent. Ask the connection owner to grant it again in Agents → Connections.`;
             if (!readsOnly(t) && (!writes || !stillGranted.allowWrites || stillGranted.ownerLogin !== user?.login)) {
               return `${row.name} no longer permits this agent to write. Ask the workspace owner to review its write permission.`;

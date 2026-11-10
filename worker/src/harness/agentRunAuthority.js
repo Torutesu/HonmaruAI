@@ -5,7 +5,7 @@ export function agentRunAuthority(org, userId, agentId) {
   return `EXISTS(SELECT 1 FROM custom_agents current_agent
     JOIN users agent_user ON agent_user.github_id=${userId}
     JOIN memberships agent_member ON agent_member.org_id=current_agent.org_id
-      AND agent_member.user_github_id=agent_user.github_id AND LOWER(COALESCE(agent_member.role,'guest'))!='guest'
+      AND agent_member.user_github_id=agent_user.github_id AND LOWER(TRIM(COALESCE(agent_member.role,'guest')))!='guest'
     LEFT JOIN hx_agent_profiles agent_profile ON agent_profile.org_id=current_agent.org_id AND agent_profile.agent_id=current_agent.id
     WHERE current_agent.org_id=${org} AND current_agent.id=${agentId} AND current_agent.deleted_at IS NULL
       AND ((current_agent.scope='team' AND current_agent.provider IS NULL AND agent_profile.agent_id IS NOT NULL

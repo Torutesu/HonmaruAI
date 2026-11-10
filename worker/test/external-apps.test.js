@@ -236,6 +236,29 @@ test("App invite managers can list, issue, redeem, update, and revoke an exact g
   expect((await call(`/external/apps/${f.orgId}/${f.app.id}`, session)).status).toBe(404);
 });
 
+test("App invitation fails closed when its issuer loses sharing authority before redemption", async () => {
+  const f = await setup();
+  const guestId = `external-app-invitee-${tag()}`;
+  const email = `${guestId}@example.com`;
+  await upsertUser(env.DB, { githubId: guestId, login: guestId, name: "Invitee", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3")
+    .bind(email, new Date().toISOString(), guestId).run();
+  const session = await createSession(env.DB, guestId, "external-app-guest-test");
+  const sharing = `/external/apps/${f.orgId}/${f.app.id}/sharing`;
+  const response = await call(sharing, f.sessions.owner, "POST", { email, permission: "view" });
+  expect(response.status).toBe(201);
+  const invite = (await response.json()).invite;
+
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2")
+    .bind(f.orgId, f.ownerId).run();
+  const redeemed = await call("/external/invites/redeem", session, "POST", { token: invite.token });
+  expect(redeemed.status).toBe(404);
+  expect(await env.DB.prepare("SELECT redeemed_at FROM hx_external_app_invites WHERE id=?1").bind(invite.id).first())
+    .toMatchObject({ redeemed_at: null });
+  expect(await env.DB.prepare("SELECT 1 FROM hx_external_resource_grants WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(f.orgId, f.app.id, guestId).first()).toBeNull();
+});
+
 test("view guests can request App conversation sends for owner approval only", async () => {
   const f = await setup();
   await env.DB.prepare("UPDATE hx_external_resource_grants SET permission='view' WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")

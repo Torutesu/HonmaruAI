@@ -276,6 +276,16 @@ function sharingManagerWriteGuard(orgParam, appParam, actorParam) {
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))`;
 }
 
+function inviteCreatorStillManagesAppSql(inviteAlias = "i") {
+  // An invitation is only valid while its issuer retains the same App-level
+  // sharing authority. Recheck this inside every redemption mutation so a
+  // stale copied link cannot outlive a removed creator/admin.
+  return `EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m
+    ON m.org_id=a.org_id AND m.user_github_id=${inviteAlias}.created_by
+    WHERE a.org_id=${inviteAlias}.org_id AND a.id=${inviteAlias}.resource_id
+      AND (a.created_by=${inviteAlias}.created_by OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin')))`;
+}
+
 async function appSharingAccess(db, orgId, appId, userId) {
   if ((await getMode(db, orgId)) !== "harness") return null;
   return db.prepare("SELECT a.id,a.org_id,a.created_by,a.definition,m.role FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3 WHERE a.org_id=?1 AND a.id=?2 AND (a.created_by=?3 OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin')) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id)")
@@ -388,7 +398,7 @@ export async function redeemExternalAppInvite(env, { token, userId }) {
   const tokenHash = await sha256Hex(token.toLowerCase());
   const now = new Date().toISOString();
   // token_hash is globally unique; the joined App and every follow-up check stay workspace-scoped.
-  const invite = await env.DB.prepare("SELECT i.*,a.id AS app_id FROM hx_external_app_invites i JOIN hx_apps a ON a.org_id=i.org_id AND a.id=i.resource_id WHERE i.token_hash=?1 AND i.redeemed_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>?2 AND (i.access_expires_at IS NULL OR i.access_expires_at>?2) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=i.org_id AND m.user_github_id=?3) AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=i.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=i.org_id)")
+  const invite = await env.DB.prepare(`SELECT i.*,a.id AS app_id FROM hx_external_app_invites i JOIN hx_apps a ON a.org_id=i.org_id AND a.id=i.resource_id WHERE i.token_hash=?1 AND i.redeemed_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>?2 AND (i.access_expires_at IS NULL OR i.access_expires_at>?2) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=i.org_id AND m.user_github_id=?3) AND ${inviteCreatorStillManagesAppSql("i")} AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=i.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=i.org_id)`)
     .bind(tokenHash, now, userId).first();
   if (!invite || (await getMode(env.DB, invite.org_id)) !== "harness") return deny;
   const person = await env.DB.prepare("SELECT email,email_verified_at FROM users WHERE github_id=?1").bind(userId).first();
@@ -399,7 +409,8 @@ export async function redeemExternalAppInvite(env, { token, userId }) {
        AND EXISTS(SELECT 1 FROM users u WHERE u.github_id=?2 AND u.email_verified_at IS NOT NULL AND lower(trim(coalesce(u.email,'')))=lower(trim(i.invited_email)))
        AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=i.org_id AND s.mode='harness')
        AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=i.org_id AND d.purge_started_at IS NOT NULL)
-       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=i.org_id)`)
+       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=i.org_id)
+       AND ${inviteCreatorStillManagesAppSql("i")}`)
     .bind(grantId, userId, now, invite.id).run();
   if (!Number(inserted.meta?.changes || 0)) return deny;
   const updated = await env.DB.prepare(`UPDATE hx_external_app_invites SET redeemed_at=?1,redeemed_by=?2,created_grant_id=?3,redemption_id=?4 WHERE id=?5 AND redeemed_at IS NULL AND revoked_at IS NULL
@@ -407,7 +418,8 @@ export async function redeemExternalAppInvite(env, { token, userId }) {
        AND EXISTS(SELECT 1 FROM users u WHERE u.github_id=?2 AND u.email_verified_at IS NOT NULL AND lower(trim(coalesce(u.email,'')))=lower(trim(hx_external_app_invites.invited_email)))
        AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=hx_external_app_invites.org_id AND s.mode='harness')
        AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=hx_external_app_invites.org_id AND d.purge_started_at IS NOT NULL)
-       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=hx_external_app_invites.org_id)`)
+       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=hx_external_app_invites.org_id)
+       AND ${inviteCreatorStillManagesAppSql("hx_external_app_invites")}`)
     .bind(now, userId, grantId, redemptionId, invite.id).run();
   if (!Number(updated.meta?.changes || 0)) {
     await env.DB.prepare("UPDATE hx_external_resource_grants SET revoked_at=?1 WHERE id=?2 AND revoked_at IS NULL").bind(now, grantId).run();

@@ -25,7 +25,7 @@ export async function requestPublicAppShareApproval(env, context, appId) {
     JOIN channel_agents ca ON ca.org_id=a.org_id AND ca.agent_id=a.id AND ca.channel=?3
     WHERE a.org_id=?1 AND a.id=?2`).bind(orgId, agentId, channel).first();
   if (!agent || agent.deleted_at || agent.scope !== 'team') return { error: 'Only an active managed Agent in this room can request an app link.', status: 403 };
-  const member = await db.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role!='guest'").bind(orgId, userId).first();
+  const member = await db.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest'").bind(orgId, userId).first();
   if (!member) return { error: 'The requester is no longer a workspace member.', status: 403 };
   const row = await db.prepare(`SELECT a.id,a.name,a.created_by,a.version,a.definition,COALESCE(x.version,0) AS access_version,x.room_channel
     FROM hx_apps a LEFT JOIN hx_app_access x ON x.org_id=a.org_id AND x.app_id=a.id
@@ -106,7 +106,7 @@ export async function reviewPublicAppShareApproval(db, orgId, appId, requestId, 
     WHERE org_id=?4 AND app_id=?5 AND id=?6 AND status='pending'
       AND app_version=?7 AND access_version=?8 AND source_hash=?9 AND assets_hash=?10
       AND EXISTS(SELECT 1 FROM memberships reviewer WHERE reviewer.org_id=?4 AND reviewer.user_github_id=?15
-        AND (reviewer.role IN ('owner','admin') OR reviewer.user_github_id=(SELECT created_by FROM hx_apps WHERE org_id=?4 AND id=?5)))
+        AND (LOWER(TRIM(reviewer.role)) IN ('owner','admin') OR reviewer.user_github_id=(SELECT created_by FROM hx_apps WHERE org_id=?4 AND id=?5)))
       AND (?1!='approved' OR (
         EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?4 AND a.id=?5 AND a.version=?7
           AND json_extract(a.definition,'$.custom.published') IS NOT NULL
@@ -116,7 +116,7 @@ export async function reviewPublicAppShareApproval(db, orgId, appId, requestId, 
         AND EXISTS(SELECT 1 FROM channel_agents ca JOIN custom_agents a ON a.org_id=ca.org_id AND a.id=ca.agent_id WHERE ca.org_id=?4 AND ca.channel=?12 AND ca.agent_id=?14 AND a.scope='team' AND a.deleted_at IS NULL)
         AND COALESCE((SELECT version FROM hx_app_access WHERE org_id=?4 AND app_id=?5),0)=?8
         AND EXISTS(SELECT 1 FROM hx_app_links l WHERE l.org_id=?4 AND l.app_id=?5 AND l.channel=?12)
-        AND EXISTS(SELECT 1 FROM memberships r WHERE r.org_id=?4 AND r.user_github_id=?16 AND r.role!='guest')
+        AND EXISTS(SELECT 1 FROM memberships r WHERE r.org_id=?4 AND r.user_github_id=?16 AND LOWER(TRIM(COALESCE(r.role,'guest')))!='guest')
       ))`)
     .bind(status,String(reviewerId),at,orgId,appId,requestId,request.app_version,request.access_version,request.source_hash,request.assets_hash,request.source_message_id,request.room_channel,source?.body||'',request.agent_id,String(reviewerId),request.requester_id).run();
   if (!out.meta?.changes) return { error: 'The source turn or app changed while reviewing. Reload the request.', status: 409 };

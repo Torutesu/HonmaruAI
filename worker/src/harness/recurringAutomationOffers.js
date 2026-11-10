@@ -26,7 +26,7 @@ export async function createRecurringAutomationOffer(db,{orgId,userId,login,chan
  const inserted=await db.prepare(`INSERT OR IGNORE INTO hx_recurring_automation_offers
    (id,org_id,user_github_id,login,channel,thread_id,source_message_id,source_root_hash,prompt,prompt_hash,state,created_at,updated_at)
    SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'offered',?11,?11
-     WHERE EXISTS(SELECT 1 FROM memberships WHERE org_id=?2 AND user_github_id=?3 AND LOWER(COALESCE(role,'guest'))!='guest')
+     WHERE EXISTS(SELECT 1 FROM memberships WHERE org_id=?2 AND user_github_id=?3 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')
      AND EXISTS(SELECT 1 FROM businesses WHERE org_id=?2 AND 'b:'||slug=?5 AND archived_at IS NULL)
    ON CONFLICT(org_id,channel,user_github_id,prompt_hash) DO NOTHING`)
    .bind(id,orgId,String(userId),login,channel,threadId,sourceMessageId,sourceRootHash,String(prompt).slice(0,4000),promptHash,at).run();

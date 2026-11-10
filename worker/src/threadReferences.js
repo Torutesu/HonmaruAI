@@ -34,7 +34,7 @@ export async function threadReferences(db, orgId, key, id, userId, after = null)
       LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id
       WHERE a.org_id=?1 AND a.id IN (${chunk.map((_, j) => `?${j + 3}`).join(",")})
       AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=?2)
-      AND EXISTS (SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role!='guest')`)
+      AND EXISTS (SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')`)
       .bind(orgId, String(userId), ...chunk).all();
     apps.push(...rows);
   }

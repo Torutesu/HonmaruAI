@@ -41,7 +41,7 @@ async function currentAccess(db, orgId, agentId, login) {
   const [profile, access, member] = await Promise.all([
     getProfile(db, orgId, agentId),
     db.prepare("SELECT version FROM hx_agent_access WHERE org_id=?1 AND agent_id=?2").bind(orgId, agentId).first(),
-    db.prepare("SELECT u.github_id, m.created_at FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND LOWER(COALESCE(m.role,'guest'))!='guest' WHERE u.login=?2").bind(orgId, login).first(),
+    db.prepare("SELECT u.github_id, m.created_at FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' WHERE u.login=?2").bind(orgId, login).first(),
   ]);
   return { profile, version: Number(access?.version || 0), member };
 }

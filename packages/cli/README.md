@@ -36,13 +36,17 @@ npm exec --workspace @honmaru/cli -- honmaru workspace row create tbl_… --valu
 npm exec --workspace @honmaru/cli -- honmaru workspace workflow run wf_… --text "Review this week's changes"
 npm exec --workspace @honmaru/cli -- honmaru workspace file list --scope b:ops --query "release notes"
 npm exec --workspace @honmaru/cli -- honmaru workspace file read file_… --version 2
+npm exec --workspace @honmaru/cli -- honmaru workspace folders list --scope b:ops --directory reports
+npm exec --workspace @honmaru/cli -- honmaru workspace file versions file_… --limit 20
+npm exec --workspace @honmaru/cli -- honmaru workspace file create --scope b:ops --path notes/status.md --request-id file-123e4567-e89b-12d3-a456-426614174000 --text "# Status" --content-type text/markdown
+npm exec --workspace @honmaru/cli -- honmaru workspace file update file_… --expected-version 2 --text "# Revised status"
 npm exec --workspace @honmaru/cli -- honmaru workspace execution node list
 npm exec --workspace @honmaru/cli -- honmaru workspace execution run --gateway-id gw_… --request-id release-check-01 --code "return {ok:true};" --input null
 npm exec --workspace @honmaru/cli -- honmaru workspace execution read job_…
 npm exec --workspace @honmaru/cli -- honmaru workspace execution cancel job_…
 ```
 
-Resource commands are concise aliases for the same scoped MCP tools: Apps, tables, rows, workflows, follow-ups, and accessible workspace files. Add `--json` for machine-readable output. `workspace call` remains available for other tools and prints the complete JSON result. The workspace server remains the authority for input validation and permissions; in particular, stale row edits are rejected by `--expected-updated-at` compare-and-set checks. Review mutating commands and their arguments before running them.
+Resource commands are concise aliases for the same scoped MCP tools: Apps, tables, rows, workflows, follow-ups, and accessible workspace files. Add `--json` for machine-readable output. `workspace call` remains available for other tools and prints the complete JSON result. The workspace server remains the authority for input validation and permissions; stale row edits are rejected by `--expected-updated-at` compare-and-set checks, and file edits require `--expected-version` from the current file version. File create/update aliases handle UTF-8 text only; binary upload and download are not exposed by this CLI. Review mutating commands and their arguments before running them.
 
 `workspace sdk generate` reads an accessible table's current columns and writes a dependency-free TypeScript module. The generated client exposes typed `listRows`, `createRow`, and `updateRow` methods using column IDs; it does not embed credentials. Pass `apiUrl` and an active API token when creating the client, and regenerate after changing the table schema.
 

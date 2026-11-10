@@ -11,7 +11,7 @@ export function appRecordSourceAuthority(org, appId, entityId, tableId, userId) 
           AND source_entity.app_id=source_app.id AND source_entity.entity_key=${entityId} AND source_entity.table_id=${tableId}))
       AND (COALESCE(source_policy.visibility,'workspace')='workspace' OR source_app.created_by=${userId})
       AND EXISTS(SELECT 1 FROM memberships source_member WHERE source_member.org_id=${org}
-        AND source_member.user_github_id=${userId} AND LOWER(COALESCE(source_member.role,'guest'))!='guest')
+        AND source_member.user_github_id=${userId} AND LOWER(TRIM(COALESCE(source_member.role,'guest')))!='guest')
       AND NOT EXISTS(SELECT 1 FROM hx_apps linked_app LEFT JOIN hx_app_access linked_policy
         ON linked_policy.org_id=linked_app.org_id AND linked_policy.app_id=linked_app.id
         WHERE linked_app.org_id=${org} AND (linked_app.table_id=${tableId} OR EXISTS(

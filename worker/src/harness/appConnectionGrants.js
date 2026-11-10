@@ -18,7 +18,7 @@ async function sourceAgent(db, orgId, appId) {
 async function memberLogin(db, orgId, userId) {
   return db.prepare(`SELECT u.login,m.created_at AS membershipSince FROM memberships m
     JOIN users u ON u.github_id=m.user_github_id
-    WHERE m.org_id=?1 AND m.user_github_id=?2 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    WHERE m.org_id=?1 AND m.user_github_id=?2 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=m.org_id AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=m.org_id)`)
     .bind(orgId, String(userId)).first();
@@ -45,7 +45,7 @@ async function getGrant(db, orgId, appId, name, viewerId) {
     JOIN hx_app_connections c ON c.org_id=g.org_id AND c.app_id=g.app_id
       AND c.created_by=g.connection_owner_id AND c.name=g.connection_name
     JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.connection_owner_id
-      AND m.created_at=g.owner_membership_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND m.created_at=g.owner_membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     WHERE g.org_id=?1 AND g.app_id=?2 AND g.connection_name=?3
       AND g.source_agent_id=?4 AND c.enabled=1 AND c.version=g.connection_version
       AND c.endpoint=g.endpoint AND c.method=g.method`)
@@ -85,7 +85,7 @@ export async function appConnectionsForViewer(db, orgId, appId, viewerId) {
     FROM hx_app_connection_grants g JOIN hx_app_connections c
       ON c.org_id=g.org_id AND c.app_id=g.app_id AND c.created_by=g.connection_owner_id AND c.name=g.connection_name
     JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.connection_owner_id
-      AND m.created_at=g.owner_membership_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND m.created_at=g.owner_membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     LEFT JOIN users u ON u.github_id=c.created_by
     WHERE g.org_id=?1 AND g.app_id=?2 AND g.source_agent_id=?3 AND c.enabled=1 AND c.version=g.connection_version
       AND c.endpoint=g.endpoint AND c.method=g.method AND c.created_by!=?4
@@ -138,7 +138,7 @@ export async function changeAppConnectionGrant(db, orgId, appId, actorId, input)
       AND EXISTS(SELECT 1 FROM hx_apps app JOIN memberships member
         ON member.org_id=app.org_id AND member.user_github_id=?3 AND member.created_at=?6
         LEFT JOIN hx_app_access policy ON policy.org_id=app.org_id AND policy.app_id=app.id
-        WHERE app.org_id=?1 AND app.id=?2 AND LOWER(COALESCE(member.role,'guest'))!='guest'
+        WHERE app.org_id=?1 AND app.id=?2 AND LOWER(TRIM(COALESCE(member.role,'guest')))!='guest'
           AND (COALESCE(policy.visibility,'workspace')='workspace' OR app.created_by=?3)
           AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
           AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1))
@@ -148,7 +148,7 @@ export async function changeAppConnectionGrant(db, orgId, appId, actorId, input)
         JOIN custom_agents agent ON agent.org_id=source.org_id AND agent.id=?7 AND agent.deleted_at IS NULL
         JOIN users actor ON actor.github_id=?3
         JOIN memberships member ON member.org_id=agent.org_id AND member.user_github_id=actor.github_id
-          AND LOWER(COALESCE(member.role,'guest'))!='guest'
+          AND LOWER(TRIM(COALESCE(member.role,'guest')))!='guest'
         LEFT JOIN hx_agent_profiles profile ON profile.org_id=agent.org_id AND profile.agent_id=agent.id
         WHERE source.org_id=?1 AND source.app_id=?2 AND source.channel=?11
           AND (agent.scope!='personal' OR agent.owner_login=actor.login)
@@ -170,7 +170,7 @@ export async function changeAppConnectionGrant(db, orgId, appId, actorId, input)
       AND EXISTS(SELECT 1 FROM hx_apps app JOIN memberships member
         ON member.org_id=app.org_id AND member.user_github_id=excluded.connection_owner_id AND member.created_at=excluded.owner_membership_since
         LEFT JOIN hx_app_access policy ON policy.org_id=app.org_id AND policy.app_id=app.id
-        WHERE app.org_id=excluded.org_id AND app.id=excluded.app_id AND LOWER(COALESCE(member.role,'guest'))!='guest'
+        WHERE app.org_id=excluded.org_id AND app.id=excluded.app_id AND LOWER(TRIM(COALESCE(member.role,'guest')))!='guest'
           AND (COALESCE(policy.visibility,'workspace')='workspace' OR app.created_by=excluded.connection_owner_id)
           AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=excluded.org_id AND d.purge_started_at IS NOT NULL)
           AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=excluded.org_id))`)

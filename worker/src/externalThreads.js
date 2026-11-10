@@ -79,10 +79,10 @@ function threadManagerFence(orgId, rootId, user, expectedChannel, firstParameter
         AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
           WHERE tombstone.org_id=managedRoot.org_id AND tombstone.channel=managedRoot.channel
             AND tombstone.deleted_at IS NOT NULL)
-        AND (managedRoot.author_login=${login} OR LOWER(COALESCE(managerMembership.role,'')) IN ('owner','admin'))
+        AND (managedRoot.author_login=${login} OR LOWER(TRIM(COALESCE(managerMembership.role,''))) IN ('owner','admin'))
         AND (
           (managedRoot.channel LIKE 'b:%' AND (
-            (LOWER(COALESCE(managerMembership.role,''))!='guest' AND COALESCE((
+            (LOWER(TRIM(COALESCE(managerMembership.role,'')))!='guest' AND COALESCE((
               SELECT business.private FROM businesses business
               WHERE business.org_id=managedRoot.org_id AND managedRoot.channel='b:'||business.slug
             ),0)=0)
@@ -122,7 +122,7 @@ function threadManagerFence(orgId, rootId, user, expectedChannel, firstParameter
                     JOIN memberships activeMember ON activeMember.org_id=agentMember.org_id
                       AND activeMember.user_github_id=agentMember.user_id
                       AND activeMember.created_at=agentMember.member_since
-                      AND LOWER(COALESCE(activeMember.role,'guest'))!='guest'
+                      AND LOWER(TRIM(COALESCE(activeMember.role,'guest')))!='guest'
                     WHERE agentMember.org_id=agent.org_id AND agentMember.agent_id=agent.id
                       AND agentMember.user_id=${userId} AND agentMember.role IN ('admin','member')))
             )))
@@ -490,7 +490,6 @@ export async function redeemExternalThreadInvite(env, { token, userId }) {
   if (!person?.email_verified_at || String(person.email || "").trim().toLowerCase() !== invite.invited_email) return deny;
   const inviter = await getUserByGithubId(env.DB,invite.created_by);
   if (!inviter || !(await manageableRoot(env.DB,invite.org_id,invite.resource_id,inviter))) return deny;
-  const member = await isMember(env.DB,invite.org_id,String(userId));
   const redemptionId = `xtr_${crypto.randomUUID().replaceAll("-", "")}`;
   const grantId = `xg_${crypto.randomUUID().replaceAll("-", "")}`;
   const claim = env.DB.prepare(`UPDATE hx_external_thread_invites
@@ -498,6 +497,7 @@ export async function redeemExternalThreadInvite(env, { token, userId }) {
     WHERE id=?4 AND token_hash=?5 AND redeemed_at IS NULL AND revoked_at IS NULL
       AND expires_at>?1 AND (access_expires_at IS NULL OR access_expires_at>?1)
       AND invited_email=?6
+      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?7 AND member.user_github_id=?2)
       AND EXISTS(SELECT 1 FROM channel_messages root WHERE root.org_id=?7 AND root.id=?8
         AND root.parent_id IS NULL AND root.deleted_at IS NULL
         AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone WHERE tombstone.org_id=root.org_id
@@ -508,10 +508,6 @@ export async function redeemExternalThreadInvite(env, { token, userId }) {
           (root.author_login=grantor.login OR EXISTS(SELECT 1 FROM memberships rolecheck
             WHERE rolecheck.org_id=?7 AND rolecheck.user_github_id=created_by AND lower(rolecheck.role) IN ('owner','admin'))))`)
     .bind(now,String(userId),redemptionId,invite.id,tokenHash,invite.invited_email,invite.org_id,invite.resource_id);
-  if (member) {
-    const result = await claim.run();
-    return result.meta?.changes ? { redeemed: true, alreadyMember: true, orgId: invite.org_id } : deny;
-  }
   const previous = env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
     WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL
       AND EXISTS(SELECT 1 FROM hx_external_thread_invites i WHERE i.id=?6 AND i.redemption_id=?7)
@@ -536,7 +532,7 @@ export async function redeemExternalThreadInvite(env, { token, userId }) {
   if (results?.[2]?.meta?.changes > 0 && results?.[3]?.meta?.changes > 0) {
     return { redeemed: true, orgId: invite.org_id, resourceType: "thread", resourceId: invite.resource_id, permission: invite.permission };
   }
-  return { redeemed: true, alreadyMember: true, orgId: invite.org_id };
+  return deny;
 }
 
 async function uploadExternalAttachment(request, env, url, orgId, root, actor) {

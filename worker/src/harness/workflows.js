@@ -335,7 +335,7 @@ async function unavailableProgramNode(db,orgId,steps) {
   const step=steps.find(step=>step.type==='code');
   if(!step)return null;
   const node=await db.prepare(`SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by
-    WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL AND lower(m.role) IN ('owner','admin')`).bind(orgId,step.gatewayId).first();
+    WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL AND LOWER(TRIM(m.role)) IN ('owner','admin')`).bind(orgId,step.gatewayId).first();
   return node?null:{error:'Choose an available execution node in this workspace.'};
 }
 
@@ -409,7 +409,7 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
     .bind(id, orgId, name, input?.enabled === false ? 0 : 1, JSON.stringify(t.trigger), JSON.stringify(s.steps), secret, t.trigger.type === 'webhook' ? 1 : 0, next, String(by), at);
   const statements = [...(commitGuard ? [commitGuard(id)] : []), insert];
   if(source) statements.push(db.prepare(`INSERT INTO hx_workflow_sources(org_id,workflow_id,channel,thread_id,created_by)
-    VALUES(?1,?2,?3,(SELECT id FROM channel_messages WHERE org_id=?1 AND id=?4 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL AND body=?6 AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?5 AND role!='guest')),?5)`)
+    VALUES(?1,?2,?3,(SELECT id FROM channel_messages WHERE org_id=?1 AND id=?4 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL AND body=?6 AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?5 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')),?5)`)
     .bind(orgId,id,source.channel,source.threadId,String(by),source.body));
   const announcementId=source&&announcementLocale!==undefined?`workflow-created-${id}`:null;
   if(announcementId){

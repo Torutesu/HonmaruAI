@@ -32,7 +32,7 @@ export async function requestAgentWakeApproval(env,assignment,{requesterLogin,ta
   const saved=await db.batch([
     db.prepare(`INSERT OR IGNORE INTO hx_agent_wake_approvals(org_id,id,assignment_id,source_generation,source_agent_id,target_agent_id,room_channel,thread_id,source_message_id,source_hash,requester_id,requester_login,requester_membership,operation_id,brief,message_body,card_id,status,request_expires_at,created_at,updated_at)
       SELECT ?1,?2,a.id,a.generation,?3,?4,a.channel,a.thread_id,a.source_message_id,a.source_hash,a.actor_id,?5,m.created_at,?6,?7,?8,?9,'pending',?10,?11,?11
-      FROM hx_agent_assignments a JOIN users u ON u.github_id=a.actor_id JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=a.actor_id AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      FROM hx_agent_assignments a JOIN users u ON u.github_id=a.actor_id JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=a.actor_id AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       WHERE a.org_id=?1 AND a.id=?12 AND a.generation=?13 AND a.current_agent_id=?3 AND a.status='running' AND u.login=?5
         AND NOT EXISTS(SELECT 1 FROM hx_agent_handoffs h WHERE h.org_id=?1 AND h.operation_id=?6)`)
       .bind(assignment.org_id,id,sourceAgentId,targetAgentId,requesterLogin,operationId,brief,messageBody,cardId,expires,createdAt,assignment.id,assignment.generation),
@@ -60,7 +60,7 @@ export async function decideAgentWakeApproval(db,orgId,card,actorLogin,actorId) 
     ||String(actorLogin)!==request.requester_login||String(actorId||'')!==request.requester_id)return {settled:false};
   const membership=await db.prepare(`SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
     WHERE m.org_id=?1 AND u.github_id=?2 AND u.login=?3 AND m.created_at=?4
-      AND LOWER(COALESCE(m.role,'guest'))!='guest'`).bind(orgId,request.requester_id,request.requester_login,request.requester_membership).first();
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'`).bind(orgId,request.requester_id,request.requester_login,request.requester_membership).first();
   if(!membership)return {settled:false};
   const now=nowIso();
   const active=await db.prepare(`SELECT 1 FROM hx_agent_assignments a JOIN channel_messages m ON m.org_id=a.org_id AND m.id=a.source_message_id AND m.deleted_at IS NULL
@@ -104,7 +104,7 @@ export async function decideAgentWakeApproval(db,orgId,card,actorLogin,actorId) 
           AND a.status='running' AND a.actor_id=hx_agent_wake_approvals.requester_id AND a.channel=hx_agent_wake_approvals.room_channel
           AND a.thread_id=hx_agent_wake_approvals.thread_id AND a.source_hash=hx_agent_wake_approvals.source_hash)
         AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=hx_agent_wake_approvals.requester_id
-          AND m.created_at=hx_agent_wake_approvals.requester_membership AND LOWER(COALESCE(m.role,'guest'))!='guest')
+          AND m.created_at=hx_agent_wake_approvals.requester_membership AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
         AND (NOT EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?1 AND b.slug=substr(hx_agent_wake_approvals.room_channel,3) AND b.private=1)
           OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.org_id=?1 AND cm.channel=hx_agent_wake_approvals.room_channel AND cm.login=hx_agent_wake_approvals.requester_login))
         AND EXISTS(SELECT 1 FROM channel_agents ca JOIN custom_agents a ON a.org_id=ca.org_id AND a.id=ca.agent_id AND a.deleted_at IS NULL
@@ -123,7 +123,7 @@ export async function activeAgentWakeGrant(db,{orgId,assignmentId,sourceAgentId,
   const row=await db.prepare(`SELECT g.id FROM hx_agent_wake_grants g
     JOIN hx_agent_assignments a ON a.org_id=g.org_id AND a.id=?2
     JOIN hx_agent_wake_approvals approval ON approval.org_id=g.org_id AND approval.id=g.approval_id
-    JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.requester_id AND m.created_at=g.requester_membership AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.requester_id AND m.created_at=g.requester_membership AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     WHERE g.org_id=?1 AND g.source_agent_id=?3 AND g.target_agent_id=?4 AND g.requester_id=a.actor_id
       AND g.requester_membership=a.actor_membership
       AND g.room_channel=a.channel AND (g.scope!='thread' OR g.thread_id=a.thread_id)
@@ -157,7 +157,7 @@ export async function validAgentWakeGrantForHandoff(db,operation,now=nowIso()) {
     JOIN hx_agent_assignments a ON a.org_id=?1 AND a.id=?6 AND a.generation=?7+1
       AND a.current_agent_id=?4 AND a.mutation_id=?5 AND a.status IN ('pending','running')
     JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.requester_id
-      AND m.created_at=g.requester_membership AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND m.created_at=g.requester_membership AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     WHERE g.org_id=?1 AND g.id=?2 AND g.source_agent_id=?3 AND g.target_agent_id=?4
       AND approval.source_agent_id=?3 AND approval.target_agent_id=?4
       AND approval.requester_id=g.requester_id AND approval.requester_membership=g.requester_membership

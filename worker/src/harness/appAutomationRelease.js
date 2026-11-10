@@ -85,7 +85,7 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   const statements=[db.prepare(`UPDATE hx_app_automation_state SET published=?4,release_id=?5,published_at=?6,revision=revision+1,updated_at=?6,updated_by=?7
     WHERE org_id=?1 AND app_id=?2 AND revision=?3
       AND EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?8)
-      AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?7 AND role!='guest')
+      AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?7 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')
       AND (?12=1 OR (SELECT COUNT(*) FROM hx_workflows WHERE org_id=?1)+?10<=?11)
       AND NOT EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?1 AND id IN (SELECT value FROM json_each(?13)))
       AND NOT EXISTS(SELECT 1 FROM json_each(?9) snapshot LEFT JOIN hx_workflows w ON w.org_id=?1 AND w.id=json_extract(snapshot.value,'$.id')

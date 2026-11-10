@@ -70,7 +70,7 @@ async function sessionFor(env, request) {
 async function currentGrant(env, grantId) {
   const grant = await env.DB.prepare(`SELECT g.*, c.name AS client_name FROM mcp_oauth_grants g JOIN mcp_oauth_clients c ON c.id=g.client_id
     JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.user_id AND m.created_at=g.membership_since
-    WHERE g.id=?1 AND g.revoked_at IS NULL AND g.expires_at>?2 AND c.disabled_at IS NULL AND lower(m.role)!='guest'
+    WHERE g.id=?1 AND g.revoked_at IS NULL AND g.expires_at>?2 AND c.disabled_at IS NULL AND lower(trim(coalesce(m.role,'guest')))!='guest'
     AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=g.org_id AND (d.purge_started_at IS NOT NULL OR d.due_at<=?3))`)
     .bind(grantId, Date.now(), new Date().toISOString()).first();
   if (!grant || await deactivatedHere(env.DB, grant.org_id, grant.user_id, { fresh: true })) return null;
@@ -235,7 +235,7 @@ export async function handleMcpOAuth(request, env, url = new URL(request.url)) {
       const pending = await env.DB.prepare(`SELECT r.*,c.name AS client_name FROM mcp_oauth_requests r JOIN mcp_oauth_clients c ON c.id=r.client_id WHERE r.id=?1 AND r.expires_at>?2 AND r.consumed_at IS NULL AND c.disabled_at IS NULL`).bind(match[1], Date.now()).first();
       if (!pending) return error('invalid_request', 'This connection request expired or was already used. Restart from your app.');
       const requested = parse(pending.scopes);
-      if (request.method === 'GET') return json({ clientName: pending.client_name, clientId: pending.client_id, redirectOrigin: new URL(pending.redirect_uri).origin, scopes: MCP_SCOPE_INFO.filter(s => requested.includes(s.name)), workspaces: (await listUserOrgs(env.DB, who.session.github_id)).filter(o => String(o.role).toLowerCase() !== 'guest') });
+      if (request.method === 'GET') return json({ clientName: pending.client_name, clientId: pending.client_id, redirectOrigin: new URL(pending.redirect_uri).origin, scopes: MCP_SCOPE_INFO.filter(s => requested.includes(s.name)), workspaces: (await listUserOrgs(env.DB, who.session.github_id)).filter(o => String(o.role).trim().toLowerCase() !== 'guest') });
       const input = await body(request);
       if (input.approve !== true && input.approve !== false) return error('invalid_request', 'Choose Allow or Deny.');
       const redirect = new URL(pending.redirect_uri);
@@ -249,7 +249,7 @@ export async function handleMcpOAuth(request, env, url = new URL(request.url)) {
       const granted = scopeList(input.scopes);
       if (typeof input.orgId !== 'string' || !granted || granted.some(s => !requested.includes(s))) return error('invalid_scope', 'Choose a workspace and a subset of the requested permissions.');
       const member = await env.DB.prepare('SELECT role,created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(input.orgId, String(who.session.github_id)).first();
-      if (!member || String(member.role).toLowerCase() === 'guest') return error('access_denied', 'Workspace membership is required.', 403);
+      if (!member || String(member.role).trim().toLowerCase() === 'guest') return error('access_denied', 'Workspace membership is required.', 403);
       const denied = await policyDenial(env, who.session, input.orgId, { fresh: true });
       if (denied) return json(denied.body, denied.status);
       const consumed = await env.DB.prepare('UPDATE mcp_oauth_requests SET consumed_at=?1 WHERE id=?2 AND consumed_at IS NULL AND expires_at>?1 RETURNING id').bind(Date.now(), pending.id).first();

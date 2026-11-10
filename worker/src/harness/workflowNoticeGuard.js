@@ -7,7 +7,7 @@ export const workflowNoticeGuard=`EXISTS (
  JOIN memberships m ON m.org_id=w.org_id AND m.user_github_id=w.created_by
  JOIN users u ON u.github_id=w.created_by
  WHERE w.org_id=?2 AND w.id=?14 AND w.created_by=?16
- AND source.channel=?3 AND source.thread_id=?9 AND m.role!='guest' AND ?4='__workflow'
+ AND source.channel=?3 AND source.thread_id=?9 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' AND ?4='__workflow'
  AND (
    EXISTS(SELECT 1 FROM hx_workflow_safety_notices n
      JOIN hx_workflow_safety s ON s.org_id=n.org_id AND s.workflow_id=n.workflow_id AND s.generation=n.generation
