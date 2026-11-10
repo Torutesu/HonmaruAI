@@ -32,13 +32,13 @@ async function appPermission(db, orgId, appId, userId) {
     JOIN memberships m ON m.org_id=app.org_id AND m.user_github_id=?3
     LEFT JOIN hx_app_access a ON a.org_id=app.org_id AND a.app_id=app.id
     LEFT JOIN hx_app_person_access p ON p.org_id=app.org_id AND p.app_id=app.id AND p.user_github_id=?3
-    WHERE app.org_id=?1 AND app.id=?2 AND LOWER(COALESCE(m.role,'guest'))!='guest'`)
+    WHERE app.org_id=?1 AND app.id=?2 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'`)
     .bind(orgId, appId, String(userId)).first();
   if (!row) return 'none';
   if (row.ownerId === String(userId)) return 'edit';
   if (row.permission) return row.permission;
   if (row.room_channel) return await mayUseConversation(db, orgId, userId, row.room_channel) ? 'view' : 'none';
-  return row.visibility === 'workspace' ? (['owner','admin'].includes(String(row.role).toLowerCase()) ? 'edit' : 'view') : 'none';
+  return row.visibility === 'workspace' ? (['owner','admin'].includes(String(row.role).trim().toLowerCase()) ? 'edit' : 'view') : 'none';
 }
 
 export async function appPeopleAccess(db, orgId, appId) {
@@ -49,10 +49,10 @@ export async function appPeopleAccess(db, orgId, appId) {
     FROM memberships m JOIN users u ON u.github_id=m.user_github_id
     JOIN hx_apps app ON app.org_id=m.org_id AND app.id=?2
     LEFT JOIN hx_app_person_access p ON p.org_id=m.org_id AND p.app_id=?2 AND p.user_github_id=m.user_github_id
-    WHERE m.org_id=?1 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    WHERE m.org_id=?1 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     ORDER BY CASE WHEN p.user_github_id IS NULL THEN 1 ELSE 0 END,u.login`).bind(orgId, appId).all();
   return Promise.all(results.map(async row => {
-    const role = String(row.role).toLowerCase();
+    const role = String(row.role).trim().toLowerCase();
     const inherited = String(row.ownerId) === String(row.userId) ? 'edit'
       : access.visibility === 'workspace' ? (['owner','admin'].includes(role) ? 'edit' : 'view') : 'none';
     const roomMember = access.visibility === 'room' ? await mayUseConversation(db, orgId, row.userId, access.roomChannel) : false;
@@ -65,7 +65,7 @@ export async function appPeopleAccess(db, orgId, appId) {
 
 export async function mayUseTable(db, orgId, tableId, userId) {
   if (!userId) return false;
-  const member = await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2 AND LOWER(COALESCE(role,'guest')) != 'guest'").bind(orgId, String(userId)).first();
+  const member = await db.prepare("SELECT 1 FROM memberships WHERE org_id = ?1 AND user_github_id = ?2 AND LOWER(TRIM(COALESCE(role,'guest'))) != 'guest'").bind(orgId, String(userId)).first();
   if (!member) return false;
   const table = await db.prepare('SELECT id FROM hx_tables WHERE org_id = ?1 AND id = ?2').bind(orgId, tableId).first();
   if (!table) return false;
@@ -98,7 +98,7 @@ export async function mayReadAppRows(db, orgId, appId, tableId, userId) {
     LEFT JOIN hx_app_access policy ON policy.org_id=target.org_id AND policy.app_id=target.id
     LEFT JOIN hx_app_person_access personal ON personal.org_id=target.org_id AND personal.app_id=target.id AND personal.user_github_id=?4
     WHERE target.org_id=?1 AND target.id=?2 AND target.table_id=?3
-      AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?1)
       AND (target.created_by=?4 OR personal.permission IN ('view','edit')
@@ -137,7 +137,7 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
     seen.add(id);
     if (id === current.ownerId) return { error: 'The app owner always keeps access.' };
     const member = await db.prepare('SELECT role FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId,id).first();
-    if (!member || ['guest','owner','admin'].includes(String(member.role).toLowerCase())) return { error: 'Choose an active workspace member who can receive a personal app permission.' };
+    if (!member || ['guest','owner','admin'].includes(String(member.role).trim().toLowerCase())) return { error: 'Choose an active workspace member who can receive a personal app permission.' };
   }
   const at = new Date().toISOString(), token = crypto.randomUUID();
   const storedVisibility = input.visibility === 'room' ? 'private' : input.visibility;
@@ -148,15 +148,15 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
     LEFT JOIN memberships selectedMember ON selectedMember.org_id=?1
       AND selectedMember.user_github_id=json_extract(selected.value,'$.userId')
     WHERE selectedMember.user_github_id IS NULL
-      OR LOWER(COALESCE(selectedMember.role,'guest')) IN ('guest','owner','admin')
+      OR LOWER(TRIM(COALESCE(selectedMember.role,'guest'))) IN ('guest','owner','admin')
   )` : '';
   if (input.version === 0) stmts.push(db.prepare(`INSERT OR IGNORE INTO hx_app_access(org_id,app_id,visibility,version,change_token)
-    SELECT ?1,?2,'workspace',0,NULL WHERE EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3 AND LOWER(m.role)!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?3)
+    SELECT ?1,?2,'workspace',0,NULL WHERE EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3 AND LOWER(TRIM(m.role))!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?3)
       ${validPeople('?4')}`)
     .bind(...(hasPeopleUpdate ? [orgId, appId, String(userId), peopleJson] : [orgId, appId, String(userId)])));
   stmts.push(db.prepare(`UPDATE hx_app_access SET visibility=?3,room_channel=?7,version=version+1,change_token=?5
     WHERE org_id=?1 AND app_id=?2 AND version=?4
-      AND EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?6 AND LOWER(m.role)!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?6)
+      AND EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?6 AND LOWER(TRIM(m.role))!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?6)
       ${validPeople('?8')}`)
     .bind(...(hasPeopleUpdate ? [orgId,appId,storedVisibility,input.version,token,String(userId),roomChannel,peopleJson] : [orgId,appId,storedVisibility,input.version,token,String(userId),roomChannel])));
   if (hasPeopleUpdate) {
@@ -165,7 +165,7 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
       SELECT ?1,?2,json_extract(selected.value,'$.userId'),json_extract(selected.value,'$.permission'),?3
       FROM json_each(?4) selected
       WHERE EXISTS(SELECT 1 FROM hx_app_access WHERE org_id=?1 AND app_id=?2 AND change_token=?5)
-        AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=json_extract(selected.value,'$.userId') AND LOWER(COALESCE(role,'guest')) NOT IN ('guest','owner','admin'))`)
+        AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=json_extract(selected.value,'$.userId') AND LOWER(TRIM(COALESCE(role,'guest'))) NOT IN ('guest','owner','admin'))`)
       .bind(orgId,appId,at,peopleJson,token));
   }
   stmts.push(db.prepare('UPDATE hx_app_access SET change_token=NULL WHERE org_id=?1 AND app_id=?2 AND change_token=?3').bind(orgId,appId,token));

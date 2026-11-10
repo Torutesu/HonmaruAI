@@ -63,3 +63,20 @@ test('remembers explicit floating placement after close and reopen for the same 
  expect(regions()).toHaveLength(0);act(()=>button('Float').props.onClick())
  expect(regions()[0].props.style).not.toEqual(saved)
 })
+
+test('Escape closes the floating pane and restores focus to its launcher',async()=>{
+ const launcher={focus:vi.fn(),isConnected:true,hasAttribute:vi.fn(()=>false)}
+ vi.stubGlobal('document',{activeElement:launcher})
+ act(()=>{tree=create(view())});act(()=>button('Float').props.onClick())
+ const root=regions()[0],event={target:{},currentTarget:{},key:'Escape',defaultPrevented:false,preventDefault:vi.fn(),stopPropagation:vi.fn()}
+ await act(async()=>{root.props.onKeyDown(event);await Promise.resolve()})
+ expect(event.preventDefault).toHaveBeenCalledOnce();expect(event.stopPropagation).toHaveBeenCalledOnce()
+ expect(regions()).toHaveLength(0);expect(launcher.focus).toHaveBeenCalledWith({preventScroll:true})
+})
+
+test('Escape already handled by an inner control does not close the floating pane',()=>{
+ act(()=>{tree=create(view())});act(()=>button('Float').props.onClick())
+ const root=regions()[0],event={target:{},currentTarget:{},key:'Escape',defaultPrevented:true,preventDefault:vi.fn(),stopPropagation:vi.fn()}
+ act(()=>root.props.onKeyDown(event))
+ expect(regions()).toHaveLength(1);expect(event.preventDefault).not.toHaveBeenCalled()
+})

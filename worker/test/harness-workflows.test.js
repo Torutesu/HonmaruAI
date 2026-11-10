@@ -388,6 +388,23 @@ test("a row delete trigger runs once and carries only the deleted row id", async
   expect((await (await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, mika)).json()).runs).toHaveLength(1);
 });
 
+test('a watched human row write cannot commit when its durable trigger cannot be queued', async () => {
+  await send('POST', '/workflows', mika, {
+    orgId: ORG, name: 'Durable row event',
+    trigger: { type: 'row', tableId: invoices, on: 'added' },
+    steps: [{ type: 'post', channel: 'b:ops', text: 'A record was added.' }],
+  });
+  const pending = env.DB.prepare(`INSERT INTO hx_workflow_row_event_outbox
+    (id,org_id,table_id,event_hash,payload,status,attempts,next_attempt,lease_until,created_at)
+    VALUES(?1,?2,?3,?4,'{}','pending',0,0,0,?5)`);
+  await env.DB.batch(Array.from({length:100},(_,index)=>pending.bind(`full-${index}`,ORG,invoices,`hash-${index}`,Date.now())));
+  const rowsBefore=(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(ORG,invoices).first()).n;
+  const response=await send('POST',`/tables/${invoices}/rows`,mika,{orgId:ORG,values:{Client:'Must not partially save','Invoice #':'INV-OUTBOX',Amount:10,Status:'Draft'}});
+  expect(response.status).toBe(500);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(ORG,invoices).first()).n).toBe(rowsBefore);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox WHERE org_id=?1 AND status='pending'").bind(ORG).first()).n).toBe(100);
+});
+
 test("delete events bypass field-data filters, and delete-only triggers reject them", async () => {
   expect(normalizeTrigger({ type: "row", tableId: invoices, on: "deleted", where: { Status: "Draft" } }).error).toContain("no field data");
   expect(normalizeTrigger({ type: "row", tableId: invoices, on: "deleted", column: "Status" }).error).toContain("no field data");

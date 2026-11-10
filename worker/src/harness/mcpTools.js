@@ -11,7 +11,7 @@ import { listApps, renderApp } from "./apps.js";
 import { listTables, listRows, addRow, updateRow } from "./tables.js";
 import { listWorkflows, getWorkflow, startRun } from "./workflows.js";
 import { listFollowups, scheduleFollowup } from "./followups.js";
-import { onRowChange } from "./workflows.js";
+import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 
 export const HARNESS_TOOL_SCOPE = { create_file_text: "write", update_file_text: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", schedule_followup: "write" };
@@ -144,14 +144,14 @@ export async function callHarnessTool(env, agent, name, args) {
       if (!(await mayEditTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
       const r = await addRow(db, orgId, String(args.tableId || ""), args.values, by, undefined, by);
       if (r.error) return err(r.error);
-      await onRowChange(env, { orgId, table: r.table, before: null, row: r.row, by });
+      if(r.rowEventId)await drainWorkflowRowEvents(env,{eventId:r.rowEventId,limit:1});
       return out({ row: presentRow(r.row), rowVersions: { [r.row.id]: r.row.updatedAt } });
     }
     case "update_row": {
       if (!(await mayEditTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
       const r = await updateRow(db, orgId, String(args.tableId || ""), String(args.rowId || ""), args.values, by, args.expectedUpdatedAt, undefined, by);
       if (r.error) return err(r.error);
-      await onRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by });
+      if(r.rowEventId)await drainWorkflowRowEvents(env,{eventId:r.rowEventId,limit:1});
       return out({ row: presentRow(r.row), rowVersions: { [r.row.id]: r.row.updatedAt } });
     }
     case "list_workflows":

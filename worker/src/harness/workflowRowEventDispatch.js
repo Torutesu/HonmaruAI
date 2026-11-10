@@ -6,7 +6,7 @@ const MAX_BACKOFF_MS = 60 * 60_000;
 const DONE_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
 export async function prepareWorkflowRowEvent(db, {orgId,table,before=null,row,by,depth=0,at=Date.now()}) {
-  if (!orgId || !table?.id || !row?.id || !Number.isSafeInteger(depth) || depth < 0) {
+  if (!orgId || !table?.id || !(row?.id || before?.id) || !Number.isSafeInteger(depth) || depth < 0) {
     throw new Error('Invalid Workflow row event.');
   }
   // Keep only the schema data needed to evaluate the existing trigger
@@ -26,8 +26,28 @@ export async function prepareWorkflowRowEvent(db, {orgId,table,before=null,row,b
   };
 }
 
+// Human, API and connector writes use the same durable trigger path as
+// Workflow-produced writes. Avoid filling the workspace queue for tables
+// nobody watches; a matching enabled row/App-entity trigger makes the outbox
+// statement part of the row mutation batch, so a full queue cannot silently
+// commit the business write without its event.
+export async function prepareWorkflowRowEventIfWatched(db, change) {
+  const {orgId,table}=change||{};
+  if(!orgId||!table?.id)return null;
+  const watcher=await db.prepare(`SELECT 1 AS watched FROM hx_workflows w
+    WHERE w.org_id=?1 AND w.enabled=1 AND (
+      (json_extract(w.trigger,'$.type')='row' AND json_extract(w.trigger,'$.tableId')=?2)
+      OR (json_extract(w.trigger,'$.type')='app_record_change' AND (
+        EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=w.org_id AND a.id=json_extract(w.trigger,'$.appId') AND a.table_id=?2)
+        OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=w.org_id AND e.app_id=json_extract(w.trigger,'$.appId')
+          AND e.entity_key=json_extract(w.trigger,'$.entityId') AND e.table_id=?2)))) LIMIT 1`)
+    .bind(orgId,table.id).first();
+  return watcher?prepareWorkflowRowEvent(db,change):null;
+}
+
 async function deliverWorkflowRowEvent(env,payload) {
-  const {onRowChange}=await import('./workflows.js');
+  const {onRowChange,onRowDelete}=await import('./workflows.js');
+  if(payload.row==null&&payload.before)return onRowDelete(env,{orgId:payload.orgId,table:payload.table,row:payload.before,by:payload.by,depth:payload.depth,strict:true});
   return onRowChange(env,{...payload,strict:true});
 }
 

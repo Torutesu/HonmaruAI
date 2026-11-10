@@ -88,9 +88,9 @@ export async function createSkill(db, orgId, input, by, { activeShareId, install
         WHERE EXISTS (SELECT 1 FROM hx_skill_shares sh WHERE sh.id=?9 AND sh.revoked_at IS NULL AND sh.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
           AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=sh.org_id)
           AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=sh.org_id))
-          AND EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?6 AND m.created_at=?10 AND LOWER(COALESCE(m.role,'guest'))!='guest'
+          AND EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?6 AND m.created_at=?10 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
             AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=m.org_id AND
-              (d.purge_started_at IS NOT NULL OR NOT (LOWER(m.role)='owner' OR (INSTR(m.org_id,'/')>0 AND LOWER(m.role)='admin')))))
+              (d.purge_started_at IS NOT NULL OR NOT (LOWER(TRIM(m.role))='owner' OR (INSTR(m.org_id,'/')>0 AND LOWER(TRIM(m.role))='admin')))))
           AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?2 AND d.purge_started_at IS NOT NULL)
           AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?2)
           AND ${skillSessionAuthority('?2', '?6', '?11')}
@@ -126,8 +126,8 @@ export async function updateSkill(db, orgId, id, input, userId = "") {
   const result = await db.prepare(`UPDATE hx_skills SET name = ?1, description = ?2, body = ?3, updated_at = ?4, metadata = ?8
     WHERE id = ?5 AND org_id = ?6 AND (COALESCE(owner_id, created_by) = ?7 OR NOT EXISTS
       (SELECT 1 FROM hx_skill_access p WHERE p.org_id = ?6 AND p.skill_id = ?5 AND p.visibility = 'private'))
-      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?6 AND m.user_github_id=?7 AND m.role!='guest'
-        AND (COALESCE(owner_id,created_by)=?7 OR m.role IN('owner','admin')))`)
+      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?6 AND m.user_github_id=?7 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+        AND (COALESCE(owner_id,created_by)=?7 OR LOWER(TRIM(COALESCE(m.role,''))) IN('owner','admin')))`)
     .bind(c.name, c.description, c.body, now(), id, orgId, String(userId), JSON.stringify(c.metadata)).run();
   if (!result.meta?.changes) return { error: 'No such skill.', status: 404 };
   return { skill: await getSkill(db, orgId, id, userId) };
@@ -137,8 +137,8 @@ export async function deleteSkill(db, orgId, id, userId = '') {
   if (!await getSkill(db,orgId,id,userId)) return {error:'No such skill.',status:404};
   const visible = `SELECT s.id FROM hx_skills s LEFT JOIN hx_skill_access p ON p.org_id = s.org_id AND p.skill_id = s.id
     WHERE s.org_id = ?1 AND s.id = ?2 AND (COALESCE(p.visibility,'workspace')='workspace' OR COALESCE(s.owner_id,s.created_by)=?3)
-      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?3 AND m.role!='guest'
-        AND (COALESCE(s.owner_id,s.created_by)=?3 OR m.role IN('owner','admin')))`;
+      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+        AND (COALESCE(s.owner_id,s.created_by)=?3 OR LOWER(TRIM(COALESCE(m.role,''))) IN('owner','admin')))`;
   const results = await db.batch([
     db.prepare(`DELETE FROM hx_agent_skills WHERE org_id = ?1 AND skill_id IN (${visible})`).bind(orgId, id, String(userId)),
     db.prepare(`DELETE FROM hx_skills WHERE org_id = ?1 AND id IN (${visible})`).bind(orgId, id, String(userId)),
@@ -203,7 +203,7 @@ export async function executionSkills(db, orgId, agentId, context = {}) {
   let privateOwner = '';
   if (context.userId && context.allowPrivate !== false) {
     const u = await db.prepare(`SELECT u.login FROM users u JOIN memberships m ON m.user_github_id = u.github_id
-      WHERE m.org_id = ?1 AND u.github_id = ?2 AND m.role != 'guest'`).bind(orgId, String(context.userId)).first();
+      WHERE m.org_id = ?1 AND u.github_id = ?2 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'`).bind(orgId, String(context.userId)).first();
     if (u && context.channel === `ag:${agentId}|${u.login}`) privateOwner = String(context.userId);
   }
   const skills = await skillsOf(db,orgId,agentId,context.userId || privateOwner);

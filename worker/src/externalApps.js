@@ -1,5 +1,6 @@
 import { getSession, getUserByGithubId } from "./db.js";
 import { getMode } from "./harness/mode.js";
+import { drainWorkflowRowEvents } from './harness/workflowRowEventDispatch.js';
 import { sha256Hex } from "./auth.js";
 import { addRow, updateRow, deleteRow } from "./harness/tables.js";
 import { deliverExternalInvite } from "./externalInviteMail.js";
@@ -460,16 +461,19 @@ export async function handleExternalApps(request, env, url) {
     const input = await request.json().catch(() => null);
     if (request.method === "POST" && !rowId) {
       const result = await addRow(env.DB, orgId, tableId, input?.values, actor.user.github_id, "strict", null, externalAppWriteGuard(orgId, appId, actor.user.github_id, tableId));
+      if(!result.error&&result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
       return result.error ? json({ message: result.error, fields: result.fields }, result.status || 400)
         : json({ row: result.row }, 201);
     }
     if (request.method === "PATCH" && rowId) {
       const result = await updateRow(env.DB, orgId, tableId, rowId, input?.values, actor.user.github_id, input?.expectedUpdatedAt, "strict", null, externalAppWriteGuard(orgId, appId, actor.user.github_id, tableId));
+      if(!result.error&&result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
       return result.error ? json({ message: result.error, fields: result.fields }, result.status || 400)
         : json({ row: result.row });
     }
     if (request.method === "DELETE" && rowId) {
-      const result = await deleteRow(env.DB, orgId, tableId, rowId, input?.expectedUpdatedAt, null, externalAppWriteGuard(orgId, appId, actor.user.github_id, tableId));
+      const result = await deleteRow(env.DB, orgId, tableId, rowId, input?.expectedUpdatedAt, null, externalAppWriteGuard(orgId, appId, actor.user.github_id, tableId), { by: actor.user.github_id });
+      if(!result.error&&result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
       return result.error ? json({ message: result.error }, result.status || 400) : json({ deleted: true });
     }
     return fail("Method not allowed.", 405);

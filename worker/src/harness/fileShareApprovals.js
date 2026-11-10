@@ -15,7 +15,7 @@ async function agentProposalSource(db,{orgId,userId,sourceAgentId,sourceMessageI
   if(!validId(String(orgId))||!validId(String(userId))||!validId(String(sourceAgentId))||!validId(String(sourceMessageId))||!validId(String(sourceScope)))return null;
   const now=iso();
   const user=await db.prepare('SELECT login FROM users WHERE github_id=?1').bind(String(userId)).first();
-  const membership=await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'guest'))!='guest'").bind(orgId,String(userId)).first();
+  const membership=await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest'").bind(orgId,String(userId)).first();
   if(!user?.login||!membership)return null;
   let session;
   if(sourceSessionToken){
@@ -98,7 +98,7 @@ export async function proposePublicFileShare(env,{orgId,fileId,version,userId,lo
   WHERE f.org_id=?1 AND f.id=?3 AND f.current_version=?4 AND v.kind='content' AND v.content_hash=?5
     AND ${fileScopeAuthority('f.org_id','f.scope','?8')}
     AND EXISTS(SELECT 1 FROM users u JOIN memberships m ON m.org_id=?1 AND m.user_github_id=u.github_id
-      WHERE u.github_id=?8 AND u.login=?9 AND lower(coalesce(m.role,'guest'))!='guest')
+      WHERE u.github_id=?8 AND u.login=?9 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
     AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=f.org_id AND p.file_id=f.id AND p.version=?4)`)
   .bind(orgId,requestId,fileId,version,source.contentHash,source.contentType,source.size,String(userId),login,requestKey,expiresAt,allowDownload?1:0,createdAt,sourceBinding?.requesterMembership||null,sourceBinding?.agentId||null,sourceBinding?.messageId||null,sourceBinding?.scope||null,sourceBinding?.sourceTurnHash||null,sourceBinding?.sessionCreatedAt||null).run();
  if(result.meta.changes!==1){
@@ -181,7 +181,7 @@ export async function approvePublicFileShare(env,{orgId,requestId,userId,login})
       AND EXISTS(SELECT 1 FROM sessions ss WHERE ss.github_id=r.requester_id AND ss.created_at=?12
         AND (ss.expires_at IS NULL OR ss.expires_at>?7))
       AND EXISTS(SELECT 1 FROM memberships wm WHERE wm.org_id=r.org_id AND wm.user_github_id=r.requester_id
-        AND wm.created_at=?18 AND LOWER(COALESCE(wm.role,'guest'))!='guest')
+        AND wm.created_at=?18 AND LOWER(TRIM(COALESCE(wm.role,'guest')))!='guest')
       AND EXISTS(SELECT 1 FROM custom_agents a WHERE a.org_id=r.org_id AND a.id=r.source_agent_id
         AND a.created_at=?21 AND a.deleted_at IS NULL AND (
           (r.source_scope='ag:'||a.id||'|'||?17 AND a.owner_login=?17 AND a.scope='personal')

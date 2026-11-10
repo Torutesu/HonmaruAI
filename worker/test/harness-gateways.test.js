@@ -273,6 +273,22 @@ test('expiry works without a connected node and membership removal invalidates e
 });
 
 
+test('padded guest membership expires queued and running gateway jobs', async () => {
+  const { gateway, token } = await node();
+  const queued = await enqueue(gateway.id);
+  await env.DB.prepare("UPDATE memberships SET role=' Guest ' WHERE org_id=?1 AND user_github_id='9502'").bind(orgId).run();
+  await expireGatewayJobs(env.DB);
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(queued.id).first()).status).toBe('failed');
+
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9502'").bind(orgId).run();
+  const running = await enqueue(gateway.id);
+  const claimResult = await claim(token);
+  expect(claimResult.id).toBe(running.id);
+  await env.DB.prepare("UPDATE memberships SET role=' Guest ' WHERE org_id=?1 AND user_github_id='9502'").bind(orgId).run();
+  await expireGatewayJobs(env.DB);
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(running.id).first()).status).toBe('failed');
+});
+
 test('node polling has independent limits from team operations and from other nodes', async () => {
   const first = await node(), second = await node();
   expect((await api('POST', '/claim', null, {}, first.token)).status).toBe(200);

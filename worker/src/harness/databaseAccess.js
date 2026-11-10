@@ -4,11 +4,11 @@
 export function databaseAuthority(org, app, user, extraTables = "'[]'", manage = false) {
   return `EXISTS(SELECT 1 FROM memberships m JOIN hx_apps target ON target.org_id=m.org_id AND target.id=${app}
     LEFT JOIN hx_app_access target_policy ON target_policy.org_id=target.org_id AND target_policy.app_id=target.id
-    WHERE m.org_id=${org} AND m.user_github_id=${user} AND lower(coalesce(m.role,'member'))!='guest'
+    WHERE m.org_id=${org} AND m.user_github_id=${user} AND LOWER(TRIM(COALESCE(m.role,'member')))!='guest'
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=m.org_id AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=m.org_id)
       AND (coalesce(target_policy.visibility,'workspace')='workspace' OR target.created_by=${user})
-      ${manage ? `AND (target.created_by=${user} OR lower(coalesce(m.role,'member')) IN ('admin','owner'))` : ''}
+      ${manage ? `AND (target.created_by=${user} OR LOWER(TRIM(COALESCE(m.role,'member'))) IN ('admin','owner'))` : ''}
       AND NOT EXISTS (SELECT 1 FROM (
         SELECT target.table_id AS id UNION SELECT table_id FROM hx_app_entities WHERE org_id=${org} AND app_id=${app}
         UNION SELECT value AS id FROM json_each(${extraTables})

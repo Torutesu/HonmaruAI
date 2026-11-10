@@ -1547,13 +1547,14 @@ export async function onRowChange(env, { orgId, table, before, row, by, depth = 
 
 /// A row deletion is an event without field data. Existing `any` triggers
 /// keep their add/change meaning; deletion requires an explicit trigger.
-export async function onRowDelete(env, { orgId, table, row, by, depth = 0 }) {
+export async function onRowDelete(env, { orgId, table, row, by, depth = 0, strict = false }) {
   if (depth >= MAX_DEPTH || !table?.id || !row?.id) return 0;
-  const { results } = await env.DB
+  let results;
+  try { ({results}=await env.DB
     .prepare("SELECT * FROM hx_workflows WHERE org_id = ?1 AND enabled = 1 AND json_extract(trigger, '$.type') = 'row' AND json_extract(trigger, '$.tableId') = ?2")
     .bind(orgId, table.id)
-    .all()
-    .catch(() => ({ results: [] }));
+    .all()); }
+  catch(error) { if(strict)throw error; results=[]; }
   let started = 0;
   for (const r of results || []) {
     const wf = publicWorkflow(r);
@@ -1568,11 +1569,11 @@ export async function onRowDelete(env, { orgId, table, row, by, depth = 0 }) {
     const run = await startRun(env, {
       orgId, workflow: wf, trigger: "row", startedBy: by, depth,
       input: { tableId: table.id, event: "deleted", recordId: row.id, rowIdentityAliases: ['id'], row: { id: row.id } },
-      rowEventHash,
+      rowEventHash, rowEventPersistent:strict,
     });
     if (run?.id) started += 1;
   }
-  started += await startAppRecordRuns(env, { orgId, table, before: row, row: null, by, depth });
+  started += await startAppRecordRuns(env, { orgId, table, before: row, row: null, by, depth, strict });
   return started;
 }
 
