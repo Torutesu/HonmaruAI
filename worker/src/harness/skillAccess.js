@@ -19,8 +19,8 @@ export async function setSkillAccess(db, orgId, id, userId, input) {
   if (!['private', 'workspace'].includes(input.visibility)) return { error: 'Invalid visibility.' };
   if (!Number.isSafeInteger(input.version) || input.version < 0) return { error: 'A current access version is required.' };
   const r = input.version === 0
-    ? await db.prepare(`INSERT OR IGNORE INTO hx_skill_access (org_id, skill_id, visibility, version) SELECT ?1,?2,?3,1 WHERE EXISTS(SELECT 1 FROM hx_skills s JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?4 AND m.role!='guest' WHERE s.org_id=?1 AND s.id=?2 AND COALESCE(s.owner_id,s.created_by)=?4)`).bind(orgId, id, input.visibility, String(userId)).run()
-    : await db.prepare(`UPDATE hx_skill_access SET visibility = ?3, version = version + 1 WHERE org_id = ?1 AND skill_id = ?2 AND version = ?4 AND EXISTS(SELECT 1 FROM hx_skills s JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?5 AND m.role!='guest' WHERE s.org_id=?1 AND s.id=?2 AND COALESCE(s.owner_id,s.created_by)=?5)`).bind(orgId, id, input.visibility, input.version, String(userId)).run();
+    ? await db.prepare(`INSERT OR IGNORE INTO hx_skill_access (org_id, skill_id, visibility, version) SELECT ?1,?2,?3,1 WHERE EXISTS(SELECT 1 FROM hx_skills s JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?4 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' WHERE s.org_id=?1 AND s.id=?2 AND COALESCE(s.owner_id,s.created_by)=?4)`).bind(orgId, id, input.visibility, String(userId)).run()
+    : await db.prepare(`UPDATE hx_skill_access SET visibility = ?3, version = version + 1 WHERE org_id = ?1 AND skill_id = ?2 AND version = ?4 AND EXISTS(SELECT 1 FROM hx_skills s JOIN memberships m ON m.org_id=s.org_id AND m.user_github_id=?5 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' WHERE s.org_id=?1 AND s.id=?2 AND COALESCE(s.owner_id,s.created_by)=?5)`).bind(orgId, id, input.visibility, input.version, String(userId)).run();
   if (!r.meta?.changes) return { error: 'Sharing changed. Reload before saving.', status: 409 };
   return { access: { visibility: input.visibility, version: input.version + 1 } };
 }

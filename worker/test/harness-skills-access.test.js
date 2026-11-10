@@ -6,6 +6,7 @@ import worker from '../src/index.js';
 import { installedSkillTools } from '../src/harness/skillReader.js';
 import { prepareAgent } from '../src/harness/agents.js';
 import { createSkill, executionSkills, getSkill, giveSkill } from '../src/harness/skills.js';
+import { setSkillAccess } from '../src/harness/skillAccess.js';
 import { downloadSkillShare, importSkillShare } from '../src/harness/skillShares.js';
 
 const orgId = 'skills-access';
@@ -73,6 +74,15 @@ test('private skills hide body, links and all direct CRUD routes from members an
   expect((await request('PUT', `/skills/${skill.id}`, owner, { body: 'Owner edit' })).status).toBe(200);
   expect((await request('DELETE', `/skills/${skill.id}`, owner)).status).toBe(200);
   expect(await env.DB.prepare('SELECT * FROM hx_skill_access WHERE skill_id = ?').bind(skill.id).first()).toBeNull();
+});
+
+test('padded guest membership cannot widen an owned skill to workspace visibility', async () => {
+  const skill = await create('private');
+  await env.DB.prepare("UPDATE memberships SET role=' Guest ' WHERE org_id=?1 AND user_github_id='9401'").bind(orgId).run();
+  const result = await setSkillAccess(env.DB, orgId, skill.id, '9401', { visibility: 'workspace', version: 1 });
+  expect(result).toMatchObject({ error: 'Sharing changed. Reload before saving.', status: 409 });
+  expect(await env.DB.prepare('SELECT visibility,version FROM hx_skill_access WHERE org_id=?1 AND skill_id=?2').bind(orgId, skill.id).first())
+    .toEqual({ visibility: 'private', version: 1 });
 });
 
 test('sharing is owner-only, versioned, and revocation applies to linked agents immediately', async () => {
