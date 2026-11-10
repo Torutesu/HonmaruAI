@@ -73,9 +73,12 @@ function convertColumnValue(value, target, source, operation, relationResolver) 
       const relationMatches = [];
       for (const label of labels) {
         const matches = relationResolver.get(JSON.stringify(label)) || [];
-        if (matches.length !== 1) return { ok: false };
-        ids.push(matches[0]);
-        relationMatches.push({ label, recordId: matches[0], matchBy: operation.matchBy });
+        const selected = operation.matchResolutions?.[label];
+        if (selected !== undefined && !matches.includes(selected)) return { ok: false, resolution: { label, candidates: matches } };
+        if (matches.length > 1 && selected === undefined || matches.length === 0) return { ok: false, resolution: { label, candidates: matches } };
+        const recordId = selected ?? matches[0];
+        ids.push(recordId);
+        relationMatches.push({ label, recordId, matchBy: operation.matchBy });
       }
       if (target.multiple) return { ok: true, value: ids, relationMatches };
       if (ids.length === 0) return { ok: true, value: null, relationMatches };
@@ -206,10 +209,11 @@ export function planMigration(current, operations) {
             const matchColumn = targetColumns.find(column => column.id === op.matchBy);
             if (existing.type !== 'text' || typeof op.matchBy !== 'string' || !matchColumn || !['text', 'select', 'date', 'url', 'email'].includes(matchColumn.type)) return err('Exact relation matching needs a text source and a stable text-like target column ID.');
           }
+          if (op.matchResolutions !== undefined && (op.matchBy == null || !op.matchResolutions || typeof op.matchResolutions !== 'object' || Array.isArray(op.matchResolutions) || Object.keys(op.matchResolutions).length > 100 || Object.entries(op.matchResolutions).some(([label, id]) => label.length > 5000 || typeof id !== 'string' || !id || id.length > 64))) return err('Relation match resolutions must map source labels to stable target record IDs.');
           candidate.targetEntity = targetEntity;
           candidate.multiple = multiple;
         } else {
-          if (op.matchBy !== undefined && op.matchBy !== null) return err('matchBy is only available when converting to a relation.');
+          if (op.matchBy !== undefined && op.matchBy !== null || op.matchResolutions !== undefined) return err('matchBy and matchResolutions are only available when converting to a relation.');
           delete candidate.targetEntity;
           delete candidate.multiple;
         }
@@ -310,7 +314,7 @@ async function buildMigrationPreview(db, orgId, app, input) {
           const sourceColumn = oldColumns.find(column => column.id === operation.column);
           const converted = convertColumnValue(source, target, sourceColumn, operation, operation.matchBy ? relationResolvers.get(`${target.targetEntity}:${operation.matchBy}`) : null);
           if (!converted.ok) {
-            blockers.push({ entity: change.key, id: row.id, column: columnNames.get(operation.column) || operation.column, reason: 'Value cannot be converted without data loss.' });
+            blockers.push({ entity: change.key, id: row.id, column: columnNames.get(operation.column) || operation.column, reason: 'Value cannot be converted without data loss.', ...(converted.resolution ? { resolution: { entity: change.key, columnId: operation.column, label: converted.resolution.label, candidates: converted.resolution.candidates } } : {}) });
             blocked = true; break;
           }
           if (converted.value === undefined) delete values[operation.column];

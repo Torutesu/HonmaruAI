@@ -161,6 +161,13 @@ test('data migrations convert person and exact-match relation references, guardi
  const ambiguous=await (await run('database',{action:'preview',...request})).json();
  expect(ambiguous).toMatchObject({canApply:false,blockerCount:1});
  expect(ambiguous.blockers[0]).toMatchObject({id:source.id,column:'Related text'});
+ expect(ambiguous.blockers[0].resolution).toMatchObject({entity:'primary',columnId:'related_text',label:'One',candidates:expect.arrayContaining([targetOne.row.id,duplicate.row.id])});
+ const resolvedRequest={...request,operations:request.operations.map(operation=>operation.column==='related_text'||operation.column==='related_many_text'?{...operation,matchResolutions:{One:targetOne.row.id}}:operation)};
+ const resolvedPreview=await (await run('database',{action:'preview',...resolvedRequest})).json();
+ expect(resolvedPreview).toMatchObject({canApply:true,blockerCount:0});
+ expect(resolvedPreview.changes[0].examples[0].relationMatches).toEqual(expect.arrayContaining([{column:'related_text',targetEntity:'people',matches:[{label:'One',recordId:targetOne.row.id,matchBy:'name'}]}]));
+ const staleChoice={...resolvedRequest,operations:resolvedRequest.operations.map(operation=>operation.column==='related_text'?{...operation,matchResolutions:{One:'deleted_record'}}:operation)};
+ expect((await (await run('database',{action:'preview',...staleChoice})).json()).canApply).toBe(false);
  await env.DB.prepare('DELETE FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(orgId,peopleTable.id,duplicate.row.id).run();
  const preview=await (await run('database',{action:'preview',...request})).json();
  expect(preview).toMatchObject({canApply:true,blockerCount:0});
@@ -168,16 +175,16 @@ test('data migrations convert person and exact-match relation references, guardi
    await env.DB.prepare('DELETE FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(orgId,peopleTable.id,targetTwo.row.id).run();
    return env.DB.batch(statements);
  }};
- expect(await applyMigration(racingDb,orgId,app,{...request,previewChecksum:preview.previewChecksum},'1')).toMatchObject({status:409});
+ expect(await applyMigration(racingDb,orgId,app,{...resolvedRequest,previewChecksum:resolvedPreview.previewChecksum},'1')).toMatchObject({status:409});
  const replacement=await addPerson('Replacement');
  await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.related_many_text',?1),updated_at=?2 WHERE org_id=?3 AND id=?4").bind(JSON.stringify(['One','Replacement']),new Date().toISOString(),orgId,source.id).run();
- const fresh=await (await run('database',{action:'preview',...request})).json();
+ const fresh=await (await run('database',{action:'preview',...resolvedRequest})).json();
  expect(fresh).toMatchObject({canApply:true,blockerCount:0});
  expect(fresh.changes[0].examples[0].relationMatches).toEqual(expect.arrayContaining([
   {column:'related_text',targetEntity:'people',matches:[{label:'One',recordId:targetOne.row.id,matchBy:'name'}]},
   {column:'related_many_text',targetEntity:'people',matches:[{label:'One',recordId:targetOne.row.id,matchBy:'name'},{label:'Replacement',recordId:replacement.row.id,matchBy:'name'}]},
  ]));
- expect(await (await run('database',{action:'migrate',...request,previewChecksum:fresh.previewChecksum})).json()).toMatchObject({applied:true,version:3});
+ expect(await (await run('database',{action:'migrate',...resolvedRequest,previewChecksum:fresh.previewChecksum})).json()).toMatchObject({applied:true,version:3});
  const migrated=await (await call(`/tables/${app.tableId}`,owner)).json();
  expect(migrated.table.columns.find(column=>column.id==='assignee_text').type).toBe('person');
  expect(migrated.table.columns.find(column=>column.id==='related_text')).toMatchObject({type:'relation',targetEntity:'people',multiple:false});

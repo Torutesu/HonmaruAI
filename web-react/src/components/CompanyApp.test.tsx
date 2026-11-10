@@ -49,6 +49,25 @@ test('database changes require a fresh data preview and apply its checksum',asyn
  act(()=>tree.unmount())
 })
 
+test('ambiguous relation migrations let the owner select a target and require a new preview',async()=>{
+ const {tree,button,api}=await setup()
+ const candidateBlocker={entity:'primary',id:'source-row',column:'Assignee',reason:'Value cannot be converted without data loss.',resolution:{entity:'primary',columnId:'assignee',label:'Alex',candidates:['record-a','record-b']}}
+ api.previewDatabaseMigration.mockResolvedValueOnce({previewChecksum:'ambiguous',canApply:false,changes:[],blockers:[candidateBlocker],blockerCount:1}).mockResolvedValueOnce({previewChecksum:'resolved',canApply:true,changes:[],blockers:[],blockerCount:0})
+ await act(async()=>tree.root.findByProps({placeholder:'convert_amount_v1'}).props.onChange({target:{value:'link_people_v1'}}))
+ const plan=[{op:'convert_column',entity:'primary',column:'assignee',type:'relation',targetEntity:'people',multiple:false,matchBy:'name'}]
+ await act(async()=>tree.root.findByProps({'aria-label':'DB変更案'}).props.onChange({target:{value:JSON.stringify(plan)} }))
+ await act(async()=>button('変更内容をプレビュー').props.onClick())
+ const selection=tree.root.findByProps({'aria-label':'Alex のリンク先レコード'})
+ await act(async()=>selection.props.onChange({target:{value:'record-b'}}))
+ expect(button('本番への変更を確認').props.disabled).toBe(true)
+ const edited=JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)
+ expect(edited[0].matchResolutions).toEqual({Alex:'record-b'})
+ await act(async()=>button('変更内容をプレビュー').props.onClick())
+ expect(api.previewDatabaseMigration).toHaveBeenLastCalledWith('app',{action:'preview',id:'link_people_v1',version:1,operations:[{...plan[0],matchResolutions:{Alex:'record-b'}}]})
+ expect(button('本番への変更を確認').props.disabled).toBe(false)
+ act(()=>tree.unmount())
+})
+
 test('database migration history shows verified plans and hides tampered plans',async()=>{
  const verified={id:'schema_v1',version:2,checksum:'abcdef1234567890',plan:[{op:'add_columns',entity:'primary',columns:[{name:'Priority',type:'number'}]}],createdAt:'2026-11-09T00:00:00.000Z',integrityValid:true}
  const tampered={id:'schema_v2',version:3,checksum:'deadbeef01234567',plan:null,createdAt:'2026-11-09T01:00:00.000Z',integrityValid:false}
