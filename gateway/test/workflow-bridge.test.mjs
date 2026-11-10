@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createStateBroker,validateStateRequest,createWorkflowOutputParser} from '../workflow-bridge.mjs';
-import {workflowSdkSource} from '../workflow-sdk.mjs';
+import {workflowSdkSource,normalizeWorkflowDraft} from '../workflow-sdk.mjs';
 test('guest cannot choose activation identity or call arbitrary host operations',()=>{
  for(const request of [{id:1,method:'shell',params:{}},{id:1,method:'state.get',params:{runId:'other'}},{id:1,method:'state.set',params:{state:{},expectedRevision:0,owner:'other'}},{id:65,method:'state.get',params:{}}])assert.throws(()=>validateStateRequest(request));
 });
@@ -53,4 +53,18 @@ test('pipeline bounds each stage, preserves input order and does not process a f
  const result=await pipeline([1,2,3,4],async(value)=>{if(value===2)throw Error('bad row');return value*2;},async(value,index)=>{secondStage.push(index);return value+1;},{concurrency:2,onError:(error,index,stage)=>errors.push([error.message,index,stage])});
  assert.deepEqual(result,[3,null,7,9]);assert.deepEqual(secondStage,[0,2,3]);assert.deepEqual(errors,[['bad row',1,0]]);
  await assert.rejects(()=>pipeline([1],async x=>x,{concurrency:0}),/concurrency/);
+});
+
+test('sendMessage stages bounded report drafts without posting or accepting arbitrary options',async()=>{
+ const drafts=[];globalThis.__honmaruWorkflowTestBridge={stageMessage:async draft=>{drafts.push(draft);return {staged:true,index:drafts.length};}};
+ try {
+  const sdk=await import('data:text/javascript;base64,'+Buffer.from(workflowSdkSource('globalThis.__honmaruWorkflowTestBridge')).toString('base64'));
+  assert.deepEqual(await sdk.sendMessage('The review is ready.',{mention:['mika','toru']}),{staged:true,index:1});
+  assert.deepEqual(drafts,[{text:'The review is ready.',mention:['mika','toru']}]);
+  assert.deepEqual(normalizeWorkflowDraft(' report ',{}),{text:' report '});
+  assert.throws(()=>normalizeWorkflowDraft('  '),/non-empty/);
+  assert.throws(()=>normalizeWorkflowDraft('ok',{roomId:'other'}),/options/);
+  assert.throws(()=>normalizeWorkflowDraft('ok',{mention:['']}),/mention/);
+  assert.throws(()=>normalizeWorkflowDraft('x'.repeat(12001)),/12 KB/);
+ } finally { delete globalThis.__honmaruWorkflowTestBridge; }
 });

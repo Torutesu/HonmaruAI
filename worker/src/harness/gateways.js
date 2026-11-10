@@ -1,6 +1,7 @@
 import {workflowActivationState} from './workflowActivationState.js';
 import {settleWorkflowProgram,renewWorkflowProgramLease,WORKFLOW_PROGRAM_TIMEOUT_MS,WORKFLOW_PROGRAM_RESULT_GRACE_MS,workflowProgramJobAccess,workflowProgramAccessCTE} from './workflowCodeJobs.js';
 import {WorkflowStateInputError} from './workflowState.js';
+import {cleanWorkflowMessageDrafts} from './workflowMessageDrafts.js';
 import { enqueueExecution, jobView, readExecution, cancelExecution } from './executions.js';
 import { HARNESS_TOOLS, callHarnessTool } from './mcpTools.js';
 import { mayRunAgent } from './agents.js';
@@ -204,8 +205,22 @@ export async function handleGateways(request, env, url, input) {
       return r.meta?.changes ? json({ ok: true }) : failure('Execution is no longer authorized.', 409);
     }
     if (!['succeeded', 'failed', 'timed_out'].includes(input.status)) return failure('Invalid execution status.');
-    const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null };
+    let messages;
+    if(input.messages!==undefined){
+      try { messages=cleanWorkflowMessageDrafts(input.messages); }
+      catch { return failure('Invalid staged workflow messages.',400); }
+    }
+    const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null, ...(messages!==undefined?{messages}:{}) };
     if (new TextEncoder().encode(JSON.stringify(result)).length > 70000) return failure('Result is too large.', 413);
+    if(messages!==undefined){
+      const encodedResult=JSON.stringify(result);
+      const matched=await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload FROM hx_gateway_jobs WHERE id=?1 AND gateway_id=?2 AND lease_hash=?3
+       AND ((${guard}) OR (status IN ('succeeded','failed','timed_out') AND result=?5))`)
+        .bind(parts[2],g.id,leaseHash,at,encodedResult).first();
+      if(!matched)return failure('Execution is no longer authorized.',409);
+      try { if(JSON.parse(matched.payload).workflowProgram!==true)return failure('Only workflow programs may stage report messages.',400); }
+      catch { return failure('Workflow program is invalid.',400); }
+    }
     // The lease's hash stays on a finished job, so the same node sending the
     // same result again (its first reply was lost) is told it is already
     // in rather than that it was refused. Nothing about the job changes.

@@ -122,9 +122,10 @@ export async function settleWorkflowProgram(db,jobId) {
    AND j.status IN ('succeeded','failed','timed_out','cancelled') AND j.finished_at IS NOT NULL
  ), outcome AS (
   SELECT *,CASE WHEN accepted THEN 'done' WHEN job_status='cancelled' THEN 'cancelled' ELSE 'failed' END AS run_status,
-   json_object('step',1,'type','code','jobId',job_id,'at',strftime('%Y-%m-%dT%H:%M:%fZ',finished_at/1000.0,'unixepoch'),
+    json_object('step',1,'type','code','jobId',job_id,'at',strftime('%Y-%m-%dT%H:%M:%fZ',finished_at/1000.0,'unixepoch'),
     'status',CASE WHEN accepted THEN 'done' ELSE 'failed' END,
     'output',CASE WHEN accepted THEN COALESCE(json_extract(result,'$.stdout'),'') ELSE NULL END,
+    'messages',json(CASE WHEN accepted AND json_type(result,'$.messages')='array' THEN json_extract(result,'$.messages') ELSE '[]' END),
     'error',CASE WHEN accepted THEN NULL WHEN job_status='timed_out' THEN 'Program execution timed out.' WHEN job_status='cancelled' THEN 'Program execution was cancelled.' WHEN job_status='failed' THEN 'Program execution failed.' ELSE 'Program completion is no longer authorized or its lease expired.' END) AS entry
   FROM terminal
  ) UPDATE hx_workflow_runs SET status=(SELECT run_status FROM outcome),

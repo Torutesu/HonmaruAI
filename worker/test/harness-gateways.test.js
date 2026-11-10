@@ -56,6 +56,7 @@ test('claim is exclusive, submissions idempotent, finish rejects replay and wron
   const running = claims.find(Boolean);
   expect(running.id).toBe(job.id);
   const body = { lease: running.lease, status: 'succeeded', stdout: '42', exitCode: 0 };
+  expect((await api('POST', `/jobs/${job.id}/finish`, null, { ...body, messages: [{ text: 'not a workflow report' }] }, token)).status).toBe(400);
   expect((await api('POST', `/jobs/${job.id}/finish`, null, body, second.token)).status).toBe(409);
   expect((await api('POST', `/jobs/${job.id}/finish`, null, body, token)).status).toBe(200);
   expect((await api('POST', `/jobs/${job.id}/finish`, null, body, token)).status).toBe(409);

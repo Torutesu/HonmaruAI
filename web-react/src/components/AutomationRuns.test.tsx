@@ -12,6 +12,17 @@ test('execution history loads on demand and exposes failed step details',async()
  expect(workflow).toHaveBeenCalledWith('wf');expect(JSON.stringify(tree.toJSON())).toContain('Permission revoked')
  act(()=>tree.unmount())
 })
+test('execution history displays staged workflow message drafts without treating them as posted replies',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-draft',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[{step:1,type:'code',status:'done',output:'diagnostic output',messages:[{text:'The review is ready.',mention:['mika','toru']}]}]}]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>refresh(tree).props.onClick())
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain(t('Draft messages'))
+ expect(text).toContain('The review is ready.')
+ expect(text).toContain('mika, toru')
+ expect(text).toContain('diagnostic output')
+ act(()=>tree.unmount())
+})
 test('run history shows only the actor, resource, outcome, and check time for authorization events',async()=>{
  const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-auth',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[{step:1,type:'post',status:'failed',at:'2026-10-24T00:00:01Z',authorization:[{actorId:'user-42',resourceType:'conversation',resourceId:'b:ops',outcome:'denied',checkedAt:'2026-10-24T00:00:01Z'}]}]}]});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)});
