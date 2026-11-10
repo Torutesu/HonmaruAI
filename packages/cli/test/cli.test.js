@@ -205,7 +205,7 @@ test("resource aliases preserve row compare-and-set inputs and file version scop
   assert.equal(stderr.read(), "");
 });
 
-test("file lifecycle aliases expose folders, versions, and version-fenced text writes", async () => {
+test("file lifecycle aliases expose folders, versions, version-fenced writes, delete and restore", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
     const req = JSON.parse(init.body);
@@ -217,6 +217,10 @@ test("file lifecycle aliases expose folders, versions, and version-fenced text w
         ? { versions: [{ version: 2, contentType: "text/markdown", size: 18, createdAt: "2026-11-10T00:00:00.000Z", isCurrent: true, purged: false }] }
         : name === "read_file_text"
           ? { fileId: "file_1", version: 2, contentType: "text/markdown", size: 18, text: "# Current", untrustedContent: true }
+      : name === "delete_file"
+        ? { fileId: "file_1", version: 3, deleted: true }
+        : name === "restore_file_version"
+          ? { fileId: "file_1", version: 4, restoredFrom: 2, saved: true }
           : name === "create_file_text"
             ? { fileId: req.params.arguments.requestId, version: 1, saved: true }
             : { fileId: "file_1", version: 3, saved: true };
@@ -236,12 +240,21 @@ test("file lifecycle aliases expose folders, versions, and version-fenced text w
   assert.match(stdout.read(), /Created file file-123e4567-e89b-12d3-a456-426614174000 as version 1/); stdout.clear();
   assert.equal(await run(["workspace", "file", "update", "file_1", "--expected-version", "2", "--text", "# Revised"]), 0);
   assert.match(stdout.read(), /Saved file file_1 as version 3/);
+  stdout.clear();
+  assert.equal(await run(["workspace", "file", "delete", "file_1", "--expected-version", "2"]), 0);
+  assert.match(stdout.read(), /Deleted file file_1 as version 3/); stdout.clear();
+  assert.equal(await run(["workspace", "file", "revert", "file_1", "--version", "2", "--expected-version", "3"]), 0);
+  assert.match(stdout.read(), /Restored file file_1 from version 2 as version 4/);
+  assert.equal(await run(["workspace", "file", "revert", "file_1", "--version", "4", "--expected-version", "3"]), 1);
+  assert.match(stderr.read(), /--version must not be newer/); stderr.clear();
   assert.deepEqual(calls, [
     { name: "list_workspace_folders", arguments: { scope: "b:ops", directory: "reports" } },
     { name: "list_file_versions", arguments: { fileId: "file_1", before: 4, limit: 10 } },
     { name: "read_file_text", arguments: { fileId: "file_1", version: 2 } },
     { name: "create_file_text", arguments: { scope: "b:ops", path: "notes/today.md", requestId: "file-123e4567-e89b-12d3-a456-426614174000", text: "# Daily", contentType: "text/markdown" } },
     { name: "update_file_text", arguments: { fileId: "file_1", expectedVersion: 2, text: "# Revised" } },
+    { name: "delete_file", arguments: { fileId: "file_1", expectedVersion: 2 } },
+    { name: "restore_file_version", arguments: { fileId: "file_1", version: 2, expectedVersion: 3 } },
   ]);
   assert.equal(stderr.read(), "");
 });

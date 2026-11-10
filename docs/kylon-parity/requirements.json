@@ -916,11 +916,11 @@
       "code": "worker/src/harness/fileVersionLedger.js",
       "acceptance": "コンテンツ版・競合・復元後の新しい版・参照履歴",
       "evidence": {
-        "auditDate": "2026-10-25",
+        "auditDate": "2026-11-11",
         "reference": "https://docs.kylon.io/cli/workspace/file",
         "observedContract": "versions list; version get; deletion tombstone; revert copies old content into a new version and requires expected-current-version; purged content cannot be read or restored.",
-        "codeAudit": "Scoped HTTP/MCP file operations, immutable versions, staged R2 CAS writes, restore, tombstones, retention, empty-reservation cleanup, source classification, own-agent text creation/editing and authorized live invalidation are implemented. Local upload/replace/restore/delete/reload/download and version previews verified. Direct file URLs open room/history and survive reload; cross-workspace Simple-to-Harness navigation verified locally.",
-        "remaining": "Authenticated production upload/version/restore roundtrip; multi-user/mobile and native chooser verification; natural-language generation; shared-agent file writes; populated Kylon comparison; binary/export conversion. File metadata/deep links and recovery UI deployed in daf8e3f5; later raw UUID route enhancement awaits rollout."
+      "codeAudit": "Scoped HTTP/MCP file operations, immutable versions, staged R2 CAS writes, restore, tombstones, retention, empty-reservation cleanup, source classification, own-agent text creation/edit/delete/restore and authorized live invalidation are implemented. MCP delete and restore use current-version CAS, require existing harness.build and file delete authority, append a tombstone or copy an unpurged source into a new immutable version; permanent purge remains human-only.",
+      "remaining": "New MCP delete/restore tools are locally tested but not yet deployed; authenticated production upload/version/restore roundtrip; multi-user/mobile and native chooser verification; natural-language generation; shared-agent file writes; populated Kylon comparison; binary/export conversion."
       }
     },
     {
@@ -1067,7 +1067,7 @@
       "code": "packages/cli/src/cli.js",
       "acceptance": "Room・Message・Threadを含む全操作をCLIで利用可能。JSON出力・scope・ユーザー/agent principal・終了コード・失敗閉鎖",
       "evidence": {
-        "verified": "PR #569で実行ノード/App action aliases、PR #881でfile lifecycle aliases、現在の未マージブランチでRoom list/create/read、Message search/get/send、Thread get/msg、Reaction get/add/removeを追加。既存MCP toolへ接続し、Workerがscope・membership・private/DM/file grants・冪等性を再検証する。現ブランチでCLI suite 31/31とWorker mcp-chat suite 31/31が成功。",
+        "verified": "PR #569で実行ノード/App action aliases、PR #881で実行/row/file read-write aliases、PR #882でRoom list/create/read、Message search/get/send、Thread get/msg、Reaction get/add/removeを追加。既存MCP toolへ接続し、Workerがscope・membership・private/DM/file grants・冪等性を再検証する。次の未マージ差分ではfile delete/revert aliasesを追加し、CLI 31/31とWorker harness-mcp 17/17が成功。",
         "remaining": "Room discover/join/leave/archive/update/member管理、Thread create/activate/participants/pin/rename/attach、Message edit/delete/forward、Connections/Agents/Skills、browser/device auth、credential helper、Gateway repair/upgradeは未aliasまたは未実装。全コマンドのJSON・終了コード・user/agent principal・SSO/IP restriction受入とKylonライブ比較も未完了。"
       }
     },

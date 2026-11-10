@@ -1,6 +1,6 @@
 # Kylon機能差分・受入条件
 
-調査基準日: 2026-11-11。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。最新mainはPR #881の `ed8458c446d14387555d6e91c1c0b4b9b7f395e0`。
+調査基準日: 2026-11-11。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。最新mainはPR #882の `ef1c7730474738fe5a6203fdde420032b12cdd08`。
 
 全105項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
@@ -140,7 +140,7 @@
 | KY-070 | アップロード・フォルダ・生成者フィルタ | 一部 | P1 | [worker/src/files.js](../../worker/src/files.js) | ローカルでアップロード・フォルダ・最近・human/agent/unknownフィルター・2タブ自動更新を確認。main 7f602fa8に包含、公開完了は未確認。自然文による生成、共有エージェント、複数利用者・モバイル・本番アップロードが残る |
 | KY-071 | PDF・画像・CSV・テキストのプレビュー | 一部 | P1 | [web-react/src/components/DocumentPreview.tsx](../../web-react/src/components/DocumentPreview.tsx) | PR #476/#481を本番反映。PDF選択・検索ハイライト・拡大とCSV/テキスト検索を実装。PR #486でCSVダーク文字色を実画面修正し、後続のWeb/Workerデプロイ成功で公開を確認。全形式・大容量・モバイルの比較は残る |
 | KY-072 | PDF/Word/Markdown/HTML書き出し | 一部 | P1 | [worker/src/files.js](../../worker/src/files.js) | 単なる元ファイルDLと形式変換を区別 |
-| KY-073 | ファイルの版管理・復元 | 一部 | P1 | [fileVersionLedger.js](../../worker/src/harness/fileVersionLedger.js) | ローカルで版追加・復元・削除・再読込・履歴DLを確認。空予約の掃除と生成者分類・エージェント作成編集も実装。ファイルURLの別ワークスペース遷移を確認、リンク機能は公開候補。実機本番往復・複数利用者・参照履歴・全形式書き出しが残る |
+| KY-073 | ファイルの版管理・復元 | 一部 | P1 | [fileVersionLedger.js](../../worker/src/harness/fileVersionLedger.js), [fileWriteTools.js](../../worker/src/harness/fileWriteTools.js) | 版追加・履歴・復元に加えて、Harness MCP/Agent CLIからの版指定可逆削除と過去版復元を追加。削除は最新content版とCASを要求し、既存の所有者/Room delete authorityを再検査。復元は未purge版を新しいimmutable versionに複製し、purgeは人間限定。複数利用者の本番往復・参照履歴・全形式書き出し・Kylon UI比較は残る |
 | KY-074 | ファイルへの固定会話 | 一部 | P1 | worker/src/harness/fileConversation.js | 固定会話・同時作成・版更新・失効時拒否を検証。ローカルでファイル／会話の同時表示・戻り導線・ダークPDF幅合わせ・再読込を確認。版固定のAIテキスト読取と模擬モデル返信保存を検証。実モデル・PDF画像理解・通知・全端末・本番比較は残る |
 | KY-075 | 公開共有の承認と失効 | 一部 | P0 | [fileShareApprovals.js](../../worker/src/harness/fileShareApprovals.js), [filePublicUrls.js](../../worker/src/harness/filePublicUrls.js), [file-share-approvals.test.js](../../worker/test/file-share-approvals.test.js), [harness-file-public-urls.test.js](../../worker/test/harness-file-public-urls.test.js) | Harnessのスナップショット共有は1/7/30日期限、所有者または現行ルーム/Workspace管理者の承認・拒否、承認前リンク非発行、版/hash/scope/source/session/membership再検証、監査、失効を実装。別系統のメディア公開URLは版固定・失効・purge確認あり。共有リクエストの本番UI/複数利用者受入とKylon比較、共有対象・アクセス操作の全ケースは未確認。公開URLの全ファイル種別対応やKylon同等の共有設定までは実装していない。Simpleでは共有管理APIを無効化し、既存リンクの提供は維持 |
 
@@ -159,7 +159,7 @@
 | KY-082 | データプロバイダの組込み | 一部 | P2 | [worker/src/agentResearch.js](../../worker/src/agentResearch.js) | 検索以外の人/企業/SEO/地図/TikTok等を実契約APIで検証 |
 | KY-083 | 画像・動画・音声生成 | 一部・本番反映 | P2 | [worker/src/harness/mediaGeneration.js](../../worker/src/harness/mediaGeneration.js), [web-react/src/components/MessageVisualization.tsx](../../web-react/src/components/MessageVisualization.tsx) | PR #855でHarnessの所有Agent会話内に画像生成ジョブを追加。Workspace所有OpenAIキーのみ利用し、モデル送信前にプロンプトと従量費用の説明を人が承認する。進行状態・失敗・キャンセル・非公開PNG成果物の保存を実装。成果物の成功確定時にWorkspace/Agent所有権を再確認する更新SQLを修正し、模擬Provider応答からR2・ファイル台帳保存までテスト。動画・音声生成、固定額を提示する費用見積り、実Provider/実画面での受入は残る。生成費用は出力により変動するため固定額の見積りとしては表示しない |
 | KY-084 | モデル互換proxy | 一部 | P2 | [worker/src/orgAI.js](../../worker/src/orgAI.js) | 対応API・stream・使用量計上・providerエラーを検証 |
-| KY-085 | Workspace CLIの全操作 | 一部 | P1 | [packages/cli/src/cli.js](../../packages/cli/src/cli.js), [worker/src/mcpChatTools.js](../../worker/src/mcpChatTools.js) | 既存の認可付きMCPツールへHarness実行/App action/DB/Fileに加え、Room一覧・作成・履歴、Message検索・取得・送信、Thread取得・返信、Reaction get/add/removeのCLI aliasを追加。ページングcursorと上限を引き継ぎ、書込みは安定request ID必須、重複ファイルIDを正規化。private/DM/添付のスコープ、membership、冪等性はWorkerが再検証。Room join/discover/archive/update/member管理、Thread作成・participants/pin/rename/activate、Message edit/delete/forward、Connection/Agent/Skillの各コマンド、Gateway修復/OAuth/secure credential helperは未対応。CLI操作全体の本人/Agent principal、SSO/IP、Kylonライブ受入は未完了 |
+| KY-085 | Workspace CLIの全操作 | 一部 | P1 | [packages/cli/src/cli.js](../../packages/cli/src/cli.js), [worker/src/mcpChatTools.js](../../worker/src/mcpChatTools.js), [worker/src/harness/fileWriteTools.js](../../worker/src/harness/fileWriteTools.js) | 既存の認可付きMCPツールへHarness実行/App action/DB/Fileに加え、Room一覧・作成・履歴、Message検索・取得・送信、Thread取得・返信、Reaction get/add/remove、Fileの版指定削除・復元aliasを追加。書込みはrequest IDまたはcurrent-version CASを要求し、private/DM/attachment/file-scope authorityをWorkerが再検証。Room join/discover/archive/update/member管理、Thread作成・participants/pin/rename/activate、Message edit/delete/forward、File binary transfer/share/purge、Connection/Agent/Skillの各コマンド、Gateway修復/OAuth/secure credential helperは未対応。CLI操作全体の本人/Agent principal、SSO/IP、Kylonライブ受入は未完了 |
 
 ## Commercial
 

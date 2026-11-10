@@ -3,8 +3,8 @@ import {createHash} from 'node:crypto';
 import {getMode} from './mode.js';
 import {allowed} from '../permissions.js';
 import {audit} from '../audit.js';
-import {FileVersionInputError,readFileVersionContent,createFileLedger,workspaceFilePath} from './fileVersionLedger.js';
-import {uploadFileVersion} from './fileUpload.js';
+import {FileVersionInputError,readFileVersionContent,createFileLedger,workspaceFilePath,appendFileVersion} from './fileVersionLedger.js';
+import {uploadFileVersion,restoreFileVersion} from './fileUpload.js';
 
 const textTypes=['text/plain','text/markdown','text/csv','text/html','application/json','application/xml','application/yaml','application/javascript'];
 export const FILE_WRITE_TOOLS=[{
@@ -15,6 +15,14 @@ export const FILE_WRITE_TOOLS=[{
  name:'update_file_text',
  description:'Save edited UTF-8 text as a new immutable version of an existing accessible file, only when the user requested the edit. Requires write scope and workspace build permission. Read the file first and supply its exact current expectedVersion. Stale edits fail; never retry using a newer version without reading and reconciling it. Maximum 128 KiB. Retains the content type. Does not create files, execute content, or alter sharing.',
  inputSchema:{type:'object',properties:{fileId:{type:'string'},expectedVersion:{type:'integer',minimum:1},text:{type:'string',maxLength:131072}},required:['fileId','expectedVersion','text'],additionalProperties:false},
+},{
+ name:'delete_file',
+ description:'Move an accessible file to the deleted state while retaining its version history. Requires write scope and workspace build permission, plus the existing file delete authority. Supply the exact current expectedVersion; deletion removes public links. This is reversible by restoring a prior content version. Permanent purge is human-only.',
+ inputSchema:{type:'object',properties:{fileId:{type:'string'},expectedVersion:{type:'integer',minimum:1}},required:['fileId','expectedVersion'],additionalProperties:false},
+},{
+ name:'restore_file_version',
+ description:'Restore a prior unpurged content version as a new immutable current version. Requires write scope and workspace build permission. Read file history first and supply the exact current expectedVersion and source version. Stale restores fail; purged content cannot be restored.',
+ inputSchema:{type:'object',properties:{fileId:{type:'string'},expectedVersion:{type:'integer',minimum:1},version:{type:'integer',minimum:1}},required:['fileId','expectedVersion','version'],additionalProperties:false},
 }];
 const error=message=>({isError:true,content:[{type:'text',text:message}]});
 export async function callFileWriteTool(env,agent,name,args={}) {
@@ -22,15 +30,37 @@ export async function callFileWriteTool(env,agent,name,args={}) {
  if(await getMode(env.DB,agent.orgId)!=='harness')return error('File tools require harness mode.');
  const userId=String(agent.githubId),orgId=agent.orgId;
  if(!await allowed(env.DB,orgId,userId,'harness.build'))return error('File changes are not allowed.');
- if(!args||typeof args!=='object'||Array.isArray(args)||typeof args.text!=='string'||args.text.length>128*1024)return error('Text writes are limited to 128 KiB.');
- const bytes=new TextEncoder().encode(args.text);
- if(bytes.length>128*1024)return error('Text writes are limited to 128 KiB.');
- // Reject unpaired UTF-16 surrogates rather than silently saving replacements.
- if(new TextDecoder('utf-8',{ignoreBOM:true}).decode(bytes)!==args.text)return error('Text must contain valid Unicode.');
+ if(!args||typeof args!=='object'||Array.isArray(args))return error('Invalid file arguments.');
  const ready=await env.DB.prepare("SELECT count(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins')").first();
  if(ready.count!==6)return error('Workspace files are not available yet.');
+ let bytes=null;
+ if(name==='create_file_text'||name==='update_file_text'){
+  if(typeof args.text!=='string'||args.text.length>128*1024)return error('Text writes are limited to 128 KiB.');
+  bytes=new TextEncoder().encode(args.text);
+  if(bytes.length>128*1024)return error('Text writes are limited to 128 KiB.');
+  // Reject unpaired UTF-16 surrogates rather than silently saving replacements.
+  if(new TextDecoder('utf-8',{ignoreBOM:true}).decode(bytes)!==args.text)return error('Text must contain valid Unicode.');
+ }
  try {
   if(name==='create_file_text')return await createText(env,agent,args,bytes);
+  if(name==='delete_file'){
+   if(!Number.isSafeInteger(args.expectedVersion)||args.expectedVersion<1)return error('A positive expectedVersion is required.');
+   const current=await env.DB.prepare(`SELECT v.kind FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version WHERE f.org_id=?1 AND f.id=?2 AND f.current_version=?3`).bind(orgId,args.fileId,args.expectedVersion).first();
+   if(!current||current.kind!=='content')return error('File is unavailable, already deleted, or changed. Read its current version before deleting.');
+   const saved=await appendFileVersion(env.DB,{orgId,fileId:args.fileId,createdBy:userId,expectedVersion:args.expectedVersion,kind:'deleted'});
+   if(!saved.saved)return error('The file changed or is unavailable. Read its current version before deleting again.');
+   await audit(env,null,{orgId,action:'workspace.file_changed',actor:{type:'user',id:agent.login,name:agent.name},entity:{type:'file',id:args.fileId},details:{source:agent.source||'mcp',tokenId:agent.tokenId,agentName:agent.agentName,operation:'delete_file',version:saved.version}});
+   await announceFileChanged(env,orgId,args.fileId);
+   return success({fileId:args.fileId,version:saved.version,deleted:true});
+  }
+  if(name==='restore_file_version'){
+   if(!Number.isSafeInteger(args.expectedVersion)||args.expectedVersion<1||!Number.isSafeInteger(args.version)||args.version<1||args.version>args.expectedVersion)return error('Valid expectedVersion and source version are required.');
+   const restored=await restoreFileVersion(env,{orgId,fileId:args.fileId,userId,expectedVersion:args.expectedVersion,version:args.version});
+   if(!restored.saved)return error('The source version is unavailable, purged, or the file changed. Read its current history before restoring.');
+   await audit(env,null,{orgId,action:'workspace.file_changed',actor:{type:'user',id:agent.login,name:agent.name},entity:{type:'file',id:args.fileId},details:{source:agent.source||'mcp',tokenId:agent.tokenId,agentName:agent.agentName,operation:'restore_file_version',version:restored.version,restoredFrom:args.version}});
+   await announceFileChanged(env,orgId,args.fileId);
+   return success({fileId:args.fileId,version:restored.version,restoredFrom:args.version,saved:true});
+  }
   const file={orgId,userId,fileId:args.fileId};
   const source=await readFileVersionContent(env.DB,{...file,version:args.expectedVersion});
   if(!source)return error('File content is unavailable.');
