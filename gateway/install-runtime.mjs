@@ -5,7 +5,7 @@ import {join} from 'node:path';
 // client.mjs imports the optional document processor at module load time.
 export const serviceModules = Object.freeze([
   'service.mjs', 'client.mjs', 'runner.mjs', 'runtime.mjs', 'acp.mjs', 'acp-mcp-bridge.mjs',
-  'workflow-runner.mjs', 'workflow-guest.mjs', 'workflow-bridge.mjs',
+  'workflow-runner.mjs', 'workflow-guest.mjs', 'workflow-bridge.mjs', 'workflow-sdk.mjs',
   'document-client.mjs', 'document-runner.mjs', 'document-converter.mjs',
 ]);
 export async function copyServiceRuntime(source, destination) {

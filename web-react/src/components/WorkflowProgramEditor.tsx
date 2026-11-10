@@ -31,7 +31,7 @@ export function WorkflowProgramEditor({api,step,onChange}:{api:HarnessApi;step:S
    <div className="hx-program-gutter" aria-hidden="true"><pre ref={lineNumbers}>{Array.from({length:lineCount},(_,index)=>index+1).join('\n')}</pre></div>
    <textarea className="hx-program-source hx-program-input" aria-label={t('TypeScript source')} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={18} value={step.code||''} onScroll={event=>{if(lineNumbers.current)lineNumbers.current.style.transform=`translateY(-${event.currentTarget.scrollTop}px)`}} onChange={event=>onChange({...step,code:event.target.value})}/>
   </div>
-  <div className="hx-program-toolbar"><span>{t('Saved state is available through @honmaru/workflow-sdk.')}</span><span>{bytes.toLocaleString()} / 48,000 B</span></div>
+  <div className="hx-program-toolbar"><span>{t('Saved state is available through @honmaru/workflow-sdk.')}</span><span>{t('Use parallel and pipeline for bounded batches; failed items return null and call onError.')}</span><span>{bytes.toLocaleString()} / 48,000 B</span></div>
   {bytes>48000&&<p className="form-error" role="alert">{t('Program source exceeds 48 KB.')}</p>}
  </section>
 }

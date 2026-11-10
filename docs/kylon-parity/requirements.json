@@ -705,10 +705,13 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "新規runの定義を原子的に固定。権限付きrevision履歴・比較UIとrunの版番号を本番反映。追跡開始前の旧run移行と保存TypeScript定義のversionは未対応",
+      "acceptance": "新規runが不変revision・TypeScript sourceを原子的に固定し、権限付き履歴・比較・安全な復元を提供する。追跡開始前のrunは完全一致するrevisionがない限り「版未記録」として保持し、遡及的に推定しない",
       "evidence": {
-        "verified": "e16321cb candidate CI 40109883954 passed; production Worker 40111530216 and Web 40111530061 succeeded. Both domains serve index-mgdFRSD0.js. Readable light/dark/mobile comparisons verified in CI browser artifacts.",
-        "remaining": "Native signed-in interaction for this release remains unverified; historical pre-tracking runs are not relabelled. Saved TypeScript source/history is implemented in unreleased candidate 966084c1, awaiting full CI and production rollout."
+        "reviewedAt": "2026-11-10",
+        "inspectedMain": "a3b91f9681bc9c1a31fc2b72bd1c7b8d95a0e419",
+        "implementedScope": "Immutable workflow revision history, compare and restore UI, atomic revision pinning for new runs, revision/source display in run history, and frozen TypeScript whole-workflow source are present on main. Historical runs are attached read-only only when an exact prior revision matches; otherwise the UI reports that no revision was recorded. TypeScript program editor, isolated execution queue and durable state bridge are in main.",
+        "verified": "The workflow-program implementation branch acde74524a0d5a6423876db95bb85917a31a68a8 is an ancestor of main a3b91f9681bc9c1a31fc2b72bd1c7b8d95a0e419. Main CI run 42821620907, Worker deployment 42821621049 and Web deployment 42821620893 all succeeded. Worker health returned ok:true; the live web entry references HarnessWorkflows-D4Ouf3Mn.js, whose served bundle contains the TypeScript program editor. Earlier E2E browser artifacts recorded workflow source persistence, node claim/state transport, run history, and light/dark/mobile screenshots.",
+        "remaining": "Authenticated signed-in production interaction with a saved TypeScript workflow and side-by-side comparison to the current Kylon history/editor remain unverified. Historical pre-tracking runs correctly remain unversioned when no exact saved revision exists. The TypeScript SDK is partial (KY-059/KY-060), so source versioning does not imply runtime parity."
       }
     },
     {
@@ -732,11 +735,11 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js",
-      "acceptance": "部分失敗・ページング・取りこぼし率を結果に含める",
+      "code": "worker/src/harness/workflows.js, gateway/workflow-sdk.mjs",
+      "acceptance": "フォーム形式の条件分岐に加え、TypeScript SDKで最大10,000件のparallel/pipeline入力、最大32同時実行、最大32 pipeline stageを順序保持して処理し、項目単位失敗をnullとonErrorで報告する。ページング・agent()との合成・取りこぼし率の制御は残る",
       "evidence": {
-        "verified": "Typed per-step conditions, durable condition decisions, editor, generation and skipped-run history deployed in 51f93b14. Exact candidate CI 40104011140 and main CI 40105554195 passed; Worker/Web deployment and public assets index-D8APgVAb.js verified. Saved-workflow editing E2E passed on e3d54737; final editing candidate 653c6095 remains under CI.",
-        "remaining": "General branching, batch and bounded parallel execution, partial-failure reporting, paging and recovery remain incomplete. Signed-in native acceptance of the latest production release is pending."
+        "implementedScope": "Added isolated workflow SDK helpers parallel(thunks,{concurrency,onError}) and pipeline(items,...stages,{concurrency,onError}); hard bounds cap input length at 10,000, concurrency at 32 and pipeline stages at 32. Item errors remain localized as null, ordered results are preserved, and onError receives index (and stage for pipeline). The helpers are compiled into the existing offline Linux VM and do not enable network or host access.",
+        "remaining": "General API paging, agent()-backed judgment, cross-item completeness/miss-rate policy, failure recovery, and authenticated production/Kylon interaction acceptance remain. This is bounded deterministic concurrency, not full Kylon SDK parity."
       }
     },
     {

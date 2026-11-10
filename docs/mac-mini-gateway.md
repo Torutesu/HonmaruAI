@@ -184,20 +184,25 @@ Worker queue and execution UI now carry the explicit language; language changes 
 
 On 2026-10-25 a later health check found the copied Node executable failing macOS code-signature validation and launchd retrying it (`OS_REASON_CODESIGNING`). The original installed Node still verified correctly; its hash differed from the service copy. The installer now copies to a new inode, compares SHA-256 with the source, verifies the existing code signature and tests `--version` before an atomic rename. It does not re-sign the executable or disable platform protections. Reinstallation restored a valid matching copy, stable launchd process and running container runtime. The original corruption's cause is not established; an initial `running` snapshot alone is not evidence of sustained service health.
 
-### Whole-workflow TypeScript programs (release candidate)
+### Whole-workflow TypeScript programs (main; runtime acceptance remains partial)
 
-The unreleased workflow editor adds **TypeScriptプログラム** beside form steps. A program is the entire workflow: choose an existing execution node, save source, then run it manually or use the existing schedule/webhook/row trigger. Switching editor formats retains both drafts; saving selects only the visible format. Runs freeze the saved source and keep it while later edits create new revisions. The module executes from the top; an exported default function is not invoked automatically.
+The TypeScript workflow editor and frozen-source execution are on production main. A program is the whole workflow: choose an execution node, save source, then run manually or use an existing supported trigger. Switching editor formats retains each draft. A run pins the saved immutable definition; later edits create a new revision. The module executes from the top, and exported functions are not invoked automatically. The production workflow chunk `HarnessWorkflows-D4Ouf3Mn.js` was served from `app.honmaruai.com` after main commit `a3b91f9681bc9c1a31fc2b72bd1c7b8d95a0e419`.
 
-The candidate supports the following state API inside the isolated VM:
+The isolated guest exposes durable state, activation context, and bounded deterministic work helpers:
 
 ```ts
-import {state, ctx} from '@honmaru/workflow-sdk';
+import {state, ctx, parallel, pipeline} from '@honmaru/workflow-sdk';
 const previous = await state.get();
-const count = (previous.state?.count ?? 0) + 1;
-await state.set({count}, {validationStatus: 'passed', schemaVersion: 'v1'});
-console.log({count, workspace: ctx.workspaceId});
+const items = previous.state?.items ?? [];
+const processed = await pipeline(items, validate, transform, {concurrency: 8, onError: (error, index, stage) => {
+  console.error({index, stage, reason: String(error)});
+}});
+await state.set({items: processed}, {validationStatus: 'passed', schemaVersion: 'v1'});
+console.log({workspace: ctx.workspaceId});
 ```
 
-Read before writing. The SDK carries the revision into compare-and-swap writes; a conflicting or expired activation fails instead of overwriting newer state. `state.get()` returns prior accepted business state by default. Use `{view:'checkpoint'}` to inspect latest progress or `{includeCurrentRun:true}` to include accepted state from this run. Pending progress and accepted business state are separate. An uncertain program is not automatically rerun: review its execution history before deliberately starting new work.
+`parallel` accepts up to 10,000 thunks and concurrency 1–32. `pipeline` accepts up to 10,000 items, 32 transformation stages, and concurrency 1–32. Both preserve item order; an item failure becomes `null`, reports its index through `onError`, and does not stop other items. A failed pipeline item is not sent to later stages. The gateway SDK contract and install snapshot have regression tests.
 
-Current limits remain 60 seconds per VM, 48 KB saved source, a 64 KB combined execution payload, 128 KB state, 64 state operations and bounded logs. No outbound network, host files, host credentials, package installation, agent calls or external tool SDK are provided by this candidate. Node-to-state requests are handled by the trusted host broker with the assigned job lease. New services and billing are not required. Full Kylon SDK parity is still outstanding. This section describes the candidate, not a completed production rollout or a physical-reboot verification.
+Read state before writing. The SDK carries a revision into compare-and-swap writes; a conflicting or expired activation fails instead of overwriting newer state. `state.get()` returns prior accepted business state by default. Use `{view:'checkpoint'}` to inspect latest progress or `{includeCurrentRun:true}` to include accepted state from this run. Pending progress and accepted business state are separate. An uncertain program is not automatically rerun; review execution history before deliberately starting new work.
+
+The guest remains restricted to a 60-second VM, 48 KB saved source, a 64 KB combined execution payload, 128 KB state, 64 state operations and bounded logs. It has no outbound network, host files, host credentials, package installation, `agent()`, App API or Connection proxy. Paging/completeness policies and broad continuation recovery are also absent; this is not full Kylon SDK/runtime parity. The existing gateway service installs a fixed module snapshot and must be refreshed to receive code changes. In this environment, `container`, Docker, Podman and Lima executables were absent, so the physical Mac runtime could not execute the VM smoke test. Production Worker health and web bundle success do not prove a live TypeScript program run or a post-reboot node connection. No new paid service is required.
