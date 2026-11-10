@@ -268,6 +268,8 @@ test("App audience CAS shares with current workspace members and fences stale ap
   expect(saved.status).toBe(200);
   expect((await saved.json()).version).toBe(initial.version+1);
   expect((await call(audienceUrl,f.sessions.owner,'PUT',{version:initial.version,type:'room',roomId:'b:missing',permission:'edit'})).status).toBe(400);
+  await env.DB.prepare("UPDATE hx_external_resource_grants SET revoked_at=?1 WHERE org_id=?2 AND resource_type='app' AND resource_id=?3 AND recipient_github_id=?4 AND revoked_at IS NULL")
+    .bind(new Date().toISOString(),f.orgId,f.app.id,f.guestId).run();
   await upsertMembership(env.DB,f.orgId,f.guestId,'member');
   const appPath=`/external/apps/${f.orgId}/${f.app.id}`;
   expect((await call(appPath,f.sessions.guest)).status).toBe(200);

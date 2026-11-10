@@ -4,7 +4,7 @@ import { sha256Hex } from "./auth.js";
 import { addRow, updateRow, deleteRow } from "./harness/tables.js";
 import { deliverExternalInvite } from "./externalInviteMail.js";
 import { MAX_PREVIEW_SOURCE, validateSource } from "./harness/customApps.js";
-import { resourceAudienceAccessSql, resourceAudiencePermission, listResourceAudienceRooms, readResourceAudience, writeResourceAudience } from "./harness/externalResourceAudiences.js";
+import { resourceAudienceAccessSql, resourceAudiencePermissionSql, resourceAudiencePermission, listResourceAudienceRooms, readResourceAudience, writeResourceAudience } from "./harness/externalResourceAudiences.js";
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,

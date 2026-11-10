@@ -21,7 +21,7 @@ export function cleanResourceAudienceInput(input) {
       !Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now())) {
     throw new TypeError("Expiry must be a future timestamp.");
   }
-  return { version: input.version, type: input.type, roomId, permission,
+  return { version: input.version, type: input.type, roomId, permission: input.permission,
     expiresAt: expiresAt == null ? null : new Date(expiresAt).toISOString() };
 }
 
@@ -32,8 +32,8 @@ export function resourceAudienceAccessSql({ resourceType, org, resource, user, n
   if (!resourceTypes.has(resourceType)) throw new TypeError("Unsupported audience resource type.");
   if (requiredPermission != null && !permissions.has(requiredPermission)) throw new TypeError("Invalid resource permission.");
   const directPermission = requiredPermission ? ` AND g.permission='${requiredPermission}'` : "";
-  const groupPermission = requiredPermission ? ` AND a.permission='${requiredPermission}'` : "";
-  const versionFence = audienceVersion == null ? "" : ` AND a.version=${Number(audienceVersion)}`;
+  const groupPermission = requiredPermission ? ` AND audience.permission='${requiredPermission}'` : "";
+  const versionFence = audienceVersion == null ? "" : ` AND audience.version=${Number(audienceVersion)}`;
   const direct = audienceOnly ? "" :
     `EXISTS(SELECT 1 FROM hx_external_resource_grants g JOIN users identity ON identity.github_id=g.recipient_github_id
       WHERE g.org_id=${org} AND g.resource_type='${resourceType}' AND g.resource_id=${resource}
@@ -42,13 +42,13 @@ export function resourceAudienceAccessSql({ resourceType, org, resource, user, n
         AND identity.email_verified_at IS NOT NULL
         AND NOT EXISTS(SELECT 1 FROM memberships currentMember WHERE currentMember.org_id=g.org_id
           AND currentMember.user_github_id=g.recipient_github_id))`;
-  const audience = `EXISTS(SELECT 1 FROM hx_external_resource_audiences a
-      JOIN memberships member ON member.org_id=a.org_id AND member.user_github_id=${user}
-      WHERE a.org_id=${org} AND a.resource_type='${resourceType}' AND a.resource_id=${resource}
-        AND a.audience_type IS NOT NULL AND (a.expires_at IS NULL OR a.expires_at>${now})${versionFence}${groupPermission}
+  const audience = `EXISTS(SELECT 1 FROM hx_external_resource_audiences audience
+      JOIN memberships member ON member.org_id=audience.org_id AND member.user_github_id=${user}
+      WHERE audience.org_id=${org} AND audience.resource_type='${resourceType}' AND audience.resource_id=${resource}
+        AND audience.audience_type IS NOT NULL AND (audience.expires_at IS NULL OR a.expires_at>${now})${versionFence}${groupPermission}
         AND (a.audience_type='workspace' OR (a.audience_type='room' AND EXISTS(
           SELECT 1 /* org_id scope */ FROM conversation_members cm JOIN users roomUser ON roomUser.login=cm.login
-          WHERE cm.org_id=a.org_id AND cm.channel=a.room_id AND roomUser.github_id=${user}))))`;
+          WHERE cm.org_id=audience.org_id AND cm.channel=audience.room_id AND roomUser.github_id=${user}))))`;
   return `(${direct ? `${direct} OR ` : ""}${audience})`;
 }
 

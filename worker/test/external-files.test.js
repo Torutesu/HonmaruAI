@@ -201,15 +201,15 @@ test("workspace audience enables member edits and audience revocation is fenced 
   expect(await env.DB.prepare("SELECT current_version FROM hx_workspace_files WHERE org_id=?1 AND id=?2").bind(fixture.orgId,fixture.fileId).first()).toEqual({current_version:2});
 });
 
-test("audience and an older direct grant are unioned without letting Room audiences bypass membership", async () => {
+test("workspace audience permissions do not inherit an external grant after membership", async () => {
   await upsertMembership(env.DB, fixture.orgId, fixture.guestId, "member");
   await share("edit");
   const audiencePath=`/hx/files/${encodeURIComponent(fixture.fileId)}/external-audience?orgId=${encodeURIComponent(fixture.orgId)}`;
   const audience=await call(audiencePath,fixture.ownerSession,"PUT",JSON.stringify({version:0,type:"workspace",permission:"view"}),"application/json");
   expect(audience.status).toBe(200);
-  // Existing exact edit grants remain valid alongside the new audience.
+  // Exact external grants do not create or override workspace member access.
   const allowedUpload=new Blob(["union permission"]);
-  expect((await call(`${filePath()}/content?expectedVersion=1&size=${allowedUpload.size}`,fixture.guestSession,"PUT",allowedUpload.stream())).status).toBe(200);
+  expect((await call(`${filePath()}/content?expectedVersion=1&size=${allowedUpload.size}`,fixture.guestSession,"PUT",allowedUpload.stream())).status).toBe(403);
 
   await env.DB.prepare("UPDATE hx_external_resource_grants SET revoked_at=?1 WHERE org_id=?2 AND resource_id=?3 AND recipient_github_id=?4")
     .bind(new Date().toISOString(),fixture.orgId,fixture.fileId,fixture.guestId).run();

@@ -117,7 +117,8 @@ test('File Room audience requires live Room membership and expired audiences sto
   .bind(f.orgId,recipient.login,f.ownerId,new Date().toISOString()).run();
  expect((await call(filePath,f.recipientToken)).status).toBe(200);
  const expired=new Date(Date.now()-60_000).toISOString();
- await env.DB.prepare("UPDATE hx_external_resource_audiences SET expires_at=?1 WHERE org_id=?2 AND resource_type='file' AND resource_id=?3")
-  .bind(expired,f.orgId,f.fileId).run();
+ const beforeExpiry=new Date(Date.parse(expired)-60_000).toISOString();
+ await env.DB.prepare("UPDATE hx_external_resource_audiences SET expires_at=?1,updated_at=?2 WHERE org_id=?3 AND resource_type='file' AND resource_id=?4")
+  .bind(expired,beforeExpiry,f.orgId,f.fileId).run();
  expect((await call(filePath,f.recipientToken)).status).toBe(404);
 });
