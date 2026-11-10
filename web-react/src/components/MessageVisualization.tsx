@@ -121,7 +121,13 @@ export function splitMessageVisualizations(source: string): MessageSegment[] {
   return segments.length ? segments : [{ kind: 'text', text: source }]
 }
 
-const PALETTE = ['var(--hx-accent, #6657d9)', '#1d9a80', '#d1872a', '#cf6072']
+// Series colors are theme tokens so charts retain contrast in both workspace themes.
+const PALETTE = [
+  'var(--hx-chart-series-1, #5b4bd7)',
+  'var(--hx-chart-series-2, #087e68)',
+  'var(--hx-chart-series-3, #9a5c00)',
+  'var(--hx-chart-series-4, #b83d55)',
+]
 
 export type MediaJobApi = { httpBase: string; orgId: string; sessionToken: string }
 export function MessageVisualization({ value, api }: { value: MessageVisualizationData; api?: MediaJobApi }) {

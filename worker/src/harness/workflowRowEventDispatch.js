@@ -1,7 +1,6 @@
 import { rowEventFingerprint } from './workflowRowEventFingerprint.js';
 
 const MAX_PAYLOAD_BYTES = 200_000;
-const MAX_PENDING_PER_ORG = 100;
 const LEASE_MS = 60_000;
 const MAX_BACKOFF_MS = 60 * 60_000;
 const DONE_RETENTION_MS = 7 * 24 * 60 * 60_000;
@@ -22,9 +21,8 @@ export async function prepareWorkflowRowEvent(db, {orgId,table,before=null,row,b
     id,
     eventHash,
     statement: db.prepare(`INSERT INTO hx_workflow_row_event_outbox(id,org_id,table_id,event_hash,payload,status,attempts,next_attempt,lease_until,created_at)
-      SELECT ?1,?2,?3,?4,?5,'pending',0,?6,0,?6
-      WHERE (SELECT COUNT(*) FROM hx_workflow_row_event_outbox WHERE org_id=?2 AND status='pending')<?7`)
-      .bind(id,orgId,table.id,eventHash,payload,at,MAX_PENDING_PER_ORG),
+      VALUES(?1,?2,?3,?4,?5,'pending',0,?6,0,?6)`)
+      .bind(id,orgId,table.id,eventHash,payload,at),
   };
 }
 

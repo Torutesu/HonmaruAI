@@ -13,6 +13,10 @@
   --hx-action: #626d3e;
   --hx-action-text: #ffffff;
   --hx-danger: #a11258;
+  --hx-chart-series-1: #5b4bd7;
+  --hx-chart-series-2: #087e68;
+  --hx-chart-series-3: #9a5c00;
+  --hx-chart-series-4: #b83d55;
 }
 :root[data-theme="dark"] {
   --hx-surface: #191a1c;
@@ -28,6 +32,10 @@
   --hx-action: #c0c9b2;
   --hx-action-text: #20221d;
   --hx-danger: #ff9bbd;
+  --hx-chart-series-1: #a89dff;
+  --hx-chart-series-2: #55c9aa;
+  --hx-chart-series-3: #f0b55b;
+  --hx-chart-series-4: #ff8298;
 }
 @media (prefers-color-scheme: dark) {
  :root:not([data-theme="light"]) {
@@ -44,6 +52,10 @@
   --hx-action: #c0c9b2;
   --hx-action-text: #20221d;
   --hx-danger: #ff9bbd;
+  --hx-chart-series-1: #a89dff;
+  --hx-chart-series-2: #55c9aa;
+  --hx-chart-series-3: #f0b55b;
+  --hx-chart-series-4: #ff8298;
  }
 }
 /* Harness has its own neutral workspace shell. Simple keeps the original chrome. */
@@ -1118,7 +1130,7 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-message-chart-empty{position:absolute;inset:40% 12px auto;text-align:center;color:var(--hx-muted);font-size:12px}
 .hx-message-chart-legend{display:flex;flex-wrap:wrap;gap:6px 12px}
 .hx-message-chart-legend button{display:inline-flex;align-items:center;gap:6px;padding:3px 4px;border:0;border-radius:5px;background:transparent;color:var(--hx-muted);font:inherit;font-size:11px;cursor:pointer}
-.hx-message-chart-legend i{width:9px;height:9px;border-radius:3px}
+.hx-message-chart-legend i{width:9px;height:9px;border-radius:3px;flex:none}
 .hx-message-chart-data{max-width:100%;overflow:auto}
 .hx-message-chart-data table{width:100%;border-collapse:collapse;font-size:12px}
 .hx-message-chart-data caption{text-align:left;color:var(--hx-muted);padding:0 0 8px}
