@@ -263,7 +263,7 @@ export async function getRow(db, orgId, tableId, rowId) {
 }
 
 function appRowWriteGuard(orgParam, tableParam, userParam) {
-  return `EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?${orgParam} AND m.user_github_id=?${userParam} AND LOWER(COALESCE(m.role,'guest'))!='guest')
+  return `EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?${orgParam} AND m.user_github_id=?${userParam} AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
     AND NOT EXISTS(
       SELECT 1 FROM hx_apps linked
       LEFT JOIN hx_app_access policy ON policy.org_id=linked.org_id AND policy.app_id=linked.id

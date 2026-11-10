@@ -20,7 +20,7 @@ export async function proposeMemoryPromotion(db, orgId, agentId, { memoryId, exp
     FROM hx_agent_memories m JOIN hx_memory_scopes s ON s.org_id=m.org_id AND s.memory_id=m.id
     LEFT JOIN hx_memory_entries d ON d.org_id=m.org_id AND d.memory_id=m.id
     JOIN custom_agents a ON a.org_id=m.org_id AND a.id=m.agent_id AND a.deleted_at IS NULL
-    JOIN memberships requester_membership ON requester_membership.org_id=m.org_id AND requester_membership.user_github_id=?4 AND LOWER(COALESCE(requester_membership.role,'guest'))!='guest'
+    JOIN memberships requester_membership ON requester_membership.org_id=m.org_id AND requester_membership.user_github_id=?4 AND LOWER(TRIM(COALESCE(requester_membership.role,'guest')))!='guest'
     WHERE m.org_id=?2 AND m.agent_id=?3 AND m.id=?8 AND s.channel='' AND s.user_github_id=?4
       AND COALESCE(d.version,0)=?9`).bind(id,orgId,agentId,String(requesterId),String(requesterLogin),requestKey,createdAt,memoryId,expectedVersion).run(); }
   catch (error) {
@@ -58,7 +58,7 @@ export async function canDecideMemoryPromotion(db,orgId,agentId,actorLogin) {
   if(!agent)return false;
   if(String(agent.owner_login)===String(actorLogin))return true;
   return !!await db.prepare(`SELECT 1 FROM hx_agent_members r JOIN users u ON u.github_id=r.user_id
-    JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.user_id AND m.created_at=r.member_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
+    JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.user_id AND m.created_at=r.member_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     WHERE r.org_id=?1 AND r.agent_id=?2 AND u.login=?3 AND r.role='admin'`).bind(orgId,agentId,String(actorLogin)).first();
 }
 
@@ -77,7 +77,7 @@ export async function listMemoryPromotions(db, orgId, agentId, actorId, actorLog
   const {mayAccessAgent}=await import('./agents.js');
   const requests=[];
   for(const row of results){
-    const member=await db.prepare(`SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(COALESCE(role,'guest'))!='guest'`).bind(orgId,row.requester_id).first();
+    const member=await db.prepare(`SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest'`).bind(orgId,row.requester_id).first();
     const sourceAccess=!!member&&!!agent&&await mayAccessAgent(db,orgId,{...agent,ownerLogin:agent.owner_login},row.requester_login);
     const item=formatRequest(row);
     if(!sourceAccess){item.sourceCurrent=false;item.source=null;item.sourceAccess=false;}
@@ -100,7 +100,7 @@ export async function decideMemoryPromotion(db, orgId, agentId, requestId, { dec
   if(!await mayAccessAgent(db,orgId,{...liveAgent,ownerLogin:liveAgent.owner_login},request.requester_login))return {error:'Requester no longer has access to this Agent.',status:409};
   const admin=String(liveAgent.owner_login)===String(actorLogin)||!!await db.prepare(`SELECT 1 FROM hx_agent_members r
     JOIN users u ON u.github_id=r.user_id JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.user_id
-      AND m.created_at=r.member_since AND LOWER(COALESCE(m.role,'guest'))!='guest'
+      AND m.created_at=r.member_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     WHERE r.org_id=?1 AND r.agent_id=?2 AND u.login=?3 AND r.role='admin'`).bind(orgId,agentId,String(actorLogin)).first();
   if(!admin)return {error:'Only the current Agent owner or an active Agent admin can decide.',status:403};
   const stamp=new Date().toISOString();
@@ -110,18 +110,18 @@ export async function decideMemoryPromotion(db, orgId, agentId, requestId, { dec
     OR EXISTS(SELECT 1 FROM hx_agent_profiles p JOIN json_each(COALESCE(p.people,'[]')) person
       WHERE p.org_id=r.org_id AND p.agent_id=r.agent_id AND p.access='people' AND person.value=r.requester_login)
     OR EXISTS(SELECT 1 FROM hx_agent_members rr JOIN memberships rm ON rm.org_id=rr.org_id AND rm.user_github_id=rr.user_id
-      AND rm.created_at=rr.member_since AND LOWER(COALESCE(rm.role,'guest'))!='guest'
+      AND rm.created_at=rr.member_since AND LOWER(TRIM(COALESCE(rm.role,'guest')))!='guest'
       WHERE rr.org_id=r.org_id AND rr.agent_id=r.agent_id AND rr.user_id=r.requester_id AND rr.role IN ('member','admin')))))`;
   if(decision==='reject'){
     const out=await db.prepare(`INSERT INTO hx_memory_promotion_decisions(request_id,org_id,decision,decided_by,decided_at)
       SELECT r.id,r.org_id,'rejected',?4,?5 FROM hx_memory_promotion_requests r
       JOIN custom_agents a ON a.org_id=r.org_id AND a.id=r.agent_id AND a.deleted_at IS NULL
-      JOIN memberships reviewer ON reviewer.org_id=r.org_id AND reviewer.user_github_id=?4 AND LOWER(COALESCE(reviewer.role,'guest'))!='guest'
-      JOIN memberships requester ON requester.org_id=r.org_id AND requester.user_github_id=r.requester_id AND LOWER(COALESCE(requester.role,'guest'))!='guest'
+      JOIN memberships reviewer ON reviewer.org_id=r.org_id AND reviewer.user_github_id=?4 AND LOWER(TRIM(COALESCE(reviewer.role,'guest')))!='guest'
+      JOIN memberships requester ON requester.org_id=r.org_id AND requester.user_github_id=r.requester_id AND LOWER(TRIM(COALESCE(requester.role,'guest')))!='guest'
       WHERE r.org_id=?1 AND r.agent_id=?2 AND r.id=?3 AND NOT EXISTS(SELECT 1 FROM hx_memory_promotion_decisions x WHERE x.request_id=r.id)
         AND ${requesterPredicate} AND (a.owner_login=?6 OR EXISTS(SELECT 1 FROM hx_agent_members ar JOIN users au ON au.github_id=ar.user_id
           JOIN memberships am ON am.org_id=ar.org_id AND am.user_github_id=ar.user_id AND am.created_at=ar.member_since
-            AND LOWER(COALESCE(am.role,'guest'))!='guest' WHERE ar.org_id=r.org_id AND ar.agent_id=r.agent_id AND au.login=?6 AND ar.role='admin'))`)
+            AND LOWER(TRIM(COALESCE(am.role,'guest')))!='guest' WHERE ar.org_id=r.org_id AND ar.agent_id=r.agent_id AND au.login=?6 AND ar.role='admin'))`)
       .bind(orgId,agentId,requestId,String(actorId),stamp,String(actorLogin)).run();
     if(!out.meta?.changes)return {error:'Request or active workspace access changed. Reload before deciding.',status:409};
     return {request:{...formatRequest(request),status:'rejected',decidedBy:String(actorId),decidedAt:stamp}};
@@ -129,7 +129,7 @@ export async function decideMemoryPromotion(db, orgId, agentId, requestId, { dec
   const sharedId=`amem_${crypto.randomUUID()}`;
   const reviewerPredicate=`(a.owner_login=?7 OR EXISTS(SELECT 1 FROM hx_agent_members ar JOIN users au ON au.github_id=ar.user_id
     JOIN memberships am ON am.org_id=ar.org_id AND am.user_github_id=ar.user_id AND am.created_at=ar.member_since
-      AND LOWER(COALESCE(am.role,'guest'))!='guest' WHERE ar.org_id=r.org_id AND ar.agent_id=r.agent_id AND au.login=?7 AND ar.role='admin'))`;
+      AND LOWER(TRIM(COALESCE(am.role,'guest')))!='guest' WHERE ar.org_id=r.org_id AND ar.agent_id=r.agent_id AND au.login=?7 AND ar.role='admin'))`;
   const results=await db.batch([
     db.prepare(`INSERT INTO hx_agent_memories(id,org_id,agent_id,text,source,created_by,created_at)
       SELECT ?6,m.org_id,m.agent_id,m.text,m.source,?4,?5 FROM hx_memory_promotion_requests r
@@ -137,8 +137,8 @@ export async function decideMemoryPromotion(db, orgId, agentId, requestId, { dec
       JOIN hx_memory_scopes s ON s.org_id=m.org_id AND s.memory_id=m.id AND s.channel='' AND s.user_github_id=r.source_owner_id
       LEFT JOIN hx_memory_entries d ON d.org_id=m.org_id AND d.memory_id=m.id
       JOIN custom_agents a ON a.org_id=r.org_id AND a.id=r.agent_id AND a.deleted_at IS NULL
-      JOIN memberships reviewer ON reviewer.org_id=r.org_id AND reviewer.user_github_id=?4 AND LOWER(COALESCE(reviewer.role,'guest'))!='guest'
-      JOIN memberships requester ON requester.org_id=r.org_id AND requester.user_github_id=r.requester_id AND LOWER(COALESCE(requester.role,'guest'))!='guest'
+      JOIN memberships reviewer ON reviewer.org_id=r.org_id AND reviewer.user_github_id=?4 AND LOWER(TRIM(COALESCE(reviewer.role,'guest')))!='guest'
+      JOIN memberships requester ON requester.org_id=r.org_id AND requester.user_github_id=r.requester_id AND LOWER(TRIM(COALESCE(requester.role,'guest')))!='guest'
       WHERE r.org_id=?1 AND r.agent_id=?2 AND r.id=?3 AND r.source_scope='person' AND r.source_channel=''
         AND COALESCE(d.version,0)=r.source_version AND NOT EXISTS(SELECT 1 FROM hx_memory_promotion_decisions x WHERE x.request_id=r.id)
         AND ${requesterPredicate} AND ${reviewerPredicate}`)
@@ -161,8 +161,8 @@ export async function decideMemoryPromotion(db, orgId, agentId, requestId, { dec
       JOIN hx_memory_scopes s ON s.org_id=m.org_id AND s.memory_id=m.id AND s.channel='' AND s.user_github_id=r.source_owner_id
       LEFT JOIN hx_memory_entries d ON d.org_id=m.org_id AND d.memory_id=m.id
       JOIN custom_agents a ON a.org_id=r.org_id AND a.id=r.agent_id AND a.deleted_at IS NULL
-      JOIN memberships reviewer ON reviewer.org_id=r.org_id AND reviewer.user_github_id=?4 AND LOWER(COALESCE(reviewer.role,'guest'))!='guest'
-      JOIN memberships requester ON requester.org_id=r.org_id AND requester.user_github_id=r.requester_id AND LOWER(COALESCE(requester.role,'guest'))!='guest'
+      JOIN memberships reviewer ON reviewer.org_id=r.org_id AND reviewer.user_github_id=?4 AND LOWER(TRIM(COALESCE(reviewer.role,'guest')))!='guest'
+      JOIN memberships requester ON requester.org_id=r.org_id AND requester.user_github_id=r.requester_id AND LOWER(TRIM(COALESCE(requester.role,'guest')))!='guest'
       WHERE r.org_id=?1 AND r.agent_id=?2 AND r.id=?3 AND r.source_scope='person' AND r.source_channel=''
         AND COALESCE(d.version,0)=r.source_version AND EXISTS(SELECT 1 FROM hx_agent_memories n WHERE n.org_id=?1 AND n.id=?6)
         AND NOT EXISTS(SELECT 1 FROM hx_memory_promotion_decisions x WHERE x.request_id=r.id)
