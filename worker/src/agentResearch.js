@@ -42,13 +42,43 @@ function contextCheckpoint(originalInput, completedTools, lastNote) {
   return `Continue the same task from this compacted checkpoint. The tool results below are completed work: do not repeat the exact same tool call or side effect. Use these results as facts, retain the original request and its constraints, and continue any remaining work. If the request is complete, answer the user.\n\n<original_request_and_recent_context>\n${boundedText(original, 12000)}\n</original_request_and_recent_context>\n\n<completed_tool_calls>\n${steps || "No tools completed."}\n</completed_tool_calls>\n\n<last_agent_progress>\n${boundedText(lastNote, 3000) || "No intermediate note."}\n</last_agent_progress>`;
 }
 
-async function raceSignal(promise,signal,value) {
-  if(!signal)return promise;
-  if(signal.aborted)return value;
+async function runWithinDeadline(run, signal, deadline) {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0 || signal?.aborted) return { kind: signal?.aborted ? "cancelled" : "deadline" };
+  const controller = new AbortController();
+  let timer;
   let abort;
-  const aborted=new Promise(resolve=>{abort=()=>resolve(value);signal.addEventListener('abort',abort,{once:true});});
-  try{return await Promise.race([promise,aborted]);}
-  finally{signal.removeEventListener('abort',abort);}
+  const timedOut = new Promise(resolve => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve({ kind: "deadline" });
+    }, remaining);
+  });
+  const cancelled = signal ? new Promise(resolve => {
+    abort = () => {
+      controller.abort();
+      resolve({ kind: "cancelled" });
+    };
+    signal.addEventListener("abort", abort, { once: true });
+  }) : new Promise(() => {});
+  // Resolve either outcome as data so a late rejection remains observed even
+  // after the deadline race has stopped waiting for this operation.
+  const operation = new Promise(resolve => {
+    try {
+      Promise.resolve(run(controller.signal)).then(
+        value => resolve({ kind: "value", value }),
+        error => resolve({ kind: "error", error }),
+      );
+    } catch (error) {
+      resolve({ kind: "error", error });
+    }
+  });
+  try {
+    return await Promise.race([operation, timedOut, cancelled]);
+  } finally {
+    clearTimeout(timer);
+    if (abort) signal.removeEventListener("abort", abort);
+  }
 }
 
 /// A reasoning model: the ones that plan tool calls themselves and take
@@ -77,7 +107,7 @@ const COUNTRY = { ja: "JP", en: "US", es: "ES", fr: "FR", de: "DE", ko: "KR", zh
 /// `plain`: the workspace's own model, the search tool bare, no reasoning
 /// settings — nothing a model might refuse — the retry when the full call
 /// is turned down. Our own tools stay.
-export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, webSearch = true, maxOutput = null, mustLook = false, authorize = null, signal = null, usageContext = null }) {
+export async function research({ provider, env, instructions, input, tools = {}, language = "en", deadline = Date.now() + 240000, effort, plain = false, onRound = null, webSearch = true, maxOutput = null, mustLook = false, authorize = null, signal = null, usageContext = null, maxRounds = MAX_ROUNDS, maxFunctionCalls = MAX_FUNCTION_CALLS, maxContextCompactions = MAX_CONTEXT_COMPACTIONS }) {
   const endpoint = provider.endpoint.replace(/\/chat\/completions$/, "/responses");
   const model = plain ? provider.model : agentModelFor(env, provider);
   const reasoning = isReasoningModel(model);
@@ -114,7 +144,7 @@ export async function research({ provider, env, instructions, input, tools = {},
   let compactions = 0;
   const completedTools = [];
   const cancelled = () => ({ called, answer: null, sources: [], rounds, calls, cancelled: true });
-  while (rounds < MAX_ROUNDS + 1) {
+  while (rounds < maxRounds + 1 && Date.now() < deadline) {
     if (signal?.aborted || (authorize && !await authorize())) return cancelled();
     rounds += 1;
     // Still at it: whoever is watching keeps seeing the agent writing.
@@ -140,7 +170,7 @@ export async function research({ provider, env, instructions, input, tools = {},
         method: "POST",
         headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(Math.max(10000, Math.min(CALL_TIMEOUT_MS, deadline - Date.now())))]) : AbortSignal.timeout(Math.max(10000, Math.min(CALL_TIMEOUT_MS, deadline - Date.now()))),
+        signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(Math.max(1, Math.min(CALL_TIMEOUT_MS, deadline - Date.now())))]) : AbortSignal.timeout(Math.max(1, Math.min(CALL_TIMEOUT_MS, deadline - Date.now()))),
       });
       if (!res.ok) {
         const reason = await res.text().catch(() => "");
@@ -170,7 +200,7 @@ export async function research({ provider, env, instructions, input, tools = {},
     if (!pending.length || finalOnly) break;
     const reportedInputTokens = Number(data?.usage?.input_tokens || 0);
     const contextInputTokens = Math.max(reportedInputTokens, Math.ceil(estimatedContextChars / 4));
-    if (contextInputTokens >= COMPACT_AFTER_INPUT_TOKENS && compactions >= MAX_CONTEXT_COMPACTIONS) {
+    if (contextInputTokens >= COMPACT_AFTER_INPUT_TOKENS && compactions >= maxContextCompactions) {
       finalOnly = true;
       next = pending.map(call => ({
         type: "function_call_output",
@@ -186,7 +216,7 @@ export async function research({ provider, env, instructions, input, tools = {},
     const runCall = async (call) => {
       calls += 1;
       let output;
-      if (calls > MAX_FUNCTION_CALLS) output = "Tool budget spent. Answer now from what you have.";
+      if (calls > maxFunctionCalls) output = "Tool budget spent. Answer now from what you have.";
       else {
         const tool = tools[call.name];
         let args = {};
@@ -196,15 +226,16 @@ export async function research({ provider, env, instructions, input, tools = {},
         if (repeatedAfterCheckpoint) return { type: "function_call_output", call_id: call.call_id, output: "This exact tool call already completed before the context checkpoint. Use its saved result and continue without repeating the side effect." };
         try {
           if (signal?.aborted || (authorize && !await authorize())) return { type: "function_call_output", call_id: call.call_id, output: "Access changed. Execution stopped." };
-          const cancelledTool=Symbol('cancelled tool');
           let result;
           if(!tool)result=`No tool named ${call.name}.`;
-          else if(signal) {
-            const operation=Promise.resolve().then(()=>tool.run(args,{signal}));
-            operation.catch(()=>{});
-            result=await raceSignal(operation,signal,cancelledTool);
-          } else result=await tool.run(args);
-          if(result===cancelledTool)return {cancelled:true};
+          else {
+            const bounded = await runWithinDeadline(toolSignal => tool.run(args, { signal: toolSignal }), signal, deadline);
+            if (bounded.kind === "cancelled") return { cancelled: true };
+            if (bounded.kind === "deadline") output = "The execution deadline was reached before this tool returned.";
+            else if (bounded.kind === "error") throw bounded.error;
+            else result = bounded.value;
+          }
+          if(output)return {type:"function_call_output",call_id:call.call_id,output};
           if(signal?.aborted)return {cancelled:true};
           const operationId = isControlTool(tool) ? handoffOperation(result) : null;
           if (operationId) return {handedOff: {operationId}};
@@ -240,7 +271,7 @@ export async function research({ provider, env, instructions, input, tools = {},
     }
     const outputsForNextRound = pending.map(call => results.get(call));
     estimatedContextChars += JSON.stringify(outputsForNextRound).length;
-    const shouldCompact = contextInputTokens >= COMPACT_AFTER_INPUT_TOKENS && compactions < MAX_CONTEXT_COMPACTIONS;
+    const shouldCompact = contextInputTokens >= COMPACT_AFTER_INPUT_TOKENS && compactions < maxContextCompactions;
     if (shouldCompact) {
       compactions += 1;
       previous = null;
@@ -249,9 +280,9 @@ export async function research({ provider, env, instructions, input, tools = {},
     } else {
       next = outputsForNextRound;
       const tokensAfterToolResults = Math.max(reportedInputTokens, Math.ceil(estimatedContextChars / 4));
-      if (tokensAfterToolResults >= COMPACT_AFTER_INPUT_TOKENS && compactions >= MAX_CONTEXT_COMPACTIONS) finalOnly = true;
+      if (tokensAfterToolResults >= COMPACT_AFTER_INPUT_TOKENS && compactions >= maxContextCompactions) finalOnly = true;
     }
-    if (calls >= MAX_FUNCTION_CALLS || rounds >= MAX_ROUNDS || Date.now() > deadline - 30000) finalOnly = true;
+    if (calls >= maxFunctionCalls || rounds >= maxRounds || Date.now() > deadline - 30000) finalOnly = true;
   }
 
   const text = last ? readResponse(last).text : "";

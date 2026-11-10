@@ -2,7 +2,7 @@
 
 調査基準日: 2026-11-09。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。2026-11-10時点のPR #862/#863反映は下記追記を参照。
 
-全104項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
+全105項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
 2026-11-10 PR #862反映: main `b5fea8e2` にマージ済み。正確なhead CI #42681479871、main CI #42684677206、Worker deploy #42684677210（D1 migration/deploy/verify）、Web deploy #42684677047 が成功。KY-030/044/051は機能範囲を更新したが、Kylon同等性の残差は各行に明記。受入確認の詳細は [verification.md](verification.md) を参照。
 
@@ -256,4 +256,5 @@ Kylonの[2026-10-30 changelog](https://kylon.io/changelog)は、会話コンテ�
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-114 | 長時間Agentタスクの文脈圧縮と継続 | 一部 | P1 | [agentResearch.js](../../worker/src/agentResearch.js), [agentChatTools.js](../../worker/src/agentChatTools.js), [agent-research.test.js](../../worker/test/agent-research.test.js), [agent-chat-tools.test.js](../../worker/test/agent-chat-tools.test.js) | OpenAI ResponsesとOpenRouter chat-tool経路の両方で、48,000 input tokensまたは累積tool結果が同じ推定文脈量に達した時点で、元依頼・直近文脈・完了済みtoolと結果・最新進捗をcheckpointへ変換し、新規chainで継続。圧縮は最大2回、16 model rounds、16 tool calls、実行deadline、権限確認・キャンセルを維持。完了済みの完全一致tool callを再実行しない。追加要約API/サービスなし。関連5スイート149件成功。BYO長時間の実画面QA・本番反映は残る。Simple modeには適用しない。 |
+| KY-114 | 長時間Agentタスクの文脈圧縮と継続 | 一部 | P1 | [agentResearch.js](../../worker/src/agentResearch.js), [agentChatTools.js](../../worker/src/agentChatTools.js), [agent-research.test.js](../../worker/test/agent-research.test.js), [agent-chat-tools.test.js](../../worker/test/agent-chat-tools.test.js) | OpenAI ResponsesとOpenRouter chat-tool経路の両方で、48,000 input tokensまたは累積tool結果が同じ推定文脈量に達した時点で、元依頼・直近文脈・完了済みtoolと結果・最新進捗をcheckpointへ変換し、新規chainで継続。圧縮は最大2回、16 model rounds、16 tool calls、実行deadline、権限確認・キャンセルを維持。完了済みの完全一致tool callを再実行しない。追加要約API/サービスなし。関連5スイート149件成功。BYO長時間の認証済み実画面QAは残る。PR #866 exact-head CI #42717933744、main CI #42720363920、Worker deploy #42720363385成功。本番health `ok:true`、app HTTP 200。Simple modeには適用しない。 |
+| KY-115 | Agentからのプライベート並列サブエージェント | 一部 | P1 | [agentSubagents.js](../../worker/src/agentSubagents.js), [customAgents.js](../../worker/src/customAgents.js), [agent-subagents.test.js](../../worker/test/agent-subagents.test.js) | Harness Agentが最大2件を並列委譲。親のスコープ済み読み取りツールだけ、bounded context/task/result、30秒・4 model rounds・3 tool calls。書込・投稿・ブラウザ・承認・再委譲なし。認可失効時は結果を破棄し、Simpleではツールを出さない。認証済み本番QA、Kylonのrouting選択・run card/history・個別identity/credential・長時間cloud helperは未実装。追加サービス/課金なし。 |

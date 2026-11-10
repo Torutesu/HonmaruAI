@@ -45,7 +45,7 @@ export function canChatTools(provider) {
   return provider?.providerName === 'OpenRouter' && provider.endpoint === 'https://openrouter.ai/api/v1/chat/completions';
 }
 
-export async function chatTools({provider, instructions, input, tools, authorize = null, onRound = null, onToolEvent = null, deadline = Date.now() + 240000, signal = null, usageContext = null}) {
+export async function chatTools({provider, instructions, input, tools, authorize = null, onRound = null, onToolEvent = null, deadline = Date.now() + 240000, signal = null, usageContext = null, maxModelRounds = MAX_MODEL_ROUNDS, maxToolCalls = MAX_TOOL_CALLS, maxOutputTokens = 3000}) {
   let called = false, calls = 0, rounds = 0;
   let traceEvents = 0;
   let traceStartedAt = null;
@@ -95,9 +95,9 @@ export async function chatTools({provider, instructions, input, tools, authorize
   const headers = {Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json'};
   if (provider.appUrl) headers['HTTP-Referer'] = provider.appUrl;
   if (provider.appName) headers['X-Title'] = provider.appName;
-  while (rounds < MAX_MODEL_ROUNDS && Date.now() < deadline) {
+  while (rounds < maxModelRounds && Date.now() < deadline) {
     if (!await permitted()) return done({cancelled: true});
-    const finalOnly = finalAnswerOnly || rounds >= MAX_MODEL_ROUNDS - 1 || calls >= MAX_TOOL_CALLS ||
+    const finalOnly = finalAnswerOnly || rounds >= maxModelRounds - 1 || calls >= maxToolCalls ||
       (compactions >= MAX_CONTEXT_COMPACTIONS && Math.ceil(JSON.stringify(messages).length / 4) >= COMPACT_AFTER_INPUT_TOKENS) || Date.now() > deadline - 10000;
     rounds++;
     if (rounds > 1 && onRound) await Promise.resolve(onRound(rounds)).catch(() => {});
@@ -106,7 +106,7 @@ export async function chatTools({provider, instructions, input, tools, authorize
     let data;
     try {
       const response = await fetch(provider.endpoint, {method: 'POST', headers,
-        body: JSON.stringify({model: provider.model, messages, tools: definitions, tool_choice: finalOnly ? 'none' : 'auto', max_tokens: 3000}),
+        body: JSON.stringify({model: provider.model, messages, tools: definitions, tool_choice: finalOnly ? 'none' : 'auto', max_tokens: maxOutputTokens}),
         signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))]) : AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))});
       if (!response.ok) return signal?.aborted?done({cancelled:true}):done({refused: !called, status: response.status});
       data = await response.json();
@@ -138,7 +138,7 @@ export async function chatTools({provider, instructions, input, tools, authorize
       if (!await permitted()) return {cancelled: true};
       const prior = receipts.get(call.id);
       if (prior) return {output: prior.output};
-      if (calls >= MAX_TOOL_CALLS || Date.now() >= deadline) return {output: 'Tool budget spent. Answer from the results already available.'};
+      if (calls >= maxToolCalls || Date.now() >= deadline) return {output: 'Tool budget spent. Answer from the results already available.'};
       calls++;
       let replayArgs;
       try { replayArgs = JSON.parse(call.function.arguments); } catch { /* normal validation below */ }

@@ -1289,8 +1289,22 @@
       "acceptance": "When a Responses or OpenRouter chat-tool chain grows large, checkpoint the original task, bounded recent context, completed tool calls and their results; begin a fresh chain and continue without repeating completed side effects. Maintain the same authorization check, cancellation, source collection, 16-call and 240-second execution limits, and cap compactions. Continue after eight model rounds up to the hard round limit. Use only the existing provider and record normal token usage; do not add a separate summarizer service. Verify small-context behavior, compaction and duplicate-call suppression, authorization revocation, cancellation, and authenticated long-task UX. Preserve Simple mode.",
       "evidence": {
         "verified": "Kylon's 2026-10-30 changelog states that long Agent tasks condense context and keep going. The OpenAI Responses and OpenRouter chat-tool paths compact locally from bounded original input, completed tool-call/result ledger and latest progress when provider-reported input reaches 48,000 tokens or accumulated tool results exceed the same estimated context budget; each starts a fresh model chain and suppresses exact repeated calls after checkpoint. Both allow up to two checkpoints and 16 total model rounds while retaining 16 tool calls, authorization, cancellation and existing per-execution deadlines. On reaching the checkpoint cap they stop running tools and request a final answer from saved evidence. No extra summarizer request or vendor is introduced. Consolidated Worker tests pass: 149 tests across agent-chat-tools, agent-research, handoff, agents and Harness agents, including continuation beyond eight rounds, checkpoint content, large tool-result growth, duplicate suppression, cap behavior, authorization and cancellation regressions.",
-        "release": "OpenAI Responses path: PR #834 merged as 48060e22; PR CI #5480 and main CI #5481 passed. Worker deployment #372 completed D1 migrations, Deploy and Verify; production health returned ok:true with encryption.all:true. OpenRouter/BYO chat-tool extension is under review.",
-        "remaining": "Authenticated production long-task acceptance for both provider paths remains. Runs are bounded by the caller's deadline and existing tool-call budget; this is partial parity rather than unlimited execution."
+        "release": "OpenRouter/BYO chat-tool extension merged in PR #866 as eb192283b8df2c371106d5e887d169833c008506. Exact-head CI #42717933744, main CI #42720363920, and Worker deployment #42720363385 passed; production Worker /health returned ok:true and app.honmaruai.com returned HTTP 200.",
+        "remaining": "Authenticated production long-task acceptance for both provider paths remains. Runs are bounded by the caller deadline and existing tool-call budget; this is partial parity rather than unlimited execution."
+      }
+    },
+    {
+      "id": "KY-115",
+      "category": "Agents",
+      "requirement": "Private parallel sub-agents for bounded research",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/product/agents",
+      "code": "worker/src/agentSubagents.js, worker/src/customAgents.js, worker/test/agent-subagents.test.js",
+      "acceptance": "A Harness Agent may delegate up to two independent private subtasks to parallel copies of itself. Each helper receives bounded context, the parent Agent’s current scoped read-only team/memory/skill/thread tools, a 30-second deadline, at most four model rounds and three tool calls, and returns only a bounded final finding. Helpers cannot browse, execute code, write or publish records, message people, approve, change grants, or delegate again. Parent authorization, cancellation, deadline and usage accounting remain in force. Preserve Simple mode and add no service or separate charge.",
+      "evidence": {
+        "verified": "Implemented a Harness-only delegate_subagents tool for OpenRouter chat-tools and OpenAI Responses. Helpers run in parallel, are limited to two, use an explicit read-only allowlist, have bounded task/context/results and per-helper budgets, recheck parent authorization, and discard results if authorization is revoked. Simple calls do not receive the tool.",
+        "remaining": "Authenticated production exercise and side-by-side Kylon verification remain. Kylon routing choices, durable helper run cards/history, independent helper identities/credentials and longer-running cloud execution are not implemented; this is partial parity."
       }
     }
   ]
