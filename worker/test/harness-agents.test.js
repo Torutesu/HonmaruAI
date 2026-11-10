@@ -464,6 +464,13 @@ test('Harness routes clear new requests only to accessible room members, leaving
   await saveRoomResponses(env.DB, ORG, 'b:ops', { mentionedOnly: true, version: 0 }, 'mika');
   expect(await respondingAgents(env.DB, args)).toEqual([]);
   await saveRoomResponses(env.DB, ORG, 'b:ops', { mentionedOnly: false, version: 1 }, 'mika');
+  const at=new Date().toISOString();
+  await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES (?1,'routing-default','routing-default','Default helper','General help.','team','mika',?2,?2)").bind(ORG,at).run();
+  await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:ops','routing-default','mika',?2)").bind(ORG,at).run();
+  await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,specialty,tier,mention_only,access,people,updated_by,updated_at) VALUES (?1,?2,'invoices','standard',0,'everyone','[]','mika',?3)").bind(ORG,agentId,at).run();
+  await env.DB.prepare("UPDATE hx_room_responses SET default_agent_id='routing-default' WHERE org_id=?1 AND channel='b:ops'").bind(ORG).run();
+  expect((await respondingAgents(env.DB,{...args,row:{...args.row,body:'Please explain the next steps'}})).map(x=>x.id)).toEqual(['routing-default']);
+  expect((await respondingAgents(env.DB,args)).map(x=>x.id)).toEqual([agentId]);
   await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
   expect(await respondingAgents(env.DB, args)).toEqual([]);
 });

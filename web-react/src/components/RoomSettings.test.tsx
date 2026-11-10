@@ -6,9 +6,9 @@ import {Dialog} from './Dialog'
 vi.mock('./Dialog',()=>({Dialog:({children,footer}:any)=><section>{children}{footer}</section>}))
 vi.mock('../utils/i18n',()=>({useT:()=> (s:string)=>s}))
 const api={httpBase:'https://relay.test',orgId:'org',sessionToken:'token'}
-const settings={name:'Planning',color:'teal',mentionedOnly:false,version:4,responseVersion:2}
+const settings={name:'Planning',color:'teal',mentionedOnly:false,defaultAgentId:null,version:4,responseVersion:2}
 const reply=(body:any,status=200)=>({ok:status<400,status,json:async()=>body})
-const loaded=(overrides={})=>reply({settings,canEdit:true,canChangeResponses:true,...overrides})
+const loaded=(overrides={})=>reply({settings,availableAgents:[],canEdit:true,canChangeResponses:true,...overrides})
 const find=(tree:ReturnType<typeof create>,name:string)=>tree.root.findAllByType('button').find(n=>n.children.includes(name))!
 test('webhook management opens only on demand and returns to the room settings',async()=>{
  const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockResolvedValueOnce(reply({hooks:[]}));vi.stubGlobal('fetch',fetcher)
@@ -33,8 +33,18 @@ test('loads authoritative settings and saves all fields with the reviewed versio
  act(()=>tree.root.findByProps({'aria-label':'Lake'}).props.onClick())
  act(()=>tree.root.findByProps({role:'switch'}).props.onChange({target:{checked:true}}))
  await act(async()=>find(tree,'Save').props.onClick())
- expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'org',channel:'b:room',name:'Changed',color:'lake',mentionedOnly:true,version:4,responseVersion:2})
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'org',channel:'b:room',name:'Changed',color:'lake',mentionedOnly:true,defaultAgentId:null,version:4,responseVersion:2})
  expect(saved).toHaveBeenCalledOnce();expect(close).toHaveBeenCalledOnce();act(()=>tree.unmount())
+})
+test('selects a room default agent and marks the settings dirty',async()=>{
+ const fetcher=vi.fn().mockResolvedValueOnce(loaded({availableAgents:[{id:'agent-1',name:'Ops',emoji:'🧭',specialty:'Operations'}]})).mockResolvedValueOnce(reply({settings:{...settings,defaultAgentId:'agent-1',version:5,responseVersion:3}}));vi.stubGlobal('fetch',fetcher)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<RoomSettings api={api} view="b:room" onClose={vi.fn()} onSaved={vi.fn()}/>)});
+ expect(find(tree,'Save').props.disabled).toBe(true)
+ act(()=>tree.root.findByProps({'aria-label':'Default agent'}).props.onChange({target:{value:'agent-1'}}))
+ expect(find(tree,'Save').props.disabled).toBe(false)
+ await act(async()=>find(tree,'Save').props.onClick())
+ expect(JSON.parse(fetcher.mock.calls[1][1].body).defaultAgentId).toBe('agent-1');act(()=>tree.unmount())
 })
 test('pending save prevents duplicate submission and dismissing the dialog',async()=>{
  let finish!:(value:any)=>void;const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve}));vi.stubGlobal('fetch',fetcher)

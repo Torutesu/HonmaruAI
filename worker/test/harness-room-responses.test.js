@@ -24,7 +24,7 @@ test('response policy is scoped to accessible rooms and stale saves cannot overw
   expect((await call('PUT', owner, { mentionedOnly: 'true', version: 0 })).status).toBe(400);
   expect((await call('PUT', owner, { mentionedOnly: true, version: 0 })).status).toBe(200);
   expect((await call('PUT', owner, { mentionedOnly: false, version: 0 })).status).toBe(409);
-  expect(await roomResponses(env.DB, ORG, 'b:private')).toEqual({ mentionedOnly: true, version: 1 });
-  expect(await roomResponses(env.DB, 'another-org', 'b:private')).toEqual({ mentionedOnly: false, version: 0 });
+  expect(await roomResponses(env.DB, ORG, 'b:private')).toEqual({ mentionedOnly: true, defaultAgentId: null, version: 1 });
+  expect(await roomResponses(env.DB, 'another-org', 'b:private')).toEqual({ mentionedOnly: false, defaultAgentId: null, version: 0 });
   expect(await saveRoomResponses(env.DB, ORG, 'b:private', { mentionedOnly: false, version: 1 }, 'owner')).toMatchObject({ responses: { mentionedOnly: false, version: 2 } });
 });

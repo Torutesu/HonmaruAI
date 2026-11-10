@@ -628,7 +628,8 @@ export async function respondingAgents(db, { orgId, login, resolved, row, room =
     const own = here.find((a) => a.id === resolved.agent.id);
     if (own) agents = [own, ...agents].slice(0, MAX_CALLED);
   }
-  const mentionedOnly = resolved.kind === "business" && (room || await roomResponses(db, orgId, resolved.key)).mentionedOnly;
+  const roomPolicy = resolved.kind === "business" ? room || await roomResponses(db, orgId, resolved.key) : null;
+  const mentionedOnly = Boolean(roomPolicy?.mentionedOnly);
   // As each agent's profile allows (harness/agents.js): who may call it,
   // and whether it waits to be named.
   const permitted = await filterResponders(db, orgId, login, agents, { named: harness ? named : null, channel: resolved.key });
@@ -640,7 +641,7 @@ export async function respondingAgents(db, { orgId, login, resolved, row, room =
     || mentionTokens(callingText(row.body)).length) return permitted;
   const members = await added;
   const eligible = await filterResponders(db, orgId, login, members, { named: new Set(), channel: resolved.key });
-  const routed = chooseRoomAgent(callingText(row.body), eligible, await profilesFor(db, orgId, eligible.map(agent => agent.id)));
+  const routed = chooseRoomAgent(callingText(row.body), eligible, await profilesFor(db, orgId, eligible.map(agent => agent.id)), roomPolicy?.defaultAgentId);
   return routed ? [routed] : [];
 }
 

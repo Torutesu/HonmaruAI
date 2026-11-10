@@ -578,7 +578,7 @@ export async function handleHarness(request, env, url, context = {}) {
       const result=await managedRoomSettings(env.DB,orgId,room.key,me);
       if(result.error)return fail(result);
       const visual=await env.DB.prepare('SELECT 1 FROM hx_room_visuals WHERE org_id=?1 AND channel=?2').bind(orgId,room.key).first();
-      return json({settings:result.settings,canEdit:result.canEdit,canChangeResponses:result.canEdit&&canChangeResponses,...(visual?{visualVersion:result.settings.version}:{})});
+      return json({settings:result.settings,availableAgents:result.availableAgents,canEdit:result.canEdit,canChangeResponses:result.canEdit&&canChangeResponses,...(visual?{visualVersion:result.settings.version}:{})});
     }
     const result=await saveManagedRoomSettings(env.DB,orgId,room.key,me,input,{canChangeResponses});
     if(result.error)return fail(result);

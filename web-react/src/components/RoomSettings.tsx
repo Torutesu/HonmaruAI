@@ -10,8 +10,8 @@ async function boundedRequest<T>(work:(signal:AbortSignal)=>Promise<T>):Promise<
  try{return await Promise.race([work(controller.signal),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{reject(Error('通信がタイムアウトしました。最新の設定を読み込んでください。'));controller.abort()},15000)})])}
  finally{clearTimeout(timer)}
 }
-export interface RoomSettingsValue {name:string;color:keyof typeof ROOM_COLORS;mentionedOnly:boolean;version:number;responseVersion:number}
-interface Loaded {visualVersion?:number;settings:RoomSettingsValue;canEdit:boolean;canChangeResponses:boolean}
+export interface RoomSettingsValue {name:string;color:keyof typeof ROOM_COLORS;mentionedOnly:boolean;defaultAgentId:string|null;version:number;responseVersion:number}
+interface Loaded {visualVersion?:number;settings:RoomSettingsValue;availableAgents:{id:string;name:string;emoji?:string|null;specialty:string}[];canEdit:boolean;canChangeResponses:boolean}
 export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;orgId:string;sessionToken:string};view:string;onClose:()=>void;onSaved:()=>void}){
  const t=useT(),[data,setData]=useState<Loaded|null>(null),[draft,setDraft]=useState<RoomSettingsValue|null>(null)
  const [visualBusy,setVisualBusy]=useState(false)
@@ -34,7 +34,7 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
   finally{if(generation===scope.current&&read===reads.current)setLoading(false)}
  },[api.httpBase,api.orgId,api.sessionToken,view])
  useEffect(()=>{scope.current++;pending.current=false;setBusy(false);setVisualBusy(false);setHooksOpen(false);setData(null);setDraft(null);void load();return()=>{scope.current++;reads.current++}},[load])
- const changed=!!data&&!!draft&&(draft.name.trim()!==data.settings.name||draft.color!==data.settings.color||draft.mentionedOnly!==data.settings.mentionedOnly)
+ const changed=!!data&&!!draft&&(draft.name.trim()!==data.settings.name||draft.color!==data.settings.color||draft.mentionedOnly!==data.settings.mentionedOnly||draft.defaultAgentId!==data.settings.defaultAgentId)
  const save=async()=>{
   if(visualBusy||pending.current||!data?.canEdit||!draft||!draft.name.trim()||!changed||conflict||loading)return
   pending.current=true;setBusy(true);setError('');const generation=scope.current;let confirmed=false
@@ -59,6 +59,7 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
    <section className="room-settings-response" aria-label={t('How agents respond')}><h3>{t('How agents respond')}</h3>
     <div className="room-settings-response-card"><label><span>{t('Mentioned only')}</span><input type="checkbox" role="switch" checked={draft.mentionedOnly} disabled={disabled||!data?.canChangeResponses} onChange={e=>setDraft({...draft,mentionedOnly:e.target.checked})}/></label>
     <p>{t('Agents respond when mentioned. When off, clear requests can be assigned to an available agent.')}</p></div>
+    <label className="room-settings-field"><span className="dlg-label">{t('Default agent')}</span><select className="dlg-input" aria-label={t('Default agent')} value={draft.defaultAgentId||''} disabled={disabled||!data?.canChangeResponses} onChange={e=>setDraft({...draft,defaultAgentId:e.target.value||null})}><option value="">{t('Automatic routing')}</option>{data?.availableAgents.map(agent=><option key={agent.id} value={agent.id}>{agent.emoji?`${agent.emoji} `:''}{agent.name}{agent.specialty?` · ${agent.specialty}`:''}</option>)}</select><small>{t('A specialist can still take a clear request when their expertise matches.')}</small></label>
    </section>
    {data?.canEdit&&data.canChangeResponses&&<details className="room-settings-advanced"><summary>{t("Advanced settings")}</summary><div className="room-settings-integration-heading">Webhook</div><div className="room-settings-integration"><p>{t("Webhook events open threads for this room’s agents.")}</p><button type="button" className="dlg-btn" disabled={disabled||changed} onClick={()=>setHooksOpen(true)}>{t("Manage")}</button></div>{changed&&<p className="room-settings-note">{t("Save room settings first.")}</p>}</details>}
    {data&&!data.canEdit&&<p className="room-settings-note">{t('Join this room to edit its settings.')}</p>}

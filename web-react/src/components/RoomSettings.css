@@ -17,6 +17,7 @@ html[data-theme=dark] .room-settings .dlg-error{color:#ff8b8b}
 .room-settings .dialog-foot>.dlg-btn:not(.primary):hover:not(:disabled){background:var(--dlg-hover)}
 .room-settings .dlg-btn.primary,.room-settings .dlg-btn.primary:hover:not(:disabled){background:var(--hx-accent);border-color:var(--hx-accent);color:var(--hx-surface)}
 .room-settings-response label{font-weight:600}
+.room-settings-response .room-settings-field{align-items:stretch;flex-direction:column;justify-content:flex-start;gap:8px}.room-settings-response .room-settings-field small{font-size:12px;line-height:1.5;color:var(--dlg-dim);font-weight:400}
 .room-settings-response input:checked{background:var(--hx-accent)}
 .room-settings-response input:checked:before{background:var(--hx-surface)}
 
