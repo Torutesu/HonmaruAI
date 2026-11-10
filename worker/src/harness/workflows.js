@@ -1573,7 +1573,7 @@ export async function onRowDelete(env, { orgId, table, row, by, depth = 0, stric
     });
     if (run?.id) started += 1;
   }
-  started += await startAppRecordRuns(env, { orgId, table, before: row, row: null, by, depth });
+  started += await startAppRecordRuns(env, { orgId, table, before: row, row: null, by, depth, strict });
   return started;
 }
 
