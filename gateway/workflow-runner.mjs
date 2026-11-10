@@ -11,7 +11,8 @@ function control(binary,args){return new Promise(resolve=>{const child=spawn(bin
 // Only trusted orchestration calls this with an activation-bound state callback.
 // No API route, general gateway payload or model tool can select this runner yet.
 export async function runWorkflowIsolated({code,context={}},{stateOperation,binary=process.env.HONMARU_CONTAINER_BIN||'container',timeoutMs=WORKFLOW_EXECUTION_TIMEOUT_MS,signal}={}){
- if(!context||typeof context!=='object'||Array.isArray(context)||Object.keys(context).some(key=>!['workspaceId','roomId','agentId','timezone','trigger'].includes(key)))throw Error('Invalid public workflow context.');
+ if(!context||typeof context!=='object'||Array.isArray(context)||Object.keys(context).some(key=>!['workspaceId','roomId','agentId','timezone','trigger','tableSource'].includes(key)))throw Error('Invalid public workflow context.');
+ if(context.tableSource!==undefined&&(!context.tableSource||typeof context.tableSource!=='object'||Array.isArray(context.tableSource)||Object.keys(context.tableSource).sort().join(',')!=='appId,entityId,tableId'||Object.values(context.tableSource).some(value=>typeof value!=='string'||!value||value.length>200)))throw Error('Invalid App/Table source context.');
  if(typeof code!=='string'||!code.trim()||Buffer.byteLength(JSON.stringify({code,context}))>65536)throw Error('Invalid workflow module.');
  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>WORKFLOW_EXECUTION_TIMEOUT_MS)throw Error('Invalid execution timeout.');
  const controller=new AbortController();

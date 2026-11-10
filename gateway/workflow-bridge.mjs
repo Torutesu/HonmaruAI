@@ -1,17 +1,22 @@
 // Internal host broker. The callback must already be bound to an authorized
 // activation; the guest never supplies workspace/run/lease credentials.
-const METHODS=new Set(['state.get','state.set']);
+const METHODS=new Set(['state.get','state.set','table.query']);
 export function validateStateRequest(request) {
  if(!request||!Number.isSafeInteger(request.id)||request.id<1||request.id>64||!METHODS.has(request.method))throw Error('Invalid state operation.');
  const params=request.params;
  if(!params||typeof params!=='object'||Array.isArray(params))throw Error('Invalid state parameters.');
- const keys=request.method==='state.get'?['view','includeCurrentRun']:['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors'];
+ const keys=request.method==='state.get'?['view','includeCurrentRun']:request.method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:['where','q','pageSize','cursor'];
  if(Object.keys(params).some(key=>!keys.includes(key)))throw Error('Unexpected state parameter.');
  if(request.method==='state.get') {
   if(params.view!==undefined&&!['committed','checkpoint'].includes(params.view))throw Error('Invalid state view.');
   if(params.includeCurrentRun!==undefined&&typeof params.includeCurrentRun!=='boolean')throw Error('Invalid current-run option.');
- } else {
+ } else if(request.method==='state.set') {
   if(!params.state||typeof params.state!=='object'||Array.isArray(params.state)||!Number.isSafeInteger(params.expectedRevision)||params.expectedRevision<0)throw Error('State must be read before writing.');
+ } else {
+  if(params.where!==undefined&&(!params.where||typeof params.where!=='object'||Array.isArray(params.where)||Object.keys(params.where).length>40))throw Error('Invalid table query filter.');
+  if(params.q!==undefined&&(typeof params.q!=='string'||params.q.length>200))throw Error('Invalid table query text.');
+  if(params.pageSize!==undefined&&(!Number.isSafeInteger(params.pageSize)||params.pageSize<1||params.pageSize>100))throw Error('Invalid table query page size.');
+  if(params.cursor!==undefined&&(typeof params.cursor!=='string'||params.cursor.length>2048))throw Error('Invalid table query cursor.');
  }
  if(Buffer.byteLength(JSON.stringify(request))>160000)throw Error('State request is too large.');
  return {id:request.id,method:request.method,params};

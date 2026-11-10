@@ -150,6 +150,14 @@ async function appEntityTable(db, orgId, appId, entityId) {
   return (await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId, appId, entityId).first())?.table_id || null;
 }
 
+async function validProgramTableSource(db,orgId,step,viewerId) {
+  if(!step?.sourceAppId&&!step?.sourceEntityId&&!step?.sourceTableId)return true;
+  if(!step.sourceAppId||!step.sourceEntityId||!step.sourceTableId)return false;
+  const mapped=await appEntityTable(db,orgId,step.sourceAppId,step.sourceEntityId);
+  return mapped===step.sourceTableId&&Boolean(await getTable(db,orgId,step.sourceTableId))
+    &&await mayUseApp(db,orgId,step.sourceAppId,viewerId)&&await mayUseTable(db,orgId,step.sourceTableId,viewerId);
+}
+
 async function validAppRecordTrigger(db, orgId, trigger, expectedTableId = undefined) {
   if (trigger.type !== 'app_record_change') return true;
   const tableId=await appEntityTable(db, orgId, trigger.appId, trigger.entityId);
@@ -170,7 +178,13 @@ export function normalizeSteps(raw) {
         if(raw.length!==1)return {error:'A TypeScript program is a whole workflow and cannot be mixed with form steps.'};
         if(typeof s.code!=='string'||!s.code.trim()||new TextEncoder().encode(s.code).length>48000)return {error:'A TypeScript program needs source code of at most 48 KB.'};
         if(typeof s.gatewayId!=='string'||!s.gatewayId.trim()||s.gatewayId.length>200)return {error:'Choose an execution node for the TypeScript program.'};
-        steps.push({type:'code',code:s.code,gatewayId:s.gatewayId});
+        {
+          const sourceFields=['sourceAppId','sourceEntityId','sourceTableId'];
+          const hasSource=sourceFields.some(key=>s[key]!==undefined&&s[key]!==null&&s[key]!=='');
+          if(hasSource&&sourceFields.some(key=>typeof s[key]!=='string'||!s[key].trim()||s[key].length>200))return {error:'Choose one complete App/Table source for the TypeScript program.'};
+          if(hasSource&&!/^[a-z][a-z0-9_]{0,39}$/.test(s.sourceEntityId))return {error:'Choose a valid App entity for the TypeScript program.'};
+          steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,...(hasSource?{sourceAppId:text('sourceAppId',200),sourceEntityId:text('sourceEntityId',40),sourceTableId:text('sourceTableId',200)}:{})});
+        }
         break;
       case "post":
         if (!s.channel || !s.text) return { error: "A post step names a channel and its text." };
@@ -349,6 +363,7 @@ export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
   if (workflow.trigger?.type === 'app_record_change' && !(await mayUseApp(db, orgId, workflow.trigger.appId, viewerId))) return false;
   for (const step of workflow.steps || []) {
     if (step.tableId && !(await mayUseTable(db, orgId, step.tableId, viewerId))) return false;
+    if (step.type==='code' && !(await validProgramTableSource(db,orgId,step,viewerId))) return false;
     if (step.channel && !(await mayUseConversation(db, orgId, viewerId, step.channel))) return false;
     if (step.agentId) {
       const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
@@ -395,6 +410,8 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   if (nobody) return nobody;
   const unavailable=await unavailableProgramNode(db,orgId,s.steps);
   if(unavailable)return unavailable;
+  const programSource=s.steps.find(step=>step.type==='code');
+  if(programSource&&!await validProgramTableSource(db,orgId,programSource,by))return {error:'Choose an App/Table source you can access.'};
   if (t.trigger.type === "row" && !(await getTable(db, orgId, t.trigger.tableId))) return { error: "No such table." };
   if (t.trigger.type === 'app_record_change' && (!(await validAppRecordTrigger(db, orgId, t.trigger)) || !(await mayUseApp(db, orgId, t.trigger.appId, by)))) return { error: "Choose an app and entity you can access." };
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id = ?1").bind(orgId).first();
@@ -445,6 +462,8 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
     if (nobody) return nobody;
     const unavailable=await unavailableProgramNode(db,orgId,s.steps);
     if(unavailable)return unavailable;
+    const programSource=s.steps.find(step=>step.type==='code');
+    if(programSource&&(!await validProgramTableSource(db,orgId,programSource,wf.createdBy)||(changedBy!==null&&!await validProgramTableSource(db,orgId,programSource,changedBy))))return {error:'Choose an App/Table source you can access.'};
     const unavailableConnection=await connectionStepsAvailable(db,orgId,s.steps,wf.createdBy);
     if(unavailableConnection)return unavailableConnection;
     steps = s.steps;
