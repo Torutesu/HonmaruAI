@@ -181,7 +181,7 @@ export async function handleHarness(request, env, url, context = {}) {
   if (/^\/hx\/files(?:\/|$)/.test(url.pathname)) {
     const orgId=url.searchParams.get('orgId'),who=await member(env,request,orgId);
     if(who.denied)return who.denied;
-    const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins','hx_external_resource_grants','hx_external_file_invites'')").all();
+    const {results}=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins','hx_external_resource_grants','hx_external_file_invites')").all();
     if(results.length!==8)return json({message:'Workspace file storage is not ready.'},503);
     const identity={orgId,userId:String(who.session.github_id),headers:CORS_HEADERS};
     const fileParts=url.pathname.split('/').filter(Boolean);
