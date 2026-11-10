@@ -166,6 +166,7 @@ jobs:
   e2e:
     name: End to end
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -198,6 +199,7 @@ jobs:
     name: Windows (Edge)
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
