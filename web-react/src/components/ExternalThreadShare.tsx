@@ -3,6 +3,7 @@ import { Dialog } from './Dialog'
 import { useT } from '../utils/i18n'
 import {
   ExternalThreadShareError,
+  getExternalThreadAudience,
   listExternalThreadShares,
   revokeExternalThreadShare,
   shareExternalThread,
@@ -16,14 +17,18 @@ import {
   type ExternalThreadSendRequest,
   listExternalThreadLinkShares, createExternalThreadLinkShare, revokeExternalThreadLinkShare,
   type ExternalThreadLinkShare,
+  type ExternalThreadAudience,
+  type ExternalThreadAudienceRoom,
+  updateExternalThreadAudience,
 } from '../utils/externalThreadSharing'
 import './ExternalThreadShare.css'
 
 type Api = { httpBase: string; orgId: string; sessionToken: string }
-type Expiry = '7d' | '30d' | 'never'
-const expiryMs: Record<Exclude<Expiry, 'never'>, number> = { '7d': 7 * 86400000, '30d': 30 * 86400000 }
-function nextExpiry(value: Expiry) {
-  return value === 'never' ? null : new Date(Date.now() + expiryMs[value]).toISOString()
+type Expiry = '7d' | '30d' | 'never' | 'current'
+const expiryMs: Record<'7d' | '30d', number> = { '7d': 7 * 86400000, '30d': 30 * 86400000 }
+function nextExpiry(value: Expiry, currentExpiry?: string | null) {
+  if (value === 'current') return currentExpiry ?? null
+  return value === 'never' ? null : new Date(Date.now() + expiryMs[value as '7d' | '30d']).toISOString()
 }
 function errorText(error: unknown, t: (text: string) => string) {
   if (error instanceof ExternalThreadShareError && error.status === 404) return t('An existing verified account outside this workspace is required.')
@@ -36,6 +41,16 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
   const [invitations, setInvitations] = useState<ExternalThreadInvitation[]>([])
   const [sendRequests, setSendRequests] = useState<ExternalThreadSendRequest[]>([])
   const [linkShares, setLinkShares] = useState<ExternalThreadLinkShare[]>([])
+  const [audience, setAudience] = useState<ExternalThreadAudience | null>(null)
+  const [audienceVersion, setAudienceVersion] = useState(0)
+  const [audienceRooms, setAudienceRooms] = useState<ExternalThreadAudienceRoom[]>([])
+  const [audienceType, setAudienceType] = useState<'workspace' | 'room' | 'none'>('workspace')
+  const [audienceRoomId, setAudienceRoomId] = useState('')
+  const [audiencePermission, setAudiencePermission] = useState<'view' | 'edit'>('view')
+  const [audienceExpiry, setAudienceExpiry] = useState<Expiry>('7d')
+  const [audienceLoading, setAudienceLoading] = useState(true)
+  const [audienceError, setAudienceError] = useState('')
+  const [audienceConflict, setAudienceConflict] = useState(false)
   const [publicLink, setPublicLink] = useState('')
   const [linkPermission, setLinkPermission] = useState<'view'|'edit'>('view')
   const [linkExpiry, setLinkExpiry] = useState<Expiry>('7d')
@@ -66,6 +81,29 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
       .then(([value, pending, requests, links]) => { if (live) { setShares(value); setInvitations(pending); setSendRequests(requests); setLinkShares(links); setDrafts(Object.fromEntries(value.map(item => [item.id,item.permission]))) } })
       .catch(err => { if (live && !controller.signal.aborted) setError(errorText(err,t)) })
       .finally(() => { if (live) setLoading(false) })
+    setAudienceLoading(true)
+    void getExternalThreadAudience(apiKey, threadId, controller.signal)
+      .then(value => {
+        if (!live) return
+        setAudience(value.audience)
+        setAudienceVersion(value.version)
+        setAudienceRooms(value.rooms)
+        setAudienceConflict(false)
+        setAudienceError('')
+        if (value.audience) {
+          setAudienceType(value.audience.type)
+          setAudienceRoomId(value.audience.roomId || value.rooms[0]?.id || '')
+          setAudiencePermission(value.audience.permission)
+          setAudienceExpiry('current')
+        } else {
+          setAudienceType('workspace')
+          setAudienceRoomId(value.rooms[0]?.id || '')
+          setAudiencePermission('view')
+          setAudienceExpiry('7d')
+        }
+      })
+      .catch(err => { if (live && !controller.signal.aborted) setAudienceError(errorText(err,t)) })
+      .finally(() => { if (live) setAudienceLoading(false) })
     return () => { live = false; controller.abort() }
   }, [apiKey, threadId, attempt])
 
@@ -123,6 +161,29 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
   const decideRequest = (request: ExternalThreadSendRequest, decision: 'approve'|'reject') => void mutate(async () => {
     await decideExternalThreadSendRequest(apiKey, threadId, request.id, decision)
   })
+  const saveAudience = async (requestedType: 'workspace' | 'room' | 'none' = audienceType) => {
+    if (busy || requestedType === 'room' && !audienceRoomId) return
+    setBusy(true); setAudienceError(''); setError(''); setAudienceConflict(false)
+    try {
+      await updateExternalThreadAudience(apiKey, threadId, {
+        version: audienceVersion,
+        type: requestedType === 'none' ? null : requestedType,
+        ...(requestedType === 'room' ? { roomId: audienceRoomId } : {}),
+        ...(requestedType === 'none' ? {} : {
+          permission: audiencePermission,
+          expiresAt: nextExpiry(audienceExpiry, audience?.expiresAt),
+        }),
+      })
+      setAttempt(n => n + 1)
+    } catch (err) {
+      if (err instanceof ExternalThreadShareError && err.status === 409) {
+        setAudienceConflict(true)
+        setAudienceError(t('Room settings or membership changed. Reload before saving.'))
+      } else {
+        setAudienceError(errorText(err,t))
+      }
+    } finally { setBusy(false) }
+  }
   const expires = (value: string | null) => value ? new Date(value).toLocaleString() : t('No expiry')
 
   return <Dialog
@@ -151,6 +212,46 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
       <button type="submit" className="pill-btn" disabled={busy||!email.trim()}>{busy?t('Saving…'):t('Share thread')}</button>
     </form>
     {error&&<p className="form-error" role="alert">{error}</p>}
+    <section className="hx-external-thread-audience hx-external-thread-invites" aria-label={t('Sharing')}>
+      <h3>{t('Sharing')}</h3>
+      {audienceLoading&&<p role="status">{t('Loading…')}</p>}
+      {!audienceLoading&&audience&&<p className="row-sub" role="status">
+        {audience.type === 'workspace' ? t('Workspace members') : <>{t('Room')} · {audienceRooms.find(room => room.id === audience.roomId)?.name || audience.roomId}</>}
+        {' · '}{t(audience.permission === 'edit' ? 'Can edit' : 'Can view')}{' · '}{t('Expires')} {expires(audience.expiresAt)}
+      </p>}
+      {!audienceLoading&&!audience&&<p className="row-sub">{t('Private')}</p>}
+      <div className="hx-external-thread-share-options">
+        <label>{t('Sharing')}
+          <select aria-label={t('Sharing')} value={audienceType} disabled={busy||audienceLoading||Boolean(audienceError)} onChange={event=>setAudienceType(event.target.value as 'workspace'|'room'|'none')}>
+            <option value="workspace">{t('Workspace members')}</option><option value="room">{t('Room')}</option><option value="none">{t('Private')}</option>
+          </select>
+        </label>
+        {audienceType === 'room'&&<label>{t('Room')}
+          <select aria-label={t('Room')} value={audienceRoomId} disabled={busy||audienceLoading||Boolean(audienceError)||!audienceRooms.length} onChange={event=>setAudienceRoomId(event.target.value)}>
+            {audienceRooms.map(room=><option key={room.id} value={room.id}>{room.name}</option>)}
+          </select>
+        </label>}
+        {audienceType !== 'none'&&<>
+          <label>{t('Permission')}
+            <select aria-label={`${t('Permission')} · ${t('Sharing')}`} value={audiencePermission} disabled={busy||audienceLoading||Boolean(audienceError)} onChange={event=>setAudiencePermission(event.target.value as 'view'|'edit')}>
+              <option value="view">{t('Can view')}</option><option value="edit">{t('Can edit')}</option>
+            </select>
+          </label>
+          <label>{t('Expires')}
+            <select aria-label={`${t('Expires')} · ${t('Sharing')}`} value={audienceExpiry} disabled={busy||audienceLoading||Boolean(audienceError)} onChange={event=>setAudienceExpiry(event.target.value as Expiry)}>
+              {audience&&<option value="current">{t('Expires')} · {expires(audience.expiresAt)}</option>}
+              <option value="7d">{t('In 7 days')}</option><option value="30d">{t('In 30 days')}</option><option value="never">{t('Never')}</option>
+            </select>
+          </label>
+        </>}
+      </div>
+      {audienceError&&<p className="form-error" role="alert">{audienceError}</p>}
+      {audienceConflict&&<button type="button" className="btn-text" disabled={busy} onClick={()=>setAttempt(n=>n+1)}>{t('Reload')}</button>}
+      <button type="button" className="pill-btn" disabled={busy||audienceLoading||Boolean(audienceError)||audienceType==='room'&&!audienceRoomId||audienceType==='room'&&!audienceRooms.some(room=>room.id===audienceRoomId)} onClick={()=>void saveAudience()}>
+        {busy?t('Saving…'):t('Save')}
+      </button>
+      {audience&&<button type="button" className="btn-text" disabled={busy||audienceLoading||Boolean(audienceError)} onClick={()=>void saveAudience('none')}>{t('Revoke access')}</button>}
+    </section>
     <section className="hx-external-thread-requests" aria-label={t('Guest reply requests')}>
       <h3>{t('Guest reply requests')}</h3>
       <p className="row-sub">{t('View-only guests must be approved before their message is added to this thread or delivered to members.')}</p>

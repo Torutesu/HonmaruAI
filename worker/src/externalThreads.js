@@ -12,8 +12,9 @@ import { sha256Hex } from "./auth.js";
 import { deliverExternalInvite } from "./externalInviteMail.js";
 import { enforce } from "./ratelimit.js";
 import {
-  externalResourcePermission,
-} from "./harness/externalCollaborators.js";
+  cleanThreadAudienceInput, externalThreadPermission, listThreadAudienceRooms,
+  readThreadAudience, threadAudienceAccessSql, writeThreadAudience,
+} from "./harness/externalThreadAudience.js";
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -22,12 +23,7 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), {
 const fail = (message, status) => json({ message }, status);
 const keyId = () => `xmsg_${crypto.randomUUID().replaceAll("-", "")}`;
 const requestId = () => `xreq_${crypto.randomUUID().replaceAll("-", "")}`;
-const activeGrantSql = `EXISTS(
-  SELECT 1 FROM hx_external_resource_grants g
-   WHERE g.org_id = ?2 AND g.resource_type = 'thread' AND g.resource_id = ?3
-     AND g.recipient_github_id = ?4 AND g.revoked_at IS NULL
-     AND (g.expires_at IS NULL OR g.expires_at > ?5)
-     AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id = ?2 AND member.user_github_id = ?4))`;
+const activeGrantSql = threadAudienceAccessSql({ org: "?2", root: "?3", user: "?4", now: "?5", requiredPermission: "edit" });
 async function signedIn(request, env) {
   const session = await getSession(env.DB, request.headers.get("x-session-token"));
   if (!session) return null;
@@ -241,6 +237,29 @@ async function shareThread(request, env, orgId, rootId, actor) {
     revoked = Number(results?.[0]?.meta?.changes || 0);
   }
   return json({ revoked: revoked > 0 });
+}
+
+async function manageThreadAudience(request, env, orgId, rootId, actor) {
+  if (request.method !== "GET" && request.method !== "PUT") return fail("Method not allowed.", 405);
+  const root = await manageableRoot(env.DB, orgId, rootId, actor.user);
+  if (!root) return fail("Thread not found or cannot be shared.", 404);
+  if (request.method === "GET") {
+    return json(await readThreadAudience(env.DB, { orgId, rootId, userId: actor.user.github_id }));
+  }
+  const input = await request.json().catch(() => null);
+  let audience;
+  try { audience = cleanThreadAudienceInput(input); }
+  catch (error) { return fail(error.message || "Invalid audience.", 400); }
+  if (audience.type === "room") {
+    const rooms = await listThreadAudienceRooms(env.DB, orgId, actor.user.github_id);
+    if (!rooms.some(room => room.id === audience.roomId)) return fail("Choose an accessible Room.", 400);
+  }
+  const updated = await writeThreadAudience(env.DB, {
+    orgId, rootId, actorId: actor.user.github_id, audience,
+    managerFence: first => threadManagerFence(orgId, rootId, actor.user, root.channel, first),
+  });
+  if (!updated) return fail("Audience changed or access revoked. Reload and retry.", 409);
+  return json(await readThreadAudience(env.DB, { orgId, rootId, userId: actor.user.github_id }));
 }
 
 
@@ -521,11 +540,9 @@ export async function redeemExternalThreadInvite(env, { token, userId }) {
 }
 
 async function uploadExternalAttachment(request, env, url, orgId, root, actor) {
-  const permission = await externalResourcePermission(env.DB, {
-    orgId, resourceType: "thread", resourceId: root.id, githubId: actor.user.github_id,
-  });
-  if (!permission) return fail("Thread not found or access revoked.", 404);
-  if (permission !== "edit") return fail("An edit grant is required to upload a Thread attachment.", 403);
+  const access = await externalThreadPermission(env.DB, { orgId, rootId: root.id, githubId: actor.user.github_id });
+  if (!access) return fail("Thread not found or access revoked.", 404);
+  if (access.permission !== "edit") return fail("An edit grant is required to upload a Thread attachment.", 403);
   const uploaded = await uploadFile(request, env, url, {
     orgId, resolved: { key: root.channel }, login: actor.user.login,
   });
@@ -537,10 +554,8 @@ async function uploadExternalAttachment(request, env, url, orgId, root, actor) {
   // The upload streams to R2 after the initial authorization check. Recheck
   // the exact Thread grant once the stream completes; clean up if it changed.
   const currentRoot = await rootFor(env.DB, orgId, root.id);
-  const currentPermission = currentRoot && await externalResourcePermission(env.DB, {
-    orgId, resourceType: "thread", resourceId: root.id, githubId: actor.user.github_id,
-  });
-  if (!currentRoot || currentRoot.channel !== root.channel || currentPermission !== "edit") {
+  const currentPermission = currentRoot && await externalThreadPermission(env.DB, { orgId, rootId: root.id, githubId: actor.user.github_id });
+  if (!currentRoot || currentRoot.channel !== root.channel || currentPermission?.permission !== "edit") {
     const deleted = await env.DB.prepare(
       "DELETE FROM message_files WHERE org_id=?1 AND id=?2 AND message_id IS NULL"
     ).bind(orgId, file.id).run();
@@ -567,11 +582,7 @@ async function readExternalAttachment(request, env, orgId, root, fileId, user) {
       AND m.deleted_at IS NULL
       AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
         WHERE tombstone.org_id=root.org_id AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
-      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g
-        WHERE g.org_id=?1 AND g.resource_type='thread' AND g.resource_id=?2
-          AND g.recipient_github_id=?4 AND g.revoked_at IS NULL
-          AND (g.expires_at IS NULL OR g.expires_at>?5))
-      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?4)`)
+      AND ${threadAudienceAccessSql({ org: "?1", root: "?2", user: "?4", now: "?5" })}`)
     .bind(orgId, root.id, fileId, user.github_id, now).first();
   if (!row) return fail("Not found.", 404);
 
@@ -609,10 +620,7 @@ async function reactionRows(env, orgId, rootId, user, messageIds) {
     JOIN channel_messages root ON root.org_id=m.org_id AND root.id=?2
       AND root.parent_id IS NULL AND root.deleted_at IS NULL AND root.channel=m.channel
     WHERE r.org_id=?1 AND (m.id=root.id OR m.parent_id=root.id) AND m.deleted_at IS NULL
-      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1
-        AND g.resource_type='thread' AND g.resource_id=?2 AND g.recipient_github_id=?4
-        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?5))
-      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?4)
+      AND ${threadAudienceAccessSql({ org: "?1", root: "?2", user: "?4", now: "?5" })}
     GROUP BY r.message_id, r.emoji ORDER BY r.emoji`)
     .bind(orgId, rootId, user.login, user.github_id, new Date().toISOString()).all();
   // Workspace shortcodes resolve to workspace assets that are not delivered to external guests.
@@ -632,10 +640,7 @@ async function toggleExternalReaction(env, orgId, rootId, user, input) {
     WHERE m.org_id=?1 AND m.id=?3 AND (m.id=root.id OR m.parent_id=root.id) AND m.deleted_at IS NULL
       AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone WHERE tombstone.org_id=root.org_id
         AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
-      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1
-        AND g.resource_type='thread' AND g.resource_id=?2 AND g.recipient_github_id=?4
-        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?5))
-      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?4)`)
+      AND ${threadAudienceAccessSql({ org: "?1", root: "?2", user: "?4", now: "?5" })}`)
     .bind(orgId, rootId, input.messageId, user.github_id, now).first();
   if (!target) return fail("Thread not found or access revoked.", 404);
   const had = await env.DB.prepare(
@@ -648,10 +653,7 @@ async function toggleExternalReaction(env, orgId, rootId, user, input) {
           ON root.org_id=m.org_id AND root.id=?5 AND root.parent_id IS NULL
             AND root.deleted_at IS NULL AND root.channel=m.channel
           WHERE m.org_id=?1 AND m.id=?2 AND (m.id=root.id OR m.parent_id=root.id) AND m.deleted_at IS NULL)
-        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1
-          AND g.resource_type='thread' AND g.resource_id=?5 AND g.recipient_github_id=?6
-          AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?7))
-        AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?6)`)
+        AND ${threadAudienceAccessSql({ org: "?1", root: "?5", user: "?6", now: "?7" })}`)
       .bind(orgId, target.id, emoji, user.login, rootId, user.github_id, now).run();
   } else {
     await env.DB.prepare(`INSERT INTO message_reactions (org_id,message_id,emoji,login,created_at)
@@ -660,18 +662,13 @@ async function toggleExternalReaction(env, orgId, rootId, user, input) {
         ON root.org_id=m.org_id AND root.id=?5 AND root.parent_id IS NULL
           AND root.deleted_at IS NULL AND root.channel=m.channel
         WHERE m.org_id=?1 AND m.id=?2 AND (m.id=root.id OR m.parent_id=root.id) AND m.deleted_at IS NULL)
-        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1
-          AND g.resource_type='thread' AND g.resource_id=?5 AND g.recipient_github_id=?6
-          AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?7))
-        AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?6)
+        AND ${threadAudienceAccessSql({ org: "?1", root: "?5", user: "?6", now: "?7" })}
         AND (EXISTS(SELECT 1 FROM message_reactions WHERE message_id=?2 AND emoji=?3)
           OR (SELECT COUNT(DISTINCT emoji) FROM message_reactions WHERE message_id=?2)<20)
       ON CONFLICT DO NOTHING`)
       .bind(orgId, target.id, emoji, user.login, rootId, user.github_id, now).run();
   }
-  const permission = await externalResourcePermission(env.DB, {
-    orgId, resourceType: "thread", resourceId: rootId, githubId: user.github_id,
-  });
+  const permission = await externalThreadPermission(env.DB, { orgId, rootId, githubId: user.github_id });
   if (!permission) return fail("Thread not found or access revoked.", 404);
   const reactions = await reactionRows(env, orgId, rootId, user, [target.id]);
   return json({ messageId: target.id, reactions: reactions.map(({ emoji: name, count, mine }) => ({
@@ -681,16 +678,11 @@ async function toggleExternalReaction(env, orgId, rootId, user, input) {
 
 async function readThread(env, orgId, rootId, user) {
   const now = new Date().toISOString();
-  // The message query proves the exact active grant and never traverses the
-  // containing Room. Attachment/reaction queries repeat the ACL condition.
+  const access = await externalThreadPermission(env.DB, { orgId, rootId, githubId: user.github_id, now });
+  if (!access) return null;
   const { results = [] } = await env.DB.prepare(`SELECT m.id, m.kind, m.body, m.author_login, m.created_at, m.edited_at,
-      m.parent_id, u.name AS author_name, a.name AS agent_name, g.permission
+      m.parent_id, u.name AS author_name, a.name AS agent_name, ?4 AS permission
     FROM channel_messages m
-    JOIN hx_external_resource_grants g
-      ON g.org_id=m.org_id AND g.resource_type='thread' AND g.resource_id=?3
-     AND g.recipient_github_id=?4 AND g.revoked_at IS NULL
-     AND (g.expires_at IS NULL OR g.expires_at>?5)
-     AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=m.org_id AND member.user_github_id=g.recipient_github_id)
     JOIN channel_messages root ON root.org_id=m.org_id AND root.id=?3
       AND root.parent_id IS NULL AND root.deleted_at IS NULL AND root.channel=m.channel
     LEFT JOIN users u ON u.login=m.author_login
@@ -698,8 +690,9 @@ async function readThread(env, orgId, rootId, user) {
     WHERE m.org_id=?2 AND (m.id=?3 OR m.parent_id=?3) AND m.deleted_at IS NULL
       AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
         WHERE tombstone.org_id=root.org_id AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
+      AND ${threadAudienceAccessSql({ org: 'm.org_id', root: '?3', user: '?5', now: '?6' })}
     ORDER BY m.created_at,m.rowid`)
-    .bind(orgId, orgId, rootId, user.github_id, now).all();
+    .bind(orgId, orgId, rootId, access.permission, user.github_id, now).all();
   if (!results.length) return null;
 
   const { results: fileRows = [] } = await env.DB.prepare(`SELECT f.id, f.name, f.type, f.size,
@@ -711,10 +704,7 @@ async function readThread(env, orgId, rootId, user) {
     WHERE f.org_id=?1 AND (m.id=root.id OR m.parent_id=root.id) AND m.deleted_at IS NULL
       AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
         WHERE tombstone.org_id=root.org_id AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
-      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?1
-        AND g.resource_type='thread' AND g.resource_id=?2 AND g.recipient_github_id=?3
-        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4))
-      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?1 AND member.user_github_id=?3)
+      AND ${threadAudienceAccessSql({ org: 'f.org_id', root: '?2', user: '?3', now: '?4' })}
     ORDER BY f.created_at,f.rowid`)
     .bind(orgId, rootId, user.github_id, new Date().toISOString()).all();
   const filesByMessage = new Map();
@@ -729,10 +719,8 @@ async function readThread(env, orgId, rootId, user) {
   }
   const reactions = await reactionRows(env, orgId, rootId, user, results.map(row => row.id));
   const currentRoot = await rootFor(env.DB, orgId, rootId);
-  const currentPermission = currentRoot && await externalResourcePermission(env.DB, {
-    orgId, resourceType: "thread", resourceId: rootId, githubId: user.github_id,
-  });
-  if (!currentRoot || !["view", "edit"].includes(currentPermission)) return null;
+  const currentPermission = currentRoot && await externalThreadPermission(env.DB, { orgId, rootId, githubId: user.github_id });
+  if (!currentRoot || !currentPermission) return null;
   const reactionsByMessage = new Map();
   for (const reaction of reactions) {
     const items = reactionsByMessage.get(reaction.message_id) || [];
@@ -774,9 +762,7 @@ async function deliverExternalReply(env, { orgId, root, row, guest }) {
   if (!asksTheAI(row.body) || await getMode(env.DB, orgId) !== "harness") return;
   const currentRoot = await rootFor(env.DB, orgId, root.id);
   if (!currentRoot || currentRoot.channel !== root.channel) return;
-  if (!await externalResourcePermission(env.DB, {
-    orgId, resourceType: "thread", resourceId: root.id, githubId: guest.user.github_id,
-  })) return;
+  if (!await externalThreadPermission(env.DB, { orgId, rootId: root.id, githubId: guest.user.github_id })) return;
 
   const logins = await audienceOf(env.DB, orgId, root.channel);
   const key = root.channel;
@@ -812,11 +798,7 @@ async function insertReply(env, orgId, rootId, user, body, fileIds = []) {
      WHERE root.org_id=?2 AND root.id=?3 AND root.parent_id IS NULL AND root.deleted_at IS NULL
        AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone
          WHERE tombstone.org_id=root.org_id AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
-       AND ${activeGrantSql} AND EXISTS(
-         SELECT 1 FROM hx_external_resource_grants g
-          WHERE g.org_id=?2 AND g.resource_type='thread' AND g.resource_id=?3
-            AND g.recipient_github_id=?4 AND g.revoked_at IS NULL AND g.permission='edit'
-            AND (g.expires_at IS NULL OR g.expires_at>?5))`)
+       AND ${activeGrantSql}`)
     .bind(id, orgId, rootId, user.github_id, now, user.login, body, now);
   if (!fileIds.length) {
     const put = await insert.run();
@@ -827,10 +809,7 @@ async function insertReply(env, orgId, rootId, user, body, fileIds = []) {
     WHERE org_id=?2 AND channel=?6 AND uploader=?7 AND message_id IS NULL AND id IN (${marks})
       AND EXISTS(SELECT 1 FROM channel_messages m WHERE m.org_id=?2 AND m.id=?1
         AND m.channel=?6 AND m.author_login=?7 AND m.parent_id=?3 AND m.deleted_at IS NULL)
-      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
-        AND g.resource_type='thread' AND g.resource_id=?3 AND g.recipient_github_id=?4
-        AND g.permission='edit' AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?5))
-      AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=?4)`)
+      AND ${threadAudienceAccessSql({ org: "?2", root: "?3", user: "?4", now: "?5", requiredPermission: "edit" })}`)
     .bind(id, orgId, rootId, user.github_id, now, (await rootFor(env.DB, orgId, rootId))?.channel || "", user.login, ...fileIds);
   const [put] = await env.DB.batch([insert, claim]);
   return put.meta?.changes ? id : null;
@@ -839,27 +818,68 @@ async function insertReply(env, orgId, rootId, user, body, fileIds = []) {
 async function requestSend(env, orgId, rootId, user, body) {
   const id = requestId();
   const now = new Date().toISOString();
-  const put = await env.DB.prepare(`INSERT OR IGNORE INTO hx_external_thread_send_requests
+  const access = await externalThreadPermission(env.DB, { orgId, rootId, githubId: user.github_id, now });
+  if (!access || access.permission !== "view") return null;
+  const audienceVersion = access.source === "audience" ? access.audienceVersion : null;
+  const insert = env.DB.prepare(`INSERT OR IGNORE INTO hx_external_thread_send_requests
       (id, org_id, root_message_id, guest_github_id, body, status, requested_at)
     SELECT ?1, ?2, ?3, ?4, ?5, 'pending', ?6
-     WHERE EXISTS(SELECT 1 FROM channel_messages root WHERE root.org_id = ?2 AND root.id = ?3
+     WHERE EXISTS(SELECT 1 FROM channel_messages root WHERE root.org_id=?2 AND root.id=?3
        AND root.parent_id IS NULL AND root.deleted_at IS NULL
        AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone WHERE tombstone.org_id=root.org_id
          AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL))
-       AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
-         AND g.resource_type='thread' AND g.resource_id=?3 AND g.recipient_github_id=?4
-         AND g.revoked_at IS NULL AND g.permission='view' AND (g.expires_at IS NULL OR g.expires_at>?6)
-         AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=?4))`)
-    .bind(id, orgId, rootId, user.github_id, body, now).run();
-  if (put.meta?.changes) return { id, created: true };
+       AND ${threadAudienceAccessSql({ org: "?2", root: "?3", user: "?4", now: "?6", requiredPermission: "view" })}`)
+    .bind(id, orgId, rootId, user.github_id, body, now);
+  const statements = [insert];
+  if (audienceVersion != null) {
+    statements.push(env.DB.prepare(`INSERT INTO hx_external_thread_audience_requests
+      (request_id,org_id,root_message_id,guest_github_id,audience_version,created_at)
+      SELECT ?1,?2,?3,?4,?5,?6 WHERE EXISTS(
+        SELECT 1 FROM hx_external_thread_audiences a JOIN memberships member
+          ON member.org_id=a.org_id AND member.user_github_id=?4
+        WHERE a.org_id=?2 AND a.root_message_id=?3 AND a.version=?5
+          AND a.audience_type IS NOT NULL AND a.permission='view'
+          AND (a.expires_at IS NULL OR a.expires_at>?6)
+          AND (a.audience_type='workspace' OR (a.audience_type='room' AND EXISTS(
+            SELECT 1 FROM conversation_members cm JOIN users roomUser ON roomUser.login=cm.login
+            WHERE cm.org_id=a.org_id AND cm.channel=a.room_id AND roomUser.github_id=?4))))`)
+      .bind(id, orgId, rootId, user.github_id, audienceVersion, now));
+  }
+  const [created] = await env.DB.batch(statements);
+  if (created?.meta?.changes) {
+    if (audienceVersion != null) {
+      const linked = await env.DB.prepare("SELECT 1 FROM hx_external_thread_audience_requests WHERE request_id=?1 AND audience_version=?2")
+        .bind(id, audienceVersion).first();
+      if (!linked) {
+        await env.DB.prepare("UPDATE hx_external_thread_send_requests SET status='cancelled',decided_at=?1 WHERE id=?2 AND status='pending'").bind(now,id).run();
+        return null;
+      }
+    }
+    return { id, created: true };
+  }
   const existing = await env.DB.prepare(`SELECT r.id FROM hx_external_thread_send_requests r
-      JOIN hx_external_resource_grants g ON g.org_id=r.org_id AND g.resource_type='thread'
-        AND g.resource_id=r.root_message_id AND g.recipient_github_id=r.guest_github_id
-        AND g.revoked_at IS NULL AND g.permission='view' AND (g.expires_at IS NULL OR g.expires_at>?5)
-        AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=r.org_id AND member.user_github_id=r.guest_github_id)
-     WHERE r.org_id=?1 AND r.root_message_id=?2 AND r.guest_github_id=?3 AND r.status='pending'`)
-    .bind(orgId, rootId, user.github_id, body, now).first();
+    WHERE r.org_id=?1 AND r.root_message_id=?2 AND r.guest_github_id=?3 AND r.status='pending'
+      AND ${threadAudienceAccessSql({ org: "r.org_id", root: "r.root_message_id", user: "r.guest_github_id", now: "?4", requiredPermission: "view" })}
+      AND (NOT EXISTS(SELECT 1 FROM hx_external_thread_audience_requests ar WHERE ar.request_id=r.id)
+        OR EXISTS(SELECT 1 FROM hx_external_thread_audience_requests ar JOIN hx_external_thread_audiences a
+          ON a.org_id=ar.org_id AND a.root_message_id=ar.root_message_id AND a.version=ar.audience_version
+          WHERE ar.request_id=r.id AND a.audience_type IS NOT NULL AND a.permission='view'
+            AND (a.expires_at IS NULL OR a.expires_at>?4))) LIMIT 1`)
+    .bind(orgId, rootId, user.github_id, now).first();
   return existing ? { id: existing.id, created: false } : null;
+}
+
+function audienceRequestAccessSql({ requestId, org, root, user, now }) {
+  return `EXISTS(SELECT 1 FROM hx_external_thread_audience_requests ar
+    JOIN hx_external_thread_audiences a ON a.org_id=ar.org_id AND a.root_message_id=ar.root_message_id
+      AND a.version=ar.audience_version
+    JOIN memberships member ON member.org_id=a.org_id AND member.user_github_id=${user}
+    WHERE ar.request_id=${requestId} AND ar.org_id=${org} AND ar.root_message_id=${root}
+      AND ar.guest_github_id=${user} AND a.audience_type IS NOT NULL AND a.permission='view'
+      AND (a.expires_at IS NULL OR a.expires_at>${now})
+      AND (a.audience_type='workspace' OR (a.audience_type='room' AND EXISTS(
+        SELECT 1 FROM conversation_members cm JOIN users roomUser ON roomUser.login=cm.login
+        WHERE cm.org_id=a.org_id AND cm.channel=a.room_id AND roomUser.github_id=${user}))))`;
 }
 
 async function pendingRequests(env, orgId, rootId, owner) {
@@ -867,10 +887,13 @@ async function pendingRequests(env, orgId, rootId, owner) {
     FROM hx_external_thread_send_requests r
     JOIN users u ON u.github_id = r.guest_github_id
     WHERE r.org_id=?1 AND r.root_message_id=?2 AND r.status='pending'
-      AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=r.org_id
+      AND ((NOT EXISTS(SELECT 1 FROM hx_external_thread_audience_requests mapped WHERE mapped.request_id=r.id)
+        AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=r.org_id
         AND g.resource_type='thread' AND g.resource_id=r.root_message_id
         AND g.recipient_github_id=r.guest_github_id AND g.granted_by=?3
-        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4))
+        AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?4)
+        AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=r.org_id AND member.user_github_id=r.guest_github_id)))
+        OR ${audienceRequestAccessSql({ requestId: 'r.id', org: 'r.org_id', root: 'r.root_message_id', user: 'r.guest_github_id', now: '?4' })})
     ORDER BY r.requested_at, r.id`).bind(orgId, rootId, owner.user.github_id, new Date().toISOString()).all();
 }
 
@@ -881,10 +904,12 @@ async function decideRequest(env, orgId, rootId, id, owner, action, channel) {
     const result = await env.DB.prepare(`UPDATE hx_external_thread_send_requests
        SET status='rejected', decided_at=?1, decided_by=?2
      WHERE org_id=?3 AND root_message_id=?4 AND id=?5 AND status='pending'
-       AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?3
+       AND ((NOT EXISTS(SELECT 1 FROM hx_external_thread_audience_requests mapped WHERE mapped.request_id=hx_external_thread_send_requests.id)
+         AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?3
          AND g.resource_type='thread' AND g.resource_id=?4 AND g.recipient_github_id=guest_github_id
          AND g.granted_by=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?1)
-         AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?3 AND member.user_github_id=guest_github_id))
+         AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?3 AND member.user_github_id=guest_github_id)))
+         OR ${audienceRequestAccessSql({ requestId: 'hx_external_thread_send_requests.id', org: '?3', root: '?4', user: 'guest_github_id', now: '?1' })})
        AND ${fence.sql}`)
       .bind(now, owner.user.github_id, orgId, rootId, id, ...fence.bindings).run();
     return result.meta?.changes ? { rejected: true } : null;
@@ -904,10 +929,12 @@ async function decideRequest(env, orgId, rootId, id, owner, action, channel) {
        WHERE r.org_id=?2 AND r.root_message_id=?3 AND r.id=?4 AND r.status='pending'
          AND NOT EXISTS(SELECT 1 FROM hx_room_access tombstone WHERE tombstone.org_id=root.org_id
            AND tombstone.channel=root.channel AND tombstone.deleted_at IS NOT NULL)
-         AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
+         AND ((NOT EXISTS(SELECT 1 FROM hx_external_thread_audience_requests mapped WHERE mapped.request_id=r.id)
+           AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.org_id=?2
            AND g.resource_type='thread' AND g.resource_id=?3 AND g.recipient_github_id=r.guest_github_id
            AND g.granted_by=?5 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?8)
-           AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=r.guest_github_id))
+           AND NOT EXISTS(SELECT 1 FROM memberships member WHERE member.org_id=?2 AND member.user_github_id=r.guest_github_id)))
+           OR ${audienceRequestAccessSql({ requestId: 'r.id', org: '?2', root: '?3', user: 'r.guest_github_id', now: '?8' })})
          AND ${insertFence.sql}`)
       .bind(messageId, orgId, rootId, id, owner.user.github_id, owner.user.github_id, now, now,
         ...insertFence.bindings),
@@ -949,6 +976,7 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
   if ((await getMode(env.DB, orgId)) !== "harness") return fail("External Thread sharing is unavailable in Simple mode.", 404);
   const actor = await signedIn(request, env);
   if (!actor) return fail("Sign in to continue.", 401);
+  if (parts.length === 5 && parts[4] === "audience") return manageThreadAudience(request, env, orgId, rootId, actor);
   if (parts.length === 5 && parts[4] === "shares") return shareThread(request, env, orgId, rootId, actor);
   if (parts.length === 5 && parts[4] === "invites") return manageThreadInvites(request,env,orgId,rootId,actor);
   if (parts.length === 5 && parts[4] === "links") return manageThreadLinkShares(request,env,orgId,rootId,actor);
@@ -1017,11 +1045,9 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
       return requested ? json({ requestId: requested.id, created: requested.created, status: "pending" }, requested.created ? 201 : 200)
         : fail("Thread not found or access revoked.", 404);
     }
-    const permission = await externalResourcePermission(env.DB, {
-      orgId, resourceType: "thread", resourceId: rootId, githubId: actor.user.github_id,
-    });
+    const permission = await externalThreadPermission(env.DB, { orgId, rootId, githubId: actor.user.github_id });
     if (!permission) return fail("Thread not found or access revoked.", 404);
-    if (permission !== "edit") return fail("Ask the Thread owner to approve a send request.", 403);
+    if (permission.permission !== "edit") return fail("Ask the Thread owner to approve a send request.", 403);
     const requestedFiles = input.files === undefined ? [] : input.files;
     if (!Array.isArray(requestedFiles) || requestedFiles.length > MAX_FILES_PER_MESSAGE) {
       return fail(`A message can carry at most ${MAX_FILES_PER_MESSAGE} files.`, 400);

@@ -39,6 +39,30 @@ export type ExternalThreadShareInput = {
 
 export type ExternalThreadLinkShare = { id:string; permission:'view'|'edit'; createdAt:string; expiresAt:string|null }
 
+export type ExternalThreadAudience = {
+  type: 'workspace' | 'room'
+  roomId?: string
+  permission: 'view' | 'edit'
+  expiresAt: string | null
+  version: number
+}
+
+export type ExternalThreadAudienceRoom = { id: string; name: string }
+
+export type ExternalThreadAudienceState = {
+  audience: ExternalThreadAudience | null
+  version: number
+  rooms: ExternalThreadAudienceRoom[]
+}
+
+export type ExternalThreadAudienceInput = {
+  version: number
+  type: 'workspace' | 'room' | null
+  roomId?: string
+  permission?: 'view' | 'edit'
+  expiresAt?: string | null
+}
+
 export class ExternalThreadShareError extends Error {
   constructor(message: string, readonly status: number) { super(message) }
 }
@@ -122,6 +146,30 @@ export async function createExternalThreadLinkShare(api:Client,threadId:string,i
 export async function revokeExternalThreadLinkShare(api:Client,threadId:string,linkId:string):Promise<boolean> {
   const value=await request<{revoked?:boolean}>(api,threadId,'DELETE',undefined,undefined,`links/${encodeURIComponent(linkId)}`)
   return value.revoked===true
+}
+
+function validAudienceState(value: unknown): value is ExternalThreadAudienceState {
+  if (!value || typeof value !== 'object') return false
+  const state = value as Partial<ExternalThreadAudienceState>
+  if (!Number.isInteger(state.version) || !Array.isArray(state.rooms)) return false
+  if (!state.rooms.every(room => room && typeof room.id === 'string' && typeof room.name === 'string')) return false
+  if (state.audience === null) return true
+  const audience = state.audience
+  return Boolean(audience && (audience.type === 'workspace' || audience.type === 'room')
+    && (audience.permission === 'view' || audience.permission === 'edit')
+    && (audience.expiresAt === null || typeof audience.expiresAt === 'string')
+    && Number.isInteger(audience.version)
+    && (audience.type !== 'room' || typeof audience.roomId === 'string'))
+}
+
+export async function getExternalThreadAudience(api: Client, threadId: string, signal?: AbortSignal): Promise<ExternalThreadAudienceState> {
+  const value = await request<unknown>(api, threadId, 'GET', undefined, signal, 'audience')
+  if (!validAudienceState(value)) throw new ExternalThreadShareError('The audience service returned an invalid response.', 502)
+  return value
+}
+
+export async function updateExternalThreadAudience(api: Client, threadId: string, input: ExternalThreadAudienceInput): Promise<void> {
+  await request<unknown>(api, threadId, 'PUT', input, undefined, 'audience')
 }
 
 export async function listExternalThreadSendRequests(api: Client, threadId: string, signal?: AbortSignal): Promise<ExternalThreadSendRequest[]> {

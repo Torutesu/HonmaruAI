@@ -3030,3 +3030,9 @@ CREATE TABLE IF NOT EXISTS perf_samples (
   created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS perf_samples_kind_at ON perf_samples(kind, created_at);
+
+-- A Thread audience is a live Room/workspace ACL, separate from named external grants and link tokens.
+CREATE TABLE IF NOT EXISTS hx_external_thread_audiences (org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE, root_message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE, version INTEGER NOT NULL CHECK(version>0), audience_type TEXT CHECK(audience_type IN ('workspace','room')), room_id TEXT, permission TEXT CHECK(permission IN ('view','edit')), expires_at TEXT, updated_by TEXT REFERENCES users(github_id) ON DELETE SET NULL, updated_at TEXT NOT NULL, change_token TEXT NOT NULL, PRIMARY KEY(org_id,root_message_id), CHECK((audience_type='room' AND room_id IS NOT NULL AND permission IS NOT NULL) OR (audience_type='workspace' AND room_id IS NULL AND permission IS NOT NULL) OR (audience_type IS NULL AND room_id IS NULL AND permission IS NULL)), CHECK(expires_at IS NULL OR expires_at>updated_at));
+CREATE INDEX IF NOT EXISTS idx_hx_external_thread_audiences_expiry ON hx_external_thread_audiences(org_id,expires_at,root_message_id);
+CREATE TABLE IF NOT EXISTS hx_external_thread_audience_requests (request_id TEXT PRIMARY KEY REFERENCES hx_external_thread_send_requests(id) ON DELETE CASCADE, org_id TEXT NOT NULL, root_message_id TEXT NOT NULL, guest_github_id TEXT NOT NULL, audience_version INTEGER NOT NULL CHECK(audience_version>0), created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_hx_external_thread_audience_requests_scope ON hx_external_thread_audience_requests(org_id,root_message_id,audience_version,guest_github_id);
