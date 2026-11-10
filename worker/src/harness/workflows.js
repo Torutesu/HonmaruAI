@@ -728,6 +728,14 @@ export async function cancelWorkflowRun(db, { orgId, workflowId, runId, expected
     db.prepare(`UPDATE hx_workflow_runs SET status='cancelled',log=?1,finished_at=?2
       WHERE org_id=?3 AND workflow_id=?4 AND id=?5 AND started_at=?6 AND status='running' AND log=?7 AND next_step=?8`)
       .bind(JSON.stringify(log), at, orgId, workflowId, runId, expectedStartedAt, row.log, row.next_step),
+    // A workflow-backed code step is also a live gateway job. Fencing the
+    // run prevents further authorized node operations, and cancelling the
+    // job releases its lease so the node stops polling/executing it promptly.
+    db.prepare(`UPDATE hx_gateway_jobs SET status='cancelled',lease_hash=NULL,finished_at=?1
+      WHERE org_id=?2 AND status IN ('queued','running')
+        AND id IN (SELECT a.job_id FROM hx_workflow_activations a WHERE a.org_id=?2 AND a.run_id=?3)
+        AND EXISTS(SELECT 1 FROM hx_workflow_runs r WHERE r.org_id=?2 AND r.id=?3 AND r.workflow_id=?4 AND r.started_at=?5 AND r.status='cancelled')`)
+      .bind(Date.parse(at), orgId, runId, workflowId, expectedStartedAt),
     ...workflowSettlementStatements(db, orgId, runId),
   ]);
   if (!result[0].meta?.changes) return { error: 'This run changed while it was being cancelled. Refresh the workflow.', status: 409 };

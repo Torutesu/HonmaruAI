@@ -19,6 +19,10 @@ beforeEach(async()=>{
  for(const [id,role] of [['9101','admin'],['9102','member'],['9103','member']]){await upsertUser(env.DB,{githubId:id,login:`user${id}`,name:`user${id}`});await upsertMembership(env.DB,org,id,role)}
  owner=await createSession(env.DB,'9101','gho_owner');member=await createSession(env.DB,'9102','gho_member');
  app=(await (await add('/apps',{name:'Tasks',columns:[{name:'Task',type:'text'}]})).json()).app;
+ const {appAccess,setAppAccess}=await import('../src/harness/resourceAccess.js');
+ const access=await appAccess(env.DB,org,app.id);
+ const grant=await setAppAccess(env.DB,org,app.id,'9101',{visibility:'workspace',version:access.version,people:[{userId:'9102',permission:'edit'}]});
+ expect(grant.error).toBeUndefined();
  row=(await (await add(`/tables/${app.tableId}/rows`,{values:{task:'Example'}})).json()).row;
 });
 

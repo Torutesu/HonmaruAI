@@ -38,7 +38,7 @@ async function appPermission(db, orgId, appId, userId) {
   if (row.ownerId === String(userId)) return 'edit';
   if (row.permission) return row.permission;
   if (row.room_channel) return await mayUseConversation(db, orgId, userId, row.room_channel) ? 'view' : 'none';
-  return row.visibility === 'workspace' ? (String(row.role).toLowerCase()==='admin' ? 'edit' : 'view') : 'none';
+  return row.visibility === 'workspace' ? (['owner','admin'].includes(String(row.role).toLowerCase()) ? 'edit' : 'view') : 'none';
 }
 
 export async function appPeopleAccess(db, orgId, appId) {
@@ -79,9 +79,10 @@ export async function mayUseTable(db, orgId, tableId, userId) {
 export async function mayEditTable(db, orgId, tableId, userId) {
   if (!(await mayUseTable(db,orgId,tableId,userId))) return false;
   const { results = [] } = await db.prepare('SELECT id FROM hx_apps WHERE org_id=?1 AND table_id=?2 UNION SELECT app_id AS id FROM hx_app_entities WHERE org_id=?1 AND table_id=?2').bind(orgId,tableId).all();
-  for (const app of results) {
-    if (await hasExplicitAppPermission(db,orgId,app.id,userId) && !(await mayEditApp(db,orgId,app.id,userId))) return false;
-  }
+  // A workspace/Room default grant is usually view-only for ordinary members.
+  // Requiring edit on every App that exposes a shared table prevents the table
+  // route, MCP, or a workflow from turning visibility into an implicit write grant.
+  for (const app of results) if (!(await mayEditApp(db,orgId,app.id,userId))) return false;
   return true;
 }
 

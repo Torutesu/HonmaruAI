@@ -127,6 +127,15 @@ beforeEach(async () => {
   await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "harness" });
   const app = (await (await send("POST", "/apps", mika, { orgId: ORG, template: "invoices", sample: false })).json()).app;
   invoices = app.tableId; invoicesAppId = app.id;
+  // Workflows execute as their maker. Make the fixture App workspace-visible
+  // so Toru's admin permission is explicit in the App ACL, rather than relying
+  // on the former implicit table-write bypass for a private App.
+  await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'workspace',1)
+    ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='workspace',version=hx_app_access.version+1`)
+    .bind(ORG, app.id).run();
+  const { mayEditApp, mayEditTable } = await import('../src/harness/resourceAccess.js');
+  expect(await mayEditApp(env.DB, ORG, app.id, '9301')).toBe(true);
+  expect(await mayEditTable(env.DB, ORG, app.tableId, '9301')).toBe(true);
 });
 
 const overdueFlow = () => ({
@@ -488,7 +497,7 @@ test('an app record run stops if its entity is remapped while the agent is answe
 
 test('admin editors cannot redirect a workflow to an app they cannot access',async()=>{
   const {workflow}=await (await send('POST','/workflows',mika,{orgId:ORG,name:'Private app workflow',trigger:{type:'manual'},steps:[{type:'approval',to:'toru',title:'Review'}]})).json();
-  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)").bind(ORG,invoicesAppId).run();
+  await env.DB.prepare("UPDATE hx_app_access SET visibility='private',version=version+1 WHERE org_id=?1 AND app_id=?2").bind(ORG,invoicesAppId).run();
   const response=await send('PUT',`/workflows/${workflow.id}`,toru,{orgId:ORG,trigger:{type:'app_record_change',appId:invoicesAppId,entityId:'primary',events:['update']}});
   expect(response.status).toBe(400);
   expect((await response.json()).message).toMatch(/app and entity you can access/);

@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-09",
+  "asOf": "2026-11-10",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -204,7 +204,11 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/agents/overview",
       "code": "worker/src/harness/agents.js",
-      "acceptance": "継続スレッドで@なしの自然名呼び出しを識別し、呼びかけ部分だけをAgent依頼として渡す。直前2分以内に同一利用者が同じスレッドで単一Agentを名前指定し、他の人間の発言が挟まらない場合、定型のタスク型フォローアップはそのAgentへ継続する。感謝など非タスク文、期限切れ、別人の割込み、複数Agentの曖昧な呼びかけでは継承しない。明示メンション・Agent DMは維持し、一般の人間返信やSimple modeでAgentを起動しない。進捗通知は抑制し、完了・自分宛メンションのみ通知する。"
+      "acceptance": "継続スレッドで@なしの自然名呼び出しを識別し、呼びかけ部分だけをAgent依頼として渡す。直前2分以内に同一利用者が同じスレッドで単一Agentを名前指定し、他の人間の発言が挟まらない場合、定型のタスク型フォローアップはそのAgentへ継続する。感謝など非タスク文、期限切れ、別人の割込み、複数Agentの曖昧な呼びかけでは継承しない。明示メンション・Agent DMは維持し、一般の人間返信やSimple modeでAgentを起動しない。進捗通知は抑制し、完了・自分宛メンションのみ通知する。",
+      "evidence": {
+        "verified": "KY-109 end-to-end Worker regression proves inline Agent progress remains transient while only the completed answer enters the requester's attention event and push queue. The focused record is verification-ky109-notification-boundary.md. The test is included in main 1e68161e5b2bbefb8e121a3a22f4ef5fd952994d; main CI #42764954936 passed.",
+        "remaining": "Natural-name follow-up behavior and suppression timing still need authenticated Kylon side-by-side QA. Device-level multi-user and external-runtime notification acceptance remain open."
+      }
     },
     {
       "id": "KY-018",
@@ -793,7 +797,7 @@
       "code": "worker/src/harness/workflows.js",
       "acceptance": "スケジュール停止と実行キャンセルを区別",
       "evidence": {
-        "verified": "2026-11-09 batch adds a maker/admin-only explicit cancel action for running Workflow runs. The API compares the exact run start timestamp, atomically marks the run cancelled, records the in-flight step outcome as unknown, and settles safety accounting. The runner re-reads the terminal status after each awaited step and will not persist a stale result or dispatch later steps. Focused Worker `harness-workflows.test.js` passed (123 tests), Web `HarnessWorkflows.test.tsx` passed (61 tests), and the Web production build passed locally; exact-head CI and production deployment are pending.",
+        "verified": "2026-11-09 batch adds a maker/admin-only explicit cancel action for running Workflow runs. The API compares the exact run start timestamp, atomically marks the run cancelled, records the in-flight step outcome as unknown, and settles safety accounting. The runner re-reads the terminal status after each awaited step and will not persist a stale result or dispatch later steps. 2026-11-10 adds cancellation of related queued/running TypeScript gateway jobs in the same D1 batch and clears their lease so the node stops polling promptly. Combined local Worker regression batch passed 333/333 across harness-apps.test.js, harness-workflows.test.js, workflow-code-jobs.test.js, and review-row-write-schema.test.js. Exact-head CI and production deployment are pending.",
         "remaining": "Cancellation cannot guarantee that an already-issued external request is interrupted or rolled back. Production and multi-device behavior plus Kylon side-by-side verification remain. This is still partial parity."
       }
     },
@@ -808,7 +812,7 @@
       "acceptance": "Agentの現行grant・会話権限に加えてapp_record_change元App/Table権限を各モデル往復・ツール実行fenceで再検証。Connection grantを使う将来のWorkflow actionも含め全副作用経路を監査",
       "evidence": {
         "verified": "2026-10-31〜11-01、Workflow AgentのApp/Table権限を各モデル往復で再検証し、アクセス剥奪中に進行中のWorker側provider HTTP要求をabort、返答を投稿せず、unknown/unpriced usageと1回分のallowanceを記録。PR #579/#581をmainへ統合。PR #581のfocused model/usage 14 tests、workflow 69 testsが成功。main CI #41224384637とWorker deploy #41224384634成功（後続#584 release）。Worker /health は ok=true、encryption.all=true。",
-        "remaining": "現在のworkflow step型に直接Connection actionはないため、接続操作を使う経路の統合監査は未実施。HTTP abortでプロバイダー側処理・請求が停止する保証はない。"
+        "remaining": "read-only Notion/GitHub searchのConnection stepはmainにあるが、書込操作、未対応connector、credentials/refreshの組み合わせ、provider側処理・請求の停止保証、他の副作用経路を含む完全な統合監査と複数利用者の本番受入は残る。"
       }
     },
     {
@@ -1219,7 +1223,7 @@
       "acceptance": "名前または検証済みメールで招待した外部ユーザーがワークスペースメンバー化せずサインインでき、Room/Workspace/リンクの対象ごとにThread・File・AppのCan view/Can editを個別設定できる。Threadのゲストは閲覧・返信・アップロード・リアクションができ、送信要求は所有者承認を経る。失効は即時反映され、Workspace/Room/別リソース間のACL隔離、期限、監査履歴、ゲストにAgentが自動返信しないことを検証する。",
       "evidence": {
         "verified": "Kylon公式Changelogの2026-10-30項目は、Thread/File/Appを名前またはメールで共有し、Room/Workspace/リンク単位の対象と各人のCan view/Can editを選ぶこと、外部ユーザーはWorkspaceに参加せずサインインすること、Threadゲストの閲覧/返信/アップロード/リアクションと所有者承認付き送信、現時点でAgentは外部ゲストに返信しないことを明記。Files & Sharing docs §Share outside the workspaceは、公開リンクはスナップショットを公開するだけでlive File/Roomのアクセス権を与えないと明記。Honmaruでは既存のグローバルユーザー認証を使い、新規サービスを追加せず、resource-scoped grant/revoke ledgerとhuman-only lookupの基礎を追加。",
-        "remaining": "Thread/File/Appの個別招待・権限・失効、Threadリンク共有、File版追加、Appの外部ゲスト行操作と公開済みCustom Appの隔離実行は実装済み。Custom Appゲストにserver action/外部接続は公開しない。workspace/room audience、人物検索招待、File/Thread/App以外のKylon audience、認証済み複数利用者の本番比較は未完了。既存Simpleモードはこのgrantモデルを参照しない。"
+        "remaining": "Thread/File/Appの個別招待・権限・失効、Threadリンク共有、File版追加、Appの外部ゲスト行操作と公開済みCustom Appの隔離実行、PR #870でのFiles/Apps/Threads向けWorkspace/Room audienceはmainに存在する。Workspace既定viewのメンバーによるHTTP/MCP/Workflow書込みは拒否し、workspace owner/adminはedit、一般メンバーは明示edit grantを要求する。Custom Appゲストにserver action/外部接続は公開しない。名前検索招待、File/Thread/App以外のKylon audience、認証済み複数利用者の本番比較は未完了。既存Simpleモードはこのgrantモデルを参照しない。"
       }
     },
     {

@@ -677,6 +677,35 @@ test('personal app grants inherit defaults, enforce deny precedence, and make vi
   expect((await get(`/apps/${app.id}?orgId=${ORG}`,guest)).status).toBe(200);
 });
 
+test('workspace-view app members cannot edit shared table rows without an explicit edit grant', async () => {
+  const { app } = await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+  const accessPath=`/apps/${app.id}/access`;
+  const workspace=await send('PUT',accessPath,toru,{orgId:ORG,visibility:'workspace',version:0});
+  expect(workspace.status).toBe(200);
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`,mika)).status).toBe(200);
+  expect((await get(`/tables/${app.tableId}?orgId=${ORG}`,mika)).status).toBe(200);
+
+  const viewOnly=await send('POST',`/tables/${app.tableId}/rows`,mika,{orgId:ORG,values:{company:'Must not be writable by a viewer'}});
+  expect(viewOnly.status).toBe(404);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(ORG,app.tableId).first()).n).toBe(0);
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9102'},'add_row',{tableId:app.tableId,values:{company:'MCP viewer'}})).isError).toBe(true);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB,ORG,{name:'Workspace view cannot write',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{company:'Workflow viewer'}}]},'9102');
+  expect(await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).toMatchObject({status:'failed',log:[expect.objectContaining({error:'Table access required.'})]});
+
+  const edit=await send('PUT',accessPath,toru,{orgId:ORG,visibility:'workspace',version:1,people:[{userId:'9102',permission:'edit'}]});
+  expect(edit.status).toBe(200);
+  expect((await send('POST',`/tables/${app.tableId}/rows`,mika,{orgId:ORG,values:{company:'Explicit editor'}})).status).toBe(201);
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9102'},'add_row',{tableId:app.tableId,values:{company:'MCP editor'}})).isError).toBeFalsy();
+  expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).status).toBe('done');
+
+  const downgrade=await send('PUT',accessPath,toru,{orgId:ORG,visibility:'workspace',version:2,people:[{userId:'9102',permission:'view'}]});
+  expect(downgrade.status).toBe(200);
+  expect((await send('POST',`/tables/${app.tableId}/rows`,mika,{orgId:ORG,values:{company:'Revoked edit'}})).status).toBe(404);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(ORG,app.tableId).first()).n).toBe(3);
+});
+
 test('sharing saves keep the prior app policy when a target member leaves after preflight', async () => {
   const { app } = await (await send('POST','/apps',mika,{orgId:ORG,template:'crm'})).json();
   await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9103'").bind(ORG).run();
