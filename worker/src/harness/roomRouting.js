@@ -7,13 +7,14 @@ export function isRoomRequest(text) {
   const body = String(text || '').trim();
   return body.length > 3 && !/^[^。\n?!]{1,50}(?:さん|様)[、,\s]/u.test(body) && REQUEST.test(body) && !/^(?:thanks|thank you|ありがとう|了解|承知|お疲れ)/iu.test(body);
 }
-export function chooseRoomAgent(text, agents, profiles = new Map(), defaultAgentId = null) {
+export function chooseRoomAgent(text, agents, profiles = new Map(), defaultAgentId = null, skills = new Map()) {
   if (!isRoomRequest(text) || !agents.length) return null;
   const message = String(text).normalize('NFKC').toLocaleLowerCase();
   let best = null, score = 0;
   for (const agent of agents) {
     const specialty = profiles.get(agent.id)?.specialty || '';
-    const words = new Set(`${specialty} ${agent.description || ''}`.normalize('NFKC').toLocaleLowerCase().match(WORDS) || []);
+    const skillText = (skills.get(agent.id) || []).map(skill => `${skill.name || ''} ${skill.description || ''}`).join(' ');
+    const words = new Set(`${specialty} ${agent.description || ''} ${skillText}`.normalize('NFKC').toLocaleLowerCase().match(WORDS) || []);
     const value = [...words].filter(word => !STOP.has(word) && message.includes(word)).reduce((sum, word) => sum + Math.min(word.length, 12), 0);
     if (value > score) { best = agent; score = value }
   }

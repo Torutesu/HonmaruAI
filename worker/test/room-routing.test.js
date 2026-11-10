@@ -14,6 +14,12 @@ test('room default is used when no specialty matches and only among eligible mem
   expect(chooseRoomAgent('Please review these invoices', agents, new Map([['general',{specialty:'invoices'}]]), 'finance').id).toBe('general');
   expect(chooseRoomAgent('Please explain the next steps', agents, new Map(), 'outside').id).toBe('general');
 });
+test('installed skill names and descriptions can match without exposing skill bodies', () => {
+  const agents = [{ id: 'general' }, { id: 'billing' }];
+  const skills = new Map([['billing', [{ name: 'Invoice reconciliation', description: 'Match vendor statements' }]]]);
+  expect(chooseRoomAgent('Please match the vendor statements', agents, new Map(), null, skills).id).toBe('billing');
+  expect(chooseRoomAgent('Please summarize the plan', agents, new Map(), null, skills).id).toBe('general');
+});
 test('ordinary status, acknowledgements and greetings do not trigger routing', () => {
   for (const text of ['Thanks for the review', 'ありがとう、確認してくれて助かりました', 'Hello everyone', 'The release is complete', 'I will review it tomorrow', 'Toru, can you review this?', '田中さん、請求書を確認してください', '確認してくれました', '本日の売上は昨日と同じです', '了解しました']) expect(isRoomRequest(text)).toBe(false);
 });
