@@ -3355,6 +3355,7 @@ const table: Record<string, string> = {
   "Runs from the top of the file. Exported functions are not called automatically.": "ファイルの先頭から実行します。exportした関数は自動では呼び出されません。",
   "Connect an execution node in Settings to run this program.": "このプログラムを実行するには、設定で実行ノードを接続してください。",
   "Saved state is available through @honmaru/workflow-sdk.": "保存した状態は @honmaru/workflow-sdk から利用できます。",
+  "Use parallel and pipeline for bounded batches; failed items return null and call onError.": "parallel・pipelineで件数と同時実行数を制限できます。失敗した項目はnullとなり、onErrorに通知されます。",
   "Program source exceeds 48 KB.": "プログラムのソースが48 KBを超えています。",
   "Send signed webhook events": "署名付きWebhookイベントを送信する",
   "Sign the exact JSON body with the webhook secret. Use a fresh timestamp and a stable event ID for retries; signed requests expire after 5 minutes and event IDs are remembered for 7 days.": "WebhookシークレットでJSON本文そのものに署名してください。時刻は毎回更新し、再送では同じイベントIDを使います。署名付きリクエストは5分で期限切れになり、イベントIDは7日間記録されます。",

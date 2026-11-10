@@ -9,17 +9,20 @@ const stateOperation=async(method,params)=>{
  stored=params.state;return {saved:true,revision:++revision};
 };
 const first=await runWorkflowIsolated({context:{workspaceId:'fixture',timezone:'UTC'},code:`
-import {state,ctx} from '@honmaru/workflow-sdk';
+import {state,ctx,parallel,pipeline} from '@honmaru/workflow-sdk';
 const previous=await state.get({view:'checkpoint'});
 const result:number=(previous.state?.count??0)+1;
 const receipt=await state.set({count:result},{validationStatus:'pending'});
 if(!receipt.saved)throw Error('Not saved');
 const restored=await state.get({view:'checkpoint'});
-console.log(JSON.stringify({count:restored.state.count,workspace:ctx.workspaceId,platform:process.platform,uid:process.getuid()}));
+const misses=[];
+const batch=await parallel([async()=>1,async()=>{throw Error('isolated item failure')},async()=>3],{concurrency:2,onError:(error,index)=>misses.push(index)});
+const staged=await pipeline([1,2,3],async value=>{if(value===2)throw Error('partial row');return value*2},async value=>value+1,{concurrency:2});
+console.log(JSON.stringify({count:restored.state.count,workspace:ctx.workspaceId,platform:process.platform,uid:process.getuid(),batch,misses,staged}));
 export default function(){throw Error('Default export must not be invoked');}
 `},{stateOperation});
 assert.equal(first.status,'succeeded',first.stderr);
-assert.deepEqual(JSON.parse(first.stdout),{count:1,workspace:'fixture',platform:'linux',uid:65534});
+assert.deepEqual(JSON.parse(first.stdout),{count:1,workspace:'fixture',platform:'linux',uid:65534,batch:[1,null,3],misses:[1],staged:[3,null,7]});
 assert.deepEqual(operations,['state.get','state.set','state.get']);
 const second=await runWorkflowIsolated({code:`import {state} from '@honmaru/workflow-sdk';process.stdout.write('before:');const previous=await state.get();console.log(previous.state.count);`},{stateOperation});
 assert.equal(second.status,'succeeded',second.stderr);assert.equal(second.stdout.trim(),'before:1');

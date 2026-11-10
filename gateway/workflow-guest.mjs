@@ -1,4 +1,5 @@
 // Serialized into the existing Linux VM. Never evaluate workflow code on host.
+import { workflowSdkSource } from './workflow-sdk.mjs';
 export const WORKFLOW_BOOTSTRAP=`
 (async()=>{
  const {createInterface}=await import('node:readline');
@@ -28,7 +29,8 @@ export const WORKFLOW_BOOTSTRAP=`
  };
  const bridgeKey='__honmaru_'+task.nonce;
  Object.defineProperty(globalThis,bridgeKey,{value:{state,ctx:Object.freeze({...task.context,now:()=>new Date().toISOString()})},configurable:false});
- const sdk='data:text/javascript;base64,'+Buffer.from('const bridge=globalThis['+JSON.stringify(bridgeKey)+'];export const state=bridge.state;export const ctx=bridge.ctx;').toString('base64');
+ const sdkSource='const bridge=globalThis['+JSON.stringify(bridgeKey)+'];export const state=bridge.state;export const ctx=bridge.ctx;\\n${workflowSdkSource()}';
+ const sdk='data:text/javascript;base64,'+Buffer.from(sdkSource).toString('base64');
  registerHooks({resolve(specifier,context,next){return specifier==='@honmaru/workflow-sdk'?{url:sdk,shortCircuit:true}:next(specifier,context);}});
  try {
   const source=stripTypeScriptTypes(task.code,{mode:'transform',sourceUrl:'workflow.ts'});
