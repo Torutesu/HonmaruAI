@@ -46,9 +46,14 @@ export function resourceAudienceAccessSql({ resourceType, org, resource, user, n
       JOIN memberships member ON member.org_id=audience.org_id AND member.user_github_id=${user}
       WHERE audience.org_id=${org} AND audience.resource_type='${resourceType}' AND audience.resource_id=${resource}
         AND audience.audience_type IS NOT NULL AND (audience.expires_at IS NULL OR audience.expires_at>${now})${versionFence}${groupPermission}
-        AND (audience.audience_type='workspace' OR (audience.audience_type='room' AND EXISTS(
-          SELECT 1 /* org_id scope */ FROM conversation_members cm JOIN users roomUser ON roomUser.login=cm.login
-          WHERE cm.org_id=audience.org_id AND cm.channel=audience.room_id AND roomUser.github_id=${user}))))`;
+        AND (audience.audience_type='workspace' OR (audience.audience_type='room'
+          AND EXISTS(SELECT 1 /* org_id scope */ FROM businesses liveRoom
+            WHERE liveRoom.org_id=audience.org_id AND 'b:'||liveRoom.slug=audience.room_id
+              AND liveRoom.archived_at IS NULL
+              AND NOT EXISTS(SELECT 1 /* org_id scope */ FROM hx_room_access removedRoom
+                WHERE removedRoom.org_id=liveRoom.org_id AND removedRoom.channel=audience.room_id AND removedRoom.deleted_at IS NOT NULL))
+          AND EXISTS(SELECT 1 /* org_id scope */ FROM conversation_members cm JOIN users roomUser ON roomUser.login=cm.login
+            WHERE cm.org_id=audience.org_id AND cm.channel=audience.room_id AND roomUser.github_id=${user}))))`;
   return `(${direct ? `${direct} OR ` : ""}${audience})`;
 }
 
@@ -66,9 +71,14 @@ export async function resourceAudiencePermission(db, { orgId, resourceType, reso
     JOIN memberships member ON member.org_id=a.org_id AND member.user_github_id=?4
     WHERE a.org_id=?1 AND a.resource_type=?2 AND a.resource_id=?3 AND a.audience_type IS NOT NULL
       AND (a.expires_at IS NULL OR a.expires_at>?5)
-      AND (a.audience_type='workspace' OR (a.audience_type='room' AND EXISTS(
-        SELECT 1 /* org_id scope */ FROM conversation_members cm JOIN users roomUser ON roomUser.login=cm.login
-        WHERE cm.org_id=a.org_id AND cm.channel=a.room_id AND roomUser.github_id=?4))) LIMIT 1`)
+      AND (a.audience_type='workspace' OR (a.audience_type='room'
+        AND EXISTS(SELECT 1 /* org_id scope */ FROM businesses liveRoom
+          WHERE liveRoom.org_id=a.org_id AND 'b:'||liveRoom.slug=a.room_id
+            AND liveRoom.archived_at IS NULL
+            AND NOT EXISTS(SELECT 1 /* org_id scope */ FROM hx_room_access removedRoom
+              WHERE removedRoom.org_id=liveRoom.org_id AND removedRoom.channel=a.room_id AND removedRoom.deleted_at IS NOT NULL))
+        AND EXISTS(SELECT 1 /* org_id scope */ FROM conversation_members cm JOIN users roomUser ON roomUser.login=cm.login
+          WHERE cm.org_id=a.org_id AND cm.channel=a.room_id AND roomUser.github_id=?4))) LIMIT 1`)
     .bind(orgId, resourceType, resourceId, String(githubId), now).first();
   const groupPermission = row && permissions.has(String(row.permission)) ? row.permission : null;
   const permission = direct === "edit" || groupPermission === "edit" ? "edit"
