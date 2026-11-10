@@ -11,6 +11,7 @@ import './WorkspaceFilesPanel.css'
 import {WorkspaceFilePreview} from './WorkspaceFilePreview'
 import {workspaceFilePreviewKind} from '../utils/workspaceFilePreview'
 import {WorkspaceFileUpload} from './WorkspaceFileUpload'
+import {FilePublicUrlControls} from './FilePublicUrlControls'
 import {Dialog} from './Dialog'
 
 export function RoomFilesPanel({api,channel,targetFileId,inlinePreview=false,preferenceKey,allOriginsInFolders=false,enablePublicMediaUrls=false,onClose,onAttachments}:{api:WorkspaceFileApi;channel:string;targetFileId?:string;inlinePreview?:boolean;preferenceKey?:string;allOriginsInFolders?:boolean;enablePublicMediaUrls?:boolean;onClose:()=>void;onAttachments:()=>void}){
@@ -152,6 +153,7 @@ function WorkspaceFileHistory({api,file,inlinePreview,enablePublicMediaUrls,refr
    {externalMessage&&<p role="status">{externalMessage}</p>}
   </section>}
   {error&&<div role="alert"><p>{error}</p><button onClick={()=>setRevision(value=>value+1)}>{t('Retry')}</button></div>}
+  {current&&enablePublicMediaUrls&&<FilePublicUrlControls api={api} file={file} current={current} enabled/>}
   {!versions&&!error?<p role="status">{t('Loading…')}</p>:versions?.map(version=><div className="hx-file-version" key={version.version}><span><b>v{version.version}{version.isCurrent?` · ${t('Current version')}`:''}</b><small>{new Date(version.createdAt).toLocaleString()}</small>{version.kind==='deleted'&&<small>{t('Deleted')}</small>}{version.purged&&<small>{t('Permanently deleted')}</small>}</span>{version.kind==='content'&&!version.purged&&<div className="hx-file-version-actions">{workspaceFilePreviewKind(version.contentType||'',file.path)&&<button onClick={()=>setPreview(version)} aria-label={`${t('Preview')} v${version.version}`}>{t('Preview')}</button>}{!version.isCurrent&&<button disabled={busy} onClick={()=>void restore(version)} aria-label={`${t('Restore')} v${version.version}`}>{t('Restore')}</button>}<button disabled={busy} onClick={()=>void download(version.version)} aria-label={`${t('Download')} v${version.version}`}><Icon name="download" size={16}/></button></div>}</div>)}
   <div className="hx-files-pagination">{before!==undefined&&<button onClick={()=>setBefore(undefined)}>{t('Latest versions')}</button>}{versions?.length===50&&versions[versions.length-1].version>1&&<button onClick={()=>setBefore(versions[versions.length-1].version)}>{t('Older versions')}</button>}</div>
  </div>

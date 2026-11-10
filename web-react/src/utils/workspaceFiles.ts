@@ -11,6 +11,8 @@ export type FileAudienceInput={version:number;type:'workspace'|'room'|null;roomI
 export type ExternalFileInvite={id:string;invitedEmail:string;permission:ExternalFilePermission;accessExpiresAt:string|null;createdAt:string;expiresAt:string;redeemedAt:string|null;revokedAt:string|null;emailDelivery?:{status:'sent'|'failed'|'not_configured'}}
 export type ExternalFileGrant={id:string;recipientGithubId:string;recipientLogin:string;recipientEmail:string;permission:ExternalFilePermission;grantedAt:string;expiresAt:string|null;revokedAt:string|null;revokedBy:string|null}
 export type PublicFileShareRequest={id:string;fileId:string;filePath:string;scope:string;version:number;currentVersion:number;contentHash:string;contentType:string;size:number;expiresAt:string;allowDownload:boolean;status:'pending'|'approved'|'declined'|'stale'|'cancelled';createdAt:string;requesterLogin:string;decisionAt:string|null;shareId:string|null;revokedAt:string|null;revokedBy:string|null}
+export type FilePublicUrlState={url:string|null;version:number;contentType:string|null;canCreate:boolean;canRevoke:boolean}
+export type FilePublicUrlResult={url:string;version:number;contentType:string;reused:boolean}
 export type FileSearch = {scope:string;origin?:FileOrigin;query?:string;directory?:string;type?:'image'|'video'|'media'|'pdf'|'doc'|'html';createdBy?:string;since?:string;until?:string;includeDeleted?:boolean;directOnly?:boolean;order?:'path'|'recent';cursor?:FileCursor;limit?:number}
 export class WorkspaceFileError extends Error {
  constructor(message:string,readonly status:number){super(message);this.name='WorkspaceFileError'}
@@ -70,8 +72,11 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   remove:(id:string,expectedVersion:number)=>json<{saved:true;version:number}>(path(id),'DELETE',{expectedVersion}),
   restore:(id:string,version:number,expectedVersion:number)=>json<{saved:true;version:number}>(`${path(id)}/restore`,'POST',{version,expectedVersion}),
   purge:(id:string,reason:string,selection:{version:number}|{expectedVersion:number})=>json<{purged?:boolean;purgedCount?:number}>(`${path(id)}/purge`,'POST',{reason,...selection}),
+  filePublicUrl:(id:string,signal?:AbortSignal)=>json<FilePublicUrlState>(`${path(id)}/public-url`,'GET',undefined,undefined,signal),
+  createFilePublicUrl:(id:string)=>json<FilePublicUrlResult>(`${path(id)}/public-url`,'POST',{}),
+  revokeFilePublicUrls:(id:string)=>json<{revoked:true;count:number}>(`${path(id)}/public-url`,'DELETE',{}),
  }
 }
 type WorkspaceFileApiBase=ReturnType<typeof workspaceFileApi>
-type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'declinePublicShare'|'revokePublicShare'|'externalGrants'|'grantExternal'|'revokeExternal'|'externalLink'|'externalInvites'|'inviteExternal'|'revokeExternalInvite'|'externalAudience'|'updateExternalAudience'
+type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'declinePublicShare'|'revokePublicShare'|'externalGrants'|'grantExternal'|'revokeExternal'|'externalLink'|'externalInvites'|'inviteExternal'|'revokeExternalInvite'|'filePublicUrl'|'createFilePublicUrl'|'revokeFilePublicUrls'|'externalAudience'|'updateExternalAudience'
 export type WorkspaceFileApi = Omit<WorkspaceFileApiBase,ShareApiMethods> & Partial<Pick<WorkspaceFileApiBase,ShareApiMethods>>
