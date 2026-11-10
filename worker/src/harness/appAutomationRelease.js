@@ -7,6 +7,8 @@ import {mayUseApp} from './resourceAccess.js';
 import {nextRunAt} from '../schedule.js';
 import {getTable} from './tables.js';
 import {validateSource,MAX_PREVIEW_SOURCE} from './customApps.js';
+import {currentCustomPreviewCandidate,previewCandidateExistsSql} from './customAppPreview.js';
+import {sourceHash} from './customAppPublishApproval.js';
 
 const conflict=()=>({error:'The app, draft or live automations changed. Review the plan again.',status:409});
 const receipt=row=>({saved:true,releaseId:row.release_id,revision:row.revision,version:row.app_version});
@@ -24,7 +26,8 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   const reviewed=input.reviewed || [];
   if(!Array.isArray(reviewed) || reviewed.length>100 || JSON.stringify(reviewed).length>128000 || reviewed.some(item=>!item || typeof item.key!=='string' || typeof item.workflowId!=='string' || !['replace','recreate'].includes(item.action) || (item.action==='replace'?!item.live:item.live!==null)) || new Set(reviewed.map(item=>item.key)).size!==reviewed.length)return {error:'Invalid automation review.',status:400};
   if(input.action==='unpublish' && reviewed.length)return {error:'Stopping does not require a replacement review.',status:400};
-  const request=JSON.stringify({action:input.action,revision:input.revision,version:input.version,includeSource:input.includeSource===true,reviewed,by:String(by)});
+  const publishSource=input.action==='publish'&&input.includeSource===true;
+  const request=JSON.stringify({action:input.action,revision:input.revision,version:input.version,includeSource:input.includeSource===true,candidateId:publishSource?input.candidateId:null,reviewed,by:String(by)});
   const prior=await db.prepare('SELECT request,release_id,revision,app_version FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2 AND request_id=?3').bind(orgId,app.id,input.requestId).first();
   if(prior)return prior.request===request?{...receipt(prior),replay:true}:conflict();
   if(input.version!==app.version)return conflict();
@@ -76,23 +79,27 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
     if(input.action==='publish') {
       if(!validateSource(definition.custom.draft))return {error:'Save valid custom source before publishing.',status:400};
       if(definition.custom.draft.length>MAX_PREVIEW_SOURCE)return {error:`Shorten the draft to ${MAX_PREVIEW_SOURCE} characters or fewer before previewing and publishing.`,status:400};
+      const candidate=await currentCustomPreviewCandidate(db,orgId,app,input.candidateId);
+      if(!candidate?.current)return {error:'Review the current custom app preview before publishing it with automations.',status:409};
       Object.assign(definition.custom,{published:definition.custom.draft,publishedBy:String(by),publishedAt:at});
     } else delete definition.custom.published;
   }
   if(input.action==='publish' && definition.custom && !validateSource(definition.custom.published))return {error:'Publish custom source together with its automations.',status:409};
   const table=await getTable(db,orgId,app.tableId);if(!table)return conflict();
   const guard='EXISTS(SELECT 1 FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2 AND release_id=?3)';
-  const statements=[db.prepare(`UPDATE hx_app_automation_state SET published=?4,release_id=?5,published_at=?6,revision=revision+1,updated_at=?6,updated_by=?7
+  const stateUpdateSql=`UPDATE hx_app_automation_state SET published=?4,release_id=?5,published_at=?6,revision=revision+1,updated_at=?6,updated_by=?7
     WHERE org_id=?1 AND app_id=?2 AND revision=?3
-      AND EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?8)
+      AND EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?8${publishSource?' AND '+previewCandidateExistsSql('?14','?2','?1','?8','?15'):''})
       AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?7 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')
       AND (?12=1 OR (SELECT COUNT(*) FROM hx_workflows WHERE org_id=?1)+?10<=?11)
       AND NOT EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?1 AND id IN (SELECT value FROM json_each(?13)))
       AND NOT EXISTS(SELECT 1 FROM json_each(?9) snapshot LEFT JOIN hx_workflows w ON w.org_id=?1 AND w.id=json_extract(snapshot.value,'$.id')
         WHERE w.id IS NULL OR w.name!=json_extract(snapshot.value,'$.name') OR w.enabled!=json_extract(snapshot.value,'$.enabled')
           OR w.trigger!=json_extract(snapshot.value,'$.trigger') OR w.steps!=json_extract(snapshot.value,'$.steps') OR w.created_by!=json_extract(snapshot.value,'$.created_by')
-          OR w.webhook_signature_required!=json_extract(snapshot.value,'$.webhook_signature_required'))`)
-    .bind(orgId,app.id,plan.revision,published,releaseId,at,String(by),app.version,JSON.stringify(snapshots),added,MAX_WORKFLOWS,stopping?1:0,JSON.stringify(missing))];
+          OR w.webhook_signature_required!=json_extract(snapshot.value,'$.webhook_signature_required'))`;
+  const stateArgs=[orgId,app.id,plan.revision,published,releaseId,at,String(by),app.version,JSON.stringify(snapshots),added,MAX_WORKFLOWS,stopping?1:0,JSON.stringify(missing)];
+  if(publishSource)stateArgs.push(input.candidateId,await sourceHash(definition.custom.draft));
+  const statements=[db.prepare(stateUpdateSql).bind(...stateArgs)];
   statements.push(db.prepare(`UPDATE hx_apps SET version=?4,updated_at=?5,definition=?6 WHERE org_id=?1 AND id=?2 AND ${guard}`).bind(orgId,app.id,releaseId,version,at,JSON.stringify(definition)));
   statements.push(db.prepare(`INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at)
     SELECT ?2,?1,?4,?5,?6,?7,?8 WHERE ${guard}`).bind(orgId,app.id,releaseId,version,JSON.stringify({name:app.name,columns:table.columns,...definition,automationRelease:releaseId}),'Automations: '+input.action,String(by),at));

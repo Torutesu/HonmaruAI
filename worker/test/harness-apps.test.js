@@ -901,7 +901,8 @@ test('custom releases require owner permission, separate drafts and reject stale
   let current = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
   expect(current.app.definition.custom.draft).toBe(draft.html);
   expect(current.app.definition.custom.published).toBeUndefined();
-  expect((await send('POST', path, toru, { orgId: ORG, action: 'publish', version: 2 })).status).toBe(200);
+  let candidateId=await ensureCustomPreview(path,2,toru);
+  expect((await send('POST', path, toru, { orgId: ORG, action: 'publish', version: 2,candidateId })).status).toBe(200);
   await send('PUT', `/apps/${app.id}`, mika, { orgId: ORG, definition: { custom: { published: 'injected' } } });
   current = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
   expect(current.app.definition.custom.published).toBe(draft.html);
@@ -917,7 +918,8 @@ test('app version history identifies immutable published releases and clears the
   const { app } = await (await send('POST', '/apps', toru, { orgId: ORG, template: 'tracker', sample: false })).json();
   const path = `/apps/${app.id}/custom`;
   await send('POST', path, toru, { orgId: ORG, action: 'draft', version: 1, html: '<h1>release one</h1>' });
-  await send('POST', path, toru, { orgId: ORG, action: 'publish', version: 2 });
+  let candidateId=await ensureCustomPreview(path,2,toru);
+  await send('POST', path, toru, { orgId: ORG, action: 'publish', version: 2,candidateId });
   let history = (await (await get(`/apps/${app.id}/versions?orgId=${ORG}`, toru)).json()).versions;
   expect(history[0]).toMatchObject({ version: 3, release: { source: 'inline', current: true, publishedBy: '9101', publishedByName: 'Toru Tanaka' } });
   expect(history[0].release.publishedAt).toEqual(expect.any(String));
@@ -1430,6 +1432,15 @@ async function automationReleaseFixture() {
  const release=async (input,db=env.DB)=>releaseAppAutomations(db,ORG,await getApp(env.DB,ORG,app.id),input,'9101');
  return {app,automations,release};
 }
+async function directCustomPreview(app,by='9101') {
+ const {forkDatabase}=await import('../src/harness/appDatabase.js');
+ const {createCustomPreviewCandidate}=await import('../src/harness/customAppPreview.js');
+ const result=await forkDatabase(env.DB,ORG,app,String(by));
+ if(result.error)throw new Error(result.error);
+ const candidate=await createCustomPreviewCandidate(env.DB,ORG,app,String(by),{version:app.version,forkId:result.fork.id,revision:result.fork.revision});
+ if(candidate.error)throw new Error(candidate.error);
+ return candidate.candidate.id;
+}
 
 test('automation release is atomic, replayable and stops managed work without deleting history',async()=>{
  const f=await automationReleaseFixture();
@@ -1540,7 +1551,8 @@ test('custom source unpublish stops automation atomically and source republish a
  const {saveCustomRelease}=await import('../src/harness/customApps.js');
  const edit=async input=>{const app=await getApp(env.DB,ORG,f.app.id);return saveCustomRelease(env.DB,ORG,app,{...input,version:app.version},'9101');};
  expect((await edit({action:'draft',html:'<html><body>App</body></html>'})).saved).toBe(true);
- expect((await edit({action:'publish'})).saved).toBe(true);
+ let current=await getApp(env.DB,ORG,f.app.id);let candidateId=await directCustomPreview(current);
+ expect((await edit({action:'publish',candidateId})).saved).toBe(true);
  const stale=await getApp(env.DB,ORG,f.app.id);
  expect((await edit({action:'draft',html:'<html>New</html>'})).saved).toBe(true);
  expect((await saveCustomRelease(env.DB,ORG,stale,{action:'unpublish',version:stale.version},'9101')).status).toBe(409);
@@ -1549,7 +1561,8 @@ test('custom source unpublish stops automation atomically and source republish a
  const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();
  expect(state.published).toBeNull();expect(state.draft).toEqual(f.automations);expect(state.plan[0].status).toBe('added');
  expect((await env.DB.prepare('SELECT enabled,next_run_at FROM hx_workflows WHERE org_id=?1').bind(ORG).first())).toEqual({enabled:0,next_run_at:null});
- expect((await edit({action:'publish'})).saved).toBe(true);
+ current=await getApp(env.DB,ORG,f.app.id);candidateId=await directCustomPreview(current);
+ expect((await edit({action:'publish',candidateId})).saved).toBe(true);
  expect((await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).enabled).toBe(0);
 });
 
@@ -1559,7 +1572,8 @@ test('combined source and automation publication commits one version and replays
  const {saveCustomRelease}=await import('../src/harness/customApps.js');
  const source='<html><body>Combined release</body></html>';
  const draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:source},'9101');
- const request={action:'publish',requestId:'publish_combined_001',version:draft.version,revision:1,includeSource:true};
+ const candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
+ const request={action:'publish',requestId:'publish_combined_001',version:draft.version,revision:1,includeSource:true,candidateId};
  expect((await f.release({...request,includeSource:false})).status).toBe(409);
  const released=await f.release(request);expect(released).toMatchObject({saved:true,version:draft.version+1});
  expect((await getApp(env.DB,ORG,f.app.id)).definition.custom.published).toBe(source);
@@ -1575,8 +1589,9 @@ test('combined publication rolls source and automation state back when a workflo
  const {getApp}=await import('../src/harness/apps.js');
  const {saveCustomRelease}=await import('../src/harness/customApps.js');
  const draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:'<html>Draft only</html>'},'9101');
+ const candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
  await env.DB.exec("CREATE TRIGGER fail_combined BEFORE INSERT ON hx_workflows BEGIN SELECT RAISE(ABORT,'forced'); END;");
- await expect(f.release({action:'publish',requestId:'rollback_combined_01',version:draft.version,revision:1,includeSource:true})).rejects.toThrow();
+ await expect(f.release({action:'publish',requestId:'rollback_combined_01',version:draft.version,revision:1,includeSource:true,candidateId})).rejects.toThrow();
  await env.DB.exec('DROP TRIGGER fail_combined;');
  const app=await getApp(env.DB,ORG,f.app.id);expect(app.version).toBe(draft.version);expect(app.definition.custom.published).toBeUndefined();
  expect((await env.DB.prepare('SELECT published,revision FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first())).toEqual({published:null,revision:1});
@@ -2290,7 +2305,8 @@ test('custom publish refuses a saved source that the preview cannot render',asyn
  const path=`/apps/${app.id}/custom`,oversized='x'.repeat(MAX_PREVIEW_SOURCE+1);
  expect((await send('POST',path,toru,{orgId:ORG,action:'draft',version:app.version,html:'<p>Live</p>'})).status).toBe(200);
  let current=(await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app;
- expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:current.version})).status).toBe(200);
+  const candidateId=await ensureCustomPreview(path,current.version,toru);
+  expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:current.version,candidateId})).status).toBe(200);
  current=(await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app;
  expect((await send('POST',path,toru,{orgId:ORG,action:'draft',version:current.version,html:oversized})).status).toBe(200);
  current=(await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app;
@@ -2299,13 +2315,14 @@ test('custom publish refuses a saved source that the preview cannot render',asyn
  expect(current.definition.custom.draft).toBe(oversized);expect(current.definition.custom.published).toBe('<p>Live</p>');
  expect((await send('POST',path,toru,{orgId:ORG,action:'draft',version:current.version,html:'x'.repeat(MAX_PREVIEW_SOURCE)})).status).toBe(200);
  current=(await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app;
- expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:current.version})).status).toBe(200);
+  const boundaryCandidate=await ensureCustomPreview(path,current.version,toru);
+  expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:current.version,candidateId:boundaryCandidate})).status).toBe(200);
 });
 
 test('combined automation release rejects an oversized draft without changing the live release',async()=>{
  const f=await automationReleaseFixture();const {getApp}=await import('../src/harness/apps.js');const {saveCustomRelease,MAX_PREVIEW_SOURCE}=await import('../src/harness/customApps.js');
  let draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:'<p>Live</p>'},'9101');
- let current=await getApp(env.DB,ORG,f.app.id);let published=await saveCustomRelease(env.DB,ORG,current,{action:'publish',version:current.version},'9101');
+ let current=await getApp(env.DB,ORG,f.app.id);let candidateId=await directCustomPreview(current);let published=await saveCustomRelease(env.DB,ORG,current,{action:'publish',version:current.version,candidateId},'9101');
  current=await getApp(env.DB,ORG,f.app.id);draft=await saveCustomRelease(env.DB,ORG,current,{action:'draft',version:current.version,html:'x'.repeat(MAX_PREVIEW_SOURCE+1)},'9101');
  let result=await f.release({action:'publish',requestId:'guard_long_source_01',version:draft.version,revision:1,includeSource:true});expect(result.status).toBe(400);
  current=await getApp(env.DB,ORG,f.app.id);expect(current.version).toBe(draft.version);expect(current.definition.custom.published).toBe('<p>Live</p>');expect(current.definition.custom.draft.length).toBe(MAX_PREVIEW_SOURCE+1);
@@ -2313,7 +2330,8 @@ test('combined automation release rejects an oversized draft without changing th
  const alone=await f.release({action:'publish',requestId:'guard_autom_only_01',version:current.version,revision:1,includeSource:false});expect(alone.saved).toBe(true);
  current=await getApp(env.DB,ORG,f.app.id);expect(current.definition.custom.published).toBe('<p>Live</p>');
  draft=await saveCustomRelease(env.DB,ORG,current,{action:'draft',version:current.version,html:'x'.repeat(MAX_PREVIEW_SOURCE)},'9101');
- result=await f.release({action:'publish',requestId:'guard_boundary_src01',version:draft.version,revision:alone.revision,includeSource:true});expect(result.saved).toBe(true);
+ candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
+ result=await f.release({action:'publish',requestId:'guard_boundary_src01',version:draft.version,revision:alone.revision,includeSource:true,candidateId});expect(result.saved).toBe(true);
  current=await getApp(env.DB,ORG,f.app.id);expect(current.definition.custom.published.length).toBe(MAX_PREVIEW_SOURCE);
 });
 
@@ -2322,7 +2340,8 @@ test('anyone links publish only inline Custom Apps and exact revocation hides a 
   const draftRes=await send('POST',`/apps/${app.id}/custom`,mika,{orgId:ORG,action:'draft',version:app.version,html:'<h1>Public read-only</h1>'});
   expect(draftRes.status).toBe(200);
   const draft=await draftRes.json();
-  const publishRes=await send('POST',`/apps/${app.id}/custom`,mika,{orgId:ORG,action:'publish',version:draft.version});
+  const candidateId=await ensureCustomPreview(`/apps/${app.id}/custom`,draft.version,mika);
+  const publishRes=await send('POST',`/apps/${app.id}/custom`,mika,{orgId:ORG,action:'publish',version:draft.version,candidateId});
   expect(publishRes.status).toBe(200);
   const published=await publishRes.json();
   const create=await send('POST',`/apps/${app.id}/public-shares`,mika,{
@@ -2526,20 +2545,29 @@ async function customApprovalFixture() {
   await send('POST',path,toru,{orgId:ORG,action:'policy',enabled:true});
   return {app:{...app,version:draft.version},path};
 }
+async function ensureCustomPreview(path, version, actor=mika) {
+  const appId=path.split('/')[2], database=`/apps/${appId}/database`;
+  let data=(await(await get(`${database}?orgId=${ORG}`,actor)).json());
+  if(!data.fork){await send('POST',database,actor,{orgId:ORG,action:'fork'});data=await(await get(`${database}?orgId=${ORG}`,actor)).json();}
+  const candidate=await(await send('POST',path,actor,{orgId:ORG,action:'preview_candidate',version,forkId:data.fork.id,revision:data.fork.revision})).json();
+  return candidate.candidate?.id;
+}
 async function requestCustomApproval(path, version) {
-  return send('POST',path,mika,{orgId:ORG,action:'request_approval',version});
+  const candidateId=await ensureCustomPreview(path,version);
+  return send('POST',path,mika,{orgId:ORG,action:'request_approval',version,candidateId});
 }
 async function approveCustomRelease(path, state, reviewer=toru, token=reviewer) {
-  return send('POST',path,token,{orgId:ORG,action:'review',decision:'approve',approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash});
+  return send('POST',path,token,{orgId:ORG,action:'review',decision:'approve',approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash,candidateId:state.candidate?.id});
 }
 
 test('restoring an older published custom app release creates a gated draft and preserves release history', async()=>{
   const {app,path}=await customApprovalFixture();
   const publishDraft=async version=>{
     expect((await requestCustomApproval(path,version)).status).toBe(200);
-    const state=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
+    let state=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
     expect((await approveCustomRelease(path,state)).status).toBe(200);
-    const response=await send('POST',path,mika,{orgId:ORG,action:'publish',version});
+    state=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
+    const response=await send('POST',path,mika,{orgId:ORG,action:'publish',version,candidateId:state.candidate?.id});
     expect(response.status,await response.clone().text()).toBe(200);
     return response.json();
   };
@@ -2559,7 +2587,7 @@ test('restoring an older published custom app release creates a gated draft and 
   expect(appAfterRestore.definition.custom.published).toBe('<h1>New release</h1>');
   const gate=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
   expect(gate.approval?.status).not.toBe('approved');
-  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:restored.version})).status).toBe(409);
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:restored.version,candidateId:gate.candidate?.id})).status).toBe(409);
   const afterRestore=(await(await get(`/apps/${app.id}/versions?orgId=${ORG}`,mika)).json()).versions;
   expect(afterRestore.map(v=>v.version)).toEqual([restored.version,...beforeRestore.map(v=>v.version)]);
   expect(afterRestore.find(v=>v.version===firstReleaseVersion).release.current).toBe(false);
@@ -2571,14 +2599,15 @@ test('custom app approval requires a distinct Owner or Admin and can only publis
   const requested=await requestCustomApproval(path,app.version);
   expect(requested.status).toBe(200);
   const state=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
-  expect((await send('POST',path,mika,{orgId:ORG,action:'review',decision:'approve',approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash})).status).toBe(403);
+  expect((await send('POST',path,mika,{orgId:ORG,action:'review',decision:'approve',approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash,candidateId:state.candidate?.id})).status).toBe(403);
   expect((await approveCustomRelease(path,state)).status).toBe(200);
   expect((await approveCustomRelease(path,state)).status).toBe(409);
   expect((await requestCustomApproval(path,app.version)).status).toBe(409);
-  expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
-  const makerPublish=await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version});
+  const candidateId=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate.candidate?.id;
+  expect((await send('POST',path,toru,{orgId:ORG,action:'publish',version:app.version,candidateId})).status).toBe(409);
+  const makerPublish=await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version,candidateId});
   expect(makerPublish.status,await makerPublish.clone().text()).toBe(200);
-  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version,candidateId})).status).toBe(409);
 });
 
 test('custom app approval is revoked when the draft version or source hash changes',async()=>{
@@ -2589,7 +2618,7 @@ test('custom app approval is revoked when the draft version or source hash chang
   const changedResponse=await send('POST',path,mika,{orgId:ORG,action:'draft',version:app.version,html:'<h1>Edited after approval</h1>'});
   expect(changedResponse.status).toBe(200);
   const changed=await changedResponse.json();
-  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:changed.version})).status).toBe(409);
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:changed.version,candidateId:(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate.candidate?.id})).status).toBe(409);
   const current=await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json();
   expect(current.app.definition.custom.published).toBeUndefined();
   const stale=await requestCustomApproval(path,app.version);
@@ -2601,7 +2630,7 @@ test('custom app approval is revoked when the draft version or source hash chang
   const row=await env.DB.prepare("SELECT definition FROM hx_apps WHERE org_id=?1 AND id=?2").bind(ORG,app.id).first();
   const definition=JSON.parse(row.definition);definition.custom.draft='<h1>DB tampered</h1>';
   await env.DB.prepare("UPDATE hx_apps SET definition=?1 WHERE org_id=?2 AND id=?3").bind(JSON.stringify(definition),ORG,app.id).run();
-  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:changed.version})).status).toBe(409);
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:changed.version,candidateId:state.candidate?.id})).status).toBe(409);
 });
 
 test('publish is blocked and approval revoked when reviewer loses admin access',async()=>{
@@ -2611,7 +2640,7 @@ test('publish is blocked and approval revoked when reviewer loses admin access',
   expect((await approveCustomRelease(path,state)).status).toBe(200);
   await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
   await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
-  const denied=await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version});
+  const denied=await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version,candidateId:state.candidate?.id});
   expect(denied.status).toBe(409);
   expect((await get(`${path}?orgId=${ORG}`,mika)).status).toBe(200);
   const current=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
@@ -2621,7 +2650,8 @@ test('publish is blocked and approval revoked when reviewer loses admin access',
 test('policy off preserves legacy direct custom app publication',async()=>{
   const {app,path}=await customApprovalFixture();
   await send('POST',path,toru,{orgId:ORG,action:'policy',enabled:false});
-  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(200);
+  const candidateId=await ensureCustomPreview(path,app.version,mika);
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version,candidateId})).status).toBe(200);
   const current=await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json();
   expect(current.app.definition.custom.published).toBe('<h1>Release candidate</h1>');
 });
@@ -2649,7 +2679,20 @@ test('requester membership removal permanently revokes an approval',async()=>{
  const revoked=await env.DB.prepare("SELECT status FROM hx_app_publish_approvals WHERE id=?1").bind(state.approval.id).first();
  expect(revoked.status).toBe('revoked');
  await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES(?1,'9102','member',?2)").bind(ORG,new Date().toISOString()).run();
- expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version})).status).toBe(409);
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version,candidateId:state.candidate?.id})).status).toBe(409);
+});
+
+test('custom app publication and approval require the exact current preview database revision',async()=>{
+ const {app,path}=await customApprovalFixture();
+ const candidateId=await ensureCustomPreview(path,app.version,mika);
+ await env.DB.prepare('UPDATE hx_app_forks SET revision=revision+1 WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(ORG,app.id,'9102').run();
+ const stale=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
+ expect(stale.candidate.current).toBe(false);
+ expect((await send('POST',path,mika,{orgId:ORG,action:'request_approval',version:app.version,candidateId})).status).toBe(409);
+ expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version,candidateId})).status).toBe(409);
+ const currentCandidate=await ensureCustomPreview(path,app.version,mika);
+ expect(currentCandidate).not.toBe(candidateId);
+ expect((await requestCustomApproval(path,app.version)).status).toBe(200);
 });
 
 test('requester access loss between approval preflight and insert cannot leave a pending request',async()=>{
@@ -2661,7 +2704,8 @@ test('requester access loss between approval preflight and insert cannot leave a
    return {bind(...values){const bound=statement.bind(...values);return {run:async()=>{await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9102'").bind(ORG).run();return bound.run()}}}}
  }};
  const {requestCustomPublishApproval}=await import('../src/harness/customAppPublishApproval.js');
- const result=await requestCustomPublishApproval(raceDb,ORG,current,'9102');
+ const candidateId=await ensureCustomPreview(`/apps/${app.id}/custom`,app.version,mika);
+ const result=await requestCustomPublishApproval(raceDb,ORG,current,'9102',candidateId);
  expect(result.status).toBe(409);
  const count=await env.DB.prepare("SELECT COUNT(*) AS count FROM hx_app_publish_approvals WHERE org_id=?1 AND app_id=?2").bind(ORG,app.id).first();
  expect(count.count).toBe(0);
@@ -2680,7 +2724,7 @@ test('publisher access loss between publish preflight and D1 batch blocks releas
    return env.DB.batch(statements);
  }};
  const {saveCustomRelease}=await import('../src/harness/customApps.js');
- const result=await saveCustomRelease(raceDb,ORG,current,{action:'publish',version:app.version},'9105');
+ const result=await saveCustomRelease(raceDb,ORG,current,{action:'publish',version:app.version,candidateId:state.candidate?.id},'9105');
  expect(result.status).toBe(409);
  const fresh=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
  expect(fresh.definition.custom.published).toBeUndefined();
@@ -2698,7 +2742,8 @@ test('draft save revokes only old approvals atomically before a new-version requ
  const raceDb={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
    const result=await env.DB.batch(statements);
    const current=await getApp(env.DB,ORG,app.id);
-   newRequest=await requestCustomPublishApproval(env.DB,ORG,current,'9102');
+   const candidateId=await ensureCustomPreview(`/apps/${app.id}/custom`,current.version,mika);
+   newRequest=await requestCustomPublishApproval(env.DB,ORG,current,'9102',candidateId);
    return result;
  }};
  const saved=await saveCustomRelease(raceDb,ORG,before,{action:'draft',version:before.version,html:'<h1>Next draft</h1>'},'9102');

@@ -1,5 +1,7 @@
 import { getTable } from "./tables.js";
 import { consumeCustomPublishApproval } from "./customAppPublishApproval.js";
+import { currentCustomPreviewCandidate, previewCandidateExistsSql } from './customAppPreview.js';
+import { sourceHash } from './customAppPublishApproval.js';
 // Custom UI releases share the app's tenant, ACL, version history and audit trail.
 // Source is never executed in the Worker. The client runs it in an opaque-origin iframe.
 export const MAX_SOURCE = 120000;
@@ -60,6 +62,8 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
   } else if (input.action === 'publish') {
     if (!validateSource(custom.draft)) return { error: 'Save a draft before publishing.', status: 400 };
     if (custom.draft.length > MAX_PREVIEW_SOURCE) return { error: `Shorten the draft to ${MAX_PREVIEW_SOURCE} characters or fewer before previewing and publishing.`, status: 400 };
+    const candidate=await currentCustomPreviewCandidate(db,orgId,app,input.candidateId);
+    if(!candidate?.current)return {error:'Review a preview using the current validation database before publishing.',status:409};
     custom.published = custom.draft;
     delete custom.publishedCommit;
     delete custom.publishedCommitApprovalId;
@@ -80,9 +84,11 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
   const version = nextVersion;
   const stoppedRelease = crypto.randomUUID();
   // Both statements run in a D1 transaction; the snapshot is inserted only when CAS won.
+  const updateSql=`UPDATE hx_apps SET definition = ?1, version = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5 AND version = ?6${input.action==='publish'?' AND '+previewCandidateExistsSql('?7','?4','?5','?6','?8'):''}`;
+  const updateArgs=[JSON.stringify(definition), version, at, app.id, orgId, app.version];
+  if(input.action==='publish')updateArgs.push(input.candidateId,await sourceHash(custom.draft));
   const result = await db.batch([
-    db.prepare('UPDATE hx_apps SET definition = ?1, version = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5 AND version = ?6')
-      .bind(JSON.stringify(definition), version, at, app.id, orgId, app.version),
+    db.prepare(updateSql).bind(...updateArgs),
     db.prepare('INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE changes() = 1')
       .bind(app.id, orgId, version, JSON.stringify({ ...definition, name: app.name, columns: table.columns }), trusted.commit ? `Custom app: GitHub commit ${trusted.commit.owner}/${trusted.commit.repo}@${trusted.commit.sha}` : `Custom app: ${input.action}`, String(by), at),
     ...((input.action === 'draft' || input.action === 'restore' || input.action === 'restore_release') ? [

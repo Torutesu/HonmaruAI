@@ -278,7 +278,7 @@ test('an older request cannot clear the pending guard for a newer lookup',async(
 })
 
 test.each([[119800,false],[119801,true]])('combined source release of length %s is disabled=%s',async(length,blocked)=>{
- const api={appAutomations:vi.fn().mockResolvedValue(state),workflows:vi.fn().mockResolvedValue({workflows:[]}),releaseAppAutomations:vi.fn().mockResolvedValue({saved:true})}
+ const api={appAutomations:vi.fn().mockResolvedValue(state),customPublishState:vi.fn().mockResolvedValue({policy:{enabled:false},draftVersion:2,sourceHash:'x'.repeat(length),scope:'custom-app.publish',candidate:{id:'preview',appVersion:2,sourceHash:'x'.repeat(length),forkId:'fork',forkRevision:1,current:true},approval:null}),workflows:vi.fn().mockResolvedValue({workflows:[]}),releaseAppAutomations:vi.fn().mockResolvedValue({saved:true})}
  const item:any={id:'app',version:2,definition:{custom:{draft:'x'.repeat(length),published:'old'}}};let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<AppAutomations app={item} api={api as any} reload={()=>{}}/>)});
  const review=tree!.root.findAllByType('label').find(label=>label.children.some(child=>typeof child==='string'&&child.includes('現在の変更を確認')))!;
