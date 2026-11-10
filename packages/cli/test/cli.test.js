@@ -246,6 +246,95 @@ test("file lifecycle aliases expose folders, versions, and version-fenced text w
   assert.equal(stderr.read(), "");
 });
 
+test("room, message and thread aliases use scoped MCP tools with explicit paging and idempotency", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    const name = req.params.name;
+    const structuredContent = name === "list_conversations"
+      ? { conversations: [{ id: "b:ops", name: "Operations", type: "channel", private: false }], nextCursor: null }
+      : name === "create_conversation"
+        ? { conversation: { id: "b:launch", name: "Launch", type: "channel", private: true }, created: true }
+        : name === "send_message"
+          ? { message: { id: "msg_1", body: "Deploy complete" }, replayed: false }
+          : name === "search_messages"
+            ? { messages: [{ id: "msg_1", body: "Deploy complete" }], nextCursor: null }
+            : name === "get_message"
+              ? { message: { id: "msg_1", body: "Deploy complete" } }
+              : name === "read_channel"
+                ? { messages: [{ id: "msg_1", body: "Deploy complete" }], nextCursor: null }
+                : { parent: { id: "root_1" }, replies: [{ id: "msg_2" }], nextCursor: null };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "list", "--query", "ops", "--type", "channel", "--limit", "20"]), 0);
+  assert.equal(stdout.read(), "b:ops\tchannel\tOperations\n"); stdout.clear();
+  assert.equal(await run(["workspace", "room", "create", "--name", "Launch", "--scope", "private", "--request-id", "create-launch-01", "--members", "user_a,user_b,user_a"]), 0);
+  assert.match(stdout.read(), /Created channel b:launch \(Launch\)/); stdout.clear();
+  assert.equal(await run(["workspace", "room", "read", "b:ops", "--limit", "15", "--cursor", "opaque-cursor"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "message", "search", "deploy status", "--limit", "10"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "message", "get", "msg_1"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "message", "send", "--room", "b:ops", "--text", "Deploy complete", "--request-id", "send-deploy-01", "--reply-to", "msg_0", "--file-ids", "file_1,file_2,file_1"]), 0);
+  assert.equal(stdout.read(), "Sent message msg_1.\n"); stdout.clear();
+  assert.equal(await run(["workspace", "thread", "get", "b:ops", "root_1", "--limit", "25"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "thread", "msg", "b:ops", "root_1", "--text", "Follow-up", "--request-id", "thread-reply-01"]), 0);
+  assert.deepEqual(calls, [
+    { name: "list_conversations", arguments: { query: "ops", type: "channel", limit: 20 } },
+    { name: "create_conversation", arguments: { type: "channel", name: "Launch", private: true, memberRefs: ["user_a", "user_b"], requestId: "create-launch-01" } },
+    { name: "read_channel", arguments: { conversationId: "b:ops", limit: 15, cursor: "opaque-cursor" } },
+    { name: "search_messages", arguments: { query: "deploy status", limit: 10 } },
+    { name: "get_message", arguments: { messageId: "msg_1" } },
+    { name: "send_message", arguments: { conversationId: "b:ops", body: "Deploy complete", requestId: "send-deploy-01", replyToMessageId: "msg_0", fileIds: ["file_1", "file_2"] } },
+    { name: "read_thread", arguments: { conversationId: "b:ops", threadId: "root_1", limit: 25 } },
+    { name: "send_message", arguments: { conversationId: "b:ops", threadId: "root_1", body: "Follow-up", requestId: "thread-reply-01" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("room/message aliases reject malformed writes and page limits before making requests", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "create", "--name", "Secret", "--scope", "private", "--request-id", "short"]), 1);
+  assert.match(stderr.read(), /request-id must be 8 to 100/); stderr.clear();
+  assert.equal(await run(["workspace", "room", "create", "--name", "Secret", "--scope", "hidden", "--request-id", "valid-request"]), 1);
+  assert.match(stderr.read(), /scope must be public or private/); stderr.clear();
+  assert.equal(await run(["workspace", "message", "send", "--room", "b:ops", "--text", "hi", "--request-id", "bad/id"]), 1);
+  assert.match(stderr.read(), /request-id must be 8 to 100/); stderr.clear();
+  assert.equal(await run(["workspace", "thread", "get", "b:ops", "root_1", "--limit", "51"]), 1);
+  assert.match(stderr.read(), /must be an integer from 1 to 50/);
+  assert.equal(requests, 0);
+});
+
+test("reaction aliases use idempotent add and remove tools without toggling semantics", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { messageId: "msg_1", reactions: [] } } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "reaction", "get", "msg_1"]), 0);
+  assert.equal(await run(["workspace", "reaction", "add", "msg_1", "--emoji", "✅"]), 0);
+  assert.equal(await run(["workspace", "reaction", "remove", "msg_1", "--emoji", "✅"]), 0);
+  assert.deepEqual(calls, [
+    { name: "get_reactions", arguments: { messageId: "msg_1" } },
+    { name: "add_reaction", arguments: { messageId: "msg_1", emoji: "✅" } },
+    { name: "remove_reaction", arguments: { messageId: "msg_1", emoji: "✅" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
 test("file lifecycle aliases reject unsafe or unsupported requests before calling the server", async () => {
   let requests = 0;
   const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };

@@ -1,6 +1,6 @@
 # Kylon機能差分・受入条件
 
-調査基準日: 2026-11-10。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。最新main `bc79dfae406501e043231a9e2ae8c492e2b419d9` までの追記を参照。
+調査基準日: 2026-11-11。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。最新mainはPR #881の `ed8458c446d14387555d6e91c1c0b4b9b7f395e0`。
 
 全105項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
@@ -159,7 +159,7 @@
 | KY-082 | データプロバイダの組込み | 一部 | P2 | [worker/src/agentResearch.js](../../worker/src/agentResearch.js) | 検索以外の人/企業/SEO/地図/TikTok等を実契約APIで検証 |
 | KY-083 | 画像・動画・音声生成 | 一部・本番反映 | P2 | [worker/src/harness/mediaGeneration.js](../../worker/src/harness/mediaGeneration.js), [web-react/src/components/MessageVisualization.tsx](../../web-react/src/components/MessageVisualization.tsx) | PR #855でHarnessの所有Agent会話内に画像生成ジョブを追加。Workspace所有OpenAIキーのみ利用し、モデル送信前にプロンプトと従量費用の説明を人が承認する。進行状態・失敗・キャンセル・非公開PNG成果物の保存を実装。成果物の成功確定時にWorkspace/Agent所有権を再確認する更新SQLを修正し、模擬Provider応答からR2・ファイル台帳保存までテスト。動画・音声生成、固定額を提示する費用見積り、実Provider/実画面での受入は残る。生成費用は出力により変動するため固定額の見積りとしては表示しない |
 | KY-084 | モデル互換proxy | 一部 | P2 | [worker/src/orgAI.js](../../worker/src/orgAI.js) | 対応API・stream・使用量計上・providerエラーを検証 |
-| KY-085 | Workspace CLIの全操作 | 一部 | P1 | [packages/cli](../../packages/cli) | main 2481adb0 / PR #569でHarness用のexecution node list/run/read/cancelと公開App action list/run/readを追加。JSON入力、安定request ID、公開version固定、結果の状態表示。HTTPS限定、env tokenを永続化せず、scope・membership・本人所有result・Simple/Harness分岐は既存MCP APIが強制。Gateway repair/upgrade、browser/device OAuth、credential helper、Room/message/Agent/connection/skillなど残りのコマンド群は未実装 |
+| KY-085 | Workspace CLIの全操作 | 一部 | P1 | [packages/cli/src/cli.js](../../packages/cli/src/cli.js), [worker/src/mcpChatTools.js](../../worker/src/mcpChatTools.js) | 既存の認可付きMCPツールへHarness実行/App action/DB/Fileに加え、Room一覧・作成・履歴、Message検索・取得・送信、Thread取得・返信、Reaction get/add/removeのCLI aliasを追加。ページングcursorと上限を引き継ぎ、書込みは安定request ID必須、重複ファイルIDを正規化。private/DM/添付のスコープ、membership、冪等性はWorkerが再検証。Room join/discover/archive/update/member管理、Thread作成・participants/pin/rename/activate、Message edit/delete/forward、Connection/Agent/Skillの各コマンド、Gateway修復/OAuth/secure credential helperは未対応。CLI操作全体の本人/Agent principal、SSO/IP、Kylonライブ受入は未完了 |
 
 ## Commercial
 

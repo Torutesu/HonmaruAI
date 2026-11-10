@@ -13,6 +13,17 @@ Usage:
   honmaru workspace app action list [<app-id>]
   honmaru workspace app action run <app-id> <name> --version N --gateway-id NODE --request-id ID --input JSON
   honmaru workspace app action read <app-id> <job-id>
+  honmaru workspace room list [--query TEXT] [--type channel|dm|group] [--limit N] [--cursor CURSOR]
+  honmaru workspace room create --name NAME --scope public|private --request-id ID [--members REF,REF]
+  honmaru workspace room read <room-id> [--limit N] [--cursor CURSOR]
+  honmaru workspace message search <query> [--limit N] [--cursor CURSOR]
+  honmaru workspace message get <message-id>
+  honmaru workspace message send --room ROOM --text TEXT --request-id ID [--thread ROOT] [--reply-to MESSAGE]
+  honmaru workspace reaction get <message-id>
+  honmaru workspace reaction add <message-id> --emoji EMOJI
+  honmaru workspace reaction remove <message-id> --emoji EMOJI
+  honmaru workspace thread get <room-id> <root-id> [--limit N] [--cursor CURSOR]
+  honmaru workspace thread msg <room-id> <root-id> --text TEXT --request-id ID [--reply-to MESSAGE]
   honmaru workspace table list
   honmaru workspace sdk generate <table-id> --out <file.ts>
   honmaru workspace row list <table-id> [--query TEXT] [--where JSON] [--sort FIELD] [--limit N] [--offset N]
@@ -68,10 +79,10 @@ The status command reports the macOS LaunchAgent state without reading or printi
 const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
   "text", "room", "instruction", "minutes", "scope", "origin", "type", "created-by",
-  "direction", "title", "to", "summary", "context", "priority",
+  "direction", "title", "name", "members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before",
   "gateway-id", "request-id", "code", "input", "app-id", "out",
-  "path", "content-type", "expected-version",
+  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted"]);
 
@@ -158,6 +169,80 @@ function positionalCount(positional, exact, usage) {
 function resolveWorkspaceCommand(resource, operation, positional, options) {
   const pair = `${resource || ""} ${operation || ""}`.trim();
   switch (pair) {
+    case "room list": {
+      onlyFlags(options, ["query", "type", "cursor", "limit"]); positionalCount(positional, 0, "honmaru workspace room list [options]");
+      if (options.type !== undefined && !["channel", "dm", "group"].includes(options.type)) throw new Error("--type must be channel, dm, or group.");
+      const args = {};
+      for (const key of ["query", "type", "cursor"]) if (options[key] !== undefined) args[key] = options[key];
+      const limit = integerOption(options, "limit", { min: 1, max: 50 });
+      if (limit !== undefined) args.limit = limit;
+      return { tool: "list_conversations", args };
+    }
+    case "room create": {
+      onlyFlags(options, ["name", "scope", "requestId", "members"]); positionalCount(positional, 0, "honmaru workspace room create --name NAME --scope public|private --request-id ID [--members REF,REF]");
+      if (!options.name?.trim()) throw new Error("--name is required.");
+      if (!["public", "private"].includes(options.scope)) throw new Error("--scope must be public or private.");
+      if (typeof options.requestId !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(options.requestId)) throw new Error("--request-id must be 8 to 100 letters, numbers, underscores or hyphens; reuse it only for the identical retry.");
+      const memberRefs = options.members === undefined ? [] : [...new Set(options.members.split(",").map(value => value.trim()).filter(Boolean))];
+      if (memberRefs.length > 200) throw new Error("--members accepts at most 200 member references.");
+      return { tool: "create_conversation", args: { type: "channel", name: options.name, private: options.scope === "private", memberRefs, requestId: options.requestId } };
+    }
+    case "room read": {
+      onlyFlags(options, ["limit", "cursor"]); positionalCount(positional, 1, "honmaru workspace room read <room-id> [--limit N] [--cursor CURSOR]");
+      const args = { conversationId: positional[0] };
+      const limit = integerOption(options, "limit", { min: 1, max: 50 });
+      if (limit !== undefined) args.limit = limit;
+      if (options.cursor !== undefined) args.cursor = options.cursor;
+      return { tool: "read_channel", args };
+    }
+    case "message search": {
+      onlyFlags(options, ["limit", "cursor"]); positionalCount(positional, 1, "honmaru workspace message search <query> [--limit N] [--cursor CURSOR]");
+      const args = { query: positional[0] };
+      const limit = integerOption(options, "limit", { min: 1, max: 50 });
+      if (limit !== undefined) args.limit = limit;
+      if (options.cursor !== undefined) args.cursor = options.cursor;
+      return { tool: "search_messages", args };
+    }
+    case "message get":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace message get <message-id>");
+      return { tool: "get_message", args: { messageId: positional[0] } };
+    case "message send": {
+      onlyFlags(options, ["room", "text", "requestId", "thread", "replyTo", "fileIds"]); positionalCount(positional, 0, "honmaru workspace message send --room ROOM --text TEXT --request-id ID [--thread ROOT] [--reply-to MESSAGE]");
+      for (const key of ["room", "text"]) if (typeof options[key] !== "string" || !options[key].trim()) throw new Error(`--${key} is required.`);
+      if (typeof options.requestId !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(options.requestId)) throw new Error("--request-id must be 8 to 100 letters, numbers, underscores or hyphens; reuse it only for the identical retry.");
+      const args = { conversationId: options.room, body: options.text, requestId: options.requestId };
+      if (options.thread !== undefined) args.threadId = options.thread;
+      if (options.replyTo !== undefined) args.replyToMessageId = options.replyTo;
+      if (options.fileIds !== undefined) args.fileIds = [...new Set(options.fileIds.split(",").map(value => value.trim()).filter(Boolean))];
+      if (args.fileIds?.length > 10) throw new Error("--file-ids accepts at most 10 file IDs.");
+      return { tool: "send_message", args };
+    }
+    case "thread get": {
+      onlyFlags(options, ["limit", "cursor"]); positionalCount(positional, 2, "honmaru workspace thread get <room-id> <root-id> [--limit N] [--cursor CURSOR]");
+      const args = { conversationId: positional[0], threadId: positional[1] };
+      const limit = integerOption(options, "limit", { min: 1, max: 50 });
+      if (limit !== undefined) args.limit = limit;
+      if (options.cursor !== undefined) args.cursor = options.cursor;
+      return { tool: "read_thread", args };
+    }
+    case "thread msg": {
+      onlyFlags(options, ["text", "requestId", "replyTo", "fileIds"]); positionalCount(positional, 2, "honmaru workspace thread msg <room-id> <root-id> --text TEXT --request-id ID [--reply-to MESSAGE]");
+      if (typeof options.text !== "string" || !options.text.trim()) throw new Error("--text is required.");
+      if (typeof options.requestId !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(options.requestId)) throw new Error("--request-id must be 8 to 100 letters, numbers, underscores or hyphens; reuse it only for the identical retry.");
+      const args = { conversationId: positional[0], threadId: positional[1], body: options.text, requestId: options.requestId };
+      if (options.replyTo !== undefined) args.replyToMessageId = options.replyTo;
+      if (options.fileIds !== undefined) args.fileIds = [...new Set(options.fileIds.split(",").map(value => value.trim()).filter(Boolean))];
+      if (args.fileIds?.length > 10) throw new Error("--file-ids accepts at most 10 file IDs.");
+      return { tool: "send_message", args };
+    }
+    case "reaction get":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace reaction get <message-id>");
+      return { tool: "get_reactions", args: { messageId: positional[0] } };
+    case "reaction add":
+    case "reaction remove":
+      onlyFlags(options, ["emoji"]); positionalCount(positional, 1, `honmaru workspace reaction ${operation} <message-id> --emoji EMOJI`);
+      if (typeof options.emoji !== "string" || !options.emoji.trim()) throw new Error("--emoji is required.");
+      return { tool: operation === "add" ? "add_reaction" : "remove_reaction", args: { messageId: positional[0], emoji: options.emoji } };
     case "app list":
       onlyFlags(options, []); positionalCount(positional, 0, "honmaru workspace app list");
       return { tool: "list_apps", args: {} };
@@ -363,6 +448,9 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "read_file_text" && typeof value.text === "string") return value.text;
   if (command?.tool === "create_file_text") return `Created file ${value.fileId} as version ${value.version}.`;
   if (command?.tool === "update_file_text") return `Saved file ${value.fileId} as version ${value.version}.`;
+  if (Array.isArray(value.conversations)) return value.conversations.length ? value.conversations.map((conversation) => `${conversation.id}\t${conversation.type}\t${conversation.name || "(unnamed)"}${conversation.private ? "\tprivate" : ""}`).join("\n") : "No conversations found.";
+  if (command?.tool === "create_conversation" && value.conversation) return `${value.created ? "Created" : "Reused"} ${value.conversation.type} ${value.conversation.id}${value.conversation.name ? ` (${value.conversation.name})` : ""}.`;
+  if (command?.tool === "send_message" && value.message) return `Sent message ${value.message.id}${value.replayed ? " (idempotent retry)" : ""}.`;
   if (Array.isArray(value.members)) return value.members.length ? value.members.map((member) => `${member.name}${member.title ? `\t${member.title}` : ""}`).join("\n") : "No members found.";
   if (Array.isArray(value.gateways)) return value.gateways.length ? value.gateways.map((gateway) => `${gateway.id}\t${gateway.name}${gateway.lastSeenAt ? `\t${gateway.lastSeenAt}` : ""}`).join("\n") : "No execution nodes are registered.";
   if (value.job?.id && command?.tool === "run_app_action") return `App action ${value.job.id}: ${value.job.status}. Read the result with honmaru workspace app action read ${command.args.appId} ${value.job.id}.`;
