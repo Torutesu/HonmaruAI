@@ -4,7 +4,7 @@ import { resolveChannel, viewOf } from '../channels.js';
 async function conversationFor(db, orgId, userId, channel, { aliases, requireStoredBusiness }) {
   if (typeof channel !== 'string' || !channel) return null;
   const user = await db.prepare(`SELECT u.* FROM users u JOIN memberships m ON m.user_github_id = u.github_id
-    WHERE m.org_id = ?1 AND u.github_id = ?2 AND m.role != 'guest'`).bind(orgId, String(userId)).first();
+    WHERE m.org_id = ?1 AND u.github_id = ?2 AND LOWER(TRIM(COALESCE(m.role,'guest'))) != 'guest'`).bind(orgId, String(userId)).first();
   if (!user) return null;
   const members = await listMembers(db, orgId, user.github_id);
   const storedView = viewOf(channel, user.login, members);
