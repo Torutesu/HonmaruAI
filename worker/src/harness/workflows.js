@@ -1028,6 +1028,8 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   let index = run.nextStep;
   for (; index < workflow.steps.length; index += 1) {
     const step = workflow.steps[index];
+    const startedAt = log[index]?.startedAt || now();
+    const operationId = log[index]?.operationId || `workflow:${runId}:step:${index + 1}`;
     const authorizationTrace = createWorkflowAuthorizationTrace(workflow.createdBy);
     let entry;
     try {
@@ -1087,7 +1089,10 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
       });
       if (!stillAllowed) entry = { status: 'failed', error: 'Connection access changed before the search result could be recorded; the result was discarded.' };
     }
-    entry = { step: index + 1, type: step.type, at: now(), ...entry,
+    const finishedAt = entry.status === 'pending' ? null : now();
+    entry = { step: index + 1, type: step.type, operationId, startedAt,
+      ...(finishedAt ? { finishedAt, durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)) } : {}),
+      at: finishedAt || now(), ...entry,
       ...(authorizationTrace.events.length ? { authorization: authorizationTrace.events } : {}) };
     log[index] = entry;
     scope.steps[index + 1] = entry;
@@ -1443,7 +1448,13 @@ export async function settleWorkflowApproval(env, orgId, card) {
   if (!claimed.meta?.changes) return null;
   const log = run.log;
   const last = log.length - 1;
-  if (last >= 0) log[last] = { ...log[last], status: approved ? "ok" : "declined", output: `${approved ? "Approved" : "Declined"} by ${(await getUserByLogin(env.DB, card.recipientUserID).catch(() => null))?.name || card.recipientUserID}${card.decision?.note ? `: ${card.decision.note}` : ""}` };
+  if (last >= 0) {
+    const decidedAt = now();
+    const startedAt = log[last].startedAt;
+    log[last] = { ...log[last], operationId: log[last].operationId || `workflow:${run.id}:step:${log[last].step}`,
+      ...(startedAt ? { finishedAt: decidedAt, durationMs: Math.max(0, Date.parse(decidedAt) - Date.parse(startedAt)) } : {}),
+      at: decidedAt, status: approved ? "ok" : "declined", output: `${approved ? "Approved" : "Declined"} by ${(await getUserByLogin(env.DB, card.recipientUserID).catch(() => null))?.name || card.recipientUserID}${card.decision?.note ? `: ${card.decision.note}` : ""}` };
+  }
   if (!approved) {
     await env.DB.batch([env.DB.prepare("UPDATE hx_workflow_runs SET status = 'declined', log = ?1, finished_at = ?2 WHERE id = ?3 AND org_id = ?4").bind(JSON.stringify(log), now(), run.id, orgId),...workflowSettlementStatements(env.DB,orgId,run.id)]);
     return getRun(env.DB, orgId, run.id);

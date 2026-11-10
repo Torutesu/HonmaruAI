@@ -73,6 +73,15 @@ test('workflow history shows elapsed time without inventing duration for unfinis
  expect(tree.root.findByProps({'data-run':'live-run'}).findAllByProps({title:'Elapsed time, including approval waits'})).toHaveLength(0);
  expect(tree.root.findByProps({'data-run':'done-run'}).findByType('time').props.dateTime).toBe('2026-10-24T09:00:00Z');
 });
+test('workflow step details expose duration and a stable operation id',async()=>{
+ state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[{id:'trace-run',status:'done',trigger:'manual',startedAt:'2026-10-24T09:00:00Z',finishedAt:'2026-10-24T09:00:02Z',log:[{step:1,type:'post',status:'ok',output:'Posted',at:'2026-10-24T09:00:02Z',startedAt:'2026-10-24T09:00:00Z',finishedAt:'2026-10-24T09:00:02Z',durationMs:2000,operationId:'workflow:trace-run:step:1'}]}]});
+ await open();
+ const text=JSON.stringify(tree.toJSON());
+ expect(text).toContain('Step duration');
+ expect(text).toContain('2 s');
+ expect(text).toContain('Operation ID');
+ expect(text).toContain('workflow:trace-run:step:1');
+});
 test('workflow run history groups dates and filters failed runs',async()=>{
  state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[
   {id:'done-new',status:'done',trigger:'manual',startedAt:'2026-10-24T12:00:00Z',log:[]},
