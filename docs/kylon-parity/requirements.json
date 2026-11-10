@@ -736,10 +736,10 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js, gateway/workflow-sdk.mjs",
-      "acceptance": "フォーム形式の条件分岐に加え、TypeScript SDKで最大10,000件のparallel/pipeline入力、最大32同時実行、最大32 pipeline stageを順序保持して処理し、項目単位失敗をnullとonErrorで報告する。ページング・agent()との合成・取りこぼし率の制御は残る",
+      "acceptance": "フォーム形式の条件分岐に加え、TypeScript SDKで最大10,000件のparallel/pipeline入力、最大32同時実行、最大32 pipeline stageを順序保持して処理し、項目単位失敗をnullとonErrorで報告する。Workflow programは実行leaseとcheckpointを更新しながら最大15分走る。ページング・agent()との合成・取りこぼし率の制御は残る",
       "evidence": {
-        "implementedScope": "Added isolated workflow SDK helpers parallel(thunks,{concurrency,onError}) and pipeline(items,...stages,{concurrency,onError}); hard bounds cap input length at 10,000, concurrency at 32 and pipeline stages at 32. Item errors remain localized as null, ordered results are preserved, and onError receives index (and stage for pipeline). The helpers are compiled into the existing offline Linux VM and do not enable network or host access.",
-        "remaining": "General API paging, agent()-backed judgment, cross-item completeness/miss-rate policy, failure recovery, and authenticated production/Kylon interaction acceptance remain. This is bounded deterministic concurrency, not full Kylon SDK parity."
+        "implementedScope": "Added isolated workflow SDK helpers parallel(thunks,{concurrency,onError}) and pipeline(items,...stages,{concurrency,onError}); hard bounds cap input length at 10,000, concurrency at 32 and pipeline stages at 32. Item errors remain localized as null, ordered results are preserved, and onError receives index (and stage for pipeline). Workflow code jobs now have a 15-minute hard runtime limit plus 30 seconds for result delivery. Their Worker lease and activation checkpoint lease renew together under the current frozen-definition, requester, run, node and activation fences. Ordinary custom-app code retains its 60-second limit. The helpers are compiled into the existing offline Linux VM and do not enable network or host access.",
+        "remaining": "General API paging, agent()-backed judgment, cross-item completeness/miss-rate policy, failure recovery, physical VM smoke, installed-node refresh and authenticated production/Kylon interaction acceptance remain. This is bounded deterministic concurrency, not full Kylon SDK parity."
       }
     },
     {

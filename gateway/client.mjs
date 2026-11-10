@@ -1,7 +1,7 @@
 import {processDocumentOne} from './document-client.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { runIsolated } from './runner.mjs';
-import {runWorkflowIsolated} from './workflow-runner.mjs';
+import {runWorkflowIsolated,WORKFLOW_EXECUTION_TIMEOUT_MS} from './workflow-runner.mjs';
 import {runAcp,configuredAcpAgentIds} from './acp.mjs';
 
 export function gatewayClient(baseUrl, token, fetcher = fetch) {
@@ -57,10 +57,10 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
   try {
     let result;
     try {
-      // ACP coding agents may need longer than a short isolated script. The
-      // Worker still caps their lease at 120 seconds, so leave 10 seconds for
-      // reporting the result before that deadline.
-      const timeoutCap=job.payload?.acp===true?110000:60000;
+      // Workflow programs use the documented fifteen-minute execution cap;
+      // the Worker keeps a separate 30-second result-delivery grace period.
+      // ACP jobs retain their 110-second cap inside a 120-second lease.
+      const timeoutCap=job.workflow===true?WORKFLOW_EXECUTION_TIMEOUT_MS:job.payload?.acp===true?110000:60000;
       const options={timeoutMs:Math.min(job.timeoutMs||timeoutCap,timeoutCap),signal:cancel.signal};
       result=job.payload?.acp===true
         ? await runAcpAgent(job.payload,{...options,acpAgents,

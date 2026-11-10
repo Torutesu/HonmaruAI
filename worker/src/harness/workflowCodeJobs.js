@@ -5,6 +5,8 @@ import {workflowSettlementStatements} from './workflowSafety.js';
 import {getMode} from './mode.js';
 import {workspaceBudgetAdmission} from '../workspaceAIBudget.js';
 const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
+export const WORKFLOW_PROGRAM_TIMEOUT_MS=15*60*1000;
+export const WORKFLOW_PROGRAM_RESULT_GRACE_MS=30*1000;
 
 // Evaluated inside claim/heartbeat/finish/expiry SQL, before a node receives
 // private workflow input. Ordinary jobs have neither marker nor binding.
@@ -72,6 +74,26 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
   await finishWorkflowNode(db,{orgId,runId,nodeId,...lease,result,at});return result;
  }
  return {status:'pending',jobId};
+}
+
+// A workflow program may run for up to fifteen minutes. Renew its gateway
+// lease and checkpoint together so state operations stay fenced to this exact
+// activation. The absolute gateway deadline remains the hard execution cap.
+export async function renewWorkflowProgramLease(db,{jobId,gatewayId,leaseHash,at=Date.now()}) {
+ if(![jobId,gatewayId,leaseHash].every(value=>typeof value==='string'&&value.length>0&&value.length<=200)||!Number.isSafeInteger(at)||at<0)return false;
+ const checkpoint=db.prepare(`${workflowProgramAccessCTE('?4')} UPDATE hx_workflow_node_checkpoints SET lease_until=MAX(lease_until,?5)
+  WHERE node_id='program' AND status='running' AND lease_until>?4 AND EXISTS(
+   SELECT 1 FROM hx_workflow_activations a JOIN hx_gateway_jobs j ON j.org_id=a.org_id AND j.id=a.job_id
+   JOIN authorized_program_jobs authorized ON authorized.id=j.id
+   WHERE a.job_id=?1 AND a.org_id=hx_workflow_node_checkpoints.org_id AND a.run_id=hx_workflow_node_checkpoints.run_id
+    AND a.node_id=hx_workflow_node_checkpoints.node_id AND a.node_owner=hx_workflow_node_checkpoints.owner AND a.node_attempt=hx_workflow_node_checkpoints.attempt
+    AND j.gateway_id=?2 AND j.status='running' AND j.lease_hash=?3 AND j.lease_until>?4 AND j.deadline>?4)
+  RETURNING org_id,run_id,node_id,owner,attempt`).bind(jobId,gatewayId,leaseHash,at,at+300000);
+ const gateway=db.prepare(`${workflowProgramAccessCTE('?4')} UPDATE hx_gateway_jobs SET lease_until=MIN(?4+90000,deadline)
+  WHERE id=?1 AND gateway_id=?2 AND status='running' AND lease_hash=?3 AND lease_until>?4 AND deadline>?4
+   AND ${workflowProgramJobAccess}`).bind(jobId,gatewayId,leaseHash,at);
+ const [renewed,extended]=await db.batch([checkpoint,gateway]);
+ return Boolean(renewed.meta?.changes&&extended.meta?.changes);
 }
 
 // Reconcile only persisted terminal results. The caller cannot supply an

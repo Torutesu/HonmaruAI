@@ -5,13 +5,14 @@ import {containerArgs} from './runner.mjs';
 import {WORKFLOW_BOOTSTRAP} from './workflow-guest.mjs';
 import {createStateBroker,createWorkflowOutputParser} from './workflow-bridge.mjs';
 
+export const WORKFLOW_EXECUTION_TIMEOUT_MS=15*60*1000;
 function control(binary,args){return new Promise(resolve=>{const child=spawn(binary,args,{stdio:'ignore',shell:false});const timer=setTimeout(()=>child.kill('SIGKILL'),5000);const done=()=>{clearTimeout(timer);resolve()};child.once('error',done);child.once('close',done);});}
 // Only trusted orchestration calls this with an activation-bound state callback.
 // No API route, general gateway payload or model tool can select this runner yet.
-export async function runWorkflowIsolated({code,context={}},{stateOperation,binary=process.env.HONMARU_CONTAINER_BIN||'container',timeoutMs=60000,signal}={}){
+export async function runWorkflowIsolated({code,context={}},{stateOperation,binary=process.env.HONMARU_CONTAINER_BIN||'container',timeoutMs=WORKFLOW_EXECUTION_TIMEOUT_MS,signal}={}){
  if(!context||typeof context!=='object'||Array.isArray(context)||Object.keys(context).some(key=>!['workspaceId','roomId','agentId','timezone','trigger'].includes(key)))throw Error('Invalid public workflow context.');
  if(typeof code!=='string'||!code.trim()||Buffer.byteLength(JSON.stringify({code,context}))>65536)throw Error('Invalid workflow module.');
- if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>60000)throw Error('Invalid execution timeout.');
+ if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>WORKFLOW_EXECUTION_TIMEOUT_MS)throw Error('Invalid execution timeout.');
  const controller=new AbortController();
  const broker=createStateBroker(stateOperation,{signal:controller.signal});
  if(signal?.aborted)return {status:'failed',stdout:'',stderr:'Execution cancelled.',exitCode:null};
