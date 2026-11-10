@@ -19,6 +19,10 @@ const grantMigrations = [
   migrationLines.find((line) => /^CREATE TABLE IF NOT EXISTS hx_external_thread_link_shares /.test(line)),
   ...migrationLines.filter((line) => /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_thread_link_shares_/.test(line)),
   migrationLines.find((line) => /^CREATE TABLE IF NOT EXISTS hx_external_thread_link_redemptions /.test(line)),
+  migrationLines.find((line) => /^CREATE TABLE IF NOT EXISTS hx_external_thread_audiences /.test(line)),
+  ...migrationLines.filter((line) => /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_thread_audiences_/.test(line)),
+  migrationLines.find((line) => /^CREATE TABLE IF NOT EXISTS hx_external_thread_audience_requests /.test(line)),
+  ...migrationLines.filter((line) => /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_thread_audience_requests_/.test(line)),
 ].filter(Boolean);
 
 async function setup() {
@@ -99,6 +103,70 @@ test("external Thread route is registered and requires a signed-in session", asy
   const { orgId, rootId } = await setup();
   const response = await call(`/external/threads/${orgId}/${rootId}`, "");
   expect(response.status).toBe(401);
+});
+
+test("workspace audience is live, CAS protected, and gates send approval by its active generation", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const endpoint = `/external/threads/${orgId}/${rootId}/audience`;
+  const initial = await (await call(endpoint, sessions.owner)).json();
+  expect(initial).toMatchObject({ audience: null, version: 0 });
+  const saved = await call(endpoint, sessions.owner, "PUT", {
+    version: 0, type: "workspace", permission: "view", expiresAt: null,
+  });
+  expect(saved.status).toBe(200);
+  expect((await saved.json()).audience).toMatchObject({ type: "workspace", permission: "view", version: 1 });
+  expect((await call(endpoint, sessions.owner, "PUT", { version: 0, type: null })).status).toBe(409);
+
+  const read = await call(`/external/threads/${orgId}/${rootId}`, sessions.editor);
+  expect(read.status).toBe(200);
+  const send = await call(`/external/threads/${orgId}/${rootId}`, sessions.editor, "POST", {
+    body: "Please approve this group-audience reply", requestSend: true,
+  });
+  expect(send.status).toBe(201);
+  const { requestId: pendingId } = await send.json();
+  const listed = await call(`/external/threads/${orgId}/${rootId}/requests`, sessions.owner);
+  expect((await listed.json()).requests.map(request => request.id)).toContain(pendingId);
+  const approved = await call(`/external/threads/${orgId}/${rootId}/requests/approve`, sessions.owner, "POST", { requestId: pendingId });
+  expect(approved.status).toBe(200);
+
+  const updated = await call(endpoint, sessions.owner, "PUT", {
+    version: 1, type: "workspace", permission: "view", expiresAt: null,
+  });
+  expect(updated.status).toBe(200);
+  expect((await call(`/external/threads/${orgId}/${rootId}`, sessions.editor)).status).toBe(200);
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId, ids.editor).run();
+  expect((await call(`/external/threads/${orgId}/${rootId}`, sessions.editor)).status).toBe(404);
+});
+
+test("a direct grant cannot revive an audience-origin request after membership and generation change", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const endpoint = `/external/threads/${orgId}/${rootId}/audience`;
+  expect((await call(endpoint, sessions.owner, "PUT", {
+    version: 0, type: "workspace", permission: "view", expiresAt: null,
+  })).status).toBe(200);
+  const send = await call(`/external/threads/${orgId}/${rootId}`, sessions.editor, "POST", {
+    body: "Audience-origin request that must be fenced", requestSend: true,
+  });
+  expect(send.status).toBe(201);
+  const { requestId } = await send.json();
+
+  // Simulate a separate direct grant being added after the group request was
+  // created, followed by membership removal and an audience generation change.
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO hx_external_resource_grants
+    (id,org_id,resource_type,resource_id,recipient_github_id,permission,granted_by,granted_at)
+    VALUES (?1,?2,'thread',?3,?4,'view',?5,?6)`)
+    .bind(`test-grant-${rootId}`, orgId, rootId, ids.editor, ids.owner, now).run();
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId, ids.editor).run();
+  await env.DB.prepare("UPDATE hx_external_thread_audiences SET version=version+1,change_token='test-next-generation' WHERE org_id=?1 AND root_message_id=?2")
+    .bind(orgId, rootId).run();
+
+  const listed = await call(`/external/threads/${orgId}/${rootId}/requests`, sessions.owner);
+  expect((await listed.json()).requests.map(request => request.id)).not.toContain(requestId);
+  const approved = await call(`/external/threads/${orgId}/${rootId}/requests/approve`, sessions.owner, "POST", { requestId });
+  expect(approved.status).toBe(409);
+  expect(await env.DB.prepare("SELECT 1 FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND body='Audience-origin request that must be fenced'")
+    .bind(orgId, rootId).first()).toBeNull();
 });
 
 test("a verified non-member can read and reply only to an explicitly shared Thread", async () => {
