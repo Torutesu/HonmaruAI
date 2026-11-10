@@ -38,6 +38,8 @@ describe('message visualizations', () => {
     act(() => { tree = create(<MessageVisualization value={chart} />) })
     expect(tree.root.findAllByType('svg')).toHaveLength(1)
     expect(tree.root.findAllByType('rect')).toHaveLength(4)
+    expect(tree.root.findAllByType('rect')[0].props.fill).toBe('var(--hx-chart-series-1, #5b4bd7)')
+    expect(tree.root.findAllByType('i')[0].props.style.background).toBe('var(--hx-chart-series-1, #5b4bd7)')
     const north = tree.root.findByProps({ 'aria-label': 'North' })
     act(() => north.props.onClick())
     expect(tree.root.findAllByType('rect')).toHaveLength(2)
