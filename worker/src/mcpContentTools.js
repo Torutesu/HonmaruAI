@@ -10,7 +10,7 @@ import { listTables, getTable, createTable, planTableUpdate, listRows, addRow, u
 import { mayUseTable } from './harness/resourceAccess.js';
 import { getMode } from './harness/mode.js';
 import { allowed } from './permissions.js';
-import { onRowChange } from './harness/workflows.js';
+import { drainWorkflowRowEvents } from './harness/workflowRowEventDispatch.js';
 import { checkOutgoing } from './dlp.js';
 import { sha256Hex } from './auth.js';
 import { announceEvents, announceTo } from './announce.js';
@@ -244,12 +244,12 @@ export async function callContentTool(env, actor, name, args = {}, request, ctx)
   }
   if (name === 'add_list_record') return mcpResult(await once(env, actor, name, args, async () => {
     const result = checked(await addRow(env.DB, actor.orgId, args.listId, args.values, actor.githubId, 'strict'));
-    await onRowChange(env, { orgId: actor.orgId, table: result.table, before: null, row: result.row, by: actor.githubId });
+    if(result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
     return { record: publicRow(result.row) };
   }));
   if (name === 'update_list_record') {
     const result = checked(await updateRow(env.DB, actor.orgId, args.listId, args.recordId, args.values, actor.githubId, args.expectedUpdatedAt, 'strict'));
-    await onRowChange(env, { orgId: actor.orgId, table: result.table, before: result.before, row: result.row, by: actor.githubId });
+    if(result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
     return mcpResult({ record: publicRow(result.row) });
   }
   return null;

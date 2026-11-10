@@ -98,9 +98,9 @@ import { skillMarkdown } from "./skillMarkdown.js";
 import { generateWorkflow, previewWorkflow } from './workflowCreation.js';
 import { respondToRecurringAutomationOffer } from './recurringAutomationOffers.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, workflowRunSummary, startRun, cancelWorkflowRun, recoverStalledRun, TRIGGERS, STEP_TYPES } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, workflowRunSummary, startRun, cancelWorkflowRun, recoverStalledRun, TRIGGERS, STEP_TYPES, onRowChange, onRowDelete } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
-import { onRowChange, onRowDelete } from "./workflows.js";
+import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
 import { listAgents } from "../customAgents.js";
 import { resolveChannel, viewOf } from "../channels.js";
@@ -678,19 +678,19 @@ export async function handleHarness(request, env, url, context = {}) {
       if (!rowId && request.method === "POST") {
         const r = await addRow(env.DB, orgId, tableId, input.values, me, input.validation, me);
         if (r.error) return fail(r);
-        await afterRowChange(env, { orgId, table: r.table, before: null, row: r.row, by: me });
+        await afterRowChange(env, { orgId, eventId:r.rowEventId });
         return json({ row: r.row }, 201);
       }
       if (rowId && (request.method === "PUT" || request.method === "PATCH")) {
         const r = await updateRow(env.DB, orgId, tableId, rowId, input.values, me, input.expectedUpdatedAt, input.validation, me);
         if (r.error) return fail(r);
-        await afterRowChange(env, { orgId, table: r.table, before: r.before, row: r.row, by: me });
+        await afterRowChange(env, { orgId, eventId:r.rowEventId });
         return json({ row: r.row });
       }
       if (rowId && request.method === "DELETE") {
         const r = await deleteRow(env.DB, orgId, tableId, rowId, url.searchParams.get("expectedUpdatedAt") ?? undefined, me);
         if (r.error) return fail(r);
-        await afterRowDelete(env, { orgId, table: r.table, row: r.before, by: me });
+        await afterRowDelete(env, { orgId, eventId:r.rowEventId });
         return json({ deleted: true, before: r.before });
       }
     }
@@ -1501,7 +1501,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if(result.error){await env.DB.prepare(`UPDATE hx_app_record_proposals SET status='stale' WHERE id=? AND status='applying'`).bind(proposal.id).run();return fail(result)}
         const changed=await env.DB.prepare(`UPDATE hx_app_record_proposals SET status='applied',applied_updated_at=? WHERE id=? AND org_id=? AND app_id=? AND status='applying'`).bind(result.row.updatedAt,proposal.id,orgId,appId).run();
         if(!changed.meta?.changes)return json({message:'The proposal was already reviewed.'},409);
-        await afterRowChange(env,{orgId,table:result.table,before:result.before,row:result.row,by:me});
+        await afterRowChange(env,{orgId,eventId:result.rowEventId});
         await audit(env,request,{orgId,action:'app.record_proposal.applied',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{tableId:proposal.table_id,rowId:proposal.row_id,proposalId:proposal.id,fieldCount:Object.keys(changes).length}});
         return json({ok:true,status:'applied',row:result.row});
       }
@@ -1512,7 +1512,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if(result.error)return fail(result);
         const changed=await env.DB.prepare(`UPDATE hx_app_record_proposals SET status='undone',undone_by=?,undone_at=? WHERE id=? AND org_id=? AND app_id=? AND status='applied' AND applied_updated_at=?`).bind(String(me),new Date().toISOString(),proposal.id,orgId,appId,proposal.applied_updated_at).run();
         if(!changed.meta?.changes)return json({message:'The proposal was already changed.'},409);
-        await afterRowChange(env,{orgId,table:result.table,before:result.before,row:result.row,by:me});
+        await afterRowChange(env,{orgId,eventId:result.rowEventId});
         await audit(env,request,{orgId,action:'app.record_proposal.undone',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{tableId:proposal.table_id,rowId:proposal.row_id,proposalId:proposal.id,fieldCount:Object.keys(changes).length}});
         return json({ok:true,status:'undone',row:result.row});
       }
@@ -1590,8 +1590,8 @@ export async function handleHarness(request, env, url, context = {}) {
             const table=await getTable(env.DB,orgId,change.tableId);
             if(!table)continue;
             const before=change.operation==='create'?null:{id:change.id,values:change.before||{},updatedAt:change.beforeUpdatedAt};
-            if(change.operation==='remove')await afterRowDelete(env,{orgId,table,row:before,by:me});
-            else await afterRowChange(env,{orgId,table,before,row:{id:change.id,values:change.after||{},updatedAt:result.mergedAt},by:me});
+            if(change.operation==='remove')await afterRowDelete(env,{orgId,eventId:change.rowEventId,table,row:before,by:me});
+            else await afterRowChange(env,{orgId,eventId:change.rowEventId,table,before,row:{id:change.id,values:change.after||{},updatedAt:result.mergedAt},by:me});
           }
           return respond(publicResult,'app.preview_merged');
         }
@@ -1897,6 +1897,11 @@ export async function handleHarness(request, env, url, context = {}) {
 /// After a row is added or changed: workflows that watch the table run.
 /// Kept as a hook so tables.js stays free of what reacts to it.
 async function afterRowChange(env, change) {
+  if(Object.hasOwn(change||{},'eventId')) {
+    try { if(change.eventId)await drainWorkflowRowEvents(env,{limit:1,eventId:change.eventId}); }
+    catch (e) { console.error("harness: row outbox dispatch failed", e?.message); }
+    return;
+  }
   try {
     await onRowChange(env, change);
   } catch (e) {
@@ -1905,6 +1910,11 @@ async function afterRowChange(env, change) {
 }
 
 async function afterRowDelete(env, change) {
+  if(Object.hasOwn(change||{},'eventId')) {
+    try { if(change.eventId)await drainWorkflowRowEvents(env,{limit:1,eventId:change.eventId}); }
+    catch (e) { console.error("harness: row delete outbox dispatch failed", e?.message); }
+    return;
+  }
   try {
     await onRowDelete(env, change);
   } catch (e) {

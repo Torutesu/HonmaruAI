@@ -1,5 +1,6 @@
 import { validateValues } from "./tableContract.js";
 import { appRelationDeleteGuard, appRelationWriteGuard, hasAppRelationsToRow, validateAppRelations } from './appRelations.js';
+import { prepareWorkflowRowEventIfWatched } from './workflowRowEventDispatch.js';
 // Tables: the typed database under an App (docs/kylon-gap-plan.md).
 //
 // A table names its columns; a row is JSON keyed by column id. Values are
@@ -306,9 +307,11 @@ export async function addRow(db, orgId, tableId, values, by, validation, writeUs
       AND (SELECT COUNT(*) FROM hx_rows WHERE table_id=?2 AND org_id=?3) < ${MAX_ROWS}`)
     .bind(id, tableId, orgId, JSON.stringify(storedValues), Number(count?.p || 0) + 1, String(by), at, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt,...authorityBinds,...guardBinds)
   if (deferWrite) return { table, row: { id, tableId, values: storedValues, position: Number(count?.p || 0) + 1, createdBy: String(by), updatedBy: String(by), createdAt: at, updatedAt: at }, statement };
-  const inserted = await statement.run();
+  const row={ id, tableId, values: storedValues, position: Number(count?.p || 0) + 1, createdBy: String(by), updatedBy: String(by), createdAt: at, updatedAt: at };
+  const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before:null,row,by:String(by)});
+  const inserted=event? (await db.batch([statement,event.statement]))[0] : await statement.run();
   if (!inserted.meta?.changes) return { error: (Number(count?.n || 0) >= MAX_ROWS ? `A table holds at most ${MAX_ROWS} rows.` : 'The table schema or a linked record changed before this record could be saved. Reload and try again.'), status: 409 };
-  return { table, row: await getRow(db, orgId, tableId, id) };
+  return { table, row: await getRow(db, orgId, tableId, id), ...(event?{rowEventId:event.id}:{}) };
 }
 
 /// Change some values of a row; the others stay. Returns the row before and
@@ -340,14 +343,17 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
     .prepare(`UPDATE hx_rows SET data = ?1, updated_by = ?2, updated_at = ?3 WHERE id = ?4 AND table_id = ?5 AND org_id = ?6 AND updated_at = ?7 AND (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?5 AND org_id=?6 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) AND (${authoritySql}) AND (${guardSql}) RETURNING *`)
     .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt,...authorityBinds,...guardBinds)
   if (deferWrite) return { table, before, row: { ...before, values: merged, updatedBy: String(by), updatedAt: at }, statement };
-  const changed = await statement.first();
-  if (!changed) return rowConflict();
-  return { table, before, row: publicRow(changed) };
+  const row={ ...before, values: merged, updatedBy: String(by), updatedAt: at };
+  const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row,by:String(by)});
+  const changed=event?(await db.batch([statement,event.statement]))[0]:await statement.first();
+  if (!changed?.meta?.changes && event) return rowConflict();
+  if (!event && !changed) return rowConflict();
+  return { table, before, row: event?row:publicRow(changed), ...(event?{rowEventId:event.id}:{}) };
 }
 
 const rowConflict = () => ({ error: "This row changed. Reload the app before trying again.", status: 409 });
 
-export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt, writeUserId, writeGuard) {
+export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt, writeUserId, writeGuard, { by = writeUserId } = {}) {
   const table = await getTable(db, orgId, tableId);
   if (!table) return { error: "No such row.", status: 404 };
   const before = await getRow(db, orgId, tableId, rowId);
@@ -361,12 +367,14 @@ export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt, wr
   const guardParam = authorityParam + authorityBinds.length;
   const guardSql = writeGuard ? writeGuard.sql(guardParam) : "1";
   const guardBinds = writeGuard?.binds || [];
-  const deleted = await db.prepare(`DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 AND (${relationGuard.sql}) AND (${authoritySql}) AND (${guardSql}) RETURNING id`).bind(rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,...authorityBinds,...guardBinds).first();
-  if (!deleted) {
+  const statement=db.prepare(`DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 AND (${relationGuard.sql}) AND (${authoritySql}) AND (${guardSql}) RETURNING id`).bind(rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,...authorityBinds,...guardBinds);
+  const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row:null,by:String(by??before.updatedBy??before.createdBy??'unknown')});
+  const deleted=event?(await db.batch([statement,event.statement]))[0]:await statement.first();
+  if (event?!deleted?.meta?.changes:!deleted) {
     if (await hasAppRelationsToRow(db, orgId, tableId, rowId)) return { error: 'This record is linked from another app record. Remove that link before deleting it.', status: 409 };
     return rowConflict();
   }
-  return { table, deleted: true, before };
+  return { table, deleted: true, before, ...(event?{rowEventId:event.id}:{}) };
 }
 
 function checkValues(table, values, validation) {

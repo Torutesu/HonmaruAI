@@ -1,5 +1,7 @@
 import { databaseView, readFork, digest, relationStateError } from './appDatabase.js';
 import { validateValues } from './tableContract.js';
+import { getTable } from './tables.js';
+import { prepareWorkflowRowEventIfWatched } from './workflowRowEventDispatch.js';
 const err=(error,status=409)=>({error,status});
 const canonical=value=>JSON.stringify(value, Object.keys(value).sort());
 
@@ -76,6 +78,7 @@ export async function mergeFork(db,orgId,app,by,input) {
   if(plan.conflicts.length||plan.checksum!==input.checksum)return err('Production or preview changed. Review the differences again.');
   const latest=plan.snapshots.reduce((n,e)=>e.rows.reduce((m,r)=>Math.max(m,Date.parse(r.updatedAt)||0),n),Date.now());
   const nonce=crypto.randomUUID(),at=new Date(latest+1).toISOString();
+  const originalRows=new Map(plan.snapshots.flatMap(entity=>entity.rows.map(row=>[`${entity.tableId}:${row.id}`,row])));
   // The receipt and every mutation commit in one D1 transaction. Recheck the
   // entire reviewed schema/data snapshot at transaction time, including deletes.
   const receipt=db.prepare(`INSERT OR IGNORE INTO hx_app_fork_merges (org_id,app_id,created_by,fork_id,revision,checksum,nonce,plan,created_at)
@@ -91,15 +94,21 @@ export async function mergeFork(db,orgId,app,by,input) {
         (SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.tableId') AND r.id=json_extract(expected.value,'$.id') AND r.data=json_extract(expected.value,'$.data') AND r.updated_at=json_extract(expected.value,'$.updatedAt')))
     )`).bind(orgId,app.id,String(by),plan.forkId,plan.revision,JSON.stringify(plan.snapshots),plan.checksum,nonce,JSON.stringify(plan.changes),at,JSON.stringify(plan.snapshots.map(snapshot=>snapshot.tableId)));
   const guard='EXISTS (SELECT 1 FROM hx_app_fork_merges WHERE org_id=?1 AND app_id=?2 AND nonce=?3)';
-  const statements=[receipt];
+  const statements=[receipt],queuedEvents=new Map();
   for(const c of plan.changes) {
     if(c.operation==='create')statements.push(db.prepare(`INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) SELECT ?4,?5,?1,?6,COALESCE((SELECT MAX(position)+1 FROM hx_rows WHERE org_id=?1 AND table_id=?5),0),?7,?7,?8,?8 WHERE ${guard}`).bind(orgId,app.id,nonce,c.id,c.tableId,JSON.stringify(c.after),String(by),at));
     else if(c.operation==='update')statements.push(db.prepare(`UPDATE hx_rows SET data=?6,updated_by=?7,updated_at=?8 WHERE org_id=?1 AND table_id=?5 AND id=?4 AND ${guard}`).bind(orgId,app.id,nonce,c.id,c.tableId,JSON.stringify(c.after),String(by),at));
     else statements.push(db.prepare(`DELETE FROM hx_rows WHERE org_id=?1 AND table_id=?5 AND id=?4 AND ${guard}`).bind(orgId,app.id,nonce,c.id,c.tableId));
+    const table=await getTable(db,orgId,c.tableId);
+    if(table) {
+      const before=c.operation==='create'?null:{id:c.id,tableId:c.tableId,values:c.before||{},updatedAt:originalRows.get(`${c.tableId}:${c.id}`)?.updatedAt||null};
+      const row=c.operation==='remove'?null:{id:c.id,tableId:c.tableId,values:c.after||{},updatedBy:String(by),updatedAt:at};
+      const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row,by:String(by)});
+      if(event){statements.push(event.statement);queuedEvents.set(`${c.tableId}:${c.id}`,event.id);}
+    }
   }
   const results=await db.batch(statements);
   if(!results[0].meta?.changes)return err('Production or preview changed during merge. Review again.');
-  const originalRows=new Map(plan.snapshots.flatMap(entity=>entity.rows.map(row=>[`${entity.tableId}:${row.id}`,row])));
   // The route consumes these only after the atomic merge has committed, then
   // removes them from the public response. Keep the exact prior revision so
   // row-change receipts remain stable when a preview merge is replayed.
@@ -107,6 +116,7 @@ export async function mergeFork(db,orgId,app,by,input) {
     tableId:change.tableId,id:change.id,operation:change.operation,
     before:change.before,after:change.after,
     beforeUpdatedAt:originalRows.get(`${change.tableId}:${change.id}`)?.updatedAt||null,
+    rowEventId:queuedEvents.get(`${change.tableId}:${change.id}`),
   }));
   return {merged:true,mergedAt:at,changed:plan.changes.length,forkId:plan.forkId,checksum:plan.checksum,changedRecords};
 }
