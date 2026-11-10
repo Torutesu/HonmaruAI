@@ -1864,7 +1864,12 @@ export async function handleHarness(request, env, url, context = {}) {
       }
     }
     if (sub === "links") {
-      if (!await mayChangeApp()) return json({ message: "Only its maker, an editor, or an admin can change app links." }, 403);
+      // The narrow navigation-only exception above deliberately lets a
+      // workspace admin manage links on a private app without opening the app
+      // itself. Keep that authorization effective even when the admin has an
+      // explicit no-access App grant; it still cannot expose App data or
+      // links to rooms the admin cannot currently access.
+      if (!canManagePrivateLinks && !await mayChangeApp()) return json({ message: "Only its maker, an editor, or an admin can change app links." }, 403);
       if (request.method === "POST") {
         const room = await readableConversation(env.DB, orgId, me, input.channel);
         if (!room) return json({ message: 'No such room.' }, 404);
