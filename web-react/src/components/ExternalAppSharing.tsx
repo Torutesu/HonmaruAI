@@ -1,6 +1,8 @@
 import './ExternalAppSharing.css'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
+import { ExternalCollaboratorPicker } from './ExternalCollaboratorPicker'
+import type { ExternalCollaborator } from '../utils/externalCollaborators'
 
 interface Guest { githubId: string; login: string; name?: string | null; email?: string | null; permission: 'view' | 'edit'; expiresAt: string | null }
 interface Invite { id: string; invitedEmail: string; permission: 'view' | 'edit'; accessExpiresAt: string | null; inviteExpiresAt: string }
@@ -13,6 +15,7 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
   const t = useT()
   const [sharing, setSharing] = useState<ShareState | null>(null)
   const [email, setEmail] = useState('')
+  const [selectedCollaborator, setSelectedCollaborator] = useState<ExternalCollaborator|null>(null)
   const [permission, setPermission] = useState<'view' | 'edit'>('view')
   const [expiry, setExpiry] = useState('never')
   const [inviteUrl, setInviteUrl] = useState('')
@@ -66,6 +69,18 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
       setInviteUrl(new URL(`/#/external-invite/${data.invite.token}`, appOrigin).toString())
       setInviteDelivery(data.invite.emailDelivery?.status || 'not_configured')
       setEmail('')
+      await loadSharing()
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setBusy(false) }
+  }
+  const shareWithPerson = async () => {
+    if (!selectedCollaborator) return
+    setBusy(true); setError('')
+    try {
+      const res = await fetch(base, { method:'POST', headers:headers(sessionToken,true), body:JSON.stringify({ recipientGithubId:selectedCollaborator.githubId, permission, expiresAt:selectedExpiry() }) })
+      const data = await res.json().catch(()=>null)
+      if (!res.ok) throw new Error(data?.message || String(res.status))
+      setSelectedCollaborator(null)
       await loadSharing()
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(false) }
@@ -135,6 +150,12 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
       <p className="row-sub">{t('Invite a named person to this App. They must verify the invited email address. Access stays limited to this App and its linked records.')}</p>
       {sharing.customUnsupported && <div className="form-error" role="status">{t('Publish this Custom App before inviting external guests.')}</div>}
       {!sharing.customUnsupported && <>
+      <div className="app-guest-invite">
+        <ExternalCollaboratorPicker httpBase={httpBase} sessionToken={sessionToken} orgId={orgId} resourceType="app" resourceId={appId} value={selectedCollaborator} onChange={setSelectedCollaborator} disabled={busy}/>
+        <label>{t('Permission')}<select aria-label={t('Existing collaborator permission')} value={permission} onChange={event => setPermission(event.target.value as 'view' | 'edit')}><option value="view">{t('View')}</option><option value="edit">{t('Edit')}</option></select></label>
+        <label>{t('Access expires')}<select aria-label={t('Existing collaborator access expiry')} value={expiry} onChange={event => setExpiry(event.target.value)}><option value="never">{t('Never')}</option><option value="7">{t('In 7 days')}</option><option value="30">{t('In 30 days')}</option><option value="90">{t('In 90 days')}</option></select></label>
+        <button className="btn btn-primary" type="button" disabled={busy||!selectedCollaborator} onClick={()=>void shareWithPerson()}>{t('Share with person')}</button>
+      </div>
       <form onSubmit={invite} className="app-guest-invite">
         <label>{t('Email')}<input aria-label={t('Guest email')} type="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} /></label>
         <label>{t('Permission')}<select aria-label={t('Guest permission')} value={permission} onChange={event => setPermission(event.target.value as 'view' | 'edit')}><option value="view">{t('View')}</option><option value="edit">{t('Edit')}</option></select></label>

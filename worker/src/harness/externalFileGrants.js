@@ -188,18 +188,26 @@ export async function handleExternalFileGrantRoutes(request, env, url, { orgId, 
     const email=typeof input?.email==='string'?input.email.trim().toLowerCase():'';
     const permission=input?.permission==='edit'?'edit':input?.permission==='view'?'view':null;
     if(!permission)return json({message:'Choose view or edit access.'},400);
-    if(!email||email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json({message:'Enter a valid email address.'},400);
     let recipient;
-    try{recipient=await db.prepare('SELECT github_id AS githubId,login,email FROM users WHERE lower(trim(email))=?1 AND email_verified_at IS NOT NULL LIMIT 1').bind(email).first()}
-    catch{return json({message:'Verified email sharing is not available until the workspace migration completes.'},503)}
-    if(!recipient)return json({message:'No signed-in Honmaru user with that verified email exists. No invitation was sent.'},404);
+    const recipientId=typeof input?.recipientGithubId==='string'?input.recipientGithubId.trim():'';
+    if(recipientId){
+      if(recipientId.length>200)return json({message:'Choose a valid collaborator.'},400);
+      try{recipient=await db.prepare('SELECT github_id AS githubId,login,email FROM users WHERE github_id=?1 AND email_verified_at IS NOT NULL LIMIT 1').bind(recipientId).first()}
+      catch{return json({message:'Verified account sharing is not available until the workspace migration completes.'},503)}
+    }else{
+      if(!email||email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json({message:'Enter a valid email address.'},400);
+      try{recipient=await db.prepare('SELECT github_id AS githubId,login,email FROM users WHERE lower(trim(email))=?1 AND email_verified_at IS NOT NULL LIMIT 1').bind(email).first()}
+      catch{return json({message:'Verified email sharing is not available until the workspace migration completes.'},503)}
+    }
+    if(!recipient||String(recipient.githubId)===String(userId))return json({message:'No eligible signed-in Honmaru collaborator exists.'},404);
     const member=await db.prepare('SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId,recipient.githubId).first();
     if(member)return json({message:'Workspace members should use their existing workspace access.'},409);
     let expiresAt;
     try{expiresAt=expiry(input?.expiresInDays)}catch(error){return json({message:error.message},400)}
     const at=new Date().toISOString();
     try{
-      const grant=await grantExternalResource(db,{orgId,resourceType:'file',resourceId:route.fileId,recipientGithubId:String(recipient.githubId),grantedBy:String(userId),permission,expiresAt},at);
+      const grant=await grantExternalResource(db,{orgId,resourceType:'file',resourceId:route.fileId,recipientGithubId:String(recipient.githubId),grantedBy:String(userId),permission,expiresAt},at,{requireVerifiedExternalAccount:true});
+      if(!grant)return json({message:'Workspace membership or account verification changed. Reload and retry.'},409);
       return json({grant:{id:grant.id,recipientGithubId:String(recipient.githubId),recipientLogin:recipient.login,recipientEmail:recipient.email,permission,grantedAt:at,expiresAt,revokedAt:null},redemptionPath:'/external/files/'+encodeURIComponent(orgId)+'/'+encodeURIComponent(route.fileId)},201);
     }catch(error){return json({message:error instanceof Error?error.message:'Could not grant file access.'},400)}
   }

@@ -1235,11 +1235,11 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://kylon.io/changelog",
-      "code": "worker/src/harness/externalCollaborators.js, worker/src/externalApps.js, web-react/src/components/ExternalGuestApp.tsx, worker/migrations.sql",
+      "code": "worker/src/harness/externalCollaborators.js, worker/src/externalApps.js, worker/src/externalThreads.js, worker/src/harness/externalFileGrants.js, web-react/src/components/ExternalCollaboratorPicker.tsx, web-react/src/components/ExternalGuestApp.tsx, worker/migrations.sql",
       "acceptance": "名前または検証済みメールで招待した外部ユーザーがワークスペースメンバー化せずサインインでき、Room/Workspace/リンクの対象ごとにThread・File・AppのCan view/Can editを個別設定できる。Threadのゲストは閲覧・返信・アップロード・リアクションができ、送信要求は所有者承認を経る。失効は即時反映され、Workspace/Room/別リソース間のACL隔離、期限、監査履歴、ゲストにAgentが自動返信しないことを検証する。",
       "evidence": {
         "verified": "Kylon公式Changelogの2026-10-30項目は、Thread/File/Appを名前またはメールで共有し、Room/Workspace/リンク単位の対象と各人のCan view/Can editを選ぶこと、外部ユーザーはWorkspaceに参加せずサインインすること、Threadゲストの閲覧/返信/アップロード/リアクションと所有者承認付き送信、現時点でAgentは外部ゲストに返信しないことを明記。Files & Sharing docs §Share outside the workspaceは、公開リンクはスナップショットを公開するだけでlive File/Roomのアクセス権を与えないと明記。Honmaruでは既存のグローバルユーザー認証を使い、新規サービスを追加せず、resource-scoped grant/revoke ledgerとhuman-only lookupの基礎を追加。",
-        "remaining": "Thread/File/Appの個別招待・権限・失効、Threadリンク共有、File版追加、Appの外部ゲスト行操作と公開済みCustom Appの隔離実行、PR #870でのFiles/Apps/Threads向けWorkspace/Room audienceはmainに存在する。Workspace既定viewのメンバーによるHTTP/MCP/Workflow書込みは拒否し、workspace owner/adminはedit、一般メンバーは明示edit grantを要求する。Custom Appゲストにserver action/外部接続は公開しない。名前検索招待、File/Thread/App以外のKylon audience、認証済み複数利用者の本番比較は未完了。既存Simpleモードはこのgrantモデルを参照しない。",
+        "remaining": "Thread/File/Appの個別招待・権限・失効、Threadリンク共有、File版追加、Appの外部ゲスト行操作と公開済みCustom Appの隔離実行、PR #870でのFiles/Apps/Threads向けWorkspace/Room audienceはmainに存在する。今回、認証済みの共有管理者が対象Thread/File/Appに対して名前・ログイン名・検証済みメールで外部アカウントを検索し、個別view/edit grantを作成できるようにした。検索は3文字以上・8件上限・セッション単位のレート制限付きで、結果にメールは含めず、検索と書き込み両方でリソース権限・本人確認・Workspace非所属を再確認する。File/Thread/App以外のKylon audience、認証済み複数利用者の本番比較は未完了。既存Simpleモードはこのgrantモデルを参照しない。",
         "latestMainFix": {
           "release": "PR #872 merged as bc79dfae. Exact-head CI, main CI and Worker deploy succeeded; post-deploy Worker health and app.honmaruai.com returned HTTP 200.",
           "scope": "Room-audience File/App grants now require the referenced room to exist unarchived and have no deletion tombstone, in addition to current room membership. Regression proved stale conversation_members rows no longer retain access after archive/delete.",

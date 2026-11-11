@@ -32,7 +32,8 @@ export type ExternalThreadSendRequest = {
 }
 
 export type ExternalThreadShareInput = {
-  email: string
+  email?: string
+  recipientGithubId?: string
   permission: 'view' | 'edit'
   expiresAt: string | null
 }
