@@ -19,6 +19,8 @@ Usage:
   honmaru workspace room join <room-id>
   honmaru workspace room leave <room-id>
   honmaru workspace room list [--query TEXT] [--type channel|dm|group] [--limit N] [--cursor CURSOR] [--archived]
+  honmaru workspace room mute|unmute <room-id>
+  honmaru workspace room reorder --rooms ROOM,ROOM,...
   honmaru workspace room get <room-id>
   honmaru workspace room update <room-id> [--name NAME] [--mentioned-only true|false] [--main-agent ID|auto] [--icon-color COLOR]
   honmaru workspace room rename <room-id> --name NAME
@@ -96,7 +98,7 @@ The status command reports the macOS LaunchAgent state without reading or printi
 
 const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
-  "text", "room", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color",
+  "text", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color",
   "direction", "title", "name", "members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir",
@@ -219,6 +221,18 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
     case "room leave":
       onlyFlags(options, []); positionalCount(positional, 1, `honmaru workspace room ${operation} <room-id>`);
       return { tool: operation === "join" ? "join_public_room" : "leave_public_room", args: { conversationId: positional[0] } };
+    case "room mute":
+    case "room unmute":
+      onlyFlags(options, []); positionalCount(positional, 1, `honmaru workspace room ${operation} <room-id>`);
+      return { tool: "set_room_muted", args: { conversationId: positional[0], muted: operation === "mute" } };
+    case "room reorder": {
+      onlyFlags(options, ["rooms"]); positionalCount(positional, 0, "honmaru workspace room reorder --rooms ROOM,ROOM,...");
+      if (typeof options.rooms !== "string" || !options.rooms.trim()) throw new Error("--rooms is required.");
+      const conversationIds = [...new Set(options.rooms.split(",").map(value => value.trim()).filter(Boolean))];
+      if (!conversationIds.length || conversationIds.length > 200) throw new Error("--rooms needs 1 to 200 unique room IDs.");
+      if (conversationIds.length !== options.rooms.split(",").map(value => value.trim()).filter(Boolean).length) throw new Error("--rooms cannot contain duplicate room IDs.");
+      return { tool: "reorder_rooms", args: { conversationIds } };
+    }
     case "room rename":
       onlyFlags(options, ["name"]); positionalCount(positional, 1, "honmaru workspace room rename <room-id> --name NAME");
       if (typeof options.name !== "string" || !options.name.trim()) throw new Error("--name is required.");

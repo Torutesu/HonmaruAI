@@ -336,6 +336,26 @@ test("room/message aliases reject malformed writes and page limits before making
   assert.equal(requests, 0);
 });
 
+test("Room notification and sidebar order aliases send personal settings", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { muted: true, reordered: ["b:ops", "b:general"] } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "mute", "b:ops"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "room", "unmute", "b:ops"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "room", "reorder", "--rooms", "b:ops,b:general"]), 0);
+  assert.deepEqual(calls, [
+    { name: "set_room_muted", arguments: { conversationId: "b:ops", muted: true } },
+    { name: "set_room_muted", arguments: { conversationId: "b:ops", muted: false } },
+    { name: "reorder_rooms", arguments: { conversationIds: ["b:ops", "b:general"] } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
 test("Room discovery and membership aliases pass bounded filters and explicit membership mutations", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
