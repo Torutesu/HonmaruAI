@@ -59,7 +59,7 @@ Usage:
   honmaru workspace workflow held-events <workflow-id> [--offset N]
   honmaru workspace workflow held-event <workflow-id> <event-id>
   honmaru workspace workflow discard-held|replay-held <workflow-id> --event-ids ID,ID
-  honmaru workspace workflow webhook-rotate|webhook-revoke <workflow-id> --expected-secret SECRET|none --expected-updated-at ISO
+  honmaru workspace workflow webhook-rotate|webhook-revoke <workflow-id> --expected-secret-env ENV_NAME|--expected-secret none --expected-updated-at ISO
   honmaru workspace followup list [--room ROOM]
   honmaru workspace followup schedule --room ROOM --instruction TEXT --minutes N
   honmaru workspace file list --scope ROOM|all [--query TEXT] [--limit N]
@@ -115,7 +115,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "text", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
   "direction", "title", "name", "members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset",
-  "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "event-ids", "generation", "revision",
+  "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay"]);
@@ -200,7 +200,7 @@ function positionalCount(positional, exact, usage) {
   if (positional.length !== exact) throw new Error(`Usage: ${usage}`);
 }
 
-function resolveWorkspaceCommand(resource, operation, positional, options) {
+function resolveWorkspaceCommand(resource, operation, positional, options, env = process.env) {
   const pair = `${resource || ""} ${operation || ""}`.trim();
   switch (pair) {
     case "room list": {
@@ -500,10 +500,16 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
     }
     case "workflow webhook-rotate":
     case "workflow webhook-revoke": {
-      onlyFlags(options, ["expectedSecret", "expectedUpdatedAt"]); positionalCount(positional, 1, `honmaru workspace workflow ${operation} <workflow-id> --expected-secret SECRET|none --expected-updated-at ISO`);
-      if (options.expectedSecret === undefined || !options.expectedUpdatedAt || !Number.isFinite(Date.parse(options.expectedUpdatedAt))) throw new Error("--expected-secret and a valid --expected-updated-at from workflow show are required.");
-      const expectedSecret = options.expectedSecret === "none" ? null : options.expectedSecret;
-      if (expectedSecret !== null && !/^[0-9a-f]{48}$/.test(expectedSecret)) throw new Error("--expected-secret must be the 48-character webhook secret from workflow show, or none.");
+      onlyFlags(options, ["expectedSecret", "expectedSecretEnv", "expectedUpdatedAt"]); positionalCount(positional, 1, `honmaru workspace workflow ${operation} <workflow-id> --expected-secret-env ENV_NAME|--expected-secret none --expected-updated-at ISO`);
+      if (!options.expectedUpdatedAt || !Number.isFinite(Date.parse(options.expectedUpdatedAt))) throw new Error("A valid --expected-updated-at from workflow show is required.");
+      if (options.expectedSecret !== undefined && options.expectedSecretEnv !== undefined) throw new Error("Use only one of --expected-secret none and --expected-secret-env.");
+      let expectedSecret;
+      if (options.expectedSecretEnv !== undefined) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(options.expectedSecretEnv)) throw new Error("--expected-secret-env must be an environment variable name.");
+        expectedSecret = env[options.expectedSecretEnv];
+        if (typeof expectedSecret !== "string" || !/^[0-9a-f]{48}$/.test(expectedSecret)) throw new Error("The named environment variable must contain the 48-character webhook secret from workflow show.");
+      } else if (options.expectedSecret === "none") expectedSecret = null;
+      else throw new Error("Pass the current secret with --expected-secret-env NAME (keeps it out of shell history), or use --expected-secret none when inactive.");
       return { tool: operation === "webhook-rotate" ? "rotate_workflow_webhook" : "revoke_workflow_webhook", args: { workflowId: positional[0], expectedSecret, expectedUpdatedAt: options.expectedUpdatedAt } };
     }
     case "followup list":
@@ -789,7 +795,7 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       await copyWorkspaceFile({ options, positional: commandArgs, client, apiUrl, token, fetcher, writeOut });
       return 0;
     }
-    const command = resolveWorkspaceCommand(resource, operation, commandArgs, options);
+    const command = resolveWorkspaceCommand(resource, operation, commandArgs, options, env);
     const result = await client.callTool(command.tool, command.args);
     writeOut(formatWorkspaceResult(result, options.json, command));
     return 0;

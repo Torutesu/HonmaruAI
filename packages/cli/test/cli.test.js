@@ -656,7 +656,7 @@ test("workflow lifecycle aliases map details, history, cancellation, held events
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { ok: true } } }), { status: 200 });
   };
   const stdout = output(), stderr = output();
-  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token, HONMARU_EXPECTED_HOOK_SECRET: "a".repeat(48) };
   const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
   assert.equal(await run(["workspace", "workflow", "show", "wf_1"]), 0); stdout.clear();
   assert.equal(await run(["workspace", "workflow", "runs", "wf_1", "--limit", "10"]), 0); stdout.clear();
@@ -666,7 +666,7 @@ test("workflow lifecycle aliases map details, history, cancellation, held events
   assert.equal(await run(["workspace", "workflow", "held-event", "wf_1", "held_1"]), 0); stdout.clear();
   assert.equal(await run(["workspace", "workflow", "discard-held", "wf_1", "--event-ids", "held_1,held_2"]), 0); stdout.clear();
   assert.equal(await run(["workspace", "workflow", "replay-held", "wf_1", "--event-ids", "held_1"]), 0); stdout.clear();
-  assert.equal(await run(["workspace", "workflow", "webhook-rotate", "wf_1", "--expected-secret", "a".repeat(48), "--expected-updated-at", "2026-11-11T00:00:00Z"]), 0);
+  assert.equal(await run(["workspace", "workflow", "webhook-rotate", "wf_1", "--expected-secret-env", "HONMARU_EXPECTED_HOOK_SECRET", "--expected-updated-at", "2026-11-11T00:00:00Z"]), 0);
   assert.deepEqual(calls, [
     { name: "get_workflow", arguments: { workflowId: "wf_1" } },
     { name: "list_workflow_runs", arguments: { workflowId: "wf_1", limit: 10 } },
@@ -678,6 +678,21 @@ test("workflow lifecycle aliases map details, history, cancellation, held events
     { name: "replay_held_workflow_events", arguments: { workflowId: "wf_1", eventIds: ["held_1"] } },
     { name: "rotate_workflow_webhook", arguments: { workflowId: "wf_1", expectedSecret: "a".repeat(48), expectedUpdatedAt: "2026-11-11T00:00:00Z" } },
   ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("webhook secret aliases resolve secrets from environment and allow inactive hooks without argv secrets", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { ok: true } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token, HOOK_SECRET: "b".repeat(48) };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "workflow", "webhook-revoke", "wf_1", "--expected-secret-env", "HOOK_SECRET", "--expected-updated-at", "2026-11-11T00:00:00Z"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "webhook-revoke", "wf_2", "--expected-secret", "none", "--expected-updated-at", "2026-11-11T00:00:00Z"]), 0);
+  assert.deepEqual(calls.map(call => call.arguments.expectedSecret), ["b".repeat(48), null]);
   assert.equal(stderr.read(), "");
 });
 
@@ -727,7 +742,9 @@ test("workflow lifecycle aliases reject unsafe or stale inputs before making a r
   assert.equal(await run(["workspace", "workflow", "replay-held", "wf_1", "--event-ids", "held_1,held_1"]), 1);
   assert.match(stderr.read(), /distinct event IDs/); stderr.clear();
   assert.equal(await run(["workspace", "workflow", "webhook-revoke", "wf_1", "--expected-secret", "not-a-secret", "--expected-updated-at", "2026-11-11T00:00:00Z"]), 1);
-  assert.match(stderr.read(), /48-character webhook secret/);
+  assert.match(stderr.read(), /keeps it out of shell history/); stderr.clear();
+  assert.equal(await run(["workspace", "workflow", "webhook-revoke", "wf_1", "--expected-secret-env", "MISSING_HOOK_SECRET", "--expected-updated-at", "2026-11-11T00:00:00Z"]), 1);
+  assert.match(stderr.read(), /environment variable must contain/);
   assert.equal(requests, 0);
 });
 

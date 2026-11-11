@@ -4219,3 +4219,17 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Added MCP/CLI member list, add and remove for active managed Rooms. Human member identifiers are workspace-scoped opaque references; list results omit raw account IDs and only expose Agents already bound to the accessible Room. Add defaults to `member`; assigning `admin` requires a current Room admin, and workspace guests cannot become Room admins. Remove requires a Room admin and preserves the final eligible human admin. Both mutations use the existing membership snapshot/version compare-and-set and send Room change events. Simple/unmanaged Rooms and Agent membership mutations remain on their existing paths.
 - CLI **41/41** passed. Focused Worker MCP/Room-role/member-group suites are being verified together; the first sandbox run could not bind localhost, so the same run was repeated with the required local test permission. Exact-head CI, merge, deployment and authenticated Kylon comparison are pending. No schema migration or new paid service.
+
+
+### 2026-11-11 — Reconcile merged Room member and Workflow CLI capabilities
+
+- PR #895 added MCP/CLI Room member list/add/remove using workspace-scoped opaque member refs, Room-admin checks, guest-admin rejection, last-human-admin protection and membership snapshot/version CAS. Exact-head CI #42973967263 passed; merged as `221f3a8c26d23bb980e12089c7bdf3877e14eae5`.
+- PR #896 added Workflow detail/run history/cancel, held webhook event inspection/discard/replay, and webhook credential rotation/revocation. Exact-head CI #42985423815 passed; merged as `dfecc38fa93a63ef3846bea3abb5c4b527d14266`.
+- PR #898 added Workflow revision list/restore, generation-guarded safety resume and no-replay stalled-run reconciliation. CLI 45/45 and Worker 178/178 passed; exact-head CI #42994820675 passed; merged as `adedaadca547bb0e868e50da8e105ebc2991d415`.
+- Current-main CI #42997611750 and Worker/Web deploys #42997611732/#42997611923 succeeded. Authenticated Kylon parity and real multi-user/terminal acceptance remain open; no schema migration or paid service.
+
+### 2026-11-11 — MCP Workflow governance and CLI secret handling (local QA)
+
+- Added specific audit events for Workflow revision restore, safety resume, run cancel/reconciliation, held-event discard/replay, and webhook secret rotation/revocation. Audit entries record actor, Workflow/Run, outcome and bounded counts; they never include webhook secrets or event payloads. Added MCP destructive-operation hints for restore, recovery, held-event changes, webhook credential changes, and Room member removal.
+- CLI webhook rotation/revocation now accepts the current secret by environment-variable name (`--expected-secret-env NAME`) or `--expected-secret none` for an inactive hook, avoiding literal secrets in shell history and process arguments.
+- Combined local QA: CLI **46/46**; Worker Harness MCP, chat MCP, Room roles and gateway suites **129/129**; JavaScript syntax, requirements JSON, Kylon inventory (**105 items**) and `git diff --check` passed. PR exact-head CI and release are tracked separately; this local QA record does not claim deployment. No schema migration, paid service or Simple-mode change.

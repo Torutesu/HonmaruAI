@@ -293,6 +293,10 @@ test('workflow MCP exposes lifecycle reads, gates webhook payloads, and applies 
   expect(shown.workflow).toMatchObject({ id: made.workflow.id, enabled: false, trigger: { type: 'webhook' } });
   expect(shown.workflow.hookSecret).toBeUndefined();
   expect(shown.webhook.secret).toBe(made.workflow.hookSecret);
+  const listedTools = (await (await rpc(ownerToken, 'tools/list')).json()).result.tools;
+  for (const name of ['discard_held_workflow_events', 'replay_held_workflow_events', 'rotate_workflow_webhook', 'revoke_workflow_webhook']) {
+    expect(listedTools.find(item => item.name === name).annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+  }
   expect((await tool(ownerToken, 'list_held_workflow_events', { workflowId: made.workflow.id })).result.structuredContent.events).toEqual([
     expect.objectContaining({ id: eventId }),
   ]);
@@ -300,6 +304,14 @@ test('workflow MCP exposes lifecycle reads, gates webhook payloads, and applies 
     .toEqual({ note: 'review me' });
   expect((await tool(ownerToken, 'discard_held_workflow_events', { workflowId: made.workflow.id, eventIds: [eventId] })).result.structuredContent)
     .toEqual({ discarded: 1 });
+  expect(await env.DB.prepare("SELECT action FROM audit_events WHERE org_id=?1 AND action='workflow.webhook_discarded'").bind(ORG).first('action'))
+    .toBe('workflow.webhook_discarded');
+  const rotated = (await tool(ownerToken, 'rotate_workflow_webhook', {
+    workflowId: made.workflow.id, expectedSecret: shown.webhook.secret, expectedUpdatedAt: shown.workflow.updatedAt,
+  })).result.structuredContent;
+  expect(rotated).toMatchObject({ workflowId: made.workflow.id, active: true, secret: expect.stringMatching(/^[0-9a-f]{48}$/) });
+  const rotateAudit = await env.DB.prepare("SELECT body FROM audit_events WHERE org_id=?1 AND action='workflow.webhook_rotated' ORDER BY seq DESC LIMIT 1").bind(ORG).first();
+  expect(rotateAudit.body).not.toContain(rotated.secret);
 
   const { upsertUser, upsertMembership, createSession } = await import('../src/db.js');
   await upsertUser(env.DB, { githubId: '9402', login: 'mika', name: 'Mika', avatarUrl: null, locale: 'en' });
@@ -309,6 +321,16 @@ test('workflow MCP exposes lifecycle reads, gates webhook payloads, and applies 
   const memberView = (await tool(memberToken, 'get_workflow', { workflowId: made.workflow.id })).result.structuredContent;
   expect(memberView.webhook).toBeUndefined();
   expect((await tool(memberToken, 'get_held_workflow_event', { workflowId: made.workflow.id, eventId })).result.isError).toBe(true);
+  expect((await tool(memberToken, 'discard_held_workflow_events', { workflowId: made.workflow.id, eventIds: [eventId] })).result.isError).toBe(true);
+  expect((await tool(memberToken, 'revoke_workflow_webhook', {
+    workflowId: made.workflow.id, expectedSecret: rotated.secret, expectedUpdatedAt: rotated.updatedAt,
+  })).result.isError).toBe(true);
+  const revoked = (await tool(ownerToken, 'revoke_workflow_webhook', {
+    workflowId: made.workflow.id, expectedSecret: rotated.secret, expectedUpdatedAt: rotated.updatedAt,
+  })).result.structuredContent;
+  expect(revoked).toMatchObject({ workflowId: made.workflow.id, active: false });
+  const revokeAudit = await env.DB.prepare("SELECT body FROM audit_events WHERE org_id=?1 AND action='workflow.webhook_revoked' ORDER BY seq DESC LIMIT 1").bind(ORG).first();
+  expect(revokeAudit.body).not.toContain(rotated.secret);
   expect((await tool(ownerToken, 'list_workflow_runs', { workflowId: made.workflow.id })).result.structuredContent.runs).toEqual([]);
 });
 
@@ -330,18 +352,35 @@ test('workflow MCP exposes revision restore, safety resume and no-replay stalled
   }, '9401');
   expect(changed.workflow.name).toBe('Version two');
   const revisions = (await tool(ownerToken, 'list_workflow_revisions', { workflowId: workflow.id })).result.structuredContent.items;
+  const listedTools = (await (await rpc(ownerToken, 'tools/list')).json()).result.tools;
+  expect(listedTools.find(item => item.name === 'restore_workflow_revision').annotations).toMatchObject({ destructiveHint: true });
+  expect(listedTools.find(item => item.name === 'resume_workflow_safety').annotations).toMatchObject({ destructiveHint: false });
   expect(revisions).toEqual(expect.arrayContaining([expect.objectContaining({ revision: expect.any(Number), definition: expect.objectContaining({ name: 'Version one' }) })]));
   const restored = await tool(ownerToken, 'restore_workflow_revision', {
     workflowId: workflow.id, revision: revisions.find(item => item.definition.name === 'Version one').revision,
     expectedUpdatedAt: changed.workflow.updatedAt,
   });
   expect(restored.result.structuredContent.workflow.name).toBe('Version one');
+  const staleRestore = await tool(ownerToken, 'restore_workflow_revision', {
+    workflowId: workflow.id, revision: revisions.find(item => item.definition.name === 'Version one').revision,
+    expectedUpdatedAt: changed.workflow.updatedAt,
+  });
+  expect(staleRestore.result.isError).toBe(true);
+  expect(await env.DB.prepare("SELECT action FROM audit_events WHERE org_id=?1 AND action='workflow.revision_restored'").bind(ORG).first('action'))
+    .toBe('workflow.revision_restored');
 
   const safety = await ensureWorkflowSafety(env.DB, ORG, workflow.id);
   await env.DB.prepare("UPDATE hx_workflow_safety SET paused_at=?1,pause_reason='repeated_failures' WHERE org_id=?2 AND workflow_id=?3")
     .bind(new Date().toISOString(), ORG, workflow.id).run();
   const resumed = await tool(ownerToken, 'resume_workflow_safety', { workflowId: workflow.id, generation: safety.generation });
   expect(resumed.result.structuredContent.safety.paused_at).toBeNull();
+  expect(await env.DB.prepare("SELECT action FROM audit_events WHERE org_id=?1 AND action='workflow.safety_resumed'").bind(ORG).first('action'))
+    .toBe('workflow.safety_resumed');
+  await env.DB.prepare("UPDATE hx_workflow_safety SET paused_at=?1,pause_reason='budget_daily' WHERE org_id=?2 AND workflow_id=?3")
+    .bind(new Date().toISOString(), ORG, workflow.id).run();
+  const budgetResume = await tool(ownerToken, 'resume_workflow_safety', { workflowId: workflow.id, generation: safety.generation });
+  expect(budgetResume.result.isError).toBe(true);
+  expect(budgetResume.result.content[0].text).toContain('budget');
 
   const runId = 'run-stalled-mcp-recovery';
   const startedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
@@ -351,6 +390,8 @@ test('workflow MCP exposes revision restore, safety resume and no-replay stalled
     workflowId: workflow.id, runId, expectedStartedAt: startedAt, confirmNoReplay: true,
   });
   expect(recovered.result.structuredContent.run).toMatchObject({ status: 'failed', log: [expect.objectContaining({ status: 'interrupted', outcome: 'unknown' })] });
+  expect(await env.DB.prepare("SELECT action FROM audit_events WHERE org_id=?1 AND action='workflow.run_reconciled'").bind(ORG).first('action'))
+    .toBe('workflow.run_reconciled');
   const unsafe = await tool(ownerToken, 'recover_stalled_workflow_run', {
     workflowId: workflow.id, runId: 'missing', expectedStartedAt: startedAt, confirmNoReplay: false,
   });

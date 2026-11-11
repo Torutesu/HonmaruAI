@@ -17,6 +17,7 @@ import { allowed } from "../permissions.js";
 import { listFollowups, scheduleFollowup } from "./followups.js";
 import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
+import { audit } from "../audit.js";
 
 export const HARNESS_TOOL_SCOPE = { create_file_text: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
 
@@ -87,18 +88,21 @@ export const HARNESS_TOOLS = [
     title: "Restore a workflow version",
     description: "Restore one visible prior definition using the exact updatedAt from get_workflow. If automatic triggers were safety-paused, confirm their restoration separately; the safety pause still requires a separate resume.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" }, revision: { type: "integer", minimum: 1 }, expectedUpdatedAt: { type: "string" }, confirmAutoPaused: { type: "boolean" } }, required: ["workflowId", "revision", "expectedUpdatedAt"] },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "resume_workflow_safety",
     title: "Resume a safety-paused workflow",
     description: "Resume only after reloading the workflow and passing its exact safety generation. Workflows paused for exhausted or unpriced budgets cannot be manually resumed.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" }, generation: { type: "string" } }, required: ["workflowId", "generation"] },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "recover_stalled_workflow_run",
     title: "Reconcile a stalled workflow run",
     description: "Mark a stale running step as interrupted with an unknown outcome. It is never replayed. Confirm no replay and pass the exact startedAt from a freshly loaded run.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" }, runId: { type: "string" }, expectedStartedAt: { type: "string" }, confirmNoReplay: { type: "boolean" } }, required: ["workflowId", "runId", "expectedStartedAt", "confirmNoReplay"] },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "list_workflow_runs",
@@ -117,6 +121,7 @@ export const HARNESS_TOOLS = [
     title: "Stop a workflow run",
     description: "Stop later steps of a currently running workflow. The current step may already have caused an external effect. Reload and pass its exact startedAt value.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" }, runId: { type: "string" }, expectedStartedAt: { type: "string" } }, required: ["workflowId", "runId", "expectedStartedAt"] },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "list_held_workflow_events",
@@ -135,24 +140,28 @@ export const HARNESS_TOOLS = [
     title: "Discard held webhook events",
     description: "Permanently discard explicitly selected held events. Maker or Admin access is required.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" }, eventIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 1000 } }, required: ["workflowId", "eventIds"] },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "replay_held_workflow_events",
     title: "Replay held webhook events",
     description: "Start new runs for explicitly selected held events. Replay is never automatic. Maker or Admin access is required.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" }, eventIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 100 } }, required: ["workflowId", "eventIds"] },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "rotate_workflow_webhook",
     title: "Rotate a workflow webhook secret",
     description: "Replace the current webhook credential. Pass the exact secret and updatedAt from an authorized get_workflow response; the newly created secret is returned once.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" }, expectedSecret: { type: ["string", "null"] }, expectedUpdatedAt: { type: "string" } }, required: ["workflowId", "expectedSecret", "expectedUpdatedAt"] },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "revoke_workflow_webhook",
     title: "Revoke a workflow webhook secret",
     description: "Revoke the current webhook credential. Pass the exact secret and updatedAt from an authorized get_workflow response. Maker or Admin access is required.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" }, expectedSecret: { type: ["string", "null"] }, expectedUpdatedAt: { type: "string" } }, required: ["workflowId", "expectedSecret", "expectedUpdatedAt"] },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "run_workflow",
@@ -197,7 +206,7 @@ function pageResult(base, rows, offset, total) {
   return result;
 }
 
-export async function callHarnessTool(env, agent, name, args) {
+export async function callHarnessTool(env, agent, name, args, request = null) {
   if (name.startsWith("mcp_")) {
     const remoteTool = (await remoteMcpTools(env.DB, agent.orgId).catch(() => [])).find((tool) => tool.name === name);
     if (remoteTool) return callRemoteMcpTool(env, agent, remoteTool, args);
@@ -260,7 +269,9 @@ export async function callHarnessTool(env, agent, name, args) {
       if (!wf) return err("No such workflow.");
       if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can restore a workflow revision.");
       const result = await restoreWorkflowRevision(db, orgId, wf.id, by, args);
-      return result.error ? err(result.error) : out(result);
+      if (result.error) return err(result.error);
+      await audit(env, request, { orgId, action: "workflow.revision_restored", actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow", id: wf.id, name: result.workflow?.name || wf.name }, details: { restoredRevision: result.restoredRevision, newRevision: result.revision, automaticTriggersEnabled: result.workflow?.enabled, safetyPaused: result.safetyPaused } });
+      return out(result);
     }
     case "resume_workflow_safety": {
       const workflowId = String(args.workflowId || "");
@@ -271,6 +282,7 @@ export async function callHarnessTool(env, agent, name, args) {
       if (safety?.pause_reason?.startsWith("budget_ai_")) return err("This workflow reached its estimated AI usage limit or has unpriced usage. It can run again after the rolling window resets or after you change its budget.");
       if (safety?.pause_reason?.startsWith("budget_")) return err("This workflow can run again on its next trigger after the budget window resets, or as soon as you raise the limit.");
       if (typeof args.generation !== "string" || !await resumeWorkflowSafety(db, orgId, workflowId, args.generation)) return err("The workflow state changed. Reload before resuming.");
+      await audit(env, request, { orgId, action: "workflow.safety_resumed", actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow", id: workflowId, name: wf.name } });
       return out({ workflowId, safety: await readWorkflowSafety(db, orgId, workflowId) });
     }
     case "list_workflow_runs": {
@@ -288,7 +300,9 @@ export async function callHarnessTool(env, agent, name, args) {
       if (!wf) return err("No such workflow.");
       if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can cancel this workflow run.");
       const result = await cancelWorkflowRun(db, { orgId, workflowId: wf.id, runId: String(args.runId || ""), expectedStartedAt: args.expectedStartedAt, actorId: by });
-      return result.error ? err(result.error) : out(result);
+      if (result.error) return err(result.error);
+      await audit(env, request, { orgId, action: "workflow.run_cancelled", actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow_run", id: String(args.runId || ""), name: wf.name }, details: { outcome: "unknown", laterStepsStopped: true } });
+      return out(result);
     }
     case "recover_stalled_workflow_run": {
       const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by });
@@ -296,7 +310,9 @@ export async function callHarnessTool(env, agent, name, args) {
       if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can reconcile this workflow run.");
       if (args.confirmNoReplay !== true || typeof args.expectedStartedAt !== "string") return err("Confirm that the uncertain step will not be replayed and refresh the run before reconciling it.");
       const result = await recoverStalledRun(db, { orgId, workflowId: wf.id, runId: String(args.runId || ""), expectedStartedAt: args.expectedStartedAt, actorId: by });
-      return result.error ? err(result.error) : out(result);
+      if (result.error) return err(result.error);
+      await audit(env, request, { orgId, action: "workflow.run_reconciled", actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow_run", id: String(args.runId || ""), name: wf.name }, details: { outcome: "unknown", replayed: false } });
+      return out(result);
     }
     case "list_held_workflow_events":
     case "get_held_workflow_event":
@@ -314,16 +330,21 @@ export async function callHarnessTool(env, agent, name, args) {
       }
       if (name === "discard_held_workflow_events") {
         const result = await discardWorkflowEvents(db, orgId, wf.id, args.eventIds);
-        return result.error ? err(result.error) : out(result);
+        if (result.error) return err(result.error);
+        await audit(env, request, { orgId, action: "workflow.webhook_discarded", actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow", id: wf.id, name: wf.name }, details: { count: result.discarded } });
+        return out(result);
       }
       if (name === "replay_held_workflow_events") {
         if (wf.trigger?.type !== "webhook") return err("This workflow does not use a webhook trigger.");
         const result = await replayWorkflowEvents(env, orgId, wf, args.eventIds, by);
-        return result.error ? err(result.error) : out(result);
+        if (result.error) return err(result.error);
+        await audit(env, request, { orgId, action: "workflow.webhook_replayed", actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow", id: wf.id, name: wf.name }, details: { count: result.runs?.length || 0 } });
+        return out(result);
       }
       if (wf.trigger?.type !== "webhook") return err("This workflow does not use a webhook trigger.");
       const result = await changeWorkflowHook(db, orgId, wf.id, { action: name === "rotate_workflow_webhook" ? "rotate" : "revoke", expectedSecret: args.expectedSecret, expectedUpdatedAt: args.expectedUpdatedAt });
       if (result.error) return err(result.error);
+      await audit(env, request, { orgId, action: `workflow.webhook_${name === "rotate_workflow_webhook" ? "rotated" : "revoked"}`, actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow", id: wf.id, name: wf.name } });
       return out({ workflowId: wf.id, active: Boolean(result.workflow.hookSecret), ...(result.workflow.hookSecret ? { secret: result.workflow.hookSecret } : {}), updatedAt: result.workflow.updatedAt });
     }
     case "run_workflow": {
