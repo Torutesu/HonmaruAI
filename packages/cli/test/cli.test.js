@@ -330,6 +330,32 @@ test("room/message aliases reject malformed writes and page limits before making
   assert.equal(requests, 0);
 });
 
+test("Room discovery and membership aliases pass bounded filters and explicit membership mutations", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    const structuredContent = req.params.name === "discover_public_rooms"
+      ? { rooms: [{ channel: "b:planning", name: "Planning", joined: true, memberCount: 3 }], total: 1, limit: 10, offset: 20 }
+      : req.params.name === "join_public_room" ? { joined: true, conversationId: "b:planning" } : { left: true, conversationId: "b:planning" };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "discover", "--query", "plan", "--limit", "10", "--offset", "20", "--joined"]), 0);
+  assert.equal(stdout.read(), "b:planning\tPlanning\tjoined\t3 members\n"); stdout.clear();
+  assert.equal(await run(["workspace", "room", "join", "b:planning"]), 0);
+  assert.equal(stdout.read(), "Joined public Room b:planning.\n"); stdout.clear();
+  assert.equal(await run(["workspace", "room", "leave", "b:planning"]), 0);
+  assert.equal(stdout.read(), "Left public Room b:planning.\n"); stdout.clear();
+  assert.deepEqual(calls, [
+    { name: "discover_public_rooms", arguments: { query: "plan", limit: 10, offset: 20, joined: true } },
+    { name: "join_public_room", arguments: { conversationId: "b:planning" } },
+    { name: "leave_public_room", arguments: { conversationId: "b:planning" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
 test("reaction aliases use idempotent add and remove tools without toggling semantics", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
