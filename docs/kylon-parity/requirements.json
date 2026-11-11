@@ -641,8 +641,8 @@
         "verification": "docs/kylon-parity/verification.md",
         "latestIncrement": {
           "base": "bc79dfae",
-          "scope": "An App source Agent owner and another current Agent member may each grant only their own allowlisted native Connection to that App. Server-side credential storage, current App visibility and source-Agent access are rechecked; grant rows bind the owner, Agent, endpoint, method and connection version.",
-          "verification": "Focused worker/src/harness/apps tests: 159/159 passed, including no grant without current Agent access, server-side secret use, revoke/version behavior and in-flight permission invalidation. git diff --check passed.",
+          "scope": "An App source Agent owner and another current Agent member may each grant only their own allowlisted native Connection to that App. Server-side credential storage and current App visibility/source-Agent access are rechecked. If an external write completes while its App or Connection grant is revoked, the result is discarded and its idempotency ledger is changed to unknown so it cannot be blindly replayed.",
+          "verification": "Focused worker/test/harness-apps.test.js: 163/163 passed, including an in-flight external write whose grant is revoked, unknown ledger state, and replay denial.",
           "remaining": "Group/business-source Apps still do not persist a source Agent ID, so source identity is not inferred from ambiguous history. OAuth refresh, broad per-connection people/Agent/workspace sharing and authenticated production comparison remain."
         }
       }
@@ -819,10 +819,16 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/agents.js, worker/src/harness/workflows.js",
-      "acceptance": "Agentの現行grant・会話権限に加えてapp_record_change元App/Table権限を各モデル往復・ツール実行fenceで再検証。Connection grantを使う将来のWorkflow actionも含め全副作用経路を監査",
+      "acceptance": "Agentの現行grant・会話権限とapp_record_change元App/Table権限を各モデル往復・ツール実行fenceで再検証し、Remote MCP toolは実行者×Agent grantも必須化。全副作用経路を監査",
       "evidence": {
         "verified": "2026-10-31〜11-01、Workflow AgentのApp/Table権限を各モデル往復で再検証し、アクセス剥奪中に進行中のWorker側provider HTTP要求をabort、返答を投稿せず、unknown/unpriced usageと1回分のallowanceを記録。PR #579/#581をmainへ統合。PR #581のfocused model/usage 14 tests、workflow 69 testsが成功。main CI #41224384637とWorker deploy #41224384634成功（後続#584 release）。Worker /health は ok=true、encryption.all=true。",
-        "remaining": "read-only Notion/GitHub searchのConnection stepはmainにあるが、書込操作、未対応connector、credentials/refreshの組み合わせ、provider側処理・請求の停止保証、他の副作用経路を含む完全な統合監査と複数利用者の本番受入は残る。"
+        "latestIncrement": {
+          "base": "1d649c7b4d5479ccef1b81de909de546fa9e3423",
+          "scope": "Workflow Agent Remote MCP read-only tools now require the current run actor's explicit Agent/server grant in addition to the workspace tool allowlist. The check is applied when listing tools and immediately before/after calls; revoked results are discarded and the model loop stops. App visitor writes whose grant is revoked in flight are recorded as unknown after result discard.",
+          "verification": "Focused workflow tests 143/143 and App tests 163/163 passed. Merge CI run 43085800275 and Worker/Web deployments 43085800394/43085800314 passed.",
+          "remaining": "Other side-effect routes and provider-side execution/cost cancellation guarantees still need full audit and live multi-user acceptance."
+        },
+        "remaining": "Remote MCP write tools, unsupported connectors and provider-side processing/billing cancellation guarantees remain outside this read-only slice."
       }
     },
     {
@@ -998,13 +1004,19 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/proxy/tools-api",
-      "code": "worker/src/agentTools.js",
-      "acceptance": "人の接続とagent/app/workflowの利用権を分離",
+      "code": "worker/src/agentTools.js, worker/src/harness/agentRemoteMcp.js, worker/src/harness/workflows.js",
+      "acceptance": "人の接続とAgent/App/Workflowの利用権を分離し、Workflow実行時も実行者固有grantを都度再検証",
       "evidence": {
         "reviewedAt": "2026-11-01",
-        "implementedScope": "PR #583 is merged and deployed. Harness Agentごと・呼び出しユーザーごとにNotion/GitHub native searchを初期拒否し、接続済みソースのみ許可可能。手動ツール、自動リサーチ、スケジュール済みFollow-upは検索前後とモデル応答・公開前にmembership世代・grant・接続状態を再検証し、失効後は結果を破棄。Smithery App grantとは別テーブル。Simpleの従来接続経路を維持。",
-        "remaining": "任意の外部Connectionのgrant、App/Workflow作成者と実行ユーザーのgrant統合、全操作カテゴリのKylon同等性",
-        "verification": "docs/kylon-parity/verification.md (main CI 41217441410; Worker deploy 41217441413; Web deploy 41217441411; signed-in Agent Connections screen)"
+        "implementedScope": "PR #583 is merged and deployed. Harness Agentごと・呼び出しユーザーごとにNotion/GitHub native searchとRemote MCP read-only serverを初期拒否し、許可したConnectionのみ実行可能。手動ツール、自動リサーチ、Follow-upに加えWorkflow Agentも各実行者の現在のgrantとworkspace allowlistをtool列挙時・実行前後に確認し、失効後の結果を破棄。App visitor external writes revoked in flight are marked unknown to prevent blind retry. Simple mode remains unchanged.",
+        "latestIncrement": {
+          "base": "1d649c7b4d5479ccef1b81de909de546fa9e3423",
+          "scope": "Workflow Remote MCP uses current run actor × Agent grants; test coverage confirms default deny, granted use, in-flight revoke and unchanged Simple mode. App grant revocation after an external write marks the request unknown and later duplicate requests are refused.",
+          "verification": "Focused Workflow tests 143/143; focused App tests 163/163; merge CI run 43085800275 passed and Worker/Web deployments 43085800394/43085800314 passed.",
+          "remaining": "Broader provider catalog, operation categories, UI controls and live Kylon acceptance remain."
+        },
+        "remaining": "Arbitrary external connections, Remote MCP write operations, full App/workflow principal administration and all Kylon operation categories remain incomplete.",
+        "verification": "docs/kylon-parity/verification.md; focused Worker tests 143/143 + 163/163; main CI 43085800275; Worker deploy 43085800394; Web deploy 43085800314"
       }
     },
     {
@@ -1238,8 +1250,8 @@
       "code": "worker/src/harness/externalCollaborators.js, worker/src/externalApps.js, worker/src/externalThreads.js, worker/src/harness/externalFileGrants.js, web-react/src/components/ExternalCollaboratorPicker.tsx, web-react/src/components/ExternalGuestApp.tsx, worker/migrations.sql",
       "acceptance": "名前または検証済みメールで招待した外部ユーザーがワークスペースメンバー化せずサインインでき、Room/Workspace/リンクの対象ごとにThread・File・AppのCan view/Can editを個別設定できる。Threadのゲストは閲覧・返信・アップロード・リアクションができ、送信要求は所有者承認を経る。失効は即時反映され、Workspace/Room/別リソース間のACL隔離、期限、監査履歴、ゲストにAgentが自動返信しないことを検証する。",
       "evidence": {
-        "verified": "Kylon公式Changelogの2026-10-30項目は、Thread/File/Appを名前またはメールで共有し、Room/Workspace/リンク単位の対象と各人のCan view/Can editを選ぶこと、外部ユーザーはWorkspaceに参加せずサインインすること、Threadゲストの閲覧/返信/アップロード/リアクションと所有者承認付き送信、現時点でAgentは外部ゲストに返信しないことを明記。Files & Sharing docs §Share outside the workspaceは、公開リンクはスナップショットを公開するだけでlive File/Roomのアクセス権を与えないと明記。Honmaruでは既存のグローバルユーザー認証を使い、新規サービスを追加せず、resource-scoped grant/revoke ledgerとhuman-only lookupの基礎を追加。 PR #907 review batch adds editing of permission and access expiry for pending, unredeemed File invitations. The compare-and-update rechecks current File version, Harness mode, owner/Admin authority, invitation state/expiry and that the verified recipient is still outside the workspace; it preserves the token and invitation expiry and audits successful changes without email/token. Focused local Worker/Web suites passed; exact-head CI and production acceptance are pending.",
-        "remaining": "Thread/File/Appの個別招待・権限・失効、Threadリンク共有、File版追加、Appの外部ゲスト行操作と公開済みCustom Appの隔離実行、PR #870でのFiles/Apps/Threads向けWorkspace/Room audienceはmainに存在する。今回、認証済みの共有管理者が対象Thread/File/Appに対して名前・ログイン名・検証済みメールで外部アカウントを検索し、個別view/edit grantを作成できるようにした。検索は3文字以上・8件上限・セッション単位のレート制限付きで、結果にメールは含めず、検索と書き込み両方でリソース権限・本人確認・Workspace非所属を再確認する。File/Thread/App以外のKylon audience、認証済み複数利用者の本番比較は未完了。既存Simpleモードはこのgrantモデルを参照しない。 Pending File invitation editing still needs exact-head CI, production migration/deploy, multi-user production acceptance and direct Kylon interaction comparison.",
+        "verified": "Kylon公式Changelogの2026-10-30項目は、Thread/File/Appを名前またはメールで共有し、Room/Workspace/リンク単位の対象と各人のCan view/Can editを選ぶこと、外部ユーザーはWorkspaceに参加せずサインインすること、Threadゲストの閲覧/返信/アップロード/リアクションと所有者承認付き送信、現時点でAgentは外部ゲストに返信しないことを明記。Files & Sharing docs §Share outside the workspaceは、公開リンクはスナップショットを公開するだけでlive File/Roomのアクセス権を与えないと明記。Honmaruでは既存のグローバルユーザー認証を使い、新規サービスを追加せず、resource-scoped grant/revoke ledgerとhuman-only lookupの基礎を追加。PR #907 adds editing permission/access expiry for eligible pending external File invites. It compare-and-updates current File version, Harness mode, owner/Admin authority, invite state/expiry and current workspace membership while preserving the one-time token and invite expiry; successful updates are audited without email/token. Exact-head CI 43082636535 and main CI 43085800275 passed; Worker migration/deploy 43085800394 and Web/domain verification 43085800314 passed.",
+        "remaining": "Thread/File/App invitation coverage, other resource audiences, authenticated multi-user production acceptance and direct Kylon interaction comparison remain incomplete. Simple mode does not use this grant model.",
         "latestMainFix": {
           "release": "PR #872 merged as bc79dfae. Exact-head CI, main CI and Worker deploy succeeded; post-deploy Worker health and app.honmaruai.com returned HTTP 200.",
           "scope": "Room-audience File/App grants now require the referenced room to exist unarchived and have no deletion tombstone, in addition to current room membership. Regression proved stale conversation_members rows no longer retain access after archive/delete.",
