@@ -356,6 +356,39 @@ test("Room notification and sidebar order aliases send personal settings", async
   assert.equal(stderr.read(), "");
 });
 
+test("Room member aliases preserve opaque member refs and requested relations", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { members: [] } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "member", "list", "b:ops"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "room", "member", "add", "b:ops", "--members", "ref_a,ref_b", "--relation", "admin"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "room", "member", "remove", "b:ops", "--members", "ref_a"]), 0);
+  assert.deepEqual(calls, [
+    { name: "list_room_members", arguments: { conversationId: "b:ops" } },
+    { name: "add_room_members", arguments: { conversationId: "b:ops", memberRefs: ["ref_a", "ref_b"], relation: "admin" } },
+    { name: "remove_room_members", arguments: { conversationId: "b:ops", memberRefs: ["ref_a"] } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("Room member aliases reject duplicate refs and invalid relations before a request", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "member", "add", "b:ops", "--members", "ref_a,ref_a"]), 1);
+  assert.match(stderr.read(), /duplicate references/); stderr.clear();
+  assert.equal(await run(["workspace", "room", "member", "add", "b:ops", "--members", "ref_a", "--relation", "owner"]), 1);
+  assert.match(stderr.read(), /relation must be admin or member/);
+  assert.equal(requests, 0);
+});
+
 test("Room discovery and membership aliases pass bounded filters and explicit membership mutations", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
