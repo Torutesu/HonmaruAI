@@ -11,6 +11,7 @@ import { uploadFile } from '../src/files.js';
 import { runMinuteJobs, cancelScheduled } from '../src/later.js';
 import { deliverMcpScheduledMessage } from '../src/mcpScheduled.js';
 import { initializeRoomRoles } from '../src/harness/roomRoles.js';
+import { sidebarSnapshot, saveSidebarIfVersion } from '../src/people-groups.js';
 import sql from '../mcp-chat.sql?raw';
 
 const orgId = 'personal:mcp-chat';
@@ -93,6 +94,47 @@ test('MCP Room settings expose managed defaults and update only requested settin
   await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:general','mcp-room-agent','alex',?2)").bind(orgId, at).run();
   const agentUpdate = await call('update_room_settings', { conversationId: 'b:general', defaultAgentId: 'mcp-room-agent' });
   expect(agentUpdate.settings).toMatchObject({ defaultAgentId: 'mcp-room-agent', version: 3, responseVersion: 2 });
+});
+
+test('MCP Room mute is personal and reorder preserves the rest of the versioned sidebar', async () => {
+  await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
+  expect(await call('set_room_muted', { conversationId: 'b:general', muted: true })).toMatchObject({ muted: true, level: 'mute' });
+  expect(await env.DB.prepare('SELECT level FROM channel_prefs WHERE org_id=?1 AND login=?2 AND channel=?3').bind(orgId, 'alex', 'b:general').first('level')).toBe('mute');
+  expect(await call('set_room_muted', { conversationId: 'b:general', muted: false })).toMatchObject({ muted: false, level: 'default' });
+  expect(await env.DB.prepare('SELECT level FROM channel_prefs WHERE org_id=?1 AND login=?2 AND channel=?3').bind(orgId, 'alex', 'b:general').first()).toBeNull();
+  const original = await sidebarSnapshot(env.DB, orgId, actor.login);
+  await saveSidebarIfVersion(env.DB, orgId, actor.login, { ...original.sidebar, starred: ['b:general'], order: ['b:private', 'b:general'] }, original.version);
+  const reordered = await call('reorder_rooms', { conversationIds: ['b:general'] });
+  expect(reordered.reordered).toEqual(['b:general']);
+  expect(reordered.sidebar.starred).toEqual(['b:general']);
+  expect(reordered.sidebar.order).toEqual(['b:general', 'b:private']);
+  await expect(call('reorder_rooms', { conversationIds: ['b:general', 'b:general'] })).rejects.toThrow('cannot contain duplicates');
+  await expect(call('reorder_rooms', { conversationIds: ['dm:alex|beth'] })).rejects.toThrow('Only joined Rooms');
+});
+
+test('MCP Room member list/add/remove uses opaque refs, room relations and admin safeguards', async () => {
+  await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
+  const roster = await listMembers(env.DB, orgId, 'mcp-a');
+  const alex = roster.find(member => member.login === 'alex');
+  const cara = roster.find(member => member.login === 'cara');
+  const added = await call('add_room_members', { conversationId: 'b:general', memberRefs: [other.ref], relation: 'admin' });
+  expect(added).toMatchObject({ added: [other.ref], relation: 'admin', version: 2 });
+  expect(await call('add_room_members', { conversationId: 'b:general', memberRefs: [cara.ref] }))
+    .toMatchObject({ added: [cara.ref], relation: 'member', version: 3 });
+  const listed = await call('list_room_members', { conversationId: 'b:general' });
+  expect(listed).toMatchObject({ version: 3, members: [
+    { id: alex.ref, name: 'alex', type: 'person', relation: 'admin' },
+    { id: other.ref, name: 'beth', type: 'person', relation: 'admin' },
+    { id: cara.ref, name: 'cara', type: 'person', relation: 'member' },
+  ] });
+  expect(JSON.stringify(listed)).not.toContain('mcp-a');
+  expect(JSON.stringify(listed)).not.toContain('mcp-b');
+  const caraActor = { ...actor, githubId: 'mcp-c', login: 'cara', name: 'Cara' };
+  await expect(call('remove_room_members', { conversationId: 'b:general', memberRefs: [other.ref] }, caraActor)).rejects.toThrow('Only a room admin');
+  expect(await call('remove_room_members', { conversationId: 'b:general', memberRefs: [alex.ref] }, { ...actor, githubId: 'mcp-b', login: 'beth', name: 'Beth' }))
+    .toMatchObject({ removed: [alex.ref], version: 4 });
+  await expect(call('remove_room_members', { conversationId: 'b:general', memberRefs: [other.ref] }, { ...actor, githubId: 'mcp-b', login: 'beth', name: 'Beth' }))
+    .rejects.toThrow('Keep at least one active human room admin');
 });
 
 test('public grant cannot discover, search, or guess private and DM messages', async () => {

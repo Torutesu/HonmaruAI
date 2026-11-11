@@ -336,6 +336,59 @@ test("room/message aliases reject malformed writes and page limits before making
   assert.equal(requests, 0);
 });
 
+test("Room notification and sidebar order aliases send personal settings", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { muted: true, reordered: ["b:ops", "b:general"] } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "mute", "b:ops"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "room", "unmute", "b:ops"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "room", "reorder", "--rooms", "b:ops,b:general"]), 0);
+  assert.deepEqual(calls, [
+    { name: "set_room_muted", arguments: { conversationId: "b:ops", muted: true } },
+    { name: "set_room_muted", arguments: { conversationId: "b:ops", muted: false } },
+    { name: "reorder_rooms", arguments: { conversationIds: ["b:ops", "b:general"] } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("Room member aliases preserve opaque member refs and requested relations", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { members: [] } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "member", "list", "b:ops"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "room", "member", "add", "b:ops", "--members", "ref_a,ref_b", "--relation", "admin"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "room", "member", "remove", "b:ops", "--members", "ref_a"]), 0);
+  assert.deepEqual(calls, [
+    { name: "list_room_members", arguments: { conversationId: "b:ops" } },
+    { name: "add_room_members", arguments: { conversationId: "b:ops", memberRefs: ["ref_a", "ref_b"], relation: "admin" } },
+    { name: "remove_room_members", arguments: { conversationId: "b:ops", memberRefs: ["ref_a"] } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("Room member aliases reject duplicate refs and invalid relations before a request", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "member", "add", "b:ops", "--members", "ref_a,ref_a"]), 1);
+  assert.match(stderr.read(), /duplicate references/); stderr.clear();
+  assert.equal(await run(["workspace", "room", "member", "add", "b:ops", "--members", "ref_a", "--relation", "owner"]), 1);
+  assert.match(stderr.read(), /relation must be admin or member/);
+  assert.equal(requests, 0);
+});
+
 test("Room discovery and membership aliases pass bounded filters and explicit membership mutations", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
@@ -594,6 +647,53 @@ test("workflow, follow-up, and file aliases keep explicit scopes and typed value
     { name: "list_workspace_files", arguments: { scope: "all", query: "release notes", origin: "agent", limit: 10 } },
   ]);
   assert.equal(stderr.read(), "");
+});
+
+test("workflow lifecycle aliases map details, history, cancellation, held events, and webhook rotation", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { ok: true } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "workflow", "show", "wf_1"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "runs", "wf_1", "--limit", "10"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "run-detail", "wf_1", "run_1"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "cancel", "wf_1", "run_1", "--expected-started-at", "2026-11-11T00:00:00Z"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "held-events", "wf_1", "--offset", "25"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "held-event", "wf_1", "held_1"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "discard-held", "wf_1", "--event-ids", "held_1,held_2"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "replay-held", "wf_1", "--event-ids", "held_1"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "webhook-rotate", "wf_1", "--expected-secret", "a".repeat(48), "--expected-updated-at", "2026-11-11T00:00:00Z"]), 0);
+  assert.deepEqual(calls, [
+    { name: "get_workflow", arguments: { workflowId: "wf_1" } },
+    { name: "list_workflow_runs", arguments: { workflowId: "wf_1", limit: 10 } },
+    { name: "get_workflow_run", arguments: { workflowId: "wf_1", runId: "run_1" } },
+    { name: "cancel_workflow_run", arguments: { workflowId: "wf_1", runId: "run_1", expectedStartedAt: "2026-11-11T00:00:00Z" } },
+    { name: "list_held_workflow_events", arguments: { workflowId: "wf_1", offset: 25 } },
+    { name: "get_held_workflow_event", arguments: { workflowId: "wf_1", eventId: "held_1" } },
+    { name: "discard_held_workflow_events", arguments: { workflowId: "wf_1", eventIds: ["held_1", "held_2"] } },
+    { name: "replay_held_workflow_events", arguments: { workflowId: "wf_1", eventIds: ["held_1"] } },
+    { name: "rotate_workflow_webhook", arguments: { workflowId: "wf_1", expectedSecret: "a".repeat(48), expectedUpdatedAt: "2026-11-11T00:00:00Z" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("workflow lifecycle aliases reject unsafe or stale inputs before making a request", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "workflow", "cancel", "wf_1", "run_1"]), 1);
+  assert.match(stderr.read(), /expected-started-at/); stderr.clear();
+  assert.equal(await run(["workspace", "workflow", "replay-held", "wf_1", "--event-ids", "held_1,held_1"]), 1);
+  assert.match(stderr.read(), /distinct event IDs/); stderr.clear();
+  assert.equal(await run(["workspace", "workflow", "webhook-revoke", "wf_1", "--expected-secret", "not-a-secret", "--expected-updated-at", "2026-11-11T00:00:00Z"]), 1);
+  assert.match(stderr.read(), /48-character webhook secret/);
+  assert.equal(requests, 0);
 });
 
 test("resource aliases reject malformed JSON and unsupported command flags before making a request", async () => {

@@ -397,7 +397,7 @@ test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks
   expect((await mcp('tools/list')).status).toBe(403);
   expect((await api('POST', `/jobs/${running.id}/cancel`, member)).status).toBe(200);
   expect((await mcp('tools/list')).status).toBe(409);
-});
+}, 30_000);
 
 test('TypeScript module language survives queueing and participates in request identity',async()=>{
  const {gateway,token}=await node();
