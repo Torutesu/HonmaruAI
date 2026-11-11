@@ -56,6 +56,28 @@ test('MCP Room discovery is public-only and join/leave change the token owner me
   expect((await call('discover_public_rooms', {})).rooms.map(room => room.channel)).not.toContain('b:private');
 });
 
+test('MCP Room rename, archive, restore and archive listing preserve membership boundaries', async () => {
+  await upsertBusiness(env.DB, orgId, { name: 'Roadmap', createdBy: 'mcp-b' });
+  await initializeRoomRoles(env.DB, orgId, 'b:roadmap', 'mcp-b');
+  await upsertBusiness(env.DB, orgId, { name: 'Simple Archive', createdBy: 'mcp-b' });
+  await env.DB.prepare("UPDATE businesses SET archived_at='2026-01-01T00:00:00.000Z' WHERE org_id=?1 AND slug='simple-archive'").bind(orgId).run();
+  await upsertBusiness(env.DB, orgId, { name: 'Private Vault', createdBy: 'mcp-b' });
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='private-vault'").bind(orgId).run();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:private-vault','beth','beth','joined')").bind(orgId).run();
+  await initializeRoomRoles(env.DB, orgId, 'b:private-vault', 'mcp-b');
+  expect((await call('list_archived_rooms', {})).rooms).toEqual([]);
+  await expect(call('archive_room', { conversationId: 'b:private-vault' })).rejects.toThrow('No such accessible managed Room.');
+  await expect(call('rename_room', { conversationId: 'b:roadmap', name: 'Plan' })).rejects.toThrow('Only a current Room member can rename it.');
+  await call('join_public_room', { conversationId: 'b:roadmap' });
+  expect(await call('rename_room', { conversationId: 'b:roadmap', name: 'Plan' })).toMatchObject({ name: 'Plan', version: 3 });
+  expect(await call('archive_room', { conversationId: 'b:roadmap' })).toMatchObject({ archived: true, version: 4 });
+  expect((await call('list_archived_rooms', { query: 'plan' })).rooms).toMatchObject([{ channel: 'b:roadmap', name: 'Plan' }]);
+  expect((await call('list_archived_rooms', {})).rooms.map(room => room.channel)).not.toContain('b:private-vault');
+  expect((await call('discover_public_rooms', {})).rooms.map(room => room.channel)).not.toContain('b:roadmap');
+  expect(await call('unarchive_room', { conversationId: 'b:roadmap' })).toMatchObject({ archived: false, version: 5 });
+  expect((await call('discover_public_rooms', { joined: true })).rooms.map(room => room.channel)).toContain('b:roadmap');
+});
+
 test('public grant cannot discover, search, or guess private and DM messages', async () => {
   await seed('b:general', 'needle public');
   const privateMessage = await seed('b:private', 'needle private');

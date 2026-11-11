@@ -15,10 +15,13 @@ Usage:
   honmaru workspace app action list [<app-id>]
   honmaru workspace app action run <app-id> <name> --version N --gateway-id NODE --request-id ID --input JSON
   honmaru workspace app action read <app-id> <job-id>
-  honmaru workspace room list [--query TEXT] [--type channel|dm|group] [--limit N] [--cursor CURSOR]
   honmaru workspace room discover [--query TEXT] [--limit N] [--offset N] [--joined]
   honmaru workspace room join <room-id>
   honmaru workspace room leave <room-id>
+  honmaru workspace room list [--query TEXT] [--type channel|dm|group] [--limit N] [--cursor CURSOR] [--archived]
+  honmaru workspace room rename <room-id> --name NAME
+  honmaru workspace room archive <room-id>
+  honmaru workspace room unarchive <room-id>
   honmaru workspace room create --name NAME --scope public|private --request-id ID [--members REF,REF]
   honmaru workspace room read <room-id> [--limit N] [--cursor CURSOR]
   honmaru workspace message search <query> [--limit N] [--cursor CURSOR]
@@ -94,7 +97,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived"]);
 
 function parseOptions(args, { allowArgs = false, allowWorkspaceFlags = false } = {}) {
   const options = { json: false };
@@ -180,7 +183,15 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
   const pair = `${resource || ""} ${operation || ""}`.trim();
   switch (pair) {
     case "room list": {
-      onlyFlags(options, ["query", "type", "cursor", "limit"]); positionalCount(positional, 0, "honmaru workspace room list [options]");
+      onlyFlags(options, ["query", "type", "cursor", "limit", "archived"]); positionalCount(positional, 0, "honmaru workspace room list [--archived] [options]");
+      if (options.archived) {
+        if (options.type !== undefined || options.cursor !== undefined) throw new Error("--type and --cursor cannot be combined with --archived.");
+        const args = {};
+        if (options.query !== undefined) args.query = options.query;
+        const limit = integerOption(options, "limit", { min: 1, max: 50 });
+        if (limit !== undefined) args.limit = limit;
+        return { tool: "list_archived_rooms", args };
+      }
       if (options.type !== undefined && !["channel", "dm", "group"].includes(options.type)) throw new Error("--type must be channel, dm, or group.");
       const args = {};
       for (const key of ["query", "type", "cursor"]) if (options[key] !== undefined) args[key] = options[key];
@@ -203,6 +214,15 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
     case "room leave":
       onlyFlags(options, []); positionalCount(positional, 1, `honmaru workspace room ${operation} <room-id>`);
       return { tool: operation === "join" ? "join_public_room" : "leave_public_room", args: { conversationId: positional[0] } };
+    case "room rename":
+      onlyFlags(options, ["name"]); positionalCount(positional, 1, "honmaru workspace room rename <room-id> --name NAME");
+      if (typeof options.name !== "string" || !options.name.trim()) throw new Error("--name is required.");
+      if (options.name.trim().length > 120) throw new Error("--name must be at most 120 characters.");
+      return { tool: "rename_room", args: { conversationId: positional[0], name: options.name.trim() } };
+    case "room archive":
+    case "room unarchive":
+      onlyFlags(options, []); positionalCount(positional, 1, `honmaru workspace room ${operation} <room-id>`);
+      return { tool: operation === "archive" ? "archive_room" : "unarchive_room", args: { conversationId: positional[0] } };
     case "room create": {
       onlyFlags(options, ["name", "scope", "requestId", "members"]); positionalCount(positional, 0, "honmaru workspace room create --name NAME --scope public|private --request-id ID [--members REF,REF]");
       if (!options.name?.trim()) throw new Error("--name is required.");
@@ -489,8 +509,13 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "restore_file_version") return `Restored file ${value.fileId} from version ${value.restoredFrom} as version ${value.version}.`;
   if (command?.tool === "join_public_room") return `${value.joined ? "Joined" : "Already in"} public Room ${value.conversationId}.`;
   if (command?.tool === "leave_public_room") return `Left public Room ${value.conversationId}.`;
+  if (command?.tool === "rename_room") return `Renamed Room ${value.conversationId} to ${value.name}.`;
+  if (command?.tool === "archive_room") return `Archived Room ${value.conversationId}.`;
+  if (command?.tool === "unarchive_room") return `Restored Room ${value.conversationId}.`;
   if (Array.isArray(value.conversations)) return value.conversations.length ? value.conversations.map((conversation) => `${conversation.id}\t${conversation.type}\t${conversation.name || "(unnamed)"}${conversation.private ? "\tprivate" : ""}`).join("\n") : "No conversations found.";
-  if (Array.isArray(value.rooms)) return value.rooms.length ? value.rooms.map((room) => `${room.channel}\t${room.name || "(unnamed)"}\t${room.joined ? "joined" : "not joined"}\t${room.memberCount} members`).join("\n") : `No public Rooms found (total ${value.total ?? 0}).`;
+  if (Array.isArray(value.rooms)) return value.rooms.length ? value.rooms.map((room) => room.archivedAt
+    ? `${room.channel}\t${room.name || "(unnamed)"}${room.private ? "\tprivate" : ""}\tarchived ${room.archivedAt}`
+    : `${room.channel}\t${room.name || "(unnamed)"}\t${room.joined ? "joined" : "not joined"}\t${room.memberCount} members`).join("\n") : `No Rooms found (total ${value.total ?? 0}).`;
   if (command?.tool === "create_conversation" && value.conversation) return `${value.created ? "Created" : "Reused"} ${value.conversation.type} ${value.conversation.id}${value.conversation.name ? ` (${value.conversation.name})` : ""}.`;
   if (command?.tool === "send_message" && value.message) return `Sent message ${value.message.id}${value.replayed ? " (idempotent retry)" : ""}.`;
   if (Array.isArray(value.members)) return value.members.length ? value.members.map((member) => `${member.name}${member.title ? `\t${member.title}` : ""}`).join("\n") : "No members found.";

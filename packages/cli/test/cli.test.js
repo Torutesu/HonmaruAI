@@ -356,6 +356,36 @@ test("Room discovery and membership aliases pass bounded filters and explicit me
   assert.equal(stderr.read(), "");
 });
 
+test("Room rename, archive, restore and archived listing aliases map to scoped tools", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    const structuredContent = req.params.name === "rename_room" ? { conversationId: "b:ops", name: "Operations", version: 2 }
+      : req.params.name === "archive_room" ? { conversationId: "b:ops", archived: true, version: 3 }
+        : req.params.name === "unarchive_room" ? { conversationId: "b:ops", archived: false, version: 4 }
+          : { rooms: [{ channel: "b:ops", name: "Operations", private: false, archivedAt: "2026-11-01T00:00:00.000Z" }], total: 1, limit: 10 };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "rename", "b:ops", "--name", "Operations"]), 0);
+  assert.equal(stdout.read(), "Renamed Room b:ops to Operations.\n"); stdout.clear();
+  assert.equal(await run(["workspace", "room", "archive", "b:ops"]), 0);
+  assert.equal(stdout.read(), "Archived Room b:ops.\n"); stdout.clear();
+  assert.equal(await run(["workspace", "room", "unarchive", "b:ops"]), 0);
+  assert.equal(stdout.read(), "Restored Room b:ops.\n"); stdout.clear();
+  assert.equal(await run(["workspace", "room", "list", "--archived", "--query", "ops", "--limit", "10"]), 0);
+  assert.equal(stdout.read(), "b:ops\tOperations\tarchived 2026-11-01T00:00:00.000Z\n");
+  assert.deepEqual(calls, [
+    { name: "rename_room", arguments: { conversationId: "b:ops", name: "Operations" } },
+    { name: "archive_room", arguments: { conversationId: "b:ops" } },
+    { name: "unarchive_room", arguments: { conversationId: "b:ops" } },
+    { name: "list_archived_rooms", arguments: { query: "ops", limit: 10 } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
 test("reaction aliases use idempotent add and remove tools without toggling semantics", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {

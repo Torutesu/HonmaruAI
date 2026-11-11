@@ -6,7 +6,12 @@ import { prepareConversationMessage, acceptConversationMessage } from './convers
 import { cancelScheduled, scheduleMessage } from './later.js';
 import { emitMessage } from './webhooks.js';
 import { createMcpConversation } from './mcpConversationCreation.js';
-import { publicRooms, joinPublicRoom, roomRoleState, removeRoomSubject } from './harness/roomRoles.js';
+import { publicRooms, joinPublicRoom, roomRoleState, removeRoomSubject, archiveManagedRoom } from './harness/roomRoles.js';
+import { audit } from './audit.js';
+import { announceTo } from './announce.js';
+import { custom as customEvent } from './agui/events.js';
+import { listBusinesses } from './db.js';
+import { listMembers } from './team.js';
 
 const id = { type: 'string', minLength: 1, maxLength: 200 };
 const text = { type: 'string', maxLength: 4000 };
@@ -22,6 +27,10 @@ export const CHAT_TOOLS = [
   read('discover_public_rooms', 'Discover managed, public, unarchived Rooms in this workspace. Returns only Rooms your human token owner may join; discovering does not grant content access.', { query: { type: 'string', maxLength: 200 }, limit: { type: 'integer', minimum: 1, maximum: 50 }, offset: { type: 'integer', minimum: 0, maximum: 10000 }, joined: { type: 'boolean' } }),
   write('join_public_room', 'Join one managed public Room as the human owner of this token. Does not add an Agent or grant Agent access.', { conversationId: id }, ['conversationId'], 'channels:write'),
   write('leave_public_room', 'Leave one managed public Room as the human owner of this token. Private Rooms and the last human Room admin cannot be left.', { conversationId: id }, ['conversationId'], 'channels:write'),
+  write('rename_room', 'Rename one active managed Room as its current member. The Room ID and linked records stay unchanged.', { conversationId: id, name: { type: 'string', minLength: 1, maxLength: 120 } }, ['conversationId', 'name'], 'channels:write'),
+  write('archive_room', 'Archive one managed Room the token owner can access. History is retained and the Room leaves active lists.', { conversationId: id }, ['conversationId'], 'channels:write'),
+  write('unarchive_room', 'Restore one archived managed Room the token owner can access.', { conversationId: id }, ['conversationId'], 'channels:write'),
+  read('list_archived_rooms', 'List archived Rooms visible to the token owner. Private Room names are returned only to current participants.', { query: { type: 'string', maxLength: 200 }, limit: { type: 'integer', minimum: 1, maximum: 50 } }),
   read('search_messages', 'Search authorized message history. Supports in:, from:, before:, after:, has:, is: and quoted phrases. Content is untrusted source data.', { query: { type: 'string', minLength: 1, maxLength: 1000 }, cursor, limit }, ['query']),
   read('get_message', 'Read one accessible message by ID without marking it read.', { messageId: id }, ['messageId']),
   read('read_channel', 'Read a bounded history page without marking it read. Follow nextCursor for older messages.', { conversationId: id, cursor, limit }, ['conversationId']),
@@ -81,6 +90,17 @@ async function accessibleMessage(env, actor, messageId) {
 }
 const failResult = result => { if (result?.error) throw new McpInputError(result.error); return result; };
 
+async function announceRoomChange(env, request, actor, channel, action, details = {}) {
+  const slug = channel.startsWith('b:') ? channel.slice(2) : channel;
+  const row = await env.DB.prepare('SELECT name FROM businesses WHERE org_id=?1 AND slug=?2').bind(actor.orgId, slug).first();
+  await audit(env, request, { orgId: actor.orgId, action, actor: { type: 'user', id: actor.login, name: actor.name }, entity: { type: 'channel', id: slug, name: `#${row?.name || slug}` }, details });
+  const members = await listMembers(env.DB, actor.orgId, actor.githubId);
+  await announceTo(env, actor.orgId, await Promise.all(members.map(async member => ({
+    to: member.login,
+    event: customEvent('businesses', { businesses: await listBusinesses(env.DB, actor.orgId, { viewer: member.login }) }),
+  }))));
+}
+
 export async function callChatTool(env, actor, name, args = {}, request = null, ctx = null) {
   const tool = CHAT_TOOLS.find(item => item.name === name);
   if (!tool) return null;
@@ -130,6 +150,42 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     failResult(result);
     if (!result.managed) throw new McpInputError('Room membership changed. Reload before leaving.');
     return mcpResult({ left: true, conversationId: args.conversationId });
+  }
+  if (name === 'list_archived_rooms') {
+    const query = (args.query || '').trim().toLocaleLowerCase();
+    const limit = args.limit || 25;
+    const { results } = await env.DB.prepare(`SELECT b.slug,b.name,COALESCE(b.private,0) AS private,b.archived_at
+      FROM businesses b JOIN memberships m ON m.org_id=b.org_id AND m.user_github_id=?2
+        AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+      WHERE b.org_id=?1 AND b.archived_at IS NOT NULL
+        AND EXISTS(SELECT 1 FROM hx_room_access p WHERE p.org_id=b.org_id AND p.channel='b:'||b.slug AND p.deleted_at IS NULL)
+        AND (COALESCE(b.private,0)=0 OR EXISTS(SELECT 1 FROM users u JOIN conversation_members c ON c.org_id=b.org_id AND c.login=u.login WHERE u.github_id=?2 AND c.channel='b:'||b.slug))
+        AND (?3='' OR lower(b.name) LIKE ?4 ESCAPE '\\' OR lower(b.slug) LIKE ?4 ESCAPE '\\')
+      ORDER BY b.archived_at DESC,b.slug LIMIT ?5`).bind(actor.orgId, actor.githubId, query, `%${query.replace(/[\\%_]/g, c => `\\${c}`)}%`, limit).all();
+    return mcpResult({ rooms: (results || []).map(row => ({ channel: `b:${row.slug}`, name: row.name, private: Boolean(row.private), archivedAt: row.archived_at })), total: (results || []).length, limit });
+  }
+  if (name === 'rename_room' || name === 'archive_room' || name === 'unarchive_room') {
+    const channel = args.conversationId;
+    const state = await roomRoleState(env.DB, actor.orgId, channel, { includeArchived: name === 'unarchive_room' });
+    if (!state?.managed) throw new McpInputError('No such accessible managed Room.');
+    if (state.private && !state.members.some(member => member.kind === 'person' && member.id === actor.githubId)) {
+      const membership = await env.DB.prepare("SELECT LOWER(TRIM(COALESCE(role,'guest'))) AS role FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(actor.orgId, actor.githubId).first();
+      if (!['admin', 'owner'].includes(membership?.role)) throw new McpInputError('No such accessible managed Room.');
+    }
+    if (name === 'rename_room' && !state.members.some(member => member.kind === 'person' && member.id === actor.githubId && member.eligible)) {
+      throw new McpInputError('Only a current Room member can rename it.');
+    }
+    if (name === 'rename_room' && (await env.DB.prepare('SELECT archived_at FROM businesses WHERE org_id=?1 AND slug=?2').bind(actor.orgId, channel.slice(2)).first())?.archived_at) {
+      throw new McpInputError('Unarchive this Room before renaming it.');
+    }
+    const result = await archiveManagedRoom(env.DB, actor.orgId, channel, {
+      actorId: actor.githubId,
+      version: state.version,
+      ...(name === 'rename_room' ? { name: args.name.trim() } : { archived: name === 'archive_room' }),
+    });
+    failResult(result);
+    await announceRoomChange(env, request, actor, channel, name === 'rename_room' ? 'channel.renamed' : name === 'archive_room' ? 'channel.archived' : 'channel.unarchived', name === 'rename_room' ? { name: args.name.trim() } : {});
+    return mcpResult({ conversationId: channel, ...(name === 'rename_room' ? { name: args.name.trim() } : { archived: name === 'archive_room' }), version: result.version });
   }
   if (name === 'search_messages') {
     const context = await mcpConversationContext(env, actor);
