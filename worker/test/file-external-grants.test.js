@@ -125,6 +125,47 @@ test('unregistered email invite is redeemed only by its verified address and rev
  expect((await response.json()).revoked).toBe(true);
  expect((await call(fileRead,f.recipientToken)).status).toBe(404);
 });
+test('an unredeemed File invite can change its access without changing its one-time link lifetime',async()=>{
+ const invitePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grant-invites?orgId='+encodeURIComponent(f.orgId);
+ const created=await call(invitePath,f.ownerToken,'POST',{email:f.recipientId+'@example.test',permission:'view',expiresInDays:7,inviteExpiresInDays:7});
+ expect(created.status).toBe(201);const invite=(await created.json()).invite;
+ const itemPath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grant-invites/'+encodeURIComponent(invite.id)+'?orgId='+encodeURIComponent(f.orgId);
+ const original=await env.DB.prepare('SELECT token_hash,expires_at FROM hx_external_file_invites_v2 WHERE org_id=?1 AND file_id=?2 AND id=?3').bind(f.orgId,f.fileId,invite.id).first();
+ const accessExpiresAt=new Date(Date.now()+30*86400000).toISOString();
+ const updated=await call(itemPath,f.adminToken,'PATCH',{permission:'edit',accessExpiresAt});
+ expect(updated.status).toBe(200);expect(await updated.json()).toMatchObject({updated:true,inviteId:invite.id,permission:'edit',accessExpiresAt});
+ const stored=await env.DB.prepare('SELECT permission,access_expires_at,token_hash,expires_at,redeemed_at FROM hx_external_file_invites_v2 WHERE org_id=?1 AND file_id=?2 AND id=?3').bind(f.orgId,f.fileId,invite.id).first();
+ expect(stored).toMatchObject({permission:'edit',access_expires_at:accessExpiresAt,token_hash:original.token_hash,expires_at:original.expires_at,redeemed_at:null});
+ const auditCount=async()=>Number((await env.DB.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id=?1 AND action='workspace.file_external_invite_updated'").bind(f.orgId).first()).count);
+ expect(await auditCount()).toBe(1);
+ expect((await call(itemPath,f.memberToken,'PATCH',{permission:'view',accessExpiresAt:null})).status).toBe(403);
+ expect((await call(itemPath,f.ownerToken,'PATCH',{permission:'view'})).status).toBe(400);
+ expect(await auditCount()).toBe(1);
+ await env.DB.prepare('UPDATE users SET email_verified_at=NULL WHERE github_id=?1').bind(f.recipientId).run();
+ await upsertMembership(env.DB,f.orgId,f.recipientId,'member');
+ expect((await call(itemPath,f.adminToken,'PATCH',{permission:'view',accessExpiresAt:null})).status).toBe(404);
+ await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(f.orgId,f.recipientId).run();
+ await env.DB.prepare('UPDATE users SET email_verified_at=?1 WHERE github_id=?2').bind(new Date().toISOString(),f.recipientId).run();
+ const redeemed=await call('/external/invites/redeem',f.recipientToken,'POST',{token:invite.token});
+ expect(redeemed.status).toBe(200);
+ expect((await call(itemPath,f.adminToken,'PATCH',{permission:'view',accessExpiresAt:null})).status).toBe(404);
+ expect(await auditCount()).toBe(1);
+});
+test('File invite access edits reject revoked, expired-token and Simple-mode invitations',async()=>{
+ const invitePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grant-invites?orgId='+encodeURIComponent(f.orgId);
+ const create=async()=>{const response=await call(invitePath,f.ownerToken,'POST',{email:'outside@example.test',permission:'view',expiresInDays:7,inviteExpiresInDays:7});expect(response.status).toBe(201);return response.json().then(data=>data.invite)};
+ const updatePath=(id)=>'/hx/files/'+encodeURIComponent(f.fileId)+'/external-grant-invites/'+encodeURIComponent(id)+'?orgId='+encodeURIComponent(f.orgId);
+ let invite=await create();
+ expect((await call(updatePath(invite.id),f.ownerToken,'DELETE',{})).status).toBe(200);
+ expect((await call(updatePath(invite.id),f.ownerToken,'PATCH',{permission:'edit',accessExpiresAt:null})).status).toBe(404);
+ invite=await create();
+ await env.DB.prepare('UPDATE hx_external_file_invites_v2 SET created_at=?1,expires_at=?2 WHERE id=?3')
+  .bind(new Date(Date.now()-2*86400000).toISOString(),new Date(Date.now()-86400000).toISOString(),invite.id).run();
+ expect((await call(updatePath(invite.id),f.ownerToken,'PATCH',{permission:'edit',accessExpiresAt:null})).status).toBe(404);
+ invite=await create();
+ await setMode(env.DB,f.orgId,'simple',f.ownerId);
+ expect((await call(updatePath(invite.id),f.ownerToken,'PATCH',{permission:'edit',accessExpiresAt:null})).status).toBe(404);
+});
 test('file invite redemption rejects an account with a different verified email',async()=>{
  const invitePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grant-invites?orgId='+encodeURIComponent(f.orgId);
  const response=await call(invitePath,f.ownerToken,'POST',{email:'different@example.test',permission:'view',expiresInDays:7,inviteExpiresInDays:7});

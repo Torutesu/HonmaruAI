@@ -62,6 +62,7 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   externalAudience:(id:string,signal?:AbortSignal)=>json<FileAudienceState>(`${path(id)}/external-audience`,'GET',undefined,undefined,signal),
   updateExternalAudience:(id:string,input:FileAudienceInput)=>json<FileAudienceState>(`${path(id)}/external-audience`,'PUT',input),
   inviteExternal:(id:string,email:string,permission:ExternalFilePermission,expiresInDays:number,inviteExpiresInDays:number)=>json<{invite:ExternalFileInvite&{token:string;inviteUrl:string}}>(`${path(id)}/external-grant-invites`,'POST',{email,permission,expiresInDays,inviteExpiresInDays}),
+  updateExternalInvite:(id:string,inviteId:string,permission:ExternalFilePermission,accessExpiresAt:string|null)=>json<{updated:boolean;inviteId:string;permission:ExternalFilePermission;accessExpiresAt:string|null}>(`${path(id)}/external-grant-invites/${encodeURIComponent(inviteId)}`,'PATCH',{permission,accessExpiresAt}),
   revokeExternalInvite:(id:string,inviteId:string)=>json<{revoked:boolean;inviteId:string}>(`${path(id)}/external-grant-invites/${encodeURIComponent(inviteId)}`,'DELETE',{}),
   externalGrants:(id:string,signal?:AbortSignal)=>json<{canManage:boolean;grants:ExternalFileGrant[]}>(`${path(id)}/external-grants`,'GET',undefined,undefined,signal),
   grantExternal:(id:string,recipient:string|{githubId:string},permission:ExternalFilePermission,expiresInDays:number)=>json<{grant:ExternalFileGrant;redemptionPath:string}>(`${path(id)}/external-grants`,'POST',{...(typeof recipient==='string'?{email:recipient}:{recipientGithubId:recipient.githubId}),permission,expiresInDays}),
@@ -80,5 +81,5 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
  }
 }
 type WorkspaceFileApiBase=ReturnType<typeof workspaceFileApi>
-type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'declinePublicShare'|'revokePublicShare'|'externalGrants'|'grantExternal'|'updateExternalGrant'|'revokeExternal'|'externalLink'|'externalInvites'|'inviteExternal'|'revokeExternalInvite'|'filePublicUrl'|'createFilePublicUrl'|'revokeFilePublicUrls'|'externalAudience'|'updateExternalAudience'
+type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'declinePublicShare'|'revokePublicShare'|'externalGrants'|'grantExternal'|'updateExternalGrant'|'revokeExternal'|'externalLink'|'externalInvites'|'inviteExternal'|'updateExternalInvite'|'revokeExternalInvite'|'filePublicUrl'|'createFilePublicUrl'|'revokeFilePublicUrls'|'externalAudience'|'updateExternalAudience'
 export type WorkspaceFileApi = Omit<WorkspaceFileApiBase,ShareApiMethods> & Partial<Pick<WorkspaceFileApiBase,ShareApiMethods>>

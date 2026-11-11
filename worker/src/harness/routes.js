@@ -224,7 +224,11 @@ export async function handleHarness(request, env, url, context = {}) {
         await audit(env,request,{orgId,action:'workspace.file_external_grant_revoked',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:url.pathname.split('/').at(-1)}});
       }else if(request.method==='PATCH'&&externalGrantRoute.ok){
         const result=await externalGrantRoute.clone().json();
-        await audit(env,request,{orgId,action:'workspace.file_external_grant_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:result.recipientGithubId,permission:result.permission,expiresAt:result.expiresAt}});
+        if(url.pathname.includes('/external-grant-invites/')){
+          await audit(env,request,{orgId,action:'workspace.file_external_invite_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{inviteId:result.inviteId,permission:result.permission,accessExpiresAt:result.accessExpiresAt}});
+        }else{
+          await audit(env,request,{orgId,action:'workspace.file_external_grant_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:result.recipientGithubId,permission:result.permission,expiresAt:result.expiresAt}});
+        }
       }
       return externalGrantRoute;
     }
