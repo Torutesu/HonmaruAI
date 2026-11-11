@@ -299,6 +299,9 @@ test("room, message and thread aliases use scoped MCP tools with explicit paging
   assert.equal(stdout.read(), "Sent message msg_1.\n"); stdout.clear();
   assert.equal(await run(["workspace", "thread", "get", "b:ops", "root_1", "--limit", "25"]), 0); stdout.clear();
   assert.equal(await run(["workspace", "thread", "msg", "b:ops", "root_1", "--text", "Follow-up", "--request-id", "thread-reply-01"]), 0);
+  assert.equal(await run(["workspace", "thread", "rename", "b:ops", "root_1", "--title", "Roadmap", "--version", "2"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "thread", "mute", "b:ops", "root_1"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "thread", "pin", "b:ops", "root_1"]), 0);
   assert.deepEqual(calls, [
     { name: "list_conversations", arguments: { query: "ops", type: "channel", limit: 20 } },
     { name: "create_conversation", arguments: { type: "channel", name: "Launch", private: true, memberRefs: ["user_a", "user_b"], requestId: "create-launch-01" } },
@@ -308,6 +311,9 @@ test("room, message and thread aliases use scoped MCP tools with explicit paging
     { name: "send_message", arguments: { conversationId: "b:ops", body: "Deploy complete", requestId: "send-deploy-01", replyToMessageId: "msg_0", fileIds: ["file_1", "file_2"] } },
     { name: "read_thread", arguments: { conversationId: "b:ops", threadId: "root_1", limit: 25 } },
     { name: "send_message", arguments: { conversationId: "b:ops", threadId: "root_1", body: "Follow-up", requestId: "thread-reply-01" } },
+    { name: "rename_thread", arguments: { conversationId: "b:ops", threadId: "root_1", title: "Roadmap", version: 2 } },
+    { name: "set_thread_muted", arguments: { conversationId: "b:ops", threadId: "root_1", muted: true } },
+    { name: "set_thread_pin", arguments: { conversationId: "b:ops", threadId: "root_1", pinned: true } },
   ]);
   assert.equal(stderr.read(), "");
 });

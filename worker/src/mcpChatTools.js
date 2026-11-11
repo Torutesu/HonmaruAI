@@ -12,6 +12,9 @@ import { announceTo } from './announce.js';
 import { custom as customEvent } from './agui/events.js';
 import { listBusinesses } from './db.js';
 import { listMembers } from './team.js';
+import { threadNotificationPreference } from './threadNotifications.js';
+import { setThreadPin } from './threadPins.js';
+import { isGuest } from './access.js';
 
 const id = { type: 'string', minLength: 1, maxLength: 200 };
 const text = { type: 'string', maxLength: 4000 };
@@ -35,6 +38,9 @@ export const CHAT_TOOLS = [
   read('get_message', 'Read one accessible message by ID without marking it read.', { messageId: id }, ['messageId']),
   read('read_channel', 'Read a bounded history page without marking it read. Follow nextCursor for older messages.', { conversationId: id, cursor, limit }, ['conversationId']),
   read('read_thread', 'Read the parent and a bounded page of thread replies without marking them read. Follow nextCursor for older replies.', { conversationId: id, threadId: id, cursor, limit }, ['conversationId', 'threadId']),
+  write('rename_thread', 'Rename an accessible thread using its current title version. Supply version 0 when it has no custom title.', { conversationId: id, threadId: id, title: { type: 'string', minLength: 1, maxLength: 160 }, version: { type: 'integer', minimum: 0 } }, ['conversationId', 'threadId', 'title', 'version'], 'chat:write'),
+  write('set_thread_muted', 'Set your personal notification preference for an accessible thread.', { conversationId: id, threadId: id, muted: { type: 'boolean' } }, ['conversationId', 'threadId', 'muted'], 'chat:write'),
+  write('set_thread_pin', 'Save or remove an accessible thread in your personal pinned threads. Up to 50 threads can be saved.', { conversationId: id, threadId: id, pinned: { type: 'boolean' } }, ['conversationId', 'threadId', 'pinned'], 'chat:write'),
   write('send_message', 'Send as the authorizing user, optionally in a thread or replying to a message. Reuse requestId and identical arguments on retries. Does not invoke AI agents or mark the conversation read.', sendFields, ['conversationId', 'body', 'requestId'], 'chat:write'),
   write('schedule_message', 'Schedule an exact message as you. The originating connection must remain authorized when it is sent. Reuse requestId with identical arguments on retries.', { conversationId: id, body: text, threadId: id, sendAt: { type: 'string', maxLength: 40 }, requestId }, ['conversationId', 'body', 'sendAt', 'requestId'], 'chat:schedule'),
   read('list_scheduled_messages', 'List your scheduled messages in an accessible conversation.', { conversationId: id, cursor, limit }, ['conversationId'], 'chat:schedule'),
@@ -235,6 +241,37 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     if (!thread) throw new McpInputError('No accessible thread.');
     const rawCursor = thread.nextCursor ? JSON.parse(atob(thread.nextCursor.replace(/-/g, '+').replace(/_/g, '/'))) : null;
     return mcpResult({ parent: decorate(env, actor, [thread.parent], request)[0], replies: decorate(env, actor, thread.replies, request), nextCursor: rawCursor ? encode({ kind: name, conversationId: args.conversationId, threadId: args.threadId, position: rawCursor }) : null });
+  }
+  if (name === 'rename_thread' || name === 'set_thread_muted' || name === 'set_thread_pin') {
+    const root = await getMessage(env.DB, actor.orgId, args.threadId);
+    if (!root || root.deleted_at || root.parent_id || root.channel !== context.resolved.key) throw new McpInputError('No accessible thread.');
+    if (name === 'rename_thread') {
+      if (await isGuest(env.DB, actor.orgId, actor.githubId)) throw new McpInputError('A guest cannot rename threads.');
+      if (!args.title.trim() || /[\u0000-\u001f\u007f]/.test(args.title)) throw new McpInputError('A title of 1–160 characters is required.');
+      const title = args.title.trim(), at = new Date().toISOString();
+      const result = args.version === 0
+        ? await env.DB.prepare(`INSERT OR IGNORE INTO channel_thread_details (org_id,message_id,title,version,updated_by,updated_at)
+            SELECT ?1,?2,?3,1,?4,?5 FROM channel_messages WHERE org_id=?1 AND id=?2 AND channel=?6 AND parent_id IS NULL AND deleted_at IS NULL`)
+          .bind(actor.orgId, root.id, title, actor.login, at, context.resolved.key).run()
+        : await env.DB.prepare(`UPDATE channel_thread_details SET title=?3,version=version+1,updated_by=?4,updated_at=?5
+            WHERE org_id=?1 AND message_id=?2 AND version=?7 AND EXISTS(SELECT 1 FROM channel_messages WHERE org_id=?1 AND id=?2 AND channel=?6 AND parent_id IS NULL AND deleted_at IS NULL)`)
+          .bind(actor.orgId, root.id, title, actor.login, at, context.resolved.key, args.version).run();
+      if (!result.meta?.changes) throw new McpInputError('The thread changed. Reload before saving.');
+      const saved = await getMessage(env.DB, actor.orgId, root.id);
+      const { broadcastStored } = await import('./channelRoutes.js');
+      if (ctx?.waitUntil) ctx.waitUntil(broadcastStored(env, actor.orgId, context.resolved.key, saved, { liveOnly: true }));
+      else await broadcastStored(env, actor.orgId, context.resolved.key, saved, { liveOnly: true });
+      await audit(env, request, { orgId: actor.orgId, action: 'thread.renamed', actor: { type: 'user', id: actor.login, name: actor.name }, entity: { type: 'thread', id: root.id }, details: { title } });
+      return mcpResult({ conversationId: args.conversationId, threadId: root.id, title, version: args.version + 1 });
+    }
+    if (name === 'set_thread_muted') {
+      const result = await threadNotificationPreference(env.DB, actor.orgId, context.resolved.key, actor.login, root.id, args.muted);
+      failResult(result);
+      return mcpResult({ conversationId: args.conversationId, threadId: root.id, muted: result.muted });
+    }
+    const result = await setThreadPin(env.DB, actor.orgId, { github_id: actor.githubId, login: actor.login }, root.id, args.pinned);
+    failResult(result);
+    return mcpResult({ conversationId: args.conversationId, threadId: root.id, pinned: args.pinned });
   }
   if (name === 'list_scheduled_messages') {
     const page = decode(args.cursor, name); const offset = page?.offset || 0;
