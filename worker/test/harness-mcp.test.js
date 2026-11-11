@@ -35,6 +35,47 @@ test("a simple workspace's agents see the tools they always did", async () => {
   expect((await tool(token, "list_apps")).error.message).toContain("Unknown tool");
 });
 
+test('MCP CLI reserves, uploads, replays and downloads binary workspace-file versions under live ACL', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at,private) VALUES(?1,'binary-private','Binary private','9401','2026-11-11',1)").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:binary-private','toru','9401','2026-11-11')").bind(ORG).run();
+  const writer = await mint(['read', 'write']);
+  const bytes = new Uint8Array([0, 255, 13, 10, 42, 128]);
+  const sha256 = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(value => value.toString(16).padStart(2, '0')).join('');
+  const requestId = 'file-123e4567-e89b-12d3-a456-426614174000';
+  const args = { scope: 'b:binary-private', path: 'assets/opaque.bin', requestId, contentType: 'application/octet-stream', size: bytes.byteLength, sha256 };
+  const reserved = (await tool(writer, 'create_file_upload', args)).result.structuredContent;
+  expect(reserved).toMatchObject({ fileId: requestId, method: 'PUT', size: bytes.byteLength });
+  const uploaded = await call(reserved.uploadUrl, { method: 'PUT', headers: { authorization: `Bearer ${writer}`, 'content-type': args.contentType, 'content-length': String(bytes.byteLength) }, body: bytes });
+  expect(uploaded.status).toBe(200);
+  expect(await uploaded.json()).toMatchObject({ fileId: requestId, version: 1, saved: true });
+
+  const replayedReservation = (await tool(writer, 'create_file_upload', args)).result.structuredContent;
+  expect(replayedReservation).toMatchObject({ fileId: requestId, version: 1, saved: true, replayed: true });
+  const metadata = (await tool(writer, 'get_workspace_file', { fileId: requestId })).result.structuredContent.file;
+  expect(metadata).toMatchObject({ id: requestId, path: 'assets/opaque.bin', version: 1, size: bytes.byteLength });
+
+  const downloaded = await call(`/mcp/workspace-files/${encodeURIComponent(requestId)}/versions/1/content`, { headers: { authorization: `Bearer ${writer}` } });
+  expect(downloaded.status).toBe(200);
+  expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(bytes);
+  const changed = await call(reserved.uploadUrl, { method: 'PUT', headers: { authorization: `Bearer ${writer}`, 'content-type': args.contentType, 'content-length': String(bytes.byteLength) }, body: new Uint8Array([1, 2, 3, 4, 5, 6]) });
+  expect(changed.status).toBe(400);
+
+  const reader = await mint(['read']);
+  const deniedUpload = await call(reserved.uploadUrl, { method: 'PUT', headers: { authorization: `Bearer ${reader}`, 'content-type': args.contentType, 'content-length': String(bytes.byteLength) }, body: bytes });
+  expect(deniedUpload.status).toBe(403);
+  const { upsertUser, upsertMembership, createSession } = await import('../src/db.js');
+  await upsertUser(env.DB, { githubId: '9402', login: 'mika', name: 'Mika', avatarUrl: null, locale: 'en' });
+  await upsertMembership(env.DB, ORG, '9402', 'member');
+  const mikaSession = await createSession(env.DB, '9402', 'gho_mika');
+  const secondMember = (await (await call('/tokens', { method: 'POST', headers: headers(mikaSession), body: JSON.stringify({ orgId: ORG, name: 'Mika', scopes: ['read'] }) })).json()).token;
+  const hiddenDownload = await call(`/mcp/workspace-files/${encodeURIComponent(requestId)}/versions/1/content`, { headers: { authorization: `Bearer ${secondMember}` } });
+  expect(hiddenDownload.status).toBe(404);
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
+  const simpleModeDownload = await call(`/mcp/workspace-files/${encodeURIComponent(requestId)}/versions/1/content`, { headers: { authorization: `Bearer ${writer}` } });
+  expect(simpleModeDownload.status).toBe(403);
+});
+
 test("in a harness workspace an agent reads an app's numbers, adds a row, and needs write to change anything", async () => {
   await call("/orgs/mode", { method: "PUT", headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
   const { app } = await (await call("/apps", { method: "POST", headers: headers(toru), body: JSON.stringify({ orgId: ORG, template: "crm" }) })).json();

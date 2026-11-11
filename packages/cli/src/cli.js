@@ -1,6 +1,8 @@
-import { createMcpClient } from "./client.js";
+import { createMcpClient, mcpEndpoint } from "./client.js";
 import { formatGatewayStatus, getGatewayStatus, runGatewayForeground } from "./gateway.js";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
+import { createHash } from "node:crypto";
 import { generateTableSdk } from "./sdk.js";
 
 const HELP = `Honmaru workspace CLI
@@ -36,6 +38,8 @@ Usage:
   honmaru workspace file list --scope ROOM|all [--query TEXT] [--limit N]
   honmaru workspace folders list --scope ROOM [--directory PATH] [--origin human|agent|unknown] [--limit N]
   honmaru workspace file read <file-id> --version N
+  honmaru workspace file upload --scope ROOM --path REMOTE_PATH --source LOCAL_PATH --request-id file-UUID [--content-type MIME]
+  honmaru workspace file download <file-id> [--version N] [--output PATH | --dir DIRECTORY] [--force]
   honmaru workspace file versions <file-id> [--before N] [--limit N]
   honmaru workspace file create --scope ROOM --path PATH --request-id file-UUID --text TEXT --content-type MIME
   honmaru workspace file update <file-id> --expected-version N --text TEXT
@@ -83,10 +87,10 @@ const ALIAS_VALUE_FLAGS = new Set([
   "text", "room", "instruction", "minutes", "scope", "origin", "type", "created-by",
   "direction", "title", "name", "members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before",
-  "gateway-id", "request-id", "code", "input", "app-id", "out",
-  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji",
+  "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir",
+  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force"]);
 
 function parseOptions(args, { allowArgs = false, allowWorkspaceFlags = false } = {}) {
   const options = { json: false };
@@ -572,6 +576,14 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
     }
     if (!aliasMode) throw new Error(`Unknown workspace command: ${action || "(missing)"}. Run honmaru --help.`);
     const [resource, operation, ...commandArgs] = [action, positional[0], ...positional.slice(1)];
+    if (resource === "file" && operation === "upload") {
+      await uploadWorkspaceFile({ options, positional: commandArgs, client, apiUrl, token, fetcher, writeOut });
+      return 0;
+    }
+    if (resource === "file" && operation === "download") {
+      await downloadWorkspaceFile({ options, positional: commandArgs, client, apiUrl, token, fetcher, writeOut });
+      return 0;
+    }
     const command = resolveWorkspaceCommand(resource, operation, commandArgs, options);
     const result = await client.callTool(command.tool, command.args);
     writeOut(formatWorkspaceResult(result, options.json, command));
@@ -580,4 +592,74 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
     writeError(error instanceof Error ? error.message : "The command failed.");
     return 1;
   }
+}
+
+const MIME_BY_EXTENSION = {
+  ".avif":"image/avif", ".csv":"text/csv", ".gif":"image/gif", ".html":"text/html", ".jpeg":"image/jpeg",
+  ".jpg":"image/jpeg", ".json":"application/json", ".md":"text/markdown", ".pdf":"application/pdf", ".png":"image/png",
+  ".svg":"image/svg+xml", ".txt":"text/plain", ".webp":"image/webp", ".xml":"application/xml", ".yaml":"application/yaml", ".yml":"application/yaml",
+};
+
+async function uploadWorkspaceFile({ options, positional, client, apiUrl, token, fetcher, writeOut }) {
+  onlyFlags(options, ["scope", "path", "source", "requestId", "contentType"]);
+  positionalCount(positional, 0, "honmaru workspace file upload --scope ROOM --path REMOTE_PATH --source LOCAL_PATH --request-id file-UUID [--content-type MIME]");
+  for (const key of ["scope", "path", "source", "requestId"]) if (!options[key]?.trim()) throw new Error(`--${key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)} is required.`);
+  if (!/^file-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(options.requestId)) throw new Error("--request-id must be file- followed by a UUID; reuse it only for the identical upload.");
+  const bytes = await readFile(options.source);
+  if (bytes.byteLength > 25 * 1024 * 1024) throw new Error("Workspace file uploads are limited to 25 MiB.");
+  const contentType = (options.contentType || MIME_BY_EXTENSION[(options.source.match(/\.[^.\\/]+$/)?.[0] || "").toLowerCase()] || "application/octet-stream").toLowerCase();
+  if (!/^[\w.+-]+\/[\w.+-]+$/.test(contentType) || contentType.length > 200) throw new Error("--content-type must be a valid MIME type.");
+  const reservation = await client.callTool("create_file_upload", {
+    scope: options.scope, path: options.path, requestId: options.requestId, contentType,
+    size: bytes.byteLength, sha256: createHash("sha256").update(bytes).digest("hex"),
+  });
+  const transfer = reservation?.structuredContent;
+  if (transfer?.saved) {
+    writeOut(JSON.stringify({ fileId: transfer.fileId, version: transfer.version, saved: true, replayed: true }));
+    return;
+  }
+  if (typeof transfer?.uploadUrl !== "string" || typeof transfer.uploadId !== "string") throw new Error("Honmaru returned an invalid file upload reservation.");
+  const endpoint = new URL(transfer.uploadUrl, mcpEndpoint(apiUrl));
+  if (endpoint.origin !== mcpEndpoint(apiUrl).origin || endpoint.pathname !== `/mcp/workspace-uploads/${transfer.uploadId}`) throw new Error("Honmaru returned an unsafe upload URL.");
+  const response = await fetcher(endpoint, {
+    method: "PUT", redirect: "error",
+    headers: { authorization: `Bearer ${token}`, "content-type": contentType, "content-length": String(bytes.byteLength) },
+    body: bytes,
+  });
+  if (!response.ok) {
+    let message = `Honmaru file upload returned HTTP ${response.status}.`;
+    try { message = (await response.json()).message || message; } catch { /* Keep the status-based message. */ }
+    throw new Error(message);
+  }
+  const saved = await response.json();
+  if (saved?.fileId !== transfer.fileId || saved?.saved !== true) throw new Error("Honmaru returned an invalid file upload result.");
+  writeOut(JSON.stringify(saved));
+}
+
+async function downloadWorkspaceFile({ options, positional, client, apiUrl, token, fetcher, writeOut }) {
+  onlyFlags(options, ["version", "output", "dir", "force"]);
+  positionalCount(positional, 1, "honmaru workspace file download <file-id> [--version N] [--output PATH | --dir DIRECTORY] [--force]");
+  if (options.output && options.dir) throw new Error("Use either --output or --dir, not both.");
+  const fileId = positional[0];
+  const metadataResult = await client.callTool("get_workspace_file", { fileId });
+  const file = metadataResult?.structuredContent?.file;
+  if (!file || file.id !== fileId || typeof file.path !== "string") throw new Error("No accessible workspace file matches that ID.");
+  const history = await client.callTool("list_file_versions", { fileId, limit: 100 });
+  const versions = history?.structuredContent?.versions;
+  if (!Array.isArray(versions)) throw new Error("Honmaru returned invalid file history.");
+  const requestedVersion = options.version === undefined ? file.version : integerOption(options, "version", { min: 1, required: true });
+  const version = versions.find(item => item.version === requestedVersion);
+  if (!version || version.kind !== "content" || version.purged) throw new Error("The requested file version is unavailable or purged.");
+  const endpoint = new URL(`/mcp/workspace-files/${encodeURIComponent(fileId)}/versions/${requestedVersion}/content`, mcpEndpoint(apiUrl));
+  const response = await fetcher(endpoint, { method: "GET", redirect: "error", headers: { authorization: `Bearer ${token}` } });
+  if (!response.ok) {
+    let message = `Honmaru file download returned HTTP ${response.status}.`;
+    try { message = (await response.json()).message || message; } catch { /* Keep the status-based message. */ }
+    throw new Error(message);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength !== version.size) throw new Error("The downloaded file size does not match its version metadata.");
+  const output = options.output || join(options.dir || ".", basename(file.path));
+  await writeFile(output, bytes, { flag: options.force ? "w" : "wx" });
+  writeOut(JSON.stringify({ fileId, version: requestedVersion, output, size: bytes.byteLength }));
 }

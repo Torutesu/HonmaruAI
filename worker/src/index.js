@@ -70,6 +70,7 @@ import { requestContext } from "./requestContext.js";
 import { settleCors } from "./cors.js";
 import { handleMcp, authenticateMcpRequest } from "./mcp.js";
 import { handleMcpContentUpload } from "./mcpContentTools.js";
+import { handleMcpWorkspaceFileTransfer } from "./mcpWorkspaceFileTransfers.js";
 import { handleMcpOAuth, sweepMcpOAuth } from "./mcpOAuth.js";
 import { handlePerf, sweepPerfSamples } from "./perfSamples.js";
 import { handleGovernance, pruneMessages, expireExports } from "./governance.js";
@@ -414,7 +415,7 @@ async function handle(request, env, url, ctx) {
     }
     // Browsers send a preflight OPTIONS before a cross-origin POST with custom
     // headers. Answer it with the CORS headers and no body.
-    if ((url.pathname === "/mcp" || /^\/mcp\/(?:oauth\/(?:token|revoke)$|uploads\/|files\/)/.test(url.pathname)) && request.method === "OPTIONS") return handleMcp(request, env, ctx);
+    if ((url.pathname === "/mcp" || /^\/mcp\/(?:oauth\/(?:token|revoke)$|uploads\/|files\/|workspace-uploads\/|workspace-files\/)/.test(url.pathname)) && request.method === "OPTIONS") return handleMcp(request, env, ctx);
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
@@ -426,10 +427,12 @@ async function handle(request, env, url, ctx) {
       });
     }
 
-    if (/^\/mcp\/(uploads|files)\//.test(url.pathname)) {
+    if (/^\/mcp\/(uploads|files|workspace-uploads|workspace-files)\//.test(url.pathname)) {
       const authentication = await authenticateMcpRequest(request, env);
       if (authentication.response) return authentication.response;
-      const response = await handleMcpContentUpload(request, env, url, authentication.actor);
+      const response = /^\/mcp\/(workspace-uploads|workspace-files)\//.test(url.pathname)
+        ? await handleMcpWorkspaceFileTransfer(request,env,url,authentication.actor)
+        : await handleMcpContentUpload(request, env, url, authentication.actor);
       if (!response) return new Response(null, { status: 404 });
       const headers = new Headers(response.headers);
       headers.set("access-control-allow-origin", "*");

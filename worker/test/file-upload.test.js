@@ -352,7 +352,7 @@ test('recovery of an interrupted deletion request leaves an existing account int
 });
 
 test('file maintenance is bounded and tolerates an unreleased partial schema',async()=>{
- expect(await maintainWorkspaceFiles(env)).toEqual({enabled:true,uploads:{examined:0,cleaned:0,committed:0,failed:0},accounts:{examined:0,completed:0},retention:{current:{examined:0,expired:0},history:{examined:0,purged:0}},reservations:{removed:0}});
+ expect(await maintainWorkspaceFiles(env)).toEqual({enabled:true,uploads:{examined:0,cleaned:0,committed:0,failed:0},accounts:{examined:0,completed:0},retention:{current:{examined:0,expired:0},history:{examined:0,purged:0}},reservations:{removed:0},mcpTransfers:{deleted:0}});
  await env.DB.prepare('DROP TABLE hx_file_account_erasures').run();
  expect(await maintainWorkspaceFiles(env)).toEqual({enabled:false});
 });

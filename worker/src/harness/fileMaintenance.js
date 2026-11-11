@@ -2,6 +2,7 @@ import {pruneEmptyFileReservations} from './fileReservations.js';
 import {recoverFileUploads} from './fileUploadRecovery.js';
 import {recoverFileAccountErasures} from './fileAccount.js';
 import {maintainFileRetention} from './fileRetention.js';
+import {pruneMcpWorkspaceFileUploads} from '../mcpWorkspaceFileTransfers.js';
 
 export async function maintainWorkspaceFiles(env,{now=Date.now()}={}) {
  // Rollout compatibility: no file tables means no file maintenance. A partial
@@ -13,8 +14,9 @@ export async function maintainWorkspaceFiles(env,{now=Date.now()}={}) {
   recoverFileAccountErasures(env.DB,{now}),
   maintainFileRetention(env.DB,{now}),
   pruneEmptyFileReservations(env.DB,{now}),
+  pruneMcpWorkspaceFileUploads(env.DB,{now}),
  ]);
  const errors=outcomes.filter(outcome=>outcome.status==='rejected');
  if(errors.length)throw new AggregateError(errors.map(outcome=>outcome.reason),'File maintenance failed');
- return {enabled:true,uploads:outcomes[0].value,accounts:outcomes[1].value,retention:outcomes[2].value,reservations:outcomes[3].value};
+ return {enabled:true,uploads:outcomes[0].value,accounts:outcomes[1].value,retention:outcomes[2].value,reservations:outcomes[3].value,mcpTransfers:outcomes[4].value};
 }
