@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 30265)
+Total output lines: 1391
+
 {
   "asOf": "2026-11-12",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
@@ -705,208 +708,7 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "新規runが不変revision・TypeScript sourceを原子的に固定し、権限付き履歴・比較・安全な復元を提供する。追跡開始前のrunは完全一致するrevisionがない限り「版未記録」として保持し、遡及的に推定しない",
-      "evidence": {
-        "reviewedAt": "2026-11-10",
-        "inspectedMain": "a3b91f9681bc9c1a31fc2b72bd1c7b8d95a0e419",
-        "implementedScope": "Immutable workflow revision history, compare and restore UI, atomic revision pinning for new runs, revision/source display in run history, and frozen TypeScript whole-workflow source are present on main. Historical runs are attached read-only only when an exact prior revision matches; otherwise the UI reports that no revision was recorded. TypeScript program editor, isolated execution queue and durable state bridge are in main.",
-        "verified": "The workflow-program implementation branch acde74524a0d5a6423876db95bb85917a31a68a8 is an ancestor of main a3b91f9681bc9c1a31fc2b72bd1c7b8d95a0e419. Main CI run 42821620907, Worker deployment 42821621049 and Web deployment 42821620893 all succeeded. Worker health returned ok:true; the live web entry references HarnessWorkflows-D4Ouf3Mn.js, whose served bundle contains the TypeScript program editor. Earlier E2E browser artifacts recorded workflow source persistence, node claim/state transport, run history, and light/dark/mobile screenshots.",
-        "remaining": "Authenticated signed-in production interaction with a saved TypeScript workflow and side-by-side comparison to the current Kylon history/editor remain unverified. Historical pre-tracking runs correctly remain unversioned when no exact saved revision exists. The TypeScript SDK is partial (KY-059/KY-060), so source versioning does not imply runtime parity."
-      }
-    },
-    {
-      "id": "KY-059",
-      "category": "Automations",
-      "requirement": "TypeScript SDKと永続checkpoint",
-      "status": "partial",
-      "priority": "P1",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js",
-      "acceptance": "通常のWorkflow stepは凍結定義hashに基づくfenced leaseで実行を排他し、完了結果を再利用する。期限切れのeffectful stepは結果不明として再送しない。保存時に明示したApp/Table sourceだけをWorker broker経由でcursor paging readし、各pageでmembershipとresource ACLを再検証する。D1副作用はcheckpointと原子的commitし、TypeScript SDKの全Runtime parityは引き続き必要",
-      "evidence": {
-        "implementedScope": "The isolated TypeScript SDK now provides read-only table.query() only when the saved code step binds one explicit App/entity/Table triple. It pages through an activation-bound Worker broker; the VM still has no direct network or database access. Each page validates the frozen definition, current Workflow membership/source authority, current App/Table mapping, membership and App/Table visibility; authorization is checked again after the read. Cursors bind to the exact App/entity/Table and normalized filter, use an immutable createdAt/id keyset and a first-page snapshot cutoff, and reject malformed or cross-source reuse. Page size is at most 100, SDK page count at most 32, total SDK output at most 1 MB; results include complete/cursor and return incomplete when a page or output cap is reached. Existing same-D1 Workflow row mutation/outbox statements and checkpoint completion are committed in one D1 batch; external effects remain at-most-once/unknown on ambiguous completion.",
-        "verified": "Focused tests cover the isolated guest forwarding pages without host capabilities, normal multi-page continuation, typed filters, page and total-result caps, malformed cursor and request-scope injection rejection, and denial after a private App's per-person view grant is revoked during the same run. The UI lets a maker select the App and entity/Table source, and save validation preserves only a complete source binding. Exact results are recorded in verification.md.",
-        "remaining": "No app(), agent(), provider proxy, general Connection operations, or read/write table helpers are exposed. This query is read-only and limited to one explicitly bound App entity/Table. Row values are live across pages (the cursor pins the creation-time scan boundary, not a historical row snapshot); a mutation/deletion during a long scan can change observed values. Per-step evidence/reconciliation and safe continuation after ambiguous external effects, Kylon's mention option format, physical runtime refresh/reboot, authenticated production acceptance, broader continuation recovery and complete Kylon runtime parity remain open. This is not an exactly-once guarantee."
-      }
-    },
-    {
-      "id": "KY-060",
-      "category": "Automations",
-      "requirement": "条件分岐・batch・制限付き並列",
-      "status": "partial",
-      "priority": "P1",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js, gateway/workflow-sdk.mjs",
-      "acceptance": "フォーム形式の条件分岐に加え、TypeScript SDKで最大10,000件のparallel/pipeline入力、最大32同時実行、最大32 pipeline stageを順序保持して処理し、項目単位失敗をnullとonErrorで報告する。Workflow programは実行leaseとcheckpointを更新しながら最大15分走る。ページング・agent()との合成・取りこぼし率の制御は残る",
-      "evidence": {
-        "implementedScope": "Added isolated workflow SDK helpers parallel(thunks,{concurrency,onError}) and pipeline(items,...stages,{concurrency,onError}); hard bounds cap input length at 10,000, concurrency at 32 and pipeline stages at 32. Item errors remain localized as null, ordered results are preserved, and onError receives index (and stage for pipeline). Workflow code jobs now have a 15-minute hard runtime limit plus 30 seconds for result delivery. Their Worker lease and activation checkpoint lease renew together under the current frozen-definition, requester, run, node and activation fences. Ordinary custom-app code retains its 60-second limit. The helpers are compiled into the existing offline Linux VM and do not enable network or host access.",
-        "remaining": "General App/Connection API paging beyond the one explicitly bound read-only table.query helper, agent()-backed judgment, cross-item completeness/miss-rate policy, failure recovery, physical VM smoke, installed-node refresh and authenticated production/Kylon interaction acceptance remain. This is bounded deterministic concurrency, not full Kylon SDK parity."
-      }
-    },
-    {
-      "id": "KY-061",
-      "category": "Automations",
-      "requirement": "実行履歴・step結果",
-      "status": "partial",
-      "priority": "P1",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js",
-      "acceptance": "全ステップの入力出力・エラー・コスト・権限を追跡。失敗runから作成元スレッドを開き、再実行せず復旧を相談できる"
-    },
-    {
-      "id": "KY-062",
-      "category": "Automations",
-      "requirement": "署名付きWebhookと再送防止",
-      "status": "implemented",
-      "priority": "P0",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js",
-      "acceptance": "URL secretだけでなく署名・期限・event IDを検証",
-      "evidence": {
-        "release": "8c753f911b5b5a05589bdecae82bd2c823a041ae; CI 40222276466, Worker deploy 40222276450, Web deploy 40222276471 all succeeded.",
-        "verified": "New webhook credentials require HMAC-SHA256 over timestamp.eventId.body, a five-minute timestamp window, bounded event IDs and atomic seven-day event deduplication. Focused Worker/migration tests (127), Web screen tests (34), full Worker CI and browser E2E passed. Production D1 migration, Worker health and exact Web asset hash were verified.",
-        "remaining": "Pre-existing URL-only webhook credentials remain compatible until explicitly rotated; rotating them enables signatures. This status covers the stated acceptance criteria, not complete Kylon parity."
-      }
-    },
-    {
-      "id": "KY-063",
-      "category": "Automations",
-      "requirement": "Webhook rotation/revoke/held/replay",
-      "status": "partial",
-      "priority": "P0",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js; worker/src/harness/routes.js; web-react/src/screens/HarnessWorkflows.tsx",
-      "acceptance": "再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止を実装。中断した実行は30分以上経過後に作成者/Adminが結果不明として記録できる。有効な実行リースがあれば拒否し、副作用の二重実行を避ける。保留イベント破棄UI、本番と実画面の確認は残る。",
-      "evidence": {
-        "reviewedAt": "2026-11-08",
-        "verified": "Added explicit stale-run reconciliation with 30-minute age threshold, exact started_at/log/next_step compare-and-swap, active node lease guard, no-replay outcome marker and workflow settlement/audit. Focused Worker workflow suite 110/110 and focused Web suite 57/57 passed; full Web suite 248 files/1,831 tests and Web TypeScript+build passed. The implementation is on main through eb977ae6 and is included in main CI run 42494741384 and Worker deployment run 42494741296; migrations, deploy and Verify passed.",
-        "remaining": "Production webhook detail/held-event UI acceptance and exact Kylon screen comparison remain. Uncertain side effects are never automatically replayed; users must reconcile externally before starting a new run."
-      }
-    },
-    {
-      "id": "KY-064",
-      "category": "Automations",
-      "requirement": "承認待ち・継続",
-      "status": "partial",
-      "priority": "P0",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js",
-      "acceptance": "承認先・実行定義・run・stepをapproval cardに固定し、宛先の現workspace membershipとcard/run/step bindingを承認時に検証。二重承認やreplayを拒否し、membership失効後の既存socketも副作用を再開できない。",
-      "evidence": {
-        "verified": "Workflow approval settlement compare-and-swaps the exact waiting run/card and next step, preserves one card per step, and resumes the run's frozen definition. Added current-membership revalidation at both relay decision protocols and an atomic membership predicate on the run claim, closing the stale-socket window after membership removal. `harness-workflows.test.js` and `relay-auth.test.js` passed together (136 tests), including card_updated, AG-UI tool_result and lower-level settlement after revocation.",
-        "remaining": "Exact-head CI and production release for the membership fence, plus authenticated Kylon approval-screen and multi-device behavior comparison, remain."
-      }
-    },
-    {
-      "id": "KY-065",
-      "category": "Automations",
-      "requirement": "停止・再開・アーカイブ",
-      "status": "partial",
-      "priority": "P1",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js",
-      "acceptance": "スケジュール停止と実行キャンセルを区別",
-      "evidence": {
-        "verified": "2026-11-09 batch adds a maker/admin-only explicit cancel action for running Workflow runs. The API compares the exact run start timestamp, atomically marks the run cancelled, records the in-flight step outcome as unknown, and settles safety accounting. The runner re-reads the terminal status after each awaited step and will not persist a stale result or dispatch later steps. 2026-11-10 adds cancellation of related queued/running TypeScript gateway jobs in the same D1 batch and clears their lease so the node stops polling promptly. Combined local Worker regression batch passed 333/333 across harness-apps.test.js, harness-workflows.test.js, workflow-code-jobs.test.js, and review-row-write-schema.test.js. Exact-head CI and production deployment are pending. 2026-11-12 PR #907 review batch adds reversible archive/restore separate from disabling, canceling a run, or deleting. It stores the prior enabled state, disables schedules, preserves definition/revisions/run history/held webhook events, fences manual runs and webhook replay while archived, rejects archive with a running/waiting run, and warns before restoring prior automatic triggers. Focused local Worker workflow, File invitation and migration suites passed 178/178; Web workflow and File panel/API suites passed 103/103; TypeScript, parity inventory and diff checks passed. Exact-head CI and production are pending.",
-        "remaining": "The complete GitHub PR CI, production migration/deploy, real scheduled/webhook acceptance and authenticated Kylon side-by-side verification remain. An already-issued external request cannot be guaranteed to stop or roll back. This remains partial parity."
-      }
-    },
-    {
-      "id": "KY-066",
-      "category": "Automations",
-      "requirement": "実行者の権限を再検証",
-      "status": "partial",
-      "priority": "P0",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/agents.js, worker/src/harness/workflows.js",
-      "acceptance": "Agentの現行grant・会話権限とapp_record_change元App/Table権限を各モデル往復・ツール実行fenceで再検証し、Remote MCP toolは実行者×Agent grantも必須化。全副作用経路を監査",
-      "evidence": {
-        "verified": "2026-10-31〜11-01、Workflow AgentのApp/Table権限を各モデル往復で再検証し、アクセス剥奪中に進行中のWorker側provider HTTP要求をabort、返答を投稿せず、unknown/unpriced usageと1回分のallowanceを記録。PR #579/#581をmainへ統合。PR #581のfocused model/usage 14 tests、workflow 69 testsが成功。main CI #41224384637とWorker deploy #41224384634成功（後続#584 release）。Worker /health は ok=true、encryption.all=true。",
-        "latestIncrement": {
-          "base": "1d649c7b4d5479ccef1b81de909de546fa9e3423",
-          "scope": "Workflow Agent Remote MCP read-only tools now require the current run actor's explicit Agent/server grant in addition to the workspace tool allowlist. The check is applied when listing tools and immediately before/after calls; revoked results are discarded and the model loop stops. App visitor writes whose grant is revoked in flight are recorded as unknown after result discard.",
-          "verification": "Focused workflow tests 143/143 and App tests 163/163 passed. Merge CI run 43085800275 and Worker/Web deployments 43085800394/43085800314 passed.",
-          "remaining": "Other side-effect routes and provider-side execution/cost cancellation guarantees still need full audit and live multi-user acceptance."
-        },
-        "remaining": "Remote MCP write tools, unsupported connectors and provider-side processing/billing cancellation guarantees remain outside this read-only slice."
-      }
-    },
-    {
-      "id": "KY-067",
-      "category": "Automations",
-      "requirement": "実行予算と自動pause",
-      "status": "partial",
-      "priority": "P0",
-      "source": "https://kylon.io/help/limit-credit-usage",
-      "code": "worker/src/spendGuard.js, worker/src/ledger.js, worker/src/harness/workflowSafety.js, worker/src/harness/workflows.js, worker/src/harness/routes.js, web-react/src/screens/HarnessWorkflows.tsx",
-      "acceptance": "個別Workflowの暦日/週/月回数上限に加え、直近24時間/7日/30日の記録トークンによるUSD参考価格上限、warn-only/実行後pause、作成元thread通知、単価不明時の可視化、CAS設定、原子的なrun admission、期間更新/上限変更後の自動回復を実装。provider invoice・Kylon creditsと一致するとは扱わない",
-      "evidence": {
-        "verified": "回数上限に加え、既知のモデル単価によるマイクロUSD概算を記録しrolling 24h/7d/30dで集計。warn-onlyは元スレッドへ重複抑止付き通知、pauseは実行完了後に停止し、単価不明の記録を無料扱いせずpauseモードで停止。Worker/UI focused tests pass; exact-SHA CI 40219026947 and production Worker deployment 40219026929 passed. Actual web UI was reviewed after Pages deployment 40221036459; details in verification.md.",
-        "remaining": "USDの参考価格でありKylon creditsやprovider invoiceとの換算ではない。外部検索/connector料金、未報告usage、プロセス障害前の未記録usageは網羅できず、run開始前の金額予約・部分runの中断精算もない。"
-      }
-    },
-    {
-      "id": "KY-068",
-      "category": "Automations",
-      "requirement": "一回限りのFollow-up",
-      "status": "partial",
-      "priority": "P1",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/followups.js",
-      "acceptance": "相対/絶対時刻・スレッド・通知先・停止・権限変更後を検証"
-    },
-    {
-      "id": "KY-069",
-      "category": "Automations",
-      "requirement": "Follow-upの実ツール実行",
-      "status": "partial",
-      "priority": "P1",
-      "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/followups.js",
-      "acceptance": "個人Agent DMのFollow-upで接続済み個人連携を読み取り、実ツール実行を必須化し、結果に含まれるアプリ・ID・URLを根拠として返す。共有チャンネルでは個人連携を使わない",
-      "evidence": {
-        "verified": "個人Agent DMでは既存のread-only Notion/GitHub/Smithery連携をFollow-upへ接続し、外部read toolがある場合は初回モデル応答でtool callを必須化。接続済みアプリが書き込みを許可していてもFollow-upでは読み取りツールだけを公開。接続結果の出典/ID/URLを回答に含めるよう指示し、会話・Agent権限を各tool callの前後で再確認する。共有チャンネルには個人連携を渡さない。",
-        "remaining": "全Follow-upに対する外部コネクタ対応ではなく個人Agent DMに限定。サービスごとの状態・書き込み操作・証跡画面は未実装。実接続アカウントの本番roundtripは未確認。"
-      }
-    },
-    {
-      "id": "KY-070",
-      "category": "Files",
-      "requirement": "アップロード・フォルダ・生成者フィルタ",
-      "status": "partial",
-      "priority": "P1",
-      "source": "https://docs.kylon.io/cli/workspace/file",
-      "code": "web-react/src/components/WorkspaceFilesPanel.tsx",
-      "acceptance": "作成者/アップロード者・最近/フォルダの両表示",
-      "evidence": {
-        "auditDate": "2026-10-25",
-        "verified": "Local full-stack upload, selected-folder upload, recent/folder navigation, human/agent/unknown origin filters, tab-local view restoration and two-tab live invalidation verified. Built-in own-agent file creation/edit tools have D1/R2 integration coverage.",
-        "release": "Origin UI and conversation tools/live refresh included in main 7f602fa8 after exact-candidate seven-job CI success. Production deployment completion remains unverified.",
-        "remaining": "Natural-language model generation and populated agent-file UI; authenticated production upload roundtrip; mobile/multi-user verification; shared-agent execution; populated Kylon comparison."
-      }
-    },
-    {
-      "id": "KY-071",
-      "category": "Files",
-      "requirement": "PDF・画像・CSV・テキストのプレビュー",
-      "status": "partial",
-      "priority": "P1",
-      "source": "https://docs.kylon.io/cli/workspace/file",
-      "code": "web-react/src/components/Attachments.tsx",
-      "acceptance": "形式別エラー・大容量・モバイル・本文検索を検証"
-    },
-    {
-      "id": "KY-072",
-      "category": "Files",
-      "requirement": "PDF/Word/Markdown/HTML書き出し",
-      "status": "partial",
-      "priority": "P1",
-      "source": "https://docs.kylon.io/cli/workspace/file",
-      "code": "web-react/src/components/DocumentCreate.tsx",
-      "acceptance": "単なる元ファイルDLと形式変換を区別",
-      "evidence": {
-        "auditDate": "2026-10-25",
-        "verified": "Pinned no-network container converts Markdown/HTML to PDF/DOCX. Local UI-to-node-to-Worker-to-versioned-storage-to-download verified for Japanese PDF and DOCX with matching stored/downloaded SHA256; PDF preview, Japanese text, table and link checked. Authorized admission/lease/receipt/origin/audit/lifecycle tests and reload restoration passed. Light/dark dialog inspected. Installed runtime dependency regression and 32 gateway tests passed.",
+      "acceptance": "新規runが不変revision・T…5265 tokens truncated…e tests and reload restoration passed. Light/dark dialog inspected. Installed runtime dependency regression and 32 gateway tests passed.",
         "release": "Worker b2eabf7ccd4a7bfd40a6842bfb2895d9c19a4adb deployed successfully (Worker run 40201627974); Web de2aca6122b1b559ff284a2a39d9c4acdf283b43 deployed successfully (Web run 40202969923). Exact candidate CI 40202969910 passed all required jobs.",
         "remaining": "Production personal-agent natural-language Markdown-to-PDF conversion succeeded using the existing Mac mini node; status succeeded, artifact link opened, v1 preview rendered the exact synthetic source text, and the node was online at verification. Still partial: production DOCX and HTML input/output round trips, mobile/narrow viewport, populated Kylon output/UI comparison, resource-handling fidelity, restart/reboot recovery, and broad conversion acceptance. Simple file upload/download is separate from format conversion.",
         "evidenceFile": "docs/kylon-parity/verification.md"
@@ -1247,11 +1049,11 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://kylon.io/changelog",
-      "code": "worker/src/harness/externalCollaborators.js, worker/src/externalApps.js, worker/src/externalThreads.js, worker/src/harness/externalFileGrants.js, web-react/src/components/ExternalCollaboratorPicker.tsx, web-react/src/components/ExternalGuestApp.tsx, worker/migrations.sql",
+      "code": "worker/src/harness/externalCollaborators.js, worker/src/externalApps.js, worker/src/externalThreads.js, worker/src/harness/externalFileGrants.js, web-react/src/components/ExternalCollaboratorPicker.tsx, web-react/src/components/ExternalGuestApp.tsx, worker/migrations.sql, worker/src/audit.js, web-react/src/components/ExternalAppSharing.tsx, web-react/src/components/ExternalThreadShare.tsx, web-react/src/utils/externalThreadSharing.ts",
       "acceptance": "名前または検証済みメールで招待した外部ユーザーがワークスペースメンバー化せずサインインでき、Room/Workspace/リンクの対象ごとにThread・File・AppのCan view/Can editを個別設定できる。Threadのゲストは閲覧・返信・アップロード・リアクションができ、送信要求は所有者承認を経る。失効は即時反映され、Workspace/Room/別リソース間のACL隔離、期限、監査履歴、ゲストにAgentが自動返信しないことを検証する。",
       "evidence": {
-        "verified": "Kylon公式Changelogの2026-10-30項目は、Thread/File/Appを名前またはメールで共有し、Room/Workspace/リンク単位の対象と各人のCan view/Can editを選ぶこと、外部ユーザーはWorkspaceに参加せずサインインすること、Threadゲストの閲覧/返信/アップロード/リアクションと所有者承認付き送信、現時点でAgentは外部ゲストに返信しないことを明記。Files & Sharing docs §Share outside the workspaceは、公開リンクはスナップショットを公開するだけでlive File/Roomのアクセス権を与えないと明記。Honmaruでは既存のグローバルユーザー認証を使い、新規サービスを追加せず、resource-scoped grant/revoke ledgerとhuman-only lookupの基礎を追加。PR #907 adds editing permission/access expiry for eligible pending external File invites. It compare-and-updates current File version, Harness mode, owner/Admin authority, invite state/expiry and current workspace membership while preserving the one-time token and invite expiry; successful updates are audited without email/token. Exact-head CI 43082636535 and main CI 43085800275 passed; Worker migration/deploy 43085800394 and Web/domain verification 43085800314 passed.",
-        "remaining": "Thread/File/App invitation coverage, other resource audiences, authenticated multi-user production acceptance and direct Kylon interaction comparison remain incomplete. Simple mode does not use this grant model.",
+        "verified": "Kylon公式Changelogの2026-10-30項目は、Thread/File/Appを名前またはメールで共有し、Room/Workspace/リンク単位の対象と各人のCan view/Can editを選ぶこと、外部ユーザーはWorkspaceに参加せずサインインすること、Threadゲストの閲覧/返信/アップロード/リアクションと所有者承認付き送信、現時点でAgentは外部ゲストに返信しないことを明記。Files & Sharing docs §Share outside the workspaceは、公開リンクはスナップショットを公開するだけでlive File/Roomのアクセス権を与えないと明記。Honmaruでは既存のグローバルユーザー認証を使い、新規サービスを追加せず、resource-scoped grant/revoke ledgerとhuman-only lookupの基礎を追加。PR #907 adds editing permission/access expiry for eligible pending external File invites. It compare-and-updates current File version, Harness mode, owner/Admin authority, invite state/expiry and current workspace membership while preserving the one-time token and invite expiry; successful updates are audited without email/token. Exact-head CI 43082636535 and main CI 43085800275 passed; Worker migration/deploy 43085800394 and Web/domain verification 43085800314 passed. Pending-invitation editing for Thread and App has now been implemented on the review branch: a current resource manager may change view/edit permission and access expiry only while the invitation remains valid, unredeemed, unclaimed, unrevoked, and its recipient is outside the Workspace. The one-time token and invitation expiry are unchanged; successful changes are audited without recording email or token. Focused local tests pass (45 Worker tests, 12 Web component tests) and the Web production build succeeds. This does not yet prove PR CI, production deployment, Kylon side-by-side behavior, or multi-user production isolation.",
+        "remaining": "Other resource audiences, authenticated multi-user production acceptance, and direct Kylon interaction comparison remain incomplete. PR CI and production deployment for Thread/App pending-invitation editing remain unverified. Simple mode does not use this grant model.",
         "latestMainFix": {
           "release": "PR #872 merged as bc79dfae. Exact-head CI, main CI and Worker deploy succeeded; post-deploy Worker health and app.honmaruai.com returned HTTP 200.",
           "scope": "Room-audience File/App grants now require the referenced room to exist unarchived and have no deletion tombstone, in addition to current room membership. Regression proved stale conversation_members rows no longer retain access after archive/delete.",

@@ -105,6 +105,16 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(false) }
   }
+  const updateInvite = async (invitation: Invite, nextPermission: 'view'|'edit' = invitation.permission, nextExpiry = invitation.accessExpiresAt) => {
+    setBusy(true); setError('')
+    try {
+      const res = await fetch(`${base}/invites/${encodeURIComponent(invitation.id)}`, { method: 'PATCH', headers: headers(sessionToken, true), body: JSON.stringify({ permission: nextPermission, accessExpiresAt: nextExpiry }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message || String(res.status))
+      await loadSharing()
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setBusy(false) }
+  }
   const decideRequest = async (requestId: string, decision: 'approve' | 'reject') => {
     setBusy(true); setError('')
     try {
@@ -182,8 +192,9 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
           <button className="btn" type="button" disabled={busy} onClick={() => void revoke(encodeURIComponent(guest.githubId))}>{t('Revoke')}</button>
         </li>)}
         {sharing.invites.map(invitation => <li key={invitation.id}>
-          <span>{invitation.invitedEmail}</span><span>{t('Invite pending')} · {invitation.permission}</span>
-          <span>{invitation.accessExpiresAt ? t('Access expires {date}', { date: new Date(invitation.accessExpiresAt).toLocaleDateString() }) : t('No expiry')}</span>
+          <span>{invitation.invitedEmail}</span><span>{t('Invite pending')} · {t('Invite expires {date}', { date: new Date(invitation.inviteExpiresAt).toLocaleDateString() })}</span>
+          <label>{t('Permission')}<select aria-label={t('Permission for {email}', { email: invitation.invitedEmail })} value={invitation.permission} disabled={busy} onChange={event => void updateInvite(invitation, event.target.value as 'view'|'edit')}><option value="view">{t('View')}</option><option value="edit">{t('Edit')}</option></select></label>
+          <label>{t('Access expires')}<select aria-label={t('Access expiry for {email}', { email: invitation.invitedEmail })} value="unchanged" disabled={busy} onChange={event => { const days = event.target.value; if (days === 'unchanged') return; void updateInvite(invitation, invitation.permission, days === 'never' ? null : new Date(Date.now() + Number(days) * 86400000).toISOString()) }}><option value="unchanged">{invitation.accessExpiresAt ? t('Expires {date}', { date: new Date(invitation.accessExpiresAt).toLocaleDateString() }) : t('No expiry')}</option><option value="never">{t('Never')}</option><option value="7">{t('In 7 days')}</option><option value="30">{t('In 30 days')}</option><option value="90">{t('In 90 days')}</option></select></label>
           <button className="btn" type="button" disabled={busy} onClick={() => void revoke(`invites/${encodeURIComponent(invitation.id)}`)}>{t('Revoke invite')}</button>
         </li>)}
       </ul>

@@ -11,6 +11,7 @@ import {
   listExternalThreadInvitations,
   createExternalThreadInvitation,
   revokeExternalThreadInvitation,
+  updateExternalThreadInvitation,
   type ExternalThreadInvitation,
   listExternalThreadSendRequests,
   decideExternalThreadSendRequest,
@@ -140,6 +141,9 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
   }
   const revokeInvite = (invite: ExternalThreadInvitation) => void mutate(async () => {
     await revokeExternalThreadInvitation(apiKey, threadId, invite.id)
+  })
+  const updateInvite = (invite: ExternalThreadInvitation, permission: 'view'|'edit' = invite.permission, accessExpiresAt = invite.accessExpiresAt) => void mutate(async () => {
+    await updateExternalThreadInvitation(apiKey, threadId, invite.id, { permission, accessExpiresAt })
   })
   const add = (event: React.FormEvent) => {
     event.preventDefault()
@@ -299,7 +303,21 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
       </form>
       {inviteUrl&&<div className="hx-external-thread-invite-link"><p>{t(inviteDelivery==='sent'?'Invitation email sent.':inviteDelivery==='failed'?'Email could not be delivered. Share this link manually.':'Email delivery is not configured. Share this link manually.')}</p><label>{t('Copy this one-time invite link')}<input readOnly value={inviteUrl} aria-label={t('Invite link')} /></label><button type="button" className="btn-text" onClick={()=>void copyInvite()}>{t('Copy link')}</button></div>}
       <ul className="hx-external-thread-invite-list" aria-label={t('Pending invitations')}>
-        {invitations.map(invite=><li key={invite.id}><span><strong>{invite.email}</strong><small>{t(invite.permission==='edit'?'Can edit':'Can view')} · {t('Expires')} {expires(invite.expiresAt)}</small></span><button type="button" className="btn-text" disabled={busy} onClick={()=>revokeInvite(invite)}>{t('Revoke invite')}</button></li>)}
+        {invitations.map(invite=><li key={invite.id}>
+          <span><strong>{invite.email}</strong><small>{t('Invite expires {date}', { date: new Date(invite.expiresAt).toLocaleDateString() })}</small></span>
+          <label>{t('Permission')}
+            <select aria-label={t('Permission for {email}').replace('{email}',invite.email)} value={invite.permission} disabled={busy} onChange={event=>updateInvite(invite,event.target.value as 'view'|'edit')}>
+              <option value="view">{t('Can view')}</option><option value="edit">{t('Can edit')}</option>
+            </select>
+          </label>
+          <label>{t('Access expires')}
+            <select aria-label={t('Access expiry for {email}').replace('{email}',invite.email)} value="unchanged" disabled={busy} onChange={event=>{const days=event.target.value;if(days==='unchanged')return;updateInvite(invite,invite.permission,days==='never'?null:new Date(Date.now()+Number(days)*86400000).toISOString())}}>
+              <option value="unchanged">{invite.accessExpiresAt?t('Expires {date}',{date:new Date(invite.accessExpiresAt).toLocaleDateString()}):t('No expiry')}</option>
+              <option value="never">{t('Never')}</option><option value="7">{t('In 7 days')}</option><option value="30">{t('In 30 days')}</option><option value="90">{t('In 90 days')}</option>
+            </select>
+          </label>
+          <button type="button" className="btn-text" disabled={busy} onClick={()=>revokeInvite(invite)}>{t('Revoke invite')}</button>
+        </li>)}
       </ul>
     </section>
     <section className="hx-external-thread-grants" aria-label={t('People with access')}>

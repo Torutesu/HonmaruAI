@@ -1,4 +1,5 @@
 import { getSession, getUserByGithubId } from "./db.js";
+import { audit } from "./audit.js";
 import { getMode } from "./harness/mode.js";
 import { drainWorkflowRowEvents } from './harness/workflowRowEventDispatch.js';
 import { sha256Hex } from "./auth.js";
@@ -332,7 +333,7 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
     const [grants, invites] = await Promise.all([
       env.DB.prepare("SELECT g.recipient_github_id AS githubId,u.login,u.name,u.email,g.permission,g.expires_at AS expiresAt,g.granted_at AS grantedAt FROM hx_external_resource_grants g LEFT JOIN users u ON u.github_id=g.recipient_github_id WHERE g.org_id=?1 AND g.resource_type='app' AND g.resource_id=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?3) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=g.org_id AND m.user_github_id=g.recipient_github_id) ORDER BY g.granted_at DESC")
         .bind(orgId, appId, now).all(),
-      env.DB.prepare("SELECT id,invited_email AS invitedEmail,permission,access_expires_at AS accessExpiresAt,created_at AS createdAt,expires_at AS inviteExpiresAt FROM hx_external_app_invites WHERE org_id=?1 AND resource_id=?2 AND redeemed_at IS NULL AND revoked_at IS NULL AND expires_at>?3 ORDER BY created_at DESC")
+      env.DB.prepare("SELECT id,invited_email AS invitedEmail,permission,access_expires_at AS accessExpiresAt,created_at AS createdAt,expires_at AS inviteExpiresAt FROM hx_external_app_invites WHERE org_id=?1 AND resource_id=?2 AND redeemed_at IS NULL AND redemption_id IS NULL AND revoked_at IS NULL AND expires_at>?3 AND (access_expires_at IS NULL OR access_expires_at>?3) ORDER BY created_at DESC")
         .bind(orgId, appId, now).all(),
     ]);
     return json({ guests: grants.results || [], invites: invites.results || [], canManage: true, customUnsupported });
@@ -406,6 +407,38 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
     const result = await env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2 WHERE org_id=?3 AND resource_type='app' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL AND ${sharingManagerWriteGuard('?3','?4','?2')}`)
       .bind(new Date().toISOString(), actor.user.github_id, orgId, appId, parts[5]).run();
     return Number(result.meta?.changes || 0) ? json({ revoked: true }) : fail();
+  }
+  if (parts.length === 7 && parts[5] === "invites" && request.method === "PATCH") {
+    const inviteId = parts[6];
+    const input = await request.json().catch(() => null);
+    const permission = input?.permission === "edit" || input?.permission === "view" ? input.permission : null;
+    if (!permission) return json({ message: "Choose view or edit access." }, 400);
+    if (!input || !Object.hasOwn(input, "accessExpiresAt")) return json({ message: "Choose an access expiry." }, 400);
+    let accessExpiresAt = null;
+    if (input.accessExpiresAt !== null) {
+      const parsed = typeof input.accessExpiresAt === "string" ? Date.parse(input.accessExpiresAt) : NaN;
+      if (!Number.isFinite(parsed) || parsed <= Date.now()) return json({ message: "Access expiry must be a future timestamp or no expiry." }, 400);
+      accessExpiresAt = new Date(parsed).toISOString();
+    }
+    const now = new Date().toISOString();
+    const result = await env.DB.prepare(`UPDATE hx_external_app_invites
+      SET permission=?1,access_expires_at=?2
+      WHERE org_id=?3 AND resource_id=?4 AND id=?5 AND redeemed_at IS NULL AND redemption_id IS NULL
+        AND revoked_at IS NULL AND expires_at>?6 AND (access_expires_at IS NULL OR access_expires_at>?6)
+        AND NOT EXISTS(SELECT 1 FROM users recipient JOIN memberships workspaceMembership
+          ON workspaceMembership.org_id=?3 AND workspaceMembership.user_github_id=recipient.github_id
+          WHERE lower(trim(coalesce(recipient.email,'')))=lower(trim(hx_external_app_invites.invited_email)))
+        AND ${sharingManagerWriteGuard('?3','?4','?7')}`)
+      .bind(permission, accessExpiresAt, orgId, appId, inviteId, now, actor.user.github_id).run();
+    if (Number(result.meta?.changes || 0) !== 1) return fail("An eligible unredeemed App invitation was not found.", 404);
+    await audit(env, request, {
+      orgId,
+      action: "external.app_invite_updated",
+      actor: { type: "user", id: String(actor.user.github_id), name: actor.user.name || actor.user.login },
+      entity: { type: "app", id: appId },
+      details: { invitationId: inviteId, permission, accessExpiresAt },
+    });
+    return json({ updated: true });
   }
   if (parts.length === 7 && parts[5] === "invites" && request.method === "DELETE") {
     const result = await env.DB.prepare(`UPDATE hx_external_app_invites SET revoked_at=?1,revoked_by=?2 WHERE org_id=?3 AND resource_id=?4 AND id=?5 AND redeemed_at IS NULL AND revoked_at IS NULL AND ${sharingManagerWriteGuard('?3','?4','?2')}`)
