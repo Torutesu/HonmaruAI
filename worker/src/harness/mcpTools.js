@@ -9,14 +9,12 @@ import { mayUseApp, mayUseTable, mayEditTable, mayReadAppRows, visibleResources,
 
 import { listApps, renderApp } from "./apps.js";
 import { listTables, listRows, addRow, updateRow } from "./tables.js";
-import { listWorkflows, getWorkflow, startRun, listRuns, getRun, cancelWorkflowRun, replayWorkflowEvents, changeWorkflowHook } from "./workflows.js";
-import { heldWorkflowSummary, readHeldWorkflowEvent, discardWorkflowEvents } from "./workflowHeld.js";
-import { allowed } from "../permissions.js";
+import { listWorkflows, getWorkflow, startRun } from "./workflows.js";
 import { listFollowups, scheduleFollowup } from "./followups.js";
 import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 
-export const HARNESS_TOOL_SCOPE = { create_file_text: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", cancel_workflow_run: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { create_file_text: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,
@@ -67,66 +65,6 @@ export const HARNESS_TOOLS = [
     title: "The workspace's workflows",
     description: "Workflows: their trigger, steps, and whether they are on.",
     inputSchema: { type: "object", properties: {} },
-  },
-  {
-    name: "get_workflow",
-    title: "Inspect a workflow",
-    description: "Read a workflow definition and safety status. Only its maker or an Admin receives the active webhook secret in a separate field.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" } }, required: ["workflowId"] },
-  },
-  {
-    name: "list_workflow_runs",
-    title: "Workflow run history",
-    description: "Read recent runs visible to you. Run input and output follow the same App, Table, Agent, Room, and source ACLs as the workflow.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 200 } }, required: ["workflowId"] },
-  },
-  {
-    name: "get_workflow_run",
-    title: "Inspect a workflow run",
-    description: "Read one run visible to you, including its steps and usage estimate.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, runId: { type: "string" } }, required: ["workflowId", "runId"] },
-  },
-  {
-    name: "cancel_workflow_run",
-    title: "Stop a workflow run",
-    description: "Stop later steps of a currently running workflow. The current step may already have caused an external effect. Reload and pass its exact startedAt value.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, runId: { type: "string" }, expectedStartedAt: { type: "string" } }, required: ["workflowId", "runId", "expectedStartedAt"] },
-  },
-  {
-    name: "list_held_workflow_events",
-    title: "Review held webhook events",
-    description: "List event IDs and expiry times held while a webhook workflow is paused or disabled. Payloads are not included.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, offset: { type: "integer", minimum: 0, maximum: 975 } }, required: ["workflowId"] },
-  },
-  {
-    name: "get_held_workflow_event",
-    title: "Inspect a held webhook event",
-    description: "Read one explicitly selected held webhook payload. Maker or Admin access is required.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, eventId: { type: "string" } }, required: ["workflowId", "eventId"] },
-  },
-  {
-    name: "discard_held_workflow_events",
-    title: "Discard held webhook events",
-    description: "Permanently discard explicitly selected held events. Maker or Admin access is required.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, eventIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 1000 } }, required: ["workflowId", "eventIds"] },
-  },
-  {
-    name: "replay_held_workflow_events",
-    title: "Replay held webhook events",
-    description: "Start new runs for explicitly selected held events. Replay is never automatic. Maker or Admin access is required.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, eventIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 100 } }, required: ["workflowId", "eventIds"] },
-  },
-  {
-    name: "rotate_workflow_webhook",
-    title: "Rotate a workflow webhook secret",
-    description: "Replace the current webhook credential. Pass the exact secret and updatedAt from an authorized get_workflow response; the newly created secret is returned once.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, expectedSecret: { type: ["string", "null"] }, expectedUpdatedAt: { type: "string" } }, required: ["workflowId", "expectedSecret", "expectedUpdatedAt"] },
-  },
-  {
-    name: "revoke_workflow_webhook",
-    title: "Revoke a workflow webhook secret",
-    description: "Revoke the current webhook credential. Pass the exact secret and updatedAt from an authorized get_workflow response. Maker or Admin access is required.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, expectedSecret: { type: ["string", "null"] }, expectedUpdatedAt: { type: "string" } }, required: ["workflowId", "expectedSecret", "expectedUpdatedAt"] },
   },
   {
     name: "run_workflow",
@@ -218,58 +156,6 @@ export async function callHarnessTool(env, agent, name, args) {
     }
     case "list_workflows":
       return out({ workflows: (await listWorkflows(db, orgId, { viewerId: by })).map((w) => ({ id: w.id, name: w.name, enabled: w.enabled, trigger: w.trigger, steps: w.steps.map((s) => s.type) })) });
-    case "get_workflow": {
-      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by, withSecret: true });
-      if (!wf) return err("No such workflow.");
-      const canManage = String(wf.createdBy) === String(by) || await allowed(db, orgId, by, "harness.delete_others");
-      const { hookSecret, ...safeWorkflow } = wf;
-      return out({ workflow: safeWorkflow, ...(canManage && wf.trigger?.type === "webhook" ? { webhook: { active: Boolean(hookSecret), ...(hookSecret ? { secret: hookSecret } : {}) } } : {}) });
-    }
-    case "list_workflow_runs": {
-      const workflowId = String(args.workflowId || "");
-      if (!(await getWorkflow(db, orgId, workflowId, { viewerId: by }))) return err("No such workflow.");
-      return out({ runs: await listRuns(db, orgId, workflowId, Math.min(Number(args.limit ?? 50), 200), by) });
-    }
-    case "get_workflow_run": {
-      const workflowId = String(args.workflowId || ""), runId = String(args.runId || "");
-      const run = await getRun(db, orgId, runId, { viewerId: by });
-      return run && run.workflowId === workflowId ? out({ run }) : err("No such run.");
-    }
-    case "cancel_workflow_run": {
-      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by });
-      if (!wf) return err("No such workflow.");
-      if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can cancel this workflow run.");
-      const result = await cancelWorkflowRun(db, { orgId, workflowId: wf.id, runId: String(args.runId || ""), expectedStartedAt: args.expectedStartedAt, actorId: by });
-      return result.error ? err(result.error) : out(result);
-    }
-    case "list_held_workflow_events":
-    case "get_held_workflow_event":
-    case "discard_held_workflow_events":
-    case "replay_held_workflow_events":
-    case "rotate_workflow_webhook":
-    case "revoke_workflow_webhook": {
-      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by, withSecret: true });
-      if (!wf) return err("No such workflow.");
-      if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can manage held events and webhook credentials.");
-      if (name === "list_held_workflow_events") return wf.trigger?.type === "webhook" ? out(await heldWorkflowSummary(db, orgId, wf.id, Number(args.offset ?? 0))) : err("This workflow does not use a webhook trigger.");
-      if (name === "get_held_workflow_event") {
-        const event = await readHeldWorkflowEvent(db, orgId, wf.id, String(args.eventId || ""));
-        return event ? out({ event }) : err("No such held event.");
-      }
-      if (name === "discard_held_workflow_events") {
-        const result = await discardWorkflowEvents(db, orgId, wf.id, args.eventIds);
-        return result.error ? err(result.error) : out(result);
-      }
-      if (name === "replay_held_workflow_events") {
-        if (wf.trigger?.type !== "webhook") return err("This workflow does not use a webhook trigger.");
-        const result = await replayWorkflowEvents(env, orgId, wf, args.eventIds, by);
-        return result.error ? err(result.error) : out(result);
-      }
-      if (wf.trigger?.type !== "webhook") return err("This workflow does not use a webhook trigger.");
-      const result = await changeWorkflowHook(db, orgId, wf.id, { action: name === "rotate_workflow_webhook" ? "rotate" : "revoke", expectedSecret: args.expectedSecret, expectedUpdatedAt: args.expectedUpdatedAt });
-      if (result.error) return err(result.error);
-      return out({ workflowId: wf.id, active: Boolean(result.workflow.hookSecret), ...(result.workflow.hookSecret ? { secret: result.workflow.hookSecret } : {}), updatedAt: result.workflow.updatedAt });
-    }
     case "run_workflow": {
       const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by });
       if (!wf) return err("No such workflow.");

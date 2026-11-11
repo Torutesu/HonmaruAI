@@ -277,41 +277,6 @@ test('MCP reports an overlapping workflow trigger as skipped without dereferenci
   expect(JSON.parse(second.result.content[0].text)).toEqual({ status: 'skipped', reason: 'already_running' });
 });
 
-test('workflow MCP exposes lifecycle reads, gates webhook payloads, and applies explicit event actions', async () => {
-  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
-  const { createWorkflow } = await import('../src/harness/workflows.js');
-  const { app } = await (await call('/apps', { method: 'POST', headers: headers(toru), body: JSON.stringify({ orgId: ORG, template: 'crm' }) })).json();
-  const made = await createWorkflow(env.DB, ORG, {
-    name: 'Held input review', enabled: false, trigger: { type: 'webhook' },
-    steps: [{ type: 'add_row', tableId: app.tableId, values: { Company: '{{input.note}}' } }],
-  }, '9401');
-  const eventId = 'held_mcp_lifecycle';
-  await env.DB.prepare('INSERT INTO hx_workflow_held_events(id,org_id,workflow_id,input,received_at,expires_at) VALUES(?1,?2,?3,?4,?5,?6)')
-    .bind(eventId, ORG, made.workflow.id, JSON.stringify({ note: 'review me' }), new Date().toISOString(), new Date(Date.now() + 86400000).toISOString()).run();
-  const ownerToken = await mint(['read', 'write']);
-  const shown = (await tool(ownerToken, 'get_workflow', { workflowId: made.workflow.id })).result.structuredContent;
-  expect(shown.workflow).toMatchObject({ id: made.workflow.id, enabled: false, trigger: { type: 'webhook' } });
-  expect(shown.workflow.hookSecret).toBeUndefined();
-  expect(shown.webhook.secret).toBe(made.workflow.hookSecret);
-  expect((await tool(ownerToken, 'list_held_workflow_events', { workflowId: made.workflow.id })).result.structuredContent.events).toEqual([
-    expect.objectContaining({ id: eventId }),
-  ]);
-  expect((await tool(ownerToken, 'get_held_workflow_event', { workflowId: made.workflow.id, eventId })).result.structuredContent.event.input)
-    .toEqual({ note: 'review me' });
-  expect((await tool(ownerToken, 'discard_held_workflow_events', { workflowId: made.workflow.id, eventIds: [eventId] })).result.structuredContent)
-    .toEqual({ discarded: 1 });
-
-  const { upsertUser, upsertMembership, createSession } = await import('../src/db.js');
-  await upsertUser(env.DB, { githubId: '9402', login: 'mika', name: 'Mika', avatarUrl: null, locale: 'en' });
-  await upsertMembership(env.DB, ORG, '9402', 'member');
-  const mikaSession = await createSession(env.DB, '9402', 'gho_mika');
-  const memberToken = (await (await call('/tokens', { method: 'POST', headers: headers(mikaSession), body: JSON.stringify({ orgId: ORG, name: 'Mika', scopes: ['read', 'write'] }) })).json()).token;
-  const memberView = (await tool(memberToken, 'get_workflow', { workflowId: made.workflow.id })).result.structuredContent;
-  expect(memberView.webhook).toBeUndefined();
-  expect((await tool(memberToken, 'get_held_workflow_event', { workflowId: made.workflow.id, eventId })).result.isError).toBe(true);
-  expect((await tool(ownerToken, 'list_workflow_runs', { workflowId: made.workflow.id })).result.structuredContent.runs).toEqual([]);
-});
-
 test('file read tools use token identity, exact versions and live room access',async()=>{
  const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
  const {uploadFileVersion}=await import('../src/harness/fileUpload.js');
