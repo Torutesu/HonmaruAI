@@ -1332,6 +1332,20 @@
         "verified": "Implemented a Harness-only delegate_subagents tool for OpenRouter chat-tools and OpenAI Responses. Helpers run in parallel, are limited to two, use an explicit read-only allowlist, have bounded task/context/results and per-helper budgets, recheck parent authorization, and discard results if authorization is revoked. Simple calls do not receive the tool.",
         "remaining": "Authenticated production exercise and side-by-side Kylon verification remain. Kylon routing choices, durable helper run cards/history, independent helper identities/credentials and longer-running cloud execution are not implemented; this is partial parity."
       }
+    },
+    {
+      "id": "KY-116",
+      "category": "Apps",
+      "requirement": "Data Viewerの現在の結果をCSVで書き出す",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/help/export-app-records",
+      "code": "web-react/src/components/AppDataMenu.tsx, web-react/src/utils/csvExport.ts",
+      "acceptance": "現在のビューのfilter・search・group順と表示列を保ったCSVを端末内で生成する。Relation列は表示名、system列は有効な場合だけ出力し、引用・改行・Unicode・数式注入を安全に扱い、5,000件まで出力する。Simple modeを維持し新規課金を追加しない。",
+      "evidence": {
+        "verified": "Data Viewerのその他メニューにCSV書き出しを追加。アプリのフィルター済みビュー・検索結果・グループ順、表示中の列、Relationの表示名を利用し、RFC形式の引用、数式セルの無害化、Excel向けUTF-8 BOMを端末内で生成。空の結果と最大5,000件（既存App表示上限）に対応。",
+        "remaining": "この差分のPR CI・本番反映後の認証画面でのダウンロード確認、モバイルと大規模データのUX、Kylonとの詳細な出力内容比較が残る。部分一致として扱う。"
+      }
     }
   ]
 }

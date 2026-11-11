@@ -788,6 +788,7 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if(sub==='resume' && request.method==='POST'){
       if(!mine)return json({message:'Only its maker or an admin can resume this workflow.'},403);
+      if(wf.safety?.pause_reason==='room_archived')return json({message:'Restore the source Room to resume this workflow.'},409);
       if(wf.safety?.pause_reason?.startsWith('budget_ai_'))return json({message:'This workflow reached its estimated AI usage limit or has unpriced usage. It can run again after the rolling window resets or after you change its budget.',reason:wf.safety.pause_reason},409);
       if(wf.safety?.pause_reason?.startsWith('budget_'))return json({message:'This workflow can run again on its next trigger after the budget window resets, or as soon as you raise the limit.'},409);
       if(typeof input.generation!=='string')return json({message:'Reload the workflow before resuming it.'},400);

@@ -261,6 +261,8 @@ const table: Record<string, string> = {
   "Review workflow": "ワークフローを確認",
   "Refresh notifications": "通知を更新",
   "Paused after three consecutive failures": "3回連続の失敗により自動停止しました",
+  "Paused with archived Room": "ルームのアーカイブ中は停止しています",
+  "Restore the Room to resume this Automation.": "ルームを復元すると、このオートメーションも再開します。",
   "Paused after reaching the {period} run limit": "{period}の実行上限に達したため自動停止しました",
   "This workflow can run again on the next trigger after {when}, or as soon as its run limit is raised.": "上限期間が{when}にリセットされた後、次のトリガーで自動実行を再開します。実行上限を引き上げた場合はすぐに再開できます。",
   "Run budget": "実行上限",

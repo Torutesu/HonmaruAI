@@ -146,6 +146,52 @@ test('visibility changes preserve current joined grants without restoring stale 
   }
 });
 
+test('archiving a room pauses only its enabled workflows and restoring resumes only archive-paused workflows',async()=>{
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const addWorkflow=async(id,{enabled=1,source=channel,safety=null}={})=>{
+    await env.DB.prepare(`INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at)
+      VALUES(?1,?2,?3,?4,'{"type":"schedule","kind":"every","everyMs":600000}','[]','creator','created','created')`)
+      .bind(id,org,id,enabled).run();
+    await env.DB.prepare(`INSERT INTO hx_workflow_sources(org_id,workflow_id,channel,thread_id,created_by) VALUES(?1,?2,?3,'source-thread','creator')`)
+      .bind(org,id,source).run();
+    if(safety)await env.DB.prepare(`INSERT INTO hx_workflow_safety(org_id,workflow_id,generation,failure_streak,paused_at,pause_reason)
+      VALUES(?1,?2,?3,?4,?5,?6)`).bind(org,id,...safety).run();
+  };
+  await addWorkflow('room-active',{safety:['active-generation',1,null,null]});
+  await addWorkflow('room-legacy-active');
+  await addWorkflow('room-manual-off',{enabled:0});
+  await addWorkflow('room-failure-paused',{safety:['failure-generation',3,'failure-time','consecutive_failures']});
+  await addWorkflow('room-budget-paused',{safety:['budget-generation',0,'budget-time','budget_daily']});
+  await addWorkflow('other-room-active',{source:'b:other',safety:['other-generation',0,null,null]});
+
+  expect(await archiveManagedRoom(env.DB,org,channel,{actorId:'creator',archived:true,version:1})).toMatchObject({archived:true,version:2});
+  const safety=async id=>env.DB.prepare('SELECT generation,failure_streak,paused_at,pause_reason FROM hx_workflow_safety WHERE org_id=?1 AND workflow_id=?2').bind(org,id).first();
+  const active=await safety('room-active');
+  const legacy=await safety('room-legacy-active');
+  expect(active).toMatchObject({failure_streak:1,pause_reason:'room_archived'});
+  expect(active.paused_at).toBeTruthy();
+  expect(active.generation).not.toBe('active-generation');
+  expect(legacy).toMatchObject({pause_reason:'room_archived'});
+  expect(legacy.paused_at).toBeTruthy();
+  expect(await safety('room-manual-off')).toBeNull();
+  expect(await safety('room-failure-paused')).toEqual({generation:'failure-generation',failure_streak:3,paused_at:'failure-time',pause_reason:'consecutive_failures'});
+  expect(await safety('room-budget-paused')).toEqual({generation:'budget-generation',failure_streak:0,paused_at:'budget-time',pause_reason:'budget_daily'});
+  expect(await safety('other-room-active')).toEqual({generation:'other-generation',failure_streak:0,paused_at:null,pause_reason:null});
+  const {resumeWorkflowSafety}=await import('../src/harness/workflowSafety.js');
+  expect(await resumeWorkflowSafety(env.DB,org,'room-active',active.generation)).toBe(false);
+
+  expect(await archiveManagedRoom(env.DB,org,channel,{actorId:'creator',archived:false,version:2})).toMatchObject({archived:false,version:3});
+  const resumed=await safety('room-active');
+  expect(resumed).toMatchObject({failure_streak:1,paused_at:null,pause_reason:null});
+  expect(resumed.generation).not.toBe(active.generation);
+  expect(await safety('room-legacy-active')).toMatchObject({paused_at:null,pause_reason:null});
+  expect(await safety('room-manual-off')).toBeNull();
+  expect(await safety('room-failure-paused')).toEqual({generation:'failure-generation',failure_streak:3,paused_at:'failure-time',pause_reason:'consecutive_failures'});
+  expect(await safety('room-budget-paused')).toEqual({generation:'budget-generation',failure_streak:0,paused_at:'budget-time',pause_reason:'budget_daily'});
+  expect(await safety('other-room-active')).toEqual({generation:'other-generation',failure_streak:0,paused_at:null,pause_reason:null});
+  expect(await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1 AND id=?2').bind(org,'room-manual-off').first('enabled')).toBe(0);
+});
+
 test('the public managed-room leave endpoint removes joined state without revoking public reading',async()=>{
   const {default:worker}=await import('../src/index.js');
   const {createSession}=await import('../src/db.js');

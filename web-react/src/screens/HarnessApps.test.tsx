@@ -6,6 +6,7 @@ import { HarnessApiError, harnessApi } from '../utils/harness'
 import { systemCellText } from '../utils/systemColumns'
 import { parseRoute } from '../utils/route'
 import { AppRecordDialog } from '../components/AppRecordDialog'
+import * as csvExport from '../utils/csvExport'
 
 const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async importOriginal => ({
@@ -247,6 +248,17 @@ test.each(['table','board','calendar'] as const)('record search filters the %s v
   expect(visible('a')).toBe(1);expect(visible('b')).toBe(1);expect(visible('c')).toBe(1);expect(visible('d')).toBe(0)
   expect(JSON.stringify(tree!.toJSON())).toContain('3 records')
   expect(state.api.updateRow).toBeUndefined()
+})
+
+test('Data Viewer exports the searched view rows with relation labels',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'});const download=vi.spyOn(csvExport,'downloadCsv').mockImplementation(()=>{})
+ const alpha={id:'a',values:{title:'Alpha',customer:'customer_a'},updatedAt:'2026-01-01T00:00:00Z'},beta={id:'b',values:{title:'Beta',customer:'customer_b'},updatedAt:'2026-01-02T00:00:00Z'},excluded={id:'c',values:{title:'Excluded'},updatedAt:'2026-01-03T00:00:00Z'}
+ const view={id:'all',type:'table',name:'All records',rows:[alpha,beta]}
+ state.api={app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'},{id:'customer',name:'Customer',type:'relation',targetEntity:'customers'}]},rows:[alpha,beta,excluded],views:[view],canCustomize:false}),appDatabase:vi.fn().mockResolvedValue({entities:[{key:'customers',table:{id:'customers',name:'Customers',columns:[{id:'name',name:'Name',type:'text'}]}}]}),entityRows:vi.fn().mockResolvedValue({rows:[{id:'customer_a',values:{name:'Acme'},updatedAt:''},{id:'customer_b',values:{name:'Globex'},updatedAt:''}]}),personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]})}
+ await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+ act(()=>tree!.root.findAllByType('input').find(node=>node.props.type==='search'&&node.props['aria-label']==='Search records')!.props.onChange({target:{value:'globex'}}));act(()=>tree!.root.findByProps({'aria-label':'その他のデータビューアー操作'}).props.onClick());act(()=>tree!.root.findByProps({role:'menuitem'}).props.onClick())
+ expect(download).toHaveBeenCalledOnce();expect(download.mock.calls[0][0]).toBe('Tasks-All records');expect(download.mock.calls[0][1]).toBe('"Title","Customer"\r\n"Beta","Globex"');expect(download.mock.calls[0][1]).not.toContain('Excluded')
+ download.mockRestore()
 })
 
 test.each(['table','board','calendar'] as const)('record search finds system IDs and timestamps in the %s view', async type => {

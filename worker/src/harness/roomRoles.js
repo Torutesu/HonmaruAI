@@ -1,6 +1,7 @@
 // Room roles are independent of workspace and agent roles. A grant belongs
 // to the current membership/assignment, so leaving and returning never revives it.
 import {roomAgentAccessPlan} from './agentAccessRequests.js';
+import {workflowRoomArchiveStatements} from './workflowSafety.js';
 const subjects = `SELECT 'person' AS kind,u.github_id AS id,u.name,u.login,
     m.created_at||'/'||c.added_at AS membership,CASE WHEN LOWER(TRIM(COALESCE(m.role,'guest')))='guest' THEN 0 ELSE 1 END AS eligible,
     CASE WHEN LOWER(TRIM(COALESCE(m.role,'guest')))='guest' THEN 'member' ELSE COALESCE(r.role,'member') END AS role
@@ -396,7 +397,7 @@ export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,vers
   if(version!==undefined&&version!==state.version)return {error:'Room roles changed. Reload before saving.',status:409};
   const nonce=crypto.randomUUID(),at=archived?new Date().toISOString():null;
   const allSubjects=subjects.replaceAll(' AND b.archived_at IS NULL','');
-  const result=await db.batch([
+  const statements=[
     db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?3 WHERE org_id=?1 AND channel=?2 AND version=?4 AND deleted_at IS NULL
       AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?5 AND m.created_at=?6 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
         AND (lower(trim(m.role)) IN('admin','owner') OR EXISTS(SELECT 1 FROM (${allSubjects}) WHERE kind='person' AND id=?5 AND eligible=1 AND membership=?7)))
@@ -405,7 +406,9 @@ export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,vers
     db.prepare(`UPDATE businesses SET archived_at=CASE WHEN ?7 THEN ?4 ELSE archived_at END,name=CASE WHEN ?5 THEN ?6 ELSE name END WHERE org_id=?1 AND 'b:'||slug=?2
       AND EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3 AND deleted_at IS NULL)`)
       .bind(orgId,channel,nonce,at,name===undefined?0:1,name?.trim()||null,typeof archived==='boolean'?1:0),
-  ]);
+  ];
+  if(typeof archived==='boolean')statements.push(...workflowRoomArchiveStatements(db,orgId,channel,{archived,mutationId:nonce,at}));
+  const result=await db.batch(statements);
   return result[0].meta?.changes?{managed:true,...(typeof archived==='boolean'?{archived}:{}),version:state.version+1}:{error:'Room roles changed. Reload before saving.',status:409};
 }
 

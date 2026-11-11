@@ -8,6 +8,12 @@ test('wrap toggle reports save failure and retries without falsely changing chec
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const save=vi.fn().mockRejectedValueOnce(new Error('競合')).mockResolvedValue(undefined);let tree:ReturnType<typeof create>
  act(()=>{tree=create(<AppDataMenu wrapText={false} save={save}/>)});act(()=>tree!.root.findByProps({'aria-label':'その他のデータビューアー操作'}).props.onClick());await act(async()=>{tree!.root.findByProps({role:'menuitemcheckbox'}).props.onClick();await Promise.resolve()});expect(save).toHaveBeenCalledWith(true);expect(tree!.root.findByProps({role:'menuitemcheckbox'}).props['aria-checked']).toBe(false);expect(tree!.root.findByProps({role:'alert'}).children).toContain('競合');await act(async()=>{tree!.root.findByProps({role:'menuitemcheckbox'}).props.onClick();await Promise.resolve()});expect(tree!.root.findAllByProps({role:'menu'})).toHaveLength(0);act(()=>tree!.unmount())
 })
+test('CSV export invokes the current-view export and closes the menu without changing layout',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const save=vi.fn(),onExport=vi.fn();let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<AppDataMenu wrapText={true} save={save} onExport={onExport}/>)});act(()=>tree!.root.findByProps({'aria-label':'その他のデータビューアー操作'}).props.onClick())
+ const item=tree!.root.findByProps({role:'menuitem'});expect(item.children).toContain('CSVを書き出す');act(()=>item.props.onClick())
+ expect(onExport).toHaveBeenCalledOnce();expect(save).not.toHaveBeenCalled();expect(tree!.root.findAllByProps({role:'menu'})).toHaveLength(0);act(()=>tree!.unmount())
+})
 test('Escape is handled only while the menu is open, without consuming IME composition',()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});let tree:ReturnType<typeof create>
  act(()=>{tree=create(<AppDataMenu wrapText={false} save={vi.fn()}/>)});

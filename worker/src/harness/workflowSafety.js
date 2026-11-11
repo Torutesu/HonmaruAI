@@ -140,10 +140,39 @@ export async function pauseWorkflowForBudget(db,orgId,workflowId,safety,reason,n
   return !!result.meta?.changes;
 }
 export async function resumeWorkflowSafety(db,orgId,workflowId,generation) {
+  const current=await readWorkflowSafety(db,orgId,workflowId);
+  // A Room restore is the only operation that may clear an archive pause.
+  // Otherwise a workflow could be resumed while its source Room is hidden.
+  if(current?.pause_reason==='room_archived')return false;
   const result=await db.prepare(`UPDATE hx_workflow_safety SET generation=?1,failure_streak=0,paused_at=NULL,pause_reason=NULL
     WHERE org_id=?2 AND workflow_id=?3 AND generation=?4 AND EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3)`)
     .bind(crypto.randomUUID(),orgId,workflowId,generation).run();
   return !!result.meta?.changes;
+}
+
+// Add these statements to the transaction that archives/restores a managed
+// Room. A separate pause reason lets restoration resume only automations that
+// the archive action itself paused; manual, failure, and budget pauses survive.
+export function workflowRoomArchiveStatements(db,orgId,channel,{archived,mutationId,at}) {
+  const mutation=`EXISTS(SELECT 1 FROM hx_room_access access WHERE access.org_id=?1 AND access.channel=?2 AND access.mutation_id=?3 AND access.deleted_at IS NULL)`;
+  const source=`EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=?1 AND source.workflow_id=hx_workflow_safety.workflow_id AND source.channel=?2)`;
+  const room=`EXISTS(SELECT 1 FROM businesses room WHERE room.org_id=?1 AND 'b:'||room.slug=?2 AND room.archived_at IS `+(archived?'NOT NULL':'NULL')+`)`;
+  if(archived){
+    return [
+      db.prepare(`INSERT OR IGNORE INTO hx_workflow_safety(org_id,workflow_id,generation,paused_at,pause_reason)
+        SELECT ?1,w.id,lower(hex(randomblob(16))),?4,'room_archived'
+        FROM hx_workflows w JOIN hx_workflow_sources source ON source.org_id=w.org_id AND source.workflow_id=w.id AND source.channel=?2
+        WHERE w.org_id=?1 AND w.enabled=1 AND ${mutation} AND ${room}`)
+        .bind(orgId,channel,mutationId,at),
+      db.prepare(`UPDATE hx_workflow_safety SET generation=lower(hex(randomblob(16))),paused_at=?4,pause_reason='room_archived'
+        WHERE org_id=?1 AND ${source} AND paused_at IS NULL AND EXISTS(SELECT 1 FROM hx_workflows w WHERE w.org_id=?1 AND w.id=hx_workflow_safety.workflow_id AND w.enabled=1)
+          AND ${mutation} AND ${room}`)
+        .bind(orgId,channel,mutationId,at),
+    ];
+  }
+  return [db.prepare(`UPDATE hx_workflow_safety SET generation=lower(hex(randomblob(16))),paused_at=NULL,pause_reason=NULL
+    WHERE org_id=?1 AND ${source} AND pause_reason='room_archived' AND ${mutation} AND ${room}`)
+    .bind(orgId,channel,mutationId)];
 }
 // Append to the transaction which marks a run terminal. The persisted
 // definition freezes generation at admission; callers cannot supply outcomes.

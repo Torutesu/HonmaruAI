@@ -388,6 +388,17 @@ test('failure pause blocks manual execution and replays, and resumes using the o
  expect(button('Run now').props.disabled).toBe(false)
  expect(button('Resume after review')).toBeUndefined()
 })
+test('an archived Room pause is explained and cannot be manually resumed before the Room is restored',async()=>{
+ const paused={...workflow,safety:{generation:'archive-generation',failure_streak:1,paused_at:'2026-10-24T00:00:00Z',pause_reason:'room_archived'}}
+ state.api.workflow.mockResolvedValue({workflow:paused,runs:[],canEdit:true})
+ state.api.resumeWorkflow=vi.fn()
+ await open()
+ expect(JSON.stringify(tree.toJSON())).toContain('Paused with archived Room')
+ expect(JSON.stringify(tree.toJSON())).toContain('Restore the Room to resume this Automation.')
+ expect(button('Run now').props.disabled).toBe(true)
+ expect(button('Resume after review')).toBeUndefined()
+ expect(state.api.resumeWorkflow).not.toHaveBeenCalled()
+})
 test('a failed resume keeps the pause visible and read-only members cannot resume',async()=>{
  const paused={...workflow,safety:{generation:'observed',failure_streak:3,paused_at:'now',pause_reason:'consecutive_failures'}}
  state.api.workflow.mockResolvedValue({workflow:paused,runs:[],canEdit:true})

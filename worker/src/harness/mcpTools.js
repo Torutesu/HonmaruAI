@@ -279,6 +279,7 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
       if (!wf) return err("No such workflow.");
       if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can resume this workflow.");
       const safety = await readWorkflowSafety(db, orgId, workflowId);
+      if (safety?.pause_reason === "room_archived") return err("Restore the source Room to resume this workflow.");
       if (safety?.pause_reason?.startsWith("budget_ai_")) return err("This workflow reached its estimated AI usage limit or has unpriced usage. It can run again after the rolling window resets or after you change its budget.");
       if (safety?.pause_reason?.startsWith("budget_")) return err("This workflow can run again on its next trigger after the budget window resets, or as soon as you raise the limit.");
       if (typeof args.generation !== "string" || !await resumeWorkflowSafety(db, orgId, workflowId, args.generation)) return err("The workflow state changed. Reload before resuming.");
