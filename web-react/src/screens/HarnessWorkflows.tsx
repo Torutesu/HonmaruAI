@@ -335,6 +335,9 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [recoveringRun, setRecoveringRun] = useState<string | null>(null)
   const [cancellingRun, setCancellingRun] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(false)
+  const [confirmRestore, setConfirmRestore] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
   const [syncError,setSyncError]=useState('')
   const detailRequest = useRef(0)
   const { busy, error, act } = useAct()
@@ -387,7 +390,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     if(props.onNavigateWorkflow && props.requestedWorkflowId!==id){props.onNavigateWorkflow(id);return Promise.resolve()}
     const request = ++detailRequest.current
     return act(`open:${id}`, async () => {
-      setSyncError(''); setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setHeldPageOffset(0); setConfirmDelete(false)
+      setSyncError(''); setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setHeldPageOffset(0); setConfirmDelete(false); setConfirmArchive(false); setConfirmRestore(false)
       try {
         const [result,source] = await Promise.all([
           api.workflow(id, 0),
@@ -488,7 +491,12 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
           await refreshOpen(w.id)
         })}><Icon name="refresh" size={14} /> {t('Refresh')}</button>
       }>
-        {!w.enabled && !w.safety?.paused_at && <p className="form-note">{t('Automatic triggers are paused. You can still run this workflow manually.')}</p>}
+        {w.archivedAt && <section className="form-note hx-workflow-archived" role="status" aria-label={t('Archived workflow')}>
+          <strong>{t('This automation is archived.')}</strong>
+          <p>{t('Its definition and run history are retained. New runs are blocked until it is restored.')}</p>
+          <p>{t('Archived {when}',{when:new Date(w.archivedAt).toLocaleString()})}</p>
+        </section>}
+        {!w.archivedAt && !w.enabled && !w.safety?.paused_at && <p className="form-note">{t('Automatic triggers are paused. You can still run this workflow manually.')}</p>}
         {w.safety?.paused_at && <section className="form-note" role="status">
           <strong>{roomArchivedPause?t('Paused with archived Room'):aiBudgetPause?t('Paused by estimated AI usage budget'):budgetPause?t('Paused after reaching the {period} run limit',{period:pausedPeriod?t(`${pausedPeriod[0].toUpperCase()+pausedPeriod.slice(1)} run budget`):t('Daily run budget')}):t('Paused after three consecutive failures')}</strong>
           {roomArchivedPause?<p>{t('Restore the Room to resume this Automation.')}</p>:aiBudgetPause&&w.safety?.pause_reason==='budget_ai_unpriced'?<p>{t('AI usage could not be priced. This workflow can resume after the unpriced usage leaves its rolling window or the limit is changed.')}</p>:aiBudgetPause?<p>{t('This workflow can run again on its next trigger after {when}, or when its AI usage budget is raised.',{when:pausedBudget?.resetAt?new Date(pausedBudget.resetAt).toLocaleString():''})}</p>:budgetPause?<p>{t('This workflow can run again on the next trigger after {when}, or as soon as its run limit is raised.',{when:pausedBudget?.resetAt?new Date(pausedBudget.resetAt).toLocaleString():''})}</p>:<p>{t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>}
@@ -559,12 +567,30 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         {(error||syncError) && <div className="form-error" role="alert">{error||syncError}</div>}
         {open.canEdit && (
           <div className="hx-actions">
-            <button className="pill-btn quiet" disabled={!!busy || !w.updatedAt} onClick={() => setEditing(structuredClone(w))}><Icon name="edit" size={14} /> {t('Edit workflow')}</button>
-            <button className="pill-btn" disabled={!!busy || !!w.safety?.paused_at} onClick={() => act('run', async () => { await api.runWorkflow(w.id, ''); await refreshOpen(w.id) })}><Icon name="zap" size={14} /> {t('Run now')}</button>
-            <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('toggle', async () => { await api.updateWorkflow(w.id, { enabled: !w.enabled }); await refreshOpen(w.id) })}>{w.enabled ? t('Turn off') : t('Turn on')}</button>
+            {!w.archivedAt && <>
+              <button className="pill-btn quiet" disabled={!!busy || !w.updatedAt} onClick={() => setEditing(structuredClone(w))}><Icon name="edit" size={14} /> {t('Edit workflow')}</button>
+              <button className="pill-btn" disabled={!!busy || !!w.safety?.paused_at} onClick={() => act('run', async () => { await api.runWorkflow(w.id, ''); await refreshOpen(w.id) })}><Icon name="zap" size={14} /> {t('Run now')}</button>
+              <button className="pill-btn quiet" disabled={!!busy} onClick={() => act('toggle', async () => { await api.updateWorkflow(w.id, { enabled: !w.enabled }); await refreshOpen(w.id) })}>{w.enabled ? t('Turn off') : t('Turn on')}</button>
+              <button className="pill-btn quiet" disabled={!!busy||!w.updatedAt} onClick={()=>setConfirmArchive(true)}>{t('Archive')}</button>
+            </>}
+            {w.archivedAt && <button className="pill-btn" disabled={!!busy||!w.updatedAt} onClick={()=>setConfirmRestore(true)}>{t('Restore automation')}</button>}
             <button className="btn-text danger" disabled={!!busy} onClick={() => { setConfirmDelete(true); setHookAction(null); setReplaySelection(null); setDiscardSelection(null) }}>{t('Delete')}</button>
           </div>
         )}
+        {open.canEdit && confirmArchive && <section className="form-note" aria-label={t('Archive workflow')}>
+          <p>{t('Archiving stops automatic triggers and keeps this definition and its run history. It cannot start new runs until restored. Running or approval-waiting runs must be resolved first.')}</p>
+          <div className="hx-actions">
+            <button className="pill-btn" disabled={!!busy} onClick={()=>act('archive',async()=>{await api.archiveWorkflow(w.id,true,w.updatedAt!);setConfirmArchive(false);await load();await refreshOpen(w.id)})}>{t('Archive automation')}</button>
+            <button className="btn-text" disabled={!!busy} onClick={()=>setConfirmArchive(false)}>{t('Keep active')}</button>
+          </div>
+        </section>}
+        {open.canEdit && confirmRestore && <section className="form-note" aria-label={t('Restore workflow')}>
+          <p>{w.archivedPreviousEnabled?t('Restoring this automation will re-enable its previous schedule or trigger. Review it before continuing.'):t('Restoring makes this automation available again. It will remain turned off.')}</p>
+          <div className="hx-actions">
+            <button className="pill-btn" disabled={!!busy} onClick={()=>act('restore-archive',async()=>{await api.archiveWorkflow(w.id,false,w.updatedAt!);setConfirmRestore(false);await load();await refreshOpen(w.id)})}>{t('Confirm restore')}</button>
+            <button className="btn-text" disabled={!!busy} onClick={()=>setConfirmRestore(false)}>{t('Cancel')}</button>
+          </div>
+        </section>}
         {open.canEdit && confirmDelete && <section className="form-note" aria-label={t('Delete workflow')}>
           <p>{t('Delete “{name}” and its run history? This cannot be undone. Past changes are not undone.', { name: w.name })}</p>
           <div className="hx-actions">
@@ -605,6 +631,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
           {!!open.held?.count && <div className="form-note">
             <p>{t('Held events: {count}', { count: open.held.count })}</p>
             {open.held.oldestExpiry && <p>{t('Oldest event expires: {when}', { when: new Date(open.held.oldestExpiry).toLocaleString() })}</p>}
+            {w.archivedAt ? <p>{t('Held events are preserved while archived. Restore this automation before replaying or discarding them.')}</p> : <>
             <p>{t('Resuming does not replay held events. Replay runs the saved workflow with real effects, oldest first.')}</p>
             {(replaySelection !== null || discardSelection !== null) && <>
               <p>{t('Selected {count} of {total}', { count: (replaySelection ?? discardSelection ?? []).length, total: open.held.count })}</p>
@@ -653,6 +680,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                 <button className="btn-text" disabled={!!busy} onClick={() => setDiscardSelection(null)}>{t('Cancel')}</button>
               </div>
             </div>}
+            </>}
           </div>}
         </section>}
         <section className="hx-run-summary" aria-label={t('Last 7 days')}>
@@ -733,6 +761,10 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     <Shell className="hx-resource-screen" title={t('Workflows')} onClose={props.onClose} actions={!building && <button className="pill-btn" onClick={() => setBuilding(true)}><Icon name="plus" size={14} /> {t('Set up an automation')}</button>}>
       <WorkflowNotices api={api} onOpen={id=>void openOne(id)} />
       <p className="lede">{t('Describe the outcome once: when it should happen, and what follows. A person approves what matters.')}</p>
+      <div className="hx-workflow-tabs" role="tablist" aria-label={t('Workflow status')}>
+        <button type="button" role="tab" aria-selected={!showArchived} onClick={()=>setShowArchived(false)}>{t('Active automations')}</button>
+        <button type="button" role="tab" aria-selected={showArchived} onClick={()=>setShowArchived(true)}>{t('Archived automations')}</button>
+      </div>
       {(error||syncError) && <div className="form-error" role="alert">{error||syncError}</div>}
       {hook && <div className="form-note">{t('Call this address to start it:')} <code className="hx-code">{hook}</code></div>}
       {building && !manual && <section className="hx-generation hx-guided-setup" aria-label={t('Guided automation setup')}>
@@ -789,12 +821,12 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         />
       )}
       {workflows === null && <div className="empty">{t('Loading…')}</div>}
-      {workflows?.length === 0 && !building && <div className="hx-resource-empty"><span className="hx-resource-symbol"><Icon name="zap" size={24} /></span><h2>{t('No workflows yet.')}</h2><p>{t('Automations do work on a schedule or when something happens in this room.')}</p><button onClick={() => setBuilding(true)}>{t('Set up an automation')}</button></div>}
+      {workflows && workflows.filter(w=>Boolean(w.archivedAt)===showArchived).length === 0 && !building && <div className="hx-resource-empty"><span className="hx-resource-symbol"><Icon name="zap" size={24} /></span><h2>{showArchived?t('No archived automations.'):t('No workflows yet.')}</h2><p>{showArchived?t('Archived automations keep their definitions and run history here.'):t('Automations do work on a schedule or when something happens in this room.')}</p>{!showArchived&&<button onClick={() => setBuilding(true)}>{t('Set up an automation')}</button>}</div>}
       <div className="rows">
-        {workflows?.map((w) => (
+        {workflows?.filter(w=>Boolean(w.archivedAt)===showArchived).map((w) => (
           <button key={w.id} className="row" onClick={() => openOne(w.id)} data-workflow={w.id}>
             <span className="row-icon"><Icon name="zap" size={18} /></span>
-            <span className="row-main">{w.name}{w.safety?.paused_at && <span className="hx-off"> · {w.safety.pause_reason==='room_archived'?t('Paused with archived Room'):w.safety.pause_reason?.startsWith('budget_ai_')?t('Paused by estimated AI usage budget'):w.safety.pause_reason?.startsWith('budget_')?t('Paused by run budget'):t('Paused after failures')}</span>}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
+            <span className="row-main">{w.name}{w.archivedAt&&<span className="hx-off"> · {t('Archived')}</span>}{!w.archivedAt&&w.safety?.paused_at && <span className="hx-off"> · {w.safety.pause_reason==='room_archived'?t('Paused with archived Room'):w.safety.pause_reason?.startsWith('budget_ai_')?t('Paused by estimated AI usage budget'):w.safety.pause_reason?.startsWith('budget_')?t('Paused by run budget'):t('Paused after failures')}</span>}{!w.archivedAt&&!w.enabled && <span className="hx-off"> · {t('off')}</span>}
               <span className="row-sub">{triggerLabel(t, w.trigger, tables, triggerApps)} · {w.steps.length} {t('steps')}</span>
             </span>
             <span className="row-value">›</span>

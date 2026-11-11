@@ -31,6 +31,7 @@ beforeEach(async () => {
     if (sql.startsWith('ALTER TABLE ')) await applyTestColumn(sql);
     else await env.DB.exec(sql);
   }
+  for (const sql of workflowArchiveColumns) await applyTestColumn(sql);
   // Keep the workflow budget columns in step with the production migration.
   for (const sql of workflowBudgetColumns) {
     if (sql.startsWith('ALTER TABLE ')) await applyTestColumn(sql);
@@ -73,6 +74,10 @@ const workflowBudgetColumns = [
   "ALTER TABLE hx_workflow_safety ADD COLUMN ai_budget_action TEXT NOT NULL DEFAULT 'warn'",
   "ALTER TABLE hx_workflow_usage ADD COLUMN estimated_micros INTEGER CHECK(estimated_micros>=0)",
   "CREATE TABLE IF NOT EXISTS hx_workflow_ai_budget_notices (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, period TEXT NOT NULL CHECK(period IN ('24h','7d','30d')), budget_revision INTEGER NOT NULL, bucket_start TEXT NOT NULL, run_id TEXT NOT NULL, recipient_id TEXT NOT NULL, estimated_micros INTEGER NOT NULL, limit_micros INTEGER NOT NULL, unpriced_calls INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, delivered_at TEXT, last_attempt_at TEXT, UNIQUE(org_id,workflow_id,period,budget_revision,bucket_start))",
+];
+const workflowArchiveColumns = [
+  'ALTER TABLE hx_workflows ADD COLUMN archived_at TEXT',
+  'ALTER TABLE hx_workflows ADD COLUMN archived_enabled INTEGER CHECK(archived_enabled IS NULL OR archived_enabled IN (0,1))',
 ];
 
 function sqlStatements(source) {
