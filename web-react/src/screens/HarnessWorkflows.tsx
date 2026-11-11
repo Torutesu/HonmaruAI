@@ -471,6 +471,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   if (open) {
     const w = open.workflow
     const budget=w.safety?.budget
+    const roomArchivedPause=w.safety?.pause_reason==='room_archived'
     const budgetPause=w.safety?.pause_reason?.startsWith('budget_')===true
     const aiBudgetPause=w.safety?.pause_reason?.startsWith('budget_ai_')===true
     const aiPausedPeriod=aiBudgetPause?({budget_ai_24h:'24h',budget_ai_7d:'7d',budget_ai_30d:'30d'} as const)[w.safety?.pause_reason as 'budget_ai_24h'|'budget_ai_7d'|'budget_ai_30d']:undefined
@@ -489,9 +490,9 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
       }>
         {!w.enabled && !w.safety?.paused_at && <p className="form-note">{t('Automatic triggers are paused. You can still run this workflow manually.')}</p>}
         {w.safety?.paused_at && <section className="form-note" role="status">
-          <strong>{aiBudgetPause?t('Paused by estimated AI usage budget'):budgetPause?t('Paused after reaching the {period} run limit',{period:pausedPeriod?t(`${pausedPeriod[0].toUpperCase()+pausedPeriod.slice(1)} run budget`):t('Daily run budget')}):t('Paused after three consecutive failures')}</strong>
-          {aiBudgetPause&&w.safety?.pause_reason==='budget_ai_unpriced'?<p>{t('AI usage could not be priced. This workflow can resume after the unpriced usage leaves its rolling window or the limit is changed.')}</p>:aiBudgetPause?<p>{t('This workflow can run again on its next trigger after {when}, or when its AI usage budget is raised.',{when:pausedBudget?.resetAt?new Date(pausedBudget.resetAt).toLocaleString():''})}</p>:budgetPause?<p>{t('This workflow can run again on the next trigger after {when}, or as soon as its run limit is raised.',{when:pausedBudget?.resetAt?new Date(pausedBudget.resetAt).toLocaleString():''})}</p>:<p>{t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>}
-          {open.canEdit && !budgetPause && <button className="pill-btn" disabled={!!busy} onClick={()=>act('resume',async()=>{
+          <strong>{roomArchivedPause?t('Paused with archived Room'):aiBudgetPause?t('Paused by estimated AI usage budget'):budgetPause?t('Paused after reaching the {period} run limit',{period:pausedPeriod?t(`${pausedPeriod[0].toUpperCase()+pausedPeriod.slice(1)} run budget`):t('Daily run budget')}):t('Paused after three consecutive failures')}</strong>
+          {roomArchivedPause?<p>{t('Restore the Room to resume this Automation.')}</p>:aiBudgetPause&&w.safety?.pause_reason==='budget_ai_unpriced'?<p>{t('AI usage could not be priced. This workflow can resume after the unpriced usage leaves its rolling window or the limit is changed.')}</p>:aiBudgetPause?<p>{t('This workflow can run again on its next trigger after {when}, or when its AI usage budget is raised.',{when:pausedBudget?.resetAt?new Date(pausedBudget.resetAt).toLocaleString():''})}</p>:budgetPause?<p>{t('This workflow can run again on the next trigger after {when}, or as soon as its run limit is raised.',{when:pausedBudget?.resetAt?new Date(pausedBudget.resetAt).toLocaleString():''})}</p>:<p>{t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>}
+          {open.canEdit && !budgetPause && !roomArchivedPause && <button className="pill-btn" disabled={!!busy} onClick={()=>act('resume',async()=>{
             await api.resumeWorkflow(w.id,w.safety!.generation)
             await refreshOpen(w.id)
           })}>{t('Resume after review')}</button>}
@@ -793,7 +794,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         {workflows?.map((w) => (
           <button key={w.id} className="row" onClick={() => openOne(w.id)} data-workflow={w.id}>
             <span className="row-icon"><Icon name="zap" size={18} /></span>
-            <span className="row-main">{w.name}{w.safety?.paused_at && <span className="hx-off"> · {w.safety.pause_reason?.startsWith('budget_ai_')?t('Paused by estimated AI usage budget'):w.safety.pause_reason?.startsWith('budget_')?t('Paused by run budget'):t('Paused after failures')}</span>}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
+            <span className="row-main">{w.name}{w.safety?.paused_at && <span className="hx-off"> · {w.safety.pause_reason==='room_archived'?t('Paused with archived Room'):w.safety.pause_reason?.startsWith('budget_ai_')?t('Paused by estimated AI usage budget'):w.safety.pause_reason?.startsWith('budget_')?t('Paused by run budget'):t('Paused after failures')}</span>}{!w.enabled && <span className="hx-off"> · {t('off')}</span>}
               <span className="row-sub">{triggerLabel(t, w.trigger, tables, triggerApps)} · {w.steps.length} {t('steps')}</span>
             </span>
             <span className="row-value">›</span>
