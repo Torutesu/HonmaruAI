@@ -8,18 +8,25 @@ export function WorkflowSource({api,workflowId,orgId}:{api:HarnessApi;workflowId
  const t=useT(),sequence=useRef(0),pending=useRef(false),opened=useRef(false)
  const [state,setState]=useState<WorkflowSourceState|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[selected,setSelected]=useState('')
  useEffect(()=>{sequence.current++;pending.current=false;setState(null);setSelected('');setError('');setBusy(false);if(opened.current)void act();return()=>{sequence.current++}},[api,workflowId])
- const act=async(messageId?:string,more=false)=>{
+ const act=async(messageId?:string,more=false,move=false)=>{
   if(pending.current)return
   const current=++sequence.current;pending.current=true;setBusy(true);setError('')
   try{
-   const result=messageId?await api.bindWorkflowSource(workflowId,messageId):await api.workflowSource(workflowId,more?state?.nextCursor||undefined:undefined)
+   const result=messageId?(move&&state?.source?await api.moveWorkflowSource(workflowId,messageId,state.source.channel,state.source.threadId):await api.bindWorkflowSource(workflowId,messageId)):await api.workflowSource(workflowId,more?state?.nextCursor||undefined:undefined)
    if(current===sequence.current){setState(old=>more&&old?{...result,candidates:[...old.candidates,...result.candidates]}:result);setSelected('')}
   }catch(e){if(current===sequence.current){setState(null);setSelected('');setError(e instanceof Error?e.message:String(e))}}
   finally{if(current===sequence.current){pending.current=false;setBusy(false)}}
  }
  return <details className="hx-workflow-source" onToggle={e=>{opened.current=e.currentTarget.open;if(opened.current&&!state&&!busy&&!error)void act()}}><summary>{t('Automation source thread')}</summary>
   {busy&&<p role="status">{t('Loading…')}</p>}{error&&<p role="alert" className="form-error">{error}</p>}
-  {state?.source?<><p>{state.source.body}</p><a className="pill-btn quiet hx-source-open" href={hashForThread(state.source.threadId,orgId)}><Icon name="message" size={14}/>{t('Open the thread')}</a><p className="form-note">{t('Failure notices are sent to this thread.')} {t('Workflow access also follows this source conversation.')}</p></>:state&&<>
+  {state?.source?<><p>{state.source.body}</p><a className="pill-btn quiet hx-source-open" href={hashForThread(state.source.threadId,orgId)}><Icon name="message" size={14}/>{t('Open the thread')}</a><p className="form-note">{t('Failure notices are sent to this thread.')} {t('Workflow access also follows this source conversation.')}</p>
+   {state.canMove&&<><p className="form-note">{t('Move this automation to another Room by choosing one of its accessible threads. The automation keeps its current definition and run history.')}</p>
+    <div className="rows">{state.candidates.filter(root=>root.channel!==state.source?.channel).map(root=><label className="row static" key={root.id}><input type="radio" name={'workflow-move-source-'+workflowId} checked={selected===root.id} disabled={busy} onChange={()=>setSelected(root.id)}/><span className="row-main">{root.body}<small className="row-sub">{root.channel} · {new Date(root.createdAt).toLocaleString(getLocale())}</small></span></label>)}</div>
+    {!state.candidates.some(root=>root.channel!==state.source?.channel)&&<p>{t('No accessible threads in other Rooms on this page.')}</p>}
+    {state.nextCursor&&<button type="button" className="pill-btn quiet" disabled={busy} onClick={()=>void act(undefined,true)}>{t('Load older threads')}</button>}
+    <button type="button" className="pill-btn" disabled={busy||!selected||selected===state.source.threadId} onClick={()=>void act(selected,false,true)}>{t('Move to selected Room')}</button>
+   </>}
+  </>:state&&<>
    <p className="form-note">{t('Choose the thread where this automation was created. Failure notices will be posted there. This choice is fixed after saving.')} {t('Workflow access also follows this source conversation.')}</p>
    {!state.canBind?<p>{t('Only the creator can choose the source thread.')}</p>:<>
     <div className="rows">{state.candidates.map(root=><label className="row static" key={root.id}><input type="radio" name={'workflow-source-'+workflowId} checked={selected===root.id} disabled={busy} onChange={()=>setSelected(root.id)}/><span className="row-main">{root.body}<small className="row-sub">{new Date(root.createdAt).toLocaleString(getLocale())}</small></span></label>)}</div>

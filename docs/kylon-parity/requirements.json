@@ -1336,15 +1336,29 @@
     {
       "id": "KY-116",
       "category": "Apps",
-      "requirement": "Data Viewerの現在の結果をCSVで書き出す",
+      "requirement": "Data Viewerの現在の結果をCSVまたはExcelで書き出す",
       "status": "partial",
       "priority": "P1",
       "source": "https://kylon.io/help/export-app-records",
       "code": "web-react/src/components/AppDataMenu.tsx, web-react/src/utils/csvExport.ts",
-      "acceptance": "現在のビューのfilter・search・group順と表示列を保ったCSVを端末内で生成する。Relation列は表示名、system列は有効な場合だけ出力し、引用・改行・Unicode・数式注入を安全に扱い、5,000件まで出力する。Simple modeを維持し新規課金を追加しない。",
+      "acceptance": "現在のビューのfilter・search・group順と表示列を保ったCSVまたはXLSXを端末内で生成する。Relation列は表示名、system列は有効な場合だけ出力し、引用・改行・Unicode・数式注入を安全に扱い、5,000件まで出力する。Simple modeを維持し新規課金を追加しない。",
       "evidence": {
-        "verified": "Data Viewerのその他メニューにCSV書き出しを追加。アプリのフィルター済みビュー・検索結果・グループ順、表示中の列、Relationの表示名を利用し、RFC形式の引用、数式セルの無害化、Excel向けUTF-8 BOMを端末内で生成。空の結果と最大5,000件（既存App表示上限）に対応。",
-        "remaining": "この差分のPR CI・本番反映後の認証画面でのダウンロード確認、モバイルと大規模データのUX、Kylonとの詳細な出力内容比較が残る。部分一致として扱う。"
+        "verified": "Data Viewerのその他メニューにCSV/XLSX書き出しを追加。両形式で同じフィルター済みビュー・検索結果・グループ順・表示列・Relation表示名を利用。CSVはRFC形式の引用、式無害化、Excel向けUTF-8 BOMに対応。XLSXはローカルOOXML生成でセル値を文字列として扱い、式実行を防ぐ。空の結果と最大5,000件（既存App表示上限）を対象とする。",
+        "remaining": "この差分のPR CI・本番反映後の認証画面でのダウンロード確認、モバイルと5,000件超のUX、Kylonとの詳細な出力比較が残る。部分一致として扱う。"
+      }
+    },
+    {
+      "id": "KY-117",
+      "category": "Automations",
+      "requirement": "作成済みAutomationを別Roomへ移動する",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "worker/src/harness/workflowSource.js, worker/src/harness/routes.js, web-react/src/components/WorkflowSource.tsx",
+      "acceptance": "Automation creatorがアクセス可能な別Roomの会話へsource threadを移動できる。移動は期待元sourceとの競合検知つきで原子的に行い、定義と履歴を保ち、アクセス可否・通知先・Room一覧への露出を新sourceに即時追従させる。監査ログを残す。Simple modeを維持し新規課金を追加しない。",
+      "evidence": {
+        "verified": "Kylon changelogにAutomationを別Roomへ移動する機能が掲載されている。Honmaruではcreator限定の移動API/UI、移動元・移動先conversationアクセス検証、source tupleのCAS更新、source_moved監査イベントを実装。権限・通知・一覧のsource row参照が移動先へ追従する。Worker 140テストとUIコンポーネントテストを実行。",
+        "remaining": "PR exact-head CI、本番反映後の認証画面でRoom移動・通知・アクセス喪失の実機確認とKylonとの操作比較が残るためpartial。"
       }
     }
   ]
