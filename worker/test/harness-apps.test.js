@@ -1584,6 +1584,51 @@ test('combined source and automation publication commits one version and replays
  expect((await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).enabled).toBe(0);
 });
 
+test('combined source publication cannot bypass an enabled independent approval policy',async()=>{
+ const f=await automationReleaseFixture();
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const firstSource='<html><body>Previously approved source</body></html>';
+ let draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:firstSource},'9101');
+ let candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
+ expect((await saveCustomRelease(env.DB,ORG,await getApp(env.DB,ORG,f.app.id),{action:'publish',version:draft.version,candidateId},'9101')).saved).toBe(true);
+ draft=await saveCustomRelease(env.DB,ORG,await getApp(env.DB,ORG,f.app.id),{action:'draft',version:(await getApp(env.DB,ORG,f.app.id)).version,html:'<html><body>Approval gated</body></html>'},'9101');
+ await env.DB.prepare('INSERT INTO hx_app_publish_policies(org_id,app_id,enabled,updated_by,updated_at) VALUES(?1,?2,1,?3,?4)')
+   .bind(ORG,f.app.id,'9101',new Date().toISOString()).run();
+ candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
+ const denied=await f.release({action:'publish',requestId:'publish_gate_combined01',version:draft.version,revision:1,includeSource:true,candidateId});
+ expect(denied).toMatchObject({status:409});
+ let current=await getApp(env.DB,ORG,f.app.id);
+ expect(current.version).toBe(draft.version);
+ expect(current.definition.custom.published).toBe(firstSource);
+ expect(await env.DB.prepare('SELECT published,revision FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual({published:null,revision:1});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual({n:0});
+ const automationOnly=await f.release({action:'publish',requestId:'publish_automation_only1',version:draft.version,revision:1,includeSource:false});
+ expect(automationOnly.saved).toBe(true);
+ current=await getApp(env.DB,ORG,f.app.id);
+ expect(current.definition.custom.published).toBe(firstSource);
+ expect(current.definition.custom.draft).toBe('<html><body>Approval gated</body></html>');
+});
+
+test('combined source publication cannot bypass the independent approval for a pinned GitHub commit',async()=>{
+ const f=await automationReleaseFixture();
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:'<html><body>Pinned source</body></html>'},'9101');
+ const app=await getApp(env.DB,ORG,f.app.id);
+ const definition={...app.definition,custom:{...app.definition.custom,draftCommit:{owner:'example',repo:'pinned-app',sha:'a'.repeat(40),sourceHash:'b'.repeat(64),appVersion:app.version}}};
+ await env.DB.prepare('UPDATE hx_apps SET definition=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify(definition),ORG,f.app.id).run();
+ const candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
+ const denied=await f.release({action:'publish',requestId:'publish_pinned_source01',version:draft.version,revision:1,includeSource:true,candidateId});
+ expect(denied).toMatchObject({status:409});
+ const current=await getApp(env.DB,ORG,f.app.id);
+ expect(current.version).toBe(draft.version);
+ expect(current.definition.custom.published).toBeUndefined();
+ expect(current.definition.custom.draftCommit.sha).toBe('a'.repeat(40));
+ expect(await env.DB.prepare('SELECT published,revision FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual({published:null,revision:1});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual({n:0});
+});
+
 test('combined publication rolls source and automation state back when a workflow write fails',async()=>{
  const f=await automationReleaseFixture();
  const {getApp}=await import('../src/harness/apps.js');

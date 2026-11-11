@@ -32,6 +32,11 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   if(prior)return prior.request===request?{...receipt(prior),replay:true}:conflict();
   if(input.version!==app.version)return conflict();
   const stopping=input.action==='unpublish';
+  if(publishSource) {
+    if(app.definition.custom?.draftCommit)return {error:'Publish this GitHub-pinned draft with its independent commit approval before releasing automations.',status:409};
+    const publishPolicy=await db.prepare('SELECT enabled FROM hx_app_publish_policies WHERE org_id=?1 AND app_id=?2').bind(orgId,app.id).first();
+    if(Number(publishPolicy?.enabled)===1)return {error:'This app requires independent custom-source approval. Publish the approved source separately, then release its automations.',status:409};
+  }
   const plan=stopping?await readAutomationDraft(db,orgId,app.id):await readAutomationPlan(db,orgId,app.id,by);
   if(plan.error)return plan;
   if(plan.revision!==input.revision)return conflict();
@@ -89,7 +94,7 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   const guard='EXISTS(SELECT 1 FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2 AND release_id=?3)';
   const stateUpdateSql=`UPDATE hx_app_automation_state SET published=?4,release_id=?5,published_at=?6,revision=revision+1,updated_at=?6,updated_by=?7
     WHERE org_id=?1 AND app_id=?2 AND revision=?3
-      AND EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?8${publishSource?' AND '+previewCandidateExistsSql('?14','?2','?1','?8','?15'):''})
+      AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND a.version=?8${publishSource?` AND json_type(a.definition,'$.custom.draftCommit') IS NULL AND NOT EXISTS(SELECT 1 FROM hx_app_publish_policies p WHERE p.org_id=a.org_id AND p.app_id=a.id AND p.enabled=1) AND ${previewCandidateExistsSql('?14','?2','?1','?8','?15')}`:''})
       AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?7 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')
       AND (?12=1 OR (SELECT COUNT(*) FROM hx_workflows WHERE org_id=?1)+?10<=?11)
       AND NOT EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?1 AND id IN (SELECT value FROM json_each(?13)))
