@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 58855)
-Total output lines: 2894
-
 import { env } from "cloudflare:test";
 import { beforeEach, expect, test, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
@@ -1146,7 +1143,682 @@ test('a view made valid by the planned schema still fences a personal ID collisi
   columns:[...before.table.columns,{name:'Status',type:'select',options:['Open']}],
   definition:{views:[...before.app.definition.views,{id:mine.id,type:'board',name:'Board',groupBy:'Status'}]}});
  expect(response.status).toBe(409);
- con…13855 tokens truncated…ary')await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(publicApp.tableId,ORG,privateApp.id).run();
+ const after=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ expect(after.app).toEqual(before.app);expect(after.table).toEqual(before.table);
+});
+
+test('legacy collisions remain readable and removable without deleting a shared layout', async () => {
+ const shared={id:'personal_legacy',type:'table',name:'Shared'};
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Legacy shared',columns:[{name:'Name',type:'text'}],definition:{views:[shared]}})).json();
+ const original=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const id=original.table.columns[0].id,path=`/hx/personal-views/${app.id}`;
+ const old={views:[{...shared,name:'Mine'}],activeView:shared.id,layouts:{[shared.id]:{order:[id],widths:{[id]:220}}}};
+ await env.DB.prepare('INSERT INTO hx_personal_views(org_id,user_id,app_id,revision,settings) VALUES (?,?,?,?,?)').bind(ORG,'9102',app.id,1,JSON.stringify(old)).run();
+ const before=await (await get(`${path}?orgId=${ORG}`,mika)).json();expect(before.views).toHaveLength(1);
+ const removed=await send('PUT',path,mika,{orgId:ORG,expectedRevision:1,activeView:shared.id,views:[],layouts:before.layouts});
+ expect(removed.status).toBe(200);
+ const settings=await removed.json();
+ expect(settings.views).toEqual([]);expect(settings.activeView).toBe(shared.id);
+ expect(settings.layouts[shared.id].widths[id]).toBe(220);
+ expect((await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json()).app.definition).toEqual(original.app.definition);
+});
+
+test('concurrent personal and shared view creation cannot introduce a collision',async()=>{
+ const {updateApp}=await import('../src/harness/apps.js');
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Race',columns:[{name:'Name',type:'text'}]})).json();
+ const before=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const mine={id:'personal_race',type:'table',name:'Mine'};
+ const draft={expectedRevision:0,views:[mine],activeView:mine.id,layouts:{}};
+ let injected=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!injected){injected=true;const result=await updateApp(env.DB,ORG,app.id,{definition:{views:[...before.app.definition.views,{...mine,name:'Shared'}]}},'9101');expect(result.error).toBeUndefined()}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id,draft);
+ expect(result.status).toBe(409);
+ expect((await (await get(`/hx/personal-views/${app.id}?orgId=${ORG}`,mika)).json()).views).toEqual([]);
+});
+
+test('a concurrent personal view fences a shared view and its table edit in the same batch',async()=>{
+ const {updateApp}=await import('../src/harness/apps.js');
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Race',columns:[{name:'Name',type:'text'}]})).json();
+ const before=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const mine={id:'personal_race',type:'table',name:'Mine'};
+ let injected=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key==='batch')return async statements=>{
+   if(!injected){injected=true;const result=await personalViews(env.DB,ORG,'9102',app.id,{expectedRevision:0,views:[mine],activeView:mine.id,layouts:{}});expect(result.error).toBeUndefined()}
+   return db.batch(statements);
+  };
+  return typeof db[key]==='function'?db[key].bind(db):db[key];
+ }});
+ const result=await updateApp(racing,ORG,app.id,{tableName:'Must not be saved',definition:{views:[...before.app.definition.views,{...mine,name:'Shared'}]}},'9101');
+ expect(result.status).toBe(409);
+ const after=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ expect(after.app).toEqual(before.app);expect(after.table).toEqual(before.table);
+ expect((await (await get(`/hx/personal-views/${app.id}?orgId=${ORG}`,mika)).json()).views).toEqual([mine]);
+});
+
+test('personal view saves fail closed when app access is revoked before the write',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!revoked){revoked=true;await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,app.id).run()}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}});
+ expect(result.status).toBe(404);
+ expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
+});
+
+test('personal view saves fail closed when membership becomes a mixed-case guest before the write',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let demoted=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!demoted){demoted=true;await env.DB.prepare("UPDATE memberships SET role='Guest' WHERE org_id=? AND user_github_id=?").bind(ORG,'9102').run()}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}});
+ expect(result.status).toBe(404);
+ expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
+});
+
+test('personal view reads do not return computed rows after app access is revoked',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ expect((await personalViews(env.DB,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}})).error).toBeUndefined();
+ let revoked=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('SELECT 1 AS allowed WHERE EXISTS(SELECT 1 FROM hx_apps a'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(!revoked){revoked=true;await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,app.id).run()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id);
+ expect(result.status).toBe(404);
+ expect(result.computed).toBeUndefined();
+});
+
+test('personal view reads reject an app version change before returning computed rows',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {updateApp}=await import('../src/harness/apps.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ let changed=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('SELECT 1 AS allowed WHERE EXISTS(SELECT 1 FROM hx_apps a'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async first(){
+    if(!changed){changed=true;const result=await updateApp(env.DB,ORG,app.id,{name:'Changed'},'9101');expect(result.error).toBeUndefined()}
+    return bound.first();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id);
+ expect(result.status).toBe(409);expect(result.computed).toBeUndefined();
+});
+
+test('metadata query columns normalize without becoming editable/group/calendar fields',()=>{
+ const columns=[{id:'id',name:'ID',type:'text'}];
+ const view=normalizeDefinition({views:[{id:'v',type:'table',groupBy:'$row.id',sort:'-$row.updatedAt',filters:[{column:'$row.id',op:'contains',value:'row_'},{column:'$row.createdAt',op:'gt',value:'2026-01-01T00:00:00Z'}]}]},columns).views[0];
+ expect(view.sort).toBe('-$row.updatedAt');expect(view.filters).toHaveLength(2);expect(view.groupBy).toBeUndefined();
+ expect(normalizeDefinition({views:[{type:'table',sort:'ID'}]},columns).views[0].sort).toBe('id');
+});
+test('metadata sort/filter use real IDs and chronological instants, with missing dates last',()=>{
+ const table={columns:[{id:'id',type:'text'}]};
+ const rows=[{id:'row_b',createdAt:'2026-10-18T10:00:00.900+09:00',updatedAt:'2026-10-18T03:00:00Z',values:{id:'A','$row.id':'spoof'}},{id:'row_a',createdAt:'2026-10-18T02:00:00Z',updatedAt:'2026-10-18T02:00:00Z',values:{id:'B'}},{id:'row_c',values:{}}];
+ const result=patch=>computeView({type:'table',...patch},table,rows).rows.map(r=>r.id);
+ expect(result({sort:'$row.id'})).toEqual(['row_a','row_b','row_c']);
+ expect(result({sort:'-$row.id'})).toEqual(['row_c','row_b','row_a']);
+ expect(result({sort:'$row.createdAt'})).toEqual(['row_b','row_a','row_c']);
+ expect(result({sort:'-$row.createdAt'})).toEqual(['row_a','row_b','row_c']);
+ expect(result({sort:'-$row.updatedAt'})).toEqual(['row_b','row_a','row_c']);
+ const filter=(column,op,value)=>({filters:[{column,op,value}]});
+ expect(result(filter('$row.id','eq','spoof'))).toEqual([]);
+ expect(result(filter('$row.id','contains','ROW_A'))).toEqual(['row_a']);
+ expect(result(filter('$row.createdAt','eq','2026-10-18T01:00:00Z'))).toEqual(['row_b']);
+ expect(result(filter('$row.createdAt','gt','2026-10-18T01:30:00Z'))).toEqual(['row_a']);
+ expect(result(filter('$row.updatedAt','lt','2026-10-18T03:00:00Z'))).toEqual(['row_a']);
+ expect(result(filter('$row.updatedAt','empty',''))).toEqual(['row_c']);
+ expect(result(filter('$row.createdAt','gt','invalid'))).toEqual([]);
+ expect(result({sort:'$row.id',filters:[{column:'$row.id',op:'neq',value:'row_c'},{column:'$row.updatedAt',op:'not_empty',value:''}]})).toEqual(['row_a','row_b']);
+});
+test('shared and personal metadata queries persist with independent layouts and server computed rows',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm'})).json();
+ const definition={views:[{id:'metadata',type:'table',name:'Metadata',sort:'-$row.createdAt',filters:[{column:'$row.id',op:'contains',value:'row_'}]}]};
+ expect((await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,expectedVersion:app.version,definition})).status).toBe(200);
+ const shared=await (await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json();expect(shared.app.definition.views[0]).toMatchObject(definition.views[0]);
+ const path=`/hx/personal-views/${app.id}`;
+ const views=[{...definition.views[0],id:'personal_meta',sort:'$row.updatedAt'}];
+ const saved=await send('PUT',path,mika,{orgId:ORG,expectedRevision:0,activeView:'personal_meta',views,layouts:{}});expect(saved.status).toBe(200);
+ const result=await saved.json();expect(result.views).toEqual(views);expect(result.computed[0].sort).toBe('$row.updatedAt');
+ const {createSession}=await import('../src/db.js');const second=await createSession(env.DB,'9102','metadata-second');
+ expect(await (await get(`${path}?orgId=${ORG}`,second)).json()).toEqual(result);
+ expect((await (await get(`${path}?orgId=${ORG}`,toru)).json()).views).toEqual([]);
+ expect((await (await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app.definition.views).toEqual(shared.app.definition.views);
+});
+
+test("a shared app's definition is changed or restored only by its maker or an admin", async () => {
+  const { app } = await (await send("POST", "/apps", toru, { orgId: ORG, template: "tracker", sample: false })).json();
+  await send("PUT", `/apps/${app.id}`, toru, { orgId: ORG, name: "Launch checklist", expectedVersion: 1 });
+  const before = await (await get(`/apps/${app.id}?orgId=${ORG}`, mika)).json();
+  expect(before.canCustomize).toBe(false);
+  const views = before.app.definition.views.map((v, i) => (i === 0 ? { ...v, name: "Hidden by Mika" } : v));
+
+  const edit = await send("PUT", `/apps/${app.id}`, mika, { orgId: ORG, expectedVersion: before.app.version, definition: { ...before.app.definition, views }, columns: [...before.table.columns, { name: "Extra", type: "text" }] });
+  expect(edit.status).toBe(403);
+  expect((await send("POST", `/apps/${app.id}/versions`, mika, { orgId: ORG, version: 1 })).status).toBe(403);
+  const after = await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json();
+  expect(after.app).toEqual(before.app);
+  expect(after.table.columns).toEqual(before.table.columns);
+  expect((await (await get(`/apps/${app.id}/versions?orgId=${ORG}`, toru)).json()).versions.map((v) => v.version)).toEqual([2, 1]);
+
+  // Its maker still can, and the app stays usable by everyone.
+  expect((await send("PUT", `/apps/${app.id}`, toru, { orgId: ORG, expectedVersion: 2, definition: { ...before.app.definition, views } })).status).toBe(200);
+  expect((await (await send("POST", `/apps/${app.id}/versions`, toru, { orgId: ORG, version: 1 })).json()).app).toMatchObject({ name: "Tracker", version: 4 });
+  expect((await get(`/apps/${app.id}?orgId=${ORG}`, mika)).status).toBe(200);
+});
+
+test("a save that loses to another leaves the app's table, definition and history as the winner left them", async () => {
+  const { updateApp, getApp, listVersions } = await import("../src/harness/apps.js");
+  const { getTable } = await import("../src/harness/tables.js");
+  const { app } = await (await send("POST", "/apps", toru, { orgId: ORG, template: "tracker", sample: false })).json();
+  const columns = (await getTable(env.DB, ORG, app.tableId)).columns;
+  // Save B commits just before save A writes the app: A has already read it
+  // and planned its new column, as two editors on one revision would.
+  let competitor = null;
+  const beat = () => (competitor ||= updateApp(env.DB, ORG, app.id, { name: "B wins" }, "9101"));
+  const real = new WeakMap();
+  const racing = new Proxy(env.DB, {
+    get(db, key) {
+      if (key === "batch") return async (statements) => { await beat(); return db.batch(statements.map((s) => real.get(s) || s)); };
+      if (key !== "prepare") return typeof db[key] === "function" ? db[key].bind(db) : db[key];
+      return (sql) => {
+        const prepared = db.prepare(sql);
+        if (!sql.startsWith("UPDATE hx_apps SET name")) return prepared;
+        return { bind: (...args) => { const bound = prepared.bind(...args); const late = { run: async () => { await beat(); return bound.run(); } }; real.set(late, bound); return late; } };
+      };
+    },
+  });
+  const extra = [...columns, { name: "Extra", type: "text" }];
+  expect(await updateApp(racing, ORG, app.id, { expectedVersion: 1, columns: extra }, "9102")).toMatchObject({ status: 409 });
+  expect((await getTable(env.DB, ORG, app.tableId)).columns).toEqual(columns);
+  expect(await getApp(env.DB, ORG, app.id)).toMatchObject({ name: "B wins", version: 2 });
+  expect((await listVersions(env.DB, ORG, app.id)).versions.map((v) => v.version)).toEqual([2, 1]);
+
+  // Uncontested, the same save writes the column and the version together.
+  const won = await updateApp(env.DB, ORG, app.id, { expectedVersion: 2, columns: extra }, "9102");
+  expect(won.app.version).toBe(3);
+  expect((await getTable(env.DB, ORG, app.tableId)).columns.map((c) => c.name)).toContain("Extra");
+});
+
+test('app automation drafts are private to editors, inert and protected against concurrent saves',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const path=`/apps/${app.id}/automations`;
+ const first=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(first).toMatchObject({revision:0,version:app.version,draft:{version:1,items:[]},published:null});
+ const automations={version:1,items:[{key:'review',name:'Review',enabled:true,trigger:{type:'manual'},steps:[{type:'post',channel:'b:general',text:'draft-private-note'}]}]};
+ const appTrigger={type:'app_record_change',appId:app.id,entityId:'missing-entity',events:['update']};
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations:{version:1,items:[{...automations.items[0],trigger:appTrigger}]}})).status).toBe(400);
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations:{version:1,items:[{...automations.items[0],trigger:{...appTrigger,appId:'other_app',entityId:'primary'}}]}})).status).toBe(400);
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations:{version:1,items:[{...automations.items[0],trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['update'],when:{where:{no_such_field:'x'}}}}]}})).status).toBe(400);
+ expect((await get(`${path}?orgId=${ORG}`,mika)).status).toBe(403);
+ expect((await send('PUT',path,mika,{orgId:ORG,version:app.version,revision:0,automations})).status).toBe(403);
+ const results=await Promise.all([send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations}),send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations})]);
+ expect(results.map(r=>r.status).sort()).toEqual([200,409]);
+ const saved=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(saved).toMatchObject({revision:1,draft:automations,published:null});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect(JSON.stringify(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json())).not.toContain('draft-private-note');
+ const edit=await send('PUT',`/apps/${app.id}`,toru,{orgId:ORG,name:'Changed app',expectedVersion:app.version});expect(edit.status).toBe(200);
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:1,automations})).status).toBe(409);
+ const invalid=await send('PUT',path,toru,{orgId:ORG,version:app.version+1,revision:1,automations:{version:1,items:[...automations.items,...automations.items]}});expect(invalid.status).toBe(400);
+ expect((await(await get(`${path}?orgId=${ORG}`,toru)).json()).revision).toBe(1);
+});
+
+test('automation plan reports live drift but hides newly inaccessible workflow definitions',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const path=`/apps/${app.id}/automations`;
+ const declaration={key:'review',name:'Review',enabled:false,trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]};
+ const automations={version:1,items:[declaration]};
+ expect((await send('PUT',path,toru,{orgId:ORG,version:app.version,revision:0,automations})).status).toBe(200);
+ const initial=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(initial.plan[0].status).toBe('added');
+ const {workflow}=await(await send('POST','/workflows',toru,{orgId:ORG,...declaration})).json();
+ await env.DB.prepare('UPDATE hx_app_automation_state SET published=draft,release_id=?1 WHERE org_id=?2 AND app_id=?3').bind('release',ORG,app.id).run();
+ await env.DB.prepare('INSERT INTO hx_app_automation_bindings(org_id,app_id,declaration_key,workflow_id,applied,release_id) VALUES (?1,?2,?3,?4,?5,?6)').bind(ORG,app.id,'review',workflow.id,JSON.stringify(declaration),'release').run();
+ const unchanged=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(unchanged.plan[0].status).toBe('unchanged');
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1,hook_secret=?2 WHERE org_id=?3 AND id=?4').bind('Live changed','never-show-this-secret',ORG,workflow.id).run();
+ const changed=await(await get(`${path}?orgId=${ORG}`,toru)).json();expect(changed.plan[0]).toMatchObject({status:'drifted',live:{name:'Live changed'},declared:{name:'Review'}});expect(JSON.stringify(changed)).not.toContain('never-show-this-secret');
+ await env.DB.prepare('UPDATE hx_workflows SET trigger=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify({type:'row',tableId:'foreign-table',on:'any'}),ORG,workflow.id).run();
+ const denied=await get(`${path}?orgId=${ORG}`,toru);expect(denied.status).toBe(403);expect(JSON.stringify(await denied.json())).not.toContain('Live changed');
+});
+
+async function automationReleaseFixture() {
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const declaration={key:'review',name:'Review',enabled:true,trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]};
+ const automations={version:1,items:[declaration]};
+ await send('PUT',`/apps/${app.id}/automations`,toru,{orgId:ORG,version:app.version,revision:0,automations});
+ const {releaseAppAutomations}=await import('../src/harness/appAutomationRelease.js');
+ const {getApp}=await import('../src/harness/apps.js');
+ const release=async (input,db=env.DB)=>releaseAppAutomations(db,ORG,await getApp(env.DB,ORG,app.id),input,'9101');
+ return {app,automations,release};
+}
+async function directCustomPreview(app,by='9101') {
+ const {forkDatabase}=await import('../src/harness/appDatabase.js');
+ const {createCustomPreviewCandidate}=await import('../src/harness/customAppPreview.js');
+ const result=await forkDatabase(env.DB,ORG,app,String(by));
+ if(result.error)throw new Error(result.error);
+ const candidate=await createCustomPreviewCandidate(env.DB,ORG,app,String(by),{version:app.version,forkId:result.fork.id,revision:result.fork.revision});
+ if(candidate.error)throw new Error(candidate.error);
+ return candidate.candidate.id;
+}
+
+test('automation release is atomic, replayable and stops managed work without deleting history',async()=>{
+ const f=await automationReleaseFixture();
+ const request={action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1};
+ const published=await f.release(request);expect(published).toMatchObject({saved:true,revision:2,version:f.app.version+1});
+ const {results:workflows}=await env.DB.prepare('SELECT id,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).all();expect(workflows).toHaveLength(1);expect(workflows[0].enabled).toBe(1);
+ expect(await f.release(request)).toMatchObject({...published,replay:true});
+ expect((await f.release({...request,action:'unpublish'})).status).toBe(409);
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_request_01',version:published.version,revision:published.revision});expect(stopped.saved).toBe(true);
+ expect(await env.DB.prepare('SELECT id,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({id:workflows[0].id,enabled:0});
+ const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();expect(state.published).toBeNull();expect(state.draft).toEqual(f.automations);
+ const again=await f.release({action:'publish',requestId:'publish_request_0002',version:stopped.version,revision:stopped.revision});expect(again.saved).toBe(true);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:1});
+});
+
+test('failed workflow insertion rolls the entire automation publication back',async()=>{
+ const f=await automationReleaseFixture();
+ await env.DB.exec("CREATE TRIGGER fail_app_workflow BEFORE INSERT ON hx_workflows BEGIN SELECT RAISE(ABORT,'forced'); END;");
+ await expect(f.release({action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1})).rejects.toThrow();
+ await env.DB.exec('DROP TRIGGER fail_app_workflow;');
+ const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();expect(state).toMatchObject({revision:1,version:f.app.version,published:null});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_automation_releases WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+});
+
+test('a drifted live definition rejects publication without changing the app or other workflows',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1});expect(first.saved).toBe(true);
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Independent edit',ORG).run();
+ const next=await f.release({action:'publish',requestId:'publish_request_0002',version:first.version,revision:first.revision});expect(next.status).toBe(409);
+ expect((await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json()).revision).toBe(first.revision);
+ expect(await env.DB.prepare('SELECT name FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({name:'Independent edit'});
+});
+
+test('live edits between review and commit reject the entire automation release',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1});
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Concurrent edit',ORG).run();
+  return env.DB.batch(statements);
+ }};
+ expect((await f.release({action:'publish',requestId:'publish_request_0002',version:first.version,revision:first.revision},db)).status).toBe(409);
+ const current=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();expect(current).toMatchObject({revision:first.revision,version:first.version});
+ expect(await env.DB.prepare('SELECT name FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({name:'Concurrent edit'});
+});
+
+test('membership revocation before commit cannot enable app automations',async()=>{
+ const f=await automationReleaseFixture();
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG,'9101').run();
+  return env.DB.batch(statements);
+ }};
+ expect((await f.release({action:'publish',requestId:'publish_request_0001',version:f.app.version,revision:1},db)).status).toBe(409);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+});
+
+
+test('managed automation claims reject stopped releases and old runs cannot resume after republication',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_guard_000001',version:f.app.version,revision:1});
+ const {getWorkflow,startRun,continueRun}=await import('../src/harness/workflows.js');
+ const {managedAutomationMayRun}=await import('../src/harness/appAutomationGuard.js');
+ const binding=await env.DB.prepare('SELECT workflow_id,release_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
+ const workflow=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ expect(await managedAutomationMayRun(env.DB,ORG,workflow.id,binding.release_id)).toBe(true);
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_guard_001',version:first.version,revision:first.revision});
+ expect(await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9101'})).toBeNull();
+ expect(await managedAutomationMayRun(env.DB,ORG,workflow.id,binding.release_id)).toBe(false);
+ const again=await f.release({action:'publish',requestId:'republish_guard_001',version:stopped.version,revision:stopped.revision});expect(again.saved).toBe(true);
+ expect(await managedAutomationMayRun(env.DB,ORG,workflow.id,binding.release_id)).toBe(false);
+ const active=await startRun(env,{orgId:ORG,workflow:await getWorkflow(env.DB,ORG,workflow.id),trigger:'manual',startedBy:'9101'});expect(active.status).toBe('done');
+ await env.DB.prepare("UPDATE hx_workflow_runs SET status='running',next_step=0 WHERE id=?1").bind(active.id).run();
+ await f.release({action:'unpublish',requestId:'unpublish_guard_002',version:again.version,revision:again.revision});
+ const resumed=await continueRun(env,{orgId:ORG,runId:active.id});expect(resumed.status).toBe('failed');expect(JSON.stringify(resumed.log)).toContain('stopped');
+});
+
+test('deleting an app disables its managed workflow while retaining the ownership tombstone',async()=>{
+ const f=await automationReleaseFixture();
+ await f.release({action:'publish',requestId:'publish_delete_00001',version:f.app.version,revision:1});
+ const {getWorkflow,startRun}=await import('../src/harness/workflows.js');
+ const {deleteApp}=await import('../src/harness/apps.js');
+ const binding=await env.DB.prepare('SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
+ const workflow=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ expect(await deleteApp(env.DB,ORG,f.app.id)).toEqual({deleted:true});
+ expect(await getWorkflow(env.DB,ORG,workflow.id)).toMatchObject({enabled:false});
+ expect(await env.DB.prepare('SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual(binding);
+ expect(await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9101'})).toBeNull();
+});
+
+test('a stale workflow definition cannot be claimed under a newer app release',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_stale_000001',version:f.app.version,revision:1});
+ const {getWorkflow,startRun}=await import('../src/harness/workflows.js');
+ const binding=await env.DB.prepare('SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
+ const old=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ const automations={...f.automations,items:f.automations.items.map(item=>({...item,name:'New release'}))};
+ const saved=await(await send('PUT',`/apps/${f.app.id}/automations`,toru,{orgId:ORG,version:first.version,revision:first.revision,automations})).json();
+ expect((await f.release({action:'publish',requestId:'publish_stale_000002',version:first.version,revision:saved.revision})).saved).toBe(true);
+ expect(await startRun(env,{orgId:ORG,workflow:old,trigger:'manual',startedBy:'9101'})).toBeNull();
+ const current=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ expect((await startRun(env,{orgId:ORG,workflow:current,trigger:'manual',startedBy:'9101'})).status).toBe('done');
+});
+
+test('custom source unpublish stops automation atomically and source republish alone does not restart it',async()=>{
+ const f=await automationReleaseFixture();
+ await f.release({action:'publish',requestId:'publish_custom_00001',version:f.app.version,revision:1});
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const edit=async input=>{const app=await getApp(env.DB,ORG,f.app.id);return saveCustomRelease(env.DB,ORG,app,{...input,version:app.version},'9101');};
+ expect((await edit({action:'draft',html:'<html><body>App</body></html>'})).saved).toBe(true);
+ let current=await getApp(env.DB,ORG,f.app.id);let candidateId=await directCustomPreview(current);
+ expect((await edit({action:'publish',candidateId})).saved).toBe(true);
+ const stale=await getApp(env.DB,ORG,f.app.id);
+ expect((await edit({action:'draft',html:'<html>New</html>'})).saved).toBe(true);
+ expect((await saveCustomRelease(env.DB,ORG,stale,{action:'unpublish',version:stale.version},'9101')).status).toBe(409);
+ expect((await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).enabled).toBe(1);
+ expect((await edit({action:'unpublish'})).saved).toBe(true);
+ const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();
+ expect(state.published).toBeNull();expect(state.draft).toEqual(f.automations);expect(state.plan[0].status).toBe('added');
+ expect((await env.DB.prepare('SELECT enabled,next_run_at FROM hx_workflows WHERE org_id=?1').bind(ORG).first())).toEqual({enabled:0,next_run_at:null});
+ current=await getApp(env.DB,ORG,f.app.id);candidateId=await directCustomPreview(current);
+ expect((await edit({action:'publish',candidateId})).saved).toBe(true);
+ expect((await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).enabled).toBe(0);
+});
+
+test('combined source and automation publication commits one version and replays the same receipt',async()=>{
+ const f=await automationReleaseFixture();
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const source='<html><body>Combined release</body></html>';
+ const draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:source},'9101');
+ const candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
+ const request={action:'publish',requestId:'publish_combined_001',version:draft.version,revision:1,includeSource:true,candidateId};
+ expect((await f.release({...request,includeSource:false})).status).toBe(409);
+ const released=await f.release(request);expect(released).toMatchObject({saved:true,version:draft.version+1});
+ expect((await getApp(env.DB,ORG,f.app.id)).definition.custom.published).toBe(source);
+ expect(await f.release(request)).toMatchObject({...released,replay:true});
+ expect((await f.release({...request,includeSource:false})).status).toBe(409);
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_combined01',version:released.version,revision:released.revision,includeSource:true});expect(stopped.saved).toBe(true);
+ expect((await getApp(env.DB,ORG,f.app.id)).definition.custom.published).toBeUndefined();
+ expect((await env.DB.prepare('SELECT enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).enabled).toBe(0);
+});
+
+test('combined source publication cannot bypass an enabled independent approval policy',async()=>{
+ const f=await automationReleaseFixture();
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const firstSource='<html><body>Previously approved source</body></html>';
+ let draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:firstSource},'9101');
+ let candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
+ expect((await saveCustomRelease(env.DB,ORG,await getApp(env.DB,ORG,f.app.id),{action:'publish',version:draft.version,candidateId},'9101')).saved).toBe(true);
+ draft=await saveCustomRelease(env.DB,ORG,await getApp(env.DB,ORG,f.app.id),{action:'draft',version:(await getApp(env.DB,ORG,f.app.id)).version,html:'<html><body>Approval gated</body></html>'},'9101');
+ await env.DB.prepare('INSERT INTO hx_app_publish_policies(org_id,app_id,enabled,updated_by,updated_at) VALUES(?1,?2,1,?3,?4)')
+   .bind(ORG,f.app.id,'9101',new Date().toISOString()).run();
+ candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
+ const denied=await f.release({action:'publish',requestId:'publish_gate_combined01',version:draft.version,revision:1,includeSource:true,candidateId});
+ expect(denied).toMatchObject({status:409});
+ let current=await getApp(env.DB,ORG,f.app.id);
+ expect(current.version).toBe(draft.version);
+ expect(current.definition.custom.published).toBe(firstSource);
+ expect(await env.DB.prepare('SELECT published,revision FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual({published:null,revision:1});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual({n:0});
+ const automationOnly=await f.release({action:'publish',requestId:'publish_automation_only1',version:draft.version,revision:1,includeSource:false});
+ expect(automationOnly.saved).toBe(true);
+ current=await getApp(env.DB,ORG,f.app.id);
+ expect(current.definition.custom.published).toBe(firstSource);
+ expect(current.definition.custom.draft).toBe('<html><body>Approval gated</body></html>');
+});
+
+test('combined source publication cannot bypass the independent approval for a pinned GitHub commit',async()=>{
+ const f=await automationReleaseFixture();
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:'<html><body>Pinned source</body></html>'},'9101');
+ const app=await getApp(env.DB,ORG,f.app.id);
+ const definition={...app.definition,custom:{...app.definition.custom,draftCommit:{owner:'example',repo:'pinned-app',sha:'a'.repeat(40),sourceHash:'b'.repeat(64),appVersion:app.version}}};
+ await env.DB.prepare('UPDATE hx_apps SET definition=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify(definition),ORG,f.app.id).run();
+ const candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
+ const denied=await f.release({action:'publish',requestId:'publish_pinned_source01',version:draft.version,revision:1,includeSource:true,candidateId});
+ expect(denied).toMatchObject({status:409});
+ const current=await getApp(env.DB,ORG,f.app.id);
+ expect(current.version).toBe(draft.version);
+ expect(current.definition.custom.published).toBeUndefined();
+ expect(current.definition.custom.draftCommit.sha).toBe('a'.repeat(40));
+ expect(await env.DB.prepare('SELECT published,revision FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual({published:null,revision:1});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first()).toEqual({n:0});
+});
+
+test('combined publication rolls source and automation state back when a workflow write fails',async()=>{
+ const f=await automationReleaseFixture();
+ const {getApp}=await import('../src/harness/apps.js');
+ const {saveCustomRelease}=await import('../src/harness/customApps.js');
+ const draft=await saveCustomRelease(env.DB,ORG,f.app,{action:'draft',version:f.app.version,html:'<html>Draft only</html>'},'9101');
+ const candidateId=await directCustomPreview(await getApp(env.DB,ORG,f.app.id));
+ await env.DB.exec("CREATE TRIGGER fail_combined BEFORE INSERT ON hx_workflows BEGIN SELECT RAISE(ABORT,'forced'); END;");
+ await expect(f.release({action:'publish',requestId:'rollback_combined_01',version:draft.version,revision:1,includeSource:true,candidateId})).rejects.toThrow();
+ await env.DB.exec('DROP TRIGGER fail_combined;');
+ const app=await getApp(env.DB,ORG,f.app.id);expect(app.version).toBe(draft.version);expect(app.definition.custom.published).toBeUndefined();
+ expect((await env.DB.prepare('SELECT published,revision FROM hx_app_automation_state WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first())).toEqual({published:null,revision:1});
+});
+
+test('stopping a managed release works despite inaccessible live drift without disclosing or overwriting it',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_stop_drift01',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1,trigger=?2 WHERE org_id=?3').bind('Private independent edit',JSON.stringify({type:'row',tableId:'foreign-table',on:'any'}),ORG).run();
+ expect((await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).status).toBe(403);
+ const result=await f.release({action:'unpublish',requestId:'unpublish_drift_0001',version:first.version,revision:first.revision});expect(result.saved).toBe(true);
+ expect(JSON.stringify(result)).not.toContain('Private independent edit');
+ const live=await env.DB.prepare('SELECT name,trigger,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first();expect(live).toMatchObject({name:'Private independent edit',enabled:0});expect(JSON.parse(live.trigger).tableId).toBe('foreign-table');
+});
+
+test('stopping still succeeds when a managed workflow has been independently deleted',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_stop_missing1',version:f.app.version,revision:1});
+ await env.DB.prepare('DELETE FROM hx_workflows WHERE org_id=?1').bind(ORG).run();
+ const result=await f.release({action:'unpublish',requestId:'unpublish_missing01',version:first.version,revision:first.revision});expect(result.saved).toBe(true);
+ const state=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();expect(state.published).toBeNull();expect(state.plan[0].status).toBe('missing');
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+});
+
+test('reviewed live drift can be replaced, but stale or unrelated reviews cannot authorize publication',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_review_00001',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Independent edit',ORG).run();
+ const plan=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();const item=plan.plan[0];
+ const reviewed=[{key:item.key,workflowId:item.workflowId,action:'replace',live:item.live}];
+ const request={action:'publish',requestId:'publish_review_00002',version:first.version,revision:first.revision,reviewed};
+ expect((await f.release({...request,reviewed:[{...reviewed[0],live:{...item.live,name:'Wrong reviewed name'}}]})).status).toBe(409);
+ expect((await f.release({...request,reviewed:[{...reviewed[0],key:'unrelated'}]})).status).toBe(409);
+ const result=await f.release(request);expect(result.saved).toBe(true);
+ expect((await env.DB.prepare('SELECT name FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).name).toBe('Review');
+ expect(await f.release(request)).toMatchObject({...result,replay:true});
+});
+
+test('a live edit after explicit review still rejects the entire publication',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_race_review1',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Reviewed edit',ORG).run();
+ const plan=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();const item=plan.plan[0];
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  await env.DB.prepare('UPDATE hx_workflows SET name=?1 WHERE org_id=?2').bind('Newer unreviewed edit',ORG).run();return env.DB.batch(statements);
+ }};
+ const result=await f.release({action:'publish',requestId:'publish_race_review2',version:first.version,revision:first.revision,reviewed:[{key:item.key,workflowId:item.workflowId,action:'replace',live:item.live}]},db);
+ expect(result.status).toBe(409);expect((await env.DB.prepare('SELECT name FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).name).toBe('Newer unreviewed edit');
+});
+
+test('replacing a reviewed schedule drift clears the live schedule for a manual declaration',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_schedule_001',version:f.app.version,revision:1});
+ await env.DB.prepare('UPDATE hx_workflows SET trigger=?1,next_run_at=?2 WHERE org_id=?3').bind(JSON.stringify({type:'schedule',cadence:'daily',hour:9,minute:0,timezone:'Asia/Tokyo'}),'2099-01-01T00:00:00.000Z',ORG).run();
+ const plan=await(await get(`/apps/${f.app.id}/automations?orgId=${ORG}`,toru)).json();const item=plan.plan[0];
+ expect((await f.release({action:'publish',requestId:'publish_schedule_002',version:first.version,revision:first.revision,reviewed:[{key:item.key,workflowId:item.workflowId,action:'replace',live:item.live}]})).saved).toBe(true);
+ expect((await env.DB.prepare('SELECT next_run_at FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).next_run_at).toBeNull();
+});
+
+test('a missing automation is recreated only after an explicit review, retaining its stable identity',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_recreate_001',version:f.app.version,revision:1});
+ const old=await env.DB.prepare('SELECT id FROM hx_workflows WHERE org_id=?1').bind(ORG).first();
+ await env.DB.prepare('DELETE FROM hx_workflows WHERE org_id=?1').bind(ORG).run();
+ const request={action:'publish',requestId:'publish_recreate_002',version:first.version,revision:first.revision};
+ expect((await f.release(request)).status).toBe(409);
+ const reviewed=[{key:'review',workflowId:old.id,action:'recreate',live:null}];
+ const result=await f.release({...request,reviewed});expect(result.saved).toBe(true);
+ expect(await env.DB.prepare('SELECT id,name,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({id:old.id,name:'Review',enabled:1});
+ expect(await f.release({...request,reviewed})).toMatchObject({...result,replay:true});
+});
+
+test('recreation refuses to overwrite a workflow that reappears after the missing-state review',async()=>{
+ const f=await automationReleaseFixture();
+ const first=await f.release({action:'publish',requestId:'publish_reappear_001',version:f.app.version,revision:1});
+ const old=await env.DB.prepare('SELECT * FROM hx_workflows WHERE org_id=?1').bind(ORG).first();
+ await env.DB.prepare('DELETE FROM hx_workflows WHERE org_id=?1').bind(ORG).run();
+ const db={prepare:env.DB.prepare.bind(env.DB),batch:async statements=>{
+  await env.DB.prepare('INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)').bind(old.id,ORG,'Restored elsewhere',0,old.trigger,old.steps,old.created_by,old.created_at,old.updated_at).run();
+  return env.DB.batch(statements);
+ }};
+ const result=await f.release({action:'publish',requestId:'publish_reappear_002',version:first.version,revision:first.revision,reviewed:[{key:'review',workflowId:old.id,action:'recreate',live:null}]},db);
+ expect(result.status).toBe(409);expect((await env.DB.prepare('SELECT name,enabled FROM hx_workflows WHERE org_id=?1').bind(ORG).first())).toEqual({name:'Restored elsewhere',enabled:0});
+});
+
+test('automation lifecycle API is editor-only and state remains available for stop when live visibility fails',async()=>{
+ const f=await automationReleaseFixture();const path=`/apps/${f.app.id}/automations`;
+ const input={orgId:ORG,action:'publish',requestId:'publish_api_0000001',version:f.app.version,revision:1};
+ expect((await send('POST',path,mika,input)).status).toBe(403);
+ const response=await send('POST',path,toru,input);expect(response.status).toBe(200);const first=await response.json();expect(first.saved).toBe(true);
+ expect((await(await send('POST',path,toru,input)).json()).replay).toBe(true);
+ await env.DB.prepare('UPDATE hx_workflows SET trigger=?1 WHERE org_id=?2').bind(JSON.stringify({type:'row',tableId:'foreign-table',on:'any'}),ORG).run();
+ expect((await get(`${path}?orgId=${ORG}`,toru)).status).toBe(403);
+ expect((await get(`${path}?orgId=${ORG}&stateOnly=1`,mika)).status).toBe(403);
+ const state=await(await get(`${path}?orgId=${ORG}&stateOnly=1`,toru)).json();expect(state.revision).toBe(first.revision);expect(JSON.stringify(state)).not.toContain('foreign-table');
+ const stopped=await send('POST',path,toru,{orgId:ORG,action:'unpublish',requestId:'unpublish_api_000001',version:state.version,revision:state.revision});expect(stopped.status).toBe(200);
+});
+
+test('app automation generation produces a disabled proposal without writing workflows or app drafts',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const {appAutomationFromPrompt}=await import('../src/harness/appAutomationGeneration.js');
+ const result=await appAutomationFromPrompt(env.DB,ORG,'9101',{prompt:'Create a row',complete:async()=>JSON.stringify({name:'Create row',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]})});
+ expect(result.automation).toMatchObject({name:'Create row',enabled:false,trigger:{type:'manual'}});
+ expect(result.automation.key).toMatch(/^auto_/);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_automation_state WHERE org_id=?1').bind(ORG).first()).toEqual({n:0});
+ expect((await send('POST',`/apps/${app.id}/automations`,mika,{orgId:ORG,action:'generate',prompt:'Create row',useModel:false})).status).toBe(403);
+ expect((await send('POST',`/apps/${app.id}/automations`,toru,{orgId:ORG,action:'generate',prompt:'Create row',useModel:false})).status).toBe(503);
+});
+
+test('managed follow-ups retain their published origin and cannot run after stop and republication',async()=>{
+ const f=await automationReleaseFixture();
+ const {upsertBusiness}=await import('../src/db.js');
+ await upsertBusiness(env.DB,ORG,{name:'Ops',createdBy:'9101'});
+ const automations={version:1,items:[{...f.automations.items[0],steps:[{type:'followup',channel:'b:ops',minutes:1,text:'Managed reminder'}]}]};
+ const saved=await(await send('PUT',`/apps/${f.app.id}/automations`,toru,{orgId:ORG,version:f.app.version,revision:1,automations})).json();
+ const first=await f.release({action:'publish',requestId:'publish_followup_001',version:f.app.version,revision:saved.revision});expect(first.saved).toBe(true);
+ const {getWorkflow,startRun}=await import('../src/harness/workflows.js');
+ const {runDueFollowups,scheduleFollowup}=await import('../src/harness/followups.js');
+ const binding=await env.DB.prepare('SELECT workflow_id,release_id FROM hx_app_automation_bindings WHERE org_id=?1 AND app_id=?2').bind(ORG,f.app.id).first();
+ const workflow=await getWorkflow(env.DB,ORG,binding.workflow_id);
+ expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual',startedBy:'9101'})).status).toBe('done');
+ const followup=await env.DB.prepare('SELECT * FROM hx_followups WHERE org_id=?1').bind(ORG).first();
+ expect(followup).toMatchObject({origin_workflow_id:workflow.id,origin_release_id:binding.release_id,status:'scheduled'});
+ const stopped=await f.release({action:'unpublish',requestId:'unpublish_followup01',version:first.version,revision:first.revision});
+ expect((await scheduleFollowup(env.DB,{orgId:ORG,channel:'b:ops',instruction:'Stale reminder',dueAt:new Date(Date.now()+60000).toISOString(),by:'9101',originWorkflowId:workflow.id,originReleaseId:binding.release_id})).status).toBe(409);
+ expect((await f.release({action:'publish',requestId:'republish_followup01',version:stopped.version,revision:stopped.revision})).saved).toBe(true);
+ expect(await runDueFollowups({...env,OPENAI_API_KEY:undefined},{now:new Date(Date.now()+120000)})).toBe(0);
+ expect(await env.DB.prepare('SELECT status FROM hx_followups WHERE id=?1').bind(followup.id).first()).toEqual({status:'failed'});
+});
+
+test('personal view saves reject a direct table schema change before the write',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {updateTable}=await import('../src/harness/tables.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Schema race',columns:[{name:'Name',type:'text'}]})).json();
+ let changed=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{
+   const statement=db.prepare(sql);
+   if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!changed){changed=true;const result=await updateTable(env.DB,ORG,app.tableId,{columns:[{name:'Changed',type:'text'}]});expect(result.error).toBeUndefined()}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}});
+ expect(result.status).toBe(409);
+ expect(await env.DB.prepare('SELECT 1 FROM hx_personal_views WHERE org_id=? AND user_id=? AND app_id=?').bind(ORG,'9102',app.id).first()).toBeNull();
+});
+
+test('personal views return rows and computed views from one captured row set even when rows change during save',async()=>{
+ const {personalViews}=await import('../src/harness/personalViews.js');
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Row snapshot',columns:[{name:'Name',type:'text'}]})).json();
+ const created=await (await send('POST',`/tables/${app.tableId}/rows`,toru,{orgId:ORG,values:{Name:'Before'}})).json();
+ const before=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ let changed=false;
+ const racing=new Proxy(env.DB,{get(db,key){
+  if(key!=='prepare')return typeof db[key]==='function'?db[key].bind(db):db[key];
+  return sql=>{const statement=db.prepare(sql);if(!sql.startsWith('INSERT OR IGNORE INTO hx_personal_views'))return statement;
+   return {bind(...args){const bound=statement.bind(...args);return {async run(){
+    if(!changed){changed=true;const response=await send('PATCH',`/tables/${app.tableId}/rows/${created.row.id}`,toru,{orgId:ORG,values:{Name:'After'},expectedUpdatedAt:created.row.updatedAt});expect(response.status).toBe(200)}
+    return bound.run();
+   }}}};
+  };
+ }});
+ const result=await personalViews(racing,ORG,'9102',app.id,{expectedRevision:0,views:[{id:'personal_mine',type:'table',name:'Mine'}],layouts:{}});
+ expect(result.error).toBeUndefined();
+ const key=before.table.columns[0].id;
+ expect(result.snapshot.rows[0].values[key]).toBe('Before');
+ expect(result.computed[0].rows[0].values[key]).toBe('Before');
+ const latest=await personalViews(env.DB,ORG,'9102',app.id);
+ expect(latest.snapshot.rows[0].values[key]).toBe('After');
+ expect(latest.computed[0].rows[0].values[key]).toBe('After');
+});
+
+test.each(['primary','entity'])('personal view snapshot denies a table shared with an inaccessible private app through %s',async relation=>{
+ const {app:publicApp}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Public',columns:[{name:'Name',type:'text'}]})).json();
+ const {app:privateApp}=await (await send('POST','/apps',toru,{orgId:ORG,name:'Private',columns:[{name:'Name',type:'text'}]})).json();
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?,?,'private',1)").bind(ORG,privateApp.id).run();
+ if(relation==='primary')await env.DB.prepare('UPDATE hx_apps SET table_id=? WHERE org_id=? AND id=?').bind(publicApp.tableId,ORG,privateApp.id).run();
  else {
   await env.DB.prepare('DELETE FROM hx_app_entities WHERE org_id=? AND table_id=?').bind(ORG,publicApp.tableId).run();
   await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,table_id,entity_key) VALUES (?,?,?,'linked')").bind(ORG,privateApp.id,publicApp.tableId).run();
@@ -2157,7 +2829,6 @@ test('open approval uniqueness is scoped to app version, hash, and publish scope
  expect(duplicate.meta.changes).toBe(0);
 });
 
-
 async function makeAssignedAgentAppForConnection(agentIds = ['agent_room_connection'], {group=false} = {}) {
  const at=new Date().toISOString(),channel=group?'g:aaaaaaaaaaaaaaaa':'b:agent-connection-room',threadId=group?'app-source-group-agent-thread':'app-source-room-agent-thread';
  if(group){
@@ -2219,4 +2890,5 @@ test('room Apps with multiple source Agent assignments cannot choose an implicit
  expect(grant.status).toBe(403);
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).toEqual({n:0});
 });
+
 
