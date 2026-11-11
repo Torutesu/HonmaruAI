@@ -4,6 +4,7 @@ import {describeWorkflowCondition} from '../utils/workflowCondition'
 import {getLocale} from '../utils/locale'
 import {runDuration,formatElapsedDuration} from '../utils/runDuration'
 import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHistory'
+import {hashForThread} from '../utils/route'
 import {stepLabel,triggerLabel,type WorkflowAppOption} from '../utils/workflowLabels'
 import {filterKeysForColumn,filterValueText,hasRemovedFilter,newFilterKey,unresolvedFilterKeys,type FilterMap} from '../utils/workflowFilters'
 import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
@@ -323,7 +324,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [refinement,setRefinement]=useState('')
   const [guidedError,setGuidedError]=useState('')
   const [manual, setManual] = useState(false)
-  const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; summary: WorkflowRunSummary; canEdit: boolean; held?: HeldWorkflowEvents } | null>(null)
+  const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; summary: WorkflowRunSummary; canEdit: boolean; held?: HeldWorkflowEvents; sourceThreadId?: string | null } | null>(null)
   const [failedRunsOnly,setFailedRunsOnly]=useState(false)
   const [budgetDraft,setBudgetDraft]=useState({daily:'0',weekly:'0',monthly:'0',ai24h:'0',ai7d:'0',ai30d:'0',aiAction:'warn' as 'warn'|'pause'})
   const [hook, setHook] = useState<string | null>(null)
@@ -353,7 +354,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         const result=await api.workflow(activeWorkflowId, heldPageOffset)
         if(stopped||detailRequest.current!==request)return
         setSyncError('')
-        setOpen(current=>current?.workflow.id===activeWorkflowId?result:current)
+        setOpen(current=>current?.workflow.id===activeWorkflowId?{...result,sourceThreadId:current.sourceThreadId}:current)
         if(result.runs.some(run=>run.status==='running'))timer=setTimeout(refresh,5000)
       }catch(error){
         if(stopped||detailRequest.current!==request)return
@@ -388,8 +389,11 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     return act(`open:${id}`, async () => {
       setSyncError(''); setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setHeldPageOffset(0); setConfirmDelete(false)
       try {
-        const result = await api.workflow(id, 0)
-        if (detailRequest.current === request) { setOpen(result); setHeldPageOffset(result.held?.pageOffset ?? 0) }
+        const [result,source] = await Promise.all([
+          api.workflow(id, 0),
+          api.workflowSource(id, undefined, false).catch(() => null),
+        ])
+        if (detailRequest.current === request) { setOpen({...result,sourceThreadId:source?.source?.threadId||null}); setHeldPageOffset(result.held?.pageOffset ?? 0) }
       } catch (error) {
         if (detailRequest.current === request) throw error
       }
@@ -443,7 +447,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     const request = detailRequest.current
     const result = await api.workflow(id, offset)
     if (detailRequest.current === request && result.workflow.id === id) {
-      setOpen(current => current?.workflow.id === id ? result : current)
+      setOpen(current => current?.workflow.id === id ? {...result,sourceThreadId:current.sourceThreadId} : current)
       setHeldPageOffset(result.held?.pageOffset ?? 0)
       const live = result.held?.discardEventIds
       if (live) {
@@ -701,6 +705,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                     <time dateTime={l.at}>{new Date(l.at).toLocaleString(getLocale())}</time>
                   </details> : <span key={l.step} className="row-sub hx-log">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span></span>
                 )})}
+                {r.status === 'failed' && open.sourceThreadId && <a className="pill-btn quiet hx-run-ask" href={hashForThread(open.sourceThreadId,props.orgId)} title={t('Open the automation thread to ask how to recover without rerunning this workflow.')}>{t('Ask in chat')}</a>}
                 {open.canEdit && r.status === 'running' && Date.now() - Date.parse(r.startedAt) >= 30 * 60 * 1000 && <section className="form-note hx-run-recovery">
                   <p>{t('This run has been active for over 30 minutes and may have stopped responding.')}</p>
                   {recoveringRun === r.id ? <>

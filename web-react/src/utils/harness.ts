@@ -246,7 +246,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     cancelWorkflowRun: (workflowId: string, runId: string, expectedStartedAt: string) => call<{ run: Run }>('POST', `/workflows/${workflowId}/runs/${encodeURIComponent(runId)}/cancel`, { expectedStartedAt }),
     discardWorkflowEvents: (id: string, eventIds: string[]) => call<{ discarded: number }>('POST', `/workflows/${id}/webhook/discard`, { eventIds }),
     deleteWorkflow: (id: string) => call<{ deleted: boolean }>('DELETE', `/workflows/${id}`),
-    workflowSource: (id:string,before?:number) => call<WorkflowSourceState>('GET',`/workflows/${id}/source`,undefined,{candidates:'1',...(before?{before:String(before)}:{})}),
+    workflowSource: (id:string,before?:number,candidates=true) => call<WorkflowSourceState>('GET',`/workflows/${id}/source`,undefined,{...(candidates?{candidates:'1'}:{}),...(before?{before:String(before)}:{})}),
     bindWorkflowSource: (id:string,messageId:string) => call<WorkflowSourceState>('POST',`/workflows/${id}/source`,{messageId}),
     workflowNotices: () => call<{ items: WorkflowNotice[] }>('GET', '/workflows/notices'),
     readWorkflowNotice: (workflowId: string, generation: string) => call<{ ok: boolean }>('POST', '/workflows/notices', { workflowId, generation }),
