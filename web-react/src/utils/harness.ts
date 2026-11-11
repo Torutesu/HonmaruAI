@@ -86,6 +86,8 @@ export interface WorkflowBudget { revision: number; daily: WorkflowBudgetPeriod;
 export interface WorkflowSafety { generation: string; failure_streak: number; paused_at: string | null; pause_reason: string | null; daily_run_limit?: number; weekly_run_limit?: number; monthly_run_limit?: number; daily_ai_budget_micros?:number; weekly_ai_budget_micros?:number; monthly_ai_budget_micros?:number; ai_budget_action?:'warn'|'pause'; budget_revision?: number; budget?: WorkflowBudget | null }
 export interface Workflow {
   updatedAt?: string
+  archivedAt?: string | null
+  archivedPreviousEnabled?: boolean
   safety?: WorkflowSafety | null
   sourceChannel?: string
   id: string; name: string; enabled: boolean; trigger: Trigger; steps: Step[]
@@ -246,6 +248,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     cancelWorkflowRun: (workflowId: string, runId: string, expectedStartedAt: string) => call<{ run: Run }>('POST', `/workflows/${workflowId}/runs/${encodeURIComponent(runId)}/cancel`, { expectedStartedAt }),
     discardWorkflowEvents: (id: string, eventIds: string[]) => call<{ discarded: number }>('POST', `/workflows/${id}/webhook/discard`, { eventIds }),
     deleteWorkflow: (id: string) => call<{ deleted: boolean }>('DELETE', `/workflows/${id}`),
+    archiveWorkflow: (id:string,archived:boolean,expectedUpdatedAt:string) => call<{workflow:Workflow}>('POST',`/workflows/${id}/archive`,{archived,expectedUpdatedAt}),
     workflowSource: (id:string,before?:number,candidates=true) => call<WorkflowSourceState>('GET',`/workflows/${id}/source`,undefined,{...(candidates?{candidates:'1'}:{}),...(before?{before:String(before)}:{})}),
     bindWorkflowSource: (id:string,messageId:string) => call<WorkflowSourceState>('POST',`/workflows/${id}/source`,{messageId}),
     moveWorkflowSource: (id:string,messageId:string,expectedChannel:string,expectedThreadId:string) => call<WorkflowSourceState>('POST',`/workflows/${id}/source/move`,{messageId,expectedChannel,expectedThreadId}),

@@ -2234,6 +2234,50 @@ test('a maker or admin can cancel a running workflow and fence later steps', asy
   expect(duplicate.status).toBe(409);
 });
 
+test('workflow archive preserves history, disables triggers, blocks new runs, and restores prior schedule state', async () => {
+  const at = new Date(Date.now() + 86400000).toISOString();
+  const created = await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Archive lifecycle', trigger: { type: 'schedule', kind: 'at', at }, steps: [{ type: 'post', channel: 'b:ops', text: 'Keep history' }],
+  });
+  const { workflow } = await created.json();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at,finished_at)
+    VALUES('run-archive-history',?1,?2,'schedule','done','{}','[]',1,'9301',?3,?3)`).bind(ORG, workflow.id, new Date().toISOString()).run();
+
+  const archivedResponse = await send('POST', `/workflows/${workflow.id}/archive`, toru, { orgId: ORG, archived: true, expectedUpdatedAt: workflow.updatedAt });
+  expect(archivedResponse.status).toBe(200);
+  const { workflow: archived } = await archivedResponse.json();
+  expect(archived).toMatchObject({ archivedAt: expect.any(String), archivedPreviousEnabled: true, enabled: false, nextRunAt: null });
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2').bind(ORG, workflow.id).first()).n).toBe(1);
+  const { startRun } = await import('../src/harness/workflows.js');
+  expect(await startRun(env, { orgId: ORG, workflow, trigger: 'manual', input: { text: 'stale pre-archive snapshot' }, startedBy: '9301' })).toBeNull();
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2 AND status='running'").bind(ORG, workflow.id).first()).n).toBe(0);
+  expect((await send('POST', `/workflows/${workflow.id}`, toru, { orgId: ORG, input: { text: 'must not start' } })).status).toBe(409);
+  expect((await send('PUT', `/workflows/${workflow.id}`, toru, { orgId: ORG, name: 'Edit while archived' })).status).toBe(409);
+
+  const restoredResponse = await send('POST', `/workflows/${workflow.id}/archive`, toru, { orgId: ORG, archived: false, expectedUpdatedAt: archived.updatedAt });
+  expect(restoredResponse.status).toBe(200);
+  const { workflow: restored } = await restoredResponse.json();
+  expect(restored).toMatchObject({ archivedAt: null, archivedPreviousEnabled: null, enabled: true });
+  expect(restored.nextRunAt).toBeTruthy();
+  const detail = await (await send('GET', `/workflows/${workflow.id}?${q({ orgId: ORG })}`, toru)).json();
+  expect(detail.runs.map(run => run.id)).toContain('run-archive-history');
+});
+
+test('workflow archive rejects unauthorized callers and active or approval-waiting runs', async () => {
+  const { workflow } = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Archive guard', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Guard' }],
+  })).json();
+  expect((await send('POST', `/workflows/${workflow.id}/archive`, mika, { orgId: ORG, archived: true, expectedUpdatedAt: workflow.updatedAt })).status).toBe(403);
+  const startedAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at)
+    VALUES('run-archive-active',?1,?2,'manual','waiting','{}','[]',0,'9301',?3)`).bind(ORG, workflow.id, startedAt).run();
+  const response = await send('POST', `/workflows/${workflow.id}/archive`, toru, { orgId: ORG, archived: true, expectedUpdatedAt: workflow.updatedAt });
+  expect(response.status).toBe(409);
+  expect((await response.json()).message).toContain('approval-waiting');
+  const current = await env.DB.prepare('SELECT archived_at,enabled FROM hx_workflows WHERE org_id=?1 AND id=?2').bind(ORG, workflow.id).first();
+  expect(current).toMatchObject({ archived_at: null, enabled: 1 });
+});
+
 test('cancelling during a later step preserves prior completions and marks only the active step unknown',async()=>{
  const {agent}=await(await send('POST','/channels/agents',mika,{orgId:ORG,name:'Paused workflow reviewer',handle:'paused-reviewer',instructions:'Review the release.',scope:'team'})).json();
  const {createWorkflow}=await import('../src/harness/workflows.js');

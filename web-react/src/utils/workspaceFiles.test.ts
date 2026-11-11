@@ -78,6 +78,17 @@ test('external file permission changes use a scoped authenticated PATCH',async()
  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({permission:'edit',expiresAt:null})
 })
 
+test('external File invitation changes keep access expiry distinct from invite expiry',async()=>{
+ const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify({updated:true,inviteId:'invite-1',permission:'edit',accessExpiresAt:null})))
+ vi.stubGlobal('fetch',fetcher)
+ const api=workspaceFileApi('https://api.example','org','session')
+ await api.updateExternalInvite('file/one','invite-1','edit',null)
+ expect(fetcher.mock.calls[0][0]).toBe('https://api.example/hx/files/file%2Fone/external-grant-invites/invite-1?orgId=org')
+ expect(fetcher.mock.calls[0][1].method).toBe('PATCH')
+ expect(fetcher.mock.calls[0][1].headers['x-session-token']).toBe('session')
+ expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({permission:'edit',accessExpiresAt:null})
+})
+
 test('external File invitation API returns a one-time redeem link and can revoke the invitation',async()=>{
  const fetcher=vi.fn()
   .mockResolvedValueOnce(new Response(JSON.stringify({canManage:true,invites:[]})))

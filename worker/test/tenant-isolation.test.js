@@ -27,23 +27,35 @@ function routes() {
 /// Everything stored under the victim workspace, but for what a refusal
 /// itself writes: the audit trail and the rate limiter.
 async function victimRows() {
-  const { results: tables } = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all();
   const out = {};
-  for (const { name } of tables) {
-    if (["audit_events", "audit_principal_keys", "rate_limits", "kv"].includes(name)) continue;
-    const { results: cols } = await env.DB.prepare(`PRAGMA table_info(${name})`).all();
-    if (!cols.some((c) => c.name === "org_id")) continue;
-    const { results } = await env.DB.prepare(`SELECT * FROM ${name} WHERE org_id = ?1`).bind(VICTIM).all();
-    out[name] = JSON.stringify(results);
+  const queries = tenantTables.map((name) => {
+    const quoted = `"${String(name).replaceAll('"', '""')}"`;
+    return env.DB.prepare(`SELECT * FROM ${quoted} WHERE org_id = ?1`).bind(VICTIM);
+  });
+  const snapshot = [];
+  // Keep the exhaustive before/after check around every route while reducing
+  // the per-snapshot D1 round trips from two queries per table to a few batches.
+  for (let start = 0; start < queries.length; start += 50) {
+    snapshot.push(...await env.DB.batch(queries.slice(start, start + 50)));
   }
+  for (let index = 0; index < tenantTables.length; index++) out[tenantTables[index]] = JSON.stringify(snapshot[index]?.results || []);
   // Its name, and whether it is being deleted, are keyed by its id.
   out.orgs = JSON.stringify(await env.DB.prepare("SELECT * FROM orgs WHERE id = ?1").bind(VICTIM).first());
   return out;
 }
 
 let mal;
+let tenantTables = [];
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
+  const { results: tables } = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all();
+  tenantTables = [];
+  for (const { name } of tables) {
+    if (["audit_events", "audit_principal_keys", "rate_limits", "kv"].includes(name)) continue;
+    const quoted = `"${String(name).replaceAll('"', '""')}"`;
+    const { results: cols } = await env.DB.prepare(`PRAGMA table_info(${quoted})`).all();
+    if (cols.some((c) => c.name === "org_id")) tenantTables.push(name);
+  }
   const { createSession, upsertUser, upsertMembership, saveCard } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "9601", login: "vic", name: "Vic", avatarUrl: null, locale: "en" });
   // A colleague: who works there is the workspace's to tell.
