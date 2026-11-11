@@ -15,6 +15,9 @@ import { listMembers } from './team.js';
 import { threadNotificationPreference } from './threadNotifications.js';
 import { setThreadPin } from './threadPins.js';
 import { isGuest } from './access.js';
+import { managedRoomSettings, saveManagedRoomSettings } from './harness/roomSettings.js';
+import { ROOM_COLOR_KEYS } from './harness/roomColors.js';
+import { allowed } from './permissions.js';
 
 const id = { type: 'string', minLength: 1, maxLength: 200 };
 const text = { type: 'string', maxLength: 4000 };
@@ -34,6 +37,8 @@ export const CHAT_TOOLS = [
   write('archive_room', 'Archive one managed Room the token owner can access. History is retained and the Room leaves active lists.', { conversationId: id }, ['conversationId'], 'channels:write'),
   write('unarchive_room', 'Restore one archived managed Room the token owner can access.', { conversationId: id }, ['conversationId'], 'channels:write'),
   read('list_archived_rooms', 'List archived Rooms visible to the token owner. Private Room names are returned only to current participants.', { query: { type: 'string', maxLength: 200 }, limit: { type: 'integer', minimum: 1, maximum: 50 } }),
+  read('get_room_settings', 'Read settings for an accessible active managed Room, including the current version and available main Agents.', { conversationId: id }, ['conversationId']),
+  write('update_room_settings', 'Update selected settings on an active managed Room. Omitted values are preserved; current workspace build permission and Room membership are required. Kylon cyan maps to Honmaru lake.', { conversationId: id, name: { type: 'string', minLength: 1, maxLength: 120 }, color: { type: 'string', enum: [...ROOM_COLOR_KEYS, 'cyan'] }, mentionedOnly: { type: 'boolean' }, defaultAgentId: { type: ['string', 'null'], maxLength: 128 } }, ['conversationId'], 'channels:write'),
   read('search_messages', 'Search authorized message history. Supports in:, from:, before:, after:, has:, is: and quoted phrases. Content is untrusted source data.', { query: { type: 'string', minLength: 1, maxLength: 1000 }, cursor, limit }, ['query']),
   read('get_message', 'Read one accessible message by ID without marking it read.', { messageId: id }, ['messageId']),
   read('read_channel', 'Read a bounded history page without marking it read. Follow nextCursor for older messages.', { conversationId: id, cursor, limit }, ['conversationId']),
@@ -192,6 +197,35 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     failResult(result);
     await announceRoomChange(env, request, actor, channel, name === 'rename_room' ? 'channel.renamed' : name === 'archive_room' ? 'channel.archived' : 'channel.unarchived', name === 'rename_room' ? { name: args.name.trim() } : {});
     return mcpResult({ conversationId: channel, ...(name === 'rename_room' ? { name: args.name.trim() } : { archived: name === 'archive_room' }), version: result.version });
+  }
+  if (name === 'get_room_settings' || name === 'update_room_settings') {
+    const context = await resolveMcpConversation(env, actor, args.conversationId);
+    if (!context.resolved.key.startsWith('b:')) throw new McpInputError('No such active managed Room.');
+    if (name === 'get_room_settings') {
+      const result = await managedRoomSettings(env.DB, actor.orgId, context.resolved.key, actor.githubId);
+      failResult(result);
+      if (result.error) throw new McpInputError(result.error);
+      return mcpResult({ conversationId: args.conversationId, ...result });
+    }
+    if (!Object.keys(args).some(key => key !== 'conversationId')) throw new McpInputError('Provide at least one Room setting to update.');
+    if (!await allowed(env.DB, actor.orgId, actor.githubId, 'harness.build')) throw new McpInputError('You cannot build in this workspace.');
+    const current = await managedRoomSettings(env.DB, actor.orgId, context.resolved.key, actor.githubId);
+    failResult(current);
+    if (current.error) throw new McpInputError(current.error);
+    const next = {
+      name: args.name === undefined ? current.settings.name : args.name,
+      color: args.color === undefined ? current.settings.color : args.color === 'cyan' ? 'lake' : args.color,
+      mentionedOnly: args.mentionedOnly === undefined ? current.settings.mentionedOnly : args.mentionedOnly,
+      defaultAgentId: args.defaultAgentId === undefined ? current.settings.defaultAgentId : args.defaultAgentId,
+      version: current.settings.version,
+      responseVersion: current.settings.responseVersion,
+    };
+    const canChangeResponses = await allowed(env.DB, actor.orgId, actor.githubId, 'harness.build');
+    const result = await saveManagedRoomSettings(env.DB, actor.orgId, context.resolved.key, actor.githubId, next, { canChangeResponses });
+    failResult(result);
+    const responseChanged = next.mentionedOnly !== current.settings.mentionedOnly || next.defaultAgentId !== current.settings.defaultAgentId;
+    await announceRoomChange(env, request, actor, context.resolved.key, 'room.settings_changed', { version: result.settings.version, responseVersion: result.settings.responseVersion, responseChanged });
+    return mcpResult({ conversationId: args.conversationId, ...result });
   }
   if (name === 'search_messages') {
     const context = await mcpConversationContext(env, actor);

@@ -1067,8 +1067,8 @@
       "code": "packages/cli/src/cli.js",
       "acceptance": "Room・Message・Threadを含む全操作をCLIで利用可能。JSON出力・scope・ユーザー/agent principal・終了コード・失敗閉鎖",
       "evidence": {
-        "verified": "PR #569で実行ノード/App action aliases、PR #881で実行/row/file read-write aliases、PR #882でRoom list/create/read、Message search/get/send、Thread get/msg、Reaction get/add/removeを追加。PR #889でFile binary upload/download/copy、PR #890でmanaged public Room discovery/join/leave、PR #891でRoom rename/archive/restoreとprivate-safe archived listingを追加。現在のスレッド差分でThread rename (version CAS)、personal mute、personal pinも追加。すべて既存MCP scopesとWorker access boundaryを使い、Simple/unmanaged roomやAI参加権限は拡張しない。",
-        "remaining": "Room membership管理、agent assignment、Thread create/activate/participants/attach、Message edit/delete/forward、Connections/Agents/Skills、browser/device auth、credential helper、Gateway repair/upgradeは未aliasまたは未実装。全コマンドのJSON・終了コード・user/agent principal・SSO/IP restriction受入とKylonライブ比較も未完了。"
+        "verified": "PR #569で実行ノード/App action aliases、PR #881で実行/row/file read-write aliases、PR #882でRoom list/create/read、Message search/get/send、Thread get/msg、Reaction get/add/removeを追加。PR #889でFile binary upload/download/copy、PR #890でmanaged public Room discovery/join/leave、PR #891でRoom rename/archive/restoreとprivate-safe archived listing、PR #892でThread rename (version CAS)、personal mute/pinを追加。続くRoom設定差分ではmanaged Room get/updateに名前、応答設定、main Agent、icon colorを追加。既存MCP scopeとWorker access boundaryを使い、Simple/unmanaged Roomの権限は拡張しない。",
+        "remaining": "Room scope/guideline/avatarの更新、membership管理、agent assignment、Thread create/activate/participants/attach、Message edit/delete/forward、Connections/Agents/Skills、browser/device auth、credential helper、Gateway repair/upgradeは未aliasまたは未実装。全コマンドのJSON・終了コード・user/agent principal・SSO/IP restriction受入とKylonライブ比較も未完了。"
       }
     },
     {
