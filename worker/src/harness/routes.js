@@ -782,7 +782,14 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       return null;
     }
-    if(sub==='source'&&['GET','POST'].includes(request.method)){
+    if(sub==='source'&&runId==='move'&&request.method==='POST'){
+      const before=await env.DB.prepare('SELECT channel,thread_id AS threadId FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,wfId).first();
+      const result=await workflowSource(env.DB,orgId,me,wfId,input||{},true,true);
+      if(result.error)return fail(result);
+      await audit(env,request,{orgId,action:'workflow.source_moved',actor:person(who.user),entity:{type:'workflow',id:wfId,name:wf.name},details:{from:{channel:before?.channel,threadId:before?.threadId},to:{channel:result.source?.channel,threadId:result.source?.threadId}}});
+      return json(result);
+    }
+    if(sub==='source'&&!runId&&['GET','POST'].includes(request.method)){
       const result=await workflowSource(env.DB,orgId,me,wfId,input||{candidates:url.searchParams.get('candidates')==='1',before:url.searchParams.get('before')},request.method==='POST');
       return result.error?fail(result):json(result);
     }

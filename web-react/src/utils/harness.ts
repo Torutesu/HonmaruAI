@@ -77,7 +77,7 @@ export interface Step {
   channel?: string; text?: string; agentId?: string; prompt?: string; source?: 'notion'|'github'; action?: 'search'; query?: string; tableId?: string; rowId?: string
   values?: Record<string, unknown>; to?: string; title?: string; summary?: string; minutes?: number
 }
-export interface WorkflowSourceState {source:{threadId:string;channel:string;body:string;createdAt:string}|null;canBind:boolean;candidates:Array<{id:string;channel:string;body:string;createdAt:string}>;nextCursor:number|null}
+export interface WorkflowSourceState {source:{threadId:string;channel:string;body:string;createdAt:string}|null;canBind:boolean;canMove?:boolean;candidates:Array<{id:string;channel:string;body:string;createdAt:string}>;nextCursor:number|null}
 export interface WorkflowNotice { workflowId: string; generation: string; runId: string; createdAt: string; readAt: string|null; name: string; paused: boolean }
 export interface WorkflowBudgetPeriod { limit: number; used: number; resetAt: string; exhausted: boolean }
 export interface WorkflowAiBudgetPeriod { limitUsd:number; usedUsd:number; unpricedCalls:number; resetAt:string|null; exhausted:boolean }
@@ -248,6 +248,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     deleteWorkflow: (id: string) => call<{ deleted: boolean }>('DELETE', `/workflows/${id}`),
     workflowSource: (id:string,before?:number,candidates=true) => call<WorkflowSourceState>('GET',`/workflows/${id}/source`,undefined,{...(candidates?{candidates:'1'}:{}),...(before?{before:String(before)}:{})}),
     bindWorkflowSource: (id:string,messageId:string) => call<WorkflowSourceState>('POST',`/workflows/${id}/source`,{messageId}),
+    moveWorkflowSource: (id:string,messageId:string,expectedChannel:string,expectedThreadId:string) => call<WorkflowSourceState>('POST',`/workflows/${id}/source/move`,{messageId,expectedChannel,expectedThreadId}),
     workflowNotices: () => call<{ items: WorkflowNotice[] }>('GET', '/workflows/notices'),
     readWorkflowNotice: (workflowId: string, generation: string) => call<{ ok: boolean }>('POST', '/workflows/notices', { workflowId, generation }),
     resumeWorkflow: (id: string, generation: string) => call<{ safety: WorkflowSafety }>('POST', `/workflows/${id}/resume`, { generation }),

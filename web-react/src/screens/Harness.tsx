@@ -6,7 +6,7 @@ import {AppRecordDialog} from '../components/AppRecordDialog'
 import {AppRowDeleteConfirm} from '../components/AppRowDeleteConfirm'
 import { AppRowActions } from '../components/AppRowActions'
 import {AppDataMenu} from '../components/AppDataMenu'
-import {csvText, downloadCsv} from '../utils/csvExport'
+import {csvText, downloadCsv, downloadXlsx, serializeRowsToXlsx} from '../utils/csvExport'
 import {displayLayout, fitTableColumns, isSystemColumn, systemCellText, systemDateFormatter, nextColumnSort} from '../utils/systemColumns'
 import { ColumnResize } from '../components/ColumnResize'
 import { PersonalViewControls } from '../components/PersonalViewControls'
@@ -654,6 +654,15 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   }
   const shownRows = (view.rows || []).filter(matchesSearch)
   const exportRows = view.type==='table'&&view.groupBy ? (view.lanes||[]).flatMap(lane=>lane.rows.filter(matchesSearch)) : shownRows
+  const exportCurrentView = (format:'csv'|'xlsx') => {
+    const safeName=`${app.name}-${view.name}`.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'-').slice(0,120)||'records'
+    const formatCell=(column: {id:string;name:string},_value:unknown,row: Row)=>{
+      const source=table.columns.find(item=>item.id===column.id)
+      return source?displayCellText(source,row.values[source.id]):''
+    }
+    if(format==='csv') downloadCsv(safeName,csvText(displayColumns,exportRows,formatCell))
+    else downloadXlsx(safeName,serializeRowsToXlsx(displayColumns,exportRows,formatCell))
+  }
   const shownLanes = (view.lanes || []).map(lane => ({...lane, rows: lane.rows.filter(matchesSearch)}))
   const shownDays = (view.days || []).map(day => ({...day, rows: day.rows.filter(matchesSearch)}))
   const shownUndated = (view.undated || []).filter(matchesSearch)
@@ -712,7 +721,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
         </div>
         <PersonalViewControls sharedIds={[...sharedIds]} control="view" key={`new:${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onRemoved={()=>{if(!personalSnapshot.current?.value.views.some(v=>v.id===view.id))setFocusSelectedView(true)}} onSettings={()=>selectSection('settings')} />
       </div>
-      <div className={`hx-data-tools${searchExpanded&&view.type!=='metrics'?' hx-search-expanded':''}`}>{view.type!=='metrics'&&<><button ref={searchToggle} className="hx-floating-search pill-btn quiet" title={searchLabel} aria-label={searchLabel} aria-expanded={searchExpanded} onClick={()=>{if(searchExpanded)setSearchExpanded(false);else openSearch()}}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onFocus={()=>setSearchExpanded(true)} onChange={e => setSearch(e.target.value)} />{search&&!searchExpanded&&<button ref={searchQuery} type="button" className="hx-floating-search-query" title={`${t('Search')}: ${search}`} onClick={openSearch}>{t('Search')}: {search}</button>}</>}<PersonalViewControls control="fields" key={`${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${selectedIndex}:${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={isPersonalView} onAdjust={adjustView} canEdit={canEditView} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})} onExport={()=>{const safeName=`${app.name}-${view.name}`.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'-').slice(0,120)||'records';const csv=csvText(displayColumns,exportRows,(column,_value,row)=>{const source=table.columns.find(item=>item.id===column.id);return source?displayCellText(source,row.values[source.id]):''});downloadCsv(safeName,csv)}}/>}{shouldShowRecordCount(shownCount,search,(view.filters?.length || 0)+Object.keys(view.where || {}).length)&&<span className="hx-record-count">{t('{n} records', { n: shownCount })}</span>}</div>
+      <div className={`hx-data-tools${searchExpanded&&view.type!=='metrics'?' hx-search-expanded':''}`}>{view.type!=='metrics'&&<><button ref={searchToggle} className="hx-floating-search pill-btn quiet" title={searchLabel} aria-label={searchLabel} aria-expanded={searchExpanded} onClick={()=>{if(searchExpanded)setSearchExpanded(false);else openSearch()}}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onFocus={()=>setSearchExpanded(true)} onChange={e => setSearch(e.target.value)} />{search&&!searchExpanded&&<button ref={searchQuery} type="button" className="hx-floating-search-query" title={`${t('Search')}: ${search}`} onClick={openSearch}>{t('Search')}: {search}</button>}</>}<PersonalViewControls control="fields" key={`${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${selectedIndex}:${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={isPersonalView} onAdjust={adjustView} canEdit={canEditView} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})} onExport={exportCurrentView}/>}{shouldShowRecordCount(shownCount,search,(view.filters?.length || 0)+Object.keys(view.where || {}).length)&&<span className="hx-record-count">{t('{n} records', { n: shownCount })}</span>}</div>
       </div>
       {error && <div className="form-error">{error}</div>}
       {data.canCustomize !== false && app.definition.views.length < 12 && !data.views.some(v => v.type === 'calendar') && table.columns.some(c => c.type === 'date') && <button className="pill-btn quiet" disabled={busy !== null} onClick={() => act('calendar', async () => {

@@ -2456,6 +2456,41 @@ test('workflow source is explicit, creator-bound, immutable and never exposes an
  expect((await get(`/workflows/${workflow.id}/source?${q({orgId:ORG})}`,mika)).status).toBe(404);
 });
 
+test('workflow source can move atomically to another accessible Room thread',async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ const {upsertBusiness}=await import('../src/db.js');
+ const {workflowSourceMayRun}=await import('../src/harness/workflowSourceAuthority.js');
+ await upsertBusiness(env.DB,ORG,{name:'Research',createdBy:'9301'});
+ await upsertBusiness(env.DB,ORG,{name:'Private',createdBy:'9301'});
+ await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='private'").bind(ORG).run();
+ const {workflow}=await(await send('POST','/workflows',mika,{orgId:ORG,name:'Movable automation',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'Done'}]})).json();
+ const origin=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Source room'});
+ const sameRoom=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Another thread in the source room'});
+ const destination=await postMessage(env.DB,{orgId:ORG,key:'b:research',authorLogin:'mika',body:'Destination room'});
+ const inaccessible=await postMessage(env.DB,{orgId:ORG,key:'b:private',authorLogin:'mika',body:'Private destination'});
+ expect((await send('POST',`/workflows/${workflow.id}/source`,mika,{orgId:ORG,messageId:origin.row.id})).status).toBe(200);
+ const candidates=await(await get(`/workflows/${workflow.id}/source?${q({orgId:ORG,candidates:'1'})}`,mika)).json();
+ expect(candidates.canMove).toBe(true);
+ expect(candidates.candidates).toEqual(expect.arrayContaining([expect.objectContaining({id:destination.row.id,channel:'b:research'})]));
+ expect(candidates.candidates).not.toEqual(expect.arrayContaining([expect.objectContaining({id:destination.row.id,channel:'b:ops'})]));
+ const denied=await(await get(`/workflows/${workflow.id}/source?${q({orgId:ORG,candidates:'1'})}`,toru)).json();
+ expect(denied.canMove).toBe(false);expect(denied.candidates).toEqual([]);
+ expect((await send('POST',`/workflows/${workflow.id}/source/move`,toru,{orgId:ORG,messageId:destination.row.id,expectedChannel:'b:ops',expectedThreadId:origin.row.id})).status).toBe(403);
+ expect((await send('POST',`/workflows/${workflow.id}/source/move`,mika,{orgId:ORG,messageId:sameRoom.row.id,expectedChannel:'b:ops',expectedThreadId:origin.row.id})).status).toBe(400);
+ expect((await send('POST',`/workflows/${workflow.id}/source/move`,mika,{orgId:ORG,messageId:inaccessible.row.id,expectedChannel:'b:ops',expectedThreadId:origin.row.id})).status).toBe(404);
+ const moved=await send('POST',`/workflows/${workflow.id}/source/move`,mika,{orgId:ORG,messageId:destination.row.id,expectedChannel:'b:ops',expectedThreadId:origin.row.id});
+ expect(moved.status).toBe(200);
+ expect(await moved.json()).toMatchObject({source:{channel:'b:research',threadId:destination.row.id,createdBy:'9302'}});
+ expect((await send('POST',`/workflows/${workflow.id}/source/move`,mika,{orgId:ORG,messageId:origin.row.id,expectedChannel:'b:ops',expectedThreadId:origin.row.id})).status).toBe(409);
+ expect((await send('POST',`/workflows/${workflow.id}/source`,mika,{orgId:ORG,messageId:origin.row.id})).status).toBe(409);
+ const listed=await(await get(`/workflows?${q({orgId:ORG})}`,mika)).json();
+ expect(listed.workflows.find(item=>item.id===workflow.id).sourceChannel).toBe('b:research');
+ expect(await workflowSourceMayRun(env.DB,ORG,workflow.id,'9302')).toBe(true);
+ await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='research'").bind(ORG).run();
+ expect(await workflowSourceMayRun(env.DB,ORG,workflow.id,'9302')).toBe(false);
+ expect((await get(`/workflows/${workflow.id}/source?${q({orgId:ORG})}`,mika)).status).toBe(404);
+});
+
 test('pause delivery posts once to the bound thread despite concurrent retries and a lost delivery acknowledgement',async()=>{
  const {postMessage}=await import('../src/channels.js');
  const {ensureWorkflowSafety}=await import('../src/harness/workflowSafety.js');
