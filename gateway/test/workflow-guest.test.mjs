@@ -51,3 +51,22 @@ test('isolated guest table.query uses only the host broker and returns explicit 
   assert.deepEqual(requests.map(request=>request.method),['table.query','table.query']);assert.equal(requests[1].params.cursor,'cursor-1');
  }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
 });
+
+test('isolated guest queries a selected entity through the host broker',async()=>{
+ const nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce,requests=[];
+ const child=spawn(process.execPath,['--input-type=module','--eval',WORKFLOW_BOOTSTRAP],{stdio:['pipe','pipe','pipe'],shell:false});
+ let output='',stderr='';
+ const parser=createWorkflowOutputParser(prefix,{text:value=>output+=value,request:request=>{
+  requests.push(request);child.stdin.write(JSON.stringify({id:request.id,ok:true,value:{rows:[{id:'detail-row'}],complete:true,cursor:null}})+'\n');
+ }});
+ child.stdout.on('data',chunk=>parser.push(chunk.toString('utf8')));child.stderr.on('data',chunk=>stderr+=chunk.toString('utf8'));
+ const completion=new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',exitCode=>{try{parser.end();resolve(exitCode)}catch(error){reject(error)}})});
+ const timer=setTimeout(()=>child.kill('SIGKILL'),5000);
+ try{
+  child.stdin.write(JSON.stringify({nonce,context:{workspaceId:'workspace',tableSources:[
+   {appId:'app',entityId:'primary',tableId:'table-a'},{appId:'app',entityId:'details',tableId:'table-b'}
+  ]},code:`import {table} from '@honmaru/workflow-sdk';const result=await table.query({entityId:'details',pageSize:1});console.log(JSON.stringify(result));`})+'\n');
+  assert.equal(await completion,0,stderr);assert.deepEqual(JSON.parse(output.trim()).rows,[{id:'detail-row'}]);
+  assert.equal(requests[0].params.entityId,'details');assert.equal(requests[0].method,'table.query');
+ }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
+});

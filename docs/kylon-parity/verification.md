@@ -1,5 +1,11 @@
 # 検証記録
 
+### 2026-11-12 — KY-059 multi-entity read-only Workflow query (local, not deployed)
+
+- Extended the saved TypeScript Workflow source binding from one App entity to up to 20 explicit entities in that same App. The editor presents checkboxes; the SDK requires `entityId` when multiple sources are bound, and the Worker revalidates each exact entity-to-table mapping and current App/Table membership/ACL on every page. Existing single-source saved definitions remain compatible; Simple mode and direct VM capabilities are unchanged.
+- Batched QA: Worker Workflow suites — 2 files / 184 tests passed; Gateway broker/guest/runner suites — 3 files / 33 tests passed; Workflow UI suite — 67 tests passed; Web TypeScript/Vite production build passed; `git diff --check` and JavaScript syntax checks passed. An initial QA run found a source-normalization bug and a UI test locator issue; both were fixed before the passing runs.
+- This is a local change only. Full CI, authenticated production acceptance and deployment are pending. KY-059 remains partial: only bounded read-only App entity queries were expanded; broader Kylon SDK/runtime parity, safe external-effect recovery and historical row snapshots remain open. No new paid service or Simple-mode change.
+
 ### 2026-11-11 — KY-059 bound Workflow `table.query` (local, not deployed)
 
 - Based on main `1dc9a9c0`, added a TypeScript `table.query()` helper only for a saved program with an explicit App/entity/Table binding. The source choice is visible in the program editor; Worker rejects an incomplete or inaccessible binding at save/enqueue and derives the live scope from the frozen definition on every broker page. App/Table membership, entity mapping and visibility grant are rechecked before and after each read. The Linux VM still has no direct network or database capability.

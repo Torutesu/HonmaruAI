@@ -83,3 +83,15 @@ test('table.query follows stable cursors and reports a bounded incomplete result
  await assert.rejects(()=>queryWorkflowTable({pageSize:101},bridge),/pageSize/);
  await assert.rejects(()=>queryWorkflowTable({},{}),/no explicitly authorized/);
 });
+
+test('table.query selects only explicitly bound App entities',async()=>{
+ const requests=[],bridge={tableSources:[
+  {appId:'app',entityId:'primary',tableId:'table-a'},
+  {appId:'app',entityId:'details',tableId:'table-b'},
+ ],queryTable:async params=>{requests.push(params);return {rows:[],complete:true,cursor:null}}};
+ await queryWorkflowTable({entityId:'details',pageSize:5},bridge);
+ assert.equal(requests[0].entityId,'details');
+ await assert.rejects(()=>queryWorkflowTable({},bridge),/explicitly authorized entityId/);
+ await assert.rejects(()=>queryWorkflowTable({entityId:'private'},bridge),/explicitly authorized/);
+ await assert.rejects(()=>queryWorkflowTable({entityId:'bad-id!'},bridge),/Invalid App entity/);
+});

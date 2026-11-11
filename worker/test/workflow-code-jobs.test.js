@@ -325,11 +325,20 @@ test('a program requires a sole code definition and rejects oversized inputs wit
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_gateway_jobs').first()).n).toBe(0);
 });
 
-async function setupProgramTableSource({privateApp=false}={}){
+async function setupProgramTableSource({privateApp=false,multiSource=false}={}){
  await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('query-table','program-org','Query Source','[{\"id\":\"status\",\"name\":\"Status\",\"type\":\"text\"}]','program-owner','now','now')").run();
  await upsertUser(env.DB,{githubId:'query-app-owner',login:'query-app-owner',name:'App Owner'});
  await upsertMembership(env.DB,'program-org','query-app-owner','admin');
  await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('query-app','program-org','Query App','query-table','{}','query-app-owner','now','now')").run();
+ if(multiSource){
+  await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('query-details','program-org','Query Details','[{\"id\":\"kind\",\"name\":\"Kind\",\"type\":\"text\"}]','query-app-owner','now','now')").run();
+  await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES('program-org','query-app','details','query-details')").run();
+  for(let index=1;index<=2;index++){
+   const at=new Date(Date.now()-10000+index*1000).toISOString();
+   await env.DB.prepare(`INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,created_at,updated_at) VALUES(?1,'query-details','program-org',?2,?3,'query-app-owner',?4,?4)`)
+    .bind(`query-detail-${index}`,JSON.stringify({kind:`detail-${index}`}),index,at).run();
+  }
+ }
  if(privateApp){
   await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES('program-org','query-app','private',1)").run();
   await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES('program-org','query-app','program-owner','view','now')").run();
@@ -339,7 +348,7 @@ async function setupProgramTableSource({privateApp=false}={}){
   await env.DB.prepare(`INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,created_at,updated_at)
    VALUES(?1,'query-table','program-org',?2,?3,'query-app-owner',?4,?4)`).bind(`query-row-${index}`,JSON.stringify({status:index===2?'closed':'open'}),index,at).run();
  }
- definition.steps=[{...definition.steps[0],sourceAppId:'query-app',sourceEntityId:'primary',sourceTableId:'query-table'}];
+ definition.steps=[{...definition.steps[0],sourceAppId:'query-app',...(multiSource?{sourceTables:[{entityId:'primary',tableId:'query-table'},{entityId:'details',tableId:'query-details'}]}:{sourceEntityId:'primary',sourceTableId:'query-table'})}];
  await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=?1 WHERE run_id='program-run'").bind(JSON.stringify(definition)).run();
  const queued=await enqueue({at:Date.now()});expect(queued.status).toBe('pending');
  const token=`hgw_${crypto.randomUUID()}${crypto.randomUUID()}`;
@@ -351,7 +360,7 @@ async function setupProgramTableSource({privateApp=false}={}){
  return {api,job,privateApp};
 }
 
-test('saved TypeScript sources are normalized to one accessible App entity and cannot name another workspace resource',async()=>{
+test('saved TypeScript sources are normalized to explicit App entities and cannot name another workspace resource',async()=>{
  await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('saved-primary','program-org','Primary','[]','program-owner','now','now')").run();
  await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('saved-details','program-org','Details','[]','program-owner','now','now')").run();
  await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('saved-app','program-org','Saved App','saved-primary','{}','program-owner','now','now')").run();
@@ -359,10 +368,31 @@ test('saved TypeScript sources are normalized to one accessible App entity and c
  const step={type:'code',code:'import {table} from \'@honmaru/workflow-sdk\';',gatewayId:'program-node',sourceAppId:'saved-app',sourceEntityId:'details',sourceTableId:'saved-details'};
  const created=await createWorkflow(env.DB,'program-org',{name:'Bound source',trigger:{type:'manual'},steps:[step]},'program-owner');
  expect(created.error).toBeUndefined();expect(created.workflow.steps[0]).toMatchObject({sourceAppId:'saved-app',sourceEntityId:'details',sourceTableId:'saved-details'});
+ const many=await createWorkflow(env.DB,'program-org',{name:'Bound multiple sources',trigger:{type:'manual'},steps:[{type:'code',code:step.code,gatewayId:'program-node',sourceAppId:'saved-app',sourceTables:[{entityId:'primary',tableId:'saved-primary'},{entityId:'details',tableId:'saved-details'}]}]},'program-owner');
+ expect(many.error).toBeUndefined();expect(many.workflow.steps[0].sourceTables).toEqual([{entityId:'primary',tableId:'saved-primary'},{entityId:'details',tableId:'saved-details'}]);
+ const duplicate=await createWorkflow(env.DB,'program-org',{name:'Duplicate sources',trigger:{type:'manual'},steps:[{type:'code',code:step.code,gatewayId:'program-node',sourceAppId:'saved-app',sourceTables:[{entityId:'primary',tableId:'saved-primary'},{entityId:'primary',tableId:'saved-primary'}]}]},'program-owner');
+ expect(duplicate.error).toContain('distinct, complete App entities');
  const foreign=await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('foreign-table','other-org','Foreign','[]','someone','now','now')").run();
  expect(foreign.meta.changes).toBe(1);
  const rejected=await createWorkflow(env.DB,'program-org',{name:'Foreign source',trigger:{type:'manual'},steps:[{...step,sourceAppId:'foreign-app',sourceTableId:'foreign-table'}]},'program-owner');
  expect(rejected.error).toContain('App/Table source');
+});
+
+test('multi-entity table queries require a bound entity and scope cursors to the exact entity',async()=>{
+ const {api,job}=await setupProgramTableSource({multiSource:true});
+ const ambiguous=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:1}});
+ expect(ambiguous.status).toBe(400);
+ const first=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{entityId:'details',pageSize:1}});
+ expect(first.status).toBe(200);const page=await first.json();
+ expect(page.rows).toMatchObject([{id:'query-detail-1',tableId:'query-details',values:{kind:'detail-1'}}]);expect(page.complete).toBe(false);
+ const next=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{entityId:'details',pageSize:1,cursor:page.cursor}});
+ expect(await next.json()).toMatchObject({rows:[{id:'query-detail-2'}],complete:true});
+ const injected=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{entityId:'unbound',pageSize:1}});
+ expect(injected.status).toBe(404);
+ const crossSourceCursor=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{entityId:'primary',pageSize:1,cursor:page.cursor}});
+ expect(crossSourceCursor.status).toBe(400);
+ const scopeInjection=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{entityId:'details',tableId:'other-table',pageSize:1}});
+ expect(scopeInjection.status).toBe(400);
 });
 
 test('workflow table query pages the exact frozen App/Table source and denies scope or cursor injection',async()=>{
