@@ -681,6 +681,41 @@ test("workflow lifecycle aliases map details, history, cancellation, held events
   assert.equal(stderr.read(), "");
 });
 
+test("workflow recovery aliases require explicit compare-and-set and no-replay inputs", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { ok: true } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "workflow", "revisions", "wf_1", "--before", "3"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "restore", "wf_1", "--revision", "2", "--expected-updated-at", "2026-11-11T00:00:00Z", "--confirm-auto-paused"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "resume", "wf_1", "--generation", "gen_1"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "recover", "wf_1", "run_1", "--expected-started-at", "2026-11-11T00:00:00Z", "--confirm-no-replay"]), 0);
+  assert.deepEqual(calls, [
+    { name: "list_workflow_revisions", arguments: { workflowId: "wf_1", before: 3 } },
+    { name: "restore_workflow_revision", arguments: { workflowId: "wf_1", revision: 2, expectedUpdatedAt: "2026-11-11T00:00:00Z", confirmAutoPaused: true } },
+    { name: "resume_workflow_safety", arguments: { workflowId: "wf_1", generation: "gen_1" } },
+    { name: "recover_stalled_workflow_run", arguments: { workflowId: "wf_1", runId: "run_1", expectedStartedAt: "2026-11-11T00:00:00Z", confirmNoReplay: true } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("workflow recovery aliases reject omitted safety confirmations before a request", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "workflow", "recover", "wf_1", "run_1", "--expected-started-at", "2026-11-11T00:00:00Z"]), 1);
+  assert.match(stderr.read(), /confirm-no-replay/); stderr.clear();
+  assert.equal(await run(["workspace", "workflow", "restore", "wf_1", "--revision", "0", "--expected-updated-at", "2026-11-11T00:00:00Z"]), 1);
+  assert.match(stderr.read(), /revision must be an integer/);
+  assert.equal(requests, 0);
+});
+
 test("workflow lifecycle aliases reject unsafe or stale inputs before making a request", async () => {
   let requests = 0;
   const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };

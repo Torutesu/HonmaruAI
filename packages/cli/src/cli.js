@@ -52,6 +52,10 @@ Usage:
   honmaru workspace workflow runs <workflow-id> [--limit N]
   honmaru workspace workflow run-detail <workflow-id> <run-id>
   honmaru workspace workflow cancel <workflow-id> <run-id> --expected-started-at ISO
+  honmaru workspace workflow revisions <workflow-id> [--before N]
+  honmaru workspace workflow restore <workflow-id> --revision N --expected-updated-at ISO [--confirm-auto-paused]
+  honmaru workspace workflow resume <workflow-id> --generation TOKEN
+  honmaru workspace workflow recover <workflow-id> <run-id> --expected-started-at ISO --confirm-no-replay
   honmaru workspace workflow held-events <workflow-id> [--offset N]
   honmaru workspace workflow held-event <workflow-id> <event-id>
   honmaru workspace workflow discard-held|replay-held <workflow-id> --event-ids ID,ID
@@ -111,10 +115,10 @@ const ALIAS_VALUE_FLAGS = new Set([
   "text", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
   "direction", "title", "name", "members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset",
-  "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "event-ids",
+  "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay"]);
 
 function parseOptions(args, { allowArgs = false, allowWorkspaceFlags = false } = {}) {
   const options = { json: false };
@@ -456,6 +460,26 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
       onlyFlags(options, ["expectedStartedAt"]); positionalCount(positional, 2, "honmaru workspace workflow cancel <workflow-id> <run-id> --expected-started-at ISO");
       if (!options.expectedStartedAt || !Number.isFinite(Date.parse(options.expectedStartedAt))) throw new Error("--expected-started-at must be a valid ISO timestamp from a freshly loaded run.");
       return { tool: "cancel_workflow_run", args: { workflowId: positional[0], runId: positional[1], expectedStartedAt: options.expectedStartedAt } };
+    case "workflow revisions": {
+      onlyFlags(options, ["before"]); positionalCount(positional, 1, "honmaru workspace workflow revisions <workflow-id> [--before N]");
+      const before = integerOption(options, "before", { min: 1 });
+      return { tool: "list_workflow_revisions", args: { workflowId: positional[0], ...(before !== undefined ? { before } : {}) } };
+    }
+    case "workflow restore": {
+      onlyFlags(options, ["revision", "expectedUpdatedAt", "confirmAutoPaused"]); positionalCount(positional, 1, "honmaru workspace workflow restore <workflow-id> --revision N --expected-updated-at ISO [--confirm-auto-paused]");
+      const revision = integerOption(options, "revision", { min: 1, required: true });
+      if (!options.expectedUpdatedAt || !Number.isFinite(Date.parse(options.expectedUpdatedAt))) throw new Error("--expected-updated-at must be a valid ISO timestamp from a freshly loaded workflow.");
+      return { tool: "restore_workflow_revision", args: { workflowId: positional[0], revision, expectedUpdatedAt: options.expectedUpdatedAt, ...(options.confirmAutoPaused ? { confirmAutoPaused: true } : {}) } };
+    }
+    case "workflow resume":
+      onlyFlags(options, ["generation"]); positionalCount(positional, 1, "honmaru workspace workflow resume <workflow-id> --generation TOKEN");
+      if (!options.generation?.trim()) throw new Error("--generation from a freshly loaded workflow is required.");
+      return { tool: "resume_workflow_safety", args: { workflowId: positional[0], generation: options.generation } };
+    case "workflow recover":
+      onlyFlags(options, ["expectedStartedAt", "confirmNoReplay"]); positionalCount(positional, 2, "honmaru workspace workflow recover <workflow-id> <run-id> --expected-started-at ISO --confirm-no-replay");
+      if (!options.expectedStartedAt || !Number.isFinite(Date.parse(options.expectedStartedAt))) throw new Error("--expected-started-at must be a valid ISO timestamp from a freshly loaded run.");
+      if (options.confirmNoReplay !== true) throw new Error("--confirm-no-replay is required; the uncertain step will not be retried.");
+      return { tool: "recover_stalled_workflow_run", args: { workflowId: positional[0], runId: positional[1], expectedStartedAt: options.expectedStartedAt, confirmNoReplay: true } };
     case "workflow held-events": {
       onlyFlags(options, ["offset"]); positionalCount(positional, 1, "honmaru workspace workflow held-events <workflow-id> [--offset N]");
       const offset = integerOption(options, "offset", { min: 0, max: 975 });
