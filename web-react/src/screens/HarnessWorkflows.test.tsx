@@ -17,6 +17,7 @@ beforeEach(() => {
     workflowNotices: vi.fn().mockResolvedValue({items:[]}),
     workflows: vi.fn().mockResolvedValue({ workflows: [workflow] }), tables: vi.fn().mockResolvedValue({ tables: [] }),
     workflow: vi.fn().mockResolvedValue({ workflow, runs: [], summary:emptySummary, canEdit: true }),
+    workflowSource: vi.fn().mockResolvedValue({source:{threadId:'thread_source',channel:'b:ops',body:'Create an automation',createdAt:'2026-10-20T00:00:00.000Z'},canBind:false,candidates:[],nextCursor:null}),
     recoverWorkflowRun: vi.fn().mockResolvedValue({run:{}}),
     cancelWorkflowRun: vi.fn().mockResolvedValue({run:{}}),
     changeWorkflowHook: vi.fn().mockResolvedValue({ workflow: { ...workflow, hookSecret: undefined, hookUrl: undefined } }),
@@ -28,6 +29,22 @@ async function open() {
   await act(async () => { tree = create(<HarnessWorkflows {...props} />) })
   await act(async () => { tree.root.findByProps({ 'data-workflow': workflow.id }).props.onClick() })
 }
+test('failed runs link to the source chat for recovery without rerunning the workflow',async()=>{
+ const failed={id:'run_failed',workflowId:workflow.id,startedAt:'2026-10-24T10:00:00.000Z',status:'failed',trigger:'schedule',log:[],usage:null}
+ state.api.workflow.mockResolvedValue({workflow,runs:[failed],summary:emptySummary,canEdit:true})
+ state.api.runWorkflow=vi.fn()
+ await open()
+ expect(state.api.workflowSource).toHaveBeenCalledWith(workflow.id,undefined,false)
+ expect(tree.root.findByProps({href:'#/t/thread_source/one'}).children).toContain('Ask in chat')
+ expect(state.api.runWorkflow).not.toHaveBeenCalled()
+})
+test('failed runs do not expose Ask in chat when the source conversation is inaccessible',async()=>{
+ const failed={id:'run_failed',workflowId:workflow.id,startedAt:'2026-10-24T10:00:00.000Z',status:'failed',trigger:'schedule',log:[],usage:null}
+ state.api.workflow.mockResolvedValue({workflow,runs:[failed],summary:emptySummary,canEdit:true})
+ state.api.workflowSource.mockResolvedValue({source:null,canBind:false,candidates:[],nextCursor:null})
+ await open()
+ expect(tree.root.findAllByType('a').some(link=>link.children.includes('Ask in chat'))).toBe(false)
+})
 test('workflow detail shows a rolling median and labels provider token estimates clearly',async()=>{
  state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[],summary:{...emptySummary,runCount:2,failedCount:1,completedDurationCount:2,typicalDurationMs:5000,usage:{...emptySummary.usage,calls:2,trackedRuns:2,unpricedCalls:1,unknownCalls:1,estimatedMicros:1234}}});
  await open();

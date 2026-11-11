@@ -3694,6 +3694,8 @@ const table: Record<string, string> = {
   'Start over': '最初からやり直す',
   'I updated the proposal. Review the trigger and every step below. Nothing has been saved or run yet.': '提案を更新しました。以下のトリガーと各手順を確認してください。まだ保存も実行もしていません。',
   'This refinement is too long to keep the original request and current plan. Start over with a shorter request or change.': '元の依頼と現在の案を保持するには変更内容が長すぎます。短くして再入力してください。',
+  'Ask in chat': 'チャットで相談',
+  'Open the automation thread to ask how to recover without rerunning this workflow.': 'ワークフローを再実行せずに復旧方法を相談するため、作成元スレッドを開きます。',
   'This picture could not be opened.': 'この画像を開けませんでした。',
   'The shared workspace AI usage limit was reached. New deployment-key AI requests are paused.': 'ワークスペース共通のAI利用上限に達しました。デプロイキーを使う新しいAIリクエストは一時停止しています。',
   'Review AI usage': 'AI利用状況を確認',

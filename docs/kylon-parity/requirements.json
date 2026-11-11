@@ -751,7 +751,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js",
-      "acceptance": "全ステップの入力出力・エラー・コスト・権限を追跡"
+      "acceptance": "全ステップの入力出力・エラー・コスト・権限を追跡。失敗runから作成元スレッドを開き、再実行せず復旧を相談できる"
     },
     {
       "id": "KY-062",
