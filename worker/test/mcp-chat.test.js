@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, expect, test } from 'vitest';
-import { callChatTool } from '../src/mcpChatTools.js';
+import { callChatTool, CHAT_TOOLS } from '../src/mcpChatTools.js';
 import { prepareConversationMessage, acceptConversationMessage } from '../src/conversationOperations.js';
 import { resolveMcpConversation } from '../src/mcpConversation.js';
 import { upsertUser, upsertMembership, upsertBusiness } from '../src/db.js';
@@ -117,10 +117,18 @@ test('MCP Room member list/add/remove uses opaque refs, room relations and admin
   const roster = await listMembers(env.DB, orgId, 'mcp-a');
   const alex = roster.find(member => member.login === 'alex');
   const cara = roster.find(member => member.login === 'cara');
+  await expect(call('add_room_members', { conversationId: 'b:general', memberRefs: [cara.ref] }))
+    .resolves.toMatchObject({ added: [cara.ref], relation: 'member', version: 2 });
+  await upsertUser(env.DB, { githubId: 'mcp-d', login: 'drew', name: 'Drew', locale: 'en' });
+  await upsertMembership(env.DB, orgId, 'mcp-d', 'guest');
+  const drew = (await listMembers(env.DB, orgId, 'mcp-a')).find(member => member.login === 'drew');
+  await expect(call('add_room_members', { conversationId: 'b:general', memberRefs: [drew.ref], relation: 'admin' }))
+    .rejects.toThrow('A guest cannot become a room admin');
+  await expect(call('add_room_members', { conversationId: 'b:general', memberRefs: [drew.ref], relation: 'admin' }, { ...actor, githubId: 'mcp-c', login: 'cara', name: 'Cara' }))
+    .rejects.toThrow('Only a room admin can add another admin');
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:general' AND login='drew'").bind(orgId).first('n')).toBe(0);
   const added = await call('add_room_members', { conversationId: 'b:general', memberRefs: [other.ref], relation: 'admin' });
-  expect(added).toMatchObject({ added: [other.ref], relation: 'admin', version: 2 });
-  expect(await call('add_room_members', { conversationId: 'b:general', memberRefs: [cara.ref] }))
-    .toMatchObject({ added: [cara.ref], relation: 'member', version: 3 });
+  expect(added).toMatchObject({ added: [other.ref], relation: 'admin', version: 3 });
   const listed = await call('list_room_members', { conversationId: 'b:general' });
   expect(listed).toMatchObject({ version: 3, members: [
     { id: alex.ref, name: 'alex', type: 'person', relation: 'admin' },
@@ -135,6 +143,11 @@ test('MCP Room member list/add/remove uses opaque refs, room relations and admin
     .toMatchObject({ removed: [alex.ref], version: 4 });
   await expect(call('remove_room_members', { conversationId: 'b:general', memberRefs: [other.ref] }, { ...actor, githubId: 'mcp-b', login: 'beth', name: 'Beth' }))
     .rejects.toThrow('Keep at least one active human room admin');
+});
+
+test('member removal is advertised as a destructive MCP tool', () => {
+  expect(CHAT_TOOLS.find(tool => tool.name === 'remove_room_members').annotations)
+    .toMatchObject({ readOnlyHint: false, destructiveHint: true, idempotentHint: true });
 });
 
 test('public grant cannot discover, search, or guess private and DM messages', async () => {

@@ -431,7 +431,7 @@ async function handleMessage(env, agent, msg, request, ctx = null) {
         const out = await callChatTool(env, agent, name, args, request, ctx)
           ?? await callContentTool(env, agent, name, args, request, ctx)
           ?? await callTool(env, agent, name, args, request, ctx)
-          ?? (extra.some((t) => t.name === name) ? await callHarnessTool(env, agent, name, args) : null);
+          ?? (extra.some((t) => t.name === name) ? await callHarnessTool(env, agent, name, args, request) : null);
         if (!out) return rpcError(msg.id, -32602, `Unknown tool: ${name}`);
         await audit(env, request, { orgId: agent.orgId, action: "mcp.tool_called", actor: { type: "user", id: agent.login, name: agent.name }, details: { tool: name, tokenId: agent.tokenId, clientId: agent.clientId || null }, outcome: out.isError ? "failure" : "success" });
         return rpcResult(msg.id, out);
