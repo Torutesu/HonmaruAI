@@ -78,6 +78,23 @@ test('MCP Room rename, archive, restore and archive listing preserve membership 
   expect((await call('discover_public_rooms', { joined: true })).rooms.map(room => room.channel)).toContain('b:roadmap');
 });
 
+test('MCP Room settings expose managed defaults and update only requested settings under build authority', async () => {
+  await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
+  expect(await call('get_room_settings', { conversationId: 'b:general' })).toMatchObject({
+    conversationId: 'b:general', canEdit: true, settings: { name: 'General', color: 'teal', mentionedOnly: false, defaultAgentId: null, version: 1, responseVersion: 0 },
+  });
+  const updated = await call('update_room_settings', { conversationId: 'b:general', name: 'Operations', mentionedOnly: true, color: 'lake' });
+  expect(updated.settings).toMatchObject({ name: 'Operations', color: 'lake', mentionedOnly: true, version: 2, responseVersion: 1 });
+  expect(await env.DB.prepare("SELECT name FROM businesses WHERE org_id=?1 AND slug='general'").bind(orgId).first('name')).toBe('Operations');
+  expect(await env.DB.prepare("SELECT color FROM hx_room_appearance WHERE org_id=?1 AND channel='b:general'").bind(orgId).first('color')).toBe('lake');
+  await expect(call('update_room_settings', { conversationId: 'b:general', defaultAgentId: 'missing-agent' })).rejects.toThrow('Choose an agent available in this room');
+  const at = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES (?1,'mcp-room-agent','mcp-room-agent','Room Agent','Plan.','team','alex',?2,?2)").bind(orgId, at).run();
+  await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:general','mcp-room-agent','alex',?2)").bind(orgId, at).run();
+  const agentUpdate = await call('update_room_settings', { conversationId: 'b:general', defaultAgentId: 'mcp-room-agent' });
+  expect(agentUpdate.settings).toMatchObject({ defaultAgentId: 'mcp-room-agent', version: 3, responseVersion: 2 });
+});
+
 test('public grant cannot discover, search, or guess private and DM messages', async () => {
   await seed('b:general', 'needle public');
   const privateMessage = await seed('b:private', 'needle private');

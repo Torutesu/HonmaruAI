@@ -392,6 +392,44 @@ test("Room rename, archive, restore and archived listing aliases map to scoped t
   assert.equal(stderr.read(), "");
 });
 
+test("Room get/update aliases read managed settings and pass only requested fields", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    const structuredContent = req.params.name === "get_room_settings"
+      ? { conversationId: "b:ops", settings: { name: "Operations", color: "teal", mentionedOnly: false, version: 2, responseVersion: 1 }, availableAgents: [] }
+      : { conversationId: "b:ops", settings: { name: "Ops 2", color: "lake", mentionedOnly: true, defaultAgentId: null, version: 3, responseVersion: 2 } };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "get", "b:ops"]), 0);
+  assert.match(stdout.read(), /\"responseVersion\": 1/); stdout.clear();
+  assert.equal(await run(["workspace", "room", "update", "b:ops", "--name", "Ops 2", "--mentioned-only", "true", "--main-agent", "auto", "--icon-color", "cyan"]), 0);
+  assert.match(stdout.read(), /Updated Room b:ops settings \(version 3\)/);
+  assert.deepEqual(calls, [
+    { name: "get_room_settings", arguments: { conversationId: "b:ops" } },
+    { name: "update_room_settings", arguments: { conversationId: "b:ops", name: "Ops 2", mentionedOnly: true, defaultAgentId: null, color: "lake" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("Room update rejects empty settings and malformed flags before calling MCP", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "update", "b:ops"]), 1);
+  assert.match(stderr.read(), /at least one Room setting/); stderr.clear();
+  assert.equal(await run(["workspace", "room", "update", "b:ops", "--mentioned-only", "sometimes"]), 1);
+  assert.match(stderr.read(), /must be true or false/); stderr.clear();
+  assert.equal(await run(["workspace", "room", "update", "b:ops", "--icon-color", "chartreuse"]), 1);
+  assert.match(stderr.read(), /icon-color must be one of/);
+  assert.equal(requests, 0);
+});
+
 test("reaction aliases use idempotent add and remove tools without toggling semantics", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {

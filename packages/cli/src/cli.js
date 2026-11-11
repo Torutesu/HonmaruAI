@@ -19,6 +19,8 @@ Usage:
   honmaru workspace room join <room-id>
   honmaru workspace room leave <room-id>
   honmaru workspace room list [--query TEXT] [--type channel|dm|group] [--limit N] [--cursor CURSOR] [--archived]
+  honmaru workspace room get <room-id>
+  honmaru workspace room update <room-id> [--name NAME] [--mentioned-only true|false] [--main-agent ID|auto] [--icon-color COLOR]
   honmaru workspace room rename <room-id> --name NAME
   honmaru workspace room archive <room-id>
   honmaru workspace room unarchive <room-id>
@@ -94,7 +96,7 @@ The status command reports the macOS LaunchAgent state without reading or printi
 
 const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
-  "text", "room", "instruction", "minutes", "scope", "origin", "type", "created-by",
+  "text", "room", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color",
   "direction", "title", "name", "members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir",
@@ -222,6 +224,29 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
       if (typeof options.name !== "string" || !options.name.trim()) throw new Error("--name is required.");
       if (options.name.trim().length > 120) throw new Error("--name must be at most 120 characters.");
       return { tool: "rename_room", args: { conversationId: positional[0], name: options.name.trim() } };
+    case "room get":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace room get <room-id>");
+      return { tool: "get_room_settings", args: { conversationId: positional[0] } };
+    case "room update": {
+      onlyFlags(options, ["name", "mentionedOnly", "mainAgent", "iconColor"]); positionalCount(positional, 1, "honmaru workspace room update <room-id> [--name NAME] [--mentioned-only true|false] [--main-agent ID|auto] [--icon-color COLOR]");
+      const args = { conversationId: positional[0] };
+      if (options.name !== undefined) {
+        if (!options.name.trim()) throw new Error("--name cannot be empty.");
+        args.name = options.name.trim();
+      }
+      if (options.mentionedOnly !== undefined) {
+        if (!["true", "false"].includes(options.mentionedOnly)) throw new Error("--mentioned-only must be true or false.");
+        args.mentionedOnly = options.mentionedOnly === "true";
+      }
+      if (options.mainAgent !== undefined) args.defaultAgentId = options.mainAgent === "auto" ? null : options.mainAgent;
+      if (options.iconColor !== undefined) {
+        const colors = ["rose", "orange", "yellow", "green", "teal", "cyan", "blue", "indigo", "purple", "pink", "olive", "red", "gray", "lake"];
+        if (!colors.includes(options.iconColor)) throw new Error(`--icon-color must be one of ${colors.join(", ")}.`);
+        args.color = options.iconColor === "cyan" ? "lake" : options.iconColor;
+      }
+      if (Object.keys(args).length === 1) throw new Error("Provide at least one Room setting to update.");
+      return { tool: "update_room_settings", args };
+    }
     case "room archive":
     case "room unarchive":
       onlyFlags(options, []); positionalCount(positional, 1, `honmaru workspace room ${operation} <room-id>`);
@@ -528,6 +553,8 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "join_public_room") return `${value.joined ? "Joined" : "Already in"} public Room ${value.conversationId}.`;
   if (command?.tool === "leave_public_room") return `Left public Room ${value.conversationId}.`;
   if (command?.tool === "rename_room") return `Renamed Room ${value.conversationId} to ${value.name}.`;
+  if (command?.tool === "update_room_settings") return `Updated Room ${value.conversationId} settings (version ${value.settings?.version}).`;
+  if (command?.tool === "get_room_settings") return JSON.stringify(value, null, 2);
   if (command?.tool === "archive_room") return `Archived Room ${value.conversationId}.`;
   if (command?.tool === "unarchive_room") return `Restored Room ${value.conversationId}.`;
   if (Array.isArray(value.conversations)) return value.conversations.length ? value.conversations.map((conversation) => `${conversation.id}\t${conversation.type}\t${conversation.name || "(unnamed)"}${conversation.private ? "\tprivate" : ""}`).join("\n") : "No conversations found.";
