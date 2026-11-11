@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { runCli } from "../src/cli.js";
 
 function output() {
@@ -361,9 +365,53 @@ test("file lifecycle aliases reject unsafe or unsupported requests before callin
   assert.match(stderr.read(), /must be an integer from 1/); stderr.clear();
   assert.equal(await run(["workspace", "folders", "list", "--scope", "all"]), 1);
   assert.match(stderr.read(), /choose one accessible Room/); stderr.clear();
-  assert.equal(await run(["workspace", "file", "download", "file_1"]), 1);
-  assert.match(stderr.read(), /Unknown workspace command/);
+  assert.equal(await run(["workspace", "file", "download", "file_1", "--output", "a", "--dir", "b"]), 1);
+  assert.match(stderr.read(), /either --output or --dir/);
   assert.equal(requests, 0);
+});
+
+test("binary file upload streams bytes after a hash-bound reservation and download refuses overwrite by default", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "honmaru-cli-files-"));
+  try {
+    const source = join(dir, "image.png"), target = join(dir, "download.png");
+    const bytes = Buffer.from([0, 255, 13, 10, 42, 128]);
+    await import("node:fs/promises").then(({ writeFile }) => writeFile(source, bytes));
+    const calls = [];
+    const fetcher = async (url, init) => {
+      if (url.pathname === "/mcp") {
+        const req = JSON.parse(init.body); calls.push(req.params);
+        const result = req.params.name === "create_file_upload"
+          ? { structuredContent: { fileId: "file-123e4567-e89b-12d3-a456-426614174000", uploadId: "123e4567-e89b-12d3-a456-426614174001", uploadUrl: "/mcp/workspace-uploads/123e4567-e89b-12d3-a456-426614174001", method: "PUT", contentType: "image/png", size: bytes.length } }
+          : req.params.name === "get_workspace_file"
+            ? { structuredContent: { file: { id: "file_1", path: "assets/image.png", version: 3 } } }
+            : { structuredContent: { versions: [{ version: 3, kind: "content", size: bytes.length, purged: false }, { version: 2, kind: "content", size: bytes.length, purged: false }] } };
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result }), { status: 200 });
+      }
+      calls.push({ transfer: url.pathname, method: init.method, headers: init.headers, ...(init.body ? { bytes: Buffer.from(init.body) } : {}) });
+      if (init.method === "PUT") return new Response(JSON.stringify({ fileId: "file-123e4567-e89b-12d3-a456-426614174000", version: 1, saved: true }), { status: 200 });
+      return new Response(bytes, { status: 200 });
+    };
+    const stdout = output(), stderr = output();
+    const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+    const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+    assert.equal(await run(["workspace", "file", "upload", "--scope", "workspace", "--path", "assets/image.png", "--source", source, "--request-id", "file-123e4567-e89b-12d3-a456-426614174000"]), 0);
+    assert.deepEqual(calls[0], { name: "create_file_upload", arguments: {
+      scope: "workspace", path: "assets/image.png", requestId: "file-123e4567-e89b-12d3-a456-426614174000", contentType: "image/png",
+      size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"),
+    } });
+    assert.equal(calls[1].transfer, "/mcp/workspace-uploads/123e4567-e89b-12d3-a456-426614174001");
+    assert.equal(calls[1].headers.authorization, `Bearer ${token}`);
+    assert.deepEqual(calls[1].bytes, bytes);
+
+    const firstDownload = await run(["workspace", "file", "download", "file_1", "--output", target]);
+    assert.equal(firstDownload, 0, stderr.read());
+    assert.deepEqual(await readFile(target), bytes);
+    assert.equal(await run(["workspace", "file", "download", "file_1", "--output", target]), 1);
+    assert.match(stderr.read(), /already exists/);
+    assert.equal(await run(["workspace", "file", "download", "file_1", "--output", target, "--force", "--version", "2"]), 0);
+    assert.equal(calls.at(-1).transfer, "/mcp/workspace-files/file_1/versions/2/content");
+    assert.equal(stderr.read().includes("invalid"), false);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 test("workflow, follow-up, and file aliases keep explicit scopes and typed values", async () => {

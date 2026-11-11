@@ -41,6 +41,18 @@ CREATE TABLE IF NOT EXISTS hx_workspace_file_uploads (
  PRIMARY KEY(org_id,id)
 );
 CREATE INDEX IF NOT EXISTS hx_workspace_file_uploads_due ON hx_workspace_file_uploads(expires_at);
+
+/* MCP CLI binary transfers use bounded, actor-bound reservations separate from the R2 upload lease. */
+CREATE TABLE IF NOT EXISTS hx_mcp_workspace_file_uploads (
+ org_id TEXT NOT NULL, id TEXT NOT NULL, actor_id TEXT NOT NULL, connection_id TEXT NOT NULL,
+ request_id TEXT NOT NULL, file_id TEXT NOT NULL, scope TEXT NOT NULL, path TEXT NOT NULL,
+ content_type TEXT NOT NULL, size INTEGER NOT NULL CHECK(size>=0 AND size<=26214400),
+ content_hash TEXT NOT NULL CHECK(length(content_hash)=64), payload_hash TEXT NOT NULL CHECK(length(payload_hash)=64),
+ created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('pending','uploading','complete','failed')),
+ PRIMARY KEY(org_id,id), UNIQUE(org_id,actor_id,connection_id,request_id)
+);
+CREATE INDEX IF NOT EXISTS hx_mcp_workspace_file_uploads_expiry ON hx_mcp_workspace_file_uploads(expires_at,state);
 CREATE TABLE IF NOT EXISTS hx_file_account_erasures (
  user_id TEXT PRIMARY KEY, login TEXT, requested_at INTEGER NOT NULL, next_at INTEGER NOT NULL
 );

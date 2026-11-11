@@ -326,7 +326,7 @@ test('follow-up origin migration preserves existing standalone reservations',asy
 test('deploy replay installs MCP tables and retains cancelled schedule authority', async () => {
   await applyDeploy(env.DB);
   await applyDeploy(env.DB);
-  for (const name of ['mcp_oauth_clients', 'mcp_oauth_requests', 'mcp_oauth_grants', 'mcp_oauth_codes', 'mcp_oauth_tokens', 'mcp_content_mutations', 'mcp_file_uploads', 'mcp_scheduled_authority', 'mcp_conversation_requests']) {
+  for (const name of ['mcp_oauth_clients', 'mcp_oauth_requests', 'mcp_oauth_grants', 'mcp_oauth_codes', 'mcp_oauth_tokens', 'mcp_content_mutations', 'mcp_file_uploads', 'hx_mcp_workspace_file_uploads', 'mcp_scheduled_authority', 'mcp_conversation_requests']) {
     expect(await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?1").bind(name).first()).toEqual({ name });
   }
   expect((await env.DB.prepare('PRAGMA foreign_key_list(mcp_scheduled_authority)').all()).results).toEqual([]);
