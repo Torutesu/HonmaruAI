@@ -22,6 +22,7 @@ import { cancelDeploymentBudgetWorkflowRuns } from '../workspaceBudgetStop.js';
 import { claimWorkflowNode, finishWorkflowNode, markWorkflowNodeUnknown, renewWorkflowNode, commitWorkflowNodeEffects } from './workflowCheckpoints.js';
 import { prepareWorkflowRowEvent, drainWorkflowRowEvents } from './workflowRowEventDispatch.js';
 import { rowEventFingerprint } from './workflowRowEventFingerprint.js';
+import { workflowProgramSources } from './workflowProgramSources.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
 //
@@ -152,11 +153,18 @@ async function appEntityTable(db, orgId, appId, entityId) {
 }
 
 async function validProgramTableSource(db,orgId,step,viewerId) {
-  if(!step?.sourceAppId&&!step?.sourceEntityId&&!step?.sourceTableId)return true;
-  if(!step.sourceAppId||!step.sourceEntityId||!step.sourceTableId)return false;
-  const mapped=await appEntityTable(db,orgId,step.sourceAppId,step.sourceEntityId);
-  return mapped===step.sourceTableId&&Boolean(await getTable(db,orgId,step.sourceTableId))
-    &&await mayUseApp(db,orgId,step.sourceAppId,viewerId)&&await mayUseTable(db,orgId,step.sourceTableId,viewerId);
+  const sources=workflowProgramSources(step);
+  const hasSource=Boolean(step?.sourceAppId||step?.sourceEntityId||step?.sourceTableId||step?.sourceTables!==undefined);
+  if(!hasSource)return true;
+  if(!step.sourceAppId||!sources.length||sources.length>20
+    ||new Set(sources.map(source=>source.entityId)).size!==sources.length
+    ||sources.some(source=>!source.entityId||!source.tableId))return false;
+  if(!await mayUseApp(db,orgId,step.sourceAppId,viewerId))return false;
+  for(const source of sources){
+    const mapped=await appEntityTable(db,orgId,step.sourceAppId,source.entityId);
+    if(mapped!==source.tableId||!await getTable(db,orgId,source.tableId)||!await mayUseTable(db,orgId,source.tableId,viewerId))return false;
+  }
+  return true;
 }
 
 async function validAppRecordTrigger(db, orgId, trigger, expectedTableId = undefined) {
@@ -180,11 +188,27 @@ export function normalizeSteps(raw) {
         if(typeof s.code!=='string'||!s.code.trim()||new TextEncoder().encode(s.code).length>48000)return {error:'A TypeScript program needs source code of at most 48 KB.'};
         if(typeof s.gatewayId!=='string'||!s.gatewayId.trim()||s.gatewayId.length>200)return {error:'Choose an execution node for the TypeScript program.'};
         {
-          const sourceFields=['sourceAppId','sourceEntityId','sourceTableId'];
-          const hasSource=sourceFields.some(key=>s[key]!==undefined&&s[key]!==null&&s[key]!=='');
-          if(hasSource&&sourceFields.some(key=>typeof s[key]!=='string'||!s[key].trim()||s[key].length>200))return {error:'Choose one complete App/Table source for the TypeScript program.'};
-          if(hasSource&&!/^[a-z][a-z0-9_]{0,39}$/.test(s.sourceEntityId))return {error:'Choose a valid App entity for the TypeScript program.'};
-          steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,...(hasSource?{sourceAppId:text('sourceAppId',200),sourceEntityId:text('sourceEntityId',40),sourceTableId:text('sourceTableId',200)}:{})});
+          const sourceFields=['sourceEntityId','sourceTableId'];
+          const hasLegacySource=sourceFields.some(key=>s[key]!==undefined&&s[key]!==null&&s[key]!=='');
+          const hasSourceTables=s.sourceTables!==undefined;
+          const hasSource=Boolean(s.sourceAppId)||hasLegacySource||hasSourceTables;
+          if(hasSource&&(typeof s.sourceAppId!=='string'||!s.sourceAppId.trim()||s.sourceAppId.length>200))return {error:'Choose an App for the TypeScript program sources.'};
+          if(hasSource&&!hasLegacySource&&!hasSourceTables)return {error:'Choose one or more explicit App entities for the TypeScript program.'};
+          if(hasSourceTables){
+            if(hasLegacySource||!Array.isArray(s.sourceTables)||s.sourceTables.length<1||s.sourceTables.length>20)return {error:'Choose between 1 and 20 explicit App entities for the TypeScript program.'};
+            const seen=new Set();
+            for(const source of s.sourceTables){
+              if(!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).some(key=>!['entityId','tableId'].includes(key))
+                ||typeof source.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(source.entityId)
+                ||typeof source.tableId!=='string'||!source.tableId.trim()||source.tableId.length>200||seen.has(source.entityId))return {error:'Choose distinct, complete App entities for the TypeScript program.'};
+              seen.add(source.entityId);
+            }
+            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,sourceAppId:text('sourceAppId',200),sourceTables:s.sourceTables.map(source=>({entityId:source.entityId,tableId:source.tableId}))});
+          }else{
+            if(hasLegacySource&&sourceFields.some(key=>typeof s[key]!=='string'||!s[key].trim()||s[key].length>200))return {error:'Choose one complete App/Table source for the TypeScript program.'};
+            if(hasLegacySource&&!/^([a-z][a-z0-9_]{0,39})$/.test(s.sourceEntityId))return {error:'Choose a valid App entity for the TypeScript program.'};
+            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,...(hasLegacySource?{sourceAppId:text('sourceAppId',200),sourceEntityId:text('sourceEntityId',40),sourceTableId:text('sourceTableId',200)}:{})});
+          }
         }
         break;
       case "post":

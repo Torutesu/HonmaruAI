@@ -5,7 +5,7 @@ export function validateStateRequest(request) {
  if(!request||!Number.isSafeInteger(request.id)||request.id<1||request.id>64||!METHODS.has(request.method))throw Error('Invalid state operation.');
  const params=request.params;
  if(!params||typeof params!=='object'||Array.isArray(params))throw Error('Invalid state parameters.');
- const keys=request.method==='state.get'?['view','includeCurrentRun']:request.method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:['where','q','pageSize','cursor'];
+ const keys=request.method==='state.get'?['view','includeCurrentRun']:request.method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:['where','q','pageSize','cursor','entityId'];
  if(Object.keys(params).some(key=>!keys.includes(key)))throw Error('Unexpected state parameter.');
  if(request.method==='state.get') {
   if(params.view!==undefined&&!['committed','checkpoint'].includes(params.view))throw Error('Invalid state view.');
@@ -15,6 +15,7 @@ export function validateStateRequest(request) {
  } else {
   if(params.where!==undefined&&(!params.where||typeof params.where!=='object'||Array.isArray(params.where)||Object.keys(params.where).length>40))throw Error('Invalid table query filter.');
   if(params.q!==undefined&&(typeof params.q!=='string'||params.q.length>200))throw Error('Invalid table query text.');
+  if(params.entityId!==undefined&&(typeof params.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(params.entityId)))throw Error('Invalid App entity.');
   if(params.pageSize!==undefined&&(!Number.isSafeInteger(params.pageSize)||params.pageSize<1||params.pageSize>100))throw Error('Invalid table query page size.');
   if(params.cursor!==undefined&&(typeof params.cursor!=='string'||params.cursor.length>2048))throw Error('Invalid table query cursor.');
  }

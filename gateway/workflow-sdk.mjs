@@ -67,21 +67,25 @@ export function normalizeWorkflowDraft(text, options = {}) {
 }
 
 export function normalizeWorkflowQueryOptions(options = {}) {
-  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => !['where','q','pageSize','maxPages','cursor'].includes(key))) throw Error('Invalid table query options.');
+  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => !['entityId','where','q','pageSize','maxPages','cursor'].includes(key))) throw Error('Invalid table query options.');
+  if(options.entityId!==undefined&&(typeof options.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(options.entityId)))throw Error('Invalid App entity.');
   const pageSize=options.pageSize??100,maxPages=options.maxPages??10;
   if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>100||!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>32)throw Error('Table query pageSize must be 1–100 and maxPages 1–32.');
   if(options.q!==undefined&&(typeof options.q!=='string'||options.q.length>200))throw Error('Invalid table query text.');
   if(options.cursor!==undefined&&(typeof options.cursor!=='string'||options.cursor.length>2048))throw Error('Invalid table query cursor.');
   if(options.where!==undefined&&(!options.where||typeof options.where!=='object'||Array.isArray(options.where)||Object.keys(options.where).length>40||new TextEncoder().encode(JSON.stringify(options.where)).length>32000))throw Error('Invalid table query filter.');
-  return {where:options.where??{},q:options.q??'',pageSize,maxPages,cursor:options.cursor};
+  return {entityId:options.entityId,where:options.where??{},q:options.q??'',pageSize,maxPages,cursor:options.cursor};
 }
 
 export async function queryWorkflowTable(options={}, bridge=undefined) {
   const clean=normalizeWorkflowQueryOptions(options);
-  if(typeof bridge?.queryTable!=='function'||!bridge.tableSource)throw Error('This workflow has no explicitly authorized App/Table source.');
+  const sources=bridge?.tableSources||(bridge?.tableSource?[bridge.tableSource]:[]);
+  if(typeof bridge?.queryTable!=='function'||!sources.length)throw Error('This workflow has no explicitly authorized App/Table source.');
+  const source=clean.entityId?sources.find(item=>item.entityId===clean.entityId):sources.length===1?sources[0]:null;
+  if(!source)throw Error(sources.length>1?'Choose an explicitly authorized entityId for table.query.':'This workflow has no explicitly authorized App/Table source.');
   const rows=[];let cursor=clean.cursor,pages=0,complete=false,bytes=0;
   for(;pages<clean.maxPages;pages++){
-    const page=await bridge.queryTable({where:clean.where,q:clean.q,pageSize:clean.pageSize,...(cursor?{cursor}:{})});
+    const page=await bridge.queryTable({entityId:source.entityId,where:clean.where,q:clean.q,pageSize:clean.pageSize,...(cursor?{cursor}:{})});
     if(!page||!Array.isArray(page.rows)||typeof page.complete!=='boolean'||(page.cursor!==null&&typeof page.cursor!=='string'))throw Error('The App/Table source returned an invalid page.');
     const pageBytes=new TextEncoder().encode(JSON.stringify(page.rows)).length;
     if(bytes+pageBytes>1_000_000)return {rows,complete:false,cursor:cursor??null,pages,incompleteReason:'result_size_limit'};

@@ -5,6 +5,7 @@ import {workflowSettlementStatements} from './workflowSafety.js';
 import {getMode} from './mode.js';
 import {workspaceBudgetAdmission} from '../workspaceAIBudget.js';
 import {mayUseApp,mayUseTable} from './resourceAccess.js';
+import {workflowProgramSources} from './workflowProgramSources.js';
 const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
 export const WORKFLOW_PROGRAM_TIMEOUT_MS=15*60*1000;
 export const WORKFLOW_PROGRAM_RESULT_GRACE_MS=30*1000;
@@ -36,12 +37,16 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  const definition=JSON.parse(run.definition),step=definition.steps?.[0];
  if(definition.id!==run.workflow_id||!definition.safetyGeneration||definition.steps?.length!==1||step?.type!=='code'||typeof step.code!=='string'||!step.code.trim()||typeof step.gatewayId!=='string')return {status:'failed',error:'A program requires one frozen TypeScript definition.'};
  if(!await allowed(db,orgId,definition.createdBy,'harness.build'))return {status:'failed',error:'Workflow execution access was removed.'};
- if(step.sourceAppId||step.sourceEntityId||step.sourceTableId){
-  const mapped=step.sourceEntityId==='primary'
-   ? await db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId,step.sourceAppId).first()
-   : await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId,step.sourceAppId,step.sourceEntityId).first();
-  if(!step.sourceAppId||!step.sourceEntityId||!step.sourceTableId||mapped?.table_id!==step.sourceTableId
-   ||!await mayUseApp(db,orgId,step.sourceAppId,definition.createdBy)||!await mayUseTable(db,orgId,step.sourceTableId,definition.createdBy))return {status:'failed',error:'The Workflow App/Table source is no longer accessible.'};
+ const tableSources=workflowProgramSources(step);
+ if(step.sourceAppId||step.sourceEntityId||step.sourceTableId||step.sourceTables!==undefined){
+  if(!step.sourceAppId||!tableSources.length||tableSources.length>20||new Set(tableSources.map(source=>source.entityId)).size!==tableSources.length
+   ||!await mayUseApp(db,orgId,step.sourceAppId,definition.createdBy))return {status:'failed',error:'The Workflow App/Table source is no longer accessible.'};
+  for(const source of tableSources){
+   const mapped=source.entityId==='primary'
+    ? await db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId,step.sourceAppId).first()
+    : await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId,step.sourceAppId,source.entityId).first();
+   if(mapped?.table_id!==source.tableId||!await mayUseTable(db,orgId,source.tableId,definition.createdBy))return {status:'failed',error:'The Workflow App/Table source is no longer accessible.'};
+  }
  }
  const node=await db.prepare('SELECT * FROM hx_gateways WHERE org_id=?1 AND id=?2 AND revoked_at IS NULL').bind(orgId,step.gatewayId).first();
  if(!node||!await allowed(db,orgId,node.created_by,'workspace.mode'))return {status:'failed',error:'Execution node is unavailable.'};
@@ -52,7 +57,7 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,run.workflow_id).first();
  const input=run.input?JSON.parse(run.input):null;
  const trigger={kind:run.trigger,...(run.trigger==='app_record_change'&&input?.records?{records:input.records,totalCount:input.totalCount??input.records.length,truncated:Boolean(input.truncated)}:{input})};
- const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSource:{appId:step.sourceAppId,entityId:step.sourceEntityId,tableId:step.sourceTableId}}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
+ const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSources:tableSources.map(item=>({appId:step.sourceAppId,entityId:item.entityId,tableId:item.tableId}))}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
  if(new TextEncoder().encode(payload).length>65536)return {status:'failed',error:'Workflow code and input exceed the execution limit.'};
  const nodeId='program',fingerprint=await digest(run.definition),lease=await claimWorkflowNode(db,{orgId,runId,nodeId,fingerprint,effect:true,at,ttl:300000});
  if(lease.status==='done')return lease.result;

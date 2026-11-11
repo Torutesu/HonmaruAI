@@ -126,8 +126,10 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
   const [formSteps,setSteps]=useState<Step[]>(initial?.steps[0]?.type!=='code'&&initial?structuredClone(initial.steps):[blankStep('post')])
   const [program,setProgram]=useState<Step>(initial?.steps[0]?.type==='code'?structuredClone(initial.steps[0]):{type:'code',code:'console.log("Hello from your workflow");'})
   const steps=format==='code'?[program]:formSteps
-  const programHasSource=Boolean(program.sourceAppId||program.sourceEntityId||program.sourceTableId)
-  const programSourceValid=!programHasSource||Boolean(program.sourceAppId&&program.sourceEntityId&&program.sourceTableId)
+  const programHasSource=Boolean(program.sourceAppId||program.sourceEntityId||program.sourceTableId||program.sourceTables!==undefined)
+  const programSources=program.sourceTables??(program.sourceEntityId&&program.sourceTableId?[{entityId:program.sourceEntityId,tableId:program.sourceTableId}]:[])
+  const selectedProgramApp=triggerApps.find(choice=>choice.app.id===program.sourceAppId)
+  const programSourceValid=!programHasSource||Boolean(program.sourceAppId&&programSources.length>0&&programSources.length<=20&&new Set(programSources.map(source=>source.entityId)).size===programSources.length&&programSources.every(source=>selectedProgramApp?.entities.some(entity=>entity.key===source.entityId&&entity.table.id===source.tableId)))
   const programValid=format!=='code'||Boolean(program.gatewayId&&program.code?.trim()&&new TextEncoder().encode(program.code).length<=48000&&programSourceValid)
   const appTriggerValid=trigger.type!=='app_record_change'||Boolean(trigger.appId&&trigger.entityId&&trigger.events?.length)
   const scheduleValid = trigger.type !== 'schedule' || (()=>{
