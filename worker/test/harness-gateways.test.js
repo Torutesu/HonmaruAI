@@ -1,359 +1,462 @@
-YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éí×N{Ñ:-jZ.¶›­–)Þ³V–×÷'B²VçbÒg&öÒv6Æ÷VFfÆ&S§FW7Bs°¦–×÷'B²&Vf÷&TV6‚ÂW‡V7BÂFW7BÒg&öÒwf—FW7Bs°¦–×÷'Bv÷&¶W"g&öÒrââ÷7&2ö–æFW‚æ§2s°¦–×÷'B²W‡—&TvFWv”¦ö'2Òg&öÒrââ÷7&2ö†&æW72övFWv—2æ§2s°¦–×÷'B²VçVWVT7W†V7WF–öâÒg&öÒrââ÷7&2ö†&æW72öW†V7WF–öç2æ§2s°¦–×÷'B²6WDÖöFRÒg&öÒrââ÷7&2ö†&æW72öÖöFRæ§2s°¦6öç7B÷&t–BÒvvFWv’×FW7G2s°¦ÆWBFÖ–âÂÖVÖ&W"Â÷F†W#°¦7–æ2gVæ7F–öâ’†ÖWF†öBÂF‚Â6W76–öâÂ&öG’Ò·ÒÂFö¶Vâ’°¢&WGW&âv÷&¶W"æfWF6‚†æWr&WVW7B†‡GG3¢òöW†×ÆRæ6öÒövFWv—2G·F‡ÒG¶ÖWF†öBÓÓÒttUBròö÷&t–CÒG¶÷&t–GÖ¢rwÖÂ°¢ÖWF†öBÂ†VFW'3¢²v6öçFVçB×G—Rs¢vÆ–6F–öâö§6öârÂâââ‡6W76–öâò²w‚×6W76–öâ×Fö¶Vâs¢6W76–öâÒ¢·Ò’Ââââ‡Fö¶Vâò²WF†÷&—¦F–öã¢&V&W"G·Fö¶VçÖÒ¢·Ò’ÒÀ¢âââ†ÖWF†öBÓÓÒttUBrò·Ò¢²&öG“¢¥4ôâç7G&–æv–g’‡²÷&t–BÂââæ&öG’Ò’Ò’À¢Ò’ÂVçbÂ²v—EVçF–Â‚’·ÒÒ“°§Ð¦7–æ2gVæ7F–öâæöFR‚’°¢6öç7B"Òv—B’‚uõ5BrÂrrÂFÖ–âÂ²æÖS¢tÖ2Ö–æ’rÒ“°¢W‡V7B‡"ç7FGW2’çFô&Rƒ#“²&WGW&â"æ§6öâ‚“°§Ð¦7–æ2gVæ7F–öâVçVWVR†vFWv”–BÂ&WVW7D–BÒ7'—Fòç&æFöÕUT”B‚’’°¢6öç7B"Òv—B’‚uõ5BrÂrö¦ö'2rÂÖVÖ&W"Â²vFWv”–BÂ&WVW7D–BÂ6öFS¢w&WGW&â–çWB¢"rÂ–çWC¢#Ò“°¢W‡V7B‡"ç7FGW2’çFô&Rƒ#“²&WGW&â†v—B"æ§6öâ‚’’æ¦ö#°§Ð¦6öç7B6Æ–ÒÒ7–æ2‡Fö¶VâÂ6&–Æ—F–W2ÒµÒÂ7vVçG2ÒµÒ’Óâ†v—B†v—B’‚uõ5BrÂrö6Æ–ÒrÂçVÆÂÂ²6&–Æ—F–W2Â7vVçG2ÒÂFö¶Vâ’’æ§6öâ‚’’æ¦ö#°¦&Vf÷&TV6‚†7–æ2‚’Óâ°¢6öç7B²W6W'EW6W"ÂW6W'DÖVÖ&W'6†—Â7&VFU6W76–öâÒÒv—B–×÷'B‚rââ÷7&2öF"æ§2r“°¢6öç7B6W76–öç2ÒµÓ°¢f÷"†6öç7B¶–BÂ&öÆUÒöbµ²s“SrÂvFÖ–âuÒÂ²s“S"rÂvÖVÖ&W"uÒÂ²s“S2rÂvÖVÖ&W"uÕÒ’°¢v—BW6W'EW6W"†VçbäD"Â²v—F‡V$–C¢–BÂÆöv–ã¢W6W"G¶–GÖÂæÖS¢–BÂÆö6ÆS¢vVârÒ“°¢v—BW6W'DÖVÖ&W'6†—†VçbäD"Â÷&t–BÂ–BÂ&öÆR“°¢6W76–öç2çW6‚†v—B7&VFU6W76–öâ†VçbäD"Â–BÂwFW7Br’“°¢Ð¢¶FÖ–âÂÖVÖ&W"Â÷F†W%ÒÒ6W76–öç3°§Ò“°§FW7B‚w&Vv—7G&F–öâ—2FÖ–âÖöæÇ’æB7F÷&W2öæÇ’†6ƒ²Æöw2&VÆöærFò&WVW7FW"rÂ7–æ2‚’Óâ°¢W‡V7B‚†v—B’‚uõ5BrÂrrÂÖVÖ&W"Â²æÖS¢tæòrÒ’’ç7FGW2’çFô&RƒC2“°¢6öç7B²vFWv’ÂFö¶VâÒÒv—BæöFR‚“°¢6öç7B7F÷&VBÒv—BVçbäD"ç&W&R‚u4TÄT5B¢e$ôÒ‡…övFWv—2t„U$R–BÒòr’æ&–æB†vFWv’æ–B’æf—'7B‚“°¢W‡V7B‡7F÷&VBçFö¶Våö†6‚’çFôÖF6‚‚õå¶ÖcÓ•×³cGÒBò“°¢W‡V7B„¥4ôâç7G&–æv–g’‡7F÷&VB’’ææ÷BçFô6öçF–â‡Fö¶Vâ“°¢W‡V7B†v—B†v—B’‚ttUBrÂrrÂÖVÖ&W"’’çFW‡B‚’’ææ÷BçFô6öçF–â‡7F÷&VBçFö¶Våö†6‚“°¢6öç7B¦ö"Òv—BVçVWVR†vFWv’æ–B“°¢f÷"†6öç7B6W76–öâöb¶FÖ–âÂ÷F†W%Ò’°¢W‡V7B‚†v—B’‚ttUBrÂö¦ö'2òG¶¦ö"æ–GÖÂ6W76–öâ’’ç7FGW2’çFô&RƒCB“°¢W‡V7B‚†v—B†v—B’‚ttUBrÂrö¦ö'2rÂ6W76–öâ’’æ§6öâ‚’’æ¦ö'2’çFôWVÂ…µÒ“°¢Ð§Ò“°§FW7B‚v6Æ–Ò—2W†6ÇW6—fRÂ7V&Ö—76–öç2–FV×÷FVçBÂf–æ—6‚&V¦V7G2&WÆ’æBw&öæræöFRrÂ7–æ2‚’Óâ°¢6öç7B²vFWv’ÂFö¶VâÒÒv—BæöFR‚“°¢6öç7B6V6öæBÒv—BæöFR‚“°¢6öç7B¦ö"Òv—BVçVWVR†vFWv’æ–BÂw6ÖRr“°¢W‡V7B‚†v—B’‚uõ5BrÂrö¦ö'2rÂÖVÖ&W"Â²vFWv”–C¢vFWv’æ–BÂ&WVW7D–C¢w6ÖRrÂ6öFS¢w&WGW&â–çWB¢"rÂ–çWC¢#Ò’’ç7FGW2’çFô&Rƒ#“°¢W‡V7B‚†v—B’‚uõ5BrÂrö¦ö'2rÂÖVÖ&W"Â²vFWv”–C¢vFWv’æ–BÂ&WVW7D–C¢w6ÖRrÂ6öFS¢vF–ffW&VçBrÒ’’ç7FGW2’çFô&RƒC’“°¢v—BVçVWVR†vFWv’æ–B“°¢6öç7B6Æ–×2Òv—B&öÖ—6RæÆÂ…¶6Æ–Ò‡Fö¶Vâ’Â6Æ–Ò‡Fö¶Vâ•Ò“°¢W‡V7B†6Æ–×2æf–ÇFW"„&ööÆVâ’’çFô†fTÆVæwF‚ƒ“°¢6öç7B'Vææ–ærÒ6Æ–×2æf–æB„&ööÆVâ“°¢W‡V7B‡'Vææ–æræ–B’çFô&R†¦ö"æ–B“°¢6öç7B&öG’Ò²ÆV6S¢'Vææ–æræÆV6RÂ7FGW3¢w7V66VVFVBrÂ7FF÷WC¢sC"rÂW†—D6öFS¢Ó°¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG¶¦ö"æ–GÒöf–æ—6†ÂçVÆÂÂ²ââæ&öG’ÂÖW76vW3¢·²FW‡C¢væ÷Bv÷&¶fÆ÷r&W÷'BrÕÒÒÂFö¶Vâ’’ç7FGW2’çFô&RƒC“°¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG¶¦ö"æ–GÒöf–æ—6†ÂçVÆÂÂ&öG’Â6V6öæBçFö¶Vâ’’ç7FGW2’çFô&RƒC’“°¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG¶¦ö"æ–GÒöf–æ—6†ÂçVÆÂÂ&öG’ÂFö¶Vâ’’ç7FGW2’çFô&Rƒ#“°¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG¶¦ö"æ–GÒöf–æ—6†ÂçVÆÂÂ&öG’ÂFö¶Vâ’’ç7FGW2’çFô&RƒC’“°¢W‡V7B†v—B6Æ–Ò‡Fö¶Vâ’’ææ÷BçFô&TçVÆÂ‚“°§Ò“°§FW7B‚t5&ö×G2&WV—&RÆö6Â6&–Æ—G’æB6''’öæÇ’F†R6öæf–wW&VBvVçB¶W’rÆ7–æ2‚“Óç°¢6öç7B¶vFWv’ÇFö¶VçÓÖv—BæöFR‚“°¢W‡V7B†v—B6Æ–Ò‡Fö¶VâÅ²v7×cuÒÅ²v6öFW‚ÖÆö6ÂuÒ’’çFô&TçVÆÂ‚“°¢6öç7BÆ—7FVCÒ†v—B†v—B’‚ttUBrÂrrÆFÖ–â’’æ§6öâ‚’’ævFWv—2æf–æB†VçG'“ÓæVçG'’æ–CÓÓÖvFWv’æ–B“°¢W‡V7B†Æ—7FVBæ7vVçG2’çFôWVÂ…²v6öFW‚ÖÆö6ÂuÒ“°¢6öç7B¶VçVWVT7W†V7WF–öçÓÖv—B–×÷'B‚rââ÷7&2ö†&æW72öW†V7WF–öç2æ§2r“°¢6öç7BVWVVCÖv—BVçVWVT7W†V7WF–öâ†VçbäD"Æ÷&t–BÂs“SrÇ¶vFWv”–C¦vFWv’æ–BÆvVçD¶W“¢v6öFW‚ÖÆö6ÂrÇ&ö×C¢u&Wf–WrF†—26†ævRrÇ6W76–öä–C¢w6W76–öâÓrÆ6öçFW‡C¥²u&Wf–÷W2ÖW76vRu×Ò“°¢W‡V7B‡VWVVBæ¦ö"’çFô&UG'WF‡’‚“°¢6öç7B7F÷&VCÖv—BVçbäD"ç&W&R‚u4TÄT5B–ÆöBe$ôÒ‡…övFWv•ö¦ö'2t„U$R–CÓòr’æ&–æB‡VWVVBæ¦ö"æ–B’æf—'7B‚“°¢W‡V7B„¥4ôâç'6R‡7F÷&VBç–ÆöB’’çFôWVÂ‡¶7§G'VRÆvVçD¶W“¢v6öFW‚ÖÆö6ÂrÇ&ö×C¢u&Wf–WrF†—26†ævRrÇ6W76–öä–C¢w6W76–öâÓrÆ6öçFW‡C¥²u&Wf–÷W2ÖW76vRu×Ò“°¢W‡V7B†v—B6Æ–Ò‡Fö¶VâÅµÒÅ²v6öFW‚ÖÆö6ÂuÒ’’çFô&TçVÆÂ‚“°¢6öç7Bv÷CÖv—B6Æ–Ò‡Fö¶VâÅ²v7×cuÒÅ²v6öFW‚ÖÆö6ÂuÒ“¶W‡V7B†v÷Bæ–B’çFô&R‡VWVVBæ¦ö"æ–B“°¢W‡V7B†v÷BçF–ÖV÷WD×2’çFô&Rƒ“°¢W‡V7B†v÷Bç–ÆöB’ææ÷BçFô†fU&÷W'G’‚v6öÖÖæBr“¶W‡V7B†v÷Bç–ÆöB’ææ÷BçFô†fU&÷W'G’‚v7vBr“°§Ò“°§FW7B‚t5&öw&W72—2ÆV6RÖ&÷VæBÂ&÷VæFVBÂæBæWfW"W'6—7G2FööÂ&wVÖVçG2÷"&V6öæ–ærrÆ7–æ2‚“Óç°¢6öç7B¶vFWv’ÇFö¶VçÓÖv—BæöFR‚“°¢v—B6Æ–Ò‡Fö¶VâÅ²v7×cuÒÅ²v÷Væ6öFRuÒ“°¢6öç7BVWVVCÖv—BVçVWVT7W†V7WF–öâ†VçbäD"Æ÷&t–BÂs“SrÇ¶vFWv”–C¦vFWv’æ–BÆvVçD¶W“¢v÷Væ6öFRrÇ&ö×C¢u'VâF†RF6²wÒ“°¢6öç7B'Vææ–æsÖv—B6Æ–Ò‡Fö¶VâÅ²v7×cuÒÅ²v÷Væ6öFRuÒ“°¢W‡V7B‡'Vææ–æræ–B’çFô&R‡VWVVBæ¦ö"æ–B“°¢W‡V7B‚†v—B’‚uõ5BrÆö¦ö'2òG·'Vææ–æræ–GÒ÷&öw&W76ÆçVÆÂÇ¶ÆV6S¢ww&öærrÇ&öw&W73§¶¶–æC¢wFööÂrÇF—FÆS¢u&VBf–ÆW2w×ÒÇFö¶Vâ’’ç7FGW2’çFô&RƒC’“°¢6öç7B66WFVCÖv—B’‚uõ5BrÆö¦ö'2òG·'Vææ–æræ–GÒ÷&öw&W76ÆçVÆÂÇ¶ÆV6S§'Vææ–æræÆV6RÇ&öw&W73§¶¶–æC¢wFööÂrÇF—FÆS¢r'VåÇF6†V6·2rÇ7FGW3¢v–å÷&öw&W72rÇ&t–çWC§·6V7&WC¢w&—fFRw××ÒÇFö¶Vâ“°¢W‡V7B†66WFVBç7FGW2’çFô&Rƒ#“°¢6öç7B7F÷&VCÖv—BVçbäD"ç&W&R‚u4TÄT5B7÷&öw&W72e$ôÒ‡…övFWv•ö¦ö'2t„U$R–CÓòr’æ&–æB‡'Vææ–æræ–B’æf—'7B‚“°¢W‡V7B„¥4ôâç'6R‡7F÷&VBæ7÷&öw&W72’’çFôWVÂ‡¶¶–æC¢wFööÂrÇF—FÆS¢u'Vâ6†V6·2rÇ7FGW3¢v–å÷&öw&W72wÒ“°¢W‡V7B‡7F÷&VBæ7÷&öw&W72’ææ÷BçFô6öçF–â‚w&—fFRr“°¢W‡V7B‚†v—B’‚uõ5BrÆö¦ö'2òG·'Vææ–æræ–GÒ÷&öw&W76ÆçVÆÂÇ¶ÆV6S§'Vææ–æræÆV6RÇ&öw&W73§¶¶–æC¢wF†–æ¶–ærrÇF—FÆS¢w‚rç&WVBƒ—×ÒÇFö¶Vâ’’ç7FGW2’çFô&Rƒ#“°¢W‡V7B‚†v—B’‚uõ5BrÆö¦ö'2òG·'Vææ–æræ–GÒöf–æ—6†ÆçVÆÂÇ¶ÆV6S§'Vææ–æræÆV6RÇ7FGW3¢w7V66VVFVBrÇ7FF÷WC¢vFöæRrÆW†—D6öFS£ÒÇFö¶Vâ’’ç7FGW2’çFô&Rƒ#“°¢6öç7BvVæW&–3Öv—BVçVWVR†vFWv’æ–B“°¢6öç7BvVæW&–5'Vææ–æsÖv—B6Æ–Ò‡Fö¶VâÅ²v7×cuÒÅ²v÷Væ6öFRuÒ“°¢W‡V7B†vVæW&–5'Vææ–æræ–B’çFô&R†vVæW&–2æ–B“°¢W‡V7B‚†v—B’‚uõ5BrÆö¦ö'2òG¶vVæW&–2æ–GÒ÷&öw&W76ÆçVÆÂÇ¶ÆV6S¦vVæW&–5'Vææ–æræÆV6RÇ&öw&W73§¶¶–æC¢wFööÂrÇF—FÆS¢tæ÷B5w×ÒÇFö¶Vâ’’ç7FGW2’çFô&RƒC’“°§Ò“°§FW7B‚væöFRv†÷6Rf–æ—6‚&WÇ’v2Æ÷7B—2FöÆB—G2&W7VÇB—2–âÂæBæ÷F†–ær6†ævW2rÂ7–æ2‚’Óâ°¢6öç7B²vFWv’ÂFö¶VâÒÒv—BæöFR‚“°¢6öç7B6V6öæBÒv—BæöFR‚“°¢v—BVçVWVR†vFWv’æ–B“°¢6öç7B'Vææ–ærÒv—B6Æ–Ò‡Fö¶Vâ“°¢6öç7B&öG’Ò²ÆV6S¢'Vææ–æræÆV6RÂ7FGW3¢w7V66VVFVBrÂ7FF÷WC¢sC"rÂW†—D6öFS¢Ó°¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG·'Vææ–æræ–GÒöf–æ—6†ÂçVÆÂÂ&öG’ÂFö¶Vâ’’ç7FGW2’çFô&Rƒ#“°¢6öç7B&Vf÷&RÒv—BVçbäD"ç&W&R‚u4TÄT5B7FGW2Â&W7VÇBÂf–æ—6†VEöBe$ôÒ‡…övFWv•ö¦ö'2t„U$R–BÒòr’æ&–æB‡'Vææ–æræ–B’æf—'7B‚“°¢6öç7Bv–âÒv—B’‚uõ5BrÂö¦ö'2òG·'Vææ–æræ–GÒöf–æ—6†ÂçVÆÂÂ&öG’ÂFö¶Vâ“°¢W‡V7B†v–âç7FGW2’çFô&RƒC’“°¢W‡V7B‚†v—Bv–âæ§6öâ‚’’æ6öFR’çFô&R‚vÇ&VG•öf–æ—6†VBr“°¢W‡V7B†v—BVçbäD"ç&W&R‚u4TÄT5B7FGW2Â&W7VÇBÂf–æ—6†VEöBe$ôÒ‡…övFWv•ö¦ö'2t„U$R–BÒòr’æ&–æB‡'Vææ–æræ–B’æf—'7B‚’’çFôWVÂ†&Vf÷&R“°¢òòF–ffW&VçB&W7VÇBÂæ÷F†W"æöFRÂ÷"æ÷F†W"ÆV6R—2&VgW6VB2&Vf÷&Rà¢f÷"†6öç7B¶"ÂEÒöbµ·²ââæ&öG’Â7FF÷WC¢sC2rÒÂFö¶VåÒÂ¶&öG’Â6V6öæBçFö¶VåÒÂ·²ââæ&öG’ÂÆV6S¢væ÷B×F†RÖÆV6RrÒÂFö¶VåÕÒ’°¢6öç7B"Òv—B’‚uõ5BrÂö¦ö'2òG·'Vææ–æræ–GÒöf–æ—6†ÂçVÆÂÂ"ÂB“°¢W‡V7B‡"ç7FGW2’çFô&RƒC’“°¢W‡V7B‚†v—B"æ§6öâ‚’’æ6öFR’çFô&UVæFVf–æVB‚“°¢Ð¢òò6æ6VÆÆVB¦ö"—2æWfW"&W÷'FVB2FVÆ—fW&VBà¢v—BVçVWVR†vFWv’æ–B“°¢6öç7BæW‡BÒv—B6Æ–Ò‡Fö¶Vâ“°¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG¶æW‡Bæ–GÒö6æ6VÆÂÖVÖ&W"’’ç7FGW2’çFô&Rƒ#“°¢6öç7BÆFRÒv—B’‚uõ5BrÂö¦ö'2òG¶æW‡Bæ–GÒöf–æ—6†ÂçVÆÂÂ²ÆV6S¢æW‡BæÆV6RÂ7FGW3¢w7V66VVFVBrÂ7FF÷WC¢sC"rÂW†—D6öFS¢ÒÂFö¶Vâ“°¢W‡V7B‚†v—BÆFRæ§6öâ‚’’æ6öFR’çFô&UVæFVf–æVB‚“°§Ò“°§FW7B‚v6æ6VÆÆF–öâæB&Wfö6F–öâ–ÖÖVF–FVÇ’&V¦V7BÆV6W2æBFö¶Vç2rÂ7–æ2‚’Óâ°¢6öç7B²vFWv’ÂFö¶VâÒÒv—BæöFR‚“°¢v—BVçVWVR†vFWv’æ–B“°¢6öç7B'Vææ–ærÒv—B6Æ–Ò‡Fö¶Vâ“°¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG·'Vææ–æræ–GÒö6æ6VÆÂÖVÖ&W"’’ç7FGW2’çFô&Rƒ#“°¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG·'Vææ–æræ–GÒö†V'F&VFÂçVÆÂÂ²ÆV6S¢'Vææ–æræÆV6RÒÂFö¶Vâ’’ç7FGW2’çFô&RƒC’“°¢6öç7BVWVVBÒv—BVçVWVR†vFWv’æ–B“°¢W‡V7B‚†v—B’‚uõ5BrÂòG¶vFWv’æ–GÒ÷&Wfö¶VÂÖVÖ&W"’’ç7FGW2’çFô&RƒC2“°¢W‡V7B‚†v—B’‚uõ5BrÂòG¶vFWv’æ–GÒ÷&Wfö¶VÂFÖ–â’’ç7FGW2’çFô&Rƒ#“°¢W‡V7B‚†v—B’‚uõ5BrÂrö6Æ–ÒrÂçVÆÂÂ·ÒÂFö¶Vâ’’ç7FGW2’çFô&RƒC“°¢W‡V7B‚†v—B†v—B’‚ttUBrÂö¦ö'2òG·VWVVBæ–GÖÂÖVÖ&W"’’æ§6öâ‚’’æ¦ö"ç7FGW2’çFô&R‚v6æ6VÆÆVBr“°§Ò“° §FW7B‚v6æ6VÂ&W÷'G26öæfÆ–7Bv†Vâ&VÂf–æ—6‚v–ç2gFW"F†RWF†÷&—¦F–öâ&VBrÂ7–æ2‚’Óâ°¢6öç7B²vFWv’ÂFö¶VâÒÒv—BæöFR‚“°¢6öç7BVWVVBÒv—BVçVWVR†vFWv’æ–B“°¢6öç7B'Vææ–ærÒv—B6Æ–Ò‡Fö¶Vâ“°¢ÆWBVçFW&VBÂ&VÆV6S°¢6öç7B'&—fVBÒæWr&öÖ—6R‡&W6öÇfRÓâ²VçFW&VBÒ&W6öÇfS²Ò“°¢6öç7BvFRÒæWr&öÖ—6R‡&W6öÇfRÓâ²&VÆV6RÒ&W6öÇfS²Ò“°¢6öç7BF"ÒæWr&÷‡’†VçbäD"Â°¢vWB‡F&vWBÂ¶W’’°¢–b†¶W’ÓÓÒw&W&Rr’&WGW&â7FFVÖVçBÓâ°¢6öç7B&W&VBÒF&vWBç&W&R‡7FFVÖVçB“°¢–b‚7FFVÖVçBç7F'G5v—F‚‚%UDDR‡…övFWv•ö¦ö'24UB7FGW2Òv6æ6VÆÆVBrÂÆV6Uö†6‚ÒåTÄÂÂf–æ—6†VEöBÒó"t„U$R–BÒó"’’&WGW&â&W&VC°¢&WGW&â²&–æC¢‚ââçfÇVW2’Óâ°¢6öç7B&÷VæBÒ&W&VBæ&–æB‚ââçfÇVW2“°¢&WGW&â²'Vã¢7–æ2‚’Óâ²VçFW&VB‚“²v—BvFS²&WGW&â&÷VæBç'Vâ‚“²ÒÓ°¢ÒÓ°¢Ó°¢6öç7BfÇVRÒF&vWE¶¶W•Ó°¢&WGW&âG—VöbfÇVRÓÓÒvgVæ7F–öâròfÇVRæ&–æB‡F&vWB’¢fÇVS°¢ÒÀ¢Ò“°¢6öç7B&WVW7BÒæWr&WVW7B†‡GG3¢òöW†×ÆRæ6öÒövFWv—2ö¦ö'2òG·VWVVBæ–GÒö6æ6VÆÂ²ÖWF†öC¢uõ5BrÂ†VFW'3¢²v6öçFVçB×G—Rs¢vÆ–6F–öâö§6öârÂw‚×6W76–öâ×Fö¶Vâs¦ÖVÖ&W"ÒÂ&öG“¢¥4ôâç7G&–æv–g’‡¶÷&t–GÒ’Ò“°¢6öç7B6æ6VÆÆ–ærÒv÷&¶W"æfWF6‚‡&WVW7BÂ²ââæVçbÂD#¦F'ÒÂ·v—EVçF–Â‚—·×Ò“°¢G'’°¢v—B&öÖ—6Rç&6R…¶'&—fVBÆæWr&öÖ—6R‚…òÇ&V¦V7B“Óç6WEF–ÖV÷WB‚‚“Óç&V¦V7B„W'&÷"‚v6æ6VÂUDDRv2æ÷B&V6†VBr’’ÃS’•Ò“°¢6öç7Bf–æ—6‚Òv—B’‚uõ5BrÂö¦ö'2òG·VWVVBæ–GÒöf–æ—6†ÂçVÆÂÂ¶ÆV6S§'Vææ–æræÆV6RÇ7FGW3¢w7V66VVFVBrÇ7FF÷WC¢sC"rÆW†—D6öFS£ÒÂFö¶Vâ“°¢W‡V7B†f–æ—6‚ç7FGW2’çFô&Rƒ#“°¢Òf–æÆÇ’²&VÆV6R‚“²Ð¢6öç7B6æ6VÆÆVBÒv—B6æ6VÆÆ–æs°¢W‡V7B†6æ6VÆÆVBç7FGW2’çFô&RƒC’“°¢W‡V7B‚†v—B6æ6VÆÆVBæ§6öâ‚’’æ6öFR’çFô&R‚vÇ&VG•÷FW&Ö–æÂr“°¢W‡V7B‚†v—B†v—B’‚ttUBrÂö¦ö'2òG·VWVVBæ–GÖÂÖVÖ&W"’’æ§6öâ‚’’æ¦ö"ç7FGW2’çFô&R‚w7V66VVFVBr“°§Ò“° §FW7BæV6‚…²w7V66VVFVBrÂvf–ÆVBrÂwF–ÖVEö÷WBuÒ’‚v6æ6VÂFöW2æ÷B&W÷'B7V66W72gFW"W2f–æ—6‚rÂ7–æ27FGW2Óâ°¢6öç7B²vFWv’ÂFö¶VâÒÒv—BæöFR‚“°¢6öç7BVWVVBÒv—BVçVWVR†vFWv’æ–B“°¢6öç7B'Vææ–ærÒv—B6Æ–Ò‡Fö¶Vâ“°¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG·VWVVBæ–GÒöf–æ—6†ÂçVÆÂÂ¶ÆV6S§'Vææ–æræÆV6RÇ7FGW2Ç7FF÷WC¢w&W7VÇBrÆW†—D6öFS§7FGW3ÓÓÒw7V66VVFVBsó£ÒÂFö¶Vâ’’ç7FGW2’çFô&Rƒ#“°¢6öç7B&W7öç6RÒv—B’‚uõ5BrÂö¦ö'2òG·VWVVBæ–GÒö6æ6VÆÂÖVÖ&W"“°¢W‡V7B‡&W7öç6Rç7FGW2’çFô&RƒC’“°¢W‡V7B†v—B&W7öç6Ræ§6öâ‚’’çFôÖF6„ö&¦V7B‡¶6öFS¢vÇ&VG•÷FW&Ö–æÂwÒ“°¢W‡V7B‚†v—B†v—B’‚ttUBrÂö¦ö'2òG·VWVVBæ–GÖÂÖVÖ&W"’’æ§6öâ‚’’æ¦ö"ç7FGW2’çFô&R‡7FGW2“°§Ò“° §FW7B‚v6æ6VÂ&VÖ–ç2–FV×÷FVçBf÷"âÇ&VG’6æ6VÆÆVB¦ö"æB&Æö6·2ÆFRf–æ—6‚rÂ7–æ2‚’Óâ°¢6öç7B²vFWv’ÂFö¶VâÒÒv—BæöFR‚“°¢6öç7BVWVVBÒv—BVçVWVR†vFWv’æ–B“°¢6öç7B'Vææ–ærÒv—B6Æ–Ò‡Fö¶Vâ“°¢f÷"†ÆWBGFV×CÓ¶GFV×CÃ#¶GFV×B²²’°¢6öç7B&W7öç6RÒv—B’‚uõ5BrÂö¦ö'2òG·VWVVBæ–GÒö6æ6VÆÂÖVÖ&W"“°¢W‡V7B‡&W7öç6Rç7FGW2’çFô&Rƒ#“°¢W‡V7B†v—B&W7öç6Ræ§6öâ‚’’çFôWVÂ‡¶6æ6VÆÆVC§G'VWÒ“°¢Ð¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG·VWVVBæ–GÒöf–æ—6†ÂçVÆÂÂ¶ÆV6S§'Vææ–æræÆV6RÇ7FGW3¢w7V66VVFVBwÒÂFö¶Vâ’’ç7FGW2’çFô&RƒC’“°¢W‡V7B‚†v—B†v—B’‚ttUBrÂö¦ö'2òG·VWVVBæ–GÖÂÖVÖ&W"’’æ§6öâ‚’’æ¦ö"ç7FGW2’çFô&R‚v6æ6VÆÆVBr“°¢W‡V7B‚†v—B’‚uõ5BrÂö¦ö'2òG·VWVVBæ–GÒö6æ6VÆÂ÷F†W"’’ç7FGW2’çFô&RƒCB“°§Ò“° §FW7B‚v6öæ7W'&VçB6æ6VÂæBf–æ—6‚&W÷'BF†R7GVÂv–ææ–ærFW&Ö–æÂ7FFRrÂ7–æ2‚’Óâ°¢6öç7B²vFWv’ÂFö¶VâÒÒv—BæöFR‚“°¢6öç7BVWVVBÒv—BVçVWVR†vFWv’æ–B“°¢6öç7B'Vææ–ærÒv—B6Æ–Ò‡Fö¶Vâ“°¢6öç7B¶6æ6VÆÆVBÆf–æ—6†VEÒÒv—B&öÖ—6RæÆÂ…°¢’‚uõ5BrÂö¦ö'2òG·VWVVBæ–GÒö6æ6VÆÂÖVÖ&W"’À¢’‚uõ5BrÂö¦ö'2òG·VWVVBæ–GÒöf–æ—6†ÂçVÆÂÂ¶ÆV6S§'Vææ–æræÆV6RÇ7FGW3¢w7V66VVFVBrÇ7FF÷WC¢sC"rÆW†—D6öFS£ÒÂFö¶Vâ’À¢Ò“°¢6öç7B7GVÃÒ†v—B†v—B’‚ttUBrÂö¦ö'2òG·VWVVBæ–GÖÂÖVÖ&W"’’æ§6öâ‚’’æ¦ö"ç7FGW3°¢–b†7GVÃÓÓÒv6æ6VÆÆVBr’²W‡V7B†6æ6VÆÆVBç7FGW2’çFô&Rƒ#“²W‡V7B‚†v—B6æ6VÆÆVBæ§6öâ‚’’æ6æ6VÆÆVB’çFô&R‡G'VR“²W‡V7B†f–æ—6†VBç7FGW2’çFô&RƒC’“²Ð¢VÇ6R²W‡V7B†7GVÂ’çFô&R‚w7V66VVFVBr“²W‡V7B†f–æ—6†VBç7FGW2’çFô&Rƒ#“²W‡V7B†6æ6VÆÆVBç7FGW2’çFô&RƒC’“²W‡V7B‚†v—B6æ6VÆÆVBæ§6öâ‚’’æ6öFR’çFô&R‚vÇ&VG•÷FW&Ö–æÂr“²Ð§Ò“° §FW7B‚v6æ6VÆÆF–öâÇ&VG’6öÖÖ—GFVB—26fRFò&WG'’gFW"6WGFÆVÖVçBf–Ç2rÂ7–æ2‚’Óâ°¢6öç7B²vFWv’ÒÒv—BæöFR‚“°¢6öç7BVWVVBÒv—BVçVWVR†vFWv’æ–B“°¢6öç7BF"ÒæWr&÷‡’†VçbäD"Â°¢vWB‡F&vWBÂ¶W’’°¢–b†¶W’ÓÓÒw&W&Rr’&WGW&â7FFVÖVçBÓâ°¢6öç7B&W&VBÒF&vWBç&W&R‡7FFVÖVçB“°¢–b‚7FFVÖVçBç7F'G5v—F‚‚u4TÄT5Bæ÷&uö–BÆç'Våö–BÆBæFVf–æ—F–öâe$ôÒ‡…÷v÷&¶fÆ÷uö7F—fF–öç2r’’&WGW&â&W&VC°¢&WGW&â²&–æC¢‚’Óâ‡²f—'7C¢7–æ2‚’Óâ²F‡&÷rW'&÷"‚w7–çF†WF–26WGFÆVÖVçB÷WFvRr“²ÒÒ’Ó°¢Ó°¢6öç7BfÇVRÒF&vWE¶¶W•Ó²&WGW&âG—VöbfÇVRÓÓÒvgVæ7F–öâròfÇVRæ&–æB‡F&vWB’¢fÇVS°¢ÒÀ¢Ò“°¢6öç7B&WVW7BÒæWr&WVW7B†‡GG3¢òöW†×ÆRæ6öÒövFWv—2ö¦ö'2òG·VWVVBæ–GÒö6æ6VÆÂ¶ÖWF†öC¢uõ5BrÆ†VFW'3§²v6öçFVçB×G—Rs¢vÆ–6F–öâö§6öârÂw‚×6W76–öâ×Fö¶Vâs¦ÖVÖ&W'ÒÆ&öG“¤¥4ôâç7G&–æv–g’‡¶÷&t–GÒ—Ò“°¢6öç7Bf—'7CÖv—Bv÷&¶W"æfWF6‚‡&WVW7BÇ²ââæVçbÄD#¦F'ÒÇ·v—EVçF–Â‚—·×Ò“°¢W‡V7B†f—'7Bç7FGW2’çFô&RƒS“°¢W‡V7B‚†v—B†v—B’‚ttUBrÂö¦ö'2òG·VWVVBæ–GÖÂÖVÖ&W"’’æ§6öâ‚’’æ¦ö"ç7FGW2’çFô&R‚v6æ6VÆÆVBr“°¢6öç7B&WG'“Öv—B’‚uõ5BrÂö¦ö'2òG·VWVVBæ–GÒö6æ6VÆÂÖVÖ&W"“°¢W‡V7B‡&WG'’ç7FGW2’çFô&Rƒ#“°¢W‡V7B†v—B&WG'’æ§6öâ‚’’çFôWVÂ‡¶6æ6VÆÆVC§G'VWÒ“°§Ò“° §FW7B‚v&Wfö¶VB&WVW7FW"&V6V—fW2æò&W7VÇBWfVâ–bâV&Æ–W"WF†÷&—¦F–öâ&6VBF†RWFFRrÂ7–æ2‚’Óâ°¢6öç7B²vFWv’ÒÒv—BæöFR‚“°¢6öç7BVWVVBÒv—BVçVWVR†vFWv’æ–B“°¢ÆWBVçFW&VBÂ&VÆ^{ÒÚ$z{-®éÜj×T‘HYOÉÊK˜š[™
-]Y]YYšY
-K™š\œÝ
+import { env } from 'cloudflare:test';
+import { beforeEach, expect, test } from 'vitest';
+import worker from '../src/index.js';
+import { expireGatewayJobs } from '../src/harness/gateways.js';
+import { enqueueAcpExecution } from '../src/harness/executions.js';
+import { setMode } from '../src/harness/mode.js';
+const orgId = 'gateway-tests';
+let admin, member, other;
+async function api(method, path, session, body = {}, token) {
+  return worker.fetch(new Request(`https://example.com/gateways${path}${method === 'GET' ? `?orgId=${orgId}` : ''}`, {
+    method, headers: { 'content-type': 'application/json', ...(session ? { 'x-session-token': session } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    ...(method === 'GET' ? {} : { body: JSON.stringify({ orgId, ...body }) }),
+  }), env, { waitUntil() {} });
+}
+async function node() {
+  const r = await api('POST', '', admin, { name: 'Mac mini' });
+  expect(r.status).toBe(201); return r.json();
+}
+async function enqueue(gatewayId, requestId = crypto.randomUUID()) {
+  const r = await api('POST', '/jobs', member, { gatewayId, requestId, code: 'return input * 2', input: 21 });
+  expect(r.status).toBe(201); return (await r.json()).job;
+}
+const claim = async (token, capabilities = [], acpAgents = []) => (await (await api('POST', '/claim', null, { capabilities, acpAgents }, token)).json()).job;
+beforeEach(async () => {
+  const { upsertUser, upsertMembership, createSession } = await import('../src/db.js');
+  const sessions = [];
+  for (const [id, role] of [['9501', 'admin'], ['9502', 'member'], ['9503', 'member']]) {
+    await upsertUser(env.DB, { githubId: id, login: `user${id}`, name: id, locale: 'en' });
+    await upsertMembership(env.DB, orgId, id, role);
+    sessions.push(await createSession(env.DB, id, 'test'));
+  }
+  [admin, member, other] = sessions;
+});
+test('registration is admin-only and stores only a hash; logs belong to requester', async () => {
+  expect((await api('POST', '', member, { name: 'No' })).status).toBe(403);
+  const { gateway, token } = await node();
+  const stored = await env.DB.prepare('SELECT * FROM hx_gateways WHERE id = ?').bind(gateway.id).first();
+  expect(stored.token_hash).toMatch(/^[a-f0-9]{64}$/);
+  expect(JSON.stringify(stored)).not.toContain(token);
+  expect(await (await api('GET', '', member)).text()).not.toContain(stored.token_hash);
+  const job = await enqueue(gateway.id);
+  for (const session of [admin, other]) {
+    expect((await api('GET', `/jobs/${job.id}`, session)).status).toBe(404);
+    expect((await (await api('GET', '/jobs', session)).json()).jobs).toEqual([]);
+  }
+});
+test('claim is exclusive, submissions idempotent, finish rejects replay and wrong node', async () => {
+  const { gateway, token } = await node();
+  const second = await node();
+  const job = await enqueue(gateway.id, 'same');
+  expect((await api('POST', '/jobs', member, { gatewayId: gateway.id, requestId: 'same', code: 'return input * 2', input: 21 })).status).toBe(200);
+  expect((await api('POST', '/jobs', member, { gatewayId: gateway.id, requestId: 'same', code: 'different' })).status).toBe(409);
+  await enqueue(gateway.id);
+  const claims = await Promise.all([claim(token), claim(token)]);
+  expect(claims.filter(Boolean)).toHaveLength(1);
+  const running = claims.find(Boolean);
+  expect(running.id).toBe(job.id);
+  const body = { lease: running.lease, status: 'succeeded', stdout: '42', exitCode: 0 };
+  expect((await api('POST', `/jobs/${job.id}/finish`, null, { ...body, messages: [{ text: 'not a workflow report' }] }, token)).status).toBe(400);
+  expect((await api('POST', `/jobs/${job.id}/finish`, null, body, second.token)).status).toBe(409);
+  expect((await api('POST', `/jobs/${job.id}/finish`, null, body, token)).status).toBe(200);
+  expect((await api('POST', `/jobs/${job.id}/finish`, null, body, token)).status).toBe(409);
+  expect(await claim(token)).not.toBeNull();
+});
+test('ACP prompts require a local capability and carry only the configured agent key',async()=>{
+ const {gateway,token}=await node();
+ expect(await claim(token,['acp-v1'],['codex-local'])).toBeNull();
+ const listed=(await (await api('GET','',admin)).json()).gateways.find(entry=>entry.id===gateway.id);
+ expect(listed.acpAgents).toEqual(['codex-local']);
+ const {enqueueAcpExecution}=await import('../src/harness/executions.js');
+ const queued=await enqueueAcpExecution(env.DB,orgId,'9501',{gatewayId:gateway.id,agentKey:'codex-local',prompt:'Review this change',sessionId:'session-1',context:['Previous message']});
+ expect(queued.job).toBeTruthy();
+ const stored=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?').bind(queued.job.id).first();
+ expect(JSON.parse(stored.payload)).toEqual({acp:true,agentKey:'codex-local',prompt:'Review this change',sessionId:'session-1',context:['Previous message']});
+ expect(await claim(token,[],['codex-local'])).toBeNull();
+ const got=await claim(token,['acp-v1'],['codex-local']);expect(got.id).toBe(queued.job.id);
+ expect(got.timeoutMs).toBe(110000);
+ expect(got.payload).not.toHaveProperty('command');expect(got.payload).not.toHaveProperty('cwd');
+});
+test('ACP progress is lease-bound, bounded, and never persists tool arguments or reasoning',async()=>{
+ const {gateway,token}=await node();
+ await claim(token,['acp-v1'],['opencode']);
+ const queued=await enqueueAcpExecution(env.DB,orgId,'9501',{gatewayId:gateway.id,agentKey:'opencode',prompt:'Run the task'});
+ const running=await claim(token,['acp-v1'],['opencode']);
+ expect(running.id).toBe(queued.job.id);
+ expect((await api('POST',`/jobs/${running.id}/progress`,null,{lease:'wrong',progress:{kind:'tool',title:'Read files'}},token)).status).toBe(409);
+ const accepted=await api('POST',`/jobs/${running.id}/progress`,null,{lease:running.lease,progress:{kind:'tool',title:'  Run\tchecks  ',status:'in_progress',rawInput:{secret:'private'}}},token);
+ expect(accepted.status).toBe(200);
+ const stored=await env.DB.prepare('SELECT acp_progress FROM hx_gateway_jobs WHERE id=?').bind(running.id).first();
+ expect(JSON.parse(stored.acp_progress)).toEqual({kind:'tool',title:'Run checks',status:'in_progress'});
+ expect(stored.acp_progress).not.toContain('private');
+ expect((await api('POST',`/jobs/${running.id}/progress`,null,{lease:running.lease,progress:{kind:'thinking',title:'x'.repeat(1000)}},token)).status).toBe(200);
+ expect((await api('POST',`/jobs/${running.id}/finish`,null,{lease:running.lease,status:'succeeded',stdout:'done',exitCode:0},token)).status).toBe(200);
+ const generic=await enqueue(gateway.id);
+ const genericRunning=await claim(token,['acp-v1'],['opencode']);
+ expect(genericRunning.id).toBe(generic.id);
+ expect((await api('POST',`/jobs/${generic.id}/progress`,null,{lease:genericRunning.lease,progress:{kind:'tool',title:'Not ACP'}},token)).status).toBe(409);
+});
+test('a node whose finish reply was lost is told its result is in, and nothing changes', async () => {
+  const { gateway, token } = await node();
+  const second = await node();
+  await enqueue(gateway.id);
+  const running = await claim(token);
+  const body = { lease: running.lease, status: 'succeeded', stdout: '42', exitCode: 0 };
+  expect((await api('POST', `/jobs/${running.id}/finish`, null, body, token)).status).toBe(200);
+  const before = await env.DB.prepare('SELECT status, result, finished_at FROM hx_gateway_jobs WHERE id = ?').bind(running.id).first();
+  const again = await api('POST', `/jobs/${running.id}/finish`, null, body, token);
+  expect(again.status).toBe(409);
+  expect((await again.json()).code).toBe('already_finished');
+  expect(await env.DB.prepare('SELECT status, result, finished_at FROM hx_gateway_jobs WHERE id = ?').bind(running.id).first()).toEqual(before);
+  // A different result, another node, or another lease is refused as before.
+  for (const [b, t] of [[{ ...body, stdout: '43' }, token], [body, second.token], [{ ...body, lease: 'not-the-lease' }, token]]) {
+    const r = await api('POST', `/jobs/${running.id}/finish`, null, b, t);
+    expect(r.status).toBe(409);
+    expect((await r.json()).code).toBeUndefined();
+  }
+  // A cancelled job is never reported as delivered.
+  await enqueue(gateway.id);
+  const next = await claim(token);
+  expect((await api('POST', `/jobs/${next.id}/cancel`, member)).status).toBe(200);
+  const late = await api('POST', `/jobs/${next.id}/finish`, null, { lease: next.lease, status: 'succeeded', stdout: '42', exitCode: 0 }, token);
+  expect((await late.json()).code).toBeUndefined();
+});
+test('cancellation and revocation immediately reject leases and tokens', async () => {
+  const { gateway, token } = await node();
+  await enqueue(gateway.id);
+  const running = await claim(token);
+  expect((await api('POST', `/jobs/${running.id}/cancel`, member)).status).toBe(200);
+  expect((await api('POST', `/jobs/${running.id}/heartbeat`, null, { lease: running.lease }, token)).status).toBe(409);
+  const queued = await enqueue(gateway.id);
+  expect((await api('POST', `/${gateway.id}/revoke`, member)).status).toBe(403);
+  expect((await api('POST', `/${gateway.id}/revoke`, admin)).status).toBe(200);
+  expect((await api('POST', '/claim', null, {}, token)).status).toBe(401);
+  expect((await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status).toBe('cancelled');
+});
 
-JKœÝ]\ÊKÐ™J	ØØ[˜Ù[Y	ÊNÂŸJNÂ\Ý
-	Ù^\žHÛÜšÜÈÚ]Ý]HÛÛ›™XÝY›ÙH[™Y[X™\œÚ\™[[Ý˜[[˜[Y]\È^XÝ][Û‰Ë\Þ[˜È
+test('cancel reports a conflict when a real finish wins after the authorization read', async () => {
+  const { gateway, token } = await node();
+  const queued = await enqueue(gateway.id);
+  const running = await claim(token);
+  let entered, release;
+  const arrived = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === 'prepare') return statement => {
+        const prepared = target.prepare(statement);
+        if (!statement.startsWith("UPDATE hx_gateway_jobs SET status = 'cancelled', lease_hash = NULL, finished_at = ?2 WHERE id = ?1")) return prepared;
+        return { bind: (...values) => {
+          const bound = prepared.bind(...values);
+          return { run: async () => { entered(); await gate; return bound.run(); } };
+        } };
+      };
+      const value = target[key];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const request = new Request(`https://example.com/gateways/jobs/${queued.id}/cancel`, { method: 'POST', headers: { 'content-type':'application/json', 'x-session-token':member }, body: JSON.stringify({orgId}) });
+  const cancelling = worker.fetch(request, {...env, DB:db}, {waitUntil(){}});
+  try {
+    await Promise.race([arrived,new Promise((_,reject)=>setTimeout(()=>reject(Error('cancel UPDATE was not reached')),5000))]);
+    const finish = await api('POST', `/jobs/${queued.id}/finish`, null, {lease:running.lease,status:'succeeded',stdout:'42',exitCode:0}, token);
+    expect(finish.status).toBe(200);
+  } finally { release(); }
+  const cancelled = await cancelling;
+  expect(cancelled.status).toBe(409);
+  expect((await cancelled.json()).code).toBe('already_terminal');
+  expect((await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status).toBe('succeeded');
+});
 
-HOˆÂˆÛÛœÝÈØ]]Ø^KÚÙ[ˆHH]ØZ]›ÙJ
-NÂˆ]ØZ][œ]Y]YJØ]]Ø^KšY
-NÂˆÛÛœÝ[›š[™ÈH]ØZ]ÛZ[JÚÙ[ŠNÂˆ]ØZ][‹‘‹œ™\\™J	ÕTUHÙØ]]Ø^WÚ›ØœÈÑUX\ÙWÝ[[HHÒT‘HYHÉÊK˜š[™
-[›š[™ËšY
-Kœ[Š
-NÂˆ]ØZ]^\™QØ]]Ø^R›ØœÊ[‹‘ŠNÂˆ^XÝ
+test.each(['succeeded','failed','timed_out'])('cancel does not report success after a %s finish', async status => {
+  const { gateway, token } = await node();
+  const queued = await enqueue(gateway.id);
+  const running = await claim(token);
+  expect((await api('POST', `/jobs/${queued.id}/finish`, null, {lease:running.lease,status,stdout:'result',exitCode:status==='succeeded'?0:1}, token)).status).toBe(200);
+  const response = await api('POST', `/jobs/${queued.id}/cancel`, member);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({code:'already_terminal'});
+  expect((await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status).toBe(status);
+});
 
-]ØZ]
-]ØZ]\J	ÑÑU	ËÚ›ØœËÉÜ[›š[™ËšYXY[X™\ŠJKšœÛÛŠ
-JKš›Ø‹œÝ]\ÊKÐ™J	Ù˜Z[Y	ÊNÂˆ]ØZ][œ]Y]YJØ]]Ø^KšY
-NÂˆÛÛœÝ™^H]ØZ]ÛZ[JÚÙ[ŠNÂˆ]ØZ][‹‘‹œ™\\™J	ÑSUH”“ÓHY[X™\œÚ\ÈÒT‘HÜ™×ÚYHÈS‘\Ù\—ÙÚ]X—ÚYHÉÊK˜š[™
-Ü™ÒY	ÎML‰ÊKœ[Š
-NÂˆ^XÝ
+test('cancel remains idempotent for an already cancelled job and blocks late finish', async () => {
+  const { gateway, token } = await node();
+  const queued = await enqueue(gateway.id);
+  const running = await claim(token);
+  for (let attempt=0;attempt<2;attempt++) {
+    const response = await api('POST', `/jobs/${queued.id}/cancel`, member);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({cancelled:true});
+  }
+  expect((await api('POST', `/jobs/${queued.id}/finish`, null, {lease:running.lease,status:'succeeded'}, token)).status).toBe(409);
+  expect((await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status).toBe('cancelled');
+  expect((await api('POST', `/jobs/${queued.id}/cancel`, other)).status).toBe(404);
+});
 
-]ØZ]\J	ÔÔÕ	ËÚ›ØœËÉÛ™^šYKÙš[š\Ú[ÈX\ÙNˆ™^›X\ÙKÝ]\Îˆ	ÜÝXØÙYYY	ÈKÚÙ[ŠJKœÝ]\ÊKÐ™JJNÂˆ]ØZ]^\™QØ]]Ø^R›ØœÊ[‹‘ŠNÂˆ^XÝ
+test('concurrent cancel and finish report the actual winning terminal state', async () => {
+  const { gateway, token } = await node();
+  const queued = await enqueue(gateway.id);
+  const running = await claim(token);
+  const [cancelled,finished] = await Promise.all([
+    api('POST', `/jobs/${queued.id}/cancel`, member),
+    api('POST', `/jobs/${queued.id}/finish`, null, {lease:running.lease,status:'succeeded',stdout:'42',exitCode:0}, token),
+  ]);
+  const actual=(await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status;
+  if(actual==='cancelled') { expect(cancelled.status).toBe(200); expect((await cancelled.json()).cancelled).toBe(true); expect(finished.status).toBe(409); }
+  else { expect(actual).toBe('succeeded'); expect(finished.status).toBe(200); expect(cancelled.status).toBe(409); expect((await cancelled.json()).code).toBe('already_terminal'); }
+});
 
-]ØZ][‹‘‹œ™\\™J	ÔÑSPÕÝ]\È”“ÓHÙØ]]Ø^WÚ›ØœÈÒT‘HYHÉÊK˜š[™
-™^šY
-K™š\œÝ
+test('a cancellation already committed is safe to retry after settlement fails', async () => {
+  const { gateway } = await node();
+  const queued = await enqueue(gateway.id);
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === 'prepare') return statement => {
+        const prepared = target.prepare(statement);
+        if (!statement.startsWith('SELECT a.org_id,a.run_id,d.definition FROM hx_workflow_activations a')) return prepared;
+        return { bind: () => ({ first: async () => { throw Error('synthetic settlement outage'); } }) };
+      };
+      const value = target[key]; return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const request = new Request(`https://example.com/gateways/jobs/${queued.id}/cancel`, {method:'POST',headers:{'content-type':'application/json','x-session-token':member},body:JSON.stringify({orgId})});
+  const first=await worker.fetch(request,{...env,DB:db},{waitUntil(){}});
+  expect(first.status).toBe(500);
+  expect((await (await api('GET', `/jobs/${queued.id}`, member)).json()).job.status).toBe('cancelled');
+  const retry=await api('POST', `/jobs/${queued.id}/cancel`, member);
+  expect(retry.status).toBe(200);
+  expect(await retry.json()).toEqual({cancelled:true});
+});
 
-JKœÝ]\ÊKÐ™J	Ù˜Z[Y	ÊNÂŸJNÂ‚‚\Ý
-	ÜYYÝY\ÝY[X™\œÚ\^\™\È]Y]YY[™[›š[™ÈØ]]Ø^H›ØœÉË\Þ[˜È
+test('a revoked requester receives no result even if an earlier authorization raced the update', async () => {
+  const { gateway } = await node();
+  const queued = await enqueue(gateway.id);
+  let entered, release;
+  const arrived = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const db = new Proxy(env.DB, {
+    get(target,key) {
+      if (key === 'prepare') return statement => {
+        const prepared=target.prepare(statement);
+        if (!statement.startsWith("UPDATE hx_gateway_jobs SET status = 'cancelled', lease_hash = NULL, finished_at = ?2 WHERE id = ?1")) return prepared;
+        return { bind: (...values) => {const bound=prepared.bind(...values);return {run:async()=>{entered();await gate;return bound.run()}}} };
+      };
+      const value=target[key];return typeof value==='function'?value.bind(target):value;
+    },
+  });
+  const request=new Request(`https://example.com/gateways/jobs/${queued.id}/cancel`,{method:'POST',headers:{'content-type':'application/json','x-session-token':member},body:JSON.stringify({orgId})});
+  const cancelling=worker.fetch(request,{...env,DB:db},{waitUntil(){}});
+  try {
+    await Promise.race([arrived,new Promise((_,reject)=>setTimeout(()=>reject(Error('cancel UPDATE was not reached')),5000))]);
+    await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(orgId,'9502').run();
+  } finally { release(); }
+  const response=await cancelling;
+  expect(response.status).toBe(403);
+  const body=await response.json();
+  expect(body).not.toHaveProperty('job');expect(body).not.toHaveProperty('result');expect(body).not.toHaveProperty('cancelled');
+  // Existing TOCTOU: this test also records that the mutation itself can win
+  // after the earlier check. This narrow response fix does not solve it.
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?').bind(queued.id).first()).status).toBe('cancelled');
+});
+test('expiry works without a connected node and membership removal invalidates execution', async () => {
+  const { gateway, token } = await node();
+  await enqueue(gateway.id);
+  const running = await claim(token);
+  await env.DB.prepare('UPDATE hx_gateway_jobs SET lease_until = 1 WHERE id = ?').bind(running.id).run();
+  await expireGatewayJobs(env.DB);
+  expect((await (await api('GET', `/jobs/${running.id}`, member)).json()).job.status).toBe('failed');
+  await enqueue(gateway.id);
+  const next = await claim(token);
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id = ? AND user_github_id = ?').bind(orgId, '9502').run();
+  expect((await api('POST', `/jobs/${next.id}/finish`, null, { lease: next.lease, status: 'succeeded' }, token)).status).toBe(409);
+  await expireGatewayJobs(env.DB);
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id = ?').bind(next.id).first()).status).toBe('failed');
+});
 
-HOˆÂˆÛÛœÝÈØ]]Ø^KÚÙ[ˆHH]ØZ]›ÙJ
-NÂˆÛÛœÝ]Y]YYH]ØZ][œ]Y]YJØ]]Ø^KšY
-NÂˆ]ØZ][‹‘‹œ™\\™J•TUHY[X™\œÚ\ÈÑU›ÛOIÈÝY\Ý	ÈÒT‘HÜ™×ÚYOÌHS‘\Ù\—ÙÚ]X—ÚYIÎML‰ÈŠK˜š[™
-Ü™ÒY
-Kœ[Š
-NÂˆ]ØZ]^\™QØ]]Ø^R›ØœÊ[‹‘ŠNÂˆ^XÝ
 
-]ØZ][‹‘‹œ™\\™J	ÔÑSPÕÝ]\È”“ÓHÙØ]]Ø^WÚ›ØœÈÒT‘HYOÌIÊK˜š[™
-]Y]YYšY
-K™š\œÝ
+test('padded guest membership expires queued and running gateway jobs', async () => {
+  const { gateway, token } = await node();
+  const queued = await enqueue(gateway.id);
+  await env.DB.prepare("UPDATE memberships SET role=' Guest ' WHERE org_id=?1 AND user_github_id='9502'").bind(orgId).run();
+  await expireGatewayJobs(env.DB);
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(queued.id).first()).status).toBe('failed');
 
-JKœÝ]\ÊKÐ™J	Ù˜Z[Y	ÊNÂ‚ˆ]ØZ][‹‘‹œ™\\™J•TUHY[X™\œÚ\ÈÑU›ÛOIÛY[X™\‰ÈÒT‘HÜ™×ÚYOÌHS‘\Ù\—ÙÚ]X—ÚYIÎML‰ÈŠK˜š[™
-Ü™ÒY
-Kœ[Š
-NÂˆÛÛœÝ[›š[™ÈH]ØZ][œ]Y]YJØ]]Ø^KšY
-NÂˆÛÛœÝÛZ[T™\Ý[H]ØZ]ÛZ[JÚÙ[ŠNÂˆ^XÝ
-ÛZ[T™\Ý[šY
-KÐ™J[›š[™ËšY
-NÂˆ]ØZ][‹‘‹œ™\\™J•TUHY[X™\œÚ\ÈÑU›ÛOIÈÝY\Ý	ÈÒT‘HÜ™×ÚYOÌHS‘\Ù\—ÙÚ]X—ÚYIÎML‰ÈŠK˜š[™
-Ü™ÒY
-Kœ[Š
-NÂˆ]ØZ]^\™QØ]]Ø^R›ØœÊ[‹‘ŠNÂˆ^XÝ
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9502'").bind(orgId).run();
+  const running = await enqueue(gateway.id);
+  const claimResult = await claim(token);
+  expect(claimResult.id).toBe(running.id);
+  await env.DB.prepare("UPDATE memberships SET role=' Guest ' WHERE org_id=?1 AND user_github_id='9502'").bind(orgId).run();
+  await expireGatewayJobs(env.DB);
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(running.id).first()).status).toBe('failed');
+});
 
-]ØZ][‹‘‹œ™\\™J	ÔÑSPÕÝ]\È”“ÓHÙØ]]Ø^WÚ›ØœÈÒT‘HYOÌIÊK˜š[™
-[›š[™ËšY
-K™š\œÝ
+test('node polling has independent limits from team operations and from other nodes', async () => {
+  const first = await node(), second = await node();
+  expect((await api('POST', '/claim', null, {}, first.token)).status).toBe(200);
+  await env.DB.prepare("UPDATE rate_limits SET count = 120 WHERE bucket = 'team'").run();
+  // A busy human UI must not interrupt the execution heartbeat/queue.
+  expect((await api('POST', '/claim', null, {}, second.token)).status).toBe(200);
+  await env.DB.prepare("UPDATE rate_limits SET count = 120 WHERE bucket = 'gateway/node' AND subject = ?").bind(`gateway:${first.gateway.id}`).run();
+  expect((await api('POST', '/claim', null, {}, first.token)).status).toBe(429);
+  expect((await api('POST', '/claim', null, {}, second.token)).status).toBe(200);
+  await env.DB.prepare("UPDATE rate_limits SET count = 600 WHERE bucket = 'gateway/edge'").run();
+  expect((await api('POST', '/claim', null, {}, second.token)).status).toBe(429);
+});
 
-JKœÝ]\ÊKÐ™J	Ù˜Z[Y	ÊNÂŸJNÂ‚\Ý
-	Û›ÙHÛ[™È\È[™\[™[[Z]Èœ›ÛHX[HÜ\˜][ÛœÈ[™œ›ÛHÝ\ˆ›Ù\ÉË\Þ[˜È
+test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks Harness access', async () => {
+  await setMode(env.DB, orgId, 'simple', '9501');
+  await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at,provider)
+    VALUES(?1,'acp-workspace','acp-workspace','Local ACP','Read Workspace safely.','team','user9502','now','now','acp')`).bind(orgId).run();
+  const { gateway, token } = await node();
+  const register = await api('POST', '/claim', null, { capabilities: ['acp-v1'], acpAgents: ['workspace-reader'] }, token);
+  expect(register.status).toBe(200);
+  const simple = await enqueueAcpExecution(env.DB, orgId, '9502', { gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this' });
+  expect(simple.statusCode).toBe(201);
+  let stored = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(simple.job.id).first();
+  expect(JSON.parse(stored.payload)).not.toHaveProperty('workspaceTools');
+  expect((await api('POST', `/jobs/${simple.job.id}/cancel`, member)).status).toBe(200);
+  const simpleFallback = await enqueueAcpExecution(env.DB, orgId, '9502', {
+    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true,
+  });
+  expect(simpleFallback.statusCode).toBe(201);
+  const fallbackPayload = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(simpleFallback.job.id).first();
+  expect(JSON.parse(fallbackPayload.payload)).not.toHaveProperty('workspaceTools');
+  expect((await api('POST', `/jobs/${simpleFallback.job.id}/cancel`, member)).status).toBe(200);
 
-HOˆÂˆÛÛœÝš\œÝH]ØZ]›ÙJ
-KÙXÛÛ™H]ØZ]›ÙJ
-NÂˆ^XÝ
+  await setMode(env.DB, orgId, 'harness', '9501');
+  const enabled = await enqueueAcpExecution(env.DB, orgId, '9502', {
+    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true,
+  });
+  expect(enabled.statusCode).toBe(201);
+  stored = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(enabled.job.id).first();
+  expect(JSON.parse(stored.payload)).toMatchObject({ acp: true, workspaceTools: true, agentId: 'acp-workspace' });
 
-]ØZ]\J	ÔÔÕ	Ë	ËØÛZ[IË[ßKš\œÝÚÙ[ŠJKœÝ]\ÊKÐ™JŒ
-NÂˆ]ØZ][‹‘‹œ™\\™J•TUH˜]WÛ[Z]ÈÑUÛÝ[HLŒÒT‘HXÚÙ]H	ÝX[IÈŠKœ[Š
-NÂˆËÈH\ÞH[X[ˆRH]\Ý›Ý[\œ\H^XÝ][ÛˆX\™X]Ü]Y]YK‚ˆ^XÝ
+  const claimed = await api('POST', '/claim', null, { capabilities: ['acp-v1'], acpAgents: ['workspace-reader'] }, token);
+  const running = (await claimed.json()).job;
+  expect(running.id).toBe(enabled.job.id);
+  const mcp = (method, params = {}, lease = running.lease, auth = token) => api('POST', `/jobs/${running.id}/mcp`, null, { lease, method, params }, auth);
+  expect((await mcp('tools/list', {}, 'wrong-lease')).status).toBe(409);
+  const listed = await mcp('tools/list');
+  expect(listed.status).toBe(200);
+  const tools = (await listed.json()).result.tools.map(tool => tool.name);
+  expect(tools).toEqual(['list_apps', 'read_app', 'list_tables', 'query_rows', 'list_workflows', 'list_followups']);
+  expect((await mcp('tools/call', { name: 'add_row', arguments: {} })).status).toBe(403);
+  // Exercise the actual ACP transport limit and continuation past offset 1000.
+  const { createApp } = await import('../src/harness/apps.js');
+  const made = await createApp(env.DB, { orgId, by: '9502', name: 'Large rows', columns: [{ name: 'ID', type: 'text' }, { name: 'Body', type: 'text' }] });
+  const app = made.app;
+  const rows = Array.from({ length: 1105 }, (_, i) => env.DB.prepare(`INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,'9502','now','now')`)
+    .bind(`acp-row-${i}`, app.tableId, orgId, JSON.stringify({ id: `business-${i}`, body: 'ç•Œ'.repeat(600) }), i));
+  for (let i = 0; i < rows.length; i += 100) await env.DB.batch(rows.slice(i, i + 100));
+  const read = await mcp('tools/call', { name: 'read_app', arguments: { appId: app.id } });
+  expect(read.status).toBe(200);
+  const readPage = (await read.json()).result.structuredContent;
+  expect(readPage.app.tableId).toBe(app.tableId);
+  expect(readPage.nextOffset).toBe(readPage.rows.length);
+  expect(readPage.rows[0]).toMatchObject({ id: 'acp-row-0', recordId: 'acp-row-0', values: { id: 'business-0' } });
+  let offset = 0, found = [];
+  while (offset !== null) {
+    const response = await mcp('tools/call', { name: 'query_rows', arguments: { tableId: app.tableId, limit: 100, offset } });
+    expect(response.status).toBe(200);
+    const result = (await response.json()).result;
+    expect(new TextEncoder().encode(JSON.stringify(result)).length).toBeLessThan(200000);
+    const page = result.structuredContent;
+    expect(page.rows.length).toBeGreaterThan(0);
+    found.push(...page.rows.map(row => row.id));
+    expect(page.nextOffset === null || page.nextOffset > offset).toBe(true);
+    offset = page.nextOffset;
+  }
+  expect(found).toHaveLength(1105);
+  expect(new Set(found).size).toBe(1105);
+  expect(found[1104]).toBe('acp-row-1104');
+  const columns = Array.from({ length: 30 }, (_, i) => ({ name: `Field ${i}`, type: 'text' }));
+  const large = (await createApp(env.DB, { orgId, by: '9502', name: 'Oversized row', columns })).app;
+  const bigValues = Object.fromEntries(columns.map((_, i) => [`field_${i}`, 'x'.repeat(5000)]));
+  await env.DB.prepare(`INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,created_at,updated_at) VALUES('acp-huge',?1,?2,?3,0,'9502','now','now')`).bind(large.tableId, orgId, JSON.stringify(bigValues)).run();
+  const hugeResponse = await mcp('tools/call', { name: 'query_rows', arguments: { tableId: large.tableId } });
+  expect(hugeResponse.status).toBe(200);
+  const huge = (await hugeResponse.json()).result;
+  expect(huge.isError).toBe(true);
+  expect(huge.content[0].text).toContain('fewer selected fields');
+  const projectedResponse = await mcp('tools/call', { name: 'query_rows', arguments: { tableId: large.tableId, fields: ['field_0'] } });
+  expect(projectedResponse.status).toBe(200);
+  const projected = (await projectedResponse.json()).result.structuredContent;
+  expect(projected.rows[0]).toMatchObject({ id: 'acp-huge', field_0: 'x'.repeat(5000) });
+  expect(projected.rows[0]).not.toHaveProperty('field_1');
+  expect(projected.nextOffset).toBeNull();
 
-]ØZ]\J	ÔÔÕ	Ë	ËØÛZ[IË[ßKÙXÛÛ™ÚÙ[ŠJKœÝ]\ÊKÐ™JŒ
-NÂˆ]ØZ][‹‘‹œ™\\™J•TUH˜]WÛ[Z]ÈÑUÛÝ[HLŒÒT‘HXÚÙ]H	ÙØ]]Ø^KÛ›ÙIÈS‘ÝXš™XÝHÈŠK˜š[™
-Ø]]Ø^N‰Ùš\œÝ™Ø]]Ø^KšYX
-Kœ[Š
-NÂˆ^XÝ
+  expect((await mcp('resources/list')).status).toBe(400);
+  expect((await api('POST', `/jobs/${running.id}/mcp`, null, { lease: running.lease, method: 'tools/list' }, 'hgw_invalid')).status).toBe(401);
+  const otherNode = await node();
+  expect((await api('POST', `/jobs/${running.id}/mcp`, null, { lease: running.lease, method: 'tools/list' }, otherNode.token)).status).toBe(409);
 
-]ØZ]\J	ÔÔÕ	Ë	ËØÛZ[IË[ßKš\œÝÚÙ[ŠJKœÝ]\ÊKÐ™JŽJNÂˆ^XÝ
+  await setMode(env.DB, orgId, 'simple', '9501');
+  expect((await mcp('tools/list')).status).toBe(403);
+  await setMode(env.DB, orgId, 'harness', '9501');
+  await env.DB.prepare('UPDATE custom_agents SET deleted_at=?3 WHERE org_id=?1 AND id=?2').bind(orgId,'acp-workspace','now').run();
+  expect((await mcp('tools/list')).status).toBe(403);
+  expect((await api('POST', `/jobs/${running.id}/cancel`, member)).status).toBe(200);
+  expect((await mcp('tools/list')).status).toBe(409);
+}, 30_000);
 
-]ØZ]\J	ÔÔÕ	Ë	ËØÛZ[IË[ßKÙXÛÛ™ÚÙ[ŠJKœÝ]\ÊKÐ™JŒ
-NÂˆ]ØZ][‹‘‹œ™\\™J•TUH˜]WÛ[Z]ÈÑUÛÝ[HŒÒT‘HXÚÙ]H	ÙØ]]Ø^KÙYÙIÈŠKœ[Š
-NÂˆ^XÝ
+test('TypeScript module language survives queueing and participates in request identity',async()=>{
+ const {gateway,token}=await node();
+ const input={gatewayId:gateway.id,requestId:'typed-module',language:'typescript',code:'export default (input:number):number => input * 2',input:21};
+ expect((await api('POST','/jobs',member,input)).status).toBe(201);
+ expect((await api('POST','/jobs',member,input)).status).toBe(200);
+ expect((await api('POST','/jobs',member,{...input,language:'javascript'})).status).toBe(409);
+ expect((await api('POST','/jobs',member,{...input,requestId:'invalid',language:'shell'})).status).toBe(400);
+ const job=await claim(token);
+ expect(job.payload).toEqual({code:input.code,input:21,language:'typescript'});
+});
 
-]ØZ]\J	ÔÔÕ	Ë	ËØÛZ[IË[ßKÙXÛÛ™ÚÙ[ŠJKœÝ]\ÊKÐ™JŽJNÂŸJNÂ‚\Ý
-	ÐPÔÛÜšÜÜXÙHPÔ\ÈÜZ[‹™XY[Û›K›ÙKX[™[X\ÙH›Ý[™[™™XÚXÚÜÈ\›™\ÜÈXØÙ\ÜÉË\Þ[˜È
+test('node state endpoint uses an assigned workflow activation and refuses unrelated scope',async()=>{
+ const {claimWorkflowNode}=await import('../src/harness/workflowCheckpoints.js');
+ const {gateway,token}=await node();const second=await node();
+ const queued=await enqueue(gateway.id);const running=await claim(token);const at=Date.now();
+ const call=(operation,params={},auth=token,lease=running.lease)=>api('POST',`/jobs/${queued.id}/state`,null,{lease,operation,params},auth);
+ expect((await call('state.get')).status).toBe(409);
+ await env.DB.prepare("INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at) VALUES('sdk-workflow',?1,'SDK',1,'{\"type\":\"manual\"}','[]','9502','now','now')").bind(orgId).run();
+ await env.DB.prepare("INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,started_at) VALUES('sdk-run',?1,'sdk-workflow','manual','running','[]','now')").bind(orgId).run();
+ await env.DB.prepare("INSERT INTO hx_workflow_run_definitions(run_id,org_id,definition,created_at) VALUES('sdk-run',?1,?2,'now')").bind(orgId,JSON.stringify({id:'sdk-workflow',createdBy:'9502',definitionRevision:1})).run();
+ const checkpoint=await claimWorkflowNode(env.DB,{orgId,runId:'sdk-run',nodeId:'code',fingerprint:'frozen-code',at,ttl:60000});
+ await env.DB.prepare("INSERT INTO hx_workflow_activations(org_id,job_id,run_id,node_id,node_owner,node_attempt) VALUES(?1,?2,'sdk-run','code',?3,?4)").bind(orgId,queued.id,checkpoint.owner,checkpoint.attempt).run();
+ const initial=await call('state.get');expect(initial.status).toBe(200);expect(await initial.json()).toMatchObject({found:false,revision:0});
+ const saved=await call('state.set',{state:{count:1},expectedRevision:0,validationStatus:'passed',schemaVersion:'v1'});
+ expect(saved.status).toBe(200);const receipt=await saved.json();expect(receipt).toMatchObject({saved:true,currentRunId:'sdk-run',revision:1});
+ const restored=await call('state.get',{includeCurrentRun:true});expect(restored.status).toBe(200);
+ const value=await restored.json();expect(value).toMatchObject({state:{count:1},metadata:{definitionRevision:1,schemaVersion:'v1',contentHash:receipt.contentHash}});
+ for(const secret of [token,running.lease,checkpoint.owner])expect(JSON.stringify(value)).not.toContain(secret);
+ expect((await call('state.get',{},second.token)).status).toBe(409);
+ expect((await call('state.get',{},token,'wrong-lease')).status).toBe(409);
+ expect((await call('state.get',{runId:'other'})).status).toBe(400);
+ expect((await call('state.set',{state:[],expectedRevision:1})).status).toBe(400);
+ expect((await api('POST',`/jobs/${queued.id}/state`,member,{lease:running.lease,operation:'state.get',params:{}})).status).toBe(401);
+ await api('POST',`/jobs/${queued.id}/cancel`,member,{});
+ expect((await call('state.get')).status).toBe(409);
+});
 
-HOˆÂˆ]ØZ]Ù][ÙJ[‹‘‹Ü™ÒY	ÜÚ[\IË	ÎMLIÊNÂˆ]ØZ][‹‘‹œ™\\™JS”ÑT•S•ÈÝ\ÝÛWØYÙ[ÊÜ™×ÚYY[™K˜[YK[œÝXÝ[ÛœËØÛÜKÝÛ™\—ÛÙÚ[‹Ü™X]YØ]\]YØ]›ÝšY\ŠBˆSQTÊÌK	ØXÜ]ÛÜšÜÜXÙIË	ØXÜ]ÛÜšÜÜXÙIË	ÓØØ[PÔ	Ë	Ô™XYÛÜšÜÜXÙHØY™[K‰Ë	ÝX[IË	Ý\Ù\ŽML‰Ë	Û›ÝÉË	Û›ÝÉË	ØXÜ	ÊX
-K˜š[™
-Ü™ÒY
-Kœ[Š
-NÂˆÛÛœÝÈØ]]Ø^KÚÙ[ˆHH]ØZ]›ÙJ
-NÂˆÛÛœÝ™YÚ\Ý\ˆH]ØZ]\J	ÔÔÕ	Ë	ËØÛZ[IË[ÈØ\Xš[]Y\ÎˆÉØXÜ]ŒI×KXÜYÙ[ÎˆÉÝÛÜšÜÜXÙK\™XY\‰×HKÚÙ[ŠNÂˆ^XÝ
-™YÚ\Ý\‹œÝ]\ÊKÐ™JŒ
-NÂˆÛÛœÝÚ[\HH]ØZ][œ]Y]YPXÜ^XÝ][ÛŠ[‹‘‹Ü™ÒY	ÎML‰ËÈØ]]Ø^RYˆØ]]Ø^KšYYÙ[Ù^Nˆ	ÝÛÜšÜÜXÙK\™XY\‰Ë›Û\ˆ	Ô™XY\ÉÈJNÂˆ^XÝ
-Ú[\KœÝ]\ÐÛÙJKÐ™JŒJNÂˆ]ÝÜ™YH]ØZ][‹‘‹œ™\\™J	ÔÑSPÕ^[ØY”“ÓHÙØ]]Ø^WÚ›ØœÈÒT‘HYOÌIÊK˜š[™
-Ú[\Kš›Ø‹šY
-K™š\œÝ
-
-NÂˆ^XÝ
-”ÓÓ‹œ\œÙJÝÜ™Yœ^[ØY
-JK››ÝÒ]™T›Ü\J	ÝÛÜšÜÜXÙUÛÛÉÊNÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	ËÚ›ØœËÉÜÚ[\Kš›Ø‹šYKØØ[˜Ù[Y[X™\ŠJKœÝ]\ÊKÐ™JŒ
-NÂˆÛÛœÝÚ[\Q˜[˜XÚÈH]ØZ][œ]Y]YPXÜ^XÝ][ÛŠ[‹‘‹Ü™ÒY	ÎML‰ËÂˆØ]]Ø^RYˆØ]]Ø^KšYYÙ[Ù^Nˆ	ÝÛÜšÜÜXÙK\™XY\‰Ë›Û\ˆ	Ô™XY\ÉËYÙ[Yˆ	ØXÜ]ÛÜšÜÜXÙIËÛÜšÜÜXÙUÛÛÎˆYKˆJNÂˆ^XÝ
-Ú[\Q˜[˜XÚËœÝ]\ÐÛÙJKÐ™JŒJNÂˆÛÛœÝ˜[˜XÚÔ^[ØYH]ØZ][‹‘‹œ™\\™J	ÔÑSPÕ^[ØY”“ÓHÙØ]]Ø^WÚ›ØœÈÒT‘HYOÌIÊK˜š[™
-Ú[\Q˜[˜XÚËš›Ø‹šY
-K™š\œÝ
-
-NÂˆ^XÝ
-”ÓÓ‹œ\œÙJ˜[˜XÚÔ^[ØYœ^[ØY
-JK››ÝÒ]™T›Ü\J	ÝÛÜšÜÜXÙUÛÛÉÊNÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	ËÚ›ØœËÉÜÚ[\Q˜[˜XÚËš›Ø‹šYKØØ[˜Ù[Y[X™\ŠJKœÝ]\ÊKÐ™JŒ
-NÂ‚ˆ]ØZ]Ù][ÙJ[‹‘‹Ü™ÒY	Ú\›™\ÜÉË	ÎMLIÊNÂˆÛÛœÝ[˜X›YH]ØZ][œ]Y]YPXÜ^XÝ][ÛŠ[‹‘‹Ü™ÒY	ÎML‰ËÂˆØ]]Ø^RYˆØ]]Ø^KšYYÙ[Ù^Nˆ	ÝÛÜšÜÜXÙK\™XY\‰Ë›Û\ˆ	Ô™XY\ÉËYÙ[Yˆ	ØXÜ]ÛÜšÜÜXÙIËÛÜšÜÜXÙUÛÛÎˆYKˆJNÂˆ^XÝ
-[˜X›YœÝ]\ÐÛÙJKÐ™JŒJNÂˆÝÜ™YH]ØZ][‹‘‹œ™\\™J	ÔÑSPÕ^[ØY”“ÓHÙØ]]Ø^WÚ›ØœÈÒT‘HYOÌIÊK˜š[™
-[˜X›Yš›Ø‹šY
-K™š\œÝ
-
-NÂˆ^XÝ
-”ÓÓ‹œ\œÙJÝÜ™Yœ^[ØY
-JKÓX]ÚØš™XÝ
-ÈXÜˆYKÛÜšÜÜXÙUÛÛÎˆYKYÙ[Yˆ	ØXÜ]ÛÜšÜÜXÙIÈJNÂ‚ˆÛÛœÝÛZ[YYH]ØZ]\J	ÔÔÕ	Ë	ËØÛZ[IË[ÈØ\Xš[]Y\ÎˆÉØXÜ]ŒI×KXÜYÙ[ÎˆÉÝÛÜšÜÜXÙK\™XY\‰×HKÚÙ[ŠNÂˆÛÛœÝ[›š[™ÈH
-]ØZ]ÛZ[YYšœÛÛŠ
-JKš›ØŽÂˆ^XÝ
-[›š[™ËšY
-KÐ™J[˜X›Yš›Ø‹šY
-NÂˆÛÛœÝXÜH
-Y]Ù\˜[\ÈHßKX\ÙHH[›š[™Ë›X\ÙK]]HÚÙ[ŠHOˆ\J	ÔÔÕ	ËÚ›ØœËÉÜ[›š[™ËšYKÛXÜ[ÈX\ÙKY]Ù\˜[\ÈK]]
-NÂˆ^XÝ
-
-]ØZ]XÜ
-	ÝÛÛËÛ\Ý	ËßK	ÝÜ›Û™Ë[X\ÙIÊJKœÝ]\ÊKÐ™JJNÂˆÛÛœÝ\ÝYH]ØZ]XÜ
-	ÝÛÛËÛ\Ý	ÊNÂˆ^XÝ
-\ÝYœÝ]\ÊKÐ™JŒ
-NÂˆÛÛœÝÛÛÈH
-]ØZ]\ÝYšœÛÛŠ
-JKœ™\Ý[ÛÛË›X\
-ÛÛOˆÛÛ›˜[YJNÂˆ^XÝ
-ÛÛÊKÑ\]X[
-ÉÛ\ÝØ\ÉË	Ü™XYØ\	Ë	Û\ÝÝX›\ÉË	Ü]Y\žWÜ›ÝÜÉË	Û\ÝÝÛÜšÙ›ÝÜÉË	Û\ÝÙ›ÛÝÝ\É×JNÂˆ^XÝ
-
-]ØZ]XÜ
-	ÝÛÛËØØ[	ËÈ˜[YNˆ	ØYÜ›ÝÉË\™Ý[Y[ÎˆßHJJKœÝ]\ÊKÐ™JÊNÂˆËÈ^\˜Ú\ÙHHXÝX[PÔ˜[œÜÜ[Z][™ÛÛ[X][Ûˆ\ÝÙ™œÙ]L‚ˆÛÛœÝÈÜ™X]P\HH]ØZ][\Ü
-	Ë‹‹ÜÜ˜ËÚ\›™\ÜËØ\ËšœÉÊNÂˆÛÛœÝXYHH]ØZ]Ü™X]P\
-[‹‘‹ÈÜ™ÒYžNˆ	ÎML‰Ë˜[YNˆ	Ó\™ÙH›ÝÜÉËÛÛ[[œÎˆÞÈ˜[YNˆ	ÒQ	Ë\Nˆ	Ý^	ÈKÈ˜[YNˆ	Ð›ÙIË\Nˆ	Ý^	ÈWHJNÂˆÛÛœÝ\HXYK˜\ÂˆÛÛœÝ›ÝÜÈH\œ˜^K™œ›ÛJÈ[™ÝˆLLHK
-ËJHOˆ[‹‘‹œ™\\™JS”ÑT•S•ÈÜ›ÝÜÊYX›WÚYÜ™×ÚY]KÜÚ][Û‹Ü™X]YØžKÜ™X]YØ]\]YØ]
-HSQTÊÌKÌ‹ÌËÍÍK	ÎML‰Ë	Û›ÝÉË	Û›ÝÉÊX
-Bˆ˜š[™
-XÜ\›ÝËIÚ_X\X›RYÜ™ÒY”ÓÓ‹œÝš[™ÚYžJÈYˆ\Ú[™\ÜËIÚ_X›ÙNˆ	ùåc	Ëœ™\X]
-Œ
-HJKJJNÂˆ›Üˆ
-]HHÈH›ÝÜË›[™ÝÈH
-ÏHL
-H]ØZ][‹‘‹˜˜]Ú
-›ÝÜËœÛXÙJKH
-ÈL
-JNÂˆÛÛœÝ™XYH]ØZ]XÜ
-	ÝÛÛËØØ[	ËÈ˜[YNˆ	Ü™XYØ\	Ë\™Ý[Y[ÎˆÈ\Yˆ\šYHJNÂˆ^XÝ
-™XYœÝ]\ÊKÐ™JŒ
-NÂˆÛÛœÝ™XYYÙHH
-]ØZ]™XYšœÛÛŠ
-JKœ™\Ý[œÝXÝ\™YÛÛ[Âˆ^XÝ
-™XYYÙK˜\X›RY
-KÐ™J\X›RY
-NÂˆ^XÝ
-™XYYÙK›™^Ù™œÙ]
-KÐ™J™XYYÙKœ›ÝÜË›[™Ý
-NÂˆ^XÝ
-™XYYÙKœ›ÝÜÖÌJKÓX]ÚØš™XÝ
-ÈYˆ	ØXÜ\›ÝËL	Ë™XÛÜ™Yˆ	ØXÜ\›ÝËL	Ë˜[Y\ÎˆÈYˆ	Ø\Ú[™\ÜËL	ÈHJNÂˆ]Ù™œÙ]H›Ý[™H×NÂˆÚ[H
-Ù™œÙ]OOH[
-HÂˆÛÛœÝ™\ÜÛœÙHH]ØZ]XÜ
-	ÝÛÛËØØ[	ËÈ˜[YNˆ	Ü]Y\žWÜ›ÝÜÉË\™Ý[Y[ÎˆÈX›RYˆ\X›RY[Z]ˆLÙ™œÙ]HJNÂˆ^XÝ
-™\ÜÛœÙKœÝ]\ÊKÐ™JŒ
-NÂˆÛÛœÝ™\Ý[H
-]ØZ]™\ÜÛœÙKšœÛÛŠ
-JKœ™\Ý[Âˆ^XÝ
-™]È^[˜ÛÙ\Š
-K™[˜ÛÙJ”ÓÓ‹œÝš[™ÚYžJ™\Ý[
-JK›[™Ý
-KÐ™S\ÜÕ[ŠŒ
-NÂˆÛÛœÝYÙHH™\Ý[œÝXÝ\™YÛÛ[Âˆ^XÝ
-YÙKœ›ÝÜË›[™Ý
-KÐ™QÜ™X]\•[Š
-NÂˆ›Ý[™œ\Ú
-‹‹œYÙKœ›ÝÜË›X\
-›ÝÈOˆ›ÝËšY
-JNÂˆ^XÝ
-YÙK›™^Ù™œÙ]OOH[YÙK›™^Ù™œÙ]ˆÙ™œÙ]
-KÐ™JYJNÂˆÙ™œÙ]HYÙK›™^Ù™œÙ]ÂˆBˆ^XÝ
-›Ý[™
-KÒ]™S[™Ý
-LLJNÂˆ^XÝ
-™]ÈÙ]
-›Ý[™
-KœÚ^™JKÐ™JLLJNÂˆ^XÝ
-›Ý[™ÌLLJKÐ™J	ØXÜ\›ÝËLLL	ÊNÂˆÛÛœÝÛÛ[[œÈH\œ˜^K™œ›ÛJÈ[™ÝˆÌK
-ËJHOˆ
-È˜[YNˆšY[	Ú_X\Nˆ	Ý^	ÈJJNÂˆÛÛœÝ\™ÙHH
-]ØZ]Ü™X]P\
-[‹‘‹ÈÜ™ÒYžNˆ	ÎML‰Ë˜[YNˆ	ÓÝ™\œÚ^™Y›ÝÉËÛÛ[[œÈJJK˜\ÂˆÛÛœÝšYÕ˜[Y\ÈHØš™XÝ™œ›ÛQ[šY\ÊÛÛ[[œË›X\
-
-ËJHOˆØšY[ÉÚ_X	Þ	Ëœ™\X]
-L
-WJJNÂˆ]ØZ][‹‘‹œ™\\™JS”ÑT•S•ÈÜ›ÝÜÊYX›WÚYÜ™×ÚY]KÜÚ][Û‹Ü™X]YØžKÜ™X]YØ]\]YØ]
-HSQTÊ	ØXÜZYÙIËÌKÌ‹ÌË	ÎML‰Ë	Û›ÝÉË	Û›ÝÉÊX
-K˜š[™
-\™ÙKX›RYÜ™ÒY”ÓÓ‹œÝš[™ÚYžJšYÕ˜[Y\ÊJKœ[Š
-NÂˆÛÛœÝYÙT™\ÜÛœÙHH]ØZ]XÜ
-	ÝÛÛËØØ[	ËÈ˜[YNˆ	Ü]Y\žWÜ›ÝÜÉË\™Ý[Y[ÎˆÈX›RYˆ\™ÙKX›RYHJNÂˆ^XÝ
-YÙT™\ÜÛœÙKœÝ]\ÊKÐ™JŒ
-NÂˆÛÛœÝYÙHH
-]ØZ]YÙT™\ÜÛœÙKšœÛÛŠ
-JKœ™\Ý[Âˆ^XÝ
-YÙKš\Ñ\œ›ÜŠKÐ™JYJNÂˆ^XÝ
-YÙK˜ÛÛ[ÌK^
-KÐÛÛZ[Š	Ù™]Ù\ˆÙ[XÝYšY[ÉÊNÂˆÛÛœÝ›Ú™XÝY™\ÜÛœÙHH]ØZ]XÜ
-	ÝÛÛËØØ[	ËÈ˜[YNˆ	Ü]Y\žWÜ›ÝÜÉË\™Ý[Y[ÎˆÈX›RYˆ\™ÙKX›RYšY[ÎˆÉÙšY[Ì	×HHJNÂˆ^XÝ
-›Ú™XÝY™\ÜÛœÙKœÝ]\ÊKÐ™JŒ
-NÂˆÛÛœÝ›Ú™XÝYH
-]ØZ]›Ú™XÝY™\ÜÛœÙKšœÛÛŠ
-JKœ™\Ý[œÝXÝ\™YÛÛ[Âˆ^XÝ
-›Ú™XÝYœ›ÝÜÖÌJKÓX]ÚØš™XÝ
-ÈYˆ	ØXÜZYÙIËšY[Ìˆ	Þ	Ëœ™\X]
-L
-HJNÂˆ^XÝ
-›Ú™XÝYœ›ÝÜÖÌJK››ÝÒ]™T›Ü\J	ÙšY[ÌIÊNÂˆ^XÝ
-›Ú™XÝY›™^Ù™œÙ]
-KÐ™S[
-
-NÂ‚ˆ^XÝ
-
-]ØZ]XÜ
-	Ü™\ÛÝ\˜Ù\ËÛ\Ý	ÊJKœÝ]\ÊKÐ™J
-NÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	ËÚ›ØœËÉÜ[›š[™ËšYKÛXÜ[ÈX\ÙNˆ[›š[™Ë›X\ÙKY]Ùˆ	ÝÛÛËÛ\Ý	ÈK	ÚÝ×Ú[˜[Y	ÊJKœÝ]\ÊKÐ™JJNÂˆÛÛœÝÝ\“›ÙHH]ØZ]›ÙJ
-NÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	ËÚ›ØœËÉÜ[›š[™ËšYKÛXÜ[ÈX\ÙNˆ[›š[™Ë›X\ÙKY]Ùˆ	ÝÛÛËÛ\Ý	ÈKÝ\“›ÙKÚÙ[ŠJKœÝ]\ÊKÐ™JJNÂ‚ˆ]ØZ]Ù][ÙJ[‹‘‹Ü™ÒY	ÜÚ[\IË	ÎMLIÊNÂˆ^XÝ
-
-]ØZ]XÜ
-	ÝÛÛËÛ\Ý	ÊJKœÝ]\ÊKÐ™JÊNÂˆ]ØZ]Ù][ÙJ[‹‘‹Ü™ÒY	Ú\›™\ÜÉË	ÎMLIÊNÂˆ]ØZ][‹‘‹œ™\\™J	ÕTUHÝ\ÝÛWØYÙ[ÈÑU[]YØ]OÌÈÒT‘HÜ™×ÚYOÌHS‘YOÌ‰ÊK˜š[™
-Ü™ÒY	ØXÜ]ÛÜšÜÜXÙIË	Û›ÝÉÊKœ[Š
-NÂˆ^XÝ
-
-]ØZ]XÜ
-	ÝÛÛËÛ\Ý	ÊJKœÝ]\ÊKÐ™JÊNÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	ËÚ›ØœËÉÜ[›š[™ËšYKØØ[˜Ù[Y[X™\ŠJKœÝ]\ÊKÐ™JŒ
-NÂˆ^XÝ
-
-]ØZ]XÜ
-	ÝÛÛËÛ\Ý	ÊJKœÝ]\ÊKÐ™JJNÂŸKÌÌ
-NÂ‚\Ý
-	Õ\TØÜš\[Ù[H[™ÝXYÙHÝ\š]™\È]Y]YZ[™È[™\XÚ\]\È[ˆ™\]Y\ÝY[]IË\Þ[˜Ê
-OOžÂˆÛÛœÝÙØ]]Ø^KÚÙ[ŸOX]ØZ]›ÙJ
-NÂˆÛÛœÝ[œ]^ÙØ]]Ø^RY™Ø]]Ø^KšY™\]Y\ÝY‰Ý\Y[[Ù[IË[™ÝXYÙN‰Ý\\ØÜš\	ËÛÙN‰Ù^ÜY˜][
-[œ]›[X™\ŠN›[X™\ˆOˆ[œ]
-ˆ‰Ë[œ]ŒŒ_NÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	Ë	ËÚ›ØœÉËY[X™\‹[œ]
-JKœÝ]\ÊKÐ™JŒJNÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	Ë	ËÚ›ØœÉËY[X™\‹[œ]
-JKœÝ]\ÊKÐ™JŒ
-NÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	Ë	ËÚ›ØœÉËY[X™\‹Ë‹‹š[œ][™ÝXYÙN‰Ú˜]˜\ØÜš\	ßJJKœÝ]\ÊKÐ™JJNÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	Ë	ËÚ›ØœÉËY[X™\‹Ë‹‹š[œ]™\]Y\ÝY‰Ú[˜[Y	Ë[™ÝXYÙN‰ÜÚ[	ßJJKœÝ]\ÊKÐ™J
-NÂˆÛÛœÝ›ØX]ØZ]ÛZ[JÚÙ[ŠNÂˆ^XÝ
-›Ø‹œ^[ØY
-KÑ\]X[
-ØÛÙNš[œ]˜ÛÙK[œ]ŒŒK[™ÝXYÙN‰Ý\\ØÜš\	ßJNÂŸJNÂ‚\Ý
-	Û›ÙHÝ]H[™Ú[\Ù\È[ˆ\ÜÚYÛ™YÛÜšÙ›ÝÈXÝ]˜][Ûˆ[™™Y\Ù\È[œ™[]YØÛÜIË\Þ[˜Ê
-OOžÂˆÛÛœÝØÛZ[UÛÜšÙ›ÝÓ›Ù_OX]ØZ][\Ü
-	Ë‹‹ÜÜ˜ËÚ\›™\ÜËÝÛÜšÙ›ÝÐÚXÚÜÚ[ËšœÉÊNÂˆÛÛœÝÙØ]]Ø^KÚÙ[ŸOX]ØZ]›ÙJ
-NØÛÛœÝÙXÛÛ™X]ØZ]›ÙJ
-NÂˆÛÛœÝ]Y]YYX]ØZ][œ]Y]YJØ]]Ø^KšY
-NØÛÛœÝ[›š[™ÏX]ØZ]ÛZ[JÚÙ[ŠNØÛÛœÝ]Q]K››ÝÊ
-NÂˆÛÛœÝØ[JÜ\˜][Û‹\˜[\Ï^ßK]]]ÚÙ[‹X\ÙO\[›š[™Ë›X\ÙJOO˜\J	ÔÔÕ	ËÚ›ØœËÉÜ]Y]YYšYKÜÝ]X[ÛX\ÙKÜ\˜][Û‹\˜[\ßK]]
-NÂˆ^XÝ
-
-]ØZ]Ø[
-	ÜÝ]K™Ù]	ÊJKœÝ]\ÊKÐ™JJNÂˆ]ØZ][‹‘‹œ™\\™J’S”ÑT•S•ÈÝÛÜšÙ›ÝÜÊYÜ™×ÚY˜[YK[˜X›YšYÙÙ\‹Ý\ËÜ™X]YØžKÜ™X]YØ]\]YØ]
-HSQTÊ	ÜÙË]ÛÜšÙ›ÝÉËÌK	ÔÑÉËK	Þ×\WŽ—›X[X[ŸIË	Ö×IË	ÎML‰Ë	Û›ÝÉË	Û›ÝÉÊHŠK˜š[™
-Ü™ÒY
-Kœ[Š
-NÂˆ]ØZ][‹‘‹œ™\\™J’S”ÑT•S•ÈÝÛÜšÙ›Ý×Ü[œÊYÜ™×ÚYÛÜšÙ›Ý×ÚYšYÙÙ\‹Ý]\ËÙËÝ\YØ]
-HSQTÊ	ÜÙË\[‰ËÌK	ÜÙË]ÛÜšÙ›ÝÉË	ÛX[X[	Ë	Ü[›š[™ÉË	Ö×IË	Û›ÝÉÊHŠK˜š[™
-Ü™ÒY
-Kœ[Š
-NÂˆ]ØZ][‹‘‹œ™\\™J’S”ÑT•S•ÈÝÛÜšÙ›Ý×Ü[—ÙYš[š][ÛœÊ[—ÚYÜ™×ÚYYš[š][Û‹Ü™X]YØ]
-HSQTÊ	ÜÙË\[‰ËÌKÌ‹	Û›ÝÉÊHŠK˜š[™
-Ü™ÒY”ÓÓ‹œÝš[™ÚYžJÚY‰ÜÙË]ÛÜšÙ›ÝÉËÜ™X]YžN‰ÎML‰ËYš[š][Û”™]š\Ú[ÛŽŒ_JJKœ[Š
-NÂˆÛÛœÝÚXÚÜÚ[X]ØZ]ÛZ[UÛÜšÙ›ÝÓ›ÙJ[‹‘‹ÛÜ™ÒY[’Y‰ÜÙË\[‰Ë›ÙRY‰ØÛÙIËš[™Ù\œš[‰Ùœ›Þ™[‹XÛÙIË]ŒJNÂˆ]ØZ][‹‘‹œ™\\™J’S”ÑT•S•ÈÝÛÜšÙ›Ý×ØXÝ]˜][ÛœÊÜ™×ÚY›Ø—ÚY[—ÚY›ÙWÚY›ÙWÛÝÛ™\‹›ÙWØ][\
-HSQTÊÌKÌ‹	ÜÙË\[‰Ë	ØÛÙIËÌËÍ
-HŠK˜š[™
-Ü™ÒY]Y]YYšYÚXÚÜÚ[›ÝÛ™\‹ÚXÚÜÚ[˜][\
-Kœ[Š
-NÂˆÛÛœÝ[š]X[X]ØZ]Ø[
-	ÜÝ]K™Ù]	ÊNÙ^XÝ
-[š]X[œÝ]\ÊKÐ™JŒ
-NÙ^XÝ
-]ØZ][š]X[šœÛÛŠ
-JKÓX]ÚØš™XÝ
-Ù›Ý[™™˜[ÙK™]š\Ú[ÛŽŒJNÂˆÛÛœÝØ]™YX]ØZ]Ø[
-	ÜÝ]KœÙ]	ËÜÝ]NžØÛÝ[Œ_K^XÝY™]š\Ú[ÛŽŒ˜[Y][Û”Ý]\Î‰Ü\ÜÙY	ËØÚ[XU™\œÚ[ÛŽ‰ÝŒIßJNÂˆ^XÝ
-Ø]™YœÝ]\ÊKÐ™JŒ
-NØÛÛœÝ™XÙZ\X]ØZ]Ø]™YšœÛÛŠ
-NÙ^XÝ
-™XÙZ\
-KÓX]ÚØš™XÝ
-ÜØ]™YYKÝ\œ™[[’Y‰ÜÙË\[‰Ë™]š\Ú[ÛŽŒ_JNÂˆÛÛœÝ™\ÝÜ™YX]ØZ]Ø[
-	ÜÝ]K™Ù]	ËÚ[˜ÛYPÝ\œ™[[ŽY_JNÙ^XÝ
-™\ÝÜ™YœÝ]\ÊKÐ™JŒ
-NÂˆÛÛœÝ˜[YOX]ØZ]™\ÝÜ™YšœÛÛŠ
-NÙ^XÝ
-˜[YJKÓX]ÚØš™XÝ
-ÜÝ]NžØÛÝ[Œ_KY]Y]NžÙYš[š][Û”™]š\Ú[ÛŽŒKØÚ[XU™\œÚ[ÛŽ‰ÝŒIËÛÛ[\Úœ™XÙZ\˜ÛÛ[\Ú_JNÂˆ›ÜŠÛÛœÝÙXÜ™]ÙˆÝÚÙ[‹[›š[™Ë›X\ÙKÚXÚÜÚ[›ÝÛ™\—JY^XÝ
-”ÓÓ‹œÝš[™ÚYžJ˜[YJJK››ÝÐÛÛZ[ŠÙXÜ™]
-NÂˆ^XÝ
-
-]ØZ]Ø[
-	ÜÝ]K™Ù]	ËßKÙXÛÛ™ÚÙ[ŠJKœÝ]\ÊKÐ™JJNÂˆ^XÝ
-
-]ØZ]Ø[
-	ÜÝ]K™Ù]	ËßKÚÙ[‹	ÝÜ›Û™Ë[X\ÙIÊJKœÝ]\ÊKÐ™JJNÂˆ^XÝ
-
-]ØZ]Ø[
-	ÜÝ]K™Ù]	ËÜ[’Y‰ÛÝ\‰ßJJKœÝ]\ÊKÐ™J
-NÂˆ^XÝ
-
-]ØZ]Ø[
-	ÜÝ]KœÙ]	ËÜÝ]N–×K^XÝY™]š\Ú[ÛŽŒ_JJKœÝ]\ÊKÐ™J
-NÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	ËÚ›ØœËÉÜ]Y]YYšYKÜÝ]XY[X™\‹ÛX\ÙNœ[›š[™Ë›X\ÙKÜ\˜][ÛŽ‰ÜÝ]K™Ù]	Ë\˜[\Îžß_JJKœÝ]\ÊKÐ™JJNÂˆ]ØZ]\J	ÔÔÕ	ËÚ›ØœËÉÜ]Y]YYšYKØØ[˜Ù[Y[X™\‹ßJNÂˆ^XÝ
-
-]ØZ]Ø[
-	ÜÝ]K™Ù]	ÊJKœÝ]\ÊKÐ™JJNÂŸJNÂ‚\Ý
-	Ù^XÝ][ÛˆXØÙ\ÈÛ›H›Ý[™Yš\X[š[H[™\È[™ÙY\È™\]Y\ÝY[\Ý[˜ÞH›Ý[™ÈZ\ˆÛÛ[	Ë\Þ[˜Ê
-OOžÂˆÛÛœÝÙØ]]Ø^KÚÙ[ŸOX]ØZ]›ÙJ
-NÂˆÛÛœÝš[\ÏVÞÜ]‰ÜÜ˜ËÚ[œ]	Ë˜\ÙMY™™\‹™œ›ÛJ	Ú[ÉÊKÔÝš[™Ê	Ø˜\ÙM	Ê_WNÂˆÛÛœÝ™\ÜÛœÙOX]ØZ]\J	ÔÔÕ	Ë	ËÚ›ØœÉËY[X™\‹ÙØ]]Ø^RY™Ø]]Ø^KšY™\]Y\ÝY‰Ýš\X[Yš[\ÉËÛÙN‰Ü™]\›ˆIË[œ]žÛŽŒ_Kš[\ßJNÂˆ^XÝ
-™\ÜÛœÙKœÝ]\ÊKÐ™JŒJNÂˆÛÛœÝ›ØJ]ØZ]™\ÜÛœÙKšœÛÛŠ
-JKš›ØŽÂˆÛÛœÝÝÜ™YX]ØZ][‹‘‹œ™\\™J	ÔÑSPÕ^[ØY”“ÓHÙØ]]Ø^WÚ›ØœÈÒT‘HYOÉÊK˜š[™
-›Ø‹šY
-K™š\œÝ
-
-NÂˆ^XÝ
-”ÓÓ‹œ\œÙJÝÜ™Yœ^[ØY
-K™š[\ÊKÑ\]X[
-š[\ÊNÂˆ^XÝ
-
-]ØZ]\J	ÔÔÕ	Ë	ËÚ›ØœÉËY[X™\‹ÙØ]]Ø^RY™Ø]]Ø^KšY™\]Y\ÝY‰Ýš\X[Yš[\ÉËÛÙN‰Ü™]\›ˆIË[œ]žÛŽŒ_Kš[\Î–ÞË‹‹™š[\ÖÌK˜\ÙM‰ÙŽ^X‘ÔOIßW_JJKœÝ]\ÊKÐ™JJNÂˆ›ÜŠÛÛœÝ[˜[YÙˆÂˆÞÜ]‰Ë‹‹Ù\ØØ\IË˜\ÙM‰ÙPOOIßWKˆÞÜ]‰ËØXœÛÛ]IË˜\ÙM‰ÙPOOIßWKˆÞÜ]‰ØW‰Ë˜\ÙM‰ÙPOOIßWKˆÞÜ]‰ØIË˜\ÙM‰ÈHHHIßWKˆÞÜ]‰ØIË˜\ÙM‰ÖšOIßWKˆÞÜ]‰ØIË˜\ÙM‰ÙPOOIË[Ý[‰ËÚÜÝ	ßWKˆ\œ˜^K™œ›ÛJÛ[™ÝŽ_K
-ËJOOŠÜ]‰Ù‰ÊÚK˜\ÙM‰ÉßJJKˆÞÜ]‰Û\™ÙIË˜\ÙMY™™\‹˜[ØÊMŠŒL
-ÌJKÔÝš[™Ê	Ø˜\ÙM	Ê_WKˆJHÂˆÛÛœÝX]ØZ]\J	ÔÔÕ	Ë	ËÚ›ØœÉËY[X™\‹ÙØ]]Ø^RY™Ø]]Ø^KšYÛÙN‰Ü™]\›ˆIËš[\Îš[˜[YJNÂˆ^XÝ
-‹œÝ]\ÊKÐ™J
-NÂˆBˆ^XÝ
-]ØZ]ÛZ[JÚÙ[ŠJKÓX]ÚØš™XÝ
-Ü^[ØYžÙš[\ß_JNÂŸJNÂ
+test('execution accepts only bounded virtual file bundles and keeps request idempotency bound to their content',async()=>{
+ const {gateway,token}=await node();
+ const files=[{path:'src/input.txt',base64:Buffer.from('hello').toString('base64')}];
+ const response=await api('POST','/jobs',member,{gatewayId:gateway.id,requestId:'virtual-files',code:'return 1',input:{n:1},files});
+ expect(response.status).toBe(201);
+ const job=(await response.json()).job;
+ const stored=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?').bind(job.id).first();
+ expect(JSON.parse(stored.payload).files).toEqual(files);
+ expect((await api('POST','/jobs',member,{gatewayId:gateway.id,requestId:'virtual-files',code:'return 1',input:{n:1},files:[{...files[0],base64:'d29ybGQ='}]})).status).toBe(409);
+ for(const invalid of [
+  [{path:'../escape',base64:'eA=='}],
+  [{path:'/absolute',base64:'eA=='}],
+  [{path:'a\\\\b',base64:'eA=='}],
+  [{path:'a',base64:'!!!!'}],
+  [{path:'a',base64:'Zh=='}],
+  [{path:'a',base64:'eA==',mount:'/host'}],
+  Array.from({length:9},(_,i)=>({path:'f'+i,base64:''})),
+  [{path:'large',base64:Buffer.alloc(256*1024+1).toString('base64')}],
+ ]) {
+  const r=await api('POST','/jobs',member,{gatewayId:gateway.id,code:'return 1',files:invalid});
+  expect(r.status).toBe(400);
+ }
+ expect(await claim(token)).toMatchObject({payload:{files}});
+});
