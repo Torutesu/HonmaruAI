@@ -32,6 +32,9 @@ Usage:
   honmaru workspace reaction remove <message-id> --emoji EMOJI
   honmaru workspace thread get <room-id> <root-id> [--limit N] [--cursor CURSOR]
   honmaru workspace thread msg <room-id> <root-id> --text TEXT --request-id ID [--reply-to MESSAGE]
+  honmaru workspace thread rename <room-id> <root-id> --title TITLE --version N
+  honmaru workspace thread mute|unmute <room-id> <root-id>
+  honmaru workspace thread pin|unpin <room-id> <root-id>
   honmaru workspace table list
   honmaru workspace sdk generate <table-id> --out <file.ts>
   honmaru workspace row list <table-id> [--query TEXT] [--where JSON] [--sort FIELD] [--limit N] [--offset N]
@@ -279,6 +282,21 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
       if (options.fileIds !== undefined) args.fileIds = [...new Set(options.fileIds.split(",").map(value => value.trim()).filter(Boolean))];
       if (args.fileIds?.length > 10) throw new Error("--file-ids accepts at most 10 file IDs.");
       return { tool: "send_message", args };
+    }
+    case "thread rename": {
+      onlyFlags(options, ["title", "version"]); positionalCount(positional, 2, "honmaru workspace thread rename <room-id> <root-id> --title TITLE --version N");
+      if (typeof options.title !== "string" || !options.title.trim()) throw new Error("--title is required.");
+      const version = integerOption(options, "version", { min: 0, max: 2147483647 });
+      if (version === undefined) throw new Error("--version is required; use 0 for a thread without a custom title.");
+      return { tool: "rename_thread", args: { conversationId: positional[0], threadId: positional[1], title: options.title.trim(), version } };
+    }
+    case "thread mute":
+    case "thread unmute":
+    case "thread pin":
+    case "thread unpin": {
+      onlyFlags(options, []); positionalCount(positional, 2, `honmaru workspace thread ${operation} <room-id> <root-id>`);
+      if (operation === "mute" || operation === "unmute") return { tool: "set_thread_muted", args: { conversationId: positional[0], threadId: positional[1], muted: operation === "mute" } };
+      return { tool: "set_thread_pin", args: { conversationId: positional[0], threadId: positional[1], pinned: operation === "pin" } };
     }
     case "reaction get":
       onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace reaction get <message-id>");

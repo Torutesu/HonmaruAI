@@ -125,6 +125,19 @@ test('thread pages include parent and never accept parent from another channel',
   await expect(call('read_thread', { conversationId: 'b:private', threadId: parent.id }, { ...actor, scopes: [...actor.scopes, 'chat:private'] })).rejects.toThrow('No accessible thread');
 });
 
+test('thread title, personal mute and personal pin are scoped to an accessible root', async () => {
+  const root = await seed('b:general', 'Planning');
+  expect(await call('rename_thread', { conversationId: 'b:general', threadId: root.id, title: 'Roadmap', version: 0 }))
+    .toMatchObject({ threadId: root.id, title: 'Roadmap', version: 1 });
+  await expect(call('rename_thread', { conversationId: 'b:general', threadId: root.id, title: 'Stale', version: 0 }))
+    .rejects.toThrow('thread changed');
+  expect(await call('set_thread_muted', { conversationId: 'b:general', threadId: root.id, muted: true })).toMatchObject({ muted: true });
+  expect(await call('set_thread_muted', { conversationId: 'b:general', threadId: root.id, muted: false })).toMatchObject({ muted: false });
+  expect(await call('set_thread_pin', { conversationId: 'b:general', threadId: root.id, pinned: true })).toMatchObject({ pinned: true });
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_thread_pins WHERE org_id=?1 AND user_id=?2 AND message_id=?3').bind(orgId, actor.githubId, root.id).first('n')).toBe(1);
+  await expect(call('set_thread_pin', { conversationId: 'b:private', threadId: root.id, pinned: true }, { ...actor, scopes: [...actor.scopes, 'chat:private'] })).rejects.toThrow('No accessible thread');
+});
+
 test('send retries persist once, reject changed payload and do not mark read or invoke AI', async () => {
   const args = { conversationId: 'b:general', body: '@AI hello', requestId: 'repeat-send-1' };
   const first = await call('send_message', args);
