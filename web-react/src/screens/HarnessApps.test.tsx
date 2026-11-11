@@ -105,6 +105,8 @@ test.each(['filter','group'] as const)('personal-view %s adjustment opens the ap
   expect(state.api.updateApp).not.toHaveBeenCalled()
   act(()=>tree!.root.findAllByType('button').find(button=>button.props['aria-label']===action)!.props.onClick({currentTarget:{focus:vi.fn()}}))
   const directEdit=kind==='filter'?'条件を直接編集':'グループを直接編集'
+  const more=tree!.root.findAllByType('button').find(button=>button.props['aria-label']==='その他の編集方法')!
+  act(()=>more.props.onClick())
   act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes(directEdit))!.props.onClick())
   expect(kind==='filter'?tree!.root.findAllByType('button').some(button=>button.children.includes('条件を追加')):tree!.root.findAllByProps({'aria-label':'グループ化するフィールド'}).length===1).toBe(true)
 })
