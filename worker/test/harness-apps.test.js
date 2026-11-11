@@ -2828,3 +2828,67 @@ test('open approval uniqueness is scoped to app version, hash, and publish scope
  const duplicate=await env.DB.prepare("INSERT OR IGNORE INTO hx_app_publish_approvals(id,org_id,app_id,draft_version,source_hash,scope,requested_by,status,created_at) VALUES(?1,?2,?3,?4,?5,?6,'9101','pending',?7)").bind(crypto.randomUUID(),ORG,app.id,current.draftVersion,current.sourceHash,current.scope,new Date().toISOString()).run();
  expect(duplicate.meta.changes).toBe(0);
 });
+
+async function makeAssignedAgentAppForConnection(agentIds = ['agent_room_connection'], {group=false} = {}) {
+ const at=new Date().toISOString(),channel=group?'g:aaaaaaaaaaaaaaaa':'b:agent-connection-room',threadId=group?'app-source-group-agent-thread':'app-source-room-agent-thread';
+ if(group){
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?,?,'toru','toru',?)").bind(ORG,channel,at).run();
+ }else{
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES(?,'agent-connection-room','Agent connection room',0,'9101',?)").bind(ORG,at).run();
+ }
+ await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at,parent_id) VALUES(?,?,?,'toru','message','Build an app from this room conversation',?,NULL)").bind(threadId,ORG,channel,at).run();
+ for(const agentId of agentIds){
+  await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?,?,'room-connection-agent','Room Connection Agent','','team','toru',?,?)").bind(ORG,agentId,at,at).run();
+  await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at) VALUES(?,?,'people','[\"toru\",\"mika\"]','9101',?)").bind(ORG,agentId,at).run();
+  await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES(?,?,?,'toru',?)").bind(ORG,channel,agentId,at).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_assignments
+    (id,org_id,source_message_id,initial_agent_id,current_agent_id,channel,thread_id,actor_id,actor_membership,session_key,source_hash,status,visited,hop_limit,created_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,NULL,'session-room-source','source-hash','finished',?,8,?,?)`)
+    .bind(`assignment-${agentId}`,ORG,threadId,agentId,agentId,channel,threadId,'9101',JSON.stringify([agentId]),at,at).run();
+ }
+ const response=await send('POST','/apps',toru,{orgId:ORG,name:'Room sourced app',tableName:'Room sourced app',sourceThreadId:threadId,columns:[{name:'Title',type:'text'}]});
+ expect(response.status,JSON.stringify(await response.clone().json())).toBe(201);
+ const {app}=await response.json();
+ await env.DB.prepare("UPDATE hx_app_access SET visibility='workspace',version=version+1 WHERE org_id=? AND app_id=?").bind(ORG,app.id).run();
+ return {app,channel,agentIds};
+}
+
+test('room and group App connections inherit only a unique assigned source Agent and stop when placement is revoked',async()=>{
+ const {app,channel,agentIds}=await makeAssignedAgentAppForConnection();
+ const saved=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'save',name:'room_api',version:0,endpoint:'https://api.github.com/user',method:'GET'});
+ expect(saved.status,JSON.stringify(await saved.clone().json())).toBe(200);
+ const grant=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'grant',name:'room_api'});
+ expect(grant.status,JSON.stringify(await grant.clone().json())).toBe(200);
+ const listed=await(await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru)).json();
+ expect(listed.connections).toContainEqual(expect.objectContaining({name:'room_api',owned:false,shared:true}));
+ await env.DB.prepare('DELETE FROM channel_agents WHERE org_id=? AND channel=? AND agent_id=?').bind(ORG,channel,agentIds[0]).run();
+ const {invokeAppConnection}=await import('../src/harness/appConnectionGrants.js');
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try {
+  const denied=await invokeAppConnection({DB:env.DB},ORG,app.id,'9101',{name:'room_api',version:1});
+  expect(denied.status).toBe(404);expect(fetch).not.toHaveBeenCalled();
+ } finally {vi.unstubAllGlobals()}
+});
+
+test('group Apps can use a unique currently placed source Agent for App connection grants',async()=>{
+ const {app}=await makeAssignedAgentAppForConnection(['agent_group_connection'],{group:true});
+ const saved=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'save',name:'group_api',version:0,endpoint:'https://api.github.com/user',method:'GET'});
+ expect(saved.status).toBe(200);
+ const grant=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'grant',name:'group_api'});
+ expect(grant.status,JSON.stringify(await grant.clone().json())).toBe(200);
+ const listed=await(await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru)).json();
+ expect(listed.connections).toContainEqual(expect.objectContaining({name:'group_api',owned:false,shared:true}));
+});
+
+test('room Apps with multiple source Agent assignments cannot choose an implicit connection principal',async()=>{
+ const {app}=await makeAssignedAgentAppForConnection(['agent_room_connection_a','agent_room_connection_b']);
+ const saved=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'save',name:'ambiguous_api',version:0,endpoint:'https://api.github.com/user',method:'GET'});
+ expect(saved.status).toBe(200);
+ const listed=await(await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,mika)).json();
+ expect(listed.connections).toContainEqual(expect.objectContaining({name:'ambiguous_api',owned:true,canShare:false}));
+ const grant=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'grant',name:'ambiguous_api'});
+ expect(grant.status).toBe(403);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).toEqual({n:0});
+});
+
+

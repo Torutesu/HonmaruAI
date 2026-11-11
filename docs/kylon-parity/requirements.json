@@ -636,14 +636,14 @@
         "reviewedAt": "2026-11-05",
         "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
         "implementationBase": "0c24e52156fc06d47a7c4c1e5d96a57e7952206a",
-        "implementedScope": "The main baseline supports personal App-scoped exact endpoint/method connections with encrypted credentials. This local increment adds explicit grants for existing allowlisted native connections sourced from a direct Agent DM. Visitor calls recheck membership, current App visibility, source-Agent access for visitor and owner, grant/version, and exact endpoint/method; credentials are decrypted server-side using the owner identity and never returned. Same-target reauthorization preserves grants; endpoint/method changes, disable, or explicit revoke remove them.",
-        "remaining": "Source-Agent resolution for group/business conversation sources, grants for connections owned by a different member, and OAuth refresh remain incomplete. Remote MCP grants and arbitrary URL proxying are outside this native-connection slice.",
-        "verification": "docs/kylon-parity/verification.md",
+        "implementedScope": "The main baseline supports personal App-scoped exact endpoint/method connections with encrypted credentials and explicit direct-Agent-DM grants. This increment also resolves Business/Group source Agents only from an explicit unique hx_agent_assignments.initial_agent_id on the exact source root while the Agent remains placed in the source conversation and undeleted. Visitor and credential owner access are rechecked before/after invocation; ambiguity or placement removal denies the grant. A different current Agent member can grant only their own existing native Connection. Credentials stay server-side.",
+        "remaining": "OAuth refresh and arbitrary external/Remote MCP connection grants remain incomplete. Authenticated production multi-user isolation and direct Kylon interaction comparison remain. PR CI/deployment for this increment are not yet verified.",
+        "verification": "Current-main worker/test/harness-apps.test.js: 166/166 passed locally in a shadow checkout. Added Business/Group assigned-source coverage, ambiguous Agent assignment denial, and current room-placement revocation denial; existing direct-Agent-DM and owner-owned Connection cases remain passing. No schema migration was required. PR CI and production deployment remain pending.",
         "latestIncrement": {
-          "base": "bc79dfae",
-          "scope": "An App source Agent owner and another current Agent member may each grant only their own allowlisted native Connection to that App. Server-side credential storage and current App visibility/source-Agent access are rechecked. If an external write completes while its App or Connection grant is revoked, the result is discarded and its idempotency ledger is changed to unknown so it cannot be blindly replayed.",
-          "verification": "Focused worker/test/harness-apps.test.js: 163/163 passed, including an in-flight external write whose grant is revoked, unknown ledger state, and replay denial.",
-          "remaining": "Group/business-source Apps still do not persist a source Agent ID, so source identity is not inferred from ambiguous history. OAuth refresh, broad per-connection people/Agent/workspace sharing and authenticated production comparison remain."
+          "base": "14e8a3af5a8ef71ee20349a5fd7f92398336f2e8",
+          "scope": "Business/Group App source Agent resolution now requires one distinct initial Agent assigned to the exact source root and still placed in the source conversation; dynamic Agent ACL checks continue for both credential owner and App visitor. Ambiguous or revoked placement fails closed.",
+          "verification": "Focused current-main worker/test/harness-apps.test.js: 166/166 passed; includes Business and Group sources, multiple-Agent ambiguity denial, placement revocation, and existing direct Agent DM grant/in-flight write tests.",
+          "remaining": "OAuth refresh and broader native/OAuth/Remote MCP grant management remain outside this increment. PR CI, main deployment and production multi-user acceptance are pending."
         }
       }
     },
