@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-11",
+  "asOf": "2026-11-12",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1359,6 +1359,20 @@
       "evidence": {
         "verified": "Kylon changelogにAutomationを別Roomへ移動する機能が掲載されている。Honmaruではcreator限定の移動API/UI、移動元・移動先conversationアクセス検証、source tupleのCAS更新、source_moved監査イベントを実装。権限・通知・一覧のsource row参照が移動先へ追従する。Worker 140テストとUIコンポーネントテストを実行。",
         "remaining": "PR exact-head CI、本番反映後の認証画面でRoom移動・通知・アクセス喪失の実機確認とKylonとの操作比較が残るためpartial。"
+      }
+    },
+    {
+      "id": "KY-118",
+      "category": "Messages",
+      "requirement": "個人の音声入力辞書と修正学習",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "web-react/src/components/HarnessDictation.tsx, web-react/src/utils/dictation.ts, worker/src/harness/dictationVocabulary.js",
+      "acceptance": "利用者が音声入力の語句を追加・削除でき、入力後の修正から語句訂正を学習する。辞書はworkspaceの他メンバーへ漏らさず、同一アカウントの端末間でrevision付き同期を行う。認識途中のテキストをComposerに反映し、利用者が送信した後の遅延認識で送信済み文章を再変更しない。Simple modeと既存のAI/音声契約を維持し、新規課金・認識内容の追加保存を行わない。Web/Mac両方でログイン済みKylonと比較する。",
+      "evidence": {
+        "verified": "Kylonの2026-11-03 changelogは人ごとのdictation dictionary、修正または手動登録による語彙学習、認識完了前の送信を追加。Honmaru Harnessは手動語彙・修正ペア、利用者単位の保存、revision CASの同期、途中結果のComposer反映と送信後の停止を実装している。",
+        "remaining": "現在のリポジトリでのコンポーネント/Worker回帰試験結果を最新headに固定し、認証済みMac/Web双方で辞書編集・修正学習・端末同期・認識中送信をKylonと比較する。認識途中の実Provider動作はブラウザ実装に依存するため受入確認が必要。"
       }
     }
   ]
