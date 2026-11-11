@@ -47,7 +47,15 @@ Usage:
   honmaru workspace row create <table-id> --values JSON
   honmaru workspace row update <table-id> <row-id> --values JSON [--expected-updated-at ISO]
   honmaru workspace workflow list
+  honmaru workspace workflow show <workflow-id>
   honmaru workspace workflow run <workflow-id> [--text TEXT]
+  honmaru workspace workflow runs <workflow-id> [--limit N]
+  honmaru workspace workflow run-detail <workflow-id> <run-id>
+  honmaru workspace workflow cancel <workflow-id> <run-id> --expected-started-at ISO
+  honmaru workspace workflow held-events <workflow-id> [--offset N]
+  honmaru workspace workflow held-event <workflow-id> <event-id>
+  honmaru workspace workflow discard-held|replay-held <workflow-id> --event-ids ID,ID
+  honmaru workspace workflow webhook-rotate|webhook-revoke <workflow-id> --expected-secret SECRET|none --expected-updated-at ISO
   honmaru workspace followup list [--room ROOM]
   honmaru workspace followup schedule --room ROOM --instruction TEXT --minutes N
   honmaru workspace file list --scope ROOM|all [--query TEXT] [--limit N]
@@ -103,7 +111,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "text", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
   "direction", "title", "name", "members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset",
-  "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir",
+  "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "event-ids",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived"]);
@@ -427,11 +435,52 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
     case "workflow list":
       onlyFlags(options, []); positionalCount(positional, 0, "honmaru workspace workflow list");
       return { tool: "list_workflows", args: {} };
+    case "workflow show":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace workflow show <workflow-id>");
+      return { tool: "get_workflow", args: { workflowId: positional[0] } };
     case "workflow run": {
       onlyFlags(options, ["text"]); positionalCount(positional, 1, "honmaru workspace workflow run <workflow-id> [--text TEXT]");
       const args = { workflowId: positional[0] };
       if (options.text !== undefined) args.text = options.text;
       return { tool: "run_workflow", args };
+    }
+    case "workflow runs": {
+      onlyFlags(options, ["limit"]); positionalCount(positional, 1, "honmaru workspace workflow runs <workflow-id> [--limit N]");
+      const limit = integerOption(options, "limit", { min: 1, max: 200 });
+      return { tool: "list_workflow_runs", args: { workflowId: positional[0], ...(limit ? { limit } : {}) } };
+    }
+    case "workflow run-detail":
+      onlyFlags(options, []); positionalCount(positional, 2, "honmaru workspace workflow run-detail <workflow-id> <run-id>");
+      return { tool: "get_workflow_run", args: { workflowId: positional[0], runId: positional[1] } };
+    case "workflow cancel":
+      onlyFlags(options, ["expectedStartedAt"]); positionalCount(positional, 2, "honmaru workspace workflow cancel <workflow-id> <run-id> --expected-started-at ISO");
+      if (!options.expectedStartedAt || !Number.isFinite(Date.parse(options.expectedStartedAt))) throw new Error("--expected-started-at must be a valid ISO timestamp from a freshly loaded run.");
+      return { tool: "cancel_workflow_run", args: { workflowId: positional[0], runId: positional[1], expectedStartedAt: options.expectedStartedAt } };
+    case "workflow held-events": {
+      onlyFlags(options, ["offset"]); positionalCount(positional, 1, "honmaru workspace workflow held-events <workflow-id> [--offset N]");
+      const offset = integerOption(options, "offset", { min: 0, max: 975 });
+      if (offset !== undefined && offset % 25 !== 0) throw new Error("--offset must be a multiple of 25 from 0 to 975.");
+      return { tool: "list_held_workflow_events", args: { workflowId: positional[0], ...(offset !== undefined ? { offset } : {}) } };
+    }
+    case "workflow held-event":
+      onlyFlags(options, []); positionalCount(positional, 2, "honmaru workspace workflow held-event <workflow-id> <event-id>");
+      return { tool: "get_held_workflow_event", args: { workflowId: positional[0], eventId: positional[1] } };
+    case "workflow discard-held":
+    case "workflow replay-held": {
+      onlyFlags(options, ["eventIds"]); positionalCount(positional, 1, `honmaru workspace workflow ${operation} <workflow-id> --event-ids ID,ID`);
+      if (!options.eventIds?.trim()) throw new Error("--event-ids is required.");
+      const eventIds = options.eventIds.split(",").map(value => value.trim()).filter(Boolean);
+      const maximum = operation === "replay-held" ? 100 : 1000;
+      if (!eventIds.length || eventIds.length > maximum || new Set(eventIds).size !== eventIds.length) throw new Error(`--event-ids needs 1 to ${maximum} distinct event IDs.`);
+      return { tool: operation === "discard-held" ? "discard_held_workflow_events" : "replay_held_workflow_events", args: { workflowId: positional[0], eventIds } };
+    }
+    case "workflow webhook-rotate":
+    case "workflow webhook-revoke": {
+      onlyFlags(options, ["expectedSecret", "expectedUpdatedAt"]); positionalCount(positional, 1, `honmaru workspace workflow ${operation} <workflow-id> --expected-secret SECRET|none --expected-updated-at ISO`);
+      if (options.expectedSecret === undefined || !options.expectedUpdatedAt || !Number.isFinite(Date.parse(options.expectedUpdatedAt))) throw new Error("--expected-secret and a valid --expected-updated-at from workflow show are required.");
+      const expectedSecret = options.expectedSecret === "none" ? null : options.expectedSecret;
+      if (expectedSecret !== null && !/^[0-9a-f]{48}$/.test(expectedSecret)) throw new Error("--expected-secret must be the 48-character webhook secret from workflow show, or none.");
+      return { tool: operation === "webhook-rotate" ? "rotate_workflow_webhook" : "revoke_workflow_webhook", args: { workflowId: positional[0], expectedSecret, expectedUpdatedAt: options.expectedUpdatedAt } };
     }
     case "followup list":
       onlyFlags(options, ["room"]); positionalCount(positional, 0, "honmaru workspace followup list [--room ROOM]");
