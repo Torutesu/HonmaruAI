@@ -193,11 +193,21 @@ export async function invokeAppConnection(env, orgId, appId, viewerId, input) {
   const ownerId = grant ? String(grant.ownerId) : String(viewerId);
   const result = await invokeConnection(db, orgId, appId, ownerId, input);
   if (result.error) return result;
-  if (!await mayUseAppAsMember(db, orgId, appId, viewerId)) return err('App access changed while the connection was running; the result was discarded.', 403);
+  const markWriteUncertain = async () => {
+    if (typeof input?.requestId !== 'string' || !/^[\w-]{1,80}$/.test(input.requestId)) return;
+    await db.prepare(`UPDATE hx_app_connection_requests SET status='unknown'
+      WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND request_id=?4 AND status IN ('started','succeeded')`)
+      .bind(orgId, appId, ownerId, input.requestId).run();
+  };
+  if (!await mayUseAppAsMember(db, orgId, appId, viewerId)) {
+    await markWriteUncertain();
+    return err('App access changed while the connection was running; the result was discarded. If this was a write, check the external service before retrying.', 403);
+  }
   if (grant) {
     const current = await getGrant(db, orgId, appId, name, viewerId);
     if (!current || current.createdAt !== grant.createdAt || current.version !== grant.version || current.grantVersion !== grant.grantVersion || current.ownerMembershipSince !== grant.ownerMembershipSince) {
-      return err('Connection access changed while the request was running; the result was discarded.', 403);
+      await markWriteUncertain();
+      return err('Connection access changed while the request was running; the result was discarded. If this was a write, check the external service before retrying.', 403);
     }
   }
   return result;

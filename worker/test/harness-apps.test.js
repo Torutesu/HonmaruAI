@@ -2533,6 +2533,28 @@ test('shared connection rechecks App and both source-Agent ACLs and discards a r
  } finally {vi.unstubAllGlobals();useSecretKey({});}
 });
 
+test('an App write whose grant is revoked in flight is recorded as unknown and cannot be replayed',async()=>{
+ const {app}=await makeDirectAgentApp();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','repo_api',1,'https://api.github.com/repos/owner/repo/issues','POST',NULL,1)").bind(ORG,app.id).run();
+ expect((await send('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'grant',name:'repo_api'})).status).toBe(200);
+ const {invokeAppConnection}=await import('../src/harness/appConnectionGrants.js');
+ let externalCalls=0;
+ vi.stubGlobal('fetch',vi.fn(async()=>{
+  externalCalls++;
+  await env.DB.prepare("DELETE FROM hx_app_connection_grants WHERE org_id=? AND app_id=? AND connection_name='repo_api'").bind(ORG,app.id).run();
+  return new Response(JSON.stringify({number:42}),{status:201,headers:{'content-type':'application/json'}});
+ }));
+ const request={name:'repo_api',version:1,requestId:'revoked-write-1',body:{title:'Release'}};
+ try {
+  const result=await invokeAppConnection({DB:env.DB},ORG,app.id,'9102',request);
+  expect(result).toMatchObject({status:403});
+  expect(result.error).toMatch(/check the external service before retrying/i);
+  expect((await env.DB.prepare("SELECT status FROM hx_app_connection_requests WHERE request_id='revoked-write-1'").first()).status).toBe('unknown');
+  expect((await invokeAppConnection({DB:env.DB},ORG,app.id,'9102',request)).status).toBe(404);
+  expect(externalCalls).toBe(1);
+ } finally {vi.unstubAllGlobals()}
+});
+
 test('a connection changed between grant read and insert cannot leave a dormant old-scope grant',async()=>{
  const {app}=await makeDirectAgentApp();
  await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,token,enabled) VALUES(?,?,'9101','repo_api',1,'https://api.github.com/user','GET',NULL,1)").bind(ORG,app.id).run();
