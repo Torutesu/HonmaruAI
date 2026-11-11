@@ -84,6 +84,21 @@ test('non-managers cannot see external guest controls', async () => {
   expect(tree!.root.findAllByType('form')).toHaveLength(0)
 })
 
+test('App owner can update a pending invite permission and access expiry independently of invite expiry', async () => {
+  await act(async () => { tree = create(<ExternalAppSharing {...props} />) })
+  const permission = tree!.root.findByProps({ 'aria-label': 'Permission for pending@example.com' })
+  await act(async () => { permission.props.onChange({ target: { value: 'edit' } }) })
+  const request = requests.find(item => item.url.endsWith('/sharing/invites/invite-1') && item.init?.method === 'PATCH')
+  expect(request).toBeDefined()
+  expect(JSON.parse(String(request?.init?.body))).toEqual({ permission: 'edit', accessExpiresAt: null })
+  const accessExpiry = tree!.root.findByProps({ 'aria-label': 'Access expiry for pending@example.com' })
+  await act(async () => { accessExpiry.props.onChange({ target: { value: '30' } }) })
+  const patches = requests.filter(item => item.url.endsWith('/sharing/invites/invite-1') && item.init?.method === 'PATCH')
+  expect(JSON.parse(String(patches[1].init?.body))).toMatchObject({ permission: 'view' })
+  expect(Date.parse(JSON.parse(String(patches[1].init?.body)).accessExpiresAt)).toBeGreaterThan(Date.now())
+  expect(JSON.stringify(tree?.toJSON())).toContain('Invite expires')
+})
+
 test('App owner can share directly with a selected external collaborator',async()=>{
  vi.useFakeTimers()
  await act(async()=>{tree=create(<ExternalAppSharing {...props}/>);await Promise.resolve()})

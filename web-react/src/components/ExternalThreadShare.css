@@ -95,6 +95,8 @@
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
   padding-top: 10px; border-top: 1px solid var(--bone);
 }
+.hx-external-thread-invite-list label { display: grid; gap: 4px; color: var(--ash); font-size: 12px; }
+.hx-external-thread-invite-list select { min-width: 130px; }
 .hx-external-thread-invite-list li span { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
 .hx-external-thread-invite-list small { color: var(--ash); font-size: 12px; }
 @media (max-width: 600px) {

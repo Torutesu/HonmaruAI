@@ -10,6 +10,7 @@ import { listMembers } from "./team.js";
 import { answerAsAI, broadcastStored } from "./channelRoutes.js";
 import { sha256Hex } from "./auth.js";
 import { deliverExternalInvite } from "./externalInviteMail.js";
+import { audit } from "./audit.js";
 import { enforce } from "./ratelimit.js";
 import {
   cleanThreadAudienceInput, externalThreadPermission, listThreadAudienceRooms,
@@ -348,7 +349,7 @@ function validInviteEmail(email) {
 async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef = null) {
   const root = await manageableRoot(env.DB, orgId, rootId, actor.user);
   if (!root) return fail("Thread not found or cannot be shared.", 404);
-  if (inviteRef && request.method !== "DELETE") return fail("Method not allowed.", 405);
+  if (inviteRef && !["DELETE", "PATCH"].includes(request.method)) return fail("Method not allowed.", 405);
   if (!inviteRef && request.method === "GET") {
     const now = new Date().toISOString();
     const { results = [] } = await env.DB.prepare(`SELECT id, invited_email, permission, created_at, expires_at, access_expires_at
@@ -401,6 +402,39 @@ async function manageThreadInvites(request, env, orgId, rootId, actor, inviteRef
     const inviteUrl = externalInviteLink(env, code);
     const emailDelivery = inviteUrl ? await deliverExternalInvite(env, { id, to: email, resource: "a Thread", inviteUrl, expiresAt }) : { status: "not_configured" };
     return json({ invited: true, invitationId: id, inviteUrl, emailDelivery, ...(!inviteUrl ? { token: code } : {}), expiresAt }, 201);
+  }
+  if (inviteRef && request.method === "PATCH") {
+    const input = await request.json().catch(() => null);
+    const permission = input?.permission === "edit" || input?.permission === "view" ? input.permission : null;
+    if (!permission) return fail("Permission must be view or edit.", 400);
+    if (!input || !Object.hasOwn(input, "accessExpiresAt")) return fail("Choose an access expiry.", 400);
+    let accessExpiresAt = null;
+    if (input.accessExpiresAt !== null) {
+      const parsed = typeof input.accessExpiresAt === "string" ? Date.parse(input.accessExpiresAt) : NaN;
+      if (!Number.isFinite(parsed) || parsed <= Date.now()) return fail("Access expiry must be a future timestamp or no expiry.", 400);
+      accessExpiresAt = new Date(parsed).toISOString();
+    }
+    const now = new Date().toISOString();
+    const fence = threadManagerFence(orgId, rootId, actor.user, root.channel, 7);
+    const updated = await env.DB.prepare(`UPDATE hx_external_thread_invites
+      SET permission=?1,access_expires_at=?2
+      WHERE org_id=?3 AND resource_id=?4 AND id=?5 AND redeemed_at IS NULL AND redemption_id IS NULL
+        AND revoked_at IS NULL AND expires_at>?6 AND (access_expires_at IS NULL OR access_expires_at>?6)
+        AND NOT EXISTS(SELECT 1 FROM users recipient JOIN memberships workspaceMembership
+          ON workspaceMembership.org_id=?3 AND workspaceMembership.user_github_id=recipient.github_id
+          WHERE lower(trim(coalesce(recipient.email,'')))=lower(trim(hx_external_thread_invites.invited_email)))
+        AND EXISTS(SELECT 1 FROM org_settings settings WHERE settings.org_id=?3 AND settings.mode='harness')
+        AND ${fence.sql}`)
+      .bind(permission, accessExpiresAt, orgId, rootId, inviteRef, now, ...fence.bindings).run();
+    if (Number(updated?.meta?.changes || 0) !== 1) return fail("An eligible unredeemed Thread invitation was not found.", 404);
+    await audit(env, request, {
+      orgId,
+      action: "external.thread_invite_updated",
+      actor: { type: "user", id: String(actor.user.github_id), name: actor.user.name || actor.user.login },
+      entity: { type: "thread", id: rootId },
+      details: { invitationId: inviteRef, permission, accessExpiresAt },
+    });
+    return json({ updated: true });
   }
   if (inviteRef && request.method === "DELETE") {
     const now = new Date().toISOString();
@@ -1051,7 +1085,7 @@ export async function handleExternalThreads(request, env, url, ctx = null) {
     let linkRef; try { linkRef=decodeURIComponent(parts[5]); } catch { return fail("Not found.",404); }
     return manageThreadLinkShares(request,env,orgId,rootId,actor,linkRef);
   }
-  if (parts.length === 6 && parts[4] === "invites" && request.method === "DELETE") {
+  if (parts.length === 6 && parts[4] === "invites" && ["DELETE", "PATCH"].includes(request.method)) {
     let inviteRef;
     try { inviteRef = decodeURIComponent(parts[5]); } catch { return fail("Not found.",404); }
     return manageThreadInvites(request,env,orgId,rootId,actor,inviteRef);

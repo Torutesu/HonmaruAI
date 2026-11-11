@@ -275,6 +275,46 @@ test("App invitation fails closed when its issuer loses sharing authority before
     .bind(f.orgId, f.app.id, guestId).first()).toBeNull();
 });
 
+test("pending App invitations can change permission and access expiry without changing the link", async () => {
+  const f = await setup();
+  const email = `editable-app-${tag()}@example.com`;
+  const sharing = `/external/apps/${f.orgId}/${f.app.id}/sharing`;
+  const created = await call(sharing, f.sessions.owner, "POST", { email, permission: "view" });
+  expect(created.status).toBe(201);
+  const invite = (await created.json()).invite;
+  const before = await env.DB.prepare("SELECT token_hash,expires_at FROM hx_external_app_invites WHERE id=?1").bind(invite.id).first();
+  const accessExpiresAt = new Date(Date.now() + 90 * 86400000).toISOString();
+  const updated = await call(`${sharing}/invites/${invite.id}`, f.sessions.owner, "PATCH", { permission: "edit", accessExpiresAt });
+  expect(updated.status).toBe(200);
+  expect(await updated.json()).toEqual({ updated: true });
+  const after = await env.DB.prepare("SELECT permission,access_expires_at,token_hash,expires_at FROM hx_external_app_invites WHERE id=?1").bind(invite.id).first();
+  expect(after).toMatchObject({ permission: "edit", access_expires_at: accessExpiresAt, token_hash: before.token_hash, expires_at: before.expires_at });
+  expect((await call(`${sharing}/invites/${invite.id}`, f.sessions.member, "PATCH", { permission: "view", accessExpiresAt: null })).status).toBe(404);
+
+  const guestId = `external-app-invitee-${tag()}`;
+  await upsertUser(env.DB, { githubId: guestId, login: guestId, name: "Invitee", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3").bind(email,new Date().toISOString(),guestId).run();
+  const guestSession = await createSession(env.DB, guestId, "external-app-guest-test");
+  expect((await call("/external/invites/redeem", guestSession, "POST", { token: invite.token })).status).toBe(200);
+  expect(await env.DB.prepare("SELECT permission,expires_at FROM hx_external_resource_grants WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(f.orgId, f.app.id, guestId).first()).toMatchObject({ permission: "edit", expires_at: accessExpiresAt });
+  expect((await call(`${sharing}/invites/${invite.id}`, f.sessions.owner, "PATCH", { permission: "view", accessExpiresAt: null })).status).toBe(404);
+});
+
+test("pending App invitation edits stop when the invitee joins the Workspace", async () => {
+  const f = await setup();
+  const email = `joined-app-${tag()}@example.com`;
+  const sharing = `/external/apps/${f.orgId}/${f.app.id}/sharing`;
+  const invite = (await (await call(sharing, f.sessions.owner, "POST", { email, permission: "view" })).json()).invite;
+  const guestId = `external-app-new-member-${tag()}`;
+  await upsertUser(env.DB, { githubId: guestId, login: guestId, name: "Workspace member", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3").bind(email,new Date().toISOString(),guestId).run();
+  await upsertMembership(env.DB, f.orgId, guestId, "member");
+  const updated = await call(`${sharing}/invites/${invite.id}`, f.sessions.owner, "PATCH", { permission: "edit", accessExpiresAt: null });
+  expect(updated.status).toBe(404);
+  expect(await env.DB.prepare("SELECT permission FROM hx_external_app_invites WHERE id=?1").bind(invite.id).first()).toMatchObject({ permission: "view" });
+});
+
 test("view guests can request App conversation sends for owner approval only", async () => {
   const f = await setup();
   await env.DB.prepare("UPDATE hx_external_resource_grants SET permission='view' WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")

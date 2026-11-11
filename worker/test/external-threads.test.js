@@ -475,6 +475,48 @@ test("unregistered email invitations redeem after OTP proof without workspace me
   expect(await env.DB.prepare("SELECT revoked_at FROM hx_external_thread_invites WHERE id=?1").bind(invitation.invitationId).first()).toMatchObject({revoked_at:expect.any(String)});
 });
 
+test("pending Thread invitations can change permission and access expiry without changing the link", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const path = `/external/threads/${orgId}/${rootId}/invites`;
+  const email = `editable-${suffix()}@example.test`;
+  const created = await call(path, sessions.owner, "POST", {
+    email, permission: "view", accessExpiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+  });
+  expect(created.status).toBe(201);
+  const invite = await created.json();
+  const token = invite.inviteUrl?.match(/external-invite\/([a-f0-9]{64})$/i)?.[1] || invite.token;
+  const before = await env.DB.prepare("SELECT token_hash,expires_at FROM hx_external_thread_invites WHERE id=?1").bind(invite.invitationId).first();
+  const accessExpiresAt = new Date(Date.now() + 90 * 86400000).toISOString();
+  const updated = await call(`${path}/${invite.invitationId}`, sessions.owner, "PATCH", { permission: "edit", accessExpiresAt });
+  expect(updated.status).toBe(200);
+  expect(await updated.json()).toEqual({ updated: true });
+  const after = await env.DB.prepare("SELECT permission,access_expires_at,token_hash,expires_at FROM hx_external_thread_invites WHERE id=?1").bind(invite.invitationId).first();
+  expect(after).toMatchObject({ permission: "edit", access_expires_at: accessExpiresAt, token_hash: before.token_hash, expires_at: before.expires_at });
+
+  const inviteeId = `email:${email}`;
+  await upsertUser(env.DB, { githubId: inviteeId, login: `u:${email}`, name: "Invitee", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3").bind(email,new Date().toISOString(),inviteeId).run();
+  const inviteeSession = await createSession(env.DB, inviteeId, "external-invite-test");
+  expect((await call("/external/invites/redeem", inviteeSession, "POST", { token })).status).toBe(200);
+  expect(await env.DB.prepare("SELECT permission,expires_at FROM hx_external_resource_grants WHERE org_id=?1 AND resource_type='thread' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL")
+    .bind(orgId, rootId, inviteeId).first()).toMatchObject({ permission: "edit", expires_at: accessExpiresAt });
+  expect((await call(`${path}/${invite.invitationId}`, sessions.owner, "PATCH", { permission: "view", accessExpiresAt: null })).status).toBe(404);
+});
+
+test("pending Thread invitation edits reject non-managers and newly joined recipients", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const path = `/external/threads/${orgId}/${rootId}/invites`;
+  const email = `became-member-${suffix()}@example.test`;
+  const invite = await (await call(path, sessions.owner, "POST", { email, permission: "view" })).json();
+  expect((await call(`${path}/${invite.invitationId}`, sessions.editor, "PATCH", { permission: "edit", accessExpiresAt: null })).status).toBe(404);
+  const inviteeId = `email:${email}`;
+  await upsertUser(env.DB, { githubId: inviteeId, login: `u:${email}`, name: "New member", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3").bind(email,new Date().toISOString(),inviteeId).run();
+  await upsertMembership(env.DB, orgId, inviteeId, "member");
+  expect((await call(`${path}/${invite.invitationId}`, sessions.owner, "PATCH", { permission: "edit", accessExpiresAt: null })).status).toBe(404);
+  expect(await env.DB.prepare("SELECT permission FROM hx_external_thread_invites WHERE id=?1").bind(invite.invitationId).first()).toMatchObject({ permission: "view" });
+});
+
 test("invitation email mismatch, expiry, revoke, and new workspace membership cannot redeem guest access", async () => {
   const { orgId, rootId, ids, sessions } = await setup();
   const path = `/external/threads/${orgId}/${rootId}/invites`;

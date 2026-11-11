@@ -42,6 +42,8 @@ export const AUDIT_ACTIONS = {
   "apps.disconnected": { category: "auth", severity: "notice", text: "{actor} disconnected an app" },
   "apps.connection_removed": { category: "auth", severity: "notice", text: "An app connection of {entity} ended" },
   "apps.tool_called": { category: "data", severity: "info", text: "{actor}'s AI read from a connected app" },
+  "external.thread_invite_updated": { category: "security", severity: "notice", text: "{actor} changed a pending Thread invitation" },
+  "external.app_invite_updated": { category: "security", severity: "notice", text: "{actor} changed a pending App invitation" },
   "agent.connection_granted": { category: "auth", severity: "notice", text: "{actor} allowed an app for an agent" },
   "agent.connection_revoked": { category: "auth", severity: "notice", text: "{actor} removed an app from an agent" },
   "agent.remote_mcp_granted": { category: "auth", severity: "notice", text: "{actor} allowed a read-only Remote MCP source for an agent" },
