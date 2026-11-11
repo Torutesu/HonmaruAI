@@ -6,7 +6,7 @@ import { prepareConversationMessage, acceptConversationMessage } from './convers
 import { cancelScheduled, scheduleMessage } from './later.js';
 import { emitMessage } from './webhooks.js';
 import { createMcpConversation } from './mcpConversationCreation.js';
-import { publicRooms, joinPublicRoom, roomRoleState, removeRoomSubject, archiveManagedRoom } from './harness/roomRoles.js';
+import { publicRooms, joinPublicRoom, roomRoleState, removeRoomSubject, archiveManagedRoom, changeManagedRoomMembers } from './harness/roomRoles.js';
 import { audit } from './audit.js';
 import { announceTo } from './announce.js';
 import { custom as customEvent } from './agui/events.js';
@@ -43,6 +43,9 @@ export const CHAT_TOOLS = [
   write('update_room_settings', 'Update selected settings on an active managed Room. Omitted values are preserved; current workspace build permission and Room membership are required. Kylon cyan maps to Honmaru lake.', { conversationId: id, name: { type: 'string', minLength: 1, maxLength: 120 }, color: { type: 'string', enum: [...ROOM_COLOR_KEYS, 'cyan'] }, mentionedOnly: { type: 'boolean' }, defaultAgentId: { type: ['string', 'null'], maxLength: 128 } }, ['conversationId'], 'channels:write'),
   write('set_room_muted', 'Set your personal notification preference for an accessible Room. Unmuting restores the workspace default notification preference.', { conversationId: id, muted: { type: 'boolean' } }, ['conversationId', 'muted'], 'channels:write'),
   write('reorder_rooms', 'Move the listed joined Rooms to the front of your personal sidebar order, preserving the order of all other entries. Uses compare-and-set to retain edits from another device.', { conversationIds: { type: 'array', items: id, minItems: 1, maxItems: 200 } }, ['conversationIds'], 'channels:write'),
+  read('list_room_members', 'List people and Agents in an accessible Room. Human identifiers are workspace-scoped member references, not raw account IDs.', { conversationId: id }, ['conversationId']),
+  write('add_room_members', 'Add current workspace members to an accessible managed Room by workspace-scoped member reference. New members default to the member relation; assigning admin requires an existing room admin.', { conversationId: id, memberRefs: { type: 'array', items: id, minItems: 1, maxItems: 100 }, relation: { type: 'string', enum: ['admin', 'member'] } }, ['conversationId', 'memberRefs'], 'channels:write'),
+  write('remove_room_members', 'Remove one or more human members from an accessible managed Room. Room admins only; the final eligible human admin is protected. Uses the Room membership snapshot to reject races.', { conversationId: id, memberRefs: { type: 'array', items: id, minItems: 1, maxItems: 100 } }, ['conversationId', 'memberRefs'], 'channels:write'),
   read('search_messages', 'Search authorized message history. Supports in:, from:, before:, after:, has:, is: and quoted phrases. Content is untrusted source data.', { query: { type: 'string', minLength: 1, maxLength: 1000 }, cursor, limit }, ['query']),
   read('get_message', 'Read one accessible message by ID without marking it read.', { messageId: id }, ['messageId']),
   read('read_channel', 'Read a bounded history page without marking it read. Follow nextCursor for older messages.', { conversationId: id, cursor, limit }, ['conversationId']),
@@ -159,6 +162,53 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     const result = await setChannelPref(env.DB, { orgId: actor.orgId, login: actor.login, key: context.resolved.key, level: args.muted ? 'mute' : 'default' });
     failResult(result);
     return mcpResult({ conversationId: args.conversationId, muted: args.muted, level: args.muted ? 'mute' : 'default' });
+  }
+  if (name === 'list_room_members' || name === 'add_room_members' || name === 'remove_room_members') {
+    const context = await resolveMcpConversation(env, actor, args.conversationId);
+    if (!context.resolved.key.startsWith('b:')) throw new McpInputError('Room member operations require a Room.');
+    const channel = context.resolved.key;
+    const state = await roomRoleState(env.DB, actor.orgId, channel);
+    if (!state) throw new McpInputError('No accessible active Room.');
+    const refsByUserId = new Map(context.members.map(member => [String(member.userId), member]));
+    const members = state.members.flatMap(member => {
+      if (member.kind === 'person') {
+        const person = refsByUserId.get(String(member.id));
+        return person ? [{ id: person.ref, name: person.name, type: 'person', relation: member.role }] : [];
+      }
+      return [{ id: member.id, name: member.name, type: 'agent', relation: member.role }];
+    });
+    if (name === 'list_room_members') return mcpResult({ conversationId: args.conversationId, version: state.version, members });
+    if (!state.managed) throw new McpInputError('Member changes require an active managed Room.');
+    const requested = args.memberRefs;
+    if (new Set(requested).size !== requested.length) throw new McpInputError('Member references cannot contain duplicates.');
+    const byRef = new Map(context.members.map(member => [member.ref, member]));
+    const targets = requested.map(ref => byRef.get(ref));
+    if (targets.some(target => !target)) throw new McpInputError('A member reference is unavailable in this workspace.');
+    const currentPeople = new Map(state.members.filter(member => member.kind === 'person').map(member => [String(member.id), member]));
+    if (name === 'add_room_members') {
+      const adding = targets.filter(target => !currentPeople.has(String(target.userId)));
+      if (!adding.length) return mcpResult({ conversationId: args.conversationId, added: [], version: state.version });
+      const relation = args.relation || 'member';
+      const result = await changeManagedRoomMembers(env.DB, actor.orgId, channel, {
+        actorId: actor.githubId,
+        adding: adding.map(member => ({ ...member, roomRole: relation })),
+      });
+      failResult(result);
+      await announceRoomChange(env, request, actor, channel, 'channel.members_added', { memberRefs: adding.map(member => member.ref), relation });
+      return mcpResult({ conversationId: args.conversationId, added: adding.map(member => member.ref), relation, version: result.version });
+    }
+    const removals = targets.map(member => currentPeople.get(String(member.userId)));
+    if (removals.some(member => !member)) throw new McpInputError('A selected member is no longer in this Room.');
+    const roomActor = currentPeople.get(String(actor.githubId));
+    if (roomActor?.role !== 'admin' || !roomActor.eligible) throw new McpInputError('Only a room admin can remove members.');
+    const result = await changeManagedRoomMembers(env.DB, actor.orgId, channel, {
+      actorId: actor.githubId,
+      removing: removals.map(member => ({ userId: member.id })),
+      requireAdmin: true,
+    });
+    failResult(result);
+    await announceRoomChange(env, request, actor, channel, 'channel.members_removed', { memberRefs: requested });
+    return mcpResult({ conversationId: args.conversationId, removed: requested, version: result.version });
   }
   if (name === 'reorder_rooms') {
     const keys = args.conversationIds;

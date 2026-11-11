@@ -21,6 +21,8 @@ Usage:
   honmaru workspace room list [--query TEXT] [--type channel|dm|group] [--limit N] [--cursor CURSOR] [--archived]
   honmaru workspace room mute|unmute <room-id>
   honmaru workspace room reorder --rooms ROOM,ROOM,...
+  honmaru workspace room member list <room-id>
+  honmaru workspace room member add|remove <room-id> --members REF,REF [--relation admin|member]
   honmaru workspace room get <room-id>
   honmaru workspace room update <room-id> [--name NAME] [--mentioned-only true|false] [--main-agent ID|auto] [--icon-color COLOR]
   honmaru workspace room rename <room-id> --name NAME
@@ -98,7 +100,7 @@ The status command reports the macOS LaunchAgent state without reading or printi
 
 const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
-  "text", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color",
+  "text", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
   "direction", "title", "name", "members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir",
@@ -232,6 +234,26 @@ function resolveWorkspaceCommand(resource, operation, positional, options) {
       if (!conversationIds.length || conversationIds.length > 200) throw new Error("--rooms needs 1 to 200 unique room IDs.");
       if (conversationIds.length !== options.rooms.split(",").map(value => value.trim()).filter(Boolean).length) throw new Error("--rooms cannot contain duplicate room IDs.");
       return { tool: "reorder_rooms", args: { conversationIds } };
+    }
+    case "room member": {
+      const [action, ...target] = positional;
+      if (action === "list") {
+        onlyFlags(options, []); positionalCount(target, 1, "honmaru workspace room member list <room-id>");
+        return { tool: "list_room_members", args: { conversationId: target[0] } };
+      }
+      if (action === "add" || action === "remove") {
+        onlyFlags(options, action === "add" ? ["members", "relation"] : ["members"]);
+        positionalCount(target, 1, `honmaru workspace room member ${action} <room-id> --members REF,REF`);
+        if (typeof options.members !== "string" || !options.members.trim()) throw new Error("--members is required.");
+        const memberRefs = options.members.split(",").map(value => value.trim()).filter(Boolean);
+        if (!memberRefs.length || memberRefs.length > 100) throw new Error("--members needs 1 to 100 member references.");
+        if (new Set(memberRefs).size !== memberRefs.length) throw new Error("--members cannot contain duplicate references.");
+        if (action === "add" && options.relation !== undefined && !["admin", "member"].includes(options.relation)) throw new Error("--relation must be admin or member.");
+        const args = { conversationId: target[0], memberRefs };
+        if (action === "add" && options.relation !== undefined) args.relation = options.relation;
+        return { tool: action === "add" ? "add_room_members" : "remove_room_members", args };
+      }
+      throw new Error("Usage: honmaru workspace room member list|add|remove.");
     }
     case "room rename":
       onlyFlags(options, ["name"]); positionalCount(positional, 1, "honmaru workspace room rename <room-id> --name NAME");

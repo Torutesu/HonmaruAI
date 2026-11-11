@@ -251,7 +251,7 @@ test('bulk member edits apply additions and removals together and reject members
   let state=await roomRoleState(env.DB,org,channel);
   expect(state.members.some(m=>m.id==='reader')).toBe(true);
   expect(state.members.some(m=>m.id==='outsider')).toBe(false);
-  expect(await changeManagedRoomMembers(env.DB,org,channel,input)).toEqual({managed:true});
+  expect(await changeManagedRoomMembers(env.DB,org,channel,input)).toMatchObject({managed:true,version:2});
   state=await roomRoleState(env.DB,org,channel);
   expect(state.members.some(m=>m.id==='reader')).toBe(false);
   expect(state.members.find(m=>m.id==='outsider').role).toBe('member');
