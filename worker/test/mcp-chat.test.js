@@ -10,6 +10,7 @@ import { createApiToken } from '../src/mcp.js';
 import { uploadFile } from '../src/files.js';
 import { runMinuteJobs, cancelScheduled } from '../src/later.js';
 import { deliverMcpScheduledMessage } from '../src/mcpScheduled.js';
+import { initializeRoomRoles } from '../src/harness/roomRoles.js';
 import sql from '../mcp-chat.sql?raw';
 
 const orgId = 'personal:mcp-chat';
@@ -38,6 +39,21 @@ beforeEach(async () => {
   actor = { orgId, githubId: 'mcp-a', login: 'alex', name: 'Alex', tokenId: 'token-a', scopes: ['chat:read', 'chat:write', 'chat:schedule', 'reactions:write', 'channels:write'] };
   actor.tokenId = (await createApiToken(env.DB, { orgId, githubId: actor.githubId, name: 'chat fixture', scopes: actor.scopes })).id;
   other = (await listMembers(env.DB, orgId, 'mcp-a')).find(m => m.login === 'beth');
+});
+
+test('MCP Room discovery is public-only and join/leave change the token owner membership without adding an Agent', async () => {
+  await upsertBusiness(env.DB, orgId, { name: 'Planning', createdBy: 'mcp-b' });
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1 AND slug='planning'").bind(orgId).run();
+  await initializeRoomRoles(env.DB, orgId, 'b:planning', 'mcp-b');
+  const first = await call('discover_public_rooms', { query: 'plan' });
+  expect(first).toMatchObject({ total: 1, rooms: [{ channel: 'b:planning', name: 'Planning', joined: false }] });
+  expect((await call('discover_public_rooms', { joined: true })).total).toBe(0);
+  expect(await call('join_public_room', { conversationId: 'b:planning' })).toMatchObject({ joined: true, conversationId: 'b:planning' });
+  expect((await call('discover_public_rooms', { joined: true })).rooms.map(room => room.channel)).toEqual(['b:planning']);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_agents WHERE org_id=?1 AND channel='b:planning'").bind(orgId).first('n')).toBe(0);
+  expect(await call('leave_public_room', { conversationId: 'b:planning' })).toMatchObject({ left: true, conversationId: 'b:planning' });
+  expect((await call('discover_public_rooms', { joined: true })).total).toBe(0);
+  expect((await call('discover_public_rooms', {})).rooms.map(room => room.channel)).not.toContain('b:private');
 });
 
 test('public grant cannot discover, search, or guess private and DM messages', async () => {
