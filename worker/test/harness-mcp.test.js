@@ -312,6 +312,51 @@ test('workflow MCP exposes lifecycle reads, gates webhook payloads, and applies 
   expect((await tool(ownerToken, 'list_workflow_runs', { workflowId: made.workflow.id })).result.structuredContent.runs).toEqual([]);
 });
 
+test('workflow MCP exposes revision restore, safety resume and no-replay stalled recovery with maker safeguards', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  const { createWorkflow, updateWorkflow } = await import('../src/harness/workflows.js');
+  const { ensureWorkflowSafety } = await import('../src/harness/workflowSafety.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Version one', enabled: true, trigger: { type: 'manual' },
+    steps: [{ type: 'approval', to: 'toru', title: 'Proceed?' }],
+  }, '9401');
+  const ownerToken = await mint(['read', 'write']);
+  expect(await names(ownerToken)).toEqual(expect.arrayContaining([
+    'list_workflow_revisions', 'restore_workflow_revision', 'resume_workflow_safety', 'recover_stalled_workflow_run',
+  ]));
+  const first = await (await tool(ownerToken, 'get_workflow', { workflowId: workflow.id })).result.structuredContent.workflow;
+  const changed = await updateWorkflow(env.DB, ORG, workflow.id, {
+    name: 'Version two', enabled: true, trigger: first.trigger, steps: first.steps, expectedUpdatedAt: first.updatedAt,
+  }, '9401');
+  expect(changed.workflow.name).toBe('Version two');
+  const revisions = (await tool(ownerToken, 'list_workflow_revisions', { workflowId: workflow.id })).result.structuredContent.items;
+  expect(revisions).toEqual(expect.arrayContaining([expect.objectContaining({ revision: expect.any(Number), definition: expect.objectContaining({ name: 'Version one' }) })]));
+  const restored = await tool(ownerToken, 'restore_workflow_revision', {
+    workflowId: workflow.id, revision: revisions.find(item => item.definition.name === 'Version one').revision,
+    expectedUpdatedAt: changed.workflow.updatedAt,
+  });
+  expect(restored.result.structuredContent.workflow.name).toBe('Version one');
+
+  const safety = await ensureWorkflowSafety(env.DB, ORG, workflow.id);
+  await env.DB.prepare("UPDATE hx_workflow_safety SET paused_at=?1,pause_reason='repeated_failures' WHERE org_id=?2 AND workflow_id=?3")
+    .bind(new Date().toISOString(), ORG, workflow.id).run();
+  const resumed = await tool(ownerToken, 'resume_workflow_safety', { workflowId: workflow.id, generation: safety.generation });
+  expect(resumed.result.structuredContent.safety.paused_at).toBeNull();
+
+  const runId = 'run-stalled-mcp-recovery';
+  const startedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at)
+    VALUES(?1,?2,?3,'manual','running','{}','[]',0,'9401',?4)`).bind(runId, ORG, workflow.id, startedAt).run();
+  const recovered = await tool(ownerToken, 'recover_stalled_workflow_run', {
+    workflowId: workflow.id, runId, expectedStartedAt: startedAt, confirmNoReplay: true,
+  });
+  expect(recovered.result.structuredContent.run).toMatchObject({ status: 'failed', log: [expect.objectContaining({ status: 'interrupted', outcome: 'unknown' })] });
+  const unsafe = await tool(ownerToken, 'recover_stalled_workflow_run', {
+    workflowId: workflow.id, runId: 'missing', expectedStartedAt: startedAt, confirmNoReplay: false,
+  });
+  expect(unsafe.result.isError).toBe(true);
+});
+
 test('file read tools use token identity, exact versions and live room access',async()=>{
  const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
  const {uploadFileVersion}=await import('../src/harness/fileUpload.js');

@@ -9,14 +9,16 @@ import { mayUseApp, mayUseTable, mayEditTable, mayReadAppRows, visibleResources,
 
 import { listApps, renderApp } from "./apps.js";
 import { listTables, listRows, addRow, updateRow } from "./tables.js";
-import { listWorkflows, getWorkflow, startRun, listRuns, getRun, cancelWorkflowRun, replayWorkflowEvents, changeWorkflowHook } from "./workflows.js";
+import { listWorkflows, getWorkflow, startRun, listRuns, getRun, cancelWorkflowRun, recoverStalledRun, replayWorkflowEvents, changeWorkflowHook } from "./workflows.js";
 import { heldWorkflowSummary, readHeldWorkflowEvent, discardWorkflowEvents } from "./workflowHeld.js";
+import { workflowRevisions, restoreWorkflowRevision } from "./workflowRevisions.js";
+import { readWorkflowSafety, resumeWorkflowSafety } from "./workflowSafety.js";
 import { allowed } from "../permissions.js";
 import { listFollowups, scheduleFollowup } from "./followups.js";
 import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 
-export const HARNESS_TOOL_SCOPE = { create_file_text: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", cancel_workflow_run: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { create_file_text: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,
@@ -73,6 +75,30 @@ export const HARNESS_TOOLS = [
     title: "Inspect a workflow",
     description: "Read a workflow definition and safety status. Only its maker or an Admin receives the active webhook secret in a separate field.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" } }, required: ["workflowId"] },
+  },
+  {
+    name: "list_workflow_revisions",
+    title: "Workflow version history",
+    description: "List prior workflow definitions that remain visible under current resource permissions. Use the returned revision number to restore one.",
+    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, before: { type: "integer", minimum: 1 } }, required: ["workflowId"] },
+  },
+  {
+    name: "restore_workflow_revision",
+    title: "Restore a workflow version",
+    description: "Restore one visible prior definition using the exact updatedAt from get_workflow. If automatic triggers were safety-paused, confirm their restoration separately; the safety pause still requires a separate resume.",
+    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, revision: { type: "integer", minimum: 1 }, expectedUpdatedAt: { type: "string" }, confirmAutoPaused: { type: "boolean" } }, required: ["workflowId", "revision", "expectedUpdatedAt"] },
+  },
+  {
+    name: "resume_workflow_safety",
+    title: "Resume a safety-paused workflow",
+    description: "Resume only after reloading the workflow and passing its exact safety generation. Workflows paused for exhausted or unpriced budgets cannot be manually resumed.",
+    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, generation: { type: "string" } }, required: ["workflowId", "generation"] },
+  },
+  {
+    name: "recover_stalled_workflow_run",
+    title: "Reconcile a stalled workflow run",
+    description: "Mark a stale running step as interrupted with an unknown outcome. It is never replayed. Confirm no replay and pass the exact startedAt from a freshly loaded run.",
+    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, runId: { type: "string" }, expectedStartedAt: { type: "string" }, confirmNoReplay: { type: "boolean" } }, required: ["workflowId", "runId", "expectedStartedAt", "confirmNoReplay"] },
   },
   {
     name: "list_workflow_runs",
@@ -225,6 +251,28 @@ export async function callHarnessTool(env, agent, name, args) {
       const { hookSecret, ...safeWorkflow } = wf;
       return out({ workflow: safeWorkflow, ...(canManage && wf.trigger?.type === "webhook" ? { webhook: { active: Boolean(hookSecret), ...(hookSecret ? { secret: hookSecret } : {}) } } : {}) });
     }
+    case "list_workflow_revisions": {
+      const result = await workflowRevisions(db, orgId, String(args.workflowId || ""), by, { before: args.before });
+      return result.error ? err(result.error) : out(result);
+    }
+    case "restore_workflow_revision": {
+      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by });
+      if (!wf) return err("No such workflow.");
+      if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can restore a workflow revision.");
+      const result = await restoreWorkflowRevision(db, orgId, wf.id, by, args);
+      return result.error ? err(result.error) : out(result);
+    }
+    case "resume_workflow_safety": {
+      const workflowId = String(args.workflowId || "");
+      const wf = await getWorkflow(db, orgId, workflowId, { viewerId: by });
+      if (!wf) return err("No such workflow.");
+      if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can resume this workflow.");
+      const safety = await readWorkflowSafety(db, orgId, workflowId);
+      if (safety?.pause_reason?.startsWith("budget_ai_")) return err("This workflow reached its estimated AI usage limit or has unpriced usage. It can run again after the rolling window resets or after you change its budget.");
+      if (safety?.pause_reason?.startsWith("budget_")) return err("This workflow can run again on its next trigger after the budget window resets, or as soon as you raise the limit.");
+      if (typeof args.generation !== "string" || !await resumeWorkflowSafety(db, orgId, workflowId, args.generation)) return err("The workflow state changed. Reload before resuming.");
+      return out({ workflowId, safety: await readWorkflowSafety(db, orgId, workflowId) });
+    }
     case "list_workflow_runs": {
       const workflowId = String(args.workflowId || "");
       if (!(await getWorkflow(db, orgId, workflowId, { viewerId: by }))) return err("No such workflow.");
@@ -240,6 +288,14 @@ export async function callHarnessTool(env, agent, name, args) {
       if (!wf) return err("No such workflow.");
       if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can cancel this workflow run.");
       const result = await cancelWorkflowRun(db, { orgId, workflowId: wf.id, runId: String(args.runId || ""), expectedStartedAt: args.expectedStartedAt, actorId: by });
+      return result.error ? err(result.error) : out(result);
+    }
+    case "recover_stalled_workflow_run": {
+      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by });
+      if (!wf) return err("No such workflow.");
+      if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can reconcile this workflow run.");
+      if (args.confirmNoReplay !== true || typeof args.expectedStartedAt !== "string") return err("Confirm that the uncertain step will not be replayed and refresh the run before reconciling it.");
+      const result = await recoverStalledRun(db, { orgId, workflowId: wf.id, runId: String(args.runId || ""), expectedStartedAt: args.expectedStartedAt, actorId: by });
       return result.error ? err(result.error) : out(result);
     }
     case "list_held_workflow_events":
