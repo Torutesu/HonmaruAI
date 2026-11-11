@@ -1,8 +1,8 @@
 # Kylon機能差分・受入条件
 
-調査基準日: 2026-11-11。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。最新mainはPR #898の `adedaadca547bb0e868e50da8e105ebc2991d415`。
+調査基準日: 2026-11-12。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。最新mainはPR #905の `6128b3734e9056d36d00e74ff149c27b2a8a0cdf`。今回の差分は追加要件の台帳同期とKY-099の次の権限編集面を対象とし、全108項目の再受入が完了した意味ではない。
 
-全105項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
+全108項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
 2026-11-10 PR #862反映: main `b5fea8e2` にマージ済み。正確なhead CI #42681479871、main CI #42684677206、Worker deploy #42684677210（D1 migration/deploy/verify）、Web deploy #42684677047 が成功。KY-030/044/051は機能範囲を更新したが、Kylon同等性の残差は各行に明記。受入確認の詳細は [verification.md](verification.md) を参照。
 
@@ -264,6 +264,16 @@ Kylonの[2026-10-30 changelog](https://kylon.io/changelog)は、会話コンテ�
 |---|---|---|---|---|---|
 | KY-114 | 長時間Agentタスクの文脈圧縮と継続 | 一部 | P1 | [agentResearch.js](../../worker/src/agentResearch.js), [agentChatTools.js](../../worker/src/agentChatTools.js), [agent-research.test.js](../../worker/test/agent-research.test.js), [agent-chat-tools.test.js](../../worker/test/agent-chat-tools.test.js) | OpenAI ResponsesとOpenRouter chat-tool経路の両方で、48,000 input tokensまたは累積tool結果が同じ推定文脈量に達した時点で、元依頼・直近文脈・完了済みtoolと結果・最新進捗をcheckpointへ変換し、新規chainで継続。圧縮は最大2回、16 model rounds、16 tool calls、実行deadline、権限確認・キャンセルを維持。完了済みの完全一致tool callを再実行しない。追加要約API/サービスなし。関連5スイート149件成功。BYO長時間の認証済み実画面QAは残る。PR #866 exact-head CI #42717933744、main CI #42720363920、Worker deploy #42720363385成功。本番health `ok:true`、app HTTP 200。Simple modeには適用しない。 |
 | KY-115 | Agentからのプライベート並列サブエージェント | 一部 | P1 | [agentSubagents.js](../../worker/src/agentSubagents.js), [customAgents.js](../../worker/src/customAgents.js), [agent-subagents.test.js](../../worker/test/agent-subagents.test.js) | Harness Agentが最大2件を並列委譲。親のスコープ済み読み取りツールだけ、bounded context/task/result、30秒・4 model rounds・3 tool calls。書込・投稿・ブラウザ・承認・再委譲なし。認可失効時は結果を破棄し、Simpleではツールを出さない。認証済み本番QA、Kylonのrouting選択・run card/history・個別identity/credential・長時間cloud helperは未実装。追加サービス/課金なし。 |
+
+### 2026-11-12 — 台帳更新: Data Viewer export、Automation source移動、音声入力辞書
+
+Kylonの[2026-11-03 changelog](https://kylon.io/changelog)は、個人dictation dictionary、訂正・手動追加、認識途中の送信を追加している。Honmaruに既存実装があることを確認し、機械可読台帳と受入表に要件を追加した。コード検証と認証済み実画面比較は残る。
+
+| ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
+|---|---|---|---|---|---|
+| KY-116 | Data Viewerの現在の結果をCSVまたはExcelで書き出す | 一部 | P1 | [Harness.tsx](../../web-react/src/screens/Harness.tsx), [AppDataMenu.tsx](../../web-react/src/components/AppDataMenu.tsx), [csvExport.ts](../../web-react/src/utils/csvExport.ts) | CSV/XLSXをブラウザ内で生成し、現在のfilter・search・group順・表示列・relation表示を維持する。CSV引用/式無害化、XLSXは文字列セル、Unicode・改行、5,000件上限を扱う。PR #903のmain CI #5819、Deploy Web #502、Deploy Worker #437は成功。本番ログイン画面からの実ダウンロード、端末横断UI比較、上限超過時のUX受入は残る。 |
+| KY-117 | 作成済みAutomationを別Roomへ移動する | 一部 | P1 | [workflowSource.js](../../worker/src/harness/workflowSource.js), [routes.js](../../worker/src/harness/routes.js), [WorkflowSource.tsx](../../web-react/src/components/WorkflowSource.tsx) | 作成者がアクセスできる別Roomの会話へ移し、期待元sourceのCAS、定義・履歴保持、sourceに追従するACL/通知/一覧露出、監査ログを検証する。PR #904のmain CI #5822、Deploy Worker #438、Deploy Web #503は成功。同Room移動拒否のコードと候補UIは既にmainにあり、本番の認証済み移動・権限失効・Kylon操作比較は残る。 |
+| KY-118 | 個人の音声入力辞書と修正学習 | 一部 | P1 | [HarnessDictation.tsx](../../web-react/src/components/HarnessDictation.tsx), [dictation.ts](../../web-react/src/utils/dictation.ts), [dictationVocabulary.js](../../worker/src/harness/dictationVocabulary.js) | 個人語彙の追加/削除と修正学習、アカウント単位revision CAS同期、interim transcript表示、送信後の遅延認識停止を検証する。Web/Macの認証済みKylon比較と端末同期受入は残る。ブラウザspeech APIの認識提供者に依存する境界も確認する。 |
 
 ### 2026-11-10 — KY-109 notification boundary follow-up
 The inline Agent path is covered by an end-to-end Worker regression: progress stays in transient socket events, while the finished answer alone enters the requester's attention event and push queue. See [focused acceptance record](verification-ky109-notification-boundary.md). Device-level multi-user and external-runtime notification acceptance remain open.
