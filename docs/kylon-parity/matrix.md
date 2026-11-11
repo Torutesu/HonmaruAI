@@ -1,6 +1,6 @@
 # Kylon機能差分・受入条件
 
-調査基準日: 2026-11-12。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。最新mainはPR #905の `6128b3734e9056d36d00e74ff149c27b2a8a0cdf`。今回の差分は追加要件の台帳同期とKY-099の次の権限編集面を対象とし、全108項目の再受入が完了した意味ではない。
+調査基準日: 2026-11-12。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。PR #907のbase mainはPR #906の `527daddf8b735eb6f3b95f4616605cf300f06074`。今回の差分はKY-065のAutomation archive/restoreとKY-099のFile招待期限・権限編集を含む。全108項目の再受入完了を意味しない。
 
 全108項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
@@ -125,7 +125,7 @@
 | KY-062 | 署名付きWebhookと再送防止 | 実装あり | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 8c753f91 を本番反映。新規・再発行credentialはHMAC-SHA256、5分以内timestamp、event ID、7日間の原子的重複排除を検証。既存URL-only credentialは明示rotationまで互換動作。 |
 | KY-063 | Webhook rotation/revoke/held/replay | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | 再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止、30分後の結果不明記録（副作用を再実行しない）を本番反映。main CI 42494741384、Worker migrations/deploy/Verify 42494741296成功。保留イベントは25件単位のページ表示・本文プレビュー・個別選択に対応し、再実行と破棄は明示選択したIDだけを対象とする。ログイン済みKylonとの操作差分・実画面比較と本番受入は残る。 |
 | KY-064 | 承認待ち・継続 | 一部 | P0 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js), [worker/src/relay.js](../../worker/src/relay.js) | run・approval card・stepを固定し、二重承認/replayを拒否。card_updated/AG-UI双方で決定者が現workspace memberか再確認し、run claimとmembership検証を一つの条件付きDB更新に統合。承認者の削除後も旧socketからWorkflow副作用を再開できないことを136テストで確認。main CI・production反映とKylon本番画面比較は残る。 |
-| KY-065 | 停止・再開・アーカイブ | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js) | スケジュール停止と実行キャンセルを区別。キャンセル時に関連するqueued/running TypeScript gateway jobも同一D1 batchでcancelledにし、leaseを無効化。実行中コードの副作用取り消しとKylon本番比較は残る |
+| KY-065 | 停止・再開・アーカイブ | 一部 | P1 | [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js), [web-react/src/screens/HarnessWorkflows.tsx](../../web-react/src/screens/HarnessWorkflows.tsx) | スケジュール停止・実行キャンセル・削除と区別した復元可能なarchive/restoreを追加。archiveでscheduleを止め、定義・revision・run履歴・held webhook eventを保持し、新規run/replayを拒否。running/waiting run中はarchiveを拒否し、手動cancelが必要なときも不明な外部副作用を再送しない。以前enabledだったtriggerをrestoreする前に警告し、CASで状態を更新。Worker/UIの回帰試験通過。Kylon本番比較、実稼働スケジュール受入は残る |
 | KY-066 | 実行者の権限を再検証 | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js), [worker/src/harness/workflows.js](../../worker/src/harness/workflows.js), [worker/src/harness/modelToolLoop.js](../../worker/src/harness/modelToolLoop.js) | Workflow内Agentの各モデル往復・ツール呼び出し前後でmakerの現行Agent grantと会話アクセスを再検証し、回答公開直前にも確認。app_record_change元App/Table権限も認可fenceに含め、要求待機中にgrantを失った場合はWorkerのHTTP要求を中断し、未確定usageをunknown/unpricedとして記録。PR #579/#581をmain統合し、main CI #41224384637とWorker deploy #41224384634成功。Workflow Connectionのread-only Notion/GitHub検索もmainに含まれ、request/response/output時点で既存Agent grantを再検証。書込操作、未対応connector、provider側処理・請求の停止保証、その他副作用経路の監査と本番受入は残る |
 | KY-067 | 実行予算と自動pause | 一部 | P0 | [worker/src/harness/workflowSafety.js](../../worker/src/harness/workflowSafety.js), [worker/src/workspaceAIBudget.js](../../worker/src/workspaceAIBudget.js) | 回数上限に加え、直近24h/7d/30日の記録トークンからUSD参考価格を集計しwarnまたはpauseするAutomation/workspace予算を実装。pause設定では未知モデルの記録を単価不明として扱い、該当する上限窓で新規利用を止める。既知のweb_search/jev価格は維持し、warn設定は停止しない。Kylon credits・invoice換算、外部tool料金、同時実行分の事前予約・精算は未対応 |
 | KY-068 | 一回限りのFollow-up | 一部 | P1 | [worker/src/harness/followups.js](../../worker/src/harness/followups.js) | 相対/絶対時刻・スレッド・通知先・停止・権限変更後を検証 |
@@ -277,3 +277,6 @@ Kylonの[2026-11-03 changelog](https://kylon.io/changelog)は、個人dictation 
 
 ### 2026-11-10 — KY-109 notification boundary follow-up
 The inline Agent path is covered by an end-to-end Worker regression: progress stays in transient socket events, while the finished answer alone enters the requester's attention event and push queue. See [focused acceptance record](verification-ky109-notification-boundary.md). Device-level multi-user and external-runtime notification acceptance remain open.
+
+### 2026-11-12 — PR #907 review batch
+KY-065 adds reversible Workflow archive/restore while keeping it separate from disable, run cancellation, and hard deletion. KY-099 adds editing permission/access expiry for an eligible pending File invitation while preserving its one-time redemption token and invitation expiry. Focused local validation: Worker workflow/File-invitation/migration suites 178/178, Web Workflow/File panel/API suites 103/103, TypeScript no-emit, parity inventory consistency (108 requirements), and `git diff --check`. Exact-head CI, production migration/deploy, and authenticated side-by-side Kylon acceptance remain pending; both requirements remain partial.
