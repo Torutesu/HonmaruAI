@@ -414,6 +414,64 @@ test("binary file upload streams bytes after a hash-bound reservation and downlo
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+test("file copy preserves an exact readable binary version into a destination scope", async () => {
+  const calls = [];
+  const bytes = Buffer.from([0, 255, 13, 10, 42, 128]);
+  const fetcher = async (url, init) => {
+    if (url.pathname === "/mcp") {
+      const req = JSON.parse(init.body); calls.push(req.params);
+      const name = req.params.name;
+      const structuredContent = name === "get_workspace_file"
+        ? { file: { id: "file_source", path: "reports/source.bin", version: 3 } }
+        : name === "list_file_versions"
+          ? { versions: [{ version: 3, kind: "content", contentType: "application/octet-stream", size: bytes.length, purged: false }, { version: 2, kind: "content", contentType: "application/octet-stream", size: 4, purged: false }] }
+          : { fileId: "file-123e4567-e89b-12d3-a456-426614174000", uploadId: "123e4567-e89b-12d3-a456-426614174001", uploadUrl: "/mcp/workspace-uploads/123e4567-e89b-12d3-a456-426614174001", method: "PUT", contentType: "application/octet-stream", size: bytes.length };
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+    }
+    if (url.pathname === "/mcp/workspace-files/file_source/versions/2/content") return new Response(Buffer.from([1, 2, 3, 4]), { status: 200 });
+    if (url.pathname === "/mcp/workspace-files/file_source/versions/3/content") return new Response(bytes, { status: 200 });
+    calls.push({ transfer: url.pathname, method: init.method, contentType: init.headers["content-type"], bytes: Buffer.from(init.body) });
+    return new Response(JSON.stringify({ fileId: "file-123e4567-e89b-12d3-a456-426614174000", version: 1, saved: true }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  const result = await run(["workspace", "file", "copy", "file_source", "--scope", "b:archive", "--path", "backup/source.bin", "--request-id", "file-123e4567-e89b-12d3-a456-426614174000"]);
+  assert.equal(result, 0, stderr.read());
+  assert.deepEqual(calls.slice(0, 3), [
+    { name: "get_workspace_file", arguments: { fileId: "file_source" } },
+    { name: "list_file_versions", arguments: { fileId: "file_source", limit: 100 } },
+    { name: "create_file_upload", arguments: { scope: "b:archive", path: "backup/source.bin", requestId: "file-123e4567-e89b-12d3-a456-426614174000", contentType: "application/octet-stream", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") } },
+  ]);
+  assert.equal(calls[3].transfer, "/mcp/workspace-uploads/123e4567-e89b-12d3-a456-426614174001");
+  assert.equal(calls[3].contentType, "application/octet-stream");
+  assert.deepEqual(calls[3].bytes, bytes);
+  assert.deepEqual(JSON.parse(stdout.read()), { sourceFileId: "file_source", sourceVersion: 3, fileId: "file-123e4567-e89b-12d3-a456-426614174000", version: 1, saved: true });
+  assert.equal(stderr.read(), "");
+});
+
+test("file copy refuses invalid requests and purged or oversized source versions", async () => {
+  let requests = 0;
+  const fetcher = async (_url, init) => {
+    requests += 1;
+    const req = JSON.parse(init.body), name = req.params.name;
+    const structuredContent = name === "get_workspace_file"
+      ? { file: { id: req.params.arguments.fileId, path: "reports/source.bin", version: 3 } }
+      : { versions: [{ version: 3, kind: "content", contentType: "application/octet-stream", size: 25 * 1024 * 1024 + 1, purged: req.params.arguments.fileId === "file_oversized" }] };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "file", "copy", "file_source", "--scope", "b:archive", "--path", "backup.bin", "--request-id", "bad"]), 1);
+  assert.match(stderr.read(), /request-id must be file-/); stderr.clear();
+  assert.equal(await run(["workspace", "file", "copy", "file_source", "--scope", "b:archive", "--path", "backup.bin", "--request-id", "file-123e4567-e89b-12d3-a456-426614174000"]), 1);
+  assert.match(stderr.read(), /cannot be copied by the CLI/);
+  assert.equal(await run(["workspace", "file", "copy", "file_oversized", "--scope", "b:archive", "--path", "backup.bin", "--request-id", "file-123e4567-e89b-12d3-a456-426614174001"]), 1);
+  assert.match(stderr.read(), /unavailable or purged/);
+  assert.equal(requests, 4);
+});
+
 test("workflow, follow-up, and file aliases keep explicit scopes and typed values", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
