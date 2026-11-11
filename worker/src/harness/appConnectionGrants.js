@@ -5,14 +5,39 @@ import { invokeConnection, connections as ownedConnections } from './appCapabili
 const err = (error, status = 400) => ({ error, status });
 
 async function sourceAgent(db, orgId, appId) {
-  const source = await db.prepare(`SELECT s.channel,s.thread_id AS threadId,a.id,a.name,a.scope,a.owner_login AS ownerLogin
-    FROM hx_app_conversation_sources s JOIN custom_agents a ON a.org_id=s.org_id AND a.deleted_at IS NULL
-      AND s.channel LIKE 'ag:'||a.id||'|%'
+  const source = await db.prepare(`SELECT s.channel,s.thread_id AS threadId
+    FROM hx_app_conversation_sources s
     JOIN channel_messages root ON root.org_id=s.org_id AND root.channel=s.channel AND root.id=s.thread_id
       AND root.deleted_at IS NULL AND root.parent_id IS NULL
     WHERE s.org_id=?1 AND s.app_id=?2`).bind(orgId, appId).first();
-  const match = String(source?.channel || '').match(/^ag:([\w-]{1,64})\|([a-zA-Z0-9-]{1,64})$/);
-  return match && match[1] === source.id ? { ...source, sourceLogin: match[2] } : null;
+  if (!source) return null;
+
+  let agentId = null;
+  const directMatch = String(source.channel || '').match(/^ag:([\w-]{1,64})\|([a-zA-Z0-9-]{1,64})$/);
+  if (directMatch) {
+    agentId = directMatch[1];
+  } else if (source.channel.startsWith('b:') || source.channel.startsWith('g:')) {
+    // Room and group Apps can inherit an Agent only from an explicit, unique
+    // Agent assignment on the selected source message. Requiring the Agent
+    // to remain placed in the source conversation prevents stale assignments
+    // from silently authorizing a different Agent after a room edit.
+    const { results = [] } = await db.prepare(`SELECT DISTINCT assignment.initial_agent_id AS agentId
+      FROM hx_agent_assignments assignment
+      JOIN channel_agents placed ON placed.org_id=assignment.org_id
+        AND placed.channel=assignment.channel AND placed.agent_id=assignment.initial_agent_id
+      JOIN custom_agents candidate ON candidate.org_id=assignment.org_id
+        AND candidate.id=assignment.initial_agent_id AND candidate.deleted_at IS NULL
+      WHERE assignment.org_id=?1 AND assignment.source_message_id=?2 AND assignment.channel=?3
+      ORDER BY assignment.initial_agent_id LIMIT 2`).bind(orgId, source.threadId, source.channel).all();
+    if (results.length !== 1) return null;
+    agentId = results[0].agentId;
+  } else {
+    return null;
+  }
+
+  const agent = await db.prepare(`SELECT id,name,scope,owner_login AS ownerLogin
+    FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL`).bind(orgId, agentId).first();
+  return agent ? { ...source, ...agent } : null;
 }
 
 async function memberLogin(db, orgId, userId) {
