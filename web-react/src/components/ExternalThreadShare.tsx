@@ -22,6 +22,8 @@ import {
   updateExternalThreadAudience,
 } from '../utils/externalThreadSharing'
 import './ExternalThreadShare.css'
+import { ExternalCollaboratorPicker } from './ExternalCollaboratorPicker'
+import type { ExternalCollaborator } from '../utils/externalCollaborators'
 
 type Api = { httpBase: string; orgId: string; sessionToken: string }
 type Expiry = '7d' | '30d' | 'never' | 'current'
@@ -63,7 +65,7 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
-  const [email, setEmail] = useState('')
+  const [selectedCollaborator, setSelectedCollaborator] = useState<ExternalCollaborator|null>(null)
   const [permission, setPermission] = useState<'view'|'edit'>('view')
   const [expiry, setExpiry] = useState<Expiry>('7d')
   const [drafts, setDrafts] = useState<Record<string, 'view'|'edit'>>({})
@@ -141,11 +143,10 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
   })
   const add = (event: React.FormEvent) => {
     event.preventDefault()
-    const value = email.trim()
-    if (!value) return
+    if (!selectedCollaborator) return
     void mutate(async () => {
-      await shareExternalThread(apiKey,threadId,{email:value,permission,expiresAt:nextExpiry(expiry)})
-      setEmail('')
+      await shareExternalThread(apiKey,threadId,{recipientGithubId:selectedCollaborator.githubId,permission,expiresAt:nextExpiry(expiry)})
+      setSelectedCollaborator(null)
     })
   }
   const update = (share: ExternalThreadGrant) => {
@@ -194,9 +195,7 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
     footer={<button type="button" className="pill-btn" onClick={onClose}>{t('Done')}</button>}
   >
     <form className="hx-external-thread-share-form" onSubmit={add}>
-      <label>{t('Email address')}
-        <input type="email" autoComplete="email" value={email} disabled={busy} onChange={event=>setEmail(event.target.value)} placeholder={t('name@example.com')} />
-      </label>
+      <ExternalCollaboratorPicker httpBase={api.httpBase} sessionToken={api.sessionToken} orgId={api.orgId} resourceType="thread" resourceId={threadId} value={selectedCollaborator} onChange={setSelectedCollaborator} disabled={busy}/>
       <div className="hx-external-thread-share-options">
         <label>{t('Permission')}
           <select aria-label={t('Permission')} value={permission} disabled={busy} onChange={event=>setPermission(event.target.value as 'view'|'edit')}>
@@ -209,7 +208,7 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
           </select>
         </label>
       </div>
-      <button type="submit" className="pill-btn" disabled={busy||!email.trim()}>{busy?t('Saving…'):t('Share thread')}</button>
+      <button type="submit" className="pill-btn" disabled={busy||!selectedCollaborator}>{busy?t('Saving…'):t('Share thread')}</button>
     </form>
     {error&&<p className="form-error" role="alert">{error}</p>}
     <section className="hx-external-thread-audience hx-external-thread-invites" aria-label={t('Sharing')}>

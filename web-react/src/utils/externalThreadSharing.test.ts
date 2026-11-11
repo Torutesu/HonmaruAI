@@ -23,6 +23,13 @@ test('shares with permission and expiry and revokes the named recipient',async()
  expect(fetch.mock.calls[1][1]).toMatchObject({method:'DELETE',body:JSON.stringify({grantId:'grant-2'})})
 })
 
+test('shares with a selected collaborator id without sending an email address',async()=>{
+ const grant={id:'grant-3',permission:'view',expiresAt:null}
+ const fetch=vi.fn().mockResolvedValue(response({grant,recipient:{name:'Ari',email:'ari@example.com'}}));vi.stubGlobal('fetch',fetch)
+ await expect(shareExternalThread(api,'root',{recipientGithubId:'guest-3',permission:'view',expiresAt:null})).resolves.toMatchObject({id:'grant-3',recipient:{email:'ari@example.com'}})
+ expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({recipientGithubId:'guest-3',permission:'view',expiresAt:null})
+})
+
 test('preserves authorization errors for the dialog',async()=>{
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(response({message:'Thread not found.'},404)))
  await expect(listExternalThreadShares(api,'root')).rejects.toMatchObject<Partial<ExternalThreadShareError>>({status:404,message:'Thread not found.'})

@@ -69,7 +69,7 @@ async function setup() {
     guest: await createSession(env.DB, guestId, "external-app-guest-test"),
     member: await createSession(env.DB, memberId, "external-app-guest-test"),
   };
-  return { orgId, ownerId, guestId, app, otherApp: other.app, primaryRowId, linkedTable: linked.table, unlinkedTable: unlinked.table, linkedRowId, sessions };
+  return { orgId, ownerId, guestId, memberId, app, otherApp: other.app, primaryRowId, linkedTable: linked.table, unlinkedTable: unlinked.table, linkedRowId, sessions };
 }
 
 async function call(path, token, method = "GET", body = undefined, database = env.DB) {
@@ -234,6 +234,22 @@ test("App invite managers can list, issue, redeem, update, and revoke an exact g
   const revoked = await call(`${sharing}/${guestId}`, f.sessions.owner, "DELETE");
   expect(revoked.status).toBe(200);
   expect((await call(`/external/apps/${f.orgId}/${f.app.id}`, session)).status).toBe(404);
+});
+
+test("App sharing accepts a selected verified collaborator without creating workspace membership", async () => {
+  const f = await setup();
+  const selectedId = `external-app-selected-${tag()}`;
+  await upsertUser(env.DB, { githubId: selectedId, login: selectedId, name: "Selected Guest", avatarUrl: null, locale: "en" });
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3")
+    .bind(`${selectedId}@example.com`, new Date().toISOString(), selectedId).run();
+  const sharing = `/external/apps/${f.orgId}/${f.app.id}/sharing`;
+  const response = await call(sharing, f.sessions.owner, "POST", { recipientGithubId: selectedId, permission: "edit", expiresAt: null });
+  expect(response.status).toBe(201);
+  expect(await response.json()).toMatchObject({ guest: { githubId: selectedId, login: selectedId, name: "Selected Guest", permission: "edit" } });
+  expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(f.orgId, selectedId).first()).toBeNull();
+  await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3")
+    .bind(`${f.memberId}@example.com`, new Date().toISOString(), f.memberId).run();
+  expect((await call(sharing, f.sessions.owner, "POST", { recipientGithubId: f.memberId, permission: "view" })).status).toBe(409);
 });
 
 test("App invitation fails closed when its issuer loses sharing authority before redemption", async () => {

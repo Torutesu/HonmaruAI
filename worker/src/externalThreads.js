@@ -142,6 +142,66 @@ async function resolveRecipient(db, orgId, email, actorId) {
   return recipient;
 }
 
+async function resolveRecipientInput(db, orgId, input, actorId) {
+  if (typeof input?.recipientGithubId === "string") {
+    const id = input.recipientGithubId.trim();
+    if (!id || id.length > 200) return null;
+    const recipient = await db.prepare(
+      "SELECT github_id,login,name,email FROM users WHERE github_id=?1 AND email_verified_at IS NOT NULL"
+    ).bind(id).first();
+    if (!recipient || String(recipient.github_id) === String(actorId) || await isMember(db, orgId, recipient.github_id)) return null;
+    return recipient;
+  }
+  return resolveRecipient(db, orgId, input?.email, actorId);
+}
+
+async function searchExternalCollaborators(request, env, url, actor) {
+  const limited = await enforce(env, request, "collaborator/search");
+  if (limited) return limited;
+  const orgId = (url.searchParams.get("orgId") || "").trim();
+  const type = url.searchParams.get("resourceType");
+  const resourceId = (url.searchParams.get("resourceId") || "").trim();
+  const query = (url.searchParams.get("q") || "").trim().toLocaleLowerCase();
+  if (!orgId || orgId.length > 200 || !resourceId || resourceId.length > 200 || !["thread", "app", "file"].includes(type)) return fail("Invalid collaborator search scope.", 400);
+  if (query.length < 3 || query.length > 100) return fail("Search with 3 to 100 characters.", 400);
+  if ((await getMode(env.DB, orgId)) !== "harness" || !(await isMember(env.DB, orgId, actor.user.github_id))) return fail("No matching collaborators.", 404);
+
+  let authorized = false;
+  if (type === "thread") {
+    authorized = Boolean(await manageableRoot(env.DB, orgId, resourceId, actor.user));
+  } else if (type === "app") {
+    authorized = Boolean(await env.DB.prepare(`SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3
+      WHERE a.org_id=?1 AND a.id=?2 AND (a.created_by=?3 OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin'))
+        AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
+        AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id)`).bind(orgId, resourceId, actor.user.github_id).first());
+  } else {
+    authorized = Boolean(await env.DB.prepare(`SELECT 1 FROM hx_workspace_files f
+      JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version AND v.kind='content'
+      JOIN memberships manager ON manager.org_id=f.org_id AND manager.user_github_id=?3
+      WHERE f.org_id=?1 AND f.id=?2 AND f.current_version>0
+        AND (f.created_by=?3 OR LOWER(TRIM(COALESCE(manager.role,''))) IN ('owner','admin'))
+        AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=f.org_id AND p.file_id=f.id AND p.version=f.current_version)
+        AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=f.org_id AND d.purge_started_at IS NOT NULL)
+        AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=f.org_id)
+        AND NOT EXISTS(SELECT 1 FROM hx_room_access r WHERE r.org_id=f.org_id AND r.channel=f.scope AND r.deleted_at IS NOT NULL)`)
+      .bind(orgId, resourceId, actor.user.github_id).first());
+  }
+  if (!authorized) return fail("No matching collaborators.", 404);
+  // Escaping wildcard characters keeps the query a literal substring search.
+  const escaped = query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+  try {
+    const { results = [] } = await env.DB.prepare(`SELECT u.github_id AS githubId,u.login,COALESCE(NULLIF(TRIM(u.name),''),u.login) AS name
+      FROM users u WHERE u.email_verified_at IS NOT NULL AND u.github_id<>?1
+        AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=u.github_id)
+        AND (lower(COALESCE(u.name,'')) LIKE ?3 ESCAPE '\\' OR lower(u.login) LIKE ?3 ESCAPE '\\' OR lower(COALESCE(u.email,'')) LIKE ?3 ESCAPE '\\')
+      ORDER BY lower(COALESCE(NULLIF(TRIM(u.name),''),u.login)),lower(u.login) LIMIT 8`)
+      .bind(String(actor.user.github_id), orgId, `%${escaped}%`).all();
+    return json({ people: results.map(person => ({ githubId: String(person.githubId), login: String(person.login), name: String(person.name) })) });
+  } catch {
+    return fail("Collaborator search is unavailable until the account directory migration completes.", 503);
+  }
+}
+
 async function shareThread(request, env, orgId, rootId, actor) {
   if (!["GET", "POST", "DELETE"].includes(request.method)) return fail("Method not allowed.", 405);
   const root = await manageableRoot(env.DB, orgId, rootId, actor.user);
@@ -164,7 +224,7 @@ async function shareThread(request, env, orgId, rootId, actor) {
   const input = await request.json().catch(() => null);
   if (!input) return fail("Invalid JSON body.", 400);
   if (request.method === "POST") {
-    const recipient = await resolveRecipient(env.DB, orgId, input.email, actor.user.github_id);
+    const recipient = await resolveRecipientInput(env.DB, orgId, input, actor.user.github_id);
     if (!recipient) return fail("A verified account outside this Workspace is required.", 404);
     const permission = input.permission === "edit" ? "edit" : input.permission === "view" ? "view" : null;
     if (!permission) return fail("Permission must be view or edit.", 400);
@@ -181,12 +241,17 @@ async function shareThread(request, env, orgId, rootId, actor) {
       const [revoked, inserted] = await env.DB.batch([
         env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2
           WHERE org_id=?3 AND resource_type='thread' AND resource_id=?4
-            AND recipient_github_id=?5 AND revoked_at IS NULL AND ${updateFence.sql}`)
+            AND recipient_github_id=?5 AND revoked_at IS NULL
+            AND EXISTS(SELECT 1 FROM users eligible WHERE eligible.github_id=?5 AND eligible.email_verified_at IS NOT NULL)
+            AND NOT EXISTS(SELECT 1 FROM memberships recipientMember WHERE recipientMember.org_id=?3 AND recipientMember.user_github_id=?5)
+            AND ${updateFence.sql}`)
           .bind(now, actor.user.github_id, orgId, rootId, recipient.github_id,
             ...updateFence.bindings),
         env.DB.prepare(`INSERT INTO hx_external_resource_grants
           (id,org_id,resource_type,resource_id,recipient_github_id,permission,granted_by,granted_at,expires_at)
-          SELECT ?1,?2,'thread',?3,?4,?5,?6,?7,?8 WHERE ${insertFence.sql}`)
+          SELECT ?1,?2,'thread',?3,?4,?5,?6,?7,?8 WHERE EXISTS(SELECT 1 FROM users eligible WHERE eligible.github_id=?4 AND eligible.email_verified_at IS NOT NULL)
+            AND NOT EXISTS(SELECT 1 FROM memberships recipientMember WHERE recipientMember.org_id=?2 AND recipientMember.user_github_id=?4)
+            AND ${insertFence.sql}`)
           .bind(id, orgId, rootId, recipient.github_id, permission, actor.user.github_id, now, expiry,
             ...insertFence.bindings),
       ]);
@@ -217,7 +282,7 @@ async function shareThread(request, env, orgId, rootId, actor) {
     ]);
     revoked = Number(results?.[0]?.meta?.changes || 0);
   } else {
-    const recipient = await resolveRecipient(env.DB, orgId, input.email, actor.user.github_id);
+    const recipient = await resolveRecipientInput(env.DB, orgId, input, actor.user.github_id);
     if (!recipient) return fail("Recipient not found.", 404);
     const fence = threadManagerFence(orgId,rootId,actor.user,root.channel,6);
     const results = await env.DB.batch([
@@ -945,6 +1010,12 @@ async function decideRequest(env, orgId, rootId, id, owner, action, channel) {
 }
 
 export async function handleExternalThreads(request, env, url, ctx = null) {
+  if (url.pathname === "/external/collaborators/search") {
+    if (request.method !== "GET") return fail("Method not allowed.", 405);
+    const actor = await signedIn(request, env);
+    if (!actor) return fail("Sign in to continue.", 401);
+    return searchExternalCollaborators(request, env, url, actor);
+  }
   if (url.pathname.startsWith("/external/files/")) return handleExternalFiles(request, env, url);
   if (url.pathname === "/external/invites/redeem" && request.method === "POST") {
     const limited = await enforce(env,request,"invites/peek");

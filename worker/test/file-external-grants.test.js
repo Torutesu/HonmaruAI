@@ -37,6 +37,15 @@ test('owner creates a verified-email view grant, recipient redeems it, and owner
  expect(response.status).toBe(200);expect((await response.json()).revoked).toBe(true);
  expect((await call(guestPath,f.recipientToken)).status).toBe(404);
 });
+test('owner can grant a selected verified account by ID without exposing or changing its email',async()=>{
+ const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
+ const response=await call(path,f.ownerToken,'POST',{recipientGithubId:f.recipientId,permission:'view',expiresInDays:7});
+ expect(response.status).toBe(201);
+ expect(await response.json()).toMatchObject({grant:{recipientGithubId:f.recipientId,permission:'view'}});
+ expect(await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(f.orgId,f.recipientId).first()).toBeNull();
+ await upsertMembership(env.DB,f.orgId,f.recipientId,'member');
+ expect((await call(path,f.ownerToken,'POST',{recipientGithubId:f.recipientId,permission:'edit',expiresInDays:7})).status).toBe(409);
+});
 test('only file owner/Admin can manage grants; emails must resolve to a verified nonmember',async()=>{
  const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
  expect((await call(path,f.recipientToken,'POST',{email:f.ownerId+'@example.test',expiresInDays:7})).status).toBe(403);

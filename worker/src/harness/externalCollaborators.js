@@ -34,23 +34,30 @@ function normalizeGrant(input) {
  * previous grant and inserting the replacement are a single D1 batch so the
  * active-grant uniqueness constraint is safe under concurrent updates.
  */
-export async function grantExternalResource(db, input, now = new Date().toISOString()) {
+export async function grantExternalResource(db, input, now = new Date().toISOString(), { requireVerifiedExternalAccount = false } = {}) {
   const grant = normalizeGrant(input);
   const id = `xg_${crypto.randomUUID().replaceAll("-", "")}`;
+  const eligible = requireVerifiedExternalAccount
+    ? `AND EXISTS(SELECT 1 FROM users verifiedRecipient WHERE verifiedRecipient.github_id = ?6 AND verifiedRecipient.email_verified_at IS NOT NULL)
+       AND NOT EXISTS(SELECT 1 FROM memberships externalMember WHERE externalMember.org_id = ?3 AND externalMember.user_github_id = ?6)`
+    : "";
   const revokePrevious = db.prepare(
     `UPDATE hx_external_resource_grants
         SET revoked_at = ?1, revoked_by = ?2
       WHERE org_id = ?3 AND resource_type = ?4 AND resource_id = ?5
-        AND recipient_github_id = ?6 AND revoked_at IS NULL`
+        AND recipient_github_id = ?6 AND revoked_at IS NULL ${eligible}`
   ).bind(now, grant.grantedBy, grant.orgId, grant.resourceType, grant.resourceId, grant.recipientId);
   const insert = db.prepare(
     `INSERT INTO hx_external_resource_grants
       (id, org_id, resource_type, resource_id, recipient_github_id, permission,
        granted_by, granted_at, expires_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+      WHERE 1=1 ${requireVerifiedExternalAccount ? `AND EXISTS(SELECT 1 FROM users verifiedRecipient WHERE verifiedRecipient.github_id = ?5 AND verifiedRecipient.email_verified_at IS NOT NULL)
+        AND NOT EXISTS(SELECT 1 FROM memberships externalMember WHERE externalMember.org_id = ?2 AND externalMember.user_github_id = ?5)` : ""}`
   ).bind(id, grant.orgId, grant.resourceType, grant.resourceId, grant.recipientId,
     grant.permission, grant.grantedBy, now, grant.expiresAt);
-  await db.batch([revokePrevious, insert]);
+  const results = await db.batch([revokePrevious, insert]);
+  if (requireVerifiedExternalAccount && Number(results?.[1]?.meta?.changes || 0) !== 1) return null;
   return { id, ...grant, grantedAt: now, revokedAt: null };
 }
 

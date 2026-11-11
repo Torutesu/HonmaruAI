@@ -105,6 +105,31 @@ test("external Thread route is registered and requires a signed-in session", asy
   expect(response.status).toBe(401);
 });
 
+test("resource-scoped collaborator search returns only minimal verified external identities", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const path = `/external/collaborators/search?${new URLSearchParams({ orgId, resourceType: "thread", resourceId: rootId, q: "gue" })}`;
+  const response = await call(path, sessions.owner);
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.people).toEqual([{ githubId: ids.guest, login: ids.guest, name: "guest" }]);
+  expect(body.people[0]).not.toHaveProperty("email");
+  const emailSearch = await call(path.replace("q=gue", "q=example"), sessions.owner);
+  expect((await emailSearch.json()).people).toMatchObject([{ githubId: ids.guest }]);
+  expect((await call(path, "")).status).toBe(401);
+  expect((await call(path.replace("q=gue", "q=gu"), sessions.owner)).status).toBe(400);
+  // A workspace member without access to this private Thread cannot use its share surface to enumerate accounts.
+  expect((await call(path, sessions.editor)).status).toBe(404);
+});
+
+test("Thread share accepts a selected collaborator ID and still rejects workspace members", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const endpoint = `/external/threads/${orgId}/${rootId}/shares`;
+  const shared = await call(endpoint, sessions.owner, "POST", { recipientGithubId: ids.guest, permission: "view" });
+  expect(shared.status).toBe(201);
+  expect((await shared.json()).shared).toBe(true);
+  expect((await call(endpoint, sessions.owner, "POST", { recipientGithubId: ids.editor, permission: "view" })).status).toBe(404);
+});
+
 test("workspace audience is live, CAS protected, and gates send approval by its active generation", async () => {
   const { orgId, rootId, ids, sessions } = await setup();
   const endpoint = `/external/threads/${orgId}/${rootId}/audience`;

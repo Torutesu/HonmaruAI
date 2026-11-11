@@ -340,6 +340,30 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
   if (parts.length === 5 && request.method === "POST") {
     if (customUnsupported) return json({ message: "Custom Apps are not available to external guests yet. Share a Database App instead." }, 409);
     const input = await request.json().catch(() => null);
+    if (typeof input?.recipientGithubId === "string") {
+      const recipientId = input.recipientGithubId.trim();
+      if (!recipientId || recipientId.length > 200 || !["view", "edit"].includes(input.permission)) return json({ message: "Choose a verified collaborator and permission." }, 400);
+      const recipient = await env.DB.prepare("SELECT github_id AS githubId,login,name FROM users WHERE github_id=?1 AND email_verified_at IS NOT NULL").bind(recipientId).first();
+      if (!recipient || String(recipient.githubId) === String(actor.user.github_id)) return fail("A verified account outside this Workspace is required.", 404);
+      if (await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId, recipientId).first()) return json({ message: "Workspace members should use their existing workspace access." }, 409);
+      let accessExpiresAt = null;
+      if (input.expiresAt != null) {
+        const parsed = Date.parse(input.expiresAt);
+        if (!Number.isFinite(parsed) || parsed <= Date.now()) return json({ message: "Access expiry must be in the future." }, 400);
+        accessExpiresAt = new Date(parsed).toISOString();
+      }
+      const now = new Date().toISOString(), grantId = "xg_" + crypto.randomUUID().replaceAll("-", "");
+      const writes = await env.DB.batch([
+        env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2 WHERE org_id=?3 AND resource_type='app' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL AND EXISTS(SELECT 1 FROM users u WHERE u.github_id=?5 AND u.email_verified_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?3 AND m.user_github_id=?5) AND ${sharingManagerWriteGuard('?3','?4','?2')}`).bind(now, actor.user.github_id, orgId, appId, recipientId),
+        env.DB.prepare(`INSERT INTO hx_external_resource_grants(id,org_id,resource_type,resource_id,recipient_github_id,permission,granted_by,granted_at,expires_at)
+          SELECT ?1,?2,'app',?3,?4,?5,?6,?7,?8 WHERE EXISTS(SELECT 1 FROM users u WHERE u.github_id=?4 AND u.email_verified_at IS NOT NULL)
+            AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?4)
+            AND ${sharingManagerWriteGuard('?2','?3','?6')}`)
+          .bind(grantId, orgId, appId, recipientId, input.permission, actor.user.github_id, now, accessExpiresAt),
+      ]);
+      if (!Number(writes?.[1]?.meta?.changes || 0)) return fail("Sharing manager access was revoked or collaborator is no longer eligible.", 403);
+      return json({ guest: { githubId: recipientId, login: recipient.login, name: recipient.name || recipient.login, permission: input.permission, expiresAt: accessExpiresAt } }, 201);
+    }
     const email = typeof input?.email === "string" ? input.email.trim().toLowerCase() : "";
     const permission = input?.permission;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !["view", "edit"].includes(permission)) return json({ message: "Enter a valid email and permission." }, 400);

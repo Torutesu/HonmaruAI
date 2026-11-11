@@ -15,6 +15,7 @@ beforeEach(() => {
     if (url.endsWith('/sharing') && init?.method === 'POST') {
       return new Response(JSON.stringify({ invite: { token: 'a'.repeat(64), emailDelivery: { status: 'not_configured' } } }), { status: 201 })
     }
+    if (url.includes('/external/collaborators/search')) return new Response(JSON.stringify({ people: [{ githubId:'guest-2',login:'ari',name:'Ari' }] }), { status:200 })
     if (url.endsWith('/sharing/requests')) return new Response(JSON.stringify({ requests: [
       { id: 'request-1', tableId: '', rowId: '', guestGithubId: 'guest-1', name: 'Guest Person', login: 'guest', email: 'guest@example.com', body: 'Please confirm this update.', requestedAt: '2026-11-07T10:00:00.000Z' },
     ] }), { status: 200 })
@@ -31,6 +32,7 @@ afterEach(() => {
   act(() => tree?.unmount())
   tree = undefined
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 const props = { httpBase: 'https://api.example', orgId: 'org-1', sessionToken: 'session', appId: 'app-1' }
 
@@ -80,4 +82,16 @@ test('non-managers cannot see external guest controls', async () => {
   await act(async () => { tree = create(<ExternalAppSharing {...props} />) })
   expect(JSON.stringify(tree?.toJSON()) || '').not.toContain('External guests')
   expect(tree!.root.findAllByType('form')).toHaveLength(0)
+})
+
+test('App owner can share directly with a selected external collaborator',async()=>{
+ vi.useFakeTimers()
+ await act(async()=>{tree=create(<ExternalAppSharing {...props}/>);await Promise.resolve()})
+ await act(async()=>{tree!.root.findAllByType('input')[0].props.onChange({target:{value:'Ari'}});await vi.advanceTimersByTimeAsync(250)})
+ await act(async()=>{tree!.root.findByProps({role:'option'}).props.onClick()})
+ const shareButton=tree!.root.findAllByType('button').find(button=>String(button.children.join(''))==='Share with person')
+ await act(async()=>{shareButton!.props.onClick();await Promise.resolve()})
+ const post=requests.find(item=>item.url.endsWith('/sharing')&&item.init?.method==='POST')
+ expect(JSON.parse(String(post?.init?.body))).toMatchObject({recipientGithubId:'guest-2',permission:'view'})
+ expect(JSON.stringify(tree?.toJSON())).toContain('Guest Person')
 })
