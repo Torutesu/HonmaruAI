@@ -1844,18 +1844,30 @@ export async function handleChannels(request, env, url, { route, after }) {
     const orgId = url.searchParams.get("orgId");
     const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
     if (ctx.denied) return ctx.denied;
+    const raw = url.searchParams.get("q") || "";
     const result = await searchRoom(env.DB, orgId, ctx.resolved.key, ctx.who.user.login, ctx.view, ctx.members,
-      url.searchParams.get("q") || "", url.searchParams.get("before"));
-    return result.error ? json({ message: result.error }, result.status) : json(result);
+      raw, url.searchParams.get("before"));
+    if (result.error) return json({ message: result.error }, result.status);
+    // Room-local files and linked App records are additive only for an opted-in
+    // Harness search. Simple mode and existing message-search callers keep the
+    // historical response shape and work unchanged.
+    if (url.searchParams.get('resources') !== '1' || await getMode(env.DB, orgId) !== 'harness'
+      || (await getDisplayPreference(env.DB, orgId, ctx.who.session.github_id)).simpleOnly) return json(result);
+    const resources = await searchHarnessResources(env, orgId, ctx.who.user.github_id, raw, {
+      file: url.searchParams.get('fileCursor'), record: url.searchParams.get('recordCursor'),
+      skipFiles: url.searchParams.get('skipFiles') === '1', skipRecords: url.searchParams.get('skipRecords') === '1',
+    }, ctx.resolved.key);
+    return json({ ...result, ...resources });
   }
 
   if (path === "/channels/thread/search" && request.method === "GET") {
     const orgId = url.searchParams.get("orgId");
     const ctx = await inChannel(env, request, { orgId, channel: url.searchParams.get("channel") });
     if (ctx.denied) return ctx.denied;
+    const raw = url.searchParams.get("q") || "";
     const result = await searchThread(env.DB, orgId, ctx.resolved.key,
       url.searchParams.get("messageId") || "", ctx.who.user.login, ctx.view, ctx.members,
-      url.searchParams.get("q") || "", url.searchParams.get("before"));
+      raw, url.searchParams.get("before"));
     return result.error ? json({ message: result.error }, result.status) : json(result);
   }
 

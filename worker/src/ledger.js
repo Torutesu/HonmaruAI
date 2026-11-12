@@ -52,13 +52,19 @@ export function noteUsage(provider, purpose, data, context = null) {
     usd: costOf(model, { input, output }), ...(workspaceReservationId ? { workspaceReservationId } : {}), ...(context ? { context } : {}) });
 }
 
-/// Searches the model ran with the hosted web search tool, which OpenAI
-/// bills per call on top of the tokens: $10 per thousand for a reasoning
-/// model, $25 for the others. One entry per response that searched.
-export function noteSearches(provider, purpose, model, count, context = null) {
+/// Searches the model ran with hosted web search, which OpenAI bills per
+/// call on top of tokens. Preview search is $25/1k for non-reasoning models;
+/// standard and reasoning preview search are $10/1k. One entry per response.
+export function noteSearches(provider, purpose, model, count, context = null, toolType = 'web_search') {
   if (!provider || !Array.isArray(provider.usage) || !(count > 0)) return;
-  const each = /^(gpt-5|gpt-6|o\d)/i.test(String(model || "")) ? 0.01 : 0.025;
-  provider.usage.push({ purpose, provider: provider.providerName || "OpenAI", model: "web_search", input: 0, output: 0, usd: Math.round(count * each * 1e6) / 1e6, ...(context ? { context } : {}) });
+  provider.usage.push({ purpose, provider: provider.providerName || "OpenAI", model: "web_search", input: 0, output: 0, usd: webSearchCostMicros(model, count, toolType) / 1e6, ...(context ? { context } : {}) });
+}
+
+/// Hosted search call list price in micros USD; content tokens are estimated separately.
+export function webSearchCostMicros(model, count = 1, toolType = 'web_search') {
+  const previewNonReasoning = toolType === 'web_search_preview' && !/^(gpt-5|gpt-6|o\d)/i.test(String(model || ''));
+  const each = previewNonReasoning ? 0.025 : 0.01;
+  return Number.isFinite(count) && count > 0 ? Math.round(count * each * 1e6) : 0;
 }
 
 /// A System One answer, in the same list.

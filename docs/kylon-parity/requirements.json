@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-12",
+  "asOf": "2026-11-13",
   "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -104,8 +104,12 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://kylon.io/product/workspace",
-      "code": "worker/src/channels.js",
-      "acceptance": "メッセージだけでなくファイル本文・レコードも同じACLで検索"
+      "code": "worker/src/channelRoutes.js, worker/src/harness/unifiedSearch.js, web-react/src/components/ThreadSearch.tsx",
+      "acceptance": "HarnessのRoom検索でRoom scope内ファイル本文とRoomにリンクしたAppレコードを現行ACLで検索・表示し、Simple-onlyとthread searchの既存応答を維持。認証済み複数利用者で隔離を検証",
+      "evidence": {
+        "verified": "このブランチでRoom検索へopt-inのリソース結果を追加。ファイルは完全一致するRoom scopeに限定し、返却直前にmembership・version・削除状態を再検査。AppレコードはRoom link、現行App/row ACL、現在の行内容を再検査。Simple-onlyは従来のmessage-only応答。Focused Worker unified-search suiteとWeb ThreadSearch testsをローカル実行済み。",
+        "remaining": "Exact-head CI、本番デプロイ、認証済み複数利用者による本番隔離試験、Kylon実画面との検索挙動比較は未完了。Kylon公開HelpはRoomと検索語によるWorkspace検索を案内するが、本文/レコード索引の同等性は公開資料から確認できていない。"
+      }
     },
     {
       "id": "KY-009",
@@ -1097,12 +1101,12 @@
       "code": "worker/src/ledger.js, worker/src/workspaceAIBudget.js, worker/src/gate.js, worker/src/orgAI.js, worker/src/index.js, web-react/src/screens/Tools.tsx",
       "acceptance": "Honmaruデプロイキーで記録されたモデル参考価格に対するworkspace共通rolling 24h/7d/30d上限とwarn/pauseを追加。個人Free/Proと独立しCASで設定を更新。Kylon creditsやinvoiceとは扱わない",
       "evidence": {
-        "verified": "ワークスペース全体の記録済みai_callsを直近24時間/7日/30日で集計し、管理者がUSD参考価格の警告または次のdeployment-key AIリクエスト停止を設定できる。BYOKは対象外。PR #934 (`cecf7c84`) でHarness model loop以外の直接deployment-key Provider要求にも送信前予約・usage精算・unknown保持を追加。PR exact-head CI #43288203131、main CI #43291237987、Worker D1 migrations/deploy/Verify #43291237728が成功。詳細はverification.md。",
-        "remaining": "Deployment-key Jev/System Oneの送信前予約とroute/triage/classify全経路の精算をこのブランチに追加し、Worker 4スイート50件をローカル検証済み。exact-head CIと本番反映は未完了。独立AI teammate provider、provider内検索費用、Kylon互換の購入/付与credit残高、実provider invoice換算と外部ツール費、ログイン済みKylon比較は未完了。",
+        "verified": "ワークスペース全体の記録済みai_callsを直近24時間/7日/30日で集計し、管理者がUSD参考価格の警告または次のdeployment-key AIリクエスト停止を設定できる。BYOKは対象外。PR #934 (`cecf7c84`) でHarness model loop以外の直接deployment-key Provider要求にも送信前予約・usage精算・unknown保持を追加。PR exact-head CI #43288203131、main CI #43291237987、Worker D1 migrations/deploy/Verify #43291237728が成功。PR #935 Jev reservationのPR CI #43297051996、main CI #43300925878、Worker deploy #43300925220も成功。詳細はverification.md。",
+        "remaining": "Deployment-key Jev/System Oneの送信前予約とroute/triage/classify全経路の精算はPR #935でmainに統合。現バッチではResponses web_searchの追加料金と検索contextを送信前予約しbillable数で精算する。focused Worker/Web QAはローカル成功したがexact-head CIと本番反映は未完了。独立AI teammate provider、Kylon互換credit残高、invoice換算と外部ツール費、ログイン済みKylon比較は未完了。",
         "latestIncrement": {
           "base": "cecf7c84",
           "scope": "PR #934 extends atomic deployment-key workspace reservations and settlement from Harness model loops to direct provider routes, audio transcription, and guarded YouTube Gemini use. This branch adds Jev/System One pre-dispatch reservations, actual-or-conservative input usage ledger entries, reservation settlement for route/triage/business classification, per-entry BYOK attribution for mixed-provider routes, and unknown retention for ambiguous failures. Workspace TypeSafe keys remain BYOK; no new provider or paid service is introduced.",
-          "verification": "PR #934 exact-head CI #43288203131 passed. Main CI #43291237987 passed including E2E; Worker deployment #43291237728 completed D1 migrations, deploy and Verify. Jev changes: Worker workspace-ai-budget, jev, sync and org-ai suites 50/50 passed; exact-head CI and production deployment remain pending.",
+          "verification": "PR #934 exact-head CI #43288203131 passed. Main CI #43291237987 passed including E2E; Worker deployment #43291237728 completed D1 migrations, deploy and Verify. PR #935 exact-head CI #43297051996 and main CI #43300925878 passed; Worker deployment #43300925220 completed successfully. PR #935 Jev focused suites 50/50 passed. Current web_search reservation batch: focused Worker 52/52, Web UI 4/4 and Web production build passed locally; exact-head CI/deployment pending.",
           "remaining": "Independent teammate provider calls, Kylon credit purchase/top-up, provider invoice reconciliation, external search/connector charges, image-generation charges and authenticated Kylon UI comparison remain outside or unverified."
         }
       }
@@ -1128,7 +1132,7 @@
       "acceptance": "個別workflowのpauseに加え、記録済みworkspace共通AI参考価格上限で新しいdeployment-keyのモデルリクエストを停止。既存BYOK上限と分離",
       "evidence": {
         "verified": "rolling 24h/7d/30d estimated usageの到達を共通AI gateで検出し、新しいdeployment-key AIリクエストを拒否して説明を返すwarn/stop設定を実装。管理者とメンバーのAPI権限、gate tests、exact-SHA CI 40219026947、Worker deployment 40219026929、Pages deployment 40221036459、ログイン済み本番AI設定画面を確認済み。詳細はverification.md。",
-        "remaining": "PR #934でHarness model-callと直接deployment-key provider呼出しの予約・精算・unknown保持は本番反映済み。このブランチではTypeSafe Jevも追加しWorker 50/50をローカル確認したが、exact-head CI/本番反映は未完了。独立AI teammate、provider内検索・外部connector費、画像生成など別請求経路、実行中provider処理の停止、Kylon比較は残る。",
+        "remaining": "PR #934でHarness model-callと直接deployment-key provider呼出しの予約・精算・unknown保持は本番反映済み。PR #935のJev予約はmain CIとWorker deployが成功。現在のweb_search固定料金・検索context予約はローカルQA済みだがexact-head CI/deploy待ち。独立AI teammate、外部connector費、画像生成など別請求経路、実行中provider処理の停止、Kylon比較は残る。",
         "latestIncrement": {
           "base": "bc79dfae",
           "scope": "When a deployment-key pause budget is first reached, claim one notice per saved budget revision and notify current workspace owners/admins through the existing Relay. The Harness Dashboard restores the notice from existing AI status on initial load/reconnect, offers a link to AI usage settings, and suppresses duplicates per revision. The notice includes no amount or credential. Simple mode is unchanged.",

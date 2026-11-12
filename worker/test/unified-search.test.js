@@ -112,6 +112,42 @@ test('Simple mode keeps the legacy message-only response shape', async () => {
   expect(result).not.toHaveProperty('records');
 });
 
+test('room-local search returns only room files and readable Apps linked to that room', async () => {
+  await env.DB.prepare("INSERT INTO org_settings(org_id,mode,updated_by,updated_at) VALUES (?1,'harness','9201','now')").bind(ORG).run();
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1 AND slug='payroll'").bind(ORG).run();
+  await seedFile({ id: 'room-local-doc', scope: 'b:payroll', body: 'RoomSearchTerm in the room file.' });
+  await seedFile({ id: 'workspace-wide-doc', body: 'RoomSearchTerm in a workspace file.' });
+
+  const linkedCreate = await send('/apps', alice, { orgId: ORG, name: 'Linked Payroll App', columns: [{ name: 'Title', type: 'text' }] });
+  const { app: linkedApp } = await linkedCreate.json();
+  await send(`/tables/${linkedApp.tableId}/rows`, alice, { orgId: ORG, values: { Title: 'RoomSearchTerm linked record' } });
+  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES (?1,?2,'private',1)").bind(ORG, linkedApp.id).run();
+  await env.DB.prepare("INSERT INTO hx_app_links(org_id,app_id,channel,created_by,created_at) VALUES (?1,?2,'b:payroll','9201','2026-01-01')").bind(ORG, linkedApp.id).run();
+
+  const unlinkedCreate = await send('/apps', alice, { orgId: ORG, name: 'Unlinked App', columns: [{ name: 'Title', type: 'text' }] });
+  const { app: unlinkedApp } = await unlinkedCreate.json();
+  await send(`/tables/${unlinkedApp.tableId}/rows`, alice, { orgId: ORG, values: { Title: 'RoomSearchTerm unlinked record' } });
+
+  const aliceResult = await (await get(`/channels/room/search?${q({ orgId: ORG, channel: 'b:payroll', q: 'RoomSearchTerm', resources: '1' })}`, alice)).json();
+  expect(aliceResult.files.map(file => file.id)).toEqual(['room-local-doc']);
+  expect(aliceResult.records).toHaveLength(1);
+  expect(aliceResult.records[0]).toMatchObject({ appId: linkedApp.id, appName: 'Linked Payroll App', tableId: linkedApp.tableId, snippet: 'Title: RoomSearchTerm linked record' });
+  expect(JSON.stringify(aliceResult)).not.toContain('workspace-wide-doc');
+  expect(JSON.stringify(aliceResult)).not.toContain('unlinked record');
+
+  const bobResult = await (await get(`/channels/room/search?${q({ orgId: ORG, channel: 'b:payroll', q: 'RoomSearchTerm', resources: '1' })}`, bob)).json();
+  expect(bobResult.files.map(file => file.id)).toEqual(['room-local-doc']);
+  expect(bobResult.records).toEqual([]);
+  expect(JSON.stringify(bobResult)).not.toContain('Linked Payroll App');
+  expect(JSON.stringify(bobResult)).not.toContain('linked record');
+});
+
+test('Simple mode room search keeps its exact historical message response even when resources are requested', async () => {
+  await seedFile({ id: 'simple-room-doc', scope: 'b:payroll', body: 'RoomSearchTerm remains simple.' });
+  const result = await (await get(`/channels/room/search?${q({ orgId: ORG, channel: 'b:payroll', q: 'RoomSearchTerm', resources: '1' })}`, alice)).json();
+  expect(Object.keys(result).sort()).toEqual(['messages', 'nextCursor']);
+});
+
 test('file and record candidate/result bounds are explicit and deterministic', async () => {
   await env.DB.prepare("INSERT INTO org_settings(org_id,mode,updated_by,updated_at) VALUES (?1,'harness','9201','now')").bind(ORG).run();
   // Body fetches are capped at 25 regardless of how many files match; every

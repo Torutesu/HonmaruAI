@@ -766,6 +766,16 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-thread-search-bar span[role=status] { font-size:11px; white-space:nowrap; color:var(--hx-muted); }
 .hx-thread-search-bar button { display:grid; place-items:center; padding:2px; border:0; background:transparent; color:inherit; cursor:pointer; }
 .hx-thread-search-bar button:disabled { opacity:.3; cursor:default; }
+.hx-thread-search-resources { position:absolute; top:calc(100% + 6px); right:0; z-index:1; width:min(460px,calc(100vw - 32px)); max-height:min(60vh,480px); overflow-y:auto; box-sizing:border-box; padding:8px; border:1px solid var(--hx-border); border-radius:12px; background:var(--hx-surface); color:var(--hx-text); box-shadow:0 8px 28px #0003; }
+.hx-thread-search-resource-section + .hx-thread-search-resource-section { margin-top:8px; padding-top:8px; border-top:1px solid var(--hx-border); }
+.hx-thread-search-resource-section h3 { margin:2px 6px 5px; color:var(--hx-muted); font-size:11px; font-weight:650; letter-spacing:.02em; }
+.hx-thread-search-resource { display:grid; gap:3px; width:100%; min-width:0; padding:8px; border:0; border-radius:8px; background:transparent; color:inherit; text-align:left; cursor:pointer; }
+.hx-thread-search-resource:hover { background:var(--hx-hover); }
+.hx-thread-search-resource:focus-visible { outline:2px solid var(--hx-text); outline-offset:1px; }
+.hx-thread-search-resource:disabled { opacity:.55; cursor:wait; }
+.hx-thread-search-resource strong { overflow:hidden; color:var(--hx-text); font-size:12px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+.hx-thread-search-resource span { overflow:hidden; color:var(--hx-muted); font-size:11px; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
+.hx-thread-search-resource-limit { margin:7px 6px 2px; color:var(--hx-muted); font-size:11px; }
 ::highlight(thread-search) { background:#f3d68a; color:#30270e; }
 .hx-thread-share.dialog { width:min(680px,100%); }
 .hx-thread-share-preview { max-height:380px; overflow:auto; border:1px solid var(--dlg-line); border-radius:16px; padding:20px; }
