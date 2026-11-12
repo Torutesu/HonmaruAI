@@ -111,7 +111,7 @@ export async function autoBuild(env, { orgId, resolved, row, user, members, loca
   // A reply in a thread is part of a conversation already under way.
   if (row.parent_id) return { started: false, why: "reply" };
   const db = env.DB;
-  const t = await loadTeammate(db, orgId, TEAMMATE).catch(() => null);
+  const t = await loadTeammate(db, orgId, TEAMMATE, env).catch(() => null);
   if (!t?.enabled || !t.agentId || !canSignIn(t) || t.autoBuild === false) return { started: false, why: "off" };
   if (t.channels && resolved.key.startsWith("b:") && !t.channels.includes(resolved.key)) return { started: false, why: "not-here" };
 

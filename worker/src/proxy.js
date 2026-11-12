@@ -314,7 +314,7 @@ export async function runProxy(env, { orgId, rowId, owner: ownerLogin, locale = 
 
   // Code: the workspace's teammate, which has the repositories.
   if (decided.act === "code" && proxy.useTeammate) {
-    const t = await loadTeammate(db, orgId, CODE_TEAMMATE).catch(() => null);
+    const t = await loadTeammate(db, orgId, CODE_TEAMMATE, env).catch(() => null);
     if (t?.enabled && t.agentId && canSignIn(t) && !(t.channels && row.channel.startsWith("b:") && !t.channels.includes(row.channel))) {
       await settleUsage(db, provider, { orgId, githubId: owner.github_id });
       try {

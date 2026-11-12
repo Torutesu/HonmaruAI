@@ -4,8 +4,10 @@ import { roomHookAgentAllowed } from './harness/roomHookAgentAccess.js';
 import Anthropic from "@anthropic-ai/sdk";
 import { withRoomGuidelinesRequest } from "./harness/guidelines.js";
 import { handleTaken } from "./customAgents.js";
-import { aad, openField, sealField } from "./secrets.js";
+import { aad, openField, sealField, useSecretKey } from "./secrets.js";
 import { enqueueAcpExecution } from "./harness/executions.js";
+import { validEndpoint } from "./webhooks.js";
+import { currentOrigin } from "./requestContext.js";
 
 // AI teammates: coding agents working in the workspace's channels the way
 // Claude Tag works in Slack. An admin sets one up once, with an API key from
@@ -78,6 +80,12 @@ export const PROVIDERS = {
     keyHint: "", keySource: "", models: [], defaultModel: null,
     unit: "task", minLeft: 100, defaultLimit: 20000, keyless: true, localGateway: true,
   },
+  "grok-bot": {
+    name: "Grok Bot", handle: "grok-bot", emoji: "𝕏", company: "Grok Bot",
+    keyHint: "", keySource: "",
+    models: [], defaultModel: null, unit: "task", minLeft: 100, defaultLimit: 20000,
+    keyless: true, webhookBot: true,
+  },
 };
 
 const ENV_NAME = /^[A-Z][A-Z0-9_]{1,63}$/;
@@ -92,9 +100,14 @@ const STALE_MS = 6 * 60 * 60 * 1000;
 
 const parse = (text, fallback) => { try { return text ? JSON.parse(text) : fallback; } catch { return fallback; } };
 
-export async function loadTeammate(db, orgId, provider) {
+export async function loadTeammate(db, orgId, provider, env = null) {
+  if (env) useSecretKey(env);
   const row = await db.prepare("SELECT * FROM ai_teammates WHERE org_id = ?1 AND provider = ?2").bind(orgId, provider).first().catch(() => null);
   if (!row) return null;
+  const remote = parse(row.remote, {});
+  if (PROVIDERS[provider]?.webhookBot && remote.webhookUrl) {
+    remote.webhookUrl = await openField(remote.webhookUrl, aad.teammate(orgId, provider, "webhook_url"), orgId);
+  }
   return {
     orgId: row.org_id, provider: row.provider, enabled: Boolean(row.enabled),
     apiKey: (await openField(row.api_key, aad.teammate(orgId, provider, "api_key"), orgId)) || null,
@@ -102,14 +115,14 @@ export async function loadTeammate(db, orgId, provider) {
     repos: parse(row.repos, []), model: row.model || PROVIDERS[provider]?.defaultModel || null,
     instructions: row.instructions || "", channels: parse(row.channels, null),
     monthlyLimitCents: row.monthly_limit_cents == null ? null : Number(row.monthly_limit_cents),
-    tools: parse(row.tools, []), remote: parse(row.remote, {}), agentId: row.agent_id || null,
+    tools: parse(row.tools, []), remote, agentId: row.agent_id || null,
     autoBuild: row.auto_build == null ? true : Boolean(row.auto_build),
     updatedBy: row.updated_by || null, updatedAt: row.updated_at || null,
   };
 }
 
 /// Whether it has what it signs in with: its key, or for Codex, GitHub's.
-export const canSignIn = (t) => Boolean(t && (PROVIDERS[t.provider]?.localGateway ? t.remote?.gatewayId && t.remote?.agentKey : PROVIDERS[t.provider]?.keyless ? t.githubToken : t.apiKey));
+export const canSignIn = (t) => Boolean(t && (PROVIDERS[t.provider]?.localGateway ? t.remote?.gatewayId && t.remote?.agentKey : PROVIDERS[t.provider]?.webhookBot ? t.remote?.webhookUrl && t.apiKey : PROVIDERS[t.provider]?.keyless ? t.githubToken : t.apiKey));
 
 /// What it has used this month (UTC), in hundredths of its unit: every run's.
 export async function spentThisMonth(db, orgId, provider, now = new Date()) {
@@ -120,16 +133,17 @@ export async function spentThisMonth(db, orgId, provider, now = new Date()) {
 }
 
 /// A teammate as the setup screen sees it: never a key, only whether one is set.
-export function toClientTeammate(t, provider, spentCents = 0) {
+export function toClientTeammate(t, provider, spentCents = 0, canRevealWebhookUrl = false) {
   const p = PROVIDERS[provider];
   return {
     provider, name: p.name, handle: p.handle, emoji: p.emoji, company: p.company, keyHint: p.keyHint, keySource: p.keySource,
     models: p.models, freeModel: Boolean(p.freeModel), unit: p.unit,
-    needs: { apiKey: !p.keyless, githubToken: Boolean(p.githubToken), tools: Boolean(p.tools), account: Boolean(p.account), repos: Boolean(p.reposRequired), gateway: Boolean(p.localGateway), agent: Boolean(p.localGateway) },
-    hasKey: Boolean(p.localGateway ? t?.remote?.gatewayId && t?.remote?.agentKey : p.keyless ? t?.githubToken : t?.apiKey),
+    needs: { apiKey: !p.keyless, githubToken: Boolean(p.githubToken), tools: Boolean(p.tools), account: Boolean(p.account), repos: Boolean(p.reposRequired), gateway: Boolean(p.localGateway), agent: Boolean(p.localGateway), webhookBot: Boolean(p.webhookBot) },
+    hasKey: Boolean(p.localGateway ? t?.remote?.gatewayId && t?.remote?.agentKey : p.webhookBot ? t?.remote?.webhookUrl && t?.apiKey : p.keyless ? t?.githubToken : t?.apiKey),
     enabled: Boolean(t?.enabled), hasApiKey: Boolean(t?.apiKey), hasGithubToken: Boolean(t?.githubToken),
     account: t?.remote?.account || "",
     gatewayId: t?.remote?.gatewayId || "", agentKey: t?.remote?.agentKey || "",
+    webhookUrl: canRevealWebhookUrl ? (t?.remote?.webhookUrl || "") : "",
     workspaceTools: Boolean(t?.remote?.workspaceTools),
     repos: t?.repos || [], model: t?.model || p.defaultModel || "", instructions: t?.instructions || "",
     channels: t?.channels ?? null,
@@ -156,7 +170,13 @@ function cleanInput(input, current, provider) {
     out.agentKey = agentKey || null;
     out.workspaceTools = input.workspaceTools === undefined ? Boolean(current?.remote?.workspaceTools) : input.workspaceTools;
   }
-  if (!p.keyless && typeof input.apiKey === "string") out.apiKey = input.apiKey.trim() || null;
+  if (p.webhookBot && input.webhookUrl !== undefined) {
+    const raw = String(input.webhookUrl || "").trim();
+    const endpoint = raw ? validEndpoint(raw) : null;
+    if (raw && !endpoint) return { error: "Use the public HTTPS webhook URL shown by your Grok Bot routine." };
+    out.webhookUrl = endpoint;
+  }
+  if ((!p.keyless || p.webhookBot) && typeof input.apiKey === "string") out.apiKey = input.apiKey.trim() || null;
   if (p.githubToken && typeof input.githubToken === "string") out.githubToken = input.githubToken.trim() || null;
   if (p.account && typeof input.account === "string") {
     const account = input.account.trim();
@@ -652,7 +672,122 @@ const acp = {
   },
 };
 
-const ADAPTERS = { claude, devin, cursor, codex, acp, hermes: acp, "grok-build": acp, "antigravity-cli": acp };
+const GROK_CALLBACK_TTL_MS = 24 * 60 * 60 * 1000;
+const GROK_RUN_LIMIT_MS = 60 * 60 * 1000;
+const toHex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+const sha256 = async (value) => toHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+function randomBearer() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function grokCallback(env, orgId) {
+  const id = crypto.randomUUID();
+  const token = randomBearer();
+  const now = Date.now();
+  await env.DB.prepare(`DELETE FROM hx_grok_bot_callbacks WHERE org_id=?2 AND id IN (
+    SELECT id FROM hx_grok_bot_callbacks WHERE org_id=?2 AND expires_at < ?1 ORDER BY expires_at LIMIT 100
+  )`).bind(now - 7 * 24 * 60 * 60 * 1000, orgId).run().catch(() => {});
+  await env.DB.prepare(`INSERT INTO hx_grok_bot_callbacks (id,org_id,token_hash,status,expires_at,created_at)
+    VALUES (?1,?2,?3,'pending',?4,?5)`).bind(id, orgId, await sha256(token), now + GROK_CALLBACK_TTL_MS, now).run();
+  return { id, token };
+}
+function callbackOrigin(env) {
+  let url;
+  try { url = new URL(String(env.API_ORIGIN || currentOrigin() || "")); } catch { return null; }
+  if (url.protocol !== "https:" || url.username || url.password) return null;
+  return url.origin;
+}
+async function startGrokBot(t, task, { env, orgId, context = [] }) {
+  const webhookUrl = validEndpoint(t.remote?.webhookUrl);
+  const origin = callbackOrigin(env);
+  if (!webhookUrl) throw new Error(t.remote?.webhookUrl ? "Grok Bot webhook URL is invalid." : `Grok Bot webhook URL is unavailable for ${t.provider} (${Object.keys(t.remote || {}).join(",")}).`);
+  if (!t.apiKey) throw new Error("Grok Bot webhook key is unavailable.");
+  if (!origin) throw new Error("Grok Bot callback origin is not configured.");
+  const callback = await grokCallback(env, orgId);
+  const body = JSON.stringify({
+    task_id: callback.id,
+    task: String(task || "").slice(0, 48000),
+    ...(context.length ? { context: context.slice(-20).map((item) => typeof item === "string" ? { text: item.slice(0, 4000) } : ({ role: String(item.role || "").slice(0, 20), text: String(item.text || item.body || "").slice(0, 4000) })) } : {}),
+    callback: { url: `${origin}/teammates/grok-bot/callback/${callback.id}`, token: callback.token },
+  });
+  if (new TextEncoder().encode(body).byteLength > 65536) {
+    await env.DB.prepare("DELETE FROM hx_grok_bot_callbacks WHERE id=?1 AND org_id=?2 AND status='pending'").bind(callback.id, orgId).run();
+    throw new Error("Grok Bot task is too large.");
+  }
+  try {
+    const response = await fetch(webhookUrl, {
+      method: "POST", redirect: "manual", signal: AbortSignal.timeout(8000),
+      headers: { authorization: `Bearer ${t.apiKey}`, "content-type": "application/json", accept: "application/json" }, body,
+    });
+    if (response.status !== 200) {
+      await env.DB.prepare("DELETE FROM hx_grok_bot_callbacks WHERE id=?1 AND org_id=?2 AND status='pending'").bind(callback.id, orgId).run();
+      throw new Error("Grok Bot routine did not accept the request.");
+    }
+  } catch (error) {
+    // Do not retry: a timeout can happen after the routine accepted work.
+    // There is no durable run row yet, so revoke its one-time callback token.
+    await env.DB.prepare("UPDATE hx_grok_bot_callbacks SET status='orphaned' WHERE id=?1 AND org_id=?2 AND status='pending'").bind(callback.id, orgId).run().catch(() => {});
+    throw error;
+  }
+  return { remoteId: callback.id, turn: null, tasks: 1 };
+}
+const grokBot = {
+  async start(t, { task, orgId, env }) { return startGrokBot(t, task, { env, orgId }); },
+  async send(t, run, task, { orgId, env, context = [] } = {}) {
+    const started = await startGrokBot(t, task, { env, orgId, context });
+    await env.DB.prepare("UPDATE hx_grok_bot_callbacks SET status='orphaned' WHERE id=?1 AND org_id=?2 AND status='pending'").bind(run.remote_id, run.org_id).run().catch(() => {});
+    return started;
+  },
+  async read(_t, run, { env } = {}) {
+    const row = await env.DB.prepare(`SELECT status,result,error,expires_at FROM hx_grok_bot_callbacks
+      WHERE id=?1 AND org_id=?2`).bind(run.remote_id, run.org_id).first().catch(() => null);
+    if (!row || row.status === "cancelled" || row.status === "orphaned") return { texts: [], stop: "terminated", last: null, error: "Grok Bot run is no longer available.", costCents: null };
+    if (row.status === "pending") {
+      if (Date.now() > Number(row.expires_at) || Date.now() - Date.parse(run.updated_at) > GROK_RUN_LIMIT_MS) {
+        await env.DB.prepare("UPDATE hx_grok_bot_callbacks SET status='orphaned' WHERE id=?1 AND org_id=?2 AND status='pending'").bind(run.remote_id, run.org_id).run();
+        return { texts: [], stop: "terminated", last: null, error: "Grok Bot did not finish before the run deadline.", costCents: null };
+      }
+      return { texts: [], stop: null, last: null, costCents: null };
+    }
+    if (row.status !== "succeeded" || !row.result) return { texts: [], stop: "terminated", last: null, error: row.error || "Grok Bot run failed.", costCents: null };
+    return { texts: [String(row.result).slice(0, 16000)], stop: "end_turn", last: null, error: null, costCents: null };
+  },
+  async cancel(_t, run, { env } = {}) {
+    const result = await env.DB.prepare(`UPDATE hx_grok_bot_callbacks SET status='cancelled',result=NULL,error='Cancelled in Honmaru'
+      WHERE id=?1 AND org_id=?2 AND status='pending'`).bind(run.remote_id, run.org_id).run();
+    return { status: result.meta?.changes ? "requested" : "already_finished" };
+  },
+};
+
+export async function handleGrokBotCallback(request, env, callbackId) {
+  if (request.method !== "POST" || !/^[0-9a-f-]{36}$/.test(String(callbackId))) return Response.json({ message: "Not found." }, { status: 404 });
+  const auth = String(request.headers.get("authorization") || "");
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) return Response.json({ message: "Unauthorized." }, { status: 401 });
+  // The callback id is a random, globally unique UUID; this first lookup only
+  // resolves its workspace so the subsequent compare-and-set is org-scoped.
+  const row = await env.DB.prepare(`SELECT org_id,token_hash,status,expires_at FROM hx_grok_bot_callbacks WHERE id=?1`).bind(callbackId).first().catch(() => null);
+  if (!row || row.status !== "pending" || Date.now() > Number(row.expires_at) || await sha256(token) !== row.token_hash) return Response.json({ message: "Unauthorized." }, { status: 401 });
+  const length = Number(request.headers.get("content-length") || 0);
+  if (length > 20000) return Response.json({ message: "Payload too large." }, { status: 413 });
+  let input;
+  try {
+    const raw = await request.text();
+    if (new TextEncoder().encode(raw).byteLength > 20000) return Response.json({ message: "Payload too large." }, { status: 413 });
+    input = JSON.parse(raw);
+  } catch { return Response.json({ message: "Invalid JSON." }, { status: 400 }); }
+  if (!input || input.task_id !== callbackId || !["succeeded", "failed"].includes(input.status)) return Response.json({ message: "Invalid result." }, { status: 400 });
+  const result = input.status === "succeeded" && typeof input.text === "string" ? input.text.trim().slice(0, 16000) : null;
+  const error = input.status === "failed" && typeof input.error === "string" ? input.error.trim().slice(0, 1000) : null;
+  if (input.status === "succeeded" && !result) return Response.json({ message: "A completed result needs text." }, { status: 400 });
+  const saved = await env.DB.prepare(`UPDATE hx_grok_bot_callbacks SET status=?2,result=?3,error=?4,completed_at=?5
+    WHERE id=?1 AND org_id=?6 AND token_hash=?7 AND status='pending' AND expires_at>?5`)
+    .bind(callbackId, input.status, result, error, Date.now(), row.org_id, await sha256(token)).run();
+  if (!saved.meta?.changes) return Response.json({ message: "Run already completed or expired." }, { status: 409 });
+  return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+}
+
+const ADAPTERS = { claude, devin, cursor, codex, acp, hermes: acp, "grok-build": acp, "antigravity-cli": acp, "grok-bot": grokBot };
 
 /// The one custom agent that answers to @claude (or @devin, @cursor) here,
 /// made or hidden.
@@ -683,7 +818,7 @@ async function ensureAgentRow(db, orgId, provider, login, on, existingId, member
 export async function saveTeammate(env, orgId, provider, input, { login, workspaceName, members = [] }) {
   const p = PROVIDERS[provider];
   if (!p) return { error: "Unknown teammate." };
-  const current = await loadTeammate(env.DB, orgId, provider);
+  const current = await loadTeammate(env.DB, orgId, provider, env);
   const { out, error } = cleanInput(input || {}, current, provider);
   if (error) return { error };
   const next = {
@@ -692,10 +827,11 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
     channels: current ? current.channels : null, monthlyLimitCents: current ? current.monthlyLimitCents : p.defaultLimit,
     tools: current?.tools || [], remote: current?.remote || {}, agentId: current?.agentId || null,
     autoBuild: current ? current.autoBuild !== false : true,
-    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools"].includes(k))),
+    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools", "webhookUrl"].includes(k))),
   };
   if (out.account !== undefined) next.remote = { ...next.remote, account: out.account };
   if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey, workspaceTools: out.workspaceTools === true };
+  if (p.webhookBot && out.webhookUrl !== undefined) next.remote = { ...next.remote, webhookUrl: out.webhookUrl };
   if (p.githubToken && !p.keyless && next.repos.length && !next.githubToken) return { error: `Add a GitHub token so ${p.name} can reach the repositories.` };
   let toolChanges = { kept: next.tools, written: [], removed: [] };
   if (out.tools) {
@@ -712,6 +848,8 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
       const node = await env.DB.prepare(`SELECT g.id FROM hx_gateways g JOIN hx_gateway_acp_agents a ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
         WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL AND g.last_seen_at>?4`).bind(orgId, next.remote.gatewayId, next.remote.agentKey, Date.now()-90000).first();
       if (!node) return { error: "That execution node is offline or does not advertise this local ACP agent key." };
+    } else if (p.webhookBot) {
+      if (!next.remote.webhookUrl || !next.apiKey) return { error: "Add the public HTTPS webhook URL and key from your Grok Bot routine." };
     } else {
       if (p.keyless ? !next.githubToken : !next.apiKey) return { error: p.keyless ? `Add a GitHub token that can push to the repository ${p.name} works in.` : `Paste an API key from ${p.keySource} first.` };
       try {
@@ -732,6 +870,10 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
     next.tools = toolChanges.kept;
   }
   next.agentId = await ensureAgentRow(env.DB, orgId, provider, login, next.enabled, next.agentId, members);
+  const storedRemote = { ...next.remote };
+  if (p.webhookBot && storedRemote.webhookUrl) {
+    storedRemote.webhookUrl = await sealField(storedRemote.webhookUrl, aad.teammate(orgId, provider, "webhook_url"), orgId);
+  }
   await env.DB.prepare(
     `INSERT INTO ai_teammates (org_id, provider, enabled, api_key, github_token, repos, model, instructions, channels, monthly_limit_cents, tools, remote, agent_id, updated_by, updated_at, auto_build)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
@@ -742,17 +884,17 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
   ).bind(
     orgId, provider, next.enabled ? 1 : 0,
     await sealField(next.apiKey, aad.teammate(orgId, provider, "api_key"), orgId), await sealField(next.githubToken, aad.teammate(orgId, provider, "github_token"), orgId), JSON.stringify(next.repos), next.model, next.instructions,
-    next.channels === null ? null : JSON.stringify(next.channels), next.monthlyLimitCents, JSON.stringify(next.tools), JSON.stringify(next.remote),
+    next.channels === null ? null : JSON.stringify(next.channels), next.monthlyLimitCents, JSON.stringify(next.tools), JSON.stringify(storedRemote),
     next.agentId, login, new Date().toISOString(), next.autoBuild ? 1 : 0,
   ).run();
-  return { teammate: await loadTeammate(env.DB, orgId, provider) };
+  return { teammate: await loadTeammate(env.DB, orgId, provider, env) };
 }
 
 /// The teammate behind a custom agent row, when it is one.
-export async function teammateForAgent(db, orgId, agent) {
+export async function teammateForAgent(db, orgId, agent, env = null) {
   const provider = agent?.provider;
   if (!provider || !PROVIDERS[provider]) return null;
-  const t = await loadTeammate(db, orgId, provider);
+  const t = await loadTeammate(db, orgId, provider, env);
   return t && t.enabled && t.agentId === agent.id ? t : null;
 }
 
@@ -818,7 +960,7 @@ export async function cancelAssignedTeammateRuns(env, {orgId, assignmentId, gene
   for (const run of results) {
     const adapter = ADAPTERS[run.provider];
     if (!adapter?.cancel) { outcomes.push("unsupported"); continue; }
-    const teammate = await loadTeammate(env.DB, orgId, run.provider).catch(() => null);
+    const teammate = await loadTeammate(env.DB, orgId, run.provider, env).catch(() => null);
     if (!teammate || !canSignIn(teammate)) { outcomes.push("unavailable"); continue; }
     try {
       outcomes.push((await adapter.cancel(teammate, run,{env})).status);
