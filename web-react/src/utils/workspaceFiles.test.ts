@@ -67,6 +67,28 @@ test('external grants send view/edit permission and revocation keeps credentials
 
 test('external file name search scopes results to the selected file and can grant by account id',async()=>{const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({people:[{githubId:'u-1',login:'ari',name:'Ari'}]}))).mockResolvedValueOnce(new Response(JSON.stringify({grant:{recipientGithubId:'u-1'},redemptionPath:'/external/files/org/file'})));vi.stubGlobal('fetch',fetcher);const api=workspaceFileApi('https://api.example','org','session');await expect(api.searchExternalCollaborators('file/one','Ari')).resolves.toEqual({people:[{githubId:'u-1',login:'ari',name:'Ari'}]});expect(fetcher.mock.calls[0][0]).toContain('/external/collaborators/search?resourceType=file&resourceId=file%2Fone&q=Ari&orgId=org');await api.grantExternal('file/one',{githubId:'u-1'},'view',7);expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({recipientGithubId:'u-1',permission:'view',expiresInDays:7})})
 
+test('external file permission changes use a scoped authenticated PATCH',async()=>{
+ const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify({updated:true,recipientGithubId:'u-1',permission:'edit',expiresAt:null})))
+ vi.stubGlobal('fetch',fetcher)
+ const api=workspaceFileApi('https://api.example','org','session')
+ await api.updateExternalGrant('file/one','u-1','edit',null)
+ expect(fetcher.mock.calls[0][0]).toBe('https://api.example/hx/files/file%2Fone/external-grants/u-1?orgId=org')
+ expect(fetcher.mock.calls[0][1].method).toBe('PATCH')
+ expect(fetcher.mock.calls[0][1].headers['x-session-token']).toBe('session')
+ expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({permission:'edit',expiresAt:null})
+})
+
+test('external File invitation changes keep access expiry distinct from invite expiry',async()=>{
+ const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify({updated:true,inviteId:'invite-1',permission:'edit',accessExpiresAt:null})))
+ vi.stubGlobal('fetch',fetcher)
+ const api=workspaceFileApi('https://api.example','org','session')
+ await api.updateExternalInvite('file/one','invite-1','edit',null)
+ expect(fetcher.mock.calls[0][0]).toBe('https://api.example/hx/files/file%2Fone/external-grant-invites/invite-1?orgId=org')
+ expect(fetcher.mock.calls[0][1].method).toBe('PATCH')
+ expect(fetcher.mock.calls[0][1].headers['x-session-token']).toBe('session')
+ expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({permission:'edit',accessExpiresAt:null})
+})
+
 test('external File invitation API returns a one-time redeem link and can revoke the invitation',async()=>{
  const fetcher=vi.fn()
   .mockResolvedValueOnce(new Response(JSON.stringify({canManage:true,invites:[]})))

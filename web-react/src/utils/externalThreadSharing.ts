@@ -132,6 +132,11 @@ export async function revokeExternalThreadInvitation(api: Client, threadId: stri
   return value.revoked===true
 }
 
+export async function updateExternalThreadInvitation(api: Client, threadId: string, invitationId: string, input: { permission: 'view'|'edit'; accessExpiresAt: string|null }): Promise<boolean> {
+  const value=await request<{updated?:boolean}>(api,threadId,'PATCH',input,undefined,`invites/${encodeURIComponent(invitationId)}`)
+  return value.updated===true
+}
+
 export async function listExternalThreadLinkShares(api:Client,threadId:string,signal?:AbortSignal):Promise<ExternalThreadLinkShare[]> {
   const value=await request<{links?:ExternalThreadLinkShare[]}>(api,threadId,'GET',undefined,signal,'links')
   if(!Array.isArray(value.links)) throw new ExternalThreadShareError('The link service returned an invalid list.',502)

@@ -79,6 +79,39 @@ async function handleFileInviteRoutes(request,env,url,{orgId,userId},route) {
    return json({invite:{id,invitedEmail:email,permission,accessExpiresAt,createdAt,expiresAt,token,inviteUrl,emailDelivery,redeemedAt:null,revokedAt:null}},201);
   }catch(error){return json({message:error instanceof Error?error.message:'Could not create a File invitation.'},400)}
  }
+ if(request.method==='PATCH'&&route.inviteId){
+  const input=await request.json().catch(()=>null);
+  const permission=input?.permission==='edit'?'edit':input?.permission==='view'?'view':null;
+  if(!permission)return json({message:'Choose view or edit access.'},400);
+  if(!input||!Object.hasOwn(input,'accessExpiresAt'))return json({message:'Choose an access expiry.'},400);
+  let accessExpiresAt=null;
+  if(input.accessExpiresAt!==null){
+   const parsed=typeof input.accessExpiresAt==='string'?Date.parse(input.accessExpiresAt):NaN;
+   if(!Number.isFinite(parsed)||parsed<=Date.now())return json({message:'Access expiry must be a future timestamp or no expiry.'},400);
+   accessExpiresAt=new Date(parsed).toISOString();
+  }
+  const now=new Date().toISOString();
+  const result=await db.prepare(`UPDATE hx_external_file_invites_v2
+   SET permission=?1,access_expires_at=?2
+   WHERE org_id=?3 AND file_id=?4 AND id=?5 AND redeemed_at IS NULL AND redemption_id IS NULL
+     AND revoked_at IS NULL AND expires_at>?6
+     AND NOT EXISTS(SELECT 1 FROM users recipient JOIN memberships recipientMember
+       ON recipientMember.org_id=?3 AND recipientMember.user_github_id=recipient.github_id
+       WHERE lower(trim(COALESCE(recipient.email,'')))=lower(trim(hx_external_file_invites_v2.invited_email)))
+     AND EXISTS(SELECT 1 FROM hx_workspace_files f
+       JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version AND v.kind='content'
+       WHERE f.org_id=?3 AND f.id=?4 AND f.current_version>0
+         AND (f.created_by=?7 OR EXISTS(SELECT 1 FROM memberships manager WHERE manager.org_id=f.org_id AND manager.user_github_id=?7 AND lower(manager.role) IN ('owner','admin')))
+         AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=f.org_id AND p.file_id=f.id AND p.version=f.current_version)
+         AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=f.org_id AND d.purge_started_at IS NOT NULL)
+         AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=f.org_id)
+         AND NOT EXISTS(SELECT 1 FROM hx_room_access removed WHERE removed.org_id=f.org_id AND removed.channel=f.scope AND removed.deleted_at IS NOT NULL)
+         AND (substr(f.scope,1,2)!='b:' OR EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=f.org_id AND 'b:'||b.slug=f.scope AND b.archived_at IS NULL))
+         AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=f.org_id AND s.mode='harness'))`)
+   .bind(permission,accessExpiresAt,orgId,route.fileId,route.inviteId,now,String(userId)).run();
+  if(Number(result?.meta?.changes||0)!==1)return json({message:'An eligible unredeemed File invitation was not found.'},404);
+  return json({updated:true,inviteId:route.inviteId,permission,accessExpiresAt});
+ }
  if(request.method==='DELETE'&&route.inviteId){
   const at=new Date().toISOString();
   const results=await db.batch([
@@ -210,6 +243,38 @@ export async function handleExternalFileGrantRoutes(request, env, url, { orgId, 
       if(!grant)return json({message:'Workspace membership or account verification changed. Reload and retry.'},409);
       return json({grant:{id:grant.id,recipientGithubId:String(recipient.githubId),recipientLogin:recipient.login,recipientEmail:recipient.email,permission,grantedAt:at,expiresAt,revokedAt:null},redemptionPath:'/external/files/'+encodeURIComponent(orgId)+'/'+encodeURIComponent(route.fileId)},201);
     }catch(error){return json({message:error instanceof Error?error.message:'Could not grant file access.'},400)}
+  }
+  if(request.method==='PATCH'&&route.recipientId){
+    const input=await request.json().catch(()=>null);
+    const permission=input?.permission==='edit'?'edit':input?.permission==='view'?'view':null;
+    if(!permission)return json({message:'Choose view or edit access.'},400);
+    if(!input||!Object.hasOwn(input,'expiresAt'))return json({message:'Choose an access expiry.'},400);
+    let expiresAt=null;
+    if(input.expiresAt!==null){
+      const parsed=typeof input.expiresAt==='string'?Date.parse(input.expiresAt):NaN;
+      if(!Number.isFinite(parsed)||parsed<=Date.now())return json({message:'Access expiry must be a future timestamp or no expiry.'},400);
+      expiresAt=new Date(parsed).toISOString();
+    }
+    const now=new Date().toISOString();
+    const result=await db.prepare(`UPDATE hx_external_resource_grants
+      SET permission=?1,expires_at=?2
+      WHERE org_id=?3 AND resource_type='file' AND resource_id=?4 AND recipient_github_id=?5
+        AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?6)
+        AND EXISTS(SELECT 1 FROM users recipient WHERE recipient.github_id=?5 AND recipient.email_verified_at IS NOT NULL)
+        AND NOT EXISTS(SELECT 1 FROM memberships recipientMember WHERE recipientMember.org_id=?3 AND recipientMember.user_github_id=?5)
+        AND EXISTS(SELECT 1 FROM hx_workspace_files f
+          JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version AND v.kind='content'
+          WHERE f.org_id=?3 AND f.id=?4 AND f.current_version>0
+            AND (f.created_by=?7 OR EXISTS(SELECT 1 FROM memberships manager WHERE manager.org_id=f.org_id AND manager.user_github_id=?7 AND lower(manager.role) IN ('owner','admin')))
+            AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=f.org_id AND p.file_id=f.id AND p.version=f.current_version)
+            AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=f.org_id AND d.purge_started_at IS NOT NULL)
+            AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=f.org_id)
+            AND NOT EXISTS(SELECT 1 FROM hx_room_access removed WHERE removed.org_id=f.org_id AND removed.channel=f.scope AND removed.deleted_at IS NOT NULL)
+            AND (substr(f.scope,1,2)!='b:' OR EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=f.org_id AND 'b:'||b.slug=f.scope AND b.archived_at IS NULL))
+            AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=f.org_id AND s.mode='harness'))`)
+      .bind(permission,expiresAt,orgId,route.fileId,route.recipientId,now,String(userId)).run();
+    if(Number(result?.meta?.changes||0)!==1)return json({message:'An active File collaborator was not found.'},404);
+    return json({updated:true,recipientGithubId:route.recipientId,permission,expiresAt});
   }
   if(request.method==='DELETE'&&route.recipientId){
     const changes=await revokeExternalResource(db,{orgId,resourceType:'file',resourceId:route.fileId,recipientGithubId:route.recipientId,revokedBy:String(userId)});

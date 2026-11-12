@@ -12,5 +12,6 @@
 .app-guest-approvals li, .app-guest-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--border, #dfe3e8); border-radius: 9px; color: var(--text, #252a31); }
 .app-guest-approvals li > span, .app-guest-list li > span:first-child { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .app-guest-list li > span { color: var(--muted, #747b86); font-size: 12px; }
+.app-guest-list label { display: grid; gap: 4px; color: var(--muted, #747b86); font-size: 12px; }
 .app-guest-sharing button:disabled, .app-guest-sharing select:disabled { opacity: .55; }
 @media (max-width: 700px) { .app-guest-invite { grid-template-columns: 1fr; } .app-guest-approvals li, .app-guest-list li { align-items: stretch; } }

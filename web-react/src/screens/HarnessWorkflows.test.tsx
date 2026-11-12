@@ -20,6 +20,7 @@ beforeEach(() => {
     workflowSource: vi.fn().mockResolvedValue({source:{threadId:'thread_source',channel:'b:ops',body:'Create an automation',createdAt:'2026-10-20T00:00:00.000Z'},canBind:false,candidates:[],nextCursor:null}),
     recoverWorkflowRun: vi.fn().mockResolvedValue({run:{}}),
     cancelWorkflowRun: vi.fn().mockResolvedValue({run:{}}),
+    archiveWorkflow: vi.fn().mockResolvedValue({workflow}),
     changeWorkflowHook: vi.fn().mockResolvedValue({ workflow: { ...workflow, hookSecret: undefined, hookUrl: undefined } }),
   }
 })
@@ -358,6 +359,44 @@ test('workflow deletion requires confirmation and cancellation preserves the wor
   await act(async () => { await button('Delete workflow').props.onClick() })
   expect(state.api.deleteWorkflow).toHaveBeenCalledWith(workflow.id)
   expect(tree.root.findAllByProps({ 'data-workflow': workflow.id })).toHaveLength(0)
+})
+
+test('archiving is separate from deletion, keeps history visible, and requires confirmation',async()=>{
+ const archived={...workflow,enabled:false,archivedAt:'2026-11-01T00:00:00Z',archivedPreviousEnabled:true}
+ state.api.deleteWorkflow=vi.fn()
+ state.api.archiveWorkflow=vi.fn().mockResolvedValue({workflow:archived})
+ await open()
+ state.api.workflows.mockResolvedValue({workflows:[archived]})
+ state.api.workflow.mockResolvedValue({workflow:archived,canEdit:true,runs:[{id:'kept',status:'done',trigger:'manual',startedAt:'2026-10-30T00:00:00Z',log:[]}],summary:emptySummary})
+ await act(async()=>button('Archive').props.onClick())
+ expect(state.api.archiveWorkflow).not.toHaveBeenCalled()
+ expect(JSON.stringify(tree.toJSON())).toContain('Running or approval-waiting runs must be resolved first.')
+ await act(async()=>button('Archive automation').props.onClick())
+ expect(state.api.archiveWorkflow).toHaveBeenCalledWith(workflow.id,true,workflow.updatedAt)
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain('This automation is archived.')
+ expect(text).toContain('Its definition and run history are retained.')
+ expect(text).toContain('kept')
+ expect(state.api.deleteWorkflow).not.toHaveBeenCalled()
+})
+
+test('archived workflows appear in their own list and restoring warns about resumed triggers',async()=>{
+ const archived={...workflow,id:'wf_archived',name:'Archived billing',enabled:false,archivedAt:'2026-11-01T00:00:00Z',archivedPreviousEnabled:true}
+ const restored={...archived,enabled:true,archivedAt:null,archivedPreviousEnabled:false}
+ state.api.workflows.mockResolvedValue({workflows:[workflow,archived]})
+ state.api.workflow.mockResolvedValue({workflow:archived,canEdit:true,runs:[],summary:emptySummary})
+ state.api.archiveWorkflow=vi.fn().mockResolvedValue({workflow:restored})
+ await act(async()=>{tree=create(<HarnessWorkflows {...props}/>)})
+ expect(tree.root.findAllByProps({'data-workflow':workflow.id})).toHaveLength(1)
+ await act(async()=>button('Archived automations').props.onClick())
+ expect(tree.root.findAllByProps({'data-workflow':archived.id})).toHaveLength(1)
+ await act(async()=>tree.root.findByProps({'data-workflow':archived.id}).props.onClick())
+ await act(async()=>button('Restore automation').props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('Restoring this automation will re-enable its previous schedule or trigger.')
+ state.api.workflow.mockResolvedValue({workflow:restored,canEdit:true,runs:[],summary:emptySummary})
+ await act(async()=>button('Confirm restore').props.onClick())
+ expect(state.api.archiveWorkflow).toHaveBeenCalledWith(archived.id,false,workflow.updatedAt)
+ expect(JSON.stringify(tree.toJSON())).not.toContain('This automation is archived.')
 })
 
 test('failed held-payload inspection can retry without replaying the event', async () => {

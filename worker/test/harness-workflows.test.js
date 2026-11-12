@@ -92,6 +92,13 @@ async function addWorkflowRemoteMcpServer(tools, allowedTools) {
   return server;
 }
 
+async function grantWorkflowRemoteMcp(agentId, serverId, enabled = true) {
+  const { setAgentRemoteMcpConnection } = await import('../src/harness/agentRemoteMcp.js');
+  const result = await setAgentRemoteMcpConnection(env, { orgId: ORG, agentId, session: { github_id: '9302' }, serverId, enabled });
+  expect(result.error).toBeUndefined();
+  return result;
+}
+
 function interceptWorkflowRemoteMcp(onCall = null) {
   const endpoint = fetchMock.get('https://workflow-mcp.example.com');
   const message = opts => JSON.parse(opts.body);
@@ -1424,6 +1431,7 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
     { name: 'delete_record', title: 'Delete record', inputSchema: { type: 'object', properties: { id: { type: 'string' } } }, annotations: { destructiveHint: true } },
     { name: 'read_unapproved', title: 'Read unapproved', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
   ], ['search_policy', 'delete_record']);
+  await grantWorkflowRemoteMcp(agent.id, server.id);
   const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
   const { workflow } = await createWorkflow(env.DB, ORG, {
     name: 'Check policy source', trigger: { type: 'manual' },
@@ -1433,7 +1441,6 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
   const remote = fetchMock.get('https://workflow-mcp.example.com');
   const message = opts => JSON.parse(opts.body);
   let remoteToolName = null;
-  let requestAborted = false;
   fetchMock.activate();
   remote.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'initialize' })
     .reply(opts => ({ statusCode: 200, data: { jsonrpc: '2.0', id: message(opts).id, result: { protocolVersion: '2025-06-18' } }, responseOptions: { headers: { 'mcp-session-id': 'workflow-session' } } }));
@@ -1462,25 +1469,25 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
     expect(requests[1].messages.find(message => message.role === 'tool').content).toContain('Workspace policy: keep all keys private.');
     expect(requests[1].messages.find(message => message.role === 'tool').content).not.toContain('delete_record');
     expect(requests[1].messages.find(message => message.role === 'tool').content).not.toContain('read_unapproved');
-    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_agent_remote_mcp_grants WHERE org_id=?1').bind(ORG).first()).n).toBe(0);
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_agent_remote_mcp_grants WHERE org_id=?1').bind(ORG).first()).n).toBe(1);
     expect((await messages(mika)).map(message => message.body)).toContain('The policy says never share keys.');
     expect(result.usage).toMatchObject({ calls: 2, inputTokens: 30, outputTokens: 10, unknownCalls: 0 });
     fetchMock.assertNoPendingInterceptors();
   } finally { fetchMock.deactivate(); }
 
-  // A changed workspace allowlist during the next provider round invalidates
-  // the private MCP context and aborts that request before it can be posted.
-  await env.DB.prepare('UPDATE hx_remote_mcp_servers SET allowed_tools=?1 WHERE org_id=?2 AND id=?3')
-    .bind(JSON.stringify(['search_policy', 'delete_record']), ORG, server.id).run();
+  // Revoking the Agent's personal allow grant during the MCP request discards
+  // its result and prevents the next model round.
   const { workflow: secondWorkflow } = await createWorkflow(env.DB, ORG, {
     name: 'Check policy source again', trigger: { type: 'manual' },
     steps: [{ type: 'agent', agentId: agent.id, channel: 'b:ops', prompt: 'Find the key policy and summarize it.' }],
   }, '9302');
   const priorMessages = await messages(mika);
-  let abortedFetch = false;
   const secondRequests = [];
   fetchMock.activate();
-  interceptWorkflowRemoteMcp();
+  interceptWorkflowRemoteMcp(async () => {
+    await env.DB.prepare('DELETE FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND server_id=?4')
+      .bind(ORG, agent.id, '9302', server.id).run();
+  });
   fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(async opts => {
     const body = JSON.parse(opts.body);
     secondRequests.push(body);
@@ -1488,20 +1495,41 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
       const name = body.tools.find(tool => tool.function.name.startsWith('mcp_')).function.name;
       return { statusCode: 200, data: { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'policy-search-again', type: 'function', function: { name, arguments: JSON.stringify({ query: 'API keys' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 4 } } };
     }
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Workflow model request was not aborted after the Remote MCP allowlist changed.')), 10_000);
-      opts.signal.addEventListener('abort', () => { abortedFetch = true; clearTimeout(timeout); reject(new Error('Workflow model request aborted after the Remote MCP allowlist changed.')); }, { once: true });
-      setTimeout(() => env.DB.prepare('UPDATE hx_remote_mcp_servers SET allowed_tools=?1 WHERE org_id=?2 AND id=?3')
-        .bind('[]', ORG, server.id).run().catch(error => { clearTimeout(timeout); reject(error); }), 10);
-    });
-  }).times(2);
+    throw new Error('The model was called again after the Agent Remote MCP grant was revoked.');
+  }).times(1);
   try {
     const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow: secondWorkflow, trigger: 'manual', startedBy: '9302' });
     expect(result.status).toBe('failed');
     expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
-    expect(abortedFetch).toBe(true);
     expect(await messages(mika)).toHaveLength(priorMessages.length);
-    expect(result.usage).toMatchObject({ calls: 2, unknownCalls: 1, unpricedCalls: 1 });
+    expect(result.usage).toMatchObject({ calls: 1, unknownCalls: 0, unpricedCalls: 0 });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('a Workflow Agent does not receive workspace Remote MCP tools without its personal grant', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'No grant reviewer', handle: 'no-grant-reviewer', instructions: 'Review the request.', scope: 'team',
+  })).json();
+  await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+  ], ['search_policy']);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Do not inherit workspace connection', trigger: { type: 'manual' },
+    steps: [{ type: 'agent', agentId: agent.id, prompt: 'Summarize the release.' }],
+  }, '9302');
+  let requestBody;
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    requestBody = JSON.parse(opts.body);
+    return { choices: [{ message: { content: 'No connection was used.' } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  try {
+    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    expect(result.status).toBe('done');
+    expect(requestBody.tools || []).toEqual([]);
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_agent_remote_mcp_grants WHERE org_id=?1').bind(ORG).first()).n).toBe(0);
     fetchMock.assertNoPendingInterceptors();
   } finally { fetchMock.deactivate(); }
 });
@@ -1511,9 +1539,10 @@ test('a Workflow Agent discards a read-only Remote MCP result when its source Ap
   const { agent } = await (await send('POST', '/channels/agents', mika, {
     orgId: ORG, name: 'App source reviewer', handle: 'app-source-reviewer', instructions: 'Review the changed record.', scope: 'team',
   })).json();
-  await addWorkflowRemoteMcpServer([
+  const remoteServer = await addWorkflowRemoteMcpServer([
     { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
   ], ['search_policy']);
+  await grantWorkflowRemoteMcp(agent.id, remoteServer.id);
   const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
   const { workflow } = await createWorkflow(env.DB, ORG, {
     name: 'Review app record with policy',
@@ -2232,6 +2261,50 @@ test('a maker or admin can cancel a running workflow and fence later steps', asy
   expect((await messages(toru)).map(message => message.body)).not.toContain('Must not post after cancellation');
   const duplicate = await send('POST', `/workflows/${workflow.id}/runs/${runId}/cancel`, toru, { orgId: ORG, expectedStartedAt: startedAt });
   expect(duplicate.status).toBe(409);
+});
+
+test('workflow archive preserves history, disables triggers, blocks new runs, and restores prior schedule state', async () => {
+  const at = new Date(Date.now() + 86400000).toISOString();
+  const created = await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Archive lifecycle', trigger: { type: 'schedule', kind: 'at', at }, steps: [{ type: 'post', channel: 'b:ops', text: 'Keep history' }],
+  });
+  const { workflow } = await created.json();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at,finished_at)
+    VALUES('run-archive-history',?1,?2,'schedule','done','{}','[]',1,'9301',?3,?3)`).bind(ORG, workflow.id, new Date().toISOString()).run();
+
+  const archivedResponse = await send('POST', `/workflows/${workflow.id}/archive`, toru, { orgId: ORG, archived: true, expectedUpdatedAt: workflow.updatedAt });
+  expect(archivedResponse.status).toBe(200);
+  const { workflow: archived } = await archivedResponse.json();
+  expect(archived).toMatchObject({ archivedAt: expect.any(String), archivedPreviousEnabled: true, enabled: false, nextRunAt: null });
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2').bind(ORG, workflow.id).first()).n).toBe(1);
+  const { startRun } = await import('../src/harness/workflows.js');
+  expect(await startRun(env, { orgId: ORG, workflow, trigger: 'manual', input: { text: 'stale pre-archive snapshot' }, startedBy: '9301' })).toBeNull();
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2 AND status='running'").bind(ORG, workflow.id).first()).n).toBe(0);
+  expect((await send('POST', `/workflows/${workflow.id}`, toru, { orgId: ORG, input: { text: 'must not start' } })).status).toBe(409);
+  expect((await send('PUT', `/workflows/${workflow.id}`, toru, { orgId: ORG, name: 'Edit while archived' })).status).toBe(409);
+
+  const restoredResponse = await send('POST', `/workflows/${workflow.id}/archive`, toru, { orgId: ORG, archived: false, expectedUpdatedAt: archived.updatedAt });
+  expect(restoredResponse.status).toBe(200);
+  const { workflow: restored } = await restoredResponse.json();
+  expect(restored).toMatchObject({ archivedAt: null, archivedPreviousEnabled: null, enabled: true });
+  expect(restored.nextRunAt).toBeTruthy();
+  const detail = await (await send('GET', `/workflows/${workflow.id}?${q({ orgId: ORG })}`, toru)).json();
+  expect(detail.runs.map(run => run.id)).toContain('run-archive-history');
+});
+
+test('workflow archive rejects unauthorized callers and active or approval-waiting runs', async () => {
+  const { workflow } = await (await send('POST', '/workflows', toru, {
+    orgId: ORG, name: 'Archive guard', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Guard' }],
+  })).json();
+  expect((await send('POST', `/workflows/${workflow.id}/archive`, mika, { orgId: ORG, archived: true, expectedUpdatedAt: workflow.updatedAt })).status).toBe(403);
+  const startedAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at)
+    VALUES('run-archive-active',?1,?2,'manual','waiting','{}','[]',0,'9301',?3)`).bind(ORG, workflow.id, startedAt).run();
+  const response = await send('POST', `/workflows/${workflow.id}/archive`, toru, { orgId: ORG, archived: true, expectedUpdatedAt: workflow.updatedAt });
+  expect(response.status).toBe(409);
+  expect((await response.json()).message).toContain('approval-waiting');
+  const current = await env.DB.prepare('SELECT archived_at,enabled FROM hx_workflows WHERE org_id=?1 AND id=?2').bind(ORG, workflow.id).first();
+  expect(current).toMatchObject({ archived_at: null, enabled: 1 });
 });
 
 test('cancelling during a later step preserves prior completions and marks only the active step unknown',async()=>{

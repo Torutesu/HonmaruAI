@@ -99,7 +99,7 @@ import { skillMarkdown } from "./skillMarkdown.js";
 import { generateWorkflow, previewWorkflow } from './workflowCreation.js';
 import { respondToRecurringAutomationOffer } from './recurringAutomationOffers.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, listRuns, getRun, workflowRunSummary, startRun, cancelWorkflowRun, recoverStalledRun, TRIGGERS, STEP_TYPES, onRowChange, onRowDelete } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, setWorkflowArchived, listRuns, getRun, workflowRunSummary, startRun, cancelWorkflowRun, recoverStalledRun, TRIGGERS, STEP_TYPES, onRowChange, onRowDelete } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
@@ -222,6 +222,13 @@ export async function handleHarness(request, env, url, context = {}) {
         }
       }else if(request.method==='DELETE'&&externalGrantRoute.ok){
         await audit(env,request,{orgId,action:'workspace.file_external_grant_revoked',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:url.pathname.split('/').at(-1)}});
+      }else if(request.method==='PATCH'&&externalGrantRoute.ok){
+        const result=await externalGrantRoute.clone().json();
+        if(url.pathname.includes('/external-grant-invites/')){
+          await audit(env,request,{orgId,action:'workspace.file_external_invite_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{inviteId:result.inviteId,permission:result.permission,accessExpiresAt:result.accessExpiresAt}});
+        }else{
+          await audit(env,request,{orgId,action:'workspace.file_external_grant_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:result.recipientGithubId,permission:result.permission,expiresAt:result.expiresAt}});
+        }
       }
       return externalGrantRoute;
     }
@@ -738,6 +745,16 @@ export async function handleHarness(request, env, url, context = {}) {
     const wf = await getWorkflow(env.DB, orgId, wfId, { withSecret: true, viewerId: me });
     if (!wf) return json({ message: "No such workflow." }, 404);
     const mine = await mayChange(env, orgId, who, wf.createdBy);
+    if (sub === 'archive' && request.method === 'POST') {
+      if (!mine) return json({ message: 'Only its maker or an admin can archive or restore this workflow.' }, 403);
+      const result = await setWorkflowArchived(env.DB, orgId, wfId, input || {});
+      if (result.error) return fail(result);
+      await audit(env, request, { orgId, action: result.workflow.archivedAt ? 'workflow.archived' : 'workflow.restored', actor: person(who.user), entity: { type: 'workflow', id: wfId, name: wf.name }, details: { enabled: result.workflow.enabled } });
+      return json(result);
+    }
+    if (wf.archivedAt && request.method !== 'GET' && request.method !== 'DELETE') {
+      return json({ message: 'Restore the archived workflow before making changes or starting new work.' }, 409);
+    }
     if(sub==='revisions' && request.method==='GET') {
       const before=url.searchParams.has('before')?Number(url.searchParams.get('before')):undefined;
       const result=await workflowRevisions(env.DB,orgId,wfId,me,{before});
@@ -795,6 +812,7 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if(sub==='resume' && request.method==='POST'){
       if(!mine)return json({message:'Only its maker or an admin can resume this workflow.'},403);
+      if(wf.archivedAt)return json({message:'Restore the archived workflow before resuming it.'},409);
       if(wf.safety?.pause_reason==='room_archived')return json({message:'Restore the source Room to resume this workflow.'},409);
       if(wf.safety?.pause_reason?.startsWith('budget_ai_'))return json({message:'This workflow reached its estimated AI usage limit or has unpriced usage. It can run again after the rolling window resets or after you change its budget.',reason:wf.safety.pause_reason},409);
       if(wf.safety?.pause_reason?.startsWith('budget_'))return json({message:'This workflow can run again on its next trigger after the budget window resets, or as soon as you raise the limit.'},409);

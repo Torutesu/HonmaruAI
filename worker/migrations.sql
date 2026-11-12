@@ -335,6 +335,8 @@ CREATE INDEX IF NOT EXISTS hx_file_account_erasures_due ON hx_file_account_erasu
 ALTER TABLE hx_workflow_held_events ADD COLUMN webhook_event_id TEXT;
 ALTER TABLE hx_workflow_held_events ADD COLUMN payload_hash TEXT;
 ALTER TABLE hx_workflows ADD COLUMN webhook_signature_required INTEGER NOT NULL DEFAULT 0 CHECK(webhook_signature_required IN (0,1));
+ALTER TABLE hx_workflows ADD COLUMN archived_at TEXT;
+ALTER TABLE hx_workflows ADD COLUMN archived_enabled INTEGER CHECK(archived_enabled IS NULL OR archived_enabled IN (0,1));
 CREATE TABLE IF NOT EXISTS hx_workflow_webhook_receipts (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL REFERENCES hx_workflows(id) ON DELETE CASCADE, event_id TEXT NOT NULL, payload_hash TEXT NOT NULL, received_at TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('accepted','held','replayed')), run_id TEXT, held_event_id TEXT, PRIMARY KEY(org_id,workflow_id,event_id));
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_webhook_receipts_expiry ON hx_workflow_webhook_receipts(expires_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_held_webhook_event ON hx_workflow_held_events(org_id,workflow_id,webhook_event_id) WHERE webhook_event_id IS NOT NULL;

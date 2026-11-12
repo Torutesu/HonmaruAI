@@ -65,6 +65,26 @@ test('creates and copies a named expiring invite link, and lists pending invites
  act(()=>tree.unmount())
 })
 
+test('owner can edit pending Thread invite access while preserving the one-time invite expiry',async()=>{
+ const invitation={id:'invite-pending',email:'guest@example.com',permission:'view',createdAt:'2026-11-06T00:00:00Z',expiresAt:'2026-11-13T00:00:00Z',accessExpiresAt:null}
+ const fetch=fetchReplies([empty(),ok({invitations:[invitation]}),noRequests(),noLinks(),ok({updated:true}),empty(),ok({invitations:[invitation]}),noRequests(),noLinks()])
+ vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<ExternalThreadShare api={api} threadId="root" onClose={()=>{}}/>);await flush()})
+ expect(JSON.stringify(tree.toJSON())).toContain('Invite expires')
+ const permission=tree.root.findByProps({'aria-label':'Permission for guest@example.com'})
+ await act(async()=>{permission.props.onChange({target:{value:'edit'}});await flush()})
+ const patch=fetch.mock.calls.find(([url,init])=>String(url).endsWith('/invites/invite-pending')&&init.method==='PATCH')
+ expect(patch).toBeDefined()
+ expect(JSON.parse(patch![1].body!)).toEqual({permission:'edit',accessExpiresAt:null})
+ const expiry=tree.root.findByProps({'aria-label':'Access expiry for guest@example.com'})
+ await act(async()=>{expiry.props.onChange({target:{value:'30'}});await flush()})
+ const patches=fetch.mock.calls.filter(([url,init])=>String(url).endsWith('/invites/invite-pending')&&init.method==='PATCH')
+ expect(JSON.parse(patches[1][1].body!)).toMatchObject({permission:'view'})
+ expect(Date.parse(JSON.parse(patches[1][1].body!).accessExpiresAt)).toBeGreaterThan(Date.now())
+ act(()=>tree.unmount())
+})
+
 test('creates a reusable anyone-with-link share and can revoke the active link',async()=>{
  const link={id:'link-1',permission:'edit',createdAt:'2026-11-06T00:00:00Z',expiresAt:'2026-12-06T00:00:00Z'}
  const fetch=fetchReplies([empty(),noInvites(),noRequests(),noLinks(),ok({created:true,link,inviteUrl:'https://app.example/#/external-invite/token'}),empty(),noInvites(),noRequests(),ok({links:[link]}),ok({revoked:true}),empty(),noInvites(),noRequests(),noLinks()])
