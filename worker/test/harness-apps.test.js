@@ -4,11 +4,18 @@ import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { computeView, normalizeDefinition, specFromPrompt } from "../src/harness/apps.js";
 import { addRow, coerce, deleteRow, normalizeColumns, updateRow } from "../src/harness/tables.js";
+import { validateValues } from '../src/harness/tableContract.js';
 import { joined, message } from "./helpers.js";
 
 test("column schemas reject explicit unsupported types while retaining omitted-type legacy defaults", () => {
   expect(normalizeColumns([{ name: "Name" }]).columns).toMatchObject([{ name: "Name", type: "text" }]);
   expect(normalizeColumns([{ name: "Date", type: "timestamp" }])).toEqual({ error: "Column Date uses an unsupported type." });
+  expect(normalizeColumns([{ name: 'Starts', type: 'datetime' }]).columns).toMatchObject([{type:'datetime'}]);
+  const column={id:'starts',name:'Starts',type:'datetime'};
+  expect(coerce(column,'2028-03-01T09:30:00+09:00')).toBe('2028-03-01T00:30:00.000Z');
+  expect(coerce(column,'2028-02-30T09:30:00Z')).toBeNull();
+  expect(validateValues([column],{starts:'2028-03-01T00:30:00Z'})).toEqual([]);
+  expect(validateValues([column],{starts:'2028-03-01T00:30'})).toHaveLength(1);
 });
 
 // The harness (docs/kylon-gap-plan.md): a workspace's mode, its Tables, and
@@ -603,6 +610,27 @@ test('calendar views validate date columns and retain undated records without ti
   expect(computed.days.map(d => d.date)).toEqual(['2028-02-29', '2029-01-01']);
   expect(computed.undated.map(r => r.id)).toEqual(['empty', 'invalid']);
   expect(normalizeDefinition({ views: [{ type: 'calendar', dateColumn: 'Name' }] }, columns).views[0].type).toBe('table');
+});
+
+test('datetime calendars group instants by the configured IANA timezone and keep date-only values all-day', () => {
+  const columns=[{id:'due',name:'Due',type:'datetime'}];
+  const view=normalizeDefinition({views:[{type:'calendar',dateColumn:'due',timeZone:'America/Los_Angeles',name:'Calendar'}]},columns).views[0];
+  const rows=[
+    {id:'cross-midnight',values:{due:'2028-03-01T00:30:00Z'}},
+    {id:'fold-a',values:{due:'2026-11-01T08:30:00Z'}},
+    {id:'fold-b',values:{due:'2026-11-01T09:30:00Z'}},
+    {id:'spring-before',values:{due:'2026-03-08T09:59:00Z'}},
+    {id:'spring-after',values:{due:'2026-03-08T10:00:00Z'}},
+    {id:'invalid',values:{due:'2028-02-30T09:00:00Z'}},
+    {id:'empty',values:{due:null}},
+  ];
+  const result=computeView(view,{columns},rows);
+  expect(result.days.find(day=>day.date==='2028-02-29')?.rows.map(row=>row.id)).toEqual(['cross-midnight']);
+  expect(result.days.find(day=>day.date==='2026-11-01')?.rows.map(row=>row.id)).toEqual(['fold-a','fold-b']);
+  expect(result.days.find(day=>day.date==='2026-03-08')?.rows.map(row=>row.id)).toEqual(['spring-before','spring-after']);
+  expect(result.undated.map(row=>row.id)).toEqual(['invalid','empty']);
+  const dateColumns=[{id:'day',name:'Day',type:'date'}];
+  expect(computeView(normalizeDefinition({views:[{type:'calendar',dateColumn:'day',timeZone:'America/Los_Angeles'}]},dateColumns).views[0],{columns:dateColumns},[{id:'all-day',values:{day:'2028-03-01'}}]).days[0].date).toBe('2028-03-01');
 });
 
 test('private apps protect their table, versions, home and MCP even from workspace admins and in Simple', async () => {

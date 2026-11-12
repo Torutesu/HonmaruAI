@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Icon } from './Icon'
 import { useT } from '../utils/i18n'
 import { cellText, type Column, type Row, type View, type Table } from '../utils/harness'
+import { instantFromLocalDateTime, localDateTimeInZone, timeInZone, yearMonthInZone } from '../utils/zonedDateTime'
 
 // Calendar dates are all-day values, never parsed in the browser's timezone.
 export function monthDays(month: string): Array<string | null> {
@@ -16,16 +17,18 @@ export function shiftMonth(month: string, delta: number) {
 }
 export function AppCalendar({ view, table, onMove, onOpen, displayCellText = cellText }: { view: View; table: Table; onOpen?: (row: Row) => void; onMove: (row: Row, date: string) => void; displayCellText?: (column: Column, value: unknown) => string }) {
   const t = useT()
+  const dateColumn = table.columns.find(c => c.id === view.dateColumn)
+  const timeZone = view.timeZone || 'UTC'
   const [month, setMonth] = useState(() => {
-    const now = new Date()
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    return dateColumn?.type === 'datetime' ? yearMonthInZone(new Date(), timeZone) : (() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` })()
   })
   const title = table.columns.find(c => c.type === 'text') || table.columns[0]
   const event = (row: Row) => {
     const label = (title ? displayCellText(title, row.values[title.id]) : '') || t('No value')
     return <div className="hx-card" key={row.id}>
       <div className="hx-card-title">{onOpen ? <button className="hx-record-title" onClick={()=>onOpen(row)} aria-label={`${label}の詳細を開く`}>{label}<Icon name="maximize" size={13}/></button> : label}</div>
-      <input type="date" className="hx-cell-input" aria-label={t('Date')} value={String(row.values[view.dateColumn!] || '')} onChange={e => onMove(row, e.target.value)} />
+      {dateColumn?.type==='datetime'&&typeof row.values[view.dateColumn!] === 'string'&&<time className="hx-calendar-event-time" dateTime={String(row.values[view.dateColumn!])}>{timeInZone(String(row.values[view.dateColumn!]),timeZone)} · {timeZone}</time>}
+      <input type={dateColumn?.type==='datetime'?'datetime-local':'date'} step={dateColumn?.type==='datetime'?1:undefined} className="hx-cell-input" aria-label={t(dateColumn?.type==='datetime'?'Date and time':'Date')} value={dateColumn?.type==='datetime'?localDateTimeInZone(String(row.values[view.dateColumn!]||''),timeZone):String(row.values[view.dateColumn!] || '')} onChange={e => {const next=dateColumn?.type==='datetime'?instantFromLocalDateTime(e.target.value,timeZone):e.target.value;if(next)onMove(row,next)}} />
     </div>
   }
   return <section aria-label={view.name}>

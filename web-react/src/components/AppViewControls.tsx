@@ -4,6 +4,7 @@ import { Icon } from './Icon'
 import {AppRelationPicker} from './AppRelationPicker'
 import {composing} from '../utils/keys'
 import {useT} from '../utils/i18n'
+import {instantFromLocalDateTime,localDateTimeInZone} from '../utils/zonedDateTime'
 import type { Column, Row, View } from '../utils/harness'
 const operators = [['eq','と等しい'],['neq','と等しくない'],['contains','を含む'],['empty','が空'],['not_empty','が空ではない'],['gt','より大きい / 後'],['lt','より小さい / 前']]
 type RelationEntity={key:string;table:{columns:Column[]};rows:Row[]}
@@ -17,6 +18,8 @@ export function AppViewControls({view,columns,save,canEdit,personal=false,onAdju
   const [where,setWhere]=useState(view.where)
   const [group,setGroup]=useState(view.groupBy || '')
   const [busy,setBusy]=useState(false), [error,setError]=useState('')
+  const [timeZoneBusy,setTimeZoneBusy]=useState(false),[timeZoneError,setTimeZoneError]=useState('')
+  const timeZoneChoices=[...new Set(['UTC','Asia/Tokyo','America/Los_Angeles','Europe/London',Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',view.timeZone||'UTC'])]
   const root=useRef<HTMLDivElement>(null)
   const trigger=useRef<HTMLButtonElement|null>(null)
   const close=()=>{setOpen(null);trigger.current?.focus()}
@@ -28,7 +31,7 @@ export function AppViewControls({view,columns,save,canEdit,personal=false,onAdju
     return()=>document.removeEventListener('pointerdown',outside)
   },[open,busy,editing])
   const count=filters.length+Object.keys(where || {}).length
-  const invalid = open==='filter' && filters.some(f=>!['empty','not_empty'].includes(f.op) && (!f.value || isSystemTimestamp(f.column)&&!Number.isFinite(Date.parse(f.value))))
+  const invalid = open==='filter' && filters.some(f=>!['empty','not_empty'].includes(f.op) && (!f.value || (isSystemTimestamp(f.column)||columns.find(column=>column.id===f.column)?.type==='datetime')&&!Number.isFinite(Date.parse(f.value))))
   const activeCount=(view.filters?.length || 0)+Object.keys(view.where || {}).length
   const controlLabel=(kind:'filter'|'group')=>{
     const label=t(kind==='filter'?'Filter records':'Group records')
@@ -51,6 +54,7 @@ export function AppViewControls({view,columns,save,canEdit,personal=false,onAdju
   }
   const filterOperatorLabel=(column:Column|undefined,op:string)=>column?.type==='relation'&&column.multiple?(op==='eq'?'を含む':op==='neq'?'を含まない':operators.find(o=>o[0]===op)?.[1]):operators.find(o=>o[0]===op)?.[1]
   return <div ref={root} className="hx-view-controls" onKeyDown={e=>{if(e.key==='Escape'&&!composing(e)&&!busy){e.stopPropagation();close()}}}>
+    {view.type==='calendar'&&<label className="hx-calendar-timezone"><span>{t('Calendar time zone')}</span><select aria-label={t('Calendar time zone')} value={timeZoneChoices.includes(view.timeZone||'UTC')?view.timeZone||'UTC':'UTC'} disabled={!canEdit||timeZoneBusy} onChange={event=>{const timeZone=event.target.value;setTimeZoneBusy(true);setTimeZoneError('');void save({timeZone}).catch(reason=>setTimeZoneError(reason instanceof Error?reason.message:String(reason))).finally(()=>setTimeZoneBusy(false))}}>{timeZoneChoices.map(zone=><option key={zone} value={zone}>{zone}</option>)}</select>{timeZoneError&&<small role="alert">{timeZoneError}</small>}</label>}
     {(['filter','group'] as const).filter(kind=>kind==='filter'||view.type==='table'||view.type==='board').map(kind=><button key={kind} className={`pill-btn quiet ${open===kind?'on':''}`} title={controlLabel(kind)} aria-label={controlLabel(kind)} aria-haspopup="dialog" aria-expanded={open===kind} onClick={e=>{trigger.current=e.currentTarget;setOpen(open===kind?null:kind);setEditing(false);setMoreOpen(false);setError('');setFilters((view.filters||[]).map(f=>columns.find(c=>c.id===f.column)?.type==='relation'&&f.op==='contains'?{...f,op:'eq'}:f));setWhere(view.where);setGroup(view.groupBy||'')}}><Icon name={kind==='filter'?'filter':'group'} size={14}/>{t(kind==='filter'?'Filter records':'Group records')}{kind==='filter'&&activeCount>0&&<span className="hx-count">{activeCount}</span>}</button>)}
     {open&&<div className={`hx-view-popover ${editing&&open==='filter'?'editing':''}`} role="dialog" aria-label={open==='filter'?'フィルターを編集':'グループ化を編集'}>
       {open==='filter'?<>
@@ -60,7 +64,7 @@ export function AppViewControls({view,columns,save,canEdit,personal=false,onAdju
           {filters.map((f,i)=>{const column=queryColumns.find(c=>c.id===f.column);return <div className="hx-filter-row" key={i}>
             <select aria-label={`条件${i+1}のフィールド`} value={f.column} onChange={e=>{const next=queryColumns.find(c=>c.id===e.target.value);const op=isSystemTimestamp(e.target.value)&&f.op==='contains'||next?.type==='relation'&&!['eq','neq','empty','not_empty'].includes(f.op)?'eq':f.op;change(i,{column:e.target.value,value:'',op})}}>{queryColumns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
             <select aria-label={`条件${i+1}の演算子`} value={f.op} onChange={e=>change(i,{op:e.target.value})}>{(column?.type==='relation'?[['eq',column.multiple?'を含む':'と等しい'],['neq',column.multiple?'を含まない':'と等しくない'],['empty','が空'],['not_empty','が空ではない']]:operators.filter(([op])=>!isSystemTimestamp(f.column)||op!=='contains')).map(([v,label])=><option key={v} value={v}>{label}</option>)}</select>
-            {!['empty','not_empty'].includes(f.op)&&(column?.type==='relation'?<AppRelationPicker column={{...column,multiple:false}} value={f.value||null} rows={relationEntities.find(entity=>entity.key===column.targetEntity)?.rows} targetColumn={relationEntities.find(entity=>entity.key===column.targetEntity)?.table.columns[0]} disabled={busy} onChange={value=>change(i,{value:String(value??'')})}/>:column?.type==='select'||column?.type==='checkbox'?<select aria-label={`条件${i+1}の値`} value={f.value} onChange={e=>change(i,{value:e.target.value})}><option value="">値を選択</option>{(column.type==='checkbox'?['true','false']:column.options||[]).map(v=><option key={v} value={v}>{v==='true'?'チェックあり':v==='false'?'チェックなし':v}</option>)}</select>:<input aria-label={`条件${i+1}の値`} step={isSystemTimestamp(f.column)?1:undefined} type={isSystemTimestamp(f.column)?'datetime-local':column?.type==='number'?'number':column?.type==='date'?'date':'text'} maxLength={500} value={isSystemTimestamp(f.column)?localDateTime(f.value):f.value} onChange={e=>change(i,{value:isSystemTimestamp(f.column)?utcDateTime(e.target.value):e.target.value})}/>)}
+            {!['empty','not_empty'].includes(f.op)&&(column?.type==='relation'?<AppRelationPicker column={{...column,multiple:false}} value={f.value||null} rows={relationEntities.find(entity=>entity.key===column.targetEntity)?.rows} targetColumn={relationEntities.find(entity=>entity.key===column.targetEntity)?.table.columns[0]} disabled={busy} onChange={value=>change(i,{value:String(value??'')})}/>:column?.type==='select'||column?.type==='checkbox'?<select aria-label={`条件${i+1}の値`} value={f.value} onChange={e=>change(i,{value:e.target.value})}><option value="">値を選択</option>{(column.type==='checkbox'?['true','false']:column.options||[]).map(v=><option key={v} value={v}>{v==='true'?'チェックあり':v==='false'?'チェックなし':v}</option>)}</select>:<input aria-label={`条件${i+1}の値`} step={isSystemTimestamp(f.column)||column?.type==='datetime'?1:undefined} type={isSystemTimestamp(f.column)||column?.type==='datetime'?'datetime-local':column?.type==='number'?'number':column?.type==='date'?'date':'text'} maxLength={500} value={isSystemTimestamp(f.column)?localDateTime(f.value):column?.type==='datetime'?localDateTimeInZone(f.value,view.timeZone||'UTC'):f.value} onChange={e=>change(i,{value:isSystemTimestamp(f.column)?utcDateTime(e.target.value):column?.type==='datetime'?instantFromLocalDateTime(e.target.value,view.timeZone||'UTC')||'':e.target.value})}/>)}
             <button aria-label={`条件${i+1}を削除`} onClick={()=>setFilters(filters.filter((_,n)=>n!==i))}><Icon name="x" size={14}/></button>
           </div>})}
           {filters.some(f=>isSystemTimestamp(f.column))&&<p className="hx-view-hint">日時は端末のタイムゾーンで入力します（秒単位）。</p>}

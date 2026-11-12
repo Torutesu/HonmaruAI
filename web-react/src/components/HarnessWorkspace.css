@@ -451,6 +451,9 @@
 @media(max-width:719px) { .hx-rail .hx-pinned-app { display:none; } .hx-app-breadcrumb { display:none; } }
 
 .hx-view-controls { position:relative; display:flex; align-items:center; gap:4px; }
+.hx-calendar-timezone { display:grid; gap:2px; margin-right:6px; color:var(--hx-muted); font-size:10px; }
+.hx-calendar-timezone select { max-width:180px; min-width:105px; padding:5px 7px; border:1px solid var(--hx-border); border-radius:7px; background:var(--hx-surface); color:var(--hx-text); font:inherit; }
+.hx-calendar-event-time { display:block; color:var(--hx-muted); font-size:11px; margin:2px 0 6px; }
 .hx-view-popover { position:absolute; right:0; top:calc(100% + 8px); z-index:30; width:320px; max-width:calc(100vw - 80px); box-sizing:border-box; padding:16px; border:1px solid var(--hx-border); border-radius:13px; background:var(--hx-surface); box-shadow:0 8px 28px #00000012; color:var(--hx-text); font-size:12px; }
 .hx-view-popover.editing { width:560px; }
 .hx-view-summary { background:var(--hx-hover); padding:14px; border:1px solid var(--hx-border); border-radius:15px; margin-bottom:10px; }

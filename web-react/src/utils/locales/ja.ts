@@ -59,6 +59,8 @@ const table: Record<string, string> = {
   'Next month': '次の月',
   'Month': '月',
   'Date': '日付',
+  'Date and time': '日時',
+  'Calendar time zone': 'カレンダーのタイムゾーン',
   'Sun': '日',
   'Mon': '月',
   'Tue': '火',

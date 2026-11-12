@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import './ExternalGuestApp.css'
 import { CustomAppFrame } from './CustomApp'
 import type { Column, HarnessApi, Row, Table } from '../utils/harness'
+import {instantFromLocalDateTime,localDateTimeInZone} from '../utils/zonedDateTime'
 
 interface AppMeta { id: string; name: string; description: string; icon: string | null; tableId: string; permission: 'view' | 'edit'; customHtml?: string }
 type AppColumn = Column
@@ -130,7 +131,7 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
         : `${base}/tables/${encodeURIComponent(activeTableId)}/rows`
       const response = await fetch(target, {
         method: editing ? 'PATCH' : 'POST', headers,
-        body: JSON.stringify({ values: draft, ...(editing ? { expectedUpdatedAt: editing.updatedAt } : {}) }),
+        body: JSON.stringify({ values: Object.fromEntries(Object.entries(draft).map(([id,value])=>{const column=activeTable?.columns.find(item=>item.id===id);return[id,column?.type==='datetime'&&typeof value==='string'?instantFromLocalDateTime(value,Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'):value]})), ...(editing ? { expectedUpdatedAt: editing.updatedAt } : {}) }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.message || String(response.status))
@@ -175,8 +176,8 @@ export function ExternalGuestApp({ httpBase, orgId, appId, sessionToken, onExit 
     const value = draft[column.id]
     if (column.type === 'checkbox') return <input type="checkbox" checked={Boolean(value)} onChange={event => setDraft(current => ({ ...current, [column.id]: event.target.checked }))} />
     if (column.type === 'select') return <select value={String(value ?? '')} onChange={event => setDraft(current => ({ ...current, [column.id]: event.target.value || null }))}><option value="">—</option>{(column.options || []).map(option => <option key={option} value={option}>{option}</option>)}</select>
-    const type = column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : column.type === 'email' ? 'email' : column.type === 'url' ? 'url' : 'text'
-    return <input type={type} value={String(value ?? '')} onChange={event => setDraft(current => ({ ...current, [column.id]: event.target.value === '' ? null : column.type === 'number' ? Number(event.target.value) : event.target.value }))} />
+    const type = column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : column.type === 'datetime' ? 'datetime-local' : column.type === 'email' ? 'email' : column.type === 'url' ? 'url' : 'text'
+    return <input type={type} step={column.type==='datetime'?1:undefined} value={column.type==='datetime'&&typeof value==='string'?localDateTimeInZone(value,Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'):String(value ?? '')} onChange={event => setDraft(current => ({ ...current, [column.id]: event.target.value === '' ? null : column.type === 'number' ? Number(event.target.value) : event.target.value }))} />
   }
   const activeTable = tables.find(table => table.id === activeTableId)
   const customTable = activeTable ? { id: activeTable.id, name: activeTable.name, columns: activeTable.columns } as Table : null

@@ -13,6 +13,7 @@ import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { vi } from 'vitest'
 import { AppCalendar } from './AppCalendar'
+import {instantFromLocalDateTime,localDateTimeInZone} from '../utils/zonedDateTime'
 vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
 
 test('calendar displays dated and undated records and sends date edits to the caller', () => {
@@ -40,5 +41,20 @@ test('calendar formats titles without an open action and keeps preferring text c
   act(()=>{tree=create(<AppCalendar view={{id:'v',type:'calendar',name:'Calendar',dateColumn:'due',undated:[row]}} table={{id:'t',name:'Tasks',columns:[{id:'customer',name:'Customer',type:'relation',targetEntity:'customers'},{id:'name',name:'Name',type:'text'},{id:'due',name:'Due',type:'date'}]}} onMove={vi.fn()} displayCellText={format}/>)})
   expect(tree!.root.findByProps({className:'hx-card-title'}).children).toEqual(['INVOICE'])
   expect(format).toHaveBeenCalledWith(expect.objectContaining({id:'name'}),'Invoice')
+  act(()=>tree!.unmount())
+})
+
+test('datetime values round-trip in the selected timezone and calendar edits preserve the instant contract', () => {
+  expect(localDateTimeInZone('2028-03-01T00:30:00.000Z','America/Los_Angeles')).toBe('2028-02-29T16:30:00')
+  expect(instantFromLocalDateTime('2026-11-01T01:30:00','America/Los_Angeles')).toBe('2026-11-01T08:30:00.000Z')
+  expect(instantFromLocalDateTime('2026-03-08T02:30:00','America/Los_Angeles')).toBe('2026-03-08T10:30:00.000Z')
+  const onMove=vi.fn(),row={id:'r',values:{starts:'2028-03-01T00:30:00.000Z',name:'Launch'},updatedAt:''}
+  let tree:ReturnType<typeof create>
+  act(()=>{tree=create(<AppCalendar view={{id:'v',type:'calendar',name:'Calendar',dateColumn:'starts',timeZone:'America/Los_Angeles',days:[{date:'2028-02-29',rows:[row]}]}} table={{id:'t',name:'Events',columns:[{id:'name',name:'Name',type:'text'},{id:'starts',name:'Starts',type:'datetime'}]}} onMove={onMove}/>)})
+  act(()=>tree!.root.findByProps({type:'month'}).props.onChange({target:{value:'2028-02'}}))
+  expect(tree!.root.findByProps({type:'datetime-local'}).props.value).toBe('2028-02-29T16:30:00')
+  act(()=>tree!.root.findByProps({type:'datetime-local'}).props.onChange({target:{value:'2028-02-29T17:00:00'}}))
+  expect(onMove).toHaveBeenCalledWith(row,'2028-03-01T01:00:00.000Z')
+  expect(JSON.stringify(tree!.toJSON())).toContain('America/Los_Angeles')
   act(()=>tree!.unmount())
 })

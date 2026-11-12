@@ -1,13 +1,14 @@
 import { validateValues } from "./tableContract.js";
 import { appRelationDeleteGuard, appRelationWriteGuard, hasAppRelationsToRow, validateAppRelations } from './appRelations.js';
 import { prepareWorkflowRowEventIfWatched } from './workflowRowEventDispatch.js';
+import { parseRfc3339 } from './temporal.js';
 // Tables: the typed database under an App (docs/kylon-gap-plan.md).
 //
 // A table names its columns; a row is JSON keyed by column id. Values are
 // coerced to the column's type on the way in, so a view or an agent reading
 // a row never has to guess whether "1,200" is a number.
 
-export const COLUMN_TYPES = ["text", "number", "date", "select", "checkbox", "url", "person", "email", "relation"];
+export const COLUMN_TYPES = ["text", "number", "date", "datetime", "select", "checkbox", "url", "person", "email", "relation"];
 export const MAX_COLUMNS = 40;
 export const MAX_ROWS = 5000;
 export const MAX_TABLES_PER_ORG = 200;
@@ -78,6 +79,10 @@ export function coerce(column, value) {
       if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
       const d = new Date(s);
       return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    }
+    case "datetime": {
+      const stamp = parseRfc3339(String(value).trim());
+      return stamp === null ? null : new Date(stamp).toISOString();
     }
     case "select": {
       const s = String(value).trim();

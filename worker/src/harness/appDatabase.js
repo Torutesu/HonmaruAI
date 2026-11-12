@@ -2,6 +2,7 @@ import { databaseAuthority, mayUseDatabase } from './databaseAccess.js';
 import { getTable, normalizeColumns, COLUMN_TYPES, MAX_TABLES_PER_ORG, MAX_ROWS } from './tables.js';
 import { validateValues } from './tableContract.js';
 import { normalizeMemberFields } from './memberFields.js';
+import { parseRfc3339 } from './temporal.js';
 const err = (error, status = 400) => ({ error, status });
 const keyOK = k => typeof k === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(k);
 export const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
@@ -134,6 +135,10 @@ function convertColumnValue(value, target, source, operation, relationResolver) 
   if (target.type === 'date') {
     const date = dateValue(value);
     return date ? { ok: true, value: date } : { ok: false };
+  }
+  if (target.type === 'datetime') {
+    const stamp = parseRfc3339(value);
+    return stamp === null ? { ok: false } : { ok: true, value: new Date(stamp).toISOString() };
   }
   if (target.type === 'checkbox') {
     if (typeof value === 'boolean') return { ok: true, value };
@@ -440,7 +445,7 @@ export async function generateMigration(prompt, current, complete) {
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4000) return err('Describe the database change in 1–4000 characters.');
   if (!complete) return err('AI generation is unavailable within the current allowance.', 503);
   try {
-    const raw = await complete('Return JSON {"operations":[...]}. Supported database migration operations: {op:"create_entity",entity:"lowercase_key",name:"Name",columns:[{name,type,options?}]}, {op:"add_columns",entity:"existing_key",columns:[{name,type,options?}]}, {op:"rename_column",entity:"existing_key",column:"stable_column_id",name:"New name"}, {op:"convert_column",entity:"existing_key",column:"stable_column_id",type:"text|number|date|select|checkbox|url|email|person|relation",options?:[...],targetEntity?:"existing_entity_key",multiple?:boolean,matchBy?:"stable_target_column_id"} and {op:"drop_empty_column",entity:"existing_key",column:"stable_column_id"}. Conversion is strict: person conversion accepts only strings up to 64 characters; relation conversion may use stable record IDs or exact-match text against the target entity’s stable text/select/date/url/email column ID in matchBy. Every match must resolve to exactly one existing record; missing or duplicate matches are blockers, and target rows are checked again when applying. Multiple relations may use a JSON array of IDs or exact-match labels. Dropping is allowed only when every value is null, an empty string, or an empty multiple-relation list. Never create a column ID. Prefer additive changes; only rename, convert or drop a column when explicitly requested. Current schema: '+JSON.stringify(current.entities), prompt);
+    const raw = await complete('Return JSON {"operations":[...]}. Supported database migration operations: {op:"create_entity",entity:"lowercase_key",name:"Name",columns:[{name,type,options?}]}, {op:"add_columns",entity:"existing_key",columns:[{name,type,options?}]}, {op:"rename_column",entity:"existing_key",column:"stable_column_id",name:"New name"}, {op:"convert_column",entity:"existing_key",column:"stable_column_id",type:"text|number|date|datetime|select|checkbox|url|email|person|relation",options?:[...],targetEntity?:"existing_entity_key",multiple?:boolean,matchBy?:"stable_target_column_id"} and {op:"drop_empty_column",entity:"existing_key",column:"stable_column_id"}. Conversion is strict: person conversion accepts only strings up to 64 characters; relation conversion may use stable record IDs or exact-match text against the target entity’s stable text/select/date/url/email column ID in matchBy. Every match must resolve to exactly one existing record; missing or duplicate matches are blockers, and target rows are checked again when applying. Multiple relations may use a JSON array of IDs or exact-match labels. Dropping is allowed only when every value is null, an empty string, or an empty multiple-relation list. Never create a column ID. Prefer additive changes; only rename, convert or drop a column when explicitly requested. Current schema: '+JSON.stringify(current.entities), prompt);
     const plan = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
     const operations = Array.isArray(plan.operations) ? plan.operations.map(operation => operation && Array.isArray(operation.columns)
       ? { ...operation, columns: normalizeMemberFields(prompt, operation.columns) } : operation) : plan.operations;

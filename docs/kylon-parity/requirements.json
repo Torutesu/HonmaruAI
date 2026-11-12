@@ -480,7 +480,7 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "table/board/metricsに終日calendarを追加。月移動・日付編集・未設定・閏日を検証。時刻・タイムゾーン付き予定とnative画面は残る"
+      "acceptance": "table/board/metricsに終日calendarを追加。date列は従来どおり日付値として保持し、datetime列は厳密なRFC3339 instantで保存する。Calendar viewは明示したIANA timezoneで日付を決定し、日時編集・未設定・閏日・UTC跨ぎ・DST fold/gapを検証。native画面と本番実データでの受け入れ確認は残る"
     },
     {
       "id": "KY-042",

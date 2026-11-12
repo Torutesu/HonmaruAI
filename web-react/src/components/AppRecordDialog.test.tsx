@@ -88,6 +88,17 @@ test('restoring multiple related records in the original order is not a pending 
  expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
 })
 
+test('editing another field preserves a datetime value exactly until the user changes it',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const save=vi.fn().mockResolvedValue(undefined);let tree:ReturnType<typeof create>
+ const fields=[{id:'title',name:'Title',type:'text' as const},{id:'starts',name:'Starts',type:'datetime' as const}]
+ const instant='2028-03-01T00:30:00.123Z'
+ await act(async()=>{tree=create(<AppRecordDialog appName="Events" columns={fields} record={{id:'r',values:{title:'Old',starts:instant},updatedAt:'2028-02-01T00:00:00.000Z'}} save={save} onClose={()=>{}}/>)});
+ act(()=>tree!.root.findAllByType('textarea')[0].props.onChange({target:{value:'New'}}))
+ await act(async()=>tree!.root.findByProps({id:'hx-record-form'}).props.onSubmit({preventDefault:()=>{}}))
+ expect(save).toHaveBeenCalledWith({title:'New'})
+ act(()=>tree!.unmount())
+})
+
 test('relation fields select same-app records and support multiple links',async()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});
  vi.stubGlobal('window',{innerWidth:1280,innerHeight:800,addEventListener:vi.fn(),removeEventListener:vi.fn()});

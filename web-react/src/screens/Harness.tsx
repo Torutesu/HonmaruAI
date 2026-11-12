@@ -37,6 +37,7 @@ import { Shell, useApi, useAct, type HarnessProps, type HarnessScreen } from './
 import { ModePicker } from './HarnessHome'
 import { composing, enterKey } from '../utils/keys'
 import {numberPreservesDecimal} from '../utils/numericPrecision'
+import {instantFromLocalDateTime,localDateTimeInZone} from '../utils/zonedDateTime'
 
 export const newAppRecordLabel = (appName: string, tableName: string, titleColumnName = '') => {
   if (tableName && tableName !== appName) return `新規${tableName}`
@@ -356,8 +357,10 @@ function NumericCellInput({column,value,draft,setDraft,onSave}:{column:Column;va
 }
 
 function CellInput({ column, value, onSave, wrap = false, width, members=[], relationEntities=[] }: { column: Column; value: unknown; onSave: (v: unknown) => void; wrap?:boolean; width?:number;members?:Array<{ref:string;name:string}>;relationEntities?:RelationEntity[] }) {
-  const [draft, setDraft] = useState<string>(value == null ? '' : String(value))
-  useEffect(() => { setDraft(value == null ? '' : String(value)) }, [value])
+  const timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'
+  const asText=(next:unknown)=>column.type==='datetime'&&typeof next==='string'?localDateTimeInZone(next,timeZone):next==null?'':String(next)
+  const [draft, setDraft] = useState<string>(()=>asText(value))
+  useEffect(() => { setDraft(asText(value)) }, [value,column.type])
   const textArea=useRef<HTMLTextAreaElement>(null)
   useEffect(()=>{if(textArea.current){textArea.current.style.height='auto';textArea.current.style.height=`${textArea.current.scrollHeight}px`}},[draft,wrap,width])
   if(column.type==='number') return <NumericCellInput column={column} value={value} draft={draft} setDraft={setDraft} onSave={onSave}/>
@@ -386,9 +389,10 @@ function CellInput({ column, value, onSave, wrap = false, width, members=[], rel
       </select>
     )
   }
-  const type = column.type === 'date' ? 'date' : column.type === 'email' ? 'email' : column.type === 'url' ? 'url' : 'text'
+  const type = column.type === 'date' ? 'date' : column.type === 'datetime' ? 'datetime-local' : column.type === 'email' ? 'email' : column.type === 'url' ? 'url' : 'text'
   return <input className="hx-cell-input" type={type} value={draft} onChange={e=>setDraft(e.target.value)}
-    onBlur={()=>{if(draft!==(value==null?'':String(value)))onSave(draft)}}
+    step={column.type==='datetime'?1:undefined}
+    onBlur={()=>{if(draft!==asText(value))onSave(column.type==='datetime'?instantFromLocalDateTime(draft,timeZone):draft)}}
     onKeyDown={e=>{if(enterKey(e))(e.target as HTMLInputElement).blur()}} aria-label={column.name}/>
 
 }
@@ -724,12 +728,13 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       <div className={`hx-data-tools${searchExpanded&&view.type!=='metrics'?' hx-search-expanded':''}`}>{view.type!=='metrics'&&<><button ref={searchToggle} className="hx-floating-search pill-btn quiet" title={searchLabel} aria-label={searchLabel} aria-expanded={searchExpanded} onClick={()=>{if(searchExpanded)setSearchExpanded(false);else openSearch()}}><Icon name="search" size={14}/></button><input ref={searchInput} className="hx-cell-input" type="search" aria-label={t('Search records')} placeholder={t('Search records')} value={search} onFocus={()=>setSearchExpanded(true)} onChange={e => setSearch(e.target.value)} />{search&&!searchExpanded&&<button ref={searchQuery} type="button" className="hx-floating-search-query" title={`${t('Search')}: ${search}`} onClick={openSearch}>{t('Search')}: {search}</button>}</>}<PersonalViewControls control="fields" key={`${selectedIndex}:${view.id}:${personal.revision}`} view={view} personal={isPersonalView} columns={table.columns} state={personal} save={savePersonal} onSelect={()=>{}} onSettings={()=>selectSection('settings')} /><AppViewControls key={`${selectedIndex}:${view.id}:${app.version}:${personal.revision}`} view={view} columns={table.columns} relationEntities={relationEntities} personal={isPersonalView} onAdjust={adjustView} canEdit={canEditView} save={saveView} />{view.type==='table'&&<AppDataMenu wrapText={layout.wrapText===true} save={wrapText=>savePersonal({...personal,layouts:{...personal.layouts,[view.id]:{order:layout.order,widths:layout.widths,hidden:layout.hidden,wrapText}}})} onExport={exportCurrentView}/>}{shouldShowRecordCount(shownCount,search,(view.filters?.length || 0)+Object.keys(view.where || {}).length)&&<span className="hx-record-count">{t('{n} records', { n: shownCount })}</span>}</div>
       </div>
       {error && <div className="form-error">{error}</div>}
-      {data.canCustomize !== false && app.definition.views.length < 12 && !data.views.some(v => v.type === 'calendar') && table.columns.some(c => c.type === 'date') && <button className="pill-btn quiet" disabled={busy !== null} onClick={() => act('calendar', async () => {
-        await api.updateApp(app.id, { definition: { ...app.definition, views: [...app.definition.views, { type: 'calendar', name: t('Calendar'), dateColumn: table.columns.find(c => c.type === 'date')!.id }] } })
+      {data.canCustomize !== false && app.definition.views.length < 12 && !data.views.some(v => v.type === 'calendar') && table.columns.some(c => c.type === 'date' || c.type === 'datetime') && <button className="pill-btn quiet" disabled={busy !== null} onClick={() => act('calendar', async () => {
+        const dateColumn = table.columns.find(c => c.type === 'datetime') || table.columns.find(c => c.type === 'date')!
+        await api.updateApp(app.id, { definition: { ...app.definition, views: [...app.definition.views, { type: 'calendar', name: t('Calendar'), dateColumn: dateColumn.id, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }] } })
         await load()
       })}>{t('Add calendar view')}</button>}
 
-      {view.type === 'calendar' && <AppCalendar key={view.id} view={{...view,days:shownDays,undated:shownUndated}} table={table} displayCellText={displayCellText} onOpen={setEditingRecord} onMove={(row, date) => { const column = table.columns.find(c => c.id === view.dateColumn); if (column) void save(row, column, date) }} />}
+      {view.type === 'calendar' && <AppCalendar key={`${view.id}:${view.timeZone||'UTC'}`} view={{...view,days:shownDays,undated:shownUndated}} table={table} displayCellText={displayCellText} onOpen={setEditingRecord} onMove={(row, date) => { const column = table.columns.find(c => c.id === view.dateColumn); if (column) void save(row, column, date) }} />}
 
       {view.type === 'metrics' && (
         <div className="hx-metrics">
@@ -793,7 +798,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       </>}
       {section === 'settings' && <>
       <h2>{t('Fields')}</h2><div className="rows">{table.columns.map(column => <div className="row static" key={column.id}><span className="row-main">{column.name}</span><span className="row-sub">{column.type}</span></div>)}</div>
-      {data.canCustomize !== false && <form className="hx-actions" onSubmit={event => { event.preventDefault(); void act('column', async () => { await api.updateApp(app.id, { columns: [...table.columns, { name: newColumn.trim(), type: newColumnType }] }); setNewColumn(''); await load() }) }}><input className="hx-cell-input" aria-label={t('Field name')} placeholder={t('Field name')} value={newColumn} onChange={e => setNewColumn(e.target.value)} /><select aria-label={t('Field type')} value={newColumnType} onChange={e => setNewColumnType(e.target.value as Column['type'])}>{(['text', 'number', 'date', 'checkbox', 'person', 'email', 'url'] as const).map(type => <option key={type} value={type}>{type}</option>)}</select><button className="pill-btn" disabled={busy !== null || !newColumn.trim()}>{t('Add field')}</button></form>}
+      {data.canCustomize !== false && <form className="hx-actions" onSubmit={event => { event.preventDefault(); void act('column', async () => { await api.updateApp(app.id, { columns: [...table.columns, { name: newColumn.trim(), type: newColumnType }] }); setNewColumn(''); await load() }) }}><input className="hx-cell-input" aria-label={t('Field name')} placeholder={t('Field name')} value={newColumn} onChange={e => setNewColumn(e.target.value)} /><select aria-label={t('Field type')} value={newColumnType} onChange={e => setNewColumnType(e.target.value as Column['type'])}>{(['text', 'number', 'date', 'datetime', 'checkbox', 'person', 'email', 'url'] as const).map(type => <option key={type} value={type}>{type}</option>)}</select><button className="pill-btn" disabled={busy !== null || !newColumn.trim()}>{t('Add field')}</button></form>}
       <AppSharing key={`${httpBase}:${orgId}:${appId}:${sessionToken}`} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} appId={appId} appVersion={data.app.version} />
       <ExternalAppSharing key={`external:${httpBase}:${orgId}:${appId}:${sessionToken}`} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} appId={appId} />
       <TemplateSharing key={`${orgId}:${appId}:${app.version}`} api={api} appId={app.id} appVersion={app.version} />
