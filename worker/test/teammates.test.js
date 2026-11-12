@@ -125,6 +125,28 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  expect(JSON.parse(saved.remote).workspaceTools).toBe(true);
 });
 
+test.each([
+ ['hermes','Hermes','hermes'],
+ ['grok-build','Grok Build','grok-build'],
+ ['antigravity-cli','Antigravity CLI','antigravity'],
+])('%s is a separate local ACP teammate with its own handle and allowlist key',async(provider,name,handle)=>{
+ const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
+ expect(registered.status).toBe(201);const {gateway,token}=await registered.json();
+ const agentKey=`${handle}-local`;
+ const ready=await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:[agentKey]})}),env,ctx);
+ expect((await ready.json()).job).toBeNull();
+ const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider,enabled:true,gatewayId:gateway.id,agentKey,workspaceTools:true});
+ expect(configured.status).toBe(200);
+ const teammate=(await configured.json()).teammate;
+ expect(teammate).toMatchObject({provider,name,handle,enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey,unit:'task',workspaceTools:true});
+ const sent=await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:`@${handle} inspect the current project`},{TEAMMATE_WATCH_MS:'0'});
+ expect(sent.status).toBe(201);
+ const run=await env.DB.prepare('SELECT provider,status FROM ai_teammate_runs WHERE org_id=?1 AND provider=?2').bind(ORG,provider).first();
+ expect(run).toMatchObject({provider,status:'running'});
+ const job=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE org_id=?1 AND gateway_id=?2').bind(ORG,gateway.id).first();
+ expect(JSON.parse(job.payload)).toMatchObject({acp:true,agentKey,prompt:expect.stringContaining('inspect the current project')});
+});
+
 test("@claude in a thread starts a session with the repo, vault and budget, and its answer comes back into the thread", async () => {
   await launch();
   let session = null;
