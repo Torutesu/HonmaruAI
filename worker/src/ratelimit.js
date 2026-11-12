@@ -73,6 +73,9 @@ export const LIMITS = {
   // costs a model call, so the ceiling is what stops a flood of forged posts
   // becoming a bill. Counted per IP, since a webhook carries no session.
   "webhooks/email": { max: 120, windowSeconds: 300 },
+  // Public MCP call surface is bounded; the single tool additionally requires
+  // a random one-time callback token for a live Grok Bot task.
+  "grok-bot-mcp": { max: 120, windowSeconds: 300 },
   "grok-bot-callback": { max: 120, windowSeconds: 300 },
   "webhooks/line": { max: 600, windowSeconds: 300 },
   // An agent speaking MCP, counted per access token. A request_decision is

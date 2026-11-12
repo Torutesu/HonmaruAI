@@ -133,7 +133,7 @@ export async function spentThisMonth(db, orgId, provider, now = new Date()) {
 }
 
 /// A teammate as the setup screen sees it: never a key, only whether one is set.
-export function toClientTeammate(t, provider, spentCents = 0, canRevealWebhookUrl = false) {
+export function toClientTeammate(t, provider, spentCents = 0, canRevealWebhookUrl = false, completionMcpUrl = "") {
   const p = PROVIDERS[provider];
   return {
     provider, name: p.name, handle: p.handle, emoji: p.emoji, company: p.company, keyHint: p.keyHint, keySource: p.keySource,
@@ -144,6 +144,7 @@ export function toClientTeammate(t, provider, spentCents = 0, canRevealWebhookUr
     account: t?.remote?.account || "",
     gatewayId: t?.remote?.gatewayId || "", agentKey: t?.remote?.agentKey || "",
     webhookUrl: canRevealWebhookUrl ? (t?.remote?.webhookUrl || "") : "",
+    completionMcpUrl: p.webhookBot && canRevealWebhookUrl ? completionMcpUrl : "",
     workspaceTools: Boolean(t?.remote?.workspaceTools),
     repos: t?.repos || [], model: t?.model || p.defaultModel || "", instructions: t?.instructions || "",
     channels: t?.channels ?? null,
@@ -697,6 +698,10 @@ function callbackOrigin(env) {
   if (url.protocol !== "https:" || url.username || url.password) return null;
   return url.origin;
 }
+export function grokBotMcpEndpoint(env) {
+  const origin = callbackOrigin(env);
+  return origin ? `${origin}/teammates/grok-bot/mcp` : "";
+}
 async function startGrokBot(t, task, { env, orgId, context = [] }) {
   const webhookUrl = validEndpoint(t.remote?.webhookUrl);
   const origin = callbackOrigin(env);
@@ -708,7 +713,13 @@ async function startGrokBot(t, task, { env, orgId, context = [] }) {
     task_id: callback.id,
     task: String(task || "").slice(0, 48000),
     ...(context.length ? { context: context.slice(-20).map((item) => typeof item === "string" ? { text: item.slice(0, 4000) } : ({ role: String(item.role || "").slice(0, 20), text: String(item.text || item.body || "").slice(0, 4000) })) } : {}),
-    callback: { url: `${origin}/teammates/grok-bot/callback/${callback.id}`, token: callback.token },
+    completion: {
+      mcp_server: `${origin}/teammates/grok-bot/mcp`,
+      tool: "honmaru_complete_grok_bot_task",
+      task_id: callback.id,
+      token: callback.token,
+    },
+    completion_instruction: "When the task is finished, call the named Honmaru MCP tool exactly once with these task_id and token values. Use status=succeeded and the final reply in text, or status=failed and a short error. Never display or repeat the token in the user-facing result.",
   });
   if (new TextEncoder().encode(body).byteLength > 65536) {
     await env.DB.prepare("DELETE FROM hx_grok_bot_callbacks WHERE id=?1 AND org_id=?2 AND status='pending'").bind(callback.id, orgId).run();
@@ -785,6 +796,101 @@ export async function handleGrokBotCallback(request, env, callbackId) {
     .bind(callbackId, input.status, result, error, Date.now(), row.org_id, await sha256(token)).run();
   if (!saved.meta?.changes) return Response.json({ message: "Run already completed or expired." }, { status: 409 });
   return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+}
+
+const GROK_MCP_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+const GROK_MCP_HEADERS = {
+  "content-type": "application/json",
+  "cache-control": "no-store",
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "content-type, accept, mcp-protocol-version",
+  "access-control-allow-methods": "POST, OPTIONS",
+};
+const GROK_MCP_TOOL = {
+  name: "honmaru_complete_grok_bot_task",
+  title: "Return a Grok Bot task result to Honmaru",
+  description: "Send the final result for the current Honmaru task. Use only task_id and token from that task's completion instructions. Call exactly once after the task is complete; this does not cancel or repeat the task.",
+  inputSchema: {
+    type: "object", additionalProperties: false,
+    properties: {
+      task_id: { type: "string", format: "uuid", description: "The task_id supplied by Honmaru for this run." },
+      token: { type: "string", minLength: 40, maxLength: 60, description: "The one-time token supplied by Honmaru for this run." },
+      status: { type: "string", enum: ["succeeded", "failed"] },
+      text: { type: "string", maxLength: 16000, description: "The final answer, required when status is succeeded." },
+      error: { type: "string", maxLength: 1000, description: "A short safe failure reason, used when status is failed." },
+    },
+    required: ["task_id", "token", "status"],
+  },
+};
+function grokMcpRpcResult(id, result) { return { jsonrpc: "2.0", id, result }; }
+function grokMcpRpcError(id, code, message) { return { jsonrpc: "2.0", id: typeof id === "string" || Number.isSafeInteger(id) ? id : null, error: { code, message } }; }
+
+/// A stateless Streamable HTTP MCP endpoint for Grok Bot Remote HTTPS custom
+/// connectors. The only write tool is bounded by the per-run, one-use token.
+export async function handleGrokBotMcp(request, env) {
+  const headers = new Headers(GROK_MCP_HEADERS);
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...Object.fromEntries(headers), "access-control-max-age": "86400" } });
+  if (request.method !== "POST") return new Response(null, { status: 405, headers: { ...Object.fromEntries(headers), allow: "POST, OPTIONS" } });
+  const contentType = String(request.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
+  const accept = String(request.headers.get("accept") || "");
+  if (contentType !== "application/json") return new Response(null, { status: 415, headers });
+  if (!/application\/json/i.test(accept) || !/text\/event-stream/i.test(accept)) return new Response(null, { status: 406, headers });
+  const declaredLength = Number(request.headers.get("content-length") || 0);
+  if (declaredLength > 20000) return new Response(JSON.stringify(grokMcpRpcError(null, -32600, "Request is too large.")), { status: 413, headers });
+  let message;
+  try {
+    const raw = await request.text();
+    if (new TextEncoder().encode(raw).byteLength > 20000) return new Response(JSON.stringify(grokMcpRpcError(null, -32600, "Request is too large.")), { status: 413, headers });
+    message = JSON.parse(raw);
+  } catch { return new Response(JSON.stringify(grokMcpRpcError(null, -32700, "Parse error.")), { status: 400, headers }); }
+  if (!message || Array.isArray(message) || message.jsonrpc !== "2.0" || typeof message.method !== "string" ||
+      (Object.hasOwn(message, "id") && !(typeof message.id === "string" || Number.isSafeInteger(message.id))) ||
+      (message.params !== undefined && (!message.params || typeof message.params !== "object" || Array.isArray(message.params)))) {
+    return new Response(JSON.stringify(grokMcpRpcError(message?.id, -32600, "Invalid Request.")), { status: 400, headers });
+  }
+  if (message.id === undefined) return new Response(null, { status: 202, headers });
+  const id = message.id;
+  const params = message.params || {};
+  let reply;
+  switch (message.method) {
+    case "initialize": {
+      const asked = typeof params.protocolVersion === "string" ? params.protocolVersion : GROK_MCP_PROTOCOLS[0];
+      reply = grokMcpRpcResult(id, {
+        protocolVersion: GROK_MCP_PROTOCOLS.includes(asked) ? asked : GROK_MCP_PROTOCOLS[0],
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: "honmaru-grok-bot-completion", title: "Honmaru Grok Bot completion", version: "1.0.0" },
+      });
+      break;
+    }
+    case "ping": reply = grokMcpRpcResult(id, {}); break;
+    case "tools/list": reply = grokMcpRpcResult(id, { tools: [GROK_MCP_TOOL] }); break;
+    case "tools/call": {
+      const name = typeof params.name === "string" ? params.name : "";
+      const args = params.arguments;
+      if (name !== GROK_MCP_TOOL.name) reply = grokMcpRpcError(id, -32602, "Unknown tool.");
+      else if (!args || typeof args !== "object" || Array.isArray(args) ||
+        !/^[0-9a-f-]{36}$/.test(String(args.task_id || "")) || !/^[A-Za-z0-9_-]{40,60}$/.test(String(args.token || "")) ||
+        !["succeeded", "failed"].includes(args.status) ||
+        (args.status === "succeeded" && (typeof args.text !== "string" || !args.text.trim())) ||
+        (args.text !== undefined && (typeof args.text !== "string" || args.text.length > 16000)) ||
+        (args.error !== undefined && (typeof args.error !== "string" || args.error.length > 1000))) {
+        reply = grokMcpRpcResult(id, { isError: true, content: [{ type: "text", text: "Invalid completion details. Use the task_id and token provided for this run." }] });
+      } else {
+        const callbackRequest = new Request(`https://honmaru.invalid/teammates/grok-bot/callback/${args.task_id}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${args.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ task_id: args.task_id, status: args.status, ...(args.text === undefined ? {} : { text: args.text }), ...(args.error === undefined ? {} : { error: args.error }) }),
+        });
+        const accepted = await handleGrokBotCallback(callbackRequest, env, args.task_id);
+        reply = accepted.status === 204
+          ? grokMcpRpcResult(id, { isError: false, content: [{ type: "text", text: "Honmaru accepted the completed task result." }] })
+          : grokMcpRpcResult(id, { isError: true, content: [{ type: "text", text: "Honmaru rejected this result because the one-time task token is invalid, expired, or already used. Do not resend it." }] });
+      }
+      break;
+    }
+    default: reply = grokMcpRpcError(id, -32601, `Method not found: ${message.method}`);
+  }
+  return new Response(JSON.stringify(reply), { status: 200, headers });
 }
 
 const ADAPTERS = { claude, devin, cursor, codex, acp, hermes: acp, "grok-build": acp, "antigravity-cli": acp, "grok-bot": grokBot };

@@ -27,7 +27,7 @@ interface Teammate {
   workspaceTools: boolean
   /// Claude: an issue link or a bug report posted in a channel starts it.
   autoBuild?: boolean
-  gatewayId: string; agentKey: string; webhookUrl: string
+  gatewayId: string; agentKey: string; webhookUrl: string; completionMcpUrl: string
 }
 interface Channel { slug: string; name: string }
 interface Gateway { id: string; name: string; lastSeenAt?: number | null; acpAgents?: string[]; revokedAt?: number | null }
@@ -231,10 +231,15 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
               <span>{t('Webhook key')}</span>
               <input className="rules-number wide" type="password" autoComplete="off" disabled={off} value={draft.apiKey} placeholder={tm.hasApiKey ? t('Stored. Paste a new key to replace it.') : t('Paste the key from the Grok Bot routine.')} onChange={(e) => set({ apiKey: e.target.value })} data-teammate-webhook-key />
             </label>
+            {canEdit && tm.completionMcpUrl && <label className="teammate-field">
+              <span>{t('Honmaru completion MCP server')}</span>
+              <input className="rules-number wide" readOnly value={tm.completionMcpUrl} />
+              <button type="button" className="studio-btn" onClick={() => void navigator.clipboard?.writeText(tm.completionMcpUrl)}>{t('Copy MCP URL')}</button>
+            </label>}
             <details className="form-note">
               <summary>{t('Routine setup instructions')}</summary>
-              <p>{t('In the one-to-one chat with your Bot, ask it to create a webhook routine named “Honmaru: {name}”. Its instructions must use each incoming task and context, then POST the final result to callback.url with Authorization: Bearer callback.token. Send JSON with task_id copied from the request, status set to succeeded and text containing the reply. On failure, send status failed and a short error. Do not return until the callback accepts the result; never show the callback token to users.', { name: tm.name })}</p>
-              <p>{t('A webhook HTTP 200 means the routine accepted work, not that it finished. Honmaru waits for the authenticated callback and does not resend an ambiguous delivery. Stopping in Honmaru ends its wait; work already started in Grok Bot may continue.')}</p>
+              <p>{t('In Grok Bot, open Connect apps → Add a custom connector → Remote HTTPS. Add the Honmaru completion MCP server shown above. In the one-to-one chat with your Bot, ask it to create a webhook routine named “Honmaru: {name}”. The routine must use each incoming task and context, then call honmaru_complete_grok_bot_task exactly once with the task_id and token in completion. Send status=succeeded and the final reply in text, or status=failed and a short error. Never show or repeat the token in a user-facing answer.', { name: tm.name })}</p>
+              <p>{t('A webhook HTTP 200 means the routine accepted work, not that it finished. Honmaru waits for the one-time authenticated MCP result and does not resend an ambiguous delivery. Stopping in Honmaru ends its wait; work already started in Grok Bot may continue.')}</p>
             </details>
           </>
         )}

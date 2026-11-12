@@ -57,7 +57,7 @@ import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from 
 import { shredPerson } from "./auditCrypto.js";
 import { allowed, ensureOwner, soleOwnerships } from "./permissions.js";
 import { handlePolicy, policyDenial, reauthDenial } from "./policy.js";
-import { PROVIDERS, loadTeammate, saveTeammate, toClientTeammate, spentThisMonth, handleGrokBotCallback } from "./teammates.js";
+import { PROVIDERS, loadTeammate, saveTeammate, toClientTeammate, spentThisMonth, handleGrokBotCallback, handleGrokBotMcp, grokBotMcpEndpoint } from "./teammates.js";
 import { handleOrgKeys, warnExpiringKeys } from "./orgKeys.js";
 import { handleAdminApi } from "./adminApi.js";
 import { handleScim } from "./scim.js";
@@ -819,6 +819,11 @@ async function handle(request, env, url, ctx) {
       if (limited) return limited;
       return handleGrokBotCallback(request, env, grokCallback[1]);
     }
+    if (url.pathname === "/teammates/grok-bot/mcp") {
+      const limited = await enforce(env, request, "grok-bot-mcp");
+      if (limited) return limited;
+      return handleGrokBotMcp(request, env);
+    }
 
     // AI teammates (teammates.js): an admin sets one up and turns it on;
     // anyone in the workspace sees whether it is there and what it has
@@ -859,7 +864,7 @@ async function handle(request, env, url, ctx) {
         } });
       }
       const t = await loadTeammate(env.DB, orgId, provider, env);
-      return json({ orgId, canEdit, teammate: toClientTeammate(t, provider, await spentThisMonth(env.DB, orgId, provider), canEdit) });
+      return json({ orgId, canEdit, teammate: toClientTeammate(t, provider, await spentThisMonth(env.DB, orgId, provider), canEdit, grokBotMcpEndpoint(env)) });
     }
     // The workspace's mark. Anyone can see it (the id is unguessable, like a
     // card's video); its admins set and remove it.

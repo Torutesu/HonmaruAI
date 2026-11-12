@@ -1407,8 +1407,8 @@
       "code": "worker/src/teammates.js, web-react/src/components/AiTeammates.tsx",
       "acceptance": "Grok Bot desktop appの既存routine/webhookを使ってworkspaceのAgentとして接続し、チームメンバーがスレッドから依頼・追記し、完了結果と進捗を元スレッドへ返せる。受付(HTTP 200)を完了と誤認せず、重複実行・取消・失効・権限変更を安全に扱い、Bot所有者の既存利用枠を明示する。外部送信前に接続内容を確認し、Simpleモードの既存経路を維持する。",
       "evidence": {
-        "verified": "Kylon公式changelogはGrok Bot desktop appをworkspace teammateへ接続する経路を説明し、xAI公式routine docsはBearer認証WebhookとHTTP 200の受付 semanticsを明記。Honmaruに既存routine webhookを登録する専用provider、暗号化保存、ワンタイムcallback、元threadへの完了結果配信、取消/期限処理、設定UIを追加。ローカルWorker統合試験でWebhook受理・認証失敗・callback一回性・thread応答を確認。",
-        "remaining": "Kylonが案内するGrok Bot desktop appからのセットアップ/接続互換性は未検証。実アカウントでroutineを接続していないため外部実動作、進捗通知、Kylonと同等のUI/操作比較、本番配信は未確認。HTTP callback型routine bridgeでdesktopアプリ固有経路の代替が成立するかも要確認。"
+        "verified": "Kylon公式changelogはGrok Bot desktop appをworkspace teammateへ接続する経路を説明。xAI公式routine docsはWebhookを入力トリガーとして説明し、HTTP 200が受付であって完了ではないことを明記。xAI公式computer/apps docsはGrok BotのRemote HTTPS custom MCP connectorを説明。Honmaruは既存routine webhook、暗号化保存、ワンタイムtoken、元threadへの結果配信、取消/期限処理を実装。現在の作業ブランチではMCP Streamable HTTP completion toolを追加し、ローカルWorker統合試験で初期化・tool discovery・誤token拒否・一回性・thread応答を確認。",
+        "remaining": "MCP completion bridgeはPR/本番未反映。Grok Bot実画面でRemote HTTPS connectorの登録とroutineからのtool呼び出しを未確認で、実アカウントでの外部実行・進捗・Kylon UI/操作比較も未確認。Webhookキー・URL設定から完了MCP登録までのユーザー導線を実画面で検証し、実際のGrok Bot互換性を確認する。"
       }
     }
   ]
