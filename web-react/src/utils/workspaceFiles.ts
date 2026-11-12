@@ -10,6 +10,7 @@ export type FileAudienceState={audience:FileAudience|null;version:number;rooms:F
 export type FileAudienceInput={version:number;type:'workspace'|'room'|null;roomId?:string;permission?:ExternalFilePermission;expiresAt?:string|null}
 export type ExternalFileInvite={id:string;invitedEmail:string;permission:ExternalFilePermission;accessExpiresAt:string|null;createdAt:string;expiresAt:string;redeemedAt:string|null;revokedAt:string|null;emailDelivery?:{status:'sent'|'failed'|'not_configured'}}
 export type ExternalFileGrant={id:string;recipientGithubId:string;recipientLogin:string;recipientEmail:string;permission:ExternalFilePermission;grantedAt:string;expiresAt:string|null;revokedAt:string|null;revokedBy:string|null}
+export type ExternalFileLink={id:string;permission:ExternalFilePermission;createdAt:string;expiresAt:string|null}
 export type PublicFileShareRequest={id:string;fileId:string;filePath:string;scope:string;version:number;currentVersion:number;contentHash:string;contentType:string;size:number;expiresAt:string;allowDownload:boolean;status:'pending'|'approved'|'declined'|'stale'|'cancelled';createdAt:string;requesterLogin:string;decisionAt:string|null;shareId:string|null;revokedAt:string|null;revokedBy:string|null}
 export type FilePublicUrlState={url:string|null;version:number;contentType:string|null;canCreate:boolean;canRevoke:boolean}
 export type FilePublicUrlResult={url:string;version:number;contentType:string;reused:boolean}
@@ -59,6 +60,9 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   },
   revokePublicShare:(shareId:string)=>json<{shareId:string;revokedAt:string}>(`/hx/files/shares/${encodeURIComponent(shareId)}/revoke`,'POST',{}),
   externalInvites:(id:string,signal?:AbortSignal)=>json<{canManage:boolean;invites:ExternalFileInvite[]}>(`${path(id)}/external-grant-invites`,'GET',undefined,undefined,signal),
+  externalLinks:(id:string,signal?:AbortSignal)=>json<{canManage:boolean;links:ExternalFileLink[]}>(`${path(id)}/external-links`,'GET',undefined,undefined,signal),
+  createExternalLink:(id:string,permission:ExternalFilePermission,expiresAt:string|null)=>json<{created:boolean;link:ExternalFileLink;token:string;inviteUrl:string}>(`${path(id)}/external-links`,'POST',{permission,expiresAt}),
+  revokeExternalLink:(id:string,linkId:string)=>json<{revoked:boolean}>(`${path(id)}/external-links/${encodeURIComponent(linkId)}`,'DELETE',{}),
   externalAudience:(id:string,signal?:AbortSignal)=>json<FileAudienceState>(`${path(id)}/external-audience`,'GET',undefined,undefined,signal),
   updateExternalAudience:(id:string,input:FileAudienceInput)=>json<FileAudienceState>(`${path(id)}/external-audience`,'PUT',input),
   inviteExternal:(id:string,email:string,permission:ExternalFilePermission,expiresInDays:number,inviteExpiresInDays:number)=>json<{invite:ExternalFileInvite&{token:string;inviteUrl:string}}>(`${path(id)}/external-grant-invites`,'POST',{email,permission,expiresInDays,inviteExpiresInDays}),
@@ -81,5 +85,5 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
  }
 }
 type WorkspaceFileApiBase=ReturnType<typeof workspaceFileApi>
-type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'declinePublicShare'|'revokePublicShare'|'externalGrants'|'grantExternal'|'updateExternalGrant'|'revokeExternal'|'externalLink'|'externalInvites'|'inviteExternal'|'updateExternalInvite'|'revokeExternalInvite'|'filePublicUrl'|'createFilePublicUrl'|'revokeFilePublicUrls'|'externalAudience'|'updateExternalAudience'
+type ShareApiMethods='shareRequests'|'requestPublicShare'|'approvePublicShare'|'declinePublicShare'|'revokePublicShare'|'externalGrants'|'grantExternal'|'updateExternalGrant'|'revokeExternal'|'externalLink'|'externalInvites'|'inviteExternal'|'updateExternalInvite'|'revokeExternalInvite'|'externalLinks'|'createExternalLink'|'revokeExternalLink'|'filePublicUrl'|'createFilePublicUrl'|'revokeFilePublicUrls'|'externalAudience'|'updateExternalAudience'
 export type WorkspaceFileApi = Omit<WorkspaceFileApiBase,ShareApiMethods> & Partial<Pick<WorkspaceFileApiBase,ShareApiMethods>>

@@ -6,8 +6,9 @@ import type { ExternalCollaborator } from '../utils/externalCollaborators'
 
 interface Guest { githubId: string; login: string; name?: string | null; email?: string | null; permission: 'view' | 'edit'; expiresAt: string | null }
 interface Invite { id: string; invitedEmail: string; permission: 'view' | 'edit'; accessExpiresAt: string | null; inviteExpiresAt: string }
+interface GuestLink {id:string;permission:'view'|'edit';createdAt:string;expiresAt:string|null}
 interface SendRequest { id: string; tableId: string; rowId: string; guestGithubId: string; name?: string | null; login: string; email?: string | null; body: string; requestedAt: string }
-interface ShareState { guests: Guest[]; invites: Invite[]; requests: SendRequest[]; canManage: boolean; customUnsupported?: boolean }
+interface ShareState { guests: Guest[]; invites: Invite[]; links:GuestLink[]; requests: SendRequest[]; canManage: boolean; customUnsupported?: boolean }
 interface AudienceState { audience: null | { type: 'workspace'|'room'; roomId?: string; permission: 'view'|'edit'; expiresAt: string|null; version: number }; version: number; rooms: Array<{id:string;name:string}> }
 const headers = (sessionToken: string, json = false) => ({ 'x-session-token': sessionToken, ...(json ? { 'content-type': 'application/json' } : {}) })
 
@@ -20,6 +21,9 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
   const [expiry, setExpiry] = useState('never')
   const [inviteUrl, setInviteUrl] = useState('')
   const [inviteDelivery, setInviteDelivery] = useState<'sent'|'failed'|'not_configured'|''>('')
+  const [linkPermission,setLinkPermission]=useState<'view'|'edit'>('view')
+  const [linkExpiry,setLinkExpiry]=useState('never')
+  const [guestLink,setGuestLink]=useState('')
   const [copyStatus, setCopyStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -36,9 +40,12 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
     if (!res.ok) throw new Error(data.message || String(res.status))
     const queueRes = await fetch(`${base}/requests`, { headers: headers(sessionToken), signal })
     const queue = queueRes.ok ? await queueRes.json() : { requests: [] }
+    const linksRes=await fetch(`${base}/links`,{headers:headers(sessionToken),signal})
+    const linksData=linksRes.ok?await linksRes.json():{links:[]}
     setSharing({
       guests: Array.isArray(data.guests) ? data.guests : [],
       invites: Array.isArray(data.invites) ? data.invites : [],
+      links:Array.isArray(linksData.links)?linksData.links:[],
       requests: Array.isArray(queue.requests) ? queue.requests : [],
       canManage: data.canManage === true,
       customUnsupported: data.customUnsupported === true,
@@ -95,6 +102,17 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
       setCopyStatus(t('Copy was unavailable. Select the link above and copy it manually.'))
     }
   }
+  const createGuestLink=async()=>{
+    setBusy(true);setError('');setGuestLink('');setCopyStatus('')
+    try{
+      const expiresAt=linkExpiry==='never'?null:new Date(Date.now()+Number(linkExpiry)*86400000).toISOString()
+      const res=await fetch(`${base}/links`,{method:'POST',headers:headers(sessionToken,true),body:JSON.stringify({permission:linkPermission,expiresAt})})
+      const data=await res.json();if(!res.ok)throw new Error(data.message||String(res.status))
+      setGuestLink(data.inviteUrl||new URL(`/#/external-invite/${data.token}`,window.location.origin).toString())
+      await loadSharing()
+    }catch(err){setError(err instanceof Error?err.message:String(err))}finally{setBusy(false)}
+  }
+  const copyGuestLink=async()=>{try{await navigator.clipboard.writeText(guestLink);setCopyStatus(t('Guest link copied.'))}catch{setCopyStatus(t('Copy was unavailable. Select the link above and copy it manually.'))}}
   const updateGuest = async (guest: Guest, nextPermission: 'view' | 'edit', nextExpiry = guest.expiresAt) => {
     setBusy(true); setError('')
     try {
@@ -160,6 +178,12 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
       <p className="row-sub">{t('Invite a named person to this App. They must verify the invited email address. Access stays limited to this App and its linked records.')}</p>
       {sharing.customUnsupported && <div className="form-error" role="status">{t('Publish this Custom App before inviting external guests.')}</div>}
       {!sharing.customUnsupported && <>
+      <section className="app-guest-links" aria-label={t('Reusable guest links')}>
+        <h4>{t('Anyone with the link')}</h4><p className="row-sub">{t('Anyone with this link can sign in and access this App. The link is reusable until it expires or you revoke it.')}</p>
+        <div className="app-guest-invite"><label>{t('Permission')}<select aria-label={t('Guest link permission')} value={linkPermission} disabled={busy} onChange={event=>setLinkPermission(event.target.value as 'view'|'edit')}><option value="view">{t('View')}</option><option value="edit">{t('Edit')}</option></select></label><label>{t('Link expires')}<select aria-label={t('Guest link expiry')} value={linkExpiry} disabled={busy} onChange={event=>setLinkExpiry(event.target.value)}><option value="never">{t('Never')}</option><option value="1">{t('In 1 day')}</option><option value="7">{t('In 7 days')}</option><option value="30">{t('In 30 days')}</option><option value="90">{t('In 90 days')}</option></select></label><button className="btn btn-primary" type="button" disabled={busy} onClick={()=>void createGuestLink()}>{t('Create reusable link')}</button></div>
+        {guestLink&&<div className="app-guest-link"><span>{t('Share this sign-in link. The token is shown only once.')}</span><div><input aria-label={t('Reusable guest link')} readOnly value={guestLink} onFocus={event=>event.currentTarget.select()}/><button className="btn" type="button" onClick={()=>void copyGuestLink()}>{t('Copy link')}</button></div><span role="status" aria-live="polite">{copyStatus}</span></div>}
+        {sharing.links.map(link=><div className="app-guest-person" key={link.id}><span>{link.permission} · {link.expiresAt?`${t('Expires')} ${new Date(link.expiresAt).toLocaleString()}`:t('No expiry')}</span><button className="btn" type="button" disabled={busy} onClick={()=>void revoke(`links/${encodeURIComponent(link.id)}`)}>{t('Revoke')}</button></div>)}
+      </section>
       <div className="app-guest-invite">
         <ExternalCollaboratorPicker httpBase={httpBase} sessionToken={sessionToken} orgId={orgId} resourceType="app" resourceId={appId} value={selectedCollaborator} onChange={setSelectedCollaborator} disabled={busy}/>
         <label>{t('Permission')}<select aria-label={t('Existing collaborator permission')} value={permission} onChange={event => setPermission(event.target.value as 'view' | 'edit')}><option value="view">{t('View')}</option><option value="edit">{t('Edit')}</option></select></label>

@@ -46,3 +46,14 @@ test('redeems an external Thread invite with the session created by email OTP', 
   )
   act(() => tree.unmount())
 })
+
+test('passes a redeemed App link back to authentication routing',async()=>{
+ const fetch=vi.fn()
+  .mockResolvedValueOnce(response({token:'session-token',userId:'guest',orgId:'personal',created:true}))
+  .mockResolvedValueOnce(response({redeemed:true,orgId:'team:one',resourceType:'app',appId:'app/one',permission:'view'}))
+ vi.stubGlobal('fetch',fetch);const onVerified=vi.fn();let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<Otp httpBase="https://api.example" email="guest@example.test" name="Guest" inviteCode="" externalInviteToken={'b'.repeat(64)} onVerified={onVerified} onBack={()=>{}}/>)} )
+ await act(async()=>{tree.root.findAllByProps({inputMode:'numeric'})[0].props.onChange({target:{value:'382941'}});for(let i=0;i<8;i++)await Promise.resolve()})
+ expect(onVerified).toHaveBeenCalledWith('session-token','guest','personal',true,{message:'The App invitation was accepted.',externalApp:{orgId:'team:one',appId:'app/one'}})
+ act(()=>tree.unmount())
+})

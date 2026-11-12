@@ -1,6 +1,7 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,expect,test} from 'vitest';
 import filesSql from '../workspace-files.sql?raw';
+import migrationsSql from '../migrations.sql?raw';
 import {createSession,upsertMembership,upsertUser} from '../src/db.js';
 import {setMode} from '../src/harness/mode.js';
 import {createFileLedger,appendFileVersion} from '../src/harness/fileVersionLedger.js';
@@ -10,6 +11,7 @@ let f;
 async function setup(){
  const suffix=tag(),orgId='external-grant-'+suffix,ownerId='owner-'+suffix,adminId='admin-'+suffix,memberId='member-'+suffix,recipientId='recipient-'+suffix,fileId='f_'+suffix.slice(0,20),now=new Date().toISOString();
  await env.DB.exec(filesSql.replace(/\n/g,' '));
+ for(const sql of migrationsSql.split('\n').filter(line=>/^CREATE (?:TABLE|(?:UNIQUE )?INDEX) IF NOT EXISTS idx_hx_external_file_link_|^CREATE TABLE IF NOT EXISTS hx_external_file_link_/.test(line)))await env.DB.exec(sql);
  await env.DB.prepare('INSERT INTO orgs(id,name,created_at) VALUES(?1,?2,?3)').bind(orgId,orgId,now).run();
  await upsertUser(env.DB,{githubId:ownerId,login:ownerId,name:'Owner'});
  await upsertUser(env.DB,{githubId:adminId,login:adminId,name:'Admin'});
@@ -30,6 +32,18 @@ async function setup(){
 }
 beforeEach(setup);
 async function call(path,token,method='GET',body){return worker.fetch(new Request('https://example.test'+path,{method,headers:{'x-session-token':token,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})}),env,{waitUntil(){}})}
+test('reusable File links hash tokens, grant only signed-in nonmembers, and revoke only link-created grants',async()=>{
+ const base=`/hx/files/${encodeURIComponent(f.fileId)}/external-links`,path=base+`?orgId=${encodeURIComponent(f.orgId)}`;
+ const createdResponse=await call(path,f.ownerToken,'POST',{permission:'edit',expiresAt:null});expect(createdResponse.status).toBe(201);const created=await createdResponse.json();
+ expect(created.inviteUrl).toContain('/#/external-invite/');
+ expect(await env.DB.prepare('SELECT token_hash FROM hx_external_file_link_shares WHERE id=?1').bind(created.link.id).first()).toMatchObject({token_hash:expect.not.stringMatching(created.token)});
+ expect((await (await call(path,f.ownerToken)).json()).links[0]).not.toHaveProperty('token');
+ expect((await call('/external/invites/redeem','', 'POST',{token:created.token})).status).toBe(401);
+ const redeemed=await call('/external/invites/redeem',f.recipientToken,'POST',{token:created.token});expect(redeemed.status).toBe(200);expect(await redeemed.json()).toMatchObject({redeemed:true,resourceType:'file',fileId:f.fileId,permission:'edit'});
+ expect((await call('/external/invites/redeem',f.memberToken,'POST',{token:created.token})).status).toBe(404);
+ const revoke=await call(`${base}/${encodeURIComponent(created.link.id)}?orgId=${encodeURIComponent(f.orgId)}`,f.ownerToken,'DELETE',{});expect((await revoke.json()).revoked).toBe(true);
+ expect((await call('/external/files/'+encodeURIComponent(f.orgId)+'/'+encodeURIComponent(f.fileId),f.recipientToken)).status).toBe(404);
+});
 test('owner creates a verified-email view grant, recipient redeems it, and owner revokes it',async()=>{
  const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
  let response=await call(path,f.ownerToken,'POST',{email:f.recipientId+'@example.test',permission:'edit',expiresInDays:7});

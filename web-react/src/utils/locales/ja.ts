@@ -3761,6 +3761,21 @@ const table: Record<string, string> = {
   'Restore workflow': '自動化を復元',
   'Restoring this automation will re-enable its previous schedule or trigger. Review it before continuing.': '復元すると以前のスケジュールまたはトリガーが再び有効になります。続行前に内容を確認してください。',
   'Restoring makes this automation available again. It will remain turned off.': '復元するとこの自動化を再び利用できます。オフの状態は維持されます。',
+  'Anyone with a sign-in link': 'サインインリンクを持つ人',
+  'Guests must sign in. This link grants access to the current File and can be revoked at any time.': 'ゲストはサインインが必要です。このリンクは現在のファイルへのアクセスを許可し、いつでも失効できます。',
+  'Anyone with this link can sign in and access this App. The link is reusable until it expires or you revoke it.': 'リンクを持つ人はサインインしてこのアプリにアクセスできます。期限切れまたは失効まで繰り返し使用できます。',
+  'Reusable guest links': 'ゲスト用の再利用リンク',
+  'Create reusable link': '再利用リンクを作成',
+  'Reusable guest link': 'ゲスト用再利用リンク',
+  'Guest link permission': 'ゲストリンクの権限',
+  'Guest link expiry': 'ゲストリンクの有効期限',
+  'This token is shown once. Copy it now and share it with the guest.': 'このトークンは一度だけ表示されます。今コピーしてゲストに共有してください。',
+  'Share this sign-in link. The token is shown only once.': 'このサインインリンクを共有してください。トークンは一度だけ表示されます。',
+  'Reusable sign-in link created.': '再利用可能なサインインリンクを作成しました。',
+  'Guest link revoked.': 'ゲストリンクを失効しました。',
+  'Guest link copied.': 'ゲストリンクをコピーしました。',
+  'Could not create the guest link.': 'ゲストリンクを作成できませんでした。',
+  'Could not revoke the guest link.': 'ゲストリンクを失効できませんでした。',
 }
 
 export default table

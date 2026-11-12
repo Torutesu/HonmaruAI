@@ -8,7 +8,7 @@ interface Props {
   name: string
   inviteCode: string
   externalInviteToken?: string
-  onVerified: (token: string, userId: string, orgId: string, created: boolean, inviteNotice?: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' }; externalFile?: { orgId: string; fileId: string } }) => void
+  onVerified: (token: string, userId: string, orgId: string, created: boolean, inviteNotice?: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' }; externalFile?: { orgId: string; fileId: string }; externalApp?:{orgId:string;appId:string} }) => void
   onBack: () => void
 }
 
@@ -64,7 +64,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, extern
         setPending({ token: data.token, uid: data.login || data.userId, org: data.orgId || '', created: Boolean(data.created) })
         return
       }
-      let inviteNotice: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' }; externalFile?: { orgId: string; fileId: string } } | undefined
+      let inviteNotice: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' }; externalFile?: { orgId: string; fileId: string }; externalApp?:{orgId:string;appId:string} } | undefined
       if (externalInviteToken) {
         try {
           const redeemed = await fetch(`${httpBase}/external/invites/redeem`, {
@@ -74,7 +74,7 @@ export const Otp: React.FC<Props> = ({ httpBase, email, name, inviteCode, extern
           })
           const result = await redeemed.json().catch(() => ({}))
           inviteNotice = redeemed.ok
-            ? { message: result.alreadyMember ? t('You already belong to this workspace.') : result.resourceType === 'file' ? t('The File invitation was accepted.') : t('The Thread invitation was accepted.'), ...(result.resourceType === 'file' && result.orgId && result.fileId ? { externalFile: { orgId: result.orgId, fileId: result.fileId } } : {}), ...(externalThreadAccessFromInvite(result) ? { externalThread: externalThreadAccessFromInvite(result)! } : {}) }
+            ? { message: result.alreadyMember ? t('You already belong to this workspace.') : result.resourceType === 'file' ? t('The File invitation was accepted.') : result.resourceType==='app'?t('The App invitation was accepted.'):t('The Thread invitation was accepted.'), ...(result.resourceType === 'file' && result.orgId && result.fileId ? { externalFile: { orgId: result.orgId, fileId: result.fileId } } : {}), ...(result.resourceType==='app'&&result.orgId&&result.appId?{externalApp:{orgId:result.orgId,appId:result.appId}}:{}), ...(externalThreadAccessFromInvite(result) ? { externalThread: externalThreadAccessFromInvite(result)! } : {}) }
             : { message: t('This invitation is not valid, or has expired.'), error: true }
         } catch {
           inviteNotice = { message: t('Could not verify this invitation yet. Sign in and open its link again.'), error: true }

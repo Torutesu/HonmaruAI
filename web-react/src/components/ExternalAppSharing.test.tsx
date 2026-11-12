@@ -15,6 +15,8 @@ beforeEach(() => {
     if (url.endsWith('/sharing') && init?.method === 'POST') {
       return new Response(JSON.stringify({ invite: { token: 'a'.repeat(64), emailDelivery: { status: 'not_configured' } } }), { status: 201 })
     }
+    if(url.endsWith('/sharing/links')&&init?.method==='POST')return new Response(JSON.stringify({created:true,link:{id:'link-1',permission:'edit',createdAt:'2026-11-12T00:00:00.000Z',expiresAt:null},token:'b'.repeat(64),inviteUrl:'https://app.example/#/external-invite/'+('b'.repeat(64))}),{status:201})
+    if(url.endsWith('/sharing/links'))return new Response(JSON.stringify({links:[{id:'link-1',permission:'view',createdAt:'2026-11-12T00:00:00.000Z',expiresAt:null}]}),{status:200})
     if (url.includes('/external/collaborators/search')) return new Response(JSON.stringify({ people: [{ githubId:'guest-2',login:'ari',name:'Ari' }] }), { status:200 })
     if (url.endsWith('/sharing/requests')) return new Response(JSON.stringify({ requests: [
       { id: 'request-1', tableId: '', rowId: '', guestGithubId: 'guest-1', name: 'Guest Person', login: 'guest', email: 'guest@example.com', body: 'Please confirm this update.', requestedAt: '2026-11-07T10:00:00.000Z' },
@@ -82,6 +84,20 @@ test('non-managers cannot see external guest controls', async () => {
   await act(async () => { tree = create(<ExternalAppSharing {...props} />) })
   expect(JSON.stringify(tree?.toJSON()) || '').not.toContain('External guests')
   expect(tree!.root.findAllByType('form')).toHaveLength(0)
+})
+
+test('App owner creates and revokes an authenticated reusable guest link',async()=>{
+ await act(async()=>{tree=create(<ExternalAppSharing {...props}/>);await Promise.resolve()})
+ const permission=tree!.root.findByProps({'aria-label':'Guest link permission'})
+ await act(async()=>{permission.props.onChange({target:{value:'edit'}})})
+ const createButton=tree!.root.findAllByType('button').find(button=>String(button.children.join(''))==='Create reusable link')
+ await act(async()=>{createButton!.props.onClick();await Promise.resolve()})
+ const post=requests.find(item=>item.url.endsWith('/sharing/links')&&item.init?.method==='POST')
+ expect(JSON.parse(String(post?.init?.body))).toMatchObject({permission:'edit',expiresAt:null})
+ expect(JSON.stringify(tree!.toJSON())).toContain('token is shown only once')
+ const revoke=tree!.root.findAllByType('button').find(button=>String(button.children.join(''))==='Revoke')
+ await act(async()=>{revoke!.props.onClick();await Promise.resolve()})
+ expect(requests.some(item=>item.url.endsWith('/sharing/links/link-1')&&item.init?.method==='DELETE')).toBe(true)
 })
 
 test('App owner can update a pending invite permission and access expiry independently of invite expiry', async () => {
