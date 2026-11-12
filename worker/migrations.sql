@@ -302,6 +302,13 @@ CREATE INDEX IF NOT EXISTS idx_hx_workflow_ai_budget_notice_pending ON hx_workfl
 CREATE TABLE IF NOT EXISTS hx_workflow_ai_budget_reservations (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, step_number INTEGER NOT NULL CHECK(step_number>0), provider TEXT NOT NULL, model TEXT NOT NULL, reserved_micros INTEGER CHECK(reserved_micros>=0), budget_revision INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('held','settled','blocked')), created_at TEXT NOT NULL, expires_at TEXT, settled_at TEXT);
 CREATE INDEX IF NOT EXISTS idx_hx_workflow_ai_budget_reservations_window ON hx_workflow_ai_budget_reservations(org_id,workflow_id,status,created_at);
 
+-- Workspace-wide deployment-key admission reservations. A held request counts
+-- against every configured rolling window before it reaches a provider. If a
+-- dispatched request never reports usage, its reservation becomes unknown and
+-- keeps the affected windows fail-closed until it ages out.
+CREATE TABLE IF NOT EXISTS hx_workspace_ai_budget_reservations (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, model TEXT NOT NULL, reserved_micros INTEGER CHECK(reserved_micros>=0), budget_revision INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('held','unknown','settled')), created_at TEXT NOT NULL, expires_at TEXT, settled_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_hx_workspace_ai_budget_reservations_window ON hx_workspace_ai_budget_reservations(org_id,status,created_at);
+
 CREATE TABLE IF NOT EXISTS hx_workflow_node_checkpoints (org_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, node_id TEXT NOT NULL, fingerprint TEXT NOT NULL, effect INTEGER NOT NULL CHECK(effect IN (0,1)), status TEXT NOT NULL CHECK(status IN ('running','unknown','done')), owner TEXT NOT NULL, attempt INTEGER NOT NULL CHECK(attempt>0), lease_until INTEGER NOT NULL, result TEXT, PRIMARY KEY(org_id,run_id,node_id), CHECK(status!='done' OR result IS NOT NULL));
 
 CREATE TABLE IF NOT EXISTS hx_workflow_state_versions (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL REFERENCES hx_workflows(id) ON DELETE CASCADE, revision INTEGER NOT NULL CHECK(revision>0), run_id TEXT NOT NULL, state TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}', validation_status TEXT NOT NULL CHECK(validation_status IN ('pending','passed','failed')), created_at INTEGER NOT NULL, PRIMARY KEY(org_id,workflow_id,revision));

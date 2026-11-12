@@ -2,7 +2,8 @@ import { env } from "cloudflare:test";
 import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { allowanceFor } from "../src/gate.js";
-import { claimWorkspaceBudgetNotice, saveWorkspaceAIBudget, workspaceAIBudgetStatus, workspaceBudgetAdmission } from "../src/workspaceAIBudget.js";
+import { noteUsage, settleUsage } from "../src/ledger.js";
+import { claimWorkspaceBudgetNotice, releaseWorkspaceAIBudgetReservation, reserveWorkspaceAIBudgetCall, saveWorkspaceAIBudget, workspaceAIBudgetStatus, workspaceBudgetAdmission } from "../src/workspaceAIBudget.js";
 
 const ORG = "workspace:shared-budget";
 const NOW = () => new Date(Date.now() - 1_000).toISOString();
@@ -127,4 +128,71 @@ test("warning mode reports unknown model prices without blocking; explicit searc
   expect(status.periods["24h"]).toMatchObject({ calls: 3, unpricedCalls: 1, indeterminate: true });
   expect(await workspaceBudgetAdmission(env.DB, ORG, now)).toMatchObject({ allowed: true });
   expect(await allowanceFor({ DB: env.DB }, ORG, { githubId: "42" })).toMatchObject({ allowed: true });
+});
+
+test("workspace pause reservations atomically include concurrent deployment model calls", async () => {
+  const now = Date.now();
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 0.001, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", new Date(now).toISOString());
+  const request = { orgId: ORG, model: "gpt-4o-mini", inputTokens: 1000, outputTokens: 1000, now };
+  const [left, right] = await Promise.all([
+    reserveWorkspaceAIBudgetCall(env.DB, request),
+    reserveWorkspaceAIBudgetCall(env.DB, request),
+  ]);
+  expect([left, right].filter((result) => result.allowed)).toHaveLength(1);
+  expect([left, right].filter((result) => !result.allowed)).toMatchObject([{ reason: "workspace_ai_budget" }]);
+  const first = left.allowed ? left : right;
+  expect((await workspaceAIBudgetStatus(env.DB, ORG, now)).periods["24h"])
+    .toMatchObject({ usedMicros: 750, calls: 1, exhausted: false });
+  await releaseWorkspaceAIBudgetReservation(env.DB, first.reservationId, now);
+  expect(await reserveWorkspaceAIBudgetCall(env.DB, request)).toMatchObject({ allowed: true, reservedMicros: 750 });
+});
+
+test("expired dispatch reservations become unknown usage and fail closed for capped windows", async () => {
+  const now = Date.now();
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", new Date(now).toISOString());
+  const held = await reserveWorkspaceAIBudgetCall(env.DB, {
+    orgId: ORG, model: "gpt-4o-mini", inputTokens: 100, outputTokens: 100, now: now - 600_000,
+  });
+  expect(held.allowed).toBe(true);
+  const status = await workspaceAIBudgetStatus(env.DB, ORG, now);
+  expect(status.periods["24h"]).toMatchObject({ calls: 1, unpricedCalls: 1, indeterminate: true });
+  expect(await workspaceBudgetAdmission(env.DB, ORG, now)).toMatchObject({ allowed: false, reason: "workspace_ai_budget" });
+});
+
+test("provider usage settles its workspace reservation with the ledger entry", async () => {
+  const now = Date.now();
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", new Date(now).toISOString());
+  const reservation = await reserveWorkspaceAIBudgetCall(env.DB, {
+    orgId: ORG, model: "gpt-4o-mini", inputTokens: 1000, outputTokens: 1000, now,
+  });
+  const provider = { model: "gpt-4o-mini", providerName: "OpenAI", usage: [] };
+  noteUsage(provider, "budgeted-call", { model: "gpt-4o-mini", usage: { prompt_tokens: 1000, completion_tokens: 1000 } });
+  await settleUsage(env.DB, provider, { orgId: ORG, githubId: "42" }, [], reservation.reservationId);
+  expect(await env.DB.prepare("SELECT status FROM hx_workspace_ai_budget_reservations WHERE id=?1").bind(reservation.reservationId).first())
+    .toMatchObject({ status: "settled" });
+  expect((await workspaceAIBudgetStatus(env.DB, ORG, Date.now())).periods["24h"])
+    .toMatchObject({ usedMicros: 750, calls: 1, unpricedCalls: 0 });
+});
+
+test("interrupted dispatched calls are recorded as unknown, not released as free", async () => {
+  const now = Date.now();
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", new Date(now).toISOString());
+  const reservation = await reserveWorkspaceAIBudgetCall(env.DB, {
+    orgId: ORG, model: "gpt-4o-mini", inputTokens: 1000, outputTokens: 1000, now,
+  });
+  const provider = { model: "gpt-4o-mini", providerName: "OpenAI", usage: [] };
+  noteUsage(provider, "interrupted-call", { model: "unknown", usage: {} });
+  await settleUsage(env.DB, provider, { orgId: ORG, githubId: "42" }, [], reservation.reservationId);
+  expect(await env.DB.prepare("SELECT status FROM hx_workspace_ai_budget_reservations WHERE id=?1").bind(reservation.reservationId).first())
+    .toMatchObject({ status: "settled" });
+  expect((await workspaceAIBudgetStatus(env.DB, ORG, Date.now())).periods["24h"])
+    .toMatchObject({ calls: 1, unpricedCalls: 1, indeterminate: true });
 });

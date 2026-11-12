@@ -164,9 +164,24 @@ test('persists the external cancellation outcome in the visible assignment after
  await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)})
  expect(tree.root.findAllByType('button')).toHaveLength(1)
  await act(async()=>tree.root.findByType('button').props.onClick())
- expect(JSON.stringify(tree.toJSON())).toContain('Agent execution cancelled')
+ expect(JSON.stringify(tree.toJSON())).toContain('Stopped in Honmaru; provider stop is unconfirmed')
  expect(JSON.stringify(tree.toJSON())).toContain('Provider cancellation could not be confirmed')
  expect(tree.root.findAllByType('button')).toHaveLength(1)
  expect(JSON.stringify(tree.toJSON())).toContain('Retry provider cancellation')
+ act(()=>tree.unmount())
+})
+
+test('does not imply the provider stopped when it has no cancellation endpoint', async()=>{
+ setup()
+ const face={id:'agent',name:'Codex',handle:'codex'}
+ const stopped={available:true,results:[{rowId:'one',status:'unknown',answered:0,assignments:[{id:'assignment',generation:2,status:'cancelled',providerStopStatus:'unsupported',canStop:false,agent:face,hops:[]}]}]}
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,status:200,json:async()=>stopped}))
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)})
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain('Stopped in Honmaru; provider may still be running')
+ expect(text).toContain('This provider does not support stop requests. Check the run in its app.')
+ expect(text).not.toContain('Retry provider cancellation')
+ expect(tree.root.findAllByType('button')).toHaveLength(0)
  act(()=>tree.unmount())
 })

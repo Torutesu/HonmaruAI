@@ -66,9 +66,9 @@ const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}
 const parse = (s, f) => { try { return JSON.parse(s); } catch { return f; } };
 const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 
-async function stopDeploymentRunsIfBudgetPaused(db, orgId, budget) {
+async function stopDeploymentRunsIfBudgetPaused(db, orgId, budget, runId = null) {
   if (budget?.reason !== 'workspace_ai_budget') return 0;
-  try { return await cancelDeploymentBudgetWorkflowRuns(db, orgId); }
+  try { return await cancelDeploymentBudgetWorkflowRuns(db, orgId, undefined, runId); }
   catch (err) { console.error('workspace budget workflow stop failed', err?.message || err); return 0; }
 }
 
@@ -1450,7 +1450,10 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       };
       const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200, credentialSource,
         usageContext: { roomSlug: step.channel?.startsWith("b:") ? step.channel.slice(2) : null, agentId: agentRow.id, workflowId: workflow.id },
-        budgetContext:{runId,stepNumber:number,onDenied:reason=>{budgetDeniedReason=reason;}} });
+        budgetContext:{runId,stepNumber:number,onDenied:reason=>{
+          budgetDeniedReason=reason;
+          if (reason === 'workspace_ai_budget') return stopDeploymentRunsIfBudgetPaused(db, orgId, {reason}, runId);
+        }} });
       if (!complete) return { status: "failed", error: "No AI model, or none left today." };
       const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "", userId: owner, allowPrivate: false });
       const tools = { ...(prepared.skillTools || {}) };

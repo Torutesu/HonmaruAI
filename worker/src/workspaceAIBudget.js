@@ -1,5 +1,5 @@
 import { aad, openField } from './secrets.js';
-import { PRICES } from './ledger.js';
+import { costOf, PRICES } from './ledger.js';
 
 // A workspace-wide guard for model usage that is paid by this deployment.
 // Amounts use the ledger's estimated list prices, never provider invoices or
@@ -19,27 +19,36 @@ const usd = (micros) => Math.round((Number(micros) || 0)) / 1_000_000;
 // newly introduced model's real list price, so it cannot prove the configured
 // cap was respected. Explicit per-search and Jev entries have their own known
 // non-token pricing and remain trusted.
-const knownModelPredicate = `lower(model) IN ('web_search','jev-latest') OR ${Object.keys(PRICES)
-  .map((model) => `substr(lower(model),1,${model.length})='${model}'`).join(' OR ')}`;
+const knownModelPredicateFor = (column = 'model') => `${column ? `lower(${column})` : 'lower(model)'} IN ('web_search','jev-latest') OR ${Object.keys(PRICES)
+  .map((model) => `substr(lower(${column || 'model'}),1,${model.length})='${model}'`).join(' OR ')}`;
+const knownModelPredicate = knownModelPredicateFor();
+const knownPricedModel = (model) => {
+  const key = String(model || '').toLowerCase();
+  return Object.keys(PRICES).some((price) => key === price || key.startsWith(price));
+};
 
 export async function workspaceAIBudgetStatus(db, orgId, now = Date.now(), savedSettings = null) {
   if (!db || !orgId) return null;
+  const at = new Date(now).toISOString();
+  await db.prepare(`DELETE FROM hx_workspace_ai_budget_reservations
+    WHERE org_id=?1 AND created_at<?2`).bind(orgId, new Date(now - 30 * DAY).toISOString()).run();
+  await db.prepare(`UPDATE hx_workspace_ai_budget_reservations SET status='unknown'
+    WHERE org_id=?1 AND status='held' AND expires_at<=?2`).bind(orgId, at).run();
   const settings = savedSettings && !savedSettings.settingsReadFailed ? savedSettings : await db.prepare(`SELECT daily_budget_micros,weekly_budget_micros,monthly_budget_micros,
     budget_action,budget_revision FROM org_ai_settings WHERE org_id=?1`).bind(orgId).first();
   const config = settings || {};
   const since = new Date(now - 30 * DAY).toISOString();
-  const at = new Date(now).toISOString();
   const usage = await db.prepare(`SELECT
-    COALESCE(SUM(CASE WHEN created_at>=?2 THEN MAX(0,ROUND(usd*1000000)) ELSE 0 END),0) AS d24,
-    COALESCE(SUM(CASE WHEN created_at>=?3 THEN MAX(0,ROUND(usd*1000000)) ELSE 0 END),0) AS d7,
-    COALESCE(SUM(MAX(0,ROUND(usd*1000000))),0) AS d30,
-    SUM(CASE WHEN created_at>=?2 THEN 1 ELSE 0 END) AS c24,
-    SUM(CASE WHEN created_at>=?3 THEN 1 ELSE 0 END) AS c7,
-    COUNT(*) AS c30,
-    SUM(CASE WHEN created_at>=?2 AND NOT (${knownModelPredicate}) THEN 1 ELSE 0 END) AS u24,
-    SUM(CASE WHEN created_at>=?3 AND NOT (${knownModelPredicate}) THEN 1 ELSE 0 END) AS u7,
-    SUM(CASE WHEN NOT (${knownModelPredicate}) THEN 1 ELSE 0 END) AS u30
-    FROM ai_calls WHERE org_id=?1 AND byok=0 AND created_at>=?4 AND created_at<=?5`)
+    COALESCE(SUM(CASE WHEN a.created_at>=?2 THEN MAX(0,ROUND(a.usd*1000000)) ELSE 0 END),0)+COALESCE((SELECT SUM(r.reserved_micros) FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?1 AND r.status='held' AND r.created_at>=?2 AND r.created_at<=?5 AND r.expires_at>?5),0) AS d24,
+    COALESCE(SUM(CASE WHEN a.created_at>=?3 THEN MAX(0,ROUND(a.usd*1000000)) ELSE 0 END),0)+COALESCE((SELECT SUM(r.reserved_micros) FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?1 AND r.status='held' AND r.created_at>=?3 AND r.created_at<=?5 AND r.expires_at>?5),0) AS d7,
+    COALESCE(SUM(MAX(0,ROUND(a.usd*1000000))),0)+COALESCE((SELECT SUM(r.reserved_micros) FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?1 AND r.status='held' AND r.created_at>=?4 AND r.created_at<=?5 AND r.expires_at>?5),0) AS d30,
+    COALESCE(SUM(CASE WHEN a.created_at>=?2 THEN 1 ELSE 0 END),0)+COALESCE((SELECT COUNT(*) FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?1 AND r.status IN ('held','unknown') AND r.created_at>=?2 AND r.created_at<=?5 AND (r.status='unknown' OR r.expires_at>?5)),0) AS c24,
+    COALESCE(SUM(CASE WHEN a.created_at>=?3 THEN 1 ELSE 0 END),0)+COALESCE((SELECT COUNT(*) FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?1 AND r.status IN ('held','unknown') AND r.created_at>=?3 AND r.created_at<=?5 AND (r.status='unknown' OR r.expires_at>?5)),0) AS c7,
+    COUNT(*)+COALESCE((SELECT COUNT(*) FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?1 AND r.status IN ('held','unknown') AND r.created_at>=?4 AND r.created_at<=?5 AND (r.status='unknown' OR r.expires_at>?5)),0) AS c30,
+    COALESCE(SUM(CASE WHEN a.created_at>=?2 AND NOT (${knownModelPredicateFor('a.model')}) THEN 1 ELSE 0 END),0)+COALESCE((SELECT COUNT(*) FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?1 AND r.status='unknown' AND r.created_at>=?2 AND r.created_at<=?5),0) AS u24,
+    COALESCE(SUM(CASE WHEN a.created_at>=?3 AND NOT (${knownModelPredicateFor('a.model')}) THEN 1 ELSE 0 END),0)+COALESCE((SELECT COUNT(*) FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?1 AND r.status='unknown' AND r.created_at>=?3 AND r.created_at<=?5),0) AS u7,
+    COALESCE(SUM(CASE WHEN NOT (${knownModelPredicateFor('a.model')}) THEN 1 ELSE 0 END),0)+COALESCE((SELECT COUNT(*) FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?1 AND r.status='unknown' AND r.created_at>=?4 AND r.created_at<=?5),0) AS u30
+    FROM ai_calls a WHERE a.org_id=?1 AND a.byok=0 AND a.created_at>=?4 AND a.created_at<=?5`)
     .bind(orgId, new Date(now - DAY).toISOString(), new Date(now - 7 * DAY).toISOString(), since, at).first();
   const values = { '24h': [usage?.d24, usage?.c24, usage?.u24, config.daily_budget_micros], '7d': [usage?.d7, usage?.c7, usage?.u7, config.weekly_budget_micros], '30d': [usage?.d30, usage?.c30, usage?.u30, config.monthly_budget_micros] };
   const periods = Object.fromEntries(Object.entries(values).map(([key, [used, calls, unpriced, limit]]) => {
@@ -60,6 +69,61 @@ export function workspaceAIBudgetExceeded(status) {
   if (!status || status.action !== 'pause') return false;
   return WINDOWS.some(([key]) => status.periods?.[key]?.limitMicros > 0
     && (status.periods?.[key]?.exhausted || status.periods?.[key]?.indeterminate));
+}
+
+export function estimateWorkspaceBudgetMicros(model, inputTokens, outputTokens) {
+  if (!knownPricedModel(model) || !Number.isSafeInteger(inputTokens) || inputTokens < 0
+    || !Number.isSafeInteger(outputTokens) || outputTokens < 0) return null;
+  const estimate = costOf(model, { input: inputTokens, output: outputTokens }) * 1_000_000;
+  return Number.isFinite(estimate) && estimate >= 0 ? Math.ceil(estimate) : null;
+}
+
+/// Atomically reserve a conservative per-call list-price estimate before a
+/// deployment-key request reaches the provider. Workflow budgets have their
+/// own narrower reservation; this one coordinates calls across every route in
+/// the workspace. An expired dispatched call is retained as unknown usage.
+export async function reserveWorkspaceAIBudgetCall(db, { orgId, model, inputTokens, outputTokens, now = Date.now() }) {
+  if (!db || !orgId) return { allowed: true, reservationId: null };
+  try {
+    const settings = await db.prepare(`SELECT daily_budget_micros,weekly_budget_micros,monthly_budget_micros,budget_action,budget_revision
+      FROM org_ai_settings WHERE org_id=?1`).bind(orgId).first();
+    const limits = [settings?.daily_budget_micros, settings?.weekly_budget_micros, settings?.monthly_budget_micros].map((v) => Number(v) || 0);
+    if (settings?.budget_action !== 'pause' || !limits.some((v) => v > 0)) return { allowed: true, reservationId: null };
+    const estimate = estimateWorkspaceBudgetMicros(model, inputTokens, outputTokens);
+    if (estimate === null) return { allowed: false, reason: 'workspace_ai_budget_unpriced' };
+
+    const at = new Date(now).toISOString();
+    const expiry = new Date(now + 5 * 60_000).toISOString();
+    await db.prepare(`UPDATE hx_workspace_ai_budget_reservations SET status='unknown'
+      WHERE org_id=?1 AND status='held' AND expires_at<=?2`).bind(orgId, at).run();
+    const id = crypto.randomUUID();
+    const unknown = knownModelPredicateFor('a.model');
+    const fit = (startParam, budgetColumn) => `(s.${budgetColumn}=0 OR (
+      (SELECT COALESCE(SUM(MAX(0,ROUND(a.usd*1000000))),0) FROM ai_calls a WHERE a.org_id=?2 AND a.byok=0 AND a.created_at>=?${startParam} AND a.created_at<=?6)
+      +(SELECT COALESCE(SUM(r.reserved_micros),0) FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?2 AND r.status='held' AND r.created_at>=?${startParam} AND r.created_at<=?6 AND r.expires_at>?6)
+      +?4<=s.${budgetColumn}
+      AND NOT EXISTS(SELECT 1 FROM ai_calls a WHERE a.org_id=?2 AND a.byok=0 AND a.created_at>=?${startParam} AND a.created_at<=?6 AND NOT (${unknown}))
+      AND NOT EXISTS(SELECT 1 FROM hx_workspace_ai_budget_reservations r WHERE r.org_id=?2 AND r.status='unknown' AND r.created_at>=?${startParam} AND r.created_at<=?6)))`;
+    const result = await db.prepare(`INSERT INTO hx_workspace_ai_budget_reservations(id,org_id,model,reserved_micros,budget_revision,status,created_at,expires_at)
+      SELECT ?1,?2,?3,?4,s.budget_revision,'held',?6,?7 FROM org_ai_settings s
+      WHERE s.org_id=?2 AND s.budget_revision=?5 AND s.budget_action='pause'
+      AND (${fit(8, 'daily_budget_micros')}) AND (${fit(9, 'weekly_budget_micros')}) AND (${fit(10, 'monthly_budget_micros')})`)
+      .bind(id, orgId, String(model), estimate, Number(settings?.budget_revision) || 0, at, expiry,
+        new Date(now - DAY).toISOString(), new Date(now - 7 * DAY).toISOString(), new Date(now - 30 * DAY).toISOString()).run();
+    if (result.meta?.changes) return { allowed: true, reservationId: id, reservedMicros: estimate };
+    const status = await workspaceAIBudgetStatus(db, orgId, now);
+    return { allowed: false, reason: 'workspace_ai_budget', budget: status };
+  } catch (err) {
+    console.error('workspace AI budget reservation failed', err?.message || err);
+    return { allowed: false, reason: 'workspace_ai_budget_unavailable' };
+  }
+}
+
+export async function releaseWorkspaceAIBudgetReservation(db, reservationId, now = Date.now()) {
+  if (!db || !reservationId) return false;
+  const result = await db.prepare(`UPDATE hx_workspace_ai_budget_reservations SET status='settled',settled_at=?1
+    WHERE id=?2 AND status='held'`).bind(new Date(now).toISOString(), reservationId).run();
+  return !!result.meta?.changes;
 }
 
 /// One in-app notice per saved budget revision. A failed request can be

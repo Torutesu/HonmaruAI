@@ -40,6 +40,12 @@ const labels: Record<string, string> = {
   cancelled: 'Agent execution stopped after access changed', no_agents: 'No eligible agent to run',
 }
 
+function stoppedAssignmentLabel(providerStopStatus?: string): string {
+  if (providerStopStatus === 'unsupported') return 'Stopped in Honmaru; provider may still be running'
+  if (providerStopStatus && providerStopStatus !== 'no_remote_run') return 'Stopped in Honmaru; provider stop is unconfirmed'
+  return 'Agent execution cancelled'
+}
+
 export function AgentRunStatus({api, channel, messages}: {api: Api; channel: string; messages: ChannelMessage[]}) {
   const t = useT()
   const sources = [...new Map(messages.filter(m => m.kind === 'message' && !m.deleted && !isTemp(m)).map(m => [m.id, m])).values()].slice(-20)
@@ -102,11 +108,11 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
       <span className="slk-run-source" title={sources.find(m => m.id === run.rowId)?.body}>{sources.find(m => m.id === run.rowId)?.body.slice(0, 100) || t('Message')}</span>
       {!run.assignments?.length && <span>{t(labels[run.status])}</span>}
       {Boolean(run.assignments?.length) && <div className="slk-run-assignments">{run.assignments!.map(assignment => <div className="slk-run-assignment" key={assignment.id}>
-        <div className="slk-run-assignee"><RunFace agent={assignment.agent}/><span className="slk-run-agent-name" title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? 'Agent execution cancelled' : labels[assignment.status])}</span>{assignment.startedAt&&(()=>{const active=activeStatus(assignment.status),endedAt=active?null:assignment.updatedAt||null,duration=(active||endedAt)?formatElapsedDuration(assignment.startedAt,endedAt,getLocale()):null;return duration===null?null:<span className="slk-run-duration">{t(active?'Running for {duration}':'Execution took {duration}',{duration})}</span>})()}</div>
+        <div className="slk-run-assignee"><RunFace agent={assignment.agent}/><span className="slk-run-agent-name" title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? stoppedAssignmentLabel(assignment.providerStopStatus) : labels[assignment.status])}</span>{assignment.startedAt&&(()=>{const active=activeStatus(assignment.status),endedAt=active?null:assignment.updatedAt||null,duration=(active||endedAt)?formatElapsedDuration(assignment.startedAt,endedAt,getLocale()):null;return duration===null?null:<span className="slk-run-duration">{t(active?'Running for {duration}':'Execution took {duration}',{duration})}</span>})()}</div>
         {assignment.status === 'cancelled' && (() => {
           const outcome = assignment.providerStopStatus
           if (!outcome || outcome === 'no_remote_run') return null
-          const message = outcome === 'requested' ? 'Provider cancellation requested' : outcome === 'requesting' || outcome === 'pending' ? 'Provider cancellation is being confirmed' : outcome === 'already_finished' ? 'Provider run already finished' : 'Provider cancellation could not be confirmed'
+          const message = outcome === 'unsupported' ? 'This provider does not support stop requests. Check the run in its app.' : outcome === 'requested' ? 'Provider cancellation requested' : outcome === 'requesting' || outcome === 'pending' ? 'Provider cancellation is being confirmed' : outcome === 'already_finished' ? 'Provider run already finished' : 'Provider cancellation could not be confirmed'
           return <span className={`slk-run-provider-stop slk-run-provider-stop-${outcome === 'requested' || outcome === 'requesting' || outcome === 'pending' || outcome === 'already_finished' ? 'ok' : 'warning'}`} role={outcome === 'requested' || outcome === 'requesting' || outcome === 'pending' || outcome === 'already_finished' ? 'status' : 'alert'}>{t(message)}</span>
         })()}
         {assignment.canStop === true && activeStatus(assignment.status) && <AgentRunStop key={`${scope}:${assignment.id}:${assignment.generation}`} api={api} channel={channel} rowId={run.rowId} assignmentId={assignment.id} generation={assignment.generation} onStopped={() => setRefresh(value => value + 1)}/>}
