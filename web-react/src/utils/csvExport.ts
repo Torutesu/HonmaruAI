@@ -39,7 +39,9 @@ export function serializeRowsToCsv(
   rows: readonly CsvExportRow[],
   formatCell: CsvCellFormatter = (_column, value) => value == null ? '' : typeof value === 'string' ? value : String(value),
 ): string {
-  const header = columns.map(column => quoteCsv(column.name)).join(',')
+  // Column names can be edited by workspace members too. Quoting alone does
+  // not stop spreadsheet applications from evaluating a formula in a header.
+  const header = columns.map(column => quoteCsv(neutralizeSpreadsheetFormula(column.name))).join(',')
   const body = rows.map(row => columns.map(column => {
     const system = systemValue(row, column.id)
     const raw = system !== undefined ? system : formatCell(column, row.values[column.id], row)
