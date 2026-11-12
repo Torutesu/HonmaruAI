@@ -28,6 +28,15 @@ describe('serializeRowsToCsv',()=>{
     )
   })
 
+  it('neutralizes formula-leading column names as well as record cells',()=>{
+    expect(serializeRowsToCsv([
+      {id:'name',name:'=HYPERLINK("x")'},
+      {id:'note',name:'  @SUM(A1:A2)'},
+    ],[row('literal','value')])).toBe(
+      '"\'=HYPERLINK(""x"")","\'  @SUM(A1:A2)"\r\n"literal","value"',
+    )
+  })
+
   it('maps system fields and leaves empty values empty',()=>{
     const csv=serializeRowsToCsv([
       {id:'$row.id',name:'ID'}, {id:'$row.createdAt',name:'作成日時'},
