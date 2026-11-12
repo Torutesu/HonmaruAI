@@ -70,7 +70,7 @@
 | KY-028 | preference/feedback/reference/context | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 4種のkind、型別・全文検索、詳細編集を追加。本文全体で重複を判定。意味的な重複統合・レビュー状態は残る |
 | KY-029 | ルーム・人単位の記憶スコープ | 一部 | P0 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 新規記憶に会話・元メッセージ・スレッドの参照IDを保存し、記憶画面で確認できる。旧記憶の出典は推測せず不明のまま。会話スコープ・人単位の隔離は維持。人単位の横断設定、実機QAは残る |
 | KY-030 | 共有ナレッジと個人記憶の分離 | 一部 | P0 | [memoryEntries.js](../../worker/src/harness/memoryEntries.js), [memoryPromotion.js](../../worker/src/harness/memoryPromotion.js), [AgentMemoryPromotions.tsx](../../web-react/src/components/AgentMemoryPromotions.tsx) | 個人スコープを保った記憶の作成者・編集者表示に加え、PR #864で個人記憶の共有コピー申請、Agent所有者/明示管理者の承認・拒否、元の個人記憶を維持する別コピー、版/アクセス再確認、申請・決定履歴、UIを追加。exact-head CI全必須ジョブ成功。マージ後healthとWebのHTTP応答を確認したが、配信SHAと認証済み本番の申請/承認往復は未確認。記憶自体の所有者移管、意味的な統合、Kylon実画面との完全一致は未達 |
-| KY-031 | 記憶のレビュー・スキル変換 | 一部 | P2 | [worker/src/harness/memoryEntries.js](../../worker/src/harness/memoryEntries.js) | 保持/修正/削除レビュー・版付き履歴・削除後の範囲付き証跡・本文と閲覧/実行範囲を維持するスキル変換は本番反映済み。再送時の重複防止と失敗時の一括取消はローカル全体テスト済み。変換の本番E2E、期限による再確認判定は残る |
+| KY-031 | 記憶のレビュー・スキル変換 | 一部 | P2 | [worker/src/harness/memoryEntries.js](../../worker/src/harness/memoryEntries.js), [worker/src/harness/memoryReader.js](../../worker/src/harness/memoryReader.js), [web-react/src/components/AgentMemoryList.tsx](../../web-react/src/components/AgentMemoryList.tsx) | 保持/修正/削除レビュー・版付き履歴・削除後の範囲付き証跡・本文と閲覧/実行範囲を維持するスキル変換は本番反映済み。kind別15/30/45/60日間隔の期限表示と、次のAgent実行時に期限超過した最大8件を現在の証拠で確認し、保持/修正/削除を版・ACL再検証付きで記録する仕組みを追加。ローカルWorker 74件・UI 14件は成功。間隔のkind対応は公開仕様からの実装上の割当でKylon実画面との照合が必要。アイドル中のバックグラウンド再確認、期限超過後の本番実動作、変換の本番E2E、今回差分のCI/デプロイ待ち |
 
 ## Skills
 
@@ -291,3 +291,7 @@ KY-065 adds reversible Workflow archive/restore while keeping it separate from d
 ### 2026-11-12 — Release and inventory reconciliation
 
 PR #920/#921/#922をmain `aafd8d28`、PR #928をmain `30abc926`で確認。#920のACPプリセット、#921/#922のroutine bridge、#928のFile/App reusable linkを本番反映。#922のproduction healthとMCP tools/list、#928のmain CI・Worker/Web deploy/domain verificationを確認。実Grok Botアカウントでのconnector登録とroutine完了、認証済み外部アカウントによるFile/App link redeem/revoke、Kylon同等性は未受入。台帳は109項目（実装あり4、一部104、未実装0、要検証1）。これは進捗率ではない。
+
+### 2026-11-13 — Memory review cadence batch
+
+Kylon公開Memory仕様の「型付き記憶を15〜60日ごとにAgentが再確認」へ対応し、Honmaru Harnessに型別の期限表示と、次のAgent実行中に期限超過項目を証拠・版・権限を再確認してレビューする導線を追加。kind別日数はpreference 15、feedback 30、context 45、reference 60としているが、公開仕様は範囲のみで対応表を示さないため実画面照合が必要。アイドル中の自動実行は追加せず、既存Agent実行時に限定して新規課金を避ける。Simple modeの実行経路は変更しない。focused Worker 74件、UI 14件は成功。ビルド、exact-head CI、本番反映・認証済み画面QAは進行中。

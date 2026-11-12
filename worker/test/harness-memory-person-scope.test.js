@@ -89,3 +89,24 @@ test("personal memory edit fails closed if ownership changes between read and wr
     title: "Race protected", body: "Original body", version: 1
   });
 });
+
+test('typed review cadence flags due memory and lets only its authorized owner record an evidence-backed Agent review',async()=>{
+  const made=await addAgentMemory(env.DB,ORG,agentId,{title:'Monthly planning',description:'Preference',body:'Use a monthly planning cycle.'},{by:'9212',userId:'9212',scope:'person',kind:'preference'});
+  const old=new Date(Date.now()-20*86400000).toISOString();
+  await env.DB.batch([
+    env.DB.prepare('UPDATE hx_agent_memories SET created_at=?1 WHERE org_id=?2 AND id=?3').bind(old,ORG,made.memory.id),
+    env.DB.prepare('UPDATE hx_memory_entries SET updated_at=?1 WHERE org_id=?2 AND memory_id=?3').bind(old,ORG,made.memory.id),
+  ]);
+  const due=(await listAgentMemories(env.DB,ORG,agentId,{userId:'9212'})).find(memory=>memory.id===made.memory.id);
+  expect(due).toMatchObject({reviewDue:true,reviewIntervalDays:15,version:1});
+  const ownerTools=agentMemoryTools(env.DB,ORG,agentId,{userId:'9212'});
+  const otherTools=agentMemoryTools(env.DB,ORG,agentId,{userId:'9213'});
+  expect(await otherTools.review_agent_memory.run({memory_id:made.memory.id,expected_version:1,verdict:'keep',evidence:'Checked'})).toBe('Memory unavailable.');
+  const evidence='Checked against the source conversation dated this month.';
+  const settled=JSON.parse(await ownerTools.review_agent_memory.run({memory_id:made.memory.id,expected_version:1,verdict:'keep',evidence}));
+  expect(settled).toMatchObject({reviewed:true,verdict:'keep',memoryId:made.memory.id});
+  const current=(await listAgentMemories(env.DB,ORG,agentId,{userId:'9212'})).find(memory=>memory.id===made.memory.id);
+  expect(current).toMatchObject({reviewDue:false,reviewIntervalDays:15,review:{version:1,current:true,evidence}});
+  const audit=await env.DB.prepare('SELECT reviewed_by,verdict,evidence FROM hx_memory_review_audit WHERE org_id=?1 AND memory_id=?2').bind(ORG,made.memory.id).first();
+  expect(audit).toEqual({reviewed_by:`agent:${agentId}`,verdict:'keep',evidence});
+});

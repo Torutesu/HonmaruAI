@@ -1,6 +1,6 @@
 import { mayRunAgent } from './agents.js';
 import { mayUseConversation } from './conversationAccess.js';
-import { memoryEntry } from './memoryEntries.js';
+import { memoryEntry, reviewMemoryEntry } from './memoryEntries.js';
 
 // Agent identity, workspace and room are server-bound; the model supplies
 // only an entry ID. Permissions are checked again at the moment of reading.
@@ -40,12 +40,52 @@ export function agentMemoryTools(db, orgId, agentId, context) {
         const denied = 'Memory unavailable.';
         if (!userId || typeof args?.memory_id !== 'string' || args.memory_id.length > 100) return denied;
         if (!await authorized()) return denied;
-        const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.title, d.description, d.body, d.version, d.updated_at FROM hx_agent_memories m
+        const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.title, d.description, d.body, d.version, d.updated_at,
+            r.reviewed_version,r.evidence AS review_evidence,r.reviewed_by,r.reviewed_at FROM hx_agent_memories m
           LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
           LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
+          LEFT JOIN hx_memory_reviews r ON r.memory_id=m.id AND r.org_id=m.org_id
           WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'') IN ('',?4) AND (s.user_github_id IS NULL OR s.user_github_id=?5)`)
           .bind(orgId,agentId,args.memory_id,channel,String(userId)).first();
         return row ? JSON.stringify(memoryEntry(row)) : denied;
+      },
+    },
+    review_agent_memory: {
+      description: 'Record a due typed-memory review after checking current evidence from this request or authorized connected tools. Keep, update, or delete with a concise source-based evidence note. Update requires a new title and body. Never guess or claim a check you did not perform. This changes only the authorized Agent memory and writes an auditable review record.',
+      parameters: { type: 'object', properties: {
+        memory_id: { type: 'string', minLength: 1, maxLength: 100 },
+        expected_version: { type: 'integer', minimum: 0 },
+        verdict: { type: 'string', enum: ['keep','update','delete'] },
+        evidence: { type: 'string', minLength: 1, maxLength: 2000 },
+        title: { type: 'string', maxLength: 120 }, description: { type: 'string', maxLength: 500 }, body: { type: 'string', maxLength: 16000 },
+      }, required: ['memory_id','expected_version','verdict','evidence'], additionalProperties: false },
+      run: async args => {
+        const denied='Memory unavailable.';
+        if (!userId || typeof args?.memory_id!=='string' || args.memory_id.length>100
+          || !Number.isSafeInteger(args?.expected_version) || args.expected_version<0
+          || !['keep','update','delete'].includes(args?.verdict)
+          || typeof args?.evidence!=='string' || !args.evidence.trim() || args.evidence.length>2000) return denied;
+        if (!await authorized()) return denied;
+        const row=await db.prepare(`SELECT m.*,s.channel,s.kind,s.user_github_id,s.source_channel,s.source_message_id,s.source_thread_id,
+            d.title,d.description,d.body,d.version,d.updated_at,d.updated_by,
+            r.reviewed_version,r.evidence AS review_evidence,r.reviewed_by,r.reviewed_at
+          FROM hx_agent_memories m
+          LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
+          LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
+          LEFT JOIN hx_memory_reviews r ON r.memory_id=m.id AND r.org_id=m.org_id
+          WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'') IN ('',?4)
+            AND (s.user_github_id IS NULL OR s.user_github_id=?5)`).bind(orgId,agentId,args.memory_id,channel,String(userId)).first();
+        if (!row) return denied;
+        const memory=memoryEntry(row);
+        if (!memory.reviewDue) return 'This memory is not due for review.';
+        if (memory.version!==args.expected_version) return 'This memory changed. Read the current version before reviewing it.';
+        if (args.verdict==='update' && (typeof args.title!=='string' || typeof args.body!=='string')) return 'An update requires a title and full replacement body.';
+        const reviewed=await reviewMemoryEntry(db,orgId,agentId,args.memory_id,{
+          expectedVersion:args.expected_version,verdict:args.verdict,evidence:args.evidence,
+          ...(args.verdict==='update'?{title:args.title,description:args.description||'',body:args.body,kind:memory.kind}:{}),
+        },{channel,by:`agent:${agentId}`,userId});
+        if (reviewed.error) return reviewed.error;
+        return JSON.stringify({reviewed:true,verdict:args.verdict,memoryId:args.memory_id,review:reviewed.review||null,deleted:Boolean(reviewed.deleted)});
       },
     },
   };

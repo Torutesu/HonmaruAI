@@ -35,6 +35,17 @@ test('all four memory kinds can be selected',()=>{
  act(()=>tree.unmount())
 })
 
+test('memory review cadence is visible and overdue entries are announced',()=>{
+ const due={...memories[0],reviewIntervalDays:15,nextReviewAt:'2026-01-01T00:00:00.000Z',reviewDue:true}
+ const future={...memories[1],reviewIntervalDays:60,nextReviewAt:'2027-01-01T00:00:00.000Z',reviewDue:false}
+ let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<AgentMemoryList memories={[due,future]} canEdit busy={false} onForget={vi.fn()}/>)})
+ expect(tree.root.findByProps({className:'row-sub hx-memory-review-cadence due',role:'status'}).children.join('')).toContain('Memory review due')
+ expect(tree.root.findAllByProps({className:'row-sub hx-memory-review-cadence'})).toHaveLength(1)
+ expect(tree.root.findByProps({className:'row-sub hx-memory-review-cadence'}).children.join('')).toContain('Next memory review:')
+ act(()=>tree.unmount())
+})
+
 test('personal memory owners can manage only their personal entries without gaining shared edit rights',()=>{
  const shared={...memories[1],id:'shared',scope:'shared' as const}
  const personal={...memories[1],id:'personal',scope:'person' as const,isOwner:true}
