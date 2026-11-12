@@ -66,7 +66,7 @@ export function jevEntry(purpose, usage, model = "jev-latest") {
 /// Write the notes down and clear them. `extra` carries entries that were
 /// not made through the provider (System One's). Never throws: a ledger
 /// that cannot be written is not a reason to fail the decision it counts.
-export async function settleUsage(db, provider, { orgId, githubId, byok = false, roomSlug = null, agentId = null, workflowId = null, appId = null } = {}, extra = []) {
+export async function settleUsage(db, provider, { orgId, githubId, byok = false, roomSlug = null, agentId = null, workflowId = null, appId = null } = {}, extra = [], workspaceReservationId = null) {
   const entries = [...(Array.isArray(provider?.usage) ? provider.usage.splice(0) : []), ...extra.filter(Boolean)];
   if (!db || !orgId || entries.length === 0) return 0;
   // Whose bill: a person's own key (the caller says so) or the workspace's
@@ -79,7 +79,7 @@ export async function settleUsage(db, provider, { orgId, githubId, byok = false,
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
     );
     const safeContext = (value, limit) => typeof value === "string" && value.trim() && value.length <= limit ? value.trim() : null;
-    await db.batch(entries.map((e) => {
+    const statements = entries.map((e) => {
       const context = e.context || {};
       return stmt.bind(
         orgId, githubId ? String(githubId) : null, e.purpose, e.provider, e.model,
@@ -87,7 +87,11 @@ export async function settleUsage(db, provider, { orgId, githubId, byok = false,
         safeContext(context.roomSlug ?? roomSlug, 200), safeContext(context.agentId ?? agentId, 128),
         safeContext(context.workflowId ?? workflowId, 128), safeContext(context.appId ?? appId, 128),
       );
-    }));
+    });
+    if (workspaceReservationId) statements.push(db.prepare(`UPDATE hx_workspace_ai_budget_reservations
+      SET status='settled',settled_at=?1 WHERE id=?2 AND org_id=?3 AND status IN ('held','unknown')`)
+      .bind(now, workspaceReservationId, orgId));
+    await db.batch(statements);
   } catch (err) {
     console.error("ai ledger write failed", err?.message || err);
   }
