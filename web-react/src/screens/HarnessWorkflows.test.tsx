@@ -775,7 +775,7 @@ test('program and form drafts survive format switches and save whole source',asy
  await act(async()=>{format('code')});
  expect(button('Save workflow').props.disabled).toBe(true);
  expect(JSON.stringify(tree.toJSON())).toContain('Workflow programs can run for up to 15 minutes.');
- expect(JSON.stringify(tree.toJSON())).toContain('table.insert stages rows only for entities with Allow row creation enabled');
+ expect(JSON.stringify(tree.toJSON())).toContain('table.insert requires Allow row creation; table.update and table.delete require Allow row updates and deletes');
  expect(JSON.stringify(tree.toJSON())).toContain('sendMessage(text) stages a report draft in run history; it never posts to a Room.');
  const code="import {state} from '@honmaru/workflow-sdk';\nawait state.get();\nconsole.log('<safe>');";
  await act(async()=>{tree.root.findByProps({'aria-label':'TypeScript source'}).props.onChange({target:{value:code}})});

@@ -325,7 +325,7 @@ test('a program requires a sole code definition and rejects oversized inputs wit
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_gateway_jobs').first()).n).toBe(0);
 });
 
-async function setupProgramTableSource({privateApp=false,multiSource=false,writable=false}={}){
+async function setupProgramTableSource({privateApp=false,multiSource=false,writable=false,mutable=false}={}){
  await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('query-table','program-org','Query Source','[{\"id\":\"status\",\"name\":\"Status\",\"type\":\"text\"}]','program-owner','now','now')").run();
  await upsertUser(env.DB,{githubId:'query-app-owner',login:'query-app-owner',name:'App Owner'});
  await upsertMembership(env.DB,'program-org','query-app-owner','admin');
@@ -348,7 +348,7 @@ async function setupProgramTableSource({privateApp=false,multiSource=false,writa
   await env.DB.prepare(`INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,created_at,updated_at)
    VALUES(?1,'query-table','program-org',?2,?3,'query-app-owner',?4,?4)`).bind(`query-row-${index}`,JSON.stringify({status:index===2?'closed':'open'}),index,at).run();
  }
- definition.steps=[{...definition.steps[0],sourceAppId:'query-app',...(writable?{sourceTables:[{entityId:'primary',tableId:'query-table',write:true}]}:multiSource?{sourceTables:[{entityId:'primary',tableId:'query-table'},{entityId:'details',tableId:'query-details'}]}:{sourceEntityId:'primary',sourceTableId:'query-table'})}];
+ definition.steps=[{...definition.steps[0],sourceAppId:'query-app',...(writable||mutable?{sourceTables:[{entityId:'primary',tableId:'query-table',...(writable?{write:true}:{}),...(mutable?{mutate:true}:{})}]}:multiSource?{sourceTables:[{entityId:'primary',tableId:'query-table'},{entityId:'details',tableId:'query-details'}]}:{sourceEntityId:'primary',sourceTableId:'query-table'})}];
  await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=?1 WHERE run_id='program-run'").bind(JSON.stringify(definition)).run();
  const queued=await enqueue({at:Date.now()});expect(queued.status).toBe('pending');
  const token=`hgw_${crypto.randomUUID()}${crypto.randomUUID()}`;
@@ -368,10 +368,12 @@ test('saved TypeScript sources are normalized to explicit App entities and canno
  const step={type:'code',code:'import {table} from \'@honmaru/workflow-sdk\';',gatewayId:'program-node',sourceAppId:'saved-app',sourceEntityId:'details',sourceTableId:'saved-details'};
  const created=await createWorkflow(env.DB,'program-org',{name:'Bound source',trigger:{type:'manual'},steps:[step]},'program-owner');
  expect(created.error).toBeUndefined();expect(created.workflow.steps[0]).toMatchObject({sourceAppId:'saved-app',sourceEntityId:'details',sourceTableId:'saved-details'});
- const many=await createWorkflow(env.DB,'program-org',{name:'Bound multiple sources',trigger:{type:'manual'},steps:[{type:'code',code:step.code,gatewayId:'program-node',sourceAppId:'saved-app',sourceTables:[{entityId:'primary',tableId:'saved-primary'},{entityId:'details',tableId:'saved-details',write:true}]}]},'program-owner');
- expect(many.error).toBeUndefined();expect(many.workflow.steps[0].sourceTables).toEqual([{entityId:'primary',tableId:'saved-primary'},{entityId:'details',tableId:'saved-details',write:true}]);
+ const many=await createWorkflow(env.DB,'program-org',{name:'Bound multiple sources',trigger:{type:'manual'},steps:[{type:'code',code:step.code,gatewayId:'program-node',sourceAppId:'saved-app',sourceTables:[{entityId:'primary',tableId:'saved-primary'},{entityId:'details',tableId:'saved-details',write:true,mutate:true}]}]},'program-owner');
+ expect(many.error).toBeUndefined();expect(many.workflow.steps[0].sourceTables).toEqual([{entityId:'primary',tableId:'saved-primary'},{entityId:'details',tableId:'saved-details',write:true,mutate:true}]);
  const invalidWrite=await normalizeSteps([{type:'code',code:step.code,gatewayId:'program-node',sourceAppId:'saved-app',sourceTables:[{entityId:'details',tableId:'saved-details',write:'yes'}]}]);
  expect(invalidWrite.error).toContain('distinct, complete App entities');
+ const invalidMutation=await normalizeSteps([{type:'code',code:step.code,gatewayId:'program-node',sourceAppId:'saved-app',sourceTables:[{entityId:'details',tableId:'saved-details',mutate:'yes'}]}]);
+ expect(invalidMutation.error).toContain('distinct, complete App entities');
  const duplicate=await createWorkflow(env.DB,'program-org',{name:'Duplicate sources',trigger:{type:'manual'},steps:[{type:'code',code:step.code,gatewayId:'program-node',sourceAppId:'saved-app',sourceTables:[{entityId:'primary',tableId:'saved-primary'},{entityId:'primary',tableId:'saved-primary'}]}]},'program-owner');
  expect(duplicate.error).toContain('distinct, complete App entities');
  const foreign=await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('foreign-table','other-org','Foreign','[]','someone','now','now')").run();
@@ -440,6 +442,29 @@ test('staged row writes roll back when App edit access is revoked before final s
  expect(await settleWorkflowProgram(env.DB,job.id)).toEqual({settled:true});
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_rows WHERE org_id='program-org' AND table_id='query-table' AND data='{\"status\":\"created\"}'").first()).n).toBe(0);
  expect((await env.DB.prepare("SELECT status FROM hx_workflow_runs WHERE id='program-run'").first()).status).toBe('failed');
+});
+
+test('explicitly authorized table.update and table.delete commit together after program success',async()=>{
+ const {api,job}=await setupProgramTableSource({mutable:true});
+ const before=(await env.DB.prepare("SELECT updated_at FROM hx_rows WHERE id='query-row-1'").first()).updated_at;
+ const update=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.update',params:{entityId:'primary',rowId:'query-row-1',expectedUpdatedAt:before,values:{status:'updated'}}});
+ expect(update.status).toBe(200);
+ const remove=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.delete',params:{entityId:'primary',rowId:'query-row-2',expectedUpdatedAt:(await env.DB.prepare("SELECT updated_at FROM hx_rows WHERE id='query-row-2'").first()).updated_at}});
+ expect(remove.status).toBe(200);
+ const completion={lease:job.lease,status:'succeeded',stdout:'Changed records',stderr:'',exitCode:0,tableMutations:[
+  {operation:'update',entityId:'primary',rowId:'query-row-1',expectedUpdatedAt:before,values:{status:'updated'}},
+  {operation:'delete',entityId:'primary',rowId:'query-row-2',expectedUpdatedAt:(await env.DB.prepare("SELECT updated_at FROM hx_rows WHERE id='query-row-2'").first()).updated_at},
+ ]};
+ expect((await api(`/jobs/${job.id}/finish`,completion)).status).toBe(200);
+ expect((await env.DB.prepare("SELECT json_extract(data,'$.status') AS status FROM hx_rows WHERE id='query-row-1'").first()).status).toBe('updated');
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_rows WHERE id='query-row-2'").first()).n).toBe(0);
+ expect((await env.DB.prepare("SELECT status FROM hx_workflow_runs WHERE id='program-run'").first()).status).toBe('done');
+});
+
+test('table.update and table.delete require their separate explicit source permission',async()=>{
+ const {api,job}=await setupProgramTableSource({writable:true});
+ const response=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.delete',params:{entityId:'primary',rowId:'query-row-1',expectedUpdatedAt:(await env.DB.prepare("SELECT updated_at FROM hx_rows WHERE id='query-row-1'").first()).updated_at}});
+ expect(response.status).toBe(403);
 });
 
 test('workflow table query marks a page-limited result incomplete and denies a revoked App source grant mid-run',async()=>{

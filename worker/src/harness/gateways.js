@@ -210,7 +210,7 @@ export async function handleGateways(request, env, url, input) {
       try { messages=cleanWorkflowMessageDrafts(input.messages); }
       catch { return failure('Invalid staged workflow messages.',400); }
     }
-    let tableWrites;
+    let tableWrites,tableMutations;
     if(input.tableWrites!==undefined){
       try{
         if(!Array.isArray(input.tableWrites)||input.tableWrites.length>4)throw Error();
@@ -221,9 +221,29 @@ export async function handleGateways(request, env, url, input) {
         if(new TextEncoder().encode(JSON.stringify(tableWrites)).length>24000)throw Error();
       }catch{return failure('Invalid staged Workflow row writes.',400);}
     }
-    const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null, ...(messages!==undefined?{messages}:{}),...(tableWrites!==undefined?{tableWrites}:{}) };
+    if(input.tableMutations!==undefined){
+      try{
+        if(input.tableWrites!==undefined||!Array.isArray(input.tableMutations)||input.tableMutations.length>4)throw Error();
+        tableMutations=input.tableMutations.map(item=>{
+          if(!item||typeof item!=='object'||Array.isArray(item)||!['insert','update','delete'].includes(item.operation)||Object.keys(item).some(key=>!['operation','entityId','values','rowId','expectedUpdatedAt'].includes(key))||typeof item.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(item.entityId))throw Error();
+          if(item.operation==='insert'){
+            if(Object.keys(item).some(key=>!['operation','entityId','values'].includes(key))||!item.values||typeof item.values!=='object'||Array.isArray(item.values))throw Error();
+            return {operation:'insert',entityId:item.entityId,values:item.values};
+          }
+          if(typeof item.rowId!=='string'||!item.rowId||item.rowId.length>200||typeof item.expectedUpdatedAt!=='string'||item.expectedUpdatedAt.length>64||!Number.isFinite(Date.parse(item.expectedUpdatedAt)))throw Error();
+          if(item.operation==='update'){
+            if(Object.keys(item).some(key=>!['operation','entityId','rowId','expectedUpdatedAt','values'].includes(key))||!item.values||typeof item.values!=='object'||Array.isArray(item.values))throw Error();
+            return {operation:'update',entityId:item.entityId,rowId:item.rowId,expectedUpdatedAt:item.expectedUpdatedAt,values:item.values};
+          }
+          if(Object.keys(item).some(key=>!['operation','entityId','rowId','expectedUpdatedAt'].includes(key)))throw Error();
+          return {operation:'delete',entityId:item.entityId,rowId:item.rowId,expectedUpdatedAt:item.expectedUpdatedAt};
+        });
+        if(new TextEncoder().encode(JSON.stringify(tableMutations)).length>24000)throw Error();
+      }catch{return failure('Invalid staged Workflow row mutations.',400);}
+    }
+    const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null, ...(messages!==undefined?{messages}:{}),...(tableWrites!==undefined?{tableWrites}:{}),...(tableMutations!==undefined?{tableMutations}:{}) };
     if (new TextEncoder().encode(JSON.stringify(result)).length > 70000) return failure('Result is too large.', 413);
-    if(messages!==undefined||tableWrites!==undefined){
+    if(messages!==undefined||tableWrites!==undefined||tableMutations!==undefined){
       const encodedResult=JSON.stringify(result);
       const matched=await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload FROM hx_gateway_jobs WHERE id=?1 AND gateway_id=?2 AND lease_hash=?3
        AND ((${guard}) OR (status IN ('succeeded','failed','timed_out') AND result=?5))`)

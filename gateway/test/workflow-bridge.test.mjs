@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createStateBroker,validateStateRequest,createWorkflowOutputParser} from '../workflow-bridge.mjs';
-import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable,normalizeWorkflowInsert,insertWorkflowTableRow} from '../workflow-sdk.mjs';
+import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable,normalizeWorkflowInsert,insertWorkflowTableRow,normalizeWorkflowUpdate,normalizeWorkflowDelete,updateWorkflowTableRow,deleteWorkflowTableRow} from '../workflow-sdk.mjs';
 test('guest cannot choose activation identity or call arbitrary host operations',()=>{
  for(const request of [{id:1,method:'shell',params:{}},{id:1,method:'state.get',params:{runId:'other'}},{id:1,method:'state.set',params:{state:{},expectedRevision:0,owner:'other'}},{id:65,method:'state.get',params:{}}])assert.throws(()=>validateStateRequest(request));
 });
@@ -104,4 +104,17 @@ test('table.insert requires an explicitly writable entity and sends only bounded
  assert.throws(()=>normalizeWorkflowInsert({entityId:'primary',values:{},tableId:'other'}),/Invalid table.insert/);
  assert.throws(()=>validateStateRequest({id:1,method:'table.insert',params:{entityId:'primary',values:{name:'Alpha'},orgId:'other'}}),/Unexpected state parameter/);
  assert.throws(()=>validateStateRequest({id:1,method:'table.insert',params:{entityId:'bad-id!',values:{}}}),/Invalid App entity/);
+});
+
+test('table.update and table.delete require explicit mutation scope and a row version',async()=>{
+ const calls=[],bridge={tableSources:[{appId:'app',entityId:'primary',tableId:'table-a',write:true},{appId:'app',entityId:'details',tableId:'table-b',mutate:true}],updateTable:async value=>{calls.push(['update',value]);return {staged:true}},deleteTable:async value=>{calls.push(['delete',value]);return {staged:true}}};
+ const target={entityId:'details',rowId:'row-1',expectedUpdatedAt:'2026-01-01T00:00:00.000Z'};
+ assert.deepEqual(await updateWorkflowTableRow({...target,values:{status:'done'}},bridge),{staged:true});
+ assert.deepEqual(await deleteWorkflowTableRow(target,bridge),{staged:true});
+ assert.deepEqual(calls.map(([method])=>method),['update','delete']);
+ await assert.rejects(()=>updateWorkflowTableRow({...target,values:{}},{...bridge,tableSources:[{entityId:'primary',write:true}]}),/not enabled/);
+ await assert.rejects(()=>deleteWorkflowTableRow({entityId:'details',rowId:'row-1'},bridge),/Invalid table.delete/);
+ assert.throws(()=>normalizeWorkflowUpdate({...target,values:{},extra:true}),/Invalid table.update/);
+ assert.throws(()=>normalizeWorkflowDelete({...target,expectedUpdatedAt:'today'}),/Invalid table.delete/);
+ for(const method of ['table.update','table.delete'])assert.throws(()=>validateStateRequest({id:1,method,params:{...target,values:{},orgId:'other'}}),/Unexpected state parameter/);
 });

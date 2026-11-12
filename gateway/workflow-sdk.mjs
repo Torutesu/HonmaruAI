@@ -107,10 +107,39 @@ export async function insertWorkflowTableRow(input={},bridge=undefined) {
   return bridge.insertTable(clean);
 }
 
+function validWorkflowRowTarget(input, allowedKeys) {
+  return input&&typeof input==='object'&&!Array.isArray(input)&&!Object.keys(input).some(key=>!allowedKeys.includes(key))
+    &&typeof input.entityId==='string'&&/^([a-z][a-z0-9_]{0,39})$/.test(input.entityId)
+    &&typeof input.rowId==='string'&&input.rowId.length>0&&input.rowId.length<=200
+    &&typeof input.expectedUpdatedAt==='string'&&input.expectedUpdatedAt.length<=64&&Number.isFinite(Date.parse(input.expectedUpdatedAt));
+}
+
+export function normalizeWorkflowUpdate(input={}) {
+  if(!validWorkflowRowTarget(input,['entityId','rowId','values','expectedUpdatedAt'])||!input.values||typeof input.values!=='object'||Array.isArray(input.values)||Object.keys(input.values).length>100||new TextEncoder().encode(JSON.stringify(input.values)).length>24000)throw Error('Invalid table.update request.');
+  return {entityId:input.entityId,rowId:input.rowId,values:input.values,expectedUpdatedAt:input.expectedUpdatedAt};
+}
+
+export async function updateWorkflowTableRow(input={},bridge=undefined) {
+  const clean=normalizeWorkflowUpdate(input),sources=bridge?.tableSources||(bridge?.tableSource?[bridge.tableSource]:[]);
+  if(typeof bridge?.updateTable!=='function'||!sources.some(item=>item.entityId===clean.entityId&&item.mutate===true))throw Error('Row updates are not enabled for this App entity.');
+  return bridge.updateTable(clean);
+}
+
+export function normalizeWorkflowDelete(input={}) {
+  if(!validWorkflowRowTarget(input,['entityId','rowId','expectedUpdatedAt']))throw Error('Invalid table.delete request.');
+  return {entityId:input.entityId,rowId:input.rowId,expectedUpdatedAt:input.expectedUpdatedAt};
+}
+
+export async function deleteWorkflowTableRow(input={},bridge=undefined) {
+  const clean=normalizeWorkflowDelete(input),sources=bridge?.tableSources||(bridge?.tableSource?[bridge.tableSource]:[]);
+  if(typeof bridge?.deleteTable!=='function'||!sources.some(item=>item.entityId===clean.entityId&&item.mutate===true))throw Error('Row deletions are not enabled for this App entity.');
+  return bridge.deleteTable(clean);
+}
+
 function workflowSdkBaseSource(bridgeExpression = 'undefined') {
   return `const parallel=${parallel.toString()};\nconst pipeline=${pipeline.toString()};\nconst normalizeWorkflowDraft=${normalizeWorkflowDraft.toString()};\nconst workflowBridge=()=>${bridgeExpression};\nexport async function sendMessage(text,options={}){const draft=normalizeWorkflowDraft(text,options);const bridge=workflowBridge();if(typeof bridge?.stageMessage!==\"function\")throw Error(\"Workflow message staging is unavailable.\");return bridge.stageMessage(draft)}\nexport {parallel,pipeline};`;
 }
 
 export function workflowSdkSource(bridgeExpression = 'undefined') {
-  return workflowSdkBaseSource(bridgeExpression) + `\nconst normalizeWorkflowQueryOptions=${normalizeWorkflowQueryOptions.toString()};\nconst queryWorkflowTable=${queryWorkflowTable.toString()};\nconst normalizeWorkflowInsert=${normalizeWorkflowInsert.toString()};\nconst insertWorkflowTableRow=${insertWorkflowTableRow.toString()};\nconst sdkBridge=workflowBridge();\nexport const table=Object.freeze({query:(options={})=>queryWorkflowTable(options,sdkBridge),insert:(input={})=>insertWorkflowTableRow(input,sdkBridge)});`;
+  return workflowSdkBaseSource(bridgeExpression) + `\nconst normalizeWorkflowQueryOptions=${normalizeWorkflowQueryOptions.toString()};\nconst queryWorkflowTable=${queryWorkflowTable.toString()};\nconst normalizeWorkflowInsert=${normalizeWorkflowInsert.toString()};\nconst insertWorkflowTableRow=${insertWorkflowTableRow.toString()};\nconst validWorkflowRowTarget=${validWorkflowRowTarget.toString()};\nconst normalizeWorkflowUpdate=${normalizeWorkflowUpdate.toString()};\nconst updateWorkflowTableRow=${updateWorkflowTableRow.toString()};\nconst normalizeWorkflowDelete=${normalizeWorkflowDelete.toString()};\nconst deleteWorkflowTableRow=${deleteWorkflowTableRow.toString()};\nconst sdkBridge=workflowBridge();\nexport const table=Object.freeze({query:(options={})=>queryWorkflowTable(options,sdkBridge),insert:(input={})=>insertWorkflowTableRow(input,sdkBridge),update:(input={})=>updateWorkflowTableRow(input,sdkBridge),delete:(input={})=>deleteWorkflowTableRow(input,sdkBridge)});`;
 }

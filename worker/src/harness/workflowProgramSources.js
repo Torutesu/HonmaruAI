@@ -6,6 +6,7 @@ export function workflowProgramSources(step) {
     entityId: source?.entityId,
     tableId: source?.tableId,
     write: source?.write === true,
+    mutate: source?.mutate === true,
   }));
   if (typeof step.sourceEntityId === 'string' && typeof step.sourceTableId === 'string') {
     return [{ entityId: step.sourceEntityId, tableId: step.sourceTableId }];
