@@ -1,5 +1,12 @@
 # 検証記録
 
+### 2026-11-12 — KY-059 App row mutation SDK (released)
+
+- PR #915 adds Workflow SDK `table.update()` and `table.delete()` beside the existing `table.query()` and `table.insert()`. Row creation and row mutation are separately opted into per App entity. Updates and deletes require the query result's `updatedAt` as `expectedUpdatedAt`; the Worker rechecks current ACL, schema version, relation rules and frozen source binding when committing.
+- The isolated runner stages at most four combined mutations and 24 KB. On program success, row statements, watched-row outbox events and Workflow settlement/checkpoint share one D1 batch. Failed or stale mutations settle as failed without committing any staged row. Existing insert-only installed gateways remain compatible through legacy `tableWrites` results. No migration, paid service or Simple-mode change.
+- Gateway **63/63**, focused Worker Workflow/table suites **204/204**, full Web **1,956/1,956**, Workflow editor/source tests **9/9** and Web production build passed locally. PR #915 exact-head CI run **43138768742** passed all jobs; squash merge commit `6184e93043cb0a98e210eb063442fb085a32105e`. Main CI **43141503880**, Worker migration/deploy/health **43141503812**, and Web deploy/asset verification **43141503866** succeeded. Worker `/health` returned `ok:true`; deployed Pages served its new JS asset.
+- KY-059 remains partial: `app()`, `agent()`, provider proxy, general Connection operations, historical row snapshots across pages, step-level external-effect reconciliation and authenticated saved-Workflow interaction/side-by-side Kylon acceptance remain unverified or absent.
+
 ### 2026-11-12 — KY-059 opt-in staged App row creation (local, not deployed)
 
 - Added `table.insert({entityId, values})` for App entities whose Workflow source explicitly enables row creation. Each activation can stage at most four strict-schema rows; the Worker rechecks current App/Table edit permission and exact source binding before committing.
