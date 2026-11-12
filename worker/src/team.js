@@ -65,7 +65,8 @@ export function memberRef(orgId, userId) {
 /// cannot reason about, and the router already routes to these people by name.
 export async function listMembers(db, orgId, viewerId) {
   // The people and the groups they are in, read together (#845).
-  const groupsRead = groupHandlesByLogin(db, orgId);
+  // Settled here, so a failure of the people read never leaves it unhandled.
+  const groupsRead = (async () => { try { return { value: await groupHandlesByLogin(db, orgId) }; } catch (error) { return { error }; } })();
   const { results } = await db
     .prepare(
       `SELECT m.user_github_id                              AS userId,
@@ -92,7 +93,9 @@ export async function listMembers(db, orgId, viewerId) {
     .bind(orgId)
     .all();
   // The user groups each person is in: "@sales" reaches all of them.
-  const groups = await groupsRead;
+  const groupsGot = await groupsRead;
+  if (groupsGot.error) throw groupsGot.error;
+  const groups = groupsGot.value;
   // A guest's channels, which are all they see.
   const guestChannels = new Map();
   if ((results || []).some((r) => String(r.role || "").toLowerCase() === "guest")) {
