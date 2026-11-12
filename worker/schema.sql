@@ -3065,7 +3065,9 @@ CREATE TABLE IF NOT EXISTS perf_samples (
   kind        TEXT NOT NULL,
   value       REAL NOT NULL,
   client      TEXT NOT NULL,
-  created_at  TEXT NOT NULL
+  created_at  TEXT NOT NULL,
+  /* The Cloudflare data centre that answered (IATA code), or NULL. */
+  colo        TEXT
 );
 CREATE INDEX IF NOT EXISTS perf_samples_kind_at ON perf_samples(kind, created_at);
 

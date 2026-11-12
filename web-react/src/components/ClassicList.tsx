@@ -1779,6 +1779,9 @@ export const ClassicList: React.FC<Props> = ({
     const readReferences = referenceRead()
     return fetch(`${api.httpBase}/channels/messages?orgId=${encodeURIComponent(api.orgId)}&channel=${encodeURIComponent(channel)}`, { headers: authHeaders })
       .then((r) => {
+        // The server's own share of the read, apart from the network's (#845).
+        const server = r.ok ? serverTotal(r) : null
+        if (server !== null) perfSample('read.server', server)
         if ([401, 403, 404].includes(r.status) && isCurrent() && cacheScope.current === messageCache) {
           messageCache.forget(channel)
           readReferences([...referenceUpdates.current.values()].filter(m => m.channel === channel).map(m => missingReplySource(m.id, channel)))

@@ -1473,7 +1473,11 @@ export async function handleChannels(request, env, url, { route, after }) {
       const beforeId = url.searchParams.get("beforeId") || undefined;
       // `{ messages, more }`: `more` says whether older messages are there
       // to page back to, so a client need not guess it from the count.
-      return json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before, beforeId }));
+      const tAdmitted = Date.now();
+      const page = json(await listMessages(env.DB, orgId, resolved, who.user.login, view, members, { before, beforeId }));
+      // Timed as a send is: what letting the reader in took, and the page (#845).
+      page.headers.set("server-timing", `admit;dur=${tAdmitted - tStart}, list;dur=${Date.now() - tAdmitted}, total;dur=${Date.now() - tStart}`);
+      return page;
     }
     const prepared = await prepareConversationMessage(env, request, { orgId, user: who.user, resolved, body });
     if (prepared.denied) return prepared.denied;
