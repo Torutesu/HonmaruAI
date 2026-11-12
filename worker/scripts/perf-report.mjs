@@ -56,13 +56,18 @@ export function findings(rows) {
 async function main() {
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
   const { stdout } = await run(command, [...prefix, "d1", "execute", DB, "--remote", "--json", "--command",
-    `SELECT kind, value, client FROM perf_samples WHERE created_at >= '${since}' ORDER BY kind`], { maxBuffer: 256 * 1024 * 1024 });
+    `SELECT kind, value, client, colo FROM perf_samples WHERE created_at >= '${since}' ORDER BY kind`], { maxBuffer: 256 * 1024 * 1024 });
   const rows = JSON.parse(stdout.slice(stdout.indexOf("["))).flatMap((p) => p.results || []);
   const lines = [
     `## Chat waits, last ${days} day${days === 1 ? "" : "s"} (${rows.length} samples)`, "",
     ...findings(rows), "",
     "| kind | app | n | p50 ms | p95 ms | max ms |", "| --- | --- | --- | --- | --- | --- |",
     ...summarize(rows).map((s) => `| ${s.kind} | ${s.client} | ${s.n} | ${s.p50} | ${s.p95} | ${s.max} |`), "",
+    // Where the time goes, by the data centre that answered: a far reader
+    // waits on the distance to the database on every statement.
+    "| kind | app | data centre | n | p50 ms | p95 ms |", "| --- | --- | --- | --- | --- | --- |",
+    ...summarize(rows.filter((r) => r.colo && ["send.http", "send.server", "read.server", "open.cold", "open.revalidate"].includes(r.kind)).map((r) => ({ ...r, client: `${r.client}\u0000${r.colo}` })))
+      .map((s) => { const [client, colo] = s.client.split("\u0000"); return `| ${s.kind} | ${client} | ${colo} | ${s.n} | ${s.p50} | ${s.p95} |`; }), "",
   ];
   const text = lines.join("\n") + "\n";
   process.stdout.write(text);

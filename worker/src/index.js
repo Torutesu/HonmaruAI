@@ -366,6 +366,12 @@ export default {
       if (response.status === 101 || response.webSocket) return response;
       const headers = new Headers(response.headers);
       headers.set("x-request-id", requestId);
+      // The phases a route timed (#221, #845), readable by the apps across
+      // origins, so they can tell the server's time from the network's.
+      // settleCors takes this away again for an origin that is not ours.
+      if (headers.has("server-timing") && headers.has("access-control-allow-origin") && !/server-timing/i.test(headers.get("access-control-expose-headers") || "")) {
+        headers.append("access-control-expose-headers", "server-timing");
+      }
       settleCors(request, url, env, headers);
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     } catch (err) {
@@ -423,6 +429,10 @@ async function handle(request, env, url, ctx) {
           "access-control-allow-origin": "*",
           "access-control-allow-headers": "content-type, x-session-token, x-ai-key, authorization, mcp-session-id, mcp-protocol-version, idempotency-key",
           "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+          // Asked again at most every two hours (browsers cap it there), not
+          // before every request: without it each call from the web app
+          // was preceded by a round trip of its own (#845).
+          "access-control-max-age": "7200",
         },
       });
     }

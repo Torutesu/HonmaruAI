@@ -27,7 +27,7 @@ test('keeps known kinds in range, as numbers, and drops the rest', async () => {
   const { results } = await env.DB.prepare('SELECT * FROM perf_samples ORDER BY kind').all();
   expect(results.map((r) => [r.kind, r.value, r.client])).toEqual([['open.fresh', 1, 'desktop'], ['send.http', 80, 'desktop'], ['send.queue', 1235, 'desktop']]);
   // Nothing that names a person, a workspace or a conversation is a column.
-  expect(Object.keys(results[0]).sort()).toEqual(['client', 'created_at', 'kind', 'value']);
+  expect(Object.keys(results[0]).sort()).toEqual(['client', 'colo', 'created_at', 'kind', 'value']);
 });
 
 test('takes nothing without a session, and at most fifty at once', async () => {
@@ -41,4 +41,22 @@ test('a fortnight later the samples are gone', async () => {
   await env.DB.prepare("INSERT INTO perf_samples (kind, value, client, created_at) VALUES ('send.http', 1, 'web', ?1), ('send.http', 2, 'web', ?2)").bind(old, new Date().toISOString()).run();
   await sweepPerfSamples(env);
   expect((await env.DB.prepare('SELECT value FROM perf_samples').all()).results).toEqual([{ value: 2 }]);
+});
+
+test('a timed route\'s phases are readable by the apps, and a preflight is kept two hours', async () => {
+  const { upsertMembership } = await import('../src/db.js');
+  await upsertMembership(env.DB, 'perf-org', 'perf-1', 'admin');
+  const res = await worker.fetch(new Request('https://example.com/channels/messages?orgId=perf-org&channel=b:general', { headers: { 'x-session-token': token, origin: 'https://example.com' } }), env, ctx);
+  expect(res.status).toBe(200);
+  expect(res.headers.get('server-timing')).toMatch(/total;dur=\d+/);
+  expect(res.headers.get('access-control-expose-headers')).toMatch(/server-timing/i);
+  const pre = await worker.fetch(new Request('https://example.com/channels/messages', { method: 'OPTIONS', headers: { origin: 'https://example.com', 'access-control-request-method': 'POST' } }), env, ctx);
+  expect(pre.headers.get('access-control-max-age')).toBe('7200');
+});
+
+test('a sample says which data centre answered, and nothing else about where', async () => {
+  const req = new Request('https://example.com/perf', { method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': token }, body: JSON.stringify({ samples: [{ k: 'read.server', v: 42 }] }) });
+  Object.defineProperty(req, 'cf', { value: { colo: 'NRT', city: 'Tokyo', latitude: '35' } });
+  await worker.fetch(req, env, ctx);
+  expect((await env.DB.prepare('SELECT kind, value, colo FROM perf_samples').all()).results).toEqual([{ kind: 'read.server', value: 42, colo: 'NRT' }]);
 });

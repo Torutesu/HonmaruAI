@@ -13,7 +13,7 @@ import { desktopApp } from './desktop'
 export type PerfKind =
   | 'send.queue' | 'send.depth' | 'send.http' | 'send.server'
   | 'open.fresh' | 'open.revalidate' | 'open.cold' | 'open.remount'
-  | 'thread.pages'
+  | 'thread.pages' | 'read.server'
 
 const MAX_BUFFER = 200
 const BATCH = 50

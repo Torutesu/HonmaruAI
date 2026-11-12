@@ -5,8 +5,10 @@
 // how long its own POST takes; and how often reopening the chat or a
 // reconnect reads messages again instead of using what was kept.
 //
-// A sample is a kind and a number, the app it came from, and when. Nothing
-// else: no person, no workspace, no conversation, no words. Kept fourteen
+// A sample is a kind and a number, the app it came from, the Cloudflare
+// data centre that answered (a city's airport code, so a slow app can be
+// told from a far one), and when. Nothing else: no person, no workspace,
+// no conversation, no words. Kept fourteen
 // days, then swept. Read by worker/scripts/perf-report.mjs.
 
 import { getSession } from "./db.js";
@@ -23,6 +25,7 @@ export const PERF_KINDS = {
   "open.cold": 600_000, // opened with nothing kept: ms of the read
   "open.remount": 600_000, // read again because the chat screen was left and re-entered: ms
   "thread.pages": 100, // pages read to refresh a thread after a reconnect
+  "read.server": 600_000, // the server's own total for a page of messages (Server-Timing)
 };
 const CLIENTS = new Set(["web", "desktop", "mobile"]);
 const MAX_SAMPLES = 50;
@@ -60,7 +63,8 @@ export async function handlePerf(request, env, url) {
   const samples = cleanSamples(body?.samples);
   if (samples.length) {
     const at = new Date().toISOString();
-    await env.DB.batch(samples.map((s) => env.DB.prepare("INSERT INTO perf_samples (kind, value, client, created_at) VALUES (?1, ?2, ?3, ?4)").bind(s.kind, s.value, client, at)));
+    const colo = /^[A-Z]{3}$/.test(String(request.cf?.colo || "")) ? request.cf.colo : null;
+    await env.DB.batch(samples.map((s) => env.DB.prepare("INSERT INTO perf_samples (kind, value, client, colo, created_at) VALUES (?1, ?2, ?3, ?4, ?5)").bind(s.kind, s.value, client, colo, at)));
   }
   return json({ kept: samples.length });
 }
