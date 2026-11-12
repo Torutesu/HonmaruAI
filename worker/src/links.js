@@ -12,6 +12,9 @@
 /// instead: Supadata (SUPADATA_API_KEY) for YouTube, TikTok and X, or
 /// Gemini (GEMINI_API_KEY), which watches a YouTube video itself.
 
+import { noteUsage, settleUsage } from "./ledger.js";
+import { reserveWorkspaceAIBudgetCall } from "./workspaceAIBudget.js";
+
 const TIMEOUT_MS = 8000;
 const MAX_LINKS = 3;
 const MAX_TEXT = 6000;
@@ -182,6 +185,17 @@ function supadataText(content) {
 /// the free tier takes up to eight hours of YouTube a day.
 async function geminiTranscript(watchUrl, language, env) {
   const model = env.GEMINI_MODEL || "gemini-2.5-flash";
+  const provider = { providerName: "Google Gemini", model, byok: env.HONMARU_GEMINI_KEY_SOURCE === "workspace", usage: [] };
+  const db = env.HONMARU_AI_BUDGET_DB;
+  const orgId = env.HONMARU_AI_BUDGET_ORG_ID;
+  const reservation = provider.byok || !db || !orgId
+    ? { allowed: true, reservationId: null }
+    : await reserveWorkspaceAIBudgetCall(db, { orgId, model: `gemini:${model}`, inputTokens: null, outputTokens: null });
+  if (!reservation.allowed) return "";
+  const recordUnknown = async () => {
+    noteUsage(provider, "youtube_transcript", { model: "gemini:unknown", usage: {} });
+    await settleUsage(db, provider, { orgId, byok: provider.byok }, [], reservation.reservationId);
+  };
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
@@ -199,12 +213,20 @@ async function geminiTranscript(watchUrl, language, env) {
       }),
     });
     if (!res.ok) {
+      if (res.status === 408 || res.status === 429 || res.status >= 500) await recordUnknown();
       console.error("gemini transcript failed", res.status);
       return "";
     }
     const data = await res.json();
+    const usage = data?.usageMetadata || {};
+    noteUsage(provider, "youtube_transcript", {
+      model: `gemini:${model}`,
+      usage: { prompt_tokens: usage.promptTokenCount, completion_tokens: usage.candidatesTokenCount },
+    });
+    await settleUsage(db, provider, { orgId, byok: provider.byok }, [], reservation.reservationId);
     return (data?.candidates?.[0]?.content?.parts || []).map((p) => p?.text || "").join("").trim();
   } catch (err) {
+    await recordUnknown();
     console.error("gemini transcript failed", err?.message || err);
     return "";
   }

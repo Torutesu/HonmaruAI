@@ -6,6 +6,7 @@ import { getUserByGithubId } from "./db.js";
 import { serverText } from "./serverCopy.js";
 import { emitCall } from "./webhooks.js";
 import { noteUsage } from "./ledger.js";
+import { reserveWorkspaceAIBudgetCall, releaseWorkspaceAIBudgetReservation } from "./workspaceAIBudget.js";
 import { safe } from "./log.js";
 
 // A Jam: talking out loud in a channel, the way a huddle is — whoever is in
@@ -593,8 +594,12 @@ const EXTENSIONS = { "audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a
 
 /// What was said, as text. Only OpenAI's endpoint takes audio; null
 /// without it or when it fails.
-export async function transcribe(env, provider, bytes, contentType, { locale }) {
+export async function transcribe(env, provider, bytes, contentType, { locale, minutes = 1 }) {
   if (!provider || provider.providerName !== "OpenAI") return null;
+  // The timestamps arrive from a browser and are not billing authority. Use
+  // the greater of its reported duration and the configured 24 kbps recorder
+  // size estimate, bounded by the upload's ten-hour maximum.
+  const billableMinutes = Math.min(600, Math.max(1, Number(minutes) || 1, Math.ceil(bytes.byteLength * 8 / (24_000 * 60))));
   const form = new FormData();
   form.append("file", new Blob([bytes], { type: contentType }), `jam.${EXTENSIONS[contentType] || "webm"}`);
   const model = env.JAM_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
@@ -602,6 +607,12 @@ export async function transcribe(env, provider, bytes, contentType, { locale }) 
   form.append("response_format", "json");
   const lang = String(locale || "").split("-")[0];
   if (/^[a-z]{2}$/.test(lang)) form.append("prompt", `A team's conversation. Main language: ${lang}.`);
+  const reservation = provider.byok || !provider.workspaceBudgetDb || !provider.workspaceBudgetOrgId
+    ? { allowed: true, reservationId: null }
+    : await reserveWorkspaceAIBudgetCall(provider.workspaceBudgetDb, {
+      orgId: provider.workspaceBudgetOrgId, model: "audio_transcription", inputTokens: billableMinutes, outputTokens: 0,
+    });
+  if (!reservation.allowed) return null;
   try {
     const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
@@ -610,13 +621,24 @@ export async function transcribe(env, provider, bytes, contentType, { locale }) 
       body: form,
     });
     if (!res.ok) {
+      if (reservation.reservationId && res.status !== 408 && res.status !== 429 && res.status < 500) {
+        await releaseWorkspaceAIBudgetReservation(provider.workspaceBudgetDb, reservation.reservationId);
+      } else if (res.status === 408 || res.status === 429 || res.status >= 500) {
+        provider.usage?.push({ purpose: "jam_transcript", provider: "OpenAI", model: "unknown", input: 0, output: 0, usd: 0,
+          ...(reservation.reservationId ? { workspaceReservationId: reservation.reservationId } : {}) });
+      }
       console.error("jam transcription refused", res.status);
       return null;
     }
     const data = await res.json();
+    provider.usage?.push({ purpose: "jam_transcript", provider: "OpenAI", model,
+      input: 0, output: 0, usd: billableMinutes * 0.003,
+      ...(reservation.reservationId ? { workspaceReservationId: reservation.reservationId } : {}) });
     const text = String(data?.text || "").trim();
     return text || null;
   } catch (err) {
+    provider.usage?.push({ purpose: "jam_transcript", provider: "OpenAI", model: "unknown", input: 0, output: 0, usd: 0,
+      ...(reservation.reservationId ? { workspaceReservationId: reservation.reservationId } : {}) });
     console.error("jam transcription failed", safe(err?.message));
     return null;
   }
@@ -631,7 +653,7 @@ Return JSON: {"notes":"..."}.
 export async function jamNotes(provider, transcript, { locale, allowance }) {
   if (!provider || (allowance && !allowance.allowed)) return null;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       method: "POST",
       signal: AbortSignal.timeout(60_000),
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },

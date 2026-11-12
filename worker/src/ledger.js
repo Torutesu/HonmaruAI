@@ -43,8 +43,13 @@ export function noteUsage(provider, purpose, data, context = null) {
   const u = data?.usage || {};
   const input = Number(u.prompt_tokens ?? u.input_tokens) || 0;
   const output = Number(u.completion_tokens ?? u.output_tokens) || 0;
-  const model = data?.model || provider.model || "unknown";
-  provider.usage.push({ purpose, provider: provider.providerName || "OpenAI", model, input, output, usd: costOf(model, { input, output }), ...(context ? { context } : {}) });
+  const suppliedTokens = (value) => (typeof value === "number" || typeof value === "string" && value.trim() !== "")
+    && Number.isFinite(Number(value)) && Number(value) >= 0;
+  const hasUsage = suppliedTokens(u.prompt_tokens ?? u.input_tokens) && suppliedTokens(u.completion_tokens ?? u.output_tokens);
+  const model = provider.workspaceBudgetRequest && !hasUsage ? "unknown" : (data?.model || provider.model || "unknown");
+  const workspaceReservationId = data?.__honmaruWorkspaceReservationId || provider.workspaceBudgetReservations?.shift() || null;
+  provider.usage.push({ purpose, provider: provider.providerName || "OpenAI", model, input, output,
+    usd: costOf(model, { input, output }), ...(workspaceReservationId ? { workspaceReservationId } : {}), ...(context ? { context } : {}) });
 }
 
 /// Searches the model ran with the hosted web search tool, which OpenAI
@@ -68,7 +73,11 @@ export function jevEntry(purpose, usage, model = "jev-latest") {
 /// that cannot be written is not a reason to fail the decision it counts.
 export async function settleUsage(db, provider, { orgId, githubId, byok = false, roomSlug = null, agentId = null, workflowId = null, appId = null } = {}, extra = [], workspaceReservationId = null) {
   const entries = [...(Array.isArray(provider?.usage) ? provider.usage.splice(0) : []), ...extra.filter(Boolean)];
-  if (!db || !orgId || entries.length === 0) return 0;
+  const reservationIds = [...new Set([
+    ...(Array.isArray(workspaceReservationId) ? workspaceReservationId : [workspaceReservationId]),
+    ...entries.map(entry => entry?.workspaceReservationId),
+  ].filter(id => typeof id === "string" && id))];
+  if (!db || !orgId || entries.length === 0 && reservationIds.length === 0) return 0;
   // Whose bill: a person's own key (the caller says so) or the workspace's
   // (the provider says so). Either way, not ours.
   byok = byok || Boolean(provider?.byok);
@@ -88,9 +97,9 @@ export async function settleUsage(db, provider, { orgId, githubId, byok = false,
         safeContext(context.workflowId ?? workflowId, 128), safeContext(context.appId ?? appId, 128),
       );
     });
-    if (workspaceReservationId) statements.push(db.prepare(`UPDATE hx_workspace_ai_budget_reservations
+    for (const id of reservationIds) statements.push(db.prepare(`UPDATE hx_workspace_ai_budget_reservations
       SET status='settled',settled_at=?1 WHERE id=?2 AND org_id=?3 AND status IN ('held','unknown')`)
-      .bind(now, workspaceReservationId, orgId));
+      .bind(now, id, orgId));
     await db.batch(statements);
   } catch (err) {
     console.error("ai ledger write failed", err?.message || err);

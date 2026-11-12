@@ -140,7 +140,7 @@ export async function summarizeDay(rows, { locale, members, provider, allowance,
     text: clip(r.body, 400),
   }));
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       signal: AbortSignal.timeout(45_000),
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },

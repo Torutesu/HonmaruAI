@@ -147,7 +147,7 @@ Return JSON: {"suggestions":[{"text":"...","kind":"decision|follow_up|automation
 export async function modelSuggestions(material, { locale, provider, allowance }) {
   if (!provider || (allowance && !allowance.allowed)) return null;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       method: "POST",
       signal: AbortSignal.timeout(30_000),
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },

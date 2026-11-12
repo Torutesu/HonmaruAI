@@ -19,11 +19,12 @@ const usd = (micros) => Math.round((Number(micros) || 0)) / 1_000_000;
 // newly introduced model's real list price, so it cannot prove the configured
 // cap was respected. Explicit per-search and Jev entries have their own known
 // non-token pricing and remain trusted.
-const knownModelPredicateFor = (column = 'model') => `${column ? `lower(${column})` : 'lower(model)'} IN ('web_search','jev-latest') OR ${Object.keys(PRICES)
+const knownModelPredicateFor = (column = 'model') => `${column ? `lower(${column})` : 'lower(model)'} IN ('web_search','jev-latest','audio_transcription','gpt-4o-mini-transcribe') OR ${Object.keys(PRICES)
   .map((model) => `substr(lower(${column || 'model'}),1,${model.length})='${model}'`).join(' OR ')}`;
 const knownModelPredicate = knownModelPredicateFor();
 const knownPricedModel = (model) => {
   const key = String(model || '').toLowerCase();
+  if (['web_search', 'jev-latest', 'audio_transcription', 'gpt-4o-mini-transcribe'].includes(key)) return true;
   return Object.keys(PRICES).some((price) => key === price || key.startsWith(price));
 };
 
@@ -72,6 +73,9 @@ export function workspaceAIBudgetExceeded(status) {
 }
 
 export function estimateWorkspaceBudgetMicros(model, inputTokens, outputTokens) {
+  if (String(model || '').toLowerCase() === 'audio_transcription') {
+    return Number.isSafeInteger(inputTokens) && inputTokens >= 0 && outputTokens === 0 ? inputTokens * 3_000 : null;
+  }
   if (!knownPricedModel(model) || !Number.isSafeInteger(inputTokens) || inputTokens < 0
     || !Number.isSafeInteger(outputTokens) || outputTokens < 0) return null;
   const estimate = costOf(model, { input: inputTokens, output: outputTokens }) * 1_000_000;

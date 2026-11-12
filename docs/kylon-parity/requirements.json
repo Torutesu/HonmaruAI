@@ -1140,6 +1140,12 @@
           "scope": "Harness model requests reserve workspace list-price estimates before dispatch, settle reservation alongside recorded usage, and retain unknown usage on interrupted or expired requests. This prevents concurrent Harness model calls from admitting against the same remaining budget. A Workflow Agent run whose next call cannot fit is cancelled before dispatch so its following side-effect steps cannot run.",
           "verification": "Focused and combined Worker budget/model/workflow suites: 183/183 passed. Exact-head CI, production migration/deployment and authenticated Kylon comparison pending.",
           "remaining": "Direct provider routes and active provider-side work cancellation remain outside this reservation slice."
+        },
+        "directRouteIncrement": {
+          "base": "07a81584",
+          "scope": "Direct chat-completion and Responses API provider routes reserve conservative UTF-8 input/output estimates against the shared workspace pause limit before dispatch. Reservation IDs are tied to the matching usage entry, and ambiguous provider outcomes remain held until expiry becomes unknown usage. Audio transcription reserves its explicit per-minute rate using the reported duration plus a minimum recording-size estimate. YouTube Gemini deployment-key requests fail closed under pause while the model price is unregistered; unpriced successful usage is recorded so a later pause cannot treat it as free.",
+          "verification": "Local Worker direct-route suite: 15 files / 166 tests passed; focused budget/audio/video suite: 3 files / 42 tests passed; syntax checks and git diff --check passed. Full local Worker run was stopped after 26 minutes because the 309-file suite runs serially; exact-head sharded CI is still required.",
+          "remaining": "CI and production migration/deploy are pending. Provider-side termination, hosted search/tool charges, unknown Gemini rates while warn-only, separately authenticated ACP teammate providers, provider invoices, Kylon credits, and live Kylon comparison remain outside this increment."
         }
       }
     },

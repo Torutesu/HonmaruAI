@@ -554,7 +554,7 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
   if (signal?.aborted || (authorize && !await authorize())) return { called: false, answer: null, cancelled: true };
   let data;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

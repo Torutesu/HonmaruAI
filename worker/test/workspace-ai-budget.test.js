@@ -1,9 +1,10 @@
 import { env } from "cloudflare:test";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { allowanceFor } from "../src/gate.js";
 import { noteUsage, settleUsage } from "../src/ledger.js";
-import { claimWorkspaceBudgetNotice, releaseWorkspaceAIBudgetReservation, reserveWorkspaceAIBudgetCall, saveWorkspaceAIBudget, workspaceAIBudgetStatus, workspaceBudgetAdmission } from "../src/workspaceAIBudget.js";
+import { claimWorkspaceBudgetNotice, estimateWorkspaceBudgetMicros, releaseWorkspaceAIBudgetReservation, reserveWorkspaceAIBudgetCall, saveWorkspaceAIBudget, workspaceAIBudgetStatus, workspaceBudgetAdmission } from "../src/workspaceAIBudget.js";
+import { requestWithWorkspaceBudget } from "../src/workspaceBudgetRequest.js";
 
 const ORG = "workspace:shared-budget";
 const NOW = () => new Date(Date.now() - 1_000).toISOString();
@@ -178,6 +179,116 @@ test("provider usage settles its workspace reservation with the ledger entry", a
     .toMatchObject({ status: "settled" });
   expect((await workspaceAIBudgetStatus(env.DB, ORG, Date.now())).periods["24h"])
     .toMatchObject({ usedMicros: 750, calls: 1, unpricedCalls: 0 });
+});
+
+test("direct provider requests reserve before dispatch and settle against their recorded usage", async () => {
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", NOW());
+  const provider = {
+    model: "gpt-4o-mini", providerName: "OpenAI", apiKey: "deployment-key", byok: false,
+    usage: [], workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG, workspaceBudgetReservations: [],
+  };
+  const originalFetch = globalThis.fetch;
+  let dispatched = 0;
+  vi.stubGlobal("fetch", async () => {
+    dispatched += 1;
+    return Response.json({ id: "resp-direct", model: "gpt-4o-mini", usage: { prompt_tokens: 50, completion_tokens: 1000 } });
+  });
+  try {
+    const response = await requestWithWorkspaceBudget(provider, "https://provider.invalid", {
+      method: "POST", body: JSON.stringify({ model: provider.model, max_tokens: 1000, messages: [{ role: "user", content: "hello" }] }),
+    });
+    expect(response.ok).toBe(true);
+    const data = await response.json();
+    noteUsage(provider, "direct-route", data);
+    const reservationId = provider.usage[0]?.workspaceReservationId;
+    expect(reservationId).toBeTruthy();
+    await settleUsage(env.DB, provider, { orgId: ORG, githubId: "42" });
+    expect(await env.DB.prepare("SELECT status FROM hx_workspace_ai_budget_reservations WHERE id=?1").bind(reservationId).first())
+      .toMatchObject({ status: "settled" });
+    const call = await env.DB.prepare("SELECT purpose,usd FROM ai_calls WHERE org_id=?1").bind(ORG).first();
+    expect(call.purpose).toBe("direct-route");
+    expect(call.usd).toBeCloseTo(0.0006075, 9);
+    expect(dispatched).toBe(1);
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
+});
+
+test("direct provider requests fail closed before dispatch when a capped reservation cannot fit", async () => {
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 0.0001, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", NOW());
+  const provider = {
+    model: "gpt-4o-mini", providerName: "OpenAI", apiKey: "deployment-key", byok: false,
+    usage: [], workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG, workspaceBudgetReservations: [],
+  };
+  const originalFetch = globalThis.fetch;
+  let dispatched = 0;
+  vi.stubGlobal("fetch", async () => { dispatched += 1; return Response.json({}); });
+  try {
+    const response = await requestWithWorkspaceBudget(provider, "https://provider.invalid", {
+      method: "POST", body: JSON.stringify({ model: provider.model, max_tokens: 1000, messages: [{ role: "user", content: "a sufficiently long direct request" }] }),
+    });
+    expect(response.status).toBe(429);
+    expect(dispatched).toBe(0);
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
+});
+
+test("minute-priced audio transcription reserves its known provider cost", () => {
+  expect(estimateWorkspaceBudgetMicros("audio_transcription", 4, 0)).toBe(12_000);
+  expect(estimateWorkspaceBudgetMicros("audio_transcription", 4, 1)).toBeNull();
+});
+
+test("direct provider responses without token usage settle as unpriced", async () => {
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", NOW());
+  const provider = {
+    model: "gpt-4o-mini", providerName: "OpenAI", apiKey: "deployment-key", byok: false,
+    usage: [], workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG, workspaceBudgetReservations: [],
+  };
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", async () => Response.json({ id: "resp-no-usage", model: "gpt-4o-mini" }));
+  try {
+    const response = await requestWithWorkspaceBudget(provider, "https://provider.invalid", {
+      method: "POST", body: JSON.stringify({ model: provider.model, max_tokens: 100, messages: [{ role: "user", content: "hello" }] }),
+    });
+    const data = await response.json();
+    noteUsage(provider, "direct-route", data);
+    expect(provider.usage[0]).toMatchObject({ model: "unknown", workspaceReservationId: expect.any(String) });
+    await settleUsage(env.DB, provider, { orgId: ORG, githubId: "42" });
+    expect((await workspaceAIBudgetStatus(env.DB, ORG)).periods["24h"]).toMatchObject({ calls: 1, unpricedCalls: 1, indeterminate: true });
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
+});
+
+test("ambiguous direct provider failures retain the hold and become unknown", async () => {
+  const now = Date.now();
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", new Date(now).toISOString());
+  const provider = {
+    model: "gpt-4o-mini", providerName: "OpenAI", apiKey: "deployment-key", byok: false,
+    usage: [], workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG, workspaceBudgetReservations: [],
+  };
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", async () => { throw new Error("connection lost after dispatch"); });
+  try {
+    await expect(requestWithWorkspaceBudget(provider, "https://provider.invalid", {
+      method: "POST", body: JSON.stringify({ model: provider.model, max_tokens: 100, messages: [{ role: "user", content: "hello" }] }),
+    })).rejects.toThrow("connection lost after dispatch");
+    const held = await env.DB.prepare("SELECT status FROM hx_workspace_ai_budget_reservations WHERE org_id=?1").bind(ORG).first();
+    expect(held).toMatchObject({ status: "held" });
+    const status = await workspaceAIBudgetStatus(env.DB, ORG, now + 10 * 60_000);
+    expect(status.periods["24h"]).toMatchObject({ calls: 1, unpricedCalls: 1, indeterminate: true });
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
 });
 
 test("interrupted dispatched calls are recorded as unknown, not released as free", async () => {

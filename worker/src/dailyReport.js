@@ -408,7 +408,7 @@ ${JSON.stringify(morning
     })}
 </material>`;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       signal: AbortSignal.timeout(60_000),
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
@@ -509,7 +509,7 @@ export async function refineDailyReport(text, ask, { locale, provider, allowance
   const unchanged = { text, note: serverText(locale, "daily.refineUnavailable"), byModel: false };
   if (!provider || (allowance && !allowance.allowed)) return unchanged;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       signal: AbortSignal.timeout(60_000),
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },

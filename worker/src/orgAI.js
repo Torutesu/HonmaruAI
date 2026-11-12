@@ -10,6 +10,7 @@
 // only whether one is set and its last four characters.
 
 import { providerConfig } from "./provider.js";
+import { requestWithWorkspaceBudget } from "./workspaceBudgetRequest.js";
 import { jevConfig } from "./jev.js";
 import { PRICES } from "./ledger.js";
 import { workspaceAIBudgetStatus } from "./workspaceAIBudget.js";
@@ -115,8 +116,14 @@ export async function providerFor(env, orgId, userKey, { credentialSource } = {}
     OPENROUTER_MODEL: source === 'workspace' ? undefined : env.OPENROUTER_MODEL,
   };
   const provider = providerConfig(scoped, userKey);
-  if (provider && !userKey && (source === 'workspace' || (source === undefined && settings.openaiKey))) provider.byok = true;
-  if (provider && source === 'deployment') provider.byok = false;
+  if (provider) {
+    if (!userKey && (source === 'workspace' || (source === undefined && settings.openaiKey))) provider.byok = true;
+    if (source === 'deployment') provider.byok = false;
+    provider.workspaceBudgetDb = env.DB;
+    provider.workspaceBudgetOrgId = orgId || null;
+    provider.workspaceBudgetReservations = [];
+    provider.request = (input, init) => requestWithWorkspaceBudget(provider, input, init);
+  }
   return provider;
 }
 
@@ -143,7 +150,13 @@ export async function jevFor(env, orgId) {
 /// YouTube video the agent was asked about.
 export async function readerEnvFor(env, orgId) {
   const settings = orgId ? await loadAISettings(env.DB, orgId) : {};
-  return { ...env, GEMINI_API_KEY: settings.geminiKey || env.GEMINI_API_KEY };
+  return {
+    ...env,
+    GEMINI_API_KEY: settings.geminiKey || env.GEMINI_API_KEY,
+    HONMARU_GEMINI_KEY_SOURCE: settings.geminiKey ? "workspace" : (env.GEMINI_API_KEY ? "deployment" : "none"),
+    HONMARU_AI_BUDGET_DB: env.DB,
+    HONMARU_AI_BUDGET_ORG_ID: orgId || null,
+  };
 }
 
 const hint = (key) => (key ? `…${String(key).slice(-4)}` : null);

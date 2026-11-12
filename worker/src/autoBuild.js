@@ -61,7 +61,7 @@ Reply with JSON only: {"build":true} or {"build":false}.
 - false: a question, news or FYI, thanks, chat, a problem outside the product's code (an outage elsewhere, a billing question), or something too vague to act on.`;
   const user = `${transcript.length ? `Earlier:\n${transcript.slice(-6).join("\n").slice(-2000)}\n\n` : ""}The message: ${String(body).slice(0, 3000)}`;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model: provider.model, temperature: 0, max_tokens: 12, messages: [{ role: "system", content: system }, { role: "user", content: user }] }),

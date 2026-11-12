@@ -48,7 +48,7 @@ export async function pictureReader(env, { orgId, githubId }) {
     if (!allowance.allowed) return "";
     calls++;
     try {
-      const res = await fetch(provider.endpoint, {
+      const res = await (provider.request || fetch)(provider.endpoint, {
         signal: AbortSignal.timeout(25_000),
         method: "POST",
         headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },

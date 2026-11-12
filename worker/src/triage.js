@@ -98,7 +98,7 @@ Body preview: ${message.snippet}
 
   let data;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
       signal: AbortSignal.timeout(30_000),
