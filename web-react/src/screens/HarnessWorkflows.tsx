@@ -532,9 +532,13 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
               const key=period==='24h'?'ai24h':period==='7d'?'ai7d':'ai30d'
               const status=budget?.ai?.[period]
               const label=t(`${period} rolling AI budget`)
+              const usedMicros=status?.usedMicros??Math.round((status?.usedUsd??0)*1_000_000)
+              const reservedMicros=status?.reservedMicros??0
+              const projectedMicros=status?.projectedMicros??usedMicros+reservedMicros
+              const money=(micros:number)=>(micros/1_000_000).toFixed(6)
               return <label key={period}>{label}
                 <input className="hx-cell-input" type="number" min="0" max="1000000" step="0.000001" aria-label={label} value={budgetDraft[key]} disabled={!open.canEdit||!!busy} onChange={event=>setBudgetDraft(current=>({...current,[key]:event.target.value}))}/>
-                <span className="row-sub">{status?.limitUsd?t('{used} of {limit} estimated',{used:status.usedUsd.toFixed(6),limit:status.limitUsd.toFixed(6)}):t('No AI usage limit ({used} estimated)',{used:(status?.usedUsd??0).toFixed(6)})}{status?.unpricedCalls?` · ${t('{count} unpriced calls',{count:status.unpricedCalls})}`:''}{status?.exhausted&&status.resetAt?<span> · {t('rolling reset {when}',{when:new Date(status.resetAt).toLocaleString()})}</span>:null}</span>
+                <span className="row-sub">{status?.limitUsd?t('{used} used · {reserved} reserved · {projected} projected of {limit}',{used:money(usedMicros),reserved:money(reservedMicros),projected:money(projectedMicros),limit:status.limitUsd.toFixed(6)}):t('No AI usage limit ({used} used · {reserved} reserved)',{used:money(usedMicros),reserved:money(reservedMicros)})}{status?.unpricedCalls?` · ${t('{count} unpriced calls',{count:status.unpricedCalls})}`:''}{status?.unpricedReservations?` · ${t('{count} unpriced reservations',{count:status.unpricedReservations})}`:''}{status?.exhausted&&status.resetAt?<span> · {t('rolling reset {when}',{when:new Date(status.resetAt).toLocaleString()})}</span>:null}</span>
               </label>
             })}
           </div>

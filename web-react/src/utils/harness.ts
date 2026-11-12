@@ -80,7 +80,7 @@ export interface Step {
 export interface WorkflowSourceState {source:{threadId:string;channel:string;body:string;createdAt:string}|null;canBind:boolean;canMove?:boolean;candidates:Array<{id:string;channel:string;body:string;createdAt:string}>;nextCursor:number|null}
 export interface WorkflowNotice { workflowId: string; generation: string; runId: string; createdAt: string; readAt: string|null; name: string; paused: boolean }
 export interface WorkflowBudgetPeriod { limit: number; used: number; resetAt: string; exhausted: boolean }
-export interface WorkflowAiBudgetPeriod { limitUsd:number; usedUsd:number; unpricedCalls:number; resetAt:string|null; exhausted:boolean }
+export interface WorkflowAiBudgetPeriod { limitUsd:number; usedUsd:number; usedMicros:number; reservedMicros:number; projectedMicros:number; unpricedCalls:number; unpricedReservations:number; resetAt:string|null; exhausted:boolean }
 export interface WorkflowAiBudget { revision:number; action:'warn'|'pause'; '24h':WorkflowAiBudgetPeriod; '7d':WorkflowAiBudgetPeriod; '30d':WorkflowAiBudgetPeriod }
 export interface WorkflowBudget { revision: number; daily: WorkflowBudgetPeriod; weekly: WorkflowBudgetPeriod; monthly: WorkflowBudgetPeriod; ai:WorkflowAiBudget }
 export interface WorkflowSafety { generation: string; failure_streak: number; paused_at: string | null; pause_reason: string | null; daily_run_limit?: number; weekly_run_limit?: number; monthly_run_limit?: number; daily_ai_budget_micros?:number; weekly_ai_budget_micros?:number; monthly_ai_budget_micros?:number; ai_budget_action?:'warn'|'pause'; budget_revision?: number; budget?: WorkflowBudget | null }
