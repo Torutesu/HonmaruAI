@@ -9,7 +9,7 @@ import {mayEditApp,mayEditTable} from './resourceAccess.js';
 export async function workflowActivationState(db,activation,method,params,at=Date.now()) {
  activationScope(activation);
  if(!activation)throw Error('An authenticated activation is required.');
- const keys=method==='state.get'?['view','includeCurrentRun']:method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:method==='table.query'?['where','q','pageSize','cursor','entityId']:method==='table.insert'?['entityId','values']:null;
+ const keys=method==='state.get'?['view','includeCurrentRun']:method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:method==='table.query'?['where','q','pageSize','cursor','entityId']:method==='table.insert'?['entityId','values']:method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:method==='table.delete'?['entityId','rowId','expectedUpdatedAt']:null;
  if(!keys||!params||typeof params!=='object'||Array.isArray(params)||Object.keys(params).some(key=>!keys.includes(key)))return {error:'Invalid state operation.',status:400};
  const binding=await db.prepare(`SELECT a.org_id,a.run_id,a.node_id,a.node_owner,a.node_attempt,d.definition,r.workflow_id FROM hx_workflow_activations a
  JOIN hx_gateway_jobs j ON j.org_id=a.org_id AND j.id=a.job_id
@@ -19,7 +19,7 @@ export async function workflowActivationState(db,activation,method,params,at=Dat
  .bind(activation.jobId,activation.gatewayId,activation.leaseHash).first();
  if(!binding)return {error:'No active workflow execution.',status:409};
  const identity={orgId:binding.org_id,runId:binding.run_id,nodeId:binding.node_id,owner:binding.node_owner,attempt:binding.node_attempt,activation,at};
- if(method==='table.query'||method==='table.insert'){
+ if(['table.query','table.insert','table.update','table.delete'].includes(method)){
   const authorized=await readWorkflowState(db,{...identity,view:'committed',includeCurrentRun:false});
   if(authorized.available===false)return {error:'Workflow execution is no longer authorized.',status:409};
   let definition;
@@ -31,9 +31,12 @@ export async function workflowActivationState(db,activation,method,params,at=Dat
   if(typeof entityId!=='string')return {error:'Choose an explicitly authorized App entity.',status:400};
   const source=sources.find(item=>item.entityId===entityId);
   if(!source)return {error:'The workflow source is no longer accessible.',status:404};
-  if(method==='table.insert'){
-   if(source.write!==true)return {error:'Row creation is not enabled for this App entity.',status:403};
-   if(!params.values||typeof params.values!=='object'||Array.isArray(params.values))return {error:'Invalid row values.',status:400};
+  if(method==='table.insert'||method==='table.update'||method==='table.delete'){
+   const mutate=method==='table.update'||method==='table.delete';
+   if(mutate&&source.mutate!==true)return {error:'Row updates and deletions are not enabled for this App entity.',status:403};
+   if(!mutate&&source.write!==true)return {error:'Row creation is not enabled for this App entity.',status:403};
+   if((method==='table.insert'||method==='table.update')&&(!params.values||typeof params.values!=='object'||Array.isArray(params.values)))return {error:'Invalid row values.',status:400};
+   if(mutate&&(typeof params.rowId!=='string'||!params.rowId||params.rowId.length>200||typeof params.expectedUpdatedAt!=='string'||params.expectedUpdatedAt.length>64||!Number.isFinite(Date.parse(params.expectedUpdatedAt))))return {error:'Reload the row before updating or deleting it.',status:400};
    if(!(await mayEditApp(db,binding.org_id,step.sourceAppId,definition.createdBy))||!(await mayEditTable(db,binding.org_id,source.tableId,definition.createdBy)))return {error:'The workflow creator no longer has edit access to this App entity.',status:403};
    return {staged:true};
   }

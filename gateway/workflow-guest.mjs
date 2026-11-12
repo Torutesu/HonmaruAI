@@ -30,7 +30,7 @@ export const WORKFLOW_BOOTSTRAP=`
  const bridgeKey='__honmaru_'+task.nonce;
  const tableSources=Object.freeze((task.context.tableSources||(task.context.tableSource?[task.context.tableSource]:[])).map(source=>Object.freeze({...source})));
  const tableSource=tableSources.length===1?tableSources[0]:null;
- Object.defineProperty(globalThis,bridgeKey,{value:{state,ctx:Object.freeze({...task.context,now:()=>new Date().toISOString()}),tableSource,tableSources,queryTable:params=>rpc('table.query',params),insertTable:params=>rpc('table.insert',params),stageMessage:draft=>rpc('message.stage',draft)},configurable:false});
+ Object.defineProperty(globalThis,bridgeKey,{value:{state,ctx:Object.freeze({...task.context,now:()=>new Date().toISOString()}),tableSource,tableSources,queryTable:params=>rpc('table.query',params),insertTable:params=>rpc('table.insert',params),updateTable:params=>rpc('table.update',params),deleteTable:params=>rpc('table.delete',params),stageMessage:draft=>rpc('message.stage',draft)},configurable:false});
  const sdkSource='const bridge=globalThis['+JSON.stringify(bridgeKey)+'];export const state=bridge.state;export const ctx=bridge.ctx;\\n'+${JSON.stringify(workflowSdkSource('bridge'))};
  const sdk='data:text/javascript;base64,'+Buffer.from(sdkSource).toString('base64');
  registerHooks({resolve(specifier,context,next){return specifier==='@honmaru/workflow-sdk'?{url:sdk,shortCircuit:true}:next(specifier,context);}});

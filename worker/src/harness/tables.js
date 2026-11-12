@@ -354,21 +354,24 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
 
 const rowConflict = () => ({ error: "This row changed. Reload the app before trying again.", status: 409 });
 
-export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt, writeUserId, writeGuard, { by = writeUserId } = {}) {
-  const table = await getTable(db, orgId, tableId);
-  if (!table) return { error: "No such row.", status: 404 };
+export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt, writeUserId, writeGuard, { by = writeUserId, deferWrite = false } = {}) {
+  const observed = await tableForWrite(db, orgId, tableId);
+  if (!observed) return { error: "No such row.", status: 404 };
+  const {table}=observed;
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
   if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) return rowConflict();
   if (await hasAppRelationsToRow(db, orgId, tableId, rowId)) return { error: 'This record is linked from another app record. Remove that link before deleting it.', status: 409 };
   const relationGuard = await appRelationDeleteGuard(db, orgId, tableId, 5);
-  const authorityParam = 5 + relationGuard.binds.length;
+  const authorityParam = 8 + relationGuard.binds.length;
   const authoritySql = writeUserId == null ? "1" : appRowWriteGuard(3, 2, authorityParam);
   const authorityBinds = writeUserId == null ? [] : [String(writeUserId)];
   const guardParam = authorityParam + authorityBinds.length;
   const guardSql = writeGuard ? writeGuard.sql(guardParam) : "1";
   const guardBinds = writeGuard?.binds || [];
-  const statement=db.prepare(`DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 AND (${relationGuard.sql}) AND (${authoritySql}) AND (${guardSql}) RETURNING id`).bind(rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,...authorityBinds,...guardBinds);
+  const schemaParam=5+relationGuard.binds.length;
+  const statement=db.prepare(`DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 AND (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?2 AND org_id=?3 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) AND (${authoritySql}) AND (${guardSql}) RETURNING id`).bind(rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt,...authorityBinds,...guardBinds);
+  if (deferWrite) return { table, before, row:null, statement };
   const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row:null,by:String(by??before.updatedBy??before.createdBy??'unknown')});
   const deleted=event?(await db.batch([statement,event.statement]))[0]:await statement.first();
   if (event?!deleted?.meta?.changes:!deleted) {

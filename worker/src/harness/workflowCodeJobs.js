@@ -6,7 +6,7 @@ import {getMode} from './mode.js';
 import {workspaceBudgetAdmission} from '../workspaceAIBudget.js';
 import {mayUseApp,mayUseTable} from './resourceAccess.js';
 import {workflowProgramSources} from './workflowProgramSources.js';
-import {addRow} from './tables.js';
+import {addRow,updateRow,deleteRow} from './tables.js';
 import {prepareWorkflowRowEventIfWatched,drainWorkflowRowEvents} from './workflowRowEventDispatch.js';
 const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
 export const WORKFLOW_PROGRAM_TIMEOUT_MS=15*60*1000;
@@ -59,7 +59,7 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,run.workflow_id).first();
  const input=run.input?JSON.parse(run.input):null;
  const trigger={kind:run.trigger,...(run.trigger==='app_record_change'&&input?.records?{records:input.records,totalCount:input.totalCount??input.records.length,truncated:Boolean(input.truncated)}:{input})};
- const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSources:tableSources.map(item=>({appId:step.sourceAppId,entityId:item.entityId,tableId:item.tableId,...(item.write?{write:true}:{})}))}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
+ const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSources:tableSources.map(item=>({appId:step.sourceAppId,entityId:item.entityId,tableId:item.tableId,...(item.write?{write:true}:{}),...(item.mutate?{mutate:true}:{})}))}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
  if(new TextEncoder().encode(payload).length>65536)return {status:'failed',error:'Workflow code and input exceed the execution limit.'};
  const nodeId='program',fingerprint=await digest(run.definition),lease=await claimWorkflowNode(db,{orgId,runId,nodeId,fingerprint,effect:true,at,ttl:300000});
  if(lease.status==='done')return lease.result;
@@ -125,19 +125,29 @@ export async function settleWorkflowProgram(db,jobId,env=null) {
  const step=JSON.parse(binding.definition).steps?.[0],sources=workflowProgramSources(step);
  const tableStatements=[];let writeFailed=false;
  const writeOffsets=new Map();
- if(binding.job_status==='succeeded'&&Array.isArray(programResult.tableWrites)&&programResult.tableWrites.length){
-  if(programResult.tableWrites.length>4||!step?.sourceAppId)writeFailed=true;
-  for(const item of programResult.tableWrites){
+ const legacyWrites=Array.isArray(programResult.tableWrites)?programResult.tableWrites:[];
+ const requestedMutations=Array.isArray(programResult.tableMutations)?programResult.tableMutations.map(item=>({...item})):legacyWrites.map(item=>({...item,operation:'insert'}));
+ if(programResult.tableMutations!==undefined&&(!Array.isArray(programResult.tableMutations)||legacyWrites.length)||requestedMutations.length>4)writeFailed=true;
+ if(binding.job_status==='succeeded'&&requestedMutations.length){
+  if(!step?.sourceAppId)writeFailed=true;
+  const mutationTargets=new Set();
+  for(const item of requestedMutations){
    if(writeFailed)break;
-   if(!item||typeof item!=='object'||Object.keys(item).some(key=>!['entityId','values'].includes(key))||typeof item.entityId!=='string'){writeFailed=true;break;}
-   const source=sources.find(value=>value.entityId===item.entityId&&value.write===true);
+   const operation=item?.operation??'insert';
+   if(!item||typeof item!=='object'||!['insert','update','delete'].includes(operation)||Object.keys(item).some(key=>!['operation','entityId','values','rowId','expectedUpdatedAt'].includes(key))||typeof item.entityId!=='string'){writeFailed=true;break;}
+   const source=sources.find(value=>value.entityId===item.entityId&&(operation==='insert'?value.write===true:value.mutate===true));
    if(!source){writeFailed=true;break;}
-   const writeGuard={sql:start=>workflowProgramTableWriteGuard(start),binds:[binding.org_id,binding.run_id,step.sourceAppId,source.entityId,source.tableId,jobId,binding.gateway_id,binding.lease_hash,binding.job_finished_at,JSON.parse(binding.definition).createdBy]};
+   if(operation!=='insert'){
+    if(typeof item.rowId!=='string'||!item.rowId||item.rowId.length>200||typeof item.expectedUpdatedAt!=='string'||!Number.isFinite(Date.parse(item.expectedUpdatedAt))){writeFailed=true;break;}
+    const key=`${source.entityId}\0${item.rowId}`;if(mutationTargets.has(key)){writeFailed=true;break;}mutationTargets.add(key);
+   }
+   const writeGuard={sql:start=>workflowProgramTableWriteGuard(start,operation==='insert'?'write':'mutate'),binds:[binding.org_id,binding.run_id,step.sourceAppId,source.entityId,source.tableId,jobId,binding.gateway_id,binding.lease_hash,binding.job_finished_at,JSON.parse(binding.definition).createdBy]};
+   const by=JSON.parse(binding.definition).createdBy;
    const positionOffset=writeOffsets.get(source.tableId)||0;
-   const row=await addRow(db,binding.org_id,source.tableId,item.values,JSON.parse(binding.definition).createdBy,'strict',JSON.parse(binding.definition).createdBy,writeGuard,{deferWrite:true,positionOffset});
+   const row=operation==='insert'?await addRow(db,binding.org_id,source.tableId,item.values,by,'strict',by,writeGuard,{deferWrite:true,positionOffset}):operation==='update'?await updateRow(db,binding.org_id,source.tableId,item.rowId,item.values,by,item.expectedUpdatedAt,'strict',by,writeGuard,{deferWrite:true}):await deleteRow(db,binding.org_id,source.tableId,item.rowId,item.expectedUpdatedAt,by,writeGuard,{by,deferWrite:true});
    if(row.error){writeFailed=true;break;}
-   writeOffsets.set(source.tableId,positionOffset+1);
-   const event=await prepareWorkflowRowEventIfWatched(db,{orgId:binding.org_id,table:row.table,before:null,row:row.row,by:JSON.parse(binding.definition).createdBy});
+   if(operation==='insert')writeOffsets.set(source.tableId,positionOffset+1);
+   const event=await prepareWorkflowRowEventIfWatched(db,{orgId:binding.org_id,table:row.table,before:row.before??null,row:row.row,by});
    tableStatements.push(row.statement,db.prepare(`INSERT INTO hx_workflow_node_checkpoints(org_id,run_id,node_id,fingerprint,effect,status,owner,attempt,lease_until)
     SELECT ?1,?2,'program','effect-fence',1,'invalid-effect','fence',1,0 WHERE changes()=0`).bind(binding.org_id,binding.run_id));
    if(event)tableStatements.push(event.statement,db.prepare(`INSERT INTO hx_workflow_node_checkpoints(org_id,run_id,node_id,fingerprint,effect,status,owner,attempt,lease_until)
@@ -170,7 +180,7 @@ export async function settleWorkflowProgram(db,jobId,env=null) {
     'status',CASE WHEN accepted THEN 'done' ELSE 'failed' END,
     'output',CASE WHEN accepted THEN COALESCE(json_extract(result,'$.stdout'),'') ELSE NULL END,
     'messages',json(CASE WHEN accepted AND json_type(result,'$.messages')='array' THEN json_extract(result,'$.messages') ELSE '[]' END),
-    'error',CASE WHEN accepted THEN NULL WHEN job_status='timed_out' THEN 'Program execution timed out.' WHEN job_status='cancelled' THEN 'Program execution was cancelled.' WHEN job_status='failed' THEN 'Program execution failed.' WHEN ?6=0 THEN 'An App row could not be created under the current permissions or table schema.' ELSE 'Program completion is no longer authorized or its lease expired.' END) AS entry
+    'error',CASE WHEN accepted THEN NULL WHEN job_status='timed_out' THEN 'Program execution timed out.' WHEN job_status='cancelled' THEN 'Program execution was cancelled.' WHEN job_status='failed' THEN 'Program execution failed.' WHEN ?6=0 THEN 'An App row change could not be applied under the current permissions or table schema.' ELSE 'Program completion is no longer authorized or its lease expired.' END) AS entry
   FROM terminal
  ) UPDATE hx_workflow_runs SET status=(SELECT run_status FROM outcome),
   log=(SELECT json_array(json(entry)) FROM outcome),next_step=1,
@@ -196,11 +206,11 @@ export async function settleWorkflowProgram(db,jobId,env=null) {
   const rejectedUpdate=update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,0);
   result=await db.batch([rejectedUpdate,...workflowSettlementStatements(db,binding.org_id,binding.run_id),checkpoint]);
  }
- if(result[0]?.meta?.changes&&!writeFailed&&programResult.tableWrites?.length&&env)await drainWorkflowRowEvents(env,{limit:programResult.tableWrites.length,now:Date.now()});
+ if(result[0]?.meta?.changes&&!writeFailed&&requestedMutations.length&&env)await drainWorkflowRowEvents(env,{limit:requestedMutations.length,now:Date.now()});
  return {settled:!!result[0]?.meta?.changes};
 }
 
-function workflowProgramTableWriteGuard(start){
+function workflowProgramTableWriteGuard(start,permission='write'){
  const n=offset=>`?${start+offset}`;
  const [org,run,app,entity,table,job,gateway,lease,at,user]=Array.from({length:10},(_,index)=>n(index));
  return `EXISTS(SELECT 1 FROM hx_workflow_runs r JOIN hx_workflow_run_definitions d ON d.org_id=r.org_id AND d.run_id=r.id
@@ -216,7 +226,7 @@ function workflowProgramTableWriteGuard(start){
    AND EXISTS(SELECT 1 FROM hx_workflows w JOIN memberships m ON m.org_id=w.org_id AND m.user_github_id=${user}
     WHERE w.org_id=${org} AND w.id=r.workflow_id AND w.created_by=${user} AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
    AND EXISTS(SELECT 1 FROM json_each(d.definition,'$.steps[0].sourceTables') source
-    WHERE json_extract(source.value,'$.entityId')=${entity} AND json_extract(source.value,'$.tableId')=${table} AND json_extract(source.value,'$.write')=1)
+    WHERE json_extract(source.value,'$.entityId')=${entity} AND json_extract(source.value,'$.tableId')=${table} AND json_extract(source.value,'$.${permission}')=1)
    AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=${org} AND a.id=${app} AND
     ((${entity}='primary' AND a.table_id=${table}) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.entity_key=${entity} AND e.table_id=${table}))))
   AND EXISTS(SELECT 1 FROM memberships active WHERE active.org_id=${org} AND active.user_github_id=${user} AND LOWER(TRIM(COALESCE(active.role,'guest')))!='guest')

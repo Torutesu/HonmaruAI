@@ -13,7 +13,7 @@ function control(binary,args){return new Promise(resolve=>{const child=spawn(bin
 export async function runWorkflowIsolated({code,context={}},{stateOperation,binary=process.env.HONMARU_CONTAINER_BIN||'container',timeoutMs=WORKFLOW_EXECUTION_TIMEOUT_MS,signal}={}){
  if(!context||typeof context!=='object'||Array.isArray(context)||Object.keys(context).some(key=>!['workspaceId','roomId','agentId','timezone','trigger','tableSource','tableSources'].includes(key)))throw Error('Invalid public workflow context.');
  if(context.tableSource!==undefined&&(!context.tableSource||typeof context.tableSource!=='object'||Array.isArray(context.tableSource)||Object.keys(context.tableSource).sort().join(',')!=='appId,entityId,tableId'||Object.values(context.tableSource).some(value=>typeof value!=='string'||!value||value.length>200)))throw Error('Invalid App/Table source context.');
- if(context.tableSources!==undefined&&(!Array.isArray(context.tableSources)||context.tableSources.length<1||context.tableSources.length>20||context.tableSource!==undefined||context.tableSources.some(source=>!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).some(key=>!['appId','entityId','tableId','write'].includes(key))||Object.keys(source).filter(key=>key!=='write').sort().join(',')!=='appId,entityId,tableId'||source.write!==undefined&&typeof source.write!=='boolean'||[source.appId,source.entityId,source.tableId].some(value=>typeof value!=='string'||!value||value.length>200)||!/^([a-z][a-z0-9_]{0,39})$/.test(source.entityId))||new Set(context.tableSources.map(source=>`${source.appId}\0${source.entityId}`)).size!==context.tableSources.length||new Set(context.tableSources.map(source=>source.appId)).size!==1))throw Error('Invalid App/Table sources context.');
+ if(context.tableSources!==undefined&&(!Array.isArray(context.tableSources)||context.tableSources.length<1||context.tableSources.length>20||context.tableSource!==undefined||context.tableSources.some(source=>!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).some(key=>!['appId','entityId','tableId','write','mutate'].includes(key))||Object.keys(source).filter(key=>!['write','mutate'].includes(key)).sort().join(',')!=='appId,entityId,tableId'||source.write!==undefined&&typeof source.write!=='boolean'||source.mutate!==undefined&&typeof source.mutate!=='boolean'||[source.appId,source.entityId,source.tableId].some(value=>typeof value!=='string'||!value||value.length>200)||!/^([a-z][a-z0-9_]{0,39})$/.test(source.entityId))||new Set(context.tableSources.map(source=>`${source.appId}\0${source.entityId}`)).size!==context.tableSources.length||new Set(context.tableSources.map(source=>source.appId)).size!==1))throw Error('Invalid App/Table sources context.');
  if(typeof code!=='string'||!code.trim()||Buffer.byteLength(JSON.stringify({code,context}))>65536)throw Error('Invalid workflow module.');
  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>WORKFLOW_EXECUTION_TIMEOUT_MS)throw Error('Invalid execution timeout.');
  const controller=new AbortController();
@@ -22,7 +22,7 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
  const name=`honmaru-${randomUUID()}`,nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce;
  const child=spawn(binary,containerArgs(name,WORKFLOW_BOOTSTRAP),{stdio:['pipe','pipe','pipe'],shell:false});
  let closed=false,status=null,killPromise,forceTimer,wireBytes=0,responseBytes=0,logBytes=0;
- const messages=[],tableWrites=[],requestIds=new Set();let messageBytes=0,tableWriteBytes=0;
+ const messages=[],tableMutations=[],mutationTargets=new Set(),requestIds=new Set();let messageBytes=0,tableMutationBytes=0;
  let stdout=Buffer.alloc(0),stderr=Buffer.alloc(0);
  const decoder=new StringDecoder('utf8');
  const stop=reason=>{
@@ -48,11 +48,20 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
   }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'Message draft was rejected.'})):request.method==='table.insert'?Promise.resolve().then(async()=>{
    const value=await broker(request);if(value?.error)throw Error('Write rejected.');
    const source=(context.tableSources||[]).find(item=>item.entityId===request.params?.entityId&&item.write===true);
-   if(!source||tableWrites.length>=4)throw Error('Write scope or limit exceeded.');
-   const draft={entityId:source.entityId,values:request.params.values},bytes=Buffer.byteLength(JSON.stringify(draft));
-   if(tableWriteBytes+bytes>24000)throw Error('Staged write limit exceeded.');
-   tableWriteBytes+=bytes;tableWrites.push(draft);return {staged:true,index:tableWrites.length};
-  }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'Row creation was rejected.'})):broker(request);
+   if(!source||tableMutations.length>=4)throw Error('Write scope or limit exceeded.');
+   const draft={operation:'insert',entityId:source.entityId,values:request.params.values},bytes=Buffer.byteLength(JSON.stringify(draft));
+   if(tableMutationBytes+bytes>24000)throw Error('Staged write limit exceeded.');
+   tableMutationBytes+=bytes;tableMutations.push(draft);return {staged:true,index:tableMutations.length};
+  }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'Row creation was rejected.'})):['table.update','table.delete'].includes(request.method)?Promise.resolve().then(async()=>{
+   const value=await broker(request);if(value?.error)throw Error('Mutation rejected.');
+   const source=(context.tableSources||[]).find(item=>item.entityId===request.params?.entityId&&item.mutate===true);
+   if(!source||tableMutations.length>=4)throw Error('Mutation scope or limit exceeded.');
+   const operation=request.method==='table.update'?'update':'delete',target=`${source.entityId}\0${request.params.rowId}`;
+   if(mutationTargets.has(target))throw Error('Duplicate row mutations are not allowed.');
+   const draft={operation,entityId:source.entityId,rowId:request.params.rowId,expectedUpdatedAt:request.params.expectedUpdatedAt,...(operation==='update'?{values:request.params.values}:{})},bytes=Buffer.byteLength(JSON.stringify(draft));
+   if(tableMutationBytes+bytes>24000)throw Error('Staged mutation limit exceeded.');
+   tableMutationBytes+=bytes;mutationTargets.add(target);tableMutations.push(draft);return {staged:true,index:tableMutations.length};
+  }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'Row mutation was rejected.'})):broker(request);
   operation.then(reply=>{
    if(closed||controller.signal.aborted)return;
    const encoded=JSON.stringify(reply)+'\n';responseBytes+=Buffer.byteLength(encoded);
@@ -75,7 +84,7 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
   const exitCode=await completion;closed=true;controller.abort();
   if(killPromise)await killPromise;
   try{parser.push(decoder.end());parser.end();}catch{status||='failed';}
-  const result={status:status||(exitCode===0?'succeeded':'failed'),stdout:stdout.toString('utf8'),stderr:stderr.toString('utf8'),exitCode,messages,...(status===null&&exitCode===0&&tableWrites.length?{tableWrites}:{})};
+  const result={status:status||(exitCode===0?'succeeded':'failed'),stdout:stdout.toString('utf8'),stderr:stderr.toString('utf8'),exitCode,messages,...(status===null&&exitCode===0&&tableMutations.length?{tableMutations}:{})};
   if(logBytes>32768)result.stderr+='\nOutput limit exceeded.';
   if(signal?.aborted)result.stderr+='\nExecution cancelled.';
   while(Buffer.byteLength(JSON.stringify(result))>65000){result.stdout=result.stdout.slice(0,Math.floor(result.stdout.length/2));result.stderr=result.stderr.slice(0,Math.floor(result.stderr.length/2));}
