@@ -846,7 +846,7 @@
       "acceptance": "個別Workflowの暦日/週/月回数上限に加え、直近24時間/7日/30日の記録トークンによるUSD参考価格上限、warn-only/実行後pause、作成元thread通知、単価不明時の可視化、CAS設定、原子的なrun admission、期間更新/上限変更後の自動回復を実装。provider invoice・Kylon creditsと一致するとは扱わない",
       "evidence": {
         "verified": "回数上限に加え、既知のモデル単価によるマイクロUSD概算を記録しrolling 24h/7d/30dで集計。warn-onlyは元スレッドへ重複抑止付き通知、pauseは実行完了後に停止し、単価不明の記録を無料扱いせずpauseモードで停止。Worker/UI focused tests pass; exact-SHA CI 40219026947 and production Worker deployment 40219026929 passed. Actual web UI was reviewed after Pages deployment 40221036459; details in verification.md. PR #917 adds a D1-backed estimate reservation before each deployment-key Workflow Agent model request. Concurrent requests account for held reservations; success settles to provider-reported token usage, explicit HTTP rejection releases the hold, and interrupted/ambiguous dispatch is recorded as unknown usage. A five-minute lease converts abandoned holds to unknown usage on later admission. Exact-head CI 43150898175, main CI 43153187570, and production migration/deploy/health run 43153187663 all succeeded. A follow-up UI batch now displays used, reserved, projected and unpriced-reservation amounts; Web suite 263 files/1,956 tests and production build passed locally, with exact-head CI and Pages deployment pending.",
-        "remaining": "Workflow Agent model-call reservations do not make workspace-wide shared-budget enforcement atomic across every app, manual Workflow, connector, or other side-effect route. The estimate uses model list prices and is not Kylon credit or provider-invoice accounting; external search/connector charges and provider-side billing after an ambiguous interruption can remain unknown. Authenticated Kylon side-by-side acceptance remains."
+        "remaining": "Workspace model-call reservations now cover Harness model loops and direct deployment-key provider routes; this branch also adds TypeSafe Jev reservation. Independent AI teammate providers, provider-internal search and external connector charges remain outside the shared model budget. The estimate uses model list prices and is not Kylon credit or provider-invoice accounting; provider-side billing after an ambiguous interruption can remain unknown. Authenticated Kylon side-by-side acceptance remains."
       }
     },
     {
@@ -1097,13 +1097,13 @@
       "code": "worker/src/ledger.js, worker/src/workspaceAIBudget.js, worker/src/gate.js, worker/src/orgAI.js, worker/src/index.js, web-react/src/screens/Tools.tsx",
       "acceptance": "Honmaruデプロイキーで記録されたモデル参考価格に対するworkspace共通rolling 24h/7d/30d上限とwarn/pauseを追加。個人Free/Proと独立しCASで設定を更新。Kylon creditsやinvoiceとは扱わない",
       "evidence": {
-        "verified": "ワークスペース全体の記録済みai_callsを直近24時間/7日/30日で集計し、管理者がUSD参考価格の警告または次のdeployment-key AIリクエスト停止を設定できる。BYOKは対象外。管理者権限・revision競合・上限到達ゲートのWorker tests、exact-SHA CI 40219026947、Worker deployment 40219026929、Pages deployment 40221036459、ログイン済み本番AI設定画面を確認済み。詳細はverification.md。",
-        "remaining": "Harness completer経路にはモデル要求前のworkspace共通価格予約・usage精算・不明結果保持を追加したが、直接provider呼出し経路を含む全経路の予約と同時実行検証は未完了。Kylon互換の購入/付与credit残高、実provider invoice換算、プロバイダーごとの請求と外部ツール費は対象外。exact-head CI・本番migration/deploy・ログイン済みKylon比較も未完了。",
+        "verified": "ワークスペース全体の記録済みai_callsを直近24時間/7日/30日で集計し、管理者がUSD参考価格の警告または次のdeployment-key AIリクエスト停止を設定できる。BYOKは対象外。PR #934 (`cecf7c84`) でHarness model loop以外の直接deployment-key Provider要求にも送信前予約・usage精算・unknown保持を追加。PR exact-head CI #43288203131、main CI #43291237987、Worker D1 migrations/deploy/Verify #43291237728が成功。詳細はverification.md。",
+        "remaining": "Deployment-key Jev/System Oneの送信前予約とroute/triage/classify全経路の精算をこのブランチに追加し、Worker 4スイート50件をローカル検証済み。exact-head CIと本番反映は未完了。独立AI teammate provider、provider内検索費用、Kylon互換の購入/付与credit残高、実provider invoice換算と外部ツール費、ログイン済みKylon比較は未完了。",
         "latestIncrement": {
-          "base": "c4e99206",
-          "scope": "The Harness completer now reserves each deployment-key model request against all configured workspace rolling windows in one D1 admission statement. Active reservations contribute to displayed provisional usage and prevent overlapping Harness calls from spending the same remaining allowance. Successful usage is written with reservation settlement in one D1 batch; an interrupted dispatched call is recorded as unpriced; an expired reservation becomes unknown and blocks capped windows until it ages out. BYOK and warn-only mode remain outside the reservation gate. This does not cover direct provider calls outside the Harness completer.",
-          "verification": "Focused Worker workspace-ai-budget suite: 11/11 passed; combined budget, workflow-safety, model-loop and Harness workflow suites: 183/183 passed, including parallel reservations, usage settlement, ambiguous errors, pre-dispatch pause cancellation and no post side effect. Exact-head CI, migration application, production deployment and authenticated Kylon comparison remain pending.",
-          "remaining": "Direct provider call routes, independent teammate provider calls, Kylon credit purchase/top-up, provider invoice reconciliation, external search/connector charges, and exact tokenizer/provider billing guarantees remain unimplemented or unverified."
+          "base": "cecf7c84",
+          "scope": "PR #934 extends atomic deployment-key workspace reservations and settlement from Harness model loops to direct provider routes, audio transcription, and guarded YouTube Gemini use. This branch adds Jev/System One pre-dispatch reservations, actual-or-conservative input usage ledger entries, reservation settlement for route/triage/business classification, per-entry BYOK attribution for mixed-provider routes, and unknown retention for ambiguous failures. Workspace TypeSafe keys remain BYOK; no new provider or paid service is introduced.",
+          "verification": "PR #934 exact-head CI #43288203131 passed. Main CI #43291237987 passed including E2E; Worker deployment #43291237728 completed D1 migrations, deploy and Verify. Jev changes: Worker workspace-ai-budget, jev, sync and org-ai suites 50/50 passed; exact-head CI and production deployment remain pending.",
+          "remaining": "Independent teammate provider calls, Kylon credit purchase/top-up, provider invoice reconciliation, external search/connector charges, image-generation charges and authenticated Kylon UI comparison remain outside or unverified."
         }
       }
     },
@@ -1128,7 +1128,7 @@
       "acceptance": "個別workflowのpauseに加え、記録済みworkspace共通AI参考価格上限で新しいdeployment-keyのモデルリクエストを停止。既存BYOK上限と分離",
       "evidence": {
         "verified": "rolling 24h/7d/30d estimated usageの到達を共通AI gateで検出し、新しいdeployment-key AIリクエストを拒否して説明を返すwarn/stop設定を実装。管理者とメンバーのAPI権限、gate tests、exact-SHA CI 40219026947、Worker deployment 40219026929、Pages deployment 40221036459、ログイン済み本番AI設定画面を確認済み。詳細はverification.md。",
-        "remaining": "Workspace共通のHarness model-call予約により同時要求の重複admissionを防ぎ、期限切れ結果不明をfail-closedにする処理を追加したが、直接provider呼出し・独立AI teammate・全app/tool経路を含む完全な予約と、実行中provider処理の停止は未完了。外部connector費も対象外。exact-head CI・本番migration/deployとKylon比較は未完了。",
+        "remaining": "PR #934でHarness model-callと直接deployment-key provider呼出しの予約・精算・unknown保持は本番反映済み。このブランチではTypeSafe Jevも追加しWorker 50/50をローカル確認したが、exact-head CI/本番反映は未完了。独立AI teammate、provider内検索・外部connector費、画像生成など別請求経路、実行中provider処理の停止、Kylon比較は残る。",
         "latestIncrement": {
           "base": "bc79dfae",
           "scope": "When a deployment-key pause budget is first reached, claim one notice per saved budget revision and notify current workspace owners/admins through the existing Relay. The Harness Dashboard restores the notice from existing AI status on initial load/reconnect, offers a link to AI usage settings, and suppresses duplicates per revision. The notice includes no amount or credential. Simple mode is unchanged.",
@@ -1139,7 +1139,7 @@
           "base": "c4e99206",
           "scope": "Harness model requests reserve workspace list-price estimates before dispatch, settle reservation alongside recorded usage, and retain unknown usage on interrupted or expired requests. This prevents concurrent Harness model calls from admitting against the same remaining budget. A Workflow Agent run whose next call cannot fit is cancelled before dispatch so its following side-effect steps cannot run.",
           "verification": "Focused and combined Worker budget/model/workflow suites: 183/183 passed. Exact-head CI, production migration/deployment and authenticated Kylon comparison pending.",
-          "remaining": "Direct provider routes and active provider-side work cancellation remain outside this reservation slice."
+          "remaining": "Direct deployment-key provider routes are now included by PR #934. Jev/System One is included in this branch pending CI/release; independent teammate calls, provider-internal search, other external charges and active provider-side cancellation remain outside the reservation slice."
         },
         "directRouteIncrement": {
           "base": "07a81584",

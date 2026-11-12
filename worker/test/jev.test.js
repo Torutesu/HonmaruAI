@@ -92,6 +92,7 @@ test("an unsure Jev hands the recipient to the language model when there is one"
   expect(res.routedBy).toBe("OpenAI");
   expect(res.aiCalled).toBe(true);
   expect(res.recipientUserID).toBe("aya");
+  expect(res.systemOneUsage).toMatchObject({ input_tokens: 640, output_tokens: 0 });
 });
 
 test("an unsure Jev with no language model still beats keywords, and says it was unsure", async () => {
@@ -130,7 +131,7 @@ test("triage: a message that needs nothing costs no language model; one that doe
   const message = { id: "m1", from: "shop@example.com", subject: "Your receipt", snippet: "Thanks for your order", date: "2026-09-20" };
   interceptJev(jevAnswer({ needsDecision: { type: "noul", noul: 0.04 }, kind: choice("notification", 0.9), priority: choice("low", 0.9) }));
   const no = await triageMessage(message, { provider: OPENAI, systemOne: JEV, readerLanguage: "en", sourceLabel: "Gmail" });
-  expect(no).toEqual({ called: false, card: null, systemOne: true });
+  expect(no).toMatchObject({ called: false, card: null, systemOne: true, systemOneUsage: { input_tokens: 640, output_tokens: 0 } });
 
   interceptJev(jevAnswer({ needsDecision: { type: "noul", noul: 0.91 }, kind: choice("approval", 0.8), priority: choice("high", 0.7) }));
   fetchMock.get("https://api.openai.com")
@@ -148,6 +149,18 @@ test("triage: a message that needs nothing costs no language model; one that doe
   const bare = await triageMessage({ ...message, subject: "Supplier price +8%", snippet: "Can we go to +8%?" },
     { provider: null, systemOne: JEV, readerLanguage: "en", sourceLabel: "Gmail" });
   expect(bare).toMatchObject({ called: false, systemOne: true, card: { cardType: "approval", priority: "high", title: "Supplier price +8%" } });
+});
+
+test("successful Jev triage usage is preserved when its answer is malformed or the second opinion fails", async () => {
+  const message = { from: "shop@example.com", subject: "Please review", snippet: "Could you approve this?", date: "2026-09-20" };
+  interceptJev(jevAnswer({ needsDecision: { type: "noul", noul: "uncertain" } }));
+  const malformed = await triageMessage(message, { provider: null, systemOne: JEV, readerLanguage: "en" });
+  expect(malformed).toMatchObject({ called: false, card: null, systemOneUsage: { input_tokens: 640 } });
+
+  interceptJev(jevAnswer({ needsDecision: { type: "noul", noul: 0.9 }, kind: choice("approval", 0.9), priority: choice("high", 0.9) }));
+  fetchMock.get("https://api.openai.com").intercept({ path: "/v1/chat/completions", method: "POST" }).reply(503, { message: "temporarily unavailable" });
+  const failedSecondOpinion = await triageMessage(message, { provider: OPENAI, systemOne: JEV, readerLanguage: "en" });
+  expect(failedSecondOpinion).toMatchObject({ called: false, card: null, systemOneUsage: { input_tokens: 640 } });
 });
 
 test("filing: an existing business is a choice Jev makes; 'none' goes on to the language model", async () => {
@@ -174,6 +187,16 @@ test("filing: an existing business is a choice Jev makes; 'none' goes on to the 
     allowance: { allowed: true, metered: false, consume: async () => {} },
   });
   expect(fresh).toBeNull();
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ai_calls WHERE org_id='personal:jev' AND provider='jev' AND purpose='classify'").first())
+    .toMatchObject({ n: 2 });
+
+  interceptJev(jevAnswer({ business: { type: "choice", choice: "made-up-channel", confidence: 0.99 } }));
+  const invalid = await fileCardUnderBusiness(filingEnv, {
+    orgId: "personal:jev", card: { title: "Unknown channel" }, provider: null, githubId: "1",
+  });
+  expect(invalid).toBeNull();
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM ai_calls WHERE org_id='personal:jev' AND provider='jev' AND purpose='classify'").first())
+    .toMatchObject({ n: 3 });
 });
 
 test("POST /ai/route with a Jev key routes without spending the language-model allowance", async () => {
@@ -196,6 +219,8 @@ test("POST /ai/route with a Jev key routes without spending the language-model a
   expect(body.systemOneUsage).toBeUndefined();
   const { results } = await env.DB.prepare("SELECT COUNT(*) AS n FROM ai_usage").all().catch(() => ({ results: [{ n: 0 }] }));
   expect(Number(results?.[0]?.n || 0)).toBe(0);
+  expect(await env.DB.prepare("SELECT purpose,provider,byok,input_tokens FROM ai_calls WHERE org_id='personal:jevroute'").first())
+    .toMatchObject({ purpose: "route", provider: "jev", byok: 0, input_tokens: 640 });
 
   const health = await (await worker.fetch(new Request("https://example.com/health"), { ...env, TYPESAFE_API_KEY: "ts_test" })).json();
   expect(health.systemOne).toBe(true);

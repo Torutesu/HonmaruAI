@@ -4,6 +4,7 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { createSession, upsertMembership, upsertUser } from "../src/db.js";
+import { saveWorkspaceAIBudget } from "../src/workspaceAIBudget.js";
 
 // The connector's keys are Worker secrets, and secrets set on the shared test
 // env do not reach the Worker isolate. The handler is called directly with an
@@ -77,6 +78,31 @@ test("mail that needs nothing is recorded but creates no card", async () => {
     .first();
   expect(row).not.toBeNull();
   expect(row.card_id).toBeNull();
+});
+
+test("Jev triage usage is budget-reserved and settled even when it decides not to create a card", async () => {
+  await saveWorkspaceAIBudget(env.DB, "acme/web", {
+    revision: 0, dailyLimitUsd: 0.1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "700");
+  composioReply([NEEDS]);
+  fetchMock.get("https://api.typesafe.ai")
+    .intercept({ path: "/v1/systemone", method: "POST" })
+    .reply(200, { answers: {
+      needsDecision: { type: "noul", noul: 0.04 },
+      kind: { type: "choice", choice: "notification", confidence: 0.9 },
+      priority: { type: "choice", choice: "low", confidence: 0.9 },
+    }, model: "jev-latest", usage: { input_tokens: 450, output_tokens: 0 } });
+
+  const res = await worker.fetch(new Request("https://example.com/connectors/gmail/sync", {
+    method: "POST",
+    headers: { "x-session-token": token, "content-type": "application/json" },
+    body: JSON.stringify({ orgId: "acme/web", userId: "octocat" }),
+  }), { ...CONNECTED, TYPESAFE_API_KEY: "ts-deployment-test" });
+  expect(await res.json()).toMatchObject({ scanned: 1, created: 0 });
+  expect(await env.DB.prepare("SELECT purpose,provider,byok,input_tokens FROM ai_calls WHERE org_id='acme/web'").first())
+    .toMatchObject({ purpose: "triage", provider: "jev", byok: 0, input_tokens: 450 });
+  expect(await env.DB.prepare("SELECT status FROM hx_workspace_ai_budget_reservations WHERE org_id='acme/web'").first())
+    .toMatchObject({ status: "settled" });
 });
 
 test("one sync runs every connector and reports each", async () => {

@@ -142,7 +142,12 @@ export async function workflowCredentialSource(env, orgId) {
 /// System One for one workspace: its own key, or the deployment's.
 export async function jevFor(env, orgId) {
   const settings = orgId ? await loadAISettings(env.DB, orgId) : {};
-  return jevConfig({ ...env, TYPESAFE_API_KEY: settings.typesafeKey || env.TYPESAFE_API_KEY });
+  const config = jevConfig({ ...env, TYPESAFE_API_KEY: settings.typesafeKey || env.TYPESAFE_API_KEY });
+  if (!config) return null;
+  config.byok = Boolean(settings.typesafeKey);
+  config.workspaceBudgetDb = env.DB;
+  config.workspaceBudgetOrgId = orgId || null;
+  return config;
 }
 
 /// The keys a link reader uses, for one workspace: its own Gemini key over

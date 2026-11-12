@@ -1214,6 +1214,7 @@ export async function routeInstruction({
   systemOne,
 }) {
   const sender = senderForCard(rawSender, organization);
+  let systemOneUsage;
   // Jev decides, when it is configured. A confident pick is the answer; an
   // unsure one is handed to the language model below when there is one.
   if (systemOne?.apiKey) {
@@ -1224,6 +1225,7 @@ export async function routeInstruction({
       if (sure || !openRouter?.apiKey) {
         return { ...routed, routedBy: sure ? "jev" : "jev-unsure", aiCalled: false, systemOneUsage: usage };
       }
+      systemOneUsage = usage;
       console.warn("Jev unsure about the recipient; asking the language model");
     } catch (error) {
       console.warn("Jev routing failed, continuing without it:", error.message);
@@ -1248,7 +1250,8 @@ export async function routeInstruction({
         lookups,
         call,
       });
-      return { ...routed, routedBy: openRouter.providerName || "llm", aiCalled: call.answered };
+      return { ...routed, routedBy: openRouter.providerName || "llm", aiCalled: call.answered,
+        ...(systemOneUsage ? { systemOneUsage } : {}) };
     } catch (error) {
       console.warn("AI routing failed, using local fallback:", error.message);
       return {
@@ -1256,6 +1259,7 @@ export async function routeInstruction({
         routedBy: "fallback",
         routingError: error.message,
         aiCalled: call.answered,
+        ...(systemOneUsage ? { systemOneUsage } : {}),
       };
     }
   }
@@ -1264,6 +1268,7 @@ export async function routeInstruction({
     ...routeInstructionLocally({ text, sender, organization, priorityOverride, readerLanguage }),
     routedBy: "fallback",
     aiCalled: false,
+    ...(systemOneUsage ? { systemOneUsage } : {}),
   };
 }
 
