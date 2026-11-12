@@ -118,14 +118,19 @@ function json(body, status = 200) {
   });
 }
 
-export async function caller(env, request, orgId, { withMembership = false } = {}) {
+/// `alongside(session)`: more reads the route needs, started as soon as the
+/// session is known instead of after every check — returned as `alongside`,
+/// and dropped unread when the caller is refused.
+export async function caller(env, request, orgId, { withMembership = false, alongside = null } = {}) {
   const session = await getSession(env.DB, request.headers.get("x-session-token"));
   if (!session) return { denied: json({ message: "Please sign in." }, 401) };
   if (!orgId || typeof orgId !== "string") return { denied: json({ message: "orgId is required" }, 400) };
   // The person's own record does not depend on the checks below, so it is
   // read alongside them rather than after (#845); it is used only once
   // every check has passed, and a failed read is thrown there, as before.
-  const userRead = getUserByGithubId(env.DB, session.github_id).then((value) => ({ value }), (error) => ({ error }));
+  const settle = async (work) => { try { return { value: await work() }; } catch (error) { return { error }; } };
+  const userRead = settle(() => getUserByGithubId(env.DB, session.github_id));
+  const extraRead = alongside ? settle(() => alongside(session)) : null;
   const membership = withMembership
     ? await env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, String(session.github_id)).first()
     : await isMember(env.DB, orgId, session.github_id);
@@ -135,14 +140,16 @@ export async function caller(env, request, orgId, { withMembership = false } = {
   if (read.error) throw read.error;
   const user = read.value;
   if (!user?.login) return { denied: json({ message: "Please sign in." }, 401) };
-  return { session, user: { ...user, github_id: session.github_id }, ...(withMembership ? { membershipSince: membership.created_at } : {}) };
+  let extra;
+  if (extraRead) { const got = await extraRead; if (got.error) throw got.error; extra = got.value; }
+  return { session, user: { ...user, github_id: session.github_id }, ...(withMembership ? { membershipSince: membership.created_at } : {}), ...(extraRead ? { alongside: extra } : {}) };
 }
 
 /// The caller, the channel they named, and how they see it — or why not.
 export async function inChannel(env, request, { orgId, channel }) {
-  const who = await caller(env, request, orgId);
+  const who = await caller(env, request, orgId, { alongside: (session) => listMembers(env.DB, orgId, session.github_id) });
   if (who.denied) return who;
-  const members = await listMembers(env.DB, orgId, who.session.github_id);
+  const members = who.alongside;
   const resolved = await resolveChannel(env.DB, orgId, who.user, channel, members);
   if (!resolved) return { denied: json({ message: "No such channel." }, 404) };
   return { who, members, resolved, view: viewOf(resolved.key, who.user.login, members) };
@@ -1451,9 +1458,9 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (request.method === "POST" && (!body || typeof body !== "object")) return json({ message: "Invalid JSON body." }, 400);
     const orgId = request.method === "GET" ? url.searchParams.get("orgId") : body.orgId;
     const channel = request.method === "GET" ? url.searchParams.get("channel") : body.channel;
-    const who = await caller(env, request, orgId);
+    const who = await caller(env, request, orgId, { alongside: (session) => listMembers(env.DB, orgId, session.github_id) });
     if (who.denied) return who.denied;
-    const members = await listMembers(env.DB, orgId, who.session.github_id);
+    const members = who.alongside;
     const resolved = await resolveChannel(env.DB, orgId, who.user, channel, members);
     if (!resolved) return json({ message: "No such channel." }, 404);
     const view = viewOf(resolved.key, who.user.login, members);
