@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createStateBroker,validateStateRequest,createWorkflowOutputParser} from '../workflow-bridge.mjs';
-import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable} from '../workflow-sdk.mjs';
+import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable,normalizeWorkflowInsert,insertWorkflowTableRow} from '../workflow-sdk.mjs';
 test('guest cannot choose activation identity or call arbitrary host operations',()=>{
  for(const request of [{id:1,method:'shell',params:{}},{id:1,method:'state.get',params:{runId:'other'}},{id:1,method:'state.set',params:{state:{},expectedRevision:0,owner:'other'}},{id:65,method:'state.get',params:{}}])assert.throws(()=>validateStateRequest(request));
 });
@@ -94,4 +94,14 @@ test('table.query selects only explicitly bound App entities',async()=>{
  await assert.rejects(()=>queryWorkflowTable({},bridge),/explicitly authorized entityId/);
  await assert.rejects(()=>queryWorkflowTable({entityId:'private'},bridge),/explicitly authorized/);
  await assert.rejects(()=>queryWorkflowTable({entityId:'bad-id!'},bridge),/Invalid App entity/);
+});
+
+test('table.insert requires an explicitly writable entity and sends only bounded row values',async()=>{
+ const calls=[],bridge={tableSources:[{appId:'app',entityId:'primary',tableId:'table-a',write:true},{appId:'app',entityId:'details',tableId:'table-b'}],insertTable:async value=>{calls.push(value);return {staged:true,index:1}}};
+ assert.deepEqual(await insertWorkflowTableRow({entityId:'primary',values:{name:'Alpha'}},bridge),{staged:true,index:1});
+ assert.deepEqual(calls,[{entityId:'primary',values:{name:'Alpha'}}]);
+ await assert.rejects(()=>insertWorkflowTableRow({entityId:'details',values:{}},bridge),/not enabled/);
+ assert.throws(()=>normalizeWorkflowInsert({entityId:'primary',values:{},tableId:'other'}),/Invalid table.insert/);
+ assert.throws(()=>validateStateRequest({id:1,method:'table.insert',params:{entityId:'primary',values:{name:'Alpha'},orgId:'other'}}),/Unexpected state parameter/);
+ assert.throws(()=>validateStateRequest({id:1,method:'table.insert',params:{entityId:'bad-id!',values:{}}}),/Invalid App entity/);
 });

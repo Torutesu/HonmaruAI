@@ -1,5 +1,12 @@
 # 検証記録
 
+### 2026-11-12 — KY-059 opt-in staged App row creation (local, not deployed)
+
+- Added `table.insert({entityId, values})` for App entities whose Workflow source explicitly enables row creation. Each activation can stage at most four strict-schema rows; the Worker rechecks current App/Table edit permission and exact source binding before committing.
+- Successful program settlement commits rows, watched row-event outbox items, run state and the program checkpoint in one D1 batch. Failed or stale writes roll back the row changes; duplicate finish delivery does not create rows twice. Update/delete APIs remain unavailable to the TypeScript SDK.
+- Batched focused QA: Worker Workflow program/state suites — 76 tests passed, including App edit revocation at settlement and outbox delivery; Gateway SDK/bridge/guest suites — 14 tests passed; Workflow UI suite — 67 tests passed; Web TypeScript check and production build passed. JavaScript syntax checks and `git diff --check` passed.
+- This is local evidence only. Full exact-head CI, merge, deployment, Mac runtime refresh, and authenticated production/Kylon UI acceptance remain pending. Simple mode is unchanged; no new paid service or dependency was added.
+
 ### 2026-11-12 — KY-059 multi-entity read-only Workflow query (local, not deployed)
 
 - Extended the saved TypeScript Workflow source binding from one App entity to up to 20 explicit entities in that same App. The editor presents checkboxes; the SDK requires `entityId` when multiple sources are bound, and the Worker revalidates each exact entity-to-table mapping and current App/Table membership/ACL on every page. Existing single-source saved definitions remain compatible; Simple mode and direct VM capabilities are unchanged.

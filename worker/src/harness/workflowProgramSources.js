@@ -5,6 +5,7 @@ export function workflowProgramSources(step) {
   if (Array.isArray(step.sourceTables)) return step.sourceTables.map(source => ({
     entityId: source?.entityId,
     tableId: source?.tableId,
+    write: source?.write === true,
   }));
   if (typeof step.sourceEntityId === 'string' && typeof step.sourceTableId === 'string') {
     return [{ entityId: step.sourceEntityId, tableId: step.sourceTableId }];

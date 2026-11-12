@@ -6,6 +6,8 @@ import {getMode} from './mode.js';
 import {workspaceBudgetAdmission} from '../workspaceAIBudget.js';
 import {mayUseApp,mayUseTable} from './resourceAccess.js';
 import {workflowProgramSources} from './workflowProgramSources.js';
+import {addRow} from './tables.js';
+import {prepareWorkflowRowEventIfWatched,drainWorkflowRowEvents} from './workflowRowEventDispatch.js';
 const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
 export const WORKFLOW_PROGRAM_TIMEOUT_MS=15*60*1000;
 export const WORKFLOW_PROGRAM_RESULT_GRACE_MS=30*1000;
@@ -57,7 +59,7 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,run.workflow_id).first();
  const input=run.input?JSON.parse(run.input):null;
  const trigger={kind:run.trigger,...(run.trigger==='app_record_change'&&input?.records?{records:input.records,totalCount:input.totalCount??input.records.length,truncated:Boolean(input.truncated)}:{input})};
- const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSources:tableSources.map(item=>({appId:step.sourceAppId,entityId:item.entityId,tableId:item.tableId}))}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
+ const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSources:tableSources.map(item=>({appId:step.sourceAppId,entityId:item.entityId,tableId:item.tableId,...(item.write?{write:true}:{})}))}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
  if(new TextEncoder().encode(payload).length>65536)return {status:'failed',error:'Workflow code and input exceed the execution limit.'};
  const nodeId='program',fingerprint=await digest(run.definition),lease=await claimWorkflowNode(db,{orgId,runId,nodeId,fingerprint,effect:true,at,ttl:300000});
  if(lease.status==='done')return lease.result;
@@ -112,16 +114,41 @@ export async function renewWorkflowProgramLease(db,{jobId,gatewayId,leaseHash,at
 // Reconcile only persisted terminal results. The caller cannot supply an
 // outcome, source, checkpoint lease, or replacement program. Retrying this
 // transaction cannot increment the failure streak twice.
-export async function settleWorkflowProgram(db,jobId) {
- const binding=await db.prepare(`SELECT a.org_id,a.run_id,d.definition FROM hx_workflow_activations a
-  JOIN hx_workflow_run_definitions d ON d.org_id=a.org_id AND d.run_id=a.run_id WHERE a.job_id=?1`).bind(jobId).first();
+export async function settleWorkflowProgram(db,jobId,env=null) {
+ const binding=await db.prepare(`SELECT a.org_id,a.run_id,d.definition,j.gateway_id,j.lease_hash,j.finished_at AS job_finished_at,j.status AS job_status FROM hx_workflow_activations a
+  JOIN hx_workflow_run_definitions d ON d.org_id=a.org_id AND d.run_id=a.run_id
+  JOIN hx_gateway_jobs j ON j.org_id=a.org_id AND j.id=a.job_id WHERE a.job_id=?1`).bind(jobId).first();
  if(!binding)return {settled:false};
  const fingerprint=await digest(binding.definition);
+ const stored=await db.prepare('SELECT result FROM hx_gateway_jobs WHERE id=?1 AND org_id=?2').bind(jobId,binding.org_id).first();
+ let programResult={};try{programResult=JSON.parse(stored?.result||'{}')}catch{}
+ const step=JSON.parse(binding.definition).steps?.[0],sources=workflowProgramSources(step);
+ const tableStatements=[];let writeFailed=false;
+ const writeOffsets=new Map();
+ if(binding.job_status==='succeeded'&&Array.isArray(programResult.tableWrites)&&programResult.tableWrites.length){
+  if(programResult.tableWrites.length>4||!step?.sourceAppId)writeFailed=true;
+  for(const item of programResult.tableWrites){
+   if(writeFailed)break;
+   if(!item||typeof item!=='object'||Object.keys(item).some(key=>!['entityId','values'].includes(key))||typeof item.entityId!=='string'){writeFailed=true;break;}
+   const source=sources.find(value=>value.entityId===item.entityId&&value.write===true);
+   if(!source){writeFailed=true;break;}
+   const writeGuard={sql:start=>workflowProgramTableWriteGuard(start),binds:[binding.org_id,binding.run_id,step.sourceAppId,source.entityId,source.tableId,jobId,binding.gateway_id,binding.lease_hash,binding.job_finished_at,JSON.parse(binding.definition).createdBy]};
+   const positionOffset=writeOffsets.get(source.tableId)||0;
+   const row=await addRow(db,binding.org_id,source.tableId,item.values,JSON.parse(binding.definition).createdBy,'strict',JSON.parse(binding.definition).createdBy,writeGuard,{deferWrite:true,positionOffset});
+   if(row.error){writeFailed=true;break;}
+   writeOffsets.set(source.tableId,positionOffset+1);
+   const event=await prepareWorkflowRowEventIfWatched(db,{orgId:binding.org_id,table:row.table,before:null,row:row.row,by:JSON.parse(binding.definition).createdBy});
+   tableStatements.push(row.statement,db.prepare(`INSERT INTO hx_workflow_node_checkpoints(org_id,run_id,node_id,fingerprint,effect,status,owner,attempt,lease_until)
+    SELECT ?1,?2,'program','effect-fence',1,'invalid-effect','fence',1,0 WHERE changes()=0`).bind(binding.org_id,binding.run_id));
+   if(event)tableStatements.push(event.statement,db.prepare(`INSERT INTO hx_workflow_node_checkpoints(org_id,run_id,node_id,fingerprint,effect,status,owner,attempt,lease_until)
+    SELECT ?1,?2,'program','effect-fence',1,'invalid-effect','fence',1,0 WHERE changes()=0`).bind(binding.org_id,binding.run_id));
+  }
+ }
  const update=db.prepare(`WITH terminal AS (
   SELECT r.org_id,r.id,j.id AS job_id,j.status AS job_status,j.result,j.finished_at,j.started_at AS job_started_at,j.created_at AS job_created_at,
    (j.status='succeeded' AND j.started_at IS NOT NULL AND j.finished_at>=j.started_at
     AND j.finished_at<j.lease_until AND j.finished_at<j.deadline AND j.finished_at<c.lease_until
-    AND ${workflowStateAuthority}
+    AND ${workflowStateAuthority} AND ?6=1
     AND (json_extract(j.payload,'$.context.roomId') IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=r.org_id AND source.workflow_id=r.workflow_id AND source.channel=json_extract(j.payload,'$.context.roomId')))
     AND EXISTS(SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by WHERE g.id=j.gateway_id AND g.org_id=r.org_id AND g.revoked_at IS NULL AND LOWER(TRIM(m.role)) IN ('admin','owner'))
    ) AS accepted
@@ -143,13 +170,12 @@ export async function settleWorkflowProgram(db,jobId) {
     'status',CASE WHEN accepted THEN 'done' ELSE 'failed' END,
     'output',CASE WHEN accepted THEN COALESCE(json_extract(result,'$.stdout'),'') ELSE NULL END,
     'messages',json(CASE WHEN accepted AND json_type(result,'$.messages')='array' THEN json_extract(result,'$.messages') ELSE '[]' END),
-    'error',CASE WHEN accepted THEN NULL WHEN job_status='timed_out' THEN 'Program execution timed out.' WHEN job_status='cancelled' THEN 'Program execution was cancelled.' WHEN job_status='failed' THEN 'Program execution failed.' ELSE 'Program completion is no longer authorized or its lease expired.' END) AS entry
+    'error',CASE WHEN accepted THEN NULL WHEN job_status='timed_out' THEN 'Program execution timed out.' WHEN job_status='cancelled' THEN 'Program execution was cancelled.' WHEN job_status='failed' THEN 'Program execution failed.' WHEN ?6=0 THEN 'An App row could not be created under the current permissions or table schema.' ELSE 'Program completion is no longer authorized or its lease expired.' END) AS entry
   FROM terminal
  ) UPDATE hx_workflow_runs SET status=(SELECT run_status FROM outcome),
   log=(SELECT json_array(json(entry)) FROM outcome),next_step=1,
   finished_at=(SELECT strftime('%Y-%m-%dT%H:%M:%fZ',finished_at/1000.0,'unixepoch') FROM outcome)
-  WHERE org_id=?4 AND id=?5 AND status='running' AND EXISTS(SELECT 1 FROM outcome WHERE outcome.id=hx_workflow_runs.id AND outcome.org_id=hx_workflow_runs.org_id)`)
-  .bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id);
+  WHERE org_id=?4 AND id=?5 AND status='running' AND EXISTS(SELECT 1 FROM outcome WHERE outcome.id=hx_workflow_runs.id AND outcome.org_id=hx_workflow_runs.org_id)`);
  const checkpoint=db.prepare(`UPDATE hx_workflow_node_checkpoints SET status='done',lease_until=0,
   result=(SELECT json_extract(log,'$[0]') FROM hx_workflow_runs WHERE org_id=?1 AND id=?2)
   WHERE org_id=?1 AND run_id=?2 AND node_id='program' AND status IN ('running','unknown')
@@ -157,6 +183,49 @@ export async function settleWorkflowProgram(db,jobId) {
     WHERE a.job_id=?3 AND a.node_owner=hx_workflow_node_checkpoints.owner AND a.node_attempt=hx_workflow_node_checkpoints.attempt
      AND r.status IN ('done','failed','cancelled') AND json_extract(r.log,'$[0].jobId')=?3)`)
   .bind(binding.org_id,binding.run_id,jobId);
- const result=await db.batch([update,checkpoint,...workflowSettlementStatements(db,binding.org_id,binding.run_id)]);
- return {settled:!!result[0].meta?.changes};
+ const completionFence=db.prepare(`INSERT INTO hx_workflow_node_checkpoints(org_id,run_id,node_id,fingerprint,effect,status,owner,attempt,lease_until)
+  SELECT ?1,?2,'program','effect-fence',1,'invalid-effect','fence',1,0 WHERE NOT EXISTS(
+   SELECT 1 FROM hx_workflow_runs r WHERE r.org_id=?1 AND r.id=?2 AND r.status='done' AND json_extract(r.log,'$[0].jobId')=?3)`)
+  .bind(binding.org_id,binding.run_id,jobId);
+ const finish=async(accept)=>db.batch([...(accept?tableStatements:[]),update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,accept?1:0),...(accept&&tableStatements.length?[completionFence]:[]),...workflowSettlementStatements(db,binding.org_id,binding.run_id),checkpoint]);
+ let result;
+ try{result=await finish(!writeFailed)}catch(error){
+  if(!tableStatements.length)throw error;
+  // A failed guarded mutation rolls back every row and event statement. Settle
+  // the terminal job as failed in a clean transaction instead of retrying it.
+  const rejectedUpdate=update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,0);
+  result=await db.batch([rejectedUpdate,...workflowSettlementStatements(db,binding.org_id,binding.run_id),checkpoint]);
+ }
+ if(result[0]?.meta?.changes&&!writeFailed&&programResult.tableWrites?.length&&env)await drainWorkflowRowEvents(env,{limit:programResult.tableWrites.length,now:Date.now()});
+ return {settled:!!result[0]?.meta?.changes};
+}
+
+function workflowProgramTableWriteGuard(start){
+ const n=offset=>`?${start+offset}`;
+ const [org,run,app,entity,table,job,gateway,lease,at,user]=Array.from({length:10},(_,index)=>n(index));
+ return `EXISTS(SELECT 1 FROM hx_workflow_runs r JOIN hx_workflow_run_definitions d ON d.org_id=r.org_id AND d.run_id=r.id
+  JOIN hx_workflow_node_checkpoints c ON c.org_id=r.org_id AND c.run_id=r.id AND c.node_id='program'
+  WHERE r.org_id=${org} AND r.id=${run} AND r.workflow_id=json_extract(d.definition,'$.id') AND r.status='running'
+   AND c.status='running' AND c.lease_until>${at}
+   AND EXISTS(SELECT 1 FROM hx_workflow_activations a JOIN hx_gateway_jobs j ON j.org_id=a.org_id AND j.id=a.job_id
+    JOIN hx_gateways g ON g.org_id=j.org_id AND g.id=j.gateway_id
+    WHERE a.job_id=${job} AND a.org_id=r.org_id AND a.run_id=r.id AND a.node_id=c.node_id AND a.node_owner=c.owner AND a.node_attempt=c.attempt
+     AND j.gateway_id=${gateway} AND j.lease_hash=${lease} AND j.status='succeeded' AND j.finished_at=${at}
+     AND j.finished_at<j.lease_until AND j.finished_at<j.deadline AND g.revoked_at IS NULL
+     AND EXISTS(SELECT 1 FROM memberships gm WHERE gm.org_id=g.org_id AND gm.user_github_id=g.created_by AND LOWER(TRIM(gm.role)) IN ('owner','admin')))
+   AND EXISTS(SELECT 1 FROM hx_workflows w JOIN memberships m ON m.org_id=w.org_id AND m.user_github_id=${user}
+    WHERE w.org_id=${org} AND w.id=r.workflow_id AND w.created_by=${user} AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
+   AND EXISTS(SELECT 1 FROM json_each(d.definition,'$.steps[0].sourceTables') source
+    WHERE json_extract(source.value,'$.entityId')=${entity} AND json_extract(source.value,'$.tableId')=${table} AND json_extract(source.value,'$.write')=1)
+   AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=${org} AND a.id=${app} AND
+    ((${entity}='primary' AND a.table_id=${table}) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.entity_key=${entity} AND e.table_id=${table}))))
+  AND EXISTS(SELECT 1 FROM memberships active WHERE active.org_id=${org} AND active.user_github_id=${user} AND LOWER(TRIM(COALESCE(active.role,'guest')))!='guest')
+  AND NOT EXISTS(SELECT 1 FROM hx_apps linked LEFT JOIN hx_app_access policy ON policy.org_id=linked.org_id AND policy.app_id=linked.id
+   LEFT JOIN hx_app_person_access personal ON personal.org_id=linked.org_id AND personal.app_id=linked.id AND personal.user_github_id=${user}
+   LEFT JOIN memberships member ON member.org_id=linked.org_id AND member.user_github_id=${user}
+   WHERE linked.org_id=${org} AND (linked.table_id=${table} OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=linked.org_id AND e.app_id=linked.id AND e.table_id=${table}))
+    AND NOT(linked.created_by=${user} OR personal.permission='edit' OR (personal.permission IS NULL AND policy.room_channel IS NULL AND COALESCE(policy.visibility,'workspace')='workspace' AND LOWER(TRIM(COALESCE(member.role,'guest'))) IN ('owner','admin'))))
+  AND NOT EXISTS(SELECT 1 FROM hx_app_entities orphan WHERE orphan.org_id=${org} AND orphan.table_id=${table} AND NOT EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=orphan.org_id AND a.id=orphan.app_id))
+  AND NOT EXISTS(SELECT 1 FROM workspace_deletions deletion WHERE deletion.org_id=${org} AND deletion.purge_started_at IS NOT NULL)
+  AND NOT EXISTS(SELECT 1 FROM workspace_tombstones tombstone WHERE tombstone.org_id=${org})`;
 }

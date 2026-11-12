@@ -57,7 +57,7 @@ async function acpWorkspacePrincipal(db, row, payload) {
   return person?.login ? {orgId:row.org_id,githubId:String(row.created_by),login:person.login} : null;
 }
 
-export async function expireGatewayJobs(db, at = now()) {
+export async function expireGatewayJobs(db, at = now(), env = null) {
   const result=await db.prepare(`${workflowProgramAccessCTE('?1')} UPDATE hx_gateway_jobs SET status = 'failed', finished_at = ?1, lease_hash = NULL,
     result = '{"error":"Execution lease or requester access expired."}'
     WHERE (status = 'running' AND (lease_until <= ?1 OR deadline <= ?1 OR NOT ${activeMember} OR NOT ${workflowProgramJobAccess}))
@@ -73,7 +73,7 @@ export async function expireGatewayJobs(db, at = now()) {
    WHERE r.status='running' AND j.status IN ('succeeded','failed','timed_out','cancelled')
     AND c.status IN ('running','unknown') AND a.node_id='program'
    ORDER BY j.finished_at,a.job_id LIMIT 25`).all();
-  for(const row of pending.results||[])await settleWorkflowProgram(db,row.job_id);
+  for(const row of pending.results||[])await settleWorkflowProgram(db,row.job_id,env);
   return result;
 }
 
@@ -105,7 +105,7 @@ export async function handleGateways(request, env, url, input) {
           await db.batch(statements);
         }
       }
-      await expireGatewayJobs(db, at);
+      await expireGatewayJobs(db, at, env);
       const lease = secret();
       const programCapable=Array.isArray(input?.capabilities)&&input.capabilities.includes('workflow-program-v1');
       const acpCapable=Array.isArray(input?.capabilities)&&input.capabilities.includes('acp-v1');
@@ -210,15 +210,26 @@ export async function handleGateways(request, env, url, input) {
       try { messages=cleanWorkflowMessageDrafts(input.messages); }
       catch { return failure('Invalid staged workflow messages.',400); }
     }
-    const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null, ...(messages!==undefined?{messages}:{}) };
+    let tableWrites;
+    if(input.tableWrites!==undefined){
+      try{
+        if(!Array.isArray(input.tableWrites)||input.tableWrites.length>4)throw Error();
+        tableWrites=input.tableWrites.map(item=>{
+          if(!item||typeof item!=='object'||Array.isArray(item)||Object.keys(item).some(key=>!['entityId','values'].includes(key))||typeof item.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(item.entityId)||!item.values||typeof item.values!=='object'||Array.isArray(item.values))throw Error();
+          return {entityId:item.entityId,values:item.values};
+        });
+        if(new TextEncoder().encode(JSON.stringify(tableWrites)).length>24000)throw Error();
+      }catch{return failure('Invalid staged Workflow row writes.',400);}
+    }
+    const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null, ...(messages!==undefined?{messages}:{}),...(tableWrites!==undefined?{tableWrites}:{}) };
     if (new TextEncoder().encode(JSON.stringify(result)).length > 70000) return failure('Result is too large.', 413);
-    if(messages!==undefined){
+    if(messages!==undefined||tableWrites!==undefined){
       const encodedResult=JSON.stringify(result);
       const matched=await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload FROM hx_gateway_jobs WHERE id=?1 AND gateway_id=?2 AND lease_hash=?3
        AND ((${guard}) OR (status IN ('succeeded','failed','timed_out') AND result=?5))`)
         .bind(parts[2],g.id,leaseHash,at,encodedResult).first();
       if(!matched)return failure('Execution is no longer authorized.',409);
-      try { if(JSON.parse(matched.payload).workflowProgram!==true)return failure('Only workflow programs may stage report messages.',400); }
+      try { if(JSON.parse(matched.payload).workflowProgram!==true)return failure('Only workflow programs may stage App row writes or report messages.',400); }
       catch { return failure('Workflow program is invalid.',400); }
     }
     // The lease's hash stays on a finished job, so the same node sending the
@@ -226,10 +237,10 @@ export async function handleGateways(request, env, url, input) {
     // in rather than that it was refused. Nothing about the job changes.
     const r = await db.prepare(`${workflowProgramAccessCTE('?4')} UPDATE hx_gateway_jobs SET status = ?5, result = ?6, finished_at = ?4 WHERE ${guard}`)
       .bind(parts[2], g.id, leaseHash, at, input.status, JSON.stringify(result)).run();
-    if (r.meta?.changes) { await settleWorkflowProgram(db,parts[2]); return json({ ok: true }); }
+    if (r.meta?.changes) { await settleWorkflowProgram(db,parts[2],env); return json({ ok: true }); }
     const done = await db.prepare('SELECT 1 FROM hx_gateway_jobs WHERE id = ?1 AND gateway_id = ?2 AND lease_hash = ?3 AND status = ?4 AND result = ?5')
       .bind(parts[2], g.id, leaseHash, input.status, JSON.stringify(result)).first();
-    if(done)await settleWorkflowProgram(db,parts[2]);
+    if(done)await settleWorkflowProgram(db,parts[2],env);
     return done ? json({ message: 'This execution already has this result.', code: 'already_finished' }, 409) : failure('Execution is no longer authorized.', 409);
   }
 

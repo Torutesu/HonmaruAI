@@ -96,10 +96,21 @@ export async function queryWorkflowTable(options={}, bridge=undefined) {
   return {rows,complete,cursor:complete?null:cursor,pages,...(!complete?{incompleteReason:'page_limit'}:{})};
 }
 
+export function normalizeWorkflowInsert(input={}) {
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['entityId','values'].includes(key))||typeof input.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(input.entityId)||!input.values||typeof input.values!=='object'||Array.isArray(input.values)||Object.keys(input.values).length>100||new TextEncoder().encode(JSON.stringify(input.values)).length>24000)throw Error('Invalid table.insert request.');
+  return {entityId:input.entityId,values:input.values};
+}
+
+export async function insertWorkflowTableRow(input={},bridge=undefined) {
+  const clean=normalizeWorkflowInsert(input),sources=bridge?.tableSources||(bridge?.tableSource?[bridge.tableSource]:[]);
+  if(typeof bridge?.insertTable!=='function'||!sources.some(item=>item.entityId===clean.entityId&&item.write===true))throw Error('Row creation is not enabled for this App entity.');
+  return bridge.insertTable(clean);
+}
+
 function workflowSdkBaseSource(bridgeExpression = 'undefined') {
   return `const parallel=${parallel.toString()};\nconst pipeline=${pipeline.toString()};\nconst normalizeWorkflowDraft=${normalizeWorkflowDraft.toString()};\nconst workflowBridge=()=>${bridgeExpression};\nexport async function sendMessage(text,options={}){const draft=normalizeWorkflowDraft(text,options);const bridge=workflowBridge();if(typeof bridge?.stageMessage!==\"function\")throw Error(\"Workflow message staging is unavailable.\");return bridge.stageMessage(draft)}\nexport {parallel,pipeline};`;
 }
 
 export function workflowSdkSource(bridgeExpression = 'undefined') {
-  return workflowSdkBaseSource(bridgeExpression) + `\nconst normalizeWorkflowQueryOptions=${normalizeWorkflowQueryOptions.toString()};\nconst queryWorkflowTable=${queryWorkflowTable.toString()};\nconst sdkBridge=workflowBridge();\nexport const table=Object.freeze({query:(options={})=>queryWorkflowTable(options,sdkBridge)});`;
+  return workflowSdkBaseSource(bridgeExpression) + `\nconst normalizeWorkflowQueryOptions=${normalizeWorkflowQueryOptions.toString()};\nconst queryWorkflowTable=${queryWorkflowTable.toString()};\nconst normalizeWorkflowInsert=${normalizeWorkflowInsert.toString()};\nconst insertWorkflowTableRow=${insertWorkflowTableRow.toString()};\nconst sdkBridge=workflowBridge();\nexport const table=Object.freeze({query:(options={})=>queryWorkflowTable(options,sdkBridge),insert:(input={})=>insertWorkflowTableRow(input,sdkBridge)});`;
 }
