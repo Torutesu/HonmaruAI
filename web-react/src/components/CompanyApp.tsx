@@ -49,7 +49,7 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
   function prepareAdditiveRollback(migration:AppMigration) {
     if(!migration.integrityValid||!migration.inverseOperations?.length)return
     if(plan!=='[]'&&!window.confirm('編集中の変更案を、追加列を取り除く新しいDB変更案で置き換えます。現在の入力は保持されません。続けますか？'))return
-    const safeId=`rollback_${migration.id.toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,30)}`
+    const safeId=`rollback_${migration.id.toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,10)}_v${db?.version??0}`
     setPlan(JSON.stringify(migration.inverseOperations,null,2));setMigrationId(safeId);setMigrationPreview(null);setConfirmMigration(false);setNotice(`${migration.id}の追加列を取り除く新しい変更案を用意しました。プレビューしてから適用してください。`)
   }
   return <section className="hx-company-app">

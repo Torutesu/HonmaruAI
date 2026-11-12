@@ -90,7 +90,7 @@ test('database migration history shows verified plans and prepares an inverse on
  expect(rollback).toBeTruthy()
  await act(async()=>rollback!.props.onClick())
  expect(JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)).toEqual(verified.inverseOperations)
- expect(tree.root.findByProps({placeholder:'convert_amount_v1'}).props.value).toBe('rollback_schema_v1')
+ expect(tree.root.findByProps({placeholder:'convert_amount_v1'}).props.value).toBe('rollback_schema_v1_v3')
  act(()=>tree.unmount())
 })
 
