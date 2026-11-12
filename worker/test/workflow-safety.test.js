@@ -1,7 +1,8 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,expect,test} from 'vitest';
 import schemaSql from '../schema.sql?raw';
-import {ensureWorkflowSafety,readWorkflowSafety,resumeWorkflowSafety,workflowSettlementStatements,saveWorkflowBudget,workflowBudgetStatus,workflowBudgetWindows,recoverWorkflowBudgetPause} from '../src/harness/workflowSafety.js';
+import {ensureWorkflowSafety,readWorkflowSafety,resumeWorkflowSafety,workflowSettlementStatements,saveWorkflowBudget,workflowBudgetStatus,workflowBudgetWindows,recoverWorkflowBudgetPause,workflowBudgetReason} from '../src/harness/workflowSafety.js';
+import {recordWorkflowUsage,reserveWorkflowBudgetCall} from '../src/harness/workflowUsage.js';
 const org='safety',wf='wf';
 beforeEach(async()=>{
  await env.DB.exec(schemaSql.replace(/\n/g,' '));
@@ -121,4 +122,55 @@ test('warn mode creates a durable notice without pausing the workflow after its 
  await settle('ai-warn-run');
  expect(await readWorkflowSafety(env.DB,org,wf)).toMatchObject({paused_at:null,pause_reason:null});
  expect(await env.DB.prepare("SELECT period,estimated_micros,limit_micros FROM hx_workflow_ai_budget_notices WHERE org_id=?1 AND workflow_id=?2").bind(org,wf).all()).toMatchObject({results:[{period:'24h',estimated_micros:150000,limit_micros:100000}]});
+});
+test('pause-mode workflow AI reserves before dispatch and atomically replaces the hold with actual usage',async()=>{
+ const {generation}=await ensureWorkflowSafety(env.DB,org,wf);
+ await saveWorkflowBudget(env.DB,org,wf,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:.01,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'pause'});
+ await run('reserve-run','running',generation);
+ const reservation=await reserveWorkflowBudgetCall(env.DB,{orgId:org,workflowId:wf,runId:'reserve-run',stepNumber:1,model:'gpt-4o-mini',inputTokens:10000,outputTokens:10000,provider:'OpenAI'});
+ expect(reservation).toMatchObject({allowed:true,reservationId:expect.any(String),reservedMicros:7500});
+ expect((await workflowBudgetStatus(env.DB,org,wf)).ai['24h']).toMatchObject({usedMicros:0,reservedMicros:7500,projectedMicros:7500,exhausted:false});
+ await recordWorkflowUsage(env.DB,{orgId:org,workflowId:wf,runId:'reserve-run',stepNumber:1,data:{model:'gpt-4o-mini',usage:{prompt_tokens:1000,completion_tokens:200}},provider:{provider:'OpenAI',model:'gpt-4o-mini',byok:false},reservationId:reservation.reservationId});
+ const status=await workflowBudgetStatus(env.DB,org,wf);
+ expect(status.ai['24h'].reservedMicros).toBe(0);
+ expect(status.ai['24h'].usedMicros).toBeGreaterThan(0);
+ expect(await env.DB.prepare('SELECT status FROM hx_workflow_ai_budget_reservations WHERE id=?1').bind(reservation.reservationId).first()).toMatchObject({status:'settled'});
+});
+test('concurrent model requests cannot reserve the same remaining workflow budget twice',async()=>{
+ const {generation}=await ensureWorkflowSafety(env.DB,org,wf);
+ await saveWorkflowBudget(env.DB,org,wf,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:.01,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'pause'});
+ await run('concurrent-budget-run','running',generation);
+ const input={orgId:org,workflowId:wf,runId:'concurrent-budget-run',stepNumber:1,model:'gpt-4o-mini',inputTokens:10000,outputTokens:10000,provider:'OpenAI'};
+ const results=await Promise.all([reserveWorkflowBudgetCall(env.DB,input),reserveWorkflowBudgetCall(env.DB,input)]);
+ expect(results.filter(result=>result.allowed)).toHaveLength(1);
+ expect(results.filter(result=>!result.allowed)).toMatchObject([{reason:'budget_ai_24h'}]);
+ expect(await readWorkflowSafety(env.DB,org,wf)).toMatchObject({pause_reason:'budget_ai_24h',paused_at:expect.any(String)});
+ expect((await workflowBudgetStatus(env.DB,org,wf)).ai['24h'].projectedMicros).toBeGreaterThan(10000);
+});
+test('an over-budget request is blocked before dispatch and a higher CAS limit recovers the workflow',async()=>{
+ const {generation}=await ensureWorkflowSafety(env.DB,org,wf);
+ await saveWorkflowBudget(env.DB,org,wf,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:.000001,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'pause'});
+ await run('blocked-budget-run','running',generation);
+ const blocked=await reserveWorkflowBudgetCall(env.DB,{orgId:org,workflowId:wf,runId:'blocked-budget-run',stepNumber:1,model:'gpt-4o-mini',inputTokens:1000,outputTokens:500,provider:'OpenAI'});
+ expect(blocked).toMatchObject({allowed:false,reason:'budget_ai_24h'});
+ expect(await readWorkflowSafety(env.DB,org,wf)).toMatchObject({pause_reason:'budget_ai_24h',paused_at:expect.any(String)});
+ expect(await env.DB.prepare("SELECT status FROM hx_workflow_ai_budget_reservations WHERE org_id=?1 AND workflow_id=?2").bind(org,wf).first()).toMatchObject({status:'blocked'});
+ const recovered=await saveWorkflowBudget(env.DB,org,wf,{revision:1,dailyLimit:1,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:1,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'pause'});
+ expect(recovered.safety.paused_at).not.toBeNull(); // The current run must finish before a budget change resumes its workflow.
+ expect(workflowBudgetReason(recovered.budget)).toBeNull();
+ await env.DB.prepare("UPDATE hx_workflow_runs SET status='failed',finished_at=?1 WHERE org_id=?2 AND id='blocked-budget-run'").bind(new Date().toISOString(),org).run();
+ const resumed=await recoverWorkflowBudgetPause(env.DB,org,wf,await readWorkflowSafety(env.DB,org,wf));
+ expect(resumed).toMatchObject({paused_at:null,pause_reason:null});
+});
+test('BYOK skips workflow budget reservation and expired in-flight holds settle as unknown usage',async()=>{
+ const {generation}=await ensureWorkflowSafety(env.DB,org,wf);
+ await saveWorkflowBudget(env.DB,org,wf,{revision:0,dailyLimit:0,weeklyLimit:0,monthlyLimit:0,dailyAiLimitUsd:.01,weeklyAiLimitUsd:0,monthlyAiLimitUsd:0,aiBudgetAction:'pause'});
+ await run('unknown-budget-run','running',generation);
+ expect(await reserveWorkflowBudgetCall(env.DB,{orgId:org,workflowId:wf,runId:'unknown-budget-run',stepNumber:1,model:'gpt-4o-mini',inputTokens:10000,outputTokens:10000,byok:true})).toEqual({allowed:true,reservationId:null});
+ const expiredAt=Date.now()-400_000;
+ const held=await reserveWorkflowBudgetCall(env.DB,{orgId:org,workflowId:wf,runId:'unknown-budget-run',stepNumber:1,model:'gpt-4o-mini',inputTokens:1000,outputTokens:500,now:expiredAt});
+ expect(held.allowed).toBe(true);
+ const next=await reserveWorkflowBudgetCall(env.DB,{orgId:org,workflowId:wf,runId:'unknown-budget-run',stepNumber:1,model:'gpt-4o-mini',inputTokens:1000,outputTokens:500});
+ expect(next).toMatchObject({allowed:false,reason:'budget_ai_unpriced'});
+ expect(await env.DB.prepare('SELECT input_tokens,output_tokens,estimated_micros FROM hx_workflow_usage WHERE org_id=?1 AND workflow_id=?2').bind(org,wf).first()).toMatchObject({input_tokens:null,output_tokens:null,estimated_micros:null});
 });

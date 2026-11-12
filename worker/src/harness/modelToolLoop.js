@@ -45,7 +45,7 @@ async function withAuthorizationFence(authorize, pollMs, timeoutMs, request) {
   return { value, revoked, failed: Boolean(error) };
 }
 
-export async function completeWithTools({ provider, system, user, tools = {}, fallbackSystem = system, maxTokens, json, timeoutMs, onUsage, onInterrupted = null, authorize = null, authorizationPollMs = AUTHORIZATION_POLL_MS, requireTool = false, requiredToolNames = [] }) {
+export async function completeWithTools({ provider, system, user, tools = {}, fallbackSystem = system, maxTokens, json, timeoutMs, onUsage, onInterrupted = null, authorize = null, authorizationPollMs = AUTHORIZATION_POLL_MS, requireTool = false, requiredToolNames = [], beforeRequest = null, onReservationDenied = null, releaseReservation = null }) {
   let enabled = Object.keys(tools).length > 0;
   const requiredNames = new Set(requiredToolNames);
   let requiredToolExecuted = false;
@@ -59,6 +59,15 @@ export async function completeWithTools({ provider, system, user, tools = {}, fa
     if (remaining <= 0) return null;
     const final = round >= 3 || calls >= 12;
     const pollMs = Number.isFinite(authorizationPollMs) ? Math.max(1, Math.min(10000, authorizationPollMs)) : AUTHORIZATION_POLL_MS;
+    const requestInput = JSON.stringify({messages,tools:enabled?definitions:[]});
+    let reservationId = null;
+    if(beforeRequest){
+      let reservation;
+      try { reservation=await beforeRequest({model:provider.model,inputTokens:Math.ceil(new TextEncoder().encode(requestInput).length/3),outputTokens:Number(maxTokens)||900}); }
+      catch { return null; }
+      if(!reservation?.allowed){await onReservationDenied?.(reservation?.reason||'budget_ai_unavailable');return null;}
+      reservationId=reservation.reservationId||null;
+    }
     // Only callers with a durable interrupted-usage sink can abort a
     // dispatched request. Others still recheck authorization after response.
     const outcome = await withAuthorizationFence(onInterrupted ? authorize : null, pollMs, remaining, async signal => {
@@ -74,14 +83,15 @@ export async function completeWithTools({ provider, system, user, tools = {}, fa
     if (outcome.revoked) {
       // Keep actual provider usage when the response arrived, otherwise
       // preserve an explicit unknown-usage record for the dispatched call.
-      if (outcome.value?.response?.ok) await onUsage(outcome.value.data);
-      else await onInterrupted?.();
+      if (outcome.value?.response?.ok) await onUsage(outcome.value.data,reservationId);
+      else await onInterrupted?.(reservationId);
       return null;
     }
-    if (outcome.failed || !outcome.value) return null;
+    if (outcome.failed || !outcome.value) { await onInterrupted?.(reservationId); return null; }
     const { response, data } = outcome.value;
     // Only the initial rejected tool request may retry without tools.
     if (!response.ok) {
+      if(reservationId)await releaseReservation?.(reservationId);
       if (round === 0 && enabled && !requireTool && [400,422].includes(response.status)) {
         enabled = false;
         messages = [{role:'system',content:fallbackSystem},{role:'user',content:user}];
@@ -89,7 +99,7 @@ export async function completeWithTools({ provider, system, user, tools = {}, fa
       }
       return null;
     }
-    await onUsage(data);
+    await onUsage(data,reservationId);
     if (outcome.revoked || (authorize && !await authorize()))return null;
     const message = data?.choices?.[0]?.message;
     if (!message) return null;

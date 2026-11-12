@@ -1342,6 +1342,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       authorizationTrace.record('agent', agentRow.id, canRunAgent);
       if (!canRunAgent) return { status: "failed", error: "Agent access required." };
       const remoteToolsUsed = new Map();
+      let budgetDeniedReason=null;
       // An Agent grant can change after the workflow step starts. Keep that
       // live grant in the model/tool-loop fence, alongside workflow/source
       // access, and check it again immediately before publishing the answer.
@@ -1365,7 +1366,8 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         return workflowAllowed && budget.allowed && agentAllowed && conversationAllowed && connectionsAllowed.every(Boolean);
       };
       const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200, credentialSource,
-        usageContext: { roomSlug: step.channel?.startsWith("b:") ? step.channel.slice(2) : null, agentId: agentRow.id, workflowId: workflow.id } });
+        usageContext: { roomSlug: step.channel?.startsWith("b:") ? step.channel.slice(2) : null, agentId: agentRow.id, workflowId: workflow.id },
+        budgetContext:{runId,stepNumber:number,onDenied:reason=>{budgetDeniedReason=reason;}} });
       if (!complete) return { status: "failed", error: "No AI model, or none left today." };
       const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "", userId: owner, allowPrivate: false });
       const tools = { ...(prepared.skillTools || {}) };
@@ -1377,10 +1379,10 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       const answer = await complete(
         `You are ${agent.name} (@${agent.handle}), doing one step of the workflow "${workflow.name}". Do what the step asks and answer with the result only.\n\n<agent_instructions>\n${agent.researchInstructions || String(agent.instructions).slice(0, 12000)}\n</agent_instructions>`,
         `${render(step.prompt, scope)}\n\n<context>\n${JSON.stringify({ input: scope.input, row: scope.row || null }).slice(0, 6000)}\n</context>`,
-        { tools, authorize: authorizeAgent, recordUsage:(data,provider)=>recordWorkflowUsage(env.DB,{orgId,workflowId:workflow.id,runId,stepNumber:number,data,provider}), fallbackSystem: `You are ${agent.name}, doing a step of "${workflow.name}". Answer with the result only.\n\n${agent.instructions}` },
+        { tools, authorize: authorizeAgent, recordUsage:(data,provider)=>recordWorkflowUsage(env.DB,{orgId,workflowId:workflow.id,runId,stepNumber:number,data,provider,reservationId:provider.reservationId}), fallbackSystem: `You are ${agent.name}, doing a step of "${workflow.name}". Answer with the result only.\n\n${agent.instructions}` },
       );
       if (!await authorizeAgent())return {status:'failed',error:'The workflow, source, agent, or conversation access changed while this step was running.'};
-      if (!answer) return { status: "failed", error: "The agent gave no answer." };
+      if (!answer) return { status: "failed", error: budgetDeniedReason ? "The next AI request would exceed this workflow's estimated usage budget. The workflow is paused until the limit changes or the window resets." : "The agent gave no answer.", ...(budgetDeniedReason?{reason:budgetDeniedReason}:{}) };
       if (step.channel) {
         if (!await authorizeAgent())return {status:'failed',error:'The workflow, source, agent, or conversation access changed while this step was running.'};
         const budget = await getMode(env.DB, orgId) === 'harness'
