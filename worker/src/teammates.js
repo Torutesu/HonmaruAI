@@ -684,9 +684,9 @@ async function grokCallback(env, orgId) {
   const id = crypto.randomUUID();
   const token = randomBearer();
   const now = Date.now();
-  await env.DB.prepare(`DELETE FROM hx_grok_bot_callbacks WHERE id IN (
-    SELECT id FROM hx_grok_bot_callbacks WHERE expires_at < ?1 ORDER BY expires_at LIMIT 100
-  )`).bind(now - 7 * 24 * 60 * 60 * 1000).run().catch(() => {});
+  await env.DB.prepare(`DELETE FROM hx_grok_bot_callbacks WHERE org_id=?2 AND id IN (
+    SELECT id FROM hx_grok_bot_callbacks WHERE org_id=?2 AND expires_at < ?1 ORDER BY expires_at LIMIT 100
+  )`).bind(now - 7 * 24 * 60 * 60 * 1000, orgId).run().catch(() => {});
   await env.DB.prepare(`INSERT INTO hx_grok_bot_callbacks (id,org_id,token_hash,status,expires_at,created_at)
     VALUES (?1,?2,?3,'pending',?4,?5)`).bind(id, orgId, await sha256(token), now + GROK_CALLBACK_TTL_MS, now).run();
   return { id, token };
@@ -711,7 +711,7 @@ async function startGrokBot(t, task, { env, orgId, context = [] }) {
     callback: { url: `${origin}/teammates/grok-bot/callback/${callback.id}`, token: callback.token },
   });
   if (new TextEncoder().encode(body).byteLength > 65536) {
-    await env.DB.prepare("DELETE FROM hx_grok_bot_callbacks WHERE id=?1 AND status='pending'").bind(callback.id).run();
+    await env.DB.prepare("DELETE FROM hx_grok_bot_callbacks WHERE id=?1 AND org_id=?2 AND status='pending'").bind(callback.id, orgId).run();
     throw new Error("Grok Bot task is too large.");
   }
   try {
@@ -720,13 +720,13 @@ async function startGrokBot(t, task, { env, orgId, context = [] }) {
       headers: { authorization: `Bearer ${t.apiKey}`, "content-type": "application/json", accept: "application/json" }, body,
     });
     if (response.status !== 200) {
-      await env.DB.prepare("DELETE FROM hx_grok_bot_callbacks WHERE id=?1 AND status='pending'").bind(callback.id).run();
+      await env.DB.prepare("DELETE FROM hx_grok_bot_callbacks WHERE id=?1 AND org_id=?2 AND status='pending'").bind(callback.id, orgId).run();
       throw new Error("Grok Bot routine did not accept the request.");
     }
   } catch (error) {
     // Do not retry: a timeout can happen after the routine accepted work.
     // There is no durable run row yet, so revoke its one-time callback token.
-    await env.DB.prepare("UPDATE hx_grok_bot_callbacks SET status='orphaned' WHERE id=?1 AND status='pending'").bind(callback.id).run().catch(() => {});
+    await env.DB.prepare("UPDATE hx_grok_bot_callbacks SET status='orphaned' WHERE id=?1 AND org_id=?2 AND status='pending'").bind(callback.id, orgId).run().catch(() => {});
     throw error;
   }
   return { remoteId: callback.id, turn: null, tasks: 1 };
@@ -764,6 +764,8 @@ export async function handleGrokBotCallback(request, env, callbackId) {
   const auth = String(request.headers.get("authorization") || "");
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) return Response.json({ message: "Unauthorized." }, { status: 401 });
+  // The callback id is a random, globally unique UUID; this first lookup only
+  // resolves its workspace so the subsequent compare-and-set is org-scoped.
   const row = await env.DB.prepare(`SELECT org_id,token_hash,status,expires_at FROM hx_grok_bot_callbacks WHERE id=?1`).bind(callbackId).first().catch(() => null);
   if (!row || row.status !== "pending" || Date.now() > Number(row.expires_at) || await sha256(token) !== row.token_hash) return Response.json({ message: "Unauthorized." }, { status: 401 });
   const length = Number(request.headers.get("content-length") || 0);
