@@ -34,6 +34,9 @@ export async function workflowBudgetStatus(db,orgId,workflowId,now=Date.now()) {
   const period=(limit,count,resetAt)=>({limit:Number(limit)||0,used:Number(count)||0,resetAt,exhausted:Number(limit)>0&&Number(count)>=Number(limit)});
   const aiWindows=workflowAiBudgetWindows(now),floor=aiWindows['30d'].start;
   const usage=await db.prepare('SELECT id,model,input_tokens,output_tokens,estimated_micros,created_at FROM hx_workflow_usage WHERE org_id=?1 AND workflow_id=?2 AND created_at>=?3 AND created_at<=?4 ORDER BY created_at,id').bind(orgId,workflowId,floor,new Date(now).toISOString()).all();
+  const {results:reservationResults=[]}=await db.prepare(`SELECT id,model,reserved_micros,status,created_at,expires_at FROM hx_workflow_ai_budget_reservations
+    WHERE org_id=?1 AND workflow_id=?2 AND created_at>=?3 AND created_at<=?4 AND (status='blocked' OR (status='held' AND expires_at>?4)) ORDER BY created_at,id`)
+    .bind(orgId,workflowId,floor,new Date(now).toISOString()).all();
   const updates=[];
   for(const row of usage.results||[]){
     if(row.estimated_micros!==null&&row.estimated_micros!==undefined)continue;
@@ -43,18 +46,24 @@ export async function workflowBudgetStatus(db,orgId,workflowId,now=Date.now()) {
   for(let i=0;i<updates.length;i+=50)await db.batch(updates.slice(i,i+50));
   const ai=Object.fromEntries(AI_WINDOWS.map(([key,column,duration])=>{
     const start=aiWindows[key].start,rows=(usage.results||[]).filter(row=>row.created_at>=start);
+    const reservations=reservationResults.filter(row=>row.created_at>=start);
     const usedMicros=rows.reduce((sum,row)=>sum+(Number(row.estimated_micros)||0),0);
+    const reservedMicros=reservations.reduce((sum,row)=>sum+(Number(row.reserved_micros)||0),0);
     const unpricedCalls=rows.filter(row=>row.estimated_micros===null||row.estimated_micros===undefined).length;
+    const unpricedReservations=reservations.filter(row=>row.reserved_micros===null||row.reserved_micros===undefined).length;
     const limitMicros=Math.max(0,Number(safety[column])||0);
+    const projectedMicros=usedMicros+reservedMicros;
     let resetAt=null;
-    if(limitMicros>0&&(usedMicros>=limitMicros||unpricedCalls)){
-      let remaining=usedMicros,knownReset=null;
-      for(const row of rows){remaining-=Number(row.estimated_micros)||0;if(remaining<limitMicros){knownReset=new Date(Date.parse(row.created_at)+duration).toISOString();break;}}
+    if(limitMicros>0&&(projectedMicros>=limitMicros||unpricedCalls||unpricedReservations)){
+      const events=[...rows,...reservations].sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
+      let remaining=projectedMicros,knownReset=null;
+      for(const row of events){remaining-=Number(row.estimated_micros??row.reserved_micros)||0;if(remaining<limitMicros){knownReset=new Date(Date.parse(row.created_at)+duration).toISOString();break;}}
       const unknownReset=rows.filter(row=>row.estimated_micros===null||row.estimated_micros===undefined).map(row=>Date.parse(row.created_at)+duration).sort((a,b)=>b-a)[0];
-      resetAt=new Date(Math.max(knownReset?Date.parse(knownReset):0,unknownReset||0)||now+duration).toISOString();
+      const unknownReservationReset=reservations.filter(row=>row.reserved_micros===null||row.reserved_micros===undefined).map(row=>Date.parse(row.created_at)+duration).sort((a,b)=>b-a)[0];
+      resetAt=new Date(Math.max(knownReset?Date.parse(knownReset):0,unknownReset||0,unknownReservationReset||0)||now+duration).toISOString();
     }
-    const exhausted=limitMicros>0&&usedMicros>=limitMicros;
-    return [key,{limitMicros,limitUsd:usdFromMicros(limitMicros),usedMicros,usedUsd:usdFromMicros(usedMicros),unpricedCalls,resetAt,exhausted}];
+    const exhausted=limitMicros>0&&projectedMicros>=limitMicros;
+    return [key,{limitMicros,limitUsd:usdFromMicros(limitMicros),usedMicros,usedUsd:usdFromMicros(usedMicros),reservedMicros,projectedMicros,unpricedCalls,unpricedReservations,resetAt,exhausted}];
   }));
   return {revision:Number(safety.budget_revision)||0,daily:period(safety.daily_run_limit,used?.daily,windows.dailyReset),weekly:period(safety.weekly_run_limit,used?.weekly,windows.weeklyReset),monthly:period(safety.monthly_run_limit,used?.monthly,windows.monthlyReset),ai:{revision:Number(safety.budget_revision)||0,action:safety.ai_budget_action==='pause'?'pause':'warn',...ai}};
 }
@@ -63,7 +72,7 @@ export function workflowBudgetReason(budget) {
   for(const key of ['daily','weekly','monthly'])if(budget[key]?.exhausted)return `budget_${key}`;
   if(budget.ai?.action==='pause'){
     const active=AI_WINDOWS.map(([key,column])=>[key,budget.ai[key],column]).filter(([,period])=>period?.limitMicros>0);
-    if(active.some(([,period])=>period.unpricedCalls>0))return 'budget_ai_unpriced';
+    if(active.some(([,period])=>period.unpricedCalls>0||period.unpricedReservations>0))return 'budget_ai_unpriced';
     for(const [key,period] of active)if(period.exhausted)return `budget_ai_${key}`;
   }
   return null;
