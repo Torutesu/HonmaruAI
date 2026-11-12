@@ -81,6 +81,9 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
     // An explicit deletion tombstone is the only durable signal that a key
     // used to identify a deleted Room; storage errors fail closed. The two
     // reads do not depend on each other and are made together (#845).
+    // Whether the workspace has guests decides who reads a public channel;
+    // asked alongside (it never throws: a failed read counts as "yes").
+    const guests = hasGuests(db, orgId);
     let row;
     let tombstone;
     try {
@@ -96,7 +99,7 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
     if (!row?.private) {
       // With guests in the workspace, a public channel has a list of who
       // reads it too — and a guest who is not on it is not told it exists.
-      if (!(await hasGuests(db, orgId))) return { key: channel, kind: "business", slug, deliveryBoundary };
+      if (!(await guests)) return { key: channel, kind: "business", slug, deliveryBoundary };
       const logins = await publicAudience(db, orgId, channel);
       if (!logins.includes(viewer.login)) return null;
       return { key: channel, kind: "business", slug, logins, deliveryBoundary };

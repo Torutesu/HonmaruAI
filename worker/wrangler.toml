@@ -3,6 +3,15 @@ main = "src/index.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+# Run the Worker beside its database, not beside each reader (#845). A
+# request makes several D1 statements one after another; read from Europe
+# against a database in Asia, each paid the whole distance — 2.9 s of a
+# message load's admission went there. Placed near D1, a reader far away
+# pays that distance once per request instead of once per statement.
+# Cloudflare places it only where its measurements say that is faster.
+[placement]
+mode = "smart"
+
 # The database, by id, for the spend brake's analytics query (spendGuard.js).
 # Not a secret. Staging has none, so it is never braked there.
 [vars]

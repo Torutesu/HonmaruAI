@@ -94,30 +94,41 @@ export function sessionDeadline(policy, session) {
 export async function policyDenial(env, session, orgId, { fresh = false, deferWorkspaceDeletionToFence = false } = {}) {
   if (!session || !orgId) return null;
   const unavailable = { status: 503, body: { message: "Unable to verify workspace status. Try again.", code: "workspace-status-unavailable", orgId } };
+  // Every rule is read at once, and decided in the order below, as before:
+  // the first that refuses is the answer, and a read that failed counts
+  // only when its rule is reached (#845 — these were one round trip each,
+  // in a row, before every request).
+  const [{ ssoDenial }, { currentIp }, { ipDenial }, { deactivatedHere, DEACTIVATED_MESSAGE }] = await Promise.all([
+    import("./sso.js"), import("./requestContext.js"), import("./governance.js"), import("./scim.js"),
+  ]);
+  const settle = (work) => Promise.resolve().then(work).then((value) => ({ value }), (error) => ({ error }));
+  const [sso, network, deactivated, ended, rules] = await Promise.all([
+    settle(() => ssoDenial(env, session, orgId, { fresh })),
+    settle(() => ipDenial(env, orgId, currentIp(), { fresh })),
+    settle(() => deactivatedHere(env.DB, orgId, session.github_id, { fresh })),
+    settle(() => endedHere(env.DB, session.token, orgId, { fresh, includeDeletion: true })),
+    settle(() => sessionPolicy(env.DB, orgId, { fresh })),
+  ]);
+  const take = (read) => { if (read.error) throw read.error; return read.value; };
   // The workspace's single sign-on first: required of this person, or
   // an SSO sign-in past its hours.
-  const { ssoDenial } = await import("./sso.js");
-  const sso = await ssoDenial(env, session, orgId, { fresh });
-  if (sso) return sso;
+  const ssoRefusal = take(sso);
+  if (ssoRefusal) return ssoRefusal;
   // The networks the workspace may be used from.
-  const { currentIp } = await import("./requestContext.js");
-  const { ipDenial } = await import("./governance.js");
-  const offNetwork = await ipDenial(env, orgId, currentIp(), { fresh });
+  const offNetwork = take(network);
   if (offNetwork) return offNetwork;
   // Turned off by the company's directory, however they came back in.
-  const { deactivatedHere, DEACTIVATED_MESSAGE } = await import("./scim.js");
-  if (await deactivatedHere(env.DB, orgId, session.github_id, { fresh })) {
+  if (take(deactivated)) {
     return { status: 403, body: { message: DEACTIVATED_MESSAGE, code: "deactivated", orgId } };
   }
   // Signed out of this workspace (by its admin, or its rules), whatever
   // the session may still open elsewhere.
-  let state;
-  try { state = await endedHere(env.DB, session.token, orgId, { fresh, includeDeletion: true }); }
-  catch { return unavailable; }
+  if (ended.error) return unavailable;
+  const state = ended.value;
   if (state.ended) {
     return { status: 401, body: { message: "This workspace asks you to sign in again.", code: "session-policy", orgId, rule: "ended" } };
   }
-  const policy = await sessionPolicy(env.DB, orgId, { fresh });
+  const policy = take(rules);
   const rule = brokenRule(policy, session);
   if (rule) return {
     status: 401,
