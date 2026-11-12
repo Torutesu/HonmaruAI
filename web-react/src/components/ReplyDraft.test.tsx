@@ -56,6 +56,31 @@ test('shares only changed Agent draft text with that Agent after edit and offers
   }
 })
 
+test('explicitly remembers style from an Agent draft without sending or sharing the edited text', async () => {
+  const agentCard = { ...card, sourceAgentId: 'agent-1', sourceDetail: 'Writer' }
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ queued: false }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ draft: 'Hello team, here is the long update.' }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ learned: [{ key: 'concise' }] }) })
+  vi.stubGlobal('fetch', fetcher)
+  let tree!: ReturnType<typeof create>
+  try {
+    await act(async () => { tree = create(<ReplyDraft {...props} card={agentCard} />) })
+    await act(async () => tree.root.findAllByType('button').find((b) => b.children.includes('Draft the reply'))!.props.onClick())
+    act(() => tree.root.findByType('textarea').props.onChange({ target: { value: 'Team, short update.' } }))
+    const remember = tree.root.findAllByType('button').find((b) => b.children.includes('Remember my edits'))!
+    await act(async () => remember.props.onClick())
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(fetcher.mock.calls[2][0]).toBe('https://api.test/ai/draft-preferences')
+    expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({ orgId: 'workspace', cardId: 'card-1', original: 'Hello team, here is the long update.', revised: 'Team, short update.' })
+    expect(fetcher.mock.calls.some((call) => String(call[0]).includes('/reply') || String(call[0]).endsWith('/ai/draft-edits'))).toBe(false)
+    expect(JSON.stringify(tree.toJSON())).toContain('Style preference saved for your drafts in this workspace. The draft was not sent.')
+  } finally {
+    act(() => tree?.unmount())
+    vi.unstubAllGlobals()
+  }
+})
+
 test('restores the queued-edit review and discard control after reopening the card', async () => {
   const agentCard = { ...card, sourceAgentId: 'agent-1', sourceDetail: 'Writer' }
   const fetcher = vi.fn()
