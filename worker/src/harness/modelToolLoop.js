@@ -70,16 +70,24 @@ export async function completeWithTools({ provider, system, user, tools = {}, fa
     }
     // Only callers with a durable interrupted-usage sink can abort a
     // dispatched request. Others still recheck authorization after response.
-    const outcome = await withAuthorizationFence(onInterrupted ? authorize : null, pollMs, remaining, async signal => {
-      const response = await fetch(provider.endpoint, {
-        method:'POST',signal,
-        headers:{Authorization:`Bearer ${provider.apiKey}`,'Content-Type':'application/json'},
-        body:JSON.stringify({model:provider.model,temperature:0.2,max_tokens:maxTokens,
-          ...(json ? {response_format:{type:'json_object'}} : {}),
-          ...(enabled ? {tools:definitions,tool_choice:final?'none':requireTool&&round===0?'required':'auto'} : {}),messages}),
+    let outcome;
+    try {
+      outcome = await withAuthorizationFence(onInterrupted ? authorize : null, pollMs, remaining, async signal => {
+        const response = await fetch(provider.endpoint, {
+          method:'POST',signal,
+          headers:{Authorization:`Bearer ${provider.apiKey}`,'Content-Type':'application/json'},
+          body:JSON.stringify({model:provider.model,temperature:0.2,max_tokens:maxTokens,
+            ...(json ? {response_format:{type:'json_object'}} : {}),
+            ...(enabled ? {tools:definitions,tool_choice:final?'none':requireTool&&round===0?'required':'auto'} : {}),messages}),
+        });
+        return { response, data: response.ok ? await response.json() : null };
       });
-      return { response, data: response.ok ? await response.json() : null };
-    });
+    } catch (error) {
+      // A connection failure after dispatch does not prove the provider never
+      // accepted the request. Preserve the reservation and unknown usage.
+      await onInterrupted?.(reservationId);
+      throw error;
+    }
     if (outcome.revoked) {
       // Keep actual provider usage when the response arrived, otherwise
       // preserve an explicit unknown-usage record for the dispatched call.
@@ -91,7 +99,9 @@ export async function completeWithTools({ provider, system, user, tools = {}, fa
     const { response, data } = outcome.value;
     // Only the initial rejected tool request may retry without tools.
     if (!response.ok) {
-      if(reservationId)await releaseReservation?.(reservationId);
+      const billingMayBeUnknown = response.status === 408 || response.status === 429 || response.status >= 500;
+      if (billingMayBeUnknown) await onInterrupted?.(reservationId);
+      else if(reservationId)await releaseReservation?.(reservationId);
       if (round === 0 && enabled && !requireTool && [400,422].includes(response.status)) {
         enabled = false;
         messages = [{role:'system',content:fallbackSystem},{role:'user',content:user}];

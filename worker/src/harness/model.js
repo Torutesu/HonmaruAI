@@ -53,9 +53,10 @@ export async function completer(env, orgId, githubId, purpose, { maxTokens = 900
           // attempt against the local allowance and preserve unknown usage
           // for workflow budget safety instead of recording it as free.
           if (!consumed && allowance.metered) { await allowance.consume(); consumed = true; }
-          if (reservationId?.workspace) noteUsage(provider, purpose, {model:'unknown',usage:{}}, usageContext);
+          if (!provider.byok) noteUsage(provider, purpose, {model:'unknown',usage:{}}, usageContext);
           if (recordUsage) await recordUsage({ model: provider.model, usage: {} }, {model:provider.model,provider:provider.providerName || "OpenAI",byok:Boolean(provider.byok),reservationId:workflowReservationId(reservationId)});
           if (reservationId?.workspace) await settleUsage(env.DB, provider, { orgId, githubId: String(githubId), ...(usageContext || {}) }, [], reservationId.workspace);
+          else if (!provider.byok) await settleUsage(env.DB, provider, { orgId, githubId: String(githubId), ...(usageContext || {}) });
         } : null,
       });
     } finally {

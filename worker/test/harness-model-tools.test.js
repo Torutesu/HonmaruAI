@@ -107,6 +107,17 @@ test('revocation while the provider is still responding aborts the request and r
  expect(opts.onUsage).not.toHaveBeenCalled();
 });
 
+test('an ambiguous provider error keeps its budget reservation as unknown usage',async()=>{
+ const opts=options();opts.provider.endpoint='https://ambiguous-provider.example/chat';
+ const onInterrupted=vi.fn(),releaseReservation=vi.fn();
+ opts.beforeRequest=vi.fn(async()=>({allowed:true,reservationId:'held-budget'}));
+ opts.onInterrupted=onInterrupted;opts.releaseReservation=releaseReservation;
+ fetchMock.get('https://ambiguous-provider.example').intercept({path:'/chat',method:'POST'}).reply(503,'Provider unavailable');
+ expect(await completeWithTools(opts)).toBeNull();
+ expect(onInterrupted).toHaveBeenCalledExactlyOnceWith('held-budget');
+ expect(releaseReservation).not.toHaveBeenCalled();
+});
+
 test('revocation inside one tool suppresses sibling tools and subsequent inference',async()=>{
  const opts=options();opts.provider.endpoint='https://revoke-tools.example/chat';
  let permitted=true;const run=vi.fn(async()=>{permitted=false;return 'Completed before stop';});
