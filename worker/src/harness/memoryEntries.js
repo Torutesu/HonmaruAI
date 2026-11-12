@@ -1,6 +1,15 @@
 // Structured memory is additive: old short notes remain readable and keep
 // their existing prompt representation. Full bodies are fetched explicitly.
 export const MEMORY_BODY_LIMIT = 16000;
+// Kylon rechecks typed memories on a 15–60 day cadence. Keep the intervals
+// deterministic by type so an Agent never silently extends stale context.
+export const MEMORY_REVIEW_INTERVAL_DAYS = Object.freeze({ preference: 15, feedback: 30, context: 45, reference: 60 });
+export function memoryReviewIntervalDays(kind) { return MEMORY_REVIEW_INTERVAL_DAYS[kind] || MEMORY_REVIEW_INTERVAL_DAYS.context; }
+function reviewDueAt(kind, reviewedAt, updatedAt, createdAt, reviewedVersion, version) {
+  const base = reviewedAt && reviewedVersion === version ? reviewedAt : (updatedAt || createdAt);
+  const stamp = Date.parse(base || '');
+  return new Date((Number.isFinite(stamp) ? stamp : Date.now()) + memoryReviewIntervalDays(kind) * 86400000).toISOString();
+}
 export function memoryFields(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return { error: "Invalid memory entry." };
   for (const [key, limit, required] of [["title", 120, true], ["description", 500, false], ["body", MEMORY_BODY_LIMIT, true]]) {
@@ -10,13 +19,16 @@ export function memoryFields(input) {
   return { title: input.title.trim(), description: (input.description || "").trim(), body: input.body.replace(/\r\n?/g, "\n").trim() };
 }
 export function memoryEntry(row) {
+  const kind = row.kind || 'context', version = row.version ?? 0, updatedAt = row.updated_at || row.created_at;
+  const nextReviewAt = reviewDueAt(kind,row.reviewed_at,row.updated_at,row.created_at,row.reviewed_version,version);
   return { id: row.id, text: row.text, source: row.source, createdBy: row.created_by, createdByName: row.created_by_name || null, createdAt: row.created_at,
-    channel: row.channel || null, kind: row.kind || "context", title: row.title ?? row.text.slice(0, 120),
-    description: row.description || "", body: row.body ?? row.text, version: row.version ?? 0, updatedAt: row.updated_at || row.created_at,
+    channel: row.channel || null, kind, title: row.title ?? row.text.slice(0, 120),
+    description: row.description || "", body: row.body ?? row.text, version, updatedAt,
     updatedBy: row.updated_by || null, updatedByName: row.updated_by_name || null,
     sourceChannel: row.source_channel || null, sourceMessageId: row.source_message_id || null, sourceThreadId: row.source_thread_id || null,
     scope: row.user_github_id ? "person" : (row.channel ? "conversation" : "shared"),
     isOwner: Boolean(row.user_github_id),
+    reviewIntervalDays: memoryReviewIntervalDays(kind), nextReviewAt, reviewDue: Date.now() >= Date.parse(nextReviewAt),
     review: row.reviewed_at ? { version: row.reviewed_version, evidence: row.review_evidence, by: row.reviewed_by, at: row.reviewed_at, current: row.reviewed_version === (row.version ?? 0) } : null };
 }
 async function memoryVisibleTo(db, orgId, agentId, id, channel, userId) {
@@ -135,7 +147,7 @@ export async function reviewMemoryEntry(db, orgId, agentId, id, input, { channel
       WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'')=?4`).bind(orgId,agentId,id,channel).first();
     if (!row) return {error:'No such memory.',status:404};
     const current = memoryEntry(row);
-    return updateMemoryEntry(db,orgId,agentId,id,{title:current.title,description:current.description,body:current.body,kind:current.kind,...input},{channel,by,reviewEvidence:input.evidence,userId});
+    return updateMemoryEntry(db,orgId,agentId,id,{title:current.title,description:current.description,body:current.body,kind:current.kind,...input,kind:input.kind||current.kind},{channel,by,reviewEvidence:input.evidence,userId});
   }
   const stamp = new Date().toISOString(), reviewId = crypto.randomUUID();
   if (input.verdict === 'delete') {
@@ -185,8 +197,9 @@ export async function memoryReviewHistory(db, orgId, agentId, memoryId = null, {
       after=value.slice(5);
     } catch {return {error:'Invalid review history cursor.',status:400};}
   }
-  const {results=[]}=await db.prepare(`SELECT h.*, COALESCE(u.name,u.login,h.reviewed_by) AS reviewer_name
+  const {results=[]}=await db.prepare(`SELECT h.*, COALESCE(u.name,u.login,a.name,h.reviewed_by) AS reviewer_name
     FROM hx_memory_review_audit h LEFT JOIN users u ON u.github_id=h.reviewed_by
+    LEFT JOIN custom_agents a ON a.org_id=h.org_id AND a.id=substr(h.reviewed_by,7) AND h.reviewed_by LIKE 'agent:%'
     WHERE h.org_id=?1 AND h.agent_id=?2 AND (?3 IS NULL OR h.memory_id=?3)
       AND (
         EXISTS (SELECT 1 FROM hx_memory_review_audit_scope hs
