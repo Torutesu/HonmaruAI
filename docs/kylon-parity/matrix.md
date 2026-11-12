@@ -1,6 +1,6 @@
 # Kylon機能差分・受入条件
 
-調査基準日: 2026-11-12。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。main `c6853b4a05d412c7692be2742f50aae2f4ff6c5d`まで確認済み。PR #920でWorkflow TypeScript SDKに明示許可付き`table.update()`/`table.delete()`を追加し、本番CI・Worker/Webデプロイまで成功。本行列の全109項目を再受入したことを意味しない。
+調査基準日: 2026-11-12。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。main `aafd8d28`まで確認済み。PR #915のWorkflow TypeScript SDK `table.update()`/`table.delete()`、#920のローカルACP Agentプリセット、#921/#922のGrok Bot routine接続と完了MCPブリッジを反映。#922のWorker/Web CI・デプロイ・healthとMCP tools/listを確認。本行列の全109項目を再受入したことを意味しない。
 
 全109項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
@@ -285,9 +285,9 @@ KY-065 adds reversible Workflow archive/restore while keeping it separate from d
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-119 | Grok Botデスクトップアプリを既存契約のままチームAgentとして接続 | 一部 | P1 | [worker/src/teammates.js](../../worker/src/teammates.js), [AiTeammates.tsx](../../web-react/src/components/AiTeammates.tsx) | 既存routine webhook接続、Bearer key暗号化、ワンタイム完了callback、thread返信、期限/取消、利用枠の明示を実装。ローカル統合QA済み。実Grok Bot desktop appとの接続互換性、進捗、実アカウントQA、デプロイは未確認。 |
+| KY-119 | Grok Botデスクトップアプリを既存契約のままチームAgentとして接続 | 一部 | P1 | [worker/src/teammates.js](../../worker/src/teammates.js), [AiTeammates.tsx](../../web-react/src/components/AiTeammates.tsx), [worker/src/grokBotMcp.js](../../worker/src/grokBotMcp.js) | 既存routine webhook接続、Bearer key暗号化、ワンタイム完了MCP、thread返信、期限/取消、利用枠の明示を実装。PR #921/#922のCI・Worker/Webデプロイ、production health、MCP tools/listを確認。実Grok Bot desktop appでのRemote HTTPS connector登録とroutine呼出し、実アカウント進捗・Kylon操作比較は未確認。 |
 
 
 ### 2026-11-12 — Release and inventory reconciliation
 
-PR #920をmain `c6853b4a05d412c7692be2742f50aae2f4ff6c5d`で確認。新たにGrok Bot接続のKY-119を追加したため台帳は109項目（実装あり4、一部104、未実装0、要検証1）。これは進捗率ではない。
+PR #920/#921/#922をmain `f8ebc6b3`、現在のmain `aafd8d28`で確認。#920のACPプリセット、#921のroutine bridge、#922の完了MCPブリッジを追加。#922のWorker/Web CI・デプロイ・production healthと読み取り専用のMCP tools/list応答を確認。実Grok Botアカウントでのconnector登録と実routine完了は未受入。台帳は109項目（実装あり4、一部104、未実装0、要検証1）。これは進捗率ではない。
