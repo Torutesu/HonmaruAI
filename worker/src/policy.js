@@ -101,12 +101,12 @@ export async function policyDenial(env, session, orgId, { fresh = false, deferWo
   const [{ ssoDenial }, { currentIp }, { ipDenial }, { deactivatedHere, DEACTIVATED_MESSAGE }] = await Promise.all([
     import("./sso.js"), import("./requestContext.js"), import("./governance.js"), import("./scim.js"),
   ]);
-  const settle = (work) => Promise.resolve().then(work).then((value) => ({ value }), (error) => ({ error }));
+  const settle = async (work) => { try { return { value: await work() }; } catch (error) { return { error }; } };
   const [sso, network, deactivated, ended, rules] = await Promise.all([
     settle(() => ssoDenial(env, session, orgId, { fresh })),
     settle(() => ipDenial(env, orgId, currentIp(), { fresh })),
     settle(() => deactivatedHere(env.DB, orgId, session.github_id, { fresh })),
-    settle(() => endedHere(env.DB, session.token, orgId, { fresh, includeDeletion: true })),
+    settle(() => endedHere(env.DB, session.token, orgId, { fresh, includeDeletion: true, note: false })),
     settle(() => sessionPolicy(env.DB, orgId, { fresh })),
   ]);
   const take = (read) => { if (read.error) throw read.error; return read.value; };
@@ -128,6 +128,9 @@ export async function policyDenial(env, session, orgId, { fresh = false, deferWo
   if (state.ended) {
     return { status: 401, body: { message: "This workspace asks you to sign in again.", code: "session-policy", orgId, rule: "ended" } };
   }
+  // Noted as seen here at the same point as before: once the rules above
+  // have let the session in, never for one they refused.
+  await state.note?.();
   const policy = take(rules);
   const rule = brokenRule(policy, session);
   if (rule) return {

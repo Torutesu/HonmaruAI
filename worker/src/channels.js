@@ -83,7 +83,7 @@ export async function resolveChannel(db, orgId, viewer, channel, members) {
     // reads do not depend on each other and are made together (#845).
     // Whether the workspace has guests decides who reads a public channel;
     // asked alongside (it never throws: a failed read counts as "yes").
-    const guests = hasGuests(db, orgId);
+    const guests = hasGuests(db, orgId).catch(() => true);
     let row;
     let tombstone;
     try {

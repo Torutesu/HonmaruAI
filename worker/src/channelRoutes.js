@@ -128,8 +128,9 @@ export async function caller(env, request, orgId, { withMembership = false, alon
   // The person's own record does not depend on the checks below, so it is
   // read alongside them rather than after (#845); it is used only once
   // every check has passed, and a failed read is thrown there, as before.
-  const userRead = getUserByGithubId(env.DB, session.github_id).then((value) => ({ value }), (error) => ({ error }));
-  const extraRead = alongside ? Promise.resolve().then(() => alongside(session)).then((value) => ({ value }), (error) => ({ error })) : null;
+  const settle = async (work) => { try { return { value: await work() }; } catch (error) { return { error }; } };
+  const userRead = settle(() => getUserByGithubId(env.DB, session.github_id));
+  const extraRead = alongside ? settle(() => alongside(session)) : null;
   const membership = withMembership
     ? await env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, String(session.github_id)).first()
     : await isMember(env.DB, orgId, session.github_id);

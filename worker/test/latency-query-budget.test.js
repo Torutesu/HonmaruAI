@@ -88,7 +88,7 @@ function gated({ failTombstone = false } = {}) {
     seen, release,
     prepare(sql) {
       return { bind: () => ({ first: () => {
-        seen.push(sql.includes('FROM businesses') ? 'business' : sql.includes('hx_room_access') ? 'tombstone' : sql);
+        seen.push(sql.includes('FROM businesses') ? 'business' : sql.includes('hx_room_access') ? 'tombstone' : sql.includes("= 'guest'") ? 'guests' : sql);
         if (sql.includes('FROM businesses')) return held;
         if (sql.includes('hx_room_access')) return failTombstone ? Promise.reject(new Error('down')) : Promise.resolve(null);
         return Promise.resolve(null);
@@ -101,7 +101,8 @@ test('a channel\'s deletion mark is read while its row is still on its way, and 
   const db = gated();
   const resolving = resolveChannel(db, org, { login: 'alice' }, 'b:room', members);
   await Promise.resolve();
-  expect(db.seen).toEqual(['business', 'tombstone']);
+  // Whether there are guests is asked alongside too.
+  expect(db.seen).toEqual(['guests', 'business', 'tombstone']);
   db.release({ private: 0, created_at: '2026-01-01' });
   await resolving;
   const down = gated({ failTombstone: true });

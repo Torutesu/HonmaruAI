@@ -104,7 +104,10 @@ export async function signedIn(env, request, token, githubId, method) {
 const SEEN_EVERY_MS = 5 * 60 * 1000;
 
 /// Signed out of this workspace, by its admin or its rules.
-export async function endedHere(db, token, orgId, { fresh = false, includeDeletion = false } = {}) {
+/// `note: false` reads without noting the session as seen here; the caller
+/// notes it with the returned `note()` once every other check has passed,
+/// so a refused request writes nothing.
+export async function endedHere(db, token, orgId, { fresh = false, includeDeletion = false, note = true } = {}) {
   if (!orgId || (!token && !includeDeletion)) return includeDeletion ? { ended: false, due: null } : false;
   // Policy callers already need this read. Including the deletion lookup in
   // the same indexed query avoids another D1 round trip without using cache.
@@ -122,13 +125,16 @@ export async function endedHere(db, token, orgId, { fresh = false, includeDeleti
   if (row?.ended_at) return result(true);
   const present = includeDeletion ? Boolean(row.present) : Boolean(row);
   // Used here: noted, at most every few minutes.
-  if (token && (!present || Date.now() - Date.parse(row.last_seen_at) > SEEN_EVERY_MS)) {
+  const due = token && (!present || Date.now() - Date.parse(row.last_seen_at) > SEEN_EVERY_MS);
+  const noteSeen = async () => {
+    if (!due) return;
     await db.prepare(
       `INSERT INTO session_workspaces (token, org_id, last_seen_at) VALUES (?1, ?2, ?3)
        ON CONFLICT(token, org_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`
     ).bind(token, orgId, new Date().toISOString()).run().catch(() => {});
-  }
-  return result(false);
+  };
+  if (note) { await noteSeen(); return result(false); }
+  return includeDeletion ? { ...result(false), note: noteSeen } : result(false);
 }
 
 /// Sign these sessions out of one workspace only, and close the sockets
