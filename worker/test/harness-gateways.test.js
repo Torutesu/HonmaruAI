@@ -213,7 +213,7 @@ test('a cancellation already committed is safe to retry after settlement fails',
     get(target, key) {
       if (key === 'prepare') return statement => {
         const prepared = target.prepare(statement);
-        if (!statement.startsWith('SELECT a.org_id,a.run_id,d.definition FROM hx_workflow_activations a')) return prepared;
+        if (!statement.startsWith('SELECT a.org_id,a.run_id,d.definition')) return prepared;
         return { bind: () => ({ first: async () => { throw Error('synthetic settlement outage'); } }) };
       };
       const value = target[key]; return typeof value === 'function' ? value.bind(target) : value;
