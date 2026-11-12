@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeEach, expect, test, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { allowanceFor } from "../src/gate.js";
-import { jevEntry, noteUsage, settleUsage } from "../src/ledger.js";
+import { jevEntry, noteSearches, noteUsage, settleUsage, webSearchCostMicros } from "../src/ledger.js";
 import { claimWorkspaceBudgetNotice, estimateWorkspaceBudgetMicros, releaseWorkspaceAIBudgetReservation, reserveWorkspaceAIBudgetCall, saveWorkspaceAIBudget, workspaceAIBudgetStatus, workspaceBudgetAdmission } from "../src/workspaceAIBudget.js";
 import { requestWithWorkspaceBudget } from "../src/workspaceBudgetRequest.js";
 import { askJev } from "../src/jev.js";
@@ -123,7 +123,7 @@ test("warning mode reports unknown model prices without blocking; explicit searc
   }, "42", new Date(now).toISOString());
   await env.DB.prepare(`INSERT INTO ai_calls(org_id,user_github_id,purpose,provider,model,input_tokens,output_tokens,usd,byok,created_at)
     VALUES(?1,'42','ask','OpenAI','gpt-9-preview',1000,500,0.0001,0,?2),
-          (?1,'42','search','OpenAI','web_search',0,0,0.025,0,?2),
+          (?1,'42','search','OpenAI','web_search',0,0,0.01,0,?2),
           (?1,'42','ask','jev','jev-latest',1000,0,0.000042,0,?2)`)
     .bind(ORG, new Date(now - 1_000).toISOString()).run();
   const status = await workspaceAIBudgetStatus(env.DB, ORG, now);
@@ -234,6 +234,112 @@ test("direct provider requests fail closed before dispatch when a capped reserva
     });
     expect(response.status).toBe(429);
     expect(dispatched).toBe(0);
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
+});
+
+test("deployment web search reserves token and per-call costs before dispatch and bounds built-in search calls", async () => {
+  const now = Date.now();
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 0.1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", new Date(now).toISOString());
+  const tokenOnly = await reserveWorkspaceAIBudgetCall(env.DB, {
+    orgId: ORG, model: "gpt-5-mini", inputTokens: 1000, outputTokens: 100,
+  });
+  expect(tokenOnly).toMatchObject({ allowed: true });
+  await releaseWorkspaceAIBudgetReservation(env.DB, tokenOnly.reservationId);
+
+  const provider = {
+    model: "gpt-5-mini", providerName: "OpenAI", apiKey: "deployment-key", byok: false,
+    usage: [], workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG, workspaceBudgetReservations: [],
+  };
+  const originalFetch = globalThis.fetch;
+  let dispatched = 0;
+  vi.stubGlobal("fetch", async (_url, init) => {
+    dispatched += 1;
+    expect(JSON.parse(init.body).max_tool_calls).toBe(4);
+    return Response.json({
+      id: "resp-search-budget", model: provider.model,
+      usage: { input_tokens: 1000, output_tokens: 10 },
+      output: [{ type: "web_search_call" }, { type: "web_search_call" }],
+    });
+  });
+  try {
+    const response = await requestWithWorkspaceBudget(provider, "https://provider.invalid", {
+      method: "POST", body: JSON.stringify({
+        model: provider.model, max_output_tokens: 100,
+        tools: [{ type: "web_search" }], input: "Find this fact",
+      }),
+    });
+    expect(response.ok).toBe(true);
+    const data = await response.json();
+    noteUsage(provider, "agent", data);
+    noteSearches(provider, "agent", data.model, data.output.filter((item) => item.type === "web_search_call").length);
+    const reservationId = provider.usage.find((entry) => entry.workspaceReservationId)?.workspaceReservationId;
+    expect(reservationId).toBeTruthy();
+    await settleUsage(env.DB, provider, { orgId: ORG, githubId: "42" });
+    expect(dispatched).toBe(1);
+    expect(webSearchCostMicros(provider.model, 2)).toBe(20_000);
+    expect(webSearchCostMicros('gpt-4o-mini', 2, 'web_search_preview')).toBe(50_000);
+    expect(webSearchCostMicros('gpt-5-mini', 2, 'web_search_preview')).toBe(20_000);
+    const { results } = await env.DB.prepare("SELECT model,usd FROM ai_calls WHERE org_id=?1 ORDER BY model").bind(ORG).all();
+    expect(results).toHaveLength(2);
+    expect(results.find((entry) => entry.model === "web_search").usd).toBe(0.02);
+    expect(await env.DB.prepare("SELECT status FROM hx_workspace_ai_budget_reservations WHERE id=?1").bind(reservationId).first())
+      .toMatchObject({ status: "settled" });
+    expect((await workspaceAIBudgetStatus(env.DB, ORG, Date.now())).periods["24h"]).toMatchObject({
+      calls: 2, unpricedCalls: 0, usedMicros: 20_270,
+    });
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
+});
+
+test("a deployment web search is not dispatched when the search surcharge cannot fit", async () => {
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 0.05, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", NOW());
+  const provider = {
+    model: "gpt-5-mini", providerName: "OpenAI", apiKey: "deployment-key", byok: false,
+    usage: [], workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG, workspaceBudgetReservations: [],
+  };
+  const originalFetch = globalThis.fetch;
+  let dispatched = 0;
+  vi.stubGlobal("fetch", async () => { dispatched += 1; return Response.json({}); });
+  try {
+    const response = await requestWithWorkspaceBudget(provider, "https://provider.invalid", {
+      method: "POST", body: JSON.stringify({
+        model: provider.model, max_output_tokens: 100,
+        tools: [{ type: "web_search" }], input: "Find this fact",
+      }),
+    });
+    expect(response.status).toBe(429);
+    expect(dispatched).toBe(0);
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
+});
+
+test("BYOK web search keeps its provider call limit and does not reserve workspace budget", async () => {
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 0.000001, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", NOW());
+  const provider = {
+    model: "gpt-5-mini", providerName: "OpenAI", apiKey: "workspace-key", byok: true,
+    usage: [], workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG, workspaceBudgetReservations: [],
+  };
+  const originalFetch = globalThis.fetch;
+  let sentBody;
+  vi.stubGlobal("fetch", async (_url, init) => { sentBody = JSON.parse(init.body); return Response.json({ id: "resp-byok", model: provider.model, usage: { input_tokens: 1, output_tokens: 1 } }); });
+  try {
+    const response = await requestWithWorkspaceBudget(provider, "https://provider.invalid", {
+      method: "POST", body: JSON.stringify({ model: provider.model, max_tool_calls: 17, tools: [{ type: "web_search" }], input: "find" }),
+    });
+    await response.json();
+    expect(sentBody.max_tool_calls).toBe(17);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_workspace_ai_budget_reservations WHERE org_id=?1").bind(ORG).first())
+      .toMatchObject({ n: 0 });
   } finally {
     vi.stubGlobal("fetch", originalFetch);
   }

@@ -163,16 +163,17 @@ test("each web search is on the ledger at OpenAI's per-call price, beside the to
   fetchMock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(200, {
     id: "r1", model: "gpt-5-mini", output_text: "Found it.",
     output: [{ type: "web_search_call" }, { type: "web_search_call" }, { type: "web_search_call" }],
+    tool_usage: { web_search: { num_requests: 2 } },
     usage: { input_tokens: 1000, output_tokens: 200 },
   });
   await research({ provider: p, env: {}, instructions: "i", input: "q" });
   const search = p.usage.find((u) => u.model === "web_search");
-  expect(search).toMatchObject({ purpose: "agent", input: 0, output: 0, usd: 0.03 });
+  expect(search).toMatchObject({ purpose: "agent", input: 0, output: 0, usd: 0.02 });
   expect(p.usage.find((u) => u.model === "gpt-5-mini")).toMatchObject({ input: 1000, output: 200 });
   const { noteSearches } = await import("../src/ledger.js");
   const q = { usage: [] };
   noteSearches(q, "agent", "gpt-4o-mini", 2);
-  expect(q.usage[0].usd).toBe(0.05);
+  expect(q.usage[0].usd).toBe(0.02);
 });
 
 test('agent research starts with a skill index and reads the complete procedure only on demand', async () => {

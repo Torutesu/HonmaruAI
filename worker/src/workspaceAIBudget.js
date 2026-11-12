@@ -3,8 +3,9 @@ import { costOf, PRICES } from './ledger.js';
 
 // A workspace-wide guard for model usage that is paid by this deployment.
 // Amounts use the ledger's estimated list prices, never provider invoices or
-// Kylon credits. BYOK calls and external-tool charges are intentionally out
-// of scope.
+// Kylon credits. BYOK and unrelated connector charges remain out of scope;
+// hosted Responses web_search is reserved at its per-call list price by the
+// provider request wrapper, with bounded search-context tokens estimated.
 
 const DAY = 86_400_000;
 const WINDOWS = [
@@ -86,15 +87,18 @@ export function estimateWorkspaceBudgetMicros(model, inputTokens, outputTokens) 
 /// deployment-key request reaches the provider. Workflow budgets have their
 /// own narrower reservation; this one coordinates calls across every route in
 /// the workspace. An expired dispatched call is retained as unknown usage.
-export async function reserveWorkspaceAIBudgetCall(db, { orgId, model, inputTokens, outputTokens, now = Date.now() }) {
+export async function reserveWorkspaceAIBudgetCall(db, { orgId, model, inputTokens, outputTokens, additionalMicros = 0, now = Date.now() }) {
   if (!db || !orgId) return { allowed: true, reservationId: null };
   try {
     const settings = await db.prepare(`SELECT daily_budget_micros,weekly_budget_micros,monthly_budget_micros,budget_action,budget_revision
       FROM org_ai_settings WHERE org_id=?1`).bind(orgId).first();
     const limits = [settings?.daily_budget_micros, settings?.weekly_budget_micros, settings?.monthly_budget_micros].map((v) => Number(v) || 0);
     if (settings?.budget_action !== 'pause' || !limits.some((v) => v > 0)) return { allowed: true, reservationId: null };
-    const estimate = estimateWorkspaceBudgetMicros(model, inputTokens, outputTokens);
-    if (estimate === null) return { allowed: false, reason: 'workspace_ai_budget_unpriced' };
+    const modelEstimate = estimateWorkspaceBudgetMicros(model, inputTokens, outputTokens);
+    const addon = Number(additionalMicros);
+    if (modelEstimate === null || !Number.isSafeInteger(addon) || addon < 0) return { allowed: false, reason: 'workspace_ai_budget_unpriced' };
+    const estimate = modelEstimate + addon;
+    if (!Number.isSafeInteger(estimate)) return { allowed: false, reason: 'workspace_ai_budget_unpriced' };
 
     const at = new Date(now).toISOString();
     const expiry = new Date(now + 5 * 60_000).toISOString();

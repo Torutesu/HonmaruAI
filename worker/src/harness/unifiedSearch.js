@@ -32,6 +32,14 @@ const stringValues = (value, out = []) => {
   else if (Array.isArray(value)) for (const item of value) stringValues(item, out);
   return out;
 };
+const recordMatches = (data, columns, needle) => {
+  const matches = [];
+  for (const column of columns) {
+    if (!column || column.type === 'relation') continue;
+    for (const text of stringValues(data?.[column.id])) if (text.toLocaleLowerCase().includes(needle.toLocaleLowerCase())) matches.push(`${column.name}: ${text}`);
+  }
+  return matches;
+};
 const validCursor = (value, fields) => {
   if (!value || typeof value !== 'string' || value.length > 500) return null;
   try {
@@ -48,19 +56,20 @@ function contentQuery(raw) {
   return q.text.trim().slice(0, 120);
 }
 
-async function searchFiles(env, orgId, userId, needle, cursorRaw) {
+async function searchFiles(env, orgId, userId, needle, cursorRaw, roomChannel = null) {
   const cursor = validCursor(cursorRaw, ['updatedAt', 'id']);
   const { results = [] } = await env.DB.prepare(`SELECT f.id,f.scope,f.path,f.updated_at,f.current_version,v.content_type,v.size
     FROM hx_workspace_files f
     JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version
     WHERE f.org_id=?1 AND f.current_version>0 AND v.kind='content' AND v.size<=?2
-      AND lower(v.content_type) IN (${[...TEXT_TYPES].map((_, i) => `?${i + 4}`).join(',')})
+      AND (?4 IS NULL OR f.scope=?4)
+      AND lower(v.content_type) IN (${[...TEXT_TYPES].map((_, i) => `?${i + 5}`).join(',')})
       AND ${fileScopeAuthority('f.org_id', 'f.scope', '?3')}
       AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=v.org_id AND p.file_id=v.file_id AND p.version=v.version)
       AND NOT EXISTS(SELECT 1 FROM media_deletions d WHERE d.key=v.object_key)
-      AND (?${TEXT_TYPES.size + 4} IS NULL OR f.updated_at<?${TEXT_TYPES.size + 4} OR (f.updated_at=?${TEXT_TYPES.size + 4} AND f.id>?${TEXT_TYPES.size + 5}))
+      AND (?${TEXT_TYPES.size + 5} IS NULL OR f.updated_at<?${TEXT_TYPES.size + 5} OR (f.updated_at=?${TEXT_TYPES.size + 5} AND f.id>?${TEXT_TYPES.size + 6}))
     ORDER BY f.updated_at DESC,f.id ASC LIMIT ${FILE_SCAN + 1}`)
-    .bind(orgId, FILE_BYTES, userId, ...TEXT_TYPES, cursor?.updatedAt ?? null, cursor?.id ?? null).all();
+    .bind(orgId, FILE_BYTES, userId, roomChannel, ...TEXT_TYPES, cursor?.updatedAt ?? null, cursor?.id ?? null).all();
   const candidates = results.slice(0, FILE_SCAN);
   const hits = [];
   for (const file of candidates) {
@@ -79,12 +88,12 @@ async function searchFiles(env, orgId, userId, needle, cursorRaw) {
     // Reauthorize and bind the result metadata to the same live version.
     const live = await env.DB.prepare(`SELECT f.id,f.scope,f.path,f.updated_at,f.current_version
       FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version
-      WHERE f.org_id=?1 AND f.id=?2 AND f.current_version=?3 AND v.kind='content'
+      WHERE f.org_id=?1 AND f.id=?2 AND f.current_version=?3 AND v.kind='content' AND (?5 IS NULL OR f.scope=?5)
        AND ${fileScopeAuthority('f.org_id', 'f.scope', '?4')}
        AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=v.org_id AND p.file_id=v.file_id AND p.version=v.version)`)
-      .bind(orgId, file.id, file.current_version, userId).first();
+      .bind(orgId, file.id, file.current_version, userId, roomChannel).first();
     if (!live) continue;
-    hits.push({ id: live.id, name: live.path.split('/').pop() || live.path, scope: live.scope, updatedAt: live.updated_at, snippet: safeSnippet(body, needle) });
+    hits.push({ id: live.id, version: live.current_version, name: live.path.split('/').pop() || live.path, scope: live.scope, updatedAt: live.updated_at, snippet: safeSnippet(body, needle) });
   }
   const page = hits.slice(0, FILE_RESULTS);
   const hasMore = hits.length > FILE_RESULTS || results.length > FILE_SCAN;
@@ -93,16 +102,18 @@ async function searchFiles(env, orgId, userId, needle, cursorRaw) {
   const next = hits.length > FILE_RESULTS && lastHit
     ? { updatedAt: lastHit.updatedAt, id: lastHit.id }
     : results.length > FILE_SCAN && scanned ? { updatedAt: scanned.updated_at, id: scanned.id } : null;
-  return { files: page, filesTruncated: hasMore, filesNextCursor: next ? JSON.stringify(next) : null };
+  return { files: page.map(({ version: _version, ...file }) => file), roomCandidates: roomChannel ? page : null,
+    filesTruncated: hasMore, filesNextCursor: next ? JSON.stringify(next) : null };
 }
 
-async function searchRecords(db, orgId, userId, needle, cursorRaw) {
+async function searchRecords(db, orgId, userId, needle, cursorRaw, roomChannel = null) {
   const cursor = validCursor(cursorRaw, ['updatedAt', 'appId', 'rowId']);
   // Enumerate all table-backed apps (bounded by the workspace's 200-table
   // invariant) and authorize before any row query or candidate LIMIT.
   const { results: listed = [] } = await db.prepare(`SELECT a.id AS app_id,a.name AS app_name,a.table_id,t.name AS table_name,t.columns
     FROM hx_apps a JOIN hx_tables t ON t.org_id=a.org_id AND t.id=a.table_id
-    WHERE a.org_id=?1 ORDER BY a.id ASC`).bind(orgId).all();
+    WHERE a.org_id=?1 AND (?2 IS NULL OR EXISTS(SELECT 1 FROM hx_app_links l WHERE l.org_id=a.org_id AND l.app_id=a.id AND l.channel=?2))
+    ORDER BY a.id ASC`).bind(orgId, roomChannel).all();
   const allowed = [];
   for (const app of listed) if (await mayReadAppRows(db, orgId, app.app_id, app.table_id, userId)) allowed.push(app);
   const apps = allowed;
@@ -122,12 +133,7 @@ async function searchRecords(db, orgId, userId, needle, cursorRaw) {
       if (!lastCandidate || candidate.updatedAt < lastCandidate.updatedAt || (candidate.updatedAt === lastCandidate.updatedAt && (candidate.appId > lastCandidate.appId || (candidate.appId === lastCandidate.appId && candidate.rowId > lastCandidate.rowId)))) lastCandidate = candidate;
       let data;
       try { data = JSON.parse(row.data); } catch { continue; }
-      const matches = [];
-      for (const column of columns) {
-        if (!column || column.type === 'relation') continue;
-        const value = data?.[column.id];
-        for (const text of stringValues(value)) if (text.toLocaleLowerCase().includes(needle.toLocaleLowerCase())) matches.push(`${column.name}: ${text}`);
-      }
+      const matches = recordMatches(data, columns, needle);
       if (!matches.length) continue;
       // Recheck app/table policy after the bounded SQL scan before exposing
       // even the row id, app name, or a value snippet.
@@ -143,15 +149,56 @@ async function searchRecords(db, orgId, userId, needle, cursorRaw) {
   const next = records.length > RECORD_RESULTS && lastHit
     ? { updatedAt: lastHit.updatedAt, appId: lastHit.appId, rowId: lastHit.rowId }
     : rowsTruncated ? lastCandidate : null;
-  return { records: page, recordsTruncated: hasMore, recordsNextCursor: next ? JSON.stringify(next) : null };
+  return { records: page, roomCandidates: roomChannel ? page : null,
+    recordsTruncated: hasMore, recordsNextCursor: next ? JSON.stringify(next) : null };
 }
 
-export async function searchHarnessResources(env, orgId, userId, raw, cursors = {}) {
+async function verifyRoomFiles(env, orgId, userId, roomChannel, candidates) {
+  return (await Promise.all((candidates || []).map(async file => {
+    const live = await env.DB.prepare(`SELECT f.id,f.scope,f.path,f.updated_at,f.current_version
+      FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version
+      WHERE f.org_id=?1 AND f.id=?2 AND f.current_version=?3 AND f.scope=?4 AND v.kind='content'
+        AND ${fileScopeAuthority('f.org_id', 'f.scope', '?5')}
+        AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=v.org_id AND p.file_id=v.file_id AND p.version=v.version)
+        AND NOT EXISTS(SELECT 1 FROM media_deletions d WHERE d.key=v.object_key)`)
+      .bind(orgId, file.id, file.version, roomChannel, userId).first();
+    return live ? { id: live.id, name: live.path.split('/').pop() || live.path, scope: live.scope, updatedAt: live.updated_at, snippet: file.snippet } : null;
+  }))).filter(Boolean);
+}
+
+async function verifyRoomRecords(db, orgId, userId, roomChannel, needle, candidates) {
+  const pattern = escapeLike(needle);
+  return (await Promise.all((candidates || []).map(async item => {
+    const live = await db.prepare(`SELECT a.id AS app_id,a.name AS app_name,a.table_id,t.name AS table_name,t.columns,
+        r.id AS row_id,r.data,r.updated_at
+      FROM hx_app_links l JOIN hx_apps a ON a.org_id=l.org_id AND a.id=l.app_id
+      JOIN hx_tables t ON t.org_id=a.org_id AND t.id=a.table_id
+      JOIN hx_rows r ON r.org_id=a.org_id AND r.table_id=a.table_id
+      WHERE l.org_id=?1 AND l.app_id=?2 AND l.channel=?3 AND a.table_id=?4 AND r.id=?5
+        AND lower(r.data) LIKE lower(?6) ESCAPE '\\'`)
+      .bind(orgId, item.appId, roomChannel, item.tableId, item.rowId, pattern).first();
+    if (!live || !(await mayReadAppRows(db, orgId, item.appId, item.tableId, userId))) return null;
+    let currentData, columns;
+    try { currentData = JSON.parse(live.data); columns = JSON.parse(live.columns || '[]'); } catch { return null; }
+    const matches = recordMatches(currentData, columns, needle);
+    return matches.length ? {
+      id: live.row_id, appId: live.app_id, appName: live.app_name, tableId: live.table_id,
+      tableName: live.table_name, rowId: live.row_id, updatedAt: live.updated_at, snippet: safeSnippet(matches[0], needle),
+    } : null;
+  }))).filter(Boolean);
+}
+
+export async function searchHarnessResources(env, orgId, userId, raw, cursors = {}, roomChannel = null) {
   const needle = contentQuery(raw);
   if (!needle || needle.length < 2) return { files: [], records: [], filesNextCursor: null, recordsNextCursor: null };
-  const [files, records] = await Promise.all([
-    cursors.skipFiles ? Promise.resolve({ files: [], filesTruncated: false, filesNextCursor: null }) : searchFiles(env, orgId, userId, needle, cursors.file),
-    cursors.skipRecords ? Promise.resolve({ records: [], recordsTruncated: false, recordsNextCursor: null }) : searchRecords(env.DB, orgId, userId, needle, cursors.record),
+  const [fileResult, recordResult] = await Promise.all([
+    cursors.skipFiles ? Promise.resolve({ files: [], filesTruncated: false, filesNextCursor: null }) : searchFiles(env, orgId, userId, needle, cursors.file, roomChannel),
+    cursors.skipRecords ? Promise.resolve({ records: [], recordsTruncated: false, recordsNextCursor: null }) : searchRecords(env.DB, orgId, userId, needle, cursors.record, roomChannel),
   ]);
-  return { ...files, ...records };
+  const files = roomChannel ? await verifyRoomFiles(env, orgId, userId, roomChannel, fileResult.roomCandidates) : fileResult.files;
+  const records = roomChannel ? await verifyRoomRecords(env.DB, orgId, userId, roomChannel, needle, recordResult.roomCandidates) : recordResult.records;
+  return {
+    files, filesTruncated: fileResult.filesTruncated, filesNextCursor: fileResult.filesNextCursor,
+    records, recordsTruncated: recordResult.recordsTruncated, recordsNextCursor: recordResult.recordsNextCursor,
+  };
 }

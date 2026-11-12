@@ -3,9 +3,14 @@ import type {ChannelMessage} from '../types/card'
 import {Icon} from './Icon'
 import {textMatchRanges} from '../utils/textMatches'
 import {enterKey} from '../utils/keys'
+import {hashForApp} from '../utils/route'
+import {openFileConversation} from '../utils/fileConversation'
 type Api={httpBase:string;orgId:string;sessionToken:string}
+type FileHit={id:string;name:string;scope:string;snippet:string}
+type RecordHit={id:string;appId:string;appName:string;tableId:string;tableName:string;rowId:string;snippet:string}
 export function ThreadSearch({api,channel,threadId,onClose,onSelect,focusKey=0}:{api:Api;channel:string;threadId?:string;focusKey?:number;onClose:()=>void;onSelect:(message:ChannelMessage,signal:AbortSignal)=>void|Promise<void>}){
  const [query,setQuery]=useState(''),[messages,setMessages]=useState<ChannelMessage[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(false),[index,setIndex]=useState(0),[retry,setRetry]=useState(0)
+ const [files,setFiles]=useState<FileHit[]>([]),[records,setRecords]=useState<RecordHit[]>([]),[resourcesTruncated,setResourcesTruncated]=useState(false),[openingResource,setOpeningResource]=useState<string|null>(null)
  const host=useRef<HTMLDivElement>(null),select=useRef(onSelect);select.current=onSelect
  useEffect(()=>{host.current?.querySelector('input')?.focus()},[focusKey])
  const navigation=useRef<AbortController|null>(null),[moving,setMoving]=useState(false)
@@ -15,21 +20,28 @@ export function ThreadSearch({api,channel,threadId,onClose,onSelect,focusKey=0}:
    .catch(()=>{if(!controller.signal.aborted)setError(true)}).finally(()=>{if(!controller.signal.aborted)setMoving(false)})
  }
  const chooseRef=useRef(choose);chooseRef.current=choose
+ const openFile=async(file:FileHit)=>{
+  if(openingResource)return
+  setOpeningResource(file.id);setError(false)
+  try{location.hash=await openFileConversation(file.id)}catch{setError(true)}finally{setOpeningResource(null)}
+ }
+ const openRecord=(record:RecordHit)=>{location.hash=hashForApp(record.appId,api.orgId,{tableId:record.tableId,rowId:record.rowId},'data')}
  useEffect(()=>{setMoving(false);return()=>navigation.current?.abort()},[query,api.httpBase,api.orgId,api.sessionToken,channel,threadId])
  useEffect(()=>{
   const controller=new AbortController();let live=true
-  setMessages([]);setIndex(0);setError(false);setBusy(!!query.trim())
+  setMessages([]);setFiles([]);setRecords([]);setResourcesTruncated(false);setIndex(0);setError(false);setBusy(!!query.trim())
   if(!query.trim())return
   const timer=setTimeout(()=>{void(async()=>{
    let cursor:string|null=null;const found=new Map<string,ChannelMessage>()
    do{
-    const params=new URLSearchParams({orgId:api.orgId,channel,q:query.trim()});if(threadId)params.set('messageId',threadId);if(cursor)params.set('before',cursor)
+     const params=new URLSearchParams({orgId:api.orgId,channel,q:query.trim()});if(threadId)params.set('messageId',threadId);if(cursor)params.set('before',cursor);else if(!threadId)params.set('resources','1')
     const timeout=setTimeout(()=>controller.abort(),15000)
     try{
      const response=await fetch(`${api.httpBase}/channels/${threadId?'thread':'room'}/search?${params}`,{headers:{'x-session-token':api.sessionToken},signal:controller.signal})
      if(!response.ok)throw new Error('search')
      const data=await response.json();if(!live)return
      data.messages.forEach((m:ChannelMessage)=>found.set(m.id,m))
+     if(!cursor){setFiles(Array.isArray(data.files)?data.files:[]);setRecords(Array.isArray(data.records)?data.records:[]);setResourcesTruncated(Boolean(data.filesTruncated||data.recordsTruncated))}
      if(cursor&&cursor===data.nextCursor)throw new Error('cursor')
      cursor=data.nextCursor
     }finally{clearTimeout(timeout)}
@@ -57,12 +69,27 @@ export function ThreadSearch({api,channel,threadId,onClose,onSelect,focusKey=0}:
   return()=>{observer.disconnect();registry.delete(threadId?'thread-search':'room-search')}
  },[query,threadId])
  const move=(delta:number)=>{if(!messages.length)return;const next=(index+delta+messages.length)%messages.length;setIndex(next);choose(messages[next])}
- return <div ref={host} className="hx-thread-search-bar" role="search" aria-label={threadId?"スレッド内を検索":"ルーム内を検索"} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose()}else if(enterKey(event)){event.preventDefault();move(event.shiftKey?-1:1)}}}>
+ return <div ref={host} className="hx-thread-search-bar" role="search" aria-label={threadId?"スレッド内を検索":"ルーム内を検索"} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose()}else if(event.target===host.current?.querySelector('input')&&enterKey(event)){event.preventDefault();move(event.shiftKey?-1:1)}}}>
   <Icon name="search" size={16}/><input autoFocus aria-label={threadId?"スレッド内の検索語":"ルーム内の検索語"} maxLength={200} placeholder="検索" value={query} onChange={event=>setQuery(event.target.value)}/>
   <span role="status">{busy?'検索中':moving?'移動中':error?'取得失敗':query.trim()?`${messages.length?index+1:0} / ${messages.length}`:''}</span>
   {error&&<button type="button" aria-label="検索を再試行" onClick={()=>setRetry(n=>n+1)}><Icon name="repeat" size={14}/></button>}
   <button type="button" aria-label="前の結果へ" disabled={busy||!messages.length} onClick={()=>move(1)}><Icon name="arrow-up" size={14}/></button>
   <button type="button" aria-label="新しい結果へ" disabled={busy||!messages.length} onClick={()=>move(-1)}><Icon name="arrow-down" size={14}/></button>
   <button type="button" aria-label="検索を閉じる" onClick={onClose}><Icon name="x" size={14}/></button>
+  {(files.length>0||records.length>0||resourcesTruncated)&&<div className="hx-thread-search-resources" role="region" aria-label="このルームのリソース">
+   {files.length>0&&<section className="hx-thread-search-resource-section" aria-label="ファイルの検索結果">
+    <h3>このルームのファイル</h3>
+    {files.map(file=><button key={file.id} type="button" className="hx-thread-search-resource" aria-label={`ファイルを開く: ${file.name}`} disabled={openingResource!==null} onClick={()=>void openFile(file)}>
+     <strong>{file.name}</strong><span>{file.snippet}</span>
+    </button>)}
+   </section>}
+   {records.length>0&&<section className="hx-thread-search-resource-section" aria-label="Appレコードの検索結果">
+    <h3>このルームにリンクされたApp</h3>
+    {records.map(record=><button key={`${record.appId}:${record.rowId}`} type="button" className="hx-thread-search-resource" aria-label={`レコードを開く: ${record.appName} · ${record.tableName}`} onClick={()=>openRecord(record)}>
+     <strong>{record.appName} · {record.tableName}</strong><span>{record.snippet}</span>
+    </button>)}
+   </section>}
+   {resourcesTruncated&&<p className="hx-thread-search-resource-limit" role="status">表示件数に上限があります。語句を絞り込んでください。</p>}
+  </div>}
  </div>
 }

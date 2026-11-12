@@ -1,5 +1,13 @@
 # 検証記録
 
+### 2026-11-13 — Room-local resource search and web_search budget reservation (local batch)
+
+- Added opt-in resource results to Room search in Harness mode: file body search is constrained to the exact Room scope and linked App records are searched only after current App/row ACL checks. Search results are reauthorized against current file version/deletion state, Room membership and App links before being returned. Simple-only users retain the previous message-only Room response; workspace-wide and thread-only search paths remain unchanged.
+- Added file/App-record result cards to the existing ThreadSearch panel, using Honmaru theme variables and existing resource navigation. Kylon public Help documents Workspace search using a distinctive file/project phrase, Room and approximate date; it does not establish exact parity for indexed file-body or App-record search. [Kylon Help](https://kylon.io/help/find-previous-work)
+- Deployment-key Responses `web_search` now reserves a fixed per-search list-price charge plus a conservative 16,000-token search-context estimate before dispatch. When an active pause budget requires a bounded reservation, the request caps built-in calls at four; BYOK and uncapped/no-pause requests are unchanged. Settlement uses the API's billable `tool_usage.web_search.num_requests` where available. These estimates are safeguards, not invoice guarantees; provider-side usage can vary.
+- Focused Worker tests passed **52/52** across workspace budget, Jev research and unified search suites. Focused Web ThreadSearch tests passed **4/4**; Web TypeScript/production build passed. `node --check`, requirements JSON parse and `git diff --check` passed. No new service, migration or paid contract was added; Simple mode remains available. Exact-head CI and deployment for this local batch are pending.
+- The preceding PR #935 main CI passed; its Worker deploy #43300925220 remained `in_progress` at the last check. This batch's deployment status is not inferred from that run.
+
 ### 2026-11-12 — KY-059 App row mutation SDK (released)
 
 - PR #915 adds Workflow SDK `table.update()` and `table.delete()` beside the existing `table.query()` and `table.insert()`. Row creation and row mutation are separately opted into per App entity. Updates and deletes require the query result's `updatedAt` as `expectedUpdatedAt`; the Worker rechecks current ACL, schema version, relation rules and frozen source binding when committing.
