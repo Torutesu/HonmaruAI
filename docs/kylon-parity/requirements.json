@@ -1102,7 +1102,7 @@
         "latestIncrement": {
           "base": "c4e99206",
           "scope": "The Harness completer now reserves each deployment-key model request against all configured workspace rolling windows in one D1 admission statement. Active reservations contribute to displayed provisional usage and prevent overlapping Harness calls from spending the same remaining allowance. Successful usage is written with reservation settlement in one D1 batch; an interrupted dispatched call is recorded as unpriced; an expired reservation becomes unknown and blocks capped windows until it ages out. BYOK and warn-only mode remain outside the reservation gate. This does not cover direct provider calls outside the Harness completer.",
-          "verification": "Focused Worker workspace-ai-budget suite: 11/11 passed, including parallel reservations, release, actual-usage settlement, expired reservations and unknown interrupted calls. Exact-head CI, migration application, production deployment and authenticated Kylon comparison remain pending.",
+          "verification": "Focused Worker workspace-ai-budget suite: 11/11 passed; combined budget, workflow-safety, model-loop and Harness workflow suites: 183/183 passed, including parallel reservations, usage settlement, ambiguous errors, pre-dispatch pause cancellation and no post side effect. Exact-head CI, migration application, production deployment and authenticated Kylon comparison remain pending.",
           "remaining": "Direct provider call routes, independent teammate provider calls, Kylon credit purchase/top-up, provider invoice reconciliation, external search/connector charges, and exact tokenizer/provider billing guarantees remain unimplemented or unverified."
         }
       }
@@ -1137,8 +1137,8 @@
         },
         "reservationIncrement": {
           "base": "c4e99206",
-          "scope": "Harness model requests reserve workspace list-price estimates before dispatch, settle reservation alongside recorded usage, and retain unknown usage on interrupted or expired requests. This prevents concurrent Harness model calls from admitting against the same remaining budget.",
-          "verification": "Focused Worker workspace-ai-budget suite: 11/11 passed. Exact-head CI, production migration/deployment and authenticated Kylon comparison pending.",
+          "scope": "Harness model requests reserve workspace list-price estimates before dispatch, settle reservation alongside recorded usage, and retain unknown usage on interrupted or expired requests. This prevents concurrent Harness model calls from admitting against the same remaining budget. A Workflow Agent run whose next call cannot fit is cancelled before dispatch so its following side-effect steps cannot run.",
+          "verification": "Focused and combined Worker budget/model/workflow suites: 183/183 passed. Exact-head CI, production migration/deployment and authenticated Kylon comparison pending.",
           "remaining": "Direct provider routes and active provider-side work cancellation remain outside this reservation slice."
         }
       }
