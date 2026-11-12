@@ -383,6 +383,64 @@ test('merge detects production updates/deletes/schema changes and rejects the en
  expect((await run('database',{action:'merge_preview',...req})).status).toBe(409);
 });
 
+test('reviewed merge resolves production conflicts per record and makes the choice part of the checksum',async()=>{
+ const insert=async task=>(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task}})).json()).row;
+ const conflicted=await insert('Original'), independent=await insert('Independent');
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'update',rowId:conflicted.id,values:{task:'Preview choice'}});
+ await run('database',{action:'fork_write',forkId:fork.id,revision:2,entity:'primary',operation:'update',rowId:independent.id,values:{task:'Independent preview'}});
+ await env.DB.prepare('UPDATE hx_rows SET data=?1,updated_at=?2 WHERE org_id=?3 AND table_id=?4 AND id=?5').bind(JSON.stringify({task:'Production choice'}),'later',orgId,app.tableId,conflicted.id).run();
+ const request={forkId:fork.id,revision:3};
+ const unresolved=await (await run('database',{action:'merge_preview',...request})).json();
+ expect(unresolved).toMatchObject({resolved:false,conflicts:[{changeId:`primary:${conflicted.id}`,production:{task:'Production choice'},preview:{task:'Preview choice'}}]});
+ expect((await run('database',{action:'merge_apply',...request,checksum:unresolved.checksum})).status).toBe(409);
+ const resolutions={[`primary:${conflicted.id}`]:'production'};
+ const reviewed=await (await run('database',{action:'merge_preview',...request,resolutions})).json();
+ expect(reviewed.resolved).toBe(true);expect(reviewed.checksum).not.toBe(unresolved.checksum);
+ expect((await run('database',{action:'merge_apply',...request,checksum:reviewed.checksum})).status).toBe(409);
+ const merge={action:'merge_apply',...request,checksum:reviewed.checksum,resolutions};
+ expect(await (await run('database',merge)).json()).toMatchObject({merged:true,changed:1,keptProduction:1});
+ const rows=(await (await call(`/tables/${app.tableId}`,owner)).json()).rows;
+ expect(rows).toMatchObject([{id:conflicted.id,values:{task:'Production choice'}},{id:independent.id,values:{task:'Independent preview'}}]);
+ expect(await (await run('database',merge)).json()).toMatchObject({merged:true,replay:true});
+});
+
+test('a reviewed merge can explicitly choose the preview version of a conflicted row',async()=>{
+ const row=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Original'}})).json()).row;
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'update',rowId:row.id,values:{task:'Preview wins'}});
+ await env.DB.prepare('UPDATE hx_rows SET data=?1,updated_at=?2 WHERE org_id=?3 AND table_id=?4 AND id=?5').bind(JSON.stringify({task:'Production changed'}),'later',orgId,app.tableId,row.id).run();
+ const request={forkId:fork.id,revision:2},resolutions={[`primary:${row.id}`]:'preview'};
+ const reviewed=await (await run('database',{action:'merge_preview',...request,resolutions})).json();
+ expect(reviewed.resolved).toBe(true);
+ expect(await (await run('database',{action:'merge_apply',...request,checksum:reviewed.checksum,resolutions})).json()).toMatchObject({merged:true,changed:1,keptProduction:0});
+ expect((await (await call(`/tables/${app.tableId}`,owner)).json()).rows).toMatchObject([{id:row.id,values:{task:'Preview wins'}}]);
+});
+
+test('preview wins safely replaces a colliding live row ID',async()=>{
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ const created=await (await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'create',values:{task:'Preview row'}})).json();
+ const id=created.result.id;
+ await env.DB.prepare('INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) VALUES (?1,?2,?3,?4,0,?5,?5,?6,?6)').bind(id,app.tableId,orgId,JSON.stringify({task:'Independent live row'}),'1','now').run();
+ const request={forkId:fork.id,revision:2},resolutions={[`primary:${id}`]:'preview'};
+ const reviewed=await (await run('database',{action:'merge_preview',...request,resolutions})).json();
+ expect(reviewed).toMatchObject({resolved:true,conflicts:[{changeId:`primary:${id}`,production:{task:'Independent live row'},preview:{task:'Preview row'}}]});
+ expect(await (await run('database',{action:'merge_apply',...request,checksum:reviewed.checksum,resolutions})).json()).toMatchObject({merged:true,changed:1});
+ expect((await (await call(`/tables/${app.tableId}`,owner)).json()).rows).toMatchObject([{id,values:{task:'Preview row'}}]);
+});
+
+test('keeping production can finish a preview without writing any rows',async()=>{
+ const row=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Original'}})).json()).row;
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'update',rowId:row.id,values:{task:'Preview'}});
+ await env.DB.prepare('UPDATE hx_rows SET data=?1,updated_at=?2 WHERE org_id=?3 AND table_id=?4 AND id=?5').bind(JSON.stringify({task:'Production'}),'later',orgId,app.tableId,row.id).run();
+ const request={forkId:fork.id,revision:2},resolutions={[`primary:${row.id}`]:'production'};
+ const reviewed=await (await run('database',{action:'merge_preview',...request,resolutions})).json();
+ expect(await (await run('database',{action:'merge_apply',...request,checksum:reviewed.checksum,resolutions})).json()).toMatchObject({merged:true,changed:0,keptProduction:1});
+ expect((await (await call(`/tables/${app.tableId}`,owner)).json()).rows).toMatchObject([{id:row.id,values:{task:'Production'}}]);
+ expect((await (await run('database')).json()).fork.mergedAt).toBeTruthy();
+});
+
 test('merge can delete an unchanged production row and rejects later changes after review',async()=>{
  const row=(await (await call('/tables/'+app.tableId+'/rows',owner,{values:{task:'Remove me'}})).json()).row;
  let {fork}=await (await run('database',{action:'fork'})).json();

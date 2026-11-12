@@ -1627,7 +1627,7 @@ export async function handleHarness(request, env, url, context = {}) {
         }
         if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
-        if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,...review}=result; return respond(review,undefined,(snapshots||[]).map(snapshot=>snapshot.tableId)); }
+        if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,appliedChanges,...review}=result; return respond(review,undefined,(snapshots||[]).map(snapshot=>snapshot.tableId)); }
         if (input.action === 'merge_apply') {
           const result=await mergeFork(env.DB,orgId,app,me,input);
           if(result.error)return respond(result);

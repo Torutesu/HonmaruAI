@@ -5,8 +5,8 @@ import {CompanyApp} from './CompanyApp'
 
 async function setup(conflicts:unknown[]=[],database:any=null) {
  const fork={id:'private-fork',revision:4,entities:[{key:'primary',table:{id:'table',name:'Tasks',columns:[]},rows:[]}]}
- const review={forkId:fork.id,revision:4,checksum:'reviewed-digest',conflicts,changes:[{entity:'primary',tableId:'table',tableName:'Tasks',id:'row',operation:'create',before:null,after:{name:'Draft'}}]}
- const api={appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),appDatabase:vi.fn().mockResolvedValue(database||{fork,version:1,entities:fork.entities,migrations:[]}),mergePreview:vi.fn().mockResolvedValue(review),previewDatabaseMigration:vi.fn().mockResolvedValue({previewChecksum:'reviewed-schema-digest',canApply:true,changes:[{entity:'primary',tableName:'Tasks',operations:['convert_column'],rowsScanned:1,rowsChanged:1,examples:[{id:'row',before:{amount:'12'},after:{amount:12}}],blockers:[]}],blockers:[],blockerCount:0}),databaseChange:vi.fn().mockResolvedValue({merged:true})}
+ const review={forkId:fork.id,revision:4,checksum:'reviewed-digest',resolved:conflicts.length===0,conflicts,changes:[{entity:'primary',tableId:'table',tableName:'Tasks',id:'row',operation:'create' as const,before:null,after:{name:'Draft'}}]}
+ const api={appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),appDatabase:vi.fn().mockResolvedValue(database||{fork,version:1,entities:fork.entities,migrations:[]}),mergePreview:vi.fn(async(_id:string,_fork:any,resolutions:Record<string,string>={})=>({...review,resolved:conflicts.every((conflict:any)=>Boolean(resolutions[conflict.changeId])),resolutions})),previewDatabaseMigration:vi.fn().mockResolvedValue({previewChecksum:'reviewed-schema-digest',canApply:true,changes:[{entity:'primary',tableName:'Tasks',operations:['convert_column'],rowsScanned:1,rowsChanged:1,examples:[{id:'row',before:{amount:'12'},after:{amount:12}}],blockers:[]}],blockers:[],blockerCount:0}),databaseChange:vi.fn().mockResolvedValue({merged:true,changed:1})}
  const reload=vi.fn();let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<CompanyApp app={{id:'app'}as any} api={api as any} canManage reload={reload}/> )})
  const button=(name:string)=>tree!.root.findAllByType('button').find(b=>b.children.join('')===name)!
@@ -20,15 +20,23 @@ test('production merge requires a reviewed diff and sends exactly its checksum a
  expect(api.databaseChange).not.toHaveBeenCalled()
  expect(tree.root.findByProps({'aria-label':'検証DBの反映差分'})).toBeTruthy()
  await act(async()=>button('この差分を本番に反映').props.onClick())
- expect(api.databaseChange).toHaveBeenCalledWith('app',{action:'merge_apply',forkId:'private-fork',revision:4,checksum:'reviewed-digest'})
+ expect(api.databaseChange).toHaveBeenCalledWith('app',{action:'merge_apply',forkId:'private-fork',revision:4,checksum:'reviewed-digest',resolutions:{}})
  expect(reload).toHaveBeenCalledOnce()
  act(()=>tree.unmount())
 })
-test('conflicting production rows prevent confirmation',async()=>{
- const {tree,button,api}=await setup([{entity:'primary',id:'row',reason:'Changed'}])
+test('conflicting production rows require a choice and a second review before confirmation',async()=>{
+ const conflict={changeId:'primary:row',entity:'primary',id:'row',reason:'Changed',production:{name:'Live'},preview:{name:'Draft'}}
+ const {tree,button,api}=await setup([conflict])
  await act(async()=>button('本番への反映差分を確認').props.onClick())
  expect(button('この差分を本番に反映').props.disabled).toBe(true)
- expect(api.databaseChange).not.toHaveBeenCalled()
+ const select=tree.root.findByProps({'aria-label':'primary row の競合解決'})
+ await act(async()=>select.props.onChange({target:{value:'production'}}))
+ expect(button('選択内容を再確認').props.disabled).toBe(false)
+ await act(async()=>button('選択内容を再確認').props.onClick())
+ expect(api.mergePreview).toHaveBeenLastCalledWith('app',expect.objectContaining({id:'private-fork'}),{'primary:row':'production'})
+ expect(button('この差分を本番に反映').props.disabled).toBe(false)
+ await act(async()=>button('この差分を本番に反映').props.onClick())
+ expect(api.databaseChange).toHaveBeenCalledWith('app',{action:'merge_apply',forkId:'private-fork',revision:4,checksum:'reviewed-digest',resolutions:{'primary:row':'production'}})
  act(()=>tree.unmount())
 })
 test('database changes require a fresh data preview and apply its checksum',async()=>{

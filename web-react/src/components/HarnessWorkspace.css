@@ -343,6 +343,18 @@
 .hx-company-app summary { cursor: pointer; }
 .hx-company-app .hx-db-migration-history { display: grid; gap: 8px; margin: 0; padding-left: 24px; }
 .hx-company-app .hx-db-migration-history > li::marker { color: var(--hx-muted); font-variant-numeric: tabular-nums; }
+.hx-company-app .hx-merge-conflicts { display: grid; gap: 12px; padding: 16px; border: 1px solid color-mix(in srgb, var(--hx-action) 42%, var(--hx-border)); border-radius: 12px; background: color-mix(in srgb, var(--hx-action) 5%, var(--hx-surface)); }
+.hx-company-app .hx-merge-conflicts h4,.hx-company-app .hx-merge-conflicts p { margin: 0; }
+.hx-company-app .hx-merge-conflicts > p { color: var(--hx-muted); line-height: 1.55; }
+.hx-company-app .hx-merge-conflict { display: grid; grid-template-columns: minmax(0,1fr) minmax(220px,.42fr); align-items: start; gap: 16px; padding: 14px; border: 1px solid var(--hx-border); border-radius: 10px; background: var(--hx-surface); }
+.hx-company-app .hx-merge-conflict > div { min-width: 0; }
+.hx-company-app .hx-merge-conflict > div > p { margin: 5px 0 10px; color: var(--hx-muted); font-size: 12px; }
+.hx-company-app .hx-merge-conflict details { padding: 9px 10px; background: var(--hx-hover); }
+.hx-company-app .hx-merge-conflict pre { max-height: 180px; margin-bottom: 0; }
+.hx-company-app .hx-merge-conflict label { min-width: 0; }
+.hx-company-app .hx-merge-review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.hx-company-app .hx-merge-review-actions p { margin: 0; color: var(--hx-muted); }
+@media (max-width: 700px) { .hx-company-app .hx-merge-conflict { grid-template-columns: minmax(0,1fr); } }
 .hx-company-app .hx-db-migration-history > li > details { background: var(--hx-surface); }
 .hx-company-app .hx-db-migration-history > li > details[open] > summary { margin-bottom: 8px; }
 .hx-company-app .hx-db-migration-history [role="alert"] { margin-top: 8px; padding: 10px 12px; border-left: 3px solid var(--hx-danger); border-radius: 6px; color: var(--hx-danger); background: color-mix(in srgb, var(--hx-danger) 8%, var(--hx-surface)); line-height: 1.5; }

@@ -548,10 +548,15 @@
       "code": "worker/src/harness/appMerge.js",
       "acceptance": "プレビューの書込みが本番DBを変更しない",
       "evidence": {
-        "reviewedAt": "2026-10-18",
-        "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
-        "implementedScope": "Private database forks, baseline-aware merge review and atomic conflict rejection are implemented.",
-        "remaining": "50 changed rows per merge, no selective merge or schema merge; legacy forks need recreation.",
+        "reviewedAt": "2026-11-13",
+        "inspectedMain": "2f5660ce10235df7c2f0bd884d299ad035e587fb",
+        "implementedScope": "Private database forks, baseline-aware merge review, atomic conflict protection and per-record conflict decisions are implemented. Reviewers can explicitly use the preview value or keep the current production value; the chosen outcome is included in the checksum and the exact final relation state is validated before any write. The changes are committed atomically, including the row-event outbox.",
+        "remaining": "50 changed rows per merge; schema changes cannot yet be merged from a fork, and legacy forks without baselines need recreation. Kylon's documented preview data remains a private copy; Honmaru's explicit data merge is an additional reviewed capability, not required for preview isolation.",
+        "latestIncrement": {
+          "scope": "Add record-level production-conflict choices to the Company App merge review UI. Choosing production skips that record; choosing preview revalidates and applies the preview value, including converting a colliding create into an explicit update. If every conflicting change keeps production, the preview can be completed without row writes. Resolution choices are checksum-bound, and final relation integrity is checked against the resulting production state.",
+          "verification": "Worker harness-company + harness-app-relations: 58/58 tests passed, including per-record keep/use decisions, checksum mismatch, create-ID collision, no-write completion, relation handling and atomic replay; harness-apps: 167/167 passed. CompanyApp UI: 6/6 tests passed. Web production TypeScript/Vite build passed. Exact-head CI and release pending.",
+          "remaining": "50 changed rows per merge, schema merge, legacy forks without baselines, Kylon visual comparison and authenticated production multi-user acceptance."
+        },
         "verification": "docs/kylon-parity/verification.md"
       }
     },
