@@ -7,6 +7,18 @@ const err = (error, status = 400) => ({ error, status });
 const keyOK = k => typeof k === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(k);
 export const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
 
+function readJournalPlan(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return { operations: parsed, inverseOperations: null };
+    if (parsed?.format === 2 && Array.isArray(parsed.operations)
+      && (parsed.inverseOperations === null || Array.isArray(parsed.inverseOperations))) {
+      return { operations: parsed.operations, inverseOperations: parsed.inverseOperations };
+    }
+  } catch { /* malformed journals are surfaced as unverified below */ }
+  return null;
+}
+
 export function relationStateError(entities) {
   const byKey = new Map((entities || []).map(entity => [entity.key, new Set((entity.rows || []).map(row => row.id))]));
   for (const entity of entities || []) for (const column of entity.table.columns || []) {
@@ -31,10 +43,14 @@ export async function databaseView(db, orgId, app) {
   for (const r of results || []) entities.push({ key: r.entity_key, table: await getTable(db, orgId, r.table_id) });
   const journal = await db.prepare('SELECT migration_id AS id, version, checksum, plan, created_at AS createdAt FROM hx_app_migrations WHERE org_id=?1 AND app_id=?2 ORDER BY version DESC LIMIT 50').bind(orgId, app.id).all();
   const migrations = await Promise.all((journal.results || []).map(async r => {
-    let plan = null;
-    try { plan = JSON.parse(r.plan); } catch { /* malformed journal content is exposed as unverified, never as a plan */ }
-    const integrityValid = plan !== null && await digest(r.plan) === r.checksum;
-    return { ...r, plan: integrityValid ? plan : null, integrityValid };
+    const decoded = readJournalPlan(r.plan);
+    const integrityValid = decoded !== null && await digest(r.plan) === r.checksum;
+    return {
+      ...r,
+      plan: integrityValid ? decoded.operations : null,
+      inverseOperations: integrityValid ? decoded.inverseOperations : null,
+      integrityValid,
+    };
   }));
   return { version: state?.version || 0, entities, migrations };
 }
@@ -392,18 +408,33 @@ export async function applyMigration(db, orgId, app, input, by) {
   if (!keyOK(input.id) || !Number.isSafeInteger(input.version) || input.version < 0) return err('A migration ID and database version are required.');
   const serializedInput = JSON.stringify(input.operations);
   if (!serializedInput || serializedInput.length > 30000) return err('Migration is too large.');
-  const checksum = await digest(serializedInput);
   const old = await db.prepare('SELECT checksum, version, plan FROM hx_app_migrations WHERE org_id=?1 AND app_id=?2 AND migration_id=?3').bind(orgId, app.id, input.id).first();
   if (old) {
-    if (await digest(old.plan) !== old.checksum) return err('Migration journal integrity check failed.', 409);
-    return old.checksum === checksum ? { applied: true, replay: true, version: old.version } : err('This migration ID has different content.', 409);
+    const decoded = readJournalPlan(old.plan);
+    if (!decoded || await digest(old.plan) !== old.checksum) return err('Migration journal integrity check failed.', 409);
+    return JSON.stringify(decoded.operations) === serializedInput
+      ? { applied: true, replay: true, version: old.version }
+      : err('This migration ID has different content.', 409);
   }
   const preview = await buildMigrationPreview(db, orgId, app, input);
   if (preview.error) return preview;
   if (preview.blockers.length) return err('Resolve every blocked row in the preview before applying this migration.', 409);
   if (preview.nonAdditive && input.previewChecksum !== preview.previewChecksum) return err('Data changed after preview. Preview the migration again.', 409);
   if (input.previewChecksum && input.previewChecksum !== preview.previewChecksum) return err('Migration preview changed. Review it again.', 409);
-  const { serialized, current, planned } = preview;
+  const { current, planned } = preview;
+  const additiveOnly = input.operations.length > 0 && input.operations.every(operation => operation?.op === 'add_columns');
+  const inverseOperations = additiveOnly
+    ? planned.changes.flatMap(change => {
+      const existingIds = new Set(current.entities.find(entity => entity.key === change.key)?.table.columns.map(column => column.id) || []);
+      return change.table.columns.filter(column => !existingIds.has(column.id)).map(column => ({
+        op: 'drop_empty_column', entity: change.key, column: column.id,
+      }));
+    })
+    : null;
+  // New journal entries wrap the exact requested operations and their reviewed,
+  // stable-ID inverse. Legacy array entries remain readable and replayable.
+  const journalPlan = JSON.stringify({ format: 2, operations: input.operations, inverseOperations });
+  const checksum = await digest(journalPlan);
   const count = await db.prepare('SELECT COUNT(*) AS n FROM hx_tables WHERE org_id=?1').bind(orgId).first();
   if (count.n + planned.changes.filter(c => c.create).length > MAX_TABLES_PER_ORG) return err('Workspace table limit reached.', 409);
   const latestRowChange = preview.snapshots.flatMap(snapshot => snapshot.rows).reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt) + 1 || 0), Date.now());
@@ -424,7 +455,7 @@ export async function applyMigration(db, orgId, app, input, by) {
     db.prepare(`INSERT OR IGNORE INTO hx_app_database_state (org_id,app_id,version) SELECT ?1,?2,0 WHERE ${databaseAuthority('?1','?2','?3',"'[]'",true)}`).bind(orgId, app.id,String(by)),
     // Reject a concurrent legacy schema edit too, not just another migration.
     db.prepare(`UPDATE hx_app_database_state SET version=version+1 WHERE org_id=?1 AND app_id=?2 AND version=?3 ${schemaGuard} ${rowGuard} AND ${databaseAuthority('?1','?2','?7',"(SELECT json_group_array(json_extract(value,'$.tableId')) FROM json_each(?4))",true)}`).bind(orgId, app.id, current.version, JSON.stringify(preview.schema), JSON.stringify(preview.snapshots), JSON.stringify(preview.relationTargets),String(by)),
-    db.prepare('INSERT INTO hx_app_migrations (org_id,app_id,migration_id,version,checksum,plan,nonce,created_by,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9 WHERE changes()=1').bind(orgId, app.id, input.id, version, checksum, serialized, nonce, String(by), at),
+    db.prepare('INSERT INTO hx_app_migrations (org_id,app_id,migration_id,version,checksum,plan,nonce,created_by,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9 WHERE changes()=1').bind(orgId, app.id, input.id, version, checksum, journalPlan, nonce, String(by), at),
   ];
   for (const c of planned.changes) {
     if (c.create) {

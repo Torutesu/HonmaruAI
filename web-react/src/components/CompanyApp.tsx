@@ -1,6 +1,6 @@
 import {AppAutomations} from './AppAutomations'
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { App, AppAction, AppConnection, AppDatabase, AppHosting, MergeReview, MigrationPreview, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
+import type { App, AppAction, AppConnection, AppDatabase, AppMigration, AppHosting, MergeReview, MigrationPreview, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
 
 export function CompanyApp({ app, api, canManage, reload }: {app: App; api: HarnessApi; canManage: boolean; reload: () => unknown}) {
   const scope=useMemo(()=>({appId:app.id,api}),[app.id,api]),activeScope=useRef<typeof scope|null>(scope);activeScope.current=scope
@@ -46,6 +46,12 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
     if(!blocker.resolution)return
     try { const operations=JSON.parse(plan);if(!Array.isArray(operations))return;const operation=operations.find((item:any)=>item?.entity===blocker.resolution!.entity&&item?.column===blocker.resolution!.columnId&&item?.op==='convert_column');if(!operation)return;operation.matchResolutions={...(operation.matchResolutions||{}),[blocker.resolution.label]:recordId};setPlan(JSON.stringify(operations,null,2));setConfirmMigration(false) } catch { /* invalid JSON remains unchanged */ }
   }
+  function prepareAdditiveRollback(migration:AppMigration) {
+    if(!migration.integrityValid||!migration.inverseOperations?.length)return
+    if(plan!=='[]'&&!window.confirm('編集中の変更案を、追加列を取り除く新しいDB変更案で置き換えます。現在の入力は保持されません。続けますか？'))return
+    const safeId=`rollback_${migration.id.toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,10)}_v${db?.version??0}`
+    setPlan(JSON.stringify(migration.inverseOperations,null,2));setMigrationId(safeId);setMigrationPreview(null);setConfirmMigration(false);setNotice(`${migration.id}の追加列を取り除く新しい変更案を用意しました。プレビューしてから適用してください。`)
+  }
   return <section className="hx-company-app">
     <h2>アプリの実行基盤</h2><p>サーバー処理・データ・接続を、このアプリの権限と監査履歴の下で管理します。</p>
     <nav className="hx-tabs" aria-label="実行基盤の機能">{([['actions','サーバー処理'],['database','データベース'],['connections','外部接続'],['automations','自動化'],['hosting','公開と環境変数']] as const).filter(([id])=>id!=='hosting'||canManage).map(([id,label])=><button key={id} className={tab===id?'on':''} onClick={()=>{actionEditGeneration.current++;setTab(id);setError('');setNotice('');setPrompt('');if(id==='hosting')void run(loadHosting)}}>{label}</button>)}</nav>
@@ -73,7 +79,7 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
         <h3>DB変更履歴</h3>
         {!db.migrations.length?<p>適用済みの変更はありません。</p>:<ol className="hx-db-migration-history">{db.migrations.map(migration=><li key={`${migration.id}:${migration.version}`}>
           <details><summary>v{migration.version} · {migration.id} · {new Date(migration.createdAt).toLocaleString()}</summary>
-            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre></>}
+            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre>{canManage&&migration.inverseOperations&&migration.inverseOperations.length>0&&<><p>この変更で追加した列だけを対象にした逆変更案を作れます。列に値が入っている場合はプレビューで適用が止まります。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>prepareAdditiveRollback(migration)}>追加列を戻す変更案を作成</button></>}</>}
           </details>
         </li>)}</ol>}
       </section>
