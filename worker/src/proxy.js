@@ -150,7 +150,7 @@ Reply with JSON only: {"act":"none"} or {"act":"answer"} or {"act":"code"}.
 - code: work in a code repository — review a pull request, read or explain code, find or fix a bug in code.`;
   const user = `${transcript.length ? `Earlier:\n${transcript.slice(-8).join("\n").slice(-2500)}\n\n` : ""}${asker} wrote: ${clip(body, 2000)}`;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model: provider.model, temperature: 0, max_tokens: 20, messages: [{ role: "system", content: system }, { role: "user", content: user }] }),

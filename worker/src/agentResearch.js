@@ -166,7 +166,7 @@ export async function research({ provider, env, instructions, input, tools = {},
     };
     let data;
     try {
-      const res = await fetch(endpoint, {
+      const res = await (provider.request || fetch)(endpoint, {
         method: "POST",
         headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),

@@ -87,7 +87,7 @@ export async function draftCanvas({ body, messages, locale, provider, allowance,
   if (!provider || (allowance && !allowance.allowed) || !messages.length) return unchanged;
   try {
     const said = messages.map((m) => `[${m.at.slice(0, 16).replace("T", " ")}] ${m.who}: ${m.text}`).join("\n").slice(-20_000);
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       signal: AbortSignal.timeout(60_000),
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },

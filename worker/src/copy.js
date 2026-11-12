@@ -90,7 +90,7 @@ async function translateCatalog(env, lang, english, { orgId }) {
   const provider = orgId ? await providerFor(env, orgId) : providerConfig(env);
   if (!provider) return null;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       signal: AbortSignal.timeout(30_000),
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },

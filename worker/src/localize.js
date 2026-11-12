@@ -47,7 +47,7 @@ ${JSON.stringify({ title: card.title || "", summary: card.summary || "", context
 
   let data;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       signal: AbortSignal.timeout(30_000),
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },

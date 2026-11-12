@@ -145,7 +145,7 @@ async function callModel(provider, batch, lang) {
   const input = { items: batch.map((r) => ({ id: r.id, text: String(r.body).slice(0, MAX_TEXT) })) };
   let data;
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       method: "POST",
       signal: AbortSignal.timeout(45_000),
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },

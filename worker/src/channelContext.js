@@ -165,7 +165,7 @@ export async function channelContext(env, { orgId, key, locale = "en", viewer = 
 
 async function chatSummary(provider, input) {
   try {
-    const res = await fetch(provider.endpoint, {
+    const res = await (provider.request || fetch)(provider.endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
       signal: AbortSignal.timeout(90000),

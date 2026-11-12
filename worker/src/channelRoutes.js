@@ -2524,10 +2524,8 @@ export async function handleChannels(request, env, url, { route, after }) {
       let notes = null;
       try {
         if (provider && (!allowance || allowance.allowed)) {
-          const transcript = await transcribe(env, provider, bytes, contentType, { locale });
+          const transcript = await transcribe(env, provider, bytes, contentType, { locale, minutes });
           if (transcript) {
-            // Transcription is billed by the minute, not by the token.
-            provider.usage?.push({ purpose: "jam_transcript", provider: "OpenAI", model: env.JAM_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe", input: 0, output: 0, usd: minutes * 0.003 });
             notes = await jamNotes(provider, transcript, { locale, allowance });
           }
         }

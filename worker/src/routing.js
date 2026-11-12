@@ -1085,7 +1085,7 @@ async function routeInstructionWithOpenRouter({
   const canResearch = researchTools.length > 0;
 
   const ask = async (tools, toolChoice) => {
-    const response = await fetch(endpoint, {
+    const response = await (openRouter.request || fetch)(endpoint, {
       method: "POST",
       headers,
       body: JSON.stringify({

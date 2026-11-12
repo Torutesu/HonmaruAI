@@ -105,7 +105,7 @@ export async function chatTools({provider, instructions, input, tools, authorize
     if (Date.now() >= deadline) return done();
     let data;
     try {
-      const response = await fetch(provider.endpoint, {method: 'POST', headers,
+      const response = await (provider.request || fetch)(provider.endpoint, {method: 'POST', headers,
         body: JSON.stringify({model: provider.model, messages, tools: definitions, tool_choice: finalOnly ? 'none' : 'auto', max_tokens: maxOutputTokens}),
         signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))]) : AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))});
       if (!response.ok) return signal?.aborted?done({cancelled:true}):done({refused: !called, status: response.status});
