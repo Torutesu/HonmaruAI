@@ -235,7 +235,7 @@ Current https://docs.kylon.io/concepts/rooms describes suitable-agent routing an
 ### 2026-11-10 — Latest main release evidence
 
 PR #870 is on main at `1e68161e5b2bbefb8e121a3a22f4ef5fd952994d`. Main CI [#42764954936](https://github.com/Torutesu/HonmaruAI/actions/runs/42764954936), Worker deploy [#42764954930](https://github.com/Torutesu/HonmaruAI/actions/runs/42764954930), and Web deploy [#42764955095](https://github.com/Torutesu/HonmaruAI/actions/runs/42764955095) succeeded. This release includes live Workspace/Room audience sharing for Files, Apps, and Threads; it does not establish full Kylon parity or multi-user production acceptance.
-| KY-100 | 編集済みAI下書きの学習を元Agentへ引き継ぐ | 一部 | P1 | [ReplyDraft.tsx](../../web-react/src/components/ReplyDraft.tsx), [draftEdits.js](../../worker/src/draftEdits.js) | PR #788 / main 2070c407。編集差分を利用者・workspace・Agent・cardに限定し、同一Agentへの次の直接メッセージへ一度だけ引き継ぐ。編集例本文と明示的な個人文体設定を分離し、export/deleteを実装。PR exact-head CI 42348597887、main CI 42349710775、Worker deploy 42349710789（migration・health ok:true）、Web deploy 42349710776（app.honmaruai.com配信）成功。認証済み本番での編集・次回返信・破棄・設定・削除/エクスポートUI比較が残るため一部 |
+| KY-100 | 編集済みAI下書きの学習を元Agentへ引き継ぐ | 一部 | P1 | [ReplyDraft.tsx](../../web-react/src/components/ReplyDraft.tsx), [draftEdits.js](../../worker/src/draftEdits.js) | PR #788 / main 2070c407。編集差分を利用者・workspace・Agent・cardに限定し、同一Agentへの次の直接メッセージへ一度だけ引き継ぐ。Agent由来下書きにも明示同意の「Remember my edits」を表示し、抽象文体設定のみ保存する。編集例本文と文体設定を分離し、export/deleteを実装。今回のUIテストは保存経路が返信送信・Agent差分共有を呼ばないことを確認。認証済み本番での編集・次回返信・破棄・設定・削除/エクスポートUI比較が残るため一部 |
 
 ### 2026-11-08 — レコード／フィールドを指した会話
 

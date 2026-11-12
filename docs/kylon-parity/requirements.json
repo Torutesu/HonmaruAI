@@ -1278,10 +1278,10 @@
       "priority": "P1",
       "source": "https://kylon.io/changelog",
       "code": "worker/src/draftEdits.js, worker/src/draftPreferences.js, web-react/src/components/ReplyDraft.tsx",
-      "acceptance": "作成元のAgent返信を利用者が編集した場合、差分だけを利用者・workspace・Agent・cardに限定して保存し、次に同じAgentへ直接送るメッセージへ一度だけ引き継ぐ。明示的に希望した文体の記憶と編集例本文を分離し、利用者が削除・エクスポートできる。Simpleの既存体験、新規課金、外部送信への副作用を生まない。認証済み本番UIでKylonと比較する。",
+      "acceptance": "作成元のAgent返信を利用者が編集した場合、差分だけを利用者・workspace・Agent・cardに限定して保存し、次に同じAgentへ直接送るメッセージへ一度だけ引き継ぐ。Agent由来を含む下書きで利用者が明示的に選べる『Remember my edits』は、編集本文を再利用せず許可済みの抽象文体設定だけを保存する。編集例本文と文体設定を分離し、利用者が削除・エクスポートできる。Simpleの既存体験、新規課金、外部送信への副作用を生まない。認証済み本番UIでKylonと比較する。",
       "evidence": {
         "verified": "PR #788をmain commit 2070c40714b952e7ddff26c3b0052f4b8f98a002として公開。PR exact-head CI run 42348597887は全jobs成功、main CI 42349710775もWorker 4 shards・E2E・Web・relay・desktop・gateway・core/mobileが成功。Worker deployment 42349710789でD1 migration/column additions・Deploy・Verifyが成功し、本番healthは ok:true、encryption.all:true。Web deployment 42349710776はPages・domain checkが成功し、app.honmaruai.comがasset index-DQFLbTXr.jsを配信。",
-        "remaining": "ログイン済みHonmaruとKylonで編集下書きを作り、次の同一Agent宛メッセージに一度だけ反映されること、破棄・個人設定・削除/エクスポートを画面操作で比較する。現状は本番デプロイと自動試験の確認までで、実データを使ったUI acceptanceは未実施。Simpleモードの既存経路は保持。"
+        "remaining": "ログイン済みHonmaruとKylonで編集下書きを作り、次の同一Agent宛メッセージに一度だけ反映されること、Agent由来下書きからの明示的な文体記憶、破棄・個人設定・削除/エクスポートを画面操作で比較する。現状は本番デプロイと自動試験の確認までで、実データを使ったUI acceptanceは未実施。Simpleモードの既存経路は保持。"
       }
     },
     {

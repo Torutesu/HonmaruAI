@@ -174,7 +174,7 @@ export const ReplyDraft: React.FC<Props> = ({ httpBase, orgId, sessionToken, car
               ) : (
                 <div className="hist-draft-actions">
                   {draft.text !== draft.original && !draft.remembered && (
-                    !card.sourceAgentId && <button className="pill-btn" disabled={draft.remembering || draft.sending} onClick={rememberEdits}>
+                    <button className="pill-btn" disabled={draft.remembering || draft.sending} onClick={rememberEdits}>
                       {draft.remembering ? t('Remembering…') : t('Remember my edits')}
                     </button>
                   )}
