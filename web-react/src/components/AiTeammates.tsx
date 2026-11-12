@@ -7,8 +7,14 @@ import { useT } from '../utils/i18n'
 // and stops it at the month's limit. Nothing secret ever comes back from the
 // Worker: only whether it is set.
 
-type Provider = 'claude' | 'devin' | 'cursor' | 'codex' | 'acp'
-const PROVIDERS: Provider[] = ['claude', 'devin', 'cursor', 'codex', 'acp']
+type Provider = 'claude' | 'devin' | 'cursor' | 'codex' | 'acp' | 'hermes' | 'grok-build' | 'antigravity-cli'
+const PROVIDERS: Provider[] = ['claude', 'devin', 'cursor', 'codex', 'acp', 'hermes', 'grok-build', 'antigravity-cli']
+const ACP_PRESETS: Partial<Record<Provider, {key:string;binary:string;args:string[]}>> = {
+  acp: {key:'local-agent',binary:'acp-agent',args:[]},
+  hermes: {key:'hermes',binary:'hermes',args:['acp']},
+  'grok-build': {key:'grok-build',binary:'grok',args:['agent','stdio']},
+  'antigravity-cli': {key:'antigravity',binary:'agy',args:['acp']},
+}
 
 interface Tool { name: string; secretName: string; host: string; secretValue?: string }
 interface Teammate {
@@ -110,7 +116,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
     if (tm.models.length || tm.freeModel) body.model = draft.model
     if (tm.needs.account) body.account = draft.account
     if (tm.needs.gateway) { body.gatewayId = draft.gatewayId; body.agentKey = draft.agentKey }
-    if (tm.provider === 'acp') body.workspaceTools = draft.workspaceTools
+    if (tm.needs.gateway) body.workspaceTools = draft.workspaceTools
     if (tm.needs.tools) body.tools = draft.tools.map((x) => ({ name: x.name, secretName: x.secretName, host: x.host, ...(x.secretValue?.trim() ? { secretValue: x.secretValue.trim() } : {}) }))
     if (draft.apiKey.trim()) body.apiKey = draft.apiKey.trim()
     if (tm.needs.githubToken && draft.githubToken.trim()) body.githubToken = draft.githubToken.trim()
@@ -182,8 +188,8 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
         )}
         {tm.needs.gateway && (
           <>
-            <div className="studio-section-head"><div><h2>{t('Local ACP agent')}</h2><p>{t('This agent runs as your macOS user on the selected execution node. Configure its command and working directory on that Mac first; only its allowlist key is sent from the workspace.')}</p></div></div>
-            <pre className="form-note">node gateway/acp-config.mjs add codex-local /absolute/path/to/acp-agent /absolute/path/to/project --arg=--stdio</pre>
+            <div className="studio-section-head"><div><h2>{t('{name} on your computer', {name:tm.name})}</h2><p>{t('This agent uses its existing local sign-in and runs on the selected execution node as your macOS user. Register the command on that Mac first; Honmaru sends only the selected allowlist key and task.')}</p></div></div>
+            {(() => { const preset=ACP_PRESETS[tm.provider] || ACP_PRESETS.acp!; const args=preset.args.map(arg=>` --arg=${arg}`).join(''); return <pre className="form-note">node gateway/acp-config.mjs add {preset.key} /absolute/path/to/{preset.binary} /absolute/path/to/project{args}</pre> })()}
             <label className="teammate-field">
               <span>{t('Execution node')}</span>
               <select className="rules-number wide" disabled={off} value={draft.gatewayId} onChange={(e) => set({ gatewayId: e.target.value, agentKey: '' })} data-teammate-gateway>
@@ -205,7 +211,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
               {!harnessMode && <small>{t('Workspace MCP tools are available in Harness mode only.')}</small>}
               <small>{t('When enabled, it can read apps, tables, and workflows the person who asked may access. Their contents are sent to the local ACP agent and its existing provider. Read-only; writes and external MCP connections stay disabled.')}</small>
             </label>
-            <p className="form-note">{t('ACP agents execute with the Mac user’s permissions and may access local files, credentials, and network resources. Only connect agents and working directories you trust. Permission requests default to rejected.')}</p>
+            <p className="form-note">{t('ACP agents execute with the Mac user’s permissions and may access local files, credentials, and network resources. In default mode, the gateway accepts one action requested by the agent; strict mode accepts read-only actions and rejects writes or terminal actions. Only connect agents and working directories you trust.')}</p>
           </>
         )}
         {tm.needs.account && (

@@ -61,6 +61,23 @@ export const PROVIDERS = {
     models: [], defaultModel: null, unit: "task", minLeft: 100, defaultLimit: 20000,
     keyless: true, localGateway: true,
   },
+  // Named ACP presets keep each local agent's handle, settings and run history
+  // separate while reusing the same user-owned execution node and provider login.
+  hermes: {
+    name: "Hermes", handle: "hermes", emoji: "✦", company: "Nous Research",
+    keyHint: "", keySource: "", models: [], defaultModel: null,
+    unit: "task", minLeft: 100, defaultLimit: 20000, keyless: true, localGateway: true,
+  },
+  "grok-build": {
+    name: "Grok Build", handle: "grok-build", emoji: "𝕏", company: "xAI",
+    keyHint: "", keySource: "", models: [], defaultModel: null,
+    unit: "task", minLeft: 100, defaultLimit: 20000, keyless: true, localGateway: true,
+  },
+  "antigravity-cli": {
+    name: "Antigravity CLI", handle: "antigravity", emoji: "✧", company: "Google",
+    keyHint: "", keySource: "", models: [], defaultModel: null,
+    unit: "task", minLeft: 100, defaultLimit: 20000, keyless: true, localGateway: true,
+  },
 };
 
 const ENV_NAME = /^[A-Z][A-Z0-9_]{1,63}$/;
@@ -635,7 +652,7 @@ const acp = {
   },
 };
 
-const ADAPTERS = { claude, devin, cursor, codex, acp };
+const ADAPTERS = { claude, devin, cursor, codex, acp, hermes: acp, "grok-build": acp, "antigravity-cli": acp };
 
 /// The one custom agent that answers to @claude (or @devin, @cursor) here,
 /// made or hidden.
