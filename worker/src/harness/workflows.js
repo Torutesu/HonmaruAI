@@ -198,12 +198,12 @@ export function normalizeSteps(raw) {
             if(hasLegacySource||!Array.isArray(s.sourceTables)||s.sourceTables.length<1||s.sourceTables.length>20)return {error:'Choose between 1 and 20 explicit App entities for the TypeScript program.'};
             const seen=new Set();
             for(const source of s.sourceTables){
-              if(!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).some(key=>!['entityId','tableId'].includes(key))
+              if(!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).some(key=>!['entityId','tableId','write'].includes(key))
                 ||typeof source.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(source.entityId)
-                ||typeof source.tableId!=='string'||!source.tableId.trim()||source.tableId.length>200||seen.has(source.entityId))return {error:'Choose distinct, complete App entities for the TypeScript program.'};
+                ||typeof source.tableId!=='string'||!source.tableId.trim()||source.tableId.length>200||source.write!==undefined&&typeof source.write!=='boolean'||seen.has(source.entityId))return {error:'Choose distinct, complete App entities for the TypeScript program.'};
               seen.add(source.entityId);
             }
-            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,sourceAppId:text('sourceAppId',200),sourceTables:s.sourceTables.map(source=>({entityId:source.entityId,tableId:source.tableId}))});
+            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,sourceAppId:text('sourceAppId',200),sourceTables:s.sourceTables.map(source=>({entityId:source.entityId,tableId:source.tableId,...(source.write?{write:true}:{})}))});
           }else{
             if(hasLegacySource&&sourceFields.some(key=>typeof s[key]!=='string'||!s[key].trim()||s[key].length>200))return {error:'Choose one complete App/Table source for the TypeScript program.'};
             if(hasLegacySource&&!/^([a-z][a-z0-9_]{0,39})$/.test(s.sourceEntityId))return {error:'Choose a valid App entity for the TypeScript program.'};

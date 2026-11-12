@@ -70,3 +70,17 @@ test('isolated guest queries a selected entity through the host broker',async()=
   assert.equal(requests[0].params.entityId,'details');assert.equal(requests[0].method,'table.query');
  }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
 });
+
+test('isolated guest stages a row only through an explicitly writable entity',async()=>{
+ const nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce,requests=[];
+ const child=spawn(process.execPath,['--input-type=module','--eval',WORKFLOW_BOOTSTRAP],{stdio:['pipe','pipe','pipe'],shell:false});
+ let stderr='';
+ const parser=createWorkflowOutputParser(prefix,{text:()=>{},request:request=>{requests.push(request);child.stdin.write(JSON.stringify({id:request.id,ok:true,value:{staged:true,index:1}})+'\n')}});
+ child.stdout.on('data',chunk=>parser.push(chunk.toString('utf8')));child.stderr.on('data',chunk=>stderr+=chunk.toString('utf8'));
+ const completion=new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',exitCode=>{try{parser.end();resolve(exitCode)}catch(error){reject(error)}})});
+ const timer=setTimeout(()=>child.kill('SIGKILL'),5000);
+ try{
+  child.stdin.write(JSON.stringify({nonce,context:{workspaceId:'workspace',tableSources:[{appId:'app',entityId:'primary',tableId:'table-a',write:true}]},code:`import {table} from '@honmaru/workflow-sdk';await table.insert({entityId:'primary',values:{name:'Alpha'}});`})+'\n');
+  assert.equal(await completion,0,stderr);assert.equal(requests.length,1);assert.equal(requests[0].method,'table.insert');assert.deepEqual(requests[0].params,{entityId:'primary',values:{name:'Alpha'}});
+ }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
+});
