@@ -657,7 +657,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     // model: it starts, says so, and answers when it is done.
     if (agent.provider) {
       await progress(agent, "agent");
-      const t = await teammateForAgent(env.DB, orgId, agent).catch(() => null);
+      const t = await teammateForAgent(env.DB, orgId, agent, env).catch(() => null);
       try {
         const edits = resolved.kind === 'agent' && resolved.agent?.id === agent.id
           ? await consumeDraftEditContext(env.DB,{orgId,messageId:row.id,agentId:agent.id}) : [];
@@ -841,7 +841,7 @@ async function runTeammate(env, { orgId, user, requesterId, resolved, row, membe
 /// Look in on teammates at work, and post what each finished with into the
 /// thread it came from. Once (the minute cron), or until `deadline`.
 export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause = 8000, signal = null } = {}) {
-  const publish=async payload=>postTeammateResult(env,payload.run,await loadTeammate(env.DB,payload.run.org_id,payload.run.provider),payload.read,payload.status,{clientId:`tmp-${payload.deliveryId}`,deliveryAgentId:payload.agentId});
+  const publish=async payload=>postTeammateResult(env,payload.run,await loadTeammate(env.DB,payload.run.org_id,payload.run.provider,env),payload.read,payload.status,{clientId:`tmp-${payload.deliveryId}`,deliveryAgentId:payload.agentId});
   const progressSeen=new Map();
   const publishProgress=async(run,teammate,progress)=>{
     if(!teammate?.agentId||!run.started_by)return;
@@ -870,8 +870,13 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
     for (const run of runs) {
       working += 1;
       try {
-        const t = await loadTeammate(env.DB, run.org_id, run.provider);
-        const read = canSignIn(t) ? await readRun(env, t, run,{signal}) : { texts: [], stop: "terminated", last: null, costCents: null };
+        const t = await loadTeammate(env.DB, run.org_id, run.provider, env);
+        // A Grok Bot completion is authenticated by the one-time callback token;
+        // reading its local result does not need the routine's webhook secret.
+        // The integration can still finish if the secret-encryption key is
+        // temporarily unavailable to a deferred Worker invocation.
+        const callbackRun = run.provider === "grok-bot" && t?.enabled && t?.agentId;
+        const read = canSignIn(t) || callbackRun ? await readRun(env, t, run,{signal}) : { texts: [], stop: "terminated", last: null, costCents: null };
         if(signal?.aborted)return;
         if(read.progress) {
           const key=JSON.stringify(read.progress);

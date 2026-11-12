@@ -57,7 +57,7 @@ import { handleAudit, audit, auditEverywhere, person, migrateLegacyAudit } from 
 import { shredPerson } from "./auditCrypto.js";
 import { allowed, ensureOwner, soleOwnerships } from "./permissions.js";
 import { handlePolicy, policyDenial, reauthDenial } from "./policy.js";
-import { PROVIDERS, loadTeammate, saveTeammate, toClientTeammate, spentThisMonth } from "./teammates.js";
+import { PROVIDERS, loadTeammate, saveTeammate, toClientTeammate, spentThisMonth, handleGrokBotCallback } from "./teammates.js";
 import { handleOrgKeys, warnExpiringKeys } from "./orgKeys.js";
 import { handleAdminApi } from "./adminApi.js";
 import { handleScim } from "./scim.js";
@@ -813,6 +813,13 @@ async function handle(request, env, url, ctx) {
       } });
       return json({ orgId, canEdit, ...(await aiStatus(env, orgId)) });
     }
+    const grokCallback = url.pathname.match(/^\/teammates\/grok-bot\/callback\/([0-9a-f-]{36})$/);
+    if (grokCallback && request.method === "POST") {
+      const limited = await enforce(env, request, "grok-bot-callback");
+      if (limited) return limited;
+      return handleGrokBotCallback(request, env, grokCallback[1]);
+    }
+
     // AI teammates (teammates.js): an admin sets one up and turns it on;
     // anyone in the workspace sees whether it is there and what it has
     // spent this month. Keys never come back out.
@@ -835,7 +842,7 @@ async function handle(request, env, url, ctx) {
         const me = await getUserByGithubId(env.DB, session.github_id);
         const org = await env.DB.prepare("SELECT name FROM orgs WHERE id = ?1").bind(orgId).first().catch(() => null);
         const members = await listMembers(env.DB, orgId, session.github_id).catch(() => []);
-        const before = await loadTeammate(env.DB, orgId, provider);
+        const before = await loadTeammate(env.DB, orgId, provider, env);
         const result = await saveTeammate(env, orgId, provider, body, { login: me?.login || String(session.github_id), workspaceName: org?.name || "Workspace", members });
         if (result.error) return json({ message: result.error }, 400);
         // What changed, never a key.
@@ -847,11 +854,12 @@ async function handle(request, env, url, ctx) {
           channels: body.channels === undefined ? undefined : (result.teammate?.channels === null ? "all" : result.teammate?.channels?.length),
           monthlyLimit: body.monthlyLimit !== undefined ? body.monthlyLimit : body.monthlyLimitUsd,
           account: body.account === undefined ? undefined : (body.account ? "set" : "removed"),
+          webhookUrl: body.webhookUrl === undefined ? undefined : (body.webhookUrl ? "set" : "removed"),
           tools: body.tools === undefined ? undefined : (result.teammate?.tools || []).map((t) => t.name),
         } });
       }
-      const t = await loadTeammate(env.DB, orgId, provider);
-      return json({ orgId, canEdit, teammate: toClientTeammate(t, provider, await spentThisMonth(env.DB, orgId, provider)) });
+      const t = await loadTeammate(env.DB, orgId, provider, env);
+      return json({ orgId, canEdit, teammate: toClientTeammate(t, provider, await spentThisMonth(env.DB, orgId, provider), canEdit) });
     }
     // The workspace's mark. Anyone can see it (the id is unguessable, like a
     // card's video); its admins set and remove it.

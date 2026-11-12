@@ -125,6 +125,57 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  expect(JSON.parse(saved.remote).workspaceTools).toBe(true);
 });
 
+test('Grok Bot routine accepts a thread task and a one-time authenticated callback posts the answer', async () => {
+  const dataKey = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+  const pool = fetchMock.get('https://routine.example.com');
+  let delivered = null;
+  pool.intercept({ path: '/hooks/routine-1', method: 'POST', headers: { authorization: 'Bearer routine-secret' } }).reply((opts) => {
+    delivered = JSON.parse(opts.body);
+    return { data: { accepted: true } };
+  });
+  const saved = await send('PUT', '/teammates', toru, {
+    orgId: ORG, provider: 'grok-bot', enabled: true, webhookUrl: 'https://routine.example.com/hooks/routine-1', apiKey: 'routine-secret',
+  }, { DATA_KEY: dataKey });
+  expect(saved.status).toBe(200);
+  const teammate = (await saved.json()).teammate;
+  expect(teammate).toMatchObject({ provider: 'grok-bot', enabled: true, hasKey: true, hasApiKey: true, webhookUrl: 'https://routine.example.com/hooks/routine-1' });
+  expect(JSON.stringify(teammate)).not.toContain('routine-secret');
+  const stored = await env.DB.prepare("SELECT api_key,remote FROM ai_teammates WHERE org_id=?1 AND provider='grok-bot'").bind(ORG).first();
+  expect(stored.api_key).toMatch(/^enc:v2:/);
+  expect(JSON.parse(stored.remote).webhookUrl).toMatch(/^enc:v2:/);
+  const memberView = await (await call(`/teammates?${q({ orgId: ORG, provider: 'grok-bot' })}`, { headers: headers(mika) }, { DATA_KEY: dataKey })).json();
+  expect(memberView.teammate.webhookUrl).toBe('');
+  expect(JSON.stringify(memberView)).not.toContain('routine-secret');
+  const loaded = await (await call(`/teammates?${q({ orgId: ORG, provider: 'grok-bot' })}`, { headers: headers(toru) }, { DATA_KEY: dataKey })).json();
+  expect(loaded.teammate.webhookUrl).toBe('https://routine.example.com/hooks/routine-1');
+  const registeredAgent = await env.DB.prepare("SELECT * FROM custom_agents WHERE org_id=?1 AND provider='grok-bot' AND deleted_at IS NULL").bind(ORG).first();
+  const { teammateForAgent } = await import('../src/teammates.js');
+  expect((await teammateForAgent(env.DB, ORG, registeredAgent, { ...env, DATA_KEY: dataKey })).remote.webhookUrl).toBe('https://routine.example.com/hooks/routine-1');
+
+  const message = (await (await send('POST', '/channels/messages', toru, {
+    orgId: ORG, channel: 'b:cafe', body: '@grok-bot summarize this thread',
+  }, { DATA_KEY: dataKey, API_ORIGIN: 'https://example.com', TEAMMATE_WATCH_MS: '0' })).json()).message;
+  expect(delivered).toMatchObject({ task: expect.stringContaining('summarize this thread') });
+  expect(delivered.callback.url).toMatch(/^https:\/\/example\.com\/teammates\/grok-bot\/callback\//);
+  expect(delivered.callback.token).toMatch(/^[A-Za-z0-9_-]{40,60}$/);
+  expect(JSON.stringify(delivered)).not.toContain('routine-secret');
+  const run = await env.DB.prepare("SELECT * FROM ai_teammate_runs WHERE org_id=?1 AND provider='grok-bot'").bind(ORG).first();
+  expect(run).toMatchObject({ status: 'running', remote_id: delivered.task_id });
+
+  const callbackPath = new URL(delivered.callback.url).pathname;
+  const payload = { task_id: delivered.task_id, status: 'succeeded', text: 'The thread is about the launch checklist.' };
+  expect((await call(callbackPath, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })).status).toBe(401);
+  const accepted = await call(callbackPath, { method: 'POST', headers: { authorization: `Bearer ${delivered.callback.token}`, 'content-type': 'application/json' }, body: JSON.stringify(payload) }, { DATA_KEY: dataKey });
+  expect(accepted.status).toBe(204);
+  const replay = await call(callbackPath, { method: 'POST', headers: { authorization: `Bearer ${delivered.callback.token}`, 'content-type': 'application/json' }, body: JSON.stringify(payload) }, { DATA_KEY: dataKey });
+  expect(replay.status).toBe(401);
+
+  await watchTeammateRuns(env, { ids: [run.id], deadline: Date.now() });
+  const replies = await thread(toru, message.id);
+  expect(replies.map(reply => reply.body).slice(-1)).toEqual(['The thread is about the launch checklist.']);
+  expect((await env.DB.prepare('SELECT status FROM ai_teammate_runs WHERE id=?').bind(run.id).first()).status).toBe('idle');
+});
+
 test.each([
  ['hermes','Hermes','hermes'],
  ['grok-build','Grok Build','grok-build'],

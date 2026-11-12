@@ -555,3 +555,7 @@ CREATE TABLE IF NOT EXISTS hx_external_resource_audiences (org_id TEXT NOT NULL 
 CREATE INDEX IF NOT EXISTS idx_hx_external_resource_audiences_expiry ON hx_external_resource_audiences(org_id,resource_type,expires_at,resource_id);
 CREATE TABLE IF NOT EXISTS hx_external_audience_requests (request_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, resource_type TEXT NOT NULL CHECK(resource_type IN ('app','file')), resource_id TEXT NOT NULL, guest_github_id TEXT NOT NULL, audience_version INTEGER NOT NULL CHECK(audience_version>0), created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_hx_external_audience_requests_scope ON hx_external_audience_requests(org_id,resource_type,resource_id,audience_version,guest_github_id);
+
+-- #921: one-time, hashed callback credentials and final replies from Grok Bot routines.
+CREATE TABLE IF NOT EXISTS hx_grok_bot_callbacks (id TEXT PRIMARY KEY,org_id TEXT NOT NULL,token_hash TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed','cancelled','orphaned')),result TEXT,error TEXT,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,completed_at INTEGER);
+CREATE INDEX IF NOT EXISTS idx_grok_bot_callbacks_expiry ON hx_grok_bot_callbacks(expires_at);

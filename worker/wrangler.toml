@@ -7,6 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 # Not a secret. Staging has none, so it is never braked there.
 [vars]
 D1_DATABASE_ID = "08d78a7f-45eb-4837-8393-4f7c92bf39cb"
+API_ORIGIN = "https://tiktokforwork.torubj0904.workers.dev"
 
 [triggers]
 # Connectors used to sync only while the app was open — the one moment you do

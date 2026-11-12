@@ -1038,6 +1038,21 @@ CREATE INDEX IF NOT EXISTS idx_teammate_runs_status ON ai_teammate_runs(status, 
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_thread ON ai_teammate_runs(org_id, channel, thread_id);
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_month ON ai_teammate_runs(org_id, provider, created_at);
 
+/* One-time, hashed callback credentials and final replies from Grok Bot
+   routines. The raw bearer token is sent only with one task and never stored. */
+CREATE TABLE IF NOT EXISTS hx_grok_bot_callbacks (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed','cancelled','orphaned')),
+  result TEXT,
+  error TEXT,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  completed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_grok_bot_callbacks_expiry ON hx_grok_bot_callbacks(expires_at);
+
 /* An agent added to a channel or a group: shown among its members, and
    called there by anyone in it — a personal agent too, once its owner
    brings it in. */

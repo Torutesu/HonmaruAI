@@ -305,7 +305,8 @@
       "acceptance": "ACP v1 initialize/session/prompt/cancelとローカルagent認証、隔離されたcapability、Workspace MCP tools、progress/permission updates、切断後復帰を実機検証",
       "evidence": {
         "implemented": "ACP tool_call/tool_call_update/plan/message eventsを要約し、リース認証付きWorker経由で開始元会話に一時配信。引数・思考本文は送らず、UIは状態と計画だけ表示する。権限要求はWorker由来設定を受け付けず、Mac側allowlistのdefault/strictポリシーで自動応答する。 ACP cancellationを改良し、session/cancelと$/cancel_requestを先に通知。応答猶予3秒後にSIGTERM、さらに750ms後にSIGKILLし、5秒以内に子プロセスが消えるテストを追加。",
-        "remaining": "Workspace MCP capabilityの全一致、切断/再接続を含む複数ACP実装の実機検証、権限UIとの完全一致は未完了。"
+        "remaining": "Full Workspace MCP capability coverage, physical reconnect/multi-device behavior, permission UI parity, and real-device validation for each ACP implementation remain. Grok Bot is a separate Kylon integration and is not implemented by the Grok Build ACP preset.",
+        "verified": "PR #920 added named local ACP teammates for Hermes, Grok Build, and Antigravity CLI while retaining the generic ACP option. Worker integration covers all three presets; PR #920 exact-head CI, main CI #43164283706, Worker deploy/Verify #43164283779, and Web deploy/Verify #43164283643 passed. The deployed Web asset index-DmcULIiT.js was verified in deployment output. This verifies the ACP adapter aliases and release only; it does not verify the distinct Grok Bot desktop-app integration."
       }
     },
     {
@@ -1394,6 +1395,20 @@
       "evidence": {
         "verified": "Kylonの2026-11-03 changelogは人ごとのdictation dictionary、修正または手動登録による語彙学習、認識完了前の送信を追加。Honmaru Harnessは手動語彙・修正ペア、利用者単位の保存、revision CASの同期、途中結果のComposer反映と送信後の停止を実装している。",
         "remaining": "現在のリポジトリでのコンポーネント/Worker回帰試験結果を最新headに固定し、認証済みMac/Web双方で辞書編集・修正学習・端末同期・認識中送信をKylonと比較する。認識途中の実Provider動作はブラウザ実装に依存するため受入確認が必要。"
+      }
+    },
+    {
+      "id": "KY-119",
+      "category": "Agents",
+      "requirement": "Grok Botデスクトップアプリを既存契約のままチームAgentとして接続",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "worker/src/teammates.js, web-react/src/components/AiTeammates.tsx",
+      "acceptance": "Grok Bot desktop appの既存routine/webhookを使ってworkspaceのAgentとして接続し、チームメンバーがスレッドから依頼・追記し、完了結果と進捗を元スレッドへ返せる。受付(HTTP 200)を完了と誤認せず、重複実行・取消・失効・権限変更を安全に扱い、Bot所有者の既存利用枠を明示する。外部送信前に接続内容を確認し、Simpleモードの既存経路を維持する。",
+      "evidence": {
+        "verified": "Kylon公式changelogはGrok Bot desktop appをworkspace teammateへ接続する経路を説明し、xAI公式routine docsはBearer認証WebhookとHTTP 200の受付 semanticsを明記。Honmaruに既存routine webhookを登録する専用provider、暗号化保存、ワンタイムcallback、元threadへの完了結果配信、取消/期限処理、設定UIを追加。ローカルWorker統合試験でWebhook受理・認証失敗・callback一回性・thread応答を確認。",
+        "remaining": "Kylonが案内するGrok Bot desktop appからのセットアップ/接続互換性は未検証。実アカウントでroutineを接続していないため外部実動作、進捗通知、Kylonと同等のUI/操作比較、本番配信は未確認。HTTP callback型routine bridgeでdesktopアプリ固有経路の代替が成立するかも要確認。"
       }
     }
   ]

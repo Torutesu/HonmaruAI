@@ -7,8 +7,8 @@ import { useT } from '../utils/i18n'
 // and stops it at the month's limit. Nothing secret ever comes back from the
 // Worker: only whether it is set.
 
-type Provider = 'claude' | 'devin' | 'cursor' | 'codex' | 'acp' | 'hermes' | 'grok-build' | 'antigravity-cli'
-const PROVIDERS: Provider[] = ['claude', 'devin', 'cursor', 'codex', 'acp', 'hermes', 'grok-build', 'antigravity-cli']
+type Provider = 'claude' | 'devin' | 'cursor' | 'codex' | 'acp' | 'hermes' | 'grok-build' | 'antigravity-cli' | 'grok-bot'
+const PROVIDERS: Provider[] = ['claude', 'devin', 'cursor', 'codex', 'acp', 'hermes', 'grok-build', 'antigravity-cli', 'grok-bot']
 const ACP_PRESETS: Partial<Record<Provider, {key:string;binary:string;args:string[]}>> = {
   acp: {key:'local-agent',binary:'acp-agent',args:[]},
   hermes: {key:'hermes',binary:'hermes',args:['acp']},
@@ -20,14 +20,14 @@ interface Tool { name: string; secretName: string; host: string; secretValue?: s
 interface Teammate {
   provider: Provider; name: string; handle: string; emoji: string; company: string; keyHint: string; keySource: string
   models: string[]; freeModel: boolean; unit: 'usd' | 'acu' | 'task'
-  needs: { apiKey: boolean; githubToken: boolean; tools: boolean; account: boolean; repos: boolean; gateway?: boolean; agent?: boolean }
+  needs: { apiKey: boolean; githubToken: boolean; tools: boolean; account: boolean; repos: boolean; gateway?: boolean; agent?: boolean; webhookBot?: boolean }
   enabled: boolean; hasKey: boolean; hasApiKey: boolean; hasGithubToken: boolean; account: string
   repos: string[]; model: string; instructions: string; channels: string[] | null
   monthlyLimit: number | null; spentThisMonth: number; tools: Tool[]; ready: boolean
   workspaceTools: boolean
   /// Claude: an issue link or a bug report posted in a channel starts it.
   autoBuild?: boolean
-  gatewayId: string; agentKey: string
+  gatewayId: string; agentKey: string; webhookUrl: string
 }
 interface Channel { slug: string; name: string }
 interface Gateway { id: string; name: string; lastSeenAt?: number | null; acpAgents?: string[]; revokedAt?: number | null }
@@ -35,7 +35,7 @@ interface Gateway { id: string; name: string; lastSeenAt?: number | null; acpAge
 interface Draft {
   apiKey: string; githubToken: string; account: string; model: string; instructions: string; repos: string
   everywhere: boolean; channels: Set<string>; limit: string; tools: Tool[]; autoBuild: boolean
-  gatewayId: string; agentKey: string; workspaceTools: boolean
+  gatewayId: string; agentKey: string; workspaceTools: boolean; webhookUrl: string
 }
 
 const draftOf = (tm: Teammate): Draft => ({
@@ -44,7 +44,7 @@ const draftOf = (tm: Teammate): Draft => ({
   limit: tm.monthlyLimit === null ? '' : String(tm.monthlyLimit), tools: tm.tools.map((x) => ({ ...x, secretValue: '' })),
   autoBuild: tm.autoBuild !== false,
   gatewayId: tm.gatewayId || '', agentKey: tm.agentKey || '',
-  workspaceTools: tm.workspaceTools === true,
+  workspaceTools: tm.workspaceTools === true, webhookUrl: tm.webhookUrl || '',
 })
 
 export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionToken: string }> = ({ httpBase, orgId, sessionToken }) => {
@@ -117,6 +117,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
     if (tm.needs.account) body.account = draft.account
     if (tm.needs.gateway) { body.gatewayId = draft.gatewayId; body.agentKey = draft.agentKey }
     if (tm.needs.gateway) body.workspaceTools = draft.workspaceTools
+    if (tm.needs.webhookBot) body.webhookUrl = draft.webhookUrl.trim()
     if (tm.needs.tools) body.tools = draft.tools.map((x) => ({ name: x.name, secretName: x.secretName, host: x.host, ...(x.secretValue?.trim() ? { secretValue: x.secretValue.trim() } : {}) }))
     if (draft.apiKey.trim()) body.apiKey = draft.apiKey.trim()
     if (tm.needs.githubToken && draft.githubToken.trim()) body.githubToken = draft.githubToken.trim()
@@ -146,11 +147,16 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
   const off = !canEdit || busy
   const statusOf = (mate: Teammate) => (mate.enabled ? t('On') : mate.hasKey ? t('Off') : t('Not set up'))
   const unitLabel = tm.unit === 'usd' ? t('Monthly limit (USD)') : tm.unit === 'acu' ? t('Monthly limit (ACUs)') : t('Monthly limit (tasks)')
+  const canEnable = tm.needs.gateway
+    ? Boolean(draft.gatewayId && selectedGateway?.acpAgents?.includes(draft.agentKey))
+    : tm.needs.webhookBot
+      ? Boolean(draft.webhookUrl.trim() && (tm.hasApiKey || draft.apiKey.trim()))
+      : Boolean(tm.hasKey || (tm.needs.apiKey ? draft.apiKey.trim() : draft.githubToken.trim()))
 
   return (
     <section className="studio-page sso-page teammates-page" data-studio-page="teammates">
       <h1 className="studio-title">{t('AI teammates')}</h1>
-      <p className="studio-lede">{t('Hand work to a coding agent in a channel, as you would to a colleague: mention its handle in a thread and it takes the work on and answers there. Cloud agents use their service account. ACP agents run on an execution node you control.')}</p>
+      <p className="studio-lede">{t('Hand work to a coding agent in a channel, as you would to a colleague: mention its handle in a thread and it takes the work on and answers there. Cloud agents use their service account, Grok Bot uses the owner’s existing Bot routine and quota, and ACP agents run on an execution node you control.')}</p>
 
       <div className="teammate-picker" role="tablist" aria-label={t('AI teammates')}>
         {PROVIDERS.map((p) => {
@@ -214,6 +220,24 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
             <p className="form-note">{t('ACP agents execute with the Mac user’s permissions and may access local files, credentials, and network resources. In default mode, the gateway accepts one action requested by the agent; strict mode accepts read-only actions and rejects writes or terminal actions. Only connect agents and working directories you trust.')}</p>
           </>
         )}
+        {tm.needs.webhookBot && (
+          <>
+            <div className="studio-section-head"><div><h2>{t('Connect your Grok Bot routine')}</h2><p>{t('Use a routine owned by your existing Grok Bot account. Requests and Room context go to that Bot and use its owner’s existing Grok Bot quota; no new service contract is added.')}</p></div></div>
+            <label className="teammate-field">
+              <span>{t('Webhook URL')}</span>
+              <input className="rules-number wide" type="url" autoComplete="url" disabled={off} value={draft.webhookUrl} placeholder="https://…" onChange={(e) => set({ webhookUrl: e.target.value })} data-teammate-webhook-url />
+            </label>
+            <label className="teammate-field">
+              <span>{t('Webhook key')}</span>
+              <input className="rules-number wide" type="password" autoComplete="off" disabled={off} value={draft.apiKey} placeholder={tm.hasApiKey ? t('Stored. Paste a new key to replace it.') : t('Paste the key from the Grok Bot routine.')} onChange={(e) => set({ apiKey: e.target.value })} data-teammate-webhook-key />
+            </label>
+            <details className="form-note">
+              <summary>{t('Routine setup instructions')}</summary>
+              <p>{t('In the one-to-one chat with your Bot, ask it to create a webhook routine named “Honmaru: {name}”. Its instructions must use each incoming task and context, then POST the final result to callback.url with Authorization: Bearer callback.token. Send JSON with task_id copied from the request, status set to succeeded and text containing the reply. On failure, send status failed and a short error. Do not return until the callback accepts the result; never show the callback token to users.', { name: tm.name })}</p>
+              <p>{t('A webhook HTTP 200 means the routine accepted work, not that it finished. Honmaru waits for the authenticated callback and does not resend an ambiguous delivery. Stopping in Honmaru ends its wait; work already started in Grok Bot may continue.')}</p>
+            </details>
+          </>
+        )}
         {tm.needs.account && (
           <label className="teammate-field">
             <span>{t('Devin organization ID')}</span>
@@ -251,7 +275,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
           <textarea className="rules-number wide" rows={4} disabled={off} value={draft.instructions} placeholder={t('How your team works: conventions, where things are, what to avoid.')} onChange={(e) => set({ instructions: e.target.value })} data-teammate-instructions />
         </label>
 
-        {tm.provider !== 'acp' && <><div className="studio-section-head"><div><h2>{t('Code')}</h2><p>{tm.needs.githubToken
+        {tm.provider !== 'acp' && !tm.needs.webhookBot && <><div className="studio-section-head"><div><h2>{t('Code')}</h2><p>{tm.needs.githubToken
           ? (tm.needs.apiKey
             ? t('The repositories Claude may clone and open pull requests on, and a GitHub token that can reach them. It never pushes to the default branch.')
             : t('The repository Codex works in (the first one listed), and a GitHub token that can push to it and open pull requests.'))
@@ -315,7 +339,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
               <button type="submit" className="studio-btn" disabled={busy} data-teammate-save>{busy ? t('Saving…') : t('Save')}</button>
               {tm.enabled
                 ? <button type="button" className="studio-btn" disabled={busy} data-teammate-off onClick={() => void save(false)}>{t('Turn off')}</button>
-                : <button type="button" className="studio-btn primary" disabled={busy || (tm.needs.gateway ? (!draft.gatewayId || !selectedGateway?.acpAgents?.includes(draft.agentKey)) : (!tm.hasKey && !(tm.needs.apiKey ? draft.apiKey : draft.githubToken).trim()))} data-teammate-on onClick={() => void save(true)}>{t('Save and turn on')}</button>}
+                : <button type="button" className="studio-btn primary" disabled={busy || !canEnable} data-teammate-on onClick={() => void save(true)}>{t('Save and turn on')}</button>}
             </div>
           )
           : <p className="form-note">{t('An admin of this workspace can change these.')}</p>}
