@@ -20,14 +20,31 @@ test('changing the action preserves its execution condition and discards obsolet
  act(()=>tree.unmount())
 })
 
-test('connection actions are limited to Notion and GitHub read-only search',()=>{
+test('connection actions include native read-only searches and explicitly granted Remote MCP tools',()=>{
  const onChange=vi.fn();let tree:any
  act(()=>{tree=create(<StepEditor step={{type:'connection',agentId:'a1',source:'notion',action:'search',query:'policy'}} onChange={onChange} onRemove={()=>{}} tables={[]} agents={[{id:'a1',handle:'policy',name:'Policy Agent'}]}/>)})
  const selects=tree.root.findAllByType('select')
  expect(selects.some((node:any)=>node.props['aria-label']==='Agent')).toBe(true)
  const connection=selects.find((node:any)=>node.props['aria-label']==='Connection')
- expect(connection.findAllByType('option').map((node:any)=>node.props.value)).toEqual(['notion','github'])
+ expect(connection.findAllByType('option').map((node:any)=>node.props.value)).toEqual(['notion','github','remote_mcp'])
  expect(tree.root.findAllByType('textarea').some((node:any)=>node.props['aria-label']==='Search query')).toBe(true)
+ act(()=>tree.unmount())
+})
+
+test('Remote MCP Workflow steps choose an Agent-granted tool and store JSON arguments',async()=>{
+ const onChange=vi.fn();const api:any={agentApps:vi.fn().mockResolvedValue({remoteMcpConnections:[{serverId:'mcp-1',name:'Knowledge',available:true,enabled:false,readOnlyToolCount:1,tools:[{name:'search_policy',title:'Search policy',description:'Search the approved policy source.',enabled:true}]}]})};let tree:any,step:any={type:'connection',source:'remote_mcp',agentId:'a1',args:{}}
+ const renderEditor=()=> <StepEditor api={api} step={step} onChange={next=>{step=next;onChange(next)}} onRemove={()=>{}} tables={[]} agents={[{id:'a1',handle:'policy',name:'Policy Agent'}]}/>
+ await act(async()=>{tree=create(renderEditor())})
+ expect(api.agentApps).toHaveBeenCalledWith('a1')
+ const connection=()=>tree.root.findByProps({'aria-label':'Remote MCP connection'})
+ act(()=>connection().props.onChange({target:{value:'mcp-1'}}))
+ act(()=>tree.update(renderEditor()))
+ const tool=()=>tree.root.findByProps({'aria-label':'Remote MCP tool'})
+ act(()=>tool().props.onChange({target:{value:'search_policy'}}))
+ act(()=>tree.update(renderEditor()))
+ const argumentsInput=()=>tree.root.findByProps({'aria-label':'Remote MCP arguments (JSON)'})
+ act(()=>argumentsInput().props.onChange({target:{value:'{"query":"{{input.query}}"}'}}))
+ expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({serverId:'mcp-1',toolName:'search_policy',args:{query:'{{input.query}}'}}))
  act(()=>tree.unmount())
 })
 

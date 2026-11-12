@@ -1,4 +1,4 @@
-import React from 'react'
+import React,{useEffect,useState} from 'react'
 import {WorkflowProgramEditor} from './WorkflowProgramEditor'
 import {WorkflowConditionEditor,blankCondition} from './WorkflowConditionEditor'
 import {useT} from '../utils/i18n'
@@ -18,6 +18,16 @@ export function StepEditor({ api, step, onChange, onRemove, tables, agents, trig
   api?:HarnessApi; step: Step; onChange: (s: Step) => void; onRemove: () => void; tables: Table[]; agents: AgentFace[]; triggerTable?: Table
 }) {
   const t = useT()
+  const [mcpConnections,setMcpConnections]=useState<NonNullable<Awaited<ReturnType<NonNullable<HarnessApi>['agentApps']>>['remoteMcpConnections']>>([])
+  const [mcpBusy,setMcpBusy]=useState(false),[mcpError,setMcpError]=useState(''),[argsText,setArgsText]=useState(JSON.stringify(step.args||{},null,2))
+  useEffect(()=>{setArgsText(JSON.stringify(step.args||{},null,2))},[step.args])
+  useEffect(()=>{
+    let live=true
+    if(step.type!=='connection'||step.source!=='remote_mcp'||!step.agentId||!api){setMcpConnections([]);setMcpError('');setMcpBusy(false);return()=>{live=false}}
+    setMcpBusy(true);setMcpError('')
+    void api.agentApps(step.agentId).then(result=>{if(live)setMcpConnections(result.remoteMcpConnections||[])}).catch(error=>{if(live){setMcpConnections([]);setMcpError(error instanceof Error?error.message:String(error))}}).finally(()=>{if(live)setMcpBusy(false)})
+    return()=>{live=false}
+  },[api,step.agentId,step.source,step.type])
   const set = (patch: Partial<Step>) => onChange({ ...step, ...patch })
   const valueTable = step.type === 'add_row' ? tables.find((x) => x.id === step.tableId) : triggerTable
   if(step.type==='code')return <div className="hx-step">{api?<WorkflowProgramEditor api={api} step={step} onChange={onChange}/>:<pre className="hx-program-source">{step.code}</pre>}<button className="btn-text danger" onClick={onRemove}>{t('Remove step')}</button></div>
@@ -55,12 +65,28 @@ export function StepEditor({ api, step, onChange, onRemove, tables, agents, trig
             <option value="">{t('Choose an agent')}</option>
             {agents.map((a) => <option key={a.id} value={a.id}>{a.emoji ? `${a.emoji} ` : ''}{a.name} (@{a.handle})</option>)}
           </select>
-          <select value={step.source || 'notion'} onChange={(e) => set({ source: e.target.value as 'notion'|'github', action: 'search' })} aria-label={t('Connection')}>
+          <select value={step.source || 'notion'} onChange={(e) => set(e.target.value==='remote_mcp'?{source:'remote_mcp',serverId:undefined,toolName:undefined,action:undefined,query:undefined,args:{}}:{source:e.target.value as 'notion'|'github', action: 'search',serverId:undefined,toolName:undefined,args:undefined})} aria-label={t('Connection')}>
             <option value="notion">Notion · {t('Search only')}</option>
             <option value="github">GitHub · {t('Search only')}</option>
+            <option value="remote_mcp">{t('Remote MCP tool')}</option>
           </select>
-          <textarea className="context-input" rows={2} placeholder={t('Search query')} value={step.query || ''} onChange={(e) => set({ query: e.target.value, action: 'search' })} aria-label={t('Search query')} />
-          <div className="row-sub">{t('Uses the selected Agent’s current connection grant. Read-only search; writes are not available.')}</div>
+          {step.source==='remote_mcp'?<>
+            <select aria-label={t('Remote MCP connection')} value={step.serverId||''} disabled={mcpBusy} onChange={event=>{const serverId=event.target.value,server=mcpConnections.find(item=>item.serverId===serverId),tool=server?.tools?.find(item=>item.enabled);set({serverId,toolName:tool?.name,args:{}})}}>
+              <option value="">{mcpBusy?t('Loading…'):t('Choose a Remote MCP connection')}</option>
+              {mcpConnections.filter(server=>server.tools?.some(tool=>tool.enabled)).map(server=><option key={server.serverId} value={server.serverId}>{server.name}</option>)}
+            </select>
+            {step.serverId&&<select aria-label={t('Remote MCP tool')} value={step.toolName||''} onChange={event=>set({toolName:event.target.value,args:{}})}>
+              <option value="">{t('Choose a read-only tool')}</option>
+              {mcpConnections.find(server=>server.serverId===step.serverId)?.tools?.filter(tool=>tool.enabled).map(tool=><option key={tool.name} value={tool.name}>{tool.title}</option>)}
+            </select>}
+            {step.toolName&&<textarea className="context-input hx-workflow-mcp-arguments" rows={5} placeholder={'{}'} value={argsText} onChange={event=>{setArgsText(event.target.value);try{const parsed=JSON.parse(event.target.value);if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))set({args:parsed})}catch{}}} aria-label={t('Remote MCP arguments (JSON)')} />}
+            {mcpError&&<p role="alert" className="form-error">{mcpError}</p>}
+            {!mcpBusy&&!mcpError&&step.agentId&&mcpConnections.every(server=>!server.tools?.some(tool=>tool.enabled))&&<div className="row-sub">{t('Grant this Agent a specific read-only Remote MCP tool in its Connections tab before using it here.')}</div>}
+            <div className="row-sub">{t('Calls only the selected, granted, read-only tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.')}</div>
+          </>:<>
+            <textarea className="context-input" rows={2} placeholder={t('Search query')} value={step.query || ''} onChange={(e) => set({ query: e.target.value, action: 'search' })} aria-label={t('Search query')} />
+            <div className="row-sub">{t('Uses the selected Agent’s current connection grant. Read-only search; writes are not available.')}</div>
+          </>}
         </>
       )}
       {step.type === 'add_row' && (

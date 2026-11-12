@@ -147,6 +147,65 @@ export function normalizeTrigger(raw) {
   return { trigger: { type } };
 }
 
+function normalizeRemoteMcpArguments(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const visit = (item, depth = 0) => {
+    if (depth > 6) throw new TypeError('Remote MCP arguments are nested too deeply.');
+    if (item === null || typeof item === 'boolean' || typeof item === 'number' && Number.isFinite(item)) return item;
+    if (typeof item === 'string') {
+      if (item.length > 4000) throw new TypeError('A Remote MCP argument is too long.');
+      return item;
+    }
+    if (Array.isArray(item)) {
+      if (item.length > 100) throw new TypeError('A Remote MCP argument list may contain at most 100 items.');
+      return item.map(value => visit(value, depth + 1));
+    }
+    if (!item || typeof item !== 'object' || Object.getPrototypeOf(item) !== Object.prototype || Object.keys(item).length > 80) throw new TypeError('Remote MCP arguments must be JSON objects with bounded fields.');
+    const output = {};
+    for (const [key, child] of Object.entries(item)) {
+      if (!/^[A-Za-z0-9_.-]{1,100}$/.test(key) || /(?:password|secret|token|authorization|api[_-]?key)/i.test(key)) throw new TypeError('Remote MCP workflow arguments cannot store credential fields.');
+      Object.defineProperty(output, key, { value: visit(child, depth + 1), enumerable: true, configurable: true, writable: true });
+    }
+    return output;
+  };
+  try {
+    const args = visit(value);
+    return new TextEncoder().encode(JSON.stringify(args)).length <= 12000 ? args : null;
+  } catch { return null; }
+}
+
+function validRemoteMcpArguments(schema, args) {
+  const matches = (rule, value, depth = 0) => {
+    if (!rule || typeof rule !== 'object' || depth > 6) return false;
+    const type = Array.isArray(value) ? 'array' : value === null ? 'null'
+      : typeof value === 'number' && Number.isInteger(value) ? 'integer' : typeof value;
+    const declared = Array.isArray(rule.type) ? rule.type : rule.type ? [rule.type] : [];
+    if (declared.length && !declared.some(item => item === type || item === 'number' && type === 'integer')) return false;
+    if (Array.isArray(rule.enum) && !rule.enum.some(candidate => JSON.stringify(candidate) === JSON.stringify(value))) return false;
+    if (type === 'object' && value && !Array.isArray(value)) {
+      const properties = rule.properties && typeof rule.properties === 'object' ? rule.properties : {};
+      if (rule.additionalProperties === false && Object.keys(value).some(key => !Object.hasOwn(properties, key))) return false;
+      if (Array.isArray(rule.required) && rule.required.some(key => !Object.hasOwn(value, key))) return false;
+      return Object.entries(value).every(([key, child]) => !Object.hasOwn(properties, key)
+        ? rule.additionalProperties !== false
+        : matches(properties[key], child, depth + 1));
+    }
+    if (type === 'array') return value.length <= (rule.maxItems ?? 100)
+      && value.length >= (rule.minItems ?? 0)
+      && (!rule.items || value.every(item => matches(rule.items, item, depth + 1)));
+    if (type === 'string') return value.length >= (rule.minLength ?? 0)
+      && value.length <= (rule.maxLength ?? 12000);
+    if (type === 'number' || type === 'integer') return Number.isFinite(value)
+      && value >= (rule.minimum ?? -Infinity) && value <= (rule.maximum ?? Infinity);
+    return true;
+  };
+  return Boolean(schema?.type === 'object' && args && typeof args === 'object' && !Array.isArray(args) && matches(schema, args));
+}
+
+const renderRemoteMcpArguments = (value, scope) => Object.fromEntries(Object.entries(value || {}).map(([key, item]) => [key,
+  typeof item === 'string' ? render(item, scope) : Array.isArray(item) ? item.map(child => typeof child === 'string' ? render(child, scope) : child)
+    : item && typeof item === 'object' ? renderRemoteMcpArguments(item, scope) : item]));
+
 async function appEntityTable(db, orgId, appId, entityId) {
   if (entityId === 'primary') return (await db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId, appId).first())?.table_id || null;
   return (await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId, appId, entityId).first())?.table_id || null;
@@ -220,6 +279,16 @@ export function normalizeSteps(raw) {
         steps.push({ type: "agent", agentId: text("agentId", 64), prompt: text("prompt"), ...(s.channel ? { channel: text("channel", 200) } : {}) });
         break;
       case "connection":
+        if (s.source === 'remote_mcp') {
+          const args = normalizeRemoteMcpArguments(s.args === undefined ? {} : s.args);
+          if (!s.agentId || typeof s.serverId !== 'string' || !s.serverId.trim() || s.serverId.length > 200
+            || typeof s.toolName !== 'string' || !s.toolName.trim() || s.toolName.length > 200 || !args) {
+            return { error: 'A Remote MCP connection step needs an Agent, one read-only tool, and bounded JSON arguments without credentials.' };
+          }
+          steps.push({ type: 'connection', agentId: text('agentId', 64), source: 'remote_mcp',
+            serverId: text('serverId', 200), toolName: text('toolName', 200), args });
+          break;
+        }
         if (!s.agentId || !['notion', 'github'].includes(s.source) || s.action !== 'search' || typeof s.query !== 'string' || !s.query.trim()) {
           return { error: "A connection step needs an Agent, a connected Notion or GitHub source, and a search query." };
         }
@@ -347,6 +416,16 @@ async function connectionStepsAvailable(db, orgId, steps, ownerId) {
   }
   for (const step of steps) {
     if (step.type !== 'connection') continue;
+    if (step.source === 'remote_mcp') {
+      const offered = await remoteMcpTools(db, orgId, { readOnlyOnly: true }).catch(() => []);
+      const tool = offered.find(item => item?._remote?.serverId === step.serverId && item?._remote?.toolName === step.toolName);
+      if (!tool || !validRemoteMcpArguments(tool.inputSchema, step.args)
+        || !await mayUseAgentRemoteMcp({ DB: db }, { orgId, agentId: step.agentId,
+          session: { github_id: String(ownerId) }, serverId: step.serverId, toolName: step.toolName })) {
+        return { error: 'Choose an Agent with a current read-only grant for this exact Remote MCP tool and valid arguments.' };
+      }
+      continue;
+    }
     const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
     if (!agent || !(await mayRunAgent(db, orgId, agent, ownerId))
       || !(await hasAgentSourceGrant(db, { orgId, agentId: step.agentId, githubId: ownerId, source: step.source }))) {
@@ -1149,9 +1228,13 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     if (afterStep?.status !== 'running') return afterStep;
     if (step.type === 'connection' && entry.status === 'ok') {
       const actorId = workflowConnectionActorId(run.startedBy, workflow.id, workflow.createdBy);
-      const stillAllowed = actorId && await authorize(authorizationTrace) && await workflowConnectionPrincipal(env, {
-        orgId, agentId: step.agentId, source: step.source, ownerId: workflow.createdBy, actorId,
-      });
+      const stillAllowed = actorId && await authorize(authorizationTrace) && (step.source === 'remote_mcp'
+        ? await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId,
+          (await remoteMcpTools(db, orgId, { readOnlyOnly: true }).catch(() => []))
+            .find(tool => tool?._remote?.serverId === step.serverId && tool?._remote?.toolName === step.toolName))
+        : await workflowConnectionPrincipal(env, {
+          orgId, agentId: step.agentId, source: step.source, ownerId: workflow.createdBy, actorId,
+        }));
       if (!stillAllowed) entry = { status: 'failed', error: 'Connection access changed before the search result could be recorded; the result was discarded.' };
     }
     const finishedAt = entry.status === 'pending' ? null : now();
@@ -1396,6 +1479,36 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
     case "connection": {
       const actorId = workflowConnectionActorId(runActor, workflow.id, owner);
       if (!actorId) return { status: 'failed', error: 'The Workflow run actor is not a human connection principal.' };
+      if (step.source === 'remote_mcp') {
+        const offered = await remoteMcpTools(db, orgId, { readOnlyOnly: true }).catch(() => []);
+        const tool = offered.find(item => item?._remote?.serverId === step.serverId && item?._remote?.toolName === step.toolName);
+        const args = renderRemoteMcpArguments(step.args, scope);
+        if (!tool || !validRemoteMcpArguments(tool.inputSchema, args)) return { status: 'failed', error: 'The saved Remote MCP tool or its arguments are no longer valid.' };
+        if (!await authorize(authorizationTrace) || !await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, tool))
+          return { status: 'failed', error: 'The Workflow actor or exact Remote MCP tool grant is no longer available.' };
+        authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, true);
+        const actor = await getUserByGithubId(db, String(actorId));
+        const selectedAgent = await db.prepare("SELECT id,name,handle FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL")
+          .bind(orgId, step.agentId).first();
+        if (!actor || !selectedAgent || !await authorize(authorizationTrace)
+          || !await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, tool)) {
+          authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, false);
+          return { status: 'failed', error: 'Remote MCP access changed before dispatch; no request was sent.' };
+        }
+        const result = await callRemoteMcpTool(env, {
+          orgId, githubId: String(actorId), login: actor.login, name: actor.name || actor.login,
+          agentName: selectedAgent.handle || selectedAgent.name || 'Agent',
+        }, tool, args, { readOnlyOnly: true }).catch(() => null);
+        const allowedAfterCall = await authorize(authorizationTrace)
+          && await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, tool);
+        authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, allowedAfterCall);
+        if (!allowedAfterCall) return { status: 'failed', error: 'Remote MCP access changed while the read was running; the result was discarded.' };
+        if (!result || result.isError) return { status: 'failed', error: 'The Remote MCP tool could not return a result.' };
+        const output = (Array.isArray(result.content) ? result.content : []).filter(part => part?.type === 'text' && typeof part.text === 'string')
+          .map(part => part.text.slice(0, 4000)).join('\n').slice(0, 4000);
+        return { status: 'ok', output: output || 'The Remote MCP tool returned no readable text.',
+          connection: { agentId: step.agentId, source: 'remote_mcp', serverId: step.serverId, toolName: step.toolName, actorId } };
+      }
       const allowed = async () => await authorize(authorizationTrace) && await workflowConnectionPrincipal(env, {
         orgId, agentId: step.agentId, source: step.source, ownerId: owner, actorId,
       });

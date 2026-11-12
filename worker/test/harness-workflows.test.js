@@ -163,6 +163,14 @@ test('Workflow Connection definitions allow only bounded native read-only search
   expect(normalizeSteps([{ type: 'connection', agentId: 'agent-1', source: 'arbitrary', action: 'search', query: 'release' }]).error).toContain('search query');
 });
 
+test('Workflow Remote MCP definitions pin one tool and reject credential-shaped or oversized arguments', () => {
+  expect(normalizeSteps([{ type: 'connection', agentId: 'agent-1', source: 'remote_mcp', serverId: 'server-1', toolName: 'search', args: { query: '{{input.query}}' } }]).steps).toEqual([
+    { type: 'connection', agentId: 'agent-1', source: 'remote_mcp', serverId: 'server-1', toolName: 'search', args: { query: '{{input.query}}' } },
+  ]);
+  expect(normalizeSteps([{ type: 'connection', agentId: 'agent-1', source: 'remote_mcp', serverId: 'server-1', toolName: 'search', args: { access_token: 'secret' } }]).error).toContain('bounded JSON arguments');
+  expect(normalizeSteps([{ type: 'connection', agentId: 'agent-1', source: 'remote_mcp', serverId: 'server-1', toolName: 'search', args: 'not-json' }]).error).toContain('bounded JSON arguments');
+});
+
 test('Simple mode does not expose or save Workflow Connection steps', async () => {
   expect((await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' })).status).toBe(200);
   const listed = await (await get(`/workflows?${q({ orgId: ORG })}`, mika)).json();
@@ -1503,6 +1511,44 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
     expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
     expect(await messages(mika)).toHaveLength(priorMessages.length);
     expect(result.usage).toMatchObject({ calls: 1, unknownCalls: 0, unpricedCalls: 0 });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+test('a direct Workflow Remote MCP step calls only its explicitly granted tool and returns its bounded result', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Direct source reader', handle: 'direct-source-reader', instructions: 'Read approved sources.', scope: 'team',
+  })).json();
+  const server = await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1 } }, required: ['query'], additionalProperties: false }, annotations: { readOnlyHint: true } },
+    { name: 'delete_record', title: 'Delete record', inputSchema: { type: 'object', properties: { id: { type: 'string' } } }, annotations: { destructiveHint: true } },
+  ], ['search_policy', 'delete_record']);
+  const { setAgentRemoteMcpTool } = await import('../src/harness/agentRemoteMcp.js');
+  const granted = await setAgentRemoteMcpTool(env, { orgId: ORG, agentId: agent.id, session: { github_id: '9302' }, serverId: server.id, toolName: 'search_policy', enabled: true });
+  expect(granted.error).toBeUndefined();
+  expect(granted.connections.find(item => item.serverId === server.id).tools).toMatchObject([
+    { name: 'search_policy', enabled: true },
+  ]);
+  expect(granted.connections.find(item => item.serverId === server.id).tools.some(item => item.name === 'delete_record')).toBe(false);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Read one approved source', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', agentId: agent.id, source: 'remote_mcp', serverId: server.id, toolName: 'search_policy', args: { query: '{{input.query}}' } }],
+  }, '9302');
+  const endpoint = fetchMock.get('https://workflow-mcp.example.com');
+  const message = opts => JSON.parse(opts.body);
+  let dispatched;
+  fetchMock.activate();
+  endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'initialize' })
+    .reply(opts => ({ statusCode: 200, data: { jsonrpc: '2.0', id: message(opts).id, result: { protocolVersion: '2025-06-18' } }, responseOptions: { headers: { 'mcp-session-id': 'direct-workflow-session' } } }));
+  endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'notifications/initialized' }).reply(202, null);
+  endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'tools/call' })
+    .reply(opts => { dispatched = message(opts).params; return { statusCode: 200, data: { jsonrpc: '2.0', id: message(opts).id, result: { content: [{ type: 'text', text: 'Policy source result' }] } } }; });
+  try {
+    const result = await startRun({ ...env }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302', input: { query: 'retention' } });
+    expect(result.status).toBe('done');
+    expect(result.log[0]).toMatchObject({ type: 'connection', status: 'ok', output: 'Policy source result' });
+    expect(dispatched).toMatchObject({ name: 'search_policy', arguments: { query: 'retention' } });
     fetchMock.assertNoPendingInterceptors();
   } finally { fetchMock.deactivate(); }
 });

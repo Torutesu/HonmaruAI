@@ -339,27 +339,28 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
           })}
         </div>}
         <div className="rows-title">{t('Remote MCP sources')}</div>
-        <p className="row-sub">{t('Only workspace-approved tools marked read-only are available. Your grant applies to this Agent in your private conversations.')}</p>
+        <p className="row-sub">{t('Only workspace-approved tools marked read-only are available. Choose each tool this Agent may use in your private conversations.')}</p>
         {remoteMcpConnections === null ? <div className="empty">{t('Loading…')}</div> : remoteMcpConnections.length === 0 ? <div className="studio-empty">{t('No Remote MCP servers are available. A workspace admin can connect one in Tools → Apps.')}</div> : <div className="rows">
-          {remoteMcpConnections.map(connection => <label className="row static" key={connection.serverId} data-agent-remote-mcp={connection.serverId}>
+          {remoteMcpConnections.map(connection => <section className="row static" key={connection.serverId} data-agent-remote-mcp={connection.serverId}>
             <span className="row-icon"><Icon name="plug" size={18} /></span>
             <span className="row-main">{connection.name}
               <span className="row-sub">{connection.available
-                ? t('Allow this Agent to read {count} workspace-approved tools in your private conversations.', { count: connection.readOnlyToolCount })
+                ? t('Choose only the read-only tools this Agent needs. Each tool has its own grant.')
                 : connection.needsOAuth
                   ? t('Connect your own OAuth account in Tools → Apps before granting this Agent access.')
                 : t('This server has no workspace-approved tools marked read-only. A workspace admin can refresh its tool list in Tools → Apps.')}</span>
+              {connection.available && <span className="hx-agent-mcp-tool-list">{(connection.tools||[]).map(tool=><label className="hx-agent-mcp-tool" key={tool.name} data-agent-remote-mcp-tool={tool.name}>
+                <span><strong>{tool.title}</strong>{tool.description&&<small>{tool.description}</small>}</span>
+                <input type="checkbox" aria-label={t('Allow {agent} to use {tool} from {server}', { agent: agent.name, tool: tool.title, server: connection.name })} checked={tool.enabled} disabled={busy!==null} onChange={event=>{
+                  const granted=event.currentTarget.checked
+                  void act('connection',async()=>{
+                    const result=await api.setAgentRemoteMcpTool(agent.id,connection.serverId,tool.name,granted)
+                    setAgentApps(result.connections||[]);setNativeConnections(result.nativeConnections||[]);setRemoteMcpConnections(result.remoteMcpConnections||[])
+                  })
+                }}/>
+              </label>)}</span>}
             </span>
-            <input type="checkbox" aria-label={t('Allow {agent} to use read-only tools from {server}', { agent: agent.name, server: connection.name })} checked={connection.enabled} disabled={!connection.available || busy !== null} onChange={e => {
-              const granted = e.currentTarget.checked
-              void act('connection', async () => {
-                const result = await api.setAgentRemoteMcpConnection(agent.id, connection.serverId, granted)
-                setAgentApps(result.connections || [])
-                setNativeConnections(result.nativeConnections || [])
-                setRemoteMcpConnections(result.remoteMcpConnections || [])
-              })
-            }} />
-          </label>)}
+          </section>)}
         </div>}
       </>}
       {section === 'skills' && <>

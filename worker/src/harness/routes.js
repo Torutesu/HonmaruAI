@@ -71,7 +71,7 @@ import { notifyCard, anyChannelConfigured } from '../notify.js';
 import { handleRemoteMcp } from './remoteMcp.js';
 import { agentAppConnections, setAgentAppGrant } from '../smitheryApps.js';
 import { agentSourceConnections, setAgentSourceConnection, setAgentSourceShare, setAgentWorkspaceSourceConnection } from './agentConnections.js';
-import { agentRemoteMcpConnections, setAgentRemoteMcpConnection } from './agentRemoteMcp.js';
+import { agentRemoteMcpConnections, setAgentRemoteMcpConnection, setAgentRemoteMcpTool } from './agentRemoteMcp.js';
 // The harness routes (docs/kylon-gap-plan.md): the workspace's mode, Tables
 // and Apps. Every route asks for a member who is not a guest; building is a
 // member's, deleting someone else's is an admin's.
@@ -1195,6 +1195,23 @@ export async function handleHarness(request, env, url, context = {}) {
           });
         }
         const remoteMcpServerId = String(input?.remoteMcpServerId || url.searchParams.get('remoteMcpServerId') || '');
+        const remoteMcpToolName = String(input?.remoteMcpToolName || url.searchParams.get('remoteMcpToolName') || '');
+        if (remoteMcpServerId && remoteMcpToolName) {
+          const result = await setAgentRemoteMcpTool(env, { orgId, agentId, session: who.session,
+            serverId: remoteMcpServerId, toolName: remoteMcpToolName, enabled: request.method === 'POST' });
+          if (result.error) return json({ message: result.error }, result.status || 400);
+          await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
+          await audit(env, request, { orgId,
+            action: request.method === 'POST' ? 'agent.remote_mcp_tool_granted' : 'agent.remote_mcp_tool_revoked',
+            actor: person(who.user), entity: { type: 'custom_agent', id: agentId },
+            details: { serverId: remoteMcpServerId, toolName: remoteMcpToolName } });
+          return json({
+            connections: await agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
+            nativeConnections: (await agentSourceConnections(env, { orgId, agentId, session: who.session,
+              canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') })).connections,
+            remoteMcpConnections: result.connections,
+          });
+        }
         if (remoteMcpServerId) {
           const granted = request.method === 'POST';
           const result = await setAgentRemoteMcpConnection(env, { orgId, agentId, session: who.session, serverId: remoteMcpServerId, enabled: granted });

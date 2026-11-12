@@ -1153,3 +1153,8 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-message-explainer footer{display:flex;align-items:center;justify-content:flex-end;gap:10px;color:var(--hx-muted);font-size:11px}
 .hx-message-explainer footer button:disabled{opacity:.45;cursor:default}
 @media(max-width:600px){.hx-message-visual{padding:12px}.hx-message-visual-head{gap:8px}.hx-message-chart-scroll svg{min-width:400px}}
+.hx-agent-mcp-tool-list { display: grid; gap: 8px; margin-top: 10px; }
+.hx-agent-mcp-tool { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--hx-border); border-radius: 8px; background: var(--hx-surface); cursor: pointer; }
+.hx-agent-mcp-tool > span { display: grid; gap: 3px; min-width: 0; }
+.hx-agent-mcp-tool small { color: var(--hx-muted); line-height: 1.4; }
+.hx-agent-mcp-tool input { flex: 0 0 auto; margin-top: 2px; }

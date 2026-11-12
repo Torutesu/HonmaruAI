@@ -74,7 +74,7 @@ export interface Step {
   code?: string; gatewayId?: string; sourceAppId?: string; sourceEntityId?: string; sourceTableId?: string; sourceTables?: Array<{entityId:string;tableId:string;write?:boolean;mutate?:boolean}>
   when?: WorkflowCondition
   type: StepType
-  channel?: string; text?: string; agentId?: string; prompt?: string; source?: 'notion'|'github'; action?: 'search'; query?: string; tableId?: string; rowId?: string
+  channel?: string; text?: string; agentId?: string; prompt?: string; source?: 'notion'|'github'|'remote_mcp'; action?: 'search'; query?: string; serverId?:string; toolName?:string; args?:Record<string,unknown>; tableId?: string; rowId?: string
   values?: Record<string, unknown>; to?: string; title?: string; summary?: string; minutes?: number
 }
 export interface WorkflowSourceState {source:{threadId:string;channel:string;body:string;createdAt:string}|null;canBind:boolean;canMove?:boolean;candidates:Array<{id:string;channel:string;body:string;createdAt:string}>;nextCursor:number|null}
@@ -117,7 +117,8 @@ export interface AgentPeerRoleState { version:number; scope:'team'|'personal'; m
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[] }
 export interface AgentAppConnection { server: string; name: string; description: string; iconUrl: string | null; verified: boolean; allowWrites: boolean; connectedAt: string; granted: boolean }
 export interface AgentNativeConnection { source: 'notion' | 'github'; available: boolean; enabled: boolean; canShare?: boolean; shareEnabled?: boolean; shared?: boolean; workspaceAvailable?: boolean; workspaceEnabled?: boolean; canManageWorkspace?: boolean }
-export interface AgentRemoteMcpConnection { serverId: string; name: string; available: boolean; enabled: boolean; readOnlyToolCount: number; needsOAuth?: boolean }
+export interface AgentRemoteMcpTool { name: string; title: string; description: string; enabled: boolean }
+export interface AgentRemoteMcpConnection { serverId: string; name: string; available: boolean; enabled: boolean; readOnlyToolCount: number; tools?:AgentRemoteMcpTool[]; needsOAuth?: boolean }
 export interface AgentConnectionState { connections: AgentAppConnection[]; nativeConnections: AgentNativeConnection[]; remoteMcpConnections?: AgentRemoteMcpConnection[] }
 export interface HomeData {
   mode: WorkspaceMode
@@ -292,6 +293,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     setAgentNativeSource: (agentId: string, source: AgentNativeConnection['source'], granted: boolean, scope: 'member' | 'workspace' = 'member') => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { source, scope } : undefined, granted ? undefined : { source, scope }),
     setAgentNativeSourceShare: (agentId: string, source: AgentNativeConnection['source'], shared: boolean) => call<AgentConnectionState>(shared ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, shared ? { source, shareWithAgent: true } : undefined, shared ? undefined : { source, shareWithAgent: '1' }),
     setAgentRemoteMcpConnection: (agentId: string, serverId: string, granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { remoteMcpServerId: serverId } : undefined, granted ? undefined : { remoteMcpServerId: serverId }),
+    setAgentRemoteMcpTool: (agentId:string,serverId:string,toolName:string,granted:boolean) => call<AgentConnectionState>(granted?'POST':'DELETE',`/hx/agents/${agentId}/apps`,granted?{remoteMcpServerId:serverId,remoteMcpToolName:toolName}:undefined,granted?undefined:{remoteMcpServerId:serverId,remoteMcpToolName:toolName}),
     transferAgentOwnership: (agentId:string,ref:string,expectedVersion:number)=>call<{version:number}>('PUT',`/hx/agents/${agentId}/ownership`,{ref,expectedVersion}),
     setAgentMember: (agentId: string, ref: string, role: 'admin' | 'member' | 'none', expectedVersion: number) => call<{version:number}>('PUT', `/hx/agents/${agentId}/members`, {ref,role,expectedVersion}),
     agentWakeGrants: () => call<{grants:Array<{id:string;sourceAgentId:string;targetAgentId:string;room:string;thread:string;scope:'once'|'ten_minutes'|'thread'|'room';createdAt:string;expiresAt:string|null;useLimit:number|null;useCount:number;revokedAt:string|null;state:'active'|'expired'|'consumed'|'revoked'}>}>('GET','/hx/agent-wake-grants'),

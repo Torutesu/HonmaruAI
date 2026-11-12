@@ -231,9 +231,9 @@ test('the agent Connections tab keeps personal grants separate from owner-shared
    else if(method==='POST'&&body?.source==='notion') nativeGranted=true
    if(method==='DELETE'&&url.searchParams.get('source')==='notion'&&url.searchParams.has('shareWithAgent')) shared=false
    else if(method==='DELETE'&&url.searchParams.get('source')==='notion') nativeGranted=false
-   if(method==='POST'&&body?.remoteMcpServerId==='remote-1') remoteMcpGranted=true
-   if(method==='DELETE'&&url.searchParams.get('remoteMcpServerId')==='remote-1') remoteMcpGranted=false
-   return {ok:true,json:async()=>({connections:[{server:'linear',name:'Linear',description:'Issues',iconUrl:null,verified:true,allowWrites:false,connectedAt:'2026-10-30T00:00:00Z',granted}],nativeConnections:[{source:'notion',available:true,enabled:nativeGranted,canShare:true,shareEnabled:shared,shared},{source:'github',available:false,enabled:false,canShare:false,shareEnabled:false,shared:false}],remoteMcpConnections:[{serverId:'remote-1',name:'Knowledge server',available:true,enabled:remoteMcpGranted,readOnlyToolCount:2}]})}
+   if(method==='POST'&&body?.remoteMcpToolName==='search_policy') remoteMcpGranted=true
+   if(method==='DELETE'&&url.searchParams.get('remoteMcpToolName')==='search_policy') remoteMcpGranted=false
+   return {ok:true,json:async()=>({connections:[{server:'linear',name:'Linear',description:'Issues',iconUrl:null,verified:true,allowWrites:false,connectedAt:'2026-10-30T00:00:00Z',granted}],nativeConnections:[{source:'notion',available:true,enabled:nativeGranted,canShare:true,shareEnabled:shared,shared},{source:'github',available:false,enabled:false,canShare:false,shareEnabled:false,shared:false}],remoteMcpConnections:[{serverId:'remote-1',name:'Knowledge server',available:true,enabled:remoteMcpGranted,readOnlyToolCount:2,tools:[{name:'search_policy',title:'Search policy',description:'Search approved policy.',enabled:remoteMcpGranted},{name:'get_manual',title:'Get manual',description:'Read approved manuals.',enabled:false}]}]})}
   }
   if(url.pathname.endsWith('/memory/scopes')) return {ok:true,json:async()=>({scopes:[]})}
   if(url.pathname.endsWith('/memory')) return {ok:true,json:async()=>({memories:[],nextCursor:null,canEdit:false})}
@@ -268,13 +268,13 @@ test('the agent Connections tab keeps personal grants separate from owner-shared
   await act(async()=>shareNotion().props.onChange({currentTarget:{checked:false}}))
   expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('shareWithAgent')==='1')).toBe(true)
   expect(shareNotion().props.checked).toBe(false)
-  const remoteMcp=()=>tree.root.findByProps({'data-agent-remote-mcp':'remote-1'}).findByProps({'aria-label':'Allow {agent} to use read-only tools from {server}'})
+  const remoteMcp=()=>tree.root.findByProps({'data-agent-remote-mcp-tool':'search_policy'}).findByProps({'aria-label':'Allow {agent} to use {tool} from {server}'})
   expect(remoteMcp().props.checked).toBe(false)
   await act(async()=>remoteMcp().props.onChange({currentTarget:{checked:true}}))
-  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='POST'&&r.body.remoteMcpServerId==='remote-1')).toBe(true)
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='POST'&&r.body.remoteMcpServerId==='remote-1'&&r.body.remoteMcpToolName==='search_policy')).toBe(true)
   expect(remoteMcp().props.checked).toBe(true)
   await act(async()=>remoteMcp().props.onChange({currentTarget:{checked:false}}))
-  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('remoteMcpServerId')==='remote-1')).toBe(true)
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('remoteMcpServerId')==='remote-1'&&r.url.searchParams.get('remoteMcpToolName')==='search_policy')).toBe(true)
   expect(remoteMcp().props.checked).toBe(false)
  } finally {act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
