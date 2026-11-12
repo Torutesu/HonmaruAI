@@ -254,6 +254,7 @@ export async function redeemExternalFileLink(env,{token,userId}){
  const deny={error:'This share link is not valid, or has expired.',status:404};
  if(typeof token!=='string'||!/^[a-f0-9]{64}$/i.test(token)||!userId)return deny;
  const tokenHash=await sha256Hex(token.toLowerCase()),now=new Date().toISOString();
+ // The random token hash is globally unique and is the only lookup key available before its org is known.
  const link=await env.DB.prepare("SELECT l.* FROM hx_external_file_link_shares l WHERE l.token_hash=?1 AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>?2)").bind(tokenHash,now).first();
  if(!link||(await getMode(env.DB,link.org_id))!=='harness')return deny;
  const file=await fileRecord(env.DB,link.org_id,link.resource_id);
@@ -295,7 +296,7 @@ export async function redeemExternalFileLink(env,{token,userId}){
   env.DB.prepare("UPDATE hx_external_file_link_redemptions SET grant_id=?1 WHERE link_id=?2 AND recipient_github_id=?3 AND grant_id IS NULL AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.id=?1 AND g.org_id=?4 AND g.resource_type='file' AND g.resource_id=?5 AND g.recipient_github_id=?3)").bind(grantId,link.id,String(userId),link.org_id,link.resource_id)
  ]);
  if(Number(writes?.[1]?.meta?.changes||0)>0&&Number(writes?.[2]?.meta?.changes||0)>0)return {redeemed:true,orgId:link.org_id,resourceType:'file',resourceId:link.resource_id,fileId:link.resource_id,permission:link.permission};
- const concurrent=await env.DB.prepare("SELECT g.permission FROM hx_external_file_link_redemptions r JOIN hx_external_resource_grants g ON g.id=r.grant_id WHERE r.link_id=?1 AND r.recipient_github_id=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?3)").bind(link.id,String(userId),now).first();
+ const concurrent=await env.DB.prepare("SELECT g.permission FROM hx_external_file_link_redemptions r JOIN hx_external_file_link_shares l ON l.id=r.link_id AND l.org_id=?4 AND l.resource_id=?5 JOIN hx_external_resource_grants g ON g.id=r.grant_id AND g.org_id=l.org_id AND g.resource_type='file' AND g.resource_id=l.resource_id WHERE r.link_id=?1 AND r.recipient_github_id=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?3)").bind(link.id,String(userId),now,link.org_id,link.resource_id).first();
  if(concurrent)return {redeemed:true,orgId:link.org_id,resourceType:'file',resourceId:link.resource_id,fileId:link.resource_id,permission:concurrent.permission};
  return deny;
 }
