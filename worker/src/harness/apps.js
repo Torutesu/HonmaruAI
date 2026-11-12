@@ -13,6 +13,7 @@ import { SYSTEM_COLUMN_IDS, isSystemTimestamp, queryValue } from './systemColumn
 import { TEMPLATES, matchTemplate } from "./templates.js";
 import { prepareTable, getTable, listRows, cleanValues, normalizeColumns, planTableUpdate, MAX_ROWS } from "./tables.js";
 import { normalizeMemberFields } from "./memberFields.js";
+import { dateInTimeZone, isValidDateOnly, parseRfc3339, validTimeZone } from './temporal.js';
 
 export const VIEW_TYPES = ["table", "board", "metrics", "calendar"];
 export const METRIC_OPS = ["count", "sum", "avg", "min", "max"];
@@ -53,9 +54,10 @@ export function normalizeDefinition(definition, columns) {
       if (id) view.sort = desc ? `-${id}` : id;
     }
     if (type === "calendar") {
-      const dateColumn = col(raw.dateColumn) || columns.find(c => c.type === "date")?.id;
-      if (!columns.some(c => c.id === dateColumn && c.type === "date")) continue;
+      const dateColumn = col(raw.dateColumn) || columns.find(c => ['date', 'datetime'].includes(c.type))?.id;
+      if (!columns.some(c => c.id === dateColumn && ['date', 'datetime'].includes(c.type))) continue;
       view.dateColumn = dateColumn;
+      view.timeZone = validTimeZone(raw.timeZone) ? raw.timeZone : 'UTC';
     }
     if (type === "board") {
       const groupBy = col(raw.groupBy) || columns.find((c) => c.type === "select")?.id;
@@ -111,6 +113,14 @@ export function computeView(view, table, rows, today = new Date().toISOString().
       if(f.op==='gt') return a>b;
       if(f.op==='lt') return a<b;
     }
+    if(column?.type==='datetime') {
+      const a=parseRfc3339(text), b=parseRfc3339(f.value);
+      if(a===null||b===null)return false;
+      if(f.op==='eq')return a===b;
+      if(f.op==='neq')return a!==b;
+      if(f.op==='gt')return a>b;
+      if(f.op==='lt')return a<b;
+    }
     if(f.op==='eq') return text===f.value;
     if(f.op==='neq') return text!==f.value;
     if(f.op==='contains') return text.toLocaleLowerCase().includes(f.value.toLocaleLowerCase());
@@ -125,6 +135,8 @@ export function computeView(view, table, rows, today = new Date().toISOString().
     shown = [...shown].sort((a, b) => {
       let x = queryValue(a,key), y = queryValue(b,key);
       if(isSystemTimestamp(key)) { x=Number.isFinite(Date.parse(x))?Date.parse(x):null; y=Number.isFinite(Date.parse(y))?Date.parse(y):null; }
+      const column=table.columns.find(c=>c.id===key);
+      if(column?.type==='datetime') { x=parseRfc3339(x); y=parseRfc3339(y); }
       if (x == null && y == null) return 0;
       if (x == null) return 1;
       if (y == null) return -1;
@@ -135,13 +147,15 @@ export function computeView(view, table, rows, today = new Date().toISOString().
   if (view.type === "calendar") {
     const days = new Map();
     const undated = [];
+    const dateColumn = table.columns.find(column => column.id === view.dateColumn);
     for (const row of shown) {
       const date = row.values[view.dateColumn];
-      const valid = typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)
-        && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
-      if (!valid) { undated.push(row); continue; }
-      if (!days.has(date)) days.set(date, []);
-      days.get(date).push(row);
+      const day = dateColumn?.type === 'datetime'
+        ? dateInTimeZone(parseRfc3339(date), view.timeZone || 'UTC')
+        : isValidDateOnly(date) ? date : null;
+      if (!day) { undated.push(row); continue; }
+      if (!days.has(day)) days.set(day, []);
+      days.get(day).push(row);
     }
     return { ...view, days: [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, rows]) => ({ date, rows })), undated };
   }
@@ -467,7 +481,7 @@ function requestedAppViews(prompt, candidates, columns = []) {
   // invoices). Do not silently apply those filters to a different request.
   const table = { type: "table", name: tableName };
   const asksForDateOrder = /(?:期限|期日|due(?: date)?|deadline)[^、。,，.!！?？;；\n]{0,20}(?:順|並べ替|ソート|sort|order)|(?:sort|order)[^、。,，.!！?？;；\n]{0,20}(?:due|deadline)/iu.test(prompt);
-  const dateColumn = columns.find(column => column.type === 'date' && /due|deadline|期限|期日/iu.test(column.name)) || columns.find(column => column.type === 'date');
+  const dateColumn = columns.find(column => ['date', 'datetime'].includes(column.type) && /due|deadline|期限|期日|日時/iu.test(column.name)) || columns.find(column => ['date', 'datetime'].includes(column.type));
   if (asksForDateOrder && dateColumn) table.sort = `${/降順|新しい順|descending|newest first|latest first/iu.test(prompt) ? '-' : ''}${dateColumn.name}`;
   const extras = [];
   if (wantsBoard) {
@@ -482,8 +496,8 @@ function requestedAppViews(prompt, candidates, columns = []) {
     if (calendar) extras.push(calendar);
   }
   if (wantsCalendar && !extras.some(view => view.type === "calendar")) {
-    const dateColumn = columns.find(column => column.type === "date");
-    if (dateColumn) extras.push({ type: "calendar", name: japanese ? "カレンダー" : "Calendar", dateColumn: dateColumn.name });
+    const dateColumn = columns.find(column => ['date', 'datetime'].includes(column.type));
+    if (dateColumn) extras.push({ type: "calendar", name: japanese ? "カレンダー" : "Calendar", dateColumn: dateColumn.name, timeZone: 'UTC' });
   }
   return [table, ...extras];
 }
@@ -515,8 +529,8 @@ export async function specFromPrompt(prompt, { complete, modelRequest, guideline
       const raw = await complete(
         [
           "Design a small internal business app as JSON, nothing else.",
-          'Shape: {"name": app title string, "tableName": primary table label string, "icon": one emoji, "description": string, "columns": [{"name": string, "type": "text"|"number"|"date"|"select"|"checkbox"|"url"|"person"|"email", "options"?: string[]}],',
-          '"viewPolicy": "default"|"requested", "views": [{"type": "table"|"board"|"metrics"|"calendar", "dateColumn"?: column name, "name": string, "groupBy"?: column name, "sort"?: column name or "-name", "metrics"?: [{"label": string, "op": "count"|"sum"|"avg", "column"?: column name}]}], "sample"?: [object keyed by column name]}',
+          'Shape: {"name": app title string, "tableName": primary table label string, "icon": one emoji, "description": string, "columns": [{"name": string, "type": "text"|"number"|"date"|"datetime"|"select"|"checkbox"|"url"|"person"|"email", "options"?: string[]}],',
+          '"viewPolicy": "default"|"requested", "views": [{"type": "table"|"board"|"metrics"|"calendar", "dateColumn"?: column name (date or datetime), "timeZone"?: IANA timezone, "name": string, "groupBy"?: column name, "sort"?: column name or "-name", "metrics"?: [{"label": string, "op": "count"|"sum"|"avg", "column"?: column name}]}], "sample"?: [object keyed by column name]}',
           "Set viewPolicy to default when the request does not specify views, filters, grouping or ordering; use one unfiltered table view named すべて (Japanese) or All (English). Otherwise set it to requested and honor the requested view types, number, names, filters, ordering and exclusions.",
           `The user selected a maximum of ${sampleCount} example rows. Return at most that many in sample; return none when the maximum is zero. Do not invent workspace members.`,
           "At most 10 columns. A board needs a select column to group by. Name things in the language of the request. Keep the app title and primary table label distinct when the request implies they have different names; the table label should be concise and natural for the records users add. Use type person for internal owners, assignees, reviewers, interviewers and approvers so users select workspace members; do not model those as free text unless the request explicitly asks for that field to be free text.",
@@ -538,14 +552,15 @@ export async function specFromPrompt(prompt, { complete, modelRequest, guideline
         if (normalized.error) return {error: normalized.error};
         for (const view of views) {
           if (!['board','calendar'].includes(view.type)) continue;
-          const type = view.type === 'board' ? 'select' : 'date';
+          const type = view.type === 'board' ? 'select' : null;
           const ref = view.type === 'board' ? view.groupBy : view.dateColumn;
-          const column = ref ? normalized.columns.find(item => item.id === ref || item.name.toLowerCase() === String(ref).toLowerCase()) : normalized.columns.find(item => item.type === type);
-          if (!column || column.type !== type) {
+          const accepted = view.type === 'board' ? ['select'] : ['date', 'datetime'];
+          const column = ref ? normalized.columns.find(item => item.id === ref || item.name.toLowerCase() === String(ref).toLowerCase()) : normalized.columns.find(item => accepted.includes(item.type));
+          if (!column || !accepted.includes(column.type)) {
             const japanese = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text);
             return {error: view.type === 'board'
               ? japanese ? '生成されたボードには、グループ化できる選択肢フィールドが必要です。依頼に項目を追加して再試行してください。' : 'The generated board needs a select field for grouping. Add one to the request and try again.'
-              : japanese ? '生成されたカレンダーには日付フィールドが必要です。依頼に日付項目を追加して再試行してください。' : 'The generated calendar needs a date field. Add one to the request and try again.'};
+              : japanese ? '生成されたカレンダーには日付フィールドまたは日時フィールドが必要です。依頼に日付項目を追加して再試行してください。' : 'The generated calendar needs a date or datetime field. Add one to the request and try again.'};
           }
         }
         return { spec: { name: spec.name, tableName: typeof spec.tableName === "string" && spec.tableName.trim() ? spec.tableName.trim().slice(0, 80) : spec.name, icon: spec.icon, description: spec.description, columns, definition: { views }, sample: requestedSampleRows(spec.sample, columns, sampleCount) }, source: "model" };

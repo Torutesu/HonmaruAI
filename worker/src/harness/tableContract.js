@@ -1,10 +1,12 @@
 // The strict, opt-in data contract shares its rules with write validation.
+import { parseRfc3339 } from './temporal.js';
 export function valuesSchema(columns) {
   return { type: 'object', additionalProperties: false, properties: Object.fromEntries(columns.map(c => {
     let schema = { type: ['string', 'null'], maxLength: 5000 };
     if (c.type === 'number') schema = { type: ['number', 'null'] };
     if (c.type === 'checkbox') schema = { type: ['boolean', 'null'] };
     if (c.type === 'date') schema = { type: ['string', 'null'], format: 'date' };
+    if (c.type === 'datetime') schema = { type: ['string', 'null'], format: 'date-time' };
     if (c.type === 'email') schema = { type: ['string', 'null'], format: 'email', maxLength: 320 };
     if (c.type === 'url') schema = { type: ['string', 'null'], format: 'uri', pattern: '^https?://', maxLength: 2000 };
     if (c.type === 'person') schema = { type: ['string', 'null'], minLength: 1, maxLength: 64 };
@@ -32,6 +34,9 @@ export function validateValues(columns, values) {
         if (rule.format === 'date') {
           const d = new Date(value);
           valid &&= /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+        }
+        if (rule.format === 'date-time') {
+          valid &&= parseRfc3339(value) !== null;
         }
         if (rule.format === 'email') valid &&= /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
         if (rule.format === 'uri') {
@@ -74,7 +79,7 @@ export function tableContract(table) {
         table: { type: 'object', required: ['id', 'orgId', 'name', 'columns', 'createdBy', 'createdAt', 'updatedAt'], properties: {
           id: { type: 'string', const: table.id }, orgId: { type: 'string', const: table.orgId }, name: { type: 'string' },
           columns: { type: 'array', items: { type: 'object', required: ['id', 'name', 'type'], properties: {
-            id: { type: 'string' }, name: { type: 'string' }, type: { type: 'string', enum: ['text', 'number', 'date', 'select', 'checkbox', 'url', 'person', 'email', 'relation'] },
+            id: { type: 'string' }, name: { type: 'string' }, type: { type: 'string', enum: ['text', 'number', 'date', 'datetime', 'select', 'checkbox', 'url', 'person', 'email', 'relation'] },
             options: { type: 'array', items: { type: 'string' } }, targetEntity: { type: 'string' }, multiple: { type: 'boolean' },
           } } },
           createdBy: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },

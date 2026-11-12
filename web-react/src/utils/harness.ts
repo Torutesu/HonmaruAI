@@ -22,7 +22,7 @@ export class HarnessApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) { super(message) }
 }
 
-export type ColumnType = 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'url' | 'person' | 'email' | 'relation'
+export type ColumnType = 'text' | 'number' | 'date' | 'datetime' | 'select' | 'checkbox' | 'url' | 'person' | 'email' | 'relation'
 export interface Column { id: string; name: string; type: ColumnType; options?: string[]; targetEntity?: string; multiple?: boolean }
 export interface Table { id: string; name: string; columns: Column[] }
 export interface Row { createdAt?: string; id: string; values: Record<string, unknown>; updatedAt: string }
@@ -32,6 +32,7 @@ export interface View {
   type: 'table' | 'board' | 'metrics' | 'calendar'
   name: string
   dateColumn?: string
+  timeZone?: string
   days?: Array<{ date: string; rows: Row[] }>
   undated?: Row[]
   filters?: Array<{column: string; op: string; value: string}>
@@ -571,6 +572,7 @@ export function cellText(column: Column, value: unknown): string {
   if (column.type === 'checkbox') return value ? '✓' : ''
   if (column.type === 'number' && typeof value === 'number') return value.toLocaleString()
   if (column.type === 'person') return `@${value}`
+  if (column.type === 'datetime' && typeof value === 'string' && Number.isFinite(Date.parse(value))) return new Date(value).toLocaleString()
   return String(value)
 }
 

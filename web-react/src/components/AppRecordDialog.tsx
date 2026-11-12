@@ -5,8 +5,10 @@ import {AppPersonPicker, type AppPerson} from './AppPersonPicker'
 import {AppRelationPicker} from './AppRelationPicker'
 import {useT} from '../utils/i18n'
 import {numberPreservesDecimal} from '../utils/numericPrecision'
+import {instantFromLocalDateTime,localDateTimeInZone} from '../utils/zonedDateTime'
 
 type RelationEntity=AppEntity & {rows:Row[]}
+const asDraft=(source:Record<string,unknown>,columns:Column[])=>Object.fromEntries(Object.entries(source).map(([id,value])=>{const column=columns.find(item=>item.id===id);return[id,column?.type==='datetime'&&typeof value==='string'?localDateTimeInZone(value,Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'):value]}))
 
 function equalValue(left:unknown,right:unknown):boolean {
  if(Object.is(left,right))return true
@@ -15,9 +17,21 @@ function equalValue(left:unknown,right:unknown):boolean {
 
 export function AppRecordDialog({appName,tableName=appName,createTitle,columns,initial={},record,conversation,members=[],membersReady=true,relationEntities=[],save,onClose}:{appName:string;tableName?:string;createTitle?:string;columns:Column[];initial?:Record<string,unknown>;record?:Row;conversation?:React.ReactNode;members?:AppPerson[];membersReady?:boolean;relationEntities?:RelationEntity[];save:(values:Record<string,unknown>)=>Promise<void>;onClose:()=>void}) {
  const t=useT()
- const [draft,setDraft]=useState<Record<string,unknown>>(record?.values || initial),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirmDiscard,setConfirmDiscard]=useState(false)
- const pending=useRef(false),form=useRef<HTMLFormElement>(null),original=useRef(record?.values||initial)
- const values=(source=draft)=>Object.fromEntries(columns.filter(c=>record ? source[c.id]!==record.values[c.id] : source[c.id]!==undefined&&source[c.id]!=='').map(c=>[c.id,source[c.id]===''?null:c.type==='number'&&source[c.id]!=null?Number(source[c.id]):source[c.id]]))
+ const [draft,setDraft]=useState<Record<string,unknown>>(()=>asDraft(record?.values || initial,columns)),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirmDiscard,setConfirmDiscard]=useState(false)
+ const pending=useRef(false),form=useRef<HTMLFormElement>(null),original=useRef(record?.values||initial),originalDraft=useRef(asDraft(record?.values||initial,columns))
+ const values=(source=draft)=>{
+  const entries:Array<[string,unknown]>=[]
+  for(const column of columns){
+   const value=source[column.id]
+   if(record&&equalValue(value,originalDraft.current[column.id]))continue
+   if(!record&&(value===undefined||value===''))continue
+   if(value===''||value===null){entries.push([column.id,null]);continue}
+   if(column.type==='number'&&value!=null){entries.push([column.id,Number(value)]);continue}
+   if(column.type==='datetime'&&typeof value==='string'&&!value.endsWith('Z')&&!/[+-]\d{2}:\d{2}$/.test(value)){entries.push([column.id,instantFromLocalDateTime(value,Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC')]);continue}
+   entries.push([column.id,value])
+  }
+  return Object.fromEntries(entries)
+ }
  const close=()=>{
   if(pending.current||confirmDiscard)return
   const current=values(),baseline=record?original.current:values(original.current)
@@ -42,7 +56,7 @@ export function AppRecordDialog({appName,tableName=appName,createTitle,columns,i
     ? <div key={c.id} className="hx-record-field"><span className="dlg-label">{c.name}</span><AppRelationPicker column={c} value={draft[c.id]} rows={relationEntities.find(item=>item.key===c.targetEntity)?.rows} targetColumn={relationEntities.find(item=>item.key===c.targetEntity)?.table.columns[0]} disabled={busy} onChange={value=>change(c.id,value)}/></div>
     : c.type==='person'
     ? <div key={c.id} className="hx-record-field"><span className="dlg-label">{c.name}</span><AppPersonPicker label={c.name} value={String(draft[c.id]??'')} members={members} ready={membersReady} disabled={busy} onChange={value=>change(c.id,value)}/></div>
-    : <label key={c.id}><span className="dlg-label">{c.name}</span>{c.type==='checkbox'?<input type="checkbox" checked={Boolean(draft[c.id])} disabled={busy} onChange={e=>change(c.id,e.target.checked)}/>:c.type==='select'?<select className="dlg-input" disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}><option value="">{c.name}を選択</option>{draft[c.id] && !(c.options||[]).includes(String(draft[c.id])) ? <option value={String(draft[c.id])}>{String(draft[c.id])}</option>:null}{(c.options||[]).map(o=><option key={o}>{o}</option>)}</select>:c.type==='text'?<textarea className="dlg-input" rows={i===0?3:2} maxLength={5000} disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}/>:<input className="dlg-input" type={c.type==='number'?'number':c.type==='date'?'date':c.type==='email'?'email':c.type==='url'?'url':'text'} step={c.type==='number'?'any':undefined} disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}/>}</label>)}
+    : <label key={c.id}><span className="dlg-label">{c.name}</span>{c.type==='checkbox'?<input type="checkbox" checked={Boolean(draft[c.id])} disabled={busy} onChange={e=>change(c.id,e.target.checked)}/>:c.type==='select'?<select className="dlg-input" disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}><option value="">{c.name}を選択</option>{draft[c.id] && !(c.options||[]).includes(String(draft[c.id])) ? <option value={String(draft[c.id])}>{String(draft[c.id])}</option>:null}{(c.options||[]).map(o=><option key={o}>{o}</option>)}</select>:c.type==='text'?<textarea className="dlg-input" rows={i===0?3:2} maxLength={5000} disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}/>:<input className="dlg-input" type={c.type==='number'?'number':c.type==='date'?'date':c.type==='datetime'?'datetime-local':c.type==='email'?'email':c.type==='url'?'url':'text'} step={c.type==='number'?'any':c.type==='datetime'?1:undefined} disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}/>}</label>)}
    {record&&<dl className="hx-record-metadata"><div><dt>ID</dt><dd>{record.id}</dd></div><div><dt>作成日時</dt><dd>{record.createdAt ? new Date(record.createdAt).toLocaleString() : '—'}</dd></div><div><dt>更新日時</dt><dd>{new Date(record.updatedAt).toLocaleString()}</dd></div></dl>}
    {error&&<p role="alert" className="dlg-error">{error}</p>}
   </form>{conversation}</div>
