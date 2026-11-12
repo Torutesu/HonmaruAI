@@ -55,7 +55,7 @@ async function applyTestColumn(sql) {
   if (!results.some((entry) => entry.name === column)) await env.DB.exec(sql);
 }
 
-const migrationStatements = migrationsSql.split("\n").filter((line) => /^(CREATE (UNIQUE )?INDEX IF NOT EXISTS|CREATE TRIGGER IF NOT EXISTS|CREATE TABLE IF NOT EXISTS hx_user_dictation_|CREATE TABLE IF NOT EXISTS hx_agent_agent_members |DROP TABLE IF EXISTS hx_user_dictation_preferences|INSERT OR IGNORE INTO)/.test(line));
+const migrationStatements = migrationsSql.split("\n").filter((line) => /^(CREATE (UNIQUE )?INDEX IF NOT EXISTS|CREATE TRIGGER IF NOT EXISTS|CREATE TABLE IF NOT EXISTS hx_user_dictation_|CREATE TABLE IF NOT EXISTS hx_agent_agent_members |CREATE TABLE IF NOT EXISTS hx_agent_remote_mcp_tool_grants |DROP TABLE IF EXISTS hx_user_dictation_preferences|INSERT OR IGNORE INTO)/.test(line));
 const workflowWebhookColumns = [
   'ALTER TABLE hx_app_access ADD COLUMN room_channel TEXT',
   'ALTER TABLE hx_workflow_held_events ADD COLUMN webhook_event_id TEXT',
