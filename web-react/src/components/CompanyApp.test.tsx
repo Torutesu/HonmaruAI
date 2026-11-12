@@ -76,8 +76,8 @@ test('ambiguous relation migrations let the owner select a target and require a 
  act(()=>tree.unmount())
 })
 
-test('database migration history shows verified plans and hides tampered plans',async()=>{
- const verified={id:'schema_v1',version:2,checksum:'abcdef1234567890',plan:[{op:'add_columns',entity:'primary',columns:[{name:'Priority',type:'number'}]}],createdAt:'2026-11-09T00:00:00.000Z',integrityValid:true}
+test('database migration history shows verified plans and prepares an inverse only for verified additive changes',async()=>{
+ const verified={id:'schema_v1',version:2,checksum:'abcdef1234567890',plan:[{op:'add_columns',entity:'primary',columns:[{name:'Priority',type:'number'}]}],inverseOperations:[{op:'drop_empty_column',entity:'primary',column:'priority'}],createdAt:'2026-11-09T00:00:00.000Z',integrityValid:true}
  const tampered={id:'schema_v2',version:3,checksum:'deadbeef01234567',plan:null,createdAt:'2026-11-09T01:00:00.000Z',integrityValid:false}
  const {tree}=await setup([],{fork:null,version:3,entities:[],migrations:[verified,tampered]})
  const history=tree.root.findByProps({'aria-label':'DB変更履歴'})
@@ -86,6 +86,11 @@ test('database migration history shows verified plans and hides tampered plans',
  const plans=history.findAllByType('pre').map(item=>item.children.join(''))
  expect(plans).toHaveLength(1)
  expect(plans[0]).toContain('Priority')
+ const rollback=tree.root.findAllByType('button').find(item=>item.children.join('')==='追加列を戻す変更案を作成')
+ expect(rollback).toBeTruthy()
+ await act(async()=>rollback!.props.onClick())
+ expect(JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)).toEqual(verified.inverseOperations)
+ expect(tree.root.findByProps({placeholder:'convert_amount_v1'}).props.value).toBe('rollback_schema_v1')
  act(()=>tree.unmount())
 })
 
