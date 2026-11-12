@@ -1,6 +1,7 @@
 import { executeTool } from "./composio.js";
 import { toolSlugFor } from "./connectors/index.js";
 import { triageMessage } from "./triage.js";
+import { jevEntry, settleUsage } from "./ledger.js";
 import { isIngested, markIngested, saveCard, getConnectorConfig } from "./db.js";
 import { allowanceFor } from "./gate.js";
 import { fileCardUnderBusiness } from "./classify.js";
@@ -106,6 +107,9 @@ async function ingestOne(connector, message, { env, session, orgId, userId, read
   const result = (provider && allowance.allowed) || systemOne
     ? await triageMessage(message, { provider: allowance.allowed ? provider : null, systemOne, readerLanguage, sourceLabel: connector.label })
     : { called: false, card: null };
+  if (result.systemOneUsage) {
+    await settleUsage(env.DB, null, { orgId, githubId: session.github_id }, [jevEntry("triage", result.systemOneUsage)]);
+  }
   // Metered on the call, not on the card. Most mail correctly needs no
   // decision, and charging only for the ones that produce a card would let an
   // inbox of noise run the model for free.

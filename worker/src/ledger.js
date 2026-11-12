@@ -65,7 +65,9 @@ export function noteSearches(provider, purpose, model, count, context = null) {
 export function jevEntry(purpose, usage, model = "jev-latest") {
   const input = Number(usage?.input_tokens) || 0;
   const output = Number(usage?.output_tokens) || 0;
-  return { purpose, provider: "jev", model, input, output, usd: costOf(model, { input, output }) };
+  return { purpose, provider: "jev", model, input, output, usd: costOf(model, { input, output }),
+    byok: Boolean(usage?.byok),
+    ...(typeof usage?.__honmaruWorkspaceReservationId === "string" ? { workspaceReservationId: usage.__honmaruWorkspaceReservationId } : {}) };
 }
 
 /// Write the notes down and clear them. `extra` carries entries that were
@@ -92,7 +94,7 @@ export async function settleUsage(db, provider, { orgId, githubId, byok = false,
       const context = e.context || {};
       return stmt.bind(
         orgId, githubId ? String(githubId) : null, e.purpose, e.provider, e.model,
-        e.input, e.output, e.usd, byok || e.byok ? 1 : 0, now,
+        e.input, e.output, e.usd, (typeof e.byok === "boolean" ? e.byok : byok) ? 1 : 0, now,
         safeContext(context.roomSlug ?? roomSlug, 200), safeContext(context.agentId ?? agentId, 128),
         safeContext(context.workflowId ?? workflowId, 128), safeContext(context.appId ?? appId, 128),
       );

@@ -15,9 +15,13 @@
 // same three reasons every answer here is validated and thresholded rather
 // than trusted.
 
+import { reserveWorkspaceAIBudgetCall, releaseWorkspaceAIBudgetReservation } from "./workspaceAIBudget.js";
+
 export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const JEV_MODEL = "jev-latest";
 export const JEV_INPUT_USD_PER_MILLION = 0.042;
+
+const estimateTokens = (value) => Math.max(1, new TextEncoder().encode(JSON.stringify(value ?? "")).length);
 
 /// How sure Jev has to be before its pick stands without a second opinion.
 /// Below this the language model decides when there is one; otherwise the
@@ -39,16 +43,50 @@ export function jevConfig(env) {
 /// answers. Throws on anything but an answer; callers treat that as "no
 /// System One today" and take the path they had before.
 export async function askJev(config, { state, questions }, { timeoutMs = 8000 } = {}) {
-  const res = await fetch(config.endpoint, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: config.model, state, questions }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) throw new Error(`Jev ${res.status}`);
-  const data = await res.json();
-  if (!data || typeof data.answers !== "object") throw new Error("Jev answered without answers");
-  return { answers: data.answers, usage: data.usage || {}, model: data.model };
+  const request = { model: config.model, state, questions };
+  const body = JSON.stringify(request);
+  const db = config.workspaceBudgetDb;
+  const orgId = config.workspaceBudgetOrgId;
+  const reservation = config.byok || !db || !orgId ? { allowed: true, reservationId: null }
+    : await reserveWorkspaceAIBudgetCall(db, { orgId, model: config.model, inputTokens: estimateTokens(request), outputTokens: 0 });
+  if (!reservation.allowed) {
+    const error = new Error(reservation.reason === "workspace_ai_budget_unavailable"
+      ? "Workspace AI usage limit could not be checked" : "Workspace AI usage limit reached");
+    error.code = reservation.reason;
+    throw error;
+  }
+  try {
+    const res = await fetch(config.endpoint, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      if (reservation.reservationId && res.status !== 408 && res.status !== 429 && res.status < 500) {
+        await releaseWorkspaceAIBudgetReservation(db, reservation.reservationId);
+      }
+      throw new Error(`Jev ${res.status}`);
+    }
+    const data = await res.json();
+    if (!data || typeof data.answers !== "object") throw new Error("Jev answered without answers");
+    const rawInput = data.usage?.input_tokens;
+    const reportedInput = rawInput === null || rawInput === undefined || rawInput === "" ? NaN : Number(rawInput);
+    const usage = {
+      ...(data.usage || {}),
+      // If the provider omits usage, keep the reserved upper-bound estimate
+      // in the ledger rather than settling a paid call as zero.
+      input_tokens: Number.isFinite(reportedInput) && reportedInput >= 0 ? reportedInput : estimateTokens(request),
+      output_tokens: Number(data.usage?.output_tokens) || 0,
+      byok: Boolean(config.byok),
+      ...(reservation.reservationId ? { __honmaruWorkspaceReservationId: reservation.reservationId } : {}),
+    };
+    return { answers: data.answers, usage, model: data.model };
+  } catch (error) {
+    // A timeout or lost response may have been accepted upstream. Keep its
+    // reservation so expiry makes usage indeterminate and pauses new calls.
+    throw error;
+  }
 }
 
 const CARD_TYPES = {
@@ -169,7 +207,7 @@ export async function decideBusiness(config, card, businesses) {
     questions: { business: { type: "choice", instructions: "Which business is this card about?", criteria } },
   });
   const a = answers.business;
-  if (!a || a.type !== "choice" || !(a.choice in criteria)) return null;
+  if (!a || a.type !== "choice" || !(a.choice in criteria)) return { slug: null, confidence: 0, usage };
   return { slug: a.choice === "none" ? null : a.choice, confidence: typeof a.confidence === "number" ? a.confidence : 0, usage };
 }
 

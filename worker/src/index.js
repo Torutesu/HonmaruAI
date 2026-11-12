@@ -1358,20 +1358,19 @@ async function handle(request, env, url, ctx) {
         const me = routeMembers.find((m) => m.mine);
         result.agentRoute = `${me?.name || body.sender?.name || "You"} → ${chosenMember.name}`;
       }
+      // Settle every completed provider call before any response validation
+      // can return an error. The model already answered, so rejecting its
+      // proposed member reference does not make the provider usage free.
+      const modelAnswered = allowance.allowed && result.aiCalled === true;
+      if (modelAnswered && allowance.metered) await allowance.consume();
+      if (session && routeOrgId) {
+        await settleUsage(env.DB, routeProvider, { orgId: routeOrgId, githubId: session.github_id, byok: Boolean(userKey) },
+          result.systemOneUsage ? [jevEntry("route", result.systemOneUsage)] : []);
+      }
       if (body.memberReferences === true) {
         const recipient = routeMembers.find(m => m.login === result.recipientUserID);
         if (!recipient) return json({ message: "Choose a current workspace member." }, 400);
         result.recipientUserID = recipient.mine ? recipient.login : `member:${recipient.ref}`;
-      }
-      // Only a model that actually answered is billable — including one whose
-      // answer we then rejected, which still comes back as routedBy "fallback".
-      // A provider outage never burns someone's three.
-      const modelAnswered = allowance.allowed && result.aiCalled === true;
-      if (modelAnswered && allowance.metered) await allowance.consume();
-      // The bill, by team: the model's tokens and System One's, whoever paid.
-      if (session && routeOrgId) {
-        await settleUsage(env.DB, routeProvider, { orgId: routeOrgId, githubId: session.github_id, byok: Boolean(userKey) },
-          result.systemOneUsage ? [jevEntry("route", result.systemOneUsage)] : []);
       }
       // Internal to the meter. Stripped so the wire format is unchanged.
       delete result.aiCalled;

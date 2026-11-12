@@ -2,9 +2,10 @@ import { env } from "cloudflare:test";
 import { beforeEach, expect, test, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { allowanceFor } from "../src/gate.js";
-import { noteUsage, settleUsage } from "../src/ledger.js";
+import { jevEntry, noteUsage, settleUsage } from "../src/ledger.js";
 import { claimWorkspaceBudgetNotice, estimateWorkspaceBudgetMicros, releaseWorkspaceAIBudgetReservation, reserveWorkspaceAIBudgetCall, saveWorkspaceAIBudget, workspaceAIBudgetStatus, workspaceBudgetAdmission } from "../src/workspaceAIBudget.js";
 import { requestWithWorkspaceBudget } from "../src/workspaceBudgetRequest.js";
+import { askJev } from "../src/jev.js";
 
 const ORG = "workspace:shared-budget";
 const NOW = () => new Date(Date.now() - 1_000).toISOString();
@@ -306,4 +307,110 @@ test("interrupted dispatched calls are recorded as unknown, not released as free
     .toMatchObject({ status: "settled" });
   expect((await workspaceAIBudgetStatus(env.DB, ORG, Date.now())).periods["24h"])
     .toMatchObject({ calls: 1, unpricedCalls: 1, indeterminate: true });
+});
+
+test("deployment-key Jev reserves before dispatch and settles its metered usage", async () => {
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", NOW());
+  const config = {
+    apiKey: "deployment-typesafe-key", endpoint: "https://jev.invalid", model: "jev-latest",
+    workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG, byok: false,
+  };
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", async () => Response.json({ answers: { ok: true }, model: "jev-latest", usage: { input_tokens: 450, output_tokens: 0 } }));
+  try {
+    const result = await askJev(config, { state: { instruction: "route this" }, questions: { ok: { type: "noul" } } });
+    const entry = jevEntry("route", result.usage, result.model);
+    expect(entry).toMatchObject({ model: "jev-latest", input: 450, output: 0, workspaceReservationId: expect.any(String) });
+    await settleUsage(env.DB, null, { orgId: ORG, githubId: "42" }, [entry]);
+    expect(await env.DB.prepare("SELECT status FROM hx_workspace_ai_budget_reservations WHERE id=?1").bind(entry.workspaceReservationId).first())
+      .toMatchObject({ status: "settled" });
+    const logged = await env.DB.prepare("SELECT purpose,provider,model,input_tokens,byok,usd FROM ai_calls WHERE org_id=?1").bind(ORG).first();
+    expect(logged).toMatchObject({ purpose: "route", provider: "jev", model: "jev-latest", input_tokens: 450, byok: 0 });
+    expect(logged.usd).toBeCloseTo(0.0000189, 12);
+    expect((await workspaceAIBudgetStatus(env.DB, ORG)).periods["24h"]).toMatchObject({ calls: 1, unpricedCalls: 0 });
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
+});
+
+test("deployment-key Jev is stopped before TypeSafe when the shared pause budget cannot fit", async () => {
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 0.000001, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", NOW());
+  const config = { apiKey: "deployment-typesafe-key", endpoint: "https://jev.invalid", model: "jev-latest", workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG };
+  const originalFetch = globalThis.fetch;
+  let dispatched = 0;
+  vi.stubGlobal("fetch", async () => { dispatched += 1; return Response.json({ answers: {} }); });
+  try {
+    await expect(askJev(config, { state: { instruction: "large request" }, questions: { ok: { type: "noul" } } }))
+      .rejects.toMatchObject({ code: "workspace_ai_budget" });
+    expect(dispatched).toBe(0);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_workspace_ai_budget_reservations WHERE org_id=?1").bind(ORG).first())
+      .toMatchObject({ n: 0 });
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
+});
+
+test("ambiguous Jev provider failure retains its reservation as unknown usage", async () => {
+  const now = Date.now();
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", new Date(now).toISOString());
+  const config = { apiKey: "deployment-typesafe-key", endpoint: "https://jev.invalid", model: "jev-latest", workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG };
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", async () => { throw new Error("connection lost after dispatch"); });
+  try {
+    await expect(askJev(config, { state: { instruction: "classify this" }, questions: { ok: { type: "noul" } } }))
+      .rejects.toThrow("connection lost after dispatch");
+    expect(await env.DB.prepare("SELECT status FROM hx_workspace_ai_budget_reservations WHERE org_id=?1").bind(ORG).first())
+      .toMatchObject({ status: "held" });
+    expect((await workspaceAIBudgetStatus(env.DB, ORG, now + 10 * 60_000)).periods["24h"])
+      .toMatchObject({ calls: 1, unpricedCalls: 1, indeterminate: true });
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
+});
+
+test("workspace TypeSafe key usage is logged as BYOK and bypasses deployment reservations", async () => {
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 0.000001, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", NOW());
+  await env.DB.prepare(`INSERT INTO ai_calls(org_id,purpose,provider,model,input_tokens,output_tokens,usd,byok,created_at)
+    VALUES(?1,'ask','OpenAI','gpt-4o',100,0,1,0,?2)`).bind(ORG, NOW()).run();
+  const config = { apiKey: "workspace-typesafe-key", endpoint: "https://jev.invalid", model: "jev-latest", workspaceBudgetDb: env.DB, workspaceBudgetOrgId: ORG, byok: true };
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", async () => Response.json({ answers: { ok: true }, usage: { input_tokens: 300, output_tokens: 0 } }));
+  try {
+    const result = await askJev(config, { state: { instruction: "route this" }, questions: { ok: { type: "noul" } } });
+    const entry = jevEntry("route", result.usage, result.model);
+    expect(entry).toMatchObject({ byok: true });
+    expect(entry.workspaceReservationId).toBeUndefined();
+    await settleUsage(env.DB, null, { orgId: ORG, githubId: "42" }, [entry]);
+    expect(await env.DB.prepare("SELECT byok FROM ai_calls WHERE purpose='route' AND org_id=?1").bind(ORG).first())
+      .toMatchObject({ byok: 1 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_workspace_ai_budget_reservations WHERE org_id=?1").bind(ORG).first())
+      .toMatchObject({ n: 0 });
+  } finally {
+    vi.stubGlobal("fetch", originalFetch);
+  }
+});
+
+test("deployment Jev usage remains workspace-paid when the same route uses a BYOK OpenAI key", async () => {
+  await saveWorkspaceAIBudget(env.DB, ORG, {
+    revision: 0, dailyLimitUsd: 1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+  }, "42", NOW());
+  const provider = { model: "gpt-4o", providerName: "OpenAI", byok: true, usage: [] };
+  noteUsage(provider, "route", { model: "gpt-4o", usage: { prompt_tokens: 100, completion_tokens: 100 } });
+  const reservation = await reserveWorkspaceAIBudgetCall(env.DB, { orgId: ORG, model: "jev-latest", inputTokens: 450, outputTokens: 0 });
+  expect(reservation.allowed).toBe(true);
+  const jev = jevEntry("route", { input_tokens: 450, output_tokens: 0, byok: false, __honmaruWorkspaceReservationId: reservation.reservationId });
+  await settleUsage(env.DB, provider, { orgId: ORG, githubId: "42", byok: true }, [jev]);
+  const { results } = await env.DB.prepare("SELECT provider,byok FROM ai_calls WHERE org_id=?1 AND purpose='route' ORDER BY provider").bind(ORG).all();
+  expect(results).toEqual([{ provider: "OpenAI", byok: 1 }, { provider: "jev", byok: 0 }]);
+  expect(await env.DB.prepare("SELECT status FROM hx_workspace_ai_budget_reservations WHERE id=?1").bind(reservation.reservationId).first())
+    .toMatchObject({ status: "settled" });
+  expect((await workspaceAIBudgetStatus(env.DB, ORG)).periods["24h"]).toMatchObject({ calls: 1, unpricedCalls: 0 });
 });

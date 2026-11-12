@@ -56,7 +56,9 @@ test("an admin picks the model and enters the workspace's own keys; a member can
   // The provider every call is built from now carries them.
   const provider = await providerFor(env, ORG);
   expect(provider).toMatchObject({ apiKey: "sk-workspace-abcdefghijkl1234", model: "gpt-4.1-nano", byok: true });
-  expect((await jevFor(env, ORG)).apiKey).toBe("ts_live_abcdefghijklmnop");
+  const systemOne = await jevFor(env, ORG);
+  expect(systemOne).toMatchObject({ apiKey: "ts_live_abcdefghijklmnop", byok: true, workspaceBudgetOrgId: ORG });
+  expect(systemOne.workspaceBudgetDb).toBe(env.DB);
   // A person's own key still wins over the workspace's.
   expect((await providerFor(env, ORG, "sk-mine-abcdefghijklmnop")).apiKey).toBe("sk-mine-abcdefghijklmnop");
 });

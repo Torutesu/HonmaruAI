@@ -12,7 +12,7 @@
 // could not be created is not.
 
 import { listBusinesses, businessSlug } from "./db.js";
-import { noteUsage } from "./ledger.js";
+import { jevEntry, noteUsage, settleUsage } from "./ledger.js";
 import { decideBusiness, CONFIDENT } from "./jev.js";
 import { jevFor } from "./orgAI.js";
 
@@ -98,6 +98,9 @@ export async function fileCardUnderBusiness(env, { orgId, card, provider, allowa
     if (systemOne && businesses.length) {
       try {
         const picked = await decideBusiness(systemOne, card, businesses);
+        if (picked?.usage) {
+          await settleUsage(env.DB, null, { orgId, githubId }, [jevEntry("classify", picked.usage)]);
+        }
         if (picked?.slug && picked.confidence >= CONFIDENT) return picked.slug;
       } catch (err) {
         console.warn("Jev filing failed:", err?.message || err);
