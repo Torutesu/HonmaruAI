@@ -6,6 +6,10 @@
 .app-guest-invite label { display: grid; gap: 6px; color: var(--muted, #747b86); font-size: 12px; }
 .app-guest-invite input, .app-guest-invite select, .app-guest-list select, .app-guest-link input { min-width: 0; min-height: 36px; padding: 7px 9px; color: var(--text, #252a31); background: var(--surface, #fff); border: 1px solid var(--border, #dfe3e8); border-radius: 8px; font: inherit; }
 .app-guest-link { display: grid; gap: 6px; margin: 12px 0; color: var(--muted, #747b86); font-size: 12px; }
+.app-guest-links { margin: 14px 0; padding: 12px; border: 1px solid var(--border, #dfe3e8); border-radius: 10px; }
+.app-guest-links h4 { margin: 0 0 6px; color: var(--text, #252a31); }
+.app-guest-links > p { margin: 0 0 12px; }
+.app-guest-links .app-guest-person { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border, #dfe3e8); color: var(--muted, #747b86); font-size: 12px; }
 .app-guest-approvals { margin: 18px 0; padding: 12px; border: 1px solid var(--border, #dfe3e8); border-radius: 10px; }
 .app-guest-approvals h4 { margin: 0 0 10px; }
 .app-guest-approvals ul, .app-guest-list { display: grid; gap: 9px; margin: 12px 0 0; padding: 0; list-style: none; }

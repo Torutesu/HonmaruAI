@@ -17,6 +17,8 @@ const grantMigration = migrationsSql.split("\n").filter((line) =>
   /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_resource_grants_/.test(line) ||
   /^CREATE TABLE IF NOT EXISTS hx_external_app_invites /.test(line) ||
   /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_app_invites_/.test(line) ||
+  /^CREATE TABLE IF NOT EXISTS hx_external_app_link_/.test(line) ||
+  /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_app_link_/.test(line) ||
   /^CREATE TABLE IF NOT EXISTS hx_external_app_send_requests /.test(line) ||
   /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS idx_hx_external_app_send_requests_/.test(line)
 );
@@ -234,6 +236,21 @@ test("App invite managers can list, issue, redeem, update, and revoke an exact g
   const revoked = await call(`${sharing}/${guestId}`, f.sessions.owner, "DELETE");
   expect(revoked.status).toBe(200);
   expect((await call(`/external/apps/${f.orgId}/${f.app.id}`, session)).status).toBe(404);
+});
+
+test('reusable App links are token-hashed, require sign-in, and revoke only link-minted grants',async()=>{
+ const {orgId,ownerId,guestId,memberId,app,sessions}=await setup();
+ await revokeExternalResource(env.DB,{orgId,resourceType:'app',resourceId:app.id,recipientGithubId:guestId,revokedBy:ownerId});
+ const base=`/external/apps/${orgId}/${app.id}/sharing/links`;
+ const response=await call(base,sessions.owner,'POST',{permission:'edit',expiresAt:null});expect(response.status).toBe(201);const created=await response.json();
+ expect(created.inviteUrl).toContain('/#/external-invite/');
+ expect(await env.DB.prepare('SELECT token_hash FROM hx_external_app_link_shares WHERE id=?1').bind(created.link.id).first()).toMatchObject({token_hash:expect.not.stringMatching(created.token)});
+ const list=await (await call(base,sessions.owner)).json();expect(list.links[0]).not.toHaveProperty('token');
+ expect((await call('/external/invites/redeem','', 'POST',{token:created.token})).status).toBe(401);
+ const redeemed=await call('/external/invites/redeem',sessions.guest,'POST',{token:created.token});expect(redeemed.status).toBe(200);expect(await redeemed.json()).toMatchObject({redeemed:true,resourceType:'app',appId:app.id,permission:'edit'});
+ expect((await call('/external/invites/redeem',sessions.member,'POST',{token:created.token})).status).toBe(404);
+ const deleted=await call(`${base}/${created.link.id}`,sessions.owner,'DELETE');expect((await deleted.json()).revoked).toBe(true);
+ expect((await call(`/external/apps/${orgId}/${app.id}`,sessions.guest)).status).toBe(404);
 });
 
 test("App sharing accepts a selected verified collaborator without creating workspace membership", async () => {

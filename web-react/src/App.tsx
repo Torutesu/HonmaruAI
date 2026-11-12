@@ -474,11 +474,11 @@ function AccountApp() {
 
   const finishAuthWithExternalInvite = async (
     token: string, uid: string, org: string, firstTime: boolean,
-    inviteNotice?: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' }; externalFile?: { orgId: string; fileId: string } }, alreadyRedeemed = false,
+    inviteNotice?: { message: string; error?: boolean; externalThread?: { orgId: string; rootId: string; permission: 'view'|'edit' }; externalFile?: { orgId: string; fileId: string }; externalApp?:{orgId:string;appId:string} }, alreadyRedeemed = false,
   ) => {
     let noticeAfter: { text: string; error?: boolean } | null = inviteNotice ? { text: inviteNotice.message, error: inviteNotice.error } : null
     let redeemedThread: ReturnType<typeof externalThreadAccessFromInvite> = null
-    let redeemedApp: { orgId: string; appId: string } | null = null
+    let redeemedApp: { orgId: string; appId: string } | null = inviteNotice?.externalApp || null
     let redeemedFile: { orgId: string; fileId: string } | null = null
     const inviteToken = pendingExternalInviteToken || pending.externalInviteToken
     if (inviteToken && !alreadyRedeemed) {

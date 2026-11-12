@@ -215,13 +215,15 @@ export async function handleHarness(request, env, url, context = {}) {
     if(externalGrantRoute){
       if(request.method==='POST'&&externalGrantRoute.status===201){
         const result=await externalGrantRoute.clone().json();
-        if(url.pathname.endsWith('/external-grant-invites')){
+        if(url.pathname.endsWith('/external-links')){
+          await audit(env,request,{orgId,action:'workspace.file_external_link_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{permission:result.link.permission,expiresAt:result.link.expiresAt}});
+        }else if(url.pathname.endsWith('/external-grant-invites')){
           await audit(env,request,{orgId,action:'workspace.file_external_invite_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{invitedEmail:result.invite.invitedEmail,permission:result.invite.permission,expiresAt:result.invite.expiresAt}});
         }else{
           await audit(env,request,{orgId,action:'workspace.file_external_grant_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:result.grant.recipientGithubId,permission:result.grant.permission,expiresAt:result.grant.expiresAt}});
         }
       }else if(request.method==='DELETE'&&externalGrantRoute.ok){
-        await audit(env,request,{orgId,action:'workspace.file_external_grant_revoked',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:url.pathname.split('/').at(-1)}});
+        await audit(env,request,{orgId,action:url.pathname.includes('/external-links/')?'workspace.file_external_link_revoked':'workspace.file_external_grant_revoked',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{resourceRef:url.pathname.split('/').at(-1)}});
       }else if(request.method==='PATCH'&&externalGrantRoute.ok){
         const result=await externalGrantRoute.clone().json();
         if(url.pathname.includes('/external-grant-invites/')){

@@ -298,6 +298,38 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
   const manager = await appSharingAccess(env.DB, orgId, appId, actor.user.github_id);
   if (!manager) return fail();
   const customUnsupported = isCustomApp(manager.definition) && !publishedCustomSource(manager.definition);
+  if(parts.length===6&&parts[5]==='links'){
+    if(customUnsupported)return json({message:'Publish this Custom App before sharing it with external guests.'},409);
+    if(request.method==='GET'){
+      const now=new Date().toISOString();
+      const {results=[]}=await env.DB.prepare("SELECT id,permission,created_at AS createdAt,expires_at AS expiresAt FROM hx_external_app_link_shares WHERE org_id=?1 AND resource_id=?2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?3) ORDER BY created_at DESC LIMIT 100").bind(orgId,appId,now).all();
+      return json({canManage:true,links:results});
+    }
+    if(request.method==='POST'){
+      const input=await request.json().catch(()=>null),permission=['view','edit'].includes(input?.permission)?input.permission:null;
+      if(!permission)return json({message:'Choose view or edit access.'},400);
+      let expiresAt=input?.expiresAt==null?null:String(input.expiresAt).trim();
+      if(expiresAt){const parsed=Date.parse(expiresAt);if(!Number.isFinite(parsed)||parsed<=Date.now())return json({message:'Expiry must be a future timestamp.'},400);expiresAt=new Date(parsed).toISOString();}
+      const now=new Date().toISOString(),token=Array.from(crypto.getRandomValues(new Uint8Array(32)),byte=>byte.toString(16).padStart(2,'0')).join(''),id='xal_'+crypto.randomUUID().replaceAll('-','');
+      const inserted=await env.DB.prepare(`INSERT INTO hx_external_app_link_shares(id,org_id,resource_id,permission,token_hash,created_by,created_at,expires_at)
+       SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE ${sharingManagerWriteGuard('?2','?3','?6')}
+        AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?2 AND a.id=?3 AND (NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))`)
+       .bind(id,orgId,appId,permission,await sha256Hex(token),actor.user.github_id,now,expiresAt).run();
+      if(Number(inserted.meta?.changes||0)!==1)return fail('App not found or sharing permission changed.');
+      await audit(env,request,{orgId,action:'external.app_link_created',actor:{type:'user',id:String(actor.user.github_id),name:actor.user.name||actor.user.login},entity:{type:'app',id:appId},details:{linkId:id,permission,expiresAt}});
+      const inviteUrl=new URL('/#/external-invite/'+token,env.APP_WEB_URL||url.origin).toString();
+      return json({created:true,link:{id,permission,createdAt:now,expiresAt},token,inviteUrl},201);
+    }
+  }
+  if(parts.length===7&&parts[5]==='links'&&request.method==='DELETE'){
+    const linkId=parts[6],now=new Date().toISOString();
+    const writes=await env.DB.batch([
+      env.DB.prepare(`UPDATE hx_external_app_link_shares SET revoked_at=?1,revoked_by=?2 WHERE id=?3 AND org_id=?4 AND resource_id=?5 AND revoked_at IS NULL AND ${sharingManagerWriteGuard('?4','?5','?2')}`).bind(now,actor.user.github_id,linkId,orgId,appId),
+      env.DB.prepare("UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2 WHERE id IN (SELECT grant_id FROM hx_external_app_link_redemptions WHERE link_id=?3) AND org_id=?4 AND resource_type='app' AND resource_id=?5 AND revoked_at IS NULL AND EXISTS(SELECT 1 FROM hx_external_app_link_shares l WHERE l.id=?3 AND l.org_id=?4 AND l.resource_id=?5 AND l.revoked_at=?1 AND l.revoked_by=?2)").bind(now,actor.user.github_id,linkId,orgId,appId)
+    ]);
+    if(Number(writes?.[0]?.meta?.changes||0)>0)await audit(env,request,{orgId,action:'external.app_link_revoked',actor:{type:'user',id:String(actor.user.github_id),name:actor.user.name||actor.user.login},entity:{type:'app',id:appId},details:{linkId}});
+    return json({revoked:Number(writes?.[0]?.meta?.changes||0)>0});
+  }
   if (parts.length === 6 && parts[5] === "requests" && request.method === "GET") {
     const rows = await env.DB.prepare(`SELECT r.id,r.table_id AS tableId,r.row_id AS rowId,r.guest_github_id AS guestGithubId,u.name,u.login,u.email,r.body,r.requested_at AS requestedAt FROM hx_external_app_send_requests r JOIN users u ON u.github_id=r.guest_github_id WHERE r.org_id=?1 AND r.app_id=?2 AND r.status='pending' AND ${sendRequestAccessSql('r','r.guest_github_id','?3')} ORDER BY r.requested_at`)
       .bind(orgId, appId, new Date().toISOString()).all();
@@ -483,6 +515,42 @@ export async function redeemExternalAppInvite(env, { token, userId }) {
     return deny;
   }
   return { ok: true, resourceType: "app", orgId: invite.org_id, appId: invite.app_id };
+}
+
+export async function redeemExternalAppLink(env,{token,userId}){
+  const deny={error:'This share link is not valid, or has expired.',status:404};
+  if(typeof token!=='string'||!/^[a-f0-9]{64}$/i.test(token)||!userId)return deny;
+  const tokenHash=await sha256Hex(token.toLowerCase()),now=new Date().toISOString();
+  const link=await env.DB.prepare("SELECT l.* FROM hx_external_app_link_shares l WHERE l.token_hash=?1 AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>?2)").bind(tokenHash,now).first();
+  if(!link||(await getMode(env.DB,link.org_id))!=='harness')return deny;
+  const app=await env.DB.prepare("SELECT a.id,a.definition FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id)").bind(link.org_id,link.resource_id).first();
+  const creator=await appSharingAccess(env.DB,link.org_id,link.resource_id,link.created_by);
+  if(!app||!creator||(isCustomApp(app.definition)&&!publishedCustomSource(app.definition)))return deny;
+  if(!await env.DB.prepare('SELECT 1 FROM users WHERE github_id=?1').bind(String(userId)).first())return deny;
+  if(await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(link.org_id,String(userId)).first())return deny;
+  const prior=await env.DB.prepare("SELECT permission FROM hx_external_resource_grants WHERE org_id=?1 AND resource_type='app' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?4) ORDER BY granted_at DESC LIMIT 1").bind(link.org_id,link.resource_id,String(userId),now).first();
+  if(prior)return {redeemed:true,orgId:link.org_id,resourceType:'app',resourceId:link.resource_id,appId:link.resource_id,permission:prior.permission};
+  const grantId='xg_'+crypto.randomUUID().replaceAll('-','');
+  const writes=await env.DB.batch([
+    env.DB.prepare(`INSERT OR IGNORE INTO hx_external_app_link_redemptions(link_id,recipient_github_id,redeemed_at)
+      SELECT ?1,?2,?3 WHERE EXISTS(SELECT 1 FROM hx_external_app_link_shares l WHERE l.id=?1 AND l.token_hash=?4 AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>?3))
+       AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?5 AND a.id=?6 AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id))
+       AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=?5 AND s.mode='harness') AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?5 AND m.user_github_id=?2)`)
+      .bind(link.id,String(userId),now,tokenHash,link.org_id,link.resource_id),
+    env.DB.prepare(`INSERT OR IGNORE INTO hx_external_resource_grants(id,org_id,resource_type,resource_id,recipient_github_id,permission,granted_by,granted_at,expires_at)
+      SELECT ?1,l.org_id,'app',l.resource_id,?2,l.permission,l.created_by,?3,l.expires_at FROM hx_external_app_link_shares l
+      JOIN hx_external_app_link_redemptions r ON r.link_id=l.id AND r.recipient_github_id=?2 JOIN hx_apps a ON a.org_id=l.org_id AND a.id=l.resource_id
+      WHERE l.id=?4 AND r.grant_id IS NULL AND l.token_hash=?5 AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>?3)
+       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id)
+       AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=l.org_id AND s.mode='harness') AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=l.org_id AND m.user_github_id=?2)
+       AND ${sharingManagerWriteGuard('l.org_id','l.resource_id','l.created_by')}`)
+      .bind(grantId,String(userId),now,link.id,tokenHash),
+    env.DB.prepare("UPDATE hx_external_app_link_redemptions SET grant_id=?1 WHERE link_id=?2 AND recipient_github_id=?3 AND grant_id IS NULL AND EXISTS(SELECT 1 FROM hx_external_resource_grants g WHERE g.id=?1 AND g.org_id=?4 AND g.resource_type='app' AND g.resource_id=?5 AND g.recipient_github_id=?3)").bind(grantId,link.id,String(userId),link.org_id,link.resource_id)
+  ]);
+  if(Number(writes?.[1]?.meta?.changes||0)>0&&Number(writes?.[2]?.meta?.changes||0)>0)return {redeemed:true,orgId:link.org_id,resourceType:'app',resourceId:link.resource_id,appId:link.resource_id,permission:link.permission};
+  const concurrent=await env.DB.prepare("SELECT g.permission FROM hx_external_app_link_redemptions r JOIN hx_external_resource_grants g ON g.id=r.grant_id WHERE r.link_id=?1 AND r.recipient_github_id=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?3)").bind(link.id,String(userId),now).first();
+  if(concurrent)return {redeemed:true,orgId:link.org_id,resourceType:'app',resourceId:link.resource_id,appId:link.resource_id,permission:concurrent.permission};
+  return deny;
 }
 
 export async function handleExternalApps(request, env, url) {
