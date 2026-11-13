@@ -188,6 +188,23 @@ test('member removal is advertised as a destructive MCP tool', () => {
     .toMatchObject({ readOnlyHint: false, destructiveHint: true, idempotentHint: true });
 });
 
+test('MCP Room Agent assignment is separate from human and Agent access grants', async () => {
+  await setMode(env.DB, orgId, 'harness', actor.githubId);
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:general','beth','alex',?2)").bind(orgId, new Date().toISOString()).run();
+  await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
+  const at = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES (?1,'mcp-room-agent','mcp-room-agent','Room Agent','Plan.','team','alex',?2,?2)").bind(orgId, at).run();
+  const beforePeople = await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:general'").bind(orgId).first('n');
+  expect(await call('add_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent' }))
+    .toMatchObject({ agentId: 'mcp-room-agent', added: true, version: 2 });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_agents WHERE org_id=?1 AND channel='b:general' AND agent_id='mcp-room-agent'").bind(orgId).first('n')).toBe(1);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:general'").bind(orgId).first('n')).toBe(beforePeople);
+  const member = { ...actor, githubId: 'mcp-b', login: 'beth', scopes: [...actor.scopes, 'chat:private'] };
+  await expect(call('remove_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent' }, member)).rejects.toThrow('Only a room admin can remove Agents.');
+  expect(await call('remove_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent' }))
+    .toMatchObject({ agentId: 'mcp-room-agent', removed: true, version: 3 });
+});
+
 test('public grant cannot discover, search, or guess private and DM messages', async () => {
   await seed('b:general', 'needle public');
   const privateMessage = await seed('b:private', 'needle private');

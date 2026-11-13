@@ -389,6 +389,26 @@ test("Room member aliases reject duplicate refs and invalid relations before a r
   assert.equal(requests, 0);
 });
 
+test("Room Agent aliases keep assignment separate from explicit Agent access grants", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { added: true, removed: true } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "agent", "add", "b:ops", "helper"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "room", "agent", "add", "b:ops", "helper", "--grant-access"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "room", "agent", "remove", "b:ops", "helper"]), 0);
+  assert.deepEqual(calls, [
+    { name: "add_room_agent", arguments: { conversationId: "b:ops", agentId: "helper" } },
+    { name: "add_room_agent", arguments: { conversationId: "b:ops", agentId: "helper", grantAccess: true } },
+    { name: "remove_room_agent", arguments: { conversationId: "b:ops", agentId: "helper" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
 test("Room discovery and membership aliases pass bounded filters and explicit membership mutations", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
