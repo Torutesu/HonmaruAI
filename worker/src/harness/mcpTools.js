@@ -19,7 +19,7 @@ import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 import { audit } from "../audit.js";
 
-export const HARNESS_TOOL_SCOPE = { create_file_text: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,

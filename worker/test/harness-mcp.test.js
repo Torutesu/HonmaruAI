@@ -643,3 +643,33 @@ test('MCP record writes handle 39 valid relation fields',async()=>{
  const inserted=(await tool(token,'add_row',{tableId:app.tableId,values})).result;expect(inserted.isError).not.toBe(true);expect(inserted.structuredContent.row.link_38).toBe(seed.row.id);
  const updated=(await tool(token,'update_row',{tableId:app.tableId,rowId:inserted.structuredContent.row.id,values})).result;expect(updated.isError).not.toBe(true);expect(updated.structuredContent.row.link_37).toEqual([seed.row.id]);
 });
+
+test('MCP file sharing can only stage a stable approval request and read token-free owned-file requests',async()=>{
+ await env.DB.exec((await import('../workspace-files.sql?raw')).default.replace(/\n/g,' '));
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
+ const {uploadFileVersion}=await import('../src/harness/fileUpload.js');
+ await createFileLedger(env.DB,{orgId:ORG,fileId:'share-cli-file',scope:'workspace',path:'reports/quarterly.txt',createdBy:'9401'});
+ await uploadFileVersion(env,{orgId:ORG,fileId:'share-cli-file',userId:'9401',expectedVersion:0,size:7,contentType:'text/plain',stream:new Blob(['quarter']).stream()});
+ const reader=await mint(['read']),writer=await mint(['read','write']);
+ expect(await names(reader)).not.toContain('request_public_file_share');
+ expect(await names(reader)).toContain('list_file_share_requests');
+ expect(await names(writer)).toContain('request_public_file_share');
+ const args={fileId:'share-cli-file',version:1,requestKey:'share-request-key-1234',expiresIn:604800,allowDownload:false};
+ const staged=(await tool(writer,'request_public_file_share',args)).result.structuredContent;
+ expect(staged).toMatchObject({status:'pending',fileId:args.fileId,version:1,allowDownload:false,created:true});
+ expect(staged).not.toHaveProperty('url');
+ expect(JSON.stringify(staged)).not.toContain('/hx/public-file-shares/');
+ expect((await env.DB.prepare('SELECT status FROM hx_file_share_requests WHERE org_id=? AND id=?').bind(ORG,staged.requestId).first()).status).toBe('pending');
+ expect((await env.DB.prepare('SELECT count(*) AS count FROM hx_public_file_shares WHERE org_id=?').bind(ORG).first()).count).toBe(0);
+ const replay=(await tool(writer,'request_public_file_share',args)).result.structuredContent;
+ expect(replay).toMatchObject({requestId:staged.requestId,status:'pending',created:false});
+ const listed=(await tool(reader,'list_file_share_requests',{fileId:args.fileId})).result.structuredContent;
+ expect(listed.requests).toHaveLength(1);
+ expect(listed.requests[0]).toMatchObject({id:staged.requestId,fileId:args.fileId,filePath:'reports/quarterly.txt',status:'pending'});
+ expect(JSON.stringify(listed)).not.toContain('/hx/public-file-shares/');
+ expect((await tool(writer,'request_public_file_share',{...args,version:2})).result.isError).toBe(true);
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'simple'})});
+ expect(await names(writer)).not.toContain('request_public_file_share');
+ expect(await names(writer)).not.toContain('list_file_share_requests');
+});

@@ -78,6 +78,8 @@ Usage:
   honmaru workspace file update <file-id> --expected-version N --text TEXT
   honmaru workspace file delete <file-id> --expected-version N
   honmaru workspace file revert <file-id> --version N --expected-version N
+  honmaru workspace file share request <file-id> --version N --request-id share-UUID [--expires-in 86400|604800|2592000] [--allow-download]
+  honmaru workspace file share requests [--file-id FILE_ID]
   honmaru workspace member list
   honmaru workspace playbook read
   honmaru workspace decision pending [--direction mine|sent]
@@ -121,9 +123,9 @@ const ALIAS_VALUE_FLAGS = new Set([
   "direction", "title", "name", "members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
-  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source",
+  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download"]);
 
 function parseOptions(args, { allowArgs = false, allowWorkspaceFlags = false } = {}) {
   const options = { json: false };
@@ -626,6 +628,23 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
       const version = integerOption(options, "version", { min: 1, required: true });
       if (version > expectedVersion) throw new Error("--version must not be newer than --expected-version.");
       return { tool: "restore_file_version", args: { fileId: positional[0], version, expectedVersion } };
+    }
+    case "file share": {
+      const [shareAction, ...target] = positional;
+      if (shareAction === "request") {
+        onlyFlags(options, ["version", "requestId", "expiresIn", "allowDownload"]);
+        positionalCount(target, 1, "honmaru workspace file share request <file-id> --version N --request-id share-UUID [--expires-in 86400|604800|2592000] [--allow-download]");
+        const version = integerOption(options, "version", { min: 1, required: true });
+        if (typeof options.requestId !== "string" || !/^share-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(options.requestId)) throw new Error("--request-id must be share- followed by a UUID; reuse it only for the identical retry.");
+        const expiresIn = integerOption(options, "expiresIn", { min: 86400, max: 2592000 }) ?? 604800;
+        if (![86400, 604800, 2592000].includes(expiresIn)) throw new Error("--expires-in must be 86400, 604800, or 2592000 seconds.");
+        return { tool: "request_public_file_share", args: { fileId: target[0], version, requestKey: options.requestId, expiresIn, allowDownload: Boolean(options.allowDownload) } };
+      }
+      if (shareAction === "requests") {
+        onlyFlags(options, ["fileId"]); positionalCount(target, 0, "honmaru workspace file share requests [--file-id FILE_ID]");
+        return { tool: "list_file_share_requests", args: options.fileId ? { fileId: options.fileId } : {} };
+      }
+      throw new Error("Usage: honmaru workspace file share request|requests.");
     }
     case "folders list": {
       onlyFlags(options, ["scope", "directory", "origin", "cursor", "limit", "includeDeleted"]); positionalCount(positional, 0, "honmaru workspace folders list --scope ROOM [options]");

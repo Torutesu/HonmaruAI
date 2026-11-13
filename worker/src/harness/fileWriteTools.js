@@ -5,12 +5,17 @@ import {allowed} from '../permissions.js';
 import {audit} from '../audit.js';
 import {FileVersionInputError,readFileVersionContent,createFileLedger,workspaceFilePath,appendFileVersion} from './fileVersionLedger.js';
 import {uploadFileVersion,restoreFileVersion} from './fileUpload.js';
+import {proposePublicFileShare} from './fileShareApprovals.js';
 
 const textTypes=['text/plain','text/markdown','text/csv','text/html','application/json','application/xml','application/yaml','application/javascript'];
 export const FILE_WRITE_TOOLS=[{
  name:'create_file_text',
  description:'Create a new UTF-8 text file in an explicit accessible room scope when requested by the user. Requires write scope and workspace build permission. Up to 128 KiB. Pass a stable requestId of file- followed by a UUID; reuse it with identical scope, path, text and contentType for retries. Never overwrites an existing path. Records agent creation, stores immutable version 1, and does not execute the content. Use list_workspace_files to discover saved results.',
  inputSchema:{type:'object',properties:{scope:{type:'string'},path:{type:'string'},requestId:{type:'string'},text:{type:'string',maxLength:131072},contentType:{type:'string',enum:textTypes}},required:['scope','path','requestId','text','contentType'],additionalProperties:false},
+},{
+ name:'request_public_file_share',
+ description:'Request approval to publish the exact current version of a file as a public snapshot. Requires Harness mode, write scope, workspace build permission, and current file access. This creates only a pending approval request; it never creates or reveals a public token. An owner or current workspace/Room administrator must approve it in the Workspace UI. Call only when the user explicitly asks to request a public share.',
+ inputSchema:{type:'object',properties:{fileId:{type:'string',minLength:1,maxLength:200},version:{type:'integer',minimum:1},requestKey:{type:'string',pattern:'^[-A-Za-z0-9_]{16,100}$'},expiresIn:{type:'integer',enum:[86400,604800,2592000]},allowDownload:{type:'boolean'}},required:['fileId','version','requestKey','expiresIn','allowDownload'],additionalProperties:false},
 },{
  name:'create_file_upload',
  description:'Reserve a binary workspace file upload. Requires write scope and workspace build permission. Supply a stable file-UUID requestId, explicit accessible scope and path, exact byte size, MIME type, and SHA-256. PUT the identical bytes and headers to the returned short-lived uploadUrl. The file remains versioned and scoped by the same live workspace authority as other files.',
@@ -35,6 +40,12 @@ export async function callFileWriteTool(env,agent,name,args={}) {
  const userId=String(agent.githubId),orgId=agent.orgId;
  if(!await allowed(env.DB,orgId,userId,'harness.build'))return error('File changes are not allowed.');
  if(!args||typeof args!=='object'||Array.isArray(args))return error('Invalid file arguments.');
+ if(name==='request_public_file_share'){
+  if(typeof args.fileId!=='string'||!args.fileId.trim()||!Number.isSafeInteger(args.version)||args.version<1||typeof args.requestKey!=='string'||!/^[-A-Za-z0-9_]{16,100}$/.test(args.requestKey)||![86400,604800,2592000].includes(args.expiresIn)||typeof args.allowDownload!=='boolean')return error('A file ID, current version, stable requestKey, supported expiry, and download permission are required.');
+  const request=await proposePublicFileShare(env,{orgId,fileId:args.fileId,version:args.version,userId,login:agent.login,requestKey:args.requestKey,expiresIn:args.expiresIn,allowDownload:args.allowDownload});
+  if(request.error)return error(request.error);
+  return success(request);
+ }
  if(name==='create_file_upload')return createBinaryUpload(env,agent,args);
  const ready=await env.DB.prepare("SELECT count(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('hx_workspace_files','hx_workspace_file_versions','hx_workspace_file_purges','hx_workspace_file_uploads','hx_file_account_erasures','hx_workspace_file_origins')").first();
  if(ready.count!==6)return error('Workspace files are not available yet.');

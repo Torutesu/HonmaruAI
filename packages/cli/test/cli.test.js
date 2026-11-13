@@ -916,3 +916,25 @@ test("gateway run delegates to the installed execution node runtime and exposes 
   assert.equal(await runCli(["gateway", "run", "--help"], { env, stdout: stdout.stream, stderr: stderr.stream, gatewayRunner }), 0);
   assert.match(stdout.read(), /HONMARU_GATEWAY_TOKEN/);
 });
+
+test("file share CLI requests approval without exposing an approval or purge command", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { status: "pending", requestId: "fshare_req_1" } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  const requestId = "share-123e4567-e89b-12d3-a456-426614174000";
+  assert.equal(await run(["workspace", "file", "share", "request", "file_1", "--version", "3", "--request-id", requestId, "--expires-in", "2592000", "--allow-download"]), 0);
+  assert.equal(await run(["workspace", "file", "share", "requests", "--file-id", "file_1"]), 0);
+  assert.deepEqual(calls, [
+    { name: "request_public_file_share", arguments: { fileId: "file_1", version: 3, requestKey: requestId, expiresIn: 2592000, allowDownload: true } },
+    { name: "list_file_share_requests", arguments: { fileId: "file_1" } },
+  ]);
+  assert.equal(await run(["workspace", "file", "share", "request", "file_1", "--version", "3", "--request-id", "bad"]), 1);
+  assert.match(stderr.read(), /request-id must be share-/);
+  assert.equal(calls.length, 2);
+});
+
