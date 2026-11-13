@@ -66,6 +66,15 @@ test("a member names a business; the list is the org's; an outsider sees nothing
   expect(res.status).toBe(400);
 });
 
+test('business discovery identifies General as a default Room without marking other Rooms default', async () => {
+  const { upsertBusiness, listBusinesses } = await import('../src/db.js');
+  await upsertBusiness(env.DB, ORG, { name: 'General', createdBy: '6101' });
+  await upsertBusiness(env.DB, ORG, { name: 'Planning', createdBy: '6101' });
+  const rooms = await listBusinesses(env.DB, ORG, { viewer: 'owner' });
+  expect(rooms.find(room => room.slug === 'general')).toMatchObject({ isDefaultRoom: true });
+  expect(rooms.find(room => room.slug === 'planning')).not.toHaveProperty('isDefaultRoom');
+});
+
 test("tagging a card with a new name creates the business, and either party may re-file it", async () => {
   const owner = await joined(ORG, ownerToken);
   const member = await joined(ORG, memberToken);
