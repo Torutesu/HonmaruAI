@@ -4,6 +4,7 @@
 //
 //   cd worker && node scripts/media-inventory.mjs            # look only
 //   cd worker && node scripts/media-inventory.mjs --restore  # and restore
+//   cd worker && node scripts/media-inventory.mjs --details  # and list each one (never in CI: it names people)
 //
 // Run by .github/workflows/media-inventory.yml with the deploy's Cloudflare
 // token. Every key is read from the production bucket, one by one; nothing
@@ -32,6 +33,11 @@ const DB = process.env.DB || "tiktokforwork";
 const BUCKET = process.env.BUCKET || "tiktokforwork-media";
 const [command, ...prefix] = (process.env.WRANGLER || "npx -y wrangler@4").split(" ");
 const restore = process.argv.includes("--restore");
+// The per-picture list names people (a profile photo's login can be an
+// email address) and workspaces. The repository is public, and so is a
+// workflow's log and summary: the workflow prints counts only, and this
+// list is for a run on a maintainer's own machine (#959).
+const details = process.argv.includes("--details");
 const ATTACHMENT_SAMPLE = 200;
 
 const wrangler = (args) => run(command, [...prefix, ...args], { maxBuffer: 64 * 1024 * 1024 });
@@ -85,7 +91,9 @@ async function bucketFacts() {
     try {
       const { stdout } = await wrangler(args);
       const text = label === "buckets" ? stdout.split(/\n(?=name:)/).filter((b) => b.includes(BUCKET)).join("\n") : stdout;
-      out.push(`### ${label}`, "```", text.split("\n").filter((l) => !/WARNING|wrangler \d|^─+$|Proxy environment/.test(l)).join("\n").trim(), "```");
+      // How much it holds is production data, and the summary is public.
+      const kept = text.split("\n").filter((l) => !/WARNING|wrangler \d|^─+$|Proxy environment|object_count|bucket_size/.test(l));
+      out.push(`### ${label}`, "```", kept.join("\n").trim(), "```");
     } catch (err) { out.push(`### ${label}`, `could not be read: ${String(err.stderr || err.message).trim().split("\n").pop()}`); }
   }
   return out;
@@ -130,7 +138,8 @@ async function main() {
   ];
   lines.push(...await bucketFacts(), ...timeline(rows), "");
   const notPresent = rows.filter((r) => r.status !== "present");
-  if (notPresent.length) {
+  if (notPresent.length && !details) lines.push(`${notPresent.length} not present. Their list names people and workspaces, so it is printed only with --details, on your own machine.`);
+  if (notPresent.length && details) {
     lines.push("| kind | workspace | name | key | made | status | source |", "| --- | --- | --- | --- | --- | --- | --- |");
     for (const r of notPresent) lines.push(`| ${r.kind} | ${r.where} | ${r.label} | \`${r.key}\` | ${r.at || ""} | ${r.status} | ${r.source || (r.kind === "emoji" ? "no copy in the repo" : "uploaded by a person; no copy")} |`);
   }
