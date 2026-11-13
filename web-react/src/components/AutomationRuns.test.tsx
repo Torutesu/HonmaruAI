@@ -244,3 +244,63 @@ test('a reader never gets the localized resume action',async()=>{
   expect(status.findAllByType('button')).toHaveLength(0)
  } finally {if(tree)act(()=>tree.unmount());changeLocale('en');vi.unstubAllGlobals()}
 })
+
+test('workflow makers can inspect queued payloads and explicitly replay selected webhook events',async()=>{
+ const held={count:2,oldestExpiry:'2026-10-25T00:00:00Z',pageOffset:0,previousOffset:null,nextOffset:null,events:[
+  {id:'held-one',receivedAt:'2026-10-24T00:00:00Z',expiresAt:'2026-10-31T00:00:00Z'},
+  {id:'held-two',receivedAt:'2026-10-24T01:00:00Z',expiresAt:'2026-10-31T01:00:00Z'},
+ ]}
+ const api={workflow:vi.fn().mockResolvedValue({workflow:{trigger:{type:'webhook'}},runs:[],canEdit:true,held}),heldWorkflowEvent:vi.fn().mockResolvedValue({event:{id:'held-one',receivedAt:held.events[0].receivedAt,expiresAt:held.events[0].expiresAt,input:{order:'42',private:'payload-secret'}}}),replayWorkflowEvents:vi.fn().mockResolvedValue({runs:[{eventId:'held-one',runId:'run-new',status:'running'}],skipped:0}),discardWorkflowEvents:vi.fn()};let tree:any
+ vi.stubGlobal('confirm',vi.fn(()=>true))
+ try{
+  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={api as any}/>)})
+  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+  let rendered=JSON.stringify(tree.toJSON())
+  expect(rendered).toContain(t('Held webhook events'))
+  expect(rendered).toContain('held-one')
+  expect(rendered).not.toContain('payload-secret')
+  const review=()=>tree.root.findAllByType('button').find((button:any)=>button.children.includes(t('Review payload')))
+  await act(async()=>review().props.onClick())
+  expect(api.heldWorkflowEvent).toHaveBeenCalledWith('wf','held-one')
+  expect(JSON.stringify(tree.toJSON())).toContain('payload-secret')
+  const checkbox=tree.root.findAllByType('input').find((input:any)=>input.props.type==='checkbox')
+  act(()=>checkbox.props.onChange())
+  const replay=tree.root.findAllByType('button').find((button:any)=>button.children.includes(t('Replay selected')))
+  await act(async()=>replay.props.onClick())
+  expect(api.replayWorkflowEvents).toHaveBeenCalledWith('wf',['held-one'])
+  expect(JSON.stringify(tree.toJSON())).toContain(t('Started {count} held event(s); {skipped} were skipped.',{count:1,skipped:0}))
+ }finally{if(tree)act(()=>tree.unmount());vi.unstubAllGlobals()}
+})
+
+test('held webhook discard requires confirmation and is hidden from readers',async()=>{
+ const held={count:1,oldestExpiry:null,pageOffset:0,previousOffset:null,nextOffset:null,events:[{id:'held-delete',receivedAt:'2026-10-24T00:00:00Z',expiresAt:'2026-10-31T00:00:00Z'}]}
+ const api={workflow:vi.fn().mockResolvedValue({workflow:{trigger:{type:'webhook'}},runs:[],canEdit:true,held}),heldWorkflowEvent:vi.fn(),replayWorkflowEvents:vi.fn(),discardWorkflowEvents:vi.fn().mockResolvedValue({discarded:1})};let tree:any
+ const confirm=vi.fn(()=>false);vi.stubGlobal('confirm',confirm)
+ try{
+  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={api as any}/>)})
+  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+  let checkbox=tree.root.findByType('input');act(()=>checkbox.props.onChange())
+  let discard=tree.root.findAllByType('button').find((button:any)=>button.children.includes(t('Discard selected')))
+  await act(async()=>discard.props.onClick())
+  expect(confirm).toHaveBeenCalled();expect(api.discardWorkflowEvents).not.toHaveBeenCalled()
+  act(()=>tree.update(<AutomationRuns workflowId="wf" api={{workflow:vi.fn().mockResolvedValue({workflow:{trigger:{type:'webhook'}},runs:[],canEdit:false,held:undefined})}as any}/>))
+  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+  expect(JSON.stringify(tree.toJSON())).not.toContain('held-delete')
+  expect(JSON.stringify(tree.toJSON())).not.toContain(t('Held webhook events'))
+ }finally{if(tree)act(()=>tree.unmount());vi.unstubAllGlobals()}
+})
+
+test('held webhook queue pages forward the requested offset to the workflow API',async()=>{
+ const first={count:30,oldestExpiry:'2026-10-25T00:00:00Z',pageOffset:0,previousOffset:null,nextOffset:25,events:[{id:'page-one',receivedAt:'2026-10-24T00:00:00Z',expiresAt:'2026-10-31T00:00:00Z'}]}
+ const second={...first,pageOffset:25,previousOffset:0,nextOffset:null,events:[{id:'page-two',receivedAt:'2026-10-24T00:25:00Z',expiresAt:'2026-10-31T00:25:00Z'}]}
+ const workflow=vi.fn().mockResolvedValueOnce({workflow:{trigger:{type:'webhook'}},runs:[],canEdit:true,held:first}).mockResolvedValue({workflow:{trigger:{type:'webhook'}},runs:[],canEdit:true,held:second});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('page-one')
+ const next=tree.root.findAllByType('button').find((button:any)=>button.children.includes(t('Next')))
+ await act(async()=>next.props.onClick())
+ expect(workflow).toHaveBeenLastCalledWith('wf',25)
+ expect(JSON.stringify(tree.toJSON())).toContain('page-two')
+ expect(JSON.stringify(tree.toJSON())).not.toContain('page-one')
+ act(()=>tree.unmount())
+})

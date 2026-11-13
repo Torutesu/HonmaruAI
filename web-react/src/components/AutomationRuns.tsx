@@ -1,6 +1,7 @@
 import {WorkflowRunUsage} from './WorkflowRunUsage'
+import {HeldWebhookEvents} from './HeldWebhookEvents'
 import React,{useCallback,useEffect,useRef,useState} from 'react'
-import type {HarnessApi,Run,WorkflowSafety} from '../utils/harness'
+import type {HarnessApi,HeldWorkflowEvents,Run,WorkflowSafety} from '../utils/harness'
 import {useT} from '../utils/i18n'
 import {getLocale} from '../utils/locale'
 import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHistory'
@@ -13,17 +14,17 @@ const authorizationResourceLabels:Record<NonNullable<Run['log'][number]['authori
 
 export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessApi}) {
  const t=useT(),[runs,setRuns]=useState<Run[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[isOpen,setIsOpen]=useState(false),[failedOnly,setFailedOnly]=useState(false)
- const [safety,setSafety]=useState<WorkflowSafety|null>(null),[canEdit,setCanEdit]=useState(false)
+ const [safety,setSafety]=useState<WorkflowSafety|null>(null),[canEdit,setCanEdit]=useState(false),[held,setHeld]=useState<HeldWorkflowEvents|null>(null),[isWebhook,setIsWebhook]=useState(false)
  const request=useRef(0),pending=useRef<number|null>(null),opened=useRef(false)
- const load=useCallback(async()=>{
+ const load=useCallback(async(heldOffset=0)=>{
   if(pending.current!==null)return
   const current=++request.current;pending.current=current;setBusy(true);setError('')
-  try{const result=await api.workflow(workflowId);if(current===request.current){setRuns(result.runs);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true)}}
-  catch(e){if(current===request.current){setRuns(null);setSafety(null);setCanEdit(false);setError(e instanceof Error?e.message:String(e))}}
+  try{const result=heldOffset?await api.workflow(workflowId,heldOffset):await api.workflow(workflowId);if(current===request.current){setRuns(result.runs);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true);setHeld(result.held||null);setIsWebhook(result.workflow?.trigger?.type==='webhook')}}
+  catch(e){if(current===request.current){setRuns(null);setSafety(null);setCanEdit(false);setHeld(null);setIsWebhook(false);setError(e instanceof Error?e.message:String(e))}}
   finally{if(pending.current===current)pending.current=null;if(current===request.current)setBusy(false)}
  },[workflowId,api])
  useEffect(()=>{
-  request.current++;pending.current=null;setRuns(null);setSafety(null);setCanEdit(false);setError('');setBusy(false);setFailedOnly(false)
+  request.current++;pending.current=null;setRuns(null);setSafety(null);setCanEdit(false);setHeld(null);setIsWebhook(false);setError('');setBusy(false);setFailedOnly(false)
   if(opened.current)void load()
   return ()=>{request.current++}
  },[load])
@@ -33,7 +34,7 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
   try{
    await api.resumeWorkflow(workflowId,safety.generation)
    const result=await api.workflow(workflowId)
-   if(current===request.current){setRuns(result.runs);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true)}
+   if(current===request.current){setRuns(result.runs);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true);setHeld(result.held||null);setIsWebhook(result.workflow?.trigger?.type==='webhook')}
   }catch(e){if(current===request.current)setError(e instanceof Error?e.message:String(e))}
   finally{if(pending.current===current)pending.current=null;if(current===request.current)setBusy(false)}
  }
@@ -51,6 +52,7 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
    <p>{safety.pause_reason?.startsWith('budget_ai_unpriced')?t('Some AI usage could not be priced. Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.'):safety.pause_reason?.startsWith('budget_ai_')?t('Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.'):safety.pause_reason?.startsWith('budget_')?t('Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.'):t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>
    {canEdit&&!safety.pause_reason?.startsWith('budget_')&&<button type="button" className="pill-btn" disabled={busy} onClick={()=>void resume()}>{t('Resume after review')}</button>}
   </section>}
+  {isWebhook&&canEdit&&held&&<HeldWebhookEvents workflowId={workflowId} held={held} api={api} busy={busy} onRefresh={load}/>}
   {runs?.length===0&&<p>{t('No runs yet.')}</p>}
   {!!runs?.length&&<div className="hx-run-history">
    <div className="hx-run-history-tools"><button type="button" className="pill-btn quiet hx-run-filter" aria-pressed={failedOnly} onClick={()=>setFailedOnly(value=>!value)}>{t('Failed runs only')}</button></div>
