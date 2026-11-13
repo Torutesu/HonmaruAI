@@ -2,7 +2,7 @@ import {allowed} from '../permissions.js';
 import {readAutomationPlan} from './appAutomationPlan.js';
 import {readAutomationDraft} from './appAutomationDraft.js';
 import {automationDefinition,sameAutomation,validateAutomationAppScope} from './appAutomationDefinition.js';
-import {mayViewWorkflow,unknownApprover,MAX_WORKFLOWS} from './workflows.js';
+import {mayViewWorkflow,unknownApprover,MAX_WORKFLOWS,mintHookSecret} from './workflows.js';
 import {mayUseApp} from './resourceAccess.js';
 import {nextRunAt} from '../schedule.js';
 import {getTable} from './tables.js';
@@ -12,7 +12,6 @@ import {sourceHash} from './customAppPublishApproval.js';
 
 const conflict=()=>({error:'The app, draft or live automations changed. Review the plan again.',status:409});
 const receipt=row=>({saved:true,releaseId:row.release_id,revision:row.revision,version:row.app_version});
-const secret=()=>[...crypto.getRandomValues(new Uint8Array(24))].map(value=>value.toString(16).padStart(2,'0')).join('');
 
 // Internal lifecycle primitive. Do not expose publication until every run
 // entry point and app unpublish/delete path enforces managed ownership.
@@ -108,21 +107,29 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
   statements.push(db.prepare(`UPDATE hx_apps SET version=?4,updated_at=?5,definition=?6 WHERE org_id=?1 AND id=?2 AND ${guard}`).bind(orgId,app.id,releaseId,version,at,JSON.stringify(definition)));
   statements.push(db.prepare(`INSERT INTO hx_app_versions(app_id,org_id,version,definition,note,created_by,created_at)
     SELECT ?2,?1,?4,?5,?6,?7,?8 WHERE ${guard}`).bind(orgId,app.id,releaseId,version,JSON.stringify({name:app.name,columns:table.columns,...definition,automationRelease:releaseId}),'Automations: '+input.action,String(by),at));
+  // Only a digest is stored, so a secret minted here is returned once, to the
+  // releasing person, exactly as creating a webhook workflow returns it.
+  const webhookSecrets=[];
   for(const item of desired) {
     const binding=byKey.get(item.key),id=binding?.workflow_id || `wf_${crypto.randomUUID().replaceAll('-','').slice(0,16)}`;
     const next=item.enabled && item.trigger.type==='schedule'?nextRunAt(item.trigger):null;
     if(binding && !missing.includes(id)) {
-      const candidate=item.trigger.type==='webhook'?secret():null;
+      const hook=item.trigger.type==='webhook'?await mintHookSecret():null,candidate=hook?.stored??null;
       const live=snapshots.find(row=>row.id===id);
       const applied={enabled:Boolean(live.enabled),trigger:JSON.parse(live.trigger)};
+      // The batch is fenced on this snapshot, so the candidate is stored
+      // exactly when the live workflow was not already a webhook.
+      if(hook&&applied.trigger.type!=='webhook')webhookSecrets.push({key:item.key,workflowId:id,secret:hook.secret});
       const sameSchedule=sameAutomation({name:'',steps:[],enabled:item.enabled,trigger:item.trigger},{name:'',steps:[],enabled:applied.enabled,trigger:applied.trigger});
       statements.push(db.prepare(`UPDATE hx_workflows SET name=?5,enabled=?6,trigger=?7,steps=?8,next_run_at=CASE WHEN ?12=1 THEN next_run_at ELSE ?9 END,updated_at=?10,
         hook_secret=CASE WHEN ?11 IS NULL THEN NULL WHEN json_extract(trigger,'$.type')='webhook' THEN hook_secret ELSE ?11 END,
         webhook_signature_required=CASE WHEN json_extract(?7,'$.type')='webhook' AND json_extract(trigger,'$.type')!='webhook' THEN 1 ELSE webhook_signature_required END
         WHERE org_id=?1 AND id=?4 AND ${guard}`).bind(orgId,app.id,releaseId,id,item.name,item.enabled?1:0,JSON.stringify(item.trigger),JSON.stringify(item.steps),next,at,candidate,sameSchedule?1:0));
     } else {
+      const hook=item.trigger.type==='webhook'?await mintHookSecret():null;
+      if(hook)webhookSecrets.push({key:item.key,workflowId:id,secret:hook.secret});
       statements.push(db.prepare(`INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,hook_secret,webhook_signature_required,next_run_at,created_by,created_at,updated_at)
-        SELECT ?4,?1,?5,?6,?7,?8,?9,?10,?11,?12,?13,?13 WHERE ${guard}`).bind(orgId,app.id,releaseId,id,item.name,item.enabled?1:0,JSON.stringify(item.trigger),JSON.stringify(item.steps),item.trigger.type==='webhook'?secret():null,item.trigger.type==='webhook'?1:0,next,String(by),at));
+        SELECT ?4,?1,?5,?6,?7,?8,?9,?10,?11,?12,?13,?13 WHERE ${guard}`).bind(orgId,app.id,releaseId,id,item.name,item.enabled?1:0,JSON.stringify(item.trigger),JSON.stringify(item.steps),hook?.stored??null,item.trigger.type==='webhook'?1:0,next,String(by),at));
     }
     statements.push(db.prepare(`INSERT INTO hx_app_automation_bindings(org_id,app_id,declaration_key,workflow_id,applied,release_id)
       SELECT ?1,?2,?4,?5,?6,?3 WHERE ${guard}
@@ -141,5 +148,5 @@ export async function releaseAppAutomations(db,orgId,app,input,by) {
     const completed=await db.prepare('SELECT request,release_id,revision,app_version FROM hx_app_automation_releases WHERE org_id=?1 AND app_id=?2 AND request_id=?3').bind(orgId,app.id,input.requestId).first();
     return completed?.request===request?{...receipt(completed),replay:true}:conflict();
   }
-  return {saved:true,releaseId,revision,version};
+  return {saved:true,releaseId,revision,version,...(webhookSecrets.length?{webhookSecrets}:{})};
 }

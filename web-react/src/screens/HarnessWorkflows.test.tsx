@@ -81,6 +81,35 @@ test('cancelling a running workflow requires confirmation and refreshes run hist
  expect(state.api.cancelWorkflowRun).toHaveBeenCalledWith(workflow.id,'active',startedAt)
  expect(state.api.workflow).toHaveBeenCalledTimes(2)
 })
+test('a run waiting on approval can be cancelled by its maker or an admin, with its own confirmation', async () => {
+ const startedAt='2026-11-01T00:00:00.000Z'
+ const waiting={id:'gated',status:'waiting',trigger:'schedule',startedAt,finishedAt:null,log:[],cardId:'wf-gated-1'}
+ state.api.workflow.mockResolvedValue({workflow,runs:[waiting],summary:emptySummary,canEdit:true})
+ await open()
+ await act(async()=>button('Stop run…').props.onClick())
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain('Its approval card will close')
+ expect(text).not.toContain('current step may already have sent a message')
+ expect(button('Keep waiting')).toBeTruthy()
+ await act(async()=>button('Stop this run').props.onClick())
+ expect(state.api.cancelWorkflowRun).toHaveBeenCalledWith(workflow.id,'gated',startedAt)
+ expect(state.api.workflow).toHaveBeenCalledTimes(2)
+})
+test('people who cannot change the workflow are not offered cancel on a waiting run', async () => {
+ state.api.workflow.mockResolvedValue({workflow,runs:[{id:'gated',status:'waiting',trigger:'schedule',startedAt:'2026-11-01T00:00:00.000Z',finishedAt:null,log:[]}],summary:emptySummary,canEdit:false})
+ await open()
+ expect(button('Stop run…')).toBeUndefined()
+})
+test('a cancel refused because the run changed says so and refreshes the history', async () => {
+ const { HarnessApiError } = await import('../utils/harness')
+ state.api.cancelWorkflowRun.mockRejectedValue(new HarnessApiError('This run is no longer running. Refresh the workflow before cancelling it.',409))
+ state.api.workflow.mockResolvedValue({workflow,runs:[{id:'gated',status:'waiting',trigger:'schedule',startedAt:'2026-11-01T00:00:00.000Z',finishedAt:null,log:[]}],summary:emptySummary,canEdit:true})
+ await open()
+ await act(async()=>button('Stop run…').props.onClick())
+ await act(async()=>button('Stop this run').props.onClick())
+ expect(tree.root.findAllByProps({role:'alert'}).some(node=>node.children.includes('This run changed before it could be cancelled. Its current status is shown below.'))).toBe(true)
+ expect(state.api.workflow).toHaveBeenCalledTimes(2)
+})
 test('workflow history shows elapsed time without inventing duration for unfinished runs',async()=>{
  state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[
   {id:'done-run',status:'done',trigger:'manual',startedAt:'2026-10-24T09:00:00Z',finishedAt:'2026-10-24T09:01:10Z',log:[]},
@@ -157,12 +186,15 @@ test('webhook revocation requires confirmation, uses the observed secret, and di
   await act(async () => { await button('Generate new webhook URL').props.onClick() })
   expect(state.api.changeWorkflowHook).toHaveBeenLastCalledWith(workflow.id, 'rotate', null, workflow.updatedAt)
   expect(JSON.stringify(tree.toJSON())).toContain('https://example.test/hook?secret=new')
+  // The server keeps only a digest, so the rotation response is the one chance to show the secret.
+  expect(JSON.stringify(tree.toJSON())).toContain('X-Hook-Secret header')
+  expect(JSON.stringify(tree.toJSON())).toContain('b'.repeat(48))
 })
 test('legacy webhook senders remain compatible until their credential is rotated', async () => {
   state.api.workflow.mockResolvedValue({ workflow: { ...workflow, webhookSignatureRequired: false }, runs: [], canEdit: true })
   await open()
   const text = JSON.stringify(tree.toJSON())
-  expect(text).toContain('This existing webhook still accepts its URL secret alone.')
+  expect(text).toContain('Move the secret into the X-Hook-Secret header, then generate a new webhook URL')
   expect(text).not.toContain('x-webhook-signature')
 })
 test('a conflict retains the current display and reports the failure instead of pretending to rotate', async () => {

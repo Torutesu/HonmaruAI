@@ -194,6 +194,79 @@ test("the owner posts the draft — as they changed it — to the channel under 
   expect(tomorrow.lastReport.text).toContain("採用を即決できた");
 });
 
+// A database that refuses each matching statement once.
+const failingOnce = (...patterns) => {
+  const realPrepare = env.DB.prepare.bind(env.DB);
+  const left = [...patterns];
+  return new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "prepare") return (sql) => {
+        const i = left.findIndex((p) => p.test(sql));
+        if (i >= 0) { left.splice(i, 1); throw new Error("D1 hiccup"); }
+        return realPrepare(sql);
+      };
+      const v = target[prop];
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+};
+
+test("a post whose message fails to save leaves a draft, and the next post says it once", async () => {
+  const { data } = await makeDaily();
+  const { card } = await runRoutine(ENV({ OPENAI_API_KEY: undefined }), await getRoutine(env.DB, ORG, data.routine.id), { now: NOW, manual: true });
+  const { getCard } = await import("../src/db.js");
+  const said = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND body = '今日の日報'").bind(ORG).first()).n;
+  expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: card.id, text: "今日の日報" }, { DB: failingOnce(/^INSERT INTO channel_messages/) })).status).toBe(500);
+  expect((await getCard(env.DB, ORG, card.id)).dailyReport.status).toBe("draft");
+  expect(await said()).toBe(0);
+  expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: card.id, text: "今日の日報" })).status).toBe(201);
+  expect(await said()).toBe(1);
+});
+
+test("a post whose card fails to save after the message landed ends posted, with the message said once", async () => {
+  const { data } = await makeDaily();
+  const { card } = await runRoutine(ENV({ OPENAI_API_KEY: undefined }), await getRoutine(env.DB, ORG, data.routine.id), { now: NOW, manual: true });
+  const { getCard } = await import("../src/db.js");
+  const said = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND body = '今日の日報'").bind(ORG).first()).n;
+  expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: card.id, text: "今日の日報" }, { DB: failingOnce(/INSERT INTO cards/) })).status).toBe(500);
+  const settled = await getCard(env.DB, ORG, card.id);
+  expect(settled).toMatchObject({ status: "completed", dailyReport: { status: "posted", text: "今日の日報" } });
+  expect(await said()).toBe(1);
+  expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: card.id, text: "今日の日報" })).status).toBe(409);
+  expect(await said()).toBe(1);
+});
+
+test("a post that could not even settle is taken again past its lease, and still says the report once", async () => {
+  const { data } = await makeDaily();
+  const { card } = await runRoutine(ENV({ OPENAI_API_KEY: undefined }), await getRoutine(env.DB, ORG, data.routine.id), { now: NOW, manual: true });
+  const { getCard } = await import("../src/db.js");
+  const said = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND body = '今日の日報'").bind(ORG).first()).n;
+  // The card save fails, and so does the look for the message afterwards.
+  const db = failingOnce(/INSERT INTO cards/, /^SELECT id, body, created_at FROM channel_messages/);
+  expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: card.id, text: "今日の日報" }, { DB: db })).status).toBe(500);
+  expect((await getCard(env.DB, ORG, card.id)).dailyReport.status).toBe("posting");
+  // Held while the lease runs.
+  expect((await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: card.id, text: "今日の日報" })).status).toBe(409);
+  await env.DB.prepare("UPDATE cards SET data = json_set(data, '$.dailyReport.postingAt', '2000-01-01T00:00:00.000Z') WHERE org_id = ?1 AND card_id = ?2").bind(ORG, card.id).run();
+  const res = await post("/channels/daily-report/post", toru, { orgId: ORG, cardId: card.id, text: "今日の日報" });
+  expect(res.status).toBe(201);
+  expect((await res.json()).card.dailyReport.status).toBe("posted");
+  expect(await said()).toBe(1);
+});
+
+test("the cron gives back a draft left in posting by a post that died, and it can be put away again", async () => {
+  const { data } = await makeDaily();
+  const { card } = await runRoutine(ENV({ OPENAI_API_KEY: undefined }), await getRoutine(env.DB, ORG, data.routine.id), { now: NOW, manual: true });
+  const { getCard } = await import("../src/db.js");
+  const { recoverStalePosts } = await import("../src/dailyReport.js");
+  // As the code before the lease left it: `posting`, with no stamp.
+  await env.DB.prepare("UPDATE cards SET data = json_set(data, '$.dailyReport.status', 'posting') WHERE org_id = ?1 AND card_id = ?2").bind(ORG, card.id).run();
+  expect((await call("/channels/daily-report/draft", { method: "DELETE", headers: headers(toru), body: JSON.stringify({ orgId: ORG, cardId: card.id }) })).status).toBe(409);
+  expect((await recoverStalePosts(env, { now: new Date() })).recovered).toBe(1);
+  expect((await getCard(env.DB, ORG, card.id)).dailyReport.status).toBe("draft");
+  expect((await call("/channels/daily-report/draft", { method: "DELETE", headers: headers(toru), body: JSON.stringify({ orgId: ORG, cardId: card.id }) })).status).toBe(200);
+});
+
 test("an empty or overlong report is refused and stays a draft", async () => {
   const { data } = await makeDaily();
   const routine = await getRoutine(env.DB, ORG, data.routine.id);

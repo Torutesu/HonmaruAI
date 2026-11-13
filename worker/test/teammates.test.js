@@ -572,3 +572,110 @@ test.each([['active',true],['revoked',false]])('an external Harness Agent handof
  expect(result.status).toBe(eligible?'pending':'published');
  if(eligible)expect(result.payload).toEqual(expect.any(String));else expect(result.payload).toBeNull();
 });
+
+test("two mentions arriving together in one thread start one paid run, not two", async () => {
+  const { loadTeammate, startTeammateRun } = await import("../src/teammates.js");
+  await launch();
+  const t = await loadTeammate(env.DB, ORG, "claude");
+  // One start answered, slowly. A second paid start finds no interceptor
+  // and throws, so it shows as a rejection below.
+  anthropic().intercept({ path: "/v1/sessions?beta=true", method: "POST" }).reply(200, { id: "sesn_race_1" }).delay(50);
+  const args = { orgId: ORG, t, key: "b:cafe", threadId: "race-thread", where: "Cafe", askedBy: "Toru", transcript: [], request: "Do the task", login: "toru" };
+  const settled = await Promise.allSettled([startTeammateRun(env, args), startTeammateRun(env, { ...args, request: "And this" })]);
+  expect(settled.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"]);
+  const results = settled.map((r) => r.value);
+  expect(results.filter((r) => r.run)).toHaveLength(1);
+  expect(results.filter((r) => r.refused === "busy")).toHaveLength(1);
+  const rows = (await env.DB.prepare("SELECT status, remote_id FROM ai_teammate_runs WHERE org_id = ?1 AND thread_id = 'race-thread'").bind(ORG).all()).results;
+  expect(rows).toEqual([{ status: "running", remote_id: "sesn_race_1" }]);
+});
+
+test("a failed lookup starts nothing, and a failed start leaves no run so the next mention can start one", async () => {
+  const { loadTeammate, startTeammateRun } = await import("../src/teammates.js");
+  await launch();
+  const t = await loadTeammate(env.DB, ORG, "claude");
+  const args = { orgId: ORG, t, key: "b:cafe", threadId: "fragile-thread", where: "Cafe", askedBy: "Toru", transcript: [], request: "Do the task", login: "toru" };
+  // The thread's run cannot be looked up: an error, not "no run". No start
+  // is answered yet, so one attempted here would fail differently.
+  const realPrepare = env.DB.prepare.bind(env.DB);
+  let failed = false;
+  const db = new Proxy(env.DB, { get(target, prop) {
+    if (prop === "prepare") return (sql) => {
+      if (failed || !/^SELECT \* FROM ai_teammate_runs WHERE org_id = \?1 AND provider = \?2 AND channel = \?3 AND thread_id = \?4/.test(sql)) return realPrepare(sql);
+      failed = true;
+      return { bind: () => ({ first: async () => { throw new Error("D1 hiccup"); } }) };
+    };
+    const v = target[prop];
+    return typeof v === "function" ? v.bind(target) : v;
+  } });
+  await expect(startTeammateRun({ ...env, DB: db }, args)).rejects.toThrow("D1 hiccup");
+  // The provider refuses the start: no run is left holding the thread.
+  anthropic().intercept({ path: "/v1/sessions?beta=true", method: "POST" }).reply(400, { type: "error", error: { type: "invalid_request_error", message: "no" } });
+  anthropic().intercept({ path: "/v1/sessions?beta=true", method: "POST" }).reply(200, { id: "sesn_fragile" });
+  await expect(startTeammateRun(env, args)).rejects.toThrow();
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM ai_teammate_runs WHERE org_id = ?1 AND thread_id = 'fragile-thread'").bind(ORG).first()).n).toBe(0);
+  const next = await startTeammateRun(env, args);
+  expect(next.run.remote_id).toBe("sesn_fragile");
+});
+
+test("two starts at the edge of the monthly limit do not both go ahead", async () => {
+  const { loadTeammate, startTeammateRun } = await import("../src/teammates.js");
+  await launch();
+  // Room for one more run: 50¢ left of a $10 month.
+  await env.DB.prepare("UPDATE ai_teammates SET monthly_limit_cents = 1000 WHERE org_id = ?1 AND provider = 'claude'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, status, cost_cents, created_at, updated_at) VALUES ('spent', ?1, 'claude', 'b:cafe', 'old', 'sesn_old', 'idle', 950, ?2, ?2)")
+    .bind(ORG, new Date().toISOString()).run();
+  const t = await loadTeammate(env.DB, ORG, "claude");
+  anthropic().intercept({ path: "/v1/sessions?beta=true", method: "POST" }).reply(200, { id: "sesn_edge" }).delay(50);
+  const args = { orgId: ORG, t, key: "b:cafe", where: "Cafe", askedBy: "Toru", transcript: [], request: "Do the task", login: "toru" };
+  const settled = await Promise.allSettled([startTeammateRun(env, { ...args, threadId: "edge-a" }), startTeammateRun(env, { ...args, threadId: "edge-b" })]);
+  expect(settled.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"]);
+  const results = settled.map((r) => r.value);
+  expect(results.filter((r) => r.run)).toHaveLength(1);
+  expect(results.filter((r) => r.refused === "limit")).toHaveLength(1);
+});
+
+test("a start whose request died holds its place in the month only while its hold lasts", async () => {
+  const { loadTeammate, startTeammateRun, spentThisMonth } = await import("../src/teammates.js");
+  await launch();
+  await env.DB.prepare("UPDATE ai_teammates SET monthly_limit_cents = 1000 WHERE org_id = ?1 AND provider = 'claude'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, status, cost_cents, created_at, updated_at) VALUES ('spent', ?1, 'claude', 'b:cafe', 'old', 'sesn_old', 'idle', 950, ?2, ?2)")
+    .bind(ORG, new Date().toISOString()).run();
+  // A reservation left twenty minutes ago by a start that never finished.
+  const crashed = new Date(Date.now() - 20 * 60000).toISOString();
+  await env.DB.prepare("INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, status, cost_cents, created_at, updated_at) VALUES ('crashed', ?1, 'claude', 'b:cafe', 'gone', '', 'starting', 50, ?2, ?2)")
+    .bind(ORG, crashed).run();
+  expect(await spentThisMonth(env.DB, ORG, "claude")).toBe(950);
+  const t = await loadTeammate(env.DB, ORG, "claude");
+  anthropic().intercept({ path: "/v1/sessions?beta=true", method: "POST" }).reply(200, { id: "sesn_after_crash" });
+  const args = { orgId: ORG, t, key: "b:cafe", where: "Cafe", askedBy: "Toru", transcript: [], request: "Do the task", login: "toru" };
+  const started = await startTeammateRun(env, { ...args, threadId: "after-crash" });
+  expect(started.run?.remote_id).toBe("sesn_after_crash");
+  // One still within its hold counts: the month is full again.
+  await env.DB.prepare("INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, status, cost_cents, created_at, updated_at) VALUES ('fresh', ?1, 'claude', 'b:cafe', 'busy', '', 'starting', 50, ?2, ?2)")
+    .bind(ORG, new Date().toISOString()).run();
+  expect(await startTeammateRun(env, { ...args, threadId: "too-late" })).toEqual({ refused: "limit" });
+});
+
+test("the minute cron reaches every running run in turn, not only the oldest", async () => {
+  const { openRuns } = await import("../src/teammates.js");
+  const base = Date.parse("2026-09-30T00:00:00Z");
+  // Sixty runs at work across two workspaces, none of them finishing.
+  for (let i = 0; i < 60; i++) {
+    const at = new Date(base + i * 60000).toISOString();
+    await env.DB.prepare("INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, status, created_at, updated_at) VALUES (?1, ?2, 'claude', 'b:cafe', ?3, ?4, 'running', ?5, ?5)")
+      .bind(`run-${String(i).padStart(2, "0")}`, i % 2 ? ORG : "personal:teammates-other", `thread-${i}`, `sesn_${i}`, at).run();
+  }
+  const seen = new Set();
+  for (let tick = 0; tick < 3; tick++) {
+    const runs = await openRuns(env.DB, { limit: 25, now: new Date(base + 86400000 + tick * 60000) });
+    expect(runs.length).toBeLessThanOrEqual(25);
+    for (const run of runs) seen.add(run.id);
+  }
+  expect(seen.size).toBe(60);
+  // A run that has finished is no longer read.
+  await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'idle' WHERE id = 'run-59' AND org_id = ?1").bind(ORG).run();
+  const next = await openRuns(env.DB, { limit: 60, now: new Date(base + 2 * 86400000) });
+  expect(next.map((r) => r.id)).not.toContain("run-59");
+  expect(next).toHaveLength(59);
+});

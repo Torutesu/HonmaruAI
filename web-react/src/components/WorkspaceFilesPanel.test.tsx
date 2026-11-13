@@ -350,7 +350,7 @@ test('pending public share can be declined without revealing a URL',async()=>{
 })
 
 test('file owner grants and revokes a named verified external collaborator',async()=>{
- const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[]}),searchExternalCollaborators:vi.fn().mockResolvedValue({people:[{githubId:'guest-1',login:'guest',name:'Guest'}]}),grantExternal:vi.fn().mockResolvedValue({grant:{recipientGithubId:'guest-1'},redemptionPath:'/external/files/org/file'}),revokeExternal:vi.fn().mockResolvedValue({revoked:true})} as unknown as WorkspaceFileApi
+ const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[]}),searchExternalCollaborators:vi.fn().mockResolvedValue({people:[{ref:'c1.guest-1',login:'guest',name:'Guest'}]}),grantExternal:vi.fn().mockResolvedValue({grant:{recipientRef:'c1.guest-1'},redemptionPath:'/external/files/org/file'}),revokeExternal:vi.fn().mockResolvedValue({revoked:true})} as unknown as WorkspaceFileApi
  let renderer:ReturnType<typeof create>
  await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
  await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})
@@ -361,25 +361,25 @@ test('file owner grants and revokes a named verified external collaborator',asyn
  await act(async()=>{selects[0].props.onChange({target:{value:'edit'}})})
  expect(JSON.stringify(renderer!.toJSON())).toContain('Grant edit access')
  await act(async()=>{renderer!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})})
- expect(api.grantExternal).toHaveBeenCalledWith('file',{githubId:'guest-1'},'edit',7)
+ expect(api.grantExternal).toHaveBeenCalledWith('file',{ref:'c1.guest-1'},'edit',7)
  expect(JSON.stringify(renderer!.toJSON())).toContain('No email was sent')
  expect(api.externalGrants).toHaveBeenCalledTimes(2)
  act(()=>renderer!.unmount())
 })
 
 test('file owner changes an external collaborator permission and expiry',async()=>{
- const grant={id:'grant-1',recipientGithubId:'guest-1',recipientLogin:'guest',recipientEmail:'guest@example.test',permission:'view' as const,grantedAt:'2026-11-01T00:00:00Z',expiresAt:null,revokedAt:null,revokedBy:null}
- const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[grant]}),externalInvites:vi.fn().mockResolvedValue({canManage:true,invites:[]}),grantExternal:vi.fn(),updateExternalGrant:vi.fn().mockResolvedValue({updated:true,recipientGithubId:'guest-1',permission:'edit',expiresAt:new Date(Date.now()+30*86400000).toISOString()})} as unknown as WorkspaceFileApi
+ const grant={id:'grant-1',recipientRef:'c1.guest-1',recipientName:'Guest',recipientLogin:'guest',recipientEmail:'guest@example.test',permission:'view' as const,grantedAt:'2026-11-01T00:00:00Z',expiresAt:null,revokedAt:null,revokedBy:null}
+ const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[grant]}),externalInvites:vi.fn().mockResolvedValue({canManage:true,invites:[]}),grantExternal:vi.fn(),updateExternalGrant:vi.fn().mockResolvedValue({updated:true,recipientRef:'c1.guest-1',permission:'edit',expiresAt:new Date(Date.now()+30*86400000).toISOString()})} as unknown as WorkspaceFileApi
  let renderer:ReturnType<typeof create>
  await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
  await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick();await Promise.resolve()})
  expect(renderer!.root.findAllByType('button').find(button=>button.children.includes('Save changes'))?.props.disabled).toBe(true)
- const permission=renderer!.root.findByProps({'aria-label':'Permission for guest'})
+ const permission=renderer!.root.findByProps({'aria-label':'Permission for Guest'})
  await act(async()=>{permission.props.onChange({target:{value:'edit'}})})
- await act(async()=>{renderer!.root.findByProps({'aria-label':'Access expiry for guest'}).props.onChange({target:{value:'30'}})})
+ await act(async()=>{renderer!.root.findByProps({'aria-label':'Access expiry for Guest'}).props.onChange({target:{value:'30'}})})
  await act(async()=>{renderer!.root.findAllByType('button').find(button=>button.children.includes('Save changes'))!.props.onClick();await Promise.resolve()})
  expect(api.updateExternalGrant).toHaveBeenCalledTimes(1)
- expect(api.updateExternalGrant).toHaveBeenCalledWith('file','guest-1','edit',expect.any(String))
+ expect(api.updateExternalGrant).toHaveBeenCalledWith('file','c1.guest-1','edit',expect.any(String))
  const updatedExpiry=String((api.updateExternalGrant as ReturnType<typeof vi.fn>).mock.calls[0]?.[3])
  expect(Math.abs(Date.parse(updatedExpiry)-Date.now()-30*86400000)).toBeLessThan(2000)
  expect(JSON.stringify(renderer!.toJSON())).toContain('External access updated.')
@@ -407,7 +407,7 @@ test('file owner changes a pending invitation permission and access expiry',asyn
 })
 
 test('unregistered external email gets a one-time file invitation link and the invitation can be revoked',async()=>{
- const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[]}),grantExternal:vi.fn().mockResolvedValue({grant:{recipientGithubId:'known-1'},redemptionPath:'/external/files/org/file'}),externalInvites:vi.fn().mockResolvedValue({canManage:true,invites:[]}),inviteExternal:vi.fn().mockResolvedValue({invite:{id:'invite-1',invitedEmail:'new@example.test',inviteUrl:'https://app.example/#/external-invite/'+('a'.repeat(64))}}),revokeExternalInvite:vi.fn().mockResolvedValue({revoked:true})} as unknown as WorkspaceFileApi
+ const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[{...version(51),currentVersion:51}]}),externalGrants:vi.fn().mockResolvedValue({canManage:true,grants:[]}),grantExternal:vi.fn().mockResolvedValue({grant:{recipientRef:'c1.known-1'},redemptionPath:'/external/files/org/file'}),externalInvites:vi.fn().mockResolvedValue({canManage:true,invites:[]}),inviteExternal:vi.fn().mockResolvedValue({invite:{id:'invite-1',invitedEmail:'new@example.test',inviteUrl:'https://app.example/#/external-invite/'+('a'.repeat(64))}}),revokeExternalInvite:vi.fn().mockResolvedValue({revoked:true})} as unknown as WorkspaceFileApi
  let renderer:ReturnType<typeof create>
  await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
  await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})

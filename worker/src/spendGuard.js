@@ -8,9 +8,13 @@
 //
 //   warn  D1_DAILY_WRITE_WARN, default 3M rows written (twice what a month's
 //         allowance spread over its days comes to): ALERT_WEBHOOK_URL is told.
-//   stop  D1_DAILY_WRITE_STOP, default 10M: the work nobody is waiting on —
-//         connector syncs, routines, the Durable Object reconcile, sealing
-//         old rows — stops until the next UTC day, and the alert says so.
+//   stop  D1_DAILY_WRITE_STOP, default 10M: the costly work nobody is
+//         waiting on — connector syncs, routines, the Durable Object
+//         reconcile, audit sealing and the legacy audit and secret
+//         migrations — stops until the next UTC day, and the alert says so.
+//         Only that: the sweeps that end revoked access (SSO grants, MCP
+//         grants, app connections) and the retention, expiry and workspace
+//         deletion jobs still run, since they are small and promised.
 //         What people do keeps working: the brake never refuses a request.
 //
 // Reads have their own lines (D1_DAILY_READ_WARN / _STOP, 2B and 10B).

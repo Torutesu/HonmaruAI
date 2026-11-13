@@ -97,3 +97,33 @@ test('all status history retains cancellation only for pending follow-ups', asyn
  expect(tree.root.findAllByType('option').some(o=>o.props.value==='all')).toBe(true)
  expect(tree.root.findAllByType('button').filter(b=>b.children.includes('Cancel'))).toHaveLength(1)
 })
+
+// The server lets a running follow-up be cancelled only once its 30-minute
+// claim has run out, or when it has no claim time at all.
+test('a running follow-up offers cancellation only after its lease has run out', async () => {
+ const running = { ...item, status: 'running', result: null }
+ const api = { followupHistory: vi.fn().mockResolvedValue({ followups: [
+  { ...running, id: 'live', instruction: 'Live item', claimedAt: new Date().toISOString() },
+  { ...running, id: 'stuck', instruction: 'Stuck item', claimedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString() },
+  { ...running, id: 'legacy', instruction: 'Legacy item', claimedAt: null },
+ ], nextCursor: null }), cancelFollowup: vi.fn().mockResolvedValue({ cancelled: true }) }
+ await act(async () => { tree = create(<AgentFollowups api={api as any} agentId="agent" />) })
+ const rowFor = (text: string) => tree.root.findAll(node => node.type === 'div' && node.props.className === 'row static').find(row => row.findByProps({ className: 'row-main' }).children.includes(text))!
+ const cancelIn = (text: string) => rowFor(text).findAllByType('button').find(b => b.children.includes('Cancel'))
+ expect(cancelIn('Live item')).toBeUndefined()
+ expect(cancelIn('Stuck item')).toBeTruthy()
+ expect(cancelIn('Legacy item')).toBeTruthy()
+ await act(async () => { await cancelIn('Stuck item')!.props.onClick() })
+ expect(api.cancelFollowup).toHaveBeenCalledWith('stuck')
+})
+
+test('a follow-up that is still inside its lease explains why it was not cancelled', async () => {
+ const { HarnessApiError } = await import('../utils/harness')
+ const stuck = { ...item, status: 'running', result: null, claimedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString() }
+ const api = { followupHistory: vi.fn().mockResolvedValue({ followups: [stuck], nextCursor: null }),
+  cancelFollowup: vi.fn().mockRejectedValue(new HarnessApiError('This follow-up is running now. Try again if it has not finished in a while.', 409)) }
+ await act(async () => { tree = create(<AgentFollowups api={api as any} agentId="agent" />) })
+ await act(async () => { await tree.root.findAllByType('button').find(b => b.children.includes('Cancel'))!.props.onClick() })
+ expect(tree.root.findByProps({ role: 'alert' }).children).toContain('This follow-up is still running. Try again if it has not finished within 30 minutes.')
+ expect(tree.root.findAllByType('button').some(b => b.children.includes('Cancel'))).toBe(true)
+})

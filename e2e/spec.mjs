@@ -3206,8 +3206,9 @@ await step('a team gets a name, and an invitation by email carries it', async ()
   await closeEverything()
 })
 
-await step('an invite link joins someone who is already signed in', async () => {
-  // A link, not a code to paste: signed in, opening it is joining.
+await step('an invite link asks someone already signed in, names the team, and joins only on Join', async () => {
+  // A link, not a code to paste — but opening it only asks (#960): it names
+  // the workspace, and nothing is joined until the person says Join.
   await page.click('nav [data-tab="you"]')
   await page.waitForSelector('.profile-stats', { timeout: 10000 })
   await page.click('.screen .row:has-text("Your team")')
@@ -3222,11 +3223,27 @@ await step('an invite link joins someone who is already signed in', async () => 
 
   const d = await freshAccount('Daichi', `e2e-linked-${Date.now()}@example.com`)
   const own = await currentWorkspace(d)
-  await d.goto(link, { waitUntil: 'load' })
-  await d.waitForSelector('.app-toasts .toast', { timeout: 20000 })
-    .catch(() => { throw new Error('opening an invite link while signed in said nothing') })
-  const said = (await d.textContent('.app-toasts .toast')).trim()
-  if (!/joined/i.test(said)) throw new Error(`opening the link did not join: ${said}`)
+  const ask = async () => {
+    await d.goto(link, { waitUntil: 'load' })
+    await d.waitForSelector('.join-invite .dlg-btn.primary:has-text("Join")', { timeout: 20000 })
+      .catch(() => { throw new Error('opening an invite link while signed in did not ask') })
+    const asked = (await d.textContent('.join-invite')) || ''
+    if (!/Honmaru Coffee/.test(asked)) throw new Error(`the question does not name the team: ${asked}`)
+  }
+  // Cancel: nothing joined, still where they were.
+  await ask()
+  await d.screenshot({ path: `${SHOTS}/28-join-asks.png` })
+  await d.click('.join-invite .dlg-btn:has-text("Cancel")')
+  await d.waitForSelector('.join-invite', { state: 'detached', timeout: 10000 })
+  const after = await currentWorkspace(d)
+  if (after.count !== own.count) throw new Error(`Cancel joined anyway (${own.count} → ${after.count})`)
+  // Join, then open it.
+  await d.goto('about:blank')
+  await ask()
+  await d.click('.join-invite .dlg-btn.primary:has-text("Join")')
+  await d.waitForSelector('.join-invite :text("You joined")', { timeout: 20000 })
+    .catch(() => { throw new Error('Join did not say it joined') })
+  await d.click('.join-invite .dlg-btn.primary:has-text("Open")')
   await d.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 25000 })
   const now = await currentWorkspace(d)
   if (now.count < own.count + 1) throw new Error(`the link added no workspace (${own.count} → ${now.count})`)

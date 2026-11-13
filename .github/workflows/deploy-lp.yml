@@ -62,10 +62,10 @@ jobs:
 
       - name: Create the Pages project if needed
         run: |
-          if npx -y wrangler@4 pages project list 2>/dev/null | grep -qw "$PROJECT"; then
+          if npx -y wrangler@4.149.0 pages project list 2>/dev/null | grep -qw "$PROJECT"; then
             echo "$PROJECT exists"
           else
-            npx -y wrangler@4 pages project create "$PROJECT" --production-branch=main
+            npx -y wrangler@4.149.0 pages project create "$PROJECT" --production-branch=main
           fi
 
       # Attaches the domain and www. to the project (idempotent). Pages then
@@ -110,7 +110,7 @@ jobs:
       # email obfuscation rewrites mailto: links.
       - name: Deploy to Pages
         run: |
-          npx -y wrangler@4 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true | tee deploy.log
+          npx -y wrangler@4.149.0 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true | tee deploy.log
           url=$(grep -o "https://[a-z0-9]*\.$PROJECT\.pages\.dev" deploy.log | tail -1)
           [ -n "$url" ] || { echo "::error::wrangler did not print the deployment's address"; exit 1; }
           echo "DEPLOYMENT_URL=$url" >> "$GITHUB_ENV"

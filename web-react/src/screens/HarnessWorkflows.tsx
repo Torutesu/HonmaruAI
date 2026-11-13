@@ -16,6 +16,7 @@ import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import {StepEditor} from '../components/WorkflowStepEditor'
 import type { Workflow, Run, WorkflowRunSummary, Step, StepType, Trigger, TriggerType, Table, App, ConditionScalar, HeldWorkflowEvents, HarnessApi } from '../utils/harness'
+import { HarnessApiError } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Workflows (docs/kylon-gap-plan.md): a trigger and the steps after it,
@@ -330,6 +331,9 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [failedRunsOnly,setFailedRunsOnly]=useState(false)
   const [budgetDraft,setBudgetDraft]=useState({daily:'0',weekly:'0',monthly:'0',ai24h:'0',ai7d:'0',ai30d:'0',aiAction:'warn' as 'warn'|'pause'})
   const [hook, setHook] = useState<string | null>(null)
+  // The server keeps only a digest of the webhook secret, so it can be shown
+  // only in the response that created it.
+  const [hookSecret, setHookSecret] = useState<string | null>(null)
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
   const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
   const [discardSelection, setDiscardSelection] = useState<string[] | null>(null)
@@ -443,6 +447,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     if(!proposal)return
     const made=await api.createWorkflow({name:proposal.name,trigger:proposal.trigger,steps:proposal.steps,enabled:false})
     setHook(made.hookUrl||null)
+    setHookSecret(made.workflow.hookSecret||null)
     setBuilding(false);setManual(false);setPrompt('');resetGuidedSetup()
     await load()
     await openOne(made.workflow.id)
@@ -612,7 +617,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         </section>}
         {open.canEdit && w.trigger.type === 'webhook' && <section aria-label={t('Webhook')}>
           <div className="rows-title">{t('Webhook')}</div>
-          {w.hookUrl && !w.webhookSignatureRequired && <p className="form-note">{t('This existing webhook still accepts its URL secret alone. Generate a new URL to switch it to signed requests.')}</p>}
+          {w.hookUrl && !w.webhookSignatureRequired && <p className="form-note">{t('This existing webhook still accepts its secret without a signature, including in its old URL. Move the secret into the X-Hook-Secret header, then generate a new webhook URL to require signed requests.')}</p>}
           {w.hookUrl && w.webhookSignatureRequired && <details className="form-note">
             <summary>{t('Send signed webhook events')}</summary>
             <p>{t('Sign the exact JSON body with the webhook secret. Use a fresh timestamp and a stable event ID for retries; signed requests expire after 5 minutes and event IDs are remembered for 7 days.')}</p>
@@ -620,6 +625,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             <pre className="hx-program-source">{WEBHOOK_SENDER_EXAMPLE}</pre>
           </details>}
           {!w.hookUrl && <p className="form-note">{t('This webhook is revoked. Generate a new URL to accept events again.')}</p>}
+          {w.hookSecret && <p className="form-note">{t('Send this secret in the X-Hook-Secret header. It is shown only now:')} <code className="hx-code">{w.hookSecret}</code></p>}
           {hookAction ? <div className="form-note">
             <p>{t(hookAction === 'rotate' ? 'The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.' : 'The webhook URL will stop accepting events. Existing runs are not cancelled.')}</p>
             <div className="hx-actions">
@@ -713,16 +719,26 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                 <span className={`hx-status ${r.status}`}>{t(r.status)}</span> <time dateTime={Number.isFinite(new Date(r.startedAt).getTime())?r.startedAt:undefined}>{runTimestampLabel(r.startedAt,getLocale(),t('Date unavailable'))}</time> · {t(r.trigger)}{r.definitionRevision ? <span className="row-sub">{t('Version {version}',{version:r.definitionRevision})}</span> : r.definitionSnapshotAvailable===true ? <span className="row-sub">{t('Version not recorded')}</span> : r.definitionSnapshotAvailable===false ? <span className="row-sub">{t('Original definition snapshot unavailable')}</span> : null}
                 {runDuration(r)!==null&&<> · <span title={t('Elapsed time, including approval waits')}>{runDuration(r)}</span></>}
                 <WorkflowRunUsage usage={r.usage}/>
-                {open.canEdit && r.status === 'running' && <section className="form-note hx-run-cancel">
+                {/* canEdit is the maker-or-admin check the cancel route applies; a run waiting on approval can be stopped too. */}
+                {open.canEdit && (r.status === 'running' || r.status === 'waiting') && <section className="form-note hx-run-cancel">
                   {cancellingRun === r.id ? <>
-                    <p>{t('Cancel this run now? Its current step may already have sent a message, changed data, or completed an external action. Later steps will stop, but work already in flight may still finish.')}</p>
+                    <p>{r.status === 'waiting'
+                      ? t('Cancel this run? It is waiting for approval. Its approval card will close and no later step will run.')
+                      : t('Cancel this run now? Its current step may already have sent a message, changed data, or completed an external action. Later steps will stop, but work already in flight may still finish.')}</p>
                     <div className="hx-actions">
                       <button type="button" className="pill-btn danger" disabled={!!busy} onClick={() => act('cancel-run', async () => {
-                        await api.cancelWorkflowRun(w.id, r.id, r.startedAt)
+                        try { await api.cancelWorkflowRun(w.id, r.id, r.startedAt) }
+                        catch (e) {
+                          if (!(e instanceof HarnessApiError) || e.status !== 409) throw e
+                          // The run finished, was decided or changed since this list loaded.
+                          setCancellingRun(null)
+                          await refreshOpen(w.id)
+                          throw new Error(t('This run changed before it could be cancelled. Its current status is shown below.'))
+                        }
                         setCancellingRun(null)
                         await refreshOpen(w.id)
                       })}>{t('Stop this run')}</button>
-                      <button type="button" className="btn-text" disabled={!!busy} onClick={() => setCancellingRun(null)}>{t('Keep running')}</button>
+                      <button type="button" className="btn-text" disabled={!!busy} onClick={() => setCancellingRun(null)}>{t(r.status === 'waiting' ? 'Keep waiting' : 'Keep running')}</button>
                     </div>
                   </> : <button type="button" className="btn-text danger" disabled={!!busy} onClick={() => setCancellingRun(r.id)}>{t('Stop run…')}</button>}
                 </section>}
@@ -777,7 +793,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         <button type="button" role="tab" aria-selected={showArchived} onClick={()=>setShowArchived(true)}>{t('Archived automations')}</button>
       </div>
       {(error||syncError) && <div className="form-error" role="alert">{error||syncError}</div>}
-      {hook && <div className="form-note">{t('Call this address to start it:')} <code className="hx-code">{hook}</code></div>}
+      {hook && <div className="form-note">{t('Call this address to start it:')} <code className="hx-code">{hook}</code>{hookSecret && <> {t('Send this secret in the X-Hook-Secret header. It is shown only now:')} <code className="hx-code">{hookSecret}</code></>}</div>}
       {building && !manual && <section className="hx-generation hx-guided-setup" aria-label={t('Guided automation setup')}>
         {guidedMessages.length===0 ? <>
           <label htmlFor="workflow-prompt">{t('Describe an automation')}</label>
@@ -826,6 +842,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
           onSave={(w) => act('save', async () => {
             const made = await api.createWorkflow(w)
             setHook(made.hookUrl || null)
+            setHookSecret(made.workflow.hookSecret || null)
             setBuilding(false)
             await load()
           })}

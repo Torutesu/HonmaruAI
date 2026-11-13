@@ -106,6 +106,26 @@ test("a minted code comes with a link where the web has an address, and the link
   expect((await get(`/invites/peek?code=${minted.code}`)).status).toBe(200);
 });
 
+// #960: a signed-in person who opens an invite link is asked first, and the
+// question is drawn from the preview. Reading it, signed in or not, must not
+// make them a member or spend a use of the code.
+test("previewing an invite while signed in names the team and joins nothing", async () => {
+  const { orgId } = await (await post("/orgs", toru, { name: "Honmaru Coffee" })).json();
+  const minted = await (await post("/invites/create", toru, { orgId, role: "member" })).json();
+  const member = () => env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId, "email:mika@x.jp").first();
+  const uses = async () => Number((await env.DB.prepare("SELECT uses FROM invites WHERE code=?1").bind(minted.code).first()).uses);
+  const before = await uses();
+  const res = await get(`/invites/peek?code=${minted.code}`, mika);
+  expect(res.status).toBe(200);
+  const shown = await res.json();
+  expect(shown).toMatchObject({ team: "Honmaru Coffee", inviter: "Toru" });
+  expect(shown).not.toHaveProperty("orgId");
+  expect(await member()).toBeNull();
+  expect(await uses()).toBe(before);
+  expect((await post("/invites/accept", mika, { code: minted.code })).status).toBe(200);
+  expect(await member()).not.toBeNull();
+});
+
 test("an invitation by email carries the link and the code, in the sender's language, and the code joins", async () => {
   await put("/orgs/name", toru, { orgId: "personal:toru", name: "Honmaru Coffee" });
   let res = await post("/invites/email", toru, { orgId: "personal:toru", email: "New@X.jp", role: "member" }, { ...WEB, ...MAIL });

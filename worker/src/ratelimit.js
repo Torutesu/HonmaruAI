@@ -78,6 +78,10 @@ export const LIMITS = {
   "grok-bot-mcp": { max: 120, windowSeconds: 300 },
   "grok-bot-callback": { max: 120, windowSeconds: 300 },
   "webhooks/line": { max: 600, windowSeconds: 300 },
+  // Workflow webhooks, per IP. Each accepted delivery can start a run; the
+  // ceiling bounds floods and credential guessing from one source while
+  // leaving room for an integration platform that sends for many workflows.
+  "webhooks/workflow": { max: 600, windowSeconds: 300 },
   // An agent speaking MCP, counted per access token. A request_decision is
   // a card in somebody's feed and a notification on their phone; an agent
   // in a loop must not be able to bury a person.

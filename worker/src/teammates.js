@@ -8,6 +8,7 @@ import { aad, openField, sealField, useSecretKey } from "./secrets.js";
 import { enqueueAcpExecution } from "./harness/executions.js";
 import { validEndpoint } from "./webhooks.js";
 import { currentOrigin } from "./requestContext.js";
+import { safe } from "./log.js";
 
 // AI teammates: coding agents working in the workspace's channels the way
 // Claude Tag works in Slack. An admin sets one up once, with an API key from
@@ -97,6 +98,10 @@ const MAX_TOOLS = 20;
 const MAX_REPOS = 10;
 /// A run that has said nothing for this long is given up on.
 const STALE_MS = 6 * 60 * 60 * 1000;
+/// How long a run being started holds its thread. Longer than any start
+/// takes; a reservation whose request died before it was filled in or
+/// cleaned up stops blocking the thread after this.
+const START_HOLD_MS = 10 * 60 * 1000;
 
 const parse = (text, fallback) => { try { return text ? JSON.parse(text) : fallback; } catch { return fallback; } };
 
@@ -125,10 +130,14 @@ export async function loadTeammate(db, orgId, provider, env = null) {
 export const canSignIn = (t) => Boolean(t && (PROVIDERS[t.provider]?.localGateway ? t.remote?.gatewayId && t.remote?.agentKey : PROVIDERS[t.provider]?.webhookBot ? t.remote?.webhookUrl && t.apiKey : PROVIDERS[t.provider]?.keyless ? t.githubToken : t.apiKey));
 
 /// What it has used this month (UTC), in hundredths of its unit: every run's.
+/// A run still being started counts only while its hold lasts: one whose
+/// request died before it was filled in started nothing, and must not keep
+/// its placeholder cost in the month.
 export async function spentThisMonth(db, orgId, provider, now = new Date()) {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-  const row = await db.prepare("SELECT COALESCE(SUM(cost_cents), 0) AS c FROM ai_teammate_runs WHERE org_id = ?1 AND provider = ?2 AND created_at >= ?3")
-    .bind(orgId, provider, start).first().catch(() => null);
+  const row = await db.prepare(`SELECT COALESCE(SUM(cost_cents), 0) AS c FROM ai_teammate_runs WHERE org_id = ?1 AND provider = ?2 AND created_at >= ?3
+      AND (status != 'starting' OR updated_at > ?4)`)
+    .bind(orgId, provider, start, new Date(now.getTime() - START_HOLD_MS).toISOString()).first().catch(() => null);
   return Number(row?.c || 0);
 }
 
@@ -1017,9 +1026,13 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
   const spent = await spentThisMonth(env.DB, orgId, t.provider, now);
   const remaining = t.monthlyLimitCents == null ? null : t.monthlyLimitCents - spent;
   if (remaining != null && remaining < p.minLeft) return { refused: "limit" };
+  // A lookup that fails is an error, not "no run": taken as none, it would
+  // start a second paid run beside the one the thread already has.
   const existing = await env.DB.prepare(
     "SELECT * FROM ai_teammate_runs WHERE org_id = ?1 AND provider = ?2 AND channel = ?3 AND thread_id = ?4 ORDER BY created_at DESC LIMIT 1"
-  ).bind(orgId, t.provider, key, threadId).first().catch(() => null);
+  ).bind(orgId, t.provider, key, threadId).first();
+  const startHeld = (run) => run?.status === "starting" && Date.parse(run.updated_at) > now.getTime() - START_HOLD_MS;
+  if (startHeld(existing)) return { refused: "busy" };
   if(existing?.status==='running' && (assignment || existing.assignment_id))return {refused:'busy'};
   const turnRequest = await withRoomGuidelinesRequest(env.DB, orgId, key, request);
   const stamp = now.toISOString();
@@ -1028,7 +1041,7 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
     if (!grant || grant.channel !== key || roomHookSource !== threadId || grant.user.login !== login) return {refused:'notHere'};
     if (!t.agentId || !await roomHookAgentAllowed(env.DB,orgId,roomHookSource,t.agentId)) return {refused:'notHere'};
   }
-  if (existing && existing.status !== "failed" && existing.status !== "budget") {
+  if (existing && existing.status !== "failed" && existing.status !== "budget" && existing.status !== "starting") {
     const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`, { env, orgId, requesterId, context: transcript });
     if (sent.busy) return { refused: "busy" };
     // The next answer is for whoever this turn was asked for.
@@ -1036,15 +1049,44 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
       .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource,assignment?.assignmentId || null,assignment?.generation ?? null,assignment?.agentId || null,sent.remoteId || null).first();
     return { run: { ...existing, status: "running", remote_id: sent.remoteId || existing.remote_id, remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:advanced.turn_version, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null }, continued: true };
   }
-  const started = await adapter.start(t, {
-    task: taskText({ where, askedBy, transcript, request: turnRequest }), title: `${where}: ${request}`.slice(0, 200),
-    remaining, orgId, key, threadId, env, requesterId,
-  });
+  // The run is reserved before the paid start, in one statement D1 runs on
+  // its single writer: the row goes in only if the thread has no open run
+  // and the month still has room once every other reservation is counted.
+  // Two mentions arriving together both read "no run" above; only one of
+  // them gets the row, and only that one starts the remote run. The row
+  // holds the least a run may cost until the start says what it cost, so a
+  // start elsewhere in the workspace at the edge of the limit sees it.
   const id = crypto.randomUUID();
-  await env.DB.prepare(
+  const reserve = p.minLeft;
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const held = new Date(now.getTime() - START_HOLD_MS).toISOString();
+  const reserved = await env.DB.prepare(
     `INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, remote_turn, status, cost_cents, last_event_at, started_by, created_at, updated_at, on_behalf_of, room_hook_source, assignment_id, assignment_generation, assignment_agent_id)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'running', ?8, NULL, ?9, ?10, ?10, ?11, ?12, ?13, ?14, ?15)`
-  ).bind(id, orgId, t.provider, key, threadId, started.remoteId, started.turn || null, (started.tasks || 0) * 100, login, stamp, onBehalfOf, roomHookSource,assignment?.assignmentId || null,assignment?.generation ?? null,assignment?.agentId || null).run();
+     SELECT ?1, ?2, ?3, ?4, ?5, '', NULL, 'starting', ?6, NULL, ?7, ?8, ?8, ?9, ?10, ?11, ?12, ?13
+      WHERE NOT EXISTS (SELECT 1 FROM ai_teammate_runs WHERE org_id = ?2 AND provider = ?3 AND channel = ?4 AND thread_id = ?5
+                          AND (status = 'running' OR (status = 'starting' AND updated_at > ?14)))
+        AND (?15 IS NULL OR ?15 - (SELECT COALESCE(SUM(cost_cents), 0) FROM ai_teammate_runs WHERE org_id = ?2 AND provider = ?3 AND created_at >= ?16
+                                     AND (status != 'starting' OR updated_at > ?14)) >= ?6)`
+  ).bind(id, orgId, t.provider, key, threadId, reserve, login, stamp, onBehalfOf, roomHookSource, assignment?.assignmentId || null, assignment?.generation ?? null, assignment?.agentId || null, held, t.monthlyLimitCents ?? null, monthStart).run();
+  if (!(reserved.meta?.changes > 0)) {
+    const open = await env.DB.prepare(`SELECT 1 FROM ai_teammate_runs WHERE org_id = ?1 AND provider = ?2 AND channel = ?3 AND thread_id = ?4
+        AND (status = 'running' OR (status = 'starting' AND updated_at > ?5)) LIMIT 1`).bind(orgId, t.provider, key, threadId, held).first();
+    return { refused: open ? "busy" : "limit" };
+  }
+  let started;
+  try {
+    started = await adapter.start(t, {
+      task: taskText({ where, askedBy, transcript, request: turnRequest }), title: `${where}: ${request}`.slice(0, 200),
+      remaining, orgId, key, threadId, env, requesterId,
+    });
+  } catch (err) {
+    // Nothing started: the reservation goes, so the next mention can start one.
+    await env.DB.prepare("DELETE FROM ai_teammate_runs WHERE id = ?1 AND org_id = ?2 AND status = 'starting'").bind(id, orgId).run()
+      .catch((e) => console.error("teammate reservation cleanup failed", safe(e?.message)));
+    throw err;
+  }
+  await env.DB.prepare("UPDATE ai_teammate_runs SET remote_id = ?3, remote_turn = ?4, status = 'running', cost_cents = ?5, updated_at = ?6 WHERE id = ?1 AND org_id = ?2 AND status = 'starting'")
+    .bind(id, orgId, started.remoteId, started.turn || null, (started.tasks || 0) * 100, stamp).run();
   return { run: { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:0, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null } };
 }
 
@@ -1082,16 +1124,24 @@ export async function cancelAssignedTeammateRuns(env, {orgId, assignmentId, gene
   return {status};
 }
 
-/// Runs still working, oldest first: what the minute cron looks in on.
-export async function openRuns(db, { limit = 25, ids = null } = {}) {
+/// Runs still working, least recently looked at first: what the minute cron
+/// looks in on. A look that finds a run still working writes nothing to it,
+/// so ordering by `updated_at` read the same oldest runs every minute and
+/// never reached the rest. Each run read here is stamped `checked_at` in
+/// the same statement, so the next minute starts after it and every
+/// running run is read within (running runs / limit) minutes, whichever
+/// workspace it is in. Across every workspace on purpose: it is the
+/// platform's sweep, not a person's read.
+export async function openRuns(db, { limit = 25, ids = null, now = new Date() } = {}) {
   if (ids) {
     if (!ids.length) return [];
     const marks = ids.map((_, i) => `?${i + 1}`).join(",");
     const { results } = await db.prepare(`SELECT * FROM ai_teammate_runs WHERE id IN (${marks}) AND status = 'running'`).bind(...ids).all();
     return results || [];
   }
-  const { results } = await db.prepare("SELECT * FROM ai_teammate_runs WHERE status = 'running' ORDER BY updated_at LIMIT ?1").bind(limit).all();
-  return results || [];
+  const { results } = await db.prepare(`UPDATE ai_teammate_runs SET checked_at = ?2 WHERE id IN (
+      SELECT id FROM ai_teammate_runs WHERE status = 'running' ORDER BY checked_at, updated_at LIMIT ?1) RETURNING *`).bind(limit, now.toISOString()).all();
+  return (results || []).sort((a, b) => String(a.updated_at).localeCompare(String(b.updated_at)));
 }
 
 /// A run's state after a look. While it works nothing moves: the next look

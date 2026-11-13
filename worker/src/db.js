@@ -1,3 +1,4 @@
+import { requestSessionCache } from "./requestContext.js";
 import { openSessionToken, sealSessionToken } from "./secrets.js";
 // Loads the legacy store shape { [recipientUserID]: card[] } for one org,
 // so the copied adapter.js functions can operate on it unchanged.
@@ -200,6 +201,15 @@ export async function sessionByKey(db, key) {
 /// stored key (sessionKey), which is what anything after this refers to it by.
 export async function getSession(db, token) {
   if (!token || typeof token !== "string") return null;
+  const cache = requestSessionCache(db);
+  if (!cache) return readSession(db, token);
+  if (!cache.has(token)) cache.set(token, readSession(db, token).catch((err) => { cache.delete(token); throw err; }));
+  // A copy each time: a caller that changes the row it got changes only its own.
+  const row = await cache.get(token);
+  return row ? { ...row } : row;
+}
+
+async function readSession(db, token) {
   const key = await sessionKey(token);
   const find = () => db
     .prepare(

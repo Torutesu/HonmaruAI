@@ -217,13 +217,20 @@ export async function servePublicAppDomain(request, env, url) {
   if (request.method !== 'GET') return new Response('Method not allowed.', { status: 405, headers: { allow: 'GET', 'cache-control': 'no-store' } });
   const hostname = normalizeAppHostname(url.searchParams.get('host') || '');
   if (!hostname) return new Response('Not found.', { status: 404, headers: { 'cache-control': 'no-store' } });
+  // The disclosure receipt counts only while the person who confirmed it may
+  // still make the app public: its owner or a workspace admin. This also stops
+  // domains an editor attached before that was required, and domains whose
+  // confirmer has since left the workspace or lost the admin role, until an
+  // owner or admin attaches the domain again.
   const domain = await env.DB.prepare(`SELECT d.org_id AS orgId,d.app_id AS appId,a.name,a.icon,a.table_id AS tableId,a.definition
     FROM hx_app_domains d
     JOIN hx_app_domain_public_consents consent ON consent.org_id=d.org_id AND consent.app_id=d.app_id
       AND consent.hostname=d.hostname AND consent.domain_created_at=d.created_at
       AND consent.confirmation_version=?2
     JOIN hx_apps a ON a.org_id=d.org_id AND a.id=d.app_id
-    WHERE d.hostname=?1 AND d.status='active'`).bind(hostname, PUBLIC_DOMAIN_CONFIRMATION_VERSION).first();
+    WHERE d.hostname=?1 AND d.status='active'
+      AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=d.org_id AND m.user_github_id=consent.confirmed_by
+        AND (consent.confirmed_by=a.created_by OR m.role IN ('owner','admin')))`).bind(hostname, PUBLIC_DOMAIN_CONFIRMATION_VERSION).first();
   if (!domain) return new Response('No published app is available at this domain.', { status: 404, headers: { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' } });
   let definition;
   try { definition = JSON.parse(domain.definition || '{}'); } catch { definition = {}; }

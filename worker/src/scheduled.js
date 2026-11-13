@@ -11,7 +11,7 @@ import { providerFor } from "./orgAI.js";
 import { alert } from "./alert.js";
 import { safe } from "./log.js";
 import { runDueRoutines } from "./routines.js";
-import { remindDailyDrafts, moveDailyToDailyChannel } from "./dailyReport.js";
+import { remindDailyDrafts, moveDailyToDailyChannel, recoverStalePosts } from "./dailyReport.js";
 import { runProposals, isProposalTick } from "./proposals.js";
 import { openSessionToken } from "./secrets.js";
 
@@ -171,6 +171,13 @@ export async function runAutomations(env, ctx, now = new Date()) {
     await moveDailyToDailyChannel(env);
   } catch (err) {
     console.error("daily channel move failed", err?.message || err);
+  }
+  // A daily report left in "posting" by a post that died: settled, so it
+  // can be posted, discarded, expired and reminded about again.
+  try {
+    await recoverStalePosts(env, { now });
+  } catch (err) {
+    console.error("daily post recovery failed", err?.message || err);
   }
   // A daily report's draft still unposted after two hours: asked once more.
   try {

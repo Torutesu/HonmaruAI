@@ -108,7 +108,7 @@ export interface RunUsageCounters { calls:number; inputTokens:number; outputToke
 export interface RunUsage extends RunUsageCounters { coverage:'priced-token-estimate'; estimatedUsd:number; steps:Array<RunUsageCounters & {stepNumber:number}> }
 export interface WorkflowRunSummary { windowStart:string; windowEnd:string; timezone:'UTC'; windowHours:168; runCount:number; failedCount:number; completedDurationCount:number; typicalDurationMs:number|null; usage:{trackedRuns:number;calls:number;inputTokens:number;outputTokens:number;unknownCalls:number;unpricedCalls:number;estimatedMicros:number}; truncated:boolean }
 export interface Run { definitionRevision?:number|null; definitionSnapshotAvailable?:boolean; usage?:RunUsage; id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
-export interface Followup { id: string; threadId?: string | null; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null; result?: string | null; doneAt?: string | null }
+export interface Followup { id: string; threadId?: string | null; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null; result?: string | null; doneAt?: string | null; claimedAt?: string | null }
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null; acpAgents?: string[] }
 export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }
 export interface Skill { sourceScope?: { agentId: string; channel: string | null } | null; createdByName?: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private'; accessVersion?: number; canShare?: boolean; canEdit?: boolean; id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
@@ -209,7 +209,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     generateAppAutomation: (id: string, prompt: string, timezone: string) => call<{automation:AutomationBundle['items'][number]}>('POST', `/apps/${id}/automations`, {action:'generate',prompt,timezone}),
     appAutomations: (id: string, stateOnly = false) => call<AppAutomationState>('GET', `/apps/${id}/automations`, undefined, stateOnly ? {stateOnly:'1'} : {}),
     saveAppAutomations: (id: string, version: number, revision: number, automations: AutomationBundle) => call<{saved:boolean;revision:number}>('PUT', `/apps/${id}/automations`, {version,revision,automations}),
-    releaseAppAutomations: (id: string, body: Record<string,unknown>) => call<{saved:boolean;revision:number;version:number;replay?:boolean}>('POST', `/apps/${id}/automations`, body),
+    releaseAppAutomations: (id: string, body: Record<string,unknown>) => call<{saved:boolean;revision:number;version:number;replay?:boolean;webhookSecrets?:{key:string;workflowId:string;secret:string}[]}>('POST', `/apps/${id}/automations`, body),
     appDatabase: (id: string) => call<AppDatabase>('GET', `/apps/${id}/database`),
     previewDatabaseMigration: (id: string, body: Record<string, unknown>) => call<MigrationPreview>('POST', `/apps/${id}/database`, body),
     mergePreview: (id: string, fork: AppFork, resolutions:Record<string,'preview'|'production'> = {}) => call<MergeReview>('POST', `/apps/${id}/database`, { action:'merge_preview',forkId:fork.id,revision:fork.revision,resolutions }),

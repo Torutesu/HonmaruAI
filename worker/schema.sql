@@ -736,7 +736,11 @@ CREATE TABLE IF NOT EXISTS saved_items (
   remind_at     TEXT,
   reminded_at   TEXT,
   done_at       TEXT,
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  /* A cron run bringing the reminder back holds it until then (later.js).
+     `reminded_at` is written only once the card is out, or the reminder is
+     dropped or given up; a run that fails or dies leaves this to run out. */
+  remind_lease_until TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_saved_items ON saved_items(org_id, login);
 /* The minute cron's question: reminders that are due. Partial, so only the
@@ -1032,7 +1036,11 @@ CREATE TABLE IF NOT EXISTS ai_teammate_runs (
   result_delivery_id TEXT,
   assignment_id TEXT,
   assignment_generation INTEGER,
-  assignment_agent_id TEXT
+  assignment_agent_id TEXT,
+  /* When the minute cron last looked in on it (teammates.js openRuns): it
+     reads the least recently looked at first, so every running run is
+     reached. Its index is in migrations.sql, after the column. */
+  checked_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_status ON ai_teammate_runs(status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_thread ON ai_teammate_runs(org_id, channel, thread_id);
@@ -1985,7 +1993,9 @@ CREATE TABLE IF NOT EXISTS hx_followups (
   source_app_id TEXT,
   source_entity_id TEXT,
   source_table_id TEXT,
-  source_authority_version INTEGER NOT NULL DEFAULT 0
+  source_authority_version INTEGER NOT NULL DEFAULT 0,
+  /* When the cron set it running: a claim past its lease was interrupted. */
+  claimed_at    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_hx_followups_due ON hx_followups(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_hx_followups_channel ON hx_followups(org_id, channel, status);

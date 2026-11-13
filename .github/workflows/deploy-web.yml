@@ -132,7 +132,7 @@ jobs:
             core.setFailed(`Timed out waiting for Worker dependency ${revision}; Web remains unchanged.`);
 
       - name: Deploy to Pages
-        run: npx -y wrangler@4 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
+        run: npx -y wrangler@4.149.0 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
 
       - name: Attach the app domain
         working-directory: .

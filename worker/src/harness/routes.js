@@ -1,6 +1,6 @@
 import {currentIp} from '../requestContext.js';
 import {handleFileShareRoutes,servePublicFileShare} from './fileShareApprovals.js';
-import { handleExternalFileGrantRoutes } from './externalFileGrants.js';
+import { handleExternalFileGrantRoutes, grantRecipients } from './externalFileGrants.js';
 import { cleanResourceAudienceInput, listResourceAudienceRooms, readResourceAudience, writeResourceAudience } from './externalResourceAudiences.js';
 import {annotationProofRequiresIp} from './appReplyRequestProof.js';
 import {appActivityProof,visibleAppNotifications} from './appActivity.js';
@@ -220,7 +220,7 @@ export async function handleHarness(request, env, url, context = {}) {
         }else if(url.pathname.endsWith('/external-grant-invites')){
           await audit(env,request,{orgId,action:'workspace.file_external_invite_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{invitedEmail:result.invite.invitedEmail,permission:result.invite.permission,expiresAt:result.invite.expiresAt}});
         }else{
-          await audit(env,request,{orgId,action:'workspace.file_external_grant_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:result.grant.recipientGithubId,permission:result.grant.permission,expiresAt:result.grant.expiresAt}});
+          await audit(env,request,{orgId,action:'workspace.file_external_grant_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:grantRecipients.get(externalGrantRoute)||null,permission:result.grant.permission,expiresAt:result.grant.expiresAt}});
         }
       }else if(request.method==='DELETE'&&externalGrantRoute.ok){
         await audit(env,request,{orgId,action:url.pathname.includes('/external-links/')?'workspace.file_external_link_revoked':'workspace.file_external_grant_revoked',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{resourceRef:url.pathname.split('/').at(-1)}});
@@ -229,7 +229,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if(url.pathname.includes('/external-grant-invites/')){
           await audit(env,request,{orgId,action:'workspace.file_external_invite_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{inviteId:result.inviteId,permission:result.permission,accessExpiresAt:result.accessExpiresAt}});
         }else{
-          await audit(env,request,{orgId,action:'workspace.file_external_grant_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:result.recipientGithubId,permission:result.permission,expiresAt:result.expiresAt}});
+          await audit(env,request,{orgId,action:'workspace.file_external_grant_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:grantRecipients.get(externalGrantRoute)||null,permission:result.permission,expiresAt:result.expiresAt}});
         }
       }
       return externalGrantRoute;
@@ -759,7 +759,7 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       return null;
     }
-    const wf = await getWorkflow(env.DB, orgId, wfId, { withSecret: true, viewerId: me });
+    const wf = await getWorkflow(env.DB, orgId, wfId, { viewerId: me });
     if (!wf) return json({ message: "No such workflow." }, 404);
     const mine = await mayChange(env, orgId, who, wf.createdBy);
     if (sub === 'archive' && request.method === 'POST') {
@@ -784,8 +784,9 @@ export async function handleHarness(request, env, url, context = {}) {
       await audit(env,request,{orgId,action:'workflow.revision_restored',actor:person(who.user),entity:{type:'workflow',id:wfId,name:result.workflow.name},details:{restoredRevision:result.restoredRevision,newRevision:result.revision,automaticTriggersEnabled:result.workflow.enabled,safetyPaused:result.safetyPaused}});
       return json({...result,hookUrl:hookUrl(url,result.workflow)});
     }
-    // The hook's secret is for whoever may change the workflow.
-    const shown = mine ? { ...wf, hookUrl: hookUrl(url, wf) } : { ...wf, hookSecret: undefined };
+    // The hook's address is for whoever may change the workflow. Its secret is
+    // never read back: only creation and rotation return it.
+    const shown = mine ? { ...wf, hookUrl: hookUrl(url, wf) } : wf;
     if(sub==='budget' && request.method==='PUT'){
       if(!mine)return json({message:'Only its maker or an admin can change this workflow.'},403);
       const result=await saveWorkflowBudget(env.DB,orgId,wfId,input);
@@ -1592,6 +1593,10 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
       if (!canManage) return json({ message: 'Only its maker, an editor, or an admin can change app hosting.' }, 403);
+      // A custom domain publishes the app's records to anyone, without expiry,
+      // so attaching one needs the same authority as creating a public link.
+      // Editors may still refresh or remove a domain and manage variables.
+      if (input?.action === 'attach' && !await mayChange(env, orgId, who, app.createdBy)) return json({ message: 'Only the app owner or an admin can attach a custom domain, because it makes the app and its records public.' }, 403);
       const result = await changeAppHosting(env.DB, env, orgId, app, input || {}, me);
       if (result.error) return fail(result);
       await audit(env, request, { orgId, action: `app.hosting_${input.action}`, actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: {
@@ -1991,7 +1996,8 @@ async function afterRowDelete(env, change) {
   }
 }
 
-const hookUrl = (url, wf) => (wf.trigger?.type === "webhook" && wf.hookSecret ? `${url.origin}/hooks/workflows/${wf.id}?secret=${wf.hookSecret}` : undefined);
+// The secret goes in the X-Hook-Secret header, never in the address.
+const hookUrl = (url, wf) => (wf.trigger?.type === "webhook" && wf.webhookActive ? `${url.origin}/hooks/workflows/${wf.id}` : undefined);
 
 /// What agents and workflows are waiting on: for this person to decide, and
 /// what they started that waits on someone else.

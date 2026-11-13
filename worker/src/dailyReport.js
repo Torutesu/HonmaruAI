@@ -617,17 +617,39 @@ export async function announceClosed(env, orgId, cards) {
   if (cards.length) await announceCards(env, orgId, cards, { isNew: false });
 }
 
+/// How long a post holds a draft in `posting`. A post that died without
+/// giving the draft back (the Worker stopped, or the release itself failed)
+/// is then taken again by the next tap or by the cron, rather than stuck.
+export const POSTING_LEASE_MS = 5 * 60_000;
+
+const postingStale = (report, now = Date.now()) => report?.status === "posting" && !(Date.parse(report.postingAt) > now - POSTING_LEASE_MS);
+
+/// Whether a post may take this draft: a draft, or a post that held it
+/// past its lease.
+export const postable = (report, now = Date.now()) => report?.status === "draft" || postingStale(report, now);
+
+/// The post's own retry key, from its card: a post tried again after the
+/// message landed finds that message rather than saying the report twice.
+/// Hashed, because the message layer takes only `tmp-` and lowercase.
+export async function dailyPostClientId(cardId) {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(cardId))));
+  return `tmp-daily-${[...digest.slice(0, 20)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
 /// Take a draft for posting, once: two taps on "Post", or two devices, must
-/// not put the report in the channel twice. True when this call has it.
-export async function claimDraft(db, orgId, cardId) {
+/// not put the report in the channel twice. Returns the claim's stamp when
+/// this call has it, which releasing it must name.
+export async function claimDraft(db, orgId, cardId, { now = new Date() } = {}) {
+  const at = now.toISOString();
   const res = await db
     .prepare(
-      `UPDATE cards SET data = json_set(data, '$.dailyReport.status', 'posting'), updated_at = ?3
-        WHERE org_id = ?1 AND card_id = ?2 AND json_extract(data, '$.dailyReport.status') = 'draft'`
+      `UPDATE cards SET data = json_set(data, '$.dailyReport.status', 'posting', '$.dailyReport.postingAt', ?3), updated_at = ?3
+        WHERE org_id = ?1 AND card_id = ?2 AND (json_extract(data, '$.dailyReport.status') = 'draft'
+          OR (json_extract(data, '$.dailyReport.status') = 'posting' AND COALESCE(json_extract(data, '$.dailyReport.postingAt'), '') <= ?4))`
     )
-    .bind(orgId, cardId, new Date().toISOString())
+    .bind(orgId, cardId, at, new Date(now.getTime() - POSTING_LEASE_MS).toISOString())
     .run();
-  return (res?.meta?.changes || 0) > 0;
+  return (res?.meta?.changes || 0) > 0 ? at : null;
 }
 
 /// Put a draft away without posting it: its owner does not want to send
@@ -646,25 +668,72 @@ export async function discardDraft(db, orgId, cardId, { now = new Date() } = {})
   return (res?.meta?.changes || 0) > 0;
 }
 
-/// Give a claimed draft back when the post did not happen.
-export async function releaseDraft(db, orgId, cardId) {
+/// Give a claimed draft back when the post did not happen. Only the claim
+/// named: one a later tap or the cron has taken since is theirs.
+export async function releaseDraft(db, orgId, cardId, claim) {
   await db
     .prepare(
-      `UPDATE cards SET data = json_set(data, '$.dailyReport.status', 'draft')
-        WHERE org_id = ?1 AND card_id = ?2 AND json_extract(data, '$.dailyReport.status') = 'posting'`
+      `UPDATE cards SET data = json_remove(json_set(data, '$.dailyReport.status', 'draft'), '$.dailyReport.postingAt')
+        WHERE org_id = ?1 AND card_id = ?2 AND json_extract(data, '$.dailyReport.status') = 'posting'
+          AND json_extract(data, '$.dailyReport.postingAt') IS ?3`
     )
-    .bind(orgId, cardId)
+    .bind(orgId, cardId, claim ?? null)
     .run();
 }
 
 /// The card once its report is in the channel: done, with the words as
 /// posted — which are what the next one reads as "what I said I would do".
 export function postedCard(card, { text, messageId, login, at }) {
+  const { postingAt, ...report } = card.dailyReport;
   return {
     ...card,
     status: "completed",
     decision: { action: "acknowledge", actorUserID: login, decidedAt: at },
     report: card.report ? { ...card.report, markdown: text } : card.report,
-    dailyReport: { ...card.dailyReport, status: "posted", text, messageId, postedAt: at },
+    dailyReport: { ...report, status: "posted", text, messageId, postedAt: at },
   };
+}
+
+/// A post that failed partway, settled: if its message is in the channel
+/// (found by the post's retry key), the card is finished as posted, since
+/// giving it back would offer to post a report already there; otherwise the
+/// draft is given back to be posted again. Returns the card when it was
+/// finished as posted.
+export async function settleClaimedDraft(db, orgId, card, claim) {
+  const login = card.recipientUserID;
+  const said = await db.prepare("SELECT id, body, created_at FROM channel_messages WHERE org_id = ?1 AND author_login = ?2 AND client_id = ?3")
+    .bind(orgId, login, await dailyPostClientId(card.id)).first();
+  if (!said) { await releaseDraft(db, orgId, card.id, claim); return null; }
+  const posted = postedCard(card, { text: said.body, messageId: said.id, login, at: said.created_at });
+  const res = await db.prepare(
+    `UPDATE cards SET status = 'completed', decided_at = ?4, updated_at = ?4, data = ?3
+      WHERE org_id = ?1 AND card_id = ?2 AND json_extract(data, '$.dailyReport.status') = 'posting'
+        AND json_extract(data, '$.dailyReport.postingAt') IS ?5`
+  ).bind(orgId, card.id, JSON.stringify(posted), said.created_at, claim ?? null).run();
+  return (res?.meta?.changes || 0) > 0 ? posted : null;
+}
+
+/// The cron's backstop: drafts left in `posting` past the lease by a post
+/// that died, settled as above, so none stays where it can be neither
+/// posted, discarded, expired nor reminded about.
+export async function recoverStalePosts(env, { now = new Date() } = {}) {
+  const { results } = await env.DB
+    .prepare(
+      `SELECT org_id, card_id FROM cards WHERE status = 'pending'
+          AND json_extract(data, '$.dailyReport.status') = 'posting'
+          AND COALESCE(json_extract(data, '$.dailyReport.postingAt'), '') <= ?1
+        ORDER BY created_at ASC LIMIT 50`
+    )
+    .bind(new Date(now.getTime() - POSTING_LEASE_MS).toISOString())
+    .all();
+  let recovered = 0;
+  for (const { org_id: orgId, card_id: id } of results || []) {
+    const card = await getCard(env.DB, orgId, id);
+    if (!postingStale(card?.dailyReport, now.getTime())) continue;
+    const posted = await settleClaimedDraft(env.DB, orgId, card, card.dailyReport.postingAt ?? null);
+    recovered += 1;
+    const shown = posted || await getCard(env.DB, orgId, id);
+    if (shown) await announceCards(env, orgId, [shown], { isNew: false }).catch(() => {});
+  }
+  return { recovered };
 }

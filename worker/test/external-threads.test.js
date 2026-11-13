@@ -106,28 +106,85 @@ test("external Thread route is registered and requires a signed-in session", asy
 });
 
 test("resource-scoped collaborator search returns only minimal verified external identities", async () => {
-  const { orgId, rootId, ids, sessions } = await setup();
+  const { orgId, rootId, sessions } = await setup();
   const path = `/external/collaborators/search?${new URLSearchParams({ orgId, resourceType: "thread", resourceId: rootId, q: "gue" })}`;
   const response = await call(path, sessions.owner);
   expect(response.status).toBe(200);
   const body = await response.json();
-  expect(body.people).toEqual([{ githubId: ids.guest, login: ids.guest, name: "guest" }]);
+  expect(body.people).toEqual([{ ref: expect.stringMatching(/^c1\./), login: expect.stringMatching(/^external-guest-/), name: "guest" }]);
   expect(body.people[0]).not.toHaveProperty("email");
+  expect(body.people[0]).not.toHaveProperty("githubId");
   const emailSearch = await call(path.replace("q=gue", "q=example"), sessions.owner);
-  expect((await emailSearch.json()).people).toMatchObject([{ githubId: ids.guest }]);
+  expect((await emailSearch.json()).people).toMatchObject([{ name: "guest" }]);
   expect((await call(path, "")).status).toBe(401);
   expect((await call(path.replace("q=gue", "q=gu"), sessions.owner)).status).toBe(400);
   // A workspace member without access to this private Thread cannot use its share surface to enumerate accounts.
   expect((await call(path, sessions.editor)).status).toBe(404);
 });
 
-test("Thread share accepts a selected collaborator ID and still rejects workspace members", async () => {
+test("Thread share accepts a selected collaborator reference and still rejects workspace members", async () => {
   const { orgId, rootId, ids, sessions } = await setup();
   const endpoint = `/external/threads/${orgId}/${rootId}/shares`;
-  const shared = await call(endpoint, sessions.owner, "POST", { recipientGithubId: ids.guest, permission: "view" });
+  const search = `/external/collaborators/search?${new URLSearchParams({ orgId, resourceType: "thread", resourceId: rootId, q: "gue" })}`;
+  const [person] = (await (await call(search, sessions.owner)).json()).people;
+  const shared = await call(endpoint, sessions.owner, "POST", { recipientRef: person.ref, permission: "view" });
   expect(shared.status).toBe(201);
   expect((await shared.json()).shared).toBe(true);
-  expect((await call(endpoint, sessions.owner, "POST", { recipientGithubId: ids.editor, permission: "view" })).status).toBe(404);
+  // A raw account id is no longer a way to name someone.
+  expect((await call(endpoint, sessions.owner, "POST", { recipientGithubId: ids.guest, permission: "view" })).status).toBe(404);
+  expect((await call(endpoint, sessions.owner, "POST", { recipientRef: "c1.not-a-ref", permission: "view" })).status).toBe(404);
+});
+
+// #956: email sign-up accounts are `email:<address>` / `u:<address>`, SSO
+// accounts `u:<address>`. Neither the search nor sharing may hand the
+// address to someone in another workspace who did not type it.
+test("collaborator search and Thread sharing never return an outside account's email address", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const tag = suffix();
+  const emailAddress = `ada-${tag}@acme.test`, ssoAddress = `grace-${tag}@acme.test`;
+  const emailId = `email:${emailAddress}`, ssoId = `sso-${tag}`;
+  await upsertUser(env.DB, { githubId: emailId, login: `u:${emailAddress}`, name: "", avatarUrl: null, locale: "en" });
+  await upsertUser(env.DB, { githubId: ssoId, login: `u:${ssoAddress}`, name: ssoAddress, avatarUrl: null, locale: "en" });
+  for (const [id, address] of [[emailId, emailAddress], [ssoId, ssoAddress]]) {
+    await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3").bind(address, new Date().toISOString(), id).run();
+  }
+  const search = (resourceId) => `/external/collaborators/search?${new URLSearchParams({ orgId, resourceType: "thread", resourceId, q: "acme.test" })}`;
+  const found = await call(search(rootId), sessions.owner);
+  expect(found.status).toBe(200);
+  const text = await found.text();
+  for (const address of [emailAddress, ssoAddress]) expect(text.toLowerCase()).not.toContain(address);
+  const { people } = JSON.parse(text);
+  expect(people).toHaveLength(2);
+  expect(people.map((person) => person.login)).toEqual([null, null]);
+  expect(people.map((person) => person.name).sort()).toEqual([`ada-${tag}`, `grace-${tag}`]);
+
+  const endpoint = `/external/threads/${orgId}/${rootId}/shares`;
+  for (const person of people) {
+    const shared = await call(endpoint, sessions.owner, "POST", { recipientRef: person.ref, permission: "view" });
+    expect(shared.status).toBe(201);
+    const sharedText = await shared.text();
+    for (const address of [emailAddress, ssoAddress]) expect(sharedText.toLowerCase()).not.toContain(address);
+    expect(JSON.parse(sharedText).recipient).toMatchObject({ email: null, ref: expect.stringMatching(/^c1\./) });
+  }
+  const listed = await (await call(endpoint, sessions.owner)).text();
+  for (const address of [emailAddress, ssoAddress]) expect(listed.toLowerCase()).not.toContain(address);
+  const { shares } = JSON.parse(listed);
+  expect(shares).toHaveLength(2);
+  // A reference from the list changes that person's access without naming them.
+  const regranted = await call(endpoint, sessions.owner, "POST", { recipientRef: shares[0].recipient.ref, permission: "edit" });
+  expect(regranted.status).toBe(201);
+
+  // A reference opens only for the resource it was issued for.
+  const otherRoot = `thread-other-${tag}`;
+  await env.DB.prepare("INSERT INTO channel_messages (id, org_id, channel, author_login, kind, body, created_at) VALUES (?1, ?2, 'b:private-room', ?3, 'message', 'Other plan', ?4)")
+    .bind(otherRoot, orgId, ids.owner, new Date().toISOString()).run();
+  expect((await call(`/external/threads/${orgId}/${otherRoot}/shares`, sessions.owner, "POST", { email: ssoAddress, permission: "view" })).status).toBe(201);
+  expect((await call(`/external/threads/${orgId}/${otherRoot}/shares`, sessions.owner, "POST", { recipientRef: people[0].ref, permission: "view" })).status).toBe(404);
+
+  // Someone who types the address gets back what they typed, and no more.
+  const typed = await call(endpoint, sessions.owner, "POST", { email: emailAddress, permission: "view" });
+  expect(typed.status).toBe(201);
+  expect((await typed.json()).recipient.email).toBe(emailAddress);
 });
 
 test("workspace audience is live, CAS protected, and gates send approval by its active generation", async () => {
@@ -616,10 +673,11 @@ test("owner can list active grants and revoke by grant id after recipient joins"
   expect(created.status).toBe(201);
   const grant=(await created.json()).grant;
   let listed=await call(`/external/threads/${orgId}/${rootId}/shares`,sessions.owner);
-  expect(await listed.json()).toMatchObject({shares:[{id:grant.id,permission:"edit",recipient:{email},recipientIsMember:false,suspended:false}]});
+  // Every manager reads the list, not only the one who typed the address (#956).
+  expect(await listed.json()).toMatchObject({shares:[{id:grant.id,permission:"edit",recipient:{name:"guest",email:null},recipientIsMember:false,suspended:false}]});
   await upsertMembership(env.DB,orgId,ids.guest,"member");
   listed=await call(`/external/threads/${orgId}/${rootId}/shares`,sessions.owner);
-  expect(await listed.json()).toMatchObject({shares:[{id:grant.id,recipient:{email},recipientIsMember:true,suspended:true}]});
+  expect(await listed.json()).toMatchObject({shares:[{id:grant.id,recipient:{name:"guest",email:null},recipientIsMember:true,suspended:true}]});
   const revoked=await call(`/external/threads/${orgId}/${rootId}/shares`,sessions.owner,"DELETE",{grantId:grant.id});
   expect(await revoked.json()).toEqual({revoked:true});
   expect(await env.DB.prepare("SELECT revoked_at FROM hx_external_resource_grants WHERE id=?1").bind(grant.id).first()).toMatchObject({revoked_at:expect.any(String)});

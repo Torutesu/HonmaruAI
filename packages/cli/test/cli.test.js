@@ -823,6 +823,9 @@ test("webhook secret aliases resolve secrets from environment and allow inactive
   assert.equal(await run(["workspace", "workflow", "webhook-revoke", "wf_1", "--expected-secret-env", "HOOK_SECRET", "--expected-updated-at", "2026-11-11T00:00:00Z"]), 0); stdout.clear();
   assert.equal(await run(["workspace", "workflow", "webhook-revoke", "wf_2", "--expected-secret", "none", "--expected-updated-at", "2026-11-11T00:00:00Z"]), 0);
   assert.deepEqual(calls.map(call => call.arguments.expectedSecret), ["b".repeat(48), null]);
+  // The secret cannot be read back, so a rotation needs only the revision.
+  assert.equal(await run(["workspace", "workflow", "webhook-rotate", "wf_3", "--expected-updated-at", "2026-11-11T00:00:00Z"]), 0);
+  assert.deepEqual(calls.at(-1).arguments, { workflowId: "wf_3", expectedUpdatedAt: "2026-11-11T00:00:00Z" });
   assert.equal(stderr.read(), "");
 });
 

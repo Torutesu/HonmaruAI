@@ -80,6 +80,22 @@ test('MCP Room rename, archive, restore and archive listing preserve membership 
   expect((await call('discover_public_rooms', { joined: true })).rooms.map(room => room.channel)).toContain('b:roadmap');
 });
 
+test('MCP Room rename, archive, restore and archive listing require chat:private for private Rooms', async () => {
+  await initializeRoomRoles(env.DB, orgId, 'b:private', 'mcp-a');
+  const room = () => env.DB.prepare("SELECT name,archived_at FROM businesses WHERE org_id=?1 AND slug='private'").bind(orgId).first();
+  const expanded = { ...actor, scopes: [...actor.scopes, 'chat:private'] };
+  await expect(call('rename_room', { conversationId: 'b:private', name: 'Leaked' })).rejects.toThrow('chat:private');
+  await expect(call('archive_room', { conversationId: 'b:private' })).rejects.toThrow('chat:private');
+  expect(await room()).toMatchObject({ name: 'Private', archived_at: null });
+  expect(await call('rename_room', { conversationId: 'b:private', name: 'Vault' }, expanded)).toMatchObject({ name: 'Vault' });
+  expect(await call('archive_room', { conversationId: 'b:private' }, expanded)).toMatchObject({ archived: true });
+  expect((await call('list_archived_rooms', {})).rooms).toEqual([]);
+  expect((await call('list_archived_rooms', {}, expanded)).rooms).toMatchObject([{ channel: 'b:private', name: 'Vault', private: true }]);
+  await expect(call('unarchive_room', { conversationId: 'b:private' })).rejects.toThrow('chat:private');
+  expect((await room()).archived_at).not.toBeNull();
+  expect(await call('unarchive_room', { conversationId: 'b:private' }, expanded)).toMatchObject({ archived: false });
+});
+
 test('MCP Room settings expose managed defaults and update only requested settings under build authority', async () => {
   await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
   expect(await call('get_room_settings', { conversationId: 'b:general' })).toMatchObject({
@@ -344,6 +360,29 @@ test('scheduled authorized messages are sent once', async () => {
   await call('schedule_message', { conversationId: 'b:general', body: 'future', requestId: 'schedule-2', sendAt });
   await runMinuteJobs(env, { now: new Date(Date.now() + 150000) });
   await runMinuteJobs(env, { now: new Date(Date.now() + 150000) });
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM channel_messages WHERE org_id=?1').bind(orgId).first()).n).toBe(1);
+});
+
+test('a scheduled message whose conversation lookup fails for a moment stays scheduled and is sent later', async () => {
+  const made = await createApiToken(env.DB, { orgId, githubId: actor.githubId, name: 'schedule', scopes: actor.scopes });
+  actor.tokenId = made.id;
+  await call('schedule_message', { conversationId: 'b:general', body: 'after the hiccup', requestId: 'schedule-hiccup', sendAt: new Date(Date.now() + 120000).toISOString() });
+  // The members read inside the conversation lookup fails once.
+  const realPrepare = env.DB.prepare.bind(env.DB);
+  let failed = false;
+  const hiccup = { ...env, DB: new Proxy(env.DB, { get(target, prop) {
+    if (prop === 'prepare') return sqlText => { if (!failed && /SELECT m\.user_github_id\s+AS userId/.test(sqlText)) { failed = true; throw new Error('D1 hiccup'); } return realPrepare(sqlText); };
+    const v = target[prop];
+    return typeof v === 'function' ? v.bind(target) : v;
+  } }) };
+  const sentAt = async () => (await env.DB.prepare("SELECT sent_at FROM scheduled_messages WHERE org_id=?1 AND body='after the hiccup'").bind(orgId).first()).sent_at;
+  await runMinuteJobs(hiccup, { now: new Date(Date.now() + 150000) });
+  expect(failed).toBe(true);
+  expect(await sentAt()).toBeNull();
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM channel_messages WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
+  // Once its hold has run out, a later minute sends it, once.
+  await runMinuteJobs(env, { now: new Date(Date.now() + 150000 + 6 * 60000) });
+  expect(await sentAt()).toBeTruthy();
   expect((await env.DB.prepare('SELECT COUNT(*) n FROM channel_messages WHERE org_id=?1').bind(orgId).first()).n).toBe(1);
 });
 

@@ -41,6 +41,20 @@ describe('a language chosen before its table is here', () => {
     } finally { changeLocale('en') }
   })
 
+  it('translates the invite-link join confirmation (#960)', async () => {
+    const messages=['Accept this invitation?','Someone outside your workspace shared a Thread, App or File with you. Accepting gives you guest access to it and shows the workspace that shared it your name and account.','Workspace invitation','Checking the invitation…','This invitation is not valid, or has expired.','{inviter} invited you to this workspace.','Joining adds you to this workspace. You stay where you are until you choose to open it.','Stay here','You already belong to this workspace.']
+    try {
+      for (const code of ['ja','es','fr','de']) {
+        changeLocale(code); await localeReady()
+        for(const message of messages) expect(t(message),code).not.toBe(message)
+        for(const named of ['Join {team}?','You joined {team}.','Open {team}','An admin of {team} needs to approve you. You will be let in once they do.']) {
+          expect(t(named,{team:'Acme'}),code).toContain('Acme')
+          expect(t(named,{team:'Acme'}),code).not.toBe(named.replace('{team}','Acme'))
+        }
+      }
+    } finally { changeLocale('en') }
+  })
+
   it('translates cancellation outcomes and preserves the execution identity', async () => {
     const messages=['Execution finished before it could be cancelled.','Cancellation could not be confirmed. Reload execution history to check.','Execution history could not be refreshed. Reload to check the cancellation result.']
     try {
@@ -49,6 +63,16 @@ describe('a language chosen before its table is here', () => {
         for(const message of messages) expect(t(message),code).not.toBe(message)
         expect(t('Execution {id}: {message}',{id:'job-1',message:'example'}),code).toContain('job-1')
         expect(t('Execution {id}: {message}',{id:'job-1',message:'example'}),code).toContain('example')
+      }
+    } finally { changeLocale('en') }
+  })
+
+  it('translates cancelling waiting workflow runs and stuck follow-ups', async () => {
+    const messages=['This follow-up is still running. Try again if it has not finished within 30 minutes.','Cancel this run? It is waiting for approval. Its approval card will close and no later step will run.','This run changed before it could be cancelled. Its current status is shown below.','Keep waiting']
+    try {
+      for (const code of ['ja','es','fr','de']) {
+        changeLocale(code); await localeReady()
+        for(const message of messages) expect(t(message),code).not.toBe(message)
       }
     } finally { changeLocale('en') }
   })

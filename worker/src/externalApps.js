@@ -5,6 +5,7 @@ import { drainWorkflowRowEvents } from './harness/workflowRowEventDispatch.js';
 import { sha256Hex } from "./auth.js";
 import { addRow, updateRow, deleteRow } from "./harness/tables.js";
 import { deliverExternalInvite } from "./externalInviteMail.js";
+import { sealCollaboratorRef, openCollaboratorRef, outsiderLabel, recipientFromParam } from "./harness/collaboratorRefs.js";
 import { MAX_PREVIEW_SOURCE, validateSource } from "./harness/customApps.js";
 import { resourceAudienceAccessSql, resourceAudiencePermissionSql, resourceAudiencePermission, listResourceAudienceRooms, readResourceAudience, writeResourceAudience } from "./harness/externalResourceAudiences.js";
 
@@ -363,20 +364,29 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
   if (parts.length === 5 && request.method === "GET") {
     const now = new Date().toISOString();
     const [grants, invites] = await Promise.all([
-      env.DB.prepare("SELECT g.recipient_github_id AS githubId,u.login,u.name,u.email,g.permission,g.expires_at AS expiresAt,g.granted_at AS grantedAt FROM hx_external_resource_grants g LEFT JOIN users u ON u.github_id=g.recipient_github_id WHERE g.org_id=?1 AND g.resource_type='app' AND g.resource_id=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?3) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=g.org_id AND m.user_github_id=g.recipient_github_id) ORDER BY g.granted_at DESC")
+      env.DB.prepare("SELECT g.recipient_github_id AS githubId,u.login,u.name,(SELECT i.invited_email FROM hx_external_app_invites i WHERE i.org_id=g.org_id AND i.resource_id=g.resource_id AND i.redeemed_by=g.recipient_github_id AND i.redeemed_at IS NOT NULL ORDER BY i.redeemed_at DESC LIMIT 1) AS invitedEmail,g.permission,g.expires_at AS expiresAt,g.granted_at AS grantedAt FROM hx_external_resource_grants g LEFT JOIN users u ON u.github_id=g.recipient_github_id WHERE g.org_id=?1 AND g.resource_type='app' AND g.resource_id=?2 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?3) AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=g.org_id AND m.user_github_id=g.recipient_github_id) ORDER BY g.granted_at DESC")
         .bind(orgId, appId, now).all(),
       env.DB.prepare("SELECT id,invited_email AS invitedEmail,permission,access_expires_at AS accessExpiresAt,created_at AS createdAt,expires_at AS inviteExpiresAt FROM hx_external_app_invites WHERE org_id=?1 AND resource_id=?2 AND redeemed_at IS NULL AND redemption_id IS NULL AND revoked_at IS NULL AND expires_at>?3 AND (access_expires_at IS NULL OR access_expires_at>?3) ORDER BY created_at DESC")
         .bind(orgId, appId, now).all(),
     ]);
-    return json({ guests: grants.results || [], invites: invites.results || [], canManage: true, customUnsupported });
+    // Guests are named by a sealed handle, and their address is shown only
+    // when they redeemed an emailed invitation a manager typed it into: an
+    // account id or login can be the address itself (#956).
+    const scope = { orgId, resourceType: "app", resourceId: appId };
+    const guests = [];
+    for (const g of grants.results || []) guests.push({ ref: await sealCollaboratorRef(env.DB, scope, String(g.githubId)), ...outsiderLabel(g), email: g.invitedEmail || null, permission: g.permission, expiresAt: g.expiresAt, grantedAt: g.grantedAt });
+    return json({ guests, invites: invites.results || [], canManage: true, customUnsupported });
   }
   if (parts.length === 5 && request.method === "POST") {
     if (customUnsupported) return json({ message: "Custom Apps are not available to external guests yet. Share a Database App instead." }, 409);
     const input = await request.json().catch(() => null);
-    if (typeof input?.recipientGithubId === "string") {
-      const recipientId = input.recipientGithubId.trim();
-      if (!recipientId || recipientId.length > 200 || !["view", "edit"].includes(input.permission)) return json({ message: "Choose a verified collaborator and permission." }, 400);
-      const recipient = await env.DB.prepare("SELECT github_id AS githubId,login,name FROM users WHERE github_id=?1 AND email_verified_at IS NOT NULL").bind(recipientId).first();
+    if (typeof input?.recipientRef === "string") {
+      // The handle the collaborator search gave out, not an account id that
+      // may be the person's address (#956).
+      if (!["view", "edit"].includes(input.permission)) return json({ message: "Choose a verified collaborator and permission." }, 400);
+      const recipientId = await openCollaboratorRef(env.DB, { orgId, resourceType: "app", resourceId: appId }, input.recipientRef.trim());
+      if (!recipientId || recipientId.length > 200) return fail("A verified account outside this Workspace is required.", 404);
+      const recipient = await env.DB.prepare("SELECT github_id AS githubId,login,name,email FROM users WHERE github_id=?1 AND email_verified_at IS NOT NULL").bind(recipientId).first();
       if (!recipient || String(recipient.githubId) === String(actor.user.github_id)) return fail("A verified account outside this Workspace is required.", 404);
       if (await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId, recipientId).first()) return json({ message: "Workspace members should use their existing workspace access." }, 409);
       let accessExpiresAt = null;
@@ -395,7 +405,7 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
           .bind(grantId, orgId, appId, recipientId, input.permission, actor.user.github_id, now, accessExpiresAt),
       ]);
       if (!Number(writes?.[1]?.meta?.changes || 0)) return fail("Sharing manager access was revoked or collaborator is no longer eligible.", 403);
-      return json({ guest: { githubId: recipientId, login: recipient.login, name: recipient.name || recipient.login, permission: input.permission, expiresAt: accessExpiresAt } }, 201);
+      return json({ guest: { ref: await sealCollaboratorRef(env.DB, { orgId, resourceType: "app", resourceId: appId }, recipientId), ...outsiderLabel(recipient), permission: input.permission, expiresAt: accessExpiresAt } }, 201);
     }
     const email = typeof input?.email === "string" ? input.email.trim().toLowerCase() : "";
     const permission = input?.permission;
@@ -422,7 +432,7 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
     return fail("Invalid invite route.");
   }
   if (parts.length === 6 && request.method === "PATCH") {
-    const githubId = parts[5];
+    const githubId = await recipientFromParam(env.DB, { orgId, resourceType: "app", resourceId: appId }, parts[5]);
     const input = await request.json().catch(() => null);
     if (!["view", "edit"].includes(input?.permission)) return json({ message: "Choose view or edit." }, 400);
     let expiresAt = null;
@@ -437,7 +447,7 @@ async function appSharing(request, env, url, orgId, appId, actor, parts) {
   }
   if (parts.length === 6 && request.method === "DELETE") {
     const result = await env.DB.prepare(`UPDATE hx_external_resource_grants SET revoked_at=?1,revoked_by=?2 WHERE org_id=?3 AND resource_type='app' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL AND ${sharingManagerWriteGuard('?3','?4','?2')}`)
-      .bind(new Date().toISOString(), actor.user.github_id, orgId, appId, parts[5]).run();
+      .bind(new Date().toISOString(), actor.user.github_id, orgId, appId, await recipientFromParam(env.DB, { orgId, resourceType: "app", resourceId: appId }, parts[5])).run();
     return Number(result.meta?.changes || 0) ? json({ revoked: true }) : fail();
   }
   if (parts.length === 7 && parts[5] === "invites" && request.method === "PATCH") {

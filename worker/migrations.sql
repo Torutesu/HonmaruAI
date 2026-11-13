@@ -575,3 +575,11 @@ CREATE INDEX IF NOT EXISTS idx_hx_external_audience_requests_scope ON hx_externa
 CREATE TABLE IF NOT EXISTS hx_grok_bot_callbacks (id TEXT PRIMARY KEY,org_id TEXT NOT NULL,token_hash TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed','cancelled','orphaned')),result TEXT,error TEXT,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,completed_at INTEGER);
 CREATE INDEX IF NOT EXISTS idx_grok_bot_callbacks_expiry ON hx_grok_bot_callbacks(expires_at);
 ALTER TABLE perf_samples ADD COLUMN colo TEXT;
+-- #949: a reminder held by the cron run bringing it back (schema.sql).
+ALTER TABLE saved_items ADD COLUMN remind_lease_until TEXT;
+-- #952: when the minute cron last looked in on a teammate run, so it reads the least recently looked at first.
+ALTER TABLE ai_teammate_runs ADD COLUMN checked_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_teammate_runs_checked ON ai_teammate_runs(status, checked_at, updated_at);
+
+-- #948: when the cron claimed a follow-up, so an interrupted run is settled after its lease.
+ALTER TABLE hx_followups ADD COLUMN claimed_at TEXT;

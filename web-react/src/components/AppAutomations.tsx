@@ -36,6 +36,9 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
   const [retryScope,setRetryScope]=useState<typeof choiceScope|null>(null)
   const choiceCurrent=choiceState.scope===choiceScope,choices=choiceCurrent?choiceState.items:[],choiceStatus=choiceCurrent?choiceState.status:'loading',selectedChoice=choiceCurrent?selected:''
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
+  // The server keeps only a digest of a webhook secret, so the release that
+  // created it is the one chance to show it.
+  const [webhookSecrets,setWebhookSecrets]=useState<{key:string;workflowId:string;secret:string}[]>([])
   const [checked,setChecked]=useState<string[]>([]),[includeSource,setIncludeSource]=useState(false)
   const pending=useRef<{fingerprint:string;requestId:string}|null>(null)
   const generation=useRef(0)
@@ -95,13 +98,15 @@ export function AppAutomations({app,api,reload}:{app:App;api:HarnessApi;reload:(
     const body={action,version:state.version,revision:state.revision,includeSource:action==='publish'&&includeSource,candidateId:action==='publish'&&includeSource?previewGate?.candidate?.id:undefined,reviewed:action==='publish'?conflicts.map(item=>({key:item.key,workflowId:item.workflowId,action:item.status==='missing'?'recreate':'replace',live:item.live})):[]}
     const fingerprint=JSON.stringify(body)
     if(pending.current?.fingerprint!==fingerprint)pending.current={fingerprint,requestId:crypto.randomUUID()}
-    await api.releaseAppAutomations(app.id,{...body,requestId:pending.current.requestId})
-    pending.current=null;await refresh();await reload();setNotice(action==='publish'?'確認した自動化を公開しました。':'自動化の公開を停止しました。')
+    setWebhookSecrets([])
+    const result=await api.releaseAppAutomations(app.id,{...body,requestId:pending.current.requestId})
+    pending.current=null;setWebhookSecrets(result?.webhookSecrets||[]);await refresh();await reload();setNotice(action==='publish'?'確認した自動化を公開しました。':'自動化の公開を停止しました。')
   }
   return <section className="hx-app-automations" aria-label="アプリの自動化">
     <header><h3><Icon name="workflow" size={18}/> 自動化</h3><span>{state?.published?'公開中':'下書き'}</span></header>
     <p>下書きを保存して変更内容を確認し、このアプリと一緒に運用する処理を公開します。</p>
     {error&&<p role="alert" className="form-error">{error}</p>}{notice&&<p role="status">{notice}</p>}
+    {webhookSecrets.length>0&&<div className="form-note" role="status"><p>Webhookのシークレットは今回だけ表示されます。送信元では X-Hook-Secret ヘッダーで送信してください。</p>{webhookSecrets.map(item=><p key={item.workflowId}>{draft.items.find(value=>value.key===item.key)?.name||item.key}: <code className="hx-code">{item.secret}</code></p>)}</div>}
     {state && state.version!==app.version && <button className="pill-btn quiet" disabled={busy} onClick={()=>void run(refresh)}>{dirty?'未保存の変更を破棄して再読み込み':'最新版を再読み込み'}</button>}
     {!state?<button disabled={busy} onClick={()=>void run(refresh)}>再読み込み</button>:<>
       <form onSubmit={e=>{e.preventDefault();void run(async()=>{const result=await api.generateAppAutomation(app.id,prompt,Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');setDraft({...draft,items:[...draft.items,result.automation]});setPrompt('');setNotice('生成した下書きを確認して保存してください。まだ実行されません。')})}}><label>作りたい自動化<textarea value={prompt} maxLength={4000} disabled={busy} onChange={e=>setPrompt(e.target.value)} placeholder="例：毎週月曜日の9時に、担当エージェントへ売上データの確認を依頼する"/></label><button className="pill-btn" disabled={busy||!prompt.trim()||draft.items.length>=12}>自動化を生成</button></form>

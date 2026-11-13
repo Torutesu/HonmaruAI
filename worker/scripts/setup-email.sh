@@ -29,7 +29,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-WRANGLER=(npx -y wrangler@4)
+WRANGLER=(npx -y wrangler@4.149.0)
 BOLD=$(tput bold 2>/dev/null || true)
 DIM=$(tput dim 2>/dev/null || true)
 OFF=$(tput sgr0 2>/dev/null || true)
@@ -131,7 +131,7 @@ else
   # earlier run is exactly what broke this once.
   note "  NOTIFY_EMAIL_FROM — not set by this run. If an earlier run left one,"
   note "  it still applies; clear it with"
-  note "      npx -y wrangler@4 secret delete NOTIFY_EMAIL_FROM"
+  note "      npx -y wrangler@4.149.0 secret delete NOTIFY_EMAIL_FROM"
 fi
 unset api_key
 
@@ -240,7 +240,7 @@ case "$code" in
       echo "That is Resend's own wording." >&2
     else
       echo "The log did not reach us in time. Run this in one terminal:" >&2
-      echo "    npx -y wrangler@4 tail --format pretty" >&2
+      echo "    npx -y wrangler@4.149.0 tail --format pretty" >&2
       echo "and the curl below in another; the reason appears in the first." >&2
       echo "    curl -sS -X POST https://$host/auth/otp/request \\" >&2
       echo "      -H 'content-type: application/json' -d '{\"email\":\"$to\"}'" >&2
@@ -271,7 +271,7 @@ case "$code" in
         echo >&2
         echo "  The other 422: NOTIFY_EMAIL_FROM names a domain not verified" >&2
         echo "  at Resend. Clear it with" >&2
-        echo "      npx -y wrangler@4 secret delete NOTIFY_EMAIL_FROM" >&2
+        echo "      npx -y wrangler@4.149.0 secret delete NOTIFY_EMAIL_FROM" >&2
         echo "  to fall back to the shared sender." >&2
         ;;
       *)

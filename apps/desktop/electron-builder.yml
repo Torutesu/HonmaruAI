@@ -21,6 +21,17 @@ files:
 protocols:
   - name: Honmaru AI
     schemes: [honmaru]
+# Electron's fuses, switches baked into the binary (#963). Left on, any
+# program running as the same person could start Honmaru's signed binary as
+# plain Node (ELECTRON_RUN_AS_NODE), inject code through NODE_OPTIONS, or
+# attach a debugger with --inspect — and run its own JavaScript as Honmaru,
+# with the microphone and camera Honmaru was granted. The app uses none of
+# them (no process.fork, no Node child), so they are turned off for every
+# build; the Store and App Store configs extend this one.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
 # Where `npm run release` uploads the installers and the update feed
 # (latest.yml, latest-mac.yml, latest-linux.yml), and where the installed app
 # looks for a newer version (src/updates.js). A release is created as a

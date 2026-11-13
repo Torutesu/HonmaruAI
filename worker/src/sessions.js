@@ -6,6 +6,7 @@
 // short), never by the token: the list is read in a browser, and a token in
 // it would be a way in.
 
+import { forgetRequestSessions } from "./requestContext.js";
 import { getSession, isMember, getUserByGithubId, primaryOrgId, sessionKey } from "./db.js";
 import { ROLE_RANK, sha256Hex } from "./auth.js";
 import { audit, auditEverywhere, clientOf, person } from "./audit.js";
@@ -81,6 +82,7 @@ export async function signedIn(env, request, token, githubId, method) {
   const meta = sessionMeta(request);
   await env.DB.prepare("UPDATE sessions SET client = ?1, user_agent = ?2, place = ?3, last_seen_at = ?4, auth_method = ?6 WHERE token = ?5")
     .bind(meta.client || null, meta.userAgent || null, meta.place || null, new Date().toISOString(), key, method || null).run().catch(() => {});
+  forgetRequestSessions();
   const user = await getUserByGithubId(env.DB, String(githubId)).catch(() => null);
   // A proved address at a company's domain: its workspace may let them in.
   if (method === "email_code" || method === "sso") {
@@ -202,6 +204,7 @@ export async function endSessions(env, githubId, { refs = null, keep = null } = 
   }
   if (!gone.length) return 0;
   await db.batch(gone.map((t) => db.prepare("DELETE FROM sessions WHERE token = ?1").bind(t)));
+  forgetRequestSessions();
   // Their pushes stop with them: a browser signed out is no longer theirs.
   const { evictSessions } = await import("./announce.js");
   await evictSessions(env, gone).catch(() => {});

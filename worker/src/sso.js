@@ -12,6 +12,7 @@
 // domains. The session token never travels in a URL — a one-time code good
 // for a minute does, and the client trades it for the session.
 
+import { forgetRequestSessions } from "./requestContext.js";
 import { getSession, getUserByGithubId, createSession, upsertUser, upsertMembership, sessionKey } from "./db.js";
 import { sha256Hex, EMAIL_AUTH_TOKEN, settleProvedAddress } from "./auth.js";
 import { audit, person, auditEverywhere } from "./audit.js";
@@ -503,6 +504,7 @@ async function finishSignIn(env, request, row, conn, identity, grant = {}) {
     "UPDATE sessions SET auth_method = 'sso', sso_org_id = ?2, sso_connection_id = ?3, sso_subject = ?4, sso_sid = ?5, sso_refresh = ?6, sso_checked_at = ?7 WHERE token = ?1"
   ).bind(key, conn.org_id, conn.id, grant.sub || identity.subject, grant.sid || null, refresh, now).run();
   await mark();
+  forgetRequestSessions();
   const { signedIn } = await import("./sessions.js");
   await signedIn(env, request, token, account.githubId, "sso");
   await mark();
@@ -601,6 +603,7 @@ async function samlLogout(env, request, url, connectionId) {
   ).bind(conn.id, said.nameId, ...indexes).all();
   const gone = results || [];
   if (gone.length) await env.DB.batch(gone.map((r) => env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(r.token)));
+  if (gone.length) forgetRequestSessions();
   if (gone.length) await evictSessions(env, gone.map((r) => r.token)).catch(() => {});
   const who = gone[0] ? await getUserByGithubId(env.DB, gone[0].github_id).catch(() => null) : null;
   await audit(env, request, {
@@ -761,6 +764,7 @@ async function backchannelLogout(env, request, connectionId) {
   ).bind(conn.id, sid, sub).all();
   const gone = results || [];
   if (gone.length) await env.DB.batch(gone.map((r) => env.DB.prepare("DELETE FROM sessions WHERE token = ?1").bind(r.token)));
+  if (gone.length) forgetRequestSessions();
   if (gone.length) await evictSessions(env, gone.map((r) => r.token)).catch(() => {});
   const who = gone[0] ? await getUserByGithubId(env.DB, gone[0].github_id).catch(() => null) : null;
   await audit(env, request, {

@@ -9,6 +9,7 @@
 // the last few minutes (`code: "reauth-required"`); an email code or the
 // password gives one without signing out.
 
+import { forgetRequestSessions } from "./requestContext.js";
 import { getSession, getUserByGithubId, isMember } from "./db.js";
 import { audit, person } from "./audit.js";
 import { allowed } from "./permissions.js";
@@ -247,6 +248,7 @@ export async function handlePolicy(request, env, url) {
     }
     if (!ok) return json({ message: "Enter the code from your email, or your password." }, 400);
     await env.DB.prepare("UPDATE sessions SET reauth_at = ?2 WHERE token = ?1").bind(session.token, new Date().toISOString()).run();
+    forgetRequestSessions();
     return json({ ok: true });
   }
 

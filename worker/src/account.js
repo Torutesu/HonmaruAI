@@ -22,6 +22,7 @@
 // with their actor anonymized — and the privacy policy says so, because an
 // undisclosed retention is a worse answer than a disclosed one.
 
+import { forgetRequestSessions } from "./requestContext.js";
 import {fileScopeAuthority} from './harness/fileAuthority.js';
 import {anonymizeFileAccount,queueFileAccountErasure} from './harness/fileAccount.js';
 
@@ -299,6 +300,7 @@ export async function deleteAccount(db, githubId, login) {
   ]) {
     try {
       await db.prepare(sql).bind(id).run();
+      if (sql.includes("FROM sessions")) forgetRequestSessions();
     } catch (err) {
       // device_tokens or push_subscriptions may not exist on a database that predates push. A missing
       // table must not leave the account half-deleted.

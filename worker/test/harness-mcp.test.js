@@ -334,7 +334,8 @@ test('workflow MCP exposes lifecycle reads, gates webhook payloads, and applies 
   const shown = (await tool(ownerToken, 'get_workflow', { workflowId: made.workflow.id })).result.structuredContent;
   expect(shown.workflow).toMatchObject({ id: made.workflow.id, enabled: false, trigger: { type: 'webhook' } });
   expect(shown.workflow.hookSecret).toBeUndefined();
-  expect(shown.webhook.secret).toBe(made.workflow.hookSecret);
+  expect(shown.webhook).toEqual({ active: true, signatureRequired: true });
+  expect(JSON.stringify(shown)).not.toContain(made.workflow.hookSecret);
   const listedTools = (await (await rpc(ownerToken, 'tools/list')).json()).result.tools;
   for (const name of ['discard_held_workflow_events', 'replay_held_workflow_events', 'rotate_workflow_webhook', 'revoke_workflow_webhook']) {
     expect(listedTools.find(item => item.name === name).annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
@@ -349,7 +350,7 @@ test('workflow MCP exposes lifecycle reads, gates webhook payloads, and applies 
   expect(await env.DB.prepare("SELECT action FROM audit_events WHERE org_id=?1 AND action='workflow.webhook_discarded'").bind(ORG).first('action'))
     .toBe('workflow.webhook_discarded');
   const rotated = (await tool(ownerToken, 'rotate_workflow_webhook', {
-    workflowId: made.workflow.id, expectedSecret: shown.webhook.secret, expectedUpdatedAt: shown.workflow.updatedAt,
+    workflowId: made.workflow.id, expectedUpdatedAt: shown.workflow.updatedAt,
   })).result.structuredContent;
   expect(rotated).toMatchObject({ workflowId: made.workflow.id, active: true, secret: expect.stringMatching(/^[0-9a-f]{48}$/) });
   const rotateAudit = await env.DB.prepare("SELECT body FROM audit_events WHERE org_id=?1 AND action='workflow.webhook_rotated' ORDER BY seq DESC LIMIT 1").bind(ORG).first();

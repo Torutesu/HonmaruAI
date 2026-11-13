@@ -8,7 +8,7 @@ afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers()})
 
 test('waits for a useful query, shows minimal account details and selects a collaborator',async()=>{
  vi.useFakeTimers()
- const fetch=vi.fn().mockResolvedValue(new Response(JSON.stringify({people:[{githubId:'guest-1',login:'ari',name:'Ari',email:'private@example.test'}]}),{status:200}))
+ const fetch=vi.fn().mockResolvedValue(new Response(JSON.stringify({people:[{ref:'c1.ari',login:'ari',name:'Ari',email:'private@example.test'},{ref:'c1.ada',login:null,name:'Ada'}]}),{status:200}))
  vi.stubGlobal('fetch',fetch)
  const onChange=vi.fn()
  let tree!:ReactTestRenderer
@@ -22,7 +22,10 @@ test('waits for a useful query, shows minimal account details and selects a coll
  expect(fetch.mock.calls[0][0]).toContain('resourceType=thread')
  expect(JSON.stringify(tree.toJSON())).toContain('"ari"')
  expect(JSON.stringify(tree.toJSON())).not.toContain('private@example.test')
+ // An email or SSO account has no public handle, so none is shown.
+ expect(JSON.stringify(tree.toJSON())).toContain('"Ada"')
+ expect(JSON.stringify(tree.toJSON())).not.toContain('@null')
  await act(async()=>{tree.root.findAllByType('button')[0].props.onClick();await Promise.resolve()})
- expect(onChange).toHaveBeenCalledWith({githubId:'guest-1',login:'ari',name:'Ari'})
+ expect(onChange).toHaveBeenCalledWith({ref:'c1.ari',login:'ari',name:'Ari'})
  act(()=>tree.unmount())
 })

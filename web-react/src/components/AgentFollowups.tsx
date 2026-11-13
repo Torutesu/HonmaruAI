@@ -1,7 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { harnessApi, type Followup } from '../utils/harness'
+import { harnessApi, HarnessApiError, type Followup } from '../utils/harness'
 import { useT } from '../utils/i18n'
 import { hashForThread } from '../utils/route'
+
+// Matches the server's follow-up lease (worker/src/harness/followups.js). A
+// running follow-up past it was interrupted and may be cancelled; one inside
+// it is still being answered. A claim with no time predates the lease.
+const FOLLOWUP_LEASE_MS = 30 * 60 * 1000
+const STILL_RUNNING = 'This follow-up is still running. Try again if it has not finished within 30 minutes.'
+const followupCancellable = (item: Followup, now = Date.now()) =>
+  item.status === 'scheduled' || (item.status === 'running' && (!item.claimedAt || now - Date.parse(item.claimedAt) >= FOLLOWUP_LEASE_MS))
 
 export function AgentFollowups({ api, agentId }: { api: ReturnType<typeof harnessApi>; agentId: string }) {
   const t = useT()
@@ -35,10 +43,10 @@ export function AgentFollowups({ api, agentId }: { api: ReturnType<typeof harnes
         {item.threadId && <a className="btn-text" href={hashForThread(item.threadId, api.orgId)}>{t('View conversation')}</a>}
         {item.result && <details className="hx-run-detail"><summary>{t(item.status === 'failed' ? 'Error' : 'Output')}</summary><pre>{item.result}</pre>{item.doneAt && <time dateTime={item.doneAt}>{new Date(item.doneAt).toLocaleString()}</time>}</details>}
       </div>
-      {item.status === 'scheduled' && <button className="btn-text" disabled={busy} onClick={async () => {
+      {followupCancellable(item) && <button className="btn-text" disabled={busy} onClick={async () => {
         setBusy(true); setError('')
         try { await api.cancelFollowup(item.id); setRefresh(n => n + 1) }
-        catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+        catch (e) { setError(e instanceof HarnessApiError && e.status === 409 ? STILL_RUNNING : e instanceof Error ? e.message : String(e)) }
         finally { setBusy(false) }
       }}>{t('Cancel')}</button>}
     </div>)}</div>

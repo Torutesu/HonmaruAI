@@ -67,7 +67,7 @@ Usage:
   honmaru workspace workflow held-events <workflow-id> [--offset N]
   honmaru workspace workflow held-event <workflow-id> <event-id>
   honmaru workspace workflow discard-held|replay-held <workflow-id> --event-ids ID,ID
-  honmaru workspace workflow webhook-rotate|webhook-revoke <workflow-id> --expected-secret-env ENV_NAME|--expected-secret none --expected-updated-at ISO
+  honmaru workspace workflow webhook-rotate|webhook-revoke <workflow-id> --expected-updated-at ISO [--expected-secret-env ENV_NAME]
   honmaru workspace followup list [--room ROOM]
   honmaru workspace followup schedule --room ROOM --instruction TEXT --minutes N
   honmaru workspace file list --scope ROOM|all [--query TEXT] [--limit N]
@@ -577,17 +577,20 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
     }
     case "workflow webhook-rotate":
     case "workflow webhook-revoke": {
-      onlyFlags(options, ["expectedSecret", "expectedSecretEnv", "expectedUpdatedAt"]); positionalCount(positional, 1, `honmaru workspace workflow ${operation} <workflow-id> --expected-secret-env ENV_NAME|--expected-secret none --expected-updated-at ISO`);
+      onlyFlags(options, ["expectedSecret", "expectedSecretEnv", "expectedUpdatedAt"]); positionalCount(positional, 1, `honmaru workspace workflow ${operation} <workflow-id> --expected-updated-at ISO [--expected-secret-env ENV_NAME]`);
       if (!options.expectedUpdatedAt || !Number.isFinite(Date.parse(options.expectedUpdatedAt))) throw new Error("A valid --expected-updated-at from workflow show is required.");
       if (options.expectedSecret !== undefined && options.expectedSecretEnv !== undefined) throw new Error("Use only one of --expected-secret none and --expected-secret-env.");
+      // The server keeps only a digest of the secret, so workflow show cannot
+      // print it. --expected-updated-at is the conflict check; a secret the
+      // caller still holds (from creation or the last rotation) is optional.
       let expectedSecret;
       if (options.expectedSecretEnv !== undefined) {
         if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(options.expectedSecretEnv)) throw new Error("--expected-secret-env must be an environment variable name.");
         expectedSecret = env[options.expectedSecretEnv];
-        if (typeof expectedSecret !== "string" || !/^[0-9a-f]{48}$/.test(expectedSecret)) throw new Error("The named environment variable must contain the 48-character webhook secret from workflow show.");
+        if (typeof expectedSecret !== "string" || !/^[0-9a-f]{48}$/.test(expectedSecret)) throw new Error("The named environment variable must contain the 48-character webhook secret you received when the webhook was created or last rotated.");
       } else if (options.expectedSecret === "none") expectedSecret = null;
-      else throw new Error("Pass the current secret with --expected-secret-env NAME (keeps it out of shell history), or use --expected-secret none when inactive.");
-      return { tool: operation === "webhook-rotate" ? "rotate_workflow_webhook" : "revoke_workflow_webhook", args: { workflowId: positional[0], expectedSecret, expectedUpdatedAt: options.expectedUpdatedAt } };
+      else if (options.expectedSecret !== undefined) throw new Error("Pass a secret you hold with --expected-secret-env NAME (keeps it out of shell history), or omit it; --expected-updated-at is enough.");
+      return { tool: operation === "webhook-rotate" ? "rotate_workflow_webhook" : "revoke_workflow_webhook", args: { workflowId: positional[0], ...(expectedSecret !== undefined ? { expectedSecret } : {}), expectedUpdatedAt: options.expectedUpdatedAt } };
     }
     case "followup list":
       onlyFlags(options, ["room"]); positionalCount(positional, 0, "honmaru workspace followup list [--room ROOM]");

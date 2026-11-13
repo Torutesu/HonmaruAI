@@ -149,7 +149,7 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
     event.preventDefault()
     if (!selectedCollaborator) return
     void mutate(async () => {
-      await shareExternalThread(apiKey,threadId,{recipientGithubId:selectedCollaborator.githubId,permission,expiresAt:nextExpiry(expiry)})
+      await shareExternalThread(apiKey,threadId,{recipientRef:selectedCollaborator.ref,permission,expiresAt:nextExpiry(expiry)})
       setSelectedCollaborator(null)
     })
   }
@@ -157,7 +157,7 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
     const next = drafts[share.id] || share.permission
     if (next === share.permission) return
     void mutate(async () => {
-      await shareExternalThread(apiKey,threadId,{email:share.recipient.email,permission:next,expiresAt:share.expiresAt})
+      await shareExternalThread(apiKey,threadId,{recipientRef:share.recipient.ref,permission:next,expiresAt:share.expiresAt})
     })
   }
   const revoke = (share: ExternalThreadGrant) => void mutate(async () => {
@@ -325,9 +325,9 @@ export function ExternalThreadShare({ api, threadId, onClose }: { api: Api; thre
       {loading&&<p role="status">{t('Loading…')}</p>}
       {!loading&&!error&&!shares.length&&<p className="row-sub">{t('No one outside this workspace has access.')}</p>}
       {shares.map(share=><article className="hx-external-thread-grant" key={share.id} data-share-id={share.id}>
-        <div className="hx-external-thread-person"><strong>{share.recipient.name}</strong><span>{share.recipient.email}</span><small>{t('Expires')}: {expires(share.expiresAt)}</small>{share.recipientIsMember&&<small>{t('Workspace member')}</small>}{share.suspended&&<small role="status">{share.recipientIsMember?t('External grant is paused while this person is a workspace member.'):t('External grant stays paused after membership ends until it is revoked or re-shared.')}</small>}</div>
+        <div className="hx-external-thread-person"><strong>{share.recipient.name}</strong>{share.recipient.email&&<span>{share.recipient.email}</span>}<small>{t('Expires')}: {expires(share.expiresAt)}</small>{share.recipientIsMember&&<small>{t('Workspace member')}</small>}{share.suspended&&<small role="status">{share.recipientIsMember?t('External grant is paused while this person is a workspace member.'):t('External grant stays paused after membership ends until it is revoked or re-shared.')}</small>}</div>
         <label className="hx-external-thread-permission">{t('Permission')}
-          <select aria-label={t('Permission for {email}').replace('{email}',share.recipient.email)} value={drafts[share.id]||share.permission} disabled={busy||Boolean(share.suspended||share.recipientIsMember)} onChange={event=>setDrafts(current=>({...current,[share.id]:event.target.value as 'view'|'edit'}))}>
+          <select aria-label={t('Permission for {email}').replace('{email}',share.recipient.email||share.recipient.name)} value={drafts[share.id]||share.permission} disabled={busy||Boolean(share.suspended||share.recipientIsMember)} onChange={event=>setDrafts(current=>({...current,[share.id]:event.target.value as 'view'|'edit'}))}>
             <option value="view">{t('Can view')}</option><option value="edit">{t('Can edit')}</option>
           </select>
         </label>

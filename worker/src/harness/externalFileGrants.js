@@ -3,6 +3,11 @@ import { allowed } from '../permissions.js';
 import { getMode } from './mode.js';
 import { sha256Hex } from '../auth.js';
 import { deliverExternalInvite } from '../externalInviteMail.js';
+import { sealCollaboratorRef, openCollaboratorRef, outsiderLabel, recipientFromParam } from './collaboratorRefs.js';
+
+/// The account a grant response was about, for the audit record only: the
+/// response itself names that person by handle (#956).
+export const grantRecipients = new WeakMap();
 import {
   cleanResourceAudienceInput, listResourceAudienceRooms, readResourceAudience,
   writeResourceAudience,
@@ -301,6 +306,13 @@ export async function redeemExternalFileLink(env,{token,userId}){
  return deny;
 }
 
+/// A File grant as its managers see it: a handle, a name and, only when the
+/// caller already knows it, an address.
+async function publicGrant(db,scope,row,email){
+  const label=outsiderLabel(row);
+  return {id:row.id,recipientRef:await sealCollaboratorRef(db,scope,String(row.githubId)),recipientName:label.name,recipientLogin:label.login,recipientEmail:email||null,permission:row.permission,grantedAt:row.grantedAt,expiresAt:row.expiresAt??null,revokedAt:row.revokedAt??null,revokedBy:row.revokedBy??null};
+}
+
 export async function handleExternalFileGrantRoutes(request, env, url, { orgId, userId }) {
   const linkRoute=fileLinkRoute(url);
   if(linkRoute)return manageFileLinks(request,env,url,{orgId,userId},linkRoute);
@@ -316,11 +328,17 @@ export async function handleExternalFileGrantRoutes(request, env, url, { orgId, 
   const file=await fileRecord(db,orgId,route.fileId);
   if(!file||file.kind!=='content')return json({message:'File not found.'},404);
   const manage=await canManage(db,orgId,userId,file.created_by);
+  const scope={orgId,resourceType:'file',resourceId:route.fileId};
   if(request.method==='GET'&&!route.recipientId){
     if(!manage)return json({canManage:false,grants:[]});
-    const {results=[]}=await db.prepare("SELECT g.id,g.recipient_github_id AS recipientGithubId,u.login AS recipientLogin,lower(u.email) AS recipientEmail,g.permission,g.granted_at AS grantedAt,g.expires_at AS expiresAt,g.revoked_at AS revokedAt,g.revoked_by AS revokedBy FROM hx_external_resource_grants g JOIN users u ON u.github_id=g.recipient_github_id WHERE g.org_id=?1 AND g.resource_type='file' AND g.resource_id=?2 ORDER BY g.granted_at DESC LIMIT 100")
+    // A grantee's account id and login can be their address, so the list
+    // names them by handle, and shows an address only when they redeemed an
+    // emailed invitation a manager typed it into (#956).
+    const {results=[]}=await db.prepare("SELECT g.id,g.recipient_github_id AS githubId,u.login,u.name,(SELECT i.invited_email FROM hx_external_file_invites_v2 i WHERE i.org_id=g.org_id AND i.file_id=g.resource_id AND i.redeemed_by=g.recipient_github_id AND i.redeemed_at IS NOT NULL ORDER BY i.redeemed_at DESC LIMIT 1) AS invitedEmail,g.permission,g.granted_at AS grantedAt,g.expires_at AS expiresAt,g.revoked_at AS revokedAt,g.revoked_by AS revokedBy FROM hx_external_resource_grants g JOIN users u ON u.github_id=g.recipient_github_id WHERE g.org_id=?1 AND g.resource_type='file' AND g.resource_id=?2 ORDER BY g.granted_at DESC LIMIT 100")
       .bind(orgId,route.fileId).all();
-    return json({canManage:true,grants:results});
+    const grants=[];
+    for(const row of results)grants.push(await publicGrant(db,scope,row,row.invitedEmail));
+    return json({canManage:true,grants});
   }
   if(!manage)return json({message:'Only the file owner or a workspace admin can manage external access.'},403);
   if(request.method==='POST'&&!route.recipientId){
@@ -329,14 +347,16 @@ export async function handleExternalFileGrantRoutes(request, env, url, { orgId, 
     const permission=input?.permission==='edit'?'edit':input?.permission==='view'?'view':null;
     if(!permission)return json({message:'Choose view or edit access.'},400);
     let recipient;
-    const recipientId=typeof input?.recipientGithubId==='string'?input.recipientGithubId.trim():'';
-    if(recipientId){
-      if(recipientId.length>200)return json({message:'Choose a valid collaborator.'},400);
-      try{recipient=await db.prepare('SELECT github_id AS githubId,login,email FROM users WHERE github_id=?1 AND email_verified_at IS NOT NULL LIMIT 1').bind(recipientId).first()}
+    // Someone picked from the search arrives as the handle it gave out.
+    const picked=typeof input?.recipientRef==='string';
+    if(picked){
+      const recipientId=await openCollaboratorRef(db,scope,input.recipientRef.trim());
+      if(!recipientId||recipientId.length>200)return json({message:'No eligible signed-in Honmaru collaborator exists.'},404);
+      try{recipient=await db.prepare('SELECT github_id AS githubId,login,name,email FROM users WHERE github_id=?1 AND email_verified_at IS NOT NULL LIMIT 1').bind(recipientId).first()}
       catch{return json({message:'Verified account sharing is not available until the workspace migration completes.'},503)}
     }else{
       if(!email||email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json({message:'Enter a valid email address.'},400);
-      try{recipient=await db.prepare('SELECT github_id AS githubId,login,email FROM users WHERE lower(trim(email))=?1 AND email_verified_at IS NOT NULL LIMIT 1').bind(email).first()}
+      try{recipient=await db.prepare('SELECT github_id AS githubId,login,name,email FROM users WHERE lower(trim(email))=?1 AND email_verified_at IS NOT NULL LIMIT 1').bind(email).first()}
       catch{return json({message:'Verified email sharing is not available until the workspace migration completes.'},503)}
     }
     if(!recipient||String(recipient.githubId)===String(userId))return json({message:'No eligible signed-in Honmaru collaborator exists.'},404);
@@ -348,9 +368,13 @@ export async function handleExternalFileGrantRoutes(request, env, url, { orgId, 
     try{
       const grant=await grantExternalResource(db,{orgId,resourceType:'file',resourceId:route.fileId,recipientGithubId:String(recipient.githubId),grantedBy:String(userId),permission,expiresAt},at,{requireVerifiedExternalAccount:true});
       if(!grant)return json({message:'Workspace membership or account verification changed. Reload and retry.'},409);
-      return json({grant:{id:grant.id,recipientGithubId:String(recipient.githubId),recipientLogin:recipient.login,recipientEmail:recipient.email,permission,grantedAt:at,expiresAt,revokedAt:null},redemptionPath:'/external/files/'+encodeURIComponent(orgId)+'/'+encodeURIComponent(route.fileId)},201);
+      // The address goes back only to a caller who typed it.
+      const response=json({grant:await publicGrant(db,scope,{id:grant.id,...recipient,permission,grantedAt:at,expiresAt,revokedAt:null,revokedBy:null},picked?null:email),redemptionPath:'/external/files/'+encodeURIComponent(orgId)+'/'+encodeURIComponent(route.fileId)},201);
+      grantRecipients.set(response,String(recipient.githubId));
+      return response;
     }catch(error){return json({message:error instanceof Error?error.message:'Could not grant file access.'},400)}
   }
+  const recipientId=route.recipientId?await recipientFromParam(db,scope,route.recipientId):'';
   if(request.method==='PATCH'&&route.recipientId){
     const input=await request.json().catch(()=>null);
     const permission=input?.permission==='edit'?'edit':input?.permission==='view'?'view':null;
@@ -379,13 +403,15 @@ export async function handleExternalFileGrantRoutes(request, env, url, { orgId, 
             AND NOT EXISTS(SELECT 1 FROM hx_room_access removed WHERE removed.org_id=f.org_id AND removed.channel=f.scope AND removed.deleted_at IS NOT NULL)
             AND (substr(f.scope,1,2)!='b:' OR EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=f.org_id AND 'b:'||b.slug=f.scope AND b.archived_at IS NULL))
             AND EXISTS(SELECT 1 FROM org_settings s WHERE s.org_id=f.org_id AND s.mode='harness'))`)
-      .bind(permission,expiresAt,orgId,route.fileId,route.recipientId,now,String(userId)).run();
+      .bind(permission,expiresAt,orgId,route.fileId,recipientId,now,String(userId)).run();
     if(Number(result?.meta?.changes||0)!==1)return json({message:'An active File collaborator was not found.'},404);
-    return json({updated:true,recipientGithubId:route.recipientId,permission,expiresAt});
+    const response=json({updated:true,recipientRef:route.recipientId,permission,expiresAt});
+    grantRecipients.set(response,recipientId);
+    return response;
   }
   if(request.method==='DELETE'&&route.recipientId){
-    const changes=await revokeExternalResource(db,{orgId,resourceType:'file',resourceId:route.fileId,recipientGithubId:route.recipientId,revokedBy:String(userId)});
-    return json({revoked:changes>0,recipientGithubId:route.recipientId});
+    const changes=await revokeExternalResource(db,{orgId,resourceType:'file',resourceId:route.fileId,recipientGithubId:recipientId,revokedBy:String(userId)});
+    return json({revoked:changes>0,recipientRef:route.recipientId});
   }
   return json({message:'Method not allowed.'},405);
 }

@@ -15,6 +15,10 @@ export interface AppleSignIn { identityToken: string; nonce: string; name?: stri
 /// Redeeming an invitation (POST /invites/accept). 202 when an admin must approve.
 export interface InviteAccepted { orgId: string; joined?: boolean; pending?: boolean; role?: string; message?: string }
 
+/// What an invitation opens, before it is spent (GET /invites/peek). Joins
+/// nothing, so a link can be confirmed before it is redeemed.
+export interface InvitePeek { team: string | null; inviter: string | null; role: string; expiresAt: string | null }
+
 export interface Me {
   login: string
   userId: string

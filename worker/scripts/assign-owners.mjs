@@ -28,4 +28,4 @@ if (!args.includes("--apply")) {
 const envAt = args.indexOf("--env");
 const env = envAt >= 0 ? args[envAt + 1] : null;
 const db = env === "staging" ? "tiktokforwork-staging" : "tiktokforwork";
-execFileSync("npx", ["-y", "wrangler@4", "d1", "execute", db, "--remote", ...(env ? ["--env", env] : []), "--command", SQL.replace(/\n/g, " "), "--yes"], { stdio: "inherit" });
+execFileSync("npx", ["-y", "wrangler@4.149.0", "d1", "execute", db, "--remote", ...(env ? ["--env", env] : []), "--command", SQL.replace(/\n/g, " "), "--yes"], { stdio: "inherit" });

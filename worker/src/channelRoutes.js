@@ -44,7 +44,7 @@ import { linksIn, readLinks, linksBlock } from "./links.js";
 import { agentInstructionsForTools, agentTools } from "./agentTools.js";
 import { translateMessages, sourceHash } from "./translate.js";
 import { getSession, isMember, getUserByGithubId, getUserByLogin, saveCard, getCard, listBusinesses } from "./db.js";
-import { claimDraft, releaseDraft, postedCard, refineDailyReport, saveDraftText, discardDraft, dailyChannelFor } from "./dailyReport.js";
+import { claimDraft, releaseDraft, postedCard, postable, dailyPostClientId, settleClaimedDraft, refineDailyReport, saveDraftText, discardDraft, dailyChannelFor } from "./dailyReport.js";
 import { providerFor, readerEnvFor } from "./orgAI.js";
 import { groupsIn, toClientGroup, saveGroup, deleteGroup, saveSidebar, sidebarSnapshot, saveSidebarIfVersion, foldSection } from "./people-groups.js";
 import { allowanceFor } from "./gate.js";
@@ -1634,7 +1634,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (who.denied) return who.denied;
     const card = await getCard(env.DB, body.orgId, body.cardId);
     if (!card?.dailyReport || card.recipientUserID !== who.user.login) return json({ message: "No such draft." }, 404);
-    if (card.dailyReport.status !== "draft") return json({ message: "This report has already been posted." }, 409);
+    if (!postable(card.dailyReport)) return json({ message: "This report has already been posted." }, 409);
     const text = (typeof body.text === "string" ? body.text : card.dailyReport.text || "").trim();
     if (!text) return json({ message: "The report is empty." }, 400);
     if (text.length > MAX_MESSAGE_CHARS) return json({ message: `A message is at most ${MAX_MESSAGE_CHARS} characters.` }, 400);
@@ -1645,14 +1645,26 @@ export async function handleChannels(request, env, url, { route, after }) {
     // routine still pointed elsewhere.
     const resolved = await resolveChannel(env.DB, body.orgId, who.user, await dailyChannelFor(env.DB, body.orgId, card.dailyReport.channel), members);
     if (!resolved) return json({ message: "No such channel." }, 404);
-    if (!(await claimDraft(env.DB, body.orgId, card.id))) return json({ message: "This report has already been posted." }, 409);
-    const out = await postMessage(env.DB, { orgId: body.orgId, key: resolved.key, authorLogin: who.user.login, body: text });
-    if (out.error) {
-      await releaseDraft(env.DB, body.orgId, card.id);
-      return json({ message: out.error }, 400);
+    const claim = await claimDraft(env.DB, body.orgId, card.id);
+    if (!claim) return json({ message: "This report has already been posted." }, 409);
+    // A post that throws must not leave the draft in `posting`, where it
+    // could never be posted, discarded or expired. Settled by what landed:
+    // a message already in the channel finishes the card as posted, and
+    // otherwise the draft is given back. The retry key makes a second try
+    // after a half-finished one find the message instead of saying it twice.
+    let out, posted;
+    try {
+      out = await postMessage(env.DB, { orgId: body.orgId, key: resolved.key, authorLogin: who.user.login, body: text, clientId: await dailyPostClientId(card.id) });
+      if (out.error) {
+        await releaseDraft(env.DB, body.orgId, card.id, claim);
+        return json({ message: out.error }, 400);
+      }
+      posted = postedCard(card, { text: out.replay ? out.row.body : text, messageId: out.row.id, login: who.user.login, at: out.row.created_at });
+      await saveCard(env.DB, body.orgId, posted);
+    } catch (err) {
+      await settleClaimedDraft(env.DB, body.orgId, card, claim).catch((e) => console.error("daily report settle failed", e?.message || e));
+      throw err;
     }
-    const posted = postedCard(card, { text, messageId: out.row.id, login: who.user.login, at: out.row.created_at });
-    await saveCard(env.DB, body.orgId, posted);
     await appendCardEvent(env.DB, body.orgId, {
       cardId: card.id, type: "decided", action: "acknowledge", actorUserId: who.user.login,
       note: `posted to #${resolved.slug || ""}`, snapshot: posted,

@@ -1,4 +1,7 @@
-export type ExternalCollaborator = { githubId: string; login: string; name: string | null }
+// Someone outside the workspace, as the search names them: a handle the
+// share call takes back, a name, and a GitHub handle when they have one. An
+// account id or a login made from an email address never reaches the browser.
+export type ExternalCollaborator = { ref: string; name: string; login: string | null }
 
 export async function searchExternalCollaborators(
   httpBase: string,
@@ -16,8 +19,8 @@ export async function searchExternalCollaborators(
   return Array.isArray(data?.people) ? data.people.flatMap((person: unknown): ExternalCollaborator[] => {
     if (!person || typeof person !== 'object') return []
     const value = person as Partial<ExternalCollaborator>
-    if (typeof value.githubId !== 'string' || typeof value.login !== 'string'
-      || !(value.name === null || typeof value.name === 'string')) return []
-    return [{githubId:value.githubId,login:value.login,name:value.name}]
+    if (typeof value.ref !== 'string' || typeof value.name !== 'string'
+      || !(value.login === null || typeof value.login === 'string')) return []
+    return [{ref:value.ref,name:value.name,login:value.login}]
   }) : []
 }
