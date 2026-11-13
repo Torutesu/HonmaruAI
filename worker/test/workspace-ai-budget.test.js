@@ -242,7 +242,7 @@ test("direct provider requests fail closed before dispatch when a capped reserva
 test("deployment web search reserves token and per-call costs before dispatch and bounds built-in search calls", async () => {
   const now = Date.now();
   await saveWorkspaceAIBudget(env.DB, ORG, {
-    revision: 0, dailyLimitUsd: 0.1, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
+    revision: 0, dailyLimitUsd: 0.25, weeklyLimitUsd: 0, monthlyLimitUsd: 0, action: "pause",
   }, "42", new Date(now).toISOString());
   const tokenOnly = await reserveWorkspaceAIBudgetCall(env.DB, {
     orgId: ORG, model: "gpt-5-mini", inputTokens: 1000, outputTokens: 100,
@@ -258,24 +258,29 @@ test("deployment web search reserves token and per-call costs before dispatch an
   let dispatched = 0;
   vi.stubGlobal("fetch", async (_url, init) => {
     dispatched += 1;
-    expect(JSON.parse(init.body).max_tool_calls).toBe(4);
+    const dispatchedBody = JSON.parse(init.body);
+    expect(dispatchedBody.max_tool_calls).toBe(4);
+    expect(dispatchedBody.tools[0].return_token_budget).toBe('default');
     return Response.json({
       id: "resp-search-budget", model: provider.model,
       usage: { input_tokens: 1000, output_tokens: 10 },
-      output: [{ type: "web_search_call" }, { type: "web_search_call" }],
+      output: [
+        { type: "web_search_call", action: { type: "search", query: "one" } },
+        { type: "web_search_call", action: { type: "search", query: "two" } },
+      ],
     });
   });
   try {
     const response = await requestWithWorkspaceBudget(provider, "https://provider.invalid", {
       method: "POST", body: JSON.stringify({
-        model: provider.model, max_output_tokens: 100,
-        tools: [{ type: "web_search" }], input: "Find this fact",
+        model: provider.model, max_output_tokens: 100, max_tool_calls: 20,
+        tools: [{ type: "web_search", return_token_budget: "unlimited", search_context_size: "high" }], input: "Find this fact",
       }),
     });
     expect(response.ok).toBe(true);
     const data = await response.json();
     noteUsage(provider, "agent", data);
-    noteSearches(provider, "agent", data.model, data.output.filter((item) => item.type === "web_search_call").length);
+    noteSearches(provider, "agent", data.model, data.output.filter((item) => item.type === "web_search_call" && item.action?.type === "search").length);
     const reservationId = provider.usage.find((entry) => entry.workspaceReservationId)?.workspaceReservationId;
     expect(reservationId).toBeTruthy();
     await settleUsage(env.DB, provider, { orgId: ORG, githubId: "42" });
@@ -289,8 +294,16 @@ test("deployment web search reserves token and per-call costs before dispatch an
     expect(await env.DB.prepare("SELECT status FROM hx_workspace_ai_budget_reservations WHERE id=?1").bind(reservationId).first())
       .toMatchObject({ status: "settled" });
     expect((await workspaceAIBudgetStatus(env.DB, ORG, Date.now())).periods["24h"]).toMatchObject({
-      calls: 2, unpricedCalls: 0, usedMicros: 20_270,
+      calls: 2, unpricedCalls: 0,
     });
+    const reserved = await env.DB.prepare("SELECT reserved_micros FROM hx_workspace_ai_budget_reservations WHERE id=?1").bind(reservationId).first();
+    const { estimateWorkspaceBudgetMicros } = await import('../src/workspaceAIBudget.js');
+    const inputBytes = new TextEncoder().encode(JSON.stringify({
+      model: provider.model, max_output_tokens: 100, max_tool_calls: 20,
+      tools: [{ type: 'web_search', return_token_budget: 'unlimited', search_context_size: 'high' }], input: 'Find this fact',
+    })).length;
+    expect(reserved.reserved_micros).toBe(estimateWorkspaceBudgetMicros(provider.model, inputBytes + 4 * 128_000, 100) + 40_000);
+    expect(Number(reserved.reserved_micros)).toBeGreaterThan(150_000);
   } finally {
     vi.stubGlobal("fetch", originalFetch);
   }

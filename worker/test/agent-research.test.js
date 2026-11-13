@@ -176,6 +176,22 @@ test("each web search is on the ledger at OpenAI's per-call price, beside the to
   expect(q.usage[0].usd).toBe(0.02);
 });
 
+test('fallback web search billing counts search actions, not page opens or find-in-page actions', async () => {
+  const p = provider();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/responses', method: 'POST' }).reply(200, {
+    id: 'r-search-actions', model: 'gpt-5-mini', output_text: 'Found it.',
+    output: [
+      { type: 'web_search_call', action: { type: 'search', query: 'one' } },
+      { type: 'web_search_call', action: { type: 'search', query: 'two' } },
+      { type: 'web_search_call', action: { type: 'open_page', url: 'https://example.com' } },
+      { type: 'web_search_call', action: { type: 'find_in_page', url: 'https://example.com', pattern: 'one' } },
+    ],
+    usage: { input_tokens: 1000, output_tokens: 200 },
+  });
+  await research({ provider: p, env: {}, instructions: 'i', input: 'q' });
+  expect(p.usage.find((usage) => usage.model === 'web_search')?.usd).toBe(0.02);
+});
+
 test('agent research starts with a skill index and reads the complete procedure only on demand', async () => {
   const { askAgent } = await import('../src/customAgents.js');
   const bodies = [];

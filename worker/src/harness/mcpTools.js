@@ -9,7 +9,7 @@ import { mayUseApp, mayUseTable, mayEditTable, mayReadAppRows, visibleResources,
 
 import { listApps, renderApp } from "./apps.js";
 import { listTables, listRows, addRow, updateRow } from "./tables.js";
-import { listWorkflows, getWorkflow, startRun, listRuns, getRun, cancelWorkflowRun, recoverStalledRun, replayWorkflowEvents, changeWorkflowHook } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, startRun, listRuns, getRun, cancelWorkflowRun, recoverStalledRun, replayWorkflowEvents, changeWorkflowHook } from "./workflows.js";
 import { heldWorkflowSummary, readHeldWorkflowEvent, discardWorkflowEvents } from "./workflowHeld.js";
 import { workflowRevisions, restoreWorkflowRevision } from "./workflowRevisions.js";
 import { readWorkflowSafety, resumeWorkflowSafety } from "./workflowSafety.js";
@@ -19,7 +19,7 @@ import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 import { audit } from "../audit.js";
 
-export const HARNESS_TOOL_SCOPE = { create_file_text: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { create_file_text: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,
@@ -76,6 +76,27 @@ export const HARNESS_TOOLS = [
     title: "Inspect a workflow",
     description: "Read a workflow definition and safety status. Only its maker or an Admin receives the active webhook secret in a separate field.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" } }, required: ["workflowId"] },
+  },
+  {
+    name: "create_workflow",
+    title: "Create a paused workflow draft",
+    description: "Create a workflow with automatic triggers paused. Review it and explicitly enable it in the workspace UI after verifying every action. The returned webhook secret is shown once.",
+    inputSchema: { type: "object", properties: { name: { type: "string", minLength: 1, maxLength: 80 }, trigger: { type: "object" }, steps: { type: "array", minItems: 1, maxItems: 12, items: { type: "object" } } }, required: ["name", "trigger", "steps"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "update_workflow",
+    title: "Edit a paused workflow",
+    description: "Update a paused workflow using the exact updatedAt from get_workflow. Enabled workflows must be paused first. Changes remain paused and do not run automatically.",
+    inputSchema: { type: "object", properties: { workflowId: { type: "string", minLength: 1 }, expectedUpdatedAt: { type: "string", minLength: 1 }, name: { type: "string", minLength: 1, maxLength: 80 }, trigger: { type: "object" }, steps: { type: "array", minItems: 1, maxItems: 12, items: { type: "object" } } }, required: ["workflowId", "expectedUpdatedAt"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "pause_workflow",
+    title: "Pause future workflow triggers",
+    description: "Disable future automatic workflow triggers using the exact updatedAt from get_workflow. A currently running workflow is not canceled; inspect and stop its run separately if needed.",
+    inputSchema: { type: "object", properties: { workflowId: { type: "string", minLength: 1 }, expectedUpdatedAt: { type: "string", minLength: 1 } }, required: ["workflowId", "expectedUpdatedAt"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "list_workflow_revisions",
@@ -259,6 +280,46 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
       const canManage = String(wf.createdBy) === String(by) || await allowed(db, orgId, by, "harness.delete_others");
       const { hookSecret, ...safeWorkflow } = wf;
       return out({ workflow: safeWorkflow, ...(canManage && wf.trigger?.type === "webhook" ? { webhook: { active: Boolean(hookSecret), ...(hookSecret ? { secret: hookSecret } : {}) } } : {}) });
+    }
+    case "create_workflow": {
+      const result = await createWorkflow(db, orgId, {
+        name: args.name,
+        trigger: args.trigger,
+        steps: args.steps,
+        enabled: false,
+      }, by);
+      if (result.error) return err(result.error);
+      const wf = result.workflow;
+      const { hookSecret, ...safeWorkflow } = wf;
+      await audit(env, request, { orgId, action: "workflow.created", actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow", id: wf.id, name: wf.name }, details: { enabled: false, source: "workspace_cli_or_mcp" } });
+      return out({ workflow: safeWorkflow, ...(wf.trigger?.type === "webhook" && hookSecret ? { webhook: { active: true, secret: hookSecret } } : {}) });
+    }
+    case "update_workflow": {
+      const workflowId = String(args.workflowId || "");
+      const wf = await getWorkflow(db, orgId, workflowId, { viewerId: by });
+      if (!wf) return err("No such workflow.");
+      if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can edit this workflow.");
+      if (wf.enabled) return err("Pause this workflow before editing it. Automatic triggers stay paused after the edit.");
+      if (wf.updatedAt !== args.expectedUpdatedAt) return err("The workflow changed. Reload it before editing.");
+      const changedFields = ["name", "trigger", "steps"].filter(key => Object.hasOwn(args, key));
+      if (!changedFields.length) return err("Provide at least one of name, trigger, or steps.");
+      const result = await updateWorkflow(db, orgId, workflowId, { ...args, enabled: false }, by);
+      if (result.error) return err(result.error);
+      const { hookSecret, ...safeWorkflow } = result.workflow;
+      await audit(env, request, { orgId, action: "workflow.updated", actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow", id: workflowId, name: result.workflow.name }, details: { fields: changedFields, enabled: false } });
+      return out({ workflow: safeWorkflow, revision: result.revision, ...(result.workflow.trigger?.type === "webhook" && hookSecret ? { webhook: { active: true, secret: hookSecret } } : {}) });
+    }
+    case "pause_workflow": {
+      const workflowId = String(args.workflowId || "");
+      const wf = await getWorkflow(db, orgId, workflowId, { viewerId: by });
+      if (!wf) return err("No such workflow.");
+      if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can pause this workflow.");
+      if (wf.updatedAt !== args.expectedUpdatedAt) return err("The workflow changed. Reload it before pausing.");
+      if (!wf.enabled) return out({ workflowId, enabled: false, alreadyPaused: true, activeRunsContinue: true });
+      const result = await updateWorkflow(db, orgId, workflowId, { expectedUpdatedAt: args.expectedUpdatedAt, enabled: false }, by);
+      if (result.error) return err(result.error);
+      await audit(env, request, { orgId, action: "workflow.paused", actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow", id: workflowId, name: wf.name }, details: { activeRunsContinue: true } });
+      return out({ workflowId, enabled: false, activeRunsContinue: true, updatedAt: result.workflow.updatedAt });
     }
     case "list_workflow_revisions": {
       const result = await workflowRevisions(db, orgId, String(args.workflowId || ""), by, { before: args.before });
