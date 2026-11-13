@@ -3085,3 +3085,75 @@ test("workflow admission stores the selected credential source before an approva
   const stored = await env.DB.prepare("SELECT credential_source FROM hx_workflow_runs WHERE id=?1").bind(run.id).first();
   expect(stored).toEqual({ credential_source: "deployment" });
 });
+
+// A run waiting on approval blocks every later trigger of its workflow. Its
+// maker or an admin must be able to end it, an approval nobody can or did
+// answer must not hold the workflow forever, and a run that died while
+// running is reconciled by the cron rather than only by hand.
+async function waitingApprovalRun(name = 'Gate on approval') {
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, { name, enabled: true, trigger: { type: 'manual' },
+    steps: [{ type: 'approval', to: 'toru', title: 'Proceed?' }, { type: 'post', channel: 'b:ops', text: `${name} continued` }] }, '9302');
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+  expect(run.status).toBe('waiting');
+  return { workflow, run };
+}
+const decidedCard = card => ({ ...card, status: 'approved', decision: { action: 'approve', actorUserID: 'toru', decidedAt: new Date().toISOString() } });
+
+test('the maker can cancel a run waiting on approval; its card closes and the next trigger starts', async () => {
+  const { getCard, upsertUser, upsertMembership, createSession } = await import('../src/db.js');
+  const { workflow, run } = await waitingApprovalRun();
+  expect(await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' })).toEqual({ status: 'skipped', reason: 'already_running' });
+  await upsertUser(env.DB, { githubId: '9303', login: 'kenji', name: 'Kenji', avatarUrl: null, locale: 'en' });
+  await upsertMembership(env.DB, ORG, '9303', 'member');
+  const kenji = await createSession(env.DB, '9303', 'gho_k');
+  const path = `/workflows/${workflow.id}/runs/${run.id}/cancel`;
+  expect((await send('POST', path, kenji, { orgId: ORG, expectedStartedAt: run.startedAt })).status).toBe(403);
+  const cancelled = await send('POST', path, mika, { orgId: ORG, expectedStartedAt: run.startedAt });
+  expect(cancelled.status).toBe(200);
+  expect((await cancelled.json()).run).toMatchObject({ status: 'cancelled', log: [expect.objectContaining({ step: 1, status: 'cancelled', actorId: '9302' })] });
+  const card = await getCard(env.DB, ORG, run.cardId);
+  expect(card.status).toBe('rejected');
+  expect(await settleWorkflowApproval(env, ORG, decidedCard(card))).toBeNull();
+  expect((await env.DB.prepare('SELECT status FROM hx_workflow_runs WHERE id=?1 AND org_id=?2').bind(run.id, ORG).first()).status).toBe('cancelled');
+  expect((await messages(mika)).map(m => m.body)).not.toContain('Gate on approval continued');
+  expect((await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' })).status).toBe('waiting');
+});
+
+test('an approval left undecided past its limit, or whose approver left, is closed by the cron', async () => {
+  const { getCard } = await import('../src/db.js');
+  const { WORKFLOW_APPROVAL_TTL_MS } = await import('../src/harness/workflows.js');
+  const fresh = await waitingApprovalRun('Fresh approval');
+  const old = await waitingApprovalRun('Old approval');
+  await env.DB.prepare('UPDATE cards SET created_at=?3 WHERE org_id=?1 AND card_id=?2').bind(ORG, old.run.cardId, new Date(Date.now() - WORKFLOW_APPROVAL_TTL_MS - 60000).toISOString()).run();
+  await runDueWorkflows(env);
+  expect((await env.DB.prepare('SELECT status FROM hx_workflow_runs WHERE id=?1 AND org_id=?2').bind(old.run.id, ORG).first()).status).toBe('cancelled');
+  expect((await getCard(env.DB, ORG, old.run.cardId)).status).toBe('rejected');
+  expect((await env.DB.prepare('SELECT status FROM hx_workflow_runs WHERE id=?1 AND org_id=?2').bind(fresh.run.id, ORG).first()).status).toBe('waiting');
+  expect((await startRun(env, { orgId: ORG, workflow: old.workflow, trigger: 'manual', startedBy: '9302' })).status).toBe('waiting');
+  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(ORG, '9301').run();
+  await runDueWorkflows(env);
+  const left = await env.DB.prepare('SELECT status,log FROM hx_workflow_runs WHERE id=?1 AND org_id=?2').bind(fresh.run.id, ORG).first();
+  expect(left.status).toBe('cancelled');
+  expect(left.log).toContain('no longer in this workspace');
+});
+
+test('the cron reconciles a dead running run but leaves live and recently active runs alone', async () => {
+  const { workflow } = await (await send('POST', '/workflows', mika, { orgId: ORG, name: 'Auto recovery', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Never replayed' }] })).json();
+  const now = Date.now(), oldAt = new Date(now - 31 * 60 * 1000).toISOString();
+  const insert = env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,next_step,started_at) VALUES(?1,?2,?3,'manual','running',?4,?5,?6)`);
+  await env.DB.batch([
+    insert.bind('run-dead', ORG, workflow.id, '[]', 0, oldAt),
+    insert.bind('run-leased', ORG, workflow.id, '[]', 0, oldAt),
+    insert.bind('run-resumed', ORG, workflow.id, JSON.stringify([{ step: 1, type: 'approval', status: 'ok', at: new Date(now - 60000).toISOString() }]), 1, oldAt),
+    insert.bind('run-fresh', ORG, workflow.id, '[]', 0, new Date(now - 60000).toISOString()),
+  ]);
+  await env.DB.prepare(`INSERT INTO hx_workflow_node_checkpoints(org_id,run_id,node_id,fingerprint,effect,status,owner,attempt,lease_until) VALUES(?1,'run-leased','step:1','hash',1,'running','worker',1,?2)`).bind(ORG, now + 60000).run();
+  await runDueWorkflows(env, { now: new Date(now) });
+  const status = async id => (await env.DB.prepare('SELECT status,log FROM hx_workflow_runs WHERE id=?1 AND org_id=?2').bind(id, ORG).first());
+  const dead = await status('run-dead');
+  expect(dead.status).toBe('failed');
+  expect(JSON.parse(dead.log)).toEqual([expect.objectContaining({ step: 1, status: 'interrupted', outcome: 'unknown' })]);
+  for (const id of ['run-leased', 'run-resumed', 'run-fresh']) expect((await status(id)).status).toBe('running');
+  expect((await messages(mika)).map(m => m.body)).not.toContain('Never replayed');
+});

@@ -867,18 +867,95 @@ export async function recoverStalledRun(db, { orgId, workflowId, runId, expected
   return { run: await getRun(db, orgId, runId) };
 }
 
+// A run waiting on approval blocks every later trigger of its workflow, so it
+// must be possible to end it without the approver. Close it and its pending
+// card together: the run's status fences a late decision, and the card stops
+// being offered. Nothing after the approval step has run, so nothing is
+// uncertain.
+function closeWaitingRunStatements(db, { orgId, workflowId, runId, startedAt, row, at, entry, cardSummary }) {
+  const log = parse(row.log, []);
+  const index = Math.max(0, (Number(row.next_step) || 0) - 1);
+  log[index] = { ...log[index], step: index + 1, type: log[index]?.type || 'approval', at, ...entry };
+  return [
+    db.prepare(`UPDATE hx_workflow_runs SET status='cancelled',log=?1,finished_at=?2
+      WHERE org_id=?3 AND workflow_id=?4 AND id=?5 AND started_at=?6 AND status='waiting' AND log=?7 AND next_step=?8 AND card_id IS ?9`)
+      .bind(JSON.stringify(log), at, orgId, workflowId, runId, startedAt, row.log, row.next_step, row.card_id ?? null),
+    db.prepare(`UPDATE cards SET status='rejected',updated_at=?3,data=json_set(data,'$.status','rejected','$.summary',?4)
+      WHERE org_id=?1 AND card_id=?2 AND status='pending'
+        AND EXISTS(SELECT 1 FROM hx_workflow_runs r WHERE r.org_id=?1 AND r.id=?5 AND r.card_id=?2 AND r.status='cancelled')`)
+      .bind(orgId, row.card_id ?? '', at, cardSummary, runId),
+    ...workflowSettlementStatements(db, orgId, runId),
+  ];
+}
+
+// An unanswered approval holds its workflow for at most this long.
+export const WORKFLOW_APPROVAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const STALLED_RUN_MS = 30 * 60 * 1000;
+
+// The cron's part. Close approvals nobody can or did answer, then reconcile
+// running runs that stopped making progress, so neither blocks the triggers
+// that start afterwards. Both settle as recoverStalledRun and cancel do: a
+// terminal status, never a replayed step. These sweeps span workspaces; every
+// write binds the selected run's own org_id.
+export async function settleBlockedWorkflowRuns(db, { at = Date.now() } = {}) {
+  const approvalCutoff = new Date(at - WORKFLOW_APPROVAL_TTL_MS).toISOString(), iso = new Date(at).toISOString();
+  const { results: waiting = [] } = await db.prepare(`SELECT r.org_id,r.workflow_id,r.id,r.started_at,r.log,r.next_step,r.card_id,
+      CASE WHEN c.card_id IS NOT NULL AND c.created_at>?1 THEN 1 ELSE 0 END AS approver_left
+    FROM hx_workflow_runs r LEFT JOIN cards c ON c.org_id=r.org_id AND c.card_id=r.card_id
+    WHERE r.status='waiting' AND (c.card_id IS NULL OR c.created_at<=?1 OR NOT EXISTS(
+      SELECT 1 FROM users u JOIN memberships m ON m.user_github_id=u.github_id
+      WHERE m.org_id=r.org_id AND u.login=c.recipient_user_id AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'))
+    ORDER BY r.started_at LIMIT 50`).bind(approvalCutoff).all();
+  let closed = 0;
+  for (const row of waiting) {
+    const reason = row.approver_left
+      ? 'The approver is no longer in this workspace, so the approval was closed. No later step ran.'
+      : 'Nobody decided this approval within 7 days, so it was closed. No later step ran.';
+    const result = await db.batch(closeWaitingRunStatements(db, { orgId: row.org_id, workflowId: row.workflow_id, runId: row.id,
+      startedAt: row.started_at, row, at: iso, entry: { status: 'cancelled', error: reason }, cardSummary: reason })).catch(() => null);
+    if (result?.[0].meta?.changes) closed += 1;
+  }
+  // Progress is read from the log: a run resumed after approval keeps its
+  // original start time, but each step it completes is stamped. A step still
+  // executing holds a checkpoint lease, and a code step a gateway job.
+  const stalledCutoff = new Date(at - STALLED_RUN_MS).toISOString();
+  const { results: stalled = [] } = await db.prepare(`SELECT r.org_id,r.workflow_id,r.id,r.started_at FROM hx_workflow_runs r
+    WHERE r.status='running' AND r.started_at<=?1
+      AND NOT EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(r.log) THEN r.log ELSE '[]' END) e
+        WHERE json_extract(e.value,'$.at')>?1 OR json_extract(e.value,'$.startedAt')>?1 OR json_extract(e.value,'$.finishedAt')>?1)
+      AND NOT EXISTS(SELECT 1 FROM hx_workflow_node_checkpoints c WHERE c.org_id=r.org_id AND c.run_id=r.id AND c.status='running' AND c.lease_until>?2)
+      AND NOT EXISTS(SELECT 1 FROM hx_workflow_activations a JOIN hx_gateway_jobs j ON j.org_id=a.org_id AND j.id=a.job_id
+        WHERE a.org_id=r.org_id AND a.run_id=r.id AND j.status IN ('queued','running'))
+    ORDER BY r.started_at LIMIT 25`).bind(stalledCutoff, at).all();
+  let recovered = 0;
+  for (const row of stalled) {
+    const result = await recoverStalledRun(db, { orgId: row.org_id, workflowId: row.workflow_id, runId: row.id,
+      expectedStartedAt: row.started_at, actorId: 'system', at }).catch(() => null);
+    if (result?.run) recovered += 1;
+  }
+  return { closed, recovered };
+}
+
 // A human can stop the remaining steps of a live run. The currently executing
 // step may already have caused an external effect; record that uncertainty and
-// atomically fence all later steps through the run's status.
+// atomically fence all later steps through the run's status. A run waiting on
+// approval can be stopped too.
 export async function cancelWorkflowRun(db, { orgId, workflowId, runId, expectedStartedAt, actorId, at = new Date().toISOString() }) {
   if (typeof expectedStartedAt !== 'string' || !Number.isFinite(Date.parse(expectedStartedAt))) {
     return { error: 'Reload the workflow run before cancelling it.', status: 400 };
   }
-  const row = await db.prepare(`SELECT r.started_at,r.log,r.next_step,w.definition
+  const row = await db.prepare(`SELECT r.status,r.card_id,r.started_at,r.log,r.next_step,w.definition
     FROM hx_workflow_runs r JOIN hx_workflow_run_definitions w ON w.run_id=r.id AND w.org_id=r.org_id
-    WHERE r.org_id=?1 AND r.workflow_id=?2 AND r.id=?3 AND r.status='running' AND r.started_at=?4`)
+    WHERE r.org_id=?1 AND r.workflow_id=?2 AND r.id=?3 AND r.status IN ('running','waiting') AND r.started_at=?4`)
     .bind(orgId, workflowId, runId, expectedStartedAt).first();
   if (!row) return { error: 'This run is no longer running. Refresh the workflow before cancelling it.', status: 409 };
+  if (row.status === 'waiting') {
+    const message = 'Cancelled while waiting for approval. No later step ran.';
+    const result = await db.batch(closeWaitingRunStatements(db, { orgId, workflowId, runId, startedAt: expectedStartedAt, row, at,
+      entry: { status: 'cancelled', actorId: String(actorId), error: message }, cardSummary: 'This workflow run was cancelled before a decision was made.' }));
+    if (!result[0].meta?.changes) return { error: 'This run changed while it was being cancelled. Refresh the workflow.', status: 409 };
+    return { run: await getRun(db, orgId, runId) };
+  }
   const definition = parse(row.definition, {});
   const log = parse(row.log, []);
   const stepIndex = Number(row.next_step) || 0;
@@ -1831,6 +1908,8 @@ export async function cleanupExpiredRowEventReceipts(db, at) {
 
 export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } = {}) {
   await drainWorkflowRowEvents(env,{limit}).catch(error=>console.error('workflow row event drain failed',error?.message||error));
+  // Before the scheduled starts below, so a workflow freed here runs this tick.
+  await settleBlockedWorkflowRuns(env.DB,{at:at.getTime()}).catch(error=>console.error('blocked workflow run settlement failed',error?.message||error));
   // The scheduler enumerates workspaces globally; each payload deletion is
   // explicitly scoped to one workspace, like the runs started below.
   const expiredOrgs = await env.DB.prepare('SELECT DISTINCT org_id FROM hx_workflow_held_events WHERE expires_at<=?1 LIMIT 100')
