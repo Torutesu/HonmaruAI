@@ -28,6 +28,26 @@ test('queued conversion polls until saved and opens returned file',async()=>{
  await act(async()=>{await vi.advanceTimersByTimeAsync(1000)});await act(async()=>{button('Open file').props.onClick()});expect(onOpen).toHaveBeenCalledWith('file-id')
  act(()=>r!.unmount());vi.useRealTimers()
 })
+test('exporting a Markdown source keeps its contents and source format while choosing a PDF output',async()=>{
+ const api={documentJobs:vi.fn().mockResolvedValue({jobs:[]}),documentNodes:vi.fn().mockResolvedValue({nodes:[{id:'node',name:'Mac mini'}]}),createDocument:vi.fn().mockResolvedValue({job:{id:'job',status:'queued',path:'reports/Brief.pdf'}})} as unknown as WorkspaceFileApi
+ let r:ReturnType<typeof create>;await act(async()=>{r=create(<DocumentCreate api={api} scope="room:42" directory="reports/" source={{name:'Brief',format:'markdown',text:'# Hello from the source'}} onOpen={vi.fn()}/> )})
+ await act(async()=>{r!.root.findByProps({'aria-label':'Export file'}).props.onClick()})
+ expect(r!.root.findByType('input').props.value).toBe('Brief');expect(r!.root.findByType('input').props.disabled).toBe(true)
+ expect(r!.root.findByType('textarea').props.value).toBe('# Hello from the source');expect(r!.root.findByType('textarea').props.disabled).toBe(true)
+ const button=(text:string)=>r!.root.findAllByType('button').find(b=>b.children.includes(text))!
+ await act(async()=>{button('Create document').props.onClick()})
+ expect(api.createDocument).toHaveBeenCalledWith(expect.objectContaining({scope:'room:42',path:'reports/Brief.pdf',text:'# Hello from the source',inputFormat:'markdown',format:'pdf',gatewayId:'node'}),expect.any(AbortSignal))
+ act(()=>r!.unmount())
+})
+test('oversized serialized exports are rejected before the Worker request',async()=>{
+ const api={documentJobs:vi.fn().mockResolvedValue({jobs:[]}),documentNodes:vi.fn().mockResolvedValue({nodes:[{id:'node',name:'Mac mini'}]}),createDocument:vi.fn()} as unknown as WorkspaceFileApi
+ let r:ReturnType<typeof create>;await act(async()=>{r=create(<DocumentCreate api={api} scope="room:42" source={{name:'Large',format:'markdown',text:'\n'.repeat(999_999)+'x'}} onOpen={vi.fn()}/> )})
+ await act(async()=>{r!.root.findByProps({'aria-label':'Export file'}).props.onClick()})
+ const button=r!.root.findAllByType('button').find(b=>b.children.includes('Create document'))!
+ await act(async()=>{button.props.onClick()})
+ expect(api.createDocument).not.toHaveBeenCalled();expect(r!.root.findByProps({role:'alert'}).findByType('p').children).toContain('This document is too large to send for conversion.')
+ act(()=>r!.unmount())
+})
 test('restored receipt fetches server status without creating another conversion',async()=>{
  vi.useFakeTimers();const id='12345678-1234-1234-1234-123456789012',map=new Map([['honmaru-document-receipt:account/room',id]])
  vi.stubGlobal('sessionStorage',{getItem:(k:string)=>map.get(k)||null,setItem:(k:string,v:string)=>map.set(k,v),removeItem:(k:string)=>map.delete(k)})
