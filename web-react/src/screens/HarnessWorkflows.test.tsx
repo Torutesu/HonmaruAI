@@ -157,6 +157,9 @@ test('webhook revocation requires confirmation, uses the observed secret, and di
   await act(async () => { await button('Generate new webhook URL').props.onClick() })
   expect(state.api.changeWorkflowHook).toHaveBeenLastCalledWith(workflow.id, 'rotate', null, workflow.updatedAt)
   expect(JSON.stringify(tree.toJSON())).toContain('https://example.test/hook?secret=new')
+  // The server keeps only a digest, so the rotation response is the one chance to show the secret.
+  expect(JSON.stringify(tree.toJSON())).toContain('X-Hook-Secret header')
+  expect(JSON.stringify(tree.toJSON())).toContain('b'.repeat(48))
 })
 test('legacy webhook senders remain compatible until their credential is rotated', async () => {
   state.api.workflow.mockResolvedValue({ workflow: { ...workflow, webhookSignatureRequired: false }, runs: [], canEdit: true })

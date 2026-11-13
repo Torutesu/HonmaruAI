@@ -330,6 +330,9 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [failedRunsOnly,setFailedRunsOnly]=useState(false)
   const [budgetDraft,setBudgetDraft]=useState({daily:'0',weekly:'0',monthly:'0',ai24h:'0',ai7d:'0',ai30d:'0',aiAction:'warn' as 'warn'|'pause'})
   const [hook, setHook] = useState<string | null>(null)
+  // The server keeps only a digest of the webhook secret, so it can be shown
+  // only in the response that created it.
+  const [hookSecret, setHookSecret] = useState<string | null>(null)
   const [hookAction, setHookAction] = useState<'rotate' | 'revoke' | null>(null)
   const [replaySelection, setReplaySelection] = useState<string[] | null>(null)
   const [discardSelection, setDiscardSelection] = useState<string[] | null>(null)
@@ -443,6 +446,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     if(!proposal)return
     const made=await api.createWorkflow({name:proposal.name,trigger:proposal.trigger,steps:proposal.steps,enabled:false})
     setHook(made.hookUrl||null)
+    setHookSecret(made.workflow.hookSecret||null)
     setBuilding(false);setManual(false);setPrompt('');resetGuidedSetup()
     await load()
     await openOne(made.workflow.id)
@@ -620,6 +624,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             <pre className="hx-program-source">{WEBHOOK_SENDER_EXAMPLE}</pre>
           </details>}
           {!w.hookUrl && <p className="form-note">{t('This webhook is revoked. Generate a new URL to accept events again.')}</p>}
+          {w.hookSecret && <p className="form-note">{t('Send this secret in the X-Hook-Secret header. It is shown only now:')} <code className="hx-code">{w.hookSecret}</code></p>}
           {hookAction ? <div className="form-note">
             <p>{t(hookAction === 'rotate' ? 'The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.' : 'The webhook URL will stop accepting events. Existing runs are not cancelled.')}</p>
             <div className="hx-actions">
@@ -777,7 +782,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         <button type="button" role="tab" aria-selected={showArchived} onClick={()=>setShowArchived(true)}>{t('Archived automations')}</button>
       </div>
       {(error||syncError) && <div className="form-error" role="alert">{error||syncError}</div>}
-      {hook && <div className="form-note">{t('Call this address to start it:')} <code className="hx-code">{hook}</code></div>}
+      {hook && <div className="form-note">{t('Call this address to start it:')} <code className="hx-code">{hook}</code>{hookSecret && <> {t('Send this secret in the X-Hook-Secret header. It is shown only now:')} <code className="hx-code">{hookSecret}</code></>}</div>}
       {building && !manual && <section className="hx-generation hx-guided-setup" aria-label={t('Guided automation setup')}>
         {guidedMessages.length===0 ? <>
           <label htmlFor="workflow-prompt">{t('Describe an automation')}</label>
@@ -826,6 +831,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
           onSave={(w) => act('save', async () => {
             const made = await api.createWorkflow(w)
             setHook(made.hookUrl || null)
+            setHookSecret(made.workflow.hookSecret || null)
             setBuilding(false)
             await load()
           })}

@@ -11,6 +11,7 @@ import { holdWorkflowEvent } from './workflowHeld.js';
 import { WORKFLOW_WEBHOOK_REPLAY_TTL_MS, verifyWorkflowWebhook } from './workflowWebhookSignature.js';
 import { mayUseConversation } from './conversationAccess.js';
 import { getMode } from './mode.js';
+import { enforce } from '../ratelimit.js';
 import { callRemoteMcpTool, remoteMcpTools } from './remoteMcp.js';
 import { mayUseAgentRemoteMcp } from './agentRemoteMcp.js';
 import { searchNotion, searchGithubIssues, formatSourcesForModel } from '../context.js';
@@ -66,6 +67,26 @@ const now = () => new Date().toISOString();
 const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 const parse = (s, f) => { try { return JSON.parse(s); } catch { return f; } };
 const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+// A webhook credential is kept only as a SHA-256 digest, as Room webhook
+// credentials are, so a database reader cannot start runs with it. The bearer
+// value is returned once, when it is created or rotated. Rows written before
+// this kept the value in clear; each is hashed the first time it is read or
+// used, which needs no change from the senders that hold it.
+const HOOK_DIGEST = /^sha256:[0-9a-f]{64}$/;
+const hookDigest = async (value) => "sha256:" + hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))));
+export async function mintHookSecret() {
+  const secret = hex(crypto.getRandomValues(new Uint8Array(24)));
+  return { secret, stored: await hookDigest(secret) };
+}
+async function sealLegacyHookSecret(db, row) {
+  if (!row?.hook_secret || HOOK_DIGEST.test(row.hook_secret)) return row;
+  const stored = await hookDigest(row.hook_secret);
+  // Compare-and-swap on the clear value, so a rotation that lands first wins.
+  // updated_at is left alone: it is the edit token clients hold.
+  await db.prepare("UPDATE hx_workflows SET hook_secret=?1 WHERE org_id=?2 AND id=?3 AND hook_secret=?4").bind(stored, row.org_id, row.id, row.hook_secret).run();
+  return { ...row, hook_secret: stored };
+}
 
 async function stopDeploymentRunsIfBudgetPaused(db, orgId, budget, runId = null) {
   if (budget?.reason !== 'workspace_ai_budget') return 0;
@@ -329,14 +350,17 @@ export function normalizeSteps(raw) {
   return { steps };
 }
 
-const publicWorkflow = (r, { withSecret = false } = {}) => r && ({
+const publicWorkflow = (r) => r && ({
   id: r.id, orgId: r.org_id, name: r.name, enabled: Boolean(r.enabled),
   archivedAt: r.archived_at || null, archivedPreviousEnabled: r.archived_enabled == null ? null : Boolean(r.archived_enabled),
   trigger: parse(r.trigger, {}), steps: parse(r.steps, []),
   webhookSignatureRequired: Boolean(r.webhook_signature_required),
   nextRunAt: r.next_run_at, lastRunAt: r.last_run_at,
   createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
-  ...(withSecret && r.hook_secret ? { hookSecret: r.hook_secret } : {}),
+  // Whether a webhook credential is live. The credential itself is never read
+  // back; only createWorkflow, updateWorkflow and changeWorkflowHook return a
+  // freshly minted one, as hookSecret.
+  ...(parse(r.trigger, {})?.type === "webhook" ? { webhookActive: Boolean(r.hook_secret) } : {}),
 });
 
 const comparableDefinition = (definition) => ({
@@ -482,7 +506,7 @@ export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
 }
 
 export async function getWorkflow(db, orgId, id, opts = {}) {
-  const wf = publicWorkflow(await db.prepare("SELECT * FROM hx_workflows WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first(), opts);
+  const wf = publicWorkflow(await sealLegacyHookSecret(db, await db.prepare("SELECT * FROM hx_workflows WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first()));
   if(!wf || (opts.viewerId && !(await mayViewWorkflow(db, orgId, wf, opts.viewerId))))return null;
   const safety=await readWorkflowSafety(db,orgId,id);
   return {...wf,safety:safety?{...safety,budget:await workflowBudgetStatus(db,orgId,id)}:null};
@@ -494,7 +518,7 @@ export async function listWorkflows(db, orgId, { viewerId } = {}) {
   const sourceChannels = new Map((sourceRows || []).map(source => [source.workflowId, source.channel]));
   const visible = [];
   for (const row of results || []) {
-    const wf = publicWorkflow(row);
+    const wf = publicWorkflow(await sealLegacyHookSecret(db, row));
     if (!viewerId || await mayViewWorkflow(db, orgId, wf, viewerId)) visible.push({
       ...wf,
       ...(viewerId && sourceChannels.has(wf.id) ? {sourceChannel:sourceChannels.get(wf.id)} : {}),
@@ -525,12 +549,12 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   if (Number(n?.n || 0) >= MAX_WORKFLOWS) return { error: "This workspace has as many workflows as it can hold." };
   const id = newId("wf");
   const at = now();
-  const secret = t.trigger.type === "webhook" ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
+  const hook = t.trigger.type === "webhook" ? await mintHookSecret() : null;
   const next = t.trigger.type === "schedule" && input?.enabled !== false ? nextRunAt(t.trigger) : null;
   const insert = db
     .prepare(`INSERT INTO hx_workflows (id, org_id, name, enabled, trigger, steps, hook_secret, webhook_signature_required, next_run_at, created_by, created_at, updated_at)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)`)
-    .bind(id, orgId, name, input?.enabled === false ? 0 : 1, JSON.stringify(t.trigger), JSON.stringify(s.steps), secret, t.trigger.type === 'webhook' ? 1 : 0, next, String(by), at);
+    .bind(id, orgId, name, input?.enabled === false ? 0 : 1, JSON.stringify(t.trigger), JSON.stringify(s.steps), hook?.stored ?? null, t.trigger.type === 'webhook' ? 1 : 0, next, String(by), at);
   const statements = [...(commitGuard ? [commitGuard(id)] : []), insert];
   if(source) statements.push(db.prepare(`INSERT INTO hx_workflow_sources(org_id,workflow_id,channel,thread_id,created_by)
     VALUES(?1,?2,?3,(SELECT id FROM channel_messages WHERE org_id=?1 AND id=?4 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL AND body=?6 AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?5 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')),?5)`)
@@ -546,7 +570,7 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
       .bind(announcementId,orgId,source.channel,body,at,source.threadId));
   }
   await db.batch(statements);
-  return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }),...(announcementId?{announcementId}:{}) };
+  return { workflow: { ...await getWorkflow(db, orgId, id), ...(hook ? { hookSecret: hook.secret } : {}) },...(announcementId?{announcementId}:{}) };
 }
 
 export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
@@ -580,7 +604,10 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
   const next = trigger.type === "schedule" && enabled ? nextRunAt(trigger) : null;
   // Change the credential with the trigger in one write. Leaving webhook mode
   // revokes its URL; returning creates a new one instead of reviving old senders.
-  const hookCandidate = trigger.type === "webhook" ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
+  const hookCandidate = trigger.type === "webhook" ? await mintHookSecret() : null;
+  // The write is fenced on updated_at, so the stored trigger is wf.trigger and
+  // the candidate is used exactly when the trigger becomes a webhook.
+  const mintsHook = trigger.type === "webhook" && wf.trigger.type !== "webhook";
   const updatedAt = new Date(Math.max(Date.now(), (Date.parse(wf.updatedAt) || 0) + 1)).toISOString();
   const [result,revisionResult] = await db.batch([
     db.prepare(`UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4,
@@ -588,11 +615,11 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
       hook_secret = CASE WHEN ?9 IS NULL THEN NULL WHEN json_extract(trigger, '$.type') = 'webhook' THEN hook_secret ELSE ?9 END,
       webhook_signature_required = CASE WHEN json_extract(?3,'$.type')='webhook' AND json_extract(trigger,'$.type')!='webhook' THEN 1 ELSE webhook_signature_required END
       WHERE id = ?7 AND org_id = ?8 AND updated_at = ?10`)
-    .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, updatedAt, id, orgId, hookCandidate, wf.updatedAt),
+    .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, updatedAt, id, orgId, hookCandidate?.stored ?? null, wf.updatedAt),
     db.prepare('SELECT MAX(revision) AS revision FROM hx_workflow_revisions WHERE org_id=?1 AND workflow_id=?2').bind(orgId,id),
   ]);
   if (!result.meta?.changes) return { error: 'The workflow changed. Reload it before saving your changes.', status: 409 };
-  return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }), revision: Number(revisionResult.results?.[0]?.revision)||null };
+  return { workflow: { ...await getWorkflow(db, orgId, id), ...(mintsHook ? { hookSecret: hookCandidate.secret } : {}) }, revision: Number(revisionResult.results?.[0]?.revision)||null };
 }
 
 // Archive is reversible and keeps the definition, revisions, held webhook
@@ -633,22 +660,26 @@ export async function setWorkflowArchived(db, orgId, id, { archived, expectedUpd
 
 export async function changeWorkflowHook(db, orgId, id, input) {
   if (!['rotate', 'revoke'].includes(input?.action)) return { error: 'Choose rotate or revoke.', status: 400 };
-  // Both the observed secret and observed workflow revision are compare-and-swap
-  // tokens. The revision also distinguishes successive revoked states, where
-  // hook_secret remains NULL, and advances monotonically even within one ms.
-  if (!Object.hasOwn(input, 'expectedSecret') || !(input.expectedSecret === null ||
+  // The observed workflow revision is the compare-and-swap token: it changes
+  // with every write that touches the credential, distinguishes successive
+  // revoked states, and advances monotonically even within one ms. The secret
+  // cannot be read back, so naming it is optional; a caller that still holds
+  // it may pass it as an extra check, and null asserts nothing.
+  if (input.expectedSecret !== undefined && !(input.expectedSecret === null ||
     (typeof input.expectedSecret === 'string' && /^[0-9a-f]{48}$/.test(input.expectedSecret)))) {
     return { error: 'Reload the workflow before changing its webhook.', status: 400 };
   }
   const observedAt = typeof input.expectedUpdatedAt === 'string' ? Date.parse(input.expectedUpdatedAt) : NaN;
   if (!Number.isFinite(observedAt)) return { error: 'Reload the workflow before changing its webhook.', status: 400 };
   const updatedAt = new Date(Math.max(Date.now(), observedAt + 1)).toISOString();
-  const secret = input.action === 'rotate' ? hex(crypto.getRandomValues(new Uint8Array(24))) : null;
+  const next = input.action === 'rotate' ? await mintHookSecret() : null;
+  const expected = typeof input.expectedSecret === 'string' ? input.expectedSecret : null;
+  // A named secret matches its digest, or the clear value of a row not yet hashed.
   const result = await db.prepare(`UPDATE hx_workflows SET hook_secret=?1, webhook_signature_required=CASE WHEN ?1 IS NULL THEN webhook_signature_required ELSE 1 END, updated_at=?2
-    WHERE org_id=?3 AND id=?4 AND json_extract(trigger,'$.type')='webhook' AND hook_secret IS ?5 AND updated_at=?6`)
-    .bind(secret, updatedAt, orgId, id, input.expectedSecret, input.expectedUpdatedAt).run();
+    WHERE org_id=?3 AND id=?4 AND json_extract(trigger,'$.type')='webhook' AND (?5 IS NULL OR hook_secret IN (?5, ?7)) AND updated_at=?6`)
+    .bind(next?.stored ?? null, updatedAt, orgId, id, expected, input.expectedUpdatedAt, expected && await hookDigest(expected)).run();
   if (!result.meta?.changes) return { error: 'The webhook changed. Reload the workflow and try again.', status: 409 };
-  return { workflow: await getWorkflow(db, orgId, id, { withSecret: true }) };
+  return { workflow: { ...await getWorkflow(db, orgId, id), ...(next ? { hookSecret: next.secret } : {}) } };
 }
 
 export async function deleteWorkflow(db, orgId, id) {
@@ -1948,17 +1979,36 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
 }
 
 /// New webhook credentials authenticate a timestamped HMAC over the event ID
-/// and exact request body. Unrotated legacy credentials remain compatible.
+/// and exact request body. Unrotated legacy credentials remain compatible: they
+/// predate signing, their senders send the secret alone, and refusing them
+/// would stop those integrations without warning. Rotating one turns signing on.
 export async function handleWorkflowHook(request, env, url) {
   const m = url.pathname.match(/^\/hooks\/workflows\/([A-Za-z0-9_]+)$/);
   if (!m || request.method !== "POST") return null;
+  const reply = (body, status) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  // Counted per address, since a webhook carries no session. Generous, because
+  // one integration platform may deliver for many workflows from one address.
+  const limited = await enforce(env, request, "webhooks/workflow");
+  if (limited) return limited;
+  // The secret is accepted only in a header: a URL ends up in proxy and access
+  // logs. Answered before the lookup, so it says nothing about the workflow.
+  const secret = request.headers.get("x-hook-secret") || "";
+  if (!secret && url.searchParams.has("secret")) return reply({ message: "Send the webhook secret in the X-Hook-Secret header. The secret query parameter is no longer accepted." }, 400);
   // By id alone, by design: the caller is outside every workspace, and the
   // secret checked below is what lets it in.
   const row = await env.DB.prepare("SELECT * FROM hx_workflows WHERE id = ?1").bind(m[1]).first();
-  const secret = request.headers.get("x-hook-secret") || url.searchParams.get("secret") || "";
-  const wf = row && publicWorkflow(row, { withSecret: true });
-  const reply = (body, status) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-  if (!wf || wf.trigger.type !== "webhook" || !wf.hookSecret || !timingSafeEqual(secret, wf.hookSecret)) return reply({ message: "No such hook." }, 404);
+  const wf = row && publicWorkflow(row);
+  // What the run and held-event guards compare against: always the digest.
+  let stored = row?.hook_secret || "";
+  let matches = false;
+  if (secret && stored) {
+    if (HOOK_DIGEST.test(stored)) matches = timingSafeEqual(await hookDigest(secret), stored);
+    else if (timingSafeEqual(secret, stored)) {
+      matches = true;
+      stored = (await sealLegacyHookSecret(env.DB, row)).hook_secret;
+    }
+  }
+  if (!wf || wf.trigger.type !== "webhook" || !matches) return reply({ message: "No such hook." }, 404);
   if (wf.archivedAt) return reply({ message: 'This workflow is archived. Restore it before sending webhook events.' }, 410);
   const bytes = new Uint8Array(await request.arrayBuffer());
   // Preserve the established 64,000-character input limit while bounding the
@@ -1971,7 +2021,7 @@ export async function handleWorkflowHook(request, env, url) {
   let incomingHookEvent = null;
   if (wf.webhookSignatureRequired) {
     const signature = await verifyWorkflowWebhook({
-      secret: wf.hookSecret,
+      secret,
       timestamp: request.headers.get('x-webhook-timestamp'),
       eventId: request.headers.get('x-webhook-event-id'),
       signature: request.headers.get('x-webhook-signature'),
@@ -1983,14 +2033,14 @@ export async function handleWorkflowHook(request, env, url) {
   const input = parse(text, { text });
   const payload = input && typeof input === 'object' ? input : { text };
   if (!wf.enabled) {
-    const held = await holdWorkflowEvent(env.DB, wf, secret, payload, incomingHookEvent);
+    const held = await holdWorkflowEvent(env.DB, wf, stored, payload, incomingHookEvent);
     if (held.error) return reply({ message: held.error }, held.status);
     if (held.duplicate) return reply({ status: 'duplicate', eventId: held.id, runId: held.runId || undefined }, 200);
     return reply({ eventId: held.id, status: 'held', expiresAt: held.expiresAt }, 202);
   }
-  const run = await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "webhook", input: payload, incomingHookSecret: secret, incomingHookEvent });
+  const run = await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "webhook", input: payload, incomingHookSecret: stored, incomingHookEvent });
   if(run?.status==='paused'){
-    const held=await holdWorkflowEvent(env.DB,wf,secret,payload,incomingHookEvent);
+    const held=await holdWorkflowEvent(env.DB,wf,stored,payload,incomingHookEvent);
     if (held.error) return reply({message:held.error},held.status);
     if (held.duplicate) return reply({status:'duplicate',eventId:held.id,runId:held.runId||undefined},200);
     return reply({eventId:held.id,status:'held',expiresAt:held.expiresAt},202);

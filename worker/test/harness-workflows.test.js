@@ -71,11 +71,10 @@ let webhookNumber = 0;
 const signedWebhook = async (hookUrl, secret, body = '{}', eventId = `evt-${++webhookNumber}`, { timestamp = String(Math.floor(Date.now() / 1000)), signature } = {}) => {
   const text = typeof body === 'string' ? body : JSON.stringify(body);
   const url = new URL(hookUrl);
-  url.searchParams.set('secret', secret);
   const signed = signature ?? await signWorkflowWebhook(secret, timestamp, eventId, text);
   return call(url.pathname + url.search, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-webhook-timestamp': timestamp, 'x-webhook-event-id': eventId, 'x-webhook-signature': signed },
+    headers: { 'content-type': 'application/json', 'x-hook-secret': secret, 'x-webhook-timestamp': timestamp, 'x-webhook-event-id': eventId, 'x-webhook-signature': signed },
     body: text,
   });
 };
@@ -641,7 +640,8 @@ test("a webhook starts a run with what was posted, and only with its secret", as
     trigger: { type: "webhook" },
     steps: [{ type: "add_row", tableId: invoices, values: { Client: "{{input.client}}", Amount: "{{input.amount}}", Status: "Draft" } }],
   })).json();
-  expect(made.hookUrl).toMatch(/\/hooks\/workflows\/wf_[0-9a-f]+\?secret=[0-9a-f]{48}$/);
+  expect(made.hookUrl).toMatch(/\/hooks\/workflows\/wf_[0-9a-f]+$/);
+  expect(made.workflow.hookSecret).toMatch(/^[0-9a-f]{48}$/);
   expect(made.workflow.webhookSignatureRequired).toBe(true);
   expect((await signedWebhook(made.hookUrl, "wrong", { client: "X" })).status).toBe(404);
   expect((await signedWebhook(made.hookUrl, made.workflow.hookSecret, { client: "Initech", amount: "1,500" })).status).toBe(202);
@@ -668,7 +668,7 @@ test('signed webhook verifies freshness and atomically deduplicates event IDs', 
   const raw = JSON.stringify({ client: 'Once' });
   const timestamp = String(Math.floor(Date.now() / 1000));
   const eventId = 'billing-order-123';
-  const unsigned = await call(url.pathname + url.search, { method: 'POST', body: raw });
+  const unsigned = await call(url.pathname, { method: 'POST', headers: { 'x-hook-secret': made.workflow.hookSecret }, body: raw });
   expect(unsigned.status).toBe(401);
 
   const staleTimestamp = String(Math.floor(Date.now() / 1000) - 301);
@@ -692,21 +692,21 @@ test('signed webhook verifies freshness and atomically deduplicates event IDs', 
     .toMatchObject({ status: 'accepted', run_id: firstBody.runId });
 });
 
-test('grandfathered URL-only webhooks continue to work until the credential is rotated', async () => {
+test('grandfathered unsigned webhooks continue to work until the credential is rotated', async () => {
   const made = await (await send('POST', '/workflows', mika, {
     orgId: ORG, name: 'Legacy sender', trigger: { type: 'webhook' },
     steps: [{ type: 'add_row', tableId: invoices, values: { Client: '{{input.client}}', Status: 'Draft' } }],
   })).json();
   await env.DB.prepare('UPDATE hx_workflows SET webhook_signature_required=0 WHERE org_id=?1 AND id=?2').bind(ORG,made.workflow.id).run();
   const url = new URL(made.hookUrl);
-  const response = await call(url.pathname + url.search, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client: 'Existing integration' }) });
+  const response = await call(url.pathname, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hook-secret': made.workflow.hookSecret }, body: JSON.stringify({ client: 'Existing integration' }) });
   expect(response.status).toBe(202);
   expect((await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, mika)).status).toBe(200);
-  await send('POST', `/workflows/${made.workflow.id}/webhook`, mika, { orgId: ORG, action: 'rotate', expectedSecret: made.workflow.hookSecret, expectedUpdatedAt: made.workflow.updatedAt });
+  const rotated = (await (await send('POST', `/workflows/${made.workflow.id}/webhook`, mika, { orgId: ORG, action: 'rotate', expectedSecret: made.workflow.hookSecret, expectedUpdatedAt: made.workflow.updatedAt })).json()).workflow;
   const current = await (await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, mika)).json();
   expect(current.workflow.webhookSignatureRequired).toBe(true);
   const fresh = new URL(current.workflow.hookUrl);
-  const unsigned = await call(fresh.pathname + fresh.search, { method: 'POST', body: '{}' });
+  const unsigned = await call(fresh.pathname, { method: 'POST', headers: { 'x-hook-secret': rotated.hookSecret }, body: '{}' });
   expect(unsigned.status).toBe(401);
 });
 
@@ -721,18 +721,22 @@ test("changing away from webhook revokes its URL permanently while pause preserv
     expect(res.status).toBe(200);
     return (await res.json()).workflow;
   };
-  const fire = url => signedWebhook(url, new URL(url).searchParams.get('secret'), '{}');
-  expect((await edit({ enabled: false })).hookSecret).toBe(made.workflow.hookSecret);
-  expect((await fire(made.hookUrl)).status).toBe(202);
-  expect((await edit({ enabled: true, name: "Renamed" })).hookSecret).toBe(made.workflow.hookSecret);
-  expect((await edit({ trigger: { type: "manual" } })).hookSecret).toBeUndefined();
-  expect((await fire(made.hookUrl)).status).toBe(404);
+  const fire = secret => signedWebhook(made.hookUrl, secret, '{}');
+  // An edit that keeps the credential never returns it again.
+  const paused = await edit({ enabled: false });
+  expect(paused.hookSecret).toBeUndefined();
+  expect(paused.webhookActive).toBe(true);
+  expect((await fire(made.workflow.hookSecret)).status).toBe(202);
+  expect((await edit({ enabled: true, name: "Renamed" })).hookSecret).toBeUndefined();
+  const manual = await edit({ trigger: { type: "manual" } });
+  expect(manual.hookSecret).toBeUndefined();
+  expect(manual.webhookActive).toBeUndefined();
+  expect((await fire(made.workflow.hookSecret)).status).toBe(404);
   const restored = await edit({ trigger: { type: "webhook" } });
   expect(restored.hookSecret).toMatch(/^[0-9a-f]{48}$/);
   expect(restored.hookSecret).not.toBe(made.workflow.hookSecret);
-  expect((await fire(made.hookUrl)).status).toBe(404);
-  const fresh = new URL(made.hookUrl); fresh.searchParams.set('secret', restored.hookSecret);
-  expect((await fire(fresh.href)).status).toBe(202);
+  expect((await fire(made.workflow.hookSecret)).status).toBe(404);
+  expect((await fire(restored.hookSecret)).status).toBe(202);
 });
 
 test("webhook rotation and revocation require an editor and reject stale concurrent changes", async () => {
@@ -761,10 +765,15 @@ test("webhook rotation and revocation require an editor and reject stale concurr
   const revised = (await reviseResponse.json()).workflow;
   expect((await mutate(toru, 'rotate', rotated.hookSecret, rotated.updatedAt)).status).toBe(409);
   const afterStale = await (await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, toru)).json();
-  expect(afterStale.workflow.hookSecret).toBe(rotated.hookSecret);
-  const revoked = await (await mutate(toru, 'revoke', revised.hookSecret, revised.updatedAt)).json();
+  expect(afterStale.workflow.hookSecret).toBeUndefined();
+  expect(afterStale.workflow.webhookActive).toBe(true);
+  expect((await fire(rotated.hookSecret)).status).toBe(202);
+  // A secret named alongside the revision must be the live one.
+  expect((await mutate(toru, 'revoke', made.workflow.hookSecret, revised.updatedAt)).status).toBe(409);
+  const revoked = await (await mutate(toru, 'revoke', rotated.hookSecret, revised.updatedAt)).json();
   expect(revoked.workflow.hookUrl).toBeUndefined();
   expect(revoked.workflow.hookSecret).toBeUndefined();
+  expect(revoked.workflow.webhookActive).toBe(false);
   await send('PUT', `/workflows/${made.workflow.id}`, toru, { orgId: ORG, name: 'Still revoked', enabled: true });
   const current = await (await get(`/workflows/${made.workflow.id}?${q({ orgId: ORG })}`, toru)).json();
   expect(current.workflow.hookSecret).toBeUndefined();

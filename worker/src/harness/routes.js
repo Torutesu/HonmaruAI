@@ -759,7 +759,7 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       return null;
     }
-    const wf = await getWorkflow(env.DB, orgId, wfId, { withSecret: true, viewerId: me });
+    const wf = await getWorkflow(env.DB, orgId, wfId, { viewerId: me });
     if (!wf) return json({ message: "No such workflow." }, 404);
     const mine = await mayChange(env, orgId, who, wf.createdBy);
     if (sub === 'archive' && request.method === 'POST') {
@@ -784,8 +784,9 @@ export async function handleHarness(request, env, url, context = {}) {
       await audit(env,request,{orgId,action:'workflow.revision_restored',actor:person(who.user),entity:{type:'workflow',id:wfId,name:result.workflow.name},details:{restoredRevision:result.restoredRevision,newRevision:result.revision,automaticTriggersEnabled:result.workflow.enabled,safetyPaused:result.safetyPaused}});
       return json({...result,hookUrl:hookUrl(url,result.workflow)});
     }
-    // The hook's secret is for whoever may change the workflow.
-    const shown = mine ? { ...wf, hookUrl: hookUrl(url, wf) } : { ...wf, hookSecret: undefined };
+    // The hook's address is for whoever may change the workflow. Its secret is
+    // never read back: only creation and rotation return it.
+    const shown = mine ? { ...wf, hookUrl: hookUrl(url, wf) } : wf;
     if(sub==='budget' && request.method==='PUT'){
       if(!mine)return json({message:'Only its maker or an admin can change this workflow.'},403);
       const result=await saveWorkflowBudget(env.DB,orgId,wfId,input);
@@ -1995,7 +1996,8 @@ async function afterRowDelete(env, change) {
   }
 }
 
-const hookUrl = (url, wf) => (wf.trigger?.type === "webhook" && wf.hookSecret ? `${url.origin}/hooks/workflows/${wf.id}?secret=${wf.hookSecret}` : undefined);
+// The secret goes in the X-Hook-Secret header, never in the address.
+const hookUrl = (url, wf) => (wf.trigger?.type === "webhook" && wf.webhookActive ? `${url.origin}/hooks/workflows/${wf.id}` : undefined);
 
 /// What agents and workflows are waiting on: for this person to decide, and
 /// what they started that waits on someone else.

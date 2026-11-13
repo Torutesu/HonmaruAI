@@ -2078,6 +2078,7 @@ const table: Record<string, string> = {
   "Send signed webhook events": "Signierte Webhook-Ereignisse senden",
   "Sign the exact JSON body with the webhook secret. Use a fresh timestamp and a stable event ID for retries; signed requests expire after 5 minutes and event IDs are remembered for 7 days.": "Signiere den exakten JSON-Body mit dem Webhook-Secret. Verwende einen aktuellen Zeitstempel und bei Wiederholungen dieselbe Ereignis-ID. Signierte Anfragen verfallen nach 5 Minuten; Ereignis-IDs bleiben 7 Tage gespeichert.",
   "Store the URL and secret in your sender’s environment as HONMARU_WEBHOOK_URL and HONMARU_WEBHOOK_SECRET.": "Speichere URL und Secret als HONMARU_WEBHOOK_URL und HONMARU_WEBHOOK_SECRET in der Umgebung deines Senders.",
+  "Send this secret in the X-Hook-Secret header. It is shown only now:": "Sende dieses Secret im Header X-Hook-Secret. Es wird nur jetzt angezeigt:",
   "This existing webhook still accepts its URL secret alone. Generate a new URL to switch it to signed requests.": "Dieser bestehende Webhook akzeptiert weiterhin nur sein URL-Secret. Erstelle eine neue URL, um auf signierte Anfragen umzustellen.",
   "The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.": "Die aktuelle Webhook-URL funktioniert danach nicht mehr. Aktualisiere den Sender mit der neuen URL und den Headern für signierte Anfragen.",
   "Run history": "Ausführungsverlauf",

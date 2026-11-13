@@ -19,7 +19,7 @@ import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 import { audit } from "../audit.js";
 
-export const HARNESS_TOOL_SCOPE = { create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { get_workflow: "read", create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,
@@ -74,7 +74,7 @@ export const HARNESS_TOOLS = [
   {
     name: "get_workflow",
     title: "Inspect a workflow",
-    description: "Read a workflow definition and safety status. Only its maker or an Admin receives the active webhook secret in a separate field.",
+    description: "Read a workflow definition and safety status. Its maker or an Admin also sees whether its webhook is active. The webhook secret is never returned; rotate_workflow_webhook issues a new one once.",
     inputSchema: { type: "object", properties: { workflowId: { type: "string" } }, required: ["workflowId"] },
   },
   {
@@ -173,15 +173,15 @@ export const HARNESS_TOOLS = [
   {
     name: "rotate_workflow_webhook",
     title: "Rotate a workflow webhook secret",
-    description: "Replace the current webhook credential. Pass the exact secret and updatedAt from an authorized get_workflow response; the newly created secret is returned once.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, expectedSecret: { type: ["string", "null"] }, expectedUpdatedAt: { type: "string" } }, required: ["workflowId", "expectedSecret", "expectedUpdatedAt"] },
+    description: "Replace the current webhook credential. Pass the exact updatedAt from get_workflow, and optionally the secret you hold as expectedSecret. The new secret is returned once and cannot be read again; send it in the X-Hook-Secret header.",
+    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, expectedSecret: { type: ["string", "null"] }, expectedUpdatedAt: { type: "string" } }, required: ["workflowId", "expectedUpdatedAt"] },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "revoke_workflow_webhook",
     title: "Revoke a workflow webhook secret",
-    description: "Revoke the current webhook credential. Pass the exact secret and updatedAt from an authorized get_workflow response. Maker or Admin access is required.",
-    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, expectedSecret: { type: ["string", "null"] }, expectedUpdatedAt: { type: "string" } }, required: ["workflowId", "expectedSecret", "expectedUpdatedAt"] },
+    description: "Revoke the current webhook credential. Pass the exact updatedAt from get_workflow, and optionally the secret you hold as expectedSecret. Maker or Admin access is required.",
+    inputSchema: { type: "object", properties: { workflowId: { type: "string" }, expectedSecret: { type: ["string", "null"] }, expectedUpdatedAt: { type: "string" } }, required: ["workflowId", "expectedUpdatedAt"] },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
@@ -275,11 +275,12 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
     case "list_workflows":
       return out({ workflows: (await listWorkflows(db, orgId, { viewerId: by })).map((w) => ({ id: w.id, name: w.name, enabled: w.enabled, trigger: w.trigger, steps: w.steps.map((s) => s.type) })) });
     case "get_workflow": {
-      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by, withSecret: true });
+      // A read tool never returns the webhook secret, which would let a
+      // read-only key start runs. Only rotation, a write, issues one.
+      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by });
       if (!wf) return err("No such workflow.");
       const canManage = String(wf.createdBy) === String(by) || await allowed(db, orgId, by, "harness.delete_others");
-      const { hookSecret, ...safeWorkflow } = wf;
-      return out({ workflow: safeWorkflow, ...(canManage && wf.trigger?.type === "webhook" ? { webhook: { active: Boolean(hookSecret), ...(hookSecret ? { secret: hookSecret } : {}) } } : {}) });
+      return out({ workflow: wf, ...(canManage && wf.trigger?.type === "webhook" ? { webhook: { active: Boolean(wf.webhookActive), signatureRequired: wf.webhookSignatureRequired } } : {}) });
     }
     case "create_workflow": {
       const result = await createWorkflow(db, orgId, {
@@ -382,7 +383,7 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
     case "replay_held_workflow_events":
     case "rotate_workflow_webhook":
     case "revoke_workflow_webhook": {
-      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by, withSecret: true });
+      const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by });
       if (!wf) return err("No such workflow.");
       if (String(wf.createdBy) !== String(by) && !(await allowed(db, orgId, by, "harness.delete_others"))) return err("Only its maker or an admin can manage held events and webhook credentials.");
       if (name === "list_held_workflow_events") return wf.trigger?.type === "webhook" ? out(await heldWorkflowSummary(db, orgId, wf.id, Number(args.offset ?? 0))) : err("This workflow does not use a webhook trigger.");
@@ -407,7 +408,7 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
       const result = await changeWorkflowHook(db, orgId, wf.id, { action: name === "rotate_workflow_webhook" ? "rotate" : "revoke", expectedSecret: args.expectedSecret, expectedUpdatedAt: args.expectedUpdatedAt });
       if (result.error) return err(result.error);
       await audit(env, request, { orgId, action: `workflow.webhook_${name === "rotate_workflow_webhook" ? "rotated" : "revoked"}`, actor: { type: "user", id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: "workflow", id: wf.id, name: wf.name } });
-      return out({ workflowId: wf.id, active: Boolean(result.workflow.hookSecret), ...(result.workflow.hookSecret ? { secret: result.workflow.hookSecret } : {}), updatedAt: result.workflow.updatedAt });
+      return out({ workflowId: wf.id, active: Boolean(result.workflow.webhookActive), ...(result.workflow.hookSecret ? { secret: result.workflow.hookSecret } : {}), updatedAt: result.workflow.updatedAt });
     }
     case "run_workflow": {
       const wf = await getWorkflow(db, orgId, String(args.workflowId || ""), { viewerId: by });
