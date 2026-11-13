@@ -28,6 +28,7 @@ import {SharedThread} from './screens/SharedThread'
 import { pendingMcpRequest, clearMcpRequest } from './utils/mcpConsentRequest'
 import { McpConsent } from './components/McpConsent'
 import { JoinInviteDialog } from './components/JoinInviteDialog'
+import { ExternalInviteDialog } from './components/ExternalInviteDialog'
 import {PublicSkillShare} from './screens/PublicSkillShare'
 import {ExternalGuestThread} from './screens/ExternalGuestThread'
 import {ExternalSharedFile} from './screens/ExternalSharedFile'
@@ -261,6 +262,48 @@ function AccountApp() {
     return () => { controller.abort(); window.removeEventListener('online', revalidate) }
   }, [restoreAttempt])
 
+  // A guest invitation opened while signed in, waiting for Accept or Cancel.
+  // Kept with the session it was opened in, like joinPrompt.
+  const [externalPrompt, setExternalPrompt] = useState<{ inviteToken: string; session: string } | null>(null)
+  const [externalBusy, setExternalBusy] = useState(false)
+  const forgetExternalInvite = () => {
+    setPendingExternalInviteToken(null)
+    setPending((current) => ({ ...current, externalInviteToken: '' }))
+    try { sessionStorage.removeItem('externalThreadInviteToken') } catch { /* private mode */ }
+  }
+  const closeExternalPrompt = () => { setExternalPrompt(null); setExternalBusy(false); externalInviteRef.current = null }
+  const acceptExternalInvite = ({ inviteToken, session: token }: { inviteToken: string; session: string }) => {
+    const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
+    const clear = () => { try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ } }
+    setExternalBusy(true)
+    fetch(`${base}/external/invites/redeem`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-session-token': token },
+      body: JSON.stringify({ token: inviteToken }),
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}))
+        if (response.ok && data.resourceType === 'file' && data.orgId && data.fileId) {
+          forgetExternalInvite()
+          location.hash = `#/external-file/${encodeURIComponent(data.orgId)}/${encodeURIComponent(data.fileId)}`
+          return
+        }
+        if (response.ok && data.resourceType === 'app' && data.orgId && data.appId) {
+          forgetExternalInvite()
+          location.hash = `#/external-app/${encodeURIComponent(data.orgId)}/${encodeURIComponent(data.appId)}`
+          return
+        }
+        clear()
+        forgetExternalInvite()
+        setNotice(response.ok
+          ? { text: data.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
+          : { text: t('This invitation is not valid, or has expired.'), error: true })
+      })
+      .catch(() => setNotice({ text: t('Could not verify this invitation yet. Open its link again after signing in.'), error: true }))
+      .finally(closeExternalPrompt)
+  }
+  const cancelExternalInvite = () => { forgetExternalInvite(); closeExternalPrompt() }
+
   // The link a teammate was sent: #/join/<code>. Signed in, it asks whether
   // to join the team it names (JoinInviteDialog); signed out, it lands on
   // sign-up with the code filled in and the team named. Read on arrival and
@@ -280,40 +323,13 @@ function AccountApp() {
         setPendingExternalInviteToken(inviteToken)
         try { sessionStorage.setItem('externalThreadInviteToken', inviteToken) } catch { /* private mode */ }
         setPending((current) => ({ ...current, externalInviteToken: inviteToken }))
-        const base = httpBase(localStorage.getItem('host') || DEFAULT_HOST)
         const token = localStorage.getItem('sessionToken')
         const clear = () => { try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ } }
         if (token && localStorage.getItem('userId')) {
-          fetch(`${base}/external/invites/redeem`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', 'x-session-token': token },
-            body: JSON.stringify({ token: inviteToken }),
-          })
-            .then(async (response) => {
-              const data = await response.json().catch(() => ({}))
-              if (response.ok && data.resourceType === 'file' && data.orgId && data.fileId) {
-                setPendingExternalInviteToken(null)
-                setPending((current) => ({ ...current, externalInviteToken: '' }))
-                try { sessionStorage.removeItem('externalThreadInviteToken') } catch { /* private mode */ }
-                location.hash = `#/external-file/${encodeURIComponent(data.orgId)}/${encodeURIComponent(data.fileId)}`
-                return
-              }
-              if (response.ok && data.resourceType === 'app' && data.orgId && data.appId) {
-                setPendingExternalInviteToken(null)
-                setPending((current) => ({ ...current, externalInviteToken: '' }))
-                try { sessionStorage.removeItem('externalThreadInviteToken') } catch { /* private mode */ }
-                location.hash = `#/external-app/${encodeURIComponent(data.orgId)}/${encodeURIComponent(data.appId)}`
-                return
-              }
-              clear()
-              setPendingExternalInviteToken(null)
-              setPending((current) => ({ ...current, externalInviteToken: '' }))
-              try { sessionStorage.removeItem('externalThreadInviteToken') } catch { /* private mode */ }
-              setNotice(response.ok
-                ? { text: data.alreadyMember ? t('You already belong to this workspace.') : t('The Thread invitation was accepted.') }
-                : { text: t('This invitation is not valid, or has expired.'), error: true })
-            })
-            .catch(() => setNotice({ text: t('Could not verify this invitation yet. Open its link again after signing in.'), error: true }))
+          // Not redeemed here: a link any page can open is not the person
+          // agreeing to be someone's guest, so ExternalInviteDialog asks.
+          clear()
+          setExternalPrompt({ inviteToken, session: token })
           return
         }
         clear()
@@ -782,6 +798,10 @@ function AccountApp() {
     <div className="app">
       <ReauthDialog key={dialogScope.current.version} />
       <DlpDialog key={dialogScope.current.version} />
+      {externalPrompt && externalPrompt.session === sessionToken && <ExternalInviteDialog
+        key={`${dialogScope.current.version}:${externalPrompt.inviteToken}`}
+        busy={externalBusy} onAccept={() => acceptExternalInvite(externalPrompt)} onCancel={cancelExternalInvite}
+      />}
       {joinPrompt && joinPrompt.token === sessionToken && <JoinInviteDialog
         key={`${dialogScope.current.version}:${joinPrompt.code}`}
         httpBase={httpBase(host)} sessionToken={sessionToken} code={joinPrompt.code}

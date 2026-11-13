@@ -2181,6 +2181,8 @@ const table: Record<string, string> = {
   'An admin of {team} needs to approve you. You will be let in once they do.': 'Ein Admin von {team} muss dich bestätigen. Sobald das passiert, bist du dabei.',
   'You already belong to this workspace.': 'Du gehörst bereits zu diesem Workspace.',
   'this workspace': 'diesem Workspace',
+  'Accept this invitation?': 'Diese Einladung annehmen?',
+  'Someone outside your workspace shared a Thread, App or File with you. Accepting gives you guest access to it and shows the workspace that shared it your name and account.': 'Jemand außerhalb deines Workspace hat einen Thread, eine App oder eine Datei mit dir geteilt. Wenn du annimmst, erhältst du Gastzugriff, und der teilende Workspace sieht deinen Namen und dein Konto.',
 }
 
 export default table

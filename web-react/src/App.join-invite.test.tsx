@@ -93,3 +93,38 @@ test('a held (202) join neither switches workspace nor says the team was joined'
  expect(store.values.get('orgId')).toBe('org-home')
  act(()=>tree.unmount())
 })
+
+// The guest-invitation route next to it redeemed on sight too.
+const GUEST_TOKEN='ab'.repeat(32)
+function guestRelay(){
+ return vi.fn(async (url:string)=>{
+  const body=url.endsWith('/external/invites/redeem')?{ok:true,resourceType:'app',orgId:'org-other',appId:'app-1'}:{login:'alice',orgs:[{id:'org-home'}]}
+  return {ok:true,status:200,json:async()=>body}
+ })
+}
+const redeems=(fetcher:ReturnType<typeof guestRelay>)=>fetcher.mock.calls.filter(([url])=>url.endsWith('/external/invites/redeem'))
+
+test('a guest invitation opened while signed in asks first, and Cancel redeems nothing',async()=>{
+ const store=storage(),fetcher=guestRelay()
+ globals(store,`#/external-invite/${GUEST_TOKEN}`,fetcher as unknown as typeof fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<App/>);await settle()})
+ expect(redeems(fetcher)).toHaveLength(0)
+ expect(JSON.stringify(tree.toJSON())).toContain('Accept this invitation?')
+ await act(async()=>{button(tree,'Cancel')!.props.onClick();await settle()})
+ expect(redeems(fetcher)).toHaveLength(0)
+ expect(JSON.stringify(tree.toJSON())).not.toContain('Accept this invitation?')
+ act(()=>tree.unmount())
+})
+
+test('a guest invitation is redeemed when Accept is pressed',async()=>{
+ const store=storage(),fetcher=guestRelay()
+ const ui=globals(store,`#/external-invite/${GUEST_TOKEN}`,fetcher as unknown as typeof fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<App/>);await settle()})
+ await act(async()=>{button(tree,'Accept')!.props.onClick();await settle()})
+ expect(redeems(fetcher)).toHaveLength(1)
+ expect(JSON.parse(String((redeems(fetcher)[0] as unknown as [string,RequestInit])[1].body))).toEqual({token:GUEST_TOKEN})
+ expect(ui.location.hash).toBe('#/external-app/org-other/app-1')
+ act(()=>tree.unmount())
+})

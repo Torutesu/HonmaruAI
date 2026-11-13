@@ -3815,6 +3815,8 @@ const table: Record<string, string> = {
   'An admin of {team} needs to approve you. You will be let in once they do.': '{team}の管理者による承認が必要です。承認されると参加できます。',
   'You already belong to this workspace.': 'すでにこのワークスペースのメンバーです。',
   'this workspace': 'このワークスペース',
+  'Accept this invitation?': 'この招待を受けますか？',
+  'Someone outside your workspace shared a Thread, App or File with you. Accepting gives you guest access to it and shows the workspace that shared it your name and account.': 'ワークスペース外の誰かがスレッド、アプリ、またはファイルをあなたと共有しました。受けるとゲストとしてアクセスでき、共有したワークスペースにあなたの名前とアカウントが表示されます。',
 }
 
 export default table

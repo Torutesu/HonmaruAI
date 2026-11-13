@@ -2,7 +2,7 @@
 // token, JSON both ways, and an error that says what the server said.
 
 import type {
-  AppleSignIn, Business, DeviceRegistration, HistoryQuery, HistoryResponse, InviteAccepted, Me, OtpRequest, OtpVerify, PostResponse, SearchResponse, SignedIn, UnreadResponse,
+  AppleSignIn, Business, DeviceRegistration, HistoryQuery, HistoryResponse, InviteAccepted, InvitePeek, Me, OtpRequest, OtpVerify, PostResponse, SearchResponse, SignedIn, UnreadResponse,
 } from '../../protocol/src/index'
 import { v2Paths } from '../../protocol/src/v2'
 
@@ -65,6 +65,7 @@ export class Api {
   requestCode(body: OtpRequest) { return this.request<{ ok?: boolean }>('/auth/otp/request', { method: 'POST', body }) }
   verifyCode(body: OtpVerify) { return this.request<SignedIn>('/auth/otp/verify', { method: 'POST', body }) }
   signInWithApple(body: AppleSignIn) { return this.request<SignedIn>('/auth/apple', { method: 'POST', body }) }
+  peekInvite(code: string) { return this.request<InvitePeek>('/invites/peek', { query: { code } }) }
   acceptInvite(code: string) { return this.request<InviteAccepted>('/invites/accept', { method: 'POST', body: { code } }) }
   me() { return this.request<Me>('/me') }
   businesses(orgId: string) { return this.request<{ businesses: Business[] }>('/businesses', { query: { orgId } }) }

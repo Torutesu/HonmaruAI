@@ -42,7 +42,7 @@ describe('a language chosen before its table is here', () => {
   })
 
   it('translates the invite-link join confirmation (#960)', async () => {
-    const messages=['Workspace invitation','Checking the invitation…','This invitation is not valid, or has expired.','{inviter} invited you to this workspace.','Joining adds you to this workspace. You stay where you are until you choose to open it.','Stay here','You already belong to this workspace.']
+    const messages=['Accept this invitation?','Someone outside your workspace shared a Thread, App or File with you. Accepting gives you guest access to it and shows the workspace that shared it your name and account.','Workspace invitation','Checking the invitation…','This invitation is not valid, or has expired.','{inviter} invited you to this workspace.','Joining adds you to this workspace. You stay where you are until you choose to open it.','Stay here','You already belong to this workspace.']
     try {
       for (const code of ['ja','es','fr','de']) {
         changeLocale(code); await localeReady()
