@@ -1993,7 +1993,9 @@ CREATE TABLE IF NOT EXISTS hx_followups (
   source_app_id TEXT,
   source_entity_id TEXT,
   source_table_id TEXT,
-  source_authority_version INTEGER NOT NULL DEFAULT 0
+  source_authority_version INTEGER NOT NULL DEFAULT 0,
+  /* When the cron set it running: a claim past its lease was interrupted. */
+  claimed_at    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_hx_followups_due ON hx_followups(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_hx_followups_channel ON hx_followups(org_id, channel, status);

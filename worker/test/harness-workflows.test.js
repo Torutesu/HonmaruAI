@@ -2131,7 +2131,8 @@ test('all follow-up statuses retain agent, workspace and conversation scope', as
     expect(body.followups.map(f=>f.id)).toEqual(statuses.map((_,i)=>`all_${i}`));
   }
   const defaults = await (await get(`/followups?${q({orgId:ORG,agentId:'all-agent'})}`,mika)).json();
-  expect(defaults.followups.map(f=>f.status)).toEqual(['scheduled']);
+  // The default view keeps running follow-ups visible, so a stalled one is not hidden.
+  expect(defaults.followups.map(f=>f.status)).toEqual(['scheduled','running']);
 });
 
 test('follow-ups reject invalid thread destinations and fail if their root is deleted before delivery', async () => {

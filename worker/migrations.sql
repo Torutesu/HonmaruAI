@@ -580,3 +580,6 @@ ALTER TABLE saved_items ADD COLUMN remind_lease_until TEXT;
 -- #952: when the minute cron last looked in on a teammate run, so it reads the least recently looked at first.
 ALTER TABLE ai_teammate_runs ADD COLUMN checked_at TEXT;
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_checked ON ai_teammate_runs(status, checked_at, updated_at);
+
+-- #948: when the cron claimed a follow-up, so an interrupted run is settled after its lease.
+ALTER TABLE hx_followups ADD COLUMN claimed_at TEXT;

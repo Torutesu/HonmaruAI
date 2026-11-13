@@ -16,6 +16,13 @@ import { followupSourceAuthority } from './appRecordSourceAuthority.js';
 import { workflowFollowupScheduleAuthority } from './workflowEffectAuthority.js';
 
 export const MAX_PER_CHANNEL = 50;
+// One cron invocation runs up to 25 follow-ups in turn, and a deploy, its time
+// limit or a database error can cut it off before an outcome is recorded. A
+// claim older than this is treated as interrupted. It is failed rather than
+// run again, because the first attempt may already have posted its answer.
+export const FOLLOWUP_LEASE_MS = 30 * 60_000;
+const INTERRUPTED = "Interrupted before it finished. Nothing more will be posted for it; schedule it again if it is still needed.";
+const staleClaim = (cutoff) => `status = 'running' AND (claimed_at IS NULL OR claimed_at <= ${cutoff})`;
 
 // Personal integrations contain their owner's private data. Make them
 // available only in that person's direct conversation with an agent; the
@@ -83,9 +90,13 @@ export async function scheduleFollowup(db, { orgId, channel, threadId = null, ag
   return { followup: pub(await db.prepare("SELECT * FROM hx_followups WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first()) };
 }
 
+// The scheduled view also shows follow-ups that are running, so one that was
+// claimed and then stalled does not vanish from the list its requester reads.
+const statusFilter = (param) => `(${param} = 'all' OR status = ${param} OR (${param} = 'scheduled' AND status = 'running'))`;
+
 export async function listFollowups(db, orgId, { channel, agentId, status = "scheduled", viewerId } = {}) {
   const { results } = await db.prepare(`SELECT * FROM hx_followups
-    WHERE org_id = ?1 AND (?2 = 'all' OR status = ?2) AND (?3 IS NULL OR channel = ?3)
+    WHERE org_id = ?1 AND ${statusFilter('?2')} AND (?3 IS NULL OR channel = ?3)
       AND (?4 IS NULL OR agent_id = ?4)
     ORDER BY due_at, id LIMIT ?5`)
     .bind(orgId, status, channel || null, agentId || null, channel ? -1 : 200).all();
@@ -111,7 +122,7 @@ export async function followupHistory(db, orgId, { channel, agentId, status = "s
   const visible = [], access = new Map();
   let scanned = 0;
   while (scanned < 10000) {
-    const { results = [] } = await db.prepare(`SELECT * FROM hx_followups WHERE org_id = ?1 AND (?2 = 'all' OR status = ?2)
+    const { results = [] } = await db.prepare(`SELECT * FROM hx_followups WHERE org_id = ?1 AND ${statusFilter('?2')}
       AND (?3 IS NULL OR channel = ?3) AND (?4 IS NULL OR agent_id = ?4)
       AND (?5 IS NULL OR due_at > ?5 OR (due_at = ?5 AND id > ?6))
       ORDER BY due_at, id LIMIT 200`).bind(orgId, status, channel || null, agentId || null, after?.[0] || null, after?.[1] || null).all();
@@ -130,9 +141,15 @@ export async function followupHistory(db, orgId, { channel, agentId, status = "s
   return { error: "Too many inaccessible follow-ups. Narrow the history to a conversation.", status: 503 };
 }
 
+// A follow-up stuck running past its lease may be cancelled too. One still
+// inside its lease is left to finish, so a cancel cannot race its answer.
 export async function cancelFollowup(db, orgId, id) {
-  const res = await db.prepare("UPDATE hx_followups SET status = 'cancelled', done_at = ?1 WHERE id = ?2 AND org_id = ?3 AND status = 'scheduled'").bind(now(), id, orgId).run();
-  return res.meta?.changes ? { cancelled: true } : { error: "Nothing scheduled by that id.", status: 404 };
+  const at = Date.now();
+  const res = await db.prepare(`UPDATE hx_followups SET status = 'cancelled', done_at = ?1 WHERE id = ?2 AND org_id = ?3 AND (status = 'scheduled' OR (${staleClaim('?4')}))`)
+    .bind(new Date(at).toISOString(), id, orgId, new Date(at - FOLLOWUP_LEASE_MS).toISOString()).run();
+  if (res.meta?.changes) return { cancelled: true };
+  const running = await db.prepare("SELECT 1 FROM hx_followups WHERE id = ?1 AND org_id = ?2 AND status = 'running'").bind(id, orgId).first();
+  return running ? { error: "This follow-up is running now. Try again if it has not finished in a while.", status: 409 } : { error: "Nothing scheduled by that id.", status: 404 };
 }
 
 /// "follow up in 3 days: check whether Acme paid" / "3日後にフォローして: 入金確認".
@@ -157,6 +174,11 @@ export function followupRequest(text) {
 /// The cron's part: follow-ups whose time has come. Each is claimed before
 /// it runs, so two crons cannot both answer it.
 export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } = {}) {
+  const claimedAt = at.toISOString();
+  // Every workspace's, as the sweep below: settle claims an earlier
+  // invocation never finished. Each row keeps its own org_id.
+  await env.DB.prepare(`UPDATE hx_followups SET status = 'failed', done_at = ?1, result = ?2 WHERE ${staleClaim('?3')}`)
+    .bind(now(), INTERRUPTED, new Date(at.getTime() - FOLLOWUP_LEASE_MS).toISOString()).run().catch(() => {});
   const { results } = await env.DB
     // Every workspace's, by design: the cron's sweep. Each row then acts
     // only in its own org_id.
@@ -166,7 +188,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
     .catch(() => ({ results: [] }));
   let done = 0;
   for (const r of results || []) {
-    const claim = await env.DB.prepare("UPDATE hx_followups SET status = 'running' WHERE id = ?1 AND org_id = ?2 AND status = 'scheduled'").bind(r.id, r.org_id).run();
+    const claim = await env.DB.prepare("UPDATE hx_followups SET status = 'running', claimed_at = ?3 WHERE id = ?1 AND org_id = ?2 AND status = 'scheduled'").bind(r.id, r.org_id, claimedAt).run();
     if (!claim.meta?.changes) continue;
     const accessFailure=async()=>{
       if(Boolean(r.origin_workflow_id)!==Boolean(r.origin_release_id))return 'Incomplete automation origin.';
@@ -253,10 +275,12 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
         const { broadcastStored } = await import("../channelRoutes.js");
         await broadcastStored(env, r.org_id, r.channel, out.row).catch(() => {});
       }
-      await env.DB.prepare("UPDATE hx_followups SET status = 'done', done_at = ?1, result = ?2 WHERE id = ?3 AND org_id = ?4").bind(now(), String(body).slice(0, 2000), r.id, r.org_id).run();
+      // The answer was posted, so record it as done even if a later tick
+      // already took this claim for interrupted. Only this claim's row moves.
+      await env.DB.prepare("UPDATE hx_followups SET status = 'done', done_at = ?1, result = ?2 WHERE id = ?3 AND org_id = ?4 AND claimed_at = ?5").bind(now(), String(body).slice(0, 2000), r.id, r.org_id, claimedAt).run();
       done += 1;
     } catch (e) {
-      await env.DB.prepare("UPDATE hx_followups SET status = 'failed', done_at = ?1, result = ?2 WHERE id = ?3 AND org_id = ?4").bind(now(), String(e?.message || e).slice(0, 300), r.id, r.org_id).run();
+      await env.DB.prepare("UPDATE hx_followups SET status = 'failed', done_at = ?1, result = ?2 WHERE id = ?3 AND org_id = ?4 AND status = 'running' AND claimed_at = ?5").bind(now(), String(e?.message || e).slice(0, 300), r.id, r.org_id, claimedAt).run();
     }
   }
   return done;
