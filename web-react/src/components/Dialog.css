@@ -104,6 +104,8 @@
 .dlg-picklist input { width: 15px; height: 15px; margin: 0; accent-color: var(--dlg-accent); }
 .dlg-picklist .dlg-pick-mark { color: var(--dlg-faint); display: inline-grid; }
 .dlg-picklist .dlg-pick-all { font-weight: 600; }
+.dlg-picklist input:disabled { opacity: .72; cursor: not-allowed; }
+.dlg-picklist .dlg-default-room { margin-left: auto; padding: 2px 7px; border: 1px solid var(--dlg-line); border-radius: 999px; color: var(--dlg-faint); font-size: 10px; font-weight: 600; letter-spacing: .02em; }
 .dlg-picklist .dlg-empty { padding: 12px; font-size: 12.5px; color: var(--dlg-faint); }
 
 /* The invitation's mark: an envelope with two sparks, in the brand colour. */

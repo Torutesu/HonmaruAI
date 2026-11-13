@@ -965,6 +965,7 @@ export async function listBusinesses(db, orgId, { viewer = null } = {}) {
   };
   return Promise.all((results || []).map(async (r) => ({
     slug: r.slug, name: r.name, createdBy: r.created_by, createdAt: r.created_at,
+    ...(r.slug === 'general' ? { isDefaultRoom: true } : {}),
     ...(r.room_color ? { color: r.room_color } : {}),
     ...(r.visual_version ? { visualVersion: r.visual_version } : {}),
     ...(r.managed_room ? { managed: true, memberCount: r.member_count || 0 } : {}),

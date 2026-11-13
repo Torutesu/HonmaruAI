@@ -16,7 +16,7 @@ interface Props {
   onClose: () => void
 }
 
-interface Channel { slug: string; name: string }
+interface Channel { slug: string; name: string; isDefaultRoom?: boolean }
 
 /// Bringing people — or an agent — into the workspace, in one place.
 ///
@@ -29,7 +29,10 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
   const headers = useMemo(() => ({ 'content-type': 'application/json', 'x-session-token': sessionToken }), [sessionToken])
   const [tab, setTab] = useState<'people' | 'agent'>(initialTab)
   const [channels, setChannels] = useState<Channel[] | null>(null)
-  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [peoplePicked, setPeoplePicked] = useState<Set<string>>(new Set())
+  // Agents start private. Choosing Rooms here is an explicit grant; a Room's
+  // human default status never adds an Agent to it.
+  const [agentPicked, setAgentPicked] = useState<Set<string>>(new Set(channel ? [channel.slug] : []))
   const [query, setQuery] = useState('')
   const [emails, setEmails] = useState('')
   const [busy, setBusy] = useState<'send' | 'link' | 'agent' | null>(null)
@@ -38,6 +41,11 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
   const [agentLink, setAgentLink] = useState<{ url: string; expiresAt: string } | null>(null)
   // A member sees every public channel; a guest only the ones ticked.
   const [role, setRole] = useState<'member' | 'guest'>(channel ? 'guest' : 'member')
+  const picked = tab === 'agent' ? agentPicked : peoplePicked
+  const setPicked = (update: Set<string> | ((current: Set<string>) => Set<string>)) => {
+    const setter = tab === 'agent' ? setAgentPicked : setPeoplePicked
+    setter(update)
+  }
 
   useEffect(() => {
     let ignore = false
@@ -45,13 +53,16 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
       .then((r) => (r.ok ? r.json() : { businesses: [] }))
       .then((data) => {
         if (ignore) return
-        const list: Channel[] = (data.businesses || []).map((b: { slug: string; name: string }) => ({ slug: b.slug, name: b.name }))
+        const list: Channel[] = (data.businesses || []).map((b: { slug: string; name: string; isDefaultRoom?: boolean }) => ({ slug: b.slug, name: b.name, isDefaultRoom: b.isDefaultRoom === true }))
         // A private channel opened from is one this list may not carry.
         if (channel && !list.some((c) => c.slug === channel.slug)) list.unshift(channel)
         setChannels(list)
-        // Everywhere, until somebody says otherwise — as a new colleague is
-        // introduced to the whole office; from a channel, that channel.
-        setPicked(new Set(channel ? [channel.slug] : list.map((c) => c.slug)))
+        // People join their default Rooms plus the optional Rooms selected
+        // here. Agents are private by default and receive only an explicit
+        // selection (or the Room from which this dialog was opened).
+        const defaultRooms = list.filter((c) => c.isDefaultRoom).map((c) => c.slug)
+        setPeoplePicked(new Set(channel ? [channel.slug] : defaultRooms))
+        setAgentPicked(new Set(channel ? [channel.slug] : []))
       })
       .catch(() => { if (!ignore) setChannels([]) })
     return () => { ignore = true }
@@ -60,8 +71,13 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
 
   const shown = (channels || []).filter((c) => !query.trim() || c.name.toLowerCase().includes(query.trim().toLowerCase()))
   const allPicked = Boolean(channels?.length) && channels!.every((c) => picked.has(c.slug))
-  const toggle = (slug: string) => setPicked((p) => { const n = new Set(p); if (n.has(slug)) n.delete(slug); else n.add(slug); return n })
-  const toggleAll = () => setPicked(allPicked ? new Set() : new Set((channels || []).map((c) => c.slug)))
+  const toggle = (room: Channel) => {
+    if (tab === 'people' && role === 'member' && room.isDefaultRoom) return
+    setPicked((p) => { const n = new Set(p); if (n.has(room.slug)) n.delete(room.slug); else n.add(room.slug); return n })
+  }
+  const toggleAll = () => setPicked(allPicked
+    ? new Set(tab === 'people' && role === 'member' ? (channels || []).filter((c) => c.isDefaultRoom).map((c) => c.slug) : [])
+    : new Set((channels || []).map((c) => c.slug)))
   const chosen = () => [...picked]
 
   const copy = async (text: string) => {
@@ -111,34 +127,35 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
 
   const picklist = (
     <div>
-      <div className="dlg-label">{tab === 'people' ? t('Add to channels') : t('Introduce in channels')}</div>
+      <div className="dlg-label">{t('Starting Rooms')}</div>
       <div className="dlg-picklist" data-channels="1">
         <div className="dlg-picklist-search">
           <Icon name="search" size={14} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('Search channels')} aria-label={t('Search channels')} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('Search Rooms')} aria-label={t('Search Rooms')} />
         </div>
         <ul>
           {channels === null && <li className="dlg-empty">{t('Loading…')}</li>}
-          {channels && channels.length === 0 && <li className="dlg-empty">{t('No channels yet.')}</li>}
+          {channels && channels.length === 0 && <li className="dlg-empty">{t('No Rooms yet.')}</li>}
           {channels && channels.length > 0 && !query.trim() && (
             <li><label className="dlg-pick-all"><input type="checkbox" checked={allPicked} onChange={toggleAll} />{t('Select all')}</label></li>
           )}
           {shown.map((c) => (
             <li key={c.slug}>
               <label>
-                <input type="checkbox" checked={picked.has(c.slug)} onChange={() => toggle(c.slug)} />
+                <input type="checkbox" checked={picked.has(c.slug)} disabled={tab === 'people' && role === 'member' && c.isDefaultRoom} onChange={() => toggle(c)} />
                 <span className="dlg-pick-mark" aria-hidden="true"><Icon name="hash" size={13} /></span>
                 {c.name}
+                {tab === 'people' && role === 'member' && c.isDefaultRoom && <small className="dlg-default-room">{t('Default')}</small>}
               </label>
             </li>
           ))}
         </ul>
       </div>
       <p className="dlg-hint">{tab === 'agent'
-        ? t('The ones ticked say hello when the agent joins.')
+        ? t('Agents start private and join only the Rooms selected here.')
         : role === 'guest'
-          ? t('A guest sees only the channels ticked here — nothing else in the workspace.')
-          : t('Every channel is open to the whole workspace; the ones ticked say hello when they join.')}</p>
+          ? t('A guest can access only the Rooms selected here — nothing else in the workspace.')
+          : t('New members join default Rooms automatically, plus any other Rooms selected here.')}</p>
     </div>
   )
 
@@ -178,12 +195,12 @@ export const InviteDialog: React.FC<Props> = ({ httpBase, orgId, sessionToken, o
         <div>
           <div className="dlg-label">{t('Invite as')}</div>
           <div className="dlg-seg invite-role" role="radiogroup" aria-label={t('Invite as')}>
-            <button type="button" role="radio" aria-checked={role === 'member'} data-invite-role="member" onClick={() => setRole('member')}>
-              <b>{t('Member')}</b><span>{t('Every public channel')}</span>
+            <button type="button" role="radio" aria-checked={role === 'member'} data-invite-role="member" onClick={() => { setRole('member'); setPeoplePicked((current) => new Set([...(channels || []).filter((c) => c.isDefaultRoom).map((c) => c.slug), ...current])) }}>
+              <b>{t('Member')}</b><span>{t('Workspace member')}</span>
             </button>
             <button type="button" role="radio" aria-checked={role === 'guest'} data-invite-role="guest"
-              onClick={() => { if (role !== 'guest') { setRole('guest'); setPicked(new Set()) } }}>
-              <b>{t('Guest')}</b><span>{t('Only the channels you choose')}</span>
+              onClick={() => { if (role !== 'guest') { setRole('guest'); setPeoplePicked(new Set(channel ? [channel.slug] : [])) } }}>
+              <b>{t('Guest')}</b><span>{t('Only selected Rooms')}</span>
             </button>
           </div>
           <label className="dlg-label" htmlFor="invite-emails">{t('Invite by email')}</label>
