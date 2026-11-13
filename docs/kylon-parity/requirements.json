@@ -972,8 +972,16 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/file",
-      "code": "worker/src/files.js",
-      "acceptance": "共有範囲・承認者・リンク失効と監査を検証"
+      "code": "worker/src/harness/fileShareApprovals.js; worker/src/harness/filePublicUrls.js; web-react/src/components/WorkspaceFilesPanel.tsx",
+      "acceptance": "1/7/30日期限、owner/Workspace admin/Room admin承認・拒否・失効、承認前token非発行、版/hash/scope/source/membership再検証、期限後のGET拒否、DL可否のinline/attachmentを検証。別アカウントの本番往復とKylon画面/操作比較は未完。",
+      "evidence": {
+        "auditDate": "2026-11-13",
+        "reference": "https://docs.kylon.io/cli/workspace/file",
+        "observedContract": "WorkspaceFilesPanel exposes a fixed-version public snapshot request, selectable 1/7/30 day expiry and download permission, approval queue, approve/decline, one-time token reveal/copy/open and revoke. Simple mode hides share-management routes while existing public links remain readable until their own expiry/revocation/invalidation.",
+        "codeAudit": "Approval/revocation authority is the file owner, current workspace owner/admin, or current managed-room admin. The final D1 batch rechecks pending state, expiry, exact version/hash/scope, purge, and Agent source/session/membership/assignment. Public GET rechecks expiry, revocation, purge, version and digest, enforces 25 MiB, emits no-store/sandbox headers, and selects inline vs attachment from allow_download. Token is returned only at approval.",
+        "verified": "Worker file-share-approvals suite locally passed 22/22 after adding workspace-admin and managed-room-admin approve/revoke, accepted expiry choices, expired link rejection, expired pending approval rejection, and attachment disposition coverage. Existing suite covers ordinary-member denial, version/source invalidation, approval atomicity, token secrecy, decline and Simple-mode boundaries. Main PR/deployment evidence is pending for this batch.",
+        "remaining": "Exact-head and main CI plus Worker/Web deployment Verify for this batch; authenticated production requester/approver/redeemer/revoker roundtrip across separate accounts; populated Kylon side-by-side UI and behavior comparison; all file-type and all public access-operation coverage; public URLs currently support only selected media types, not every file type."
+      }
     },
     {
       "id": "KY-076",
