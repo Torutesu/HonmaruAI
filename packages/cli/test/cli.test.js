@@ -516,6 +516,42 @@ test("Room visibility alias rejects invalid scope or missing version before MCP"
   assert.equal(requests, 0);
 });
 
+test("Room Agent access aliases inspect missing grants and grant only selected members", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    const structuredContent = req.params.name === "get_room_agent_access"
+      ? { conversationId: "b:ops", agentId: "agent_1", canGrantAccess: true, missingAccessMembers: [{ memberRef: "member_1", name: "Ari" }, { memberRef: "member_2", name: "Bea" }] }
+      : { conversationId: "b:ops", agentId: "agent_1", added: true, granted: 1, version: 5 };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "agent", "access", "b:ops", "agent_1"]), 0);
+  assert.equal(stdout.read(), "member_1\tAri\nmember_2\tBea\n"); stdout.clear();
+  assert.equal(await run(["workspace", "room", "agent", "add", "b:ops", "agent_1", "--grant-access-members", "member_2", "--acknowledge-external-processing"]), 0);
+  assert.match(stdout.read(), /selected Room members were granted Agent access/);
+  assert.deepEqual(calls, [
+    { name: "get_room_agent_access", arguments: { conversationId: "b:ops", agentId: "agent_1" } },
+    { name: "add_room_agent", arguments: { conversationId: "b:ops", agentId: "agent_1", grantAccessMemberRefs: ["member_2"], acknowledgeExternalProcessing: true } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("Room Agent CLI rejects ambiguous or duplicated grants before MCP", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "agent", "add", "b:ops", "agent_1", "--grant-access", "--grant-access-members", "member_1"]), 1);
+  assert.match(stderr.read(), /Choose either --grant-access or --grant-access-members/); stderr.clear();
+  assert.equal(await run(["workspace", "room", "agent", "add", "b:ops", "agent_1", "--grant-access-members", "member_1,member_1"]), 1);
+  assert.match(stderr.read(), /cannot contain duplicate references/);
+  assert.equal(requests, 0);
+});
+
 test("Room guideline aliases read and update with explicit versioned text", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
