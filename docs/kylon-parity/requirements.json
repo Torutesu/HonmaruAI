@@ -380,8 +380,8 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/skill",
-      "code": "worker/src/harness/skills.js; worker/src/harness/skillShares.js; worker/src/harness/mcpTools.js; packages/cli/src/cli.js",
-      "acceptance": "SKILL.mdと補助ファイルをfile/folderから作成・更新。private既定、更新CAS、owner/adminとAgent assignment権限を検証。付与解除は次のAgent実行から反映。所有者だけが共有リンクのメタデータを閲覧・明示確認付きで失効でき、Bearer token/URLはMCP/CLIに返さない。SimpleモードにHarnessツールを表示しない。"
+      "code": "worker/src/harness/skills.js; worker/src/harness/skillAccess.js; worker/src/harness/skillShares.js; worker/src/harness/mcpTools.js; packages/cli/src/cli.js",
+      "acceptance": "SKILL.mdと補助ファイルをfile/folderから作成・更新。private既定、更新CAS、owner/adminとAgent assignment権限を検証。付与解除は次のAgent実行から反映。所有者だけが共有リンクのメタデータを閲覧・明示確認付きで失効でき、Bearer token/URLはMCP/CLIに返さない。公開はWorkspace全員が読めることを明示確認し、現在のaccessVersionでCAS、非公開化も対応。SimpleモードにHarnessツールを表示しない。"
     },
     {
       "id": "KY-033",

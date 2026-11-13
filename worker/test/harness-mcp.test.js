@@ -82,6 +82,14 @@ test('Harness MCP creates private Skill packages and version-fences package repl
   const ownerFiltered = (await tool(writer, 'list_skills', { ownerId: '9401' })).result.structuredContent.skills;
   expect(ownerFiltered.map(skill => skill.id)).toContain(created.id);
   expect((await tool(writer, 'list_skills', { publishedOnly: true })).result.structuredContent.skills.map(skill => skill.id)).not.toContain(created.id);
+  expect(await names(writer)).toContain('set_skill_visibility');
+  expect((await tool(writer, 'set_skill_visibility', { skillId: created.id, visibility: 'workspace', version: created.accessVersion })).result.isError).toBe(true);
+  expect((await tool(writer, 'get_skill', { skillId: created.id })).result.structuredContent.skill.visibility).toBe('private');
+  const publishedAccess = (await tool(writer, 'set_skill_visibility', { skillId: created.id, visibility: 'workspace', version: created.accessVersion, confirmWorkspaceAccess: true })).result.structuredContent;
+  expect(publishedAccess).toMatchObject({ skillId: created.id, visibility: 'workspace', version: created.accessVersion + 1 });
+  expect((await tool(writer, 'set_skill_visibility', { skillId: created.id, visibility: 'private', version: created.accessVersion })).result.isError).toBe(true);
+  const unpublishedAccess = (await tool(writer, 'set_skill_visibility', { skillId: created.id, visibility: 'private', version: publishedAccess.version })).result.structuredContent;
+  expect(unpublishedAccess).toMatchObject({ skillId: created.id, visibility: 'private', version: publishedAccess.version + 1 });
   const published = (await tool(writer, 'create_skill', { skillMarkdown: markdown, visibility: 'workspace' })).result.structuredContent.skill;
   const shareable = (await tool(writer, 'list_shareable_skills', { agentId: 'package-agent' })).result.structuredContent.skills;
   expect(shareable.map(skill => skill.id)).toEqual(expect.arrayContaining([created.id, published.id]));
@@ -99,6 +107,7 @@ test('Harness MCP creates private Skill packages and version-fences package repl
 
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
   expect(await names(writer)).not.toContain('create_skill');
+  expect(await names(writer)).not.toContain('set_skill_visibility');
   expect((await tool(writer, 'create_skill', { skillMarkdown: markdown })).error.message).toContain('Unknown tool');
 });
 
@@ -115,6 +124,7 @@ test('Harness Skill share management lists metadata only and revokes only after 
   const writer = await mint(['read', 'write']);
   expect(await names(reader)).toContain('list_skill_shares');
   expect(await names(reader)).not.toContain('revoke_skill_share');
+  expect(await names(reader)).not.toContain('set_skill_visibility');
   const listed = await tool(reader, 'list_skill_shares', { skillId: created.skill.id });
   expect(listed.result.structuredContent.shares).toEqual([expect.objectContaining({ id: shareId, fileCount: 2, totalBytes: 123, revokedAt: null })]);
   expect(JSON.stringify(listed.result.structuredContent)).not.toContain('hashed-secret-only');
@@ -129,6 +139,7 @@ test('Harness Skill share management lists metadata only and revokes only after 
   const mikaSession = await createSession(env.DB, '9402', 'gho_mika');
   const mikaToken = (await (await call('/tokens', { method: 'POST', headers: headers(mikaSession), body: JSON.stringify({ orgId: ORG, name: 'Mika', scopes: ['read', 'write'] }) })).json()).token;
   expect((await tool(mikaToken, 'list_skill_shares', { skillId: created.skill.id })).result.isError).toBe(true);
+  expect((await tool(mikaToken, 'set_skill_visibility', { skillId: created.skill.id, visibility: 'workspace', version: 0, confirmWorkspaceAccess: true })).result.isError).toBe(true);
   expect((await tool(mikaToken, 'revoke_skill_share', { skillId: created.skill.id, shareId, confirm: true })).result.isError).toBe(true);
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
   expect(await names(writer)).not.toContain('list_skill_shares');
