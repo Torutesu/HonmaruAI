@@ -28,7 +28,7 @@ export async function roomRoleState(db, orgId, channel, {includeArchived=false}=
     WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND p.deleted_at IS NULL ${includeArchived?'':'AND b.archived_at IS NULL'}`).bind(orgId,channel).first();
   if(!room)return null;
   const {results}=await db.prepare(includeArchived?subjects.replaceAll(' AND b.archived_at IS NULL',''):subjects).bind(orgId,channel).all();
-  return {managed:!!room.managed,private:!!room.private,version:room.version,createdBy:room.created_by,members:results};
+  return {managed:!!room.managed,private:!!room.private,isDefault:channel==='b:general',version:room.version,createdBy:room.created_by,members:results};
 }
 
 // Existing Simple rooms remain unchanged unless their current creator opts in.
@@ -135,6 +135,7 @@ export async function removeRoomSubject(db, orgId, channel, {actorId,kind,id,ver
 // messages public through legacy access queries and same-name recreation.
 export async function deleteManagedRoom(db,orgId,channel,{actorId,version}) {
   actorId=String(actorId||'');
+  if(channel==='b:general')return {error:'Default Rooms cannot be deleted.',status:403};
   const state=await roomRoleState(db,orgId,channel,{includeArchived:true});
   if(!state?.managed) {
     // A concurrently deleted managed room must never fall back to the legacy
@@ -392,6 +393,7 @@ export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,gran
 
 export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,version,name}) {
   if(name!==undefined&&(typeof name!=='string'||!name.trim()||name.trim().length>120))return {error:'A room name of at most 120 characters is required.',status:400};
+  if(channel==='b:general'&&typeof archived==='boolean')return {error:'Default Rooms cannot be archived.',status:403};
   const state=await roomRoleState(db,orgId,channel,{includeArchived:true});
   if(!state?.managed){
     const policy=await db.prepare('SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2').bind(orgId,channel).first();
@@ -423,6 +425,7 @@ export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,vers
 export async function setRoomPrivacy(db,orgId,channel,{actorId,private:privateRoom,version}) {
   if(typeof privateRoom!=='boolean'||!Number.isSafeInteger(version)||version<1)return {error:'A visibility and current room version are required.',status:400};
   const state=await roomRoleState(db,orgId,channel);
+  if(channel==='b:general')return {error:'Default Rooms cannot change visibility.',status:403};
   if(!state?.managed)return {error:'No such managed room.',status:404};
   const actor=state.members.find(m=>m.kind==='person'&&m.id===String(actorId)&&m.eligible&&m.role==='admin');
   if(!actor)return {error:'Only a room admin can change its visibility.',status:403};

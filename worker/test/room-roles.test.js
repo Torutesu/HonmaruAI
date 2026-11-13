@@ -1,6 +1,6 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,test,expect} from 'vitest';
-import {upsertUser,upsertMembership} from '../src/db.js';
+import {upsertUser,upsertMembership,upsertBusiness} from '../src/db.js';
 import {roomRoleState,initializeRoomRoles,setRoomRole,removeRoomSubject,deleteManagedRoom,changeManagedRoomMembers,joinPublicRoom,publicRooms,addManagedRoomAgent,archiveManagedRoom,setRoomPrivacy} from '../src/harness/roomRoles.js';
 import {mayAccessAgent} from '../src/harness/agents.js';
 const org='room-roles',channel='b:planning';
@@ -70,6 +70,32 @@ test('a target rejoining between the role read and transaction receives no stale
 });
 
 const remove=(actorId,kind,id,version)=>removeRoomSubject(env.DB,org,channel,{actorId,kind,id,version});
+test('General is the default Room: workspace members join it, including later joins and guest upgrades',async()=>{
+ await upsertBusiness(env.DB,org,{name:'General',createdBy:'creator'});
+ let members=await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=?1 AND channel='b:general' ORDER BY login").bind(org).all();
+ expect(members.results.map(row=>row.login)).toEqual(['creator','outsider','reader']);
+ await upsertUser(env.DB,{githubId:'new-member',login:'new-member',name:'New member',locale:'en'});
+ await upsertMembership(env.DB,org,'new-member','member');
+ await upsertMembership(env.DB,org,'guest','member');
+ await upsertMembership(env.DB,org,'reader','guest');
+ members=await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id=?1 AND channel='b:general' ORDER BY login").bind(org).all();
+ expect(members.results.map(row=>row.login)).toEqual(['creator','guest','new-member','outsider']);
+ await upsertMembership(env.DB,org,'reader','member');
+ expect((await env.DB.prepare("SELECT 1 FROM conversation_members WHERE org_id=?1 AND channel='b:general' AND login='reader'").bind(org).first())).toBeTruthy();
+});
+
+test('default General Rooms cannot change visibility, archive, or deletion policy in Simple or Harness mode',async()=>{
+ await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at) VALUES(?1,'general','General','creator','now')").bind(org).run();
+ for(const login of ['creator','reader','outsider'])await env.DB.prepare("INSERT OR IGNORE INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:general',?2,?2,'now')").bind(org,login).run();
+ await initializeRoomRoles(env.DB,org,'b:general','creator');
+ expect((await roomRoleState(env.DB,org,'b:general')).isDefault).toBe(true);
+ expect(await setRoomPrivacy(env.DB,org,'b:general',{actorId:'creator',private:true,version:1})).toMatchObject({status:403});
+ expect(await archiveManagedRoom(env.DB,org,'b:general',{actorId:'creator',name:'Main Room',version:1})).toMatchObject({managed:true,version:2});
+ expect(await archiveManagedRoom(env.DB,org,'b:general',{actorId:'creator',archived:true,version:1})).toMatchObject({status:403});
+ expect(await deleteManagedRoom(env.DB,org,'b:general',{actorId:'creator',version:1})).toMatchObject({status:403});
+ expect(await env.DB.prepare("SELECT private,archived_at FROM businesses WHERE org_id=?1 AND slug='general'").bind(org).first()).toEqual({private:0,archived_at:null});
+});
+
 test('managed removal protects admins and the last human while legacy removal stays unchanged',async()=>{
   expect(await remove('reader','person','creator')).toEqual({managed:false});
   await initializeRoomRoles(env.DB,org,channel,'creator');

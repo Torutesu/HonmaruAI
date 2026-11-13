@@ -16,7 +16,7 @@ import migrationsSql from "../migrations.sql?raw";
 // rather than approximated, because a test that extracts statements its own way
 // can pass while the deploy silently skips one — which is the shape of the bug
 // this file exists to prevent.
-const DEPLOY_STATEMENT = /^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO|DROP TABLE)/;
+const DEPLOY_STATEMENT = /^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO|DROP TABLE|UPDATE )/;
 
 function deployStatements(sql) {
   return sql.split("\n").filter((line) => DEPLOY_STATEMENT.test(line)).map((l) => l.trim());
@@ -82,6 +82,17 @@ test("a deploy creates row-trigger idempotency receipts", async () => {
   const index = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_hx_workflow_row_receipts_expiry'").first();
   expect(table).toBeTruthy();
   expect(index).toBeTruthy();
+});
+
+test("a deploy normalizes the default General Room and keeps it assigned to workspace members", async () => {
+  await env.DB.exec("INSERT INTO users(github_id,login,created_at) VALUES ('default-room-member','default-room-member','now')");
+  await env.DB.exec("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES ('default-room-org','default-room-member','member','now')");
+  await env.DB.exec("INSERT INTO businesses(org_id,slug,name,created_by,created_at,private,archived_at) VALUES ('default-room-org','general','General','default-room-member','now',1,'archived')");
+  await applyDeploy(env.DB);
+  expect(await env.DB.prepare("SELECT private,archived_at FROM businesses WHERE org_id='default-room-org' AND slug='general'").first())
+    .toEqual({private:0,archived_at:null});
+  expect(await env.DB.prepare("SELECT added_by FROM conversation_members WHERE org_id='default-room-org' AND channel='b:general' AND login='default-room-member'").first())
+    .toEqual({added_by:'default-room-member'});
 });
 
 test("a deploy recreates app annotation storage and its screen index", async () => {

@@ -993,6 +993,11 @@ export async function upsertBusiness(db, orgId, { name, createdBy }) {
     )
     .bind(orgId, slug, String(name).trim().slice(0, 120), createdBy || null, new Date().toISOString())
     .run();
+  if (slug === 'general') {
+    await db.prepare(`INSERT OR IGNORE INTO conversation_members(org_id,channel,login,added_by,added_at)
+      SELECT ?1,'b:general',u.login,u.github_id,?2 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
+      WHERE m.org_id=?1 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'`).bind(orgId,new Date().toISOString()).run();
+  }
   const row = await db
     .prepare("SELECT slug, name FROM businesses WHERE org_id = ?1 AND slug = ?2 AND NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel='b:'||?2 AND deleted_at IS NOT NULL)")
     .bind(orgId, slug)
@@ -1004,6 +1009,7 @@ export async function upsertBusiness(db, orgId, { name, createdBy }) {
 // room and its initial membership commit together, including on name races.
 export async function createPrivateBusiness(db, orgId, { name, actorId, actorLogin, members }) {
   const slug=businessSlug(name);
+  if(slug==='general')return null;
   const actor=(members||[]).find(member=>member.userId===String(actorId));
   if(!slug || !actor || !actorLogin || actor.login!==actorLogin) return null;
   const at=new Date().toISOString(), channel=`b:${slug}`;

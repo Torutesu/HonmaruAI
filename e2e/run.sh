@@ -82,7 +82,7 @@ while IFS= read -r stmt; do
       exit 1
     }
   fi
-done < <(grep -E '^(ALTER TABLE|CREATE )' migrations.sql)
+done < <(grep -E '^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO|UPDATE )' migrations.sql)
 # --test-scheduled opens /__scheduled, so the spec can fire the cron the
 # way Cloudflare does and watch a due routine arrive in the feed.
 npx -y wrangler@4 dev --local --test-scheduled --port "$WORKER_PORT" \
