@@ -23,6 +23,8 @@ async function setup(){
  await upsertMembership(env.DB,orgId,adminId,'admin');
  await upsertMembership(env.DB,orgId,memberId,'member');
  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at,private) VALUES(?1,'general','General',?2,?3,0)").bind(orgId,ownerId,now).run();
+ await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at,private) VALUES(?1,'private-room','Private Room',?2,?3,1)").bind(orgId,ownerId,now).run();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:private-room',?2,?2,?3)").bind(orgId,ownerId,now).run();
  await setMode(env.DB,orgId,'harness',ownerId);
  await createFileLedger(env.DB,{orgId,fileId,scope:'workspace',path:'handoff.txt',createdBy:ownerId});
  const objectKey='org/'+encodeURIComponent(orgId)+'/workspace-files/'+fileId+'/v1',body=new TextEncoder().encode('handoff');
@@ -235,16 +237,12 @@ test('File audience uses workspace membership, optimistic versions, and owner-on
 test('File Room audience requires live Room membership and expired audiences stop granting access',async()=>{
  const audiencePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-audience?orgId='+encodeURIComponent(f.orgId);
  await upsertMembership(env.DB,f.orgId,f.recipientId,'member');
- await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='general'").bind(f.orgId).run();
- const owner=await env.DB.prepare('SELECT login FROM users WHERE github_id=?1').bind(f.ownerId).first();
- await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:general',?2,?3,?4)")
-  .bind(f.orgId,owner.login,f.ownerId,new Date().toISOString()).run();
- let response=await call(audiencePath,f.ownerToken,'PUT',{version:0,type:'room',roomId:'b:general',permission:'edit'});
+ let response=await call(audiencePath,f.ownerToken,'PUT',{version:0,type:'room',roomId:'b:private-room',permission:'edit'});
  expect(response.status).toBe(200);
  const filePath='/external/files/'+encodeURIComponent(f.orgId)+'/'+encodeURIComponent(f.fileId);
  expect((await call(filePath,f.recipientToken)).status).toBe(404);
  const recipient=await env.DB.prepare('SELECT login FROM users WHERE github_id=?1').bind(f.recipientId).first();
- await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:general',?2,?3,?4)")
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:private-room',?2,?3,?4)")
   .bind(f.orgId,recipient.login,f.ownerId,new Date().toISOString()).run();
  expect((await call(filePath,f.recipientToken)).status).toBe(200);
  const expired=new Date(Date.now()-60_000).toISOString();
@@ -259,18 +257,18 @@ test('File Room audience stops granting access when its Room is archived or dele
  const filePath='/external/files/'+encodeURIComponent(f.orgId)+'/'+encodeURIComponent(f.fileId);
  await upsertMembership(env.DB,f.orgId,f.recipientId,'member');
  const recipient=await env.DB.prepare('SELECT login FROM users WHERE github_id=?1').bind(f.recipientId).first();
- await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:general',?2,?3,?4)")
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:private-room',?2,?3,?4)")
   .bind(f.orgId,recipient.login,f.ownerId,new Date().toISOString()).run();
- const audience=await call(audiencePath,f.ownerToken,'PUT',{version:0,type:'room',roomId:'b:general',permission:'view'});
+ const audience=await call(audiencePath,f.ownerToken,'PUT',{version:0,type:'room',roomId:'b:private-room',permission:'view'});
  expect(audience.status).toBe(200);
  expect((await call(filePath,f.recipientToken)).status).toBe(200);
 
- await env.DB.prepare("UPDATE businesses SET archived_at=?1 WHERE org_id=?2 AND slug='general'")
+ await env.DB.prepare("UPDATE businesses SET archived_at=?1 WHERE org_id=?2 AND slug='private-room'")
   .bind(new Date().toISOString(),f.orgId).run();
  expect((await call(filePath,f.recipientToken)).status).toBe(404);
 
- await env.DB.prepare("UPDATE businesses SET archived_at=NULL WHERE org_id=?1 AND slug='general'").bind(f.orgId).run();
- await env.DB.prepare("INSERT INTO hx_room_access(org_id,channel,version,deleted_at) VALUES(?1,'b:general',1,?2)")
+ await env.DB.prepare("UPDATE businesses SET archived_at=NULL WHERE org_id=?1 AND slug='private-room'").bind(f.orgId).run();
+ await env.DB.prepare("INSERT INTO hx_room_access(org_id,channel,version,deleted_at) VALUES(?1,'b:private-room',1,?2)")
   .bind(f.orgId,new Date().toISOString()).run();
  expect((await call(filePath,f.recipientToken)).status).toBe(404);
 });

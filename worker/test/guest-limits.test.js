@@ -57,10 +57,21 @@ test("a guest cannot rename, delete or list for deletion a channel they were let
   expect((await call(q("/businesses/unused"), guest)).status).toBe(403);
 });
 
-test("a member renames and deletes a public channel, and the audit log says so", async () => {
-  expect((await call("/businesses", member, { method: "PUT", body: { orgId: ORG, slug: "general", name: "Lobby" } })).status).toBe(200);
-  await call("/businesses", member, { method: "DELETE", body: { orgId: ORG, slug: "general" } });
-  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = 'general'").bind(ORG).first()).toBeNull();
+test("a workspace member cannot archive or delete the default General Room", async () => {
+  const archived = await call("/businesses/archive", member, { method: "POST", body: { orgId: ORG, slugs: ["general"] } });
+  expect(archived.status).toBe(403);
+  const deleted = await call("/businesses", member, { method: "DELETE", body: { orgId: ORG, slug: "general" } });
+  expect(deleted.status).toBe(403);
+  expect(await env.DB.prepare("SELECT name,private,archived_at FROM businesses WHERE org_id=?1 AND slug='general'").bind(ORG).first())
+    .toEqual({name:'general',private:0,archived_at:null});
+});
+
+test("a member renames and deletes a public non-default channel, and the audit log says so", async () => {
+  const now = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_at) VALUES(?1,'lobby','Lobby',0,?2)").bind(ORG, now).run();
+  expect((await call("/businesses", member, { method: "PUT", body: { orgId: ORG, slug: "lobby", name: "Planning" } })).status).toBe(200);
+  await call("/businesses", member, { method: "DELETE", body: { orgId: ORG, slug: "lobby" } });
+  expect(await env.DB.prepare("SELECT 1 FROM businesses WHERE org_id = ?1 AND slug = 'lobby'").bind(ORG).first()).toBeNull();
   const { results } = await env.DB.prepare("SELECT action FROM audit_events WHERE org_id = ?1 ORDER BY created_at").bind(ORG).all();
   expect(results.map((r) => r.action)).toEqual(expect.arrayContaining(["channel.renamed", "channel.deleted"]));
 });

@@ -118,7 +118,7 @@ if (require.main === module) {
   if (!database || !(flags.length === 0 || flags.length === 2 && flags[0] === '--env' && flags[1] === 'staging')) {
     console.error('Usage: node migrate-columns.cjs <database> [--env staging]'); process.exitCode = 1;
   } else {
-    const statements = readFileSync('migrations.sql', 'utf8').split(/\r?\n/).filter(line => /^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO|DROP TABLE)/.test(line));
+    const statements = readFileSync('migrations.sql', 'utf8').split(/\r?\n/).filter(line => /^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO|DROP TABLE|UPDATE )/.test(line));
     const run = statement => spawnSync('npx', ['-y', 'wrangler@4', 'd1', 'execute', database, ...flags, '--remote', '--command', statement, '--yes'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 });
     migrateColumns({ statements, inspect: statement => spawnSync('npx', ['-y', 'wrangler@4', 'd1', 'execute', database, ...flags, '--remote', '--command', statement, '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 }), execute: run, executeBatch: createBatchExecutor({ database, flags, spawnSync }) })
       .then(code => { process.exitCode = code; }).catch(error => { console.error(error.message); process.exitCode = 1; });
