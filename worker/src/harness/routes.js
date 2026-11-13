@@ -26,7 +26,7 @@ import { roomHookStatuses } from './roomHookStatus.js';
 import {roomVisualState,setRoomVisual} from './roomVisuals.js';
 import { createRoomHook, listRoomHooks, changeRoomHook, listLineInbox, readLineInboxConversation, markLineInboxRead } from './roomHooks.js';
 import {readRoomVisualImage} from './roomVisualImage.js';
-import {roomRoleState} from './roomRoles.js';
+import {roomRoleState,setRoomPrivacy} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
 import {listBusinesses} from '../db.js';
 import { explicitAgentRoles, agentRoleState, setAgentRole, transferAgentOwnership } from './agentRoles.js';
@@ -587,7 +587,9 @@ export async function handleHarness(request, env, url, context = {}) {
       const result=await managedRoomSettings(env.DB,orgId,room.key,me);
       if(result.error)return fail(result);
       const visual=await env.DB.prepare('SELECT 1 FROM hx_room_visuals WHERE org_id=?1 AND channel=?2').bind(orgId,room.key).first();
-      return json({settings:result.settings,availableAgents:result.availableAgents,canEdit:result.canEdit,canChangeResponses:result.canEdit&&canChangeResponses,...(visual?{visualVersion:result.settings.version}:{})});
+      const roleState=await roomRoleState(env.DB,orgId,room.key);
+      const currentRole=roleState?.members.find(member=>member.kind==='person'&&member.id===String(me)&&member.eligible);
+      return json({settings:result.settings,availableAgents:result.availableAgents,canEdit:result.canEdit,canChangeResponses:result.canEdit&&canChangeResponses,scope:roleState?.private?'private':'public',canChangeVisibility:await getMode(env.DB,orgId)==='harness'&&currentRole?.role==='admin',...(visual?{visualVersion:result.settings.version}:{})});
     }
     const result=await saveManagedRoomSettings(env.DB,orgId,room.key,me,input,{canChangeResponses});
     if(result.error)return fail(result);
@@ -595,6 +597,19 @@ export async function handleHarness(request, env, url, context = {}) {
     const members=await memoryMembers(env.DB,orgId,me);
     await announceTo(env,orgId,await Promise.all(members.map(async m=>({to:m.login,event:appActivityEvent('businesses',{businesses:await listBusinesses(env.DB,orgId,{viewer:m.login})})}))));
     return json({...result,businesses:await listBusinesses(env.DB,orgId,{viewer:who.user.login})});
+  }
+  if(url.pathname==='/hx/rooms/visibility') {
+    if(await getMode(env.DB,orgId)!=='harness')return json({message:'Room visibility changes are available in Harness mode.'},404);
+    if(request.method!=='PUT')return json({message:'Method not allowed.'},405);
+    if(!['public','private'].includes(input.scope)||!Number.isSafeInteger(input.version)||input.version<1)return json({message:'A visibility and current room version are required.'},400);
+    const room=await resolveChannel(env.DB,orgId,who.user,input.channel);
+    if(!room||room.kind!=='business')return json({message:'No such active managed room.'},404);
+    const result=await setRoomPrivacy(env.DB,orgId,room.key,{actorId:me,private:input.scope==='private',version:input.version});
+    if(result.error)return fail(result);
+    await audit(env,request,{orgId,action:'room.privacy_changed',actor:person(who.user),entity:{type:'channel',id:room.key},details:{private:result.private,version:result.version}});
+    const members=await memoryMembers(env.DB,orgId,me);
+    await announceTo(env,orgId,await Promise.all(members.map(async member=>({to:member.login,event:appActivityEvent('businesses',{businesses:await listBusinesses(env.DB,orgId,{viewer:member.login})})}))));
+    return json({scope:result.private?'private':'public',version:result.version});
   }
   if (!read && !(await allowed(env.DB, orgId, me, "harness.build"))) return json({ message: "You cannot build in this workspace." }, 403);
 

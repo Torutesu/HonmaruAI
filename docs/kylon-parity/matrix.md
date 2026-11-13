@@ -26,7 +26,7 @@
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-001 | 公開・非公開ルーム | 一部 | P0 | [roomRoles.js](../../worker/src/harness/roomRoles.js), [mcpChatTools.js](../../worker/src/mcpChatTools.js), [cli.js](../../packages/cli/src/cli.js) | 管理対象ルームの公開閲覧と明示参加を分離し、原子的作成API・3段階UI・検索・参加UIを公開済み。Honmaru HarnessではRoom admin限定の公開/非公開切替をversion CASで追加（このPR）。Kylon general設定では作成後のvisibility変更を確認できず、追加機能として扱う。既定Roomの同定、HTTP/WS/検索の複数利用者本番隔離、Kylon比較は未完了 |
+| KY-001 | 公開・非公開ルーム | 一部 | P0 | [roomRoles.js](../../worker/src/harness/roomRoles.js), [routes.js](../../worker/src/harness/routes.js), [RoomSettings.tsx](../../web-react/src/components/RoomSettings.tsx), [mcpChatTools.js](../../worker/src/mcpChatTools.js), [cli.js](../../packages/cli/src/cli.js) | 管理対象ルームの公開閲覧と明示参加を分離し、原子的作成API・3段階UI・検索・参加UIを公開済み。Kylon公式仕様のRoom adminによるpublic/private切替をHarnessの設定UI・認証API・MCP・CLIで追加（Room version CAS）。HTTP/WS/検索の複数利用者本番隔離、既定/固定Roomの扱い、Kylon画面との比較は残る |
 | KY-002 | DM・グループ・エージェントDM | 一部 | P1 | [worker/src/channels.js](../../worker/src/channels.js) | 各参加者の可視性と退出後のアクセスを実機で確認 |
 | KY-003 | ホーム・最近・未読・メンション | 一部 | P1 | [web-react/src/components/ClassicList.tsx](../../web-react/src/components/ClassicList.tsx) | PR #443で左一覧のメンション絞り込みを公開。本番Macの空状態とローカル非空一覧・会話・下書き・アプリ維持を確認。一覧と通知既読位置の全端末一致は残る |
 | KY-004 | ルームガイドライン | 一部 | P0 | [worker/src/harness/guidelines.js](../../worker/src/harness/guidelines.js) | 4096字・競合検知・BYOを含む全AI入口で毎ターン反映。PR #601 merged、main CIとWorkerのテスト・D1移行・デプロイ・Verifyが成功し、本番healthと暗号化状態を確認。実AIリクエストを使う本番往復確認は未実施 |

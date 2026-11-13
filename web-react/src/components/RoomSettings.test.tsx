@@ -8,7 +8,7 @@ vi.mock('../utils/i18n',()=>({useT:()=> (s:string)=>s}))
 const api={httpBase:'https://relay.test',orgId:'org',sessionToken:'token'}
 const settings={name:'Planning',color:'teal',mentionedOnly:false,defaultAgentId:null,version:4,responseVersion:2}
 const reply=(body:any,status=200)=>({ok:status<400,status,json:async()=>body})
-const loaded=(overrides={})=>reply({settings,availableAgents:[],canEdit:true,canChangeResponses:true,...overrides})
+const loaded=(overrides={})=>reply({settings,availableAgents:[],canEdit:true,canChangeResponses:true,scope:'public',canChangeVisibility:true,...overrides})
 const find=(tree:ReturnType<typeof create>,name:string)=>tree.root.findAllByType('button').find(n=>n.children.includes(name))!
 test('webhook management opens only on demand and returns to the room settings',async()=>{
  const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockResolvedValueOnce(reply({hooks:[]}));vi.stubGlobal('fetch',fetcher)
@@ -46,6 +46,22 @@ test('selects a room default agent and marks the settings dirty',async()=>{
  await act(async()=>find(tree,'Save').props.onClick())
  expect(JSON.parse(fetcher.mock.calls[1][1].body).defaultAgentId).toBe('agent-1');act(()=>tree.unmount())
 })
+test('room admins can change visibility with the room version and reload the authoritative state',async()=>{
+ const fetcher=vi.fn()
+  .mockResolvedValueOnce(loaded())
+  .mockResolvedValueOnce(reply({scope:'private',version:5}))
+  .mockResolvedValueOnce(loaded({scope:'private',settings:{...settings,version:5}}));vi.stubGlobal('fetch',fetcher)
+ const saved=vi.fn();let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<RoomSettings api={api} view="b:room" onClose={vi.fn()} onSaved={saved}/> )})
+ expect(tree.root.findAllByType('button').some(node=>node.children.includes('Save visibility'))).toBe(false)
+ act(()=>tree.root.findByProps({'aria-label':'Room visibility',className:'dlg-input'}).props.onChange({target:{value:'private'}}))
+ expect(find(tree,'Save visibility').props.disabled).toBe(false)
+ await act(async()=>find(tree,'Save visibility').props.onClick())
+ expect(fetcher.mock.calls[1][0]).toBe('https://relay.test/hx/rooms/visibility')
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'org',channel:'b:room',scope:'private',version:4})
+ expect(tree.root.findByProps({'aria-label':'Room visibility',className:'dlg-input'}).props.value).toBe('private')
+ expect(saved).toHaveBeenCalledOnce();act(()=>tree.unmount())
+})
 test('pending save prevents duplicate submission and dismissing the dialog',async()=>{
  let finish!:(value:any)=>void;const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve}));vi.stubGlobal('fetch',fetcher)
  const close=vi.fn();let tree!:ReturnType<typeof create>
@@ -68,7 +84,7 @@ test('conflict keeps the draft and requires explicit reload before another save'
  expect(tree.root.findByProps({'aria-label':'Room name'}).props.value).toBe('Other member');act(()=>tree.unmount())
 })
 test('read-only visitors and response permissions are reflected independently',async()=>{
- vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(loaded({canEdit:false,canChangeResponses:false})).mockResolvedValueOnce(loaded({canChangeResponses:false})))
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(loaded({canEdit:false,canChangeResponses:false,canChangeVisibility:false})).mockResolvedValueOnce(loaded({canChangeResponses:false,canChangeVisibility:true})))
  let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<RoomSettings api={api} view="b:room" onClose={vi.fn()} onSaved={vi.fn()}/>)})
  expect(tree.root.findByProps({'aria-label':'Room name'}).props.disabled).toBe(true);expect(tree.root.findByProps({role:'switch'}).props.disabled).toBe(true)
