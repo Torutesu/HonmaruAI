@@ -877,7 +877,7 @@ export const ClassicList: React.FC<Props> = ({
     return () => mq.removeEventListener?.('change', on)
   }, [])
   const current = everything.find((th) => th.key === openKey)
-    || (wide && !harness ? (everything.find((th) => th.unread > 0) || everything[0]) : undefined)
+    || (wide ? (everything.find((th) => th.unread > 0) || everything[0]) : undefined)
   // A conversation asked for before the list knew of it — a DM picked in ⌘K
   // or opened from a link while the team is still loading: opened once it
   // appears, if that is soon. Opening anything else first — another
