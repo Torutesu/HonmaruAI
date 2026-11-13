@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const DB = process.env.DB || "tiktokforwork";
-const [command, ...prefix] = (process.env.WRANGLER || "npx -y wrangler@4").split(" ");
+const [command, ...prefix] = (process.env.WRANGLER || "npx -y wrangler@4.149.0").split(" ");
 const days = Math.max(1, Math.min(14, Number(process.argv[2]) || 7));
 
 export function quantile(sorted, q) {

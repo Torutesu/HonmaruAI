@@ -71,7 +71,7 @@ jobs:
           echo "Deploying: $TARGET"
           if [ "$TARGET" = "staging" ]; then
             if grep -q '00000000-0000-0000-0000-000000000000' wrangler.toml; then
-              echo "::error::Staging has no database yet. Run 'npx wrangler@4 d1 create tiktokforwork-staging' and paste its id into [env.staging] in worker/wrangler.toml (docs/setup-secrets.md)."
+              echo "::error::Staging has no database yet. Run 'npx wrangler@4.149.0 d1 create tiktokforwork-staging' and paste its id into [env.staging] in worker/wrangler.toml (docs/setup-secrets.md)."
               exit 1
             fi
             echo "flag=--env staging" >> "$GITHUB_OUTPUT"
@@ -122,13 +122,14 @@ jobs:
       # Every statement is CREATE … IF NOT EXISTS, so this is safe to run on
       # every deploy and safe to re-run after a failure.
       #
-      # wrangler@4 explicitly: the pinned wrangler 3 fails `d1 execute --remote`
-      # with a 7403 "account is not authorized" that is a stale-client bug, not
-      # an auth problem, and reads exactly like a broken token.
+      # wrangler at the exact version worker/package.json pins (#962): these
+      # steps hold the production token, so they never run whatever release
+      # is newest that day. .github/scripts/wrangler-pin.test.cjs keeps every
+      # workflow on that version.
       # Every statement here is CREATE ... IF NOT EXISTS, so this is safe to run
       # on every deploy and safe to re-run after a failure.
       - name: Migrate D1
-        run: npx -y wrangler@4 d1 execute ${{ steps.target.outputs.db }} ${{ steps.target.outputs.flag }} --remote --file schema.sql --yes
+        run: npx -y wrangler@4.149.0 d1 execute ${{ steps.target.outputs.db }} ${{ steps.target.outputs.flag }} --remote --file schema.sql --yes
 
       # Ordered D1 compatibility changes for databases predating the current schema.
       # The migration script applies each ALTER, DDL, and backfill in order,
@@ -145,7 +146,7 @@ jobs:
           APP_WEB_URL: ${{ inputs.app_web_url }}
         run: |
           case "$APP_WEB_URL" in https://*) ;; *) echo "::error::app_web_url must start with https://"; exit 1 ;; esac
-          printf '%s' "${APP_WEB_URL%/}" | npx -y wrangler@4 secret put APP_WEB_URL ${{ steps.target.outputs.flag }}
+          printf '%s' "${APP_WEB_URL%/}" | npx -y wrangler@4.149.0 secret put APP_WEB_URL ${{ steps.target.outputs.flag }}
 
       # The audit archive's bucket, and the lock that keeps its audit/ prefix
       # for 400 days (docs/audit-log-phase2.md §3.2). Made once; a lock rule
@@ -155,15 +156,15 @@ jobs:
         run: |
           bucket="tiktokforwork-audit"
           [ "$TARGET" = "staging" ] && bucket="tiktokforwork-audit-staging"
-          if npx -y wrangler@4 r2 bucket list | grep -q "$bucket"; then
+          if npx -y wrangler@4.149.0 r2 bucket list | grep -q "$bucket"; then
             echo "$bucket: exists"
           else
-            npx -y wrangler@4 r2 bucket create "$bucket"
+            npx -y wrangler@4.149.0 r2 bucket create "$bucket"
           fi
-          if npx -y wrangler@4 r2 bucket lock list "$bucket" 2>/dev/null | grep -q "audit/"; then
+          if npx -y wrangler@4.149.0 r2 bucket lock list "$bucket" 2>/dev/null | grep -q "audit/"; then
             echo "lock: already set"
           else
-            npx -y wrangler@4 r2 bucket lock add "$bucket" --name audit-400d --prefix audit/ --retention-days 400 --force || echo "::warning::Could not add the bucket lock; add it by hand (docs/setup-secrets.md)."
+            npx -y wrangler@4.149.0 r2 bucket lock add "$bucket" --name audit-400d --prefix audit/ --retention-days 400 --force || echo "::warning::Could not add the bucket lock; add it by hand (docs/setup-secrets.md)."
           fi
 
       # The media bucket keeps what it holds. Attachments, workspace emoji,
@@ -178,13 +179,13 @@ jobs:
         run: |
           bucket="tiktokforwork-media"
           [ "$TARGET" = "staging" ] && bucket="tiktokforwork-media-staging"
-          if ! rules="$(npx -y wrangler@4 r2 bucket lifecycle list "$bucket" 2>&1)"; then
+          if ! rules="$(npx -y wrangler@4.149.0 r2 bucket lifecycle list "$bucket" 2>&1)"; then
             echo "::warning::Could not read the lifecycle rules of $bucket: $(printf '%s' "$rules" | tail -n 1)"
             exit 0
           fi
           printf '%s\n' "$rules"
           printf '%s\n' "$rules" | awk '/^name:/ {sub(/^name:[ \t]+/, ""); n=$0} /^action:/ && /Expire objects/ {print n}' | while IFS= read -r name; do
-            npx -y wrangler@4 r2 bucket lifecycle remove "$bucket" --name "$name"
+            npx -y wrangler@4.149.0 r2 bucket lifecycle remove "$bucket" --name "$name"
             echo "::warning::Removed lifecycle rule '$name' from $bucket: it deleted attachments and pictures by age (#824)."
           done
 
@@ -198,26 +199,26 @@ jobs:
       - name: Generated secrets
         if: ${{ !inputs.migrate_only }}
         run: |
-          have="$(npx -y wrangler@4 secret list ${{ steps.target.outputs.flag }})" || { echo "::error::Could not list the Worker's secrets; not generating any."; exit 1; }
+          have="$(npx -y wrangler@4.149.0 secret list ${{ steps.target.outputs.flag }})" || { echo "::error::Could not list the Worker's secrets; not generating any."; exit 1; }
           printf '%s' "$have" | grep -q '^[[:space:]]*\[' || { echo "::error::Unexpected answer listing secrets; not generating any."; exit 1; }
           for name in AUDIT_MASTER_KEY AUDIT_PSEUDONYM_KEY SSO_SECRET_KEY DATA_KEY; do
             if printf '%s' "$have" | grep -q "\"$name\""; then
               echo "$name: already set"
             else
               echo "$name: generating"
-              openssl rand -base64 32 | tr -d '\n' | npx -y wrangler@4 secret put "$name" ${{ steps.target.outputs.flag }}
+              openssl rand -base64 32 | tr -d '\n' | npx -y wrangler@4.149.0 secret put "$name" ${{ steps.target.outputs.flag }}
             fi
           done
           # The account, for the spend brake's analytics query (spendGuard.js).
           # Its token (CF_ANALYTICS_TOKEN, Account Analytics: Read) is made by
           # a person in the dashboard; without it the brake does nothing.
           if ! printf '%s' "$have" | grep -q '"CF_ACCOUNT_ID"'; then
-            printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | npx -y wrangler@4 secret put CF_ACCOUNT_ID ${{ steps.target.outputs.flag }}
+            printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | npx -y wrangler@4.149.0 secret put CF_ACCOUNT_ID ${{ steps.target.outputs.flag }}
           fi
           # App domains only need Pages Write. Keep this separate from
           # the much broader deploy token; it is optional and production-only.
           if [ "$TARGET" = "production" ] && [ -n "$PAGES_DOMAINS_API_TOKEN" ]; then
-            printf '%s' "$PAGES_DOMAINS_API_TOKEN" | npx -y wrangler@4 secret put PAGES_DOMAINS_API_TOKEN
+            printf '%s' "$PAGES_DOMAINS_API_TOKEN" | npx -y wrangler@4.149.0 secret put PAGES_DOMAINS_API_TOKEN
           fi
           # The archive's signing key: Ed25519, as PKCS8. Its public half is
           # served at /audit/public-key; a replaced key is listed there only if
@@ -226,7 +227,7 @@ jobs:
             echo "AUDIT_SIGNING_KEY: already set"
           else
             echo "AUDIT_SIGNING_KEY: generating"
-            node -e "const c=require('crypto');process.stdout.write(c.generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'der'}).toString('base64'))" | npx -y wrangler@4 secret put AUDIT_SIGNING_KEY ${{ steps.target.outputs.flag }}
+            node -e "const c=require('crypto');process.stdout.write(c.generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'der'}).toString('base64'))" | npx -y wrangler@4.149.0 secret put AUDIT_SIGNING_KEY ${{ steps.target.outputs.flag }}
           fi
 
       - name: Deploy
@@ -235,7 +236,7 @@ jobs:
         # as well as secrets; the flag picks the environment.
         # Production refuses to serve without its encryption keys
         # (REQUIRE_ENCRYPTION), and the check after the deploy fails on it.
-        run: npx -y wrangler@4 deploy --keep-vars ${{ steps.target.outputs.flag }} ${{ env.TARGET == 'production' && '--var REQUIRE_ENCRYPTION:1' || '' }}
+        run: npx -y wrangler@4.149.0 deploy --keep-vars ${{ steps.target.outputs.flag }} ${{ env.TARGET == 'production' && '--var REQUIRE_ENCRYPTION:1' || '' }}
 
       - name: Verify
         if: ${{ !inputs.migrate_only }}

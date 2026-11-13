@@ -18,7 +18,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-WRANGLER=(npx -y wrangler@4)
+WRANGLER=(npx -y wrangler@4.149.0)
 BOLD=$(tput bold 2>/dev/null || true)
 DIM=$(tput dim 2>/dev/null || true)
 OFF=$(tput sgr0 2>/dev/null || true)
@@ -109,7 +109,7 @@ case "$web_url" in
   http://*|https://*) put APP_WEB_URL "$web_url" ;;
   *)
     echo "  APP_WEB_URL — NOT set: that is not a URL (it must start with https://)." >&2
-    echo "      npx -y wrangler@4 secret put APP_WEB_URL" >&2
+    echo "      npx -y wrangler@4.149.0 secret put APP_WEB_URL" >&2
     ;;
 esac
 

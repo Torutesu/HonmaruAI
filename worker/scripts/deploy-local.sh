@@ -16,7 +16,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-WRANGLER=(npx -y wrangler@4)
+WRANGLER=(npx -y wrangler@4.149.0)
 BOLD=$(tput bold 2>/dev/null || true)
 DIM=$(tput dim 2>/dev/null || true)
 OFF=$(tput sgr0 2>/dev/null || true)

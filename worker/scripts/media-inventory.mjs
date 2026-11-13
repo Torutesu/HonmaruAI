@@ -31,7 +31,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const PACK = join(here, "../../assets/emoji/shogunai");
 const DB = process.env.DB || "tiktokforwork";
 const BUCKET = process.env.BUCKET || "tiktokforwork-media";
-const [command, ...prefix] = (process.env.WRANGLER || "npx -y wrangler@4").split(" ");
+const [command, ...prefix] = (process.env.WRANGLER || "npx -y wrangler@4.149.0").split(" ");
 const restore = process.argv.includes("--restore");
 // The per-picture list names people (a profile photo's login can be an
 // email address) and workspaces. The repository is public, and so is a

@@ -12,7 +12,8 @@
 # An export holds the database for as long as it runs, so it runs at 03:17
 # JST, the quietest hour.
 #
-# Secrets: CLOUDFLARE_API_TOKEN (Workers, D1 and R2 edit), CLOUDFLARE_ACCOUNT_ID.
+# Secrets: CLOUDFLARE_API_TOKEN (Workers, D1 and R2 edit), CLOUDFLARE_ACCOUNT_ID,
+# BACKUP_ENCRYPTION_KEY (a long random passphrase, kept nowhere else in Cloudflare).
 name: Back up the database
 
 on:
@@ -55,22 +56,38 @@ jobs:
       # Made once; kept 35 days.
       - name: The backup bucket
         run: |
-          npx -y wrangler@4 r2 bucket create "$BUCKET" 2>&1 | tee /tmp/bucket.log || grep -qi "already exists" /tmp/bucket.log
-          npx -y wrangler@4 r2 bucket lifecycle add "$BUCKET" expire-backups d1/ --expire-days 35 --force 2>&1 | tee /tmp/lifecycle.log \
+          npx -y wrangler@4.149.0 r2 bucket create "$BUCKET" 2>&1 | tee /tmp/bucket.log || grep -qi "already exists" /tmp/bucket.log
+          npx -y wrangler@4.149.0 r2 bucket lifecycle add "$BUCKET" expire-backups d1/ --expire-days 35 --force 2>&1 | tee /tmp/lifecycle.log \
             || grep -qi "already exists\|duplicate" /tmp/lifecycle.log
 
       - name: Export
         run: |
-          npx -y wrangler@4 d1 export "$DB" --remote --output /tmp/backup.sql
+          npx -y wrangler@4.149.0 d1 export "$DB" --remote --output /tmp/backup.sql
           test -s /tmp/backup.sql
           gzip -9 /tmp/backup.sql
           echo "SIZE=$(stat -c %s /tmp/backup.sql.gz)" >> "$GITHUB_ENV"
 
+      # Sealed with a key the Cloudflare token cannot reach (#962): the same
+      # token deploys, reads the database and writes this bucket, so a
+      # backup readable with it alone is the database again for whoever
+      # holds it. BACKUP_ENCRYPTION_KEY is a repository secret of its own.
+      # Until it is set the copy is kept as before, with a warning, rather
+      # than not kept at all.
       - name: Keep it
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
         run: |
           key="d1/$DB/$(date -u +%Y-%m-%d).sql.gz"
-          npx -y wrangler@4 r2 object put "$BUCKET/$key" --file /tmp/backup.sql.gz --content-type application/gzip --remote
-          echo "Kept $key ($SIZE bytes)" >> "$GITHUB_STEP_SUMMARY"
+          file=/tmp/backup.sql.gz
+          type=application/gzip
+          if [ -n "$BACKUP_ENCRYPTION_KEY" ]; then
+            openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -in "$file" -out "$file.enc" -pass env:BACKUP_ENCRYPTION_KEY
+            key="$key.enc"; file="$file.enc"; type=application/octet-stream
+          else
+            echo "::warning::BACKUP_ENCRYPTION_KEY is not set: this backup is stored unencrypted."
+          fi
+          npx -y wrangler@4.149.0 r2 object put "$BUCKET/$key" --file "$file" --content-type "$type" --remote
+          echo "Kept $key" >> "$GITHUB_STEP_SUMMARY"
 
   drill:
     if: github.event.schedule == '41 19 3 * *' || inputs.drill
@@ -92,11 +109,17 @@ jobs:
           node-version: 20
 
       - name: The newest copy
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
         run: |
           for back in 0 1 2 3; do
-            key="d1/$DB/$(date -u -d "-$back day" +%Y-%m-%d).sql.gz"
-            if npx -y wrangler@4 r2 object get "$BUCKET/$key" --file /tmp/backup.sql.gz --remote; then
-              echo "KEY=$key" >> "$GITHUB_ENV"; break
+            day="d1/$DB/$(date -u -d "-$back day" +%Y-%m-%d).sql.gz"
+            if npx -y wrangler@4.149.0 r2 object get "$BUCKET/$day.enc" --file /tmp/backup.sql.gz.enc --remote 2>/dev/null; then
+              openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in /tmp/backup.sql.gz.enc -out /tmp/backup.sql.gz -pass env:BACKUP_ENCRYPTION_KEY
+              echo "KEY=$day.enc" >> "$GITHUB_ENV"; break
+            fi
+            if npx -y wrangler@4.149.0 r2 object get "$BUCKET/$day" --file /tmp/backup.sql.gz --remote 2>/dev/null; then
+              echo "KEY=$day" >> "$GITHUB_ENV"; break
             fi
           done
           test -s /tmp/backup.sql.gz || { echo "::error::No backup from the last four days."; exit 1; }
@@ -107,15 +130,15 @@ jobs:
       # (#959). A table the restore left empty fails the drill.
       - name: Restore into a scratch database, and check
         run: |
-          npx -y wrangler@4 d1 delete "$SCRATCH" -y >/dev/null 2>&1 || true
-          npx -y wrangler@4 d1 create "$SCRATCH"
-          npx -y wrangler@4 d1 execute "$SCRATCH" --remote --file /tmp/backup.sql --yes >/dev/null
+          npx -y wrangler@4.149.0 d1 delete "$SCRATCH" -y >/dev/null 2>&1 || true
+          npx -y wrangler@4.149.0 d1 create "$SCRATCH"
+          npx -y wrangler@4.149.0 d1 execute "$SCRATCH" --remote --file /tmp/backup.sql --yes >/dev/null
           for table in orgs memberships users cards channel_messages audit_events; do
-            some=$(npx -y wrangler@4 d1 execute "$SCRATCH" --remote --json --command "SELECT EXISTS(SELECT 1 FROM $table) AS some" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0].results[0].some))')
+            some=$(npx -y wrangler@4.149.0 d1 execute "$SCRATCH" --remote --json --command "SELECT EXISTS(SELECT 1 FROM $table) AS some" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0].results[0].some))')
             if [ "$some" = "1" ]; then echo "$table: restored" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::$table came back empty"; exit 1; fi
           done
           echo "Restored the copy of ${KEY##*/}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove the scratch database
         if: always()
-        run: npx -y wrangler@4 d1 delete "$SCRATCH" -y || true
+        run: npx -y wrangler@4.149.0 d1 delete "$SCRATCH" -y || true
