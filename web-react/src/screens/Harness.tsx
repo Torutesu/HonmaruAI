@@ -6,6 +6,7 @@ import {AppRecordDialog} from '../components/AppRecordDialog'
 import {AppRowDeleteConfirm} from '../components/AppRowDeleteConfirm'
 import { AppRowActions } from '../components/AppRowActions'
 import {AppDataMenu} from '../components/AppDataMenu'
+import {AppDataCell,relationOptionLabel,type RelationEntity} from '../components/AppDataCell'
 import {csvText, downloadCsv, downloadXlsx, serializeRowsToXlsx} from '../utils/csvExport'
 import {displayLayout, fitTableColumns, isSystemColumn, systemCellText, systemDateFormatter, nextColumnSort} from '../utils/systemColumns'
 import { ColumnResize } from '../components/ColumnResize'
@@ -31,13 +32,11 @@ import { Icon } from '../components/Icon'
 import { hashForApp, hashForAppSource, hashForCard, consumeAppDraftHash, appSectionHash, type AppSection } from '../utils/route'
 import {
   useWorkspaceMode, cellText, metricText, WANT_MODE_KEY, SET_MODE_EVENT, isMode, HarnessApiError, type WorkspaceMode,
-  type App, type AppAnnotation, type AppAnnotationMeta, type Template, type Table, type Row, type View, type Column, type HarnessApi, type AppEntity,
+  type App, type AppAnnotation, type AppAnnotationMeta, type Template, type Table, type Row, type View, type Column, type HarnessApi,
 } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps, type HarnessScreen } from './HarnessShared'
 import { ModePicker } from './HarnessHome'
-import { composing, enterKey } from '../utils/keys'
-import {numberPreservesDecimal} from '../utils/numericPrecision'
-import {instantFromLocalDateTime,localDateTimeInZone} from '../utils/zonedDateTime'
+import { composing } from '../utils/keys'
 
 export const newAppRecordLabel = (appName: string, tableName: string, titleColumnName = '') => {
   if (tableName && tableName !== appName) return `新規${tableName}`
@@ -327,74 +326,6 @@ export function HarnessTemplateImport({ httpBase, orgId, sessionToken, onClose, 
       </>}
     </>}
   </Shell>
-}
-
-type RelationEntity = AppEntity & { rows: Row[] }
-function relationOptionLabel(entity: RelationEntity, row: Row) {
-  const title = entity.table.columns[0]
-  return title ? cellText(title, row.values[title.id]) || row.id : row.id
-}
-
-function NumericCellInput({column,value,draft,setDraft,onSave}:{column:Column;value:unknown;draft:string;setDraft:React.Dispatch<React.SetStateAction<string>>;onSave:(value:unknown)=>void}) {
-  const t=useT(),numberErrorId=React.useId()
-  const [numberError,setNumberError]=useState<'precision'|'incomplete'|null>(null)
-  const incomplete=useRef(false)
-  useEffect(()=>{incomplete.current=false;setNumberError(null)},[value])
-  return <>
-    <input className="hx-cell-input" type="number" value={draft}
-      aria-invalid={numberError?true:undefined} aria-describedby={numberError?numberErrorId:undefined}
-      onInput={e=>{incomplete.current=e.currentTarget.validity.badInput;if(!incomplete.current)setNumberError(null)}}
-      onChange={e=>{setDraft(e.target.value);if(!e.target.validity?.badInput)setNumberError(null)}}
-      onBlur={e=>{
-        if(e.currentTarget.validity.badInput||incomplete.current){incomplete.current=true;setNumberError('incomplete');return}
-        if(draft===(value==null?'':String(value)))return
-        if(draft!==''&&!numberPreservesDecimal(draft)){setNumberError('precision');return}
-        setNumberError(null);onSave(draft)
-      }}
-      onKeyDown={e=>{if(enterKey(e))(e.target as HTMLInputElement).blur()}} aria-label={column.name}/>
-    {numberError&&<div id={numberErrorId} className="form-error" role="alert">{numberError==='incomplete'?t('Enter a complete number before leaving this field.'):t('The value for {field} cannot be saved without changing the number. Check the input.',{field:column.name})}</div>}
-  </>
-}
-
-function CellInput({ column, value, onSave, wrap = false, width, members=[], relationEntities=[] }: { column: Column; value: unknown; onSave: (v: unknown) => void; wrap?:boolean; width?:number;members?:Array<{ref:string;name:string}>;relationEntities?:RelationEntity[] }) {
-  const timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'
-  const asText=(next:unknown)=>column.type==='datetime'&&typeof next==='string'?localDateTimeInZone(next,timeZone):next==null?'':String(next)
-  const [draft, setDraft] = useState<string>(()=>asText(value))
-  useEffect(() => { setDraft(asText(value)) }, [value,column.type])
-  const textArea=useRef<HTMLTextAreaElement>(null)
-  useEffect(()=>{if(textArea.current){textArea.current.style.height='auto';textArea.current.style.height=`${textArea.current.scrollHeight}px`}},[draft,wrap,width])
-  if(column.type==='number') return <NumericCellInput column={column} value={value} draft={draft} setDraft={setDraft} onSave={onSave}/>
-  if(column.type==='relation') {
-    const entity=relationEntities.find(item=>item.key===column.targetEntity)
-    const selectedIds=Array.isArray(value)?value.map(String):[]
-    const selectedId=value==null||Array.isArray(value)?'':String(value)
-    const known=new Set(entity?.rows.map(row=>row.id)||[])
-    const missing=column.multiple?selectedIds.filter(id=>!known.has(id)):selectedId&&!known.has(selectedId)?[selectedId]:[]
-    return <select className="hx-cell-select" aria-label={column.name} multiple={column.multiple||undefined} value={column.multiple?selectedIds:selectedId} onChange={e=>onSave(column.multiple?Array.from(e.currentTarget.selectedOptions,option=>option.value):e.target.value||null)}>
-      {!column.multiple&&<option value="">—</option>}
-      {missing.map(id=><option key={id} value={id}>{id}（未取得）</option>)}
-      {(entity?.rows||[]).map(row=><option key={row.id} value={row.id}>{relationOptionLabel(entity!,row)}</option>)}
-    </select>
-  }
-  if(column.type==='person'&&members.length) return <select className="hx-cell-select" aria-label={column.name} value={String(value??'')} onChange={e=>onSave(e.target.value||null)}><option value="">—</option>{value&&!members.some(m=>m.ref===String(value))?<option value={String(value)}>{String(value)}</option>:null}{members.map(m=><option key={m.ref} value={m.ref}>{m.name}</option>)}</select>
-  if(wrap&&['text','person'].includes(column.type)) return <textarea ref={textArea} className="hx-cell-input hx-wrapped-input" rows={1} value={draft} onChange={e=>setDraft(e.target.value)} onBlur={()=>{if(draft!==(value==null?'':String(value)))onSave(draft)}} aria-label={column.name}/>
-  if (column.type === 'checkbox') {
-    return <input type="checkbox" checked={Boolean(value)} onChange={(e) => onSave(e.target.checked)} aria-label={column.name} />
-  }
-  if (column.type === 'select') {
-    return (
-      <select className="hx-cell-select" value={value == null ? '' : String(value)} onChange={(e) => onSave(e.target.value || null)} aria-label={column.name}>
-        <option value="">—</option>
-        {(column.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    )
-  }
-  const type = column.type === 'date' ? 'date' : column.type === 'datetime' ? 'datetime-local' : column.type === 'email' ? 'email' : column.type === 'url' ? 'url' : 'text'
-  return <input className="hx-cell-input" type={type} value={draft} onChange={e=>setDraft(e.target.value)}
-    step={column.type==='datetime'?1:undefined}
-    onBlur={()=>{if(draft!==asText(value))onSave(column.type==='datetime'?instantFromLocalDateTime(draft,timeZone):draft)}}
-    onKeyDown={e=>{if(enterKey(e))(e.target as HTMLInputElement).blur()}} aria-label={column.name}/>
-
 }
 
 export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; onBack: () => void; initialConversation?: {tableId?:string;rowId?:string}; openConversation?:boolean; floating?:boolean; floatingCompact?:boolean; onSectionChange?:(section:AppSection)=>void; initialSection?:AppSection; initialDraft?:string }> = ({ api, appId, onBack, onClose, httpBase, orgId, sessionToken, initialConversation, openConversation, initialSection, initialDraft, floating=false, floatingCompact=false, onSectionChange }) => {
@@ -761,7 +692,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
                     {table.columns.slice(1, 4).filter((c) => c.id !== view.groupBy && row.values[c.id] != null).map((c) => (
                       <div className="hx-card-field" key={c.id}><span>{c.name}</span> {displayCellText(c, row.values[c.id])}</div>
                     ))}
-                    {groupCol && <CellInput relationEntities={relationEntities} column={groupCol} value={row.values[groupCol.id]} onSave={(v) => save(row, groupCol, v)} />}
+                    {groupCol && <AppDataCell column={groupCol} value={row.values[groupCol.id]} displayValue={displayCellText(groupCol,row.values[groupCol.id])} relationEntities={relationEntities} onSave={v=>save(row,groupCol,v)}/>}
                   </div>
                 )
               })}
@@ -785,7 +716,7 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
               {group.rows.map((row) => (
                 <tr key={row.id} data-row={row.id}>
                   {displayColumns.map((c,i) => (
-                    <td key={c.id}>{isSystemColumn(c.id)?<span className="hx-system-cell" title={c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt}>{systemCellText(row,c.id)}</span>:<CellInput relationEntities={relationEntities} members={recordMembers} width={tableSizing.widths[c.id]} wrap={layout.wrapText===true} column={c} value={row.values[c.id]} onSave={(v) => save(row, c, v)} />}{i===displayColumns.length-1&&<AppRowActions label={displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'} actionsLabel={t('Actions')} openLabel={`${displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'}の詳細を開く`} deleteLabel={t('Delete row')} onOpen={()=>setEditingRecord(row)} onDelete={()=>setDeletingRecord({api,appId,tableId:table.id,id:row.id,updatedAt:row.updatedAt,label:displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'})} deleteDisabled={busy===`del:${row.id}`}/>}</td>
+                    <td key={c.id}><AppDataCell column={c} value={row.values[c.id]} displayValue={isSystemColumn(c.id)?systemCellText(row,c.id):displayCellText(c,row.values[c.id])} title={isSystemColumn(c.id)?c.id==='$row.id'?row.id:c.id==='$row.createdAt'?row.createdAt:row.updatedAt:undefined} editable={!isSystemColumn(c.id)} relationEntities={relationEntities} members={recordMembers} width={tableSizing.widths[c.id]} wrap={layout.wrapText===true} onSave={v=>save(row,c,v)}/>{i===displayColumns.length-1&&<AppRowActions label={displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'} actionsLabel={t('Actions')} openLabel={`${displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'}の詳細を開く`} deleteLabel={t('Delete row')} onOpen={()=>setEditingRecord(row)} onDelete={()=>setDeletingRecord({api,appId,tableId:table.id,id:row.id,updatedAt:row.updatedAt,label:displayCellText(table.columns[0],row.values[table.columns[0].id])||'無題'})} deleteDisabled={busy===`del:${row.id}`}/>}</td>
                   ))}
 
                 </tr>

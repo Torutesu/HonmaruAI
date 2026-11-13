@@ -1110,8 +1110,11 @@ test('private follow-ups are hidden in lists and home and cannot be cancelled by
 
 test('run history retains its original room restrictions after the workflow is edited', async () => {
   const { createWorkflow, startRun, updateWorkflow, getRun } = await import('../src/harness/workflows.js');
-  const { workflow } = await createWorkflow(env.DB, ORG, { name: 'Private output', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Private result' }] }, '9302');
-  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual' });
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: 'Private output', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Private result for {{input.customer}}' }] }, '9302');
+  const run = await startRun(env, { orgId: ORG, workflow, trigger: 'manual', input: { customer: 'PRIVATE-CANARY' } });
+  expect(run.log[0].inputPreview).toMatchObject({ mode: 'template', input: { text: 'Private result for {{input.customer}}' } });
+  expect(JSON.stringify(run.log[0].inputPreview)).not.toContain('PRIVATE-CANARY');
+  expect((await getRun(env.DB, ORG, run.id, { viewerId: '9302' })).log[0].inputPreview).toEqual(run.log[0].inputPreview);
   await env.DB.prepare("UPDATE businesses SET private = 1 WHERE org_id = ?1 AND slug = 'ops'").bind(ORG).run();
   expect((await get(`/workflows/${workflow.id}?${q({ orgId: ORG })}`, toru)).status).toBe(404);
   await updateWorkflow(env.DB, ORG, workflow.id, { steps: [{ type: 'approval', to: 'toru', title: 'Public' }] });

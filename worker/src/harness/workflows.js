@@ -23,6 +23,7 @@ import { claimWorkflowNode, finishWorkflowNode, markWorkflowNodeUnknown, renewWo
 import { prepareWorkflowRowEvent, drainWorkflowRowEvents } from './workflowRowEventDispatch.js';
 import { rowEventFingerprint } from './workflowRowEventFingerprint.js';
 import { workflowProgramSources } from './workflowProgramSources.js';
+import { workflowStepInputPreview, workflowPreviewBytes, publicWorkflowInputPreview, MAX_RUN_PREVIEW_BYTES } from './workflowInputPreview.js';
 // Workflows (docs/kylon-gap-plan.md): a saved piece of work with a trigger
 // and steps, and every run kept where anyone can read what it did.
 //
@@ -372,8 +373,9 @@ const publicRun = (r, revisions) => {
   input: parse(r.input, null), log: parse(r.log, []).map(entry => {
     if (!entry || typeof entry !== 'object') return entry;
     const authorization = publicWorkflowAuthorizationEvents(entry.authorization);
-    const { authorization: _discarded, ...safeEntry } = entry;
-    return authorization.length ? { ...safeEntry, authorization } : safeEntry;
+    const { authorization: _discarded, inputPreview: _discardedPreview, ...safeEntry } = entry;
+    const inputPreview = publicWorkflowInputPreview(entry.inputPreview);
+    return { ...safeEntry, ...(inputPreview ? { inputPreview } : {}), ...(authorization.length ? { authorization } : {}) };
   }), nextStep: r.next_step, cardId: r.card_id,
   startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
   };
@@ -1172,6 +1174,8 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
   let index = run.nextStep;
   for (; index < workflow.steps.length; index += 1) {
     const step = workflow.steps[index];
+    const retainedPreviewBytes = workflowPreviewBytes(log.filter((_, logIndex) => logIndex !== index));
+    const inputPreview = workflowStepInputPreview(step, Math.max(0, MAX_RUN_PREVIEW_BYTES - retainedPreviewBytes));
     const startedAt = log[index]?.startedAt || now();
     const operationId = log[index]?.operationId || `workflow:${runId}:step:${index + 1}`;
     const authorizationTrace = createWorkflowAuthorizationTrace(workflow.createdBy);
@@ -1239,6 +1243,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
     }
     const finishedAt = entry.status === 'pending' ? null : now();
     entry = { step: index + 1, type: step.type, operationId, startedAt,
+      ...(inputPreview ? { inputPreview } : {}),
       ...(finishedAt ? { finishedAt, durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)) } : {}),
       at: finishedAt || now(), ...entry,
       ...(authorizationTrace.events.length ? { authorization: authorizationTrace.events } : {}) };
