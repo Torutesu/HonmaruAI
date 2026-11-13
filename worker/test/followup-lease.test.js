@@ -55,7 +55,10 @@ test('the default list shows running follow-ups and only a stale one can be canc
  await followup('fu_live',{status:'running',claimedAt:fresh});
  await followup('fu_stuck',{status:'running',claimedAt:stale});
  await followup('fu_later',{dueAt:new Date(Date.now()+60*MINUTE).toISOString()});
- expect((await listFollowups(env.DB,ORG,{viewerId:OWNER})).map(f=>f.id).sort()).toEqual(['fu_later','fu_live','fu_stuck']);
+ const listed=await listFollowups(env.DB,ORG,{viewerId:OWNER});
+ expect(listed.map(f=>f.id).sort()).toEqual(['fu_later','fu_live','fu_stuck']);
+ // The web client offers cancel from this claim time.
+ expect(listed.find(f=>f.id==='fu_stuck').claimedAt).toBe(stale);
  expect((await cancelFollowup(env.DB,ORG,'fu_live')).status).toBe(409);
  expect((await row('fu_live')).status).toBe('running');
  expect(await cancelFollowup(env.DB,ORG,'fu_stuck')).toEqual({cancelled:true});

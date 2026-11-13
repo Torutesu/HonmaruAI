@@ -49,6 +49,8 @@ const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}
 const pub = (r) => r && ({
   id: r.id, channel: r.channel, threadId: r.thread_id, agentId: r.agent_id, instruction: r.instruction,
   dueAt: r.due_at, status: r.status, createdBy: r.created_by, createdAt: r.created_at, doneAt: r.done_at, result: r.result,
+  // Lets a client offer cancel only once a running claim has passed its lease.
+  claimedAt: r.claimed_at ?? null,
 });
 
 async function validThread(db, orgId, channel, threadId) {

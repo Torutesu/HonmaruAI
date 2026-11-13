@@ -2181,6 +2181,10 @@ const table: Record<string, string> = {
   'this workspace': 'este espacio',
   'Accept this invitation?': '¿Aceptar esta invitación?',
   'Someone outside your workspace shared a Thread, App or File with you. Accepting gives you guest access to it and shows the workspace that shared it your name and account.': 'Alguien de fuera de tu espacio compartió contigo un hilo, una app o un archivo. Al aceptar obtienes acceso como invitado y el espacio que lo compartió verá tu nombre y tu cuenta.',
+  'This follow-up is still running. Try again if it has not finished within 30 minutes.': 'Este seguimiento sigue en ejecución. Vuelve a intentarlo si no ha terminado en 30 minutos.',
+  'Cancel this run? It is waiting for approval. Its approval card will close and no later step will run.': '¿Cancelar esta ejecución? Está esperando aprobación. Su tarjeta de aprobación se cerrará y no se ejecutará ningún paso posterior.',
+  'This run changed before it could be cancelled. Its current status is shown below.': 'Esta ejecución cambió antes de poder cancelarla. Su estado actual se muestra abajo.',
+  'Keep waiting': 'Seguir esperando',
 }
 
 export default table

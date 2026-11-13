@@ -3818,6 +3818,10 @@ const table: Record<string, string> = {
   'this workspace': 'このワークスペース',
   'Accept this invitation?': 'この招待を受けますか？',
   'Someone outside your workspace shared a Thread, App or File with you. Accepting gives you guest access to it and shows the workspace that shared it your name and account.': 'ワークスペース外の誰かがスレッド、アプリ、またはファイルをあなたと共有しました。受けるとゲストとしてアクセスでき、共有したワークスペースにあなたの名前とアカウントが表示されます。',
+  'This follow-up is still running. Try again if it has not finished within 30 minutes.': 'このフォローアップはまだ実行中です。30分たっても終わらない場合は、もう一度お試しください。',
+  'Cancel this run? It is waiting for approval. Its approval card will close and no later step will run.': 'この実行をキャンセルしますか？承認待ちです。承認カードは閉じられ、以降のステップは実行されません。',
+  'This run changed before it could be cancelled. Its current status is shown below.': 'キャンセルする前にこの実行の状態が変わりました。現在の状態を下に表示しています。',
+  'Keep waiting': '待機を続ける',
 }
 
 export default table

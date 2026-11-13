@@ -66,6 +66,16 @@ describe('a language chosen before its table is here', () => {
       }
     } finally { changeLocale('en') }
   })
+
+  it('translates cancelling waiting workflow runs and stuck follow-ups', async () => {
+    const messages=['This follow-up is still running. Try again if it has not finished within 30 minutes.','Cancel this run? It is waiting for approval. Its approval card will close and no later step will run.','This run changed before it could be cancelled. Its current status is shown below.','Keep waiting']
+    try {
+      for (const code of ['ja','es','fr','de']) {
+        changeLocale(code); await localeReady()
+        for(const message of messages) expect(t(message),code).not.toBe(message)
+      }
+    } finally { changeLocale('en') }
+  })
 })
 
 // A hint that names a key is given the key as this keyboard prints it; a ⌘
