@@ -769,14 +769,14 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       <div className="rows">
         {confirmDelete ? (
           <div className="row static">
-            <span className="row-main">{t('Delete this app and all its rows?')}</span>
+            <span className="row-main">{t('Remove this app? Its data stays in this workspace. Public links are revoked and automations stop.')}</span>
             <span className="team-confirm">
-              <button className="pill-btn" onClick={() => act('delete', async () => { await api.deleteApp(app.id); onBack() })}>{t('Delete')}</button>
+              <button className="pill-btn" onClick={() => act('delete', async () => { await api.deleteApp(app.id); onBack() })}>{t('Remove')}</button>
               <button className="btn-text" onClick={() => setConfirmDelete(false)}>{t('Keep')}</button>
             </span>
           </div>
         ) : (
-          <button className="row" onClick={() => setConfirmDelete(true)}><span className="row-main hx-danger">{t('Delete app')}</span></button>
+          <button className="row" onClick={() => setConfirmDelete(true)}><span className="row-main hx-danger">{t('Remove app')}</span></button>
         )}
       </div>
       </>}

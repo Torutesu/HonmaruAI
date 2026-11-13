@@ -583,3 +583,6 @@ CREATE INDEX IF NOT EXISTS idx_teammate_runs_checked ON ai_teammate_runs(status,
 
 -- #948: when the cron claimed a follow-up, so an interrupted run is settled after its lease.
 ALTER TABLE hx_followups ADD COLUMN claimed_at TEXT;
+
+-- Archived apps keep their tables and records for the lifetime of the workspace.
+ALTER TABLE hx_apps ADD COLUMN deleted_at TEXT;

@@ -5,7 +5,7 @@ import { readableConversation, mayUseConversation } from './conversationAccess.j
 export async function appAccess(db, orgId, appId) {
   const row = await db.prepare(`SELECT a.created_by, p.visibility, p.version, p.room_channel FROM hx_apps a
     LEFT JOIN hx_app_access p ON p.org_id = a.org_id AND p.app_id = a.id
-    WHERE a.org_id = ?1 AND a.id = ?2`).bind(orgId, appId).first();
+    WHERE a.org_id = ?1 AND a.id = ?2 AND a.deleted_at IS NULL`).bind(orgId, appId).first();
   return row ? { ownerId: row.created_by, visibility: row.room_channel ? 'room' : (row.visibility || 'workspace'), roomChannel: row.room_channel || null, version: row.version || 0 } : null;
 }
 
@@ -32,7 +32,7 @@ async function appPermission(db, orgId, appId, userId) {
     JOIN memberships m ON m.org_id=app.org_id AND m.user_github_id=?3
     LEFT JOIN hx_app_access a ON a.org_id=app.org_id AND a.app_id=app.id
     LEFT JOIN hx_app_person_access p ON p.org_id=app.org_id AND p.app_id=app.id AND p.user_github_id=?3
-    WHERE app.org_id=?1 AND app.id=?2 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'`)
+    WHERE app.org_id=?1 AND app.id=?2 AND app.deleted_at IS NULL AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'`)
     .bind(orgId, appId, String(userId)).first();
   if (!row) return 'none';
   if (row.ownerId === String(userId)) return 'edit';
@@ -97,7 +97,7 @@ export async function mayReadAppRows(db, orgId, appId, tableId, userId) {
     JOIN memberships m ON m.org_id=target.org_id AND m.user_github_id=?4
     LEFT JOIN hx_app_access policy ON policy.org_id=target.org_id AND policy.app_id=target.id
     LEFT JOIN hx_app_person_access personal ON personal.org_id=target.org_id AND personal.app_id=target.id AND personal.user_github_id=?4
-    WHERE target.org_id=?1 AND target.id=?2 AND target.table_id=?3
+    WHERE target.org_id=?1 AND target.id=?2 AND target.deleted_at IS NULL AND target.table_id=?3
       AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?1)

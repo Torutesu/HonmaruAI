@@ -686,7 +686,11 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "ルーム移動時に会話ACLを再確認し削除時DB保持方針を明示"
+      "acceptance": "ルーム移動時に会話ACLを再確認し、削除操作ではDB保持方針を明示して、一覧から隠しながらWorkspace存続中はデータを保持する。自動化停止・公開リンク失効・アクセス遮断を一貫させる。Kylon実画面と復元UXは確認する。",
+      "evidence": {
+        "verified": "App削除をsoft-deleteへ変更。テーブル・レコード・Appバージョンを保持し、通常のApp取得/一覧とApp ACLから除外。Room linkと公開共有を外し、管理ワークフローを停止。Worker App suite 168/168、Web 266 files / 2,005 tests。",
+        "remaining": "アーカイブ済みAppの復元UI/管理一覧、移動時の実機ACL確認、Kylonとの差分、最新差分の本番反映とCI。"
+      }
     },
     {
       "id": "KY-056",
@@ -929,7 +933,7 @@
         "auditDate": "2026-10-25",
         "verified": "Pinned no-network container converts Markdown/HTML to PDF/DOCX. Local UI-to-node-to-Worker-to-versioned-storage-to-download verified for Japanese PDF and DOCX with matching stored/downloaded SHA256; PDF preview, Japanese text, table and link checked. Authorized admission/lease/receipt/origin/audit/lifecycle tests and reload restoration passed. Light/dark dialog inspected. Installed runtime dependency regression and 32 gateway tests passed.",
         "release": "Worker b2eabf7ccd4a7bfd40a6842bfb2895d9c19a4adb deployed successfully (Worker run 40201627974); Web de2aca6122b1b559ff284a2a39d9c4acdf283b43 deployed successfully (Web run 40202969923). Exact candidate CI 40202969910 passed all required jobs.",
-        "remaining": "Production personal-agent natural-language Markdown-to-PDF conversion succeeded using the existing Mac mini node; status succeeded, artifact link opened, v1 preview rendered the exact synthetic source text, and the node was online at verification. The current local batch also adds a version-pinned Markdown/HTML preview action that sends the inspected text to an explicitly selected local node and saves a PDF/DOCX artifact; Web tests and build pass. Still partial: exact-head CI/release, production UI roundtrip for exports from existing files, production DOCX and HTML input/output round trips, mobile/narrow viewport, populated Kylon output/UI comparison, resource-handling fidelity, restart/reboot recovery, and broad conversion acceptance. Simple file upload/download is separate from format conversion.",
+        "remaining": "Production personal-agent natural-language Markdown-to-PDF conversion succeeded using the existing Mac mini node; status succeeded, artifact link opened, v1 preview rendered the exact synthetic source text, and the node was online at verification. PR #971 adds a version-pinned Markdown/HTML preview action that sends the inspected text to an explicitly selected local node and saves a PDF/DOCX artifact; exact-head CI, merge, Pages deployment and production asset verification succeeded. Still partial: authenticated production UI roundtrip from an existing file, production DOCX and HTML input/output round trips, mobile/narrow viewport, populated Kylon output/UI comparison, resource-handling fidelity, restart/reboot recovery, and broad conversion acceptance. Simple file upload/download is separate from format conversion.",
         "evidenceFile": "docs/kylon-parity/verification.md"
       }
     },
