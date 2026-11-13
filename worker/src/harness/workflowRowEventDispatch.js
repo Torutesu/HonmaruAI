@@ -5,7 +5,12 @@ const LEASE_MS = 60_000;
 const MAX_BACKOFF_MS = 60 * 60_000;
 const DONE_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
-export async function prepareWorkflowRowEvent(db, {orgId,table,before=null,row,by,depth=0,at=Date.now()}) {
+// `afterRowChange` makes the event conditional on the statement placed just
+// before it in the same batch having changed a row. A guarded write that is
+// rejected (stale version, schema, relation or access) then commits no event,
+// so no Workflow starts on values that were never stored. Callers that put
+// another statement between the write and the event keep their own fence.
+export async function prepareWorkflowRowEvent(db, {orgId,table,before=null,row,by,depth=0,at=Date.now()}, {afterRowChange=false}={}) {
   if (!orgId || !table?.id || !(row?.id || before?.id) || !Number.isSafeInteger(depth) || depth < 0) {
     throw new Error('Invalid Workflow row event.');
   }
@@ -21,7 +26,7 @@ export async function prepareWorkflowRowEvent(db, {orgId,table,before=null,row,b
     id,
     eventHash,
     statement: db.prepare(`INSERT INTO hx_workflow_row_event_outbox(id,org_id,table_id,event_hash,payload,status,attempts,next_attempt,lease_until,created_at)
-      VALUES(?1,?2,?3,?4,?5,'pending',0,?6,0,?6)`)
+      SELECT ?1,?2,?3,?4,?5,'pending',0,?6,0,?6${afterRowChange?' WHERE changes()>0':''}`)
       .bind(id,orgId,table.id,eventHash,payload,at),
   };
 }
@@ -31,7 +36,7 @@ export async function prepareWorkflowRowEvent(db, {orgId,table,before=null,row,b
 // nobody watches; a matching enabled row/App-entity trigger makes the outbox
 // statement part of the row mutation batch, so a full queue cannot silently
 // commit the business write without its event.
-export async function prepareWorkflowRowEventIfWatched(db, change) {
+export async function prepareWorkflowRowEventIfWatched(db, change, options) {
   const {orgId,table}=change||{};
   if(!orgId||!table?.id)return null;
   const watcher=await db.prepare(`SELECT 1 AS watched FROM hx_workflows w
@@ -42,7 +47,7 @@ export async function prepareWorkflowRowEventIfWatched(db, change) {
         OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=w.org_id AND e.app_id=json_extract(w.trigger,'$.appId')
           AND e.entity_key=json_extract(w.trigger,'$.entityId') AND e.table_id=?2)))) LIMIT 1`)
     .bind(orgId,table.id).first();
-  return watcher?prepareWorkflowRowEvent(db,change):null;
+  return watcher?prepareWorkflowRowEvent(db,change,options):null;
 }
 
 async function deliverWorkflowRowEvent(env,payload) {

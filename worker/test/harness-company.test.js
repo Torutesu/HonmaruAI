@@ -504,6 +504,29 @@ test('transaction-time guard prevents partial merge when production changes afte
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows').first()).n).toBe(3);
 });
 
+test('a merge rejected at transaction time queues no workflow events; an accepted one queues one per row',async()=>{
+ const {mergeFork}=await import('../src/harness/appMerge.js');
+ await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now') ON CONFLICT(org_id) DO UPDATE SET mode='harness',updated_at='now'").bind(orgId).run();
+ expect((await call('/workflows',owner,{name:'Watch merged records',enabled:true,trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['insert']},steps:[{type:'update_row',values:{task:'Handled'}}]})).status).toBe(201);
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'create',values:{task:'Draft one'}});
+ await run('database',{action:'fork_write',forkId:fork.id,revision:2,entity:'primary',operation:'create',values:{task:'Draft two'}});
+ const req={forkId:fork.id,revision:3},review=await (await run('database',{action:'merge_preview',...req})).json();
+ const outbox=async()=>(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox WHERE org_id=?1').bind(orgId).first()).n;
+ let raced=false;
+ const racing={prepare:sql=>env.DB.prepare(sql),batch:async statements=>{
+   if(!raced){raced=true;await env.DB.prepare('INSERT INTO hx_rows (id,table_id,org_id,data,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?)').bind('concurrent',app.tableId,orgId,'{"task":"Live"}','1','now','now').run();}
+   return env.DB.batch(statements);
+ }};
+ expect((await mergeFork(racing,orgId,app,'1',{...req,checksum:review.checksum})).status).toBe(409);
+ expect(await outbox()).toBe(0);
+ const fresh=await (await run('database',{action:'merge_preview',...req})).json();
+ const applied=await mergeFork(env.DB,orgId,app,'1',{...req,checksum:fresh.checksum});
+ expect(applied.merged).toBe(true);
+ expect(applied.changedRecords.every(record=>record.rowEventId)).toBe(true);
+ expect(await outbox()).toBe(2);
+});
+
 
 test('display preference compare-and-set rejects an older request that reaches the database after revision 3',async()=>{
  const get=await call('/orgs/mode',owner);

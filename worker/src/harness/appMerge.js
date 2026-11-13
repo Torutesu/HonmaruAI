@@ -139,7 +139,9 @@ export async function mergeFork(db,orgId,app,by,input) {
     if(table) {
       const before=c.operation==='create'?null:{id:c.id,tableId:c.tableId,values:c.before||{},updatedAt:originalRows.get(`${c.tableId}:${c.id}`)?.updatedAt||null};
       const row=c.operation==='remove'?null:{id:c.id,tableId:c.tableId,values:c.after||{},updatedBy:String(by),updatedAt:at};
-      const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row,by:String(by)});
+      // The event directly follows its row statement, which is fenced by the
+      // receipt, so a merge rejected at commit time queues no event.
+      const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row,by:String(by)},{afterRowChange:true});
       if(event){statements.push(event.statement);queuedEvents.set(`${c.tableId}:${c.id}`,event.id);}
     }
   }
