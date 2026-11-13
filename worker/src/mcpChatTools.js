@@ -173,6 +173,7 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
   if (name === 'list_room_members' || name === 'add_room_members' || name === 'remove_room_members' || name === 'add_room_agent' || name === 'remove_room_agent') {
     const context = await resolveMcpConversation(env, actor, args.conversationId);
     if (!context.resolved.key.startsWith('b:')) throw new McpInputError('Room member operations require a Room.');
+    if ((name === 'add_room_agent' || name === 'remove_room_agent') && await getMode(env.DB, actor.orgId).catch(() => 'simple') !== 'harness') throw new McpInputError('Room Agent assignments are available in Harness mode.');
     const channel = context.resolved.key;
     const state = await roomRoleState(env.DB, actor.orgId, channel);
     if (!state) throw new McpInputError('No accessible active Room.');

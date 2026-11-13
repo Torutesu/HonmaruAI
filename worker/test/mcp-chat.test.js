@@ -203,6 +203,9 @@ test('MCP Room Agent assignment is separate from human and Agent access grants',
   await expect(call('remove_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent' }, member)).rejects.toThrow('Only a room admin can remove Agents.');
   expect(await call('remove_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent' }))
     .toMatchObject({ agentId: 'mcp-room-agent', removed: true, version: 3 });
+  await setMode(env.DB, orgId, 'simple', actor.githubId);
+  await expect(call('add_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent' }))
+    .rejects.toThrow('Room Agent assignments are available in Harness mode.');
 });
 
 test('public grant cannot discover, search, or guess private and DM messages', async () => {
