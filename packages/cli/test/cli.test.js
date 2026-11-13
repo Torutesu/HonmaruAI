@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -55,6 +55,8 @@ test("skill aliases map reads and assignment changes to the scoped MCP tools", a
     calls.push(req.params);
     const structuredContent = req.params.name === "list_skills"
       ? { skills: [{ id: "skill_1", name: "Release", visibility: "workspace" }] }
+      : req.params.name === "list_shareable_skills"
+        ? { agentId: "agent_1", skills: [{ id: "skill_1", name: "Release" }] }
       : req.params.name === "assign_skill_to_agent"
         ? { agentId: "agent_1", skillId: "skill_1", assigned: true }
         : { agentId: "agent_1", skillId: "skill_1", removed: true };
@@ -67,6 +69,12 @@ test("skill aliases map reads and assignment changes to the scoped MCP tools", a
   assert.equal(await run(["workspace", "skill", "list"]), 0);
   assert.match(stdout.read(), /^skill_1\tRelease\tworkspace/);
   stdout.clear();
+  assert.equal(await run(["workspace", "skill", "list", "--owner", "9401", "--published-only"]), 0);
+  assert.deepEqual(calls[1], { name: "list_skills", arguments: { ownerId: "9401", publishedOnly: true } });
+  stdout.clear();
+  assert.equal(await run(["workspace", "skill", "shareable", "--agent", "agent_1"]), 0);
+  assert.match(stdout.read(), /^skill_1\tRelease/);
+  stdout.clear();
   assert.equal(await run(["workspace", "skill", "agent", "add", "agent_1", "skill_1"]), 0);
   assert.match(stdout.read(), /Assigned Skill skill_1 to Agent agent_1/);
   stdout.clear();
@@ -74,10 +82,54 @@ test("skill aliases map reads and assignment changes to the scoped MCP tools", a
   assert.match(stdout.read(), /Removed Skill skill_1 from Agent agent_1/);
   assert.deepEqual(calls, [
     { name: "list_skills", arguments: {} },
+    { name: "list_skills", arguments: { ownerId: "9401", publishedOnly: true } },
+    { name: "list_shareable_skills", arguments: { agentId: "agent_1" } },
     { name: "assign_skill_to_agent", arguments: { agentId: "agent_1", skillId: "skill_1" } },
     { name: "remove_skill_from_agent", arguments: { agentId: "agent_1", skillId: "skill_1" } },
   ]);
   assert.equal(stderr.read(), "");
+});
+
+test("skill package aliases read SKILL.md and support files, use private defaults, and fence stale updates", async () => {
+  const root = await mkdtemp(join(tmpdir(), "honmaru-cli-skill-"));
+  const source = join(root, "release-skill");
+  await mkdir(join(source, "references"), { recursive: true });
+  await writeFile(join(source, "SKILL.md"), "---\nname: Release\ndescription: Ship safely\nmetadata:\n  team: platform\n---\n\nCheck the deployment.", "utf8");
+  await writeFile(join(source, "references", "checklist.md"), "Before release", "utf8");
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    const previous = new Date("2026-11-01T00:00:00.000Z");
+    const skill = req.params.name === "create_skill"
+      ? { id: "skill_1", name: "Release", visibility: req.params.arguments.visibility, updatedAt: previous.toISOString() }
+      : { id: "skill_1", name: "Release v2", visibility: "private", updatedAt: "2026-11-02T00:00:00.000Z" };
+    const error = req.params.name === "update_skill" && req.params.arguments.expectedUpdatedAt !== previous.toISOString();
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: error
+      ? { isError: true, content: [{ type: "text", text: "Skill changed. Reload it before updating." }] }
+      : { structuredContent: { skill } } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  try {
+    assert.equal(await run(["workspace", "skill", "create", "--from", source]), 0);
+    assert.match(stdout.read(), /Created private Skill skill_1/);
+    stdout.clear();
+    assert.equal(await run(["workspace", "skill", "update", "skill_1", "--from", source, "--expected-updated-at", "2026-11-01T00:00:00.000Z"]), 0);
+    assert.match(stdout.read(), /Updated Skill skill_1/);
+    const created = calls[0].arguments;
+    assert.equal(created.visibility, "private");
+    assert.match(created.skillMarkdown, /name: Release/);
+    assert.deepEqual(created.files.map(file => file.path), ["references/checklist.md"]);
+    assert.equal(Buffer.from(created.files[0].base64, "base64").toString("utf8"), "Before release");
+    assert.equal(calls[1].arguments.expectedUpdatedAt, "2026-11-01T00:00:00.000Z");
+    assert.equal(await run(["workspace", "skill", "update", "skill_1", "--from", source]), 1);
+    assert.match(stderr.read(), /--expected-updated-at is required/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("the command fails closed on malformed args and unknown flags", async () => {

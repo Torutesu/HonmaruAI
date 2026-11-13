@@ -69,6 +69,39 @@ test('Harness MCP exposes scoped Skill reads and permission-checked Agent assign
   expect((await tool(writer, 'list_skills')).error.message).toContain('Unknown tool');
 });
 
+test('Harness MCP creates private Skill packages and version-fences package replacement and shareable lists', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?1,'package-agent','package-agent','Package Agent','Help','personal','toru','now','now')").bind(ORG).run();
+  const writer = await mint(['read', 'write']);
+  const markdown = '---\nname: Release Guide\ndescription: Release checklist\nmetadata:\n  team: platform\n---\n\nCheck the deployment.';
+  const encoded = btoa('release gates');
+  const created = (await tool(writer, 'create_skill', { skillMarkdown: markdown, files: [{ path: 'references/gates.md', base64: encoded }] })).result.structuredContent.skill;
+  expect(created).toMatchObject({ name: 'Release Guide', visibility: 'private', body: 'Check the deployment.' });
+  const privateRows = await env.DB.prepare('SELECT path FROM hx_skill_files WHERE org_id=? AND skill_id=? ORDER BY path').bind(ORG, created.id).all();
+  expect(privateRows.results.map(row => row.path)).toEqual(['references/gates.md']);
+  const ownerFiltered = (await tool(writer, 'list_skills', { ownerId: '9401' })).result.structuredContent.skills;
+  expect(ownerFiltered.map(skill => skill.id)).toContain(created.id);
+  expect((await tool(writer, 'list_skills', { publishedOnly: true })).result.structuredContent.skills.map(skill => skill.id)).not.toContain(created.id);
+  const published = (await tool(writer, 'create_skill', { skillMarkdown: markdown, visibility: 'workspace' })).result.structuredContent.skill;
+  const shareable = (await tool(writer, 'list_shareable_skills', { agentId: 'package-agent' })).result.structuredContent.skills;
+  expect(shareable.map(skill => skill.id)).toEqual(expect.arrayContaining([created.id, published.id]));
+
+  const updatedMarkdown = '---\nname: Release Guide v2\ndescription: Current release checklist\n---\n\nVerify rollback before publishing.';
+  const updated = (await tool(writer, 'update_skill', { skillId: created.id, expectedUpdatedAt: created.updatedAt, skillMarkdown: updatedMarkdown, files: [{ path: 'references/rollback.md', base64: btoa('Rollback steps') }] })).result.structuredContent.skill;
+  expect(updated).toMatchObject({ name: 'Release Guide v2', visibility: 'private', body: 'Verify rollback before publishing.' });
+  const replacedRows = await env.DB.prepare('SELECT path FROM hx_skill_files WHERE org_id=? AND skill_id=? ORDER BY path').bind(ORG, created.id).all();
+  expect(replacedRows.results.map(row => row.path)).toEqual(['references/rollback.md']);
+  const stale = await tool(writer, 'update_skill', { skillId: created.id, expectedUpdatedAt: created.updatedAt, skillMarkdown: markdown, files: [] });
+  expect(stale.result.isError).toBe(true);
+  expect((await tool(writer, 'get_skill', { skillId: created.id })).result.structuredContent.skill.body).toContain('Verify rollback');
+  expect((await tool(writer, 'assign_skill_to_agent', { agentId: 'package-agent', skillId: published.id })).result.structuredContent.assigned).toBe(true);
+  expect((await tool(writer, 'list_shareable_skills', { agentId: 'package-agent' })).result.structuredContent.skills.map(skill => skill.id)).toEqual([created.id]);
+
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
+  expect(await names(writer)).not.toContain('create_skill');
+  expect((await tool(writer, 'create_skill', { skillMarkdown: markdown })).error.message).toContain('Unknown tool');
+});
+
 test('MCP CLI reserves, uploads, replays and downloads binary workspace-file versions under live ACL', async () => {
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
   await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at,private) VALUES(?1,'binary-private','Binary private','9401','2026-11-11',1)").bind(ORG).run();
