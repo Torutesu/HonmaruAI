@@ -130,10 +130,14 @@ export async function loadTeammate(db, orgId, provider, env = null) {
 export const canSignIn = (t) => Boolean(t && (PROVIDERS[t.provider]?.localGateway ? t.remote?.gatewayId && t.remote?.agentKey : PROVIDERS[t.provider]?.webhookBot ? t.remote?.webhookUrl && t.apiKey : PROVIDERS[t.provider]?.keyless ? t.githubToken : t.apiKey));
 
 /// What it has used this month (UTC), in hundredths of its unit: every run's.
+/// A run still being started counts only while its hold lasts: one whose
+/// request died before it was filled in started nothing, and must not keep
+/// its placeholder cost in the month.
 export async function spentThisMonth(db, orgId, provider, now = new Date()) {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-  const row = await db.prepare("SELECT COALESCE(SUM(cost_cents), 0) AS c FROM ai_teammate_runs WHERE org_id = ?1 AND provider = ?2 AND created_at >= ?3")
-    .bind(orgId, provider, start).first().catch(() => null);
+  const row = await db.prepare(`SELECT COALESCE(SUM(cost_cents), 0) AS c FROM ai_teammate_runs WHERE org_id = ?1 AND provider = ?2 AND created_at >= ?3
+      AND (status != 'starting' OR updated_at > ?4)`)
+    .bind(orgId, provider, start, new Date(now.getTime() - START_HOLD_MS).toISOString()).first().catch(() => null);
   return Number(row?.c || 0);
 }
 
@@ -1061,7 +1065,8 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
      SELECT ?1, ?2, ?3, ?4, ?5, '', NULL, 'starting', ?6, NULL, ?7, ?8, ?8, ?9, ?10, ?11, ?12, ?13
       WHERE NOT EXISTS (SELECT 1 FROM ai_teammate_runs WHERE org_id = ?2 AND provider = ?3 AND channel = ?4 AND thread_id = ?5
                           AND (status = 'running' OR (status = 'starting' AND updated_at > ?14)))
-        AND (?15 IS NULL OR ?15 - (SELECT COALESCE(SUM(cost_cents), 0) FROM ai_teammate_runs WHERE org_id = ?2 AND provider = ?3 AND created_at >= ?16) >= ?6)`
+        AND (?15 IS NULL OR ?15 - (SELECT COALESCE(SUM(cost_cents), 0) FROM ai_teammate_runs WHERE org_id = ?2 AND provider = ?3 AND created_at >= ?16
+                                     AND (status != 'starting' OR updated_at > ?14)) >= ?6)`
   ).bind(id, orgId, t.provider, key, threadId, reserve, login, stamp, onBehalfOf, roomHookSource, assignment?.assignmentId || null, assignment?.generation ?? null, assignment?.agentId || null, held, t.monthlyLimitCents ?? null, monthStart).run();
   if (!(reserved.meta?.changes > 0)) {
     const open = await env.DB.prepare(`SELECT 1 FROM ai_teammate_runs WHERE org_id = ?1 AND provider = ?2 AND channel = ?3 AND thread_id = ?4

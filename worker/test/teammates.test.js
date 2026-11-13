@@ -635,6 +635,28 @@ test("two starts at the edge of the monthly limit do not both go ahead", async (
   expect(results.filter((r) => r.refused === "limit")).toHaveLength(1);
 });
 
+test("a start whose request died holds its place in the month only while its hold lasts", async () => {
+  const { loadTeammate, startTeammateRun, spentThisMonth } = await import("../src/teammates.js");
+  await launch();
+  await env.DB.prepare("UPDATE ai_teammates SET monthly_limit_cents = 1000 WHERE org_id = ?1 AND provider = 'claude'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, status, cost_cents, created_at, updated_at) VALUES ('spent', ?1, 'claude', 'b:cafe', 'old', 'sesn_old', 'idle', 950, ?2, ?2)")
+    .bind(ORG, new Date().toISOString()).run();
+  // A reservation left twenty minutes ago by a start that never finished.
+  const crashed = new Date(Date.now() - 20 * 60000).toISOString();
+  await env.DB.prepare("INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, status, cost_cents, created_at, updated_at) VALUES ('crashed', ?1, 'claude', 'b:cafe', 'gone', '', 'starting', 50, ?2, ?2)")
+    .bind(ORG, crashed).run();
+  expect(await spentThisMonth(env.DB, ORG, "claude")).toBe(950);
+  const t = await loadTeammate(env.DB, ORG, "claude");
+  anthropic().intercept({ path: "/v1/sessions?beta=true", method: "POST" }).reply(200, { id: "sesn_after_crash" });
+  const args = { orgId: ORG, t, key: "b:cafe", where: "Cafe", askedBy: "Toru", transcript: [], request: "Do the task", login: "toru" };
+  const started = await startTeammateRun(env, { ...args, threadId: "after-crash" });
+  expect(started.run?.remote_id).toBe("sesn_after_crash");
+  // One still within its hold counts: the month is full again.
+  await env.DB.prepare("INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, status, cost_cents, created_at, updated_at) VALUES ('fresh', ?1, 'claude', 'b:cafe', 'busy', '', 'starting', 50, ?2, ?2)")
+    .bind(ORG, new Date().toISOString()).run();
+  expect(await startTeammateRun(env, { ...args, threadId: "too-late" })).toEqual({ refused: "limit" });
+});
+
 test("the minute cron reaches every running run in turn, not only the oldest", async () => {
   const { openRuns } = await import("../src/teammates.js");
   const base = Date.parse("2026-09-30T00:00:00Z");
