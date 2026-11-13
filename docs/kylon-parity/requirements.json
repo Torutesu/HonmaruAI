@@ -1,6 +1,6 @@
 {
   "asOf": "2026-11-13",
-  "baseline": "5e8d7da42a800fdbd2c9174f3e563412ac81735b",
+  "baseline": "76db474ee0a4400e6adfc9b93b79dc562d40e433",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
     "partial": "基礎のみ。受入条件に未達項目あり",
@@ -763,8 +763,16 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js",
-      "acceptance": "全ステップの入力出力・エラー・コスト・権限を追跡。失敗runから作成元スレッドを開き、再実行せず復旧を相談できる"
+      "code": "worker/src/harness/workflows.js; worker/src/harness/workflowInputPreview.js; web-react/src/screens/HarnessWorkflows.tsx",
+      "acceptance": "全ステップの入力出力・エラー・コスト・権限を追跡。失敗runから作成元スレッドを開き、再実行せず復旧を相談できる",
+      "evidence": {
+        "latestIncrement": {
+          "base": "76db474ee0a4400e6adfc9b93b79dc562d40e433",
+          "scope": "Run details now show bounded, sanitized definition-template previews, existing authorization trace events, and per-step AI token usage/estimated cost. Runtime-expanded records/messages/connection responses are not copied into previews; previews are capped at 1,200 bytes per step and 8 KB per run. Existing getRun ACL remains in force.",
+          "localQA": "Worker workflow/input-preview/authorization/usage suites passed 153 tests; Web HarnessWorkflows passed within the 157-test focused batch; TypeScript and Web production build passed. Exact-head CI and deployment pending.",
+          "remaining": "Run-level input context is not captured; authenticated production/Kylon parity acceptance, all trigger-specific template visibility, and exact-head CI/deployment remain pending."
+        }
+      }
     },
     {
       "id": "KY-062",
@@ -1092,8 +1100,8 @@
       "code": "packages/cli/src/cli.js",
       "acceptance": "Room・Message・Threadを含む全操作をCLIで利用可能。JSON出力・scope・ユーザー/agent principal・終了コード・失敗閉鎖",
       "evidence": {
-        "verified": "PR #569 added execution-node/App-action aliases; #881 added execution/row/file operations; #882 added Room list/create/read, Message search/get/send, Thread get/reply and Reaction aliases. #889 added binary file upload/download/copy, #890 public Room discover/join/leave, #891 managed Room archive/rename, #892 Thread rename/mute/pin, #894 personal Room mute/reorder, and #895 human Room member list/add/remove. #896 added Workflow detail/history/cancel and held-webhook/credential lifecycle; #898 added Workflow revision list/restore, generation-CAS safety resume and explicit no-replay stalled-run recovery through MCP/CLI. This local batch adds CLI Workflow create/update/pause aliases and Harness-only MCP draft operations: new workflows are paused, edits require the exact expectedUpdatedAt, enabled workflows cannot be edited, and pause does not cancel active runs. Regression tests cover Simple-mode exclusion and stale/missing CAS. CLI tests 48/48; Worker MCP/search/budget/research batch 75/75; Web ThreadSearch tests 5/5 and TypeScript passed. Branch CI and deployment pending. Workflow webhook secret CLI comparison uses environment-variable input (`--expected-secret-env`) instead of raw secret argv. Existing MCP scopes, Worker access checks, and Simple-mode boundary are reused. Prior exact-head CI #42973967263 (PR #895), #42985423815 (PR #896), and #42994820675 (PR #898) passed; main CI #42997611750 and Worker/Web deployments #42997611732/#42997611923 passed.",
-        "remaining": "Room scope/guideline/avatar updates, agent assignment, Thread create/activate/participants/attach, Message edit/delete/forward, File share/purge, Connections/Agents/Skills, browser/device auth, secure credential helper and Gateway repair/upgrade remain unimplemented. Complete JSON/exit-code behavior, user/Agent principal audit, SSO/IP restrictions, authenticated multi-user production acceptance, branch CI/deployment, and Kylon live comparison also remain."
+        "verified": "PR #569 added execution-node/App-action aliases; #881 added execution/row/file operations; #882 added Room list/create/read, Message search/get/send, Thread get/reply and Reaction aliases. #889 added binary file upload/download/copy, #890 public Room discover/join/leave, #891 managed Room archive/rename, #892 Thread rename/mute/pin, #894 personal Room mute/reorder, and #895 human Room member list/add/remove. #896 added Workflow detail/history/cancel and held-webhook/credential lifecycle; #898 added Workflow revision list/restore, generation-CAS safety resume and explicit no-replay stalled-run recovery through MCP/CLI. PR #939 added CLI Workflow create/update/pause aliases and Harness-only MCP draft operations: new workflows are paused, edits require exact expectedUpdatedAt, enabled workflows cannot be edited, and pause does not cancel active runs. Regression tests cover Simple-mode exclusion and stale/missing CAS. Local CLI tests 48/48; Worker batch 75/75; Web ThreadSearch 5/5; TypeScript/build passed. PR exact-head CI #43337139421 and main CI #43340080575 passed; Worker D1 migration/deploy/Verify #43340080401 and Web deploy/Verify #43340080328 passed after merge commit 76db474. Workflow webhook secret CLI comparison uses environment-variable input (`--expected-secret-env`) instead of raw secret argv. Existing MCP scopes, Worker access checks, and Simple-mode boundary are reused.",
+        "remaining": "Room scope/guideline/avatar updates, agent assignment, Thread create/activate/participants/attach, Message edit/delete/forward, File share/purge, Connections/Agents/Skills, browser/device auth, secure credential helper and Gateway repair/upgrade remain unimplemented. Complete JSON/exit-code behavior, user/Agent principal audit, SSO/IP restrictions, authenticated multi-user production acceptance and Kylon live comparison also remain."
       }
     },
     {
@@ -1107,11 +1115,11 @@
       "acceptance": "Honmaruデプロイキーで記録されたモデル参考価格に対するworkspace共通rolling 24h/7d/30d上限とwarn/pauseを追加。個人Free/Proと独立しCASで設定を更新。Kylon creditsやinvoiceとは扱わない",
       "evidence": {
         "verified": "ワークスペース全体の記録済みai_callsを直近24時間/7日/30日で集計し、管理者がUSD参考価格の警告または次のdeployment-key AIリクエスト停止を設定できる。BYOKは対象外。PR #934 (`cecf7c84`) でHarness model loop以外の直接deployment-key Provider要求にも送信前予約・usage精算・unknown保持を追加。PR exact-head CI #43288203131、main CI #43291237987、Worker D1 migrations/deploy/Verify #43291237728が成功。PR #935 Jev reservationのPR CI #43297051996、main CI #43300925878、Worker deploy #43300925220も成功。詳細はverification.md。",
-        "remaining": "Deployment-key Jev/System Oneの送信前予約とroute/triage/classify全経路の精算はPR #935でmainに統合。現バッチはResponses web_searchを対象に、最大4検索actionと1 actionあたり最大128k input tokens相当を保守的に予約し、APIのbillable検索action数で精算する。Focused Worker/Web QAはローカル成功したがbranch CIと本番反映は未完了。独立AI teammate provider、Kylon互換credit残高、invoice換算と外部ツール費、ログイン済みKylon比較は未完了。",
+        "remaining": "Deployment-key Jev/System Oneの送信前予約とroute/triage/classify全経路の精算はPR #935でmainに統合。PR #939ではResponses web_searchを対象に、最大4検索actionと1 actionあたり最大128k input tokens相当を保守的に予約し、APIのbillable検索action数で精算。PR exact-head CI #43337139421とmain CI #43340080575、Worker migration/deploy #43340080401、Web deploy #43340080328はいずれも成功。独立AI teammate provider、Kylon互換credit残高、invoice換算と外部ツール費、ログイン済みKylon比較は未完了。",
         "latestIncrement": {
           "base": "cecf7c84",
           "scope": "PR #934 extends atomic deployment-key workspace reservations and settlement from Harness model loops to direct provider routes, audio transcription, and guarded YouTube Gemini use. This branch adds Jev/System One pre-dispatch reservations, actual-or-conservative input usage ledger entries, reservation settlement for route/triage/business classification, per-entry BYOK attribution for mixed-provider routes, and unknown retention for ambiguous failures. Workspace TypeSafe keys remain BYOK; no new provider or paid service is introduced.",
-          "verification": "PR #934 exact-head CI #43288203131 passed. Main CI #43291237987 passed including E2E; Worker deployment #43291237728 completed D1 migrations, deploy and Verify. PR #935 exact-head CI #43297051996 and main CI #43300925878 passed; Worker deployment #43300925220 completed successfully. PR #935 Jev focused suites 50/50 passed. Current combined local QA: Worker 75/75, CLI 48/48, Web ThreadSearch 5/5, TypeScript and Web production build passed; branch CI/deployment pending.",
+          "verification": "PR #934 exact-head CI #43288203131 passed. Main CI #43291237987 passed including E2E; Worker deployment #43291237728 completed D1 migrations, deploy and Verify. PR #935 exact-head CI #43297051996 and main CI #43300925878 passed; Worker deployment #43300925220 completed successfully. PR #935 Jev focused suites 50/50 passed. PR #939 combined local QA: Worker 75/75, CLI 48/48, Web ThreadSearch 5/5, TypeScript and Web production build passed. Exact-head CI #43337139421, main CI #43340080575, Worker deploy #43340080401 and Web deploy #43340080328 all passed.",
           "remaining": "Independent teammate provider calls, Kylon credit purchase/top-up, provider invoice reconciliation, external search/connector charges, image-generation charges and authenticated Kylon UI comparison remain outside or unverified."
         }
       }
@@ -1137,7 +1145,7 @@
       "acceptance": "個別workflowのpauseに加え、記録済みworkspace共通AI参考価格上限で新しいdeployment-keyのモデルリクエストを停止。既存BYOK上限と分離",
       "evidence": {
         "verified": "rolling 24h/7d/30d estimated usageの到達を共通AI gateで検出し、新しいdeployment-key AIリクエストを拒否して説明を返すwarn/stop設定を実装。管理者とメンバーのAPI権限、gate tests、exact-SHA CI 40219026947、Worker deployment 40219026929、Pages deployment 40221036459、ログイン済み本番AI設定画面を確認済み。詳細はverification.md。",
-        "remaining": "PR #934でHarness model-callと直接deployment-key provider呼出しの予約・精算・unknown保持は本番反映済み。PR #935のJev予約はmain CIとWorker deployが成功。現在のweb_search固定料金・検索context予約はローカルQA済みだがexact-head CI/deploy待ち。独立AI teammate、外部connector費、画像生成など別請求経路、実行中provider処理の停止、Kylon比較は残る。",
+        "remaining": "PR #934でHarness model-callと直接deployment-key provider呼出しの予約・精算・unknown保持は本番反映済み。PR #935のJev予約はmain CIとWorker deployが成功。PR #939のweb_search固定料金・検索context予約はexact-head/main CIとWorker/Web deployが成功。独立AI teammate、外部connector費、画像生成など別請求経路、実行中provider処理の停止、Kylon比較は残る。",
         "latestIncrement": {
           "base": "bc79dfae",
           "scope": "When a deployment-key pause budget is first reached, claim one notice per saved budget revision and notify current workspace owners/admins through the existing Relay. The Harness Dashboard restores the notice from existing AI status on initial load/reconnect, offers a link to AI usage settings, and suppresses duplicates per revision. The notice includes no amount or credential. Simple mode is unchanged.",
@@ -1250,11 +1258,15 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://app.kylon.io",
-      "code": "web-react/src/components/HarnessWorkspace.css",
+      "code": "web-react/src/components/AppDataCell.tsx; web-react/src/screens/Harness.tsx; web-react/src/components/HarnessWorkspace.css",
       "acceptance": "Kylon実画面では未選択セルを通常テキストとして表示し、操作時に編集状態を示す。Honmaruもセルを通常時は平坦にし、hover/focusでは視認可能な枠を出す。ダークテーマの面・文字・境界を中立色に揃え、Simpleテーマは維持する。両テーマと本番画面で確認する。",
       "evidence": {
-        "verified": "2026-10-31にログイン済みKylon/Honmaruのデータビューアーを実画面比較。Honmaruは非選択のセルも入力枠として表示し、ダーク面に強い緑かぶりがある差を確認。CSSを修正しWeb buildとVitest全1328件が通過。PR #568 / main 3b0775b9で本番反映。app.honmaruai.com と honmaru-web.pages.dev はHTTP 200で、両方が配信するindex-D7uHhdMs.cssにneutral dark surface/border tokensを確認。",
-        "remaining": "今回のブラウザーはログアウト状態でHarnessデータビューへ到達できず、Mac画面取得はロックエラー。公開ログイン前画面とbundle反映まで確認。セル通常/hover/focus、ライト/ダーク両テーマの認証済み本番画面確認は未完了。"
+        "latestIncrement": {
+          "base": "76db474ee0a4400e6adfc9b93b79dc562d40e433",
+          "scope": "Harness table and board-group cells now render read-first text and enter type-specific editors on activation. Escape cancels text, select, checkbox, person and relation drafts; system columns remain read-only. Simple mode is unchanged. Dark neutral surface and interaction styles use existing theme tokens.",
+          "localQA": "Focused Web UI suites passed 157 tests; TypeScript and Web production build passed. Exact-head CI/deployment and authenticated production light/dark Kylon comparison pending.",
+          "remaining": "Kylon authenticated side-by-side behavior, hover/focus on both themes at production size, and exact-head CI/deployment remain unverified."
+        }
       }
     },
     {

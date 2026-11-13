@@ -414,6 +414,14 @@
 :root .shell.harness-workspace .hx-app-detail .hx-table-wrap { border-color:var(--hx-border); border-radius:12px; }
 :root .shell.harness-workspace .hx-app-detail .hx-table th { height:40px; box-sizing:border-box; background:var(--hx-surface); padding:10px 16px; font-size:12px; font-weight:500; border-color:var(--hx-border); }
 :root .shell.harness-workspace .hx-app-detail .hx-table td { height:40px; padding:4px 10px; border-color:var(--hx-hover); }
+:root .shell.harness-workspace .hx-app-detail .hx-table td .hx-cell-display { display:block; box-sizing:border-box; width:100%; min-height:32px; padding:6px 7px; overflow:hidden; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--hx-text); font:inherit; text-align:left; text-overflow:ellipsis; white-space:nowrap; cursor:text; }
+:root .shell.harness-workspace .hx-app-detail .hx-table td .hx-cell-display:hover { border-color:var(--hx-control-hover-border); background:var(--hx-hover); }
+:root .shell.harness-workspace .hx-app-detail .hx-table td .hx-cell-display:focus-visible { border-color:var(--hx-accent); outline:3px solid var(--hx-accent); outline-offset:1px; }
+:root .shell.harness-workspace .hx-app-detail .hx-table td .hx-cell-display .hx-cell-empty { color:var(--hx-subtle); }
+:root .shell.harness-workspace .hx-app-detail .hx-table td .hx-cell-editing { min-width:0; }
+:root .shell.harness-workspace .hx-app-detail .hx-table .hx-wrap-text .hx-cell-display { min-height:32px; height:auto; overflow:visible; text-overflow:clip; white-space:pre-wrap; overflow-wrap:anywhere; }
+:root .shell.harness-workspace .hx-app-detail .hx-board .hx-cell-display { min-height:30px; padding:4px 6px; border:1px solid var(--hx-border); border-radius:6px; background:var(--hx-surface); color:var(--hx-text); font:inherit; text-align:left; cursor:text; }
+:root .shell.harness-workspace .hx-app-detail .hx-board .hx-cell-display:hover { border-color:var(--hx-control-hover-border); background:var(--hx-hover); }
 :root .shell.harness-workspace .hx-app-detail .hx-table td .hx-cell-input,
 :root .shell.harness-workspace .hx-app-detail .hx-table td .hx-cell-select { border-color:transparent; background:transparent; border-radius:6px; transition:background-color .12s,border-color .12s; }
 :root .shell.harness-workspace .hx-app-detail .hx-table td .hx-cell-input:hover,

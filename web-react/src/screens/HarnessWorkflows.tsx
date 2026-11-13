@@ -728,13 +728,18 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                 </section>}
                 {r.log.map((l) => {
                   const output=l.status==='skipped'&&l.output==='Condition did not match.'?t('Condition did not match.'):l.output
+                  const stepUsage=r.usage?.steps.find(item=>item.stepNumber===l.step)
+                  const hasDetails=Boolean(l.output || l.error || l.durationMs!==undefined || l.operationId || l.inputPreview || l.authorization?.length || stepUsage)
                   return (
-                  l.output || l.error || l.durationMs!==undefined || l.operationId ? <details key={l.step} className="hx-run-detail">
+                  hasDetails ? <details key={l.step} className="hx-run-detail">
                     <summary className="row-sub">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span>
                       {`: ${(l.error || output || '').slice(0, 160)}${(l.error || output || '').length > 160 ? '…' : ''}`}
                     </summary>
                     {l.output && <div><strong>{t('Output')}</strong><pre>{output}</pre></div>}
                     {l.error && <div><strong>{t('Error')}</strong><pre>{l.error}</pre></div>}
+                    {l.inputPreview && <div><strong>{t('Input template')}</strong>{l.inputPreview.omitted ? <p className="row-sub">{t('Preview omitted because the run trace size limit was reached.')}</p> : <><pre>{JSON.stringify(l.inputPreview.input,null,2)}</pre><p className="row-sub">{t('Runtime record, message, and connection values are not retained.')}</p></>}</div>}
+                    {l.authorization?.length ? <div><strong>{t('Authorization checks')}</strong><ul>{l.authorization.map((event,index)=><li key={`${event.resourceType}-${event.resourceId}-${index}`}>{t('{outcome}: {resourceType} {resourceId}',{outcome:t(event.outcome),resourceType:event.resourceType,resourceId:event.resourceId})} · {event.actorId} · {new Date(event.checkedAt).toLocaleString(getLocale())}</li>)}</ul></div> : null}
+                    {stepUsage && <div><strong>{t('Step AI usage')}</strong><span>{t('Input tokens')}: {stepUsage.inputTokens.toLocaleString(getLocale())} · {t('Output tokens')}: {stepUsage.outputTokens.toLocaleString(getLocale())} · {t('Estimated model cost')}: ${(stepUsage.estimatedMicros/1_000_000).toFixed(6)}{stepUsage.unpricedCalls>0?` · ${t('{count} unpriced calls',{count:stepUsage.unpricedCalls.toLocaleString(getLocale())})}`:''}</span></div>}
                     {l.durationMs!==undefined&&Number.isFinite(l.durationMs)&&<div><strong>{t('Step duration')}</strong><span>{l.durationMs>=1000?`${(l.durationMs/1000).toLocaleString(getLocale(),{maximumFractionDigits:2})} s`:`${l.durationMs} ms`}</span></div>}
                     {l.operationId&&<div><strong>{t('Operation ID')}</strong><code>{l.operationId}</code></div>}
                     <time dateTime={l.at}>{new Date(l.at).toLocaleString(getLocale())}</time>

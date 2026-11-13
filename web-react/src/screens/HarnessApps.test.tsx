@@ -688,7 +688,7 @@ test('a late personal-view read cannot restore a deleted view and focus returns 
   await act(async()=>{resolveOld(initial);await delayed;await new Promise(resolve=>setTimeout(resolve,0))})
   expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
   expect(tree!.root.findAllByProps({role:'tab'})[0].props['aria-selected']).toBe(true)
-  expect(tree!.root.findAllByType('input').some(node=>node.props.value==='Refreshed row')).toBe(true)
+  expect(tree!.root.findAllByProps({className:'hx-cell-display'}).some(node=>node.children.includes('Refreshed row'))).toBe(true)
 })
 test('a stale preferences read is recomputed before showing refreshed rows in a personal view',async()=>{
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
@@ -714,8 +714,8 @@ test('a stale preferences read is recomputed before showing refreshed rows in a 
   await act(async()=>{resolveOld(initial);await delayed;await new Promise(resolve=>setTimeout(resolve,0))})
   expect(state.api.personalViews).toHaveBeenCalledTimes(3)
   expect(tree!.root.findAllByProps({role:'tab'}).find(node=>node.props['aria-selected'])?.children).toContain('Mine')
-  expect(tree!.root.findAllByType('input').some(node=>node.props.value==='Updated value')).toBe(true)
-  expect(tree!.root.findAllByType('input').some(node=>node.props.value==='Old value')).toBe(false)
+  expect(tree!.root.findAllByProps({className:'hx-cell-display'}).some(node=>node.children.includes('Updated value'))).toBe(true)
+  expect(tree!.root.findAllByProps({className:'hx-cell-display'}).some(node=>node.children.includes('Old value'))).toBe(false)
 })
 test('a delayed deletion response cannot overwrite a newer cross-device revision or steal focus',async()=>{
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
@@ -872,13 +872,14 @@ test('an automatic refresh does not overwrite an inline edit while its save is p
   }
   await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>element.props.className==='hx-app-main'?main:null});await new Promise(resolve=>setTimeout(resolve,0))})
   act(()=>windowHandlers.get('focus')!())
+  act(()=>tree!.root.findAllByProps({className:'hx-cell-display'}).find(node=>node.children.includes('Old'))!.props.onClick())
   const input=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Title')!
   act(()=>input().props.onChange({target:{value:'User edit'}}))
   act(()=>input().props.onBlur())
   await act(async()=>{resolveRead(initial);await delayedRead;await new Promise(resolve=>setTimeout(resolve,0))})
-  expect(input().props.value).toBe('User edit')
+  expect(tree!.root.findAllByProps({className:'hx-cell-editing'})).toHaveLength(0)
   await act(async()=>{resolveWrite();await delayedWrite;await new Promise(resolve=>setTimeout(resolve,0))})
-  expect(input().props.value).toBe('User edit')
+  expect(tree!.root.findAllByProps({className:'hx-cell-display'}).some(node=>node.children.includes('User edit'))).toBe(true)
 })
 test('an invalid inline number cell exposes an accessible error state until corrected',async()=>{
   vi.stubGlobal('document',{visibilityState:'visible',addEventListener:vi.fn(),removeEventListener:vi.fn()})
@@ -891,6 +892,7 @@ test('an invalid inline number cell exposes an accessible error state until corr
     conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
   }
   await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+  act(()=>tree!.root.findAllByProps({className:'hx-cell-display'}).find(node=>node.children.includes('1'))!.props.onClick())
   const amount=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Amount')!
   act(()=>amount().props.onChange({target:{value:'9007199254740993',validity:{badInput:false}}}))
   act(()=>amount().props.onBlur({currentTarget:{validity:{badInput:false}}}))
