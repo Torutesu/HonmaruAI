@@ -62,7 +62,7 @@ test('stale text insert is rejected after schema migration and target deletion',
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?').bind(app.tableId).first()).n).toBe(0);
 });
 
-test('pending record creation is rejected after the owning app and table are deleted',async()=>{
+test('pending record creation is rejected after the owning app is archived while its data stays',async()=>{
  let injected=false;
  const db=new Proxy(env.DB,{get(target,prop){if(prop==='prepare')return sql=>{const stmt=target.prepare(sql);if(!sql.startsWith('INSERT INTO hx_rows (id, table_id')||injected)return stmt;return {bind(...values){const bound=stmt.bind(...values);return {run:async()=>{
   injected=true;
@@ -71,7 +71,7 @@ test('pending record creation is rejected after the owning app and table are del
  }}}}};const value=target[prop];return typeof value==='function'?value.bind(target):value}});
  const response=await request(`/tables/${app.tableId}/rows`,member,{method:'POST',body:{values:{task:'Orphan'}},db});
  expect(injected).toBe(true);expect(response.status).toBe(409);
- expect(await env.DB.prepare('SELECT id FROM hx_tables WHERE id=?').bind(app.tableId).first()).toBeNull();
- expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?').bind(app.tableId).first()).n).toBe(0);
+ expect(await env.DB.prepare('SELECT id FROM hx_tables WHERE id=?').bind(app.tableId).first()).toEqual({id:app.tableId});
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE table_id=?').bind(app.tableId).first()).n).toBe(1);
 });
 

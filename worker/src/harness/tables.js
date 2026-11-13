@@ -281,7 +281,9 @@ function appRowWriteGuard(orgParam, tableParam, userParam) {
     )
     AND NOT EXISTS(SELECT 1 FROM hx_app_entities orphan
       WHERE orphan.org_id=?${orgParam} AND orphan.table_id=?${tableParam}
-        AND NOT EXISTS(SELECT 1 FROM hx_apps linked WHERE linked.org_id=orphan.org_id AND linked.id=orphan.app_id))`;
+        AND NOT EXISTS(SELECT 1 FROM hx_apps linked WHERE linked.org_id=orphan.org_id AND linked.id=orphan.app_id))
+    AND NOT EXISTS(SELECT 1 FROM hx_apps archived WHERE archived.org_id=?${orgParam} AND archived.deleted_at IS NOT NULL
+      AND (archived.table_id=?${tableParam} OR EXISTS(SELECT 1 FROM hx_app_entities entity WHERE entity.org_id=archived.org_id AND entity.app_id=archived.id AND entity.table_id=?${tableParam})))`;
 }
 
 export async function addRow(db, orgId, tableId, values, by, validation, writeUserId, writeGuard, { deferWrite = false, positionOffset = 0 } = {}) {
