@@ -48,7 +48,7 @@ sign-in (skippable). Rationale in [onboarding.md](onboarding.md).
 ```bash
 cd worker
 npm install
-npm test        # 618 tests, real workerd via @cloudflare/vitest-pool-workers
+npm test        # ~3,400 tests in ~310 files, real workerd via @cloudflare/vitest-pool-workers; each file rebuilds the schema, so a full run takes about 45 minutes on one machine (CI splits it four ways). Run single files with `npx vitest run test/<name>.test.js`.
 npm run eval    # the router against worker/eval/golden.json (--model with OPENAI_API_KEY, --jev with TYPESAFE_API_KEY)
 npx wrangler dev
 ```
@@ -114,8 +114,13 @@ decide, delete or undo it. The rules, and what each one prevents, are in
 Account deletion is in the app, under **You → Delete account**, and the two
 things it deliberately keeps are in [docs/privacy-policy.md](docs/privacy-policy.md).
 
-Use `npx -y wrangler@4` for D1 and deploys — the pinned wrangler 3 fails `d1 execute --remote`
-with a misleading 7403 "account is not authorized" that is a stale-client bug, not an auth problem.
+Use the wrangler pinned in `worker/package.json` (`npx wrangler` inside `worker/`, or
+`npx -y wrangler@<that version>`) for D1 and deploys. Workflows that hold the production
+token use exactly that version; `.github/scripts/wrangler-pin.test.cjs` keeps them in step.
+
+To check everything CI checks, in one command: `scripts/verify.sh` (add `--e2e` for the
+end-to-end run, `--quick` to skip the long Worker suite). Contributors and coding agents:
+start with [AGENTS.md](AGENTS.md).
 
 ## What is still missing
 
