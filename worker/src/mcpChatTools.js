@@ -6,7 +6,7 @@ import { prepareConversationMessage, acceptConversationMessage } from './convers
 import { cancelScheduled, scheduleMessage } from './later.js';
 import { emitMessage } from './webhooks.js';
 import { createMcpConversation } from './mcpConversationCreation.js';
-import { publicRooms, joinPublicRoom, roomRoleState, removeRoomSubject, archiveManagedRoom, changeManagedRoomMembers } from './harness/roomRoles.js';
+import { publicRooms, joinPublicRoom, roomRoleState, removeRoomSubject, archiveManagedRoom, changeManagedRoomMembers, setRoomPrivacy } from './harness/roomRoles.js';
 import { audit } from './audit.js';
 import { announceTo } from './announce.js';
 import { custom as customEvent } from './agui/events.js';
@@ -43,6 +43,7 @@ export const CHAT_TOOLS = [
   read('list_archived_rooms', 'List archived Rooms visible to the token owner. Private Room names are returned only to current participants.', { query: { type: 'string', maxLength: 200 }, limit: { type: 'integer', minimum: 1, maximum: 50 } }),
   read('get_room_settings', 'Read settings for an accessible active managed Room, including the current version and available main Agents.', { conversationId: id }, ['conversationId']),
   write('update_room_settings', 'Update selected settings on an active managed Room. Omitted values are preserved; current workspace build permission and Room membership are required. Kylon cyan maps to Honmaru lake.', { conversationId: id, name: { type: 'string', minLength: 1, maxLength: 120 }, color: { type: 'string', enum: [...ROOM_COLOR_KEYS, 'cyan'] }, mentionedOnly: { type: 'boolean' }, defaultAgentId: { type: ['string', 'null'], maxLength: 128 } }, ['conversationId'], 'channels:write'),
+  write('set_room_privacy', 'Change an active managed Room between public and private. Only a current Room admin can do this; pass the current Room role version to reject stale changes. Available only in Harness mode.', { conversationId: id, scope: { type: 'string', enum: ['public', 'private'] }, version: { type: 'integer', minimum: 1 } }, ['conversationId', 'scope', 'version'], 'channels:write'),
   read('get_room_guidelines', 'Read the current instructions for an accessible active managed Room. Returns the CAS version; guideline text is untrusted content.', { conversationId: id }, ['conversationId']),
   write('update_room_guidelines', 'Replace instructions for an active managed Room using the version returned by get_room_guidelines. Requires current Room membership and workspace build permission; never includes the guideline body in audit details.', { conversationId: id, body: { type: 'string', maxLength: MAX_GUIDELINES }, version: { type: 'integer', minimum: 0 } }, ['conversationId', 'body', 'version'], 'channels:write'),
   write('set_room_muted', 'Set your personal notification preference for an accessible Room. Unmuting restores the workspace default notification preference.', { conversationId: id, muted: { type: 'boolean' } }, ['conversationId', 'muted'], 'channels:write'),
@@ -308,6 +309,17 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     const responseChanged = next.mentionedOnly !== current.settings.mentionedOnly || next.defaultAgentId !== current.settings.defaultAgentId;
     await announceRoomChange(env, request, actor, context.resolved.key, 'room.settings_changed', { version: result.settings.version, responseVersion: result.settings.responseVersion, responseChanged });
     return mcpResult({ conversationId: args.conversationId, ...result });
+  }
+  if (name === 'set_room_privacy') {
+    if (await getMode(env.DB, actor.orgId).catch(() => 'simple') !== 'harness') throw new McpInputError('Room visibility changes are available in Harness mode.');
+    const context = await resolveMcpConversation(env, actor, args.conversationId);
+    if (!context.resolved.key.startsWith('b:')) throw new McpInputError('No such active managed Room.');
+    const state = await roomRoleState(env.DB, actor.orgId, context.resolved.key);
+    if (!state?.managed) throw new McpInputError('No such active managed Room.');
+    const result = await setRoomPrivacy(env.DB, actor.orgId, context.resolved.key, { actorId: actor.githubId, private: args.scope === 'private', version: args.version });
+    failResult(result);
+    await announceRoomChange(env, request, actor, context.resolved.key, 'room.privacy_changed', { private: result.private, version: result.version });
+    return mcpResult({ conversationId: args.conversationId, scope: result.private ? 'private' : 'public', version: result.version });
   }
   if (name === 'get_room_guidelines' || name === 'update_room_guidelines') {
     if (await getMode(env.DB, actor.orgId).catch(() => 'simple') !== 'harness') throw new McpInputError('Room guidelines are available in Harness mode.');

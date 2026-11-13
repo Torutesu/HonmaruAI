@@ -97,6 +97,26 @@ test('MCP Room settings expose managed defaults and update only requested settin
   expect(agentUpdate.settings).toMatchObject({ defaultAgentId: 'mcp-room-agent', version: 3, responseVersion: 2 });
 });
 
+test('MCP Room visibility changes are admin-only, versioned, Harness-only, and preserve members', async () => {
+  await setMode(env.DB, orgId, 'harness', actor.githubId);
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:general','beth','alex',?2)").bind(orgId, new Date().toISOString()).run();
+  await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
+  expect(await call('set_room_privacy', { conversationId: 'b:general', scope: 'private', version: 1 }))
+    .toMatchObject({ conversationId: 'b:general', scope: 'private', version: 2 });
+  expect(await env.DB.prepare("SELECT private FROM businesses WHERE org_id=?1 AND slug='general'").bind(orgId).first('private')).toBe(1);
+  expect(await env.DB.prepare("SELECT COUNT(*) FROM conversation_members WHERE org_id=?1 AND channel='b:general'").bind(orgId).first('COUNT(*)')).toBeGreaterThan(1);
+  const privateRoomActor = { ...actor, scopes: [...actor.scopes, 'chat:private'] };
+  await expect(call('set_room_privacy', { conversationId: 'b:general', scope: 'public', version: 2 }, { ...actor, githubId: 'mcp-b', login: 'beth', scopes: [...actor.scopes, 'chat:private'] }))
+    .rejects.toThrow('Only a room admin can change its visibility.');
+  await expect(call('set_room_privacy', { conversationId: 'b:general', scope: 'public', version: 1 }, privateRoomActor))
+    .rejects.toThrow('Room roles changed. Reload before saving.');
+  expect(await call('set_room_privacy', { conversationId: 'b:general', scope: 'public', version: 2 }, privateRoomActor))
+    .toMatchObject({ scope: 'public', version: 3 });
+  await setMode(env.DB, orgId, 'simple', actor.githubId);
+  await expect(call('set_room_privacy', { conversationId: 'b:general', scope: 'private', version: 3 }))
+    .rejects.toThrow('Room visibility changes are available in Harness mode.');
+});
+
 test('MCP Room guidelines read and version updates use current membership and build authority', async () => {
   await setMode(env.DB, orgId, 'harness', actor.githubId);
   await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
