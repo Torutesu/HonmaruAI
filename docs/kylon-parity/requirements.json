@@ -1,6 +1,6 @@
 {
   "asOf": "2026-11-13",
-  "baseline": "76db474ee0a4400e6adfc9b93b79dc562d40e433",
+  "baseline": "def4fbd6b04a87b28784d05261f363b2925ee694",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
     "partial": "基礎のみ。受入条件に未達項目あり",
@@ -769,8 +769,8 @@
         "latestIncrement": {
           "base": "76db474ee0a4400e6adfc9b93b79dc562d40e433",
           "scope": "Run details now show bounded, sanitized definition-template previews, existing authorization trace events, and per-step AI token usage/estimated cost. Runtime-expanded records/messages/connection responses are not copied into previews; previews are capped at 1,200 bytes per step and 8 KB per run. Existing getRun ACL remains in force.",
-          "localQA": "Worker workflow/input-preview/authorization/usage suites passed 153 tests; Web HarnessWorkflows passed within the 157-test focused batch; TypeScript and Web production build passed. Exact-head CI and deployment pending.",
-          "remaining": "Run-level input context is not captured; authenticated production/Kylon parity acceptance, all trigger-specific template visibility, and exact-head CI/deployment remain pending."
+          "localQA": "Worker workflow/input-preview/authorization/usage suites passed 153 tests; Web HarnessWorkflows passed within the 157-test focused batch; TypeScript and Web production build passed. PR exact-head CI 43345382463 passed all required jobs; main CI 43347623523 passed; Worker migration/deploy/Verify 43347623374 and Web Pages/domain Verify 43347623133 passed. Worker health reports encryption.all=true; the deployed app asset is index-D4wM6RDL.js.",
+          "remaining": "Run-level input context is not captured; authenticated production/Kylon parity acceptance and trigger-specific template visibility remain open."
         }
       }
     },
@@ -1025,16 +1025,16 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/proxy/tools-api",
-      "code": "worker/src/agentTools.js, worker/src/harness/agentRemoteMcp.js, worker/src/harness/workflows.js",
+      "code": "worker/src/agentTools.js, worker/src/harness/agentRemoteMcp.js, worker/src/harness/workflows.js, worker/src/links.js",
       "acceptance": "人の接続とAgent/App/Workflowの利用権を分離し、Workflow実行時も実行者固有grantを都度再検証",
       "evidence": {
         "reviewedAt": "2026-11-01",
         "implementedScope": "PR #583 is merged and deployed. Harness Agentごと・呼び出しユーザーごとにNotion/GitHub native searchとRemote MCP read-only serverを初期拒否し、許可したConnectionのみ実行可能。手動ツール、自動リサーチ、Follow-upに加えWorkflow Agentも各実行者の現在のgrantとworkspace allowlistをtool列挙時・実行前後に確認し、失効後の結果を破棄。App visitor external writes revoked in flight are marked unknown to prevent blind retry. Simple mode remains unchanged.",
         "latestIncrement": {
-          "base": "1d649c7b4d5479ccef1b81de909de546fa9e3423",
-          "scope": "Workflow Remote MCP uses current run actor × Agent grants; test coverage confirms default deny, granted use, in-flight revoke and unchanged Simple mode. App grant revocation after an external write marks the request unknown and later duplicate requests are refused.",
-          "verification": "Focused Workflow tests 143/143; focused App tests 163/163; merge CI run 43085800275 passed and Worker/Web deployments 43085800394/43085800314 passed.",
-          "remaining": "Broader provider catalog, operation categories, UI controls and live Kylon acceptance remain."
+          "base": "def4fbd6b04a87b28784d05261f363b2925ee694",
+          "scope": "The shared public URL filter now rejects additional local-only host suffixes (.corp, .home, .intranet, .localdomain, .private) plus TEST-NET and deprecated 6to4 relay IPv4 ranges. WHATWG-normalized legacy IPv4 spellings remain rejected by Remote MCP endpoint parsing. Existing HTTPS-only Remote MCP, literal-IP/local-name checks and manual redirect refusal are unchanged.",
+          "localQA": "Focused Worker remote-mcp.test.js and links.test.js passed 27 tests; node --check worker/src/links.js and git diff --check passed. Exact-head CI/deployment pending.",
+          "remaining": "DNS rebinding remains open because Worker fetch does not pin/validate the resolved peer IP. This lexical validation does not claim complete SSRF protection. Broader provider operations, write grants and authenticated Kylon acceptance remain open."
         },
         "remaining": "Arbitrary external connections, Remote MCP write operations, full App/workflow principal administration and all Kylon operation categories remain incomplete.",
         "verification": "docs/kylon-parity/verification.md; focused Worker tests 143/143 + 163/163; main CI 43085800275; Worker deploy 43085800394; Web deploy 43085800314"
@@ -1264,8 +1264,8 @@
         "latestIncrement": {
           "base": "76db474ee0a4400e6adfc9b93b79dc562d40e433",
           "scope": "Harness table and board-group cells now render read-first text and enter type-specific editors on activation. Escape cancels text, select, checkbox, person and relation drafts; system columns remain read-only. Simple mode is unchanged. Dark neutral surface and interaction styles use existing theme tokens.",
-          "localQA": "Focused Web UI suites passed 157 tests; TypeScript and Web production build passed. Exact-head CI/deployment and authenticated production light/dark Kylon comparison pending.",
-          "remaining": "Kylon authenticated side-by-side behavior, hover/focus on both themes at production size, and exact-head CI/deployment remain unverified."
+          "localQA": "Focused Web UI suites passed 157 tests and the full Web suite passed 1,978 tests; TypeScript and production build passed. PR exact-head CI 43345382463, main CI 43347623523, Worker deploy 43347623374 and Web deploy 43347623133 passed; authenticated production light/dark Kylon comparison remains open.",
+          "remaining": "Kylon authenticated side-by-side behavior and hover/focus on both themes at production size remain unverified."
         }
       }
     },

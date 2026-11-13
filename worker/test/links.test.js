@@ -152,10 +152,14 @@ test("without Supadata, Gemini watches a YouTube video and writes down what it s
 // Worker followed it; "127.0.0.1." with a trailing dot was let through.
 test("addresses that are not the open web are refused, however they are written", () => {
   for (const bad of ["http://127.0.0.1./", "http://localhost./x", "http://169.254.169.254/latest/meta-data", "http://0.0.0.0/", "http://2130706433/",
-    "http://printer.lan/", "http://router.home.arpa/", "http://224.0.0.1/", "http://198.18.0.1/", "http://[::1]/"]) {
+    "http://printer.lan/", "http://router.home.arpa/", "http://buildbox.corp/", "http://nas.home/", "http://intranet.intranet/",
+    "http://printer.localdomain/", "http://service.private/", "http://224.0.0.1/", "http://198.18.0.1/", "http://[::1]/",
+    "http://192.0.2.1/", "http://192.88.99.1/", "http://198.51.100.1/", "http://203.0.113.1/"]) {
     expect(isPublicUrl(bad), bad).toBe(false);
   }
   expect(isPublicUrl("https://93.184.216.34/")).toBe(true);
+  expect(isPublicUrl("https://192.0.3.1/")).toBe(true);
+  expect(isPublicUrl("https://198.51.101.1/")).toBe(true);
 });
 
 test("a redirect to a private address is not followed", async () => {

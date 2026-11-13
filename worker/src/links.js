@@ -46,7 +46,8 @@ export function isPublicUrl(value) {
   // "127.0.0.1." and "localhost." are the same hosts as without the dot.
   const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
   if (!host.includes(".") || host === "localhost") return false;
-  if ([".local", ".localhost", ".internal", ".home.arpa", ".lan"].some((end) => host.endsWith(end))) return false;
+  if ([".local", ".localhost", ".internal", ".home.arpa", ".lan", ".corp", ".home", ".intranet", ".localdomain", ".private"]
+    .some((end) => host.endsWith(end))) return false;
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return publicIpv4(host);
   if (host.includes(":")) return false; // IPv6 literals: not worth the risk
   return true;
@@ -60,7 +61,12 @@ function publicIpv4(host) {
   if (a === 192 && b === 168) return false;
   if (a === 100 && b >= 64 && b <= 127) return false; // carrier-grade NAT
   if (a === 192 && b === 0 && c === 0) return false;
+  // IANA documentation and deprecated relay ranges are not public destinations.
+  if (a === 192 && b === 0 && c === 2) return false; // TEST-NET-1
+  if (a === 192 && b === 88 && c === 99) return false; // deprecated 6to4 relay
   if (a === 198 && (b === 18 || b === 19)) return false; // benchmarking
+  if (a === 198 && b === 51 && c === 100) return false; // TEST-NET-2
+  if (a === 203 && b === 0 && c === 113) return false; // TEST-NET-3
   return true;
 }
 

@@ -27,7 +27,7 @@ beforeEach(async () => {
   session = await createSession(env.DB, "9551", "gho_remote_admin");
 });
 
-test("Remote MCP endpoint validation rejects local, insecure, redirected-looking and query-secret URLs", () => {
+test("Remote MCP endpoint validation rejects local, insecure, IP-literal, special-use, and query-secret URLs", () => {
   expect(safeEndpoint("https://mcp.example.com/mcp")).toBe("https://mcp.example.com/mcp");
   for (const endpoint of [
     "http://mcp.example.com/mcp",
@@ -41,6 +41,20 @@ test("Remote MCP endpoint validation rejects local, insecure, redirected-looking
     "https://mcp.example.com:8443/mcp",
     "https://user:pass@mcp.example.com/mcp",
     "https://mcp.example.com/mcp?token=secret",
+    // WHATWG URL canonicalizes legacy/octal/hex/single-integer IPv4 forms.
+    "https://127.1/mcp",
+    "https://0177.0.0.1/mcp",
+    "https://0x7f000001/mcp",
+    "https://2130706433/mcp",
+    "https://0xA9FEA9FE/mcp",
+    "https://192.0.2.1/mcp",
+    "https://198.51.100.1/mcp",
+    "https://203.0.113.1/mcp",
+    "https://mcp.corp/mcp",
+    "https://mcp.home/mcp",
+    "https://mcp.intranet/mcp",
+    "https://mcp.localdomain/mcp",
+    "https://mcp.private/mcp",
   ]) expect(safeEndpoint(endpoint)).toBeNull();
 });
 
