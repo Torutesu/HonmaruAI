@@ -23,7 +23,8 @@ Usage:
   honmaru workspace room reorder --rooms ROOM,ROOM,...
   honmaru workspace room member list <room-id>
   honmaru workspace room member add|remove <room-id> --members REF,REF [--relation admin|member]
-  honmaru workspace room agent add <room-id> <agent-id> [--grant-access]
+  honmaru workspace room agent access <room-id> <agent-id>
+  honmaru workspace room agent add <room-id> <agent-id> [--grant-access | --grant-access-members REF,REF] [--acknowledge-external-processing]
   honmaru workspace room agent remove <room-id> <agent-id>
   honmaru workspace room get <room-id>
   honmaru workspace room update <room-id> [--name NAME] [--mentioned-only true|false] [--main-agent ID|auto] [--icon-color COLOR]
@@ -123,12 +124,12 @@ The status command reports the macOS LaunchAgent state without reading or printi
 const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
   "text", "body", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
-  "direction", "title", "name", "members", "to", "summary", "context", "priority",
+  "direction", "title", "name", "members", "grant-access-members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing"]);
 
 function parseOptions(args, { allowArgs = false, allowWorkspaceFlags = false } = {}) {
   const options = { json: false };
@@ -279,10 +280,23 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
     }
     case "room agent": {
       const [action, ...target] = positional;
+      if (action === "access") {
+        onlyFlags(options, []); positionalCount(target, 2, "honmaru workspace room agent access <room-id> <agent-id>");
+        return { tool: "get_room_agent_access", args: { conversationId: target[0], agentId: target[1] } };
+      }
       if (action === "add") {
-        onlyFlags(options, ["grantAccess"]); positionalCount(target, 2, "honmaru workspace room agent add <room-id> <agent-id> [--grant-access]");
+        onlyFlags(options, ["grantAccess", "grantAccessMembers", "acknowledgeExternalProcessing"]); positionalCount(target, 2, "honmaru workspace room agent add <room-id> <agent-id> [--grant-access | --grant-access-members REF,REF] [--acknowledge-external-processing]");
+        if (options.grantAccess === true && options.grantAccessMembers !== undefined) throw new Error("Choose either --grant-access or --grant-access-members, not both.");
         const args = { conversationId: target[0], agentId: target[1] };
         if (options.grantAccess === true) args.grantAccess = true;
+        if (options.grantAccessMembers !== undefined) {
+          if (typeof options.grantAccessMembers !== "string" || !options.grantAccessMembers.trim()) throw new Error("--grant-access-members needs 1 to 100 member references.");
+          const grantAccessMemberRefs = options.grantAccessMembers.split(",").map(value => value.trim()).filter(Boolean);
+          if (!grantAccessMemberRefs.length || grantAccessMemberRefs.length > 100) throw new Error("--grant-access-members needs 1 to 100 member references.");
+          if (new Set(grantAccessMemberRefs).size !== grantAccessMemberRefs.length) throw new Error("--grant-access-members cannot contain duplicate references.");
+          args.grantAccessMemberRefs = grantAccessMemberRefs;
+        }
+        if (options.acknowledgeExternalProcessing === true) args.acknowledgeExternalProcessing = true;
         return { tool: "add_room_agent", args };
       }
       if (action === "remove") {
@@ -767,6 +781,14 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "rename_room") return `Renamed Room ${value.conversationId} to ${value.name}.`;
   if (command?.tool === "update_room_settings") return `Updated Room ${value.conversationId} settings (version ${value.settings?.version}).`;
   if (command?.tool === "get_room_settings") return JSON.stringify(value, null, 2);
+  if (command?.tool === "get_room_agent_access") return value.canGrantAccess
+    ? value.missingAccessMembers?.length
+      ? value.missingAccessMembers.map(member => `${member.memberRef}\t${member.name}`).join("\n")
+      : "All current Room members already have access to this Agent."
+    : "This Agent does not allow its owner or members to grant Room access.";
+  if (command?.tool === "add_room_agent") return value.added
+    ? `Added Agent ${value.agentId} to Room ${value.conversationId}${value.granted ? "; selected Room members were granted Agent access" : "; no member access grants were changed"}.`
+    : `Agent ${value.agentId} is already assigned to Room ${value.conversationId}.`;
   if (command?.tool === "get_room_guidelines") return value.guidelines?.body || "";
   if (command?.tool === "update_room_guidelines") return `Updated Room ${value.conversationId} guidelines (version ${value.guidelines?.version}).`;
   if (command?.tool === "archive_room") return `Archived Room ${value.conversationId}.`;
