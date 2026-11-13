@@ -25,6 +25,8 @@ Usage:
   honmaru workspace room member add|remove <room-id> --members REF,REF [--relation admin|member]
   honmaru workspace room get <room-id>
   honmaru workspace room update <room-id> [--name NAME] [--mentioned-only true|false] [--main-agent ID|auto] [--icon-color COLOR]
+  honmaru workspace room guidelines get <room-id>
+  honmaru workspace room guidelines set <room-id> --body TEXT --version N
   honmaru workspace room rename <room-id> --name NAME
   honmaru workspace room archive <room-id>
   honmaru workspace room unarchive <room-id>
@@ -115,7 +117,7 @@ The status command reports the macOS LaunchAgent state without reading or printi
 
 const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
-  "text", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
+  "text", "body", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
   "direction", "title", "name", "members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
@@ -297,6 +299,21 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
       }
       if (Object.keys(args).length === 1) throw new Error("Provide at least one Room setting to update.");
       return { tool: "update_room_settings", args };
+    }
+    case "room guidelines": {
+      const [action, ...target] = positional;
+      if (action === "get") {
+        onlyFlags(options, []); positionalCount(target, 1, "honmaru workspace room guidelines get <room-id>");
+        return { tool: "get_room_guidelines", args: { conversationId: target[0] } };
+      }
+      if (action === "set") {
+        onlyFlags(options, ["body", "version"]); positionalCount(target, 1, "honmaru workspace room guidelines set <room-id> --body TEXT --version N");
+        if (typeof options.body !== "string") throw new Error("--body is required (use an empty quoted string to clear the guidelines).");
+        if (options.body.length > 4096) throw new Error("--body must be at most 4096 characters.");
+        const version = integerOption(options, "version", { min: 0, required: true });
+        return { tool: "update_room_guidelines", args: { conversationId: target[0], body: options.body, version } };
+      }
+      throw new Error("Usage: honmaru workspace room guidelines get|set.");
     }
     case "room archive":
     case "room unarchive":
@@ -703,6 +720,8 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "rename_room") return `Renamed Room ${value.conversationId} to ${value.name}.`;
   if (command?.tool === "update_room_settings") return `Updated Room ${value.conversationId} settings (version ${value.settings?.version}).`;
   if (command?.tool === "get_room_settings") return JSON.stringify(value, null, 2);
+  if (command?.tool === "get_room_guidelines") return value.guidelines?.body || "";
+  if (command?.tool === "update_room_guidelines") return `Updated Room ${value.conversationId} guidelines (version ${value.guidelines?.version}).`;
   if (command?.tool === "archive_room") return `Archived Room ${value.conversationId}.`;
   if (command?.tool === "unarchive_room") return `Restored Room ${value.conversationId}.`;
   if (Array.isArray(value.conversations)) return value.conversations.length ? value.conversations.map((conversation) => `${conversation.id}\t${conversation.type}\t${conversation.name || "(unnamed)"}${conversation.private ? "\tprivate" : ""}`).join("\n") : "No conversations found.";

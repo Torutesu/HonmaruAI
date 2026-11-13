@@ -7,6 +7,7 @@ import { upsertUser, upsertMembership, upsertBusiness } from '../src/db.js';
 import { postMessage } from '../src/channels.js';
 import { listMembers } from '../src/team.js';
 import { createApiToken } from '../src/mcp.js';
+import { setMode } from '../src/harness/mode.js';
 import { uploadFile } from '../src/files.js';
 import { runMinuteJobs, cancelScheduled } from '../src/later.js';
 import { deliverMcpScheduledMessage } from '../src/mcpScheduled.js';
@@ -94,6 +95,23 @@ test('MCP Room settings expose managed defaults and update only requested settin
   await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:general','mcp-room-agent','alex',?2)").bind(orgId, at).run();
   const agentUpdate = await call('update_room_settings', { conversationId: 'b:general', defaultAgentId: 'mcp-room-agent' });
   expect(agentUpdate.settings).toMatchObject({ defaultAgentId: 'mcp-room-agent', version: 3, responseVersion: 2 });
+});
+
+test('MCP Room guidelines read and version updates use current membership and build authority', async () => {
+  await setMode(env.DB, orgId, 'harness', actor.githubId);
+  await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
+  expect(await call('get_room_guidelines', { conversationId: 'b:general' })).toMatchObject({
+    conversationId: 'b:general', guidelines: { body: '', version: 0, updatedAt: null }, maxLength: 4096,
+  });
+  const saved = await call('update_room_guidelines', { conversationId: 'b:general', body: 'Route approvals through Finance.', version: 0 });
+  expect(saved.guidelines).toMatchObject({ body: 'Route approvals through Finance.', version: 1 });
+  expect(await call('get_room_guidelines', { conversationId: 'b:general' })).toMatchObject({ guidelines: { body: 'Route approvals through Finance.', version: 1 } });
+  await expect(call('update_room_guidelines', { conversationId: 'b:general', body: 'Stale write.', version: 0 })).rejects.toThrow('The guidelines or room membership changed. Reload before saving.');
+  await expect(call('update_room_guidelines', { conversationId: 'b:general', body: 'Not authorized.', version: 1 }, { ...actor, githubId: 'mcp-b', login: 'beth' })).rejects.toThrow('Only a room member can change its guidelines.');
+  const latest = await env.DB.prepare("SELECT body FROM audit_events WHERE org_id=?1 AND action='room.guidelines_changed' ORDER BY seq DESC LIMIT 1").bind(orgId).first();
+  expect(latest.body).not.toContain('Route approvals through Finance.');
+  await setMode(env.DB, orgId, 'simple', actor.githubId);
+  await expect(call('get_room_guidelines', { conversationId: 'b:general' })).rejects.toThrow('Room guidelines are available in Harness mode.');
 });
 
 test('MCP Room mute is personal and reorder preserves the rest of the versioned sidebar', async () => {
