@@ -4,7 +4,7 @@ import sql from '../workspace-files.sql?raw';
 import {upsertUser,upsertMembership} from '../src/db.js';
 import {createFileLedger} from '../src/harness/fileVersionLedger.js';
 import {uploadFileVersion} from '../src/harness/fileUpload.js';
-import {proposePublicFileShare,approvePublicFileShare,revokePublicFileShare,servePublicFileShare} from '../src/harness/fileShareApprovals.js';
+import {proposePublicFileShare,approvePublicFileShare,revokePublicFileShare,servePublicFileShare,FILE_SHARE_EXPIRY_CHOICES} from '../src/harness/fileShareApprovals.js';
 import {handleFileShareRoutes} from '../src/harness/fileShareApprovals.js';
 import {fileAgentTools} from '../src/harness/fileAgentTools.js';
 import {setMode} from '../src/harness/mode.js';
@@ -118,6 +118,65 @@ test('Agent proposal creates no token; only the file owner can approve and the p
  expect(await revokePublicFileShare(env,{orgId,shareId:published.shareId,userId:ownerId,login:'share-owner'})).toHaveProperty('revokedAt');
  response=await publicGet(token);expect(response.status).toBe(404);
  expect((await env.DB.prepare("SELECT action FROM hx_file_share_audit ORDER BY id").all()).results.map(x=>x.action)).toEqual(['proposed','approved','revoked']);
+});
+
+
+test('workspace administrators can approve and revoke a share without owning the file',async()=>{
+ const adminId='share-workspace-admin';
+ await upsertUser(env.DB,{githubId:adminId,login:'share-workspace-admin',name:'Workspace admin'});
+ await upsertMembership(env.DB,orgId,adminId,'admin');
+ const request=await propose();
+ const published=await approve(request.requestId,adminId,'share-workspace-admin');
+ expect(published.url).toMatch(/^\/hx\/public-file-shares\//);
+ expect(await revokePublicFileShare(env,{orgId,shareId:published.shareId,userId:adminId,login:'share-workspace-admin'})).toHaveProperty('revokedAt');
+ expect((await publicGet(published.url.split('/').at(-1))).status).toBe(404);
+});
+
+test('current managed-room administrators can approve and revoke a room-scoped share',async()=>{
+ await prepareRoomProposal();
+ const adminId='share-room-admin',login='share-room-admin',joinedAt='2026-11-13T00:00:00.000Z';
+ await upsertUser(env.DB,{githubId:adminId,login,name:'Room admin'});
+ await upsertMembership(env.DB,orgId,adminId,'member');
+ await env.DB.prepare('INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?,?,?,?,?)')
+  .bind(orgId,roomScope,login,login,joinedAt).run();
+ await env.DB.prepare(`INSERT INTO hx_room_roles(org_id,channel,subject_kind,subject_id,role,member_since,updated_by,updated_at)
+  SELECT ?,?,'person',?,'admin',m.created_at||'/'||?,? ,? FROM memberships m WHERE m.org_id=? AND m.user_github_id=?`)
+  .bind(orgId,roomScope,adminId,joinedAt,ownerId,joinedAt,orgId,adminId).run();
+ const request=await proposePublicFileShare(env,{orgId,fileId:roomFileId,version:1,userId:ownerId,login:'share-owner',
+  requestKey:crypto.randomUUID().replaceAll('-',''),expiresIn:86400,allowDownload:false});
+ const published=await approvePublicFileShare(env,{orgId,requestId:request.requestId,userId:adminId,login});
+ expect(published.url).toMatch(/^\/hx\/public-file-shares\//);
+ expect(await revokePublicFileShare(env,{orgId,shareId:published.shareId,userId:adminId,login})).toHaveProperty('revokedAt');
+ expect((await publicGet(published.url.split('/').at(-1))).status).toBe(404);
+});
+
+test.each(FILE_SHARE_EXPIRY_CHOICES)('public snapshot accepts the %s second expiry and stops serving when it expires',async expiresIn=>{
+ const before=Date.now(),request=await propose({expiresIn}),after=Date.now();
+ expect(request.status).toBe('pending');
+ const expiresAt=Date.parse(request.expiresAt);
+ expect(expiresAt).toBeGreaterThanOrEqual(before+expiresIn*1000-50);
+ expect(expiresAt).toBeLessThanOrEqual(after+expiresIn*1000+50);
+ const published=await approve(request.requestId),token=published.url.split('/').at(-1);
+ expect((await publicGet(token)).status).toBe(200);
+ await env.DB.prepare('UPDATE hx_public_file_shares SET expires_at=? WHERE org_id=? AND id=?')
+  .bind(new Date(Date.now()-1000).toISOString(),orgId,published.shareId).run();
+ expect((await publicGet(token)).status).toBe(404);
+});
+
+test('download permission changes the public snapshot content disposition to attachment',async()=>{
+ const request=await propose({allowDownload:true}),published=await approve(request.requestId);
+ const response=await publicGet(published.url.split('/').at(-1));
+ expect(response.status).toBe(200);
+ expect(response.headers.get('content-disposition')).toMatch(/^attachment;/);
+ expect(published.allowDownload).toBe(true);
+});
+
+test('an expired pending request cannot be approved or reveal a public token',async()=>{
+ const request=await propose();
+ await env.DB.prepare('UPDATE hx_file_share_requests SET expires_at=? WHERE org_id=? AND id=?')
+  .bind(new Date(Date.now()-1000).toISOString(),orgId,request.requestId).run();
+ expect((await approve(request.requestId)).status).toBe(404);
+ expect((await env.DB.prepare('SELECT id FROM hx_public_file_shares WHERE org_id=? AND request_id=?').bind(orgId,request.requestId).all()).results).toEqual([]);
 });
 
 
