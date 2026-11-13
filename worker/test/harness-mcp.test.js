@@ -102,6 +102,38 @@ test('Harness MCP creates private Skill packages and version-fences package repl
   expect((await tool(writer, 'create_skill', { skillMarkdown: markdown })).error.message).toContain('Unknown tool');
 });
 
+test('Harness Skill share management lists metadata only and revokes only after owner confirmation', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  const { createSkill } = await import('../src/harness/skills.js');
+  const created = await createSkill(env.DB, ORG, { name: 'Shareable guide', description: 'Instructions', body: 'Keep it current.' }, '9401');
+  const shareId = 'skill-share-safe-test';
+  await env.DB.prepare(`INSERT INTO hx_skill_shares
+    (id,org_id,skill_id,token_hash,snapshot,created_by,created_at,expires_at)
+    VALUES(?1,?2,?3,?4,?5,?6,?7,?8)`)
+    .bind(shareId, ORG, created.skill.id, 'hashed-secret-only', JSON.stringify({ fileCount: 2, totalBytes: 123 }), '9401', '2026-11-14T00:00:00.000Z', '2099-01-01T00:00:00.000Z').run();
+  const reader = await mint(['read']);
+  const writer = await mint(['read', 'write']);
+  expect(await names(reader)).toContain('list_skill_shares');
+  expect(await names(reader)).not.toContain('revoke_skill_share');
+  const listed = await tool(reader, 'list_skill_shares', { skillId: created.skill.id });
+  expect(listed.result.structuredContent.shares).toEqual([expect.objectContaining({ id: shareId, fileCount: 2, totalBytes: 123, revokedAt: null })]);
+  expect(JSON.stringify(listed.result.structuredContent)).not.toContain('hashed-secret-only');
+  expect((await tool(writer, 'revoke_skill_share', { skillId: created.skill.id, shareId, confirm: false })).result.isError).toBe(true);
+  expect((await env.DB.prepare('SELECT revoked_at FROM hx_skill_shares WHERE id=?1').bind(shareId).first()).revoked_at).toBeNull();
+  expect((await tool(writer, 'revoke_skill_share', { skillId: created.skill.id, shareId, confirm: true })).result.structuredContent).toMatchObject({ skillId: created.skill.id, shareId, revoked: true });
+  expect((await env.DB.prepare('SELECT revoked_at FROM hx_skill_shares WHERE id=?1').bind(shareId).first()).revoked_at).toBeTruthy();
+
+  const { upsertUser, upsertMembership, createSession } = await import('../src/db.js');
+  await upsertUser(env.DB, { githubId: '9402', login: 'mika', name: 'Mika', avatarUrl: null, locale: 'en' });
+  await upsertMembership(env.DB, ORG, '9402', 'member');
+  const mikaSession = await createSession(env.DB, '9402', 'gho_mika');
+  const mikaToken = (await (await call('/tokens', { method: 'POST', headers: headers(mikaSession), body: JSON.stringify({ orgId: ORG, name: 'Mika', scopes: ['read', 'write'] }) })).json()).token;
+  expect((await tool(mikaToken, 'list_skill_shares', { skillId: created.skill.id })).result.isError).toBe(true);
+  expect((await tool(mikaToken, 'revoke_skill_share', { skillId: created.skill.id, shareId, confirm: true })).result.isError).toBe(true);
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
+  expect(await names(writer)).not.toContain('list_skill_shares');
+});
+
 test('MCP CLI reserves, uploads, replays and downloads binary workspace-file versions under live ACL', async () => {
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
   await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at,private) VALUES(?1,'binary-private','Binary private','9401','2026-11-11',1)").bind(ORG).run();
