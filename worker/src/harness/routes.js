@@ -1592,6 +1592,10 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
       if (!canManage) return json({ message: 'Only its maker, an editor, or an admin can change app hosting.' }, 403);
+      // A custom domain publishes the app's records to anyone, without expiry,
+      // so attaching one needs the same authority as creating a public link.
+      // Editors may still refresh or remove a domain and manage variables.
+      if (input?.action === 'attach' && !await mayChange(env, orgId, who, app.createdBy)) return json({ message: 'Only the app owner or an admin can attach a custom domain, because it makes the app and its records public.' }, 403);
       const result = await changeAppHosting(env.DB, env, orgId, app, input || {}, me);
       if (result.error) return fail(result);
       await audit(env, request, { orgId, action: `app.hosting_${input.action}`, actor: person(who.user), entity: { type: 'app', id: appId, name: app.name }, details: {
