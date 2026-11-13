@@ -1036,7 +1036,11 @@ CREATE TABLE IF NOT EXISTS ai_teammate_runs (
   result_delivery_id TEXT,
   assignment_id TEXT,
   assignment_generation INTEGER,
-  assignment_agent_id TEXT
+  assignment_agent_id TEXT,
+  /* When the minute cron last looked in on it (teammates.js openRuns): it
+     reads the least recently looked at first, so every running run is
+     reached. Its index is in migrations.sql, after the column. */
+  checked_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_status ON ai_teammate_runs(status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_thread ON ai_teammate_runs(org_id, channel, thread_id);

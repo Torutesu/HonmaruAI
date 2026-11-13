@@ -1082,16 +1082,24 @@ export async function cancelAssignedTeammateRuns(env, {orgId, assignmentId, gene
   return {status};
 }
 
-/// Runs still working, oldest first: what the minute cron looks in on.
-export async function openRuns(db, { limit = 25, ids = null } = {}) {
+/// Runs still working, least recently looked at first: what the minute cron
+/// looks in on. A look that finds a run still working writes nothing to it,
+/// so ordering by `updated_at` read the same oldest runs every minute and
+/// never reached the rest. Each run read here is stamped `checked_at` in
+/// the same statement, so the next minute starts after it and every
+/// running run is read within (running runs / limit) minutes, whichever
+/// workspace it is in. Across every workspace on purpose: it is the
+/// platform's sweep, not a person's read.
+export async function openRuns(db, { limit = 25, ids = null, now = new Date() } = {}) {
   if (ids) {
     if (!ids.length) return [];
     const marks = ids.map((_, i) => `?${i + 1}`).join(",");
     const { results } = await db.prepare(`SELECT * FROM ai_teammate_runs WHERE id IN (${marks}) AND status = 'running'`).bind(...ids).all();
     return results || [];
   }
-  const { results } = await db.prepare("SELECT * FROM ai_teammate_runs WHERE status = 'running' ORDER BY updated_at LIMIT ?1").bind(limit).all();
-  return results || [];
+  const { results } = await db.prepare(`UPDATE ai_teammate_runs SET checked_at = ?2 WHERE id IN (
+      SELECT id FROM ai_teammate_runs WHERE status = 'running' ORDER BY checked_at, updated_at LIMIT ?1) RETURNING *`).bind(limit, now.toISOString()).all();
+  return (results || []).sort((a, b) => String(a.updated_at).localeCompare(String(b.updated_at)));
 }
 
 /// A run's state after a look. While it works nothing moves: the next look

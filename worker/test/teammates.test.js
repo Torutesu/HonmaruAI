@@ -572,3 +572,26 @@ test.each([['active',true],['revoked',false]])('an external Harness Agent handof
  expect(result.status).toBe(eligible?'pending':'published');
  if(eligible)expect(result.payload).toEqual(expect.any(String));else expect(result.payload).toBeNull();
 });
+
+test("the minute cron reaches every running run in turn, not only the oldest", async () => {
+  const { openRuns } = await import("../src/teammates.js");
+  const base = Date.parse("2026-09-30T00:00:00Z");
+  // Sixty runs at work across two workspaces, none of them finishing.
+  for (let i = 0; i < 60; i++) {
+    const at = new Date(base + i * 60000).toISOString();
+    await env.DB.prepare("INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, status, created_at, updated_at) VALUES (?1, ?2, 'claude', 'b:cafe', ?3, ?4, 'running', ?5, ?5)")
+      .bind(`run-${String(i).padStart(2, "0")}`, i % 2 ? ORG : "personal:teammates-other", `thread-${i}`, `sesn_${i}`, at).run();
+  }
+  const seen = new Set();
+  for (let tick = 0; tick < 3; tick++) {
+    const runs = await openRuns(env.DB, { limit: 25, now: new Date(base + 86400000 + tick * 60000) });
+    expect(runs.length).toBeLessThanOrEqual(25);
+    for (const run of runs) seen.add(run.id);
+  }
+  expect(seen.size).toBe(60);
+  // A run that has finished is no longer read.
+  await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'idle' WHERE id = 'run-59' AND org_id = ?1").bind(ORG).run();
+  const next = await openRuns(env.DB, { limit: 60, now: new Date(base + 2 * 86400000) });
+  expect(next.map((r) => r.id)).not.toContain("run-59");
+  expect(next).toHaveLength(59);
+});
