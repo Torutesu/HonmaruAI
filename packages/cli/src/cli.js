@@ -1,7 +1,7 @@
 import { createMcpClient, mcpEndpoint } from "./client.js";
 import { formatGatewayStatus, getGatewayStatus, runGatewayForeground } from "./gateway.js";
-import { readFile, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { lstat, readFile, readdir, writeFile } from "node:fs/promises";
+import { basename, join, relative, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
 import { generateTableSdk } from "./sdk.js";
 
@@ -14,6 +14,9 @@ Usage:
   honmaru workspace app read <app-id>
   honmaru workspace skill list
   honmaru workspace skill get <skill-id>
+  honmaru workspace skill create --from <SKILL.md|directory> [--visibility private|workspace]
+  honmaru workspace skill update <skill-id> --from <SKILL.md|directory> --expected-updated-at ISO
+  honmaru workspace skill installed|shareable --agent <agent-id>
   honmaru workspace skill agent list <agent-id>
   honmaru workspace skill agent add <agent-id> <skill-id>
   honmaru workspace skill agent remove <agent-id> <skill-id>
@@ -133,11 +136,57 @@ const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
   "text", "body", "comment", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
   "direction", "title", "name", "members", "grant-access-members", "to", "summary", "context", "priority",
+  "from", "visibility", "owner", "expected-updated-at",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
+  "agent",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
+
+async function readSkillSource(source) {
+  const root = resolve(source);
+  const rootInfo = await lstat(root);
+  if (rootInfo.isSymbolicLink()) throw new Error("Skill source paths cannot be symbolic links.");
+  if (!rootInfo.isDirectory() && !rootInfo.isFile()) throw new Error("--from must point to a SKILL.md file or a directory.");
+  const files = [];
+  if (rootInfo.isFile()) {
+    const bytes = await readFile(root);
+    if (bytes.byteLength > 65536) throw new Error("SKILL.md must be at most 64 KiB.");
+    return { skillMarkdown: decodeSkillMarkdown(bytes), files: [] };
+  }
+  const walk = async (directory) => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === ".DS_Store" || entry.name === "__MACOSX") continue;
+      const path = join(directory, entry.name);
+      const info = await lstat(path);
+      if (info.isSymbolicLink()) throw new Error("Skill directories cannot contain symbolic links.");
+      if (info.isDirectory()) await walk(path);
+      else if (info.isFile()) {
+        const bytes = await readFile(path);
+        const packagePath = relative(root, path).split(sep).join("/");
+        if (packagePath === "SKILL.md") {
+          if (bytes.byteLength > 65536) throw new Error("SKILL.md must be at most 64 KiB.");
+          files.push({ path: packagePath, bytes, skillMarkdown: true });
+        } else {
+          if (bytes.byteLength > 1024 * 1024) throw new Error(`Skill support file exceeds 1 MiB: ${packagePath}`);
+          files.push({ path: packagePath, bytes });
+        }
+        if (files.length > 64 || files.reduce((sum, file) => sum + file.bytes.byteLength, 0) > 8 * 1024 * 1024) throw new Error("Skill package exceeds 64 files or 8 MiB.");
+      } else throw new Error(`Unsupported Skill package entry: ${entry.name}`);
+    }
+  };
+  await walk(root);
+  const main = files.find(file => file.path === "SKILL.md");
+  if (!main) throw new Error("Skill directory must contain SKILL.md at its root.");
+  return { skillMarkdown: decodeSkillMarkdown(main.bytes), files: files.filter(file => !file.skillMarkdown).map(file => ({ path: file.path, base64: file.bytes.toString("base64") })) };
+}
+
+function decodeSkillMarkdown(bytes) {
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { throw new Error("SKILL.md must contain valid UTF-8 text."); }
+}
 
 function parseOptions(args, { allowArgs = false, allowWorkspaceFlags = false } = {}) {
   const options = { json: false };
@@ -219,7 +268,7 @@ function positionalCount(positional, exact, usage) {
   if (positional.length !== exact) throw new Error(`Usage: ${usage}`);
 }
 
-function resolveWorkspaceCommand(resource, operation, positional, options, env = process.env) {
+async function resolveWorkspaceCommand(resource, operation, positional, options, env = process.env) {
   const pair = `${resource || ""} ${operation || ""}`.trim();
   switch (pair) {
     case "room list": {
@@ -466,12 +515,34 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
       onlyFlags(options, ["emoji"]); positionalCount(positional, 1, `honmaru workspace reaction ${operation} <message-id> --emoji EMOJI`);
       if (typeof options.emoji !== "string" || !options.emoji.trim()) throw new Error("--emoji is required.");
       return { tool: operation === "add" ? "add_reaction" : "remove_reaction", args: { messageId: positional[0], emoji: options.emoji } };
-    case "skill list":
-      onlyFlags(options, []); positionalCount(positional, 0, "honmaru workspace skill list");
-      return { tool: "list_skills", args: {} };
+    case "skill list": {
+      onlyFlags(options, ["owner", "publishedOnly"]); positionalCount(positional, 0, "honmaru workspace skill list [--owner USER_ID] [--published-only]");
+      const args = {};
+      if (options.owner !== undefined) args.ownerId = options.owner;
+      if (options.publishedOnly) args.publishedOnly = true;
+      return { tool: "list_skills", args };
+    }
     case "skill get":
       onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace skill get <skill-id>");
       return { tool: "get_skill", args: { skillId: positional[0] } };
+    case "skill create": {
+      onlyFlags(options, ["from", "visibility"]); positionalCount(positional, 0, "honmaru workspace skill create --from <SKILL.md|directory> [--visibility private|workspace]");
+      if (!options.from) throw new Error("--from is required.");
+      if (options.visibility !== undefined && !["private", "workspace"].includes(options.visibility)) throw new Error("--visibility must be private or workspace.");
+      return { tool: "create_skill", args: { ...(await readSkillSource(options.from)), visibility: options.visibility || "private" } };
+    }
+    case "skill update": {
+      onlyFlags(options, ["from", "expectedUpdatedAt"]); positionalCount(positional, 1, "honmaru workspace skill update <skill-id> --from <SKILL.md|directory> --expected-updated-at ISO");
+      if (!options.from) throw new Error("--from is required.");
+      if (!options.expectedUpdatedAt?.trim()) throw new Error("--expected-updated-at is required; read the Skill first and use its updatedAt value.");
+      return { tool: "update_skill", args: { skillId: positional[0], expectedUpdatedAt: options.expectedUpdatedAt, ...(await readSkillSource(options.from)) } };
+    }
+    case "skill installed":
+    case "skill shareable": {
+      onlyFlags(options, ["agent"]); positionalCount(positional, 0, `honmaru workspace skill ${operation} --agent AGENT_ID`);
+      if (!options.agent?.trim()) throw new Error("--agent is required.");
+      return { tool: operation === "installed" ? "list_agent_skills" : "list_shareable_skills", args: { agentId: options.agent } };
+    }
     case "skill agent": {
       const [action, ...target] = positional;
       if (action === "list") {
@@ -829,9 +900,11 @@ function formatWorkspaceResult(result, json, command = null) {
   if (Array.isArray(value.skills) && command?.tool === "list_skills") return value.skills.length
     ? value.skills.map(skill => `${skill.id}\t${skill.name}${skill.visibility ? `\t${skill.visibility}` : ""}${skill.description ? `\t${skill.description}` : ""}`).join("\n")
     : "No Skills are available.";
-  if (Array.isArray(value.skills) && command?.tool === "list_agent_skills") return value.skills.length
+  if (Array.isArray(value.skills) && ["list_agent_skills", "list_shareable_skills"].includes(command?.tool)) return value.skills.length
     ? value.skills.map(skill => `${skill.id}\t${skill.name}`).join("\n")
-    : `No Skills are assigned to Agent ${value.agentId}.`;
+    : command?.tool === "list_shareable_skills" ? `No unassigned Skills are available to Agent ${value.agentId}.` : `No Skills are assigned to Agent ${value.agentId}.`;
+  if (command?.tool === "create_skill") return `Created private Skill ${value.skill?.id} (${value.skill?.name}).`;
+  if (command?.tool === "update_skill") return `Updated Skill ${value.skill?.id} (${value.skill?.name}) at ${value.skill?.updatedAt}.`;
   if (command?.tool === "assign_skill_to_agent") return `Assigned Skill ${value.skillId} to Agent ${value.agentId}.`;
   if (command?.tool === "remove_skill_from_agent") return `Removed Skill ${value.skillId} from Agent ${value.agentId}.`;
   if (command?.tool === "get_room_agent_access") return value.canGrantAccess
@@ -972,7 +1045,7 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       await copyWorkspaceFile({ options, positional: commandArgs, client, apiUrl, token, fetcher, writeOut });
       return 0;
     }
-    const command = resolveWorkspaceCommand(resource, operation, commandArgs, options, env);
+    const command = await resolveWorkspaceCommand(resource, operation, commandArgs, options, env);
     const result = await client.callTool(command.tool, command.args);
     writeOut(formatWorkspaceResult(result, options.json, command));
     return 0;

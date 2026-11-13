@@ -13,16 +13,17 @@ import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, startRun, l
 import { heldWorkflowSummary, readHeldWorkflowEvent, discardWorkflowEvents } from "./workflowHeld.js";
 import { workflowRevisions, restoreWorkflowRevision } from "./workflowRevisions.js";
 import { readWorkflowSafety, resumeWorkflowSafety } from "./workflowSafety.js";
-import { listSkills, getSkill, skillsOf, giveSkill, takeSkill } from "./skills.js";
+import { listSkills, getSkill, skillsOf, giveSkill, takeSkill, createSkill, updateSkill } from "./skills.js";
 import { skillAgentManager } from "./skillAgentAuthority.js";
 import { mayAccessAgent } from "./agents.js";
+import { parseSkillMarkdown } from "./skillMarkdown.js";
 import { allowed } from "../permissions.js";
 import { listFollowups, scheduleFollowup } from "./followups.js";
 import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 import { audit } from "../audit.js";
 
-export const HARNESS_TOOL_SCOPE = { get_workflow: "read", assign_skill_to_agent: "write", remove_skill_from_agent: "write", create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { get_workflow: "read", create_skill: "write", update_skill: "write", assign_skill_to_agent: "write", remove_skill_from_agent: "write", create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,
@@ -32,7 +33,13 @@ export const HARNESS_TOOLS = [
     name: "list_skills",
     title: "The Skills you can use",
     description: "List Skills currently visible to the authorizing workspace member. Returns names and assignment metadata, not instruction bodies.",
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: { type: "object", properties: { ownerId: { type: "string", maxLength: 200 }, publishedOnly: { type: "boolean" } }, additionalProperties: false },
+  },
+  {
+    name: "list_shareable_skills",
+    title: "Skills an Agent can use",
+    description: "List visible custom Skills not yet assigned to an Agent you manage. Returns summaries without instruction bodies.",
+    inputSchema: { type: "object", properties: { agentId: { type: "string", minLength: 1, maxLength: 200 } }, required: ["agentId"], additionalProperties: false },
   },
   {
     name: "get_skill",
@@ -45,6 +52,20 @@ export const HARNESS_TOOLS = [
     title: "Skills assigned to an Agent",
     description: "List Skills assigned to an Agent, filtered through the authorizing member's current access to both the Agent and Skills.",
     inputSchema: { type: "object", properties: { agentId: { type: "string", minLength: 1, maxLength: 200 } }, required: ["agentId"] },
+  },
+  {
+    name: "create_skill",
+    title: "Create a custom Skill",
+    description: "Create a custom Skill from SKILL.md content and optional package files. New Skills default to private; choose workspace visibility only when you intend workspace-wide availability.",
+    inputSchema: { type: "object", properties: { skillMarkdown: { type: "string", minLength: 1, maxLength: 65536 }, visibility: { type: "string", enum: ["private", "workspace"] }, files: { type: "array", maxItems: 63, items: { type: "object", properties: { path: { type: "string", maxLength: 240 }, base64: { type: "string", maxLength: 1398104 } }, required: ["path", "base64"], additionalProperties: false } } }, required: ["skillMarkdown"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "update_skill",
+    title: "Update a custom Skill",
+    description: "Replace a custom Skill's SKILL.md content and optional package files using the exact updatedAt from the latest read. This prevents stale edits from overwriting newer work.",
+    inputSchema: { type: "object", properties: { skillId: { type: "string", minLength: 1, maxLength: 200 }, expectedUpdatedAt: { type: "string", minLength: 1, maxLength: 40 }, skillMarkdown: { type: "string", minLength: 1, maxLength: 65536 }, files: { type: "array", maxItems: 63, items: { type: "object", properties: { path: { type: "string", maxLength: 240 }, base64: { type: "string", maxLength: 1398104 } }, required: ["path", "base64"], additionalProperties: false } } }, required: ["skillId", "expectedUpdatedAt", "skillMarkdown"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "assign_skill_to_agent",
@@ -275,8 +296,15 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
   const by = agent.githubId;
   switch (name) {
     case "list_skills": {
-      const skills = await listSkills(db, orgId, by);
+      const skills = (await listSkills(db, orgId, by)).filter(skill => (!args.ownerId || skill.createdBy === String(args.ownerId)) && (!args.publishedOnly || skill.visibility === 'workspace'));
       return out({ skills: skills.map(({ id, name, description, visibility, agents = [], updatedAt }) => ({ id, name, description, visibility, agents, updatedAt })) });
+    }
+    case "list_shareable_skills": {
+      const agentId = String(args.agentId || "");
+      if (!await db.prepare(`SELECT 1 AS ok WHERE ${skillAgentManager('?1','?2','?3')}`).bind(orgId, agentId, String(by)).first()) return err("No such Agent.");
+      const assigned = new Set((await skillsOf(db, orgId, agentId, by)).map(skill => skill.id));
+      const skills = (await listSkills(db, orgId, by)).filter(skill => !assigned.has(skill.id) && (!skill.sourceScope || skill.sourceScope.agentId === agentId));
+      return out({ agentId, skills: skills.map(({ id, name, description, visibility, updatedAt }) => ({ id, name, description, visibility, updatedAt })) });
     }
     case "get_skill": {
       const skill = await getSkill(db, orgId, String(args.skillId || ""), by);
@@ -288,6 +316,18 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
       const user = await db.prepare("SELECT login FROM users WHERE github_id = ?1").bind(String(by)).first();
       if (!target || !user || !await mayAccessAgent(db, orgId, { ...target, ownerLogin: target.owner_login }, user.login)) return err("No such Agent.");
       return out({ agentId, skills: await skillsOf(db, orgId, agentId, by) });
+    }
+    case "create_skill": {
+      const parsed = parseSkillMarkdown(args.skillMarkdown);
+      if (parsed.error) return err(parsed.error);
+      const result = await createSkill(db, orgId, { ...parsed.draft, files: args.files, visibility: args.visibility || "private" }, by);
+      return result.error ? err(result.error) : out({ skill: result.skill });
+    }
+    case "update_skill": {
+      const parsed = parseSkillMarkdown(args.skillMarkdown);
+      if (parsed.error) return err(parsed.error);
+      const result = await updateSkill(db, orgId, String(args.skillId || ""), { ...parsed.draft, ...(args.files === undefined ? {} : { files: args.files }) }, by, String(args.expectedUpdatedAt || ""));
+      return result.error ? err(result.error) : out({ skill: result.skill });
     }
     case "assign_skill_to_agent": {
       const result = await giveSkill(db, orgId, String(args.agentId || ""), String(args.skillId || ""), by);

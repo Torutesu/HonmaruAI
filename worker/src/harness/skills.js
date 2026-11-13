@@ -117,19 +117,40 @@ export async function createSkill(db, orgId, input, by, { activeShareId, install
   return { skill };
 }
 
-export async function updateSkill(db, orgId, id, input, userId = "") {
-  if (input.files !== undefined) return {error:"Replace support files by importing a new skill package."};
+export async function updateSkill(db, orgId, id, input, userId = "", expectedUpdatedAt = null) {
   const existing = await getSkill(db, orgId, id, userId);
   if (!existing) return { error: "No such skill.", status: 404 };
+  if (expectedUpdatedAt && existing.updatedAt !== expectedUpdatedAt) return { error: "Skill changed. Reload it before updating.", status: 409 };
   const c = clean({ ...existing, ...input });
   if (c.error) return c;
-  const result = await db.prepare(`UPDATE hx_skills SET name = ?1, description = ?2, body = ?3, updated_at = ?4, metadata = ?8
+  let updatedAt = now();
+  if (updatedAt === existing.updatedAt) updatedAt = new Date(Date.parse(existing.updatedAt) + 1).toISOString();
+  let fileRows = [];
+  if (input.files !== undefined) {
+    const { prepareSkillFiles, skillFileInserts } = await import('./skillFiles.js');
+    const assets = prepareSkillFiles(c, input.files);
+    if (assets.error) return assets;
+    fileRows = skillFileInserts(db, orgId, id, assets.files, { onlyIfSkillExists: true, expectedUpdatedAt: updatedAt });
+  }
+  const update = db.prepare(`UPDATE hx_skills SET name = ?1, description = ?2, body = ?3, updated_at = ?4, metadata = ?8
     WHERE id = ?5 AND org_id = ?6 AND (COALESCE(owner_id, created_by) = ?7 OR NOT EXISTS
       (SELECT 1 FROM hx_skill_access p WHERE p.org_id = ?6 AND p.skill_id = ?5 AND p.visibility = 'private'))
       AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?6 AND m.user_github_id=?7 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
-        AND (COALESCE(owner_id,created_by)=?7 OR LOWER(TRIM(COALESCE(m.role,''))) IN('owner','admin')))`)
-    .bind(c.name, c.description, c.body, now(), id, orgId, String(userId), JSON.stringify(c.metadata)).run();
-  if (!result.meta?.changes) return { error: 'No such skill.', status: 404 };
+        AND (COALESCE(owner_id,created_by)=?7 OR LOWER(TRIM(COALESCE(m.role,''))) IN('owner','admin')))
+      AND (?9 IS NULL OR updated_at = ?9)`)
+    .bind(c.name, c.description, c.body, updatedAt, id, orgId, String(userId), JSON.stringify(c.metadata), expectedUpdatedAt);
+  let changed;
+  if (input.files !== undefined) {
+    const replace = db.prepare(`DELETE FROM hx_skill_files WHERE org_id=?1 AND skill_id=?2
+      AND EXISTS(SELECT 1 FROM hx_skills WHERE org_id=?1 AND id=?2 AND updated_at=?3)`)
+      .bind(orgId, id, updatedAt);
+    const results = await db.batch([update, replace, ...fileRows]);
+    changed = results[0]?.meta?.changes;
+  } else changed = (await update.run()).meta?.changes;
+  if (!changed) {
+    const current = await getSkill(db, orgId, id, userId);
+    return current && expectedUpdatedAt ? { error: "Skill changed. Reload it before updating.", status: 409 } : { error: 'No such skill.', status: 404 };
+  }
   return { skill: await getSkill(db, orgId, id, userId) };
 }
 
