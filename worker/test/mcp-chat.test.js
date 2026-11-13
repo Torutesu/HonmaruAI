@@ -8,7 +8,7 @@ import { postMessage } from '../src/channels.js';
 import { listMembers } from '../src/team.js';
 import { createApiToken } from '../src/mcp.js';
 import { setMode } from '../src/harness/mode.js';
-import { uploadFile } from '../src/files.js';
+import { uploadFile, fileKey } from '../src/files.js';
 import { runMinuteJobs, cancelScheduled } from '../src/later.js';
 import { deliverMcpScheduledMessage } from '../src/mcpScheduled.js';
 import { initializeRoomRoles } from '../src/harness/roomRoles.js';
@@ -394,6 +394,38 @@ test('DLP applies before MCP immediate and scheduled sends', async () => {
   await expect(call('schedule_message', { conversationId: 'b:general', body: '4111 1111 1111 1111', requestId: 'dlp-schedule', sendAt: new Date(Date.now() + 120000).toISOString() })).rejects.toThrow("can't be sent");
   expect((await env.DB.prepare('SELECT COUNT(*) n FROM channel_messages WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
   expect((await env.DB.prepare('SELECT COUNT(*) n FROM scheduled_messages WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
+});
+
+test('MCP message editing is author-only, DLP checked, and fenced by contentVersion', async () => {
+  const message = await seed('b:general', 'original');
+  expect(await call('edit_message', { conversationId: 'b:general', messageId: message.id, expectedContentVersion: 0, body: 'revised' })).toMatchObject({ message: { id: message.id, body: 'revised', contentVersion: 1 } });
+  await expect(call('edit_message', { conversationId: 'b:general', messageId: message.id, expectedContentVersion: 0, body: 'stale' })).rejects.toThrow('message changed');
+  await expect(call('edit_message', { conversationId: 'b:general', messageId: message.id, expectedContentVersion: 1, body: 'not the author' }, { ...actor, githubId: 'mcp-b', login: 'beth', name: 'Beth', scopes: actor.scopes })).rejects.toThrow('Only the person who wrote it');
+  const now = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO dlp_rules(id,org_id,name,kind,detector,action,created_by,created_at,updated_at) VALUES('block-edit-card',?1,'Card number','builtin','credit_card','block',?2,?3,?3)").bind(orgId, actor.githubId, now).run();
+  await expect(call('edit_message', { conversationId: 'b:general', messageId: message.id, expectedContentVersion: 1, body: '4111 1111 1111 1111' })).rejects.toThrow("can't be sent");
+  expect((await env.DB.prepare('SELECT body,content_version FROM channel_messages WHERE org_id=?1 AND id=?2').bind(orgId, message.id).first())).toMatchObject({ body: 'revised', content_version: 1 });
+});
+
+test('MCP message deletion is version-fenced and requires an explicit choice to remove other replies', async () => {
+  const root = await seed('b:general', 'thread root');
+  const reply = (await (await import('../src/channels.js')).postMessage(env.DB, { orgId, key: 'b:general', authorLogin: 'beth', body: 'other person reply', parentId: root.id })).row;
+  for (const [fileId, messageId, name] of [['mcp-delete-root-file', root.id, 'root.txt'], ['mcp-delete-reply-file', reply.id, 'reply.txt']]) {
+    await env.DB.prepare("INSERT INTO message_files(id,org_id,channel,message_id,uploader,name,type,size,created_at) VALUES(?1,?2,'b:general',?3,'alex',?4,'text/plain',4,?5)").bind(fileId, orgId, messageId, name, new Date().toISOString()).run();
+    await env.MEDIA.put(fileKey(orgId, fileId), 'data');
+  }
+  await expect(call('delete_message', { conversationId: 'b:general', messageId: root.id, expectedContentVersion: 1 })).rejects.toThrow('message changed');
+  await expect(call('delete_message', { conversationId: 'b:general', messageId: root.id, expectedContentVersion: 0 })).rejects.toThrow('Delete it with their replies');
+  expect((await env.DB.prepare('SELECT deleted_at FROM channel_messages WHERE org_id=?1 AND id=?2').bind(orgId, root.id).first()).deleted_at).toBeNull();
+  const deleted = await call('delete_message', { conversationId: 'b:general', messageId: root.id, expectedContentVersion: 0, withThread: true });
+  expect(deleted.deletedReplyIds).toContain(reply.id);
+  const deletedRows = (await env.DB.prepare('SELECT id,deleted_at,content_version FROM channel_messages WHERE org_id=?1 AND id IN (?2,?3)').bind(orgId, root.id, reply.id).all()).results;
+  expect(deletedRows.every(row => row.deleted_at)).toBe(true);
+  expect(deletedRows.find(row => row.id === root.id)?.content_version).toBe(1);
+  expect(deletedRows.find(row => row.id === reply.id)?.content_version).toBe(1);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM message_files WHERE org_id=?1 AND id IN ('mcp-delete-root-file','mcp-delete-reply-file')").bind(orgId).first()).n).toBe(0);
+  expect(await env.MEDIA.get(fileKey(orgId, 'mcp-delete-root-file'))).toBeNull();
+  expect(await env.MEDIA.get(fileKey(orgId, 'mcp-delete-reply-file'))).toBeNull();
 });
 
 test.each(['membership', 'token', 'grant'])('a removed %s between preparation and persistence prevents the message', async removed => {

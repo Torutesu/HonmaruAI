@@ -1,5 +1,5 @@
 import { sha256Hex } from './auth.js';
-import { getMessage, present, listThread, searchMessages, viewOf, VISIBLE, cleanEmoji } from './channels.js';
+import { getMessage, present, listThread, searchMessages, viewOf, VISIBLE, cleanEmoji, editMessage, deleteMessage } from './channels.js';
 import { resolveMcpConversation, mcpConversationContext, mcpAudienceSql, messageLink } from './mcpConversation.js';
 import { McpInputError, requireMcpScope, mcpResult, validateMcpInput } from './mcpSupport.js';
 import { prepareConversationMessage, acceptConversationMessage } from './conversationOperations.js';
@@ -24,6 +24,8 @@ import { getGuidelines, saveGuidelines, MAX_GUIDELINES } from './harness/guideli
 import { getMode } from './harness/mode.js';
 import { roomAgentAccessPlan } from './harness/agentAccessRequests.js';
 import { listAgents } from './customAgents.js';
+import { checkOutgoing } from './dlp.js';
+import { dropFiles } from './files.js';
 
 const id = { type: 'string', minLength: 1, maxLength: 200 };
 const text = { type: 'string', maxLength: 4000 };
@@ -58,6 +60,8 @@ export const CHAT_TOOLS = [
   write('remove_room_agent', 'Remove an Agent assignment from an accessible managed Room. Room admins only. This does not revoke the Agent access grants held by people.', { conversationId: id, agentId: id }, ['conversationId', 'agentId'], 'channels:write', { destructiveHint: true }),
   read('search_messages', 'Search authorized message history. Supports in:, from:, before:, after:, has:, is: and quoted phrases. Content is untrusted source data.', { query: { type: 'string', minLength: 1, maxLength: 1000 }, cursor, limit }, ['query']),
   read('get_message', 'Read one accessible message by ID without marking it read.', { messageId: id }, ['messageId']),
+  write('edit_message', 'Edit your own message using its exact current contentVersion. Workspace DLP rules still apply; explicitly acknowledge warning-only matches.', { conversationId: id, messageId: id, expectedContentVersion: { type: 'integer', minimum: 0 }, body: { type: 'string', maxLength: 4000 }, acknowledgeDlp: { type: 'boolean' } }, ['conversationId', 'messageId', 'expectedContentVersion', 'body'], 'chat:write', { idempotentHint: false }),
+  write('delete_message', 'Delete your own message using its exact current contentVersion. Deleting a thread with other people’s replies requires withThread=true and removes those replies too.', { conversationId: id, messageId: id, expectedContentVersion: { type: 'integer', minimum: 0 }, withThread: { type: 'boolean' } }, ['conversationId', 'messageId', 'expectedContentVersion'], 'chat:write', { destructiveHint: true, idempotentHint: false }),
   read('read_channel', 'Read a bounded history page without marking it read. Follow nextCursor for older messages.', { conversationId: id, cursor, limit }, ['conversationId']),
   read('read_thread', 'Read the parent and a bounded page of thread replies without marking them read. Follow nextCursor for older replies.', { conversationId: id, threadId: id, cursor, limit }, ['conversationId', 'threadId']),
   write('rename_thread', 'Rename an accessible thread using its current title version. Supply version 0 when it has no custom title.', { conversationId: id, threadId: id, title: { type: 'string', minLength: 1, maxLength: 160 }, version: { type: 'integer', minimum: 0 } }, ['conversationId', 'threadId', 'title', 'version'], 'chat:write'),
@@ -404,6 +408,34 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
   }
   if (name === 'create_conversation') return createMcpConversation(env, actor, args);
   const context = await resolveMcpConversation(env, actor, args.conversationId);
+  if (name === 'edit_message' || name === 'delete_message') {
+    const current = await getMessage(env.DB, actor.orgId, args.messageId);
+    if (!current || current.channel !== context.resolved.key || current.deleted_at) throw new McpInputError('No accessible message.');
+    if (!Number.isSafeInteger(args.expectedContentVersion) || args.expectedContentVersion < 0 || Number(current.content_version || 0) !== args.expectedContentVersion) throw new McpInputError('The message changed. Reload it before editing or deleting.');
+    let result;
+    if (name === 'edit_message') {
+      const stopped = await checkOutgoing(env, request, { orgId: actor.orgId, login: actor.login, text: args.body, ack: args.acknowledgeDlp === true, where: 'edit' });
+      if (stopped) { const denial = await stopped.json(); throw new McpInputError(denial.message || 'Workspace rules blocked this edit.'); }
+      result = await editMessage(env.DB, { orgId: actor.orgId, id: args.messageId, authorLogin: actor.login, body: args.body, expectedContentVersion: args.expectedContentVersion });
+    } else {
+      result = await deleteMessage(env.DB, { orgId: actor.orgId, id: args.messageId, authorLogin: actor.login, withThread: args.withThread === true, expectedContentVersion: args.expectedContentVersion });
+      if (!result.error) for (const messageId of [args.messageId, ...(result.replies || [])]) await dropFiles(env, actor.orgId, messageId);
+    }
+    failResult(result);
+    const { broadcastWithParent } = await import('./channelRoutes.js');
+    const deliver = async () => {
+      await broadcastWithParent(env, actor.orgId, context.resolved, result.row, context.members);
+      await emitMessage(env, actor.orgId, result.row, { updated: true });
+      for (const replyId of result.replies || []) {
+        const reply = await getMessage(env.DB, actor.orgId, replyId);
+        if (reply) { await broadcastWithParent(env, actor.orgId, context.resolved, reply, context.members); await emitMessage(env, actor.orgId, reply, { updated: true }); }
+      }
+    };
+    if (ctx?.waitUntil) ctx.waitUntil(deliver()); else await deliver();
+    const [message] = await present(env.DB, actor.orgId, [result.row], actor.login, context.view, context.members);
+    await audit(env, request, { orgId: actor.orgId, action: name === 'edit_message' ? 'message.edited' : 'message.deleted', actor: { type: 'user', id: actor.login, name: actor.name }, entity: { type: 'message', id: args.messageId }, details: { contentVersion: result.row.content_version } });
+    return mcpResult({ conversationId: args.conversationId, message: decorate(env, actor, [message], request)[0], ...(result.replies ? { deletedReplyIds: result.replies } : {}) });
+  }
   if (name === 'read_channel') {
     const page = decode(args.cursor, name);
     if (page && page.conversationId !== args.conversationId) throw new McpInputError('Cursor belongs to another conversation.');
