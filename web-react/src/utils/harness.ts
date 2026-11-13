@@ -48,6 +48,7 @@ export interface App {
   id: string; name: string; description: string; icon: string; tableId: string
   template: string | null; version: number; channels?: string[]; createdBy: string; updatedAt: string
 }
+export interface ArchivedApp { id:string; name:string; description:string; icon:string; version:number; createdBy:string; archivedAt:string }
 export interface AppAction { name: string; version: number; draft?: string; published: string | null; publishedVersion: number | null }
 export interface AppConnection { name: string; version: number; endpoint: string; method: string; enabled: number; hasToken: number; ownerId?: string; ownerName?: string; owned?: boolean; shared?: boolean; grantExists?: boolean; canShare?: boolean; sourceAgentName?: string }
 export interface AppHosting { configured:boolean; project:string; dnsTarget:string; domain:{hostname:string;status:string;validationStatus:string;verificationStatus:string;errorMessage:string;createdAt:string;updatedAt:string;dnsTarget:string}|null; environment:Array<{name:string;version:number;updatedAt:string;hasValue:boolean}> }
@@ -192,6 +193,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     sharedTemplate: (token: string, signal?: AbortSignal) => call<{ snapshot: SharedTemplate; expiresAt: string }>('GET', `/template-shares/${encodeURIComponent(token)}`, undefined, undefined, signal),
     importSharedTemplate: (token: string, name?: string) => call<{ app: App; sourceVersion: number; expiresAt: string }>('POST', `/template-shares/${encodeURIComponent(token)}/import`, name ? { name } : {}),
     apps: (channel?: string) => call<{ apps: App[] }>('GET', '/apps', undefined, channel ? { channel } : {}),
+    archivedApps: () => call<{ apps: ArchivedApp[] }>('GET', '/apps/archived'),
+    restoreArchivedApp: (id:string, archivedAt:string) => call<{restored:boolean;app:App}>('POST', `/apps/${id}/restore`, {archivedAt}),
     app: (id: string) => call<{ app: App; table: Table; rows: Row[]; views: View[]; canCustomize: boolean }>('GET', `/apps/${id}`),
     createFromTemplate: (template: string, channel?: string) => call<{ app: App }>('POST', '/apps', { template, channel }),
     // Never fall back to the older route: an older Worker ignores sampleCount.

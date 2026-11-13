@@ -431,7 +431,7 @@ test("an app is versioned, and an old version comes back as a new one", async ()
   expect(back.app).toMatchObject({ name: "Tracker", version: 3 });
 });
 
-test("only its maker or an admin deletes an app, and the table goes with it", async () => {
+test("only its maker or an admin removes an app, while app data stays hidden", async () => {
   const { app } = await (await send("POST", "/apps", toru, { orgId: ORG, template: "invoices" })).json();
   expect((await call(`/apps/${app.id}?orgId=${ORG}`, { method: "DELETE", headers: headers(mika) })).status).toBe(403);
   expect((await call(`/tables/${app.tableId}?orgId=${ORG}`, { method: "DELETE", headers: headers(toru) })).status).toBe(409);
@@ -439,6 +439,25 @@ test("only its maker or an admin deletes an app, and the table goes with it", as
   expect((await get(`/tables/${app.tableId}?orgId=${ORG}`, toru)).status).toBe(404);
   const log = await env.DB.prepare("SELECT action FROM audit_log WHERE org_id = ?1 ORDER BY created_at").bind(ORG).all().catch(() => ({ results: [] }));
   if (log.results.length) expect(log.results.map((r) => r.action)).toEqual(expect.arrayContaining(["app.created", "app.deleted"]));
+});
+
+test('the app owner can restore an archived app with a current archive token; members cannot enumerate or restore it',async()=>{
+ const made=await send('POST','/apps',toru,{orgId:ORG,name:'Restorable tracker',columns:[{name:'Task',type:'text'}],sample:[{Task:'Keep this row'}]});
+ expect(made.status).toBe(201);const {app}=await made.json();
+ const archived=await send('DELETE',`/apps/${app.id}?orgId=${encodeURIComponent(ORG)}`,toru,{orgId:ORG});expect(archived.status,await archived.clone().text()).toBe(200);
+ const hidden=await(await get(`/apps/archived?orgId=${encodeURIComponent(ORG)}`,mika)).json();
+ expect(hidden.apps).toEqual([]);
+ const archive=await(await get(`/apps/archived?orgId=${encodeURIComponent(ORG)}`,toru)).json();
+ expect(archive.apps).toEqual([expect.objectContaining({id:app.id,name:'Restorable tracker',version:1,archivedAt:expect.any(String)})]);
+ expect(archive.apps[0]).not.toHaveProperty('rows');
+ expect((await send('POST',`/apps/${app.id}/restore?orgId=${encodeURIComponent(ORG)}`,mika,{orgId:ORG,archivedAt:archive.apps[0].archivedAt})).status).toBe(404);
+ expect((await send('POST',`/apps/${app.id}/restore?orgId=${encodeURIComponent(ORG)}`,toru,{orgId:ORG,archivedAt:'stale'})).status).toBe(409);
+ const restored=await send('POST',`/apps/${app.id}/restore?orgId=${encodeURIComponent(ORG)}`,toru,{orgId:ORG,archivedAt:archive.apps[0].archivedAt});
+ expect(restored.status).toBe(200);expect(await restored.json()).toMatchObject({restored:true,app:{id:app.id,name:'Restorable tracker'}});
+ const current=await(await get(`/apps/${app.id}?orgId=${encodeURIComponent(ORG)}`,toru)).json();
+ expect(current.rows).toEqual([expect.objectContaining({values:{task:'Keep this row'}})]);
+ expect((await(await get(`/apps/archived?orgId=${encodeURIComponent(ORG)}`,toru)).json()).apps).toEqual([]);
+ expect((await send('POST',`/apps/${app.id}/restore?orgId=${encodeURIComponent(ORG)}`,toru,{orgId:ORG,archivedAt:archive.apps[0].archivedAt})).status).toBe(404);
 });
 
 test("a sentence becomes an app without a model, through the closest template", async () => {
