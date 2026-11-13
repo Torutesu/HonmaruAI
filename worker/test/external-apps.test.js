@@ -5,6 +5,7 @@ import { setMode } from "../src/harness/mode.js";
 import { createApp } from "../src/harness/apps.js";
 import { createTable, addRow, updateRow, deleteRow } from "../src/harness/tables.js";
 import { grantExternalResource, revokeExternalResource } from "../src/harness/externalCollaborators.js";
+import { sealCollaboratorRef } from "../src/harness/collaboratorRefs.js";
 import schemaSql from "../schema.sql?raw";
 import migrationsSql from "../migrations.sql?raw";
 import worker from "../src/index.js";
@@ -231,9 +232,13 @@ test("App invite managers can list, issue, redeem, update, and revoke an exact g
   expect(await redeemed.json()).toMatchObject({ ok: true, resourceType: "app", orgId: f.orgId, appId: f.app.id });
   expect((await call(`/external/apps/${f.orgId}/${f.app.id}`, session)).status).toBe(200);
 
-  const updated = await call(`${sharing}/${guestId}`, f.sessions.owner, "PATCH", { permission: "edit", expiresAt: null });
+  // The redeemed guest is listed by handle, with the address the manager typed.
+  const [listedGuest] = (await (await call(sharing, f.sessions.owner)).json()).guests;
+  expect(listedGuest).toMatchObject({ ref: expect.stringMatching(/^c1\./), name: "Invitee", email: "invitee@example.com" });
+  expect(listedGuest).not.toHaveProperty("githubId");
+  const updated = await call(`${sharing}/${encodeURIComponent(listedGuest.ref)}`, f.sessions.owner, "PATCH", { permission: "edit", expiresAt: null });
   expect(updated.status).toBe(200);
-  const revoked = await call(`${sharing}/${guestId}`, f.sessions.owner, "DELETE");
+  const revoked = await call(`${sharing}/${encodeURIComponent(listedGuest.ref)}`, f.sessions.owner, "DELETE");
   expect(revoked.status).toBe(200);
   expect((await call(`/external/apps/${f.orgId}/${f.app.id}`, session)).status).toBe(404);
 });
@@ -255,18 +260,33 @@ test('reusable App links are token-hashed, require sign-in, and revoke only link
 
 test("App sharing accepts a selected verified collaborator without creating workspace membership", async () => {
   const f = await setup();
-  const selectedId = `external-app-selected-${tag()}`;
-  await upsertUser(env.DB, { githubId: selectedId, login: selectedId, name: "Selected Guest", avatarUrl: null, locale: "en" });
+  // An email sign-up: its account id and login are both made from the address (#956).
+  const address = `selected-${tag()}@example.com`;
+  const selectedId = `email:${address}`;
+  await upsertUser(env.DB, { githubId: selectedId, login: `u:${address}`, name: "Selected Guest", avatarUrl: null, locale: "en" });
   await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3")
-    .bind(`${selectedId}@example.com`, new Date().toISOString(), selectedId).run();
+    .bind(address, new Date().toISOString(), selectedId).run();
   const sharing = `/external/apps/${f.orgId}/${f.app.id}/sharing`;
-  const response = await call(sharing, f.sessions.owner, "POST", { recipientGithubId: selectedId, permission: "edit", expiresAt: null });
+  const search = await call(`/external/collaborators/search?${new URLSearchParams({ orgId: f.orgId, resourceType: "app", resourceId: f.app.id, q: "selected" })}`, f.sessions.owner);
+  expect(search.status).toBe(200);
+  const searchText = await search.text();
+  expect(searchText).not.toContain(address);
+  const [person] = JSON.parse(searchText).people;
+  expect(person).toEqual({ ref: expect.stringMatching(/^c1\./), name: "Selected Guest", login: null });
+  expect((await call(sharing, f.sessions.owner, "POST", { recipientGithubId: selectedId, permission: "edit", expiresAt: null })).status).toBe(400);
+  const response = await call(sharing, f.sessions.owner, "POST", { recipientRef: person.ref, permission: "edit", expiresAt: null });
   expect(response.status).toBe(201);
-  expect(await response.json()).toMatchObject({ guest: { githubId: selectedId, login: selectedId, name: "Selected Guest", permission: "edit" } });
+  const responseText = await response.text();
+  expect(responseText).not.toContain(address);
+  expect(JSON.parse(responseText)).toMatchObject({ guest: { name: "Selected Guest", login: null, permission: "edit" } });
+  const listText = await (await call(sharing, f.sessions.owner)).text();
+  expect(listText).not.toContain(address);
+  expect(JSON.parse(listText).guests).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Selected Guest", email: null })]));
   expect(await env.DB.prepare("SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(f.orgId, selectedId).first()).toBeNull();
   await env.DB.prepare("UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3")
     .bind(`${f.memberId}@example.com`, new Date().toISOString(), f.memberId).run();
-  expect((await call(sharing, f.sessions.owner, "POST", { recipientGithubId: f.memberId, permission: "view" })).status).toBe(409);
+  const memberRef = await sealCollaboratorRef(env.DB, { orgId: f.orgId, resourceType: "app", resourceId: f.app.id }, f.memberId);
+  expect((await call(sharing, f.sessions.owner, "POST", { recipientRef: memberRef, permission: "view" })).status).toBe(409);
 });
 
 test("App invitation fails closed when its issuer loses sharing authority before redemption", async () => {

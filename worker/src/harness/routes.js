@@ -1,6 +1,6 @@
 import {currentIp} from '../requestContext.js';
 import {handleFileShareRoutes,servePublicFileShare} from './fileShareApprovals.js';
-import { handleExternalFileGrantRoutes } from './externalFileGrants.js';
+import { handleExternalFileGrantRoutes, grantRecipients } from './externalFileGrants.js';
 import { cleanResourceAudienceInput, listResourceAudienceRooms, readResourceAudience, writeResourceAudience } from './externalResourceAudiences.js';
 import {annotationProofRequiresIp} from './appReplyRequestProof.js';
 import {appActivityProof,visibleAppNotifications} from './appActivity.js';
@@ -220,7 +220,7 @@ export async function handleHarness(request, env, url, context = {}) {
         }else if(url.pathname.endsWith('/external-grant-invites')){
           await audit(env,request,{orgId,action:'workspace.file_external_invite_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{invitedEmail:result.invite.invitedEmail,permission:result.invite.permission,expiresAt:result.invite.expiresAt}});
         }else{
-          await audit(env,request,{orgId,action:'workspace.file_external_grant_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:result.grant.recipientGithubId,permission:result.grant.permission,expiresAt:result.grant.expiresAt}});
+          await audit(env,request,{orgId,action:'workspace.file_external_grant_created',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:grantRecipients.get(externalGrantRoute)||null,permission:result.grant.permission,expiresAt:result.grant.expiresAt}});
         }
       }else if(request.method==='DELETE'&&externalGrantRoute.ok){
         await audit(env,request,{orgId,action:url.pathname.includes('/external-links/')?'workspace.file_external_link_revoked':'workspace.file_external_grant_revoked',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{resourceRef:url.pathname.split('/').at(-1)}});
@@ -229,7 +229,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if(url.pathname.includes('/external-grant-invites/')){
           await audit(env,request,{orgId,action:'workspace.file_external_invite_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{inviteId:result.inviteId,permission:result.permission,accessExpiresAt:result.accessExpiresAt}});
         }else{
-          await audit(env,request,{orgId,action:'workspace.file_external_grant_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:result.recipientGithubId,permission:result.permission,expiresAt:result.expiresAt}});
+          await audit(env,request,{orgId,action:'workspace.file_external_grant_updated',actor:person(who.user),entity:{type:'file',id:url.pathname.split('/')[3]},details:{recipientId:grantRecipients.get(externalGrantRoute)||null,permission:result.permission,expiresAt:result.expiresAt}});
         }
       }
       return externalGrantRoute;

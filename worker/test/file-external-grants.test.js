@@ -6,6 +6,7 @@ import {createSession,upsertMembership,upsertUser} from '../src/db.js';
 import {setMode} from '../src/harness/mode.js';
 import {createFileLedger,appendFileVersion} from '../src/harness/fileVersionLedger.js';
 import worker from '../src/index.js';
+import {sealCollaboratorRef} from '../src/harness/collaboratorRefs.js';
 const tag=()=>crypto.randomUUID().replaceAll('-','');
 let f;
 async function setup(){
@@ -31,6 +32,8 @@ async function setup(){
  f={orgId,ownerId,adminId,memberId,recipientId,fileId,ownerToken:await createSession(env.DB,ownerId,'grant-test'),adminToken:await createSession(env.DB,adminId,'grant-test'),memberToken:await createSession(env.DB,memberId,'grant-test'),recipientToken:await createSession(env.DB,recipientId,'grant-test')};
 }
 beforeEach(setup);
+// A collaborator the share dialog picked: the handle the search would give out.
+const picked=(id=f.recipientId)=>sealCollaboratorRef(env.DB,{orgId:f.orgId,resourceType:'file',resourceId:f.fileId},id);
 async function call(path,token,method='GET',body){return worker.fetch(new Request('https://example.test'+path,{method,headers:{'x-session-token':token,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})}),env,{waitUntil(){}})}
 test('reusable File links hash tokens, grant only signed-in nonmembers, and revoke only link-created grants',async()=>{
  const base=`/hx/files/${encodeURIComponent(f.fileId)}/external-links`,path=base+`?orgId=${encodeURIComponent(f.orgId)}`;
@@ -47,7 +50,7 @@ test('reusable File links hash tokens, grant only signed-in nonmembers, and revo
 test('owner creates a verified-email view grant, recipient redeems it, and owner revokes it',async()=>{
  const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
  let response=await call(path,f.ownerToken,'POST',{email:f.recipientId+'@example.test',permission:'edit',expiresInDays:7});
- expect(response.status).toBe(201);const created=await response.json();expect(created.grant).toMatchObject({recipientGithubId:f.recipientId,permission:'edit'});expect(created.redemptionPath).toContain('/external/files/');
+ expect(response.status).toBe(201);const created=await response.json();expect(created.grant).toMatchObject({recipientRef:expect.stringMatching(/^c1\./),recipientEmail:f.recipientId+'@example.test',permission:'edit'});expect(created.redemptionPath).toContain('/external/files/');
  const guestPath=created.redemptionPath;
  response=await call(guestPath,f.recipientToken);expect(response.status).toBe(200);expect(await response.json()).toMatchObject({permission:'edit',file:{id:f.fileId,path:'handoff.txt'}});
  response=await call(path,f.ownerToken);expect((await response.json()).grants[0]).toMatchObject({recipientLogin:f.recipientId,permission:'edit',revokedAt:null});
@@ -57,22 +60,43 @@ test('owner creates a verified-email view grant, recipient redeems it, and owner
 });
 test('owner can grant a selected verified account by ID without exposing or changing its email',async()=>{
  const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
- const response=await call(path,f.ownerToken,'POST',{recipientGithubId:f.recipientId,permission:'view',expiresInDays:7});
+ const response=await call(path,f.ownerToken,'POST',{recipientRef:await picked(),permission:'view',expiresInDays:7});
  expect(response.status).toBe(201);
- expect(await response.json()).toMatchObject({grant:{recipientGithubId:f.recipientId,permission:'view'}});
+ expect(await response.json()).toMatchObject({grant:{recipientRef:expect.stringMatching(/^c1\./),recipientLogin:f.recipientId,recipientName:'Recipient',recipientEmail:null,permission:'view'}});
  expect(await env.DB.prepare('SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(f.orgId,f.recipientId).first()).toBeNull();
  await upsertMembership(env.DB,f.orgId,f.recipientId,'member');
- expect((await call(path,f.ownerToken,'POST',{recipientGithubId:f.recipientId,permission:'edit',expiresInDays:7})).status).toBe(409);
+ expect((await call(path,f.ownerToken,'POST',{recipientRef:await picked(),permission:'edit',expiresInDays:7})).status).toBe(409);
+});
+// #956: an email sign-up's account id and login are both its address.
+test('File sharing names an outside email account by handle and never returns its address',async()=>{
+ const address='ada-'+tag()+'@acme.test',id='email:'+address;
+ await upsertUser(env.DB,{githubId:id,login:'u:'+address,name:'Ada'});
+ await env.DB.prepare('UPDATE users SET email=?1,email_verified_at=?2 WHERE github_id=?3').bind(address,new Date().toISOString(),id).run();
+ const search=await call('/external/collaborators/search?'+new URLSearchParams({orgId:f.orgId,resourceType:'file',resourceId:f.fileId,q:'acme.test'}),f.ownerToken);
+ expect(search.status).toBe(200);const searchText=await search.text();expect(searchText).not.toContain(address);
+ const [person]=JSON.parse(searchText).people;expect(person).toEqual({ref:expect.stringMatching(/^c1\./),name:'Ada',login:null});
+ const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
+ const granted=await call(path,f.ownerToken,'POST',{recipientRef:person.ref,permission:'view',expiresInDays:7});
+ expect(granted.status).toBe(201);const grantedText=await granted.text();expect(grantedText).not.toContain(address);
+ const listedText=await (await call(path,f.ownerToken)).text();expect(listedText).not.toContain(address);
+ const [grant]=JSON.parse(listedText).grants;expect(grant).toMatchObject({recipientName:'Ada',recipientLogin:null,recipientEmail:null});
+ // The audit record still names the account, which managers do not read.
+ expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id=?1 AND action='workspace.file_external_grant_created'").bind(f.orgId).first()).toMatchObject({count:1});
+ // A handle from the list manages that grant.
+ const updatePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants/'+encodeURIComponent(grant.recipientRef)+'?orgId='+encodeURIComponent(f.orgId);
+ const updated=await call(updatePath,f.ownerToken,'PATCH',{permission:'edit',expiresAt:null});expect(updated.status).toBe(200);expect(await updated.text()).not.toContain(address);
+ expect((await env.DB.prepare("SELECT permission FROM hx_external_resource_grants WHERE org_id=?1 AND resource_type='file' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL").bind(f.orgId,f.fileId,id).first())).toMatchObject({permission:'edit'});
+ const revoked=await call(updatePath,f.ownerToken,'DELETE',{});expect(await revoked.json()).toMatchObject({revoked:true});
 });
 test('file owner changes an active external collaborator permission and expiry in place',async()=>{
  const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
- const created=await call(path,f.ownerToken,'POST',{recipientGithubId:f.recipientId,permission:'view',expiresInDays:7});
+ const created=await call(path,f.ownerToken,'POST',{recipientRef:await picked(),permission:'view',expiresInDays:7});
  expect(created.status).toBe(201);
  const nextExpiry=new Date(Date.now()+30*86400000).toISOString();
  const updatePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants/'+encodeURIComponent(f.recipientId)+'?orgId='+encodeURIComponent(f.orgId);
  const updated=await call(updatePath,f.ownerToken,'PATCH',{permission:'edit',expiresAt:nextExpiry});
  expect(updated.status).toBe(200);
- expect(await updated.json()).toMatchObject({updated:true,recipientGithubId:f.recipientId,permission:'edit',expiresAt:nextExpiry});
+ expect(await updated.json()).toMatchObject({updated:true,recipientRef:f.recipientId,permission:'edit',expiresAt:nextExpiry});
  expect((await env.DB.prepare("SELECT permission,expires_at FROM hx_external_resource_grants WHERE org_id=?1 AND resource_type='file' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL").bind(f.orgId,f.fileId,f.recipientId).first())).toMatchObject({permission:'edit',expires_at:nextExpiry});
  const auditCount=async()=>Number((await env.DB.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id=?1 AND action='workspace.file_external_grant_updated'").bind(f.orgId).first()).count);
  expect(await auditCount()).toBe(1);
@@ -93,10 +117,10 @@ test('file owner changes an active external collaborator permission and expiry i
 test('file grant updates reject revoked, expired and Simple-mode grants',async()=>{
  const path='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants?orgId='+encodeURIComponent(f.orgId);
  const updatePath='/hx/files/'+encodeURIComponent(f.fileId)+'/external-grants/'+encodeURIComponent(f.recipientId)+'?orgId='+encodeURIComponent(f.orgId);
- let created=await call(path,f.ownerToken,'POST',{recipientGithubId:f.recipientId,permission:'view',expiresInDays:7});expect(created.status).toBe(201);
+ let created=await call(path,f.ownerToken,'POST',{recipientRef:await picked(),permission:'view',expiresInDays:7});expect(created.status).toBe(201);
  expect((await call(updatePath,f.ownerToken,'DELETE',{})).status).toBe(200);
  expect((await call(updatePath,f.ownerToken,'PATCH',{permission:'edit',expiresAt:null})).status).toBe(404);
- created=await call(path,f.ownerToken,'POST',{recipientGithubId:f.recipientId,permission:'view',expiresInDays:1});expect(created.status).toBe(201);
+ created=await call(path,f.ownerToken,'POST',{recipientRef:await picked(),permission:'view',expiresInDays:1});expect(created.status).toBe(201);
  await env.DB.prepare("UPDATE hx_external_resource_grants SET granted_at=?1,expires_at=?2 WHERE org_id=?3 AND resource_type='file' AND resource_id=?4 AND recipient_github_id=?5 AND revoked_at IS NULL").bind(new Date(Date.now()-2*86400000).toISOString(),new Date(Date.now()-86400000).toISOString(),f.orgId,f.fileId,f.recipientId).run();
  expect((await call(updatePath,f.ownerToken,'PATCH',{permission:'edit',expiresAt:null})).status).toBe(404);
  await env.DB.prepare("UPDATE hx_external_resource_grants SET expires_at=NULL WHERE org_id=?1 AND resource_type='file' AND resource_id=?2 AND recipient_github_id=?3 AND revoked_at IS NULL").bind(f.orgId,f.fileId,f.recipientId).run();

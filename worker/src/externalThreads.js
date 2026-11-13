@@ -12,6 +12,7 @@ import { sha256Hex } from "./auth.js";
 import { deliverExternalInvite } from "./externalInviteMail.js";
 import { audit } from "./audit.js";
 import { enforce } from "./ratelimit.js";
+import { sealCollaboratorRef, openCollaboratorRef, outsiderLabel } from "./harness/collaboratorRefs.js";
 import {
   cleanThreadAudienceInput, externalThreadPermission, listThreadAudienceRooms,
   readThreadAudience, threadAudienceAccessSql, writeThreadAudience,
@@ -143,9 +144,11 @@ async function resolveRecipient(db, orgId, email, actorId) {
   return recipient;
 }
 
-async function resolveRecipientInput(db, orgId, input, actorId) {
-  if (typeof input?.recipientGithubId === "string") {
-    const id = input.recipientGithubId.trim();
+async function resolveRecipientInput(db, orgId, rootId, input, actorId) {
+  // A person picked from the search arrives as the handle the search gave
+  // out, never as an account id that may be their address (#956).
+  if (typeof input?.recipientRef === "string") {
+    const id = await openCollaboratorRef(db, { orgId, resourceType: "thread", resourceId: rootId }, input.recipientRef.trim());
     if (!id || id.length > 200) return null;
     const recipient = await db.prepare(
       "SELECT github_id,login,name,email FROM users WHERE github_id=?1 AND email_verified_at IS NOT NULL"
@@ -191,13 +194,20 @@ async function searchExternalCollaborators(request, env, url, actor) {
   // Escaping wildcard characters keeps the query a literal substring search.
   const escaped = query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
   try {
-    const { results = [] } = await env.DB.prepare(`SELECT u.github_id AS githubId,u.login,COALESCE(NULLIF(TRIM(u.name),''),u.login) AS name
+    const { results = [] } = await env.DB.prepare(`SELECT u.github_id AS githubId,u.login,u.name,u.email
       FROM users u WHERE u.email_verified_at IS NOT NULL AND u.github_id<>?1
         AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=u.github_id)
         AND (lower(COALESCE(u.name,'')) LIKE ?3 ESCAPE '\\' OR lower(u.login) LIKE ?3 ESCAPE '\\' OR lower(COALESCE(u.email,'')) LIKE ?3 ESCAPE '\\')
       ORDER BY lower(COALESCE(NULLIF(TRIM(u.name),''),u.login)),lower(u.login) LIMIT 8`)
       .bind(String(actor.user.github_id), orgId, `%${escaped}%`).all();
-    return json({ people: results.map(person => ({ githubId: String(person.githubId), login: String(person.login), name: String(person.name) })) });
+    // These people are outside the caller's workspace, and for email and SSO
+    // accounts both the account id and the login are made from the address.
+    // So a result carries a sealed handle for the share call and a name to
+    // show, and nothing the address can be read back from (#956).
+    const scope = { orgId, resourceType: type, resourceId };
+    const people = [];
+    for (const person of results) people.push({ ref: await sealCollaboratorRef(env.DB, scope, String(person.githubId)), ...outsiderLabel(person) });
+    return json({ people });
   } catch {
     return fail("Collaborator search is unavailable until the account directory migration completes.", 503);
   }
@@ -209,23 +219,32 @@ async function shareThread(request, env, orgId, rootId, actor) {
   if (!root) return fail("Thread not found or cannot be shared.", 404);
   if (request.method === "GET") {
     const now = new Date().toISOString();
+    // The address is shown only for someone who redeemed an emailed
+    // invitation: then a manager typed it and its owner accepted it. Anyone
+    // added from the search is named, never addressed (#956).
     const { results = [] } = await env.DB.prepare(`SELECT g.id,g.permission,g.granted_at,g.expires_at,
-        u.github_id,u.login,u.name,u.email,
+        u.github_id,u.login,u.name,
+        (SELECT i.invited_email FROM hx_external_thread_invites i WHERE i.org_id=g.org_id AND i.resource_id=g.resource_id
+          AND i.redeemed_by=g.recipient_github_id AND i.redeemed_at IS NOT NULL ORDER BY i.redeemed_at DESC LIMIT 1) AS invited_email,
         EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=g.org_id AND m.user_github_id=g.recipient_github_id) AS recipient_is_member
       FROM hx_external_resource_grants g JOIN users u ON u.github_id=g.recipient_github_id
       WHERE g.org_id=?1 AND g.resource_type='thread' AND g.resource_id=?2
         AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?3)
       ORDER BY g.granted_at DESC,g.id LIMIT 100`).bind(orgId,rootId,now).all();
-    return json({shares:results.map(row=>({
+    const scope = { orgId, resourceType: "thread", resourceId: rootId };
+    const shares = [];
+    for (const row of results) shares.push({
       id:row.id,permission:row.permission,grantedAt:row.granted_at,expiresAt:row.expires_at||null,
-      recipient:{name:row.name||row.login,email:row.email},recipientIsMember:Boolean(row.recipient_is_member),
+      recipient:{ref:await sealCollaboratorRef(env.DB, scope, String(row.github_id)),name:outsiderLabel({githubId:row.github_id,login:row.login,name:row.name}).name,email:row.invited_email||null},
+      recipientIsMember:Boolean(row.recipient_is_member),
       suspended:Boolean(row.recipient_is_member),
-    }))});
+    });
+    return json({shares});
   }
   const input = await request.json().catch(() => null);
   if (!input) return fail("Invalid JSON body.", 400);
   if (request.method === "POST") {
-    const recipient = await resolveRecipientInput(env.DB, orgId, input, actor.user.github_id);
+    const recipient = await resolveRecipientInput(env.DB, orgId, rootId, input, actor.user.github_id);
     if (!recipient) return fail("A verified account outside this Workspace is required.", 404);
     const permission = input.permission === "edit" ? "edit" : input.permission === "view" ? "view" : null;
     if (!permission) return fail("Permission must be view or edit.", 400);
@@ -261,8 +280,11 @@ async function shareThread(request, env, orgId, rootId, actor) {
     } catch (error) {
       return fail(error instanceof TypeError ? error.message : "Could not share this Thread.", error instanceof TypeError ? 400 : 503);
     }
+    // The address goes back only to a caller who typed it.
+    const typed = typeof input.recipientRef === "string" ? null : recipient.email;
     return json({ shared: true, grant: { id: grant.id, permission, expiresAt: grant.expiresAt },
-      recipient: { name: recipient.name || recipient.login, email: recipient.email } }, 201);
+      recipient: { ref: await sealCollaboratorRef(env.DB, { orgId, resourceType: "thread", resourceId: rootId }, String(recipient.github_id)),
+        name: outsiderLabel(recipient).name, email: typed || null } }, 201);
   }
   const now = new Date().toISOString();
   let revoked = 0;
@@ -283,7 +305,7 @@ async function shareThread(request, env, orgId, rootId, actor) {
     ]);
     revoked = Number(results?.[0]?.meta?.changes || 0);
   } else {
-    const recipient = await resolveRecipientInput(env.DB, orgId, input, actor.user.github_id);
+    const recipient = await resolveRecipientInput(env.DB, orgId, rootId, input, actor.user.github_id);
     if (!recipient) return fail("Recipient not found.", 404);
     const fence = threadManagerFence(orgId,rootId,actor.user,root.channel,6);
     const results = await env.DB.batch([

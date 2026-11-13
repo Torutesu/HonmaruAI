@@ -9,7 +9,10 @@ export type FileAudience={type:'workspace'|'room';roomId?:string;permission:Exte
 export type FileAudienceState={audience:FileAudience|null;version:number;rooms:FileAudienceRoom[]}
 export type FileAudienceInput={version:number;type:'workspace'|'room'|null;roomId?:string;permission?:ExternalFilePermission;expiresAt?:string|null}
 export type ExternalFileInvite={id:string;invitedEmail:string;permission:ExternalFilePermission;accessExpiresAt:string|null;createdAt:string;expiresAt:string;redeemedAt:string|null;revokedAt:string|null;emailDelivery?:{status:'sent'|'failed'|'not_configured'}}
-export type ExternalFileGrant={id:string;recipientGithubId:string;recipientLogin:string;recipientEmail:string;permission:ExternalFilePermission;grantedAt:string;expiresAt:string|null;revokedAt:string|null;revokedBy:string|null}
+// A grantee is named by a handle the grant routes take back, never by an account
+// id or login that may be their email address; recipientEmail is set only when
+// the caller typed it or the person redeemed an emailed invitation.
+export type ExternalFileGrant={id:string;recipientRef:string;recipientName:string;recipientLogin:string|null;recipientEmail:string|null;permission:ExternalFilePermission;grantedAt:string;expiresAt:string|null;revokedAt:string|null;revokedBy:string|null}
 export type ExternalFileLink={id:string;permission:ExternalFilePermission;createdAt:string;expiresAt:string|null}
 export type PublicFileShareRequest={id:string;fileId:string;filePath:string;scope:string;version:number;currentVersion:number;contentHash:string;contentType:string;size:number;expiresAt:string;allowDownload:boolean;status:'pending'|'approved'|'declined'|'stale'|'cancelled';createdAt:string;requesterLogin:string;decisionAt:string|null;shareId:string|null;revokedAt:string|null;revokedBy:string|null}
 export type FilePublicUrlState={url:string|null;version:number;contentType:string|null;canCreate:boolean;canRevoke:boolean}
@@ -69,10 +72,10 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
   updateExternalInvite:(id:string,inviteId:string,permission:ExternalFilePermission,accessExpiresAt:string|null)=>json<{updated:boolean;inviteId:string;permission:ExternalFilePermission;accessExpiresAt:string|null}>(`${path(id)}/external-grant-invites/${encodeURIComponent(inviteId)}`,'PATCH',{permission,accessExpiresAt}),
   revokeExternalInvite:(id:string,inviteId:string)=>json<{revoked:boolean;inviteId:string}>(`${path(id)}/external-grant-invites/${encodeURIComponent(inviteId)}`,'DELETE',{}),
   externalGrants:(id:string,signal?:AbortSignal)=>json<{canManage:boolean;grants:ExternalFileGrant[]}>(`${path(id)}/external-grants`,'GET',undefined,undefined,signal),
-  grantExternal:(id:string,recipient:string|{githubId:string},permission:ExternalFilePermission,expiresInDays:number)=>json<{grant:ExternalFileGrant;redemptionPath:string}>(`${path(id)}/external-grants`,'POST',{...(typeof recipient==='string'?{email:recipient}:{recipientGithubId:recipient.githubId}),permission,expiresInDays}),
-  updateExternalGrant:(id:string,recipientGithubId:string,permission:ExternalFilePermission,expiresAt:string|null)=>json<{updated:boolean;recipientGithubId:string;permission:ExternalFilePermission;expiresAt:string|null}>(`${path(id)}/external-grants/${encodeURIComponent(recipientGithubId)}`,'PATCH',{permission,expiresAt}),
-  searchExternalCollaborators:(id:string,query:string,signal?:AbortSignal)=>json<{people:{githubId:string;login:string;name:string|null}[]}>('/external/collaborators/search','GET',undefined,{resourceType:'file',resourceId:id,q:query},signal),
-  revokeExternal:(id:string,recipientGithubId:string)=>json<{revoked:boolean;recipientGithubId:string}>(`${path(id)}/external-grants/${encodeURIComponent(recipientGithubId)}`,'DELETE',{}),
+  grantExternal:(id:string,recipient:string|{ref:string},permission:ExternalFilePermission,expiresInDays:number)=>json<{grant:ExternalFileGrant;redemptionPath:string}>(`${path(id)}/external-grants`,'POST',{...(typeof recipient==='string'?{email:recipient}:{recipientRef:recipient.ref}),permission,expiresInDays}),
+  updateExternalGrant:(id:string,recipientRef:string,permission:ExternalFilePermission,expiresAt:string|null)=>json<{updated:boolean;recipientRef:string;permission:ExternalFilePermission;expiresAt:string|null}>(`${path(id)}/external-grants/${encodeURIComponent(recipientRef)}`,'PATCH',{permission,expiresAt}),
+  searchExternalCollaborators:(id:string,query:string,signal?:AbortSignal)=>json<{people:{ref:string;name:string;login:string|null}[]}>('/external/collaborators/search','GET',undefined,{resourceType:'file',resourceId:id,q:query},signal),
+  revokeExternal:(id:string,recipientRef:string)=>json<{revoked:boolean;recipientRef:string}>(`${path(id)}/external-grants/${encodeURIComponent(recipientRef)}`,'DELETE',{}),
   externalLink:(id:string)=>`${typeof window==='undefined'?'':window.location.origin}/#/external-file/${encodeURIComponent(orgId)}/${encodeURIComponent(id)}`,
   versions:(id:string,before?:number,signal?:AbortSignal)=>json<{versions:FileVersion[]}>(`${path(id)}/versions`,'GET',undefined,before===undefined?{}:{before:String(before)},signal),
   download:async(id:string,version:number,signal?:AbortSignal)=>(await response(`${path(id)}/versions/${version}/content`,'GET',undefined,undefined,'application/json',signal)).blob(),

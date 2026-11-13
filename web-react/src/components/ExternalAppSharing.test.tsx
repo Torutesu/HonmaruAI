@@ -17,14 +17,14 @@ beforeEach(() => {
     }
     if(url.endsWith('/sharing/links')&&init?.method==='POST')return new Response(JSON.stringify({created:true,link:{id:'link-1',permission:'edit',createdAt:'2026-11-12T00:00:00.000Z',expiresAt:null},token:'b'.repeat(64),inviteUrl:'https://app.example/#/external-invite/'+('b'.repeat(64))}),{status:201})
     if(url.endsWith('/sharing/links'))return new Response(JSON.stringify({links:[{id:'link-1',permission:'view',createdAt:'2026-11-12T00:00:00.000Z',expiresAt:null}]}),{status:200})
-    if (url.includes('/external/collaborators/search')) return new Response(JSON.stringify({ people: [{ githubId:'guest-2',login:'ari',name:'Ari' }] }), { status:200 })
+    if (url.includes('/external/collaborators/search')) return new Response(JSON.stringify({ people: [{ ref:'c1.guest-2',login:'ari',name:'Ari' }] }), { status:200 })
     if (url.endsWith('/sharing/requests')) return new Response(JSON.stringify({ requests: [
       { id: 'request-1', tableId: '', rowId: '', guestGithubId: 'guest-1', name: 'Guest Person', login: 'guest', email: 'guest@example.com', body: 'Please confirm this update.', requestedAt: '2026-11-07T10:00:00.000Z' },
     ] }), { status: 200 })
     if (url.endsWith('/sharing') && !manager) return new Response(JSON.stringify({ message: 'Not found' }), { status: 404 })
     if (url.endsWith('/sharing')) return new Response(JSON.stringify({
       canManage: true,
-      guests: [{ githubId: 'guest-1', login: 'guest', name: 'Guest Person', email: 'guest@example.com', permission: 'view', expiresAt: null }],
+      guests: [{ ref: 'c1.guest-1', login: 'guest', name: 'Guest Person', email: 'guest@example.com', permission: 'view', expiresAt: null }],
       invites: [{ id: 'invite-1', invitedEmail: 'pending@example.com', permission: 'view', accessExpiresAt: null, inviteExpiresAt: '2026-11-14T00:00:00.000Z' }],
     }), { status: 200 })
     return new Response(JSON.stringify({ updated: true, revoked: true }), { status: 200 })
@@ -69,7 +69,7 @@ test('App owner can invite a named guest, approve a message, change permission a
   await act(async () => { grantPermission.props.onChange({ target: { value: 'edit' } }) })
   const expiryControl = tree!.root.findByProps({ 'aria-label': 'Access expiry for Guest Person' })
   await act(async () => { expiryControl.props.onChange({ target: { value: '30' } }) })
-  const guestPatches = requests.filter(item => item.url.endsWith('/guest-1') && item.init?.method === 'PATCH')
+  const guestPatches = requests.filter(item => item.url.endsWith('/c1.guest-1') && item.init?.method === 'PATCH')
   expect(guestPatches.length).toBeGreaterThanOrEqual(2)
   expect(Date.parse(JSON.parse(String(guestPatches[1].init?.body)).expiresAt)).toBeGreaterThan(Date.now())
   const revokeButtons = tree!.root.findAllByType('button').filter(button => String(button.children.join('')).includes('Revoke'))
@@ -123,6 +123,6 @@ test('App owner can share directly with a selected external collaborator',async(
  const shareButton=tree!.root.findAllByType('button').find(button=>String(button.children.join(''))==='Share with person')
  await act(async()=>{shareButton!.props.onClick();await Promise.resolve()})
  const post=requests.find(item=>item.url.endsWith('/sharing')&&item.init?.method==='POST')
- expect(JSON.parse(String(post?.init?.body))).toMatchObject({recipientGithubId:'guest-2',permission:'view'})
+ expect(JSON.parse(String(post?.init?.body))).toMatchObject({recipientRef:'c1.guest-2',permission:'view'})
  expect(JSON.stringify(tree?.toJSON())).toContain('Guest Person')
 })

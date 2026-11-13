@@ -5,7 +5,7 @@ import {ExternalThreadShare} from './ExternalThreadShare'
 vi.mock('./Dialog',()=>({Dialog:({children,title,footer}:any)=><section aria-label={title}>{children}{footer}</section>}))
 vi.mock('../utils/i18n',()=>({useT:()=>((text:string)=>text)}))
 const api={httpBase:'https://api.example',orgId:'team:test',sessionToken:'token'}
-const grant={id:'grant-1',permission:'view',recipient:{name:'Ari',email:'ari@example.com'},grantedAt:'2026-11-06T00:00:00Z',expiresAt:null}
+const grant={id:'grant-1',permission:'view',recipient:{ref:'c1.ref-ari',name:'Ari',email:'ari@example.com'},grantedAt:'2026-11-06T00:00:00Z',expiresAt:null}
 const ok=(value:any,status=200)=>({ok:status>=200&&status<300,status,json:async()=>value})
 const empty=()=>ok({shares:[]})
 const noInvites=()=>ok({invitations:[]})
@@ -104,6 +104,25 @@ test('creates a reusable anyone-with-link share and can revoke the active link',
  expect(writeText).toHaveBeenCalledWith('https://app.example/#/external-invite/token')
  await act(async()=>{tree.root.findAllByType('button').find(b=>b.children.includes('Revoke link'))!.props.onClick();await flush()})
  expect(fetch.mock.calls.find(([url,init])=>String(url).endsWith('/links/link-1')&&init.method==='DELETE')?.[0]).toContain('/links/link-1')
+ act(()=>tree.unmount())
+})
+
+// #956: someone added from the search is listed by name only, and changing
+// their access names them by the handle the list gave, not by an address.
+test('changes access for a person listed without an address by their reference',async()=>{
+ const named={...grant,recipient:{ref:'c1.ref-ada',name:'Ada',email:null}}
+ const fetch=fetchReplies([ok({shares:[named]}),noInvites(),noRequests(),noLinks(),ok({shared:true,grant:{id:'grant-2',permission:'edit',expiresAt:null},recipient:{ref:'c1.ref-ada-2',name:'Ada',email:null}})])
+ vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<ExternalThreadShare api={api} threadId="root" onClose={()=>{}}/>);await flush()})
+ const article=tree.root.findAll(node=>node.type==='article'&&node.props['data-share-id']==='grant-1')[0]
+ expect(JSON.stringify(article.children.map(child=>typeof child==='string'?child:null))).not.toContain('null@')
+ const select=article.findByType('select')
+ expect(select.props['aria-label']).toBe('Permission for Ada')
+ act(()=>select.props.onChange({target:{value:'edit'}}))
+ await act(async()=>{article.findAllByType('button').find(button=>button.children.includes('Save'))!.props.onClick();await flush()})
+ const post=fetch.mock.calls.find(([url,init])=>String(url).endsWith('/shares')&&init.method==='POST')
+ expect(JSON.parse(post![1].body!)).toEqual({recipientRef:'c1.ref-ada',permission:'edit',expiresAt:null})
  act(()=>tree.unmount())
 })
 

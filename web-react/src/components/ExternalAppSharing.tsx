@@ -4,7 +4,9 @@ import { useT } from '../utils/i18n'
 import { ExternalCollaboratorPicker } from './ExternalCollaboratorPicker'
 import type { ExternalCollaborator } from '../utils/externalCollaborators'
 
-interface Guest { githubId: string; login: string; name?: string | null; email?: string | null; permission: 'view' | 'edit'; expiresAt: string | null }
+// A guest is named by a handle the sharing routes take back; email is set only
+// for someone who redeemed an emailed invitation.
+interface Guest { ref: string; login: string | null; name: string; email?: string | null; permission: 'view' | 'edit'; expiresAt: string | null }
 interface Invite { id: string; invitedEmail: string; permission: 'view' | 'edit'; accessExpiresAt: string | null; inviteExpiresAt: string }
 interface GuestLink {id:string;permission:'view'|'edit';createdAt:string;expiresAt:string|null}
 interface SendRequest { id: string; tableId: string; rowId: string; guestGithubId: string; name?: string | null; login: string; email?: string | null; body: string; requestedAt: string }
@@ -84,7 +86,7 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
     if (!selectedCollaborator) return
     setBusy(true); setError('')
     try {
-      const res = await fetch(base, { method:'POST', headers:headers(sessionToken,true), body:JSON.stringify({ recipientGithubId:selectedCollaborator.githubId, permission, expiresAt:selectedExpiry() }) })
+      const res = await fetch(base, { method:'POST', headers:headers(sessionToken,true), body:JSON.stringify({ recipientRef:selectedCollaborator.ref, permission, expiresAt:selectedExpiry() }) })
       const data = await res.json().catch(()=>null)
       if (!res.ok) throw new Error(data?.message || String(res.status))
       setSelectedCollaborator(null)
@@ -116,7 +118,7 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
   const updateGuest = async (guest: Guest, nextPermission: 'view' | 'edit', nextExpiry = guest.expiresAt) => {
     setBusy(true); setError('')
     try {
-      const res = await fetch(`${base}/${encodeURIComponent(guest.githubId)}`, { method: 'PATCH', headers: headers(sessionToken, true), body: JSON.stringify({ permission: nextPermission, expiresAt: nextExpiry }) })
+      const res = await fetch(`${base}/${encodeURIComponent(guest.ref)}`, { method: 'PATCH', headers: headers(sessionToken, true), body: JSON.stringify({ permission: nextPermission, expiresAt: nextExpiry }) })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.message || String(res.status))
       await loadSharing()
@@ -207,13 +209,13 @@ export function ExternalAppSharing({ httpBase, orgId, sessionToken, appId }: { h
         </li>)}</ul>
       </div>}
       <ul className="app-guest-list" aria-label={t('App guests')}>
-        {sharing.guests.map(guest => <li key={guest.githubId}>
-          <span>{guest.name || guest.login}{guest.email ? ` · ${guest.email}` : ''}</span>
+        {sharing.guests.map(guest => <li key={guest.ref}>
+          <span>{guest.name}{guest.email ? ` · ${guest.email}` : ''}</span>
           {!sharing.customUnsupported && <>
-          <select aria-label={t('Permission for {person}', { person: guest.name || guest.login })} value={guest.permission} disabled={busy} onChange={event => void updateGuest(guest, event.target.value as 'view' | 'edit')}><option value="view">{t('View')}</option><option value="edit">{t('Edit')}</option></select>
-          <select aria-label={t('Access expiry for {person}', { person: guest.name || guest.login })} value="unchanged" disabled={busy} onChange={event => { const days = event.target.value; if (days === 'unchanged') return; void updateGuest(guest, guest.permission, days === 'never' ? null : new Date(Date.now() + Number(days) * 86400000).toISOString()) }}><option value="unchanged">{guest.expiresAt ? t('Expires {date}', { date: new Date(guest.expiresAt).toLocaleDateString() }) : t('No expiry')}</option><option value="never">{t('Never')}</option><option value="7">{t('In 7 days')}</option><option value="30">{t('In 30 days')}</option><option value="90">{t('In 90 days')}</option></select>
+          <select aria-label={t('Permission for {person}', { person: guest.name })} value={guest.permission} disabled={busy} onChange={event => void updateGuest(guest, event.target.value as 'view' | 'edit')}><option value="view">{t('View')}</option><option value="edit">{t('Edit')}</option></select>
+          <select aria-label={t('Access expiry for {person}', { person: guest.name })} value="unchanged" disabled={busy} onChange={event => { const days = event.target.value; if (days === 'unchanged') return; void updateGuest(guest, guest.permission, days === 'never' ? null : new Date(Date.now() + Number(days) * 86400000).toISOString()) }}><option value="unchanged">{guest.expiresAt ? t('Expires {date}', { date: new Date(guest.expiresAt).toLocaleDateString() }) : t('No expiry')}</option><option value="never">{t('Never')}</option><option value="7">{t('In 7 days')}</option><option value="30">{t('In 30 days')}</option><option value="90">{t('In 90 days')}</option></select>
           </>}
-          <button className="btn" type="button" disabled={busy} onClick={() => void revoke(encodeURIComponent(guest.githubId))}>{t('Revoke')}</button>
+          <button className="btn" type="button" disabled={busy} onClick={() => void revoke(encodeURIComponent(guest.ref))}>{t('Revoke')}</button>
         </li>)}
         {sharing.invites.map(invitation => <li key={invitation.id}>
           <span>{invitation.invitedEmail}</span><span>{t('Invite pending')} · {t('Invite expires {date}', { date: new Date(invitation.inviteExpiresAt).toLocaleDateString() })}</span>

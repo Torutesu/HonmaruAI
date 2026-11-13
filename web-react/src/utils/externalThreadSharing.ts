@@ -1,7 +1,8 @@
 export type ExternalThreadGrant = {
   id: string
   permission: 'view' | 'edit'
-  recipient: { name: string; email: string }
+  // email is set only for someone who redeemed an emailed invitation.
+  recipient: { ref: string; name: string; email: string | null }
   grantedAt: string
   expiresAt: string | null
   recipientIsMember?: boolean
@@ -33,7 +34,7 @@ export type ExternalThreadSendRequest = {
 
 export type ExternalThreadShareInput = {
   email?: string
-  recipientGithubId?: string
+  recipientRef?: string
   permission: 'view' | 'edit'
   expiresAt: string | null
 }
@@ -94,7 +95,7 @@ export async function listExternalThreadShares(api: Client, threadId: string, si
 
 export async function shareExternalThread(api: Client, threadId: string, input: ExternalThreadShareInput): Promise<ExternalThreadGrant> {
   const value = await request<{ recipient: ExternalThreadGrant['recipient']; grant: { id: string; permission: 'view'|'edit'; expiresAt: string|null } }>(api, threadId, 'POST', input)
-  if (!value.grant?.id || !value.recipient?.email) throw new ExternalThreadShareError('The sharing service returned an invalid grant.', 502)
+  if (!value.grant?.id || !value.recipient?.ref) throw new ExternalThreadShareError('The sharing service returned an invalid grant.', 502)
   return {
     id: value.grant.id,
     permission: value.grant.permission,
