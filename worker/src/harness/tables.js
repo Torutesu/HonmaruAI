@@ -314,7 +314,7 @@ export async function addRow(db, orgId, tableId, values, by, validation, writeUs
     .bind(id, tableId, orgId, JSON.stringify(storedValues), Number(count?.p || 0) + 1 + positionOffset, String(by), at, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt,...authorityBinds,...guardBinds)
   if (deferWrite) return { table, row: { id, tableId, values: storedValues, position: Number(count?.p || 0) + 1 + positionOffset, createdBy: String(by), updatedBy: String(by), createdAt: at, updatedAt: at }, statement };
   const row={ id, tableId, values: storedValues, position: Number(count?.p || 0) + 1 + positionOffset, createdBy: String(by), updatedBy: String(by), createdAt: at, updatedAt: at };
-  const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before:null,row,by:String(by)});
+  const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before:null,row,by:String(by),onlyIfPreviousChange:true});
   const inserted=event? (await db.batch([statement,event.statement]))[0] : await statement.run();
   if (!inserted.meta?.changes) return { error: (Number(count?.n || 0) >= MAX_ROWS ? `A table holds at most ${MAX_ROWS} rows.` : 'The table schema or a linked record changed before this record could be saved. Reload and try again.'), status: 409 };
   return { table, row: await getRow(db, orgId, tableId, id), ...(event?{rowEventId:event.id}:{}) };
@@ -350,7 +350,7 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
     .bind(JSON.stringify(merged), String(by), at, rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt,...authorityBinds,...guardBinds)
   if (deferWrite) return { table, before, row: { ...before, values: merged, updatedBy: String(by), updatedAt: at }, statement };
   const row={ ...before, values: merged, updatedBy: String(by), updatedAt: at };
-  const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row,by:String(by)});
+  const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row,by:String(by),onlyIfPreviousChange:true});
   const changed=event?(await db.batch([statement,event.statement]))[0]:await statement.first();
   if (!changed?.meta?.changes && event) return rowConflict();
   if (!event && !changed) return rowConflict();
@@ -377,7 +377,7 @@ export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt, wr
   const schemaParam=5+relationGuard.binds.length;
   const statement=db.prepare(`DELETE FROM hx_rows WHERE id = ?1 AND table_id = ?2 AND org_id = ?3 AND updated_at = ?4 AND (${relationGuard.sql}) AND EXISTS(SELECT 1 FROM hx_tables WHERE id=?2 AND org_id=?3 AND columns=?${schemaParam} AND updated_at=?${schemaParam+1} AND created_at=?${schemaParam+2}) AND (${authoritySql}) AND (${guardSql}) RETURNING id`).bind(rowId, tableId, orgId, before.updatedAt, ...relationGuard.binds,observed.columns,observed.updatedAt,observed.createdAt,...authorityBinds,...guardBinds);
   if (deferWrite) return { table, before, row:null, statement };
-  const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row:null,by:String(by??before.updatedBy??before.createdBy??'unknown')});
+  const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row:null,by:String(by??before.updatedBy??before.createdBy??'unknown'),onlyIfPreviousChange:true});
   const deleted=event?(await db.batch([statement,event.statement]))[0]:await statement.first();
   if (event?!deleted?.meta?.changes:!deleted) {
     if (await hasAppRelationsToRow(db, orgId, tableId, rowId)) return { error: 'This record is linked from another app record. Remove that link before deleting it.', status: 409 };

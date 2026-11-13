@@ -139,7 +139,7 @@ export async function mergeFork(db,orgId,app,by,input) {
     if(table) {
       const before=c.operation==='create'?null:{id:c.id,tableId:c.tableId,values:c.before||{},updatedAt:originalRows.get(`${c.tableId}:${c.id}`)?.updatedAt||null};
       const row=c.operation==='remove'?null:{id:c.id,tableId:c.tableId,values:c.after||{},updatedBy:String(by),updatedAt:at};
-      const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row,by:String(by)});
+      const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row,by:String(by),onlyIfPreviousChange:true});
       if(event){statements.push(event.statement);queuedEvents.set(`${c.tableId}:${c.id}`,event.id);}
     }
   }

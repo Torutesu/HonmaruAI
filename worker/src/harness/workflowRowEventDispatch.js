@@ -5,7 +5,7 @@ const LEASE_MS = 60_000;
 const MAX_BACKOFF_MS = 60 * 60_000;
 const DONE_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
-export async function prepareWorkflowRowEvent(db, {orgId,table,before=null,row,by,depth=0,at=Date.now()}) {
+export async function prepareWorkflowRowEvent(db, {orgId,table,before=null,row,by,depth=0,at=Date.now(),onlyIfPreviousChange=false}) {
   if (!orgId || !table?.id || !(row?.id || before?.id) || !Number.isSafeInteger(depth) || depth < 0) {
     throw new Error('Invalid Workflow row event.');
   }
@@ -20,8 +20,14 @@ export async function prepareWorkflowRowEvent(db, {orgId,table,before=null,row,b
   return {
     id,
     eventHash,
-    statement: db.prepare(`INSERT INTO hx_workflow_row_event_outbox(id,org_id,table_id,event_hash,payload,status,attempts,next_attempt,lease_until,created_at)
-      VALUES(?1,?2,?3,?4,?5,'pending',0,?6,0,?6)`)
+    // Human row writes and App preview merges append this statement directly
+    // after a guarded mutation. SQLite changes() keeps a failed CAS from
+    // publishing an event for data that was never committed.
+    statement: db.prepare(onlyIfPreviousChange
+      ? `INSERT INTO hx_workflow_row_event_outbox(id,org_id,table_id,event_hash,payload,status,attempts,next_attempt,lease_until,created_at)
+        SELECT ?1,?2,?3,?4,?5,'pending',0,?6,0,?6 WHERE changes()>0`
+      : `INSERT INTO hx_workflow_row_event_outbox(id,org_id,table_id,event_hash,payload,status,attempts,next_attempt,lease_until,created_at)
+        VALUES(?1,?2,?3,?4,?5,'pending',0,?6,0,?6)`)
       .bind(id,orgId,table.id,eventHash,payload,at),
   };
 }

@@ -526,3 +526,21 @@ test('display preference compare-and-set rejects an older request that reaches t
  expect(await stale.json()).toMatchObject({code:'stale_revision',current:{simpleOnly:false,revision:3}});
  expect(await (await (await call('/orgs/mode',owner)).json())).toMatchObject({simpleOnly:false,revision:3});
 });
+
+
+test('a rejected App preview merge does not enqueue row-trigger events',async()=>{
+ await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now') ON CONFLICT(org_id) DO UPDATE SET mode='harness',updated_at='now'").bind(orgId).run();
+ const original=(await (await call('/tables/'+app.tableId+'/rows',owner,{values:{task:'Original'}})).json()).row;
+ const automation=await call('/workflows',owner,{name:'Watch rejected merge',enabled:true,trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['insert','update']},steps:[{type:'update_row',values:{task:'Handled by workflow'}}]});
+ expect(automation.status).toBe(201);
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:1,entity:'primary',operation:'update',rowId:original.id,values:{task:'Preview update'}});
+ await run('database',{action:'fork_write',forkId:fork.id,revision:2,entity:'primary',operation:'create',values:{task:'Preview insert'}});
+ const request={forkId:fork.id,revision:3};
+ const review=await (await run('database',{action:'merge_preview',...request})).json();
+ expect(review.changes).toHaveLength(2);
+ await env.DB.prepare('UPDATE hx_rows SET data=?1,updated_at=?2 WHERE org_id=?3 AND table_id=?4 AND id=?5')
+  .bind(JSON.stringify({task:'Concurrent production update'}),'later',orgId,app.tableId,original.id).run();
+ expect((await run('database',{action:'merge_apply',...request,checksum:review.checksum})).status).toBe(409);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox WHERE org_id=?1 AND table_id=?2').bind(orgId,app.tableId).first()).n).toBe(0);
+});
