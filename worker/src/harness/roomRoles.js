@@ -289,7 +289,7 @@ export async function publicRooms(db, orgId, actorId) {
   return results.map(r=>({...r,joined:!!r.joined}));
 }
 
-export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,grantAccess=false}) {
+export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,grantAccess=false,grantAccessTo,acknowledgeExternalProcessing=false}) {
   const state=await roomRoleState(db,orgId,channel);
   if(!state?.managed) {
     const policy=await db.prepare('SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2').bind(orgId,channel).first();
@@ -299,9 +299,17 @@ export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,gran
   const actor=state.members.find(m=>m.kind==='person'&&m.id===String(actorId)&&m.eligible);
   if(!actor)return {error:'Only a room member can add agents.',status:403};
   if(state.members.some(m=>m.kind==='agent'&&m.id===agentId))return {managed:true,added:false};
-  const accessPlan=grantAccess?await roomAgentAccessPlan(db,orgId,agentId,state.members,actorId):{missing:[],canGrantAccess:false};
-  if(grantAccess&&!accessPlan.canGrantAccess)return {error:'Only an agent owner or member can grant access to room members.',status:403};
-  const grants=grantAccess?accessPlan.missing:[];
+  const agentPolicy=await db.prepare('SELECT provider FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL').bind(orgId,agentId).first();
+  if(!agentPolicy)return {error:'No such agent.',status:404};
+  if(agentPolicy.provider&&acknowledgeExternalProcessing!==true)return {error:'Confirm that this external agent may process Room content before adding it.',status:400};
+  if(grantAccessTo!==undefined&&(!Array.isArray(grantAccessTo)||new Set(grantAccessTo.map(String)).size!==grantAccessTo.length))return {error:'Choose valid room members for Agent access.',status:400};
+  if(grantAccess&&grantAccessTo!==undefined)return {error:'Choose either the legacy all-members grant or selected room members.',status:400};
+  const wantsGrant=grantAccess||Boolean(grantAccessTo?.length);
+  const accessPlan=wantsGrant?await roomAgentAccessPlan(db,orgId,agentId,state.members,actorId):{missing:[],canGrantAccess:false};
+  if(wantsGrant&&!accessPlan.canGrantAccess)return {error:'Only an agent owner or member can grant access to room members.',status:403};
+  const selected=new Set((grantAccessTo||[]).map(String));
+  if(grantAccessTo!==undefined&&accessPlan.missing.filter(member=>selected.has(member.id)).length!==selected.size)return {error:'Only eligible room members without current Agent access can be selected.',status:400};
+  const grants=grantAccess?accessPlan.missing:grantAccessTo!==undefined?accessPlan.missing.filter(member=>selected.has(member.id)):[];
   const grantIds=grants.map(m=>m.id).sort();
   const grantSnapshot=JSON.stringify(grants.map(m=>[m.id,m.membership,m.login]).sort((a,b)=>a[0].localeCompare(b[0])));
   const grant=grantIds.length>0,nonce=crypto.randomUUID(),accessNonce=crypto.randomUUID(),at=new Date().toISOString();
@@ -378,7 +386,7 @@ export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,gran
       .bind(orgId,channel,nonce,agentId,actor.login,at,grant?1:0,accessNonce),
   ]);
   return result[0].meta?.changes&&result[7].meta?.changes&&(!grant||result[2].meta?.changes)
-    ?{managed:true,added:true,...(grantAccess?{granted:grantIds.length}:{})}
+    ?{managed:true,added:true,...(wantsGrant?{granted:grantIds.length}:{})}
     :{error:grant?'Agent or room access changed. Reload before saving.':'Room membership or agent access changed. Reload before saving.',status:409};
 }
 

@@ -2040,17 +2040,26 @@ export async function handleChannels(request, env, url, { route, after }) {
     const label = (a) => `${a.emoji ? `${a.emoji} ` : ""}${a.name} (@${a.handle})`;
     if (request.method === "POST") {
       if (body.grantAccess !== undefined && typeof body.grantAccess !== "boolean") return json({ message: "Choose whether to grant agent access to room members." }, 400);
+      if (body.grantAccessToRefs !== undefined && (!Array.isArray(body.grantAccessToRefs) || body.grantAccessToRefs.length > 100 || body.grantAccessToRefs.some(ref => typeof ref !== "string" || !ref || ref.length > 200) || new Set(body.grantAccessToRefs).size !== body.grantAccessToRefs.length)) return json({ message: "Choose valid room member refs for Agent access." }, 400);
+      if (body.grantAccess === true && body.grantAccessToRefs !== undefined) return json({ message: "Choose either all missing members or selected room members." }, 400);
       const agent = (await listAgents(env.DB, orgId, me.login)).find((a) => a.id === body.agentId);
       if (!agent) return json({ message: "No such agent." }, 404);
+      if (agent.provider && body.acknowledgeExternalProcessing !== true) return json({ message: "Confirm that this external agent may process Room content before adding it." }, 400);
+      const grantAccessTo = body.grantAccessToRefs?.map(ref => {
+        const member = ctx.members.find(candidate => candidate.ref === ref);
+        if (!member) return null;
+        return String(member.userId);
+      });
+      if (grantAccessTo?.some(id => !id)) return json({ message: "One or more selected Room members are no longer available." }, 409);
       if ((await channelAgents(env.DB, orgId, key)).some((a) => a.handle === agent.handle && a.id !== agent.id)) {
         return json({ message: `An agent called @${agent.handle} is already here.` }, 409);
       }
-      const addition = await addManagedRoomAgent(env.DB, orgId, key, { actorId: ctx.who.session.github_id, agentId: agent.id, grantAccess: body.grantAccess === true });
+      const addition = await addManagedRoomAgent(env.DB, orgId, key, { actorId: ctx.who.session.github_id, agentId: agent.id, grantAccess: body.grantAccess === true, ...(grantAccessTo !== undefined ? {grantAccessTo} : {}), acknowledgeExternalProcessing: body.acknowledgeExternalProcessing === true });
       if (addition.error) return json({ message: addition.error }, addition.status);
       if (addition.managed ? !addition.added : !(await addChannelAgent(env.DB, { orgId, key, agentId: agent.id, login: me.login }))) return json({ added: false });
-      if (addition.granted > 0) await announceAgentAccessChanged(env, orgId, agent.id, [me.login]);
+      if (addition.granted > 0) { const recipients=grantAccessTo===undefined?[me.login]:ctx.members.filter(member=>grantAccessTo.includes(String(member.userId))).map(member=>member.login); await announceAgentAccessChanged(env, orgId, agent.id, recipients.length?recipients:[me.login]); }
       await note(serverText(locale, "channel.agentAdded", { who, name: label(agent) }));
-      await audit(env, request, { orgId, action: "channel.agent_added", actor: person(me), entity: { type: "agent", id: agent.id, name: `@${agent.handle}` }, details: { channel: ctx.resolved.slug ? `#${ctx.resolved.slug}` : "group" } });
+      await audit(env, request, { orgId, action: "channel.agent_added", actor: person(me), entity: { type: "agent", id: agent.id, name: `@${agent.handle}` }, details: { channel: ctx.resolved.slug ? `#${ctx.resolved.slug}` : "group", ...(agent.provider ? {externalProcessingAcknowledged:true} : {}), ...(grantAccessTo !== undefined ? {grantAccessMemberCount:grantAccessTo.length} : {}) } });
       return json({ added: true });
     }
     const agent = (await channelAgents(env.DB, orgId, key)).find((a) => a.id === body.agentId);
@@ -2431,12 +2440,13 @@ export async function handleChannels(request, env, url, { route, after }) {
     let addable = guest || !canInvite ? [] : await Promise.all((await listAgents(env.DB, orgId, ctx.who.user.login))
       .filter((a) => !hereIds.has(a.id) && !hereHandles.has(a.handle))
       .map(async (a) => ({ id: a.id, handle: a.handle, name: a.name, emoji: a.emoji,
-        avatarUrl: await clientAgentAvatarUrl(env, orgId, a, ctx.who.user.login), description: a.description, scope: a.scope })));
+        avatarUrl: await clientAgentAvatarUrl(env, orgId, a, ctx.who.user.login), description: a.description, scope: a.scope, externalRuntime: Boolean(a.provider) })));
     if (managed && addable.length) {
       const plans = await roomAgentAccessPlans(env.DB,orgId,addable.map(a=>a.id),roomState.members,ctx.who.session.github_id);
       addable = addable.map(agent=>{
         const plan=plans.get(agent.id)||{missing:[],canGrantAccess:false};
-        return {...agent,missingAccessMembers:plan.missing,canGrantAccess:plan.canGrantAccess};
+        const missingAccessMembers=plan.missing.flatMap(member=>{const person=ctx.members.find(candidate=>String(candidate.userId)===String(member.id));return person?[{id:person.ref,name:member.name||person.name}]:[];});
+        return {...agent,missingAccessMembers,canGrantAccess:plan.canGrantAccess,externalRuntime:Boolean(agent.provider)};
       });
     }
     const requestable = guest || !canInvite || !placesAgents ? [] : (await requestableAgentOptions(env.DB,orgId,ctx.who.user.login))

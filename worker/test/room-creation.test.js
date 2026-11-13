@@ -199,3 +199,11 @@ test.each(['rose','yellow','green','lake','indigo'])('persists the added %s colo
  expect((await listBusinesses(env.DB,org,{viewer:'creator'})).find(room=>room.slug===created.room.slug)?.color).toBe(color);
  const retry=await createManagedRoom(env.DB,org,'creator',input);expect(retry.created).toBe(false);expect(retry.room.color).toBe(color);
 });
+
+test('room creation requires acknowledgment for an external provider Agent',async()=>{
+ await env.DB.prepare("UPDATE custom_agents SET provider='openai' WHERE org_id=?1 AND id='helper'").bind(org).run();
+ const selected=draft({agentIds:['helper']});
+ expect(await createManagedRoom(env.DB,org,'creator',selected)).toMatchObject({status:400});
+ const result=await createManagedRoom(env.DB,org,'creator',draft({agentIds:['helper'],acknowledgeExternalAgentIds:['helper']}));
+ expect(result.created).toBe(true);
+});

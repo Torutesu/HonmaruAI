@@ -474,7 +474,7 @@ export async function handleHarness(request, env, url, context = {}) {
     const memberRefs=new Map(roster.map(m=>[String(m.userId),m.ref]));
     const addableAgents=await Promise.all(accessible.map(async a=>{
       const plan=plans.get(a.id)||{missing:[],canGrantAccess:false};
-      return {id:a.id,name:a.name,avatarUrl:await clientAgentAvatarUrl(env,orgId,a,who.user.login),missingAccessMembers:plan.missing.map(m=>({ref:memberRefs.get(m.id),name:m.name})).filter(m=>m.ref),canGrantAccess:plan.canGrantAccess};
+      return {id:a.id,name:a.name,avatarUrl:await clientAgentAvatarUrl(env,orgId,a,who.user.login),missingAccessMembers:plan.missing.map(m=>({ref:memberRefs.get(m.id),name:m.name})).filter(m=>m.ref),canGrantAccess:plan.canGrantAccess,externalRuntime:Boolean(a.provider)};
     }));
     return json({ agents, addableAgents });
   }
