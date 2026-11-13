@@ -589,7 +589,7 @@ export async function handleHarness(request, env, url, context = {}) {
       const visual=await env.DB.prepare('SELECT 1 FROM hx_room_visuals WHERE org_id=?1 AND channel=?2').bind(orgId,room.key).first();
       const roleState=await roomRoleState(env.DB,orgId,room.key);
       const currentRole=roleState?.members.find(member=>member.kind==='person'&&member.id===String(me)&&member.eligible);
-      return json({settings:result.settings,availableAgents:result.availableAgents,canEdit:result.canEdit,canChangeResponses:result.canEdit&&canChangeResponses,scope:roleState?.private?'private':'public',isDefault:!!roleState?.isDefault,canChangeVisibility:await getMode(env.DB,orgId)==='harness'&&currentRole?.role==='admin'&&!roleState?.isDefault,...(visual?{visualVersion:result.settings.version}:{})});
+      return json({settings:result.settings,availableAgents:result.availableAgents,canEdit:result.canEdit,canChangeResponses:result.canEdit&&canChangeResponses,scope:roleState?.private?'private':'public',isDefault:!!roleState?.isDefault,fixedMembership:!!roleState?.fixedMembership,canChangeRoomPolicies:result.canChangeRoomPolicies,canChangeDefault:result.canChangeDefault,isPrivate:!!result.isPrivate,canChangeVisibility:await getMode(env.DB,orgId)==='harness'&&currentRole?.role==='admin'&&!roleState?.isDefault,...(visual?{visualVersion:result.settings.version}:{})});
     }
     const result=await saveManagedRoomSettings(env.DB,orgId,room.key,me,input,{canChangeResponses});
     if(result.error)return fail(result);

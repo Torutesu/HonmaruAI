@@ -939,7 +939,7 @@ export function businessSlug(name) {
 export async function listBusinesses(db, orgId, { viewer = null } = {}) {
   const { results } = await db
     .prepare(
-      `SELECT b.slug, b.name, b.created_by, b.created_at, b.private, p.channel AS managed_room,
+      `SELECT b.slug, b.name, b.created_by, b.created_at, b.private, b.is_default, b.fixed_membership, p.channel AS managed_room,
               CASE WHEN EXISTS(SELECT 1 FROM hx_room_visuals v WHERE v.org_id=b.org_id AND v.channel='b:'||b.slug) THEN p.version END AS visual_version,
               COALESCE((SELECT a.color FROM hx_room_appearance a WHERE a.org_id=b.org_id AND a.channel='b:'||b.slug),(SELECT rc.color FROM hx_room_creations rc WHERE rc.org_id=b.org_id AND rc.channel='b:'||b.slug)) AS room_color,
               CASE WHEN p.channel IS NOT NULL THEN
@@ -965,7 +965,8 @@ export async function listBusinesses(db, orgId, { viewer = null } = {}) {
   };
   return Promise.all((results || []).map(async (r) => ({
     slug: r.slug, name: r.name, createdBy: r.created_by, createdAt: r.created_at,
-    ...(r.slug === 'general' ? { isDefaultRoom: true } : {}),
+    ...(r.is_default || r.slug === 'general' ? { isDefaultRoom: true } : {}),
+    ...(r.fixed_membership ? { fixedMembership: true } : {}),
     ...(r.room_color ? { color: r.room_color } : {}),
     ...(r.visual_version ? { visualVersion: r.visual_version } : {}),
     ...(r.managed_room ? { managed: true, memberCount: r.member_count || 0 } : {}),

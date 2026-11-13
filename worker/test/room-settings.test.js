@@ -5,7 +5,7 @@ import {upsertUser,upsertMembership,listBusinesses,createSession} from '../src/d
 import {createManagedRoom} from '../src/harness/roomCreation.js';
 import {managedRoomSettings,saveManagedRoomSettings} from '../src/harness/roomSettings.js';
 import {saveRoomResponses,roomResponses} from '../src/harness/roomResponses.js';
-import {archiveManagedRoom,initializeRoomRoles} from '../src/harness/roomRoles.js';
+import {archiveManagedRoom,deleteManagedRoom,initializeRoomRoles,removeRoomSubject,changeManagedRoomMembers} from '../src/harness/roomRoles.js';
 import {setMode} from '../src/harness/mode.js';
 const org='room-settings';
 const draft={requestId:'settings-creation-key',name:'Original',private:true,guidelines:'',color:'teal',memberRefs:[],agentIds:[]};
@@ -24,9 +24,9 @@ const call=(method,token,data,view=channel)=>worker.fetch(new Request('https://t
 const callVisibility=(method,token,data,view=channel)=>worker.fetch(new Request('https://test/hx/rooms/visibility',{method,headers:{'x-session-token':token,'content-type':'application/json'},...(data?{body:JSON.stringify({orgId:org,channel:view,...data})}:{})}),env);
 test('saves the name, appearance and response policy together without changing creation receipts',async()=>{
  const before=await env.DB.prepare('SELECT * FROM hx_room_creations WHERE org_id=?1').bind(org).first();
- expect((await read()).settings).toEqual({name:'Original',color:'teal',mentionedOnly:false,defaultAgentId:null,version:1,responseVersion:0});
+ expect((await read()).settings).toEqual({name:'Original',color:'teal',mentionedOnly:false,defaultAgentId:null,isDefault:false,fixedMembership:false,version:1,responseVersion:0});
  const saved=await saveManagedRoomSettings(env.DB,org,channel,'creator',await input());
- expect(saved.settings).toEqual({name:'Renamed',color:'lake',mentionedOnly:true,defaultAgentId:null,version:2,responseVersion:1});
+ expect(saved.settings).toEqual({name:'Renamed',color:'lake',mentionedOnly:true,defaultAgentId:null,isDefault:false,fixedMembership:false,version:2,responseVersion:1});
  expect((await listBusinesses(env.DB,org,{viewer:'creator'}))[0]).toMatchObject({name:'Renamed',color:'lake'});
  expect(await roomResponses(env.DB,org,channel)).toEqual({mentionedOnly:true,defaultAgentId:null,version:1});
  expect(await env.DB.prepare('SELECT * FROM hx_room_creations WHERE org_id=?1').bind(org).first()).toEqual(before);
@@ -123,6 +123,28 @@ test('default General Room settings identify the default and hide visibility con
  const response=await call('GET',creator,undefined,'b:general');
  expect(await response.json()).toMatchObject({isDefault:true,scope:'public',canEdit:true,canChangeVisibility:false});
  expect((await callVisibility('PUT',creator,{scope:'private',version:1},'b:general')).status).toBe(403);
+});
+test('a Room admin can make a public room a default Room and fix its membership',async()=>{
+ await upsertMembership(env.DB,org,'creator','admin');
+ const privateInitial=await managedRoomSettings(env.DB,org,channel,'creator');
+ expect((await saveManagedRoomSettings(env.DB,org,channel,'creator',{...privateInitial.settings,isDefault:true}))).toMatchObject({status:409});
+ expect((await managedRoomSettings(env.DB,org,channel,'outsider')).canChangeDefault).toBe(false);
+ expect((await saveManagedRoomSettings(env.DB,org,channel,'outsider',{...privateInitial.settings,isDefault:true}))).toMatchObject({status:403});
+ await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1 AND slug=(SELECT substr(?2,3))").bind(org,channel).run();
+ const state=await initializeRoomRoles(env.DB,org,channel,'creator');
+ const initial=await managedRoomSettings(env.DB,org,channel,'creator');
+ const saved=await saveManagedRoomSettings(env.DB,org,channel,'creator',{...initial.settings,isDefault:true,fixedMembership:true});
+ expect(saved.settings).toMatchObject({isDefault:true,fixedMembership:true,version:state.version+1});
+ expect(await env.DB.prepare('SELECT is_default,fixed_membership FROM businesses WHERE org_id=?1 AND slug=substr(?2,3)').bind(org,channel).first()).toEqual({is_default:1,fixed_membership:1});
+ expect((await listBusinesses(env.DB,org,{viewer:'creator'}))[0]).toMatchObject({isDefaultRoom:true,fixedMembership:true});
+ expect(await env.DB.prepare('SELECT 1 FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login=\'creator\'').bind(org,channel).first()).toBeTruthy();
+ await upsertUser(env.DB,{githubId:'default-room-later',login:'default-room-later',name:'Later',locale:'en'});
+ await upsertMembership(env.DB,org,'default-room-later','member');
+ expect(await env.DB.prepare('SELECT 1 FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login=\'default-room-later\'').bind(org,channel).first()).toBeTruthy();
+ expect(await removeRoomSubject(env.DB,org,channel,{actorId:'creator',kind:'person',id:'default-room-later',version:saved.settings.version})).toMatchObject({status:403});
+ expect(await changeManagedRoomMembers(env.DB,org,channel,{actorId:'creator',removing:[{userId:'default-room-later'}]})).toMatchObject({status:403});
+ expect(await archiveManagedRoom(env.DB,org,channel,{actorId:'creator',archived:true,version:saved.settings.version})).toMatchObject({status:403});
+ expect(await deleteManagedRoom(env.DB,org,channel,{actorId:'creator',version:saved.settings.version})).toMatchObject({status:403});
 });
 test('archived rooms cannot be edited through either response endpoint',async()=>{
  const data=await input();
