@@ -202,13 +202,13 @@ const publicApp = (row) => row && ({
 });
 
 export async function getApp(db, orgId, id) {
-  return publicApp(await db.prepare("SELECT * FROM hx_apps WHERE id = ?1 AND org_id = ?2").bind(id, orgId).first());
+  return publicApp(await db.prepare("SELECT * FROM hx_apps WHERE id = ?1 AND org_id = ?2 AND deleted_at IS NULL").bind(id, orgId).first());
 }
 
 export async function listApps(db, orgId, { channel } = {}) {
   const sql = channel
-    ? "SELECT a.* FROM hx_apps a JOIN hx_app_links l ON l.app_id = a.id WHERE a.org_id = ?1 AND l.channel = ?2 ORDER BY a.created_at ASC"
-    : "SELECT * FROM hx_apps WHERE org_id = ?1 ORDER BY created_at ASC";
+    ? "SELECT a.* FROM hx_apps a JOIN hx_app_links l ON l.app_id = a.id WHERE a.org_id = ?1 AND a.deleted_at IS NULL AND l.channel = ?2 ORDER BY a.created_at ASC"
+    : "SELECT * FROM hx_apps WHERE org_id = ?1 AND deleted_at IS NULL ORDER BY created_at ASC";
   const stmt = db.prepare(sql);
   const { results } = await (channel ? stmt.bind(orgId, channel) : stmt.bind(orgId)).all();
   const apps = (results || []).map(publicApp);
@@ -409,18 +409,14 @@ export async function deleteApp(db, orgId, id) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
   await db.batch([
-    // Keep bindings as tombstones: a deleted app must never turn its runs
-    // into standalone workflows. Stop scheduling in the same transaction.
+    // Keep the app row and every data/version table as workspace content.
+    // Keep bindings as tombstones so removed managed automations cannot run.
     db.prepare("UPDATE hx_workflows SET enabled=0,next_run_at=NULL WHERE org_id=?2 AND id IN (SELECT workflow_id FROM hx_app_automation_bindings WHERE org_id=?2 AND app_id=?1)").bind(id,orgId),
     db.prepare("DELETE FROM hx_app_links WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId),
-    db.prepare("DELETE FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId),
-    db.prepare("DELETE FROM hx_rows WHERE org_id=?2 AND table_id IN (SELECT table_id FROM hx_app_entities WHERE org_id=?2 AND app_id=?1)").bind(id,orgId),
-    db.prepare("DELETE FROM hx_tables WHERE org_id=?2 AND id IN (SELECT table_id FROM hx_app_entities WHERE org_id=?2 AND app_id=?1)").bind(id,orgId),
-    db.prepare("DELETE FROM hx_apps WHERE id = ?1 AND org_id = ?2").bind(id, orgId),
-    db.prepare("DELETE FROM hx_rows WHERE table_id = ?1 AND org_id = ?2").bind(app.tableId, orgId),
-    db.prepare("DELETE FROM hx_tables WHERE id = ?1 AND org_id = ?2").bind(app.tableId, orgId),
+    db.prepare("UPDATE hx_apps SET deleted_at=?3,updated_at=?3 WHERE id=?1 AND org_id=?2 AND deleted_at IS NULL").bind(id, orgId, now()),
+    db.prepare("UPDATE hx_app_public_shares SET revoked_at=?3 WHERE org_id=?1 AND app_id=?2 AND revoked_at IS NULL").bind(orgId,id,now()),
   ]);
-  return { deleted: true };
+  return { deleted: true, retained: true };
 }
 
 export async function linkApp(db, orgId, id, channel, by) {
