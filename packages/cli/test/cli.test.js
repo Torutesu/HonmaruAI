@@ -279,6 +279,10 @@ test("room, message and thread aliases use scoped MCP tools with explicit paging
             ? { messages: [{ id: "msg_1", body: "Deploy complete" }], nextCursor: null }
             : name === "get_message"
               ? { message: { id: "msg_1", body: "Deploy complete" } }
+              : name === "edit_message"
+                ? { conversationId: "b:ops", message: { id: "msg_1", body: "Updated text", contentVersion: 4 } }
+                : name === "delete_message"
+                  ? { conversationId: "b:ops", message: { id: "msg_2", contentVersion: 2 }, deletedReplyIds: ["msg_3"] }
               : name === "read_channel"
                 ? { messages: [{ id: "msg_1", body: "Deploy complete" }], nextCursor: null }
                 : { parent: { id: "root_1" }, replies: [{ id: "msg_2" }], nextCursor: null };
@@ -295,6 +299,10 @@ test("room, message and thread aliases use scoped MCP tools with explicit paging
   assert.equal(await run(["workspace", "room", "read", "b:ops", "--limit", "15", "--cursor", "opaque-cursor"]), 0); stdout.clear();
   assert.equal(await run(["workspace", "message", "search", "deploy status", "--limit", "10"]), 0); stdout.clear();
   assert.equal(await run(["workspace", "message", "get", "msg_1"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "message", "edit", "b:ops", "msg_1", "--body", "Updated text", "--version", "3", "--acknowledge-dlp"]), 0);
+  assert.match(stdout.read(), /Edited message msg_1 \(version 4\)/); stdout.clear();
+  assert.equal(await run(["workspace", "message", "delete", "b:ops", "msg_2", "--version", "1", "--with-replies"]), 0);
+  assert.match(stdout.read(), /Deleted message msg_2 and 1 thread replies/); stdout.clear();
   assert.equal(await run(["workspace", "message", "send", "--room", "b:ops", "--text", "Deploy complete", "--request-id", "send-deploy-01", "--reply-to", "msg_0", "--file-ids", "file_1,file_2,file_1"]), 0);
   assert.equal(stdout.read(), "Sent message msg_1.\n"); stdout.clear();
   assert.equal(await run(["workspace", "thread", "get", "b:ops", "root_1", "--limit", "25"]), 0); stdout.clear();
@@ -308,6 +316,8 @@ test("room, message and thread aliases use scoped MCP tools with explicit paging
     { name: "read_channel", arguments: { conversationId: "b:ops", limit: 15, cursor: "opaque-cursor" } },
     { name: "search_messages", arguments: { query: "deploy status", limit: 10 } },
     { name: "get_message", arguments: { messageId: "msg_1" } },
+    { name: "edit_message", arguments: { conversationId: "b:ops", messageId: "msg_1", expectedContentVersion: 3, body: "Updated text", acknowledgeDlp: true } },
+    { name: "delete_message", arguments: { conversationId: "b:ops", messageId: "msg_2", expectedContentVersion: 1, withThread: true } },
     { name: "send_message", arguments: { conversationId: "b:ops", body: "Deploy complete", requestId: "send-deploy-01", replyToMessageId: "msg_0", fileIds: ["file_1", "file_2"] } },
     { name: "read_thread", arguments: { conversationId: "b:ops", threadId: "root_1", limit: 25 } },
     { name: "send_message", arguments: { conversationId: "b:ops", threadId: "root_1", body: "Follow-up", requestId: "thread-reply-01" } },
@@ -333,6 +343,19 @@ test("room/message aliases reject malformed writes and page limits before making
   assert.match(stderr.read(), /request-id must be 8 to 100/); stderr.clear();
   assert.equal(await run(["workspace", "thread", "get", "b:ops", "root_1", "--limit", "51"]), 1);
   assert.match(stderr.read(), /must be an integer from 1 to 50/);
+  assert.equal(requests, 0);
+});
+
+test("message lifecycle aliases require version fences and explicit thread deletion choice", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "message", "edit", "b:ops", "msg_1", "--body", "updated"]), 1);
+  assert.match(stderr.read(), /--version is required/); stderr.clear();
+  assert.equal(await run(["workspace", "message", "delete", "b:ops", "msg_1"]), 1);
+  assert.match(stderr.read(), /--version is required/);
   assert.equal(requests, 0);
 });
 

@@ -38,6 +38,8 @@ Usage:
   honmaru workspace room read <room-id> [--limit N] [--cursor CURSOR]
   honmaru workspace message search <query> [--limit N] [--cursor CURSOR]
   honmaru workspace message get <message-id>
+  honmaru workspace message edit <room-id> <message-id> --body TEXT --version N [--acknowledge-dlp]
+  honmaru workspace message delete <room-id> <message-id> --version N [--with-replies]
   honmaru workspace message send --room ROOM --text TEXT --request-id ID [--thread ROOT] [--reply-to MESSAGE]
   honmaru workspace reaction get <message-id>
   honmaru workspace reaction add <message-id> --emoji EMOJI
@@ -129,7 +131,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies"]);
 
 function parseOptions(args, { allowArgs = false, allowWorkspaceFlags = false } = {}) {
   const options = { json: false };
@@ -388,6 +390,17 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
     case "message get":
       onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace message get <message-id>");
       return { tool: "get_message", args: { messageId: positional[0] } };
+    case "message edit": {
+      onlyFlags(options, ["body", "version", "acknowledgeDlp"]); positionalCount(positional, 2, "honmaru workspace message edit <room-id> <message-id> --body TEXT --version N [--acknowledge-dlp]");
+      if (typeof options.body !== "string") throw new Error("--body is required.");
+      const expectedContentVersion = integerOption(options, "version", { min: 0, required: true });
+      return { tool: "edit_message", args: { conversationId: positional[0], messageId: positional[1], expectedContentVersion, body: options.body, acknowledgeDlp: options.acknowledgeDlp === true } };
+    }
+    case "message delete": {
+      onlyFlags(options, ["version", "withReplies"]); positionalCount(positional, 2, "honmaru workspace message delete <room-id> <message-id> --version N [--with-replies]");
+      const expectedContentVersion = integerOption(options, "version", { min: 0, required: true });
+      return { tool: "delete_message", args: { conversationId: positional[0], messageId: positional[1], expectedContentVersion, withThread: options.withReplies === true } };
+    }
     case "message send": {
       onlyFlags(options, ["room", "text", "requestId", "thread", "replyTo", "fileIds"]); positionalCount(positional, 0, "honmaru workspace message send --room ROOM --text TEXT --request-id ID [--thread ROOT] [--reply-to MESSAGE]");
       for (const key of ["room", "text"]) if (typeof options[key] !== "string" || !options[key].trim()) throw new Error(`--${key} is required.`);
@@ -789,6 +802,8 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "add_room_agent") return value.added
     ? `Added Agent ${value.agentId} to Room ${value.conversationId}${value.granted ? "; selected Room members were granted Agent access" : "; no member access grants were changed"}.`
     : `Agent ${value.agentId} is already assigned to Room ${value.conversationId}.`;
+  if (command?.tool === "edit_message") return `Edited message ${value.message?.id} (version ${value.message?.contentVersion}).`;
+  if (command?.tool === "delete_message") return `Deleted message ${value.message?.id}${value.deletedReplyIds?.length ? ` and ${value.deletedReplyIds.length} thread replies` : ""}.`;
   if (command?.tool === "get_room_guidelines") return value.guidelines?.body || "";
   if (command?.tool === "update_room_guidelines") return `Updated Room ${value.conversationId} guidelines (version ${value.guidelines?.version}).`;
   if (command?.tool === "archive_room") return `Archived Room ${value.conversationId}.`;

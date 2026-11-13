@@ -488,10 +488,11 @@ export async function listPins(db, orgId, key, viewerLogin, view, members) {
 
 /// Only the author changes their words, and not the AI's, and not after
 /// they are gone.
-export async function editMessage(db, { orgId, id, authorLogin, body }) {
+export async function editMessage(db, { orgId, id, authorLogin, body, expectedContentVersion = null }) {
   const row = await getMessage(db, orgId, id);
   if (!row || row.deleted_at) return { error: "No such message.", status: 404 };
   if (row.kind !== "message" || row.author_login !== authorLogin) return { error: "Only the person who wrote it can edit it.", status: 403 };
+  if (expectedContentVersion !== null && (!Number.isSafeInteger(expectedContentVersion) || expectedContentVersion < 0 || Number(row.content_version || 0) !== expectedContentVersion)) return { error: "The message changed. Reload it before editing.", status: 409 };
   const text = String(body || "").replace(/\r\n/g, "\n").trim();
   if (!text) return { error: "Write something first.", status: 400 };
   if (text.length > MAX_MESSAGE_CHARS) return { error: `That is longer than ${MAX_MESSAGE_CHARS} characters.`, status: 400 };
@@ -499,9 +500,10 @@ export async function editMessage(db, { orgId, id, authorLogin, body }) {
   // Under a legal hold, the words as they were are kept for the export.
   const { keepIfHeld } = await import("./governance.js");
   await keepIfHeld(db, orgId, row, "edit");
-  const changed = await db.prepare("UPDATE channel_messages SET body = ?3, edited_at = ?4, content_version = content_version + 1 WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
-    .bind(orgId, id, text, new Date().toISOString()).run();
-  if (!changed.meta?.changes) return { error: "No such message.", status: 404 };
+  const changed = await db.prepare(`UPDATE channel_messages SET body = ?3, edited_at = ?4, content_version = content_version + 1
+    WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL ${expectedContentVersion === null ? "" : "AND content_version = ?5"}`)
+    .bind(...(expectedContentVersion === null ? [orgId, id, text, new Date().toISOString()] : [orgId, id, text, new Date().toISOString(), expectedContentVersion])).run();
+  if (!changed.meta?.changes) return { error: expectedContentVersion === null ? "No such message." : "The message changed. Reload it before editing.", status: expectedContentVersion === null ? 404 : 409 };
   await mirrorIds(db, orgId, [id]);
   return { row: await getMessage(db, orgId, id) };
 }
@@ -510,10 +512,11 @@ export async function editMessage(db, { orgId, id, authorLogin, body }) {
 /// its place — and a thread under it goes with it: the replies, their
 /// reactions and pins. The rows stay only as tombstones nobody is shown.
 /// `replies` are the ids taken with it, for their files to go too.
-export async function deleteMessage(db, { orgId, id, authorLogin, withThread = false }) {
+export async function deleteMessage(db, { orgId, id, authorLogin, withThread = false, expectedContentVersion = null }) {
   const row = await getMessage(db, orgId, id);
   if (!row || row.deleted_at) return { error: "No such message.", status: 404 };
   if (row.kind !== "message" || row.author_login !== authorLogin) return { error: "Only the person who wrote it can delete it.", status: 403 };
+  if (expectedContentVersion !== null && (!Number.isSafeInteger(expectedContentVersion) || expectedContentVersion < 0 || Number(row.content_version || 0) !== expectedContentVersion)) return { error: "The message changed. Reload it before deleting.", status: 409 };
   const { keepIfHeld } = await import("./governance.js");
   await keepIfHeld(db, orgId, row, "delete");
   const { results: under } = row.parent_id ? { results: [] } : await db.prepare(
@@ -524,9 +527,15 @@ export async function deleteMessage(db, { orgId, id, authorLogin, withThread = f
   if (others && !withThread) return { error: "Others replied in this thread. Delete it with their replies?", status: 409, code: "thread_has_replies", others };
   for (const r of under || []) await keepIfHeld(db, orgId, r, "delete");
   const now = new Date().toISOString();
+  if (expectedContentVersion !== null) {
+    const claimed = await db.prepare(`UPDATE channel_messages SET body='',deleted_at=?3,pinned_at=NULL,pinned_by=NULL,content_version=content_version+1
+      WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL AND content_version=?4`)
+      .bind(orgId, id, now, expectedContentVersion).run();
+    if (!claimed.meta?.changes) return { error: "The message changed. Reload it before deleting.", status: 409 };
+  }
   const tombstone = (mids) => db.batch(mids.flatMap((mid) => [
-    db.prepare("UPDATE channel_messages SET body = '', deleted_at = ?3, pinned_at = NULL, pinned_by = NULL, content_version = content_version + 1 WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
-      .bind(orgId, mid, now),
+    ...(expectedContentVersion !== null && mid === id ? [] : [db.prepare("UPDATE channel_messages SET body = '', deleted_at = ?3, pinned_at = NULL, pinned_by = NULL, content_version = content_version + 1 WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
+      .bind(orgId, mid, now)]),
     db.prepare("DELETE FROM message_reactions WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
     db.prepare("DELETE FROM hx_agent_tool_traces WHERE org_id = ?1 AND message_id = ?2").bind(orgId, mid),
     // A snapshot may contain this reply. Deleting source content also removes
