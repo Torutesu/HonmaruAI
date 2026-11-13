@@ -231,7 +231,10 @@ test("thread search pages all matches without repeating them", async () => {
   expect(last.messages).toHaveLength(3);
   expect(last.nextCursor).toBeNull();
   expect(new Set([...first.messages, ...last.messages].map(m => m.id)).size).toBe(33);
-});
+// 33 real sends, one after another, each with its delivery: about 3 s on an
+// idle machine (main as much as this branch), and past vitest's default 5 s
+// on a busy CI runner. The time it is given matches the work it does.
+}, 20_000);
 
 test("references scan the whole thread in pages and enforce app visibility", async () => {
   const { referencedAppIds } = await import("../src/threadReferences.js");
