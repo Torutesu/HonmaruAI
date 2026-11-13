@@ -108,7 +108,7 @@
 | KY-052 | App用Connection grant | 一部 | P0 | [worker/src/harness/appConnectionGrants.js](../../worker/src/harness/appConnectionGrants.js) | Direct Agent DMに加え、Business/Group source threadのroot messageに記録された一意な`initial_agent_id`をsource Agentとして解決。該当Agentが現在もsource conversationに配置され、未削除であることを要求し、connection owner/visitor双方の現行Agent accessとApp/connection grantを各実行前後に再検証。複数Agent割当・配置解除は拒否。harness-apps suite 166/166 pass。PR #910 exact-head CI #43103201143、main CI #43106011753、Worker D1 migration/Deploy/Verify #43106011634が成功。本番マルチユーザー隔離とKylon画面比較、OAuth refresh、任意外部/Remote MCP grantは残る。 |
 | KY-053 | Appに同梱する自動化と差分検出 | 一部実装 | P1 | [worker/src/harness/appAutomationRelease.js](../../worker/src/harness/appAutomationRelease.js) | declared/liveのdrift・下書き停止・公開時反映 |
 | KY-054 | テンプレート共有とバージョン | 一部・本番反映 | P2 | [worker/src/harness/templateShares.js](../../worker/src/harness/templateShares.js), [web-react/src/components/TemplateSharing.tsx](../../web-react/src/components/TemplateSharing.tsx) | PR #571のmain CI #41180397064、Worker deploy #41180397003、Web deploy #41180396947が成功。2026-11-01、存在しない合成tokenに対する本番公開APIが無効リンク用404を返すことを確認。アプリ版を固定したURL共有、1/7/30/90日期限、失効、別workspaceへのprivate取り込みを実装。リンクはハッシュ保存で、レコード・説明・カスタムコード・接続情報を含めず、項目名等は共有前確認を要求。2つのログイン済みWorkspace間での有効リンク作成・取込・失効の受入、招待制/カタログ、schema labelの自動機密検出、Kylon実画面比較は残る |
-| KY-055 | App移動・削除とデータ保持 | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | ルーム移動時に会話ACLを再確認し削除時DB保持方針を明示 |
+| KY-055 | App移動・削除とデータ保持 | 一部 | P0 | [worker/src/harness/apps.js](../../worker/src/harness/apps.js) | Appを非破壊archiveし、creator/owner/admin限定のmetadata一覧とarchive時刻CAS付きrestoreを実装。復元後にRoom/public link/automationは自動再接続・再開しない。実機ACL/Kylon比較、CI、本番反映は残る |
 
 ## Automations
 

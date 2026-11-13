@@ -419,6 +419,40 @@ export async function deleteApp(db, orgId, id) {
   return { deleted: true, retained: true };
 }
 
+// Archived app inventory contains metadata only; owners see their apps and
+// workspace admins may see every archived app. Data remains behind the same
+// app/table access checks until an authorized restore clears the tombstone.
+export async function listArchivedApps(db, orgId, userId) {
+  const { results = [] } = await db.prepare(`SELECT a.id,a.name,a.description,a.icon,a.version,a.created_by,a.deleted_at
+    FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?2
+    WHERE a.org_id=?1 AND a.deleted_at IS NOT NULL
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+      AND (a.created_by=?2 OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin'))
+      AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=a.org_id AND d.purge_started_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=a.org_id)
+    ORDER BY a.deleted_at DESC,a.id`).bind(orgId,String(userId)).all();
+  return (results || []).map(row => ({id:row.id,name:row.name,description:row.description||'',icon:row.icon||'📋',version:row.version,createdBy:row.created_by,archivedAt:row.deleted_at}));
+}
+
+export async function restoreArchivedApp(db, orgId, id, userId, expectedArchivedAt) {
+  const expected = typeof expectedArchivedAt === 'string' ? expectedArchivedAt : '';
+  if (!expected) return {error:'Reload the archive before restoring this app.',status:400};
+  const canRestore = `EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?2 AND m.user_github_id=?4
+    AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+    AND (hx_apps.created_by=?4 OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin')))`;
+  const restoredAt=now();
+  const result=await db.prepare(`UPDATE hx_apps SET deleted_at=NULL,updated_at=?5
+    WHERE org_id=?2 AND id=?1 AND deleted_at=?3 AND ${canRestore}
+      AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?2 AND d.purge_started_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?2)`).bind(id,orgId,expected,String(userId),restoredAt).run();
+  if(result.meta?.changes) return {restored:true,app:await getApp(db,orgId,id)};
+  const visible=await db.prepare(`SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3
+    WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NOT NULL
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+      AND (a.created_by=?3 OR LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin'))`).bind(orgId,id,String(userId)).first();
+  return visible ? {error:'This app was already restored or the archive changed. Reload and try again.',status:409} : {error:'No such archived app.',status:404};
+}
+
 export async function linkApp(db, orgId, id, channel, by) {
   const key = String(channel || "").trim().slice(0, 200);
   if (!key) return { error: "channel is required" };

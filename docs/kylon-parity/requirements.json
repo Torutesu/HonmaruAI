@@ -686,10 +686,10 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "ルーム移動時に会話ACLを再確認し、削除操作ではDB保持方針を明示して、一覧から隠しながらWorkspace存続中はデータを保持する。自動化停止・公開リンク失効・アクセス遮断を一貫させる。Kylon実画面と復元UXは確認する。",
+      "acceptance": "ルーム移動時に会話ACLを再確認し、削除操作ではDB保持方針を明示して、一覧から隠しながらWorkspace存続中はデータを保持する。自動化停止・公開リンク失効・アクセス遮断を一貫させる。作成者とWorkspace owner/adminに限定したアーカイブ一覧と競合検出付き復元を提供し、復元後に公開リンク/Room接続/自動化を自動再開しない。Kylon実画面との差分は継続確認する。",
       "evidence": {
-        "verified": "App削除をsoft-deleteへ変更。テーブル・レコード・Appバージョンを保持し、通常のApp取得/一覧とApp ACLから除外。Room linkと公開共有を外し、管理ワークフローを停止。Worker App suite 168/168、Web 266 files / 2,005 tests。",
-        "remaining": "アーカイブ済みAppの復元UI/管理一覧、移動時の実機ACL確認、Kylonとの差分、最新差分の本番反映とCI。"
+        "verified": "App削除をsoft-deleteへ変更。テーブル・レコード・Appバージョンを保持し、通常のApp取得/一覧とApp ACLから除外。Room linkと公開共有を外し、管理ワークフローを停止。アーカイブ一覧はmetadataのみ返し、作成者とowner/adminに限定。archive時刻の一致を要求する復元API/UIを追加し、復元後もRoom link・公開共有・automationは再接続/再開しない。Workerの権限・stale token・データ保持回帰、Web Harness UI 56件、TypeScript/production build pass。",
+        "remaining": "移動時の実機ACL確認、Kylonとの差分、全回帰・exact-head CI・本番反映。"
       }
     },
     {

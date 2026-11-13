@@ -88,7 +88,7 @@ import {
   listRows, addRow, updateRow, deleteRow,
 } from "./tables.js";
 import {
-  listApps, getApp, createApp, createFromTemplate, updateApp, deleteApp,
+  listApps, listArchivedApps, restoreArchivedApp, getApp, createApp, createFromTemplate, updateApp, deleteApp,
   linkApp, unlinkApp, listVersions, restoreVersion, renderApp,
 } from "./apps.js";
 import { templateList } from "./templates.js";
@@ -1399,6 +1399,17 @@ export async function handleHarness(request, env, url, context = {}) {
   if (parts[0] === "apps" || url.pathname === "/app-generation-v2") {
     const [, appId, sub] = parts;
     if (appId === "templates" && request.method === "GET") return json({ templates: templateList() });
+    if (appId === 'archived' && parts.length === 2) {
+      if (request.method === 'GET') return json({apps:await listArchivedApps(env.DB,orgId,me)});
+      return json({message:'Method not allowed.'},405);
+    }
+    if (sub === 'restore' && parts.length === 3) {
+      if (request.method !== 'POST') return json({message:'Method not allowed.'},405);
+      const restored=await restoreArchivedApp(env.DB,orgId,appId,me,input?.archivedAt);
+      if (restored.error) return fail(restored);
+      await audit(env,request,{orgId,action:'app.restored',actor:person(who.user),entity:{type:'app',id:appId,name:restored.app.name},details:{version:restored.app.version}});
+      return json(restored);
+    }
     if ((appId === "generate" || url.pathname === "/app-generation-v2") && request.method === "POST") {
       const r = await generateApp(env, request, orgId, who, input);
       if (r.response) return r.response;

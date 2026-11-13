@@ -32,7 +32,7 @@ import { Icon } from '../components/Icon'
 import { hashForApp, hashForAppSource, hashForCard, consumeAppDraftHash, appSectionHash, type AppSection } from '../utils/route'
 import {
   useWorkspaceMode, cellText, metricText, WANT_MODE_KEY, SET_MODE_EVENT, isMode, HarnessApiError, type WorkspaceMode,
-  type App, type AppAnnotation, type AppAnnotationMeta, type Template, type Table, type Row, type View, type Column, type HarnessApi,
+  type App, type ArchivedApp, type AppAnnotation, type AppAnnotationMeta, type Template, type Table, type Row, type View, type Column, type HarnessApi,
 } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps, type HarnessScreen } from './HarnessShared'
 import { ModePicker } from './HarnessHome'
@@ -149,6 +149,8 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
   useEffect(() => { liveApi.current = api; return () => { liveApi.current = null } }, [api])
   const { pins, toggle } = useAppPins(props.orgId,api)
   const [apps, setApps] = useState<App[] | null>(null)
+  const [archivedApps, setArchivedApps] = useState<ArchivedApp[] | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<string | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
   const [storedOpenApp] = useState<string | null>(() => {
     try { const id = sessionStorage.getItem('hx.openApp'); sessionStorage.removeItem('hx.openApp'); return id } catch { return null }
@@ -166,10 +168,19 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
   const { busy, error, act } = useAct()
 
   const load = useCallback(() => act('load', async () => {
-    const [a, tpl] = await Promise.all([api.apps(), api.templates()])
-    setApps(a.apps); setTemplates(tpl.templates)
+    const archiveRequest = typeof api.archivedApps === 'function' ? api.archivedApps() : Promise.resolve({apps:[] as ArchivedApp[]})
+    const [a, tpl, archived] = await Promise.all([api.apps(), api.templates(), archiveRequest])
+    setApps(a.apps); setTemplates(tpl.templates); setArchivedApps(archived.apps)
   }), [api, act])
   useEffect(() => { load() }, [load])
+
+  const restoreArchived = (app:ArchivedApp) => act(`restore:${app.id}`,async()=>{
+    await api.restoreArchivedApp(app.id,app.archivedAt)
+    setRestoreTarget(null)
+    const [active,archived]=await Promise.all([api.apps(),api.archivedApps()])
+    setApps(active.apps);setArchivedApps(archived.apps)
+    setNote(t('App restored. Room links and public links stay removed; automations stay stopped.'))
+  })
 
   const previousRequestedApp = useRef(props.requestedAppId)
   useEffect(() => {
@@ -265,6 +276,20 @@ export const HarnessApps: React.FC<HarnessProps & { requestedAppId?: string | nu
       )}
 
       {apps && apps.length > 0 && !apps.some(a => `${a.name} ${a.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())) && <p className="hx-library-no-results" role="status">{t('No apps match your search.')}</p>}
+      {archivedApps && archivedApps.length > 0 && <section className="hx-app-archive" aria-labelledby="hx-app-archive-title">
+        <div className="rows-title" id="hx-app-archive-title">{t('Archived apps')} · {archivedApps.length}</div>
+        <p className="row-sub hx-app-archive-note">{t('Archived app data and version history stay in this workspace. Restoring does not reconnect Rooms or public links and does not restart automations.')}</p>
+        <div className="rows">
+          {archivedApps.map(app=><div className="row static hx-app-archive-row" key={app.id} data-archived-app={app.id}>
+            <span className="row-icon"><HarnessAppIcon icon={app.icon}/></span>
+            <span className="row-main">{app.name}<span className="row-sub">{t('Archived {when}',{when:new Date(app.archivedAt).toLocaleString()})} · v{app.version}</span></span>
+            {restoreTarget===app.id ? <span className="team-confirm">
+              <button className="pill-btn" disabled={busy===`restore:${app.id}`} onClick={()=>void restoreArchived(app)}>{busy===`restore:${app.id}`?t('Restoring…'):t('Restore')}</button>
+              <button className="btn-text" onClick={()=>setRestoreTarget(null)}>{t('Keep archived')}</button>
+            </span> : <button className="btn-text" onClick={()=>setRestoreTarget(app.id)}>{t('Restore app')}</button>}
+          </div>)}
+        </div>
+      </section>}
       {creating && <>
       <div className="rows-title">{t('Templates')}</div>
       <div className="hx-app-grid">

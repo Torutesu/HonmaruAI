@@ -202,6 +202,8 @@ beforeEach(() => {
   })))
   state.api = {
     apps: vi.fn().mockResolvedValue({ apps: [] }),
+    archivedApps: vi.fn().mockResolvedValue({apps:[]}),
+    restoreArchivedApp: vi.fn().mockResolvedValue({restored:true,app:{id:'restored'}}),
     templates: vi.fn().mockResolvedValue({ templates: [] }),
     generate: vi.fn(() => new Promise(resolve => { finish = resolve })),
     app: vi.fn(() => new Promise(() => {})),
@@ -210,6 +212,18 @@ beforeEach(() => {
   }
 })
 afterEach(() => { if (tree) act(() => tree!.unmount()); tree = undefined; vi.unstubAllGlobals() })
+
+test('an archived app can be restored without reconnecting its old sharing or automations',async()=>{
+ const archived={id:'old',name:'Old tracker',description:'',icon:'grid',version:3,createdBy:'9101',archivedAt:'2026-11-12T10:00:00.000Z'}
+ state.api.archivedApps.mockResolvedValue({apps:[archived]})
+ await act(async()=>{tree=create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}}/>);await new Promise(resolve=>setTimeout(resolve,0))})
+ expect(tree!.root.findByProps({'data-archived-app':'old'}).findByProps({className:'row-main'}).children).toContain('Old tracker')
+ await act(async()=>{tree!.root.findAllByType('button').find(button=>button.children.includes('Restore app'))!.props.onClick()})
+ await act(async()=>{tree!.root.findAllByType('button').find(button=>button.children.includes('Restore'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+ expect(state.api.restoreArchivedApp).toHaveBeenCalledWith('old',archived.archivedAt)
+ expect(state.api.apps).toHaveBeenCalledTimes(2)
+ expect(tree!.root.findByProps({className:'form-note'}).children.join('')).toContain('App restored.')
+})
 
 test.each(['table','board','calendar'] as const)('record search filters the %s view and updates its count', async type => {
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
