@@ -276,27 +276,32 @@ export default {
       return;
     }
     // The bill: today's D1 rows against the warning and stop lines. Past
-    // the stop line, the work below that nobody is waiting on waits for
-    // tomorrow (spendGuard.js); what people do keeps working.
+    // the stop line, the costly work nobody is waiting on waits for tomorrow
+    // (spendGuard.js): connector syncs, routines, the Durable Object
+    // reconcile, audit sealing and the legacy migrations. Everything else
+    // here still runs. Ending access the identity provider or a workspace
+    // took away, and keeping retention, expiry and deletion promises, are
+    // small, bounded jobs customers are promised; and the brake is most
+    // likely on during an incident, when prompt revocation matters most.
     const { checkSpend, braked } = await import("./spendGuard.js");
     await checkSpend(env, ctx, { now: event?.scheduledTime || Date.now() }).catch((err) => console.error("spend check failed", err?.message || err));
-    if (await braked(env)) {
-      console.error("spend brake on: background work paused until 00:00 UTC");
-      return;
-    }
-    ctx.waitUntil(runScheduledSync(env, ctx));
+    const paused = await braked(env);
+    if (paused) console.error("spend brake on: syncs, routines, reconcile, sealing and migrations paused until 00:00 UTC");
+    if (!paused) ctx.waitUntil(runScheduledSync(env, ctx));
     // App connections whose person left or whose app was taken away, ended.
     ctx.waitUntil(sweepMcpOAuth(env).catch(err => console.error("MCP OAuth sweep failed", err?.message)));
     ctx.waitUntil(sweepPerfSamples(env).catch(err => console.error("perf sweep failed", err?.message)));
     ctx.waitUntil(sweepAppConnections(env).catch((err) => console.error("app sweep failed", err?.message || err)));
     // SSO sign-ins the identity provider no longer stands behind, ended.
     ctx.waitUntil(checkSsoGrants(env, { now: event?.scheduledTime || Date.now(), limit: 200 }).catch((err) => console.error("sso grant check failed", err?.message || err)));
-    // Phase 1 audit rows, a few workspaces at a time, into per-person
-    // encryption. Nothing to do once every row is.
-    ctx.waitUntil(migrateLegacyAudit(env).catch((err) => console.error("audit migration failed", err?.message || err)));
-    // Secrets written before sealing, sealed — a batch per table each run.
-    ctx.waitUntil(import("./secrets.js").then(({ sealLegacySecrets }) => sealLegacySecrets(env))
-      .catch((err) => console.error("secret sealing failed", err?.message || err)));
+    if (!paused) {
+      // Phase 1 audit rows, a few workspaces at a time, into per-person
+      // encryption. Nothing to do once every row is.
+      ctx.waitUntil(migrateLegacyAudit(env).catch((err) => console.error("audit migration failed", err?.message || err)));
+      // Secrets written before sealing, sealed — a batch per table each run.
+      ctx.waitUntil(import("./secrets.js").then(({ sealLegacySecrets }) => sealLegacySecrets(env))
+        .catch((err) => console.error("secret sealing failed", err?.message || err)));
+    }
     // Once a day: workspace keys about to expire, told to their owners.
     const at = new Date(event?.scheduledTime || Date.now());
     if (at.getUTCHours() === 0 && at.getUTCMinutes() < 15) {
@@ -307,7 +312,7 @@ export default {
       ctx.waitUntil(import("./sessions.js").then(({ pruneSessionTraces }) => pruneSessionTraces(env.DB, { now: at.getTime() }))
         .catch((err) => console.error("session sweep failed", err?.message || err)));
       // Dual-writing workspaces: their Durable Object made to match D1.
-      ctx.waitUntil(import("./store/mirror.js").then(({ reconcileAll }) => reconcileAll(env))
+      if (!paused) ctx.waitUntil(import("./store/mirror.js").then(({ reconcileAll }) => reconcileAll(env))
         .catch((err) => console.error("reconcile failed", err?.message || err)));
       // Caches and meters past the longest anything reads them.
       ctx.waitUntil(import("./retention.js").then(({ pruneGrowth }) => pruneGrowth(env.DB, { now: at.getTime() }))
@@ -315,7 +320,7 @@ export default {
     }
     // Once an hour: the hours just gone, sealed into the archive.
     if (at.getUTCMinutes() < 15) {
-      ctx.waitUntil(sealPending(env, { now: at.getTime() }).catch((err) => console.error("audit sealing failed", err?.message || err)));
+      if (!paused) ctx.waitUntil(sealPending(env, { now: at.getTime() }).catch((err) => console.error("audit sealing failed", err?.message || err)));
       ctx.waitUntil(import('./harness/fileMaintenance.js').then(({maintainWorkspaceFiles})=>maintainWorkspaceFiles(env,{now:at.getTime()}))
         .catch(()=>console.error('workspace file maintenance failed')));
     }
@@ -343,7 +348,7 @@ export default {
     // Routines whose hour has come, and once a day the automations the AI
     // would propose. Separate from the sync, so a slow inbox cannot make a
     // Monday report late.
-    ctx.waitUntil(runAutomations(env, ctx, new Date(event?.scheduledTime || Date.now())));
+    if (!paused) ctx.waitUntil(runAutomations(env, ctx, new Date(event?.scheduledTime || Date.now())));
   },
 
   async fetch(request, env, ctx) {
