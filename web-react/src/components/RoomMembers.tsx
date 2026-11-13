@@ -2,7 +2,7 @@ import React,{useCallback,useEffect,useRef,useState} from 'react'
 import {RoomMembersDialog,type RoomMemberRow} from './RoomMembersDialog'
 import {RoomMemberPicker,type RoomCandidate} from './RoomMemberPicker'
 interface RoomDetails {
- addableAgents?:Array<{id:string;name:string;avatarUrl?:string|null;missingAccessMembers?:Array<{id:string;name:string}>;canGrantAccess?:boolean}>
+ addableAgents?:Array<{id:string;name:string;avatarUrl?:string|null;missingAccessMembers?:Array<{id:string;name:string}>;canGrantAccess?:boolean;externalRuntime?:boolean}>
  requestableAgents?:Array<{id:string;name:string;avatarUrl?:string|null;accessRequestStatus:'none'|'pending'}>
  channel:{managed?:boolean;version?:number;canInvite?:boolean}
  members:{people:Array<{ref:string;name:string;avatarUrl?:string;roomRole:'admin'|'member';canChangeRole?:boolean;canRemove?:boolean;you?:boolean}>;agents:Array<{id:string;name:string;avatarUrl?:string;roomRole:'admin'|'member';canChangeRole?:boolean;canRemove?:boolean}>}
@@ -55,7 +55,7 @@ export function RoomMembers({api,view,onClose,onInvite,onProfile,onChanged,peopl
    if(selected.some(row=>!allowed.has(`${row.kind}:${row.id}`)))throw Error('Reload before saving.')
    if(selected.some(row=>row.requestOnly))throw Error('Request agent access before adding it to this room.')
    const humans=selected.filter(row=>row.kind==='person').map(row=>row.id)
-   const steps=[...(humans.length?[{path:'members',body:{refs:humans}}]:[]),...selected.filter(row=>row.kind==='agent').map(row=>({path:'channel-agents',body:{agentId:row.id,grantAccess:row.grantAccess===true}}))]
+   const steps=[...(humans.length?[{path:'members',body:{refs:humans}}]:[]),...selected.filter(row=>row.kind==='agent').map(row=>({path:'channel-agents',body:{agentId:row.id,grantAccessToRefs:row.grantAccessTo||[],acknowledgeExternalProcessing:row.acknowledgeExternalProcessing===true}}))]
    for(const step of steps){
     if(generation!==scope.current)return
     const response=await fetch(`${api.httpBase}/channels/${step.path}`,{method:'POST',headers:{'content-type':'application/json','x-session-token':api.sessionToken},body:JSON.stringify({orgId:api.orgId,channel:view,...step.body})})

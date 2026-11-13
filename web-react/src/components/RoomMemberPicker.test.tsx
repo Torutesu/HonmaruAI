@@ -27,13 +27,15 @@ test('retains selections on failure, prevents duplicate submits and blocks closi
  expect(tree.root.findByProps({type:'checkbox'}).props.checked).toBe(true)
  act(()=>tree.unmount())
 })
-test('a selected agent names the separate choice to grant member access',()=>{
+test('an agent grant can target only explicitly selected room members',()=>{
  let tree!:ReturnType<typeof create>
- act(()=>{tree=create(<RoomMemberPicker {...base} candidates={[{id:'agent',kind:'agent',name:'Agent',missingAccessMembers:[{id:'person',name:'Person'}],canGrantAccess:true}]}/>)})
- act(()=>tree.root.findByProps({type:'checkbox'}).props.onChange())
- const radios=tree.root.findAllByProps({type:'radio'})
- expect(radios).toHaveLength(2);expect(radios.map(radio=>radio.props.checked)).toEqual([true,false])
- act(()=>radios[1].props.onChange())
- expect(tree.root.findAllByProps({type:'radio'}).map(radio=>radio.props.checked)).toEqual([false,true])
+ act(()=>{tree=create(<RoomMemberPicker {...base} candidates={[{id:'agent',kind:'agent',name:'Agent',missingAccessMembers:[{id:'ref-a',name:'A'},{id:'ref-b',name:'B'}],canGrantAccess:true}]}/>)})
+ const checks=tree.root.findAllByProps({type:'checkbox'})
+ act(()=>checks[0].props.onChange())
+ const memberChecks=tree.root.findAllByProps({type:'checkbox'}).slice(1)
+ act(()=>memberChecks[0].props.onChange())
+ const button=tree.root.findByType('button')
+ act(()=>{void button.props.onClick()})
+ expect(base.onAdd).toHaveBeenCalledWith([expect.objectContaining({id:'agent',grantAccessTo:['ref-a']})])
  act(()=>tree.unmount())
 })

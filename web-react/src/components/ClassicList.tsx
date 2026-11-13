@@ -1184,7 +1184,7 @@ export const ClassicList: React.FC<Props> = ({
   useEffect(()=>{roomCreationScope.current++;return()=>{roomCreationScope.current++}},[api.orgId,api.httpBase,api.sessionToken])
   const [creatingRoom, setCreatingRoom] = useState(false)
   const [requestableRoomAgents,setRequestableRoomAgents]=useState<Array<{id:string;name:string;avatarUrl?:string|null;accessRequestStatus:'none'|'pending'}>>([])
-  const [addableRoomAgents,setAddableRoomAgents]=useState<Array<{id:string;name:string;avatarUrl?:string|null;missingAccessMembers:Array<{ref:string;name:string}>;canGrantAccess:boolean}>>([])
+  const [addableRoomAgents,setAddableRoomAgents]=useState<Array<{id:string;name:string;avatarUrl?:string|null;missingAccessMembers:Array<{ref:string;name:string}>;canGrantAccess:boolean;externalRuntime?:boolean}>>([])
   const [joiningRoom, setJoiningRoom] = useState(false)
   const [roomMembersView,setRoomMembersView]=useState<string|null>(null)
   const [adding, setAdding] = useState(false)
@@ -6253,7 +6253,7 @@ export const ClassicList: React.FC<Props> = ({
       {harness && roomMembersView && roomMemberDialog(roomMembersView,()=>setRoomMembersView(null))}
       {harness && creatingRoom && onCreateRoom && <RoomCreateDialog key={api.orgId} people={[
         ...members.filter(m=>!m.mine).map(m=>({id:m.ref,kind:'person' as const,name:m.name,avatarUrl:m.avatarUrl||undefined})),
-        ...addableRoomAgents.map(a=>({id:a.id,kind:'agent' as const,name:a.name,avatarUrl:a.avatarUrl||undefined,missingAccessMembers:a.missingAccessMembers,canGrantAccess:a.canGrantAccess})),
+        ...addableRoomAgents.map(a=>({id:a.id,kind:'agent' as const,name:a.name,avatarUrl:a.avatarUrl||undefined,missingAccessMembers:a.missingAccessMembers,canGrantAccess:a.canGrantAccess,externalRuntime:a.externalRuntime})),
         ...requestableRoomAgents.map(a=>({id:a.id,kind:'agent' as const,name:a.name,avatarUrl:a.avatarUrl||undefined,requestOnly:true,accessRequestStatus:a.accessRequestStatus})),
       ]} onRequestAgentAccess={requestRoomAgentAccess} onClose={()=>setCreatingRoom(false)} onCreate={async input=>{
         const scope=roomCreationScope.current;const room=await onCreateRoom(input);if(scope!==roomCreationScope.current)return;setCreatingRoom(false);setChannelsTick(n=>n+1);choose(`channel:${room.slug}`)

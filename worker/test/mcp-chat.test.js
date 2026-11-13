@@ -194,9 +194,14 @@ test('MCP Room Agent assignment is separate from human and Agent access grants',
   await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
   const at = new Date().toISOString();
   await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES (?1,'mcp-room-agent','mcp-room-agent','Room Agent','Plan.','team','alex',?2,?2)").bind(orgId, at).run();
+  await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'mcp-room-agent','private','[]',?2)").bind(orgId,at).run();
+  const plan=await call('get_room_agent_access',{conversationId:'b:general',agentId:'mcp-room-agent'});
+  expect(plan.missingAccessMembers).toHaveLength(1);
+  expect(plan.missingAccessMembers[0].name).toBe('beth');
   const beforePeople = await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:general'").bind(orgId).first('n');
-  expect(await call('add_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent' }))
-    .toMatchObject({ agentId: 'mcp-room-agent', added: true, version: 2 });
+  expect(await call('add_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent', grantAccessMemberRefs:[plan.missingAccessMembers[0].memberRef] }))
+    .toMatchObject({ agentId: 'mcp-room-agent', added: true, granted:1, version: 2 });
+  expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND agent_id='mcp-room-agent' AND user_id='mcp-b'").bind(orgId).first()).not.toBeNull();
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_agents WHERE org_id=?1 AND channel='b:general' AND agent_id='mcp-room-agent'").bind(orgId).first('n')).toBe(1);
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:general'").bind(orgId).first('n')).toBe(beforePeople);
   const member = { ...actor, githubId: 'mcp-b', login: 'beth', scopes: [...actor.scopes, 'chat:private'] };

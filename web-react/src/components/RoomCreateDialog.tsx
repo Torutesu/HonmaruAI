@@ -7,14 +7,14 @@ import './RoomCreateDialog.css'
 
 import {ROOM_COLORS} from '../utils/roomColors'
 export {ROOM_COLORS} from '../utils/roomColors'
-export interface RoomPerson {id:string;kind:'person'|'agent';name:string;avatarUrl?:string;selected?:boolean;requestOnly?:boolean;accessRequestStatus?:'none'|'pending';missingAccessMembers?:Array<{ref:string;name:string}>;canGrantAccess?:boolean}
-export interface RoomCreateInput {requestId:string;name:string;private:boolean;guidelines:string;color:keyof typeof ROOM_COLORS;memberRefs:string[];agentIds:string[];grantAccessAgentIds:string[]}
+export interface RoomPerson {id:string;kind:'person'|'agent';name:string;avatarUrl?:string;selected?:boolean;requestOnly?:boolean;accessRequestStatus?:'none'|'pending';missingAccessMembers?:Array<{ref:string;name:string}>;canGrantAccess?:boolean;externalRuntime?:boolean}
+export interface RoomCreateInput {requestId:string;name:string;private:boolean;guidelines:string;color:keyof typeof ROOM_COLORS;memberRefs:string[];agentIds:string[];grantAccessAgentIds:string[];acknowledgeExternalAgentIds:string[]}
 export function RoomCreateDialog({people,onCreate,onClose,onRequestAgentAccess}:{people:RoomPerson[];onCreate:(input:RoomCreateInput)=>Promise<void>;onClose:()=>void;onRequestAgentAccess?:(agent:RoomPerson)=>Promise<void>}) {
  const t=useT(),[step,setStep]=useState(0),[privateRoom,setPrivate]=useState(false),[name,setName]=useState(''),[guidelines,setGuidelines]=useState('')
  const [color,setColor]=useState<keyof typeof ROOM_COLORS>('teal'),[query,setQuery]=useState('')
  const key=(p:RoomPerson)=>`${p.kind}:${p.id}`
  const [selected,setSelected]=useState(()=>new Set(people.filter(p=>p.selected&&!p.requestOnly).map(key)))
- const [grantAccessAgentIds,setGrantAccessAgentIds]=useState<string[]>([])
+ const [grantAccessAgentIds,setGrantAccessAgentIds]=useState<string[]>([]),[acknowledgeExternalAgentIds,setAcknowledgeExternalAgentIds]=useState<string[]>([])
  const [busy,setBusy]=useState(false),[requesting,setRequesting]=useState<string|null>(null),[error,setError]=useState(''),pending=useRef(false),request=useRef<{signature:string;id:string}|null>(null)
  const nameField=useRef<HTMLInputElement>(null),searchField=useRef<HTMLInputElement>(null),selectAllField=useRef<HTMLInputElement>(null)
  useEffect(()=>{if(step===1)nameField.current?.focus();if(step===2)searchField.current?.focus()},[step])
@@ -24,7 +24,7 @@ export function RoomCreateDialog({people,onCreate,onClose,onRequestAgentAccess}:
  const selectedPeopleRefs=new Set(chosen.filter(p=>p.kind==='person').map(p=>p.id))
  const someVisible=selectable.some(p=>selected.has(key(p)))
  useEffect(()=>{if(selectAllField.current)selectAllField.current.indeterminate=someVisible&&!allVisible},[someVisible,allVisible,step])
- const toggle=(person:RoomPerson)=>{const id=key(person);setSelected(previous=>{const next=new Set(previous);if(next.has(id))next.delete(id);else next.add(id);return next});if(selected.has(id)&&person.kind==='agent')setGrantAccessAgentIds(previous=>previous.filter(agentId=>agentId!==person.id))}
+ const toggle=(person:RoomPerson)=>{const id=key(person);setSelected(previous=>{const next=new Set(previous);if(next.has(id))next.delete(id);else next.add(id);return next});if(selected.has(id)&&person.kind==='agent'){setGrantAccessAgentIds(previous=>previous.filter(agentId=>agentId!==person.id));setAcknowledgeExternalAgentIds(previous=>previous.filter(agentId=>agentId!==person.id))}}
  const requestAccess=async(agent:RoomPerson)=>{
   if(!onRequestAgentAccess||requesting)return
   setRequesting(agent.id);setError('')
@@ -32,9 +32,9 @@ export function RoomCreateDialog({people,onCreate,onClose,onRequestAgentAccess}:
   finally{setRequesting(null)}
  }
  const submit=async()=>{
-  if(pending.current||!name.trim())return
+  if(pending.current||!name.trim()||chosen.some(p=>p.kind==='agent'&&p.externalRuntime&&!acknowledgeExternalAgentIds.includes(p.id)))return
   pending.current=true;setBusy(true);setError('')
-  const draft={name:name.trim(),private:privateRoom,guidelines,color,memberRefs:chosen.filter(p=>p.kind==='person').map(p=>p.id).sort(),agentIds:chosen.filter(p=>p.kind==='agent').map(p=>p.id).sort(),grantAccessAgentIds:chosen.filter(p=>p.kind==='agent'&&p.canGrantAccess&&grantAccessAgentIds.includes(p.id)&&p.missingAccessMembers?.some(member=>selectedPeopleRefs.has(member.ref))).map(p=>p.id).sort()}
+  const draft={name:name.trim(),private:privateRoom,guidelines,color,memberRefs:chosen.filter(p=>p.kind==='person').map(p=>p.id).sort(),agentIds:chosen.filter(p=>p.kind==='agent').map(p=>p.id).sort(),grantAccessAgentIds:chosen.filter(p=>p.kind==='agent'&&p.canGrantAccess&&grantAccessAgentIds.includes(p.id)&&p.missingAccessMembers?.some(member=>selectedPeopleRefs.has(member.ref))).map(p=>p.id).sort(),acknowledgeExternalAgentIds:chosen.filter(p=>p.kind==='agent'&&p.externalRuntime&&acknowledgeExternalAgentIds.includes(p.id)).map(p=>p.id).sort()}
   const signature=JSON.stringify(draft)
   // Retrying the same operation reuses its key; edited inputs are a new
   // operation, never a replay of an earlier room with different members.
@@ -48,7 +48,7 @@ export function RoomCreateDialog({people,onCreate,onClose,onRequestAgentAccess}:
   lede={t(['Choose who can access this room.','Give your room a name and purpose.','Invite members to start collaborating.'][step])}
   footer={<><div className="room-create-progress" aria-label={t('Step {step} of {total}',{step:step+1,total:3})}>{[0,1,2].map(n=><span key={n} className={step===n?'current':''}/>)}</div>
    <button type="button" className="dlg-btn room-create-back" disabled={busy} onClick={step===0?onClose:back}>{step>0&&<Icon name="chevron-left" size={15}/>} {t(step===0?'Cancel':'Back')}</button>
-   <button type="button" className="dlg-btn primary" disabled={busy||(step>0&&!name.trim())} onClick={()=>{if(step<2){setStep(n=>n+1)}else void submit()}}>{t(busy?'Creating…':step===2?'Create':'Next')}</button></>}>
+   <button type="button" className="dlg-btn primary" disabled={busy||(step>0&&!name.trim())||(step===2&&chosen.some(p=>p.kind==='agent'&&p.externalRuntime&&!acknowledgeExternalAgentIds.includes(p.id)))} onClick={()=>{if(step<2){setStep(n=>n+1)}else void submit()}}>{t(busy?'Creating…':step===2?'Create':'Next')}</button></>}>
   {step===0&&<div className="room-create-visibility">{[false,true].map(value=><button key={String(value)} type="button" aria-pressed={privateRoom===value} onClick={()=>setPrivate(value)}>
    <span className="room-create-type-icon"><Icon name={value?'room-lock':'room'} size={16}/></span><span><strong>{t(value?'Private room':'Public room')}</strong><small>{t(value?'Only invited members can access.':'Everyone in the workspace can access.')}</small></span>
   </button>)}</div>}
@@ -67,6 +67,10 @@ export function RoomCreateDialog({people,onCreate,onClose,onRequestAgentAccess}:
       <label><input type="radio" name={`create-agent-access-${p.id}`} checked={!grantAccessAgentIds.includes(p.id)} onChange={()=>setGrantAccessAgentIds(previous=>previous.filter(id=>id!==p.id))}/>{t('Add without access')}</label>
       <label><input type="radio" name={`create-agent-access-${p.id}`} checked={grantAccessAgentIds.includes(p.id)} onChange={()=>setGrantAccessAgentIds(previous=>previous.includes(p.id)?previous:[...previous,p.id])}/>{t('Grant access and add ({n})',{n:missingSelected.length})}</label>
      </>:<p>{t('You need agent access permissions to grant access to these room members.')}</p>}</fieldset>}
+     {!p.requestOnly&&p.kind==='agent'&&selected.has(key(p))&&p.externalRuntime&&<div className="room-create-access-choice">
+      <p>{t('This agent runs through an external provider. Room content made available to it may be processed under that provider’s terms.')}</p>
+      <label><input type="checkbox" checked={acknowledgeExternalAgentIds.includes(p.id)} onChange={()=>setAcknowledgeExternalAgentIds(previous=>previous.includes(p.id)?previous.filter(id=>id!==p.id):[...previous,p.id])}/>{t('I understand this agent may process Room content externally.')}</label>
+     </div>}
     </div>})}
     {!visible.length&&<p className="room-create-empty">{t(query?'No matching members.':'No other members yet.')}</p>}
    </div><p className="room-create-count">{t('{count} selected',{count:chosen.length})}</p>

@@ -10,13 +10,15 @@ export async function createManagedRoom(db,orgId,actorId,input) {
     ||typeof input.private!=='boolean'||typeof input.guidelines!=='string'||input.guidelines.length>4096||!colors.has(input.color)
     ||!Array.isArray(input.memberRefs)||!Array.isArray(input.agentIds)
     ||(input.grantAccessAgentIds!==undefined&&!Array.isArray(input.grantAccessAgentIds))
-    ||input.memberRefs.length>200||input.agentIds.length>100||(input.grantAccessAgentIds||[]).length>100
-    ||[...input.memberRefs,...input.agentIds,...(input.grantAccessAgentIds||[])].some(id=>typeof id!=='string'||!id||id.length>200))
+    ||(input.acknowledgeExternalAgentIds!==undefined&&!Array.isArray(input.acknowledgeExternalAgentIds))
+    ||input.memberRefs.length>200||input.agentIds.length>100||(input.grantAccessAgentIds||[]).length>100||(input.acknowledgeExternalAgentIds||[]).length>100
+    ||[...input.memberRefs,...input.agentIds,...(input.grantAccessAgentIds||[]),...(input.acknowledgeExternalAgentIds||[])].some(id=>typeof id!=='string'||!id||id.length>200))
     return failure('A room name, visibility, color, guidelines and valid member selections are required.',400);
   actorId=String(actorId);
-  const refs=[...new Set(input.memberRefs)].sort(),agentIds=[...new Set(input.agentIds)].sort(),grantAccessAgentIds=[...new Set(input.grantAccessAgentIds||[])].sort();
+  const refs=[...new Set(input.memberRefs)].sort(),agentIds=[...new Set(input.agentIds)].sort(),grantAccessAgentIds=[...new Set(input.grantAccessAgentIds||[])].sort(),acknowledgeExternalAgentIds=[...new Set(input.acknowledgeExternalAgentIds||[])].sort();
   if(grantAccessAgentIds.some(id=>!agentIds.includes(id)))return failure('Only agents selected for this room can receive access grants.',400);
-  const payload={name:input.name.trim(),private:input.private,color:input.color,guidelines:input.guidelines.trim(),memberRefs:refs,agentIds};
+  if(acknowledgeExternalAgentIds.some(id=>!agentIds.includes(id)))return failure('Only agents selected for this room can be acknowledged.',400);
+  const payload={name:input.name.trim(),private:input.private,color:input.color,guidelines:input.guidelines.trim(),memberRefs:refs,agentIds,...(acknowledgeExternalAgentIds.length?{acknowledgeExternalAgentIds}:{})};
   const fingerprint=await sha256Hex(JSON.stringify(grantAccessAgentIds.length?{...payload,grantAccessAgentIds}:payload));
   const members=await listMembers(db,orgId,actorId),actor=members.find(m=>m.userId===actorId);
   if(!actor||String(actor.role||'guest').trim().toLowerCase()==='guest')return failure('Only a workspace member can create rooms.',403);
@@ -36,6 +38,10 @@ export async function createManagedRoom(db,orgId,actorId,input) {
   if(chosen.length!==refs.length)return failure('Workspace membership changed. Reload before creating the room.');
   const people=[actor,...chosen.filter(m=>m.userId!==actorId)].sort((a,b)=>a.userId<b.userId?-1:a.userId>b.userId?1:0);
   const grantPeople=people.filter(m=>String(m.role||'guest').trim().toLowerCase()!=='guest').map(m=>({kind:'person',id:String(m.userId),eligible:true,membership:m.joinedAt}));
+  for(const agentId of agentIds) {
+    const agent=await db.prepare('SELECT provider FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL').bind(orgId,agentId).first();
+    if(agent?.provider&&!acknowledgeExternalAgentIds.includes(agentId))return failure('Confirm that each external agent may process Room content before creating the room.',400);
+  }
   const grantPairs=[];
   for(const agentId of grantAccessAgentIds) {
     const plan=await roomAgentAccessPlan(db,orgId,agentId,grantPeople,actorId);

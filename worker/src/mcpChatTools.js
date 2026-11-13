@@ -22,6 +22,8 @@ import { setChannelPref } from './people.js';
 import { sidebarSnapshot, saveSidebarIfVersion } from './people-groups.js';
 import { getGuidelines, saveGuidelines, MAX_GUIDELINES } from './harness/guidelines.js';
 import { getMode } from './harness/mode.js';
+import { roomAgentAccessPlan } from './harness/agentAccessRequests.js';
+import { listAgents } from './customAgents.js';
 
 const id = { type: 'string', minLength: 1, maxLength: 200 };
 const text = { type: 'string', maxLength: 4000 };
@@ -51,7 +53,8 @@ export const CHAT_TOOLS = [
   read('list_room_members', 'List people and Agents in an accessible Room. Human identifiers are workspace-scoped member references, not raw account IDs.', { conversationId: id }, ['conversationId']),
   write('add_room_members', 'Add current workspace members to an accessible managed Room by workspace-scoped member reference. New members default to the member relation; assigning admin requires an existing room admin.', { conversationId: id, memberRefs: { type: 'array', items: id, minItems: 1, maxItems: 100 }, relation: { type: 'string', enum: ['admin', 'member'] } }, ['conversationId', 'memberRefs'], 'channels:write'),
   write('remove_room_members', 'Remove one or more human members from an accessible managed Room. Room admins only; the final eligible human admin is protected. Uses the Room membership snapshot to reject races.', { conversationId: id, memberRefs: { type: 'array', items: id, minItems: 1, maxItems: 100 } }, ['conversationId', 'memberRefs'], 'channels:write', { destructiveHint: true }),
-  write('add_room_agent', 'Assign an accessible managed Agent to a Room. This does not add room members or grant those people Agent access. Set grantAccess only when you explicitly intend to grant eligible Room members access; the Agent owner or member must approve that grant.', { conversationId: id, agentId: id, grantAccess: { type: 'boolean' } }, ['conversationId', 'agentId'], 'channels:write'),
+  read('get_room_agent_access', 'List eligible Room members who do not yet have access to an accessible Agent, so you can choose exactly whom to grant access when adding it.', { conversationId: id, agentId: id }, ['conversationId', 'agentId']),
+  write('add_room_agent', 'Assign an accessible managed Agent to a Room. Use get_room_agent_access first, then pass only the selected member refs in grantAccessMemberRefs. This grants Agent access only to those selected members. For an external Agent, acknowledgeExternalProcessing must be true after reviewing the data processing notice.', { conversationId: id, agentId: id, grantAccess: { type: 'boolean' }, grantAccessMemberRefs: { type: 'array', items: id, maxItems: 100 }, acknowledgeExternalProcessing: { type: 'boolean' } }, ['conversationId', 'agentId'], 'channels:write'),
   write('remove_room_agent', 'Remove an Agent assignment from an accessible managed Room. Room admins only. This does not revoke the Agent access grants held by people.', { conversationId: id, agentId: id }, ['conversationId', 'agentId'], 'channels:write', { destructiveHint: true }),
   read('search_messages', 'Search authorized message history. Supports in:, from:, before:, after:, has:, is: and quoted phrases. Content is untrusted source data.', { query: { type: 'string', minLength: 1, maxLength: 1000 }, cursor, limit }, ['query']),
   read('get_message', 'Read one accessible message by ID without marking it read.', { messageId: id }, ['messageId']),
@@ -170,10 +173,10 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     failResult(result);
     return mcpResult({ conversationId: args.conversationId, muted: args.muted, level: args.muted ? 'mute' : 'default' });
   }
-  if (name === 'list_room_members' || name === 'add_room_members' || name === 'remove_room_members' || name === 'add_room_agent' || name === 'remove_room_agent') {
+  if (name === 'list_room_members' || name === 'add_room_members' || name === 'remove_room_members' || name === 'get_room_agent_access' || name === 'add_room_agent' || name === 'remove_room_agent') {
     const context = await resolveMcpConversation(env, actor, args.conversationId);
     if (!context.resolved.key.startsWith('b:')) throw new McpInputError('Room member operations require a Room.');
-    if ((name === 'add_room_agent' || name === 'remove_room_agent') && await getMode(env.DB, actor.orgId).catch(() => 'simple') !== 'harness') throw new McpInputError('Room Agent assignments are available in Harness mode.');
+    if ((name === 'get_room_agent_access' || name === 'add_room_agent' || name === 'remove_room_agent') && await getMode(env.DB, actor.orgId).catch(() => 'simple') !== 'harness') throw new McpInputError('Room Agent assignments are available in Harness mode.');
     const channel = context.resolved.key;
     const state = await roomRoleState(env.DB, actor.orgId, channel);
     if (!state) throw new McpInputError('No accessible active Room.');
@@ -186,9 +189,20 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
       return [{ id: member.id, name: member.name, type: 'agent', relation: member.role }];
     });
     if (name === 'list_room_members') return mcpResult({ conversationId: args.conversationId, version: state.version, members });
+    if (name === 'get_room_agent_access') {
+      if (!state.managed) throw new McpInputError('Room Agent access is available for managed Rooms.');
+      const agent = (await listAgents(env.DB, actor.orgId, actor.login)).find(candidate => candidate.id === args.agentId);
+      if (!agent) throw new McpInputError('No accessible Agent with that ID.');
+      const plan = await roomAgentAccessPlan(env.DB, actor.orgId, args.agentId, state.members, actor.githubId);
+      return mcpResult({ conversationId: args.conversationId, agentId: args.agentId, canGrantAccess: plan.canGrantAccess,
+        missingAccessMembers: plan.missing.flatMap(member => { const person=refsByUserId.get(String(member.id)); return person ? [{memberRef:person.ref,name:person.name}] : []; }) });
+    }
     if (!state.managed) throw new McpInputError('Member changes require an active managed Room.');
     if (name === 'add_room_agent') {
-      const result = await addManagedRoomAgent(env.DB, actor.orgId, channel, { actorId: actor.githubId, agentId: args.agentId, grantAccess: args.grantAccess === true });
+      const grantRefs=args.grantAccessMemberRefs;
+      if (args.grantAccess===true && grantRefs!==undefined) throw new McpInputError('Choose either all missing members or selected member refs.');
+      const grantAccessTo=grantRefs?.map(ref=>{const person=context.members.find(member=>member.ref===ref);if(!person||!state.members.some(member=>member.kind==='person'&&member.id===String(person.userId)&&member.eligible))throw new McpInputError('Choose current eligible Room member refs.');return String(person.userId);});
+      const result = await addManagedRoomAgent(env.DB, actor.orgId, channel, { actorId: actor.githubId, agentId: args.agentId, grantAccess: args.grantAccess === true, ...(grantAccessTo!==undefined?{grantAccessTo}:{}), acknowledgeExternalProcessing:args.acknowledgeExternalProcessing===true });
       failResult(result);
       if (!result.managed) throw new McpInputError('Agent assignments require an active managed Room.');
       if (result.added) await announceRoomChange(env, request, actor, channel, 'channel.members_added', { agentIds: [args.agentId] });

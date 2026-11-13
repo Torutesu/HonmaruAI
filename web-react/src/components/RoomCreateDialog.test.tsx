@@ -124,3 +124,17 @@ test('Escape dismisses only the palette and returns focus while preserving the r
   expect(listeners.has('keydown')).toBe(false)
  }finally{if(tree)act(()=>tree.unmount());vi.unstubAllGlobals()}
 })
+
+test('external agents require consent before room creation',async()=>{
+ const save=vi.fn().mockResolvedValue(undefined),external={id:'external-a',kind:'agent' as const,name:'Remote agent',selected:true,externalRuntime:true};let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<RoomCreateDialog people={[external]} onCreate={save} onClose={vi.fn()}/>)})
+ act(()=>button(tree,'Next').props.onClick())
+ act(()=>tree.root.findByProps({id:'room-create-name'}).props.onChange({target:{value:'Review room'}}))
+ act(()=>button(tree,'Next').props.onClick())
+ expect(button(tree,'Create').props.disabled).toBe(true)
+ const checks=tree.root.findAllByProps({type:'checkbox'})
+ act(()=>checks[checks.length-1].props.onChange())
+ await act(async()=>button(tree,'Create').props.onClick())
+ expect(save).toHaveBeenCalledWith(expect.objectContaining({acknowledgeExternalAgentIds:['external-a']}))
+ act(()=>tree.unmount())
+})

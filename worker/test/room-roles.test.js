@@ -734,3 +734,27 @@ test('legacy bulk fallback checks every selected workspace membership before app
  const joined=await env.DB.prepare('SELECT login FROM conversation_members WHERE org_id=?1').bind(org).all();
  expect(joined.results.map(r=>r.login).sort()).toEqual(['creator','guest','reader']);
 });
+
+test('adding an Agent grants only the selected eligible Room member',async()=>{
+ for(const id of ['one','two']) {
+  await upsertUser(env.DB,{githubId:id,login:id,name:id,locale:'en'});
+  await upsertMembership(env.DB,org,id,'member');
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,?2,?3,'joined')").bind(org,channel,id).run();
+ }
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'helper','private','[]','now')").bind(org).run();
+ await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since) SELECT ?1,'helper','reader','member','creator','now',created_at FROM memberships WHERE org_id=?1 AND user_github_id='reader'").bind(org).run();
+ await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+ const result=await addManagedRoomAgent(env.DB,org,channel,{actorId:'reader',agentId:'helper',grantAccessTo:['one']});
+ expect(result).toMatchObject({managed:true,added:true,granted:1});
+ expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND agent_id='helper' AND user_id='one'").bind(org).first()).not.toBeNull();
+ expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND agent_id='helper' AND user_id='two'").bind(org).first()).toBeNull();
+});
+
+test('external provider Agents require an explicit Room content processing acknowledgment',async()=>{
+ await initializeRoomRoles(env.DB,org,channel,'creator');
+ await env.DB.prepare("UPDATE custom_agents SET provider='openai' WHERE org_id=?1 AND id='helper'").bind(org).run();
+ await env.DB.prepare("DELETE FROM channel_agents WHERE org_id=?1").bind(org).run();
+ expect(await addManagedRoomAgent(env.DB,org,channel,{actorId:'creator',agentId:'helper'})).toMatchObject({status:400});
+ expect(await addManagedRoomAgent(env.DB,org,channel,{actorId:'creator',agentId:'helper',acknowledgeExternalProcessing:true})).toMatchObject({managed:true,added:true});
+});

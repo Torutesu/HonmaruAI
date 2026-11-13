@@ -6,7 +6,7 @@ import {RoomMemberPicker,type RoomCandidate} from './RoomMemberPicker'
 vi.mock('./RoomMemberPicker',()=>({RoomMemberPicker:(props:any)=>React.createElement('member-picker',props)}))
 vi.mock('./RoomMembersDialog',()=>({RoomMembersDialog:(props:any)=>React.createElement('member-dialog',props)}))
 const api={httpBase:'https://relay.test',orgId:'one',sessionToken:'session'}
-const detail=(version=3)=>({channel:{managed:true,version,canInvite:true},members:{people:[{ref:'person-ref',name:'Reader',roomRole:'member',canChangeRole:true}],agents:[]}})
+const detail=(version=3)=>({channel:{managed:true,version,canInvite:true},members:{people:[{ref:'person',name:'Reader',roomRole:'member',canChangeRole:true}],agents:[]}})
 const response=(data:any,ok=true)=>({ok,json:async()=>data})
 afterEach(()=>vi.unstubAllGlobals())
 test('role changes use the reviewed version and refresh the members after success',async()=>{
@@ -15,7 +15,7 @@ test('role changes use the reviewed version and refresh the members after succes
  await act(async()=>{tree=create(<RoomMembers api={api} view="b:room" onClose={vi.fn()} onInvite={vi.fn()} onProfile={vi.fn()} onChanged={changed}/>)})
  const dialog=()=>tree.root.findByType('member-dialog' as any)
  await act(async()=>dialog().props.onRole(dialog().props.members[0],'admin'))
- expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'one',channel:'b:room',version:3,kind:'person',id:'person-ref',role:'admin'})
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'one',channel:'b:room',version:3,kind:'person',id:'person',role:'admin'})
  expect(fetcher.mock.calls[1][0]).toBe('https://relay.test/channels/room-role')
  expect(changed).toHaveBeenCalledTimes(1);expect(fetcher).toHaveBeenCalledTimes(3)
  act(()=>tree.unmount())
@@ -46,7 +46,7 @@ test('add candidates exclude joined people and a partial failure refreshes befor
  const final={...afterPeople,addableAgents:[],members:{...afterPeople.members,agents:[{id:'agent',name:'Agent',roomRole:'member'}]}}
  const fetcher=vi.fn().mockResolvedValueOnce(response(initial)).mockResolvedValueOnce(response({added:1})).mockResolvedValueOnce(response({message:'Agent changed.'},false)).mockResolvedValueOnce(response(afterPeople)).mockResolvedValueOnce(response({added:true})).mockResolvedValueOnce(response(final))
  vi.stubGlobal('fetch',fetcher);const changed=vi.fn();let tree!:ReturnType<typeof create>
- await act(async()=>{tree=create(<RoomMembers api={api} view="b:room" people={[{ref:'person-ref',name:'Reader'},{ref:'new-person',name:'New'}]} onClose={vi.fn()} onInvite={vi.fn()} onProfile={vi.fn()} onChanged={changed}/>)})
+ await act(async()=>{tree=create(<RoomMembers api={api} view="b:room" people={[{ref:'person',name:'Reader'},{ref:'new-person',name:'New'}]} onClose={vi.fn()} onInvite={vi.fn()} onProfile={vi.fn()} onChanged={changed}/>)})
  act(()=>tree.root.findByType('member-dialog' as any).props.onAdd())
  const picker=()=>tree.root.findByType(RoomMemberPicker)
  expect(picker().props.candidates.map((row:RoomCandidate)=>row.id)).toEqual(['new-person','agent'])
@@ -95,9 +95,9 @@ test('selected grant choice is sent to the server when adding an agent',async()=
  const fetcher=vi.fn().mockResolvedValueOnce(response(initial)).mockResolvedValueOnce(response({added:true})).mockResolvedValueOnce(response(final))
  vi.stubGlobal('fetch',fetcher);const changed=vi.fn();let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<RoomMembers api={api} view="b:room" initialAdding onClose={vi.fn()} onInvite={vi.fn()} onProfile={vi.fn()} onChanged={changed}/>)})
- const picker=tree.root.findByType(RoomMemberPicker),selected={...picker.props.candidates[0],grantAccess:true}
+ const picker=tree.root.findByType(RoomMemberPicker),selected={...picker.props.candidates[0],grantAccessTo:['person'],acknowledgeExternalProcessing:true}
  await act(async()=>picker.props.onAdd([selected]))
- expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({agentId:'agent',grantAccess:true})
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({agentId:'agent',grantAccessToRefs:['person'],acknowledgeExternalProcessing:true})
  expect(changed).toHaveBeenCalledOnce()
  act(()=>tree.unmount())
 })
