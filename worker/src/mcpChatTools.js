@@ -37,10 +37,10 @@ export const CHAT_TOOLS = [
   read('discover_public_rooms', 'Discover managed, public, unarchived Rooms in this workspace. Returns only Rooms your human token owner may join; discovering does not grant content access.', { query: { type: 'string', maxLength: 200 }, limit: { type: 'integer', minimum: 1, maximum: 50 }, offset: { type: 'integer', minimum: 0, maximum: 10000 }, joined: { type: 'boolean' } }),
   write('join_public_room', 'Join one managed public Room as the human owner of this token. Does not add an Agent or grant Agent access.', { conversationId: id }, ['conversationId'], 'channels:write'),
   write('leave_public_room', 'Leave one managed public Room as the human owner of this token. Private Rooms and the last human Room admin cannot be left.', { conversationId: id }, ['conversationId'], 'channels:write'),
-  write('rename_room', 'Rename one active managed Room as its current member. The Room ID and linked records stay unchanged.', { conversationId: id, name: { type: 'string', minLength: 1, maxLength: 120 } }, ['conversationId', 'name'], 'channels:write'),
-  write('archive_room', 'Archive one managed Room the token owner can access. History is retained and the Room leaves active lists.', { conversationId: id }, ['conversationId'], 'channels:write'),
-  write('unarchive_room', 'Restore one archived managed Room the token owner can access.', { conversationId: id }, ['conversationId'], 'channels:write'),
-  read('list_archived_rooms', 'List archived Rooms visible to the token owner. Private Room names are returned only to current participants.', { query: { type: 'string', maxLength: 200 }, limit: { type: 'integer', minimum: 1, maximum: 50 } }),
+  write('rename_room', 'Rename one active managed Room as its current member. The Room ID and linked records stay unchanged. Private Rooms also require chat:private.', { conversationId: id, name: { type: 'string', minLength: 1, maxLength: 120 } }, ['conversationId', 'name'], 'channels:write'),
+  write('archive_room', 'Archive one managed Room the token owner can access. History is retained and the Room leaves active lists. Private Rooms also require chat:private.', { conversationId: id }, ['conversationId'], 'channels:write'),
+  write('unarchive_room', 'Restore one archived managed Room the token owner can access. Private Rooms also require chat:private.', { conversationId: id }, ['conversationId'], 'channels:write'),
+  read('list_archived_rooms', 'List archived Rooms visible to the token owner. Private Rooms are returned only to current participants and only with the chat:private permission.', { query: { type: 'string', maxLength: 200 }, limit: { type: 'integer', minimum: 1, maximum: 50 } }),
   read('get_room_settings', 'Read settings for an accessible active managed Room, including the current version and available main Agents.', { conversationId: id }, ['conversationId']),
   write('update_room_settings', 'Update selected settings on an active managed Room. Omitted values are preserved; current workspace build permission and Room membership are required. Kylon cyan maps to Honmaru lake.', { conversationId: id, name: { type: 'string', minLength: 1, maxLength: 120 }, color: { type: 'string', enum: [...ROOM_COLOR_KEYS, 'cyan'] }, mentionedOnly: { type: 'boolean' }, defaultAgentId: { type: ['string', 'null'], maxLength: 128 } }, ['conversationId'], 'channels:write'),
   write('set_room_privacy', 'Change an active managed Room between public and private. Only a current Room admin can do this; pass the current Room role version to reject stale changes. Available only in Harness mode.', { conversationId: id, scope: { type: 'string', enum: ['public', 'private'] }, version: { type: 'integer', minimum: 1 } }, ['conversationId', 'scope', 'version'], 'channels:write'),
@@ -275,9 +275,9 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
         AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       WHERE b.org_id=?1 AND b.archived_at IS NOT NULL
         AND EXISTS(SELECT 1 FROM hx_room_access p WHERE p.org_id=b.org_id AND p.channel='b:'||b.slug AND p.deleted_at IS NULL)
-        AND (COALESCE(b.private,0)=0 OR EXISTS(SELECT 1 FROM users u JOIN conversation_members c ON c.org_id=b.org_id AND c.login=u.login WHERE u.github_id=?2 AND c.channel='b:'||b.slug))
+        AND (COALESCE(b.private,0)=0 OR (?6=1 AND EXISTS(SELECT 1 FROM users u JOIN conversation_members c ON c.org_id=b.org_id AND c.login=u.login WHERE u.github_id=?2 AND c.channel='b:'||b.slug)))
         AND (?3='' OR lower(b.name) LIKE ?4 ESCAPE '\\' OR lower(b.slug) LIKE ?4 ESCAPE '\\')
-      ORDER BY b.archived_at DESC,b.slug LIMIT ?5`).bind(actor.orgId, actor.githubId, query, `%${query.replace(/[\\%_]/g, c => `\\${c}`)}%`, limit).all();
+      ORDER BY b.archived_at DESC,b.slug LIMIT ?5`).bind(actor.orgId, actor.githubId, query, `%${query.replace(/[\\%_]/g, c => `\\${c}`)}%`, limit, actor.scopes?.includes('chat:private') ? 1 : 0).all();
     return mcpResult({ rooms: (results || []).map(row => ({ channel: `b:${row.slug}`, name: row.name, private: Boolean(row.private), archivedAt: row.archived_at })), total: (results || []).length, limit });
   }
   if (name === 'rename_room' || name === 'archive_room' || name === 'unarchive_room') {
@@ -288,6 +288,10 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
       const membership = await env.DB.prepare("SELECT LOWER(TRIM(COALESCE(role,'guest'))) AS role FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(actor.orgId, actor.githubId).first();
       if (!['admin', 'owner'].includes(membership?.role)) throw new McpInputError('No such accessible managed Room.');
     }
+    // Checked after the access test so a non-member still cannot learn that the
+    // Room exists. A connection approved for public channels only must not
+    // rename, archive or restore private Rooms, just as it cannot read them.
+    if (state.private) requireMcpScope(actor, 'chat:private');
     if (name === 'rename_room' && !state.members.some(member => member.kind === 'person' && member.id === actor.githubId && member.eligible)) {
       throw new McpInputError('Only a current Room member can rename it.');
     }

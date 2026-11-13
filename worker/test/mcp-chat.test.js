@@ -80,6 +80,22 @@ test('MCP Room rename, archive, restore and archive listing preserve membership 
   expect((await call('discover_public_rooms', { joined: true })).rooms.map(room => room.channel)).toContain('b:roadmap');
 });
 
+test('MCP Room rename, archive, restore and archive listing require chat:private for private Rooms', async () => {
+  await initializeRoomRoles(env.DB, orgId, 'b:private', 'mcp-a');
+  const room = () => env.DB.prepare("SELECT name,archived_at FROM businesses WHERE org_id=?1 AND slug='private'").bind(orgId).first();
+  const expanded = { ...actor, scopes: [...actor.scopes, 'chat:private'] };
+  await expect(call('rename_room', { conversationId: 'b:private', name: 'Leaked' })).rejects.toThrow('chat:private');
+  await expect(call('archive_room', { conversationId: 'b:private' })).rejects.toThrow('chat:private');
+  expect(await room()).toMatchObject({ name: 'Private', archived_at: null });
+  expect(await call('rename_room', { conversationId: 'b:private', name: 'Vault' }, expanded)).toMatchObject({ name: 'Vault' });
+  expect(await call('archive_room', { conversationId: 'b:private' }, expanded)).toMatchObject({ archived: true });
+  expect((await call('list_archived_rooms', {})).rooms).toEqual([]);
+  expect((await call('list_archived_rooms', {}, expanded)).rooms).toMatchObject([{ channel: 'b:private', name: 'Vault', private: true }]);
+  await expect(call('unarchive_room', { conversationId: 'b:private' })).rejects.toThrow('chat:private');
+  expect((await room()).archived_at).not.toBeNull();
+  expect(await call('unarchive_room', { conversationId: 'b:private' }, expanded)).toMatchObject({ archived: false });
+});
+
 test('MCP Room settings expose managed defaults and update only requested settings under build authority', async () => {
   await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
   expect(await call('get_room_settings', { conversationId: 'b:general' })).toMatchObject({
