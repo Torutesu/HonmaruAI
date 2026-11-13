@@ -60,13 +60,40 @@ test('a new webhook secret is returned once and stored only as a digest', async 
   expect((await deliver(made.workflow.id, 'f'.repeat(48))).status).toBe(404);
 });
 
-test('the secret is accepted in the header only, never from the query string', async () => {
+test('a new or rotated secret is accepted in the header only, never from the query string', async () => {
   const made = await makeHook();
   const viaQuery = await deliver(made.workflow.id, made.workflow.hookSecret, { query: true });
   expect(viaQuery.status).toBe(400);
   expect((await viaQuery.json()).message).toMatch(/X-Hook-Secret header/);
+  // A refusal looks the same whether or not the workflow exists.
+  expect((await deliver('wf_doesnotexist', made.workflow.hookSecret, { query: true })).status).toBe(400);
   const { n } = await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE org_id=?1').bind(ORG).first();
   expect(n).toBe(0);
+});
+
+test('a legacy secret may still arrive as a query parameter, with a deprecation header, until rotated', async () => {
+  const legacy = 'c'.repeat(48);
+  const made = await makeHook();
+  await env.DB.prepare('UPDATE hx_workflows SET hook_secret=?3, webhook_signature_required=0 WHERE org_id=?1 AND id=?2').bind(ORG, made.workflow.id, legacy).run();
+  const fire = (secret) => call(`/hooks/workflows/${made.workflow.id}?secret=${secret}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  const first = await fire(legacy);
+  expect(first.status).toBe(202);
+  expect(first.headers.get('deprecation')).toBe('true');
+  expect(first.headers.get('warning')).toMatch(/X-Hook-Secret header/);
+  // Hashing the clear value keeps it a legacy credential.
+  expect(await stored(made.workflow.id)).toBe(`sha256l:${await sha256(legacy)}`);
+  expect((await fire(legacy)).status).toBe(202);
+  expect((await fire('d'.repeat(48))).status).toBe(400);
+  const viaHeader = await call(`/hooks/workflows/${made.workflow.id}`, { method: 'POST', headers: { 'x-hook-secret': legacy }, body: '{}' });
+  expect(viaHeader.status).toBe(202);
+  expect(viaHeader.headers.get('deprecation')).toBeNull();
+
+  const shown = await (await call(`/workflows/${made.workflow.id}?orgId=${ORG}`, { headers: headers(toru) })).json();
+  const rotated = (await (await send('POST', `/workflows/${made.workflow.id}/webhook`, toru, { action: 'rotate', expectedSecret: legacy, expectedUpdatedAt: shown.workflow.updatedAt })).json()).workflow;
+  expect(await stored(made.workflow.id)).toBe(`sha256:${await sha256(rotated.hookSecret)}`);
+  expect((await fire(legacy)).status).toBe(400);
+  expect((await deliver(made.workflow.id, rotated.hookSecret, { query: true })).status).toBe(400);
+  expect((await deliver(made.workflow.id, rotated.hookSecret)).status).toBe(202);
 });
 
 test('a legacy clear-text secret keeps working and is hashed on first use or read', async () => {
@@ -76,14 +103,14 @@ test('a legacy clear-text secret keeps working and is hashed on first use or rea
   // Unsigned legacy senders keep working: they predate signing.
   const unsigned = await call(`/hooks/workflows/${made.workflow.id}`, { method: 'POST', headers: { 'x-hook-secret': legacy }, body: '{}' });
   expect(unsigned.status).toBe(202);
-  expect(await stored(made.workflow.id)).toBe(`sha256:${await sha256(legacy)}`);
+  expect(await stored(made.workflow.id)).toBe(`sha256l:${await sha256(legacy)}`);
   expect((await call(`/hooks/workflows/${made.workflow.id}`, { method: 'POST', headers: { 'x-hook-secret': legacy }, body: '{}' })).status).toBe(202);
 
   const other = await makeHook();
   await env.DB.prepare('UPDATE hx_workflows SET hook_secret=?3 WHERE org_id=?1 AND id=?2').bind(ORG, other.workflow.id, legacy).run();
   const shown = await (await call(`/workflows/${other.workflow.id}?orgId=${ORG}`, { headers: headers(toru) })).json();
   expect(JSON.stringify(shown)).not.toContain(legacy);
-  expect(await stored(other.workflow.id)).toBe(`sha256:${await sha256(legacy)}`);
+  expect(await stored(other.workflow.id)).toBe(`sha256l:${await sha256(legacy)}`);
 });
 
 test('repeated deliveries from one address are rate limited', async () => {

@@ -165,7 +165,7 @@ test('legacy webhook senders remain compatible until their credential is rotated
   state.api.workflow.mockResolvedValue({ workflow: { ...workflow, webhookSignatureRequired: false }, runs: [], canEdit: true })
   await open()
   const text = JSON.stringify(tree.toJSON())
-  expect(text).toContain('This existing webhook still accepts its URL secret alone.')
+  expect(text).toContain('Move the secret into the X-Hook-Secret header, then generate a new webhook URL')
   expect(text).not.toContain('x-webhook-signature')
 })
 test('a conflict retains the current display and reports the failure instead of pretending to rotate', async () => {

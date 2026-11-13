@@ -209,7 +209,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     generateAppAutomation: (id: string, prompt: string, timezone: string) => call<{automation:AutomationBundle['items'][number]}>('POST', `/apps/${id}/automations`, {action:'generate',prompt,timezone}),
     appAutomations: (id: string, stateOnly = false) => call<AppAutomationState>('GET', `/apps/${id}/automations`, undefined, stateOnly ? {stateOnly:'1'} : {}),
     saveAppAutomations: (id: string, version: number, revision: number, automations: AutomationBundle) => call<{saved:boolean;revision:number}>('PUT', `/apps/${id}/automations`, {version,revision,automations}),
-    releaseAppAutomations: (id: string, body: Record<string,unknown>) => call<{saved:boolean;revision:number;version:number;replay?:boolean}>('POST', `/apps/${id}/automations`, body),
+    releaseAppAutomations: (id: string, body: Record<string,unknown>) => call<{saved:boolean;revision:number;version:number;replay?:boolean;webhookSecrets?:{key:string;workflowId:string;secret:string}[]}>('POST', `/apps/${id}/automations`, body),
     appDatabase: (id: string) => call<AppDatabase>('GET', `/apps/${id}/database`),
     previewDatabaseMigration: (id: string, body: Record<string, unknown>) => call<MigrationPreview>('POST', `/apps/${id}/database`, body),
     mergePreview: (id: string, fork: AppFork, resolutions:Record<string,'preview'|'production'> = {}) => call<MergeReview>('POST', `/apps/${id}/database`, { action:'merge_preview',forkId:fork.id,revision:fork.revision,resolutions }),

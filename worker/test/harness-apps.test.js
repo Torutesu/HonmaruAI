@@ -1484,6 +1484,25 @@ test('automation release is atomic, replayable and stops managed work without de
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id=?1').bind(ORG).first()).toEqual({n:1});
 });
 
+test('a webhook automation release returns its new secret once, and stores only its digest',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const automations={version:1,items:[{key:'inbound',name:'Inbound',enabled:true,trigger:{type:'webhook'},steps:[{type:'add_row',tableId:app.tableId,values:{}}]}]};
+ expect((await send('PUT',`/apps/${app.id}/automations`,toru,{orgId:ORG,version:app.version,revision:0,automations})).status).toBe(200);
+ const request={orgId:ORG,action:'publish',requestId:'publish_webhook_0001',version:app.version,revision:1};
+ const response=await send('POST',`/apps/${app.id}/automations`,toru,request);
+ expect(response.status).toBe(200);
+ const published=await response.json();
+ expect(published.webhookSecrets).toEqual([{key:'inbound',workflowId:expect.stringMatching(/^wf_/),secret:expect.stringMatching(/^[0-9a-f]{48}$/)}]);
+ const [{workflowId,secret}]=published.webhookSecrets;
+ const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(secret)))].map(b=>b.toString(16).padStart(2,'0')).join('');
+ expect(await env.DB.prepare('SELECT hook_secret FROM hx_workflows WHERE org_id=?1 AND id=?2').bind(ORG,workflowId).first('hook_secret')).toBe(`sha256:${digest}`);
+ const replay=await(await send('POST',`/apps/${app.id}/automations`,toru,request)).json();
+ expect(replay.replay).toBe(true);
+ expect(JSON.stringify(replay)).not.toContain(secret);
+ const audit=await env.DB.prepare("SELECT body FROM audit_events WHERE org_id=?1 AND action='app.automations_publish'").bind(ORG).first('body');
+ expect(String(audit)).not.toContain(secret);
+});
+
 test('failed workflow insertion rolls the entire automation publication back',async()=>{
  const f=await automationReleaseFixture();
  await env.DB.exec("CREATE TRIGGER fail_app_workflow BEFORE INSERT ON hx_workflows BEGIN SELECT RAISE(ABORT,'forced'); END;");

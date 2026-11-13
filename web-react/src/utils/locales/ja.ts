@@ -3402,7 +3402,7 @@ const table: Record<string, string> = {
   "Sign the exact JSON body with the webhook secret. Use a fresh timestamp and a stable event ID for retries; signed requests expire after 5 minutes and event IDs are remembered for 7 days.": "WebhookシークレットでJSON本文そのものに署名してください。時刻は毎回更新し、再送では同じイベントIDを使います。署名付きリクエストは5分で期限切れになり、イベントIDは7日間記録されます。",
   "Store the URL and secret in your sender’s environment as HONMARU_WEBHOOK_URL and HONMARU_WEBHOOK_SECRET.": "送信元の環境変数 HONMARU_WEBHOOK_URL と HONMARU_WEBHOOK_SECRET にURLとシークレットを保存してください。",
   "Send this secret in the X-Hook-Secret header. It is shown only now:": "このシークレットを X-Hook-Secret ヘッダーで送信してください。表示されるのは今回だけです:",
-  "This existing webhook still accepts its URL secret alone. Generate a new URL to switch it to signed requests.": "この既存Webhookは、引き続きURL内のシークレットだけで受信します。署名付きリクエストへ切り替えるにはURLを再発行してください。",
+  "This existing webhook still accepts its secret without a signature, including in its old URL. Move the secret into the X-Hook-Secret header, then generate a new webhook URL to require signed requests.": "この既存Webhookは、署名なしのシークレットを古いURL内のものも含めて引き続き受け付けます。シークレットを X-Hook-Secret ヘッダーに移してから、新しいWebhook URLを生成して署名付きリクエストを必須にしてください。",
   "The current webhook URL will stop working. Update your sender with the new URL and signed-request headers.": "現在のWebhook URLは使えなくなります。送信元を新しいURLと署名付きリクエストヘッダーに更新してください。",
   "Run history": "実行履歴",
   "Version not recorded": "版未記録",

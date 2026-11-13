@@ -37,6 +37,17 @@ test('retrying an uncertain release reuses the request identity',async()=>{
  act(()=>tree.unmount())
 })
 
+test('a release that creates a webhook shows its secret once',async()=>{
+ const secret='e'.repeat(48)
+ const releaseAppAutomations=vi.fn().mockResolvedValue({saved:true,webhookSecrets:[{key:'review',workflowId:'wf',secret}]})
+ const {tree,button}=await setup({releaseAppAutomations})
+ await act(async()=>button('自動化を停止').props.onClick())
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain(secret)
+ expect(text).toContain('X-Hook-Secret')
+ act(()=>tree.unmount())
+})
+
 test('editing a step changes only the draft and blocks publication until saved',async()=>{
  const {StepEditor}=await import('./WorkflowStepEditor')
  const {tree,api,button}=await setup()

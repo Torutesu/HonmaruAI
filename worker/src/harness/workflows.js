@@ -73,15 +73,19 @@ const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).jo
 // value is returned once, when it is created or rotated. Rows written before
 // this kept the value in clear; each is hashed the first time it is read or
 // used, which needs no change from the senders that hold it.
-const HOOK_DIGEST = /^sha256:[0-9a-f]{64}$/;
-const hookDigest = async (value) => "sha256:" + hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))));
+// Those legacy digests carry their own prefix: the old UI handed their secret
+// out inside the webhook URL, so they alone may still send it as a query
+// parameter until rotated. New and rotated secrets are "sha256:".
+const HOOK_DIGEST = /^sha256l?:[0-9a-f]{64}$/;
+const LEGACY_HOOK_PREFIX = "sha256l:";
+const hookDigest = async (value, prefix = "sha256:") => prefix + hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))));
 export async function mintHookSecret() {
   const secret = hex(crypto.getRandomValues(new Uint8Array(24)));
   return { secret, stored: await hookDigest(secret) };
 }
 async function sealLegacyHookSecret(db, row) {
   if (!row?.hook_secret || HOOK_DIGEST.test(row.hook_secret)) return row;
-  const stored = await hookDigest(row.hook_secret);
+  const stored = await hookDigest(row.hook_secret, LEGACY_HOOK_PREFIX);
   // Compare-and-swap on the clear value, so a rotation that lands first wins.
   // updated_at is left alone: it is the edit token clients hold.
   await db.prepare("UPDATE hx_workflows SET hook_secret=?1 WHERE org_id=?2 AND id=?3 AND hook_secret=?4").bind(stored, row.org_id, row.id, row.hook_secret).run();
@@ -674,10 +678,11 @@ export async function changeWorkflowHook(db, orgId, id, input) {
   const updatedAt = new Date(Math.max(Date.now(), observedAt + 1)).toISOString();
   const next = input.action === 'rotate' ? await mintHookSecret() : null;
   const expected = typeof input.expectedSecret === 'string' ? input.expectedSecret : null;
-  // A named secret matches its digest, or the clear value of a row not yet hashed.
+  // A named secret matches its digest, legacy or new, or the clear value of a
+  // row not yet hashed.
   const result = await db.prepare(`UPDATE hx_workflows SET hook_secret=?1, webhook_signature_required=CASE WHEN ?1 IS NULL THEN webhook_signature_required ELSE 1 END, updated_at=?2
-    WHERE org_id=?3 AND id=?4 AND json_extract(trigger,'$.type')='webhook' AND (?5 IS NULL OR hook_secret IN (?5, ?7)) AND updated_at=?6`)
-    .bind(next?.stored ?? null, updatedAt, orgId, id, expected, input.expectedUpdatedAt, expected && await hookDigest(expected)).run();
+    WHERE org_id=?3 AND id=?4 AND json_extract(trigger,'$.type')='webhook' AND (?5 IS NULL OR hook_secret IN (?5, ?7, ?8)) AND updated_at=?6`)
+    .bind(next?.stored ?? null, updatedAt, orgId, id, expected, input.expectedUpdatedAt, expected && await hookDigest(expected), expected && await hookDigest(expected, LEGACY_HOOK_PREFIX)).run();
   if (!result.meta?.changes) return { error: 'The webhook changed. Reload the workflow and try again.', status: 409 };
   return { workflow: { ...await getWorkflow(db, orgId, id), ...(next ? { hookSecret: next.secret } : {}) } };
 }
@@ -1985,29 +1990,42 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
 export async function handleWorkflowHook(request, env, url) {
   const m = url.pathname.match(/^\/hooks\/workflows\/([A-Za-z0-9_]+)$/);
   if (!m || request.method !== "POST") return null;
-  const reply = (body, status) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  // The secret belongs in the X-Hook-Secret header: a URL ends up in proxy and
+  // access logs. Only a legacy credential, one the old UI handed out inside
+  // its URL and that has not been rotated since, may still arrive as a query
+  // parameter, and every reply to it says the parameter is deprecated.
+  const headerSecret = request.headers.get("x-hook-secret") || "";
+  const viaQuery = !headerSecret && url.searchParams.has("secret");
+  const secret = headerSecret || (viaQuery ? url.searchParams.get("secret") || "" : "");
+  const deprecation = viaQuery ? {
+    deprecation: "true",
+    warning: '299 - "The secret query parameter is deprecated. Send the secret in the X-Hook-Secret header, then rotate the webhook."',
+  } : {};
+  const reply = (body, status) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...deprecation } });
+  const headerOnly = () => reply({ message: "Send the webhook secret in the X-Hook-Secret header. This webhook does not accept it as a query parameter." }, 400);
   // Counted per address, since a webhook carries no session. Generous, because
   // one integration platform may deliver for many workflows from one address.
   const limited = await enforce(env, request, "webhooks/workflow");
   if (limited) return limited;
-  // The secret is accepted only in a header: a URL ends up in proxy and access
-  // logs. Answered before the lookup, so it says nothing about the workflow.
-  const secret = request.headers.get("x-hook-secret") || "";
-  if (!secret && url.searchParams.has("secret")) return reply({ message: "Send the webhook secret in the X-Hook-Secret header. The secret query parameter is no longer accepted." }, 400);
   // By id alone, by design: the caller is outside every workspace, and the
   // secret checked below is what lets it in.
   const row = await env.DB.prepare("SELECT * FROM hx_workflows WHERE id = ?1").bind(m[1]).first();
   const wf = row && publicWorkflow(row);
   // What the run and held-event guards compare against: always the digest.
   let stored = row?.hook_secret || "";
+  const legacy = Boolean(stored) && (stored.startsWith(LEGACY_HOOK_PREFIX) || !HOOK_DIGEST.test(stored));
+  // Every refused query-parameter request gets the same answer, so it says
+  // nothing about whether the workflow exists or its secret matched.
+  if (viaQuery && !legacy) return headerOnly();
   let matches = false;
   if (secret && stored) {
-    if (HOOK_DIGEST.test(stored)) matches = timingSafeEqual(await hookDigest(secret), stored);
+    if (HOOK_DIGEST.test(stored)) matches = timingSafeEqual(await hookDigest(secret, stored.startsWith(LEGACY_HOOK_PREFIX) ? LEGACY_HOOK_PREFIX : "sha256:"), stored);
     else if (timingSafeEqual(secret, stored)) {
       matches = true;
       stored = (await sealLegacyHookSecret(env.DB, row)).hook_secret;
     }
   }
+  if (viaQuery && (!wf || wf.trigger.type !== "webhook" || !matches)) return headerOnly();
   if (!wf || wf.trigger.type !== "webhook" || !matches) return reply({ message: "No such hook." }, 404);
   if (wf.archivedAt) return reply({ message: 'This workflow is archived. Restore it before sending webhook events.' }, 410);
   const bytes = new Uint8Array(await request.arrayBuffer());

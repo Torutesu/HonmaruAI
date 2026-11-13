@@ -616,7 +616,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         </section>}
         {open.canEdit && w.trigger.type === 'webhook' && <section aria-label={t('Webhook')}>
           <div className="rows-title">{t('Webhook')}</div>
-          {w.hookUrl && !w.webhookSignatureRequired && <p className="form-note">{t('This existing webhook still accepts its URL secret alone. Generate a new URL to switch it to signed requests.')}</p>}
+          {w.hookUrl && !w.webhookSignatureRequired && <p className="form-note">{t('This existing webhook still accepts its secret without a signature, including in its old URL. Move the secret into the X-Hook-Secret header, then generate a new webhook URL to require signed requests.')}</p>}
           {w.hookUrl && w.webhookSignatureRequired && <details className="form-note">
             <summary>{t('Send signed webhook events')}</summary>
             <p>{t('Sign the exact JSON body with the webhook secret. Use a fresh timestamp and a stable event ID for retries; signed requests expire after 5 minutes and event IDs are remembered for 7 days.')}</p>
