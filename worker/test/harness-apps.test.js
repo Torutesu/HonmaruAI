@@ -2922,16 +2922,17 @@ test('room Apps with multiple source Agent assignments cannot choose an implicit
 
 
 
+
 test('rejected compare-and-set row writes do not enqueue watched Workflow events',async()=>{
  const {app}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm',sample:false})).json();
+ const seed=await addRow(env.DB,ORG,app.tableId,{company:'Original'},'9102');
+ expect(seed.error).toBeUndefined();
  await env.DB.prepare(`INSERT INTO hx_workflows(id,org_id,name,enabled,trigger,steps,created_by,created_at,updated_at)
   VALUES('row-write-watcher',?1,'Row write watcher',1,?2,'[]','9102','now','now')`)
   .bind(ORG,JSON.stringify({type:'row',tableId:app.tableId,on:'any'})).run();
  const reject={sql:()=> '0',binds:[]};
  const blockedInsert=await addRow(env.DB,ORG,app.tableId,{company:'Blocked insert'},'9102',undefined,null,reject);
  expect(blockedInsert).toMatchObject({status:409});
- const seed=await addRow(env.DB,ORG,app.tableId,{company:'Original'},'9102');
- expect(seed.error).toBeUndefined();
  const blockedUpdate=await updateRow(env.DB,ORG,app.tableId,seed.row.id,{company:'Blocked update'},'9102',seed.row.updatedAt,undefined,null,reject);
  expect(blockedUpdate).toMatchObject({status:409});
  const blockedDelete=await deleteRow(env.DB,ORG,app.tableId,seed.row.id,seed.row.updatedAt,null,reject,{by:'9102'});
