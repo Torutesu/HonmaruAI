@@ -468,6 +468,42 @@ test("Room get/update aliases read managed settings and pass only requested fiel
   assert.equal(stderr.read(), "");
 });
 
+test("Room guideline aliases read and update with explicit versioned text", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    const structuredContent = req.params.name === "get_room_guidelines"
+      ? { conversationId: "b:ops", guidelines: { body: "", version: 0, updatedAt: null } }
+      : { conversationId: "b:ops", guidelines: { body: req.params.arguments.body, version: 1, updatedAt: "2026-11-13T00:00:00.000Z" } };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "guidelines", "get", "b:ops"]), 0);
+  assert.equal(stdout.read(), "\n"); stdout.clear();
+  assert.equal(await run(["workspace", "room", "guidelines", "set", "b:ops", "--body", "Follow approval policy.\nKeep the source link.", "--version", "0"]), 0);
+  assert.match(stdout.read(), /Updated Room b:ops guidelines \(version 1\)/);
+  assert.deepEqual(calls, [
+    { name: "get_room_guidelines", arguments: { conversationId: "b:ops" } },
+    { name: "update_room_guidelines", arguments: { conversationId: "b:ops", body: "Follow approval policy.\nKeep the source link.", version: 0 } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("Room guideline update validates required version and body before calling MCP", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "guidelines", "set", "b:ops", "--body", "Rules"]), 1);
+  assert.match(stderr.read(), /--version is required/); stderr.clear();
+  assert.equal(await run(["workspace", "room", "guidelines", "set", "b:ops", "--version", "0"]), 1);
+  assert.match(stderr.read(), /--body is required/);
+  assert.equal(requests, 0);
+});
+
 test("Room update rejects empty settings and malformed flags before calling MCP", async () => {
   let requests = 0;
   const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
