@@ -4344,3 +4344,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Added an archived App inventory that returns metadata only and is scoped to the creator or workspace owner/admin. Restore requires the exact archive timestamp to prevent stale restore actions. The detail/table/version data stays intact; removed Room/public links and stopped automation are not silently re-enabled.
 - Worker restore authorization, stale timestamp, retained table rows and archive visibility test passed **1/1**. Web Harness App UI passed **56/56**, TypeScript and production build passed. No database migration, paid service or Simple-mode change. Exact-head CI, merge and production deployment remain pending.
+
+### 2026-11-14 — Skill share link management through Harness MCP/CLI (local QA)
+
+- Added owner-only metadata listing for custom Skill share links and explicit `confirm=true` / `--confirm` revocation. Responses never include bearer tokens or URLs. Revocation rechecks the actor's current non-guest membership and Skill ownership in the update statement; successful revocations enter the audit log. Share-link creation and import remain human-session operations.
+- Worker `harness-mcp.test.js`: **25/25** passed; CLI suite: **62/62** passed; Worker module syntax checks and `git diff --check` passed. Worker Vitest required the permitted localhost runtime because the default sandbox blocks its listener. Exact-head CI, merge, and production deployment are pending. No schema change, paid service, or Simple-mode tool exposure was added.

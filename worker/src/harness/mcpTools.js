@@ -15,6 +15,7 @@ import { workflowRevisions, restoreWorkflowRevision } from "./workflowRevisions.
 import { readWorkflowSafety, resumeWorkflowSafety } from "./workflowSafety.js";
 import { listSkills, getSkill, skillsOf, giveSkill, takeSkill, createSkill, updateSkill } from "./skills.js";
 import { skillAgentManager } from "./skillAgentAuthority.js";
+import { listSkillShares, revokeSkillShare } from "./skillShares.js";
 import { mayAccessAgent } from "./agents.js";
 import { parseSkillMarkdown } from "./skillMarkdown.js";
 import { allowed } from "../permissions.js";
@@ -23,7 +24,7 @@ import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 import { audit } from "../audit.js";
 
-export const HARNESS_TOOL_SCOPE = { get_workflow: "read", create_skill: "write", update_skill: "write", assign_skill_to_agent: "write", remove_skill_from_agent: "write", create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { get_workflow: "read", list_skill_shares: "read", revoke_skill_share: "write", create_skill: "write", update_skill: "write", assign_skill_to_agent: "write", remove_skill_from_agent: "write", create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,
@@ -66,6 +67,20 @@ export const HARNESS_TOOLS = [
     description: "Replace a custom Skill's SKILL.md content and optional package files using the exact updatedAt from the latest read. This prevents stale edits from overwriting newer work.",
     inputSchema: { type: "object", properties: { skillId: { type: "string", minLength: 1, maxLength: 200 }, expectedUpdatedAt: { type: "string", minLength: 1, maxLength: 40 }, skillMarkdown: { type: "string", minLength: 1, maxLength: 65536 }, files: { type: "array", maxItems: 63, items: { type: "object", properties: { path: { type: "string", maxLength: 240 }, base64: { type: "string", maxLength: 1398104 } }, required: ["path", "base64"], additionalProperties: false } } }, required: ["skillId", "expectedUpdatedAt", "skillMarkdown"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "list_skill_shares",
+    title: "Skill share links",
+    description: "List metadata for share links on a custom Skill you own. This never returns bearer tokens or URLs.",
+    inputSchema: { type: "object", properties: { skillId: { type: "string", minLength: 1, maxLength: 200 } }, required: ["skillId"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "revoke_skill_share",
+    title: "Revoke a Skill share link",
+    description: "Revoke an active share link on a custom Skill you own. This is irreversible for that link; pass confirm=true after checking its metadata with list_skill_shares. No replacement link is created.",
+    inputSchema: { type: "object", properties: { skillId: { type: "string", minLength: 1, maxLength: 200 }, shareId: { type: "string", minLength: 1, maxLength: 200 }, confirm: { type: "boolean" } }, required: ["skillId", "shareId", "confirm"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "assign_skill_to_agent",
@@ -328,6 +343,24 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
       if (parsed.error) return err(parsed.error);
       const result = await updateSkill(db, orgId, String(args.skillId || ""), { ...parsed.draft, ...(args.files === undefined ? {} : { files: args.files }) }, by, String(args.expectedUpdatedAt || ""));
       return result.error ? err(result.error) : out({ skill: result.skill });
+    }
+    case "list_skill_shares": {
+      const skillId = String(args.skillId || "");
+      const skill = await getSkill(db, orgId, skillId, by);
+      if (!skill || skill.sourceScope || !skill.canShare) return err("No such Skill.");
+      return out({ skillId, ...(await listSkillShares(db, orgId, skillId)) });
+    }
+    case "revoke_skill_share": {
+      const skillId = String(args.skillId || ""), shareId = String(args.shareId || "");
+      if (args.confirm !== true) return err("Set confirm=true after reviewing the share metadata.");
+      const skill = await getSkill(db, orgId, skillId, by);
+      if (!skill || skill.sourceScope || !skill.canShare) return err("No such Skill.");
+      const membership = await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest'").bind(orgId, String(by)).first();
+      if (!membership?.created_at) return err("No active Skill share link was found.");
+      const result = await revokeSkillShare(db, orgId, skillId, shareId, by, membership.created_at);
+      if (result.error) return err(result.error);
+      await audit(env, request, { orgId, action: 'skill.share_revoked', actor: { type: 'user', id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId } });
+      return out({ skillId, shareId, ...result });
     }
     case "assign_skill_to_agent": {
       const result = await giveSkill(db, orgId, String(args.agentId || ""), String(args.skillId || ""), by);

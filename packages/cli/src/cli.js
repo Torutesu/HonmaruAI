@@ -16,6 +16,8 @@ Usage:
   honmaru workspace skill get <skill-id>
   honmaru workspace skill create --from <SKILL.md|directory> [--visibility private|workspace]
   honmaru workspace skill update <skill-id> --from <SKILL.md|directory> --expected-updated-at ISO
+  honmaru workspace skill shares list <skill-id>
+  honmaru workspace skill shares revoke <skill-id> <share-id> --confirm
   honmaru workspace skill installed|shareable --agent <agent-id>
   honmaru workspace skill agent list <agent-id>
   honmaru workspace skill agent add <agent-id> <skill-id>
@@ -142,7 +144,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
 
 async function readSkillSource(source) {
   const root = resolve(source);
@@ -537,6 +539,19 @@ async function resolveWorkspaceCommand(resource, operation, positional, options,
       if (!options.expectedUpdatedAt?.trim()) throw new Error("--expected-updated-at is required; read the Skill first and use its updatedAt value.");
       return { tool: "update_skill", args: { skillId: positional[0], expectedUpdatedAt: options.expectedUpdatedAt, ...(await readSkillSource(options.from)) } };
     }
+    case "skill shares": {
+      const [action, ...target] = positional;
+      if (action === "list") {
+        onlyFlags(options, []); positionalCount(target, 1, "honmaru workspace skill shares list <skill-id>");
+        return { tool: "list_skill_shares", args: { skillId: target[0] } };
+      }
+      if (action === "revoke") {
+        onlyFlags(options, ["confirm"]); positionalCount(target, 2, "honmaru workspace skill shares revoke <skill-id> <share-id> --confirm");
+        if (!options.confirm) throw new Error("--confirm is required after reviewing the link with skill shares list.");
+        return { tool: "revoke_skill_share", args: { skillId: target[0], shareId: target[1], confirm: true } };
+      }
+      throw new Error("Usage: honmaru workspace skill shares list|revoke.");
+    }
     case "skill installed":
     case "skill shareable": {
       onlyFlags(options, ["agent"]); positionalCount(positional, 0, `honmaru workspace skill ${operation} --agent AGENT_ID`);
@@ -905,6 +920,8 @@ function formatWorkspaceResult(result, json, command = null) {
     : command?.tool === "list_shareable_skills" ? `No unassigned Skills are available to Agent ${value.agentId}.` : `No Skills are assigned to Agent ${value.agentId}.`;
   if (command?.tool === "create_skill") return `Created private Skill ${value.skill?.id} (${value.skill?.name}).`;
   if (command?.tool === "update_skill") return `Updated Skill ${value.skill?.id} (${value.skill?.name}) at ${value.skill?.updatedAt}.`;
+  if (command?.tool === "list_skill_shares") return value.shares?.length ? value.shares.map(share => `${share.id}\t${share.revokedAt ? `revoked ${share.revokedAt}` : `expires ${share.expiresAt}`}`).join("\n") : "No Skill share links found.";
+  if (command?.tool === "revoke_skill_share") return `Revoked Skill share link ${value.shareId}.`;
   if (command?.tool === "assign_skill_to_agent") return `Assigned Skill ${value.skillId} to Agent ${value.agentId}.`;
   if (command?.tool === "remove_skill_from_agent") return `Removed Skill ${value.skillId} from Agent ${value.agentId}.`;
   if (command?.tool === "get_room_agent_access") return value.canGrantAccess

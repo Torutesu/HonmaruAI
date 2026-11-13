@@ -90,6 +90,34 @@ test("skill aliases map reads and assignment changes to the scoped MCP tools", a
   assert.equal(stderr.read(), "");
 });
 
+test("Skill share aliases require confirmation to revoke and never request token values", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    const structuredContent = req.params.name === "list_skill_shares"
+      ? { skillId: "skill_1", shares: [{ id: "share_1", expiresAt: "2099-01-01T00:00:00.000Z", revokedAt: null }] }
+      : { skillId: "skill_1", shareId: "share_1", revoked: true };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "skill", "shares", "list", "skill_1"]), 0);
+  assert.match(stdout.read(), /share_1\texpires 2099/);
+  stdout.clear();
+  assert.notEqual(await run(["workspace", "skill", "shares", "revoke", "skill_1", "share_1"]), 0);
+  assert.equal(calls.length, 1);
+  stdout.clear(); stderr.clear();
+  assert.equal(await run(["workspace", "skill", "shares", "revoke", "skill_1", "share_1", "--confirm"]), 0);
+  assert.match(stdout.read(), /Revoked Skill share link share_1/);
+  assert.deepEqual(calls, [
+    { name: "list_skill_shares", arguments: { skillId: "skill_1" } },
+    { name: "revoke_skill_share", arguments: { skillId: "skill_1", shareId: "share_1", confirm: true } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
 test("skill package aliases read SKILL.md and support files, use private defaults, and fence stale updates", async () => {
   const root = await mkdtemp(join(tmpdir(), "honmaru-cli-skill-"));
   const source = join(root, "release-skill");
