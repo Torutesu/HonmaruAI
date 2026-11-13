@@ -81,6 +81,27 @@ test('a membership revoked during the R2 body fetch cannot leak file metadata or
   expect(JSON.stringify(result)).not.toContain('body must be dropped');
 });
 
+test('a media deletion queued during the R2 body fetch cannot leak a stale snippet', async () => {
+  await seedFile({ id: 'raced-deleted-doc', body: 'NeedleStar body must be hidden after media deletion.' });
+  await env.DB.prepare("INSERT INTO org_settings(org_id,mode,updated_by,updated_at) VALUES (?1,'harness','9201','now')").bind(ORG).run();
+  const racedEnv = {
+    ...env,
+    MEDIA: { get: async (key) => {
+      const object = await env.MEDIA.get(key);
+      await env.DB.prepare("INSERT INTO media_deletions(key,org_id,created_at,next_at) VALUES (?1,?2,'now','now')").bind(key, ORG).run();
+      return object;
+    } },
+  };
+  const response = await worker.fetch(new Request(`https://example.com/channels/search?${q({ orgId: ORG, q: 'NeedleStar' })}`, {
+    headers: { 'x-session-token': alice },
+  }), racedEnv);
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result.files).toEqual([]);
+  expect(JSON.stringify(result)).not.toContain('raced-deleted-doc');
+  expect(JSON.stringify(result)).not.toContain('hidden after media deletion');
+});
+
 test('app row content is returned only to users authorized for the app, with snippets and stable caps', async () => {
   await env.DB.prepare("INSERT INTO org_settings(org_id,mode,updated_by,updated_at) VALUES (?1,'harness','9201','now')").bind(ORG).run();
   const publicAppRes = await send('/apps', bob, { orgId: ORG, name: 'Public records', columns: [{ name: 'Title', type: 'text' }] });

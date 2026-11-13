@@ -48,6 +48,9 @@ Usage:
   honmaru workspace row update <table-id> <row-id> --values JSON [--expected-updated-at ISO]
   honmaru workspace workflow list
   honmaru workspace workflow show <workflow-id>
+  honmaru workspace workflow create --name NAME --trigger JSON --steps JSON --draft
+  honmaru workspace workflow update <workflow-id> --expected-updated-at ISO [--name NAME] [--trigger JSON] [--steps JSON]
+  honmaru workspace workflow pause <workflow-id> --expected-updated-at ISO
   honmaru workspace workflow run <workflow-id> [--text TEXT]
   honmaru workspace workflow runs <workflow-id> [--limit N]
   honmaru workspace workflow run-detail <workflow-id> <run-id>
@@ -114,11 +117,11 @@ const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
   "text", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
   "direction", "title", "name", "members", "to", "summary", "context", "priority",
-  "since", "until", "directory", "order", "cursor", "version", "before", "offset",
+  "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft"]);
 
 function parseOptions(args, { allowArgs = false, allowWorkspaceFlags = false } = {}) {
   const options = { json: false };
@@ -442,6 +445,36 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
     case "workflow show":
       onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace workflow show <workflow-id>");
       return { tool: "get_workflow", args: { workflowId: positional[0] } };
+    case "workflow create": {
+      onlyFlags(options, ["name", "trigger", "steps", "draft"]); positionalCount(positional, 0, "honmaru workspace workflow create --name NAME --trigger JSON --steps JSON --draft");
+      if (options.draft !== true) throw new Error("--draft is required; new workflows are created paused and never run automatically.");
+      if (typeof options.name !== "string" || !options.name.trim() || options.name.trim().length > 80) throw new Error("--name is required and must be at most 80 characters.");
+      const trigger = objectOption(options, "trigger");
+      const steps = jsonValueOption(options, "steps");
+      if (!Array.isArray(steps) || steps.length < 1 || steps.length > 12 || steps.some(step => !step || typeof step !== "object" || Array.isArray(step))) throw new Error("--steps must be a JSON array of 1 to 12 step objects.");
+      return { tool: "create_workflow", args: { name: options.name.trim(), trigger, steps } };
+    }
+    case "workflow update": {
+      onlyFlags(options, ["expectedUpdatedAt", "name", "trigger", "steps"]); positionalCount(positional, 1, "honmaru workspace workflow update <workflow-id> --expected-updated-at ISO [--name NAME] [--trigger JSON] [--steps JSON]");
+      if (!options.expectedUpdatedAt || !Number.isFinite(Date.parse(options.expectedUpdatedAt))) throw new Error("--expected-updated-at must be a valid timestamp from a freshly loaded workflow.");
+      const args = { workflowId: positional[0], expectedUpdatedAt: options.expectedUpdatedAt };
+      if (options.name !== undefined) {
+        if (!options.name.trim() || options.name.trim().length > 80) throw new Error("--name must be 1 to 80 characters.");
+        args.name = options.name.trim();
+      }
+      if (options.trigger !== undefined) args.trigger = objectOption(options, "trigger");
+      if (options.steps !== undefined) {
+        const steps = jsonValueOption(options, "steps");
+        if (!Array.isArray(steps) || steps.length < 1 || steps.length > 12 || steps.some(step => !step || typeof step !== "object" || Array.isArray(step))) throw new Error("--steps must be a JSON array of 1 to 12 step objects.");
+        args.steps = steps;
+      }
+      if (Object.keys(args).length === 2) throw new Error("Provide at least one of --name, --trigger, or --steps.");
+      return { tool: "update_workflow", args };
+    }
+    case "workflow pause":
+      onlyFlags(options, ["expectedUpdatedAt"]); positionalCount(positional, 1, "honmaru workspace workflow pause <workflow-id> --expected-updated-at ISO");
+      if (!options.expectedUpdatedAt || !Number.isFinite(Date.parse(options.expectedUpdatedAt))) throw new Error("--expected-updated-at must be a valid timestamp from a freshly loaded workflow.");
+      return { tool: "pause_workflow", args: { workflowId: positional[0], expectedUpdatedAt: options.expectedUpdatedAt } };
     case "workflow run": {
       onlyFlags(options, ["text"]); positionalCount(positional, 1, "honmaru workspace workflow run <workflow-id> [--text TEXT]");
       const args = { workflowId: positional[0] };

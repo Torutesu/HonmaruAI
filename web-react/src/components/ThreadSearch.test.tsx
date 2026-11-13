@@ -29,6 +29,29 @@ test('Harness room search requests and opens room-local files and linked App rec
  expect(location.hash).toBe('#/c/b%3Ageneral?org=team%3Atest')
  act(()=>tree.unmount())
 })
+test('room resource results load more independently without replacing the other result set or cursor',async()=>{
+ vi.useFakeTimers();vi.stubGlobal('location',{hash:''})
+ const file=(id:string)=>({id,name:`${id}.md`,scope:'b:general',snippet:`needle in ${id}`})
+ const record=(id:string)=>({id,rowId:id,appId:'app-1',appName:'Projects',tableId:'table-1',tableName:'Tasks',snippet:`Title: needle ${id}`})
+ const first={messages:[],nextCursor:null,files:[file('file-1')],records:[record('row-1')],filesTruncated:true,recordsTruncated:true,filesNextCursor:'file-page-2',recordsNextCursor:'record-page-2'}
+ const filePage={messages:[],nextCursor:null,files:[file('file-2')],records:[],filesTruncated:false,recordsTruncated:false,filesNextCursor:null,recordsNextCursor:null}
+ const recordPage={messages:[],nextCursor:null,files:[],records:[record('row-2')],filesTruncated:false,recordsTruncated:false,filesNextCursor:null,recordsNextCursor:null}
+ const fetch=vi.fn().mockResolvedValueOnce({ok:true,json:async()=>first}).mockResolvedValueOnce({ok:true,json:async()=>filePage}).mockResolvedValueOnce({ok:true,json:async()=>recordPage});vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<ThreadSearch api={api} channel="b:general" onClose={()=>{}} onSelect={()=>{}}/>)} )
+ act(()=>tree.root.findByType('input').props.onChange({target:{value:'needle'}}));await act(async()=>{await vi.advanceTimersByTimeAsync(250)})
+ const moreButtons=()=>tree.root.findAllByProps({className:'hx-thread-search-more'})
+ expect(moreButtons()).toHaveLength(2)
+ await act(async()=>moreButtons()[0].props.onClick())
+ const fileRequest=new URL(fetch.mock.calls[1][0]);expect(fileRequest.searchParams.get('fileCursor')).toBe('file-page-2');expect(fileRequest.searchParams.get('skipRecords')).toBe('1');expect(fileRequest.searchParams.has('recordCursor')).toBe(false)
+ expect(tree.root.findByProps({'aria-label':'ファイルを開く: file-2.md'})).toBeTruthy();expect(tree.root.findByProps({'aria-label':'レコードを開く: Projects · Tasks'})).toBeTruthy()
+ expect(moreButtons()).toHaveLength(1)
+ await act(async()=>moreButtons()[0].props.onClick())
+ const recordRequest=new URL(fetch.mock.calls[2][0]);expect(recordRequest.searchParams.get('recordCursor')).toBe('record-page-2');expect(recordRequest.searchParams.get('skipFiles')).toBe('1');expect(recordRequest.searchParams.has('fileCursor')).toBe(false)
+ expect(tree.root.findByProps({'aria-label':'ファイルを開く: file-1.md'})).toBeTruthy();expect(tree.root.findByProps({'aria-label':'ファイルを開く: file-2.md'})).toBeTruthy();expect(tree.root.findAll(node=>node.props['aria-label']?.startsWith('レコードを開く:'))).toHaveLength(2)
+ expect(moreButtons()).toHaveLength(0)
+ act(()=>tree.unmount())
+})
 test('query changes abort old searches and discard delayed results',async()=>{
  vi.useFakeTimers();let resolve!:(value:any)=>void
  const fetch=vi.fn().mockImplementationOnce(()=>new Promise(r=>resolve=r)).mockResolvedValueOnce(result('new'));vi.stubGlobal('fetch',fetch)

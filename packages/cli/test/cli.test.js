@@ -681,6 +681,52 @@ test("workflow lifecycle aliases map details, history, cancellation, held events
   assert.equal(stderr.read(), "");
 });
 
+test("workflow aliases only create paused drafts, edit with a version fence, and pause future triggers", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    const name = req.params.name;
+    const structuredContent = name === "create_workflow"
+      ? { workflow: { id: "wf_new", enabled: false } }
+      : name === "update_workflow"
+        ? { workflow: { id: "wf_1", enabled: false }, revision: 3 }
+        : { workflowId: "wf_1", enabled: false, activeRunsContinue: true };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "workflow", "create", "--name", "Daily summary", "--trigger", "{\"type\":\"manual\"}", "--steps", "[{\"type\":\"post\",\"channel\":\"b:ops\",\"text\":\"Summarize\"}]", "--draft"]), 0);
+  stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "update", "wf_1", "--expected-updated-at", "2026-11-12T00:00:00Z", "--name", "Weekly summary"]), 0);
+  stdout.clear();
+  assert.equal(await run(["workspace", "workflow", "pause", "wf_1", "--expected-updated-at", "2026-11-12T00:00:00Z"]), 0);
+  assert.deepEqual(calls, [
+    { name: "create_workflow", arguments: { name: "Daily summary", trigger: { type: "manual" }, steps: [{ type: "post", channel: "b:ops", text: "Summarize" }] } },
+    { name: "update_workflow", arguments: { workflowId: "wf_1", expectedUpdatedAt: "2026-11-12T00:00:00Z", name: "Weekly summary" } },
+    { name: "pause_workflow", arguments: { workflowId: "wf_1", expectedUpdatedAt: "2026-11-12T00:00:00Z" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("workflow create/update/pause reject unsafe or stale inputs before making a request", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("must not call the server"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "workflow", "create", "--name", "Unsafe", "--trigger", "{\"type\":\"manual\"}", "--steps", "[{\"type\":\"post\"}]"]), 1);
+  assert.match(stderr.read(), /--draft is required/);
+  assert.equal(await run(["workspace", "workflow", "create", "--name", "Unsafe", "--trigger", "[]", "--steps", "[]", "--draft"]), 1);
+  assert.match(stderr.read(), /JSON object/);
+  assert.equal(await run(["workspace", "workflow", "update", "wf_1", "--name", "No fence"]), 1);
+  assert.match(stderr.read(), /expected-updated-at/);
+  assert.equal(await run(["workspace", "workflow", "pause", "wf_1"]), 1);
+  assert.match(stderr.read(), /expected-updated-at/);
+  assert.equal(requests, 0);
+});
+
 test("webhook secret aliases resolve secrets from environment and allow inactive hooks without argv secrets", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {

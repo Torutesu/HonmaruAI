@@ -96,6 +96,48 @@ test("in a harness workspace an agent reads an app's numbers, adds a row, and ne
   expect(found.rows.map((r) => r.company).sort()).toEqual(["Hooli", "Initech"]);
 });
 
+test('MCP workflow draft tools are Harness-only, maker-scoped, version-fenced and never enable creation or edits', async () => {
+  const writer = await mint(['read', 'write']);
+  const reader = await mint(['read']);
+  expect((await names(writer)).map(name => name).filter(name => /workflow/.test(name))).toEqual([]);
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  expect(await names(writer)).toEqual(expect.arrayContaining(['create_workflow', 'update_workflow', 'pause_workflow']));
+  expect(await names(reader)).not.toContain('create_workflow');
+
+  const made = await tool(writer, 'create_workflow', {
+    name: 'Paused draft',
+    trigger: { type: 'manual' },
+    steps: [{ type: 'approval', to: 'toru', title: 'Review the release' }],
+  });
+  expect(made.result.structuredContent.workflow).toMatchObject({ name: 'Paused draft', enabled: false, trigger: { type: 'manual' } });
+  const workflowId = made.result.structuredContent.workflow.id;
+  expect(made.result.structuredContent.workflow).not.toHaveProperty('hookSecret');
+  expect((await tool(writer, 'run_workflow', { workflowId })).result.content[0].text).toContain('off');
+  const original = (await tool(writer, 'get_workflow', { workflowId })).result.structuredContent.workflow;
+
+  expect((await tool(writer, 'update_workflow', { workflowId, name: 'Unfenced try' })).result.isError).toBe(true);
+  const updated = await tool(writer, 'update_workflow', {
+    workflowId,
+    expectedUpdatedAt: original.updatedAt,
+    name: 'Edited paused draft',
+    steps: [{ type: 'approval', to: 'toru', title: 'Review the release tomorrow' }],
+  });
+  expect(updated.result.structuredContent.workflow).toMatchObject({ name: 'Edited paused draft', enabled: false });
+
+  // Simulate an explicitly enabled trigger without starting any work. Pause
+  // uses the fresh updatedAt as a CAS and only disables future triggers.
+  await env.DB.prepare("UPDATE hx_workflows SET enabled=1,updated_at='2026-11-12T00:00:00.000Z' WHERE org_id=?1 AND id=?2").bind(ORG, workflowId).run();
+  const enabled = (await tool(writer, 'get_workflow', { workflowId })).result.structuredContent.workflow;
+  expect((await tool(writer, 'update_workflow', { workflowId, expectedUpdatedAt: enabled.updatedAt, name: 'Edit while enabled' })).result.content[0].text).toContain('Pause');
+  const paused = await tool(writer, 'pause_workflow', { workflowId, expectedUpdatedAt: enabled.updatedAt });
+  expect(paused.result.structuredContent).toMatchObject({ workflowId, enabled: false, activeRunsContinue: true });
+  expect((await tool(writer, 'pause_workflow', { workflowId, expectedUpdatedAt: enabled.updatedAt })).result.isError).toBe(true);
+
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
+  expect(await names(writer)).not.toContain('create_workflow');
+  expect((await tool(writer, 'create_workflow', { name: 'No simple access', trigger: { type: 'manual' }, steps: [{ type: 'approval', to: 'toru', title: 'No' }] })).error.message).toContain('Unknown tool');
+});
+
 test('MCP rows keep system identity separate from colliding user fields across reads and writes', async () => {
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
   const { app } = await (await call('/apps', { method: 'POST', headers: headers(toru), body: JSON.stringify({ orgId: ORG, name: 'ID collision', columns: [

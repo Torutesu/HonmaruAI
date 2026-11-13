@@ -90,7 +90,8 @@ async function searchFiles(env, orgId, userId, needle, cursorRaw, roomChannel = 
       FROM hx_workspace_files f JOIN hx_workspace_file_versions v ON v.org_id=f.org_id AND v.file_id=f.id AND v.version=f.current_version
       WHERE f.org_id=?1 AND f.id=?2 AND f.current_version=?3 AND v.kind='content' AND (?5 IS NULL OR f.scope=?5)
        AND ${fileScopeAuthority('f.org_id', 'f.scope', '?4')}
-       AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=v.org_id AND p.file_id=v.file_id AND p.version=v.version)`)
+       AND NOT EXISTS(SELECT 1 FROM hx_workspace_file_purges p WHERE p.org_id=v.org_id AND p.file_id=v.file_id AND p.version=v.version)
+       AND NOT EXISTS(SELECT 1 FROM media_deletions d WHERE d.key=v.object_key)`)
       .bind(orgId, file.id, file.current_version, userId, roomChannel).first();
     if (!live) continue;
     hits.push({ id: live.id, version: live.current_version, name: live.path.split('/').pop() || live.path, scope: live.scope, updatedAt: live.updated_at, snippet: safeSnippet(body, needle) });

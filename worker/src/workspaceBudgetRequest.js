@@ -5,9 +5,11 @@ import { webSearchCostMicros } from "./ledger.js";
 // model tokens it adds. Keep deployment-key searches bounded so the shared
 // pause budget can reserve a known upper count before dispatch.
 const MAX_BUDGETED_WEB_SEARCH_CALLS = 4;
-// Search-result input is not present in the request body. This deliberately
-// conservative token allowance is a rolling-budget estimate, not a quote.
-const WEB_SEARCH_CONTEXT_TOKENS_PER_CALL = 16_000;
+// OpenAI documents a 128k maximum web-search context window for Responses.
+// Reserve that full window for every allowed hosted search call: the exact
+// amount returned by low/medium/high (or default/unlimited research) is not a
+// token count and cannot safely be guessed from the request body.
+const WEB_SEARCH_CONTEXT_TOKENS_PER_CALL = 128_000;
 
 const estimateTokens = (value) => {
   const serialized = typeof value === "string" ? value : JSON.stringify(value ?? "");
@@ -71,10 +73,19 @@ export async function requestWithWorkspaceBudget(provider, input, init = {}) {
 
   const reservationId = reservation.reservationId || null;
   // Do not constrain uncapped or BYOK research. When the pause budget is
-  // active, this also makes the reserved search-call upper bound real at the
-  // provider boundary; max_tool_calls applies to built-in tools only.
+  // active, make both reserved upper bounds real at the provider boundary.
+  // The Responses API caps web-search context at 128k per request; reserving
+  // per allowed call is intentionally conservative even if calls share it.
   if (reservationId && hasWebSearch && !provider.byok) {
-    requestInit = { ...init, body: JSON.stringify({ ...body, max_tool_calls: searchCalls }) };
+    const boundedTools = body.tools.map((tool) => {
+      if (tool?.type === 'web_search') return { ...tool, return_token_budget: 'default' };
+      if (tool?.type === 'web_search_preview' && Object.hasOwn(tool, 'return_token_budget')) {
+        const { return_token_budget: _ignored, ...preview } = tool;
+        return preview;
+      }
+      return tool;
+    });
+    requestInit = { ...init, body: JSON.stringify({ ...body, tools: boundedTools, max_tool_calls: searchCalls }) };
   }
   try {
     const response = await fetch(input, requestInit);

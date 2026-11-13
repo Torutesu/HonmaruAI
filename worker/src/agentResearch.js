@@ -189,14 +189,14 @@ export async function research({ provider, env, instructions, input, tools = {},
     }
     called = true;
     noteUsage(provider, "agent", data, usageContext);
-    // The Responses API exposes billable hosted-tool calls separately from
-    // output items; it excludes discounted searches and page opens. Older
-    // compatible endpoints may omit the field, where counting calls is the
-    // conservative fallback.
+    // The Responses API does not expose a separate documented usage counter
+    // for web-search tool calls. Only `search` actions incur the per-call
+    // charge; opening or finding text in an already returned page does not.
     const reportedSearches = data?.tool_usage?.web_search?.num_requests;
     const searchCalls = Number.isSafeInteger(reportedSearches) && reportedSearches >= 0
       ? reportedSearches
-      : (Array.isArray(data.output) ? data.output : []).filter((i) => i?.type === "web_search_call").length;
+      : (Array.isArray(data.output) ? data.output : []).filter((item) =>
+        item?.type === "web_search_call" && item?.action?.type === "search").length;
     noteSearches(provider, "agent", data.model || model, searchCalls, usageContext, data.__honmaruWebSearchToolType || 'web_search');
     estimatedContextChars += JSON.stringify(data.output || []).length;
     last = data;
