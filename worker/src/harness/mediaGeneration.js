@@ -69,9 +69,17 @@ export async function cancelImageGeneration(db,orgId,userId,id){
 }
 
 const sha=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');
+const workspaceKeyStored=org=>`EXISTS(SELECT 1 FROM org_ai_settings ai WHERE ai.org_id=${org} AND ai.openai_key IS NOT NULL AND ai.openai_key!='')`;
 export async function expireImageGenerationJobs(db,at=Date.now()){
  const running=await db.prepare(`UPDATE hx_media_generation_jobs SET status='failed',error_code='outcome_unknown',finished_at=?1,lease_hash=NULL
  WHERE status='running' AND (lease_until<=?1 OR deadline<=?1)`).bind(at).run();
+ // All workspaces share one queue. A queued job whose creator, Agent, mode or
+ // key went away can never be claimed, so settle it with the codes a claimed
+ // job would get instead of leaving it to hold queue order and the caps.
+ await db.prepare(`UPDATE hx_media_generation_jobs AS j SET status='failed',error_code='workspace_key_missing',finished_at=?1
+ WHERE j.status='queued' AND NOT ${workspaceKeyStored('j.org_id')}`).bind(at).run();
+ await db.prepare(`UPDATE hx_media_generation_jobs AS j SET status='failed',error_code='permission_revoked',finished_at=?1
+ WHERE j.status='queued' AND NOT (${mediaAccess('j.created_by')})`).bind(at).run();
  await db.prepare(`UPDATE hx_media_generation_jobs SET status='cancelled',finished_at=?1 WHERE status='awaiting_approval' AND created_at<=?2`).bind(at,at-30*24*60*60_000).run();
  return running;
 }
@@ -79,10 +87,15 @@ export async function expireImageGenerationJobs(db,at=Date.now()){
 export async function claimImageGenerationJob(db,{at=Date.now()}={}){
  await expireImageGenerationJobs(db,at);
  const lease=crypto.randomUUID()+crypto.randomUUID(),leaseHash=await sha(lease);
+ // Pick the oldest eligible job rather than the oldest job, so one job that
+ // lost its authority after the expiry pass cannot stall every workspace. The
+ // outer predicates repeat the check on the row that is actually updated.
  const row=await db.prepare(`UPDATE hx_media_generation_jobs AS j SET status='running',lease_hash=?1,lease_until=?2+?3,deadline=?2+?3,started_at=?2
- WHERE j.id=(SELECT q.id FROM hx_media_generation_jobs q WHERE q.status='queued' AND q.approved_at IS NOT NULL ORDER BY q.created_at,q.id LIMIT 1)
+ WHERE j.id=(SELECT q.id FROM hx_media_generation_jobs q WHERE q.status='queued' AND q.approved_at IS NOT NULL
+  AND ${mediaAccess('q.created_by','q.org_id','q.scope')} AND ${workspaceKeyStored('q.org_id')}
+  ORDER BY q.created_at,q.id LIMIT 1)
  AND j.status='queued' AND ${mediaAccess('j.created_by')}
- AND EXISTS(SELECT 1 FROM org_ai_settings ai WHERE ai.org_id=j.org_id AND ai.openai_key IS NOT NULL AND ai.openai_key!='')
+ AND ${workspaceKeyStored('j.org_id')}
  RETURNING *`).bind(leaseHash,at,LEASE_MS).first();
  return row?{job:row,lease}:null;
 }

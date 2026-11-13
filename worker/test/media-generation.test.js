@@ -96,3 +96,50 @@ test('members can cancel only unstarted image requests',async()=>{
  expect((await cancelImageGeneration(env.DB,ORG,OWNER,prepared.job.id)).job.status).toBe('cancelled');
  expect(await claimImageGenerationJob(env.DB)).toBeNull();
 });
+
+// One shared queue serves every workspace. A job that can no longer run must
+// not stay at its head and stall the jobs queued behind it.
+async function queuedJob(orgId,userId,scope,requestId,createdAt){
+ const prepared=await prepareImageGeneration(env.DB,orgId,userId,{scope,requestId,prompt:`Image for ${requestId}`});
+ expect((await approveImageGeneration(env.DB,orgId,userId,prepared.job.id,null)).job.status).toBe('queued');
+ await env.DB.prepare('UPDATE hx_media_generation_jobs SET created_at=?3 WHERE id=?1 AND org_id=?2').bind(prepared.job.id,orgId,createdAt).run();
+ return prepared.job.id;
+}
+async function otherAgent(orgId){
+ const now=new Date().toISOString();
+ await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+  VALUES(?1,'other-agent','otheragent','Other','Make images','personal','other',?2,?2)`).bind(orgId,now).run();
+ return 'ag:other-agent|other';
+}
+
+test('a queued image job that lost its Agent is failed and the next eligible job is claimed',async()=>{
+ const otherScope=await otherAgent(ORG);
+ const stuck=await queuedJob(ORG,OWNER,SCOPE,'req-head',1000);
+ const behind=await queuedJob(ORG,OTHER,otherScope,'req-behind',2000);
+ await env.DB.prepare("UPDATE custom_agents SET deleted_at=?2 WHERE org_id=?1 AND id='media-agent'").bind(ORG,new Date().toISOString()).run();
+ const claimed=await claimImageGenerationJob(env.DB);
+ expect(claimed?.job.id).toBe(behind);
+ expect(await env.DB.prepare('SELECT status,error_code FROM hx_media_generation_jobs WHERE id=?1 AND org_id=?2').bind(stuck,ORG).first()).toEqual({status:'failed',error_code:'permission_revoked'});
+});
+
+test('a queued image job whose workspace key was removed is failed without blocking other workspaces',async()=>{
+ const ORG2='personal:media-generation-2';
+ await upsertMembership(env.DB,ORG2,OTHER,'admin');
+ await env.DB.prepare("INSERT INTO org_settings(org_id,mode,updated_at) VALUES(?1,'harness',?2)").bind(ORG2,new Date().toISOString()).run();
+ const otherScope=await otherAgent(ORG2);
+ await saveAISettings(env.DB,ORG2,{openaiKey:'sk-workspace-media-zyxwvutsrqpo'},OTHER);
+ const stuck=await queuedJob(ORG,OWNER,SCOPE,'req-keyless',1000);
+ const behind=await queuedJob(ORG2,OTHER,otherScope,'req-keyed',2000);
+ await env.DB.prepare('DELETE FROM org_ai_settings WHERE org_id=?1').bind(ORG).run();
+ const claimed=await claimImageGenerationJob(env.DB);
+ expect(claimed?.job.id).toBe(behind);
+ expect(await env.DB.prepare('SELECT status,error_code FROM hx_media_generation_jobs WHERE id=?1 AND org_id=?2').bind(stuck,ORG).first()).toEqual({status:'failed',error_code:'workspace_key_missing'});
+});
+
+test('eligible image jobs are still claimed in creation order',async()=>{
+ const otherScope=await otherAgent(ORG);
+ const later=await queuedJob(ORG,OWNER,SCOPE,'req-later',2000);
+ const first=await queuedJob(ORG,OTHER,otherScope,'req-first',1000);
+ expect((await claimImageGenerationJob(env.DB)).job.id).toBe(first);
+ expect((await claimImageGenerationJob(env.DB)).job.id).toBe(later);
+});
