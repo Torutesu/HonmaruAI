@@ -28,8 +28,12 @@ async function setup() {
     .bind(orgId, orgId, new Date().toISOString()).run();
   await env.DB.prepare("INSERT INTO businesses (org_id, slug, name, created_by, created_at, private) VALUES (?1, 'general', 'General', ?2, ?3, 0)")
     .bind(orgId, ownerId, new Date().toISOString()).run();
+  await env.DB.prepare("INSERT INTO businesses (org_id, slug, name, created_by, created_at, private) VALUES (?1, 'private-room', 'Private room', ?2, ?3, 1)")
+    .bind(orgId, ownerId, new Date().toISOString()).run();
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'b:private-room',?2,?2,?3)")
+    .bind(orgId, ownerId, new Date().toISOString()).run();
   await setMode(env.DB, orgId, "harness", ownerId);
-  const scope = `b:general`;
+  const scope = `b:private-room`;
   expect(await createFileLedger(env.DB, {
     orgId, fileId, scope, path: "plans/launch.txt", createdBy: ownerId,
   })).toEqual({ created: true });
@@ -161,10 +165,10 @@ test("Simple mode, a deleted Room and a deleted current File all deny a live gra
   await setMode(env.DB, fixture.orgId, "simple", fixture.ownerId);
   expect((await call(filePath(), fixture.guestSession)).status).toBe(404);
   await setMode(env.DB, fixture.orgId, "harness", fixture.ownerId);
-  await env.DB.prepare("INSERT INTO hx_room_access (org_id, channel, version, deleted_at) VALUES (?1, 'b:general', 1, ?2)")
+  await env.DB.prepare("INSERT INTO hx_room_access (org_id, channel, version, deleted_at) VALUES (?1, 'b:private-room', 1, ?2)")
     .bind(fixture.orgId, new Date().toISOString()).run();
   expect((await call(filePath(), fixture.guestSession)).status).toBe(404);
-  await env.DB.prepare("DELETE FROM hx_room_access WHERE org_id = ?1 AND channel = 'b:general'").bind(fixture.orgId).run();
+  await env.DB.prepare("DELETE FROM hx_room_access WHERE org_id = ?1 AND channel = 'b:private-room'").bind(fixture.orgId).run();
   await env.DB.prepare("INSERT INTO workspace_tombstones (org_id, deleted_at, requested_by) VALUES (?1, ?2, ?3)")
     .bind(fixture.orgId, new Date().toISOString(), fixture.ownerId).run();
   expect((await call(filePath(), fixture.guestSession)).status).toBe(404);
@@ -213,8 +217,8 @@ test("workspace audience permissions do not inherit an external grant after memb
 
   await env.DB.prepare("UPDATE hx_external_resource_grants SET revoked_at=?1 WHERE org_id=?2 AND resource_id=?3 AND recipient_github_id=?4")
     .bind(new Date().toISOString(),fixture.orgId,fixture.fileId,fixture.guestId).run();
-  await env.DB.prepare("UPDATE hx_external_resource_audiences SET audience_type='room',room_id='b:general',permission='edit',version=version+1 WHERE org_id=?1 AND resource_type='file' AND resource_id=?2")
+  await env.DB.prepare("UPDATE hx_external_resource_audiences SET audience_type='room',room_id='b:private-room',permission='edit',version=version+1 WHERE org_id=?1 AND resource_type='file' AND resource_id=?2")
     .bind(fixture.orgId,fixture.fileId).run();
-  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='general'").bind(fixture.orgId).run();
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='private-room'").bind(fixture.orgId).run();
   expect((await call(filePath(),fixture.guestSession)).status).toBe(404);
 });
