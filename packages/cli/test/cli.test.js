@@ -48,6 +48,38 @@ test("workspace call sends JSON arguments and returns the MCP result", async () 
   assert.equal(stderr.read(), "");
 });
 
+test("skill aliases map reads and assignment changes to the scoped MCP tools", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    const structuredContent = req.params.name === "list_skills"
+      ? { skills: [{ id: "skill_1", name: "Release", visibility: "workspace" }] }
+      : req.params.name === "assign_skill_to_agent"
+        ? { agentId: "agent_1", skillId: "skill_1", assigned: true }
+        : { agentId: "agent_1", skillId: "skill_1", removed: true };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "skill", "list"]), 0);
+  assert.match(stdout.read(), /^skill_1\tRelease\tworkspace/);
+  stdout.clear();
+  assert.equal(await run(["workspace", "skill", "agent", "add", "agent_1", "skill_1"]), 0);
+  assert.match(stdout.read(), /Assigned Skill skill_1 to Agent agent_1/);
+  stdout.clear();
+  assert.equal(await run(["workspace", "skill", "agent", "remove", "agent_1", "skill_1"]), 0);
+  assert.match(stdout.read(), /Removed Skill skill_1 from Agent agent_1/);
+  assert.deepEqual(calls, [
+    { name: "list_skills", arguments: {} },
+    { name: "assign_skill_to_agent", arguments: { agentId: "agent_1", skillId: "skill_1" } },
+    { name: "remove_skill_from_agent", arguments: { agentId: "agent_1", skillId: "skill_1" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
 test("the command fails closed on malformed args and unknown flags", async () => {
   const stdout = output();
   const stderr = output();

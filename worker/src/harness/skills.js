@@ -184,8 +184,15 @@ export async function giveSkill(db, orgId, agentId, skillId, by) {
   return { given: true };
 }
 
-export async function takeSkill(db, orgId, agentId, skillId) {
-  await db.prepare("DELETE FROM hx_agent_skills WHERE org_id = ?1 AND agent_id = ?2 AND skill_id = ?3").bind(orgId, agentId, skillId).run();
+export async function takeSkill(db, orgId, agentId, skillId, by) {
+  const removed = await db.prepare(`DELETE FROM hx_agent_skills
+    WHERE org_id = ?1 AND agent_id = ?2 AND skill_id = ?3
+      AND ${skillAgentManager('?1', '?2', '?4')}`)
+    .bind(orgId, agentId, skillId, String(by)).run();
+  if (removed.meta?.changes) return { taken: true };
+  const manager = await db.prepare(`SELECT 1 AS ok WHERE ${skillAgentManager('?1', '?2', '?3')}`)
+    .bind(orgId, agentId, String(by)).first();
+  if (!manager) return { error: "Only an agent's maker or an admin can change it.", status: 403 };
   return { taken: true };
 }
 

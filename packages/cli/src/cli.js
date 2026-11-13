@@ -12,6 +12,11 @@ Usage:
   honmaru workspace call <tool> [--args JSON] [--api-url URL]
   honmaru workspace app list
   honmaru workspace app read <app-id>
+  honmaru workspace skill list
+  honmaru workspace skill get <skill-id>
+  honmaru workspace skill agent list <agent-id>
+  honmaru workspace skill agent add <agent-id> <skill-id>
+  honmaru workspace skill agent remove <agent-id> <skill-id>
   honmaru workspace app action list [<app-id>]
   honmaru workspace app action run <app-id> <name> --version N --gateway-id NODE --request-id ID --input JSON
   honmaru workspace app action read <app-id> <job-id>
@@ -461,6 +466,24 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
       onlyFlags(options, ["emoji"]); positionalCount(positional, 1, `honmaru workspace reaction ${operation} <message-id> --emoji EMOJI`);
       if (typeof options.emoji !== "string" || !options.emoji.trim()) throw new Error("--emoji is required.");
       return { tool: operation === "add" ? "add_reaction" : "remove_reaction", args: { messageId: positional[0], emoji: options.emoji } };
+    case "skill list":
+      onlyFlags(options, []); positionalCount(positional, 0, "honmaru workspace skill list");
+      return { tool: "list_skills", args: {} };
+    case "skill get":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace skill get <skill-id>");
+      return { tool: "get_skill", args: { skillId: positional[0] } };
+    case "skill agent": {
+      const [action, ...target] = positional;
+      if (action === "list") {
+        onlyFlags(options, []); positionalCount(target, 1, "honmaru workspace skill agent list <agent-id>");
+        return { tool: "list_agent_skills", args: { agentId: target[0] } };
+      }
+      if (action === "add" || action === "remove") {
+        onlyFlags(options, []); positionalCount(target, 2, `honmaru workspace skill agent ${action} <agent-id> <skill-id>`);
+        return { tool: action === "add" ? "assign_skill_to_agent" : "remove_skill_from_agent", args: { agentId: target[0], skillId: target[1] } };
+      }
+      throw new Error("Usage: honmaru workspace skill agent list|add|remove.");
+    }
     case "app list":
       onlyFlags(options, []); positionalCount(positional, 0, "honmaru workspace app list");
       return { tool: "list_apps", args: {} };
@@ -802,6 +825,15 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "rename_room") return `Renamed Room ${value.conversationId} to ${value.name}.`;
   if (command?.tool === "update_room_settings") return `Updated Room ${value.conversationId} settings (version ${value.settings?.version}).`;
   if (command?.tool === "get_room_settings") return JSON.stringify(value, null, 2);
+  if (command?.tool === "get_skill") return value.skill?.body || "No such Skill.";
+  if (Array.isArray(value.skills) && command?.tool === "list_skills") return value.skills.length
+    ? value.skills.map(skill => `${skill.id}\t${skill.name}${skill.visibility ? `\t${skill.visibility}` : ""}${skill.description ? `\t${skill.description}` : ""}`).join("\n")
+    : "No Skills are available.";
+  if (Array.isArray(value.skills) && command?.tool === "list_agent_skills") return value.skills.length
+    ? value.skills.map(skill => `${skill.id}\t${skill.name}`).join("\n")
+    : `No Skills are assigned to Agent ${value.agentId}.`;
+  if (command?.tool === "assign_skill_to_agent") return `Assigned Skill ${value.skillId} to Agent ${value.agentId}.`;
+  if (command?.tool === "remove_skill_from_agent") return `Removed Skill ${value.skillId} from Agent ${value.agentId}.`;
   if (command?.tool === "get_room_agent_access") return value.canGrantAccess
     ? value.missingAccessMembers?.length
       ? value.missingAccessMembers.map(member => `${member.memberRef}\t${member.name}`).join("\n")
