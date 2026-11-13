@@ -131,8 +131,34 @@ jobs:
             }
             core.setFailed(`Timed out waiting for Worker dependency ${revision}; Web remains unchanged.`);
 
+      # Cloudflare occasionally resets the Pages API while its status is
+      # degraded. Retry only network/5xx failures; credentials, configuration,
+      # and other deterministic errors should fail immediately.
       - name: Deploy to Pages
-        run: npx -y wrangler@4.149.0 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
+        run: |
+          set +e
+          for attempt in 1 2 3 4 5; do
+            log=$(mktemp)
+            npx -y wrangler@4.149.0 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true >"$log" 2>&1
+            status=$?
+            cat "$log"
+            if [ "$status" -eq 0 ]; then
+              rm -f "$log"
+              exit 0
+            fi
+            if ! grep -Eiq '(5[0-9][0-9]|upstream connect error|connection (reset|termination)|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed)' "$log"; then
+              rm -f "$log"
+              exit "$status"
+            fi
+            rm -f "$log"
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::Cloudflare Pages API remained unavailable after $attempt attempts."
+              exit "$status"
+            fi
+            delay=$((attempt * 15))
+            echo "::warning::Cloudflare Pages API returned a transient network/5xx error; retrying in ${delay}s (attempt $((attempt + 1))/5)."
+            sleep "$delay"
+          done
 
       - name: Attach the app domain
         working-directory: .
@@ -165,4 +191,3 @@ jobs:
             sleep 10
           done
           echo "::warning::https://$APP_HOST does not serve the app yet (its DNS record or certificate is missing); https://$PROJECT.pages.dev does."
-
