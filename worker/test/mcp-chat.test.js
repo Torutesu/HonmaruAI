@@ -115,35 +115,38 @@ test('MCP Room settings expose managed defaults and update only requested settin
 
 test('MCP Room visibility changes are admin-only, versioned, Harness-only, and preserve members', async () => {
   await setMode(env.DB, orgId, 'harness', actor.githubId);
-  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:general','beth','alex',?2)").bind(orgId, new Date().toISOString()).run();
+  actor.scopes = [...actor.scopes, 'chat:private'];
+  await initializeRoomRoles(env.DB, orgId, 'b:private', actor.githubId);
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:private','beth','alex',?2)").bind(orgId, new Date().toISOString()).run();
   await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
-  expect(await call('set_room_privacy', { conversationId: 'b:general', scope: 'private', version: 1 }))
-    .toMatchObject({ conversationId: 'b:general', scope: 'private', version: 2 });
-  expect(await env.DB.prepare("SELECT private FROM businesses WHERE org_id=?1 AND slug='general'").bind(orgId).first('private')).toBe(1);
-  expect(await env.DB.prepare("SELECT COUNT(*) FROM conversation_members WHERE org_id=?1 AND channel='b:general'").bind(orgId).first('COUNT(*)')).toBeGreaterThan(1);
+  await expect(call('set_room_privacy', { conversationId: 'b:general', scope: 'private', version: 1 })).rejects.toThrow('Default Rooms cannot change visibility.');
+  expect(await env.DB.prepare("SELECT private FROM businesses WHERE org_id=?1 AND slug='general'").bind(orgId).first('private')).toBe(0);
+  expect(await call('set_room_privacy', { conversationId: 'b:private', scope: 'private', version: 1 }))
+    .toMatchObject({ conversationId: 'b:private', scope: 'private', version: 2 });
   const privateRoomActor = { ...actor, scopes: [...actor.scopes, 'chat:private'] };
-  await expect(call('set_room_privacy', { conversationId: 'b:general', scope: 'public', version: 2 }, { ...actor, githubId: 'mcp-b', login: 'beth', scopes: [...actor.scopes, 'chat:private'] }))
+  await expect(call('set_room_privacy', { conversationId: 'b:private', scope: 'public', version: 2 }, { ...actor, githubId: 'mcp-b', login: 'beth', scopes: [...actor.scopes, 'chat:private'] }))
     .rejects.toThrow('Only a room admin can change its visibility.');
-  await expect(call('set_room_privacy', { conversationId: 'b:general', scope: 'public', version: 1 }, privateRoomActor))
+  await expect(call('set_room_privacy', { conversationId: 'b:private', scope: 'public', version: 1 }, privateRoomActor))
     .rejects.toThrow('Room roles changed. Reload before saving.');
-  expect(await call('set_room_privacy', { conversationId: 'b:general', scope: 'public', version: 2 }, privateRoomActor))
+  expect(await call('set_room_privacy', { conversationId: 'b:private', scope: 'public', version: 2 }, privateRoomActor))
     .toMatchObject({ scope: 'public', version: 3 });
   await setMode(env.DB, orgId, 'simple', actor.githubId);
-  await expect(call('set_room_privacy', { conversationId: 'b:general', scope: 'private', version: 3 }))
+  await expect(call('set_room_privacy', { conversationId: 'b:private', scope: 'private', version: 3 }))
     .rejects.toThrow('Room visibility changes are available in Harness mode.');
 });
 
 test('MCP Room guidelines read and version updates use current membership and build authority', async () => {
   await setMode(env.DB, orgId, 'harness', actor.githubId);
-  await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
-  expect(await call('get_room_guidelines', { conversationId: 'b:general' })).toMatchObject({
-    conversationId: 'b:general', guidelines: { body: '', version: 0, updatedAt: null }, maxLength: 4096,
+  actor.scopes = [...actor.scopes, 'chat:private'];
+  await initializeRoomRoles(env.DB, orgId, 'b:private', actor.githubId);
+  expect(await call('get_room_guidelines', { conversationId: 'b:private' })).toMatchObject({
+    conversationId: 'b:private', guidelines: { body: '', version: 0, updatedAt: null }, maxLength: 4096,
   });
-  const saved = await call('update_room_guidelines', { conversationId: 'b:general', body: 'Route approvals through Finance.', version: 0 });
+  const saved = await call('update_room_guidelines', { conversationId: 'b:private', body: 'Route approvals through Finance.', version: 0 });
   expect(saved.guidelines).toMatchObject({ body: 'Route approvals through Finance.', version: 1 });
-  expect(await call('get_room_guidelines', { conversationId: 'b:general' })).toMatchObject({ guidelines: { body: 'Route approvals through Finance.', version: 1 } });
-  await expect(call('update_room_guidelines', { conversationId: 'b:general', body: 'Stale write.', version: 0 })).rejects.toThrow('The guidelines or room membership changed. Reload before saving.');
-  await expect(call('update_room_guidelines', { conversationId: 'b:general', body: 'Not authorized.', version: 1 }, { ...actor, githubId: 'mcp-b', login: 'beth' })).rejects.toThrow('Only a room member can change its guidelines.');
+  expect(await call('get_room_guidelines', { conversationId: 'b:private' })).toMatchObject({ guidelines: { body: 'Route approvals through Finance.', version: 1 } });
+  await expect(call('update_room_guidelines', { conversationId: 'b:private', body: 'Stale write.', version: 0 })).rejects.toThrow('The guidelines or room membership changed. Reload before saving.');
+  await expect(call('update_room_guidelines', { conversationId: 'b:private', body: 'Not authorized.', version: 1 }, { ...actor, githubId: 'mcp-b', login: 'beth' })).rejects.toThrow('No accessible conversation.');
   const latest = await env.DB.prepare("SELECT body FROM audit_events WHERE org_id=?1 AND action='room.guidelines_changed' ORDER BY seq DESC LIMIT 1").bind(orgId).first();
   expect(latest.body).not.toContain('Route approvals through Finance.');
   await setMode(env.DB, orgId, 'simple', actor.githubId);
@@ -167,23 +170,24 @@ test('MCP Room mute is personal and reorder preserves the rest of the versioned 
 });
 
 test('MCP Room member list/add/remove uses opaque refs, room relations and admin safeguards', async () => {
-  await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
+  actor.scopes = [...actor.scopes, 'chat:private'];
+  await initializeRoomRoles(env.DB, orgId, 'b:private', actor.githubId);
   const roster = await listMembers(env.DB, orgId, 'mcp-a');
   const alex = roster.find(member => member.login === 'alex');
   const cara = roster.find(member => member.login === 'cara');
-  await expect(call('add_room_members', { conversationId: 'b:general', memberRefs: [cara.ref] }))
+  await expect(call('add_room_members', { conversationId: 'b:private', memberRefs: [cara.ref] }))
     .resolves.toMatchObject({ added: [cara.ref], relation: 'member', version: 2 });
   await upsertUser(env.DB, { githubId: 'mcp-d', login: 'drew', name: 'Drew', locale: 'en' });
   await upsertMembership(env.DB, orgId, 'mcp-d', 'guest');
   const drew = (await listMembers(env.DB, orgId, 'mcp-a')).find(member => member.login === 'drew');
-  await expect(call('add_room_members', { conversationId: 'b:general', memberRefs: [drew.ref], relation: 'admin' }))
+  await expect(call('add_room_members', { conversationId: 'b:private', memberRefs: [drew.ref], relation: 'admin' }))
     .rejects.toThrow('A guest cannot become a room admin');
-  await expect(call('add_room_members', { conversationId: 'b:general', memberRefs: [drew.ref], relation: 'admin' }, { ...actor, githubId: 'mcp-c', login: 'cara', name: 'Cara' }))
+  await expect(call('add_room_members', { conversationId: 'b:private', memberRefs: [drew.ref], relation: 'admin' }, { ...actor, githubId: 'mcp-c', login: 'cara', name: 'Cara' }))
     .rejects.toThrow('Only a room admin can add another admin');
-  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:general' AND login='drew'").bind(orgId).first('n')).toBe(0);
-  const added = await call('add_room_members', { conversationId: 'b:general', memberRefs: [other.ref], relation: 'admin' });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:private' AND login='drew'").bind(orgId).first('n')).toBe(0);
+  const added = await call('add_room_members', { conversationId: 'b:private', memberRefs: [other.ref], relation: 'admin' });
   expect(added).toMatchObject({ added: [other.ref], relation: 'admin', version: 3 });
-  const listed = await call('list_room_members', { conversationId: 'b:general' });
+  const listed = await call('list_room_members', { conversationId: 'b:private' });
   expect(listed).toMatchObject({ version: 3, members: [
     { id: alex.ref, name: 'alex', type: 'person', relation: 'admin' },
     { id: other.ref, name: 'beth', type: 'person', relation: 'admin' },
@@ -192,10 +196,10 @@ test('MCP Room member list/add/remove uses opaque refs, room relations and admin
   expect(JSON.stringify(listed)).not.toContain('mcp-a');
   expect(JSON.stringify(listed)).not.toContain('mcp-b');
   const caraActor = { ...actor, githubId: 'mcp-c', login: 'cara', name: 'Cara' };
-  await expect(call('remove_room_members', { conversationId: 'b:general', memberRefs: [other.ref] }, caraActor)).rejects.toThrow('Only a room admin');
-  expect(await call('remove_room_members', { conversationId: 'b:general', memberRefs: [alex.ref] }, { ...actor, githubId: 'mcp-b', login: 'beth', name: 'Beth' }))
+  await expect(call('remove_room_members', { conversationId: 'b:private', memberRefs: [other.ref] }, caraActor)).rejects.toThrow('Only a room admin');
+  expect(await call('remove_room_members', { conversationId: 'b:private', memberRefs: [alex.ref] }, { ...actor, githubId: 'mcp-b', login: 'beth', name: 'Beth' }))
     .toMatchObject({ removed: [alex.ref], version: 4 });
-  await expect(call('remove_room_members', { conversationId: 'b:general', memberRefs: [other.ref] }, { ...actor, githubId: 'mcp-b', login: 'beth', name: 'Beth' }))
+  await expect(call('remove_room_members', { conversationId: 'b:private', memberRefs: [other.ref] }, { ...actor, githubId: 'mcp-b', login: 'beth', name: 'Beth' }))
     .rejects.toThrow('Keep at least one active human room admin');
 });
 
@@ -206,26 +210,27 @@ test('member removal is advertised as a destructive MCP tool', () => {
 
 test('MCP Room Agent assignment is separate from human and Agent access grants', async () => {
   await setMode(env.DB, orgId, 'harness', actor.githubId);
-  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:general','beth','alex',?2)").bind(orgId, new Date().toISOString()).run();
-  await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
+  actor.scopes = [...actor.scopes, 'chat:private'];
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'b:private','beth','alex',?2)").bind(orgId, new Date().toISOString()).run();
+  await initializeRoomRoles(env.DB, orgId, 'b:private', actor.githubId);
   const at = new Date().toISOString();
   await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES (?1,'mcp-room-agent','mcp-room-agent','Room Agent','Plan.','team','alex',?2,?2)").bind(orgId, at).run();
   await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES (?1,'mcp-room-agent','private','[]',?2)").bind(orgId,at).run();
-  const plan=await call('get_room_agent_access',{conversationId:'b:general',agentId:'mcp-room-agent'});
+  const plan=await call('get_room_agent_access',{conversationId:'b:private',agentId:'mcp-room-agent'});
   expect(plan.missingAccessMembers).toHaveLength(1);
   expect(plan.missingAccessMembers[0].name).toBe('beth');
-  const beforePeople = await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:general'").bind(orgId).first('n');
-  expect(await call('add_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent', grantAccessMemberRefs:[plan.missingAccessMembers[0].memberRef] }))
+  const beforePeople = await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:private'").bind(orgId).first('n');
+  expect(await call('add_room_agent', { conversationId: 'b:private', agentId: 'mcp-room-agent', grantAccessMemberRefs:[plan.missingAccessMembers[0].memberRef] }))
     .toMatchObject({ agentId: 'mcp-room-agent', added: true, granted:1, version: 2 });
   expect(await env.DB.prepare("SELECT 1 FROM hx_agent_members WHERE org_id=?1 AND agent_id='mcp-room-agent' AND user_id='mcp-b'").bind(orgId).first()).not.toBeNull();
-  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_agents WHERE org_id=?1 AND channel='b:general' AND agent_id='mcp-room-agent'").bind(orgId).first('n')).toBe(1);
-  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:general'").bind(orgId).first('n')).toBe(beforePeople);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_agents WHERE org_id=?1 AND channel='b:private' AND agent_id='mcp-room-agent'").bind(orgId).first('n')).toBe(1);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM conversation_members WHERE org_id=?1 AND channel='b:private'").bind(orgId).first('n')).toBe(beforePeople);
   const member = { ...actor, githubId: 'mcp-b', login: 'beth', scopes: [...actor.scopes, 'chat:private'] };
-  await expect(call('remove_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent' }, member)).rejects.toThrow('Only a room admin can remove Agents.');
-  expect(await call('remove_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent' }))
+  await expect(call('remove_room_agent', { conversationId: 'b:private', agentId: 'mcp-room-agent' }, member)).rejects.toThrow('Only a room admin can remove Agents.');
+  expect(await call('remove_room_agent', { conversationId: 'b:private', agentId: 'mcp-room-agent' }))
     .toMatchObject({ agentId: 'mcp-room-agent', removed: true, version: 3 });
   await setMode(env.DB, orgId, 'simple', actor.githubId);
-  await expect(call('add_room_agent', { conversationId: 'b:general', agentId: 'mcp-room-agent' }))
+  await expect(call('add_room_agent', { conversationId: 'b:private', agentId: 'mcp-room-agent' }))
     .rejects.toThrow('Room Agent assignments are available in Harness mode.');
 });
 

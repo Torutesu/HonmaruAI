@@ -12,6 +12,7 @@ beforeEach(async()=>{
  await upsertUser(env.DB,{githubId:'owner',login:'file-owner',name:'Owner'});
  await upsertMembership(env.DB,'files-one','owner','member');
  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_at) VALUES('files-one','general','General','now'),('files-one','private','Private','now')").run();
+ await env.DB.prepare("INSERT INTO conversation_members VALUES('files-one','b:private','file-owner','file-owner','now')").run();
  expect(await createFileLedger(env.DB,{...scope,scope:'b:general',path:'notes/report.txt'})).toEqual({created:true});
 });
 test('competing writes preserve one winner and immutable history',async()=>{
@@ -54,10 +55,12 @@ test('invalid metadata and absent expected versions do not create partial record
 });
 
 test('revoking current room or workspace access fences both creation and append',async()=>{
- await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id='files-one' AND slug='general'").run();
+ await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id='files-one' AND slug='private'").run();
+ await env.DB.prepare("UPDATE hx_workspace_files SET scope='b:private' WHERE id=?").bind(scope.fileId).run();
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id='files-one' AND channel='b:private'").run();
  expect(await save()).toEqual({saved:false});
- expect(await createFileLedger(env.DB,{...scope,fileId:'denied',scope:'b:general',path:'secret.txt'})).toEqual({created:false});
- await env.DB.prepare("INSERT INTO conversation_members VALUES('files-one','b:general','file-owner','file-owner','now')").run();
+ expect(await createFileLedger(env.DB,{...scope,fileId:'denied',scope:'b:private',path:'secret.txt'})).toEqual({created:false});
+ await env.DB.prepare("INSERT INTO conversation_members VALUES('files-one','b:private','file-owner','file-owner','now')").run();
  expect(await save()).toEqual({saved:true,version:1});
  await env.DB.prepare("DELETE FROM memberships WHERE org_id='files-one' AND user_github_id='owner'").run();
  expect(await save({expectedVersion:1})).toEqual({saved:false});
@@ -110,7 +113,9 @@ test('history is paged newest first without disclosing internal object keys',asy
 test('revoked readers cannot enumerate history or fetch historical content',async()=>{
  await save();
  expect(await history({orgId:'other'})).toEqual([]);expect(await readContent({orgId:'other'})).toBeNull();
- await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id='files-one'").run();
+ await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id='files-one' AND slug='private'").run();
+ await env.DB.prepare("UPDATE hx_workspace_files SET scope='b:private' WHERE id=?").bind(scope.fileId).run();
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id='files-one' AND channel='b:private'").run();
  expect(await history()).toEqual([]);expect(await readContent()).toBeNull();
 });
 test('tombstones and purged versions have no content receipt while history marks their state',async()=>{
