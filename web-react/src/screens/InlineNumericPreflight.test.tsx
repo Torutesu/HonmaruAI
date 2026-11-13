@@ -14,9 +14,10 @@ async function renderView(){
  let tree:ReturnType<typeof create>;await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
  return {tree:tree!,api,row}
 }
+function activateAmount(tree:ReturnType<typeof create>){act(()=>tree.root.findAllByProps({className:'hx-cell-display'}).find(node=>String(node.props['aria-label']).startsWith('Amount:'))!.props.onClick())}
 
 test('inline number warns and retains an unsafe value; a corrected value saves',async()=>{
- const {tree,api,row}=await renderView(),input=()=>tree.root.findByProps({'aria-label':'Amount'})
+ const {tree,api,row}=await renderView();activateAmount(tree);const input=()=>tree.root.findByProps({'aria-label':'Amount'})
  act(()=>input().props.onChange({target:{value:'9007199254740993'}}));act(()=>input().props.onBlur({currentTarget:{validity:{badInput:false}}}))
  expect(api.updateRow).not.toHaveBeenCalled();expect(input().props.value).toBe('9007199254740993');expect(input().props['aria-invalid']).toBe(true);expect(tree.root.findByProps({role:'alert'})).toBeTruthy()
  act(()=>input().props.onChange({target:{value:'0.1'}}));await act(async()=>{input().props.onBlur({currentTarget:{validity:{badInput:false}}});await new Promise(resolve=>setTimeout(resolve,0))})
@@ -24,7 +25,7 @@ test('inline number warns and retains an unsafe value; a corrected value saves',
 })
 
 test('incomplete number does not clear a stored value, while an explicit empty field can',async()=>{
- const {tree,api,row}=await renderView(),input=()=>tree.root.findByProps({'aria-label':'Amount'})
+ const {tree,api,row}=await renderView();activateAmount(tree);const input=()=>tree.root.findByProps({'aria-label':'Amount'})
  act(()=>input().props.onInput({currentTarget:{validity:{badInput:true}}}));act(()=>input().props.onChange({target:{value:'',validity:{badInput:true}}}));act(()=>input().props.onBlur({currentTarget:{validity:{badInput:true}}}))
  expect(api.updateRow).not.toHaveBeenCalled();expect(input().props['aria-invalid']).toBe(true)
  act(()=>input().props.onBlur({currentTarget:{validity:{badInput:false}}}));expect(api.updateRow).not.toHaveBeenCalled();expect(input().props['aria-invalid']).toBe(true)
@@ -34,13 +35,13 @@ test('incomplete number does not clear a stored value, while an explicit empty f
 })
 
 test('IME enter does not blur a number field, while ordinary enter does',async()=>{
- const {tree}=await renderView(),input=()=>tree.root.findByProps({'aria-label':'Amount'}),blur=vi.fn()
+ const {tree}=await renderView();activateAmount(tree);const input=()=>tree.root.findByProps({'aria-label':'Amount'}),blur=vi.fn()
  act(()=>input().props.onKeyDown({key:'Enter',nativeEvent:{isComposing:true},target:{blur}}));act(()=>input().props.onKeyDown({key:'Enter',nativeEvent:{keyCode:229},target:{blur}}));expect(blur).not.toHaveBeenCalled()
  act(()=>input().props.onKeyDown({key:'Enter',nativeEvent:{},target:{blur}}));expect(blur).toHaveBeenCalledOnce();act(()=>tree.unmount())
 })
 
 test('numeric editor keeps its identity and draft across parent renders',async()=>{
- const {tree,api}=await renderView(),original=tree.root.findByProps({'aria-label':'Amount'})
+ const {tree,api}=await renderView();activateAmount(tree);const original=tree.root.findByProps({'aria-label':'Amount'})
  act(()=>original.props.onChange({target:{value:'9007199254740993'}}))
  act(()=>tree.update(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={api} appId="tasks" onBack={()=>{}} initialSection="data"/>))
  const current=tree.root.findByProps({'aria-label':'Amount'})
@@ -55,6 +56,7 @@ test('changing a column type does not change hook order and preserves non-numeri
  const original=await api.app.mock.results[0].value
  api.app.mockResolvedValue({...original,table:{...original.table,columns:[{id:'amount',name:'Amount',type:'text'},original.table.columns[1]]}})
  await act(async()=>{tree.root.findByProps({'aria-label':'データを更新'}).props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+ activateAmount(tree)
  const input=()=>tree.root.findByProps({'aria-label':'Amount'})
  expect(input().props.type).toBe('text')
  act(()=>input().props.onChange({target:{value:'abc'}}))
