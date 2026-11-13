@@ -23,6 +23,8 @@ Usage:
   honmaru workspace room reorder --rooms ROOM,ROOM,...
   honmaru workspace room member list <room-id>
   honmaru workspace room member add|remove <room-id> --members REF,REF [--relation admin|member]
+  honmaru workspace room agent add <room-id> <agent-id> [--grant-access]
+  honmaru workspace room agent remove <room-id> <agent-id>
   honmaru workspace room get <room-id>
   honmaru workspace room update <room-id> [--name NAME] [--mentioned-only true|false] [--main-agent ID|auto] [--icon-color COLOR]
   honmaru workspace room visibility set <room-id> --scope public|private --version N
@@ -126,7 +128,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access"]);
 
 function parseOptions(args, { allowArgs = false, allowWorkspaceFlags = false } = {}) {
   const options = { json: false };
@@ -274,6 +276,20 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
         return { tool: action === "add" ? "add_room_members" : "remove_room_members", args };
       }
       throw new Error("Usage: honmaru workspace room member list|add|remove.");
+    }
+    case "room agent": {
+      const [action, ...target] = positional;
+      if (action === "add") {
+        onlyFlags(options, ["grantAccess"]); positionalCount(target, 2, "honmaru workspace room agent add <room-id> <agent-id> [--grant-access]");
+        const args = { conversationId: target[0], agentId: target[1] };
+        if (options.grantAccess === true) args.grantAccess = true;
+        return { tool: "add_room_agent", args };
+      }
+      if (action === "remove") {
+        onlyFlags(options, []); positionalCount(target, 2, "honmaru workspace room agent remove <room-id> <agent-id>");
+        return { tool: "remove_room_agent", args: { conversationId: target[0], agentId: target[1] } };
+      }
+      throw new Error("Usage: honmaru workspace room agent add|remove <room-id> <agent-id>.");
     }
     case "room rename":
       onlyFlags(options, ["name"]); positionalCount(positional, 1, "honmaru workspace room rename <room-id> --name NAME");
