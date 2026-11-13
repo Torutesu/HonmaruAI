@@ -22,13 +22,13 @@ const subjects = `SELECT 'person' AS kind,u.github_id AS id,u.name,u.login,
 
 export async function roomRoleState(db, orgId, channel, {includeArchived=false}={}) {
   if(typeof channel!=='string'||!channel.startsWith('b:'))return null;
-  const room=await db.prepare(`SELECT b.created_by,b.private,COALESCE(p.version,0) AS version,
+  const room=await db.prepare(`SELECT b.created_by,b.private,b.is_default,b.fixed_membership,COALESCE(p.version,0) AS version,
     CASE WHEN p.channel IS NULL THEN 0 ELSE 1 END AS managed
     FROM businesses b LEFT JOIN hx_room_access p ON p.org_id=b.org_id AND p.channel=?2
     WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND p.deleted_at IS NULL ${includeArchived?'':'AND b.archived_at IS NULL'}`).bind(orgId,channel).first();
   if(!room)return null;
   const {results}=await db.prepare(includeArchived?subjects.replaceAll(' AND b.archived_at IS NULL',''):subjects).bind(orgId,channel).all();
-  return {managed:!!room.managed,private:!!room.private,isDefault:channel==='b:general',version:room.version,createdBy:room.created_by,members:results};
+  return {managed:!!room.managed,private:!!room.private,isDefault:!!room.is_default||channel==='b:general',fixedMembership:!!room.fixed_membership,version:room.version,createdBy:room.created_by,members:results};
 }
 
 // Existing Simple rooms remain unchanged unless their current creator opts in.
@@ -105,6 +105,7 @@ export async function removeRoomSubject(db, orgId, channel, {actorId,kind,id,ver
   const actor=state.members.find(m=>m.kind==='person'&&m.id===actorId);
   const target=state.members.find(m=>m.kind===kind&&m.id===id);
   if(!actor?.eligible)return {error:'Only a room member can remove members.',status:403};
+  if(state.fixedMembership)return {error:'Room membership is fixed. Ask a workspace admin to change this setting first.',status:403};
   if(!target)return {error:'That member is no longer in the room.',status:404};
   const self=kind==='person'&&actorId===id;
   if(target.role==='admin'&&actor.role!=='admin'&&!self)return {error:'Only a room admin can remove an admin.',status:403};
@@ -118,6 +119,7 @@ export async function removeRoomSubject(db, orgId, channel, {actorId,kind,id,ver
       AND EXISTS(SELECT 1 FROM (${subjects}) actor JOIN (${subjects}) target
         ON target.kind=?4 AND target.id=?5 AND target.membership=?6
         WHERE actor.kind='person' AND actor.id=?3 AND actor.eligible=1
+        AND (?4!='person' OR EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND fixed_membership=0))
         AND (target.role!='admin' OR actor.role='admin' OR (?4='person' AND ?3=?5))
         AND (?4!='person' OR target.role!='admin' OR EXISTS(SELECT 1 FROM (${subjects}) other WHERE other.kind='person' AND other.id!=?5 AND other.role='admin' AND other.eligible=1)))`)
       .bind(orgId,channel,actorId,kind,id,target.membership,state.version,nonce),
@@ -135,8 +137,8 @@ export async function removeRoomSubject(db, orgId, channel, {actorId,kind,id,ver
 // messages public through legacy access queries and same-name recreation.
 export async function deleteManagedRoom(db,orgId,channel,{actorId,version}) {
   actorId=String(actorId||'');
-  if(channel==='b:general')return {error:'Default Rooms cannot be deleted.',status:403};
   const state=await roomRoleState(db,orgId,channel,{includeArchived:true});
+  if(state?.isDefault)return {error:'Default Rooms cannot be deleted.',status:403};
   if(!state?.managed) {
     // A concurrently deleted managed room must never fall back to the legacy
     // physical DELETE, which would erase its private historical boundary.
@@ -180,6 +182,7 @@ export async function changeManagedRoomMembers(db,orgId,channel,{actorId,adding=
   }
   const actor=state.members.find(m=>m.kind==='person'&&m.id===actorId&&m.eligible);
   if(!actor)return {error:'Only a room member can change its members.',status:403};
+  if(state.fixedMembership&&removing.length)return {error:'Room membership is fixed. Ask a workspace admin to change this setting first.',status:403};
   if(requireAdmin&&actor.role!=='admin')return {error:'Only a room admin can remove members.',status:403};
   const removeIds=[...new Set(removing.map(m=>String(m.userId)))];
   const addIds=[...new Set(adding.map(m=>String(m.userId)))];
@@ -208,9 +211,10 @@ export async function changeManagedRoomMembers(db,orgId,channel,{actorId,adding=
   const gate='EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2 AND mutation_id=?3)';
   const result=await db.batch([
     db.prepare(`UPDATE hx_room_access SET version=version+1,mutation_id=?3 WHERE org_id=?1 AND channel=?2 AND version=?4 AND deleted_at IS NULL
+      AND (?8=0 OR EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND fixed_membership=0))
       AND (${snapshotSql})=?5
       AND (SELECT json_group_array(json_array(id,created_at,login,workspace_role)) FROM (SELECT m.user_github_id AS id,m.created_at,u.login,m.role AS workspace_role FROM memberships m JOIN users u ON u.github_id=m.user_github_id WHERE m.org_id=?1 AND m.user_github_id IN(SELECT value FROM json_each(?6)) ORDER BY m.user_github_id))=?7`)
-      .bind(orgId,channel,nonce,state.version,expected,JSON.stringify(addIds),addSnapshot),
+      .bind(orgId,channel,nonce,state.version,expected,JSON.stringify(addIds),addSnapshot,removeIds.length?1:0),
     ...people.map(p=>db.prepare(`INSERT OR IGNORE INTO conversation_members(org_id,channel,login,added_by,added_at) SELECT ?1,?2,?4,?5,?6 WHERE ${gate}`).bind(orgId,channel,nonce,p.login,actor.login,at)),
     ...people.map(p=>db.prepare(`INSERT INTO hx_room_roles(org_id,channel,subject_kind,subject_id,role,member_since,updated_by,updated_at)
       SELECT ?1,?2,'person',?4,?5,?6,?7,?8 WHERE ${gate}
@@ -393,8 +397,8 @@ export async function addManagedRoomAgent(db,orgId,channel,{actorId,agentId,gran
 
 export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,version,name}) {
   if(name!==undefined&&(typeof name!=='string'||!name.trim()||name.trim().length>120))return {error:'A room name of at most 120 characters is required.',status:400};
-  if(channel==='b:general'&&typeof archived==='boolean')return {error:'Default Rooms cannot be archived.',status:403};
   const state=await roomRoleState(db,orgId,channel,{includeArchived:true});
+  if(state?.isDefault&&typeof archived==='boolean')return {error:'Default Rooms cannot be archived.',status:403};
   if(!state?.managed){
     const policy=await db.prepare('SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2').bind(orgId,channel).first();
     return policy?{error:'No such active room.',status:404}:{managed:false};
@@ -425,7 +429,7 @@ export async function archiveManagedRoom(db,orgId,channel,{actorId,archived,vers
 export async function setRoomPrivacy(db,orgId,channel,{actorId,private:privateRoom,version}) {
   if(typeof privateRoom!=='boolean'||!Number.isSafeInteger(version)||version<1)return {error:'A visibility and current room version are required.',status:400};
   const state=await roomRoleState(db,orgId,channel);
-  if(channel==='b:general')return {error:'Default Rooms cannot change visibility.',status:403};
+  if(state?.isDefault)return {error:'Default Rooms cannot change visibility.',status:403};
   if(!state?.managed)return {error:'No such managed room.',status:404};
   const actor=state.members.find(m=>m.kind==='person'&&m.id===String(actorId)&&m.eligible&&m.role==='admin');
   if(!actor)return {error:'Only a room admin can change its visibility.',status:403};
@@ -447,11 +451,14 @@ export async function setRoomPrivacy(db,orgId,channel,{actorId,private:privateRo
 export async function changeLegacyRoomMembers(db,orgId,channel,{actorId,adding,removing}) {
   const actor=await db.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND role='owner'").bind(orgId,String(actorId)).first();
   if(!actor)return {error:'Workspace ownership changed. Reload before saving.',status:403};
+  const policy=await db.prepare('SELECT fixed_membership FROM businesses WHERE org_id=?1 AND \'b:\'||slug=?2').bind(orgId,channel).first();
+  if(policy?.fixed_membership&&removing?.length)return {error:'Room membership is fixed. Ask a workspace admin to change this setting first.',status:403};
   const people=[...new Map([...adding,...removing].map(p=>[p.userId,p])).values()].sort((a,b)=>a.userId<b.userId?-1:a.userId>b.userId?1:0);
   if(!people.length)return {added:[],removed:[]};
   const ids=JSON.stringify(people.map(p=>p.userId)),expected=JSON.stringify(people.map(p=>[p.userId,p.joinedAt,p.login,p.role]));
   const guard=`NOT EXISTS(SELECT 1 FROM hx_room_access WHERE org_id=?1 AND channel=?2)
     AND EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND private=1)
+    AND (?9=0 OR EXISTS(SELECT 1 FROM businesses WHERE org_id=?1 AND 'b:'||slug=?2 AND fixed_membership=0))
     AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?3 AND created_at=?4 AND role='owner')
     AND (SELECT json_group_array(json_array(id,stamp,login,role)) FROM (
       SELECT m.user_github_id AS id,m.created_at AS stamp,u.login,m.role FROM memberships m JOIN users u ON u.github_id=m.user_github_id
@@ -459,8 +466,8 @@ export async function changeLegacyRoomMembers(db,orgId,channel,{actorId,adding,r
   const at=new Date().toISOString(),binds=[orgId,channel,String(actorId),actor.created_at,ids,expected];
   const result=await db.batch([
     ...adding.map(p=>db.prepare(`INSERT OR IGNORE INTO conversation_members(org_id,channel,login,added_by,added_at)
-      SELECT ?1,?2,?7,(SELECT login FROM users WHERE github_id=?3),?8 WHERE ${guard}`).bind(...binds,p.login,at)),
-    ...removing.map(p=>db.prepare(`DELETE FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login=?7 AND ${guard}`).bind(...binds,p.login)),
+      SELECT ?1,?2,?7,(SELECT login FROM users WHERE github_id=?3),?8 WHERE ${guard}`).bind(...binds,p.login,at,removing?.length?1:0)),
+    ...removing.map(p=>db.prepare(`DELETE FROM conversation_members WHERE org_id=?1 AND channel=?2 AND login=?7 AND ${guard}`).bind(...binds,p.login,at,removing?.length?1:0)),
   ]);
   if(!result.some(r=>r.meta?.changes))return {error:'Room or workspace membership changed. Reload before saving.',status:409};
   return {added:adding.filter((_,i)=>result[i].meta?.changes),removed:removing.filter((_,i)=>result[adding.length+i].meta?.changes)};

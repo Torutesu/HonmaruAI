@@ -169,6 +169,10 @@ CREATE TABLE IF NOT EXISTS businesses (
   description TEXT,
   /* 1: only its members (conversation_members) can see it at all. */
   private     INTEGER NOT NULL DEFAULT 0,
+  /* New workspace members join every default Room. */
+  is_default  INTEGER NOT NULL DEFAULT 0,
+  /* Room admins cannot remove individual members while this is enabled. */
+  fixed_membership INTEGER NOT NULL DEFAULT 0,
   /* Set when the channel is archived: out of every list, its history kept. */
   archived_at TEXT,
   PRIMARY KEY (org_id, slug)

@@ -99,7 +99,7 @@ test('MCP Room rename, archive, restore and archive listing require chat:private
 test('MCP Room settings expose managed defaults and update only requested settings under build authority', async () => {
   await initializeRoomRoles(env.DB, orgId, 'b:general', actor.githubId);
   expect(await call('get_room_settings', { conversationId: 'b:general' })).toMatchObject({
-    conversationId: 'b:general', canEdit: true, settings: { name: 'General', color: 'teal', mentionedOnly: false, defaultAgentId: null, version: 1, responseVersion: 0 },
+    conversationId: 'b:general', canEdit: true, settings: { name: 'General', color: 'teal', mentionedOnly: false, defaultAgentId: null, isDefault: true, fixedMembership: false, version: 1, responseVersion: 0 },
   });
   const updated = await call('update_room_settings', { conversationId: 'b:general', name: 'Operations', mentionedOnly: true, color: 'lake' });
   expect(updated.settings).toMatchObject({ name: 'Operations', color: 'lake', mentionedOnly: true, version: 2, responseVersion: 1 });

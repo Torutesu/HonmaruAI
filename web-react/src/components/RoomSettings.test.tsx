@@ -6,9 +6,9 @@ import {Dialog} from './Dialog'
 vi.mock('./Dialog',()=>({Dialog:({children,footer}:any)=><section>{children}{footer}</section>}))
 vi.mock('../utils/i18n',()=>({useT:()=> (s:string)=>s}))
 const api={httpBase:'https://relay.test',orgId:'org',sessionToken:'token'}
-const settings={name:'Planning',color:'teal',mentionedOnly:false,defaultAgentId:null,version:4,responseVersion:2}
+const settings={name:'Planning',color:'teal',mentionedOnly:false,defaultAgentId:null,isDefault:false,fixedMembership:false,version:4,responseVersion:2}
 const reply=(body:any,status=200)=>({ok:status<400,status,json:async()=>body})
-const loaded=(overrides={})=>reply({settings,availableAgents:[],canEdit:true,canChangeResponses:true,scope:'public',canChangeVisibility:true,...overrides})
+const loaded=(overrides={})=>reply({settings,availableAgents:[],canEdit:true,canChangeResponses:true,canChangeRoomPolicies:true,canChangeDefault:true,isPrivate:false,scope:'public',canChangeVisibility:true,...overrides})
 const find=(tree:ReturnType<typeof create>,name:string)=>tree.root.findAllByType('button').find(n=>n.children.includes(name))!
 test('webhook management opens only on demand and returns to the room settings',async()=>{
  const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockResolvedValueOnce(reply({hooks:[]}));vi.stubGlobal('fetch',fetcher)
@@ -31,9 +31,9 @@ test('loads authoritative settings and saves all fields with the reviewed versio
  act(()=>tree.root.findByProps({'aria-label':'Room name'}).props.onChange({target:{value:' Changed '}}))
  act(()=>tree.root.findByProps({className:'room-create-color'}).props.onClick())
  act(()=>tree.root.findByProps({'aria-label':'Lake'}).props.onClick())
- act(()=>tree.root.findByProps({role:'switch'}).props.onChange({target:{checked:true}}))
+ act(()=>tree.root.findByProps({'aria-label':'Mentioned only'}).props.onChange({target:{checked:true}}))
  await act(async()=>find(tree,'Save').props.onClick())
- expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'org',channel:'b:room',name:'Changed',color:'lake',mentionedOnly:true,defaultAgentId:null,version:4,responseVersion:2})
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'org',channel:'b:room',name:'Changed',color:'lake',mentionedOnly:true,defaultAgentId:null,isDefault:false,fixedMembership:false,version:4,responseVersion:2})
  expect(saved).toHaveBeenCalledOnce();expect(close).toHaveBeenCalledOnce();act(()=>tree.unmount())
 })
 test('selects a room default agent and marks the settings dirty',async()=>{
@@ -45,6 +45,16 @@ test('selects a room default agent and marks the settings dirty',async()=>{
  expect(find(tree,'Save').props.disabled).toBe(false)
  await act(async()=>find(tree,'Save').props.onClick())
  expect(JSON.parse(fetcher.mock.calls[1][1].body).defaultAgentId).toBe('agent-1');act(()=>tree.unmount())
+})
+test('workspace admins can set default Rooms and Room admins can fix membership',async()=>{
+ const fetcher=vi.fn().mockResolvedValueOnce(loaded()).mockResolvedValueOnce(reply({settings:{...settings,isDefault:true,fixedMembership:true,version:5,responseVersion:3}}));vi.stubGlobal('fetch',fetcher)
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<RoomSettings api={api} view="b:room" onClose={vi.fn()} onSaved={vi.fn()}/> )})
+ act(()=>tree.root.findByProps({'aria-label':'Default Room'}).props.onChange({target:{checked:true}}))
+ act(()=>tree.root.findByProps({'aria-label':'Fixed membership'}).props.onChange({target:{checked:true}}))
+ await act(async()=>find(tree,'Save').props.onClick())
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({isDefault:true,fixedMembership:true,version:4})
+ act(()=>tree.unmount())
 })
 test('room admins can change visibility with the room version and reload the authoritative state',async()=>{
  const fetcher=vi.fn()
@@ -87,9 +97,9 @@ test('read-only visitors and response permissions are reflected independently',a
  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(loaded({canEdit:false,canChangeResponses:false,canChangeVisibility:false})).mockResolvedValueOnce(loaded({canChangeResponses:false,canChangeVisibility:true})))
  let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<RoomSettings api={api} view="b:room" onClose={vi.fn()} onSaved={vi.fn()}/>)})
- expect(tree.root.findByProps({'aria-label':'Room name'}).props.disabled).toBe(true);expect(tree.root.findByProps({role:'switch'}).props.disabled).toBe(true)
+ expect(tree.root.findByProps({'aria-label':'Room name'}).props.disabled).toBe(true);expect(tree.root.findByProps({'aria-label':'Mentioned only'}).props.disabled).toBe(true)
  await act(async()=>tree.update(<RoomSettings api={api} view="b:other" onClose={vi.fn()} onSaved={vi.fn()}/>))
- expect(tree.root.findByProps({'aria-label':'Room name'}).props.disabled).toBe(false);expect(tree.root.findByProps({role:'switch'}).props.disabled).toBe(true);act(()=>tree.unmount())
+ expect(tree.root.findByProps({'aria-label':'Room name'}).props.disabled).toBe(false);expect(tree.root.findByProps({'aria-label':'Mentioned only'}).props.disabled).toBe(true);act(()=>tree.unmount())
 })
 test('late reads and saves cannot apply to another room or a closed dialog',async()=>{
  let finishRead!:(value:any)=>void,finishSave!:(value:any)=>void

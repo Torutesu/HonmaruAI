@@ -95,6 +95,24 @@ test("a deploy normalizes the default General Room and keeps it assigned to work
     .toEqual({added_by:'default-room-member'});
 });
 
+test("default Room policy assigns existing and future non-guest members across multiple Rooms", async () => {
+  await applyDeploy(env.DB);
+  for (const [id, role] of [["multi-default-a", "owner"], ["multi-default-b", "member"], ["multi-default-guest", "guest"]]) {
+    await env.DB.prepare("INSERT OR REPLACE INTO users(github_id,login,created_at) VALUES (?1,?1,'now')").bind(id).run();
+    await env.DB.prepare("INSERT OR REPLACE INTO memberships(org_id,user_github_id,role,created_at) VALUES ('multi-default-org',?1,?2,'now')").bind(id, role).run();
+  }
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_at,is_default) VALUES ('multi-default-org','planning','Planning','now',1)").run();
+  expect(await env.DB.prepare("SELECT login FROM conversation_members WHERE org_id='multi-default-org' AND channel='b:planning' ORDER BY login").all())
+    .toMatchObject({results:[{login:"multi-default-a"},{login:"multi-default-b"}]});
+  await env.DB.prepare("INSERT INTO users(github_id,login,created_at) VALUES ('multi-default-later','multi-default-later','now')").run();
+  await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES ('multi-default-org','multi-default-later','member','now')").run();
+  expect(await env.DB.prepare("SELECT 1 FROM conversation_members WHERE org_id='multi-default-org' AND channel='b:planning' AND login='multi-default-later'").first()).toBeTruthy();
+  await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id='multi-default-org' AND user_github_id='multi-default-guest'").run();
+  expect(await env.DB.prepare("SELECT 1 FROM conversation_members WHERE org_id='multi-default-org' AND channel='b:planning' AND login='multi-default-guest'").first()).toBeTruthy();
+  await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id='multi-default-org' AND user_github_id='multi-default-later'").run();
+  expect(await env.DB.prepare("SELECT 1 FROM conversation_members WHERE org_id='multi-default-org' AND channel='b:planning' AND login='multi-default-later'").first()).toBeNull();
+});
+
 test("a deploy recreates app annotation storage and its screen index", async () => {
   await applyDeploy(env.DB);
   await env.DB.exec("DROP TABLE hx_app_annotations");
