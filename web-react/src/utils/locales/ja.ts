@@ -432,6 +432,9 @@ const table: Record<string, string> = {
   "Saving visual…": "画像を保存中…",
 
   "Room settings": "ルーム設定",
+  "Room visibility": "ルームの公開範囲",
+  "Public": "公開",
+  "Save visibility": "公開範囲を保存",
   "Room icon": "ルームアイコン",
   "Agents respond when mentioned. When off, clear requests can be assigned to an available agent.": "オンの場合、エージェントはメンションされたときに応答します。オフの場合、明確な依頼をこのルームの利用可能なエージェントへ割り当てます。",
   "Join this room to edit its settings.": "設定を編集するには、このルームに参加してください。",

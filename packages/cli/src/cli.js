@@ -25,6 +25,7 @@ Usage:
   honmaru workspace room member add|remove <room-id> --members REF,REF [--relation admin|member]
   honmaru workspace room get <room-id>
   honmaru workspace room update <room-id> [--name NAME] [--mentioned-only true|false] [--main-agent ID|auto] [--icon-color COLOR]
+  honmaru workspace room visibility set <room-id> --scope public|private --version N
   honmaru workspace room guidelines get <room-id>
   honmaru workspace room guidelines set <room-id> --body TEXT --version N
   honmaru workspace room rename <room-id> --name NAME
@@ -282,6 +283,14 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
     case "room get":
       onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace room get <room-id>");
       return { tool: "get_room_settings", args: { conversationId: positional[0] } };
+    case "room visibility": {
+      const [action, ...target] = positional;
+      if (action !== "set") throw new Error("Usage: honmaru workspace room visibility set <room-id> --scope public|private --version N.");
+      onlyFlags(options, ["scope", "version"]); positionalCount(target, 1, "honmaru workspace room visibility set <room-id> --scope public|private --version N");
+      if (!["public", "private"].includes(options.scope)) throw new Error("--scope must be public or private.");
+      const version = integerOption(options, "version", { min: 1, required: true });
+      return { tool: "set_room_privacy", args: { conversationId: target[0], scope: options.scope, version } };
+    }
     case "room update": {
       onlyFlags(options, ["name", "mentionedOnly", "mainAgent", "iconColor"]); positionalCount(positional, 1, "honmaru workspace room update <room-id> [--name NAME] [--mentioned-only true|false] [--main-agent ID|auto] [--icon-color COLOR]");
       const args = { conversationId: positional[0] };

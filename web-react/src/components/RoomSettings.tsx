@@ -11,9 +11,10 @@ async function boundedRequest<T>(work:(signal:AbortSignal)=>Promise<T>):Promise<
  finally{clearTimeout(timer)}
 }
 export interface RoomSettingsValue {name:string;color:keyof typeof ROOM_COLORS;mentionedOnly:boolean;defaultAgentId:string|null;version:number;responseVersion:number}
-interface Loaded {visualVersion?:number;settings:RoomSettingsValue;availableAgents:{id:string;name:string;emoji?:string|null;specialty:string}[];canEdit:boolean;canChangeResponses:boolean}
+interface Loaded {visualVersion?:number;scope:'public'|'private';canChangeVisibility:boolean;settings:RoomSettingsValue;availableAgents:{id:string;name:string;emoji?:string|null;specialty:string}[];canEdit:boolean;canChangeResponses:boolean}
 export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;orgId:string;sessionToken:string};view:string;onClose:()=>void;onSaved:()=>void}){
  const t=useT(),[data,setData]=useState<Loaded|null>(null),[draft,setDraft]=useState<RoomSettingsValue|null>(null)
+ const [visibilityDraft,setVisibilityDraft]=useState<'public'|'private'|null>(null)
  const [visualBusy,setVisualBusy]=useState(false)
  const [hooksOpen,setHooksOpen]=useState(false)
  const visualScope=JSON.stringify([api.httpBase,api.orgId,api.sessionToken,view]),currentVisualScope=useRef(visualScope);currentVisualScope.current=visualScope
@@ -29,14 +30,15 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
    return result
    })
    if(generation!==scope.current||read!==reads.current)return
-   setData(result);setDraft(result.settings)
+   setData(result);setDraft(result.settings);setVisibilityDraft(result.scope||'private')
   }catch(e){if(generation===scope.current&&read===reads.current){setData(null);setError(e instanceof Error?e.message:String(e))}}
   finally{if(generation===scope.current&&read===reads.current)setLoading(false)}
  },[api.httpBase,api.orgId,api.sessionToken,view])
  useEffect(()=>{scope.current++;pending.current=false;setBusy(false);setVisualBusy(false);setHooksOpen(false);setData(null);setDraft(null);void load();return()=>{scope.current++;reads.current++}},[load])
  const changed=!!data&&!!draft&&(draft.name.trim()!==data.settings.name||draft.color!==data.settings.color||draft.mentionedOnly!==data.settings.mentionedOnly||draft.defaultAgentId!==data.settings.defaultAgentId)
+ const visibilityChanged=!!data&&!!visibilityDraft&&visibilityDraft!==data.scope
  const save=async()=>{
-  if(visualBusy||pending.current||!data?.canEdit||!draft||!draft.name.trim()||!changed||conflict||loading)return
+  if(visualBusy||pending.current||!data?.canEdit||!draft||!draft.name.trim()||!changed||visibilityChanged||conflict||loading)return
   pending.current=true;setBusy(true);setError('');const generation=scope.current;let confirmed=false
   try{
    const {response,result}=await boundedRequest(async signal=>{
@@ -49,13 +51,28 @@ export function RoomSettings({api,view,onClose,onSaved}:{api:{httpBase:string;or
   }catch(e){if(generation===scope.current){if(!confirmed){setConflict(true);setError('保存結果を確認できませんでした。入力内容は保持しています。最新の設定を読み込み、保存済みか確認してください。')}else setError(e instanceof Error?e.message:String(e))}}
   finally{if(generation===scope.current){pending.current=false;setBusy(false)}}
  }
+ const saveVisibility=async()=>{
+  if(visualBusy||pending.current||!data?.canChangeVisibility||!visibilityDraft||!visibilityChanged||changed||conflict||loading)return
+  pending.current=true;setBusy(true);setError('');const generation=scope.current;let confirmed=false
+  try{
+   const {response,result}=await boundedRequest(async signal=>{
+    const response=await fetch(`${api.httpBase}/hx/rooms/visibility`,{method:'PUT',headers:{'content-type':'application/json','x-session-token':api.sessionToken},body:JSON.stringify({orgId:api.orgId,channel:view,scope:visibilityDraft,version:data.settings.version}),signal})
+    const result=await response.json();return {response,result}
+   });confirmed=true
+   if(generation!==scope.current)return
+   if(!response.ok){if(response.status===409)setConflict(true);throw Error(result.message||'That did not save.')}
+   onSaved();await load()
+  }catch(e){if(generation===scope.current){if(!confirmed){setConflict(true);setError('保存結果を確認できませんでした。入力内容は保持しています。最新の設定を読み込み、保存済みか確認してください。')}else setError(e instanceof Error?e.message:String(e))}}
+  finally{if(generation===scope.current){pending.current=false;setBusy(false)}}
+ }
  const disabled=visualBusy||busy||loading||!data?.canEdit||conflict
  return <><Dialog className="room-settings" title={t('Room settings')} onClose={()=>{if(!pending.current&&!visualBusy)onClose()}}
-  footer={<><button className="dlg-btn" disabled={busy||visualBusy} onClick={onClose}>{t('Cancel')}</button><button className="dlg-btn primary" disabled={disabled||!draft?.name.trim()||!changed} onClick={()=>void save()}>{t(busy?'Saving…':'Save')}</button></>}>
+  footer={<><button className="dlg-btn" disabled={busy||visualBusy} onClick={onClose}>{t('Cancel')}</button><button className="dlg-btn primary" disabled={disabled||visibilityChanged||!draft?.name.trim()||!changed} onClick={()=>void save()}>{t(busy?'Saving…':'Save')}</button></>}>
   {loading&&<p role="status">{t('Loading…')}</p>}
   {draft&&<>
    <div className="room-settings-field"><span className="dlg-label">{t('Room icon')}</span><RoomVisualEditor key={`${api.httpBase}:${api.orgId}:${api.sessionToken}:${view}:${data?.settings.version}:${reads.current}`} api={api} channel={view} version={data?.settings.version||0} visualVersion={data?.visualVersion} color={draft.color} disabled={disabled} dirty={changed} onColor={color=>setDraft({...draft,color})} onBusy={value=>{if(currentVisualScope.current===visualScope)setVisualBusy(value)}} onChanged={()=>{if(currentVisualScope.current===visualScope){onSaved();void load()}}}/></div>
    <label className="room-settings-field"><span className="dlg-label">{t('Room name')}</span><input className="dlg-input" aria-label={t('Room name')} value={draft.name} maxLength={120} disabled={disabled} onChange={e=>setDraft({...draft,name:e.target.value})}/></label>
+   {data?.canChangeVisibility&&<section className="room-settings-field" aria-label={t('Room visibility')}><label><span className="dlg-label">{t('Room visibility')}</span><select className="dlg-input" aria-label={t('Room visibility')} value={visibilityDraft||data.scope} disabled={disabled||changed} onChange={e=>setVisibilityDraft(e.target.value as 'public'|'private')}><option value="public">{t('Public')}</option><option value="private">{t('Private')}</option></select></label>{visibilityChanged&&<button type="button" className="dlg-btn" disabled={disabled||changed} onClick={()=>void saveVisibility()}>{t('Save visibility')}</button>}</section>}
    <section className="room-settings-response" aria-label={t('How agents respond')}><h3>{t('How agents respond')}</h3>
     <div className="room-settings-response-card"><label><span>{t('Mentioned only')}</span><input type="checkbox" role="switch" checked={draft.mentionedOnly} disabled={disabled||!data?.canChangeResponses} onChange={e=>setDraft({...draft,mentionedOnly:e.target.checked})}/></label>
     <p>{t('Agents respond when mentioned. When off, clear requests can be assigned to an available agent.')}</p></div>

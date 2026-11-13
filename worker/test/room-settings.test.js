@@ -6,6 +6,7 @@ import {createManagedRoom} from '../src/harness/roomCreation.js';
 import {managedRoomSettings,saveManagedRoomSettings} from '../src/harness/roomSettings.js';
 import {saveRoomResponses,roomResponses} from '../src/harness/roomResponses.js';
 import {archiveManagedRoom} from '../src/harness/roomRoles.js';
+import {setMode} from '../src/harness/mode.js';
 const org='room-settings';
 const draft={requestId:'settings-creation-key',name:'Original',private:true,guidelines:'',color:'teal',memberRefs:[],agentIds:[]};
 let channel,creator,outsider,guest;
@@ -20,6 +21,7 @@ beforeEach(async()=>{
 const read=()=>managedRoomSettings(env.DB,org,channel,'creator');
 const input=async(overrides={})=>({...((await read()).settings),name:'Renamed',color:'lake',mentionedOnly:true,...overrides});
 const call=(method,token,data,view=channel)=>worker.fetch(new Request('https://test/hx/rooms/settings'+(method==='GET'?`?orgId=${org}&channel=${encodeURIComponent(view)}`:''),{method,headers:{'x-session-token':token,'content-type':'application/json'},...(data?{body:JSON.stringify({orgId:org,channel:view,...data})}:{})}),env);
+const callVisibility=(method,token,data)=>worker.fetch(new Request('https://test/hx/rooms/visibility',{method,headers:{'x-session-token':token,'content-type':'application/json'},...(data?{body:JSON.stringify({orgId:org,channel,...data})}:{})}),env);
 test('saves the name, appearance and response policy together without changing creation receipts',async()=>{
  const before=await env.DB.prepare('SELECT * FROM hx_room_creations WHERE org_id=?1').bind(org).first();
  expect((await read()).settings).toEqual({name:'Original',color:'teal',mentionedOnly:false,defaultAgentId:null,version:1,responseVersion:0});
@@ -98,6 +100,20 @@ test('HTTP routes enforce room access and return only the public settings contra
  expect((await call('PUT',creator,await input())).status).toBe(200);
  expect((await (await call('GET',creator)).json()).settings).toMatchObject({name:'Renamed',color:'lake',mentionedOnly:true});
  expect((await call('GET',creator,undefined,'b:missing')).status).toBe(404);
+});
+test('visibility endpoint is Harness-only and requires Room admin plus current room version',async()=>{
+ await setMode(env.DB,org,'harness','creator');
+ await env.DB.prepare('INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,?2,\'outsider\',\'creator\',?3)').bind(org,channel,new Date().toISOString()).run();
+ const initial=await (await call('GET',creator)).json();
+ expect(initial).toMatchObject({scope:'private',canChangeVisibility:true});
+ const memberSettings=await (await call('GET',outsider)).json();
+ expect(memberSettings).toMatchObject({canEdit:true,canChangeVisibility:false});
+ expect((await callVisibility('PUT',outsider,{scope:'public',version:1})).status).toBe(403);
+ const changed=await callVisibility('PUT',creator,{scope:'public',version:1});
+ expect(changed.status).toBe(200);expect(await changed.json()).toEqual({scope:'public',version:2});
+ expect((await callVisibility('PUT',creator,{scope:'private',version:1})).status).toBe(409);
+ await setMode(env.DB,org,'simple','creator');
+ expect((await callVisibility('PUT',creator,{scope:'private',version:2})).status).toBe(404);
 });
 test('archived rooms cannot be edited through either response endpoint',async()=>{
  const data=await input();

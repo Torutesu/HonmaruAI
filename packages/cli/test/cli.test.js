@@ -468,6 +468,34 @@ test("Room get/update aliases read managed settings and pass only requested fiel
   assert.equal(stderr.read(), "");
 });
 
+test("Room visibility alias uses explicit Harness scope and current version", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    const structuredContent = { conversationId: "b:ops", scope: req.params.arguments.scope, version: 4 };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "visibility", "set", "b:ops", "--scope", "private", "--version", "3"]), 0);
+  assert.deepEqual(calls, [{ name: "set_room_privacy", arguments: { conversationId: "b:ops", scope: "private", version: 3 } }]);
+  assert.equal(stderr.read(), "");
+});
+
+test("Room visibility alias rejects invalid scope or missing version before MCP", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "visibility", "set", "b:ops", "--scope", "team", "--version", "3"]), 1);
+  assert.match(stderr.read(), /--scope must be public or private/); stderr.clear();
+  assert.equal(await run(["workspace", "room", "visibility", "set", "b:ops", "--scope", "public"]), 1);
+  assert.match(stderr.read(), /--version is required/);
+  assert.equal(requests, 0);
+});
+
 test("Room guideline aliases read and update with explicit versioned text", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
