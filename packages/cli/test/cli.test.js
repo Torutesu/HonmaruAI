@@ -359,6 +359,34 @@ test("message lifecycle aliases require version fences and explicit thread delet
   assert.equal(requests, 0);
 });
 
+test("message forward alias preserves the source, destination, comment, and idempotency key", async () => {
+  let params;
+  const fetcher = async (_url, init) => {
+    params = JSON.parse(init.body).params;
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: JSON.parse(init.body).id, result: { structuredContent: { message: { id: "sent_1" }, forwardedFrom: { messageId: "source_1" } } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const code = await runCli(["workspace", "message", "forward", "source_1", "--to", "b:ops", "--request-id", "forward-1", "--comment", "Please review"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(code, 0);
+  assert.deepEqual(params, { name: "forward_message", arguments: { messageId: "source_1", destinationConversationId: "b:ops", requestId: "forward-1", comment: "Please review" } });
+  assert.equal(stdout.read(), "Forwarded message source_1 as sent_1.\n");
+  assert.equal(stderr.read(), "");
+});
+
+test("message forward alias validates required destination and safe retry key before MCP", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "message", "forward", "source_1", "--request-id", "forward-1"]), 1);
+  assert.match(stderr.read(), /--to is required/); stderr.clear();
+  assert.equal(await run(["workspace", "message", "forward", "source_1", "--to", "b:ops", "--request-id", "bad/id"]), 1);
+  assert.match(stderr.read(), /request-id must be 8 to 100/);
+  assert.equal(requests, 0);
+});
+
 test("Room notification and sidebar order aliases send personal settings", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
