@@ -37,6 +37,8 @@ const decode = (part) => {
 /// so nothing typed but unsent is lost. The same routes as the web's own
 /// (packages/core/src/links.ts webHashFor): `#/c/<channel>?org=<orgId>` and
 /// `#/join/<code>`. Null for any other link, which then only shows the window.
+/// Any program can open a honmaru:// link, so `#/join/` only asks: the web
+/// app names the workspace and joins when the person presses Join (#960).
 export function deepLinkToHash(link) {
   let url
   try { url = new URL(String(link || '')) } catch { return null }

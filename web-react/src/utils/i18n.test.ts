@@ -41,6 +41,20 @@ describe('a language chosen before its table is here', () => {
     } finally { changeLocale('en') }
   })
 
+  it('translates the invite-link join confirmation (#960)', async () => {
+    const messages=['Workspace invitation','Checking the invitation…','This invitation is not valid, or has expired.','{inviter} invited you to this workspace.','Joining adds you to this workspace. You stay where you are until you choose to open it.','Stay here','You already belong to this workspace.']
+    try {
+      for (const code of ['ja','es','fr','de']) {
+        changeLocale(code); await localeReady()
+        for(const message of messages) expect(t(message),code).not.toBe(message)
+        for(const named of ['Join {team}?','You joined {team}.','Open {team}','An admin of {team} needs to approve you. You will be let in once they do.']) {
+          expect(t(named,{team:'Acme'}),code).toContain('Acme')
+          expect(t(named,{team:'Acme'}),code).not.toBe(named.replace('{team}','Acme'))
+        }
+      }
+    } finally { changeLocale('en') }
+  })
+
   it('translates cancellation outcomes and preserves the execution identity', async () => {
     const messages=['Execution finished before it could be cancelled.','Cancellation could not be confirmed. Reload execution history to check.','Execution history could not be refreshed. Reload to check the cancellation result.']
     try {

@@ -2168,6 +2168,19 @@ const table: Record<string, string> = {
   "Available destinations": "Destinations disponibles",
   "No matching conversations or rooms": "Aucune conversation ni aucun salon ne correspond",
   'This picture could not be opened.': 'Impossible d’ouvrir cette image.',
+  // Joining a team from an invite link (#960).
+  'Workspace invitation': 'Invitation à un espace',
+  'Checking the invitation…': 'Vérification de l’invitation…',
+  'This invitation is not valid, or has expired.': 'Cette invitation n’est pas valide ou a expiré.',
+  'Join {team}?': 'Rejoindre {team} ?',
+  '{inviter} invited you to this workspace.': '{inviter} vous a invité dans cet espace.',
+  'Joining adds you to this workspace. You stay where you are until you choose to open it.': 'Rejoindre fait de vous un membre de cet espace. Vous restez où vous êtes jusqu’à ce que vous choisissiez de l’ouvrir.',
+  'You joined {team}.': 'Vous avez rejoint {team}.',
+  'Open {team}': 'Ouvrir {team}',
+  'Stay here': 'Rester ici',
+  'An admin of {team} needs to approve you. You will be let in once they do.': 'Un administrateur de {team} doit vous approuver. Vous serez admis dès qu’il l’aura fait.',
+  'You already belong to this workspace.': 'Vous faites déjà partie de cet espace.',
+  'this workspace': 'cet espace',
 }
 
 export default table

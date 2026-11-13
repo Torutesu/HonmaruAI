@@ -3802,6 +3802,19 @@ const table: Record<string, string> = {
   'Guest link copied.': 'ゲストリンクをコピーしました。',
   'Could not create the guest link.': 'ゲストリンクを作成できませんでした。',
   'Could not revoke the guest link.': 'ゲストリンクを失効できませんでした。',
+  // Joining a team from an invite link (#960).
+  'Workspace invitation': 'ワークスペースへの招待',
+  'Checking the invitation…': '招待を確認しています…',
+  'This invitation is not valid, or has expired.': 'この招待は無効か、有効期限が切れています。',
+  'Join {team}?': '{team}に参加しますか？',
+  '{inviter} invited you to this workspace.': '{inviter}さんがこのワークスペースに招待しました。',
+  'Joining adds you to this workspace. You stay where you are until you choose to open it.': '参加するとこのワークスペースのメンバーになります。開くことを選ぶまで、今のワークスペースのままです。',
+  'You joined {team}.': '{team}に参加しました。',
+  'Open {team}': '{team}を開く',
+  'Stay here': 'このままにする',
+  'An admin of {team} needs to approve you. You will be let in once they do.': '{team}の管理者による承認が必要です。承認されると参加できます。',
+  'You already belong to this workspace.': 'すでにこのワークスペースのメンバーです。',
+  'this workspace': 'このワークスペース',
 }
 
 export default table

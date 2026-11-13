@@ -27,6 +27,7 @@ import './App.css'
 import {SharedThread} from './screens/SharedThread'
 import { pendingMcpRequest, clearMcpRequest } from './utils/mcpConsentRequest'
 import { McpConsent } from './components/McpConsent'
+import { JoinInviteDialog } from './components/JoinInviteDialog'
 import {PublicSkillShare} from './screens/PublicSkillShare'
 import {ExternalGuestThread} from './screens/ExternalGuestThread'
 import {ExternalSharedFile} from './screens/ExternalSharedFile'
@@ -149,6 +150,10 @@ function AccountApp() {
     try { return sessionStorage.getItem('externalThreadInviteToken') } catch { return null }
   })
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null)
+  // A team invite link opened while signed in, waiting for them to say
+  // whether to join (#960). Kept with the session it was opened in, so a
+  // different account signing in here is never asked on its behalf.
+  const [joinPrompt, setJoinPrompt] = useState<{ code: string; token: string } | null>(null)
   useEffect(() => {
     let ignore = false
     githubWebConfig(httpBase(host)).then((cfg) => { if (!ignore) setGithub(cfg) })
@@ -256,10 +261,11 @@ function AccountApp() {
     return () => { controller.abort(); window.removeEventListener('online', revalidate) }
   }, [restoreAttempt])
 
-  // The link a teammate was sent: #/join/<code>. Signed in, it joins the
-  // team and opens the feed there; signed out, it lands on sign-up with the
-  // code filled in and the team named. Read on arrival and on every change
-  // of the hash, so a link pasted into a tab that is already open works too.
+  // The link a teammate was sent: #/join/<code>. Signed in, it asks whether
+  // to join the team it names (JoinInviteDialog); signed out, it lands on
+  // sign-up with the code filled in and the team named. Read on arrival and
+  // on every change of the hash, so a link pasted into a tab that is already
+  // open works too.
   const joinedRef = useRef<string | null>(null)
   const externalInviteRef = useRef<string | null>(null)
   useEffect(() => {
@@ -323,19 +329,10 @@ function AccountApp() {
       const token = localStorage.getItem('sessionToken')
       const clear = () => { try { history.replaceState(null, '', location.pathname + location.search + '#/feed') } catch { /* cosmetic */ } }
       if (token && localStorage.getItem('userId')) {
-        fetch(`${base}/invites/accept`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-session-token': token },
-          body: JSON.stringify({ code: join }),
-        })
-          .then(async (r) => {
-            const data = await r.json().catch(() => ({}))
-            if (!r.ok) { setNotice({ text: data.message || t('That invite code is not valid.'), error: true }); return }
-            clear()
-            switchOrg(data.orgId)
-            setNotice({ text: t('You joined the team.') })
-          })
-          .catch(() => setNotice({ text: t('Could not reach the relay.'), error: true }))
+        // Not redeemed here: a link any page or program can open is not
+        // the person agreeing to join, so the dialog asks them first.
+        clear()
+        setJoinPrompt({ code: join, token })
         return
       }
       // Not signed in: the code rides into sign-up, and the Worker says
@@ -785,6 +782,13 @@ function AccountApp() {
     <div className="app">
       <ReauthDialog key={dialogScope.current.version} />
       <DlpDialog key={dialogScope.current.version} />
+      {joinPrompt && joinPrompt.token === sessionToken && <JoinInviteDialog
+        key={`${dialogScope.current.version}:${joinPrompt.code}`}
+        httpBase={httpBase(host)} sessionToken={sessionToken} code={joinPrompt.code}
+        // The same link opened again asks again.
+        onClose={() => { setJoinPrompt(null); joinedRef.current = null; window.dispatchEvent(new Event('honmaru:workspace')) }}
+        onOpen={(next) => { setJoinPrompt(null); joinedRef.current = null; switchOrg(next) }}
+      />}
       {notice && (
         <div className="toasts app-toasts">
           <div className={`toast${notice.error ? ' error' : ''}`} role={notice.error ? 'alert' : 'status'} onClick={() => setNotice(null)}>{notice.text}</div>
