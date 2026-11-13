@@ -1657,7 +1657,7 @@ await step('the list is a chat client on a laptop: sidebar, conversation, and a 
   const d = workPage()
   await d.goto(`${WEB}/#/list`, { waitUntil: 'load' })
   await d.waitForSelector('.slk-side .cl-thread', { timeout: 20000 })
-  await d.waitForSelector('.slk-main .slk-msg', { timeout: 10000 })
+  await d.waitForSelector('.slk-main .slk-head h1', { timeout: 10000 })
     .catch(() => { throw new Error('no conversation is open beside the sidebar') })
   const [side, main, rail] = await Promise.all(['.slk-side', '.slk-main', '.tabbar'].map((sel) => d.$eval(sel, (el) => el.getBoundingClientRect().toJSON())))
   if (!(side.right <= main.left + 1)) throw new Error('the sidebar and the conversation overlap')
