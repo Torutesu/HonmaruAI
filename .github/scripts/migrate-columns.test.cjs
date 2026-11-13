@@ -56,3 +56,74 @@ test('batched PRAGMA results align with their requested tables and missing resul
  assert.deepEqual([...existingColumns(result,plan.tables)],['users.email','rooms.name']);
  assert.equal(existingColumns(snapshot([{column_name:'email'}]),plan.tables),null);
 });
+
+test('ordered schema statement runs batch around individually applied ALTERs', async () => {
+  const statements = [
+    'ALTER TABLE users ADD COLUMN email TEXT;',
+    'CREATE INDEX IF NOT EXISTS email_idx ON users(email);',
+    'CREATE INDEX IF NOT EXISTS alias_idx ON users(alias);',
+    'ALTER TABLE users ADD COLUMN alias TEXT;',
+    'CREATE TABLE IF NOT EXISTS next_table (id TEXT PRIMARY KEY);',
+    'CREATE INDEX IF NOT EXISTS next_table_id ON next_table(id);',
+  ];
+  const batches = [], singles = [];
+  const code = await migrateColumns({
+    statements,
+    inspect: () => snapshot([{ table_name: 'users', column_name: 'email' }]),
+    executeBatch: sql => { batches.push(sql); return { status: 0 }; },
+    execute: sql => { singles.push(sql); return { status: 0 }; },
+    log: () => {},
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(batches, [
+    statements.slice(1, 3).join('\n'),
+    statements.slice(4).join('\n'),
+  ]);
+  assert.deepEqual(singles, [statements[3]]);
+});
+
+test('failed D1 import falls back to idempotent statements before continuing with ALTERs', async () => {
+  const statements = [
+    'CREATE INDEX IF NOT EXISTS first_idx ON users(first);',
+    'CREATE INDEX IF NOT EXISTS second_idx ON users(second);',
+    'ALTER TABLE users ADD COLUMN alias TEXT;',
+  ];
+  const batches = [], singles = [];
+  const code = await migrateColumns({
+    statements,
+    inspect: () => snapshot([]),
+    executeBatch: sql => { batches.push(sql); return { status: 1, stderr: 'import failed' }; },
+    execute: sql => {
+      singles.push(sql);
+      return sql.startsWith('ALTER TABLE')
+        ? { status: 1, stderr: 'duplicate column name: alias' }
+        : { status: 0 };
+    },
+    log: () => {},
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(batches, [statements.slice(0, 2).join('\n')]);
+  assert.deepEqual(singles, statements);
+});
+
+test('batch executor uses one temporary SQL file and removes it afterward', () => {
+  const fs = require('node:fs');
+  const migration = require('./migrate-columns.cjs');
+  const calls = [];
+  const execute = migration.createBatchExecutor({
+    database: 'honmaru-test',
+    flags: ['--env', 'staging'],
+    spawnSync: (binary, args, options) => {
+      calls.push({ binary, args, options });
+      const file = args[args.indexOf('--file') + 1];
+      assert.equal(fs.readFileSync(file, 'utf8'), `CREATE TABLE IF NOT EXISTS sample (id TEXT PRIMARY KEY);\n`);
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  });
+  assert.equal(execute('CREATE TABLE IF NOT EXISTS sample (id TEXT PRIMARY KEY);').status, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].binary, 'npx');
+  assert.deepEqual(calls[0].args.slice(0, 7), ['-y', 'wrangler@4', 'd1', 'execute', 'honmaru-test', '--env', 'staging']);
+  const path = calls[0].args[calls[0].args.indexOf('--file') + 1];
+  assert.equal(fs.existsSync(path), false);
+});

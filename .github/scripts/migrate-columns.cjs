@@ -1,5 +1,23 @@
 // Inspect names, never user data. Unsupported/failed inspection falls back to
 // the original per-statement migration; only proven existing columns are skipped.
+function createBatchExecutor({ database, flags = [], spawnSync }) {
+  const { mkdtempSync, writeFileSync, rmSync } = require('node:fs');
+  const { tmpdir } = require('node:os');
+  const { join } = require('node:path');
+  return sql => {
+    const directory = mkdtempSync(join(tmpdir(), 'honmaru-d1-migrations-'));
+    const file = join(directory, 'pending.sql');
+    try {
+      writeFileSync(file, `${sql.trim()}\n`, { encoding: 'utf8', flag: 'wx' });
+      return spawnSync('npx', ['-y', 'wrangler@4', 'd1', 'execute', database, ...flags, '--remote', '--file', file, '--yes'], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024,
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  };
+}
+
 function columnInspection(statements) {
   const tables = [...new Set(statements.map(addedColumn).filter(Boolean).map(key => key.split('.')[0]))];
   return { tables, sql: tables.map(table => `PRAGMA table_info("${table}");`).join(' ') };
@@ -27,32 +45,72 @@ function addedColumn(statement) {
 
 // A lost response may follow a successful ALTER; its next duplicate-column
 // response is the existing already-applied signal. Other failures stay fatal.
-async function migrateColumns({ statements, execute, inspect, wait = ms => new Promise(r => setTimeout(r, ms)), log = console.log }) {
+async function migrateColumns({ statements, execute, executeBatch, inspect, wait = ms => new Promise(r => setTimeout(r, ms)), log = console.log }) {
   let columns = null;
   if (inspect) {
     try { const plan = columnInspection(statements); columns = plan.tables.length ? existingColumns(await inspect(plan.sql), plan.tables) : new Set(); } catch { /* Use the existing migration path. */ }
     log(columns ? `Inspected ${columns.size} existing columns.` : 'Column inspection unavailable; using individual migration checks.');
   }
+
   let failed = false;
-  for (const statement of statements) {
-    const column = addedColumn(statement);
-    if (column && columns?.has(column)) { log(`Already present: ${column}`); continue; }
+  async function executeIndividually(statement) {
     log(`-> ${statement}`);
     for (let attempt = 1; attempt <= 3; attempt++) {
       const result = execute(statement);
       const output = `${result.stdout || ''}${result.stderr || ''}`;
       log(output);
-      if (result.status === 0) break;
-      if (/duplicate column name/i.test(output)) { log('   already applied'); break; }
+      if (result.status === 0) return true;
+      if (/duplicate column name/i.test(output)) { log('   already applied'); return true; }
       const transient = /internal error; reference\s*=/i.test(output) && /\[code:\s*7500\]/i.test(output);
-      if (!transient || attempt === 3) { failed = true; break; }
+      if (!transient || attempt === 3) return false;
       log(`Transient D1 internal error; retry ${attempt + 1}/3.`);
       await wait(attempt * 2000);
     }
+    return false;
   }
+  async function flushBatch(batch) {
+    if (!batch.length) return;
+    if (batch.length === 1 || !executeBatch) {
+      for (const statement of batch) {
+        if (!await executeIndividually(statement)) failed = true;
+      }
+      return;
+    }
+    log(`Applying ${batch.length} ordered schema statements in one D1 import.`);
+    try {
+      const result = executeBatch(batch.join('\n'));
+      if (result?.status === 0) return;
+      log('D1 schema import failed; retrying its idempotent statements individually.');
+      log(`${result?.stdout || ''}${result?.stderr || ''}`);
+    } catch (error) {
+      log(`D1 schema import could not be completed; retrying individually: ${error.message}`);
+    }
+    for (const statement of batch) {
+      if (!await executeIndividually(statement)) failed = true;
+    }
+  }
+
+  let batch = [];
+  for (const statement of statements) {
+    const column = addedColumn(statement);
+    if (column && columns?.has(column)) {
+      log(`Already present: ${column}`);
+      continue;
+    }
+    // ALTERs stay ordered and single so a table created in this same migration
+    // can add a column without making a whole batch roll back on duplicates.
+    if (column) {
+      await flushBatch(batch);
+      batch = [];
+      if (!await executeIndividually(statement)) failed = true;
+    } else {
+      batch.push(statement);
+    }
+  }
+  await flushBatch(batch);
   return failed ? 1 : 0;
 }
-module.exports = { migrateColumns, existingColumns, columnInspection };
+module.exports = { migrateColumns, existingColumns, columnInspection, createBatchExecutor };
 if (require.main === module) {
   const { spawnSync } = require('node:child_process');
   const { readFileSync } = require('node:fs');
@@ -61,7 +119,8 @@ if (require.main === module) {
     console.error('Usage: node migrate-columns.cjs <database> [--env staging]'); process.exitCode = 1;
   } else {
     const statements = readFileSync('migrations.sql', 'utf8').split(/\r?\n/).filter(line => /^(ALTER TABLE|CREATE |INSERT OR IGNORE INTO|DROP TABLE)/.test(line));
-    migrateColumns({ statements, inspect: statement => spawnSync('npx', ['-y', 'wrangler@4', 'd1', 'execute', database, ...flags, '--remote', '--command', statement, '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), execute: statement => spawnSync('npx', ['-y', 'wrangler@4', 'd1', 'execute', database, ...flags, '--remote', '--command', statement, '--yes'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) })
+    const run = statement => spawnSync('npx', ['-y', 'wrangler@4', 'd1', 'execute', database, ...flags, '--remote', '--command', statement, '--yes'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 });
+    migrateColumns({ statements, inspect: statement => spawnSync('npx', ['-y', 'wrangler@4', 'd1', 'execute', database, ...flags, '--remote', '--command', statement, '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 }), execute: run, executeBatch: createBatchExecutor({ database, flags, spawnSync }) })
       .then(code => { process.exitCode = code; }).catch(error => { console.error(error.message); process.exitCode = 1; });
   }
 }
