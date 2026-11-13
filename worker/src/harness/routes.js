@@ -1389,7 +1389,8 @@ export async function handleHarness(request, env, url, context = {}) {
         if (!canEdit) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
         const id = parts[4] || url.searchParams.get("skillId") || "";
         if (!(await getSkill(env.DB, orgId, id, me))) return json({ message: 'No such skill.' }, 404);
-        return json(await takeSkill(env.DB, orgId, agentId, id));
+        const result = await takeSkill(env.DB, orgId, agentId, id, me);
+        return result.error ? fail(result) : json(result);
       }
     }
     return null;

@@ -35,6 +35,40 @@ test("a simple workspace's agents see the tools they always did", async () => {
   expect((await tool(token, "list_apps")).error.message).toContain("Unknown tool");
 });
 
+test('Harness MCP exposes scoped Skill reads and permission-checked Agent assignment while Simple hides them', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?1,'skill-agent','skill-agent','Ops Agent','Help','personal','toru','now','now')").bind(ORG).run();
+  const { createSkill } = await import('../src/harness/skills.js');
+  const created = await createSkill(env.DB, ORG, { name: 'Release guide', description: 'Ship safely', body: 'Check the deployment and alert the owner.' }, '9401');
+  expect(created.skill).toMatchObject({ name: 'Release guide', visibility: 'workspace' });
+  const reader = await mint(['read']);
+  const writer = await mint(['read', 'write']);
+  expect(await names(reader)).toEqual(expect.arrayContaining(['list_skills', 'get_skill', 'list_agent_skills']));
+  expect(await names(reader)).not.toContain('assign_skill_to_agent');
+  expect(await names(writer)).toEqual(expect.arrayContaining(['assign_skill_to_agent', 'remove_skill_from_agent']));
+  const listed = (await tool(reader, 'list_skills')).result.structuredContent;
+  expect(listed.skills).toEqual([expect.objectContaining({ id: created.skill.id, name: 'Release guide' })]);
+  expect(listed.skills[0]).not.toHaveProperty('body');
+  expect((await tool(reader, 'get_skill', { skillId: created.skill.id })).result.structuredContent.skill.body).toContain('alert the owner');
+  expect((await tool(reader, 'list_agent_skills', { agentId: 'missing-agent' })).result.isError).toBe(true);
+  expect((await tool(writer, 'assign_skill_to_agent', { agentId: 'skill-agent', skillId: created.skill.id })).result.structuredContent).toMatchObject({ assigned: true });
+  expect((await tool(reader, 'list_agent_skills', { agentId: 'skill-agent' })).result.structuredContent.skills).toHaveLength(1);
+
+  const { createSession, upsertUser, upsertMembership } = await import('../src/db.js');
+  await upsertUser(env.DB, { githubId: '9402', login: 'mika', name: 'Mika', avatarUrl: null, locale: 'en' });
+  await upsertMembership(env.DB, ORG, '9402', 'member');
+  const mikaSession = await createSession(env.DB, '9402', 'gho_mika');
+  const mikaToken = (await (await call('/tokens', { method: 'POST', headers: headers(mikaSession), body: JSON.stringify({ orgId: ORG, name: 'Read only', scopes: ['read', 'write'] }) })).json()).token;
+  expect((await tool(mikaToken, 'list_agent_skills', { agentId: 'skill-agent' })).result.isError).toBe(true);
+  expect((await tool(mikaToken, 'assign_skill_to_agent', { agentId: 'skill-agent', skillId: created.skill.id })).result.isError).toBe(true);
+
+  await env.DB.prepare("UPDATE custom_agents SET owner_login='someone-else' WHERE org_id=? AND id='skill-agent'").bind(ORG).run();
+  expect((await tool(writer, 'remove_skill_from_agent', { agentId: 'skill-agent', skillId: created.skill.id })).result.isError).toBe(true);
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
+  expect(await names(writer)).not.toContain('list_skills');
+  expect((await tool(writer, 'list_skills')).error.message).toContain('Unknown tool');
+});
+
 test('MCP CLI reserves, uploads, replays and downloads binary workspace-file versions under live ACL', async () => {
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
   await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,created_by,created_at,private) VALUES(?1,'binary-private','Binary private','9401','2026-11-11',1)").bind(ORG).run();
