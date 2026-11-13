@@ -575,3 +575,5 @@ CREATE INDEX IF NOT EXISTS idx_hx_external_audience_requests_scope ON hx_externa
 CREATE TABLE IF NOT EXISTS hx_grok_bot_callbacks (id TEXT PRIMARY KEY,org_id TEXT NOT NULL,token_hash TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed','cancelled','orphaned')),result TEXT,error TEXT,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,completed_at INTEGER);
 CREATE INDEX IF NOT EXISTS idx_grok_bot_callbacks_expiry ON hx_grok_bot_callbacks(expires_at);
 ALTER TABLE perf_samples ADD COLUMN colo TEXT;
+-- #949: a reminder held by the cron run bringing it back (schema.sql).
+ALTER TABLE saved_items ADD COLUMN remind_lease_until TEXT;

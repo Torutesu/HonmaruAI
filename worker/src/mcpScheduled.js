@@ -3,6 +3,7 @@ import { resolveMcpConversation, mcpConversationContext } from './mcpConversatio
 import { viewOf } from './channels.js';
 import { prepareConversationMessage, acceptConversationMessage } from './conversationOperations.js';
 import { emitMessage } from './webhooks.js';
+import { McpInputError } from './mcpSupport.js';
 
 export async function deliverMcpScheduledMessage(env, row, authority) {
   const membership = await env.DB.prepare('SELECT created_at,role FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(row.org_id, authority.user_id).first();
@@ -21,13 +22,19 @@ export async function deliverMcpScheduledMessage(env, row, authority) {
   if (!actor || actor.orgId !== row.org_id || actor.login !== row.author_login || !actor.scopes.includes('chat:schedule')) return { sent: false };
   const { agentDenial } = await import('./mcp.js');
   if (await agentDenial(env, actor)) return { sent: false };
+  // Only a refusal is "not sent", which closes the message. Any other error,
+  // a database that failed for a moment, is left to throw so the caller's
+  // hold runs out and the message is tried again.
   let context;
   try {
     const current = await mcpConversationContext(env, actor);
     const view = viewOf(row.channel, actor.login, current.members, current.access);
     if (!view) return { sent: false };
     context = await resolveMcpConversation(env, actor, view);
-  } catch { return { sent: false }; }
+  } catch (err) {
+    if (err instanceof McpInputError) return { sent: false };
+    throw err;
+  }
   const body = { body: row.body, parentId: row.parent_id, alsoChannel: Boolean(row.also_channel), clientId: `tmp-${row.id.replace(/^tmp-/, '')}` };
   const prepared = await prepareConversationMessage(env, null, { orgId: actor.orgId, user: context.user, resolved: context.resolved, body });
   if (prepared.denied) return { sent: false };

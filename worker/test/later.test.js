@@ -39,6 +39,19 @@ beforeEach(async () => {
 });
 afterEach(() => fetchMock.assertNoPendingInterceptors());
 
+// A database that refuses the matching statement once.
+const failing = (pattern) => {
+  const realPrepare = env.DB.prepare.bind(env.DB);
+  let failed = false;
+  return { ...env, DB: new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "prepare") return (sql) => { if (!failed && pattern.test(sql)) { failed = true; throw new Error("D1 hiccup"); } return realPrepare(sql); };
+      const v = target[prop];
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  }) };
+};
+
 
 test("a scheduled message waits, can be cancelled, and is sent by the minute cron as its author", async () => {
   const soon = new Date(Date.now() + 5 * 60000).toISOString();
@@ -69,18 +82,6 @@ test("a scheduled message waits, can be cancelled, and is sent by the minute cro
 test("a scheduled message whose send fails stays waiting and is sent, once, on a later minute", async () => {
   const soon = new Date(Date.now() + 5 * 60000).toISOString();
   await post("/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "Deliveries at ten", sendAt: soon });
-  // A database that refuses the matching statement once.
-  const failing = (pattern) => {
-    const realPrepare = env.DB.prepare.bind(env.DB);
-    let failed = false;
-    return { ...env, DB: new Proxy(env.DB, {
-      get(target, prop) {
-        if (prop === "prepare") return (sql) => { if (!failed && pattern.test(sql)) { failed = true; throw new Error("D1 hiccup"); } return realPrepare(sql); };
-        const v = target[prop];
-        return typeof v === "function" ? v.bind(target) : v;
-      },
-    }) };
-  };
   const minute = (m) => new Date(Date.now() + m * 60000);
   const listed = async () => (await (await get(`/channels/scheduled?${q({ orgId: ORG })}`, toru)).json()).scheduled.map((x) => x.body);
   const said = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id = ?1 AND body = 'Deliveries at ten'").bind(ORG).first()).n;
@@ -156,6 +157,44 @@ test("a reminder is not brought back to someone who left the workspace", async (
   await env.DB.prepare("DELETE FROM memberships WHERE org_id = ?1 AND user_github_id = '9802'").bind(ORG).run();
   expect((await runMinuteJobs(env, { now: new Date(Date.now() + 61 * 60000) })).reminded).toBe(0);
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1").bind(ORG).first()).n).toBe(0);
+  // Dropped for good: closed, not tried again.
+  expect((await env.DB.prepare("SELECT reminded_at FROM saved_items WHERE org_id = ?1").bind(ORG).first()).reminded_at).toBeTruthy();
+});
+
+test("a reminder whose card fails to save is brought back, once, on a later minute", async () => {
+  const m = await say(toru, "Call the roaster about Tuesday");
+  await post("/channels/later", mika, { orgId: ORG, channel: "b:cafe", messageId: m.id, remindAt: new Date(Date.now() + 60 * 60000).toISOString() });
+  const minute = (n) => new Date(Date.now() + n * 60000);
+  const cards = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1 AND recipient_user_id = 'mika'").bind(ORG).first()).n;
+  expect((await runMinuteJobs(failing(/INSERT INTO cards/), { now: minute(61) })).reminded).toBe(0);
+  expect(await cards()).toBe(0);
+  // Held a few minutes by the run that failed, then tried again.
+  expect((await runMinuteJobs(env, { now: minute(62) })).reminded).toBe(0);
+  expect((await runMinuteJobs(env, { now: minute(67) })).reminded).toBe(1);
+  expect(await cards()).toBe(1);
+  expect((await runMinuteJobs(env, { now: minute(80) })).reminded).toBe(0);
+  expect(await cards()).toBe(1);
+});
+
+test("a reminder whose card was saved before the run failed is not brought back twice", async () => {
+  const m = await say(toru, "Sign for the oat milk");
+  await post("/channels/later", mika, { orgId: ORG, channel: "b:cafe", messageId: m.id, remindAt: new Date(Date.now() + 60 * 60000).toISOString() });
+  const minute = (n) => new Date(Date.now() + n * 60000);
+  const cards = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1 AND recipient_user_id = 'mika'").bind(ORG).first()).n;
+  expect((await runMinuteJobs(failing(/^UPDATE saved_items SET reminded_at/), { now: minute(61) })).reminded).toBe(0);
+  expect(await cards()).toBe(1);
+  expect((await runMinuteJobs(env, { now: minute(67) })).reminded).toBe(1);
+  expect(await cards()).toBe(1);
+  expect((await runMinuteJobs(env, { now: minute(80) })).reminded).toBe(0);
+});
+
+test("a reminder that cannot be brought back for a day is given up", async () => {
+  const m = await say(toru, "Renew the lease");
+  await post("/channels/later", mika, { orgId: ORG, channel: "b:cafe", messageId: m.id, remindAt: new Date(Date.now() + 60 * 60000).toISOString() });
+  expect((await runMinuteJobs(failing(/INSERT INTO cards/), { now: new Date(Date.now() + 61 * 60000) })).reminded).toBe(0);
+  expect((await runMinuteJobs(env, { now: new Date(Date.now() + 60 * 60000 + 86400000 + 60000) })).reminded).toBe(0);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id = ?1").bind(ORG).first()).n).toBe(0);
+  expect((await env.DB.prepare("SELECT reminded_at FROM saved_items WHERE org_id = ?1").bind(ORG).first()).reminded_at).toBeTruthy();
 });
 
 test("a clip takes only messages you can read", async () => {

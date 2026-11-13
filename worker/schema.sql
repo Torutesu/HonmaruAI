@@ -736,7 +736,11 @@ CREATE TABLE IF NOT EXISTS saved_items (
   remind_at     TEXT,
   reminded_at   TEXT,
   done_at       TEXT,
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  /* A cron run bringing the reminder back holds it until then (later.js).
+     `reminded_at` is written only once the card is out, or the reminder is
+     dropped or given up; a run that fails or dies leaves this to run out. */
+  remind_lease_until TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_saved_items ON saved_items(org_id, login);
 /* The minute cron's question: reminders that are due. Partial, so only the

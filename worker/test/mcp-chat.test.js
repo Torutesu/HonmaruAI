@@ -358,6 +358,29 @@ test('scheduled authorized messages are sent once', async () => {
   expect((await env.DB.prepare('SELECT COUNT(*) n FROM channel_messages WHERE org_id=?1').bind(orgId).first()).n).toBe(1);
 });
 
+test('a scheduled message whose conversation lookup fails for a moment stays scheduled and is sent later', async () => {
+  const made = await createApiToken(env.DB, { orgId, githubId: actor.githubId, name: 'schedule', scopes: actor.scopes });
+  actor.tokenId = made.id;
+  await call('schedule_message', { conversationId: 'b:general', body: 'after the hiccup', requestId: 'schedule-hiccup', sendAt: new Date(Date.now() + 120000).toISOString() });
+  // The members read inside the conversation lookup fails once.
+  const realPrepare = env.DB.prepare.bind(env.DB);
+  let failed = false;
+  const hiccup = { ...env, DB: new Proxy(env.DB, { get(target, prop) {
+    if (prop === 'prepare') return sqlText => { if (!failed && /SELECT m\.user_github_id\s+AS userId/.test(sqlText)) { failed = true; throw new Error('D1 hiccup'); } return realPrepare(sqlText); };
+    const v = target[prop];
+    return typeof v === 'function' ? v.bind(target) : v;
+  } }) };
+  const sentAt = async () => (await env.DB.prepare("SELECT sent_at FROM scheduled_messages WHERE org_id=?1 AND body='after the hiccup'").bind(orgId).first()).sent_at;
+  await runMinuteJobs(hiccup, { now: new Date(Date.now() + 150000) });
+  expect(failed).toBe(true);
+  expect(await sentAt()).toBeNull();
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM channel_messages WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
+  // Once its hold has run out, a later minute sends it, once.
+  await runMinuteJobs(env, { now: new Date(Date.now() + 150000 + 6 * 60000) });
+  expect(await sentAt()).toBeTruthy();
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM channel_messages WHERE org_id=?1').bind(orgId).first()).n).toBe(1);
+});
+
 
 test('DLP applies before MCP immediate and scheduled sends', async () => {
   const now = new Date().toISOString();

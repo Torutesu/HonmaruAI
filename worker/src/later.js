@@ -1,7 +1,7 @@
 import { accessFor, mayRead } from "./access.js";
 import { sendDuePushes } from "./pushes.js";
 import { getMessage, postMessage } from "./channels.js";
-import { saveCard } from "./db.js";
+import { getCard, saveCard } from "./db.js";
 import { appendCardEvent } from "./events.js";
 import { announceCards } from "./announce.js";
 import { notifyCard } from "./notify.js";
@@ -152,6 +152,9 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
       if (!mayRead(row.channel, await accessFor(db, row.org_id, row.author_login))) { await done(row); continue; }
       const mcp = await db.prepare('SELECT * FROM mcp_scheduled_authority WHERE scheduled_id=?1 AND org_id=?2').bind(row.id, row.org_id).first();
       if (mcp) {
+        // "Not sent" here means its authority is gone for good, so it is
+        // closed. A failure that may pass throws instead, and the hold above
+        // runs out and a later minute tries again, as for any other message.
         const { deliverMcpScheduledMessage } = await import('./mcpScheduled.js');
         const result = await deliverMcpScheduledMessage(env, row, mcp);
         await done(row);
@@ -169,44 +172,67 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
   }
   // Messages that waited a minute to see whether they were read.
   await sendDuePushes(env, now.getTime()).catch((err) => console.error("message pushes failed", err?.message || err));
+  // A reminder is held while a run brings it back, as a scheduled message is,
+  // and closed (`reminded_at`) only once its card is saved and announced, or
+  // once there is a lasting reason not to bring it back. A run that fails or
+  // dies leaves the hold to run out and a later minute tries again, for a
+  // day; past that it is closed as given up rather than tried for ever. The
+  // card id comes from the reminder, so a retry after the card was saved
+  // finds that card instead of making a second one.
   const { results: remind } = await db.prepare(
     `SELECT s.*, m.body, m.author_login, m.channel AS message_channel, m.deleted_at AS message_deleted_at, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name, me.locale AS reader_locale FROM saved_items s
        JOIN channel_messages m ON m.id = s.message_id AND m.org_id = s.org_id
        LEFT JOIN users u ON u.login = m.author_login
        LEFT JOIN users me ON me.login = s.login
-      WHERE s.done_at IS NULL AND s.reminded_at IS NULL AND s.remind_at IS NOT NULL AND s.remind_at <= ?1 LIMIT 50`
+      WHERE s.done_at IS NULL AND s.reminded_at IS NULL AND s.remind_at IS NOT NULL AND s.remind_at <= ?1
+        AND (s.remind_lease_until IS NULL OR s.remind_lease_until <= ?1) LIMIT 50`
   ).bind(at).all();
   for (const r of remind || []) {
+    // Matched on its reminder time too: one set again meanwhile is a new
+    // reminder, neither claimed nor closed by this run.
+    const close = () => db.prepare("UPDATE saved_items SET reminded_at = ?2, remind_lease_until = NULL WHERE id = ?1 AND org_id = ?3 AND remind_at = ?4")
+      .bind(r.id, at, r.org_id, r.remind_at).run();
     try {
-      const claim = await db.prepare("UPDATE saved_items SET reminded_at = ?2 WHERE id = ?1 AND reminded_at IS NULL").bind(r.id, at).run();
+      const claim = await db.prepare(`UPDATE saved_items SET remind_lease_until = ?2 WHERE id = ?1 AND org_id = ?4 AND remind_at = ?5 AND reminded_at IS NULL
+          AND (remind_lease_until IS NULL OR remind_lease_until <= ?3)`)
+        .bind(r.id, new Date(now.getTime() + SEND_LEASE_MS).toISOString(), at, r.org_id, r.remind_at).run();
       if (!(claim.meta?.changes > 0)) continue;
+      if (Date.parse(r.remind_at) <= now.getTime() - SEND_RETRY_MS) {
+        console.error("reminder given up after a day of failed tries", r.id);
+        await close(); continue;
+      }
       // The message as it is now, so only for someone who may still read it:
       // still in the workspace, still in its conversation, and the message
-      // not deleted — as the Later screen shows it.
-      if (r.message_deleted_at) continue;
+      // not deleted — as the Later screen shows it. None of these changes
+      // back by waiting, so each closes the reminder.
+      if (r.message_deleted_at) { await close(); continue; }
       const member = await db.prepare(
         "SELECT 1 FROM memberships ms JOIN users u ON u.github_id = ms.user_github_id WHERE ms.org_id = ?1 AND u.login = ?2"
       ).bind(r.org_id, r.login).first();
-      if (!member) continue;
-      if (!mayRead(r.message_channel, await accessFor(db, r.org_id, r.login))) continue;
-      const lang = await loadCopy(env, r.reader_locale || "en", { orgId: r.org_id });
-      const card = {
-        id: `card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        type: "notification",
-        format: "fyi",
-        status: "pending",
-        recipientUserID: r.login,
-        senderUserID: r.login,
-        title: serverText(lang, "reminder.title", { text: String(r.body || "").replace(/\s+/g, " ").slice(0, 120) }),
-        summary: String(r.body || "").slice(0, 1500),
-        context: r.author_name ? serverText(lang, "reminder.savedBy", { name: r.author_name }) : serverText(lang, "reminder.saved"),
-        priority: "medium",
-        createdAt: at,
-        sourceApp: "Your AI",
-        reminder: { savedId: r.id, messageId: r.message_id },
-      };
-      await saveCard(db, r.org_id, card);
-      await appendCardEvent(db, r.org_id, { cardId: card.id, type: "created", actorUserId: r.login, note: "reminder", snapshot: card });
+      if (!member) { await close(); continue; }
+      if (!mayRead(r.message_channel, await accessFor(db, r.org_id, r.login))) { await close(); continue; }
+      const cardId = `card-reminder-${r.id}-${Date.parse(r.remind_at)}`;
+      let card = await getCard(db, r.org_id, cardId);
+      if (!card) {
+        const lang = await loadCopy(env, r.reader_locale || "en", { orgId: r.org_id });
+        card = {
+          id: cardId,
+          type: "notification",
+          format: "fyi",
+          status: "pending",
+          recipientUserID: r.login,
+          senderUserID: r.login,
+          title: serverText(lang, "reminder.title", { text: String(r.body || "").replace(/\s+/g, " ").slice(0, 120) }),
+          summary: String(r.body || "").slice(0, 1500),
+          context: r.author_name ? serverText(lang, "reminder.savedBy", { name: r.author_name }) : serverText(lang, "reminder.saved"),
+          priority: "medium",
+          createdAt: at,
+          sourceApp: "Your AI",
+          reminder: { savedId: r.id, messageId: r.message_id },
+        };
+        await saveCard(db, r.org_id, card);
+        await appendCardEvent(db, r.org_id, { cardId: card.id, type: "created", actorUserId: r.login, note: "reminder", snapshot: card });
+      }
       // The saved message may be a colleague's, in their language.
       const shown = await localizeForRecipient(env, r.org_id, card);
       await announceCards(env, r.org_id, [shown]);
@@ -215,6 +241,7 @@ export async function runMinuteJobs(env, { now = new Date(), broadcast } = {}) {
       // did it".
       await notifyCard(env, { card: shown, kind: "created", excludeLogin: null, orgId: r.org_id })
         .catch((err) => console.error("reminder push failed", err?.message || err));
+      await close();
       reminded += 1;
     } catch (err) {
       console.error("reminder failed", err?.message || err);
