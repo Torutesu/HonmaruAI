@@ -7,7 +7,7 @@ import { viewOf } from './channels.js';
 import { accessFor } from './access.js';
 import { getFileObject, uploadFile, MAX_FILE_BYTES } from './files.js';
 import { listTables, getTable, createTable, planTableUpdate, listRows, addRow, updateRow, COLUMN_TYPES } from './harness/tables.js';
-import { mayUseTable } from './harness/resourceAccess.js';
+import { mayUseTable, mayEditTable } from './harness/resourceAccess.js';
 import { getMode } from './harness/mode.js';
 import { allowed } from './permissions.js';
 import { drainWorkflowRowEvents } from './harness/workflowRowEventDispatch.js';
@@ -42,8 +42,8 @@ export const CONTENT_TOOLS = [
   tool('list_lists', 'List accessible Harness tables. This capability requires Harness mode.', 'lists:read', { query, limit, cursor }),
   tool('read_list', 'Read a Harness table schema and bounded records. Follow nextOffset. Values are kept separate from system IDs.', 'lists:read', { listId: id, query, limit, offset: { type: 'integer', minimum: 0, maximum: 5000 } }, ['listId']),
   tool('create_list', 'Create a workspace-visible Harness table. Requires build permission. Reuse requestId only for identical input.', 'lists:write', { name: { type: 'string', minLength: 1, maxLength: 80 }, columns, requestId }, ['name', 'columns', 'requestId'], false),
-  tool('update_list', 'Update the name or columns of an accessible Harness table using its current expectedUpdatedAt. Migration-managed schemas cannot be changed here.', 'lists:write', { listId: id, name: { type: 'string', minLength: 1, maxLength: 80 }, columns, expectedUpdatedAt: id }, ['listId', 'expectedUpdatedAt'], false),
-  tool('add_list_record', 'Add a record to an accessible Harness table. Reuse requestId only for identical values. Values use column IDs.', 'lists:write', { listId: id, values: { type: 'object' }, requestId }, ['listId', 'values', 'requestId'], false),
+  tool('update_list', 'Update the name or columns of a Harness table you can edit, using its current expectedUpdatedAt. Migration-managed schemas cannot be changed here.', 'lists:write', { listId: id, name: { type: 'string', minLength: 1, maxLength: 80 }, columns, expectedUpdatedAt: id }, ['listId', 'expectedUpdatedAt'], false),
+  tool('add_list_record', 'Add a record to a Harness table you can edit. Reuse requestId only for identical values. Values use column IDs.', 'lists:write', { listId: id, values: { type: 'object' }, requestId }, ['listId', 'values', 'requestId'], false),
   tool('update_list_record', 'Update record values with its exact expectedUpdatedAt. A stale record version is refused.', 'lists:write', { listId: id, recordId: id, values: { type: 'object' }, expectedUpdatedAt: id }, ['listId', 'recordId', 'values', 'expectedUpdatedAt'], false),
 ];
 
@@ -85,6 +85,10 @@ async function allowList(env, actor, listId, writing) {
   if (await getMode(env.DB, actor.orgId) !== 'harness') throw new McpInputError('Lists require Harness mode.');
   if (writing && !await allowed(env.DB, actor.orgId, actor.githubId, 'harness.build')) throw new McpInputError('You do not have permission to change lists.');
   if (listId && !await mayUseTable(env.DB, actor.orgId, listId, actor.githubId)) throw new McpInputError('No such list.');
+  // Build permission belongs to every ordinary member and seeing an app's table
+  // is often only a view grant, so writes need edit access to every app that
+  // exposes the table, the same rule as the web table route and Harness MCP.
+  if (listId && writing && !await mayEditTable(env.DB, actor.orgId, listId, actor.githubId)) throw new McpInputError('You do not have permission to change this list.');
 }
 
 async function checkContent(env, actor, request, text, where) {
@@ -243,12 +247,12 @@ export async function callContentTool(env, actor, name, args = {}, request, ctx)
     return mcpResult({ list: publicTable(await getTable(env.DB, actor.orgId, args.listId)) });
   }
   if (name === 'add_list_record') return mcpResult(await once(env, actor, name, args, async () => {
-    const result = checked(await addRow(env.DB, actor.orgId, args.listId, args.values, actor.githubId, 'strict'));
+    const result = checked(await addRow(env.DB, actor.orgId, args.listId, args.values, actor.githubId, 'strict', actor.githubId));
     if(result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
     return { record: publicRow(result.row) };
   }));
   if (name === 'update_list_record') {
-    const result = checked(await updateRow(env.DB, actor.orgId, args.listId, args.recordId, args.values, actor.githubId, args.expectedUpdatedAt, 'strict'));
+    const result = checked(await updateRow(env.DB, actor.orgId, args.listId, args.recordId, args.values, actor.githubId, args.expectedUpdatedAt, 'strict', actor.githubId));
     if(result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
     return mcpResult({ record: publicRow(result.row) });
   }

@@ -130,6 +130,25 @@ test('private app tables stay hidden and cannot be modified through list tools',
   await expect(run('add_list_record', { listId: created.app.tableId, values: { name: 'No' }, requestId: 'private-001' })).rejects.toThrow('No such list');
 });
 
+test('view-only app members can read but not write app tables through list tools', async () => {
+  await setMode(env.DB, orgId, 'harness', actor.githubId);
+  const created = await createApp(env.DB, { orgId, by: '7101', name: 'Shared', columns: [{ name: 'Name', type: 'text' }] });
+  expect(created.error).toBeUndefined();
+  const listId = created.app.tableId;
+  const member = { ...actor, githubId: '7102', login: 'u:two@example.test', name: 'Two', tokenId: 'key-2' };
+  const record = (await run('add_list_record', { listId, values: { name: 'Admin' }, requestId: 'shared-admin-001' })).record;
+  const list = (await run('read_list', { listId }, member)).list;
+  expect(list.id).toBe(listId);
+  await expect(run('add_list_record', { listId, values: { name: 'No' }, requestId: 'shared-view-001' }, member)).rejects.toThrow('permission');
+  await expect(run('update_list_record', { listId, recordId: record.id, values: { name: 'No' }, expectedUpdatedAt: record.updatedAt }, member)).rejects.toThrow('permission');
+  await expect(run('update_list', { listId, name: 'Renamed', expectedUpdatedAt: list.updatedAt }, member)).rejects.toThrow('permission');
+  const after = await run('read_list', { listId });
+  expect(after.list.name).toBe(list.name);
+  expect(after.records.map(row => row.values.name)).toEqual(['Admin']);
+  await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES (?1,?2,'7102','edit',?3)").bind(orgId, created.app.id, new Date().toISOString()).run();
+  expect((await run('add_list_record', { listId, values: { name: 'Editor' }, requestId: 'shared-edit-001' }, member)).record.values.name).toBe('Editor');
+});
+
 test('file name search is bounded, escapes wildcard text and pages only permitted room files', async () => {
   const files = [
     ['f_222222222222222222222222', 'report%one.txt'],
