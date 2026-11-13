@@ -4,7 +4,8 @@ import {test,expect,vi} from 'vitest'
 import {WorkspaceFilePreview} from './WorkspaceFilePreview'
 import type {WorkspaceFileApi,FileVersion,WorkspaceFile} from '../utils/workspaceFiles'
 vi.mock('../utils/i18n',()=>{const t=(text:string)=>text;return {useT:()=>t}})
-vi.mock('./Dialog',()=>({Dialog:({children}:React.PropsWithChildren)=>children}))
+vi.mock('./Dialog',()=>({Dialog:({children,footer}:React.PropsWithChildren<{footer?:React.ReactNode}>)=><>{children}{footer}</>}))
+vi.mock('./DocumentCreate',()=>({DocumentCreate:({source}:{source:{text:string}})=><button aria-label="Export file">{source.text}</button>}))
 vi.mock('./DocumentPreview',()=>({DocumentContent:({bytes}:{bytes:Uint8Array})=><pre>{new TextDecoder().decode(bytes)}</pre>}))
 const file={id:'file',path:'report.txt'} as WorkspaceFile
 const version={version:2,contentType:'text/plain',size:10} as FileVersion
@@ -40,5 +41,14 @@ test('inline preview keeps content in a labelled region and closes without a dia
  expect(renderer!.root.findByType('section').props['aria-label']).toBe('report.txt · v2')
  expect(JSON.stringify(renderer!.toJSON())).toContain('saved version two')
  act(()=>renderer!.root.findByProps({'aria-label':'Close preview'}).props.onClick());expect(close).toHaveBeenCalledOnce()
+ act(()=>renderer!.unmount())
+})
+test('Markdown preview exposes conversion of the exact inspected bytes',async()=>{
+ const api={download:vi.fn().mockResolvedValue(new Blob(['# Saved version'],{type:'text/markdown'}))} as unknown as WorkspaceFileApi
+ const sourceFile={...file,path:'reports/brief.md',scope:'room:42'} as WorkspaceFile
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilePreview api={api} file={sourceFile} version={{...version,contentType:'text/markdown',size:15}} onClose={vi.fn()} onOpenFile={vi.fn()}/> )})
+ expect(renderer!.root.findByProps({'aria-label':'Export file'}).children).toContain('# Saved version')
+ expect(api.download).toHaveBeenCalledWith('file',2,expect.any(AbortSignal))
  act(()=>renderer!.unmount())
 })

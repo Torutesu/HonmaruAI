@@ -4334,3 +4334,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Expanded the shared public URL filter to reject additional local-only DNS suffixes and reserved IPv4 documentation/relay ranges. Remote MCP endpoint tests cover WHATWG-normalized short, integer, hexadecimal and octal loopback/private addresses. Existing HTTPS requirements and manual redirect refusal remain unchanged.
 - This does **not** close DNS rebinding: Worker `fetch` does not expose a peer-IP pinning control in this path. The inventory explicitly keeps that risk open; no new service, paid contract, migration or Simple-mode change was added.
 - Focused Worker `remote-mcp.test.js` and `links.test.js` passed **27/27**; `node --check`, requirements JSON parsing and `git diff --check` passed. Exact-head CI, merge and deployment are pending.
+
+### 2026-11-13 — Existing Markdown/HTML file export entry point (local QA; release pending)
+
+- A Markdown/HTML file preview now offers the existing document conversion dialog preloaded with the exact inspected version. The source content and format are locked in the export flow; output is PDF or DOCX. The user explicitly selects an online authorized local conversion node, and the dialog states the file content will be sent to that node. Successful output opens the created versioned Workspace file. Japanese labels were added.
+- Focused Web tests passed **15/15**; full Web suite passed **2,005/2,005**; TypeScript/production build and `git diff --check` passed. The export request now rejects oversized serialized content before making a Worker request. No Worker/API contract or paid service changed. Existing Simple and normal file download paths remain available.
+- KY-072 remains partial pending exact-head CI, deployed production roundtrip from an existing file, output/input combinations beyond Markdown/HTML to PDF/DOCX, mobile/narrow UI, and side-by-side Kylon acceptance.
