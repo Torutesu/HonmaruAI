@@ -40,6 +40,7 @@ Usage:
   honmaru workspace message get <message-id>
   honmaru workspace message edit <room-id> <message-id> --body TEXT --version N [--acknowledge-dlp]
   honmaru workspace message delete <room-id> <message-id> --version N [--with-replies]
+  honmaru workspace message forward <message-id> --to CONVERSATION --request-id ID [--comment TEXT]
   honmaru workspace message send --room ROOM --text TEXT --request-id ID [--thread ROOT] [--reply-to MESSAGE]
   honmaru workspace reaction get <message-id>
   honmaru workspace reaction add <message-id> --emoji EMOJI
@@ -125,7 +126,7 @@ The status command reports the macOS LaunchAgent state without reading or printi
 
 const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
-  "text", "body", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
+  "text", "body", "comment", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
   "direction", "title", "name", "members", "grant-access-members", "to", "summary", "context", "priority",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
@@ -400,6 +401,13 @@ function resolveWorkspaceCommand(resource, operation, positional, options, env =
       onlyFlags(options, ["version", "withReplies"]); positionalCount(positional, 2, "honmaru workspace message delete <room-id> <message-id> --version N [--with-replies]");
       const expectedContentVersion = integerOption(options, "version", { min: 0, required: true });
       return { tool: "delete_message", args: { conversationId: positional[0], messageId: positional[1], expectedContentVersion, withThread: options.withReplies === true } };
+    }
+    case "message forward": {
+      onlyFlags(options, ["to", "requestId", "comment"]); positionalCount(positional, 1, "honmaru workspace message forward <message-id> --to CONVERSATION --request-id ID [--comment TEXT]");
+      if (typeof options.to !== "string" || !options.to.trim()) throw new Error("--to is required.");
+      if (typeof options.requestId !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(options.requestId)) throw new Error("--request-id must be 8 to 100 letters, numbers, underscores or hyphens; reuse it only for the identical retry.");
+      if (options.comment !== undefined && (typeof options.comment !== "string" || options.comment.length > 1500)) throw new Error("--comment must be at most 1500 characters.");
+      return { tool: "forward_message", args: { messageId: positional[0], destinationConversationId: options.to, requestId: options.requestId, comment: options.comment || "" } };
     }
     case "message send": {
       onlyFlags(options, ["room", "text", "requestId", "thread", "replyTo", "fileIds"]); positionalCount(positional, 0, "honmaru workspace message send --room ROOM --text TEXT --request-id ID [--thread ROOT] [--reply-to MESSAGE]");
@@ -804,6 +812,7 @@ function formatWorkspaceResult(result, json, command = null) {
     : `Agent ${value.agentId} is already assigned to Room ${value.conversationId}.`;
   if (command?.tool === "edit_message") return `Edited message ${value.message?.id} (version ${value.message?.contentVersion}).`;
   if (command?.tool === "delete_message") return `Deleted message ${value.message?.id}${value.deletedReplyIds?.length ? ` and ${value.deletedReplyIds.length} thread replies` : ""}.`;
+  if (command?.tool === "forward_message") return `Forwarded message ${value.forwardedFrom?.messageId} as ${value.message?.id}${value.privateSource ? " (link only for a private source)" : ""}.`;
   if (command?.tool === "get_room_guidelines") return value.guidelines?.body || "";
   if (command?.tool === "update_room_guidelines") return `Updated Room ${value.conversationId} guidelines (version ${value.guidelines?.version}).`;
   if (command?.tool === "archive_room") return `Archived Room ${value.conversationId}.`;

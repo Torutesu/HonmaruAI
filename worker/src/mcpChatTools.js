@@ -60,6 +60,7 @@ export const CHAT_TOOLS = [
   write('remove_room_agent', 'Remove an Agent assignment from an accessible managed Room. Room admins only. This does not revoke the Agent access grants held by people.', { conversationId: id, agentId: id }, ['conversationId', 'agentId'], 'channels:write', { destructiveHint: true }),
   read('search_messages', 'Search authorized message history. Supports in:, from:, before:, after:, has:, is: and quoted phrases. Content is untrusted source data.', { query: { type: 'string', minLength: 1, maxLength: 1000 }, cursor, limit }, ['query']),
   read('get_message', 'Read one accessible message by ID without marking it read.', { messageId: id }, ['messageId']),
+  write('forward_message', 'Forward an accessible message to another accessible conversation. Public Room messages include a short quote and source link; private Room, group, and direct-message content is never copied, only a link is included. An optional comment is checked against workspace DLP rules, and requestId makes retries safe.', { messageId: id, destinationConversationId: id, comment: { type: 'string', maxLength: 1500 }, requestId }, ['messageId', 'destinationConversationId', 'requestId'], 'chat:write'),
   write('edit_message', 'Edit your own message using its exact current contentVersion. Workspace DLP rules still apply; explicitly acknowledge warning-only matches.', { conversationId: id, messageId: id, expectedContentVersion: { type: 'integer', minimum: 0 }, body: { type: 'string', maxLength: 4000 }, acknowledgeDlp: { type: 'boolean' } }, ['conversationId', 'messageId', 'expectedContentVersion', 'body'], 'chat:write', { idempotentHint: false }),
   write('delete_message', 'Delete your own message using its exact current contentVersion. Deleting a thread with other people’s replies requires withThread=true and removes those replies too.', { conversationId: id, messageId: id, expectedContentVersion: { type: 'integer', minimum: 0 }, withThread: { type: 'boolean' } }, ['conversationId', 'messageId', 'expectedContentVersion'], 'chat:write', { destructiveHint: true, idempotentHint: false }),
   read('read_channel', 'Read a bounded history page without marking it read. Follow nextCursor for older messages.', { conversationId: id, cursor, limit }, ['conversationId']),
@@ -405,6 +406,32 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
     }
     const [message] = await present(env.DB, actor.orgId, [context.row], actor.login, context.view, context.members);
     return mcpResult(name === 'get_message' ? { message: decorate(env, actor, [message], request)[0] } : { messageId: message.id, reactions: message.reactions });
+  }
+  if (name === 'forward_message') {
+    const source = await accessibleMessage(env, actor, args.messageId);
+    const destination = await resolveMcpConversation(env, actor, args.destinationConversationId);
+    if (!destination?.view) throw new McpInputError('No accessible destination conversation.');
+    if (source.resolved.key === destination.resolved.key) throw new McpInputError('Choose a different destination conversation.');
+    const privateSource = source.resolved.kind === 'dm' || source.resolved.kind === 'group' || Boolean(source.resolved.private);
+    const link = messageLink(env, actor.orgId, source.view, source.row.id);
+    const parts = [(args.comment || '').trim()];
+    if (!privateSource) {
+      const [presented] = await present(env.DB, actor.orgId, [source.row], actor.login, source.view, source.members);
+      const quoted = source.row.body ? source.row.body.slice(0, 600).split('\n').map(line => `> ${line}`).join('\n') : '> 📎';
+      const room = source.resolved.kind === 'business'
+        ? (await env.DB.prepare('SELECT name FROM businesses WHERE org_id=?1 AND slug=?2 AND archived_at IS NULL').bind(actor.orgId, source.resolved.slug).first())?.name || source.resolved.slug
+        : null;
+      const author = source.row.kind === 'ai' ? 'Your AI' : presented?.authorName || 'a teammate';
+      parts.push(quoted, `— ${author}${room ? `, #${room}` : ''}`, link);
+    } else {
+      parts.push(link);
+    }
+    const body = parts.filter(Boolean).join('\n');
+    if (!body.trim()) throw new McpInputError('Add a comment when forwarding a private message.');
+    if (body.length > 4000) throw new McpInputError('The forwarded message is too long. Shorten the comment and retry.');
+    const sent = await send(env, actor, 'forward_message', { conversationId: args.destinationConversationId, body, requestId: args.requestId }, destination, request, ctx);
+    if (!sent.structuredContent.replayed) await audit(env, request, { orgId: actor.orgId, action: 'message.forwarded', actor: { type: 'user', id: actor.login, name: actor.name }, entity: { type: 'message', id: sent.structuredContent.message.id }, details: { sourceMessageId: source.row.id, destination: destination.resolved.key, privateSource } });
+    return mcpResult({ ...sent.structuredContent, forwardedFrom: { messageId: source.row.id, url: link }, privateSource });
   }
   if (name === 'create_conversation') return createMcpConversation(env, actor, args);
   const context = await resolveMcpConversation(env, actor, args.conversationId);

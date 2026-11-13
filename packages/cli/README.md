@@ -33,6 +33,7 @@ npm exec --workspace @honmaru/cli -- honmaru workspace room read b:ops --limit 3
 npm exec --workspace @honmaru/cli -- honmaru workspace message search "release approval" --limit 20
 npm exec --workspace @honmaru/cli -- honmaru workspace message get msg_…
 npm exec --workspace @honmaru/cli -- honmaru workspace message send --room b:ops --text "Release is ready" --request-id release-note-01
+npm exec --workspace @honmaru/cli -- honmaru workspace message forward msg_… --to b:ops --request-id forward-note-01 --comment "Please review"
 npm exec --workspace @honmaru/cli -- honmaru workspace thread get b:ops msg_…
 npm exec --workspace @honmaru/cli -- honmaru workspace thread msg b:ops msg_… --text "I will verify" --request-id verify-reply-01
 npm exec --workspace @honmaru/cli -- honmaru workspace reaction add msg_… --emoji "✅"

@@ -242,6 +242,66 @@ test('public grant cannot discover, search, or guess private and DM messages', a
   expect((await call('search_messages', { query: 'needle' }, expanded)).messages).toHaveLength(3);
 });
 
+test('MCP forwarding quotes public Room messages and makes the retry idempotent', async () => {
+  await upsertBusiness(env.DB, orgId, { name: 'Destination', createdBy: 'mcp-a' });
+  const source = await seed('b:general', 'A public update\nwith a second line');
+  const args = { messageId: source.id, destinationConversationId: 'b:destination', comment: 'Please review', requestId: 'forward-public-1' };
+  const first = await call('forward_message', args);
+  expect(first).toMatchObject({ privateSource: false, forwardedFrom: { messageId: source.id }, message: { channel: 'b:destination' } });
+  expect(first.message.body).toContain('Please review');
+  expect(first.message.body).toContain('> A public update\n> with a second line');
+  expect(first.message.body).toContain('— alex, #General');
+  expect(first.message.body).toContain(`/#/m/${source.id}/`);
+  const retry = await call('forward_message', args);
+  expect(retry.message.id).toBe(first.message.id);
+  expect(retry.replayed).toBe(true);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?1 AND channel='b:destination'").bind(orgId).first('n'))).toBe(1);
+});
+
+test('MCP forwarding never copies content from private Rooms, DMs, or groups', async () => {
+  const expanded = { ...actor, scopes: [...actor.scopes, 'chat:private', 'chat:dm'] };
+  const privateRoom = await seed('b:private', 'private-room-secret');
+  const dm = await seed('dm:alex|beth', 'direct-message-secret');
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES(?1,'g:0123456789abcdef','alex','alex','now'),(?1,'g:0123456789abcdef','beth','alex','now')").bind(orgId).run();
+  const group = await seed('g:0123456789abcdef', 'group-message-secret');
+  for (const [source, suffix] of [[privateRoom, 'private'], [dm, 'dm'], [group, 'group']]) {
+    const forwarded = await call('forward_message', { messageId: source.id, destinationConversationId: 'b:general', comment: `Check ${suffix}`, requestId: `forward-${suffix}-1` }, expanded);
+    expect(forwarded.privateSource).toBe(true);
+    expect(forwarded.message.body).toContain(`Check ${suffix}`);
+    expect(forwarded.message.body).toContain(`/#/m/${source.id}/`);
+    expect(forwarded.message.body).not.toContain('private-room-secret');
+    expect(forwarded.message.body).not.toContain('direct-message-secret');
+    expect(forwarded.message.body).not.toContain('group-message-secret');
+  }
+});
+
+test('MCP forwarding rejects inaccessible sources and same-conversation targets', async () => {
+  const dm = await seed('dm:alex|beth', 'do not disclose');
+  await expect(call('forward_message', { messageId: dm.id, destinationConversationId: 'b:general', comment: 'Review', requestId: 'forward-no-scope' }))
+    .rejects.toThrow('chat:dm');
+  const publicMessage = await seed('b:general', 'public');
+  await expect(call('forward_message', { messageId: publicMessage.id, destinationConversationId: 'b:general', comment: '', requestId: 'forward-same-1' }))
+    .rejects.toThrow('different destination');
+});
+
+test('MCP forwarding applies DLP before a destination message can be saved', async () => {
+  const source = await seed('b:general', 'Routine update');
+  const now = new Date().toISOString();
+  await env.DB.prepare("INSERT INTO dlp_rules(id,org_id,name,kind,detector,action,created_by,created_at,updated_at) VALUES('block-forward-card',?1,'Card number','builtin','credit_card','block',?2,?3,?3)").bind(orgId, actor.githubId, now).run();
+  await expect(call('forward_message', { messageId: source.id, destinationConversationId: 'b:private', comment: '4111 1111 1111 1111', requestId: 'forward-dlp-1' }, { ...actor, scopes: [...actor.scopes, 'chat:private'] }))
+    .rejects.toThrow("can't be sent");
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?1 AND channel='b:private'").bind(orgId).first('n')).toBe(0);
+});
+
+test('MCP forward is an idempotent write tool and documents private-source behavior', () => {
+  expect(CHAT_TOOLS.find(tool => tool.name === 'forward_message')).toMatchObject({
+    scope: 'chat:write',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    inputSchema: { required: ['messageId', 'destinationConversationId', 'requestId'] },
+  });
+  expect(CHAT_TOOLS.find(tool => tool.name === 'forward_message').description).toContain('only a link is included');
+});
+
 test('search grant filter occurs before limit and cursor handles timestamp ties', async () => {
   const first = await seed('b:general', 'needle one');
   const second = await seed('b:general', 'needle two');
