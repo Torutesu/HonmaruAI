@@ -109,6 +109,70 @@ test('typed column builder adds a select column with bounded options to the revi
  act(()=>tree.unmount())
 })
 
+test('existing column rename builder uses the stable column ID without applying it',async()=>{
+ const database={fork:null,version:2,entities:[{key:'primary',table:{id:'tasks',name:'Tasks',columns:[{id:'old_name',name:'Old name',type:'text'},{id:'status',name:'Status',type:'select',options:['Open','Done']}]}}],migrations:[]}
+ const {tree,api}=await setup([],database)
+ const form=tree.root.findByProps({className:'hx-db-builder-form hx-db-manage-column'})
+ const rename=tree.root.findByProps({'aria-label':'変更後の列名'})
+ await act(async()=>rename.props.onChange({target:{value:'Account name'}}))
+ await act(async()=>form.props.onSubmit({preventDefault:vi.fn()}))
+ expect(JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)).toEqual([{op:'rename_column',entity:'primary',column:'old_name',name:'Account name'}])
+ expect(api.previewDatabaseMigration).not.toHaveBeenCalled()
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
+
+test('existing column conversion builder adds select options to the reviewed migration plan',async()=>{
+ const database={fork:null,version:2,entities:[{key:'primary',table:{id:'tasks',name:'Tasks',columns:[{id:'status',name:'Status',type:'text'}]}}],migrations:[]}
+ const {tree,api}=await setup([],database)
+ const action=tree.root.findByProps({'aria-label':'列の変更操作'})
+ await act(async()=>action.props.onChange({target:{value:'convert'}}))
+ const type=tree.root.findByProps({'aria-label':'変更後の列型'})
+ await act(async()=>type.props.onChange({target:{value:'select'}}))
+ const options=tree.root.findByProps({'aria-label':'変換後の選択肢'})
+ await act(async()=>options.props.onChange({target:{value:'Open, Done, Open'}}))
+ const form=tree.root.findByProps({className:'hx-db-builder-form hx-db-manage-column'})
+ await act(async()=>form.props.onSubmit({preventDefault:vi.fn()}))
+ expect(JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)).toEqual([{op:'convert_column',entity:'primary',column:'status',type:'select',options:['Open','Done']}])
+ expect(api.previewDatabaseMigration).not.toHaveBeenCalled()
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
+
+test('existing column relation conversion captures explicit target and cardinality',async()=>{
+ const database={fork:null,version:2,entities:[{key:'primary',table:{id:'tasks',name:'Tasks',columns:[{id:'owners',name:'Owners',type:'text'}]}},{key:'people',table:{id:'people',name:'People',columns:[{id:'name',name:'Name',type:'text'}]}}],migrations:[]}
+ const {tree,api}=await setup([],database)
+ const action=tree.root.findByProps({'aria-label':'列の変更操作'})
+ await act(async()=>action.props.onChange({target:{value:'convert'}}))
+ const type=tree.root.findByProps({'aria-label':'変更後の列型'})
+ await act(async()=>type.props.onChange({target:{value:'relation'}}))
+ const target=tree.root.findByProps({'aria-label':'変換先Relationテーブル'})
+ await act(async()=>target.props.onChange({target:{value:'people'}}))
+ const cardinality=tree.root.findByProps({'aria-label':'変換先Relationの件数'})
+ await act(async()=>cardinality.props.onChange({target:{value:'multiple'}}))
+ const form=tree.root.findByProps({className:'hx-db-builder-form hx-db-manage-column'})
+ await act(async()=>form.props.onSubmit({preventDefault:vi.fn()}))
+ expect(JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)).toEqual([{op:'convert_column',entity:'primary',column:'owners',type:'relation',targetEntity:'people',multiple:true}])
+ expect(api.previewDatabaseMigration).not.toHaveBeenCalled()
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
+
+test('empty-column removal is only proposed and remains subject to migration preview',async()=>{
+ const database={fork:null,version:2,entities:[{key:'primary',table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'},{id:'legacy',name:'Legacy',type:'text'}]}}],migrations:[]}
+ const {tree,api}=await setup([],database)
+ const action=tree.root.findByProps({'aria-label':'列の変更操作'})
+ await act(async()=>action.props.onChange({target:{value:'drop'}}))
+ const column=tree.root.findByProps({'aria-label':'編集する列'})
+ await act(async()=>column.props.onChange({target:{value:'legacy'}}))
+ const form=tree.root.findByProps({className:'hx-db-builder-form hx-db-manage-column'})
+ await act(async()=>form.props.onSubmit({preventDefault:vi.fn()}))
+ expect(JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)).toEqual([{op:'drop_empty_column',entity:'primary',column:'legacy'}])
+ expect(api.previewDatabaseMigration).not.toHaveBeenCalled()
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
+
 test('ambiguous relation migrations let the owner select a target and require a new preview',async()=>{
  const {tree,button,api}=await setup()
  const candidateBlocker={entity:'primary',id:'source-row',column:'Assignee',reason:'Value cannot be converted without data loss.',resolution:{entity:'primary',columnId:'assignee',label:'Alex',candidates:['record-a','record-b']}}
