@@ -49,6 +49,7 @@ import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection } from './appCapabilities.js';
 import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
+import { appRemoteMcpForViewer, changeAppRemoteMcpGrant, invokeAppRemoteMcp } from './appRemoteMcp.js';
 import { generateCustomSource, saveCustomRelease } from "./customApps.js";
 import { customPublishState, setCustomPublishPolicy, requestCustomPublishApproval, reviewCustomPublishApproval } from './customAppPublishApproval.js';
 import { createCustomPreviewCandidate, currentCustomPreviewCandidate } from './customAppPreview.js';
@@ -1699,14 +1700,21 @@ export async function handleHarness(request, env, url, context = {}) {
       if (sub === 'connections') {
         if(request.method==='GET') {
           const result=await appConnectionsForViewer(env.DB,orgId,appId,me);
-          return result.error?fail(result):json(result);
+          if(result.error)return fail(result);
+          const remoteMcp=await appRemoteMcpForViewer(env.DB,orgId,appId,me);
+          return remoteMcp.error?fail(remoteMcp):json({...result,remoteMcp});
         }
         if(request.method!=='POST')return json({message:'Method not allowed.'},405);
         if(input.action==='request')return respond(await invokeAppConnection(env,orgId,appId,me,input),'app.connection_requested');
+        if(input.action==='remote_mcp_request')return respond(await invokeAppRemoteMcp(env,orgId,appId,me,input),'app.remote_mcp_requested');
         if(input.action==='save')return respond(await saveConnection(env.DB,orgId,appId,me,input),'app.connection_saved');
         if(input.action==='grant'||input.action==='revoke') {
           const result=await changeAppConnectionGrant(env.DB,orgId,appId,me,input);
           return respond(result, result.error?null:`app.connection_${input.action==='grant'?'granted':'grant_revoked'}`);
+        }
+        if(input.action==='remote_mcp_grant'||input.action==='remote_mcp_revoke') {
+          const result=await changeAppRemoteMcpGrant(env.DB,orgId,appId,me,{...input,action:input.action==='remote_mcp_grant'?'grant':'revoke'});
+          return respond(result, result.error?null:`app.remote_mcp_${input.action==='remote_mcp_grant'?'granted':'grant_revoked'}`);
         }
       }
       return json({message:'Unknown operation.'},400);
@@ -1789,9 +1797,11 @@ export async function handleHarness(request, env, url, context = {}) {
         const entities=(await databaseView(env.DB,orgId,app)).entities;
         const actionSnapshot=(await actions(env.DB,orgId,appId)).actions.filter(a=>a.published).map(a=>({name:a.name,code:a.published,version:a.version,publishedVersion:a.publishedVersion,updatedAt:a.updatedAt}));
         const connectionSnapshot=(await connections(env.DB,orgId,appId,me)).connections.map(c=>({name:c.name,endpoint:c.endpoint,method:c.method,enabled:c.enabled,version:c.version}));
+        const remoteMcpSnapshot=await appRemoteMcpForViewer(env.DB,orgId,appId,me);
         const gatewaySnapshot=(await env.DB.prepare('SELECT id,name,created_at AS createdAt FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL').bind(orgId).all()).results;
-        const captured={actions:actionSnapshot,connections:connectionSnapshot,gateways:gatewaySnapshot};
-        const capabilities={entities,actions:actionSnapshot.map(({name,code})=>({name,code})),connections:connectionSnapshot.map(({name,endpoint,method,enabled})=>({name,endpoint,method,enabled})),gateways:gatewaySnapshot.map(({id,name})=>({id,name}))};
+        const remoteMcpCapabilities=(remoteMcpSnapshot.tools||[]).filter(tool=>tool.granted).map(({serverId,toolName,title,description,inputSchema})=>({serverId,toolName,title,description,inputSchema,readOnly:true}));
+        const captured={actions:actionSnapshot,connections:connectionSnapshot,remoteMcp:remoteMcpCapabilities,gateways:gatewaySnapshot};
+        const capabilities={entities,actions:actionSnapshot.map(({name,code})=>({name,code})),connections:connectionSnapshot.map(({name,endpoint,method,enabled})=>({name,endpoint,method,enabled})),remoteMcp:remoteMcpCapabilities,gateways:gatewaySnapshot.map(({id,name})=>({id,name}))};
         const authorize=guard=>mayGenerateFromSchema(env.DB,orgId,appId,me,entities,[table],guard,[],captured);
         if(!table || capabilities.entities.find(entity=>entity.key==='primary')?.table?.id!==table.id || !await authorize())return json({message:'No such app.'},404);
         const result=await withGuidedGeneration(input.prompt,()=>completer(env,orgId,me,'custom_app_generate',{maxTokens:8000,usageContext:{appId}}),

@@ -41,7 +41,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
   const [attempt, setAttempt] = useState(0)
   const [renderState, setRenderState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const { theme } = useAppearance()
-  type Change = { targetWindow?: Window | null; targetTable?: Table; action?: AppAction; connection?: AppConnection; gatewayId?: string; before?: Row; expectedUpdatedAt?: string; id: string; operation: string; args: { id?: string; values?: Record<string, unknown>; input?: unknown; body?: Record<string,unknown>; entity?: string; name?: string; gatewayId?: string } }
+  type Change = { targetWindow?: Window | null; targetTable?: Table; action?: AppAction; connection?: AppConnection; remoteMcp?: {serverId:string;toolName:string;title:string}; gatewayId?: string; before?: Row; expectedUpdatedAt?: string; id: string; operation: string; args: { id?: string; values?: Record<string, unknown>; input?: unknown; body?: Record<string,unknown>; entity?: string; name?: string; gatewayId?: string;serverId?:string;toolName?:string;args?:Record<string,unknown> } }
   const [change, setChange] = useState<Change | null>(null)
   const pending = useRef<Change | null>(null)
   const [working, setWorking] = useState(false)
@@ -68,6 +68,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
       let result
       if(current.operation === 'run' && current.action && appId) result = await api.actionChange(appId,{action:'run',name:current.action.name,version:current.action.publishedVersion,gatewayId:current.gatewayId,input:current.args.input,requestId:current.id})
       else if(current.operation === 'connect' && current.connection && appId) result = await api.connectionChange(appId,{action:'request',name:current.connection.name,version:current.connection.version,body:current.args.body,requestId:current.id})
+      else if(current.operation === 'remote_mcp' && current.remoteMcp && appId) result = await api.connectionChange(appId,{action:'remote_mcp_request',serverId:current.remoteMcp.serverId,toolName:current.remoteMcp.toolName,args:current.args.args||{},requestId:current.id})
       else
       if (current.operation === 'create') result = await api.addRow(targetTable.id, appValues(targetTable, current.args.values || {}), 'strict')
       else {
@@ -99,14 +100,14 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
       if (!api) { reply(id, undefined, 'Preview is read-only.'); return }
       let size = Infinity
       try { size = JSON.stringify(args).length } catch { /* cyclic input is invalid */ }
-      if (!['create', 'update', 'remove', 'entity', 'run', 'connect', 'job'].includes(operation) || !args || typeof args !== 'object' || size > 20000) { reply(id, undefined, 'Invalid request.'); return }
+      if (!['create', 'update', 'remove', 'entity', 'run', 'connect', 'remote_mcp', 'job'].includes(operation) || !args || typeof args !== 'object' || size > 20000) { reply(id, undefined, 'Invalid request.'); return }
       if (pending.current) { reply(id, undefined, 'Another change is awaiting approval.'); return }
       // Reserve the approval slot before asynchronous capability discovery.
       const request: Change = { id, operation, args, targetWindow:frame.current?.contentWindow }
       pending.current = request
       try {
-        if(['run','connect','job','entity'].includes(operation) || args.entity && args.entity !== 'primary') {
-          if(previewEntities && args.entity && !['run','connect','job'].includes(operation)) {
+        if(['run','connect','remote_mcp','job','entity'].includes(operation) || args.entity && args.entity !== 'primary') {
+          if(previewEntities && args.entity && !['run','connect','remote_mcp','job'].includes(operation)) {
             const entity=previewEntities.find(e=>e.key===args.entity);if(!entity)throw new Error('No such preview entity.');request.targetTable=entity.table;request.before=entity.rows.find(r=>r.id===args.id)
           } else if(loadEntity&&args.entity&&args.entity!=='primary'&&!['run','connect','job'].includes(operation)) {
             const entity=await loadEntity(String(args.entity));request.targetTable=entity.table;request.before=entity.rows.find(r=>r.id===args.id)
@@ -123,6 +124,11 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
             const connection=(await api.appConnections(appId)).connections.find(c=>c.name===args.name&&c.enabled)
             if(!connection)throw new Error('No enabled connection for your account.')
             request.connection=connection
+          } else if(operation==='remote_mcp') {
+            const {remoteMcp}=await api.appConnections(appId)
+            const remote=remoteMcp?.tools.find(tool=>tool.serverId===args.serverId&&tool.toolName===args.toolName&&tool.granted)
+            if(!remote)throw new Error('No read-only Remote MCP tool shared with this App.')
+            request.remoteMcp={serverId:remote.serverId,toolName:remote.toolName,title:remote.title}
           } else {
             const entity=(await api.appDatabase(appId)).entities.find(e=>e.key===(args.entity||'primary'))
             if(!entity)throw new Error('No such entity in this app.')
@@ -147,7 +153,7 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
   }, [table, rows, html, theme, api, appId, previewEntities, loadEntity, httpBase, attempt])
   const labeled = (values: Record<string, unknown>) => Object.fromEntries(Object.entries(values).map(([id, value]) => [(change?.targetTable || table).columns.find(c => c.id === id)?.name || id, value]))
   if (html.length > MAX_PREVIEW_SOURCE) return <p role="alert">表示できるコードの上限は119800文字です。コードを短くして保存してください。</p>
-  return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : 'データ変更の確認'}</h3><p>{change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre><button disabled={working} onClick={() => decide(false)}>キャンセル</button><button disabled={working} onClick={() => decide(true)}>この変更を許可</button></div>}{renderState !== 'ready' && <div className="hx-custom-status" role="status">{renderState === 'loading' ? 'アプリを読み込んでいます…' : <><span>アプリを表示できませんでした。</span><button type="button" onClick={() => setAttempt(value => value + 1)}>再試行</button></>}</div>}<iframe tabIndex={decorative ? -1 : undefined} ref={frame} onLoad={() => initialize()} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={`${html}:${theme}:${appId}:${httpBase}:${attempt}`} src={`${httpBase}/custom-app-runner?v=4`} className="hx-custom-frame" /></>
+  return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : change.remoteMcp ? 'Remote MCP読み取りの確認' : 'データ変更の確認'}</h3><p>{change.remoteMcp?.title || change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : change.operation === 'remote_mcp' ? '読み取り専用ツール' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : change.remoteMcp ? {ツール:change.remoteMcp.title,引数:change.args.args||{}} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre>{change.remoteMcp&&<p>このAppに共有された読み取り専用ツールを、接続所有者の認証で実行します。接続先や認証情報はアプリに公開されません。</p>}<button disabled={working} onClick={() => decide(false)}>キャンセル</button><button disabled={working} onClick={() => decide(true)}>この変更を許可</button></div>}{renderState !== 'ready' && <div className="hx-custom-status" role="status">{renderState === 'loading' ? 'アプリを読み込んでいます…' : <><span>アプリを表示できませんでした。</span><button type="button" onClick={() => setAttempt(value => value + 1)}>再試行</button></>}</div>}<iframe tabIndex={decorative ? -1 : undefined} ref={frame} onLoad={() => initialize()} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={`${html}:${theme}:${appId}:${httpBase}:${attempt}`} src={`${httpBase}/custom-app-runner?v=4`} className="hx-custom-frame" /></>
 }
 
 type CustomAppHistoryEntry = { version: number; note: string | null; createdAt: string; release?: { publishedAt: string; publishedBy: string; publishedByName?: string | null; source: 'inline' | 'github-commit'; commitSha?: string; current: boolean } | null }

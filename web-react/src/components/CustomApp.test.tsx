@@ -110,6 +110,23 @@ test('a generated external request requires host approval and uses the discovere
   expect(connectionChange).toHaveBeenCalledWith('app', { action: 'request', name: 'github', version: 7, body: undefined, requestId: 'request' })
   act(() => tree!.unmount())
 })
+test('a generated Remote MCP read requires host approval and uses only an App-shared tool',async()=>{
+ let handler:(e:any)=>Promise<void>=async()=>{}
+ const contentWindow={postMessage:vi.fn()}
+ const connectionChange=vi.fn().mockResolvedValue({data:{content:[{type:'text',text:'safe result'}]}})
+ const api={appConnections:vi.fn().mockResolvedValue({connections:[],remoteMcp:{tools:[{serverId:'server-1',toolName:'lookup',title:'Knowledge: Lookup',granted:true}]}}),connectionChange}as any
+ vi.stubGlobal('window',{addEventListener:(_:string,fn:any)=>{handler=fn},removeEventListener:vi.fn()})
+ let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<CustomAppFrame appId="app" html="test" table={table} rows={[]} httpBase="https://api.example" api={api}/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
+ await act(async()=>{await handler({source:contentWindow,data:{type:'honmaru:request',id:'remote-request',operation:'remote_mcp',args:{serverId:'server-1',toolName:'lookup',args:{query:'release'}}}})})
+ expect(connectionChange).not.toHaveBeenCalled()
+ expect(tree!.root.findByType('pre').children.join('')).toContain('release')
+ expect(tree!.root.findAllByType('p').some(node=>node.children.join('').includes('読み取り専用ツール'))).toBe(true)
+ const confirm=tree!.root.findAllByType('button').find(button=>button.children.join('')==='この変更を許可')!
+ await act(async()=>{await confirm.props.onClick()})
+ expect(connectionChange).toHaveBeenCalledWith('app',{action:'remote_mcp_request',serverId:'server-1',toolName:'lookup',args:{query:'release'},requestId:'remote-request'})
+ act(()=>tree!.unmount())
+})
 test('server execution approval fixes the published code version and never accepts code from the iframe',async()=>{
   let handler: (e:any)=>Promise<void>=async()=>{}
   const contentWindow={postMessage:vi.fn()}

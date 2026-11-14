@@ -2563,6 +2563,47 @@ test('a different current Agent member can explicitly grant their own App connec
  } finally {vi.unstubAllGlobals();useSecretKey({});}
 });
 
+test('an App can explicitly share and invoke only a source Agent read-only Remote MCP tool', async()=>{
+ const {app,agentId}=await makeDirectAgentApp({access:'people',people:['toru','mika']});
+ const serverId='app_remote_mcp_readonly';
+ const at=new Date().toISOString();
+ await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers
+   (id,org_id,name,endpoint,auth_mode,tools_json,allowed_tools,created_by,created_at,updated_at)
+   VALUES(?1,?2,'Knowledge MCP','https://mcp.example.com/mcp','headers',?3,'["lookup"]','9101',?4,?4)`)
+   .bind(serverId,ORG,JSON.stringify([{name:'lookup',title:'Look up knowledge',description:'Search approved company knowledge.',inputSchema:{type:'object',properties:{query:{type:'string'}},required:['query']},annotations:{readOnlyHint:true,destructiveHint:false}}]),at).run();
+ const {setAgentRemoteMcpTool}=await import('../src/harness/agentRemoteMcp.js');
+ const agentGrant=await setAgentRemoteMcpTool(env,{orgId:ORG,agentId,session:{github_id:'9101'},serverId,toolName:'lookup',enabled:true});
+ expect(agentGrant.error,JSON.stringify(agentGrant)).toBeUndefined();
+ const listed=await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);
+ expect(listed.status).toBe(200);
+ const payload=await listed.json();
+ expect(payload.remoteMcp.tools).toContainEqual(expect.objectContaining({serverId,toolName:'lookup',granted:false,canGrant:true}));
+ expect(JSON.stringify(payload)).not.toContain('https://mcp.example.com');
+ expect(JSON.stringify(payload)).not.toContain('auth_headers');
+ const grant=await send('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'remote_mcp_grant',serverId,toolName:'lookup'});
+ expect(grant.status,JSON.stringify(await grant.clone().json())).toBe(200);
+ const approved=await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);
+ expect((await approved.json()).remoteMcp.tools).toContainEqual(expect.objectContaining({serverId,toolName:'lookup',granted:true}));
+ const fetch=vi.fn(async(_url,init)=>{
+   const rpc=JSON.parse(init.body);
+   if(rpc.method==='notifications/initialized')return new Response(null,{status:202});
+   const result=rpc.method==='initialize'?{protocolVersion:'2025-06-18'}:{content:[{type:'text',text:'approved knowledge result'}]};
+   return new Response(JSON.stringify({jsonrpc:'2.0',id:rpc.id,result}),{headers:{'content-type':'application/json','mcp-session-id':'app-session'}});
+ });
+ vi.stubGlobal('fetch',fetch);
+ try {
+   const invoked=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_request',serverId,toolName:'lookup',args:{query:'release policy'}});
+   expect(invoked.status,JSON.stringify(await invoked.clone().json())).toBe(200);
+   expect(await invoked.json()).toMatchObject({data:{content:[{text:'approved knowledge result'}]}});
+   expect(fetch).toHaveBeenCalledTimes(3);
+   const revoke=await send('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'remote_mcp_revoke',serverId,toolName:'lookup'});
+   expect(revoke.status).toBe(200);
+   const blocked=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_request',serverId,toolName:'lookup',args:{query:'secret'}});
+   expect(blocked.status).toBe(403);
+   expect(fetch).toHaveBeenCalledTimes(3);
+ } finally {vi.unstubAllGlobals();}
+});
+
 test('a member without current source-Agent access cannot grant their own App connection',async()=>{
  const {app,agentId}=await makeDirectAgentApp({access:'people',people:['toru']});
  const save=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'save',name:'mika_api',version:0,endpoint:'https://api.github.com/user',method:'GET'});

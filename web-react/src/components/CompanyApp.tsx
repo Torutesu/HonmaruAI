@@ -1,6 +1,6 @@
 import {AppAutomations} from './AppAutomations'
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { App, AppAction, AppConnection, AppDatabase, AppMigration, AppHosting, MergeReview, MigrationPreview, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
+import type { App, AppAction, AppConnection, AppRemoteMcpTool, AppDatabase, AppMigration, AppHosting, MergeReview, MigrationPreview, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
 
 export function CompanyApp({ app, api, canManage, reload }: {app: App; api: HarnessApi; canManage: boolean; reload: () => unknown}) {
   const scope=useMemo(()=>({appId:app.id,api}),[app.id,api]),activeScope=useRef<typeof scope|null>(scope);activeScope.current=scope
@@ -8,7 +8,7 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
   const historyRequest=useRef(0)
   const [historySelectionEpoch,setHistorySelectionEpoch]=useState(0)
   const [tab,setTab]=useState<'actions'|'database'|'connections'|'automations'|'hosting'>('actions')
-  const [actions,setActions]=useState<AppAction[]>([]),[connections,setConnections]=useState<AppConnection[]>([]),[db,setDb]=useState<AppDatabase|null>(null),[nodes,setNodes]=useState<Gateway[]>([])
+  const [actions,setActions]=useState<AppAction[]>([]),[connections,setConnections]=useState<AppConnection[]>([]),[remoteMcpTools,setRemoteMcpTools]=useState<AppRemoteMcpTool[]>([]),[db,setDb]=useState<AppDatabase|null>(null),[nodes,setNodes]=useState<Gateway[]>([])
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
   const activeOperations=useRef(new Set<object>()),actionGenerationPending=useRef<object|null>(null)
   const [prompt,setPrompt]=useState(''),[name,setName]=useState(''),[code,setCode]=useState(''),[node,setNode]=useState(''),[input,setInput]=useState('{}'),[job,setJob]=useState<GatewayJob|null>(null)
@@ -30,7 +30,7 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
   const [mergeReviewReady,setMergeReviewReady]=useState(false)
   const [hosting,setHosting]=useState<AppHosting|null>(null),[hostname,setHostname]=useState(''),[publicConfirmed,setPublicConfirmed]=useState(false),[envName,setEnvName]=useState(''),[envValue,setEnvValue]=useState('')
   const [entity,setEntity]=useState('primary'),[record,setRecord]=useState('{}')
-  async function load() { setMergeReview(null);setMergeResolutions({});setMergeReviewReady(false);setMigrationPreview(null);setConfirmMigration(false); const [a,c,d,g]=await Promise.all([api.appActions(app.id),api.appConnections(app.id),api.appDatabase(app.id),api.gateways()]);if(activeScope.current!==scope)return;setActions(a.actions);setConnections(c.connections);setDb(d);setNodes(g.gateways.filter(n=>!n.revokedAt)); }
+  async function load() { setMergeReview(null);setMergeResolutions({});setMergeReviewReady(false);setMigrationPreview(null);setConfirmMigration(false); const [a,c,d,g]=await Promise.all([api.appActions(app.id),api.appConnections(app.id),api.appDatabase(app.id),api.gateways()]);if(activeScope.current!==scope)return;setActions(a.actions);setConnections(c.connections);setRemoteMcpTools(c.remoteMcp?.tools||[]);setDb(d);setNodes(g.gateways.filter(n=>!n.revokedAt)); }
   async function loadHosting() { const data=await api.appHosting(app.id);if(activeScope.current===scope)setHosting(data) }
   async function run(fn:()=>Promise<unknown>) {const operation={};activeOperations.current.add(operation);setBusy(true);setError('');setNotice('');try{await fn()}catch(e){if(activeScope.current===scope)setError(e instanceof Error?e.message:String(e))}finally{activeOperations.current.delete(operation);if(activeScope.current===scope)setBusy(activeOperations.current.size>0)}}
   useLayoutEffect(()=>{activeScope.current=scope;setHistory([]);historyRequest.current++;setHistorySelectionEpoch(value=>value+1);setActionCandidate(null);actionEditGeneration.current++;actionBaseline.current={name:'',version:0};activeOperations.current.clear();actionGenerationPending.current=null;setBusy(false);setHosting(null);setHostname('');setPublicConfirmed(false);setEnvName('');setEnvValue('');return()=>{if(activeScope.current===scope)activeScope.current=null}},[scope])
@@ -108,6 +108,7 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
     </>}
     {tab==='connections'&&<>
       <p>接続は初期状態ではあなた専用です。Agentとの直接DMから作ったAppでは、そのDMの作成者が接続をこのAppに明示共有できます。利用者には現在のAppとAgentの閲覧権限が必要です。登録したURLと操作だけを許可し、書き込みは送信内容を確認してから実行します。認証情報は暗号化保存し、ブラウザーや生成コードには渡しません。</p>
+      {remoteMcpTools.length>0&&<section aria-label="Remote MCP 接続"><h3>Remote MCP の読み取りツール</h3><p>source Agentで許可済みの読み取り専用ツールだけを選べます。App利用者は実行前に内容を確認します。接続URLと認証情報は生成アプリへ渡しません。</p>{remoteMcpTools.map(tool=><div className="hx-actions" key={`${tool.serverId}:${tool.toolName}`}><span>{tool.title} · {tool.granted?'App共有中':'未共有'}</span>{tool.canGrant&&<button className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>{await api.connectionChange(app.id,{action:tool.granted&&tool.grantedByYou?'remote_mcp_revoke':'remote_mcp_grant',serverId:tool.serverId,toolName:tool.toolName});await load();setNotice(tool.granted&&tool.grantedByYou?'Remote MCPツールのApp共有を停止しました。':'この読み取り専用ツールをApp利用者に共有しました。')})}>{tool.granted&&tool.grantedByYou?'共有を停止':tool.granted?'別の所有者から共有中':'このツールをAppに共有'}</button>}</div>)}</section>}
       <p>対応API: GitHub、Notion、Slack、Google Drive／Calendar／Sheets、Open-Meteo。既存の利用枠・資格情報を使用します。</p>
       <div className="hx-actions">{connections.map(c=><button key={`${c.ownerId||'self'}:${c.name}`} className="pill-btn quiet" onClick={()=>{setConnectionName(c.name);setEndpoint(c.endpoint);setMethod(c.method||'GET');setConfirmExternal(false);setToken('')}}>{c.name} · {c.owned===false?`共有: ${c.ownerName||'メンバー'}`:'自分'} · {c.enabled?'有効':'停止'}{c.grantExists?' · App共有設定あり':''}</button>)}</div>
       {conn?.owned!==false&&<>

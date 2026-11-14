@@ -4,7 +4,7 @@ import { invokeConnection, connections as ownedConnections } from './appCapabili
 
 const err = (error, status = 400) => ({ error, status });
 
-async function sourceAgent(db, orgId, appId) {
+export async function sourceAgent(db, orgId, appId) {
   const source = await db.prepare(`SELECT s.channel,s.thread_id AS threadId
     FROM hx_app_conversation_sources s
     JOIN channel_messages root ON root.org_id=s.org_id AND root.channel=s.channel AND root.id=s.thread_id
@@ -40,7 +40,7 @@ async function sourceAgent(db, orgId, appId) {
   return agent ? { ...source, ...agent } : null;
 }
 
-async function memberLogin(db, orgId, userId) {
+export async function memberLogin(db, orgId, userId) {
   return db.prepare(`SELECT u.login,m.created_at AS membershipSince FROM memberships m
     JOIN users u ON u.github_id=m.user_github_id
     WHERE m.org_id=?1 AND m.user_github_id=?2 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
@@ -49,12 +49,12 @@ async function memberLogin(db, orgId, userId) {
     .bind(orgId, String(userId)).first();
 }
 
-async function mayUseSourceAgent(db, orgId, agent, userId) {
+export async function mayUseSourceAgent(db, orgId, agent, userId) {
   const member = await memberLogin(db, orgId, userId);
   return Boolean(member && await mayAccessAgent(db, orgId, agent, member.login));
 }
 
-async function mayUseAppAsMember(db, orgId, appId, userId) {
+export async function mayUseAppAsMember(db, orgId, appId, userId) {
   return Boolean(await memberLogin(db, orgId, userId) && await mayUseApp(db, orgId, appId, userId));
 }
 

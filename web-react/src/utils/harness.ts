@@ -51,6 +51,7 @@ export interface App {
 export interface ArchivedApp { id:string; name:string; description:string; icon:string; version:number; createdBy:string; archivedAt:string }
 export interface AppAction { name: string; version: number; draft?: string; published: string | null; publishedVersion: number | null }
 export interface AppConnection { name: string; version: number; endpoint: string; method: string; enabled: number; hasToken: number; ownerId?: string; ownerName?: string; owned?: boolean; shared?: boolean; grantExists?: boolean; canShare?: boolean; sourceAgentName?: string }
+export interface AppRemoteMcpTool { serverId:string;toolName:string;title:string;description:string;inputSchema:Record<string,unknown>;granted:boolean;canGrant:boolean;grantedByYou:boolean }
 export interface AppHosting { configured:boolean; project:string; dnsTarget:string; domain:{hostname:string;status:string;validationStatus:string;verificationStatus:string;errorMessage:string;createdAt:string;updatedAt:string;dnsTarget:string}|null; environment:Array<{name:string;version:number;updatedAt:string;hasValue:boolean}> }
 export interface AppEntity { key: string; table: Table; rows?: Row[] }
 export interface AppFork { id: string; revision: number; mergedAt?: string | null; entities: Array<AppEntity & { rows: Row[] }> }
@@ -221,7 +222,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     actionChange: (id: string, body: Record<string, unknown>) => call<{name?: string;code?: string;version?:number;job?: GatewayJob}>('POST', `/apps/${id}/actions`, body),
     actionHistory: (id: string, name: string) => call<{versions:Array<{version:number;code:string;createdAt:string}>}>('GET', `/apps/${id}/actions`, undefined, {history:name}),
     actionJob: (id: string, jobId: string) => call<{job: GatewayJob}>('GET', `/apps/${id}/actions`, undefined, {jobId}),
-    appConnections: (id: string) => call<{connections: AppConnection[];hosts: string[]}>('GET', `/apps/${id}/connections`),
+    appConnections: (id: string) => call<{connections: AppConnection[];hosts: string[];remoteMcp?:{sourceAgent:{id:string;name:string}|null;tools:AppRemoteMcpTool[]}}> ('GET', `/apps/${id}/connections`),
     connectionChange: (id: string, body: Record<string, unknown>) => call<{data?: unknown}>('POST', `/apps/${id}/connections`, body),
     appHosting: (id:string) => call<AppHosting>('GET', `/apps/${id}/hosting`),
     changeAppHosting: (id:string, body:Record<string,unknown>) => call<Partial<AppHosting> & {saved?:boolean;deleted?:boolean;name?:string;version?:number}>('POST', `/apps/${id}/hosting`, body),
