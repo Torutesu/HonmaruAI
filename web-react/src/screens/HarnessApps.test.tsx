@@ -83,7 +83,7 @@ test('Customize app returns to the readable creation conversation without sendin
   expect(state.api.conversation).toHaveBeenCalled()
 })
 
-test.each(['filter','group'] as const)('personal-view %s adjustment opens the app conversation as an unsent private-view draft',async kind=>{
+test.each(['filter','group'] as const)('personal-view %s opens native editing first and keeps AI adjustments as an unsent private-view draft',async kind=>{
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
   const shared={id:'all',type:'table',name:'All',rows:[]},mine={id:'mine',type:'table',name:'My tasks',rows:[]}
   state.api={
@@ -98,18 +98,19 @@ test.each(['filter','group'] as const)('personal-view %s adjustment opens the ap
   act(()=>trigger.props.onClick({currentTarget:{focus:vi.fn()}}))
   const adjust=tree!.root.findAllByType('button').find(button=>button.children.includes(adjustment))!
   act(()=>adjust.props.onClick())
+  expect(location.hash).not.toContain('source=1')
+  expect(kind==='filter'?tree!.root.findAllByType('button').some(button=>button.children.includes('条件を追加')):tree!.root.findAllByProps({'aria-label':'グループ化するフィールド'}).length===1).toBe(true)
+  act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick())
+  act(()=>tree!.root.findAllByType('button').find(button=>button.props['aria-label']===action)!.props.onClick({currentTarget:{focus:vi.fn()}}))
+  const aiAdjust=tree!.root.findAllByType('button').find(button=>button.children.includes('AIに調整案を相談'))!
+  act(()=>aiAdjust.props.onClick())
   const route=parseRoute(location.hash)
   expect(route).toMatchObject({appSource:true,appSourceSection:'data',appId:'tasks',appOrg:'team:one'})
   expect(route.appDraft).toContain('個人ビュー「My tasks」')
   expect(route.appDraft).toContain('共有ビューは変更しない')
   expect(state.api.savePersonalViews).not.toHaveBeenCalled()
   expect(state.api.updateApp).not.toHaveBeenCalled()
-  act(()=>tree!.root.findAllByType('button').find(button=>button.props['aria-label']===action)!.props.onClick({currentTarget:{focus:vi.fn()}}))
-  const directEdit=kind==='filter'?'条件を直接編集':'グループを直接編集'
-  const more=tree!.root.findAllByType('button').find(button=>button.props['aria-label']==='その他の編集方法')!
-  act(()=>more.props.onClick())
-  act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes(directEdit))!.props.onClick())
-  expect(kind==='filter'?tree!.root.findAllByType('button').some(button=>button.children.includes('条件を追加')):tree!.root.findAllByProps({'aria-label':'グループ化するフィールド'}).length===1).toBe(true)
+  expect(state.api.savePersonalViews).not.toHaveBeenCalled()
 })
 
 test('view tabs navigate by keyboard without saving until activated', async () => {

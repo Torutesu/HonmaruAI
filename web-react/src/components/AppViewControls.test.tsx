@@ -109,23 +109,26 @@ test('multi-relation exclusion filters show and persist the negative operator',a
  act(()=>ui.tree.unmount())
 })
 
- test('shared filter adjustment opens its conversation without saving and keeps direct editing available',()=>{
+ test('filter adjustment opens direct editing first and keeps AI suggestions as a secondary action',()=>{
  const onAdjust=vi.fn();const ui=setup(undefined,onAdjust)
  ui.click('フィルター');ui.click('フィルターを調整')
+ expect(onAdjust).not.toHaveBeenCalled()
+ expect(ui.tree.root.findByProps({role:'dialog','aria-label':'フィルターを編集'})).toBeDefined()
+ expect(ui.save).not.toHaveBeenCalled()
+ ui.click('キャンセル');ui.click('フィルター');ui.click('AIに調整案を相談')
  expect(onAdjust).toHaveBeenCalledTimes(1)
  expect(ui.tree.root.findAllByProps({role:'dialog'})).toHaveLength(0)
- expect(ui.save).not.toHaveBeenCalled()
- ui.click('フィルター');expect(ui.tree.root.findAllByType('button').some(button=>button.children.includes('条件を直接編集'))).toBe(false);ui.click('その他');ui.click('条件を直接編集');ui.click('条件を追加')
+ ui.click('フィルター');ui.click('フィルターを調整');ui.click('条件を追加')
  expect(ui.tree.root.findByProps({'aria-label':'条件1の値'})).toBeDefined()
- expect(onAdjust).toHaveBeenCalledTimes(1)
  act(()=>ui.tree.unmount())
  })
 
-test('group adjustment uses the same conversation route and retains direct editing',()=>{
+test('group adjustment opens direct editing first and retains AI suggestions as a secondary action',()=>{
  const adjust=vi.fn();const ui=setup(undefined,adjust)
  ui.click('グループ化');ui.click('グループ化を調整')
- expect(adjust).toHaveBeenCalledWith('group');expect(ui.save).not.toHaveBeenCalled()
- ui.click('グループ化');expect(ui.tree.root.findAllByType('button').some(button=>button.children.includes('グループを直接編集'))).toBe(false);ui.click('その他');ui.click('グループを直接編集')
+ expect(adjust).not.toHaveBeenCalled();expect(ui.save).not.toHaveBeenCalled()
  expect(ui.tree.root.findByProps({'aria-label':'グループ化するフィールド'})).toBeDefined()
+ ui.click('キャンセル');ui.click('グループ化');ui.click('AIに調整案を相談')
+ expect(adjust).toHaveBeenCalledWith('group')
  act(()=>ui.tree.unmount())
 })
