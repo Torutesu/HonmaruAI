@@ -57,6 +57,42 @@ test('database changes require a fresh data preview and apply its checksum',asyn
  act(()=>tree.unmount())
 })
 
+test('relation builder adds a reviewed single or multiple link to an existing entity without applying it',async()=>{
+ const database={fork:null,version:3,entities:[
+  {key:'tasks',table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]}},
+  {key:'people',table:{id:'people-table',name:'People',columns:[{id:'name',name:'Name',type:'text'}]}}
+ ],migrations:[]}
+ const {tree,api}=await setup([],database)
+ expect(tree.root.findByProps({'aria-label':'データモデル'})).toBeTruthy()
+ expect(tree.root.findAllByProps({className:'hx-db-entity'})).toHaveLength(2)
+ expect(tree.root.findByProps({'aria-label':'Relation元テーブル'}).props.value).toBe('tasks')
+ expect(tree.root.findByProps({'aria-label':'Relation先テーブル'}).props.value).toBe('people')
+ const name=tree.root.findByProps({'aria-label':'Relation名'})
+ await act(async()=>name.props.onChange({target:{value:'Assignees'}}))
+ const cardinality=tree.root.findByProps({'aria-label':'Relationの件数'})
+ await act(async()=>cardinality.props.onChange({target:{value:'multiple'}}))
+ const form=tree.root.findByProps({className:'hx-db-builder-form hx-db-relation-builder'})
+ await act(async()=>form.props.onSubmit({preventDefault:vi.fn()}))
+ const plan=JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)
+ expect(plan).toEqual([{op:'add_columns',entity:'tasks',columns:[{name:'Assignees',type:'relation',targetEntity:'people',multiple:true}]}])
+ expect(tree.root.findByProps({placeholder:'convert_amount_v1'}).props.value).toMatch(/^schema_/)
+ expect(api.previewDatabaseMigration).not.toHaveBeenCalled()
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
+
+test('new table builder adds an entity with a stable key and starter field to the reviewed plan',async()=>{
+ const {tree,api}=await setup()
+ const name=tree.root.findByProps({'aria-label':'新しいテーブル名'})
+ await act(async()=>name.props.onChange({target:{value:'Customers'}}))
+ const form=tree.root.findByProps({className:'hx-db-builder-form'})
+ await act(async()=>form.props.onSubmit({preventDefault:vi.fn()}))
+ expect(JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)).toEqual([{op:'create_entity',entity:'customers',name:'Customers',columns:[{name:'Name',type:'text'}]}])
+ expect(api.previewDatabaseMigration).not.toHaveBeenCalled()
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
+
 test('ambiguous relation migrations let the owner select a target and require a new preview',async()=>{
  const {tree,button,api}=await setup()
  const candidateBlocker={entity:'primary',id:'source-row',column:'Assignee',reason:'Value cannot be converted without data loss.',resolution:{entity:'primary',columnId:'assignee',label:'Alex',candidates:['record-a','record-b']}}

@@ -359,6 +359,32 @@
 .hx-company-app .hx-db-migration-history > li > details[open] > summary { margin-bottom: 8px; }
 .hx-company-app .hx-db-migration-history [role="alert"] { margin-top: 8px; padding: 10px 12px; border-left: 3px solid var(--hx-danger); border-radius: 6px; color: var(--hx-danger); background: color-mix(in srgb, var(--hx-danger) 8%, var(--hx-surface)); line-height: 1.5; }
 .hx-company-app .hx-db-migration-history [role="status"] { color: var(--hx-muted); font-size: 12px; }
+.hx-company-app .hx-db-model,.hx-company-app .hx-db-builder { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--hx-border); border-radius: 14px; background: var(--hx-surface); }
+.hx-company-app .hx-db-model-heading,.hx-company-app .hx-db-entity > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.hx-company-app .hx-db-model-heading h3,.hx-company-app .hx-db-entity h4,.hx-company-app .hx-db-builder h3 { margin: 0; }
+.hx-company-app .hx-db-model-heading p,.hx-company-app .hx-db-builder > div > p { margin: 4px 0 0; color: var(--hx-muted); font-size: 13px; line-height: 1.5; }
+.hx-company-app .hx-db-model-heading > span,.hx-company-app .hx-db-entity > header > span { color: var(--hx-muted); font-size: 12px; white-space: nowrap; }
+.hx-company-app .hx-db-entities { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,280px),1fr)); gap: 12px; }
+.hx-company-app .hx-db-entity { min-width: 0; overflow: hidden; border: 1px solid var(--hx-border); border-radius: 11px; background: var(--hx-bg,var(--hx-surface)); scroll-margin: 24px; }
+.hx-company-app .hx-db-entity > header { padding: 12px 14px; border-bottom: 1px solid var(--hx-border); background: var(--hx-hover); }
+.hx-company-app .hx-db-entity > header h4 { overflow-wrap: anywhere; }
+.hx-company-app .hx-db-entity > header code { display: inline-block; margin-top: 3px; color: var(--hx-muted); font-size: 11px; }
+.hx-company-app .hx-db-entity ul { list-style: none; margin: 0; padding: 4px 12px; }
+.hx-company-app .hx-db-entity li { display: grid; grid-template-columns: 18px minmax(60px,1fr) auto auto; align-items: center; gap: 7px; min-height: 39px; border-bottom: 1px solid var(--hx-border); }
+.hx-company-app .hx-db-entity li:last-child { border-bottom: 0; }
+.hx-company-app .hx-db-field-icon { color: var(--hx-muted); text-align: center; }
+.hx-company-app .hx-db-field-name { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; }
+.hx-company-app .hx-db-field-type { color: var(--hx-muted); font-size: 11px; }
+.hx-company-app .hx-db-relation-link { width: auto; padding: 4px 7px; border: 1px solid color-mix(in srgb,var(--hx-action) 35%,var(--hx-border)); border-radius: 7px; background: color-mix(in srgb,var(--hx-action) 7%,var(--hx-surface)); color: var(--hx-action); font: inherit; font-size: 11px; cursor: pointer; }
+.hx-company-app .hx-db-builder { border-color: color-mix(in srgb,var(--hx-action) 30%,var(--hx-border)); background: color-mix(in srgb,var(--hx-action) 3%,var(--hx-surface)); }
+.hx-company-app .hx-db-builder-form { display: grid; grid-template-columns: minmax(150px,1fr) auto; align-items: end; gap: 10px; padding-top: 12px; border-top: 1px solid var(--hx-border); }
+.hx-company-app .hx-db-builder-form:not(.hx-db-relation-builder) { grid-template-columns: minmax(130px,1fr) minmax(120px,.7fr) auto; }
+.hx-company-app .hx-db-builder-form label { min-width: 0; }
+.hx-company-app .hx-db-builder-action { display: flex; align-items: center; gap: 8px; }
+.hx-company-app .hx-db-builder-action code { color: var(--hx-muted); font-size: 12px; }
+.hx-company-app .hx-db-relation-builder { grid-template-columns: repeat(4,minmax(110px,1fr)) auto; }
+@media (max-width: 800px) { .hx-company-app .hx-db-relation-builder { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 520px) { .hx-company-app .hx-db-builder-form,.hx-company-app .hx-db-builder-form:not(.hx-db-relation-builder) { grid-template-columns: minmax(0,1fr); } .hx-company-app .hx-db-builder-action { justify-content: space-between; flex-wrap: wrap; } .hx-company-app .hx-db-entity li { grid-template-columns: 18px minmax(50px,1fr) auto; } .hx-company-app .hx-db-relation-link { grid-column: 2/-1; justify-self: start; margin-bottom: 7px; } }
 .hx-company-app h2, .hx-company-app h3, .hx-company-app p { margin: 0; }
 .hx-company-app small { overflow-wrap: anywhere; }
 

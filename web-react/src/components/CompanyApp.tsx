@@ -30,6 +30,7 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
   const [mergeReviewReady,setMergeReviewReady]=useState(false)
   const [hosting,setHosting]=useState<AppHosting|null>(null),[hostname,setHostname]=useState(''),[publicConfirmed,setPublicConfirmed]=useState(false),[envName,setEnvName]=useState(''),[envValue,setEnvValue]=useState('')
   const [entity,setEntity]=useState('primary'),[record,setRecord]=useState('{}')
+  const [newEntityName,setNewEntityName]=useState(''),[newEntityKey,setNewEntityKey]=useState(''),[relationSource,setRelationSource]=useState('primary'),[relationName,setRelationName]=useState(''),[relationTarget,setRelationTarget]=useState(''),[relationMultiple,setRelationMultiple]=useState(false)
   async function load() { setMergeReview(null);setMergeResolutions({});setMergeReviewReady(false);setMigrationPreview(null);setConfirmMigration(false); const [a,c,d,g]=await Promise.all([api.appActions(app.id),api.appConnections(app.id),api.appDatabase(app.id),api.gateways()]);if(activeScope.current!==scope)return;setActions(a.actions);setConnections(c.connections);setRemoteMcpTools(c.remoteMcp?.tools||[]);setDb(d);setNodes(g.gateways.filter(n=>!n.revokedAt)); }
   async function loadHosting() { const data=await api.appHosting(app.id);if(activeScope.current===scope)setHosting(data) }
   async function run(fn:()=>Promise<unknown>) {const operation={};activeOperations.current.add(operation);setBusy(true);setError('');setNotice('');try{await fn()}catch(e){if(activeScope.current===scope)setError(e instanceof Error?e.message:String(e))}finally{activeOperations.current.delete(operation);if(activeScope.current===scope)setBusy(activeOperations.current.size>0)}}
@@ -52,6 +53,17 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
     const safeId=`rollback_${migration.id.toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,10)}_v${db?.version??0}`
     setPlan(JSON.stringify(migration.inverseOperations,null,2));setMigrationId(safeId);setMigrationPreview(null);setConfirmMigration(false);setNotice(`${migration.id}の追加列を取り除く新しい変更案を用意しました。プレビューしてから適用してください。`)
   }
+  function appendMigrationOperation(operation:Record<string,unknown>) {
+    let operations:unknown[]
+    try { operations=JSON.parse(plan);if(!Array.isArray(operations))throw new Error() }
+    catch { setError('変更案JSONを配列として読み込めません。先に内容を修正してください。');return }
+    setPlan(JSON.stringify([...operations,operation],null,2));setMigrationId(current=>current||`schema_${Date.now()}`);setMigrationPreview(null);setConfirmMigration(false);setNotice('変更案に操作を追加しました。内容を確認してからプレビューしてください。')
+  }
+  const addEntityKey=newEntityKey.trim().toLowerCase()
+  const validEntityKey=/^[a-z][a-z0-9_]{0,39}$/.test(addEntityKey)
+  const relationSources=db?.entities||[]
+  const relationSourceKey=relationSources.some(item=>item.key===relationSource)?relationSource:relationSources[0]?.key||''
+  const relationTargets=relationSources.filter(item=>item.key!==relationSourceKey)
   return <section className="hx-company-app">
     <h2>アプリの実行基盤</h2><p>サーバー処理・データ・接続を、このアプリの権限と監査履歴の下で管理します。</p>
     <nav className="hx-tabs" aria-label="実行基盤の機能">{([['actions','サーバー処理'],['database','データベース'],['connections','外部接続'],['automations','自動化'],['hosting','公開と環境変数']] as const).filter(([id])=>id!=='hosting'||canManage).map(([id,label])=><button key={id} className={tab===id?'on':''} onClick={()=>{actionEditGeneration.current++;setTab(id);setError('');setNotice('');setPrompt('');if(id==='hosting')void run(loadHosting)}}>{label}</button>)}</nav>
@@ -74,7 +86,13 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
     </>}
     {tab==='database'&&db&&<>
       <p>スキーマ v{db.version} · テーブル／列の追加、列名変更、型・Person・Relation変換、空列削除をプレビューしてから適用します。Relation名の解決結果と行データを確認し、適用時に競合を再検証します。検証DBの編集は本番に反映されません。</p>
-      {db.entities.map(e=><details key={e.key}><summary>{e.table.name} · {e.key} · {e.table.columns.length}項目</summary><pre>{JSON.stringify(e.table.columns,null,2)}</pre></details>)}
+      <section className="hx-db-model" aria-label="データモデル">
+        <div className="hx-db-model-heading"><div><h3>データモデル</h3><p>テーブルとRelationを確認します。リンク先は同じアプリ内のテーブルに限られます。</p></div><span>スキーマ v{db.version}</span></div>
+        <div className="hx-db-entities">{db.entities.map(e=><article className="hx-db-entity" key={e.key} id={`hx-db-entity-${e.key}`}>
+          <header><div><h4>{e.table.name}</h4><code>{e.key}</code></div><span>{e.table.columns.length}項目</span></header>
+          <ul>{e.table.columns.map(column=><li key={column.id}><span className="hx-db-field-icon" aria-hidden="true">{column.type==='relation'?'↔':'◦'}</span><span className="hx-db-field-name">{column.name}</span><span className="hx-db-field-type">{column.type==='relation'?'Relation':column.type}{column.type==='relation'&&column.multiple?' · 複数':''}</span>{column.type==='relation'&&<button type="button" className="hx-db-relation-link" onClick={()=>{setRelationSource(e.key);setRelationTarget(column.targetEntity||'');document.getElementById(`hx-db-entity-${column.targetEntity}`)?.scrollIntoView?.({behavior:'smooth',block:'nearest'})}} aria-label={`${column.name}のリンク先テーブル`}>{db.entities.find(target=>target.key===column.targetEntity)?.table.name||column.targetEntity} <span aria-hidden="true">↗</span></button>}</li>)}</ul>
+        </article>)}</div>
+      </section>
       <section aria-label="DB変更履歴">
         <h3>DB変更履歴</h3>
         {!db.migrations.length?<p>適用済みの変更はありません。</p>:<ol className="hx-db-migration-history">{db.migrations.map(migration=><li key={`${migration.id}:${migration.version}`}>
@@ -83,7 +101,20 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
           </details>
         </li>)}</ol>}
       </section>
-      {canManage&&<><form onSubmit={e=>{e.preventDefault();void run(async()=>{const r=await api.databaseChange(app.id,{action:'generate',prompt});setPlan(JSON.stringify(r.operations,null,2));setMigrationId('migration_'+Date.now());setMigrationPreview(null);setConfirmMigration(false)})}}><label>データ構造・型をどう変更するか<textarea value={prompt} maxLength={4000} onChange={e=>setPrompt(e.target.value)} placeholder="例：担当者テキストをPeople表の氏名と完全一致でRelationに変換し、結果をプレビュー" /></label><button className="pill-btn" disabled={busy||!prompt.trim()}>DB変更案を生成</button></form>
+      {canManage&&<><section className="hx-db-builder" aria-label="テーブルとRelationを作成"><div><h3>テーブルとRelationを作成</h3><p>操作は変更案に追加されます。プレビューと確認を通るまで本番データには反映されません。</p></div>
+        <form className="hx-db-builder-form" onSubmit={e=>{e.preventDefault();if(!validEntityKey||!newEntityName.trim())return;appendMigrationOperation({op:'create_entity',entity:addEntityKey,name:newEntityName.trim(),columns:[{name:'Name',type:'text'}]});setNewEntityName('');setNewEntityKey('')}}>
+          <label>新しいテーブル名<input aria-label="新しいテーブル名" value={newEntityName} onChange={e=>{const value=e.target.value;const previousAuto=newEntityName.trim().toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);const key=value.trim().toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);setNewEntityName(value);if(!newEntityKey||newEntityKey===previousAuto)setNewEntityKey(key)}} placeholder="例：Customers" maxLength={80}/></label>
+          <label>テーブルID<input aria-label="テーブルID" value={newEntityKey} onChange={e=>setNewEntityKey(e.target.value)} placeholder="customers" maxLength={40}/></label>
+          <div className="hx-db-builder-action"><button className="pill-btn quiet" disabled={busy||!validEntityKey||!newEntityName.trim()||Boolean(db.entities.some(item=>item.key===addEntityKey))||db.entities.length>=12}>テーブルを変更案に追加</button></div>
+        </form>
+        {relationSources.length>1&&<form className="hx-db-builder-form hx-db-relation-builder" onSubmit={e=>{e.preventDefault();const target=relationTarget||relationTargets[0]?.key;if(!relationName.trim()||!relationSourceKey||!target)return;appendMigrationOperation({op:'add_columns',entity:relationSourceKey,columns:[{name:relationName.trim(),type:'relation',targetEntity:target,multiple:relationMultiple}]});setRelationName('')}}>
+          <label>このテーブル<select aria-label="Relation元テーブル" value={relationSourceKey} onChange={e=>{setRelationSource(e.target.value);setRelationTarget('')}}>{relationSources.map(item=><option key={item.key} value={item.key}>{item.table.name}</option>)}</select></label>
+          <label>Relation名<input aria-label="Relation名" value={relationName} onChange={e=>setRelationName(e.target.value)} placeholder="例：顧客" maxLength={60}/></label>
+          <label>リンク先テーブル<select aria-label="Relation先テーブル" value={relationTarget||relationTargets[0]?.key||''} onChange={e=>setRelationTarget(e.target.value)}>{relationTargets.map(item=><option key={item.key} value={item.key}>{item.table.name}</option>)}</select></label>
+          <label>リンク数<select aria-label="Relationの件数" value={relationMultiple?'multiple':'single'} onChange={e=>setRelationMultiple(e.target.value==='multiple')}><option value="single">1件</option><option value="multiple">複数</option></select></label>
+          <button className="pill-btn quiet" disabled={busy||!relationName.trim()||!relationSourceKey||!(relationTarget||relationTargets[0]?.key)}>Relationを変更案に追加</button>
+        </form>}
+      </section><form onSubmit={e=>{e.preventDefault();void run(async()=>{const r=await api.databaseChange(app.id,{action:'generate',prompt});setPlan(JSON.stringify(r.operations,null,2));setMigrationId('migration_'+Date.now());setMigrationPreview(null);setConfirmMigration(false)})}}><label>自然文から変更案を作成<textarea value={prompt} maxLength={4000} onChange={e=>setPrompt(e.target.value)} placeholder="例：担当者テキストをPeople表の氏名と完全一致でRelationに変換し、結果をプレビュー" /></label><button className="pill-btn" disabled={busy||!prompt.trim()}>AIで変更案を作成</button></form>
       <label>変更ID<input value={migrationId} onChange={e=>{setMigrationId(e.target.value);setMigrationPreview(null);setConfirmMigration(false)}} placeholder="convert_amount_v1" /></label>
       <label>変更案（JSON）<textarea aria-label="DB変更案" className="hx-code-editor" value={plan} onChange={e=>{setPlan(e.target.value);setConfirmMigration(false)}} maxLength={30000} /></label>
       <button className="pill-btn quiet" disabled={busy||!migrationId||plan==='[]'} onClick={()=>void run(async()=>{setMigrationPreview(null);setConfirmMigration(false);const preview=await api.previewDatabaseMigration(app.id,{action:'preview',id:migrationId,version:db.version,operations:JSON.parse(plan)});setMigrationPreview(preview);setPreviewedPlan(plan);setPreviewedMigrationId(migrationId)})}>変更内容をプレビュー</button>
@@ -104,7 +135,6 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
       <p>表示された差分をまとめて本番に反映します。確認後に本番または検証DBが変わると反映を中止します。反映済みの検証DBは読み取り専用になります。この反映で行変更ワークフローを自動実行することはありません。</p>
       <button className="pill-btn quiet" disabled={busy} onClick={()=>setMergeReview(null)}>閉じる</button><button className="pill-btn" disabled={busy||!mergeReview.changes.length||!mergeReview.resolved||!mergeReviewReady} onClick={()=>void run(async()=>{const result=await api.databaseChange(app.id,{action:'merge_apply',forkId:mergeReview.forkId,revision:mergeReview.revision,checksum:mergeReview.checksum,resolutions:mergeResolutions});await load();await reload();setNotice(`確認した差分${result.changed||0}件を本番に反映しました。${result.keptProduction?` 本番を維持した競合: ${result.keptProduction}件。`:''}`)})}>この差分を本番に反映</button></section>}
       </>}
-      <h3>DB変更履歴</h3>{db.migrations.map(m=><details key={m.id}><summary>v{m.version} · {m.id} · {m.createdAt}</summary><pre>{JSON.stringify(m.plan,null,2)}</pre><small>SHA-256: {m.checksum}</small></details>)}
     </>}
     {tab==='connections'&&<>
       <p>接続は初期状態ではあなた専用です。Agentとの直接DMから作ったAppでは、そのDMの作成者が接続をこのAppに明示共有できます。利用者には現在のAppとAgentの閲覧権限が必要です。登録したURLと操作だけを許可し、書き込みは送信内容を確認してから実行します。認証情報は暗号化保存し、ブラウザーや生成コードには渡しません。</p>
