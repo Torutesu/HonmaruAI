@@ -4412,3 +4412,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Room Agent save results now include an `openUrl` on the configured Honmaru deployment, using the current `b:` or `g:` channel and the authenticated file-detail route. Link generation rejects workspace/DM scopes, malformed Room scopes, invalid deployment URLs, and inherited URL credentials. This lets the Agent return a direct Markdown link to a file it just created or updated.
 - The same focused Worker batch passed **164/164** after the change, and the existing Web route suite passed **31/31**, including secure `b:` file-link parsing. No schema migration or new paid service. Exact-head CI, merge, and deployment are pending. The authenticated Kylon visual comparison remains open.
+
+### 2026-11-14 — Skill support-file editing (local QA; release pending)
+
+- The Harness Skills editor now loads support files through the existing per-file ACL route, allows text edits, path changes, binary-preserving replacement, adding and removing assets, then sends the complete package in one version-checked update. The Worker route now passes `expectedUpdatedAt` to the existing skill CAS so stale editors receive 409 and cannot replace a newer package.
+- Focused Worker Skill access/MCP/package suites passed **83/83**; focused Web HarnessSkills/Agents suites passed **15/15**; Web typecheck and production build passed. No schema or paid-service change, and Simple mode is not exposed to this editor. Exact-head CI, deployment and authenticated screen acceptance remain pending.

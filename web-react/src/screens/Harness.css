@@ -70,6 +70,12 @@
 .hx-off { color: var(--ash); font-weight: 400; }
 
 .hx-builder { border: 1px solid var(--bone); border-radius: var(--radius-card); padding: 12px; margin: 8px 0 16px; display: flex; flex-direction: column; gap: 8px; }
+.hx-skill-package-editor { display: grid; gap: 10px; margin: 8px 0; padding: 12px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-card); background: var(--hx-surface-muted, var(--signal-white)); color: var(--hx-text, var(--ink-black)); }
+.hx-skill-package-editor > p { margin: 0; }
+.hx-skill-support-file { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--hx-border, var(--bone)); border-radius: 10px; background: var(--hx-surface, var(--signal-white)); }
+.hx-skill-support-file label { display: grid; gap: 5px; color: var(--hx-muted, var(--ash)); font-size: 12px; }
+.hx-skill-support-file .context-input { min-height: 100px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.hx-skill-support-file .danger { justify-self: end; }
 .hx-step { border: 1px solid var(--bone); border-radius: var(--radius-input); padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--mist); }
 .hx-step-head { display: flex; gap: 6px; align-items: center; }
 .hx-inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; }

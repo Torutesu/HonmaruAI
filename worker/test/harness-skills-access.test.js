@@ -398,6 +398,19 @@ test('support files save atomically, preserve bytes, enforce private access and 
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skill_files').first()).n).toBe(0);
 });
 
+test('package editor saves all assets with updatedAt compare-and-swap', async () => {
+  const created=await request('POST','/skills',owner,{name:'Editable package',description:'Reference material',body:'Use every file.',files:[{path:'notes.txt',base64:btoa('before')}]});
+  const {skill}=await created.json();
+  const saved=await request('PUT','/skills/'+skill.id,owner,{name:skill.name,description:skill.description,body:skill.body,expectedUpdatedAt:skill.updatedAt,files:[{path:'notes.txt',base64:btoa('after')},{path:'binary.dat',base64:btoa(String.fromCharCode(0,255))}]});
+  expect(saved.status).toBe(200);
+  const updated=(await saved.json()).skill;
+  expect(updated.updatedAt).not.toBe(skill.updatedAt);
+  const stale=await request('PUT','/skills/'+skill.id,owner,{name:skill.name,description:skill.description,body:'stale write',expectedUpdatedAt:skill.updatedAt,files:[]});
+  expect(stale.status).toBe(409);
+  expect((await listSkillFiles(env.DB,orgId,skill.id,'9401')).map(file=>file.path)).toEqual(['binary.dat','notes.txt']);
+  expect((await readSkillFile(env.DB,orgId,skill.id,'notes.txt','9401')).bytes).toEqual(new TextEncoder().encode('after'));
+});
+
 test('installed support files are paged and recheck access for every read', async () => {
   const text='x'.repeat(13000)+'FINAL TEMPLATE';
   const saved=await request('POST','/skills',owner,{name:'Files',description:'Read templates',body:'Use the template.',visibility:'private',files:[{path:'template.txt',base64:btoa(text)},{path:'image.bin',base64:btoa(String.fromCharCode(255,0,128))}]});

@@ -7,7 +7,7 @@ vi.mock('./HarnessShared', async importOriginal => ({ ...(await importOriginal<a
 vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
 const props = { httpBase: 'https://example.test', orgId: 'one', sessionToken: 'test', onClose: () => {} }
 const draft = { name: 'Review', description: 'Review changes', body: 'Check permissions.', metadata: { license: 'MIT' } }
-function api() { return { skills: vi.fn().mockResolvedValue({ skills: [] }), previewSkillImport: vi.fn().mockResolvedValue({ draft }), createSkill: vi.fn().mockResolvedValue({}) } }
+function api() { return { skills: vi.fn().mockResolvedValue({ skills: [] }), previewSkillImport: vi.fn().mockResolvedValue({ draft }), createSkill: vi.fn().mockResolvedValue({}), skillFiles: vi.fn().mockResolvedValue({files:[]}), readSkillFile: vi.fn(), updateSkill: vi.fn().mockResolvedValue({}) } }
 test('import is reviewed before private save and preserves metadata', async () => {
   state.api = api(); let tree!: ReturnType<typeof create>
   await act(async () => { tree = create(<HarnessSkills {...props} />) })
@@ -53,4 +53,30 @@ test('derived skills describe inherited access instead of offering a misleading 
  expect(JSON.stringify(tree.toJSON())).toContain('Restricted to source conversation and agent')
  expect(tree.root.findAllByProps({'aria-label':'Skill visibility'})).toHaveLength(0)
  act(()=>tree.unmount())
+})
+
+test('support files can be edited, added and removed with a stale-version guard', async () => {
+  const skill = { id:'skill-1', ...draft, createdBy:'owner', visibility:'private', canEdit:true, updatedAt:'2026-11-14T00:00:00.000Z' }
+  state.api=api()
+  state.api.skills.mockResolvedValue({skills:[skill]})
+  state.api.skillFiles.mockResolvedValue({files:[{path:'references/guide.md',size:8},{path:'image.bin',size:3}]})
+  state.api.readSkillFile.mockImplementation(async(_id:string,path:string)=>path.endsWith('.md')?new TextEncoder().encode('Old text'):new Uint8Array([0,255,128]))
+  let tree!:ReturnType<typeof create>
+  await act(async()=>{tree=create(<HarnessSkills {...props}/>)})
+  await act(async()=>{tree.root.findAllByType('button').find(button=>button.children.includes('Edit'))!.props.onClick()})
+  expect(tree.root.findAllByProps({'aria-label':'File path'})).toHaveLength(2)
+  const content=tree.root.findByProps({'aria-label':'File contents'})
+  act(()=>content.props.onChange({target:{value:'Updated text'}}))
+  await act(async()=>{await tree.root.findByProps({'aria-label':'Add support files'}).props.onChange({target:{files:[{name:'new.txt',size:9,arrayBuffer:async()=>new TextEncoder().encode('new guide').buffer}],value:'file'}})})
+  expect(tree.root.findAllByProps({'aria-label':'File path'}).map(node=>node.props.value)).toEqual(['references/guide.md','image.bin','new.txt'])
+  await act(async()=>{tree.root.findAllByProps({'aria-label':'Remove support file'})[1].props.onClick()})
+  await act(async()=>{tree.root.findAllByType('button').find(button=>button.children.includes('Save'))!.props.onClick()})
+  const [id,payload]=state.api.updateSkill.mock.calls[0]
+  expect(id).toBe('skill-1')
+  expect(payload.expectedUpdatedAt).toBe(skill.updatedAt)
+  expect(payload.files.map((file:any)=>file.path)).toEqual(['references/guide.md','new.txt'])
+  const byPath=Object.fromEntries(payload.files.map((file:any)=>[file.path,atob(file.base64)]))
+  expect(byPath['references/guide.md']).toBe('Updated text')
+  expect(byPath['new.txt']).toBe('new guide')
+  act(()=>tree.unmount())
 })

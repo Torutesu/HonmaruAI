@@ -1,6 +1,13 @@
 // The interface in es: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Edit text assets, replace or remove files, then save the whole package together.': 'Edita los archivos de texto, sustituye o elimina archivos y guarda el paquete completo.',
+  'Add support files': 'Añadir archivos auxiliares',
+  'File path': 'Ruta del archivo',
+  'File contents': 'Contenido del archivo',
+  'Binary file': 'Archivo binario',
+  'Remove support file': 'Quitar archivo auxiliar',
+  'No support files.': 'No hay archivos auxiliares.',
   'Manage fields': 'Gestionar campos',
   'Execution {id}: {message}': 'Ejecución {id}: {message}',
   'Execution finished before it could be cancelled.': 'La ejecución terminó antes de poder cancelarla.',
