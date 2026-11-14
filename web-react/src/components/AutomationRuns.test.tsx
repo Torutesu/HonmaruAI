@@ -12,6 +12,15 @@ test('execution history loads on demand and exposes failed step details',async()
  expect(workflow).toHaveBeenCalledWith('wf');expect(JSON.stringify(tree.toJSON())).toContain('Permission revoked')
  act(()=>tree.unmount())
 })
+test('execution history shows the workspace-resolved run actor',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-actor',startedAt:'2026-10-24T00:00:00Z',status:'done',startedByName:'Mika',log:[]}]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>refresh(tree).props.onClick())
+ const rendered=JSON.stringify(tree.toJSON())
+ expect(rendered).toContain(t('Run by'))
+ expect(rendered).toContain('Mika')
+ act(()=>tree.unmount())
+})
 test('execution history displays staged workflow message drafts without treating them as posted replies',async()=>{
  const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-draft',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[{step:1,type:'code',status:'done',output:'diagnostic output',messages:[{text:'The review is ready.',mention:['mika','toru']}]}]}]});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})

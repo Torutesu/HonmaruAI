@@ -11,6 +11,7 @@ afterEach(() => {vi.unstubAllGlobals(); chosenLocale.value = 'en'})
 test('loads safe execution summaries only after disclosure and never renders tool input or output', async () => {
   const fetch = vi.fn().mockResolvedValue({ok: true, json: async () => ({trace: {
     startedAt: '2026-11-07T00:00:00.000Z', finishedAt: '2026-11-07T00:00:01.250Z', elapsedMs: 1250,
+    runByName: 'Mika Tanaka',
     steps: [{name: 'search_records', status: 'completed', elapsedMs: 1250, args: 'private-query', result: 'private-result'}],
     args: 'private-query', result: 'private-result',
   }})})
@@ -23,9 +24,25 @@ test('loads safe execution summaries only after disclosure and never renders too
   expect(fetch.mock.calls[0][0]).toContain('/channels/agent-tool-traces?')
   expect(fetch.mock.calls[0][1].headers).toEqual({'x-session-token': 'one'})
   expect(JSON.stringify(tree.toJSON())).toContain('search_records')
+  expect(JSON.stringify(tree.toJSON())).toContain('Run by')
+  expect(JSON.stringify(tree.toJSON())).toContain('Mika Tanaka')
   expect(JSON.stringify(tree.toJSON())).toContain('Completed')
+  expect(JSON.stringify(tree.toJSON())).not.toContain('8802')
   expect(JSON.stringify(tree.toJSON())).not.toContain('private-query')
   expect(JSON.stringify(tree.toJSON())).not.toContain('private-result')
+  act(() => tree.unmount())
+})
+
+test('omits an unavailable executor name instead of exposing an identifier', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ok: true, json: async () => ({trace: {
+    startedAt: '2026-11-07T00:00:00.000Z', finishedAt: '2026-11-07T00:00:01.000Z', elapsedMs: 1000,
+    runByName: '8802', steps: [{name: 'search_records', status: 'completed', elapsedMs: 1000}],
+  }})}))
+  let tree!: ReturnType<typeof create>
+  await act(async () => {tree = create(<AgentToolTrace api={api} channel="b:general" messageId="answer"/>)})
+  const disclosure = tree.root.findByType('details')
+  await act(async () => {await disclosure.props.onToggle({currentTarget: {open: true}})})
+  expect(JSON.stringify(tree.toJSON())).not.toContain('Run by: 8802')
   act(() => tree.unmount())
 })
 

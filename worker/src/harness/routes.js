@@ -109,6 +109,18 @@ import { resolveChannel, viewOf } from "../channels.js";
 import { roomResponses, saveRoomResponses } from "./roomResponses.js";
 import { getGuidelines, saveGuidelines, MAX_GUIDELINES } from "./guidelines.js";
 
+// Run records store an internal GitHub user ID for authorization and provider
+// calls. History responses expose only a workspace member's display name.
+async function runForHistory(db, orgId, run) {
+  if (!run) return run;
+  const { startedBy, ...safeRun } = run;
+  if (!startedBy) return safeRun;
+  const actor = await db.prepare(`SELECT COALESCE(NULLIF(TRIM(u.name), ''), u.login) AS name
+    FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1
+    WHERE u.github_id=?2 LIMIT 1`).bind(orgId, String(startedBy)).first().catch(() => null);
+  return actor?.name ? { ...safeRun, startedByName: actor.name } : safeRun;
+}
+
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "content-type, x-session-token, x-ai-key, authorization",
@@ -802,7 +814,8 @@ export async function handleHarness(request, env, url, context = {}) {
         if (!Number.isSafeInteger(heldOffset) || heldOffset < 0 || heldOffset > 975 || heldOffset % 25 !== 0) {
           return json({ message: 'heldOffset must be a page boundary from 0 to 975.' }, 400);
         }
-        return json({ workflow: shown, runs: await listRuns(env.DB, orgId, wfId, 20, me), summary: await workflowRunSummary(env.DB, orgId, wfId, me), canEdit: mine,
+        const runs = await listRuns(env.DB, orgId, wfId, 20, me);
+        return json({ workflow: shown, runs: await Promise.all(runs.map(run => runForHistory(env.DB, orgId, run))), summary: await workflowRunSummary(env.DB, orgId, wfId, me), canEdit: mine,
           ...(mine && wf.trigger.type === 'webhook' ? { held: await heldWorkflowSummary(env.DB, orgId, wfId, heldOffset) } : {}) });
       }
       if (!mine) return json({ message: "Only its maker or an admin can change this workflow." }, 403);
@@ -898,9 +911,12 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === 'GET' && runId) {
         const run = await getRun(env.DB, orgId, runId, { viewerId: me });
-        return run && run.workflowId === wfId ? json({ run }) : json({ message: "No such run." }, 404);
+        return run && run.workflowId === wfId ? json({ run: await runForHistory(env.DB, orgId, run) }) : json({ message: "No such run." }, 404);
       }
-      if (request.method === 'GET') return json({ runs: await listRuns(env.DB, orgId, wfId, url.searchParams.get("limit"), me) });
+      if (request.method === 'GET') {
+        const runs = await listRuns(env.DB, orgId, wfId, url.searchParams.get("limit"), me);
+        return json({ runs: await Promise.all(runs.map(run => runForHistory(env.DB, orgId, run))) });
+      }
     }
     return null;
   }

@@ -2270,6 +2270,7 @@ const table: Record<string, string> = {
   'Export CSV': 'Exportar CSV',
   'Export to Excel (.xlsx)': 'Exportar a Excel (.xlsx)',
   'Wrap text': 'Ajustar texto',
+  'Run by': 'Ejecutado por',
 
 }
 

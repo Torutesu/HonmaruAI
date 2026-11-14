@@ -2273,6 +2273,7 @@ const table: Record<string, string> = {
   'Export CSV': 'Exporter en CSV',
   'Export to Excel (.xlsx)': 'Exporter vers Excel (.xlsx)',
   'Wrap text': 'Renvoyer le texte à la ligne',
+  'Run by': 'Exécuté par',
 
 }
 

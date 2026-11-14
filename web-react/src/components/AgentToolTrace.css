@@ -12,3 +12,4 @@
 .slk-agent-tool-step-name{overflow:hidden;color:var(--text,#252a31);text-overflow:ellipsis;white-space:nowrap}
 .slk-agent-tool-step-status,.slk-agent-tool-step-time{flex:0 0 auto;color:var(--muted,#747b86)}
 .slk-agent-tool-trace>p{margin:8px 0}
+.slk-agent-tool-trace-run-by{color:var(--muted,#747b86)}

@@ -1476,10 +1476,11 @@ export async function handleChannels(request, env, url, { route, after }) {
     const access = await inChannel(env, request, {orgId, channel});
     if (access.denied) return access.denied;
     if (await getMode(env.DB, orgId).catch(() => 'simple') !== 'harness') return json({message: 'No execution trace.'}, 404);
-    const row = await env.DB.prepare(`SELECT t.* FROM hx_agent_tool_traces t
+    const row = await env.DB.prepare(`SELECT t.*, executor.name AS run_by_name FROM hx_agent_tool_traces t
       JOIN channel_messages m ON m.org_id=t.org_id AND m.id=t.message_id AND m.channel=t.channel
       JOIN custom_agents a ON a.org_id=t.org_id AND a.id=t.agent_id AND a.deleted_at IS NULL
       LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
+      LEFT JOIN users executor ON executor.github_id=t.run_by
       WHERE t.org_id=?1 AND t.message_id=?2 AND t.channel=?3 AND t.agent_id=substr(m.author_login,7)
         AND m.deleted_at IS NULL AND m.kind='agent' AND m.author_login LIKE 'agent:%'
         AND (m.parent_id IS NULL OR EXISTS (SELECT 1 FROM channel_messages root
