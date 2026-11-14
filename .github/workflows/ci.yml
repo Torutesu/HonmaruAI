@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   # On demand, for a branch that changed Swift and has no pull request yet:
   # the iOS job below runs on pull requests only, so this is the one way to
