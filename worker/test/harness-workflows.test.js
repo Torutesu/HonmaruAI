@@ -185,16 +185,30 @@ test('Simple mode does not expose or save Workflow Connection steps', async () =
 test('workflow run history resolves actors to workspace names and omits raw user IDs', async () => {
   const made = await send('POST', '/workflows', mika, { orgId: ORG, name: 'Actor history', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Run for actor test.' }] });
   const { workflow } = await made.json();
+  const started = await (await send('POST', `/workflows/${workflow.id}/run`, mika, { orgId: ORG })).json();
+  expect(started.run.startedByName).toBe('Mika');
+  expect(started.run).not.toHaveProperty('startedBy');
+  expect(started.run.log[0].authorization[0]).toMatchObject({ actorName: 'Mika' });
+  expect(started.run.log[0].authorization[0]).not.toHaveProperty('actorId');
   const startedAt = new Date().toISOString();
+  const log = JSON.stringify([{ step: 1, type: 'post', status: 'ok', at: startedAt, authorization: [
+    { actorId: '9302', resourceType: 'conversation', resourceId: 'b:ops', outcome: 'allowed', checkedAt: startedAt },
+    { actorId: 'missing-user', resourceType: 'member', resourceId: '9301', outcome: 'denied', checkedAt: startedAt },
+  ] }]);
   await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,started_by,started_at,finished_at)
-    VALUES('run-actor-known',?1,?2,'manual','done','[]','9302',?3,?3),('run-actor-unknown',?1,?2,'manual','done','[]','missing-user',?3,?3)`)
-    .bind(ORG, workflow.id, startedAt).run();
+    VALUES('run-actor-known',?1,?2,'manual','done',?4,'9302',?3,?3),('run-actor-unknown',?1,?2,'manual','done','[]','missing-user',?3,?3)`)
+    .bind(ORG, workflow.id, startedAt, log).run();
 
   const listed = await (await get(`/workflows/${workflow.id}/runs?${q({ orgId: ORG })}`, mika)).json();
   const known = listed.runs.find(run => run.id === 'run-actor-known');
   const unknown = listed.runs.find(run => run.id === 'run-actor-unknown');
   expect(known).toMatchObject({ startedByName: 'Mika' });
   expect(known).not.toHaveProperty('startedBy');
+  expect(known.log[0].authorization[0]).toMatchObject({ actorName: 'Mika', resourceId: 'b:ops' });
+  expect(known.log[0].authorization[0]).not.toHaveProperty('actorId');
+  expect(known.log[0].authorization[1]).toMatchObject({ resourceId: '9301' });
+  expect(known.log[0].authorization[1]).not.toHaveProperty('actorName');
+  expect(known.log[0].authorization[1]).not.toHaveProperty('actorId');
   expect(unknown).not.toHaveProperty('startedByName');
   expect(unknown).not.toHaveProperty('startedBy');
 

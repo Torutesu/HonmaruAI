@@ -32,14 +32,18 @@ test('execution history displays staged workflow message drafts without treating
  expect(text).toContain('diagnostic output')
  act(()=>tree.unmount())
 })
-test('run history shows only the actor, resource, outcome, and check time for authorization events',async()=>{
- const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-auth',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[{step:1,type:'post',status:'failed',at:'2026-10-24T00:00:01Z',authorization:[{actorId:'user-42',resourceType:'conversation',resourceId:'b:ops',outcome:'denied',checkedAt:'2026-10-24T00:00:01Z'}]}]}]});let tree:any
+test('run history shows resolved authorization actor names but never raw actor IDs',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-auth',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[{step:1,type:'post',status:'failed',at:'2026-10-24T00:00:01Z',authorization:[{actorName:'Mika',actorId:'9302',resourceType:'conversation',resourceId:'b:ops',outcome:'denied',checkedAt:'2026-10-24T00:00:01Z'},{actorId:'unresolved-user',resourceType:'member',resourceId:'9301',outcome:'allowed',checkedAt:'2026-10-24T00:00:02Z'}]}]}]});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)});
  await act(async()=>refresh(tree).props.onClick())
  const text=JSON.stringify(tree.toJSON())
  expect(text).toContain(t('Access checks'))
- expect(text).toContain(t('Actor ID'))
+ expect(text).toContain(t('Actor'))
+ expect(text).toContain('Mika')
+ expect(text).not.toContain('9302')
+ expect(text).not.toContain('unresolved-user')
  expect(text).toContain(t('Conversation resource'))
+ expect(text).toContain('9301')
  expect(text).toContain(t('Denied'))
  expect(text).toContain('2026-10-24T00:00:01Z')
  expect(text).not.toContain('prompt')

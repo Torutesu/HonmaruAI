@@ -121,7 +121,7 @@ test('workflow history shows elapsed time without inventing duration for unfinis
  expect(tree.root.findByProps({'data-run':'done-run'}).findByType('time').props.dateTime).toBe('2026-10-24T09:00:00Z');
 });
 test('workflow step details expose bounded input, authorization, usage, duration, and operation id',async()=>{
- state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[{id:'trace-run',status:'done',trigger:'manual',startedAt:'2026-10-24T09:00:00Z',finishedAt:'2026-10-24T09:00:02Z',usage:{calls:1,inputTokens:12,outputTokens:4,unknownCalls:0,unpricedCalls:0,estimatedMicros:500,estimatedUsd:0.0005,coverage:'priced-token-estimate',steps:[{stepNumber:1,calls:1,inputTokens:12,outputTokens:4,unknownCalls:0,unpricedCalls:0,estimatedMicros:500}]},log:[{step:1,type:'post',status:'ok',output:'Posted',at:'2026-10-24T09:00:02Z',startedAt:'2026-10-24T09:00:00Z',finishedAt:'2026-10-24T09:00:02Z',durationMs:2000,operationId:'workflow:trace-run:step:1',inputPreview:{mode:'template',input:{text:'Hello {{input.name}}'},note:'Runtime record, message, and connection values are not retained.'},authorization:[{actorId:'agent-1',resourceType:'conversation',resourceId:'b:ops',outcome:'allowed',checkedAt:'2026-10-24T09:00:00Z'}]}]}]});
+ state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[{id:'trace-run',status:'done',trigger:'manual',startedAt:'2026-10-24T09:00:00Z',finishedAt:'2026-10-24T09:00:02Z',usage:{calls:1,inputTokens:12,outputTokens:4,unknownCalls:0,unpricedCalls:0,estimatedMicros:500,estimatedUsd:0.0005,coverage:'priced-token-estimate',steps:[{stepNumber:1,calls:1,inputTokens:12,outputTokens:4,unknownCalls:0,unpricedCalls:0,estimatedMicros:500}]},log:[{step:1,type:'post',status:'ok',output:'Posted',at:'2026-10-24T09:00:02Z',startedAt:'2026-10-24T09:00:00Z',finishedAt:'2026-10-24T09:00:02Z',durationMs:2000,operationId:'workflow:trace-run:step:1',inputPreview:{mode:'template',input:{text:'Hello {{input.name}}'},note:'Runtime record, message, and connection values are not retained.'},authorization:[{actorName:'Mika',resourceType:'conversation',resourceId:'b:ops',outcome:'allowed',checkedAt:'2026-10-24T09:00:00Z'}]}]}]});
  await open();
  const text=JSON.stringify(tree.toJSON());
  expect(text).toContain('Step duration');
@@ -132,7 +132,9 @@ test('workflow step details expose bounded input, authorization, usage, duration
  expect(text).toContain('{{input.name}}');
  expect(text).toContain('Runtime record, message, and connection values are not retained.');
  expect(text).toContain('Authorization checks');
- expect(text).toContain('agent-1');
+ expect(text).toContain('Actor');
+ expect(text).toContain('Mika');
+ expect(text).not.toContain('agent-1');
  expect(text).toContain('Step AI usage');
  expect(text).toContain('0.000500');
 });

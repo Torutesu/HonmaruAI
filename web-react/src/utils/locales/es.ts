@@ -2271,6 +2271,7 @@ const table: Record<string, string> = {
   'Export to Excel (.xlsx)': 'Exportar a Excel (.xlsx)',
   'Wrap text': 'Ajustar texto',
   'Run by': 'Ejecutado por',
+  'Actor': 'Actor',
 
 }
 
