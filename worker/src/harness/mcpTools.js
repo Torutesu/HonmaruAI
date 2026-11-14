@@ -25,7 +25,7 @@ import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 import { audit } from "../audit.js";
 
-export const HARNESS_TOOL_SCOPE = { get_workflow: "read", list_skill_shares: "read", revoke_skill_share: "write", set_skill_visibility: "write", create_skill: "write", update_skill: "write", assign_skill_to_agent: "write", remove_skill_from_agent: "write", create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { get_workflow: "read", list_skill_shares: "read", revoke_skill_share: "write", set_skill_visibility: "write", share_skills_with_agents: "write", create_skill: "write", update_skill: "write", assign_skill_to_agent: "write", remove_skill_from_agent: "write", create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,
@@ -103,6 +103,13 @@ export const HARNESS_TOOLS = [
     description: "Remove an assigned Skill from an Agent you can manage. The change applies to subsequent Agent runs; it does not alter other Agents or the Skill itself.",
     inputSchema: { type: "object", properties: { agentId: { type: "string", minLength: 1, maxLength: 200 }, skillId: { type: "string", minLength: 1, maxLength: 200 } }, required: ["agentId", "skillId"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "share_skills_with_agents",
+    title: "Share Skills with Agents",
+    description: "Install up to five visible Skills on up to five Agents. Every Skill-Agent pair is checked independently against current visibility and the caller's Agent-manager permissions. Pass confirm=true after selecting the exact IDs. Failed pairs are reported without hiding successful assignments.",
+    inputSchema: { type: "object", properties: { skillIds: { type: "array", minItems: 1, maxItems: 5, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 200 } }, agentIds: { type: "array", minItems: 1, maxItems: 5, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 200 } }, confirm: { type: "boolean" } }, required: ["skillIds", "agentIds", "confirm"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "list_apps",
@@ -388,6 +395,28 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
     case "remove_skill_from_agent": {
       const result = await takeSkill(db, orgId, String(args.agentId || ""), String(args.skillId || ""), by);
       return result.error ? err(result.error) : out({ agentId: String(args.agentId), skillId: String(args.skillId), removed: true });
+    }
+    case "share_skills_with_agents": {
+      if (args.confirm !== true) return err("Pass confirm=true after selecting the exact Skills and Agents to install.");
+      if (!Array.isArray(args.skillIds) || !Array.isArray(args.agentIds)
+        || args.skillIds.length < 1 || args.skillIds.length > 5 || args.agentIds.length < 1 || args.agentIds.length > 5
+        || args.skillIds.some(id => typeof id !== 'string' || !id.trim() || id.length > 200)
+        || args.agentIds.some(id => typeof id !== 'string' || !id.trim() || id.length > 200)) {
+        return err("Choose between one and five Skill IDs and one and five Agent IDs.");
+      }
+      const skillIds = [...new Set(args.skillIds.map(id => id.trim()))];
+      const agentIds = [...new Set(args.agentIds.map(id => id.trim()))];
+      const assigned = [], failed = [];
+      for (const skillId of skillIds) for (const agentId of agentIds) {
+        const result = await giveSkill(db, orgId, agentId, skillId, by);
+        if (result.error) {
+          failed.push({ agentId, skillId, message: result.error });
+          continue;
+        }
+        assigned.push({ agentId, skillId });
+        await audit(env, request, { orgId, action: 'skill.shared_with_agent', actor: { type: 'user', id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: 'skill', id: skillId }, details: { agentId } });
+      }
+      return out({ assigned, failed, complete: failed.length === 0 });
     }
     case "list_apps":
       return out({ apps: (await visibleAppLinks(db, orgId, await visibleResources(await listApps(db, orgId), a => mayUseApp(db, orgId, a.id, by)), agent)).map((a) => ({ id: a.id, name: a.name, description: a.description, tableId: a.tableId, rooms: a.channels })) });

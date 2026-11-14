@@ -45,7 +45,8 @@ test('Harness MCP exposes scoped Skill reads and permission-checked Agent assign
   const writer = await mint(['read', 'write']);
   expect(await names(reader)).toEqual(expect.arrayContaining(['list_skills', 'get_skill', 'list_agent_skills']));
   expect(await names(reader)).not.toContain('assign_skill_to_agent');
-  expect(await names(writer)).toEqual(expect.arrayContaining(['assign_skill_to_agent', 'remove_skill_from_agent']));
+  expect(await names(reader)).not.toContain('share_skills_with_agents');
+  expect(await names(writer)).toEqual(expect.arrayContaining(['assign_skill_to_agent', 'remove_skill_from_agent', 'share_skills_with_agents']));
   const listed = (await tool(reader, 'list_skills')).result.structuredContent;
   expect(listed.skills).toEqual([expect.objectContaining({ id: created.skill.id, name: 'Release guide' })]);
   expect(listed.skills[0]).not.toHaveProperty('body');
@@ -59,6 +60,9 @@ test('Harness MCP exposes scoped Skill reads and permission-checked Agent assign
   await upsertMembership(env.DB, ORG, '9402', 'member');
   const mikaSession = await createSession(env.DB, '9402', 'gho_mika');
   const mikaToken = (await (await call('/tokens', { method: 'POST', headers: headers(mikaSession), body: JSON.stringify({ orgId: ORG, name: 'Read only', scopes: ['read', 'write'] }) })).json()).token;
+  const deniedShare = (await tool(mikaToken, 'share_skills_with_agents', { skillIds: [created.skill.id], agentIds: ['skill-agent'], confirm: true })).result.structuredContent;
+  expect(deniedShare).toMatchObject({ complete: false, assigned: [] });
+  expect(deniedShare.failed[0].message).toMatch(/maker or an admin/);
   expect((await tool(mikaToken, 'list_agent_skills', { agentId: 'skill-agent' })).result.isError).toBe(true);
   expect((await tool(mikaToken, 'assign_skill_to_agent', { agentId: 'skill-agent', skillId: created.skill.id })).result.isError).toBe(true);
 
@@ -104,10 +108,15 @@ test('Harness MCP creates private Skill packages and version-fences package repl
   expect((await tool(writer, 'get_skill', { skillId: created.id })).result.structuredContent.skill.body).toContain('Verify rollback');
   expect((await tool(writer, 'assign_skill_to_agent', { agentId: 'package-agent', skillId: published.id })).result.structuredContent.assigned).toBe(true);
   expect((await tool(writer, 'list_shareable_skills', { agentId: 'package-agent' })).result.structuredContent.skills.map(skill => skill.id)).toEqual([created.id]);
-
+  const noConfirm = await tool(writer, 'share_skills_with_agents', { skillIds: [published.id], agentIds: ['package-agent'] });
+  expect(noConfirm.result.isError).toBe(true);
+  const shared = (await tool(writer, 'share_skills_with_agents', { skillIds: [published.id], agentIds: ['package-agent', 'missing-agent'], confirm: true })).result.structuredContent;
+  expect(shared).toMatchObject({ complete: false, assigned: [{ agentId: 'package-agent', skillId: published.id }] });
+  expect(shared.failed).toEqual([expect.objectContaining({ agentId: 'missing-agent', skillId: published.id })]);
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
   expect(await names(writer)).not.toContain('create_skill');
   expect(await names(writer)).not.toContain('set_skill_visibility');
+  expect(await names(writer)).not.toContain('share_skills_with_agents');
   expect((await tool(writer, 'create_skill', { skillMarkdown: markdown })).error.message).toContain('Unknown tool');
 });
 
