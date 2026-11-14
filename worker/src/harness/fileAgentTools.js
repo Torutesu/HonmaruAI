@@ -2,6 +2,7 @@ import {documentAgentTools} from './documentAgentTools.js';
 import {mediaAgentTools} from './mediaGeneration.js';
 import {getMode} from './mode.js';
 import {fileScopeAuthority} from './fileAuthority.js';
+import {filterResponders} from './agents.js';
 import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
 import {FILE_WRITE_TOOLS,callFileWriteTool} from './fileWriteTools.js';
 import {proposePublicFileShare} from './fileShareApprovals.js';
@@ -17,9 +18,36 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
  if(!ready)return {};
  const userId=String(session.github_id);
  if(sharedRoom){
-  const user=await env.DB.prepare('SELECT login FROM users WHERE github_id=?').bind(userId).first();
+  const user=await env.DB.prepare('SELECT login,name FROM users WHERE github_id=?').bind(userId).first();
   if(!user?.login)return {};
-  return {request_public_file_share:publicFileShareTool({env,orgId,userId,login:user.login,fileScope,sourceAgentId:fileProposalAgentId,sourceMessageId,sessionToken:session.token,taint})};
+  const current=async()=>{
+   const agentRow=await env.DB.prepare('SELECT id,scope,owner_login AS ownerLogin FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL').bind(orgId,fileProposalAgentId).first();
+   if(!agentRow)return null;
+   const rows=await filterResponders(env.DB,orgId,user.login,[agentRow],{named:new Set([agentRow.id]),channel:fileScope});
+   if(!rows.length)return null;
+   return await env.DB.prepare(`SELECT a.id,a.name,a.scope,a.owner_login AS ownerLogin FROM custom_agents a WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL
+    AND EXISTS(SELECT 1 FROM channel_agents placed WHERE placed.org_id=a.org_id AND placed.channel=?3 AND placed.agent_id=a.id)
+    AND ${fileScopeAuthority('?1','?3','?4')}`).bind(orgId,agentRow.id,fileScope,userId).first();
+  };
+  const currentAgent=await current();if(!currentAgent)return {};
+  const actor={orgId,githubId:userId,login:user.login,name:user.name,agentName:currentAgent.name,source:'conversation',fileRoomWrite:{agentId:currentAgent.id,channel:fileScope}};
+  const tools=Object.fromEntries([...FILE_READ_TOOLS,...FILE_WRITE_TOOLS.filter(t=>['create_file_text','update_file_text'].includes(t.name))].map(tool=>{
+   const {scope:unused,...properties}=tool.inputSchema.properties;
+   return [tool.name,{description:tool.description+' This tool is bound to the current Room; never provide or request another scope.',parameters:{...tool.inputSchema,properties,required:tool.inputSchema.required.filter(key=>key!=='scope')},strict:false,
+    run:async(args={})=>{
+     if(!await current())return JSON.stringify({error:'This Room Agent is no longer available.'});
+     if(!args||typeof args!=='object'||Array.isArray(args))return JSON.stringify({error:'Invalid file arguments.'});
+     if(Object.hasOwn(args,'fileId')){
+      const file=typeof args.fileId==='string'&&await env.DB.prepare('SELECT 1 FROM hx_workspace_files WHERE org_id=? AND id=? AND scope=?').bind(orgId,args.fileId,fileScope).first();
+      if(!file)return JSON.stringify({error:'File is not in this Room.'});
+     }
+     if(taint)taint.value=true;
+     const input={...args,scope:fileScope};
+     const result=FILE_WRITE_TOOLS.some(t=>t.name===tool.name)?await callFileWriteTool(env,actor,tool.name,input):await callFileReadTool(env,actor,tool.name,input);
+     return JSON.stringify(result.structuredContent||{error:result.content?.[0]?.text||'File operation failed.'});
+    }}];
+  }));
+  return {...tools,request_public_file_share:publicFileShareTool({env,orgId,userId,login:user.login,fileScope,sourceAgentId:currentAgent.id,sourceMessageId,sessionToken:session.token,taint,current})};
  }
  const current=async()=>await env.DB.prepare(`SELECT a.id,a.name FROM custom_agents a JOIN users u ON u.github_id=?2
   WHERE a.org_id=?1 AND ?3='ag:'||a.id||'|'||u.login AND a.owner_login=u.login AND a.deleted_at IS NULL
