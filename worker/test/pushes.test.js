@@ -207,6 +207,31 @@ test.each(["mute", "private", "guest", "thread-mute"])("queued push honors a lat
   } finally { fetchMock.deactivate(); }
 });
 
+test("a muted DM still delivers a current explicit mention and keeps its direct reason", async () => {
+  const { registerDevice } = await import("../src/db.js");
+  const token = "f".repeat(64), now = Date.now(), channel = "dm:mika|toru";
+  await registerDevice(env.DB, { deviceToken: token, githubId: "8801", login: "toru", environment: "production", platform: "ios" });
+  await env.DB.prepare("INSERT INTO channel_prefs (org_id,login,channel,level) VALUES (?1,'toru',?2,'mute')").bind(ORG, channel).run();
+  const row = { id: "muted-dm-mention", kind: "message", channel, author_login: "mika", body: "@Toru please check", created_at: new Date(now).toISOString() };
+  await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,body,kind,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)")
+    .bind(row.id, ORG, row.channel, row.author_login, row.body, row.kind, row.created_at).run();
+  const members = await listMembers(env.DB, ORG, null);
+  expect(await recipientsOf(env.DB, ORG, row, members)).toEqual([{ login: "toru", reason: "direct" }]);
+
+  const pushed = [];
+  fetchMock.activate();
+  fetchMock.get("https://api.push.apple.com")
+    .intercept({ path: `/3/device/${token}`, method: "POST" })
+    .reply((opts) => { pushed.push(JSON.parse(opts.body)); return { statusCode: 200, data: "" }; }).persist();
+  try {
+    await queueMessagePushes(env, ORG, row, { members, now });
+    expect((await queued()).map(({ login, reason }) => ({ login, reason }))).toEqual([{ login: "toru", reason: "direct" }]);
+    const penv = { ...env, APNS_KEY_ID: "ABC1234567", APNS_TEAM_ID: "TEAM123456", APNS_TOPIC: "com.honmaru.ai", APNS_PRIVATE_KEY: TEST_P8 };
+    expect(await sendDuePushes(penv, now + PUSH_DELAY_MS + 1000)).toEqual({ sent: 1, skipped: 0 });
+    expect(pushed).toHaveLength(1);
+  } finally { fetchMock.deactivate(); }
+});
+
 test("an unavailable privacy lookup holds the queued push and rechecks access after recovery", async () => {
   const { registerDevice } = await import("../src/db.js");
   const token="f".repeat(64),pushed=[];

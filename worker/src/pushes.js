@@ -89,13 +89,7 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
   if (row.kind !== "message" && row.kind !== "agent" && !(row.kind === "ai" && askedBy)) return [];
   const author = row.author_login;
   const out = new Map();
-  const add = (login, reason) => {
-    if (!login || login === author || String(login).startsWith("agent:")) return;
-    // A direct/group audience or thread reply can also be explicitly named.
-    // Keep the stronger reason so a mute suppresses the surrounding
-    // conversation without swallowing the @mention.
-    if (!out.has(login) || reason === "mention") out.set(login, reason);
-  };
+  const add = (login, reason) => { if (login && login !== author && !String(login).startsWith("agent:") && !out.has(login)) out.set(login, reason); };
   if (row.kind === "ai") add(askedBy, "reply");
   const key = String(row.channel || "");
   if (key.startsWith("dm:") || key.startsWith("g:") || key.startsWith("ag:")) {
@@ -103,7 +97,8 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
   }
   // "@here": the people at the app in the last ten minutes.
   const online = mentionTokens(row.body || "").some((t) => broadcastOf(t) === "here") ? await onlineLogins(db, orgId) : null;
-  for (const m of resolveMentions(row.body || "", members, { online })) add(m.login, "mention");
+  const explicitMentions = new Set(resolveMentions(row.body || "", members, { online }).map((m) => m.login));
+  for (const login of explicitMentions) add(login, "mention");
   // Words they asked to hear about, said anywhere they can read.
   for (const k of await keywordsIn(db, orgId)) if (keywordHit(row.body, k.keywords)) add(k.login, "keyword");
   // Answered inline: Discord pings whoever is replied to, and so does this —
@@ -144,12 +139,12 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
   ).bind(orgId, key, ...out.keys()).all();
   for (const p of prefs || []) {
     const reason = out.get(p.login);
-    if ((p.level === "mute" && reason !== "mention") || (p.level === "mentions" && reason === "thread")) out.delete(p.login);
+    if ((p.level === "mute" && !explicitMentions.has(p.login)) || (p.level === "mentions" && reason === "thread")) out.delete(p.login);
   }
   if (row.parent_id && out.size) {
     const { results: muted } = await db.prepare("SELECT login FROM channel_thread_mutes WHERE org_id=?1 AND message_id=?2")
       .bind(orgId, row.parent_id).all();
-    for (const pref of muted || []) if (out.get(pref.login) !== "mention") out.delete(pref.login);
+    for (const pref of muted || []) if (!explicitMentions.has(pref.login)) out.delete(pref.login);
   }
   return [...out.entries()].map(([login, reason]) => ({ login, reason }));
 }
@@ -232,16 +227,19 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
     "SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login)) AS author_name FROM channel_messages m LEFT JOIN users u ON u.login = m.author_login WHERE m.org_id = ?1 AND m.id = ?2"
   ).bind(job.org_id, job.message_id).first();
   if (!msg || msg.deleted_at) return { skipped: true };
-  if (job.reason !== "mention" && await threadMuted(db, job.org_id, job.login, msg.parent_id)) return { skipped: true };
   // Access and preferences may have changed during the delay or quiet hours.
   // Recheck before translating or sending any of the message's contents.
   const audience = await audienceOf(db, job.org_id, msg.channel);
   if (audience && !audience.includes(job.login)) return { skipped: true };
+  if (!membersOf.has(job.org_id)) membersOf.set(job.org_id, await listMembers(db, job.org_id, null));
+  const members = membersOf.get(job.org_id);
+  const explicitMention = resolveMentions(msg.body || "", members, { here: false }).some((person) => person.login === job.login);
+  if (job.reason !== "mention" && !explicitMention && await threadMuted(db, job.org_id, job.login, msg.parent_id)) return { skipped: true };
   if (!await messageDeliveryAllowed(db,job.org_id,msg.id)) return { skipped: true };
   const pref = await db.prepare(
     "SELECT level FROM channel_prefs WHERE org_id = ?1 AND login = ?2 AND channel = ?3"
   ).bind(job.org_id, job.login, msg.channel).first();
-  if ((pref?.level === "mute" && job.reason !== "mention") || (pref?.level === "mentions" && job.reason === "thread")) return { skipped: true };
+  if ((pref?.level === "mute" && job.reason !== "mention" && !explicitMention) || (pref?.level === "mentions" && job.reason === "thread")) return { skipped: true };
   // Read it already, here or anywhere: in its conversation, in its
   // thread, or looked at in Activity.
   if (await readAlready(db, job.org_id, job.login, msg)) return { skipped: true };
@@ -266,8 +264,6 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
   // This used to stop on any use of the app at all since the message: a
   // person working on a laptop, in another conversation or another window,
   // got neither the laptop's banner (it was in front) nor the phone's.
-  if (!membersOf.has(job.org_id)) membersOf.set(job.org_id, await listMembers(db, job.org_id, null));
-  const members = membersOf.get(job.org_id);
   // Out of the workspace in the minute since it was queued: a channel's
   // key is the same for everyone, so nothing below would stop it.
   if (!members.some((m) => m.login === job.login)) return { skipped: true };
