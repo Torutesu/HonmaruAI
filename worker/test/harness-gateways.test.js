@@ -325,16 +325,39 @@ test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks
   expect((await api('POST', `/jobs/${simpleFallback.job.id}/cancel`, member)).status).toBe(200);
 
   await setMode(env.DB, orgId, 'harness', '9501');
+  await env.DB.prepare(`INSERT INTO ai_teammates(org_id,provider,enabled,remote,agent_id,updated_at)
+    VALUES(?1,'acp',1,?2,'acp-workspace','now')`).bind(orgId,JSON.stringify({gatewayId:gateway.id,agentKey:'workspace-reader',browserTools:true})).run();
   const browserOnly = await enqueueAcpExecution(env.DB, orgId, '9502', {
-    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Open the release notes', browserTools:true,
+    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Open the release notes', agentId:'acp-workspace', browserTools:true,
   });
   expect(browserOnly.statusCode).toBe(201);
-  stored = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(browserOnly.job.id).first();
-  expect(JSON.parse(stored.payload)).toMatchObject({acp:true,browserTools:true,browserIdentity:'local-workspace-reader',workspaceId:orgId});
-  expect(JSON.parse(stored.payload)).not.toHaveProperty('agentId');
+  const setBrowserAllowed = enabled => env.DB.prepare('UPDATE ai_teammates SET remote=?2 WHERE org_id=?1 AND provider=\'acp\'')
+    .bind(orgId,JSON.stringify({gatewayId:gateway.id,agentKey:'workspace-reader',browserTools:enabled})).run();
+  await setBrowserAllowed(false);
+  expect(await claim(token,['acp-v1'],['workspace-reader'])).toBeNull();
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(browserOnly.job.id).first()).status).toBe('failed');
+  await setBrowserAllowed(true);
+  const simpleBrowser = await enqueueAcpExecution(env.DB,orgId,'9502',{
+    gatewayId:gateway.id,agentKey:'workspace-reader',prompt:'Open the release notes',agentId:'acp-workspace',browserTools:true,
+  });
+  expect(simpleBrowser.statusCode).toBe(201);
+  await setMode(env.DB,orgId,'simple','9501');
+  expect(await claim(token,['acp-v1'],['workspace-reader'])).toBeNull();
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(simpleBrowser.job.id).first()).status).toBe('failed');
+  await setMode(env.DB,orgId,'harness','9501');
+  const activeBrowser = await enqueueAcpExecution(env.DB,orgId,'9502',{
+    gatewayId:gateway.id,agentKey:'workspace-reader',prompt:'Open the release notes',agentId:'acp-workspace',browserTools:true,
+  });
+  expect(activeBrowser.statusCode).toBe(201);
+  stored = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(activeBrowser.job.id).first();
+  expect(JSON.parse(stored.payload)).toMatchObject({acp:true,browserTools:true,browserIdentity:'acp-workspace',workspaceId:orgId});
   const browserClaim=await claim(token,['acp-v1'],['workspace-reader']);
-  expect(browserClaim).toMatchObject({id:browserOnly.job.id,timeoutMs:270000,payload:{browserTools:true}});
-  expect((await api('POST', `/jobs/${browserOnly.job.id}/cancel`, member)).status).toBe(200);
+  expect(browserClaim).toMatchObject({id:activeBrowser.job.id,timeoutMs:270000,payload:{browserTools:true}});
+  expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser`,null,{lease:browserClaim.lease},token)).status).toBe(200);
+  await setBrowserAllowed(false);
+  expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser`,null,{lease:browserClaim.lease},token)).status).toBe(403);
+  await setBrowserAllowed(true);
+  expect((await api('POST', `/jobs/${activeBrowser.job.id}/cancel`, member)).status).toBe(200);
 
   const enabled = await enqueueAcpExecution(env.DB, orgId, '9502', {
     gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true, browserTools:true,

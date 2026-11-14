@@ -2973,6 +2973,8 @@ const table: Record<string, string> = {
   "ACP agents execute with the Mac user’s permissions and may access local files, credentials, and network resources. Only connect agents and working directories you trust. Permission requests default to rejected.": "ACPエージェントはMacユーザーの権限で実行され、ローカルファイル・認証情報・ネットワークへアクセスする場合があります。信頼できるエージェントと作業ディレクトリだけを接続してください。権限要求は既定で拒否します。",
   "Allow this ACP agent to read Workspace data": "このACPエージェントにワークスペースデータの読み取りを許可",
   "Allow this ACP agent to use its isolated browser": "このACPエージェントに専用の隔離ブラウザの使用を許可",
+  "Isolated browser access is available in Harness mode only.": "隔離ブラウザはHarnessモードでのみ利用できます。",
+  "Page text, screenshots, and text entered by this agent are sent to the local ACP agent and its existing provider. Sign-ins persist in this agent’s isolated browser on the execution node.": "ページのテキスト・スクリーンショット・エージェントが入力したテキストは、ローカルACPエージェントと既存プロバイダーへ送信されます。サインイン情報は実行ノード上のこのエージェント専用ブラウザに保存されます。",
   "Workspace MCP tools are available in Harness mode only.": "Workspace MCPツールはHarnessモードでのみ利用できます。",
   "When enabled, it can read apps, tables, and workflows the person who asked may access. Their contents are sent to the local ACP agent and its existing provider. Read-only; writes and external MCP connections stay disabled.": "有効にすると、依頼者がアクセスできるアプリ・テーブル・ワークフローを読み取れます。内容はローカルACPエージェントと既存プロバイダーへ送信され、利用量を消費する場合があります。読み取り専用で、書き込みと外部MCP連携は無効です。",
   "Each ACP prompt is one task. Local agent use and any provider usage are controlled by the service running on your Mac.": "ACPへのプロンプト1回を1タスクとして数えます。ローカルエージェントや各サービスの利用量は、Mac上で動くサービス側で管理してください。",

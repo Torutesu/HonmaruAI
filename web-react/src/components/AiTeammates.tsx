@@ -215,9 +215,13 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
             </label>
             <label className="teammate-field">
               <span><input type="checkbox" disabled={off || !harnessMode} checked={draft.workspaceTools} onChange={(e) => set({ workspaceTools: e.target.checked })} data-teammate-workspace-tools /> {t('Allow this ACP agent to read Workspace data')}</span>
-              <span><input type="checkbox" disabled={off || !harnessMode} checked={draft.browserTools} onChange={(e) => set({ browserTools: e.target.checked })} data-teammate-browser-tools /> {t('Allow this ACP agent to use its isolated browser')}</span>
               {!harnessMode && <small>{t('Workspace MCP tools are available in Harness mode only.')}</small>}
               <small>{t('When enabled, it can read apps, tables, and workflows the person who asked may access. Their contents are sent to the local ACP agent and its existing provider. Read-only; writes and external MCP connections stay disabled.')}</small>
+            </label>
+            <label className="teammate-field">
+              <span><input type="checkbox" disabled={off || !harnessMode} checked={draft.browserTools} onChange={(e) => set({ browserTools: e.target.checked })} data-teammate-browser-tools /> {t('Allow this ACP agent to use its isolated browser')}</span>
+              {!harnessMode && <small>{t('Isolated browser access is available in Harness mode only.')}</small>}
+              <small>{t('Page text, screenshots, and text entered by this agent are sent to the local ACP agent and its existing provider. Sign-ins persist in this agent’s isolated browser on the execution node.')}</small>
             </label>
             <p className="form-note">{t('ACP agents execute with the Mac user’s permissions and may access local files, credentials, and network resources. In default mode, the gateway accepts one action requested by the agent; strict mode accepts read-only actions and rejects writes or terminal actions. Only connect agents and working directories you trust.')}</p>
           </>

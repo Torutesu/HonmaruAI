@@ -20,7 +20,7 @@ const failure = (message, status = 400) => json({ message }, status);
 const activeMember = `(EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND LOWER(TRIM(COALESCE(m.role,'guest'))) != 'guest') AND NOT EXISTS (SELECT 1 FROM hx_app_action_jobs j WHERE j.job_id=hx_gateway_jobs.id AND NOT EXISTS (SELECT 1 FROM hx_apps a LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=j.org_id AND a.id=j.app_id AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=hx_gateway_jobs.created_by))))`;
 
 
-export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp|progress))\/?$/.test(pathname);
+export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp|progress|browser))\/?$/.test(pathname);
 
 const ACP_READ_ONLY_TOOLS = new Set(['list_apps','read_app','list_tables','query_rows','list_workflows','list_followups']);
 const acpReadTools = () => HARNESS_TOOLS.filter(tool => ACP_READ_ONLY_TOOLS.has(tool.name))
@@ -55,6 +55,20 @@ async function acpWorkspacePrincipal(db, row, payload) {
   if (!agent || !(await mayRunAgent(db,row.org_id,agent,row.created_by))) return null;
   const person = await db.prepare('SELECT login FROM users WHERE github_id=?1').bind(String(row.created_by)).first();
   return person?.login ? {orgId:row.org_id,githubId:String(row.created_by),login:person.login} : null;
+}
+
+async function acpBrowserAllowed(db, row, payload) {
+  if (payload?.acp !== true || payload?.browserTools !== true || typeof payload.browserIdentity !== 'string' ||
+      typeof payload.agentKey !== 'string' || await getMode(db, row.org_id) !== 'harness' ||
+      !(await allowed(db, row.org_id, row.created_by, 'harness.build'))) return false;
+  const teammate = await db.prepare(`SELECT a.id,a.scope,a.owner_login,t.remote
+    FROM ai_teammates t JOIN custom_agents a ON a.org_id=t.org_id AND a.id=t.agent_id
+    WHERE t.org_id=?1 AND t.agent_id=?2 AND t.enabled=1 AND t.provider IN ('acp','hermes','grok-build','antigravity-cli')
+      AND a.deleted_at IS NULL AND json_valid(t.remote)=1
+      AND json_extract(t.remote,'$.browserTools')=1
+      AND json_extract(t.remote,'$.gatewayId')=?3
+      AND json_extract(t.remote,'$.agentKey')=?4`).bind(row.org_id, payload.browserIdentity, row.gateway_id, payload.agentKey).first();
+  return Boolean(teammate && await mayRunAgent(db, row.org_id, teammate, row.created_by));
 }
 
 export async function expireGatewayJobs(db, at = now(), env = null) {
@@ -121,6 +135,16 @@ export async function handleGateways(request, env, url, input) {
         .bind(g.id, at, await digest(lease),programCapable?1:0,acpCapable?1:0).first();
       const workflow=row&&await db.prepare('SELECT 1 FROM hx_workflow_activations WHERE org_id=?1 AND job_id=?2').bind(row.org_id,row.id).first();
       const payload=row?JSON.parse(row.payload):null;
+      if(row&&payload?.browserTools===true){
+        let authorized=false;
+        try{authorized=await acpBrowserAllowed(db,row,payload);}catch{}
+        if(!authorized){
+          await db.prepare(`UPDATE hx_gateway_jobs SET status='failed',result=?3,finished_at=?4,lease_hash=NULL
+            WHERE id=?1 AND gateway_id=?2 AND status='running' AND lease_hash=?5`)
+            .bind(row.id,g.id,JSON.stringify({error:'Isolated browser access was revoked or is no longer allowed.'}),at,await digest(lease)).run();
+          return json({job:null});
+        }
+      }
       const appAction=row&&await db.prepare('SELECT app_id AS appId FROM hx_app_action_jobs WHERE org_id=?1 AND job_id=?2').bind(row.org_id,row.id).first();
       let environment;
       if(appAction){
@@ -154,6 +178,15 @@ export async function handleGateways(request, env, url, input) {
           AND COALESCE(json_extract(payload,'$.acp'),0)=1`)
         .bind(parts[2], g.id, leaseHash, at, JSON.stringify(progress)).run();
       return changed.meta?.changes ? json({ ok: true }) : failure('ACP execution is no longer authorized.', 409);
+    }
+    if (parts[3] === 'browser') {
+      const job = await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by,gateway_id FROM hx_gateway_jobs WHERE ${guard}`)
+        .bind(parts[2],g.id,leaseHash,now()).first();
+      if (!job) return failure('Execution is no longer authorized.',409);
+      let payload;
+      try { payload=JSON.parse(job.payload); } catch { return failure('Browser authorization is invalid.',400); }
+      if (!(await acpBrowserAllowed(db,job,payload))) return failure('Isolated browser access was revoked or is no longer allowed.',403);
+      return json({ok:true});
     }
     if (parts[3] === 'mcp') {
       const readJob = () => db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by FROM hx_gateway_jobs WHERE ${guard}`)

@@ -206,6 +206,24 @@ test('Workspace MCP requests are forwarded with this ACP job lease only when its
  assert.deepEqual(calls.find(item=>item.path.endsWith('/mcp'))?.body,{lease:'private-lease',method:'tools/list',params:{}});
  assert.equal(calls.at(-1).path,'jobs/acp-workspace/finish');
 });
+test('each local browser action rechecks its leased Harness grant before touching the persistent profile',async()=>{
+ const calls=[];let browserOptions;
+ await processOne(async(path,body,options)=>{
+  calls.push({path,body,options});
+  return path==='claim'?{job:{id:'acp-browser',lease:'browser-lease',payload:{acp:true,browserTools:true,agentKey:'codex',browserIdentity:'agent-1',workspaceId:'org-1',prompt:'Open the release notes'}}}:{ok:true};
+ },{
+  runAcpAgent:async(_payload,{browserCall,signal})=>{
+   const result=await browserCall({type:'screenshot'},{signal});
+   assert.deepEqual(result,{url:'https://example.com'});
+   return {status:'succeeded',stdout:'{}',stderr:'',exitCode:0};
+  },
+  runBrowser:async options=>{browserOptions=options;return {url:'https://example.com'};},
+ });
+ assert.deepEqual(calls.find(item=>item.path==='jobs/acp-browser/browser')?.body,{lease:'browser-lease'});
+ assert.deepEqual(browserOptions,{workspaceId:'org-1',agentId:'agent-1',action:{type:'screenshot'},signal:browserOptions.signal});
+ assert.ok(browserOptions.signal instanceof AbortSignal);
+ assert.equal(calls.at(-1).path,'jobs/acp-browser/finish');
+});
 test('API request cancellation propagates into the host fetch',async()=>{
  const abort=new AbortController();let signal;
  const call=gatewayClient('https://example.com',token,async(_url,options)=>{signal=options.signal;return Response.json({ok:true});});

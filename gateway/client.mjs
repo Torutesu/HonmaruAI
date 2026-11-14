@@ -25,7 +25,7 @@ export const FINISH_RETRY_MS = [1000, 2000, 4000, 8000, 15000, 15000, 15000];
 // server saying it could not take it just now.
 const transient = (error) => !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
 
-export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000 } = {}) {
+export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, runBrowser = runBrowserSessionAction, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000 } = {}) {
   const capabilities=['workflow-program-v1'];
   const localAcpAgents=configuredAcpAgentIds(acpAgents);
   if(localAcpAgents.length)capabilities.push('acp-v1');
@@ -66,7 +66,10 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
       result=job.payload?.acp===true
         ? await runAcpAgent(job.payload,{...options,acpAgents,
           browserCall: job.payload?.browserTools===true
-            ? (action,{signal}={}) => runBrowserSessionAction({workspaceId:job.payload.workspaceId,agentId:job.payload.browserIdentity,action,signal})
+            ? async (action,{signal}={}) => {
+                await call(`jobs/${job.id}/browser`,{lease:job.lease},{signal:signal||cancel.signal});
+                return runBrowser({workspaceId:job.payload.workspaceId,agentId:job.payload.browserIdentity,action,signal});
+              }
             : undefined,
           onProgress: progress => call(`jobs/${job.id}/progress`,{lease:job.lease,progress},{signal:cancel.signal}),
           mcpCall: job.payload?.workspaceTools === true
