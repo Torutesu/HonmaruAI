@@ -259,6 +259,7 @@ test('custom app Git draft connection writes only through the generated branch f
   let state:any={...commitState('none'),gitDraft:null};
   const customCommit=vi.fn(async(_id:string,input:any)=>{
     if(input.action==='bind_git_repo')state={...state,gitDraft:{owner:'acme',repo:'private-app',defaultBranch:'main',branch:'honmaru/apps/app/draft',path:'honmaru/apps/app/draft/index.html',headSha:null,boundAt:'now'}};
+    if(input.action==='refresh_git_draft')state={...state,gitDraft:{...state.gitDraft,headSha:'c'.repeat(40)}};
     return {saved:true};
   });
   const api={customCommitState:vi.fn(async()=>state),customCommit} as any;
@@ -277,6 +278,10 @@ test('custom app Git draft connection writes only through the generated branch f
   await act(async()=>{sync.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
   expect(customCommit).toHaveBeenCalledWith('app',{action:'sync_git_draft',version:3,html:'<main>release</main>'});
   expect(reload).toHaveBeenCalled();
+  const refresh=tree!.root.findAllByType('button').find(button=>button.children.join('')==='GitHubの最新ドラフトを取り込む')!;
+  await act(async()=>{refresh.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
+  expect(customCommit).toHaveBeenCalledWith('app',{action:'refresh_git_draft',version:3});
+  expect(reload).toHaveBeenCalledTimes(2);
   act(()=>tree!.unmount());
 });
 

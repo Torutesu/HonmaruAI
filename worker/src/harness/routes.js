@@ -56,7 +56,7 @@ import { createCustomPreviewCandidate, currentCustomPreviewCandidate } from './c
 import { createAppShare, listAppShares, revokeAppShare, readAppShare } from './appShares.js';
 import { listPublicAppShareApprovals, reviewPublicAppShareApproval } from './appShareApproval.js';
 import { fetchGitHubCommitSource, verifyGitHubCommitRef } from './githubCommitSource.js';
-import { inspectGitHubAppDraftRepository, writeGitHubAppDraft } from './githubDraftWriter.js';
+import { inspectGitHubAppDraftRepository, readGitHubAppDraftHead, writeGitHubAppDraft } from './githubDraftWriter.js';
 import { commitPublishScope, customCommitState, requestCustomCommitApproval, reviewCustomCommitApproval, publishApprovedCustomCommit, hashSource } from './appCommitRelease.js';
 import { servePublishedCommitAsset } from './appCommitAssets.js';
 import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHosting.js';
@@ -1833,6 +1833,21 @@ export async function handleHarness(request, env, url, context = {}) {
         if(saved.error)return fail(saved);
         await audit(env,request,{orgId,action:'app.git_draft_repository_unbound',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{repository:`${current.owner}/${current.repo}`,branch:current.branch,version:saved.version}});
         return json({saved:true,version:saved.version,gitDraft:null});
+      }
+      if(input.action==='refresh_git_draft'){
+        const binding=app.definition.custom?.gitDraft;
+        if(!binding)return json({message:'Connect a GitHub repository before importing its draft.'},409);
+        if(!Number.isSafeInteger(input.version)||input.version!==app.version)return json({message:'The app changed. Reload before importing its GitHub draft.'},409);
+        const head=await readGitHubAppDraftHead(who.session.github_access_token,{owner:binding.owner,repo:binding.repo,appId});
+        if(!head.ok)return fail(head);
+        if(head.owner!==binding.owner||head.repo!==binding.repo||head.defaultBranch!==binding.defaultBranch||head.branch!==binding.branch||head.path!==binding.path)return json({message:'The connected repository draft target changed. Honmaru did not import it.'},409);
+        const imported=await fetchGitHubCommitSource(who.session.github_access_token,{owner:binding.owner,repo:binding.repo,branch:binding.branch,commitSha:head.commitSha,path:binding.path});
+        if(imported.error)return fail(imported);
+        if(!await mayChangeApp())return json({message:'App access changed while importing. Honmaru did not adopt the GitHub draft.'},403);
+        const saved=await saveCustomRelease(env.DB,orgId,app,{action:'draft',version:app.version,html:imported.source},me,{commit:imported.commit,assets:imported.assets,gitDraftHeadSha:head.commitSha,actorId:me});
+        if(saved.error)return fail(saved);
+        await audit(env,request,{orgId,action:'app.git_draft_refreshed',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{repository:`${binding.owner}/${binding.repo}`,branch:binding.branch,commitSha:head.commitSha,sourceHash:imported.commit.sourceHash,assetCount:imported.assets.length,version:saved.version}});
+        return json({saved:true,version:saved.version,commit:{owner:binding.owner,repo:binding.repo,branch:binding.branch,path:binding.path,sha:head.commitSha,sourceHash:imported.commit.sourceHash,assetCount:imported.assets.length}});
       }
       if(input.action==='sync_git_draft'){
         const binding=app.definition.custom?.gitDraft;
