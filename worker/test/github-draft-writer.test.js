@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { inspectGitHubAppDraftRepository, writeGitHubAppDraft } from '../src/harness/githubDraftWriter.js';
+import { inspectGitHubAppDraftRepository, readGitHubAppDraftHead, writeGitHubAppDraft } from '../src/harness/githubDraftWriter.js';
 
 const TOKEN = 'gho_test_secret_do_not_return';
 const DEFAULT_SHA = '1'.repeat(40);
@@ -57,6 +57,24 @@ const draft = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('writeGitHubAppDraft', () => {
+  it('reads the current generated draft head without writing Git objects or refs', async () => {
+    const { requests } = setupFetch({ draft: 'present' });
+    const result = await readGitHubAppDraftHead(TOKEN, { owner: 'acme', repo: 'demo', appId: 'app-1' });
+    expect(result).toEqual({
+      ok: true, owner: 'acme', repo: 'demo', repository: 'acme/demo', defaultBranch: 'main', appId: 'app-1',
+      branch: 'honmaru/apps/app-1/draft', path: 'honmaru/apps/app-1/draft/index.html', commitSha: DRAFT_SHA,
+    });
+    expect(requests.map(request => request.path)).toEqual(['/user', '/repos/acme/demo', '/repos/acme/demo/git/ref/heads/honmaru/apps/app-1/draft']);
+    expect(requests.every(request => request.method === 'GET')).toBe(true);
+  });
+
+  it('does not invent a head when the generated draft branch is missing', async () => {
+    const { requests } = setupFetch();
+    const result = await readGitHubAppDraftHead(TOKEN, { owner: 'acme', repo: 'demo', appId: 'app-1' });
+    expect(result).toEqual({ error: 'The repository or Git branch could not be found.', status: 404 });
+    expect(requests.every(request => request.method === 'GET')).toBe(true);
+  });
+
   it('creates only the generated draft branch from the current default branch', async () => {
     const { requests } = setupFetch();
     const result = await writeGitHubAppDraft(TOKEN, { ...draft, endpoint: 'https://example.invalid/proxy' });
