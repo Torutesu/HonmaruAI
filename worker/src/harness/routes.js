@@ -109,16 +109,39 @@ import { resolveChannel, viewOf } from "../channels.js";
 import { roomResponses, saveRoomResponses } from "./roomResponses.js";
 import { getGuidelines, saveGuidelines, MAX_GUIDELINES } from "./guidelines.js";
 
-// Run records store an internal GitHub user ID for authorization and provider
-// calls. History responses expose only a workspace member's display name.
-async function runForHistory(db, orgId, run) {
-  if (!run) return run;
-  const { startedBy, ...safeRun } = run;
-  if (!startedBy) return safeRun;
+// Run records and audit events store internal user IDs. History responses
+// expose only a current workspace member's display name.
+async function historyMemberName(db, orgId, userId, cache) {
+  if (userId === null || userId === undefined || String(userId) === '') return null;
+  const key = String(userId);
+  if (cache.has(key)) return cache.get(key);
   const actor = await db.prepare(`SELECT COALESCE(NULLIF(TRIM(u.name), ''), u.login) AS name
     FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1
-    WHERE u.github_id=?2 LIMIT 1`).bind(orgId, String(startedBy)).first().catch(() => null);
-  return actor?.name ? { ...safeRun, startedByName: actor.name } : safeRun;
+    WHERE u.github_id=?2 LIMIT 1`).bind(orgId, key).first().catch(() => null);
+  const name = actor?.name ? String(actor.name) : null;
+  cache.set(key, name);
+  return name;
+}
+
+async function runForHistory(db, orgId, run, cache = new Map()) {
+  if (!run) return run;
+  const { startedBy, ...safeRun } = run;
+  const startedByName = await historyMemberName(db, orgId, startedBy, cache);
+  const log = Array.isArray(run.log) ? await Promise.all(run.log.map(async entry => {
+    if (!entry || typeof entry !== 'object' || !Array.isArray(entry.authorization)) return entry;
+    const authorization = await Promise.all(entry.authorization.map(async event => {
+      if (!event || typeof event !== 'object') return event;
+      const { actorId, actorName: _storedActorName, ...safeEvent } = event;
+      const actorName = await historyMemberName(db, orgId, actorId, cache);
+      return actorName ? { ...safeEvent, actorName } : safeEvent;
+    }));
+    return { ...entry, authorization };
+  })) : run.log;
+  return {
+    ...safeRun,
+    ...(startedByName ? { startedByName } : {}),
+    ...(Array.isArray(run.log) ? { log } : {}),
+  };
 }
 
 const CORS_HEADERS = {
@@ -815,7 +838,8 @@ export async function handleHarness(request, env, url, context = {}) {
           return json({ message: 'heldOffset must be a page boundary from 0 to 975.' }, 400);
         }
         const runs = await listRuns(env.DB, orgId, wfId, 20, me);
-        return json({ workflow: shown, runs: await Promise.all(runs.map(run => runForHistory(env.DB, orgId, run))), summary: await workflowRunSummary(env.DB, orgId, wfId, me), canEdit: mine,
+        const names = new Map();
+        return json({ workflow: shown, runs: await Promise.all(runs.map(run => runForHistory(env.DB, orgId, run, names))), summary: await workflowRunSummary(env.DB, orgId, wfId, me), canEdit: mine,
           ...(mine && wf.trigger.type === 'webhook' ? { held: await heldWorkflowSummary(env.DB, orgId, wfId, heldOffset) } : {}) });
       }
       if (!mine) return json({ message: "Only its maker or an admin can change this workflow." }, 403);
@@ -889,7 +913,7 @@ export async function handleHarness(request, env, url, context = {}) {
       if(run?.status==='paused')return json({message:run.reason?.startsWith('workspace_ai_budget')?"The workspace's estimated AI usage limit has been reached. An admin can raise the limit; the window also clears as older usage ages out.":run.reason?.startsWith('budget_ai_')?'This workflow reached its estimated AI usage budget or has unpriced usage. It can run again after the rolling window resets or after you change its budget.':run.reason?.startsWith('budget_')?'This workflow reached its run budget. It can run again on its next trigger after the window resets, or as soon as you raise the limit.':'This workflow paused after repeated failures. Review its history and resume it.',reason:run.reason},409);
       if (run?.status === 'skipped') return json({ message: 'This workflow is already running or waiting for approval.', reason: run.reason }, 409);
       if (!run) return json({ message: 'This automation is no longer available in its current published release.' }, 409);
-      return json({ run }, 201);
+      return json({ run: await runForHistory(env.DB, orgId, run) }, 201);
     }
     if (sub === "runs") {
       if (runId && parts[4] === 'cancel' && request.method === 'POST') {
@@ -915,7 +939,8 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === 'GET') {
         const runs = await listRuns(env.DB, orgId, wfId, url.searchParams.get("limit"), me);
-        return json({ runs: await Promise.all(runs.map(run => runForHistory(env.DB, orgId, run))) });
+        const names = new Map();
+        return json({ runs: await Promise.all(runs.map(run => runForHistory(env.DB, orgId, run, names))) });
       }
     }
     return null;
