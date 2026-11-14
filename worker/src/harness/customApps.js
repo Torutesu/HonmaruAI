@@ -116,6 +116,12 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
         WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved') AND consumed_at IS NULL
           AND app_version < ?4`).bind(at,orgId,app.id,version),
     ] : []),
+    ...(input.action==='bind_git_repo' ? [db.prepare(`INSERT OR IGNORE INTO hx_app_git_draft_watches(org_id,app_id,next_check_at)
+      SELECT org_id,id,?1 FROM hx_apps WHERE org_id=?2 AND id=?3 AND version=?4
+        AND json_extract(definition,'$.custom.gitDraft') IS NOT NULL`).bind(at,orgId,app.id,version)] : []),
+    ...(input.action==='unbind_git_repo' ? [db.prepare(`DELETE FROM hx_app_git_draft_watches WHERE org_id=?1 AND app_id=?2
+      AND EXISTS(SELECT 1 FROM hx_apps WHERE org_id=?1 AND id=?2 AND version=?3
+        AND json_extract(definition,'$.custom.gitDraft') IS NULL)`).bind(orgId,app.id,version)] : []),
     ...(trusted.commit && Array.isArray(trusted.assets) ? trusted.assets.map(asset =>
       db.prepare(`INSERT OR IGNORE INTO hx_app_git_assets
         (org_id,app_id,app_version,commit_sha,path,content_type,content_bytes,content_hash,size)

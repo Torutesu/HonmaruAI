@@ -1808,7 +1808,9 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "custom") {
       if (request.method === 'GET') {
         const state=await customCommitState(env.DB,orgId,app),canEdit=await mayChangeApp();
-        return json({...state,gitDraft:canEdit?state.gitDraft:null,publishGate:await customPublishState(env.DB,orgId,app)});
+        const gitDraftAutoSync=canEdit&&state.gitDraft?await env.DB.prepare(`SELECT last_check_at AS lastCheckAt,next_check_at AS nextCheckAt,last_error AS lastError,failures
+          FROM hx_app_git_draft_watches WHERE org_id=?1 AND app_id=?2`).bind(orgId,appId).first():null;
+        return json({...state,gitDraft:canEdit?state.gitDraft:null,gitDraftAutoSync,publishGate:await customPublishState(env.DB,orgId,app)});
       }
       if (!(await mayChangeApp())) return json({ message: "Only its maker, an editor, or an admin can change custom code." }, 403);
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
@@ -1846,6 +1848,8 @@ export async function handleHarness(request, env, url, context = {}) {
         if(!await mayChangeApp())return json({message:'App access changed while importing. Honmaru did not adopt the GitHub draft.'},403);
         const saved=await saveCustomRelease(env.DB,orgId,app,{action:'draft',version:app.version,html:imported.source},me,{commit:imported.commit,assets:imported.assets,gitDraftHeadSha:head.commitSha,actorId:me});
         if(saved.error)return fail(saved);
+        await env.DB.prepare('UPDATE hx_app_git_draft_watches SET next_check_at=?1,last_check_at=?2,last_error=NULL,failures=0 WHERE org_id=?3 AND app_id=?4')
+          .bind(new Date(Date.now()+60_000).toISOString(),new Date().toISOString(),orgId,appId).run();
         await audit(env,request,{orgId,action:'app.git_draft_refreshed',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{repository:`${binding.owner}/${binding.repo}`,branch:binding.branch,commitSha:head.commitSha,sourceHash:imported.commit.sourceHash,assetCount:imported.assets.length,version:saved.version}});
         return json({saved:true,version:saved.version,commit:{owner:binding.owner,repo:binding.repo,branch:binding.branch,path:binding.path,sha:head.commitSha,sourceHash:imported.commit.sourceHash,assetCount:imported.assets.length}});
       }

@@ -2990,6 +2990,19 @@ CREATE INDEX IF NOT EXISTS hx_app_git_assets_commit ON hx_app_git_assets(org_id,
 CREATE TRIGGER IF NOT EXISTS hx_app_git_assets_immutable
 BEFORE UPDATE ON hx_app_git_assets BEGIN SELECT RAISE(ABORT,'Git commit assets are immutable'); END;
 
+/* Bounded minute polling for connected custom app draft branches. Tokens stay
+   in their owner's existing encrypted session and are never copied here. */
+CREATE TABLE IF NOT EXISTS hx_app_git_draft_watches (
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  next_check_at TEXT NOT NULL,
+  last_check_at TEXT,
+  last_error TEXT,
+  failures INTEGER NOT NULL DEFAULT 0 CHECK(failures>=0),
+  PRIMARY KEY(org_id,app_id)
+);
+CREATE INDEX IF NOT EXISTS hx_app_git_draft_watches_due ON hx_app_git_draft_watches(next_check_at,org_id,app_id);
+
 /* Safe, message-scoped summaries of tools used by a Harness agent reply.
    Arguments and tool results are deliberately never stored here. */
 CREATE TABLE IF NOT EXISTS hx_agent_tool_traces (
