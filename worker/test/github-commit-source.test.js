@@ -7,13 +7,13 @@ const rootBlob = 'c'.repeat(40);
 const jsBlob = 'd'.repeat(40);
 const base64 = (value) => btoa(value);
 const json = (value) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
-const responseFor = (url, refSha = commitSha, html = '<script src="./app.js"></script>', js = 'document.body.dataset.ready="yes";') => {
+const responseFor = (url, refSha = commitSha, html = '<script src="./app.js"></script>', js = 'document.body.dataset.ready="yes";', rootPath = 'index.html') => {
   const path = new URL(url).pathname;
   if (path.endsWith('/git/ref/heads/main')) return json({ object: { sha: refSha } });
   if (path.endsWith('/git/commits/' + commitSha)) return json({ sha: commitSha, tree: { sha: treeSha } });
   if (path.endsWith('/git/trees/' + treeSha)) return json({ truncated: false, tree: [
-    { type: 'blob', mode: '100644', path: 'index.html', sha: rootBlob, size: new TextEncoder().encode(html).length },
-    { type: 'blob', mode: '100644', path: 'app.js', sha: jsBlob, size: new TextEncoder().encode(js).length },
+    { type: 'blob', mode: '100644', path: rootPath, sha: rootBlob, size: new TextEncoder().encode(html).length },
+    { type: 'blob', mode: '100644', path: rootPath.replace(/index\.html$/, 'app.js'), sha: jsBlob, size: new TextEncoder().encode(js).length },
   ] });
   if (path.endsWith('/git/blobs/' + rootBlob)) return json({ encoding: 'base64', sha: rootBlob, size: new TextEncoder().encode(html).length, content: base64(html) });
   if (path.endsWith('/git/blobs/' + jsBlob)) return json({ encoding: 'base64', sha: jsBlob, size: new TextEncoder().encode(js).length, content: base64(js) });
@@ -31,6 +31,16 @@ test('imports immutable HTML and recursively captures same-commit relative JS as
   expect(result.commit.assets).toEqual([{ path: 'app.js', mimeType: 'text/javascript', contentHash: expect.any(String), size: 34 }]);
   expect(JSON.stringify(result)).not.toContain('gho-never-return-this');
   expect(fetch.mock.calls.every(([url]) => String(url).startsWith('https://api.github.com/'))).toBe(true);
+});
+
+test('imports an app-scoped source file and resolves assets beside that file', async () => {
+  const sourcePath='honmaru/apps/app-1/draft/index.html';
+  const fetch=vi.fn(async url=>responseFor(url,commitSha,undefined,undefined,sourcePath));
+  vi.stubGlobal('fetch',fetch);
+  const result=await fetchGitHubCommitSource('token',{owner:'acme',repo:'app',branch:'main',commitSha,path:sourcePath});
+  expect(result.commit.path).toBe(sourcePath);
+  expect(result.assets.map(asset=>asset.path)).toEqual(['honmaru/apps/app-1/draft/app.js']);
+  expect(result.commit.sourceHash).toMatch(/^[a-f0-9]{64}$/);
 });
 
 test('rejects a branch moved before or during import', async () => {

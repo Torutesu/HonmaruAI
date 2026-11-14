@@ -26,7 +26,13 @@ export async function customCommitState(db, orgId, app) {
   ).bind(orgId, app.id).all();
   const rawCommit=app.definition?.custom?.draftCommit||null;
   const commit=rawCommit?(({assetToken,...visible})=>visible)(rawCommit):null;
-  return { commit, scope, approval: results[0] || null };
+  const rawBinding=app.definition?.custom?.gitDraft||null;
+  const gitDraft=rawBinding?{
+    owner:String(rawBinding.owner||''),repo:String(rawBinding.repo||''),defaultBranch:String(rawBinding.defaultBranch||''),
+    branch:String(rawBinding.branch||''),path:String(rawBinding.path||''),headSha:/^[a-f0-9]{40,64}$/i.test(String(rawBinding.headSha||''))?String(rawBinding.headSha):null,
+    boundAt:String(rawBinding.boundAt||''),
+  }:null;
+  return { commit, gitDraft, scope, approval: results[0] || null };
 }
 
 function sameCommit(draft, commit) {

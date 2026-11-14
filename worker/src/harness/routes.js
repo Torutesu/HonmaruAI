@@ -50,12 +50,13 @@ import { databaseView, previewMigration, applyMigration, generateMigration, fork
 import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection } from './appCapabilities.js';
 import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
 import { appRemoteMcpForViewer, changeAppRemoteMcpGrant, invokeAppRemoteMcp } from './appRemoteMcp.js';
-import { generateCustomSource, saveCustomRelease } from "./customApps.js";
+import { generateCustomSource, saveCustomRelease, validateSource, MAX_PREVIEW_SOURCE } from "./customApps.js";
 import { customPublishState, setCustomPublishPolicy, requestCustomPublishApproval, reviewCustomPublishApproval } from './customAppPublishApproval.js';
 import { createCustomPreviewCandidate, currentCustomPreviewCandidate } from './customAppPreview.js';
 import { createAppShare, listAppShares, revokeAppShare, readAppShare } from './appShares.js';
 import { listPublicAppShareApprovals, reviewPublicAppShareApproval } from './appShareApproval.js';
 import { fetchGitHubCommitSource, verifyGitHubCommitRef } from './githubCommitSource.js';
+import { inspectGitHubAppDraftRepository, writeGitHubAppDraft } from './githubDraftWriter.js';
 import { commitPublishScope, customCommitState, requestCustomCommitApproval, reviewCustomCommitApproval, publishApprovedCustomCommit, hashSource } from './appCommitRelease.js';
 import { servePublishedCommitAsset } from './appCommitAssets.js';
 import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHosting.js';
@@ -1805,9 +1806,59 @@ export async function handleHarness(request, env, url, context = {}) {
       return result.error?fail(result):json(result);
     }
     if (sub === "custom") {
-      if (request.method === 'GET') return json({...await customCommitState(env.DB,orgId,app),publishGate:await customPublishState(env.DB,orgId,app)});
+      if (request.method === 'GET') {
+        const state=await customCommitState(env.DB,orgId,app),canEdit=await mayChangeApp();
+        return json({...state,gitDraft:canEdit?state.gitDraft:null,publishGate:await customPublishState(env.DB,orgId,app)});
+      }
       if (!(await mayChangeApp())) return json({ message: "Only its maker, an editor, or an admin can change custom code." }, 403);
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
+      if(input.action==='bind_git_repo'){
+        if(!Number.isSafeInteger(input.version)||input.version!==app.version)return json({message:'The app changed. Reload before connecting a repository.'},409);
+        const inspected=await inspectGitHubAppDraftRepository(who.session.github_access_token,{owner:input.owner,repo:input.repo,appId});
+        if(!inspected.ok)return fail(inspected);
+        const current=app.definition.custom?.gitDraft;
+        if(current&&(current.owner!==inspected.owner||current.repo!==inspected.repo))return json({message:'Disconnect the current repository before connecting a different one.'},409);
+        if(current)return json({...await customCommitState(env.DB,orgId,app),saved:true,version:app.version});
+        const binding={owner:inspected.owner,repo:inspected.repo,defaultBranch:inspected.defaultBranch,branch:inspected.branch,path:inspected.path,...(current?.headSha?{headSha:current.headSha}:{})};
+        const saved=await saveCustomRelease(env.DB,orgId,app,{action:'bind_git_repo',version:app.version},me,{gitDraft:binding,actorId:me});
+        if(saved.error)return fail(saved);
+        await audit(env,request,{orgId,action:'app.git_draft_repository_bound',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{repository:`${binding.owner}/${binding.repo}`,branch:binding.branch,path:binding.path,version:saved.version}});
+        return json({...await customCommitState(env.DB,orgId,{...app,version:saved.version,definition:{...app.definition,custom:{...app.definition.custom,gitDraft:{...binding,boundAt:new Date().toISOString(),boundBy:String(me)}}}}),saved:true,version:saved.version});
+      }
+      if(input.action==='unbind_git_repo'){
+        if(!Number.isSafeInteger(input.version)||input.version!==app.version)return json({message:'The app changed. Reload before disconnecting its repository.'},409);
+        if(!app.definition.custom?.gitDraft)return json({message:'No GitHub repository is connected to this app.'},409);
+        const current=app.definition.custom.gitDraft;
+        const saved=await saveCustomRelease(env.DB,orgId,app,{action:'unbind_git_repo',version:app.version},me,{actorId:me});
+        if(saved.error)return fail(saved);
+        await audit(env,request,{orgId,action:'app.git_draft_repository_unbound',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{repository:`${current.owner}/${current.repo}`,branch:current.branch,version:saved.version}});
+        return json({saved:true,version:saved.version,gitDraft:null});
+      }
+      if(input.action==='sync_git_draft'){
+        const binding=app.definition.custom?.gitDraft;
+        if(!binding)return json({message:'Connect a GitHub repository before syncing this draft.'},409);
+        if(!Number.isSafeInteger(input.version)||input.version!==app.version)return json({message:'The app changed. Reload before syncing its draft.'},409);
+        if(!validateSource(input.html)||input.html.length>MAX_PREVIEW_SOURCE)return json({message:'Save a non-empty draft under 119800 characters before syncing.'},400);
+        const priorSha=binding.headSha||app.definition.custom?.draftCommit?.sha||null;
+        const priorCommit=app.definition.custom?.draftCommit;
+        let assets=[];
+        if(priorSha){
+          const {results=[]}=await env.DB.prepare(`SELECT path,content_bytes AS content FROM hx_app_git_assets WHERE org_id=?1 AND app_id=?2 AND commit_sha=?3 ORDER BY path`).bind(orgId,appId,priorSha).all();
+          const previousRoot=String(priorCommit?.path||binding.path),parent=previousRoot.includes('/')?previousRoot.slice(0,previousRoot.lastIndexOf('/')):'';
+          const encode=bytes=>{const value=bytes instanceof ArrayBuffer?new Uint8Array(bytes):bytes instanceof Uint8Array?bytes:new Uint8Array(bytes||[]);let binary='';for(let offset=0;offset<value.length;offset+=0x8000)binary+=String.fromCharCode(...value.subarray(offset,Math.min(offset+0x8000,value.length)));return btoa(binary)};
+          assets=results.map(row=>({path:parent&&String(row.path).startsWith(parent+'/')?String(row.path).slice(parent.length+1):String(row.path),content:encode(row.content),encoding:'base64'}));
+        }
+        const written=await writeGitHubAppDraft(who.session.github_access_token,{owner:binding.owner,repo:binding.repo,appId,html:input.html,assets,...(binding.headSha?{expectedSha:binding.headSha}:{})});
+        if(!written.ok)return fail(written);
+        if(written.owner!==binding.owner||written.repo!==binding.repo||written.branch!==binding.branch||written.path!==binding.path)return json({message:'GitHub returned a different App draft branch. Honmaru did not import it.'},409);
+        const imported=await fetchGitHubCommitSource(who.session.github_access_token,{owner:binding.owner,repo:binding.repo,branch:binding.branch,commitSha:written.commitSha,path:written.path});
+        if(imported.error)return fail(imported);
+        if(!await mayChangeApp())return json({message:'App access changed while syncing. The GitHub draft commit was created, but Honmaru did not adopt it. Reload the app and retry if it is still yours.'},403);
+        const saved=await saveCustomRelease(env.DB,orgId,app,{action:'draft',version:app.version,html:imported.source},me,{commit:imported.commit,assets:imported.assets,gitDraftHeadSha:written.commitSha,actorId:me});
+        if(saved.error)return fail(saved);
+        await audit(env,request,{orgId,action:'app.git_draft_synced',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{repository:`${binding.owner}/${binding.repo}`,branch:binding.branch,commitSha:written.commitSha,sourceHash:imported.commit.sourceHash,assetCount:imported.assets.length,version:saved.version}});
+        return json({saved:true,version:saved.version,commit:{owner:binding.owner,repo:binding.repo,branch:binding.branch,path:written.path,sha:written.commitSha,sourceHash:imported.commit.sourceHash,assetCount:imported.assets.length}});
+      }
       if (input.action === 'policy') {
         if (!await allowed(env.DB,orgId,who.session.github_id,'harness.delete_others')) return json({message:'Only a workspace Owner or Admin can change the publish approval policy.'},403);
         if (typeof input.enabled !== 'boolean') return json({message:'Choose whether independent approval is required.'},400);
