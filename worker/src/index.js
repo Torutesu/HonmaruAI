@@ -9,6 +9,7 @@ import { archiveManagedRoom, deleteManagedRoom, roomRoleState } from './harness/
 import { customRunner } from "./harness/customRunner.js";
 import { expireGatewayJobs } from './harness/gateways.js';
 import { drainCardNotifications } from './notificationJobs.js';
+import { refreshConnectedGitDrafts } from './harness/githubDraftWatcher.js';
 import { notifyCardNow } from './notify.js';
 import { routeInstruction } from "./routing.js";
 import { toolManifest } from "./agui/tools.js";
@@ -262,6 +263,8 @@ export default {
       ctx.waitUntil(drainAgentHandoffs(env).catch(() => console.error("agent handoff dispatch failed")));
       ctx.waitUntil(expireAgentWakeApprovals(env).catch(() => console.error("agent wake approval expiry failed")));
       ctx.waitUntil(drainRoomHookDispatch(env).catch(() => console.error("room webhook dispatch failed")));
+      ctx.waitUntil(refreshConnectedGitDrafts(env,{now:event?.scheduledTime||Date.now(),limit:5})
+        .catch(err=>console.error("automatic app Git draft refresh failed",err?.message||err)));
       ctx.waitUntil(maintainDocumentJobs(env.DB).catch(() => console.error("document expiry failed")));
       ctx.waitUntil(import('./harness/mediaGeneration.js').then(({processImageGenerationQueue})=>processImageGenerationQueue(env,{limit:1,at:event?.scheduledTime||Date.now()})).catch((err)=>console.error('image generation queue failed',err?.message||err)));
       ctx.waitUntil(expireGatewayJobs(env.DB, Date.now(), env).catch(() => console.error("gateway expiry failed")));
