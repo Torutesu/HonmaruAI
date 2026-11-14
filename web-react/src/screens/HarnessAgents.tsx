@@ -8,7 +8,7 @@ import { AgentPeerAccessDialog } from '../components/AgentPeerAccessDialog'
 import { AgentMemoryEditor } from '../components/AgentMemoryEditor'
 import { AgentTierSelect } from '../components/AgentTierSelect'
 import { skillImportInput } from '../utils/skillImport'
-import type { SkillDraft } from '../utils/harness'
+import type { SkillDraft, SkillFile } from '../utils/harness'
 import { AgentMemoryList, MemoryKindSelect } from '../components/AgentMemoryList'
 import type { MemoryKind } from '../utils/harness'
 import { AgentSkillCatalog } from '../components/AgentSkillCatalog'
@@ -432,9 +432,11 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
   const t = useT()
   const api = useApi(props)
   const [skills, setSkills] = useState<Skill[] | null>(null)
-  const [draft, setDraft] = useState<(SkillDraft & { id?: string }) | null>(null)
+  type EditableFile = SkillFile & { text?: string | null }
+  type SkillEditor = Omit<SkillDraft, 'files'> & { id?: string; expectedUpdatedAt?: string; files?: EditableFile[] }
+  const [draft, setDraft] = useState<SkillEditor | null>(null)
   const [shareSkillId, setShareSkillId] = useState<string | null>(null)
-  const importFile = useRef<HTMLInputElement>(null), importFolder = useRef<HTMLInputElement>(null)
+  const importFile = useRef<HTMLInputElement>(null), importFolder = useRef<HTMLInputElement>(null), supportFiles = useRef<HTMLInputElement>(null)
   const importEpoch = useRef(0)
   const { busy, error, act } = useAct()
   const load = useCallback(() => act('load', async () => setSkills((await api.skills()).skills)), [api, act])
@@ -457,6 +459,43 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
     link.href = url; link.download = packageZip ? 'skill.zip' : 'SKILL.md'; document.body.appendChild(link); link.click(); link.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   })
+  const editSkill = (skill: Skill) => void act(`edit:${skill.id}`, async () => {
+    const manifest = await api.skillFiles(skill.id)
+    const files = await Promise.all(manifest.files.map(async file => {
+      const bytes = await api.readSkillFile(skill.id, file.path)
+      let text: string | null = null
+      try { const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes); if (!decoded.includes('\0')) text = decoded } catch { /* Binary assets remain byte-preserved. */ }
+      let raw = ''; for (let at = 0; at < bytes.length; at += 8192) raw += String.fromCharCode(...bytes.subarray(at, at + 8192))
+      return { path: file.path, size: bytes.length, base64: btoa(raw), text }
+    }))
+    setDraft({ id: skill.id, name: skill.name, description: skill.description, body: skill.body, metadata: skill.metadata, files, expectedUpdatedAt: skill.updatedAt })
+  })
+  const addSupportFiles = async (selected: File[]) => {
+    if (!selected.length || !draft) return
+    const additions: EditableFile[] = await Promise.all(selected.map(async file => {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      let raw = ''; for (let at = 0; at < bytes.length; at += 8192) raw += String.fromCharCode(...bytes.subarray(at, at + 8192))
+      let text: string | null = null
+      try { const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes); if (!decoded.includes('\0')) text = decoded } catch { /* Keep binary assets untouched. */ }
+      return { path: file.name, size: bytes.length, base64: btoa(raw), text }
+    }))
+    setDraft(current => {
+      if (!current) return current
+      const next = [...(current.files || [])]
+      for (const file of additions) { const at = next.findIndex(item => item.path === file.path); if (at >= 0) next[at] = file; else next.push(file) }
+      return { ...current, files: next }
+    })
+  }
+  const saveSkillDraft = (current: SkillEditor) => act('save', async () => {
+    const files = current.files?.map(file => {
+      if (file.text === undefined || file.text === null) return { path: file.path, base64: file.base64 }
+      const bytes = new TextEncoder().encode(file.text); let raw = ''; for (let at = 0; at < bytes.length; at += 8192) raw += String.fromCharCode(...bytes.subarray(at, at + 8192))
+      return { path: file.path, base64: btoa(raw) }
+    })
+    if (current.id) await api.updateSkill(current.id, { name: current.name, description: current.description, body: current.body, metadata: current.metadata, ...(files ? { files } : {}), ...(current.expectedUpdatedAt ? { expectedUpdatedAt: current.expectedUpdatedAt } : {}) })
+    else await api.createSkill({ ...current, visibility: 'private', files })
+    setDraft(null); await load()
+  })
   return (
     <Shell className="hx-skills" title={t('Skills')} onClose={props.onClose} actions={!draft && <><button className="pill-btn quiet" aria-label="スキルを取り込む" disabled={busy !== null} onClick={() => importFile.current?.click()}><Icon name="file" size={14} /> 取り込む</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => importFolder.current?.click()}>{t('Choose folder')}</button><button className="pill-btn" disabled={busy !== null} onClick={() => setDraft({ name: '', description: '', body: '' })}><Icon name="plus" size={14} /> {t('New')}</button></>}>
       <input ref={importFile} type="file" accept=".md,.zip,text/markdown,application/zip" aria-label="スキルを取り込む" hidden onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) previewImport([file]) }} />
@@ -470,14 +509,21 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
           <input className="hx-cell-input hx-title-input" placeholder={t('Skill name')} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} aria-label={t('Skill name')} />
           <input className="hx-cell-input" placeholder={t('One line on when to use it')} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} aria-label={t('Description')} />
           <textarea className="context-input" rows={8} placeholder={t('e.g. Day 7: a polite nudge. Day 14: a call. Day 30: escalate to the owner.')} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} aria-label={t('Skill')} />
-          {!!draft.files?.length && <ul aria-label={t('Support files')}>{draft.files.map(file=><li key={file.path}>{file.path} · {file.size ?? 0} B</li>)}</ul>}
+          {draft.id && <section className="hx-skill-package-editor" aria-label={t('Support files')}>
+            <strong>{t('Support files')}</strong><p className="row-sub">{t('Edit text assets, replace or remove files, then save the whole package together.')}</p>
+            <input ref={supportFiles} type="file" multiple hidden aria-label={t('Add support files')} onChange={async event=>{const selected=Array.from(event.target.files||[]);event.target.value='';await addSupportFiles(selected)}}/>
+            <button className="btn-text" type="button" disabled={busy!==null} onClick={()=>supportFiles.current?.click()}><Icon name="plus" size={14}/>{t('Add support files')}</button>
+            {draft.files?.map((file,index)=><div className="hx-skill-support-file" key={`${file.path}-${index}`}>
+              <label>{t('File path')}<input className="hx-cell-input" aria-label={t('File path')} value={file.path} onChange={event=>setDraft(current=>current?{...current,files:current.files?.map((item,i)=>i===index?{...item,path:event.target.value}:item)}:current)}/></label>
+              {file.text!==undefined&&file.text!==null?<label>{t('File contents')}<textarea className="context-input" aria-label={t('File contents')} rows={5} value={file.text} onChange={event=>setDraft(current=>current?{...current,files:current.files?.map((item,i)=>i===index?{...item,text:event.target.value}:item)}:current)}/></label>:<span className="row-sub">{t('Binary file')} · {file.size ?? 0} B</span>}
+              <button className="btn-text danger" type="button" aria-label={t('Remove support file')} onClick={()=>setDraft(current=>current?{...current,files:current.files?.filter((_,i)=>i!==index)}:current)}>{t('Remove')}</button>
+            </div>)}
+            {!draft.files?.length&&<p className="empty">{t('No support files.')}</p>}
+          </section>}
           {!!Object.keys(draft.metadata || {}).length && <details className="hx-skill-metadata"><summary>保存するメタデータ</summary><pre>{JSON.stringify(draft.metadata, null, 2)}</pre><p className="row-sub">メタデータは手順と一緒に保存されます。接続やデータのアクセス権は変更しません。</p></details>}
           <div className="playbook-add-foot">
             <button className="btn-text" onClick={() => { importEpoch.current++; setDraft(null) }}>{t('Cancel')}</button>
-            <button className="pill-btn" disabled={busy === 'save' || !draft.name.trim() || !draft.body.trim()} onClick={() => act('save', async () => {
-              if (draft.id) await api.updateSkill(draft.id, draft); else await api.createSkill({ ...draft, visibility: 'private' })
-              setDraft(null); await load()
-            })}>{t('Save')}</button>
+            <button className="pill-btn" disabled={busy === 'save' || !draft.name.trim() || !draft.body.trim()} onClick={() => saveSkillDraft(draft)}>{t('Save')}</button>
           </div>
         </div>
       )}
@@ -497,7 +543,7 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
             <button className="btn-text" disabled={busy !== null} onClick={() => exportSkill(s)}><Icon name="download" size={14} /> SKILL.md</button>
             <button className="btn-text" disabled={busy !== null} onClick={() => exportSkill(s, true)}><Icon name="download" size={14}/> ZIP</button>
             <button className="btn-text" disabled={!s.canShare || busy !== null} onClick={() => setShareSkillId(current => current === s.id ? null : s.id)}>{t(shareSkillId === s.id ? 'Close link sharing' : 'Share link')}</button>
-            <button className="btn-text" disabled={s.canEdit === false || busy !== null} onClick={() => setDraft({ id: s.id, name: s.name, description: s.description, body: s.body, metadata: s.metadata })}>{t('Edit')}</button>
+            <button className="btn-text" disabled={s.canEdit === false || busy !== null} onClick={() => void editSkill(s)}>{t('Edit')}</button>
             <button className="btn-text danger" disabled={s.canEdit === false} onClick={() => act(`del:${s.id}`, async () => { await api.deleteSkill(s.id); await load() })}>{t('Delete')}</button>
           </div>
         ))}
