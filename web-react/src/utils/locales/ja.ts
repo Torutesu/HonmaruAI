@@ -720,6 +720,18 @@ const table: Record<string, string> = {
   "Your execution history": "自分の実行履歴",
 
   'Skill visibility': 'スキルの公開範囲',
+  'Assign to agents': 'エージェントに割り当て',
+  'Assign Skills to Agents': 'スキルをエージェントに割り当て',
+  'Choose up to five Skills and five Agents. Each assignment is checked against current access.': 'スキルとエージェントをそれぞれ最大5件選べます。割り当てごとに現在のアクセス権を確認します。',
+  'Select Skill {name}': 'スキル「{name}」を選択',
+  'Select Agent {name}': 'エージェント「{name}」を選択',
+  'No description': '説明なし',
+  'Already assigned to every selected Skill': '選択したすべてのスキルに割り当て済み',
+  'Loading agents…': 'エージェントを読み込み中…',
+  'Install selected': '選択した組み合わせに割り当て',
+  'Installing…': '割り当て中…',
+  'Installed {n} Skill assignments.': '{n}件のスキルを割り当てました。',
+  '{skill} → {agent}: {message}': '{skill} → {agent}: {message}',
   'New skills are private. Share them with the workspace after saving.': '新しいスキルは非公開です。保存後にワークスペースへ共有できます。',
   'Skills converted from memory retain the source agent and conversation restrictions. Other private skills run only in their owner’s direct agent conversation, including follow-ups, and are excluded from shared rooms and workflows.': '記憶から変換したスキルは、元のエージェントと会話の制限を引き継ぎます。それ以外の非公開スキルは、所有者とエージェントの直接会話（フォローアップを含む）だけで使われ、共有ルームとワークフローでは使われません。',
 

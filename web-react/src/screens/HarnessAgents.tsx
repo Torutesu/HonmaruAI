@@ -436,6 +436,11 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
   type SkillEditor = Omit<SkillDraft, 'files'> & { id?: string; expectedUpdatedAt?: string; files?: EditableFile[] }
   const [draft, setDraft] = useState<SkillEditor | null>(null)
   const [shareSkillId, setShareSkillId] = useState<string | null>(null)
+  const [sharePickerOpen, setSharePickerOpen] = useState(false)
+  const [shareAgents, setShareAgents] = useState<AgentFace[] | null>(null)
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([])
+  const [selectedAgents, setSelectedAgents] = useState<string[]>([])
+  const [shareResult, setShareResult] = useState<{ installed: number; failed: Array<{ skill: string; agent: string; message: string }> } | null>(null)
   const importFile = useRef<HTMLInputElement>(null), importFolder = useRef<HTMLInputElement>(null), supportFiles = useRef<HTMLInputElement>(null)
   const importEpoch = useRef(0)
   const { busy, error, act } = useAct()
@@ -496,8 +501,48 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
     else await api.createSkill({ ...current, visibility: 'private', files })
     setDraft(null); await load()
   })
+  const openSharePicker = () => act('share-agents', async () => {
+    const result = await api.workflowAgents()
+    setShareAgents(result.agents)
+    setSelectedSkills([])
+    setSelectedAgents([])
+    setShareResult(null)
+    setSharePickerOpen(true)
+  })
+  const installSelected = () => act('install-selected', async () => {
+    if (selectedSkills.length < 1 || selectedAgents.length < 1) return
+    const currentSkills = skills || []
+    const pairs = selectedSkills.flatMap(skillId => selectedAgents
+      .filter(agentId => !currentSkills.find(skill => skill.id === skillId)?.agents?.includes(agentId))
+      .map(agentId => ({ skillId, agentId })))
+    if (!pairs.length) {
+      setShareResult({ installed: 0, failed: [] })
+      return
+    }
+    const outcomes: Array<{ skillId: string; agentId: string; ok: true } | { skillId: string; agentId: string; ok: false; message: string }> = []
+    for (let at = 0; at < pairs.length; at += 5) {
+      outcomes.push(...await Promise.all(pairs.slice(at, at + 5).map(async pair => {
+        try {
+          await api.giveSkill(pair.agentId, pair.skillId)
+          return { ...pair, ok: true as const }
+        } catch (error) {
+          return { ...pair, ok: false as const, message: error instanceof Error ? error.message : String(error) }
+        }
+      })))
+    }
+    const bySkill = new Map((skills || []).map(skill => [skill.id, skill.name]))
+    const byAgent = new Map((shareAgents || []).map(agent => [agent.id, agent.name]))
+    const failed = outcomes.flatMap(outcome => outcome.ok ? [] : [{ skill: bySkill.get(outcome.skillId) || outcome.skillId, agent: byAgent.get(outcome.agentId) || outcome.agentId, message: outcome.message }])
+    const installed = outcomes.length - failed.length
+    setShareResult({ installed, failed })
+    setSkills((await api.skills()).skills)
+    if (!failed.length) {
+      setSelectedSkills([])
+      setSelectedAgents([])
+    }
+  })
   return (
-    <Shell className="hx-skills" title={t('Skills')} onClose={props.onClose} actions={!draft && <><button className="pill-btn quiet" aria-label="スキルを取り込む" disabled={busy !== null} onClick={() => importFile.current?.click()}><Icon name="file" size={14} /> 取り込む</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => importFolder.current?.click()}>{t('Choose folder')}</button><button className="pill-btn" disabled={busy !== null} onClick={() => setDraft({ name: '', description: '', body: '' })}><Icon name="plus" size={14} /> {t('New')}</button></>}>
+    <Shell className="hx-skills" title={t('Skills')} onClose={props.onClose} actions={!draft && <><button className="pill-btn quiet" aria-label="スキルを取り込む" disabled={busy !== null} onClick={() => importFile.current?.click()}><Icon name="file" size={14} /> 取り込む</button><button className="pill-btn quiet" disabled={busy !== null} onClick={() => importFolder.current?.click()}>{t('Choose folder')}</button><button className="pill-btn quiet" disabled={busy !== null || !skills?.length} onClick={openSharePicker}>{t('Assign to agents')}</button><button className="pill-btn" disabled={busy !== null} onClick={() => setDraft({ name: '', description: '', body: '' })}><Icon name="plus" size={14} /> {t('New')}</button></>}>
       <input ref={importFile} type="file" accept=".md,.zip,text/markdown,application/zip" aria-label="スキルを取り込む" hidden onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) previewImport([file]) }} />
       <input ref={importFolder} type="file" multiple {...{ webkitdirectory: '' }} hidden aria-label={t('Skill folder')} onChange={e=>{const files=Array.from(e.target.files || []);e.target.value='';if(files.length)previewImport(files,true)}}/>
       <p className="lede">{t('How your team does a thing, written once in Markdown. Give it to any agent and it follows it.')}</p>
@@ -529,6 +574,45 @@ const ScopedHarnessSkills: React.FC<HarnessProps> = (props) => {
       )}
       {skills === null && <div className="empty">{t('Loading…')}</div>}
       {skills?.length === 0 && !draft && <div className="empty">{t('No skills yet.')}</div>}
+      {sharePickerOpen && <section className="hx-skill-bulk-share" aria-label={t('Assign Skills to Agents')}>
+        <header><div><strong>{t('Assign Skills to Agents')}</strong><p className="row-sub">{t('Choose up to five Skills and five Agents. Each assignment is checked against current access.')}</p></div><button className="btn-text" disabled={busy !== null} onClick={() => setSharePickerOpen(false)}>{t('Close')}</button></header>
+        {error && <div className="form-error" role="alert">{t(error)}</div>}
+        <div className="hx-skill-bulk-share-columns">
+          <fieldset disabled={busy !== null}>
+            <legend>{t('Skills')} ({selectedSkills.length}/5)</legend>
+            {(skills || []).map(skill => {
+              const checked = selectedSkills.includes(skill.id)
+              const restricted = Boolean(skill.sourceScope)
+              return <label key={skill.id} className="hx-skill-bulk-option">
+                <input type="checkbox" checked={checked} disabled={!checked && (selectedSkills.length >= 5 || restricted)} onChange={event => {
+                  setShareResult(null)
+                  setSelectedSkills(current => event.target.checked ? [...current, skill.id] : current.filter(id => id !== skill.id))
+                }} aria-label={t('Select Skill {name}', { name: skill.name })}/>
+                <span><strong>{skill.name}</strong><small>{restricted ? t('Restricted to source agent') : skill.description || t('No description')}</small></span>
+              </label>
+            })}
+          </fieldset>
+          <fieldset disabled={busy !== null || shareAgents === null}>
+            <legend>{t('Agents')} ({selectedAgents.length}/5)</legend>
+            {shareAgents === null ? <p className="row-sub">{t('Loading agents…')}</p> : shareAgents.map(agent => {
+              const checked = selectedAgents.includes(agent.id)
+              const alreadyInstalled = selectedSkills.length > 0 && selectedSkills.every(skillId => skills?.find(skill => skill.id === skillId)?.agents?.includes(agent.id))
+              return <label key={agent.id} className="hx-skill-bulk-option">
+                <input type="checkbox" checked={checked} disabled={alreadyInstalled || !checked && selectedAgents.length >= 5} onChange={event => {
+                  setShareResult(null)
+                  setSelectedAgents(current => event.target.checked ? [...current, agent.id] : current.filter(id => id !== agent.id))
+                }} aria-label={t('Select Agent {name}', { name: agent.name })}/>
+                <span><strong>{agent.name}</strong><small>{alreadyInstalled ? t('Already assigned to every selected Skill') : `@${agent.handle}`}</small></span>
+              </label>
+            })}
+          </fieldset>
+        </div>
+        {shareResult && <div role={shareResult.failed.length ? 'alert' : 'status'} className={shareResult.failed.length ? 'form-error' : 'form-note'}>
+          {shareResult.installed > 0 && <p>{t('Installed {n} Skill assignments.', { n: shareResult.installed })}</p>}
+          {shareResult.failed.map((failure, index) => <p key={`${failure.skill}:${failure.agent}:${index}`}>{t('{skill} → {agent}: {message}', failure)}</p>)}
+        </div>}
+        <div className="hx-actions"><button className="pill-btn" disabled={busy !== null || selectedSkills.length === 0 || selectedAgents.length === 0 || selectedAgents.every(agentId => selectedSkills.every(skillId => skills?.find(skill => skill.id === skillId)?.agents?.includes(agentId)))} onClick={installSelected}>{busy === 'install-selected' ? t('Installing…') : t('Install selected')}</button></div>
+      </section>}
       <div className="rows">
         {skills?.map((s) => (
           <div key={s.id} className="row static" data-skill={s.id}>

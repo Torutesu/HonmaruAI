@@ -4,10 +4,10 @@ import { expect, test, vi } from 'vitest'
 import { HarnessSkills } from './HarnessAgents'
 const state = vi.hoisted(() => ({ api: null as any }))
 vi.mock('./HarnessShared', async importOriginal => ({ ...(await importOriginal<any>()), useApi: () => state.api }))
-vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
+vi.mock('../utils/i18n', () => ({ useT: () => (text: string, values?: Record<string, unknown>) => Object.entries(values || {}).reduce((value, [key, item]) => value.replaceAll(`{${key}}`, String(item)), text) }))
 const props = { httpBase: 'https://example.test', orgId: 'one', sessionToken: 'test', onClose: () => {} }
 const draft = { name: 'Review', description: 'Review changes', body: 'Check permissions.', metadata: { license: 'MIT' } }
-function api() { return { skills: vi.fn().mockResolvedValue({ skills: [] }), previewSkillImport: vi.fn().mockResolvedValue({ draft }), createSkill: vi.fn().mockResolvedValue({}), skillFiles: vi.fn().mockResolvedValue({files:[]}), readSkillFile: vi.fn(), updateSkill: vi.fn().mockResolvedValue({}) } }
+function api() { return { skills: vi.fn().mockResolvedValue({ skills: [] }), workflowAgents: vi.fn().mockResolvedValue({ agents: [] }), giveSkill: vi.fn().mockResolvedValue({ given: true }), setSkillAccess: vi.fn().mockResolvedValue({}), previewSkillImport: vi.fn().mockResolvedValue({ draft }), createSkill: vi.fn().mockResolvedValue({}), skillFiles: vi.fn().mockResolvedValue({files:[]}), readSkillFile: vi.fn(), updateSkill: vi.fn().mockResolvedValue({}) } }
 test('import is reviewed before private save and preserves metadata', async () => {
   state.api = api(); let tree!: ReturnType<typeof create>
   await act(async () => { tree = create(<HarnessSkills {...props} />) })
@@ -53,6 +53,34 @@ test('derived skills describe inherited access instead of offering a misleading 
  expect(JSON.stringify(tree.toJSON())).toContain('Restricted to source conversation and agent')
  expect(tree.root.findAllByProps({'aria-label':'Skill visibility'})).toHaveLength(0)
  act(()=>tree.unmount())
+})
+
+test('bulk assignment requires explicit Skill and Agent selections and reports partial failures', async () => {
+  state.api = api()
+  state.api.skills.mockResolvedValue({ skills: [
+    { id: 's1', name: 'Release', description: 'Release checks', body: '', visibility: 'workspace', agents: [] },
+    { id: 's2', name: 'Triage', description: 'Triage issues', body: '', visibility: 'workspace', agents: [] },
+  ] })
+  state.api.workflowAgents.mockResolvedValue({ agents: [
+    { id: 'a1', handle: 'release', name: 'Release Agent' },
+    { id: 'a2', handle: 'triage', name: 'Triage Agent' },
+  ] })
+  state.api.giveSkill.mockImplementation(async (agentId: string, skillId: string) => {
+    if (agentId === 'a2' && skillId === 's2') throw new Error('Only an agent maker can change it.')
+    return { given: true }
+  })
+  let tree!: ReturnType<typeof create>
+  await act(async () => { tree = create(<HarnessSkills {...props} />) })
+  await act(async () => { tree.root.findAllByType('button').find(button => button.children.includes('Assign to agents'))!.props.onClick() })
+  await act(async () => { tree.root.findByProps({ 'aria-label': 'Select Skill Release' }).props.onChange({ target: { checked: true } }) })
+  await act(async () => { tree.root.findByProps({ 'aria-label': 'Select Skill Triage' }).props.onChange({ target: { checked: true } }) })
+  await act(async () => { tree.root.findByProps({ 'aria-label': 'Select Agent Release Agent' }).props.onChange({ target: { checked: true } }) })
+  await act(async () => { tree.root.findByProps({ 'aria-label': 'Select Agent Triage Agent' }).props.onChange({ target: { checked: true } }) })
+  await act(async () => { tree.root.findAllByType('button').find(button => button.children.includes('Install selected'))!.props.onClick() })
+  expect(state.api.giveSkill).toHaveBeenCalledTimes(4)
+  expect(JSON.stringify(tree.toJSON())).toContain('Installed 3 Skill assignments.')
+  expect(JSON.stringify(tree.toJSON())).toContain('Triage → Triage Agent: Only an agent maker can change it.')
+  act(() => tree.unmount())
 })
 
 test('support files can be edited, added and removed with a stale-version guard', async () => {
