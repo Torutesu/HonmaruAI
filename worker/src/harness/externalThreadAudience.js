@@ -40,8 +40,13 @@ export function threadAudienceAccessSql({ org, root, user, now, requiredPermissi
     "WHERE a.org_id=" + org + " AND a.root_message_id=" + root + " " +
     "AND a.audience_type IS NOT NULL AND (a.expires_at IS NULL OR a.expires_at>" + now + ")" + versionFence +
     groupPermission + " AND (a.audience_type='workspace' OR (a.audience_type='room' AND EXISTS(" +
+    "SELECT 1 /* org_id scope */ FROM businesses liveRoom WHERE liveRoom.org_id=a.org_id " +
+    "AND 'b:'||liveRoom.slug=a.room_id AND liveRoom.archived_at IS NULL " +
+    "AND NOT EXISTS(SELECT 1 /* org_id scope */ FROM hx_room_access removedRoom " +
+    "WHERE removedRoom.org_id=liveRoom.org_id AND removedRoom.channel=a.room_id AND removedRoom.deleted_at IS NOT NULL) " +
+    "AND EXISTS(" +
     "SELECT 1 /* org_id scope */ FROM conversation_members cm JOIN users roomUser ON roomUser.login=cm.login " +
-    "WHERE cm.org_id=a.org_id AND cm.channel=a.room_id AND roomUser.github_id=" + user + "))))" +
+    "WHERE cm.org_id=a.org_id AND cm.channel=a.room_id AND roomUser.github_id=" + user + ")))))" +
     ")";
 }
 
@@ -54,8 +59,13 @@ export async function externalThreadPermission(db, { orgId, rootId, githubId, no
     "WHERE a.org_id=?1 AND a.root_message_id=?2 AND a.audience_type IS NOT NULL " +
     "AND (a.expires_at IS NULL OR a.expires_at>?4) AND " +
     "(a.audience_type='workspace' OR (a.audience_type='room' AND EXISTS(" +
+    "SELECT 1 /* org_id scope */ FROM businesses liveRoom WHERE liveRoom.org_id=a.org_id " +
+    "AND 'b:'||liveRoom.slug=a.room_id AND liveRoom.archived_at IS NULL " +
+    "AND NOT EXISTS(SELECT 1 /* org_id scope */ FROM hx_room_access removedRoom " +
+    "WHERE removedRoom.org_id=liveRoom.org_id AND removedRoom.channel=a.room_id AND removedRoom.deleted_at IS NOT NULL) " +
+    "AND EXISTS(" +
     "SELECT 1 /* org_id scope */ FROM conversation_members cm JOIN users roomUser ON roomUser.login=cm.login " +
-    "WHERE cm.org_id=a.org_id AND cm.channel=a.room_id AND roomUser.github_id=?3))) LIMIT 1")
+    "WHERE cm.org_id=a.org_id AND cm.channel=a.room_id AND roomUser.github_id=?3)))) LIMIT 1")
     .bind(orgId, rootId, String(githubId), now).first();
   const groupPermission = row && permissions.has(String(row.permission)) ? row.permission : null;
   const permission = direct === "edit" || groupPermission === "edit" ? "edit"

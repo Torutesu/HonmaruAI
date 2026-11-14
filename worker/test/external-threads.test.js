@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "vitest";
 import { createSession, upsertMembership, upsertUser } from "../src/db.js";
 import { hashPassword, newSaltHex } from "../src/auth.js";
 import { setMode } from "../src/harness/mode.js";
+import { externalThreadPermission, threadAudienceAccessSql } from "../src/harness/externalThreadAudience.js";
 import { fetchMock } from "./helpers/fetch-mock.js";
 import schemaSql from "../schema.sql?raw";
 import migrationsSql from "../migrations.sql?raw";
@@ -218,6 +219,35 @@ test("workspace audience is live, CAS protected, and gates send approval by its 
   expect((await call(`/external/threads/${orgId}/${rootId}`, sessions.editor)).status).toBe(200);
   await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2").bind(orgId, ids.editor).run();
   expect((await call(`/external/threads/${orgId}/${rootId}`, sessions.editor)).status).toBe(404);
+});
+
+test("Room Thread audiences stop granting access when their Room is archived or deleted", async () => {
+  const { orgId, rootId, ids, sessions } = await setup();
+  const audiencePath = `/external/threads/${orgId}/${rootId}/audience`;
+  const threadPath = `/external/threads/${orgId}/${rootId}`;
+  const saved = await call(audiencePath, sessions.owner, "PUT", {
+    version: 0, type: "room", roomId: "b:private-room", permission: "view", expiresAt: null,
+  });
+  expect(saved.status).toBe(200);
+  const sqlPermission = () => env.DB.prepare(`SELECT ${threadAudienceAccessSql({ org: "?1", root: "?2", user: "?3", now: "?4" })} AS allowed`)
+    .bind(orgId, rootId, ids.editor, new Date().toISOString()).first();
+  expect(Number((await sqlPermission()).allowed)).toBe(1);
+  expect((await call(threadPath, sessions.editor)).status).toBe(200);
+
+  await env.DB.prepare("UPDATE businesses SET archived_at=?1 WHERE org_id=?2 AND slug='private-room'")
+    .bind(new Date().toISOString(), orgId).run();
+  expect(await externalThreadPermission(env.DB, { orgId, rootId, githubId: ids.editor })).toBeNull();
+  expect(Number((await sqlPermission()).allowed)).toBe(0);
+  expect((await call(threadPath, sessions.editor)).status).toBe(404);
+
+  await env.DB.prepare("UPDATE businesses SET archived_at=NULL WHERE org_id=?1 AND slug='private-room'")
+    .bind(orgId).run();
+  await env.DB.prepare(`INSERT INTO hx_room_access(org_id,channel,version,deleted_at)
+    VALUES(?1,'b:private-room',1,?2) ON CONFLICT(org_id,channel) DO UPDATE SET deleted_at=excluded.deleted_at`)
+    .bind(orgId, new Date().toISOString()).run();
+  expect(await externalThreadPermission(env.DB, { orgId, rootId, githubId: ids.editor })).toBeNull();
+  expect(Number((await sqlPermission()).allowed)).toBe(0);
+  expect((await call(threadPath, sessions.editor)).status).toBe(404);
 });
 
 test("a direct grant cannot revive an audience-origin request after membership and generation change", async () => {
