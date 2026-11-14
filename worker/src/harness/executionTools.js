@@ -22,7 +22,7 @@ export async function callExecutionTool(env, agent, name, args = {}) {
   switch (name) {
     case 'list_app_actions': {
       const apps=await visibleResources(await listApps(env.DB,agent.orgId),a=>mayUseApp(env.DB,agent.orgId,a.id,agent.githubId));
-      const found=[];for(const app of apps.filter(a=>!args.appId||args.appId===a.id).slice(0,50))found.push({id:app.id,name:app.name,actions:(await actions(env.DB,agent.orgId,app.id)).actions.filter(a=>a.published).map(a=>({name:a.name,publishedVersion:a.publishedVersion,code:a.published}))});
+      const found=[];for(const app of apps.filter(a=>!args.appId||args.appId===a.id).slice(0,50))found.push({id:app.id,name:app.name,actions:(await actions(env.DB,agent.orgId,app.id)).actions.filter(a=>a.published).map(a=>({name:a.name,language:a.publishedLanguage||'javascript',publishedVersion:a.publishedVersion,code:a.published}))});
       result={apps:found};break;
     }
     case 'run_app_action': case 'get_app_execution': {

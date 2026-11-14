@@ -1,6 +1,11 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Execution language': '実行言語',
+  'JavaScript function body': 'JavaScript 関数本体',
+  'TypeScript module (default export)': 'TypeScript モジュール（default export）',
+  'Server action code': 'サーバー処理のコード',
+  'App server actions run as JavaScript or TypeScript in the existing isolated Mac execution node. Inputs and outputs are JSON. The app environment is available as env.KEY. No packages, network, or host files are available.': 'アプリのサーバー処理は、既存のMac実行ノードでJavaScriptまたはTypeScriptとして隔離実行します。入出力はJSONです。アプリ環境変数は env.KEY から参照できます。追加パッケージ、ネットワーク、ホスト上のファイルは利用できません。',
   'Share with an external collaborator': '外部の共同作業者と共有',
   'Only an existing Honmaru account with a verified email can open this file. No invitation email is sent. Access is read-only and expires or can be revoked.': '確認済みメールアドレスを持つ既存の本丸アカウントだけがこのファイルを開けます。招待メールは送信されません。閲覧のみ可能で、有効期限の設定やアクセスの取り消しができます。',
   'Verified email': '確認済みメールアドレス',

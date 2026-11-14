@@ -283,6 +283,27 @@ test('generation errors fail closed',async()=>{
  expect((await generateAction('sum',async()=>'not json')).status).toBe(502);
  const wrapped=await generateAction('sum',async()=>JSON.stringify({name:'sum',code:'async function sum(input) { return input.a + input.b; }'}));
  expect(wrapped.code).toBe('return await (async function sum(input) { return input.a + input.b; })(input);');
+ const typed=await generateAction('calculate',async()=>JSON.stringify({name:'calculate',language:'typescript',code:'export default async function(input: unknown, env: Readonly<Record<string,string>>): Promise<unknown> { return input; }'}),'typescript');
+ expect(typed).toMatchObject({name:'calculate',language:'typescript'});
+ expect((await generateAction('calculate',async()=>JSON.stringify({name:'calculate',language:'typescript',code:'return input;'}),'typescript')).status).toBe(502);
+ expect((await generateAction('calculate',async()=>JSON.stringify({name:'calculate',language:'javascript',code:'return input;'}),'typescript')).status).toBe(502);
+});
+
+test('TypeScript action language is versioned, published and carried into gateway jobs',async()=>{
+ const source='export default async function(input: unknown, env: Readonly<Record<string,string>>): Promise<unknown> { return input; }';
+ expect(await (await run('actions',{action:'draft',name:'typed',version:0,language:'typescript',code:source})).json()).toMatchObject({saved:true,version:1});
+ expect(await (await run('actions',{action:'publish',name:'typed',version:1})).json()).toMatchObject({saved:true,version:2});
+ let listed=await (await run('actions')).json();
+ expect(listed.actions[0]).toMatchObject({name:'typed',language:'typescript',publishedLanguage:'typescript',published:source});
+ const history=await (await worker.fetch(new Request(`https://example.com/apps/${app.id}/actions?orgId=${orgId}&history=typed`,{headers:{'x-session-token':owner}}),{...env})).json();
+ expect(history.versions.map(v=>v.language)).toEqual(['typescript','typescript']);
+ const gateway=await (await call('/gateways',owner,{name:'Typed action gateway'})).json();
+ const requested=await (await run('actions',{action:'run',name:'typed',version:2,gatewayId:gateway.gateway.id,input:{ok:true},requestId:'typed-run'},owner)).json();
+ const job=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(requested.job.id).first();
+ expect(JSON.parse(job.payload)).toMatchObject({language:'typescript',code:source,input:{ok:true}});
+ expect(await (await run('actions',{action:'restore',name:'typed',version:2,restoreVersion:1})).json()).toMatchObject({saved:true,version:3});
+ listed=await (await run('actions')).json();
+ expect(listed.actions[0]).toMatchObject({version:3,language:'typescript'});
 });
 
 test('revoked app access prevents a queued server action from being claimed',async()=>{
