@@ -319,6 +319,7 @@ function publicServer(row) {
     hasAuthentication: row.auth_mode === "oauth" || Boolean(String(row.auth_headers || "").startsWith("enc:v1:") || String(row.auth_headers || "").startsWith("enc:v2:") || (Array.isArray(headers) && headers.length)),
     tools: tools.map(({ name, title, description, inputSchema }) => ({ name, title, description, inputSchema })),
     allowedTools: parseJSON(row.allowed_tools, []),
+    writeTools: parseJSON(row.write_tools, []),
     connectedAt: row.connected_at || null,
     createdAt: row.created_at,
   };
@@ -438,9 +439,10 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
       return json({ message: err instanceof Error ? err.message : "Could not connect to the MCP server." }, 502);
     }
     const allowedTools = parseJSON(row.allowed_tools, []).filter((name) => tools.some((tool) => tool.name === name));
+    const writeTools = parseJSON(row.write_tools, []).filter((name) => allowedTools.includes(name) && tools.some((tool) => tool.name === name));
     const now = new Date().toISOString();
-    await env.DB.prepare("UPDATE hx_remote_mcp_servers SET tools_json = ?3, allowed_tools = ?4, connected_at = ?5, updated_at = ?5 WHERE org_id = ?1 AND id = ?2")
-      .bind(orgId, id, JSON.stringify(tools), JSON.stringify(allowedTools), now).run();
+    await env.DB.prepare("UPDATE hx_remote_mcp_servers SET tools_json = ?3, allowed_tools = ?4, write_tools = ?5, connected_at = ?6, updated_at = ?6 WHERE org_id = ?1 AND id = ?2")
+      .bind(orgId, id, JSON.stringify(tools), JSON.stringify(allowedTools), JSON.stringify(writeTools), now).run();
     const updated = await getServer(env.DB, orgId, id);
     await writeAudit(env, request, who, orgId, "remote_mcp.server_discovered", updated, { toolCount: tools.length });
     return json({ server: publicServer(updated) });
@@ -449,11 +451,16 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
     const offered = cleanTools(parseJSON(row.tools_json, []));
     if (!Array.isArray(input?.allowedTools)) return json({ message: "allowedTools must be a list." }, 400);
     const allowedTools = [...new Set(input.allowedTools.filter((name) => typeof name === "string" && offered.some((tool) => tool.name === name)))];
+    if (input?.writeTools !== undefined && (!Array.isArray(input.writeTools)
+      || input.writeTools.some(name => typeof name !== "string" || !allowedTools.includes(name) || !offered.some(tool => tool.name === name))))
+      return json({ message: "Every write tool must be discovered and included in allowedTools." }, 400);
+    const requestedWriteTools = input?.writeTools === undefined ? parseJSON(row.write_tools, []) : input.writeTools;
+    const writeTools = [...new Set(requestedWriteTools.filter((name) => allowedTools.includes(name) && offered.some((tool) => tool.name === name)))];
     const now = new Date().toISOString();
-    await env.DB.prepare("UPDATE hx_remote_mcp_servers SET allowed_tools = ?3, updated_at = ?4 WHERE org_id = ?1 AND id = ?2")
-      .bind(orgId, id, JSON.stringify(allowedTools), now).run();
+    await env.DB.prepare("UPDATE hx_remote_mcp_servers SET allowed_tools = ?3, write_tools = ?4, updated_at = ?5 WHERE org_id = ?1 AND id = ?2")
+      .bind(orgId, id, JSON.stringify(allowedTools), JSON.stringify(writeTools), now).run();
     const updated = await getServer(env.DB, orgId, id);
-    await writeAudit(env, request, who, orgId, "remote_mcp.tools_changed", updated, { allowedToolCount: allowedTools.length });
+    await writeAudit(env, request, who, orgId, "remote_mcp.tools_changed", updated, { allowedToolCount: allowedTools.length, writeToolCount: writeTools.length });
     return json({ server: publicServer(updated) });
   }
   if (request.method === "DELETE" && !operation) {
@@ -469,13 +476,15 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
 
 /// The MCP tools a token may see. Connections and their allowlists are both
 /// workspace-owned; an agent still needs the separate execute token scope.
-export async function remoteMcpTools(db, orgId, { readOnlyOnly = false } = {}) {
-  const { results = [] } = await db.prepare("SELECT id, name, tools_json, allowed_tools FROM hx_remote_mcp_servers WHERE org_id = ?1 ORDER BY created_at").bind(orgId).all();
+export async function remoteMcpTools(db, orgId, { readOnlyOnly = false, workflowWritable = false } = {}) {
+  const { results = [] } = await db.prepare("SELECT id, name, tools_json, allowed_tools, write_tools FROM hx_remote_mcp_servers WHERE org_id = ?1 ORDER BY created_at").bind(orgId).all();
   const exposed = [];
   for (const row of results) {
     const allowed = new Set(parseJSON(row.allowed_tools, []));
+    const writable = new Set(parseJSON(row.write_tools, []));
     for (const tool of cleanTools(parseJSON(row.tools_json, []))) {
-      if (!allowed.has(tool.name) || (readOnlyOnly && (!tool.annotations.readOnlyHint || tool.annotations.destructiveHint))) continue;
+      const requiresApproval = writable.has(tool.name) || !tool.annotations.readOnlyHint || tool.annotations.destructiveHint;
+      if (!allowed.has(tool.name) || (readOnlyOnly && (!tool.annotations.readOnlyHint || tool.annotations.destructiveHint || writable.has(tool.name))) || (workflowWritable && requiresApproval && !writable.has(tool.name))) continue;
       const name = toolName(row.id, tool.name);
       exposed.push({
         name,
@@ -483,14 +492,14 @@ export async function remoteMcpTools(db, orgId, { readOnlyOnly = false } = {}) {
         description: `Connected Remote MCP server “${row.name}”. ${tool.description || `Call the ${tool.name} tool.`}`.slice(0, 2_000),
         inputSchema: tool.inputSchema,
         annotations: tool.annotations,
-        _remote: { serverId: row.id, toolName: tool.name },
+        _remote: { serverId: row.id, toolName: tool.name, requiresApproval },
       });
     }
   }
   return exposed;
 }
 
-export async function callRemoteMcpTool(env, agent, offeredTool, args, { readOnlyOnly = false } = {}) {
+export async function callRemoteMcpTool(env, agent, offeredTool, args, { readOnlyOnly = false, requiresApproval = false } = {}) {
   const ref = offeredTool?._remote;
   if (!ref || !args || typeof args !== "object" || Array.isArray(args)) return null;
   if (JSON.stringify(args).length > 64_000) return { content: [{ type: "text", text: "Tool arguments are too large." }], isError: true };
@@ -502,6 +511,10 @@ export async function callRemoteMcpTool(env, agent, offeredTool, args, { readOnl
       return { content: [{ type: "text", text: "This Remote MCP tool is not marked read-only." }], isError: true };
     }
   }
+  const currentTool = cleanTools(parseJSON(row.tools_json, [])).find(tool => tool.name === ref.toolName);
+  const explicitlyWritable = parseJSON(row.write_tools, []).includes(ref.toolName);
+  if (requiresApproval ? !explicitlyWritable : readOnlyOnly && (!currentTool?.annotations.readOnlyHint || currentTool.annotations.destructiveHint || explicitlyWritable))
+    return { content: [{ type: "text", text: "This Remote MCP tool's current execution policy does not permit this call." }], isError: true };
   const endpoint = safeEndpoint(row.endpoint);
   if (!endpoint) return { content: [{ type: "text", text: "This Remote MCP endpoint is no longer allowed." }], isError: true };
   try {

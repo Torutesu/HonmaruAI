@@ -7,7 +7,7 @@ type RemoteTool = { name: string; title: string; description: string; inputSchem
 type RemoteServer = {
   id: string; name: string; endpoint: string; hasAuthentication: boolean
   authMode?: 'headers' | 'oauth'; oauthRegistration?: 'auto' | 'manual'; oauthConnected?: boolean
-  tools: RemoteTool[]; allowedTools: string[]; connectedAt: string | null; createdAt: string
+  tools: RemoteTool[]; allowedTools: string[]; writeTools?: string[]; connectedAt: string | null; createdAt: string
 }
 type HeaderRow = { id: string; name: string; value: string; required?: boolean; description?: string }
 type RegistryServer = {
@@ -134,7 +134,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
     setBusy(id); setError(null); setNote(null)
     try {
       await call(`/remote-mcp/${encodeURIComponent(id)}/discover`, 'POST', {})
-      setNote(t('Tools refreshed. Choose which ones agents may use.'))
+      setNote(t('Tools refreshed. Read only tools must be separately enabled; Workflow writes require explicit classification and Agent grant.'))
       await load()
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(null) }
@@ -143,9 +143,20 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
   const setAllowed = async (server: RemoteServer, toolName: string, enabled: boolean) => {
     setBusy(`${server.id}:${toolName}`); setError(null); setNote(null)
     const allowedTools = enabled ? [...new Set([...server.allowedTools, toolName])] : server.allowedTools.filter((name) => name !== toolName)
+    const writeTools = (server.writeTools || []).filter(name => allowedTools.includes(name))
     try {
-      await call(`/remote-mcp/${encodeURIComponent(server.id)}/tools`, 'PUT', { allowedTools })
-      setServers((items) => items.map((item) => item.id === server.id ? { ...item, allowedTools } : item))
+      await call(`/remote-mcp/${encodeURIComponent(server.id)}/tools`, 'PUT', { allowedTools, writeTools })
+      setServers((items) => items.map((item) => item.id === server.id ? { ...item, allowedTools, writeTools } : item))
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setBusy(null) }
+  }
+
+  const setWrite = async (server: RemoteServer, toolName: string, enabled: boolean) => {
+    setBusy(`${server.id}:${toolName}`); setError(null); setNote(null)
+    const writeTools = enabled ? [...new Set([...(server.writeTools || []), toolName])] : (server.writeTools || []).filter(name => name !== toolName)
+    try {
+      await call(`/remote-mcp/${encodeURIComponent(server.id)}/tools`, 'PUT', { allowedTools: server.allowedTools, writeTools })
+      setServers(items => items.map(item => item.id === server.id ? { ...item, writeTools } : item))
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(null) }
   }
@@ -233,6 +244,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
                     <input type="checkbox" checked={server.allowedTools.includes(tool.name)} disabled={!canManage || busy === key} onChange={(event) => void setAllowed(server, tool.name, event.target.checked)} />
                     <span><strong>{tool.title || tool.name}</strong><small>{tool.description || tool.name}</small></span>
                     {busy === key && <i>{t('Saving…')}</i>}
+                    {server.allowedTools.includes(tool.name) && <span className="remote-mcp-write-policy"><input type="checkbox" aria-label={t('Require approval for Workflow writes from {tool}', {tool: tool.title || tool.name})} checked={(server.writeTools || []).includes(tool.name)} disabled={!canManage || busy === key} onChange={event => void setWrite(server, tool.name, event.currentTarget.checked)} /><small>{t('Allow Workflow writes · requires approval')}</small></span>}
                   </label>
                 })}
               </div>}

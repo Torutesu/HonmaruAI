@@ -360,6 +360,7 @@ CREATE TABLE IF NOT EXISTS hx_agent_remote_mcp_tool_grants (org_id TEXT NOT NULL
 CREATE INDEX IF NOT EXISTS hx_agent_remote_mcp_tool_grants_lookup ON hx_agent_remote_mcp_tool_grants(org_id,agent_id,user_github_id,server_id);
 
 ALTER TABLE hx_remote_mcp_servers ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'headers' CHECK(auth_mode IN ('headers','oauth'));
+ALTER TABLE hx_remote_mcp_servers ADD COLUMN write_tools TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE hx_remote_mcp_servers ADD COLUMN oauth_registration TEXT NOT NULL DEFAULT 'auto' CHECK(oauth_registration IN ('auto','manual'));
 ALTER TABLE hx_remote_mcp_servers ADD COLUMN oauth_client TEXT;
 CREATE TABLE IF NOT EXISTS hx_remote_mcp_oauth_credentials (org_id TEXT NOT NULL, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, credential TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,server_id,user_github_id));

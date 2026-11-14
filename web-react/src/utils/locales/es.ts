@@ -2184,7 +2184,19 @@ const table: Record<string, string> = {
   'This follow-up is still running. Try again if it has not finished within 30 minutes.': 'Este seguimiento sigue en ejecución. Vuelve a intentarlo si no ha terminado en 30 minutos.',
   'Cancel this run? It is waiting for approval. Its approval card will close and no later step will run.': '¿Cancelar esta ejecución? Está esperando aprobación. Su tarjeta de aprobación se cerrará y no se ejecutará ningún paso posterior.',
   'This run changed before it could be cancelled. Its current status is shown below.': 'Esta ejecución cambió antes de poder cancelarla. Su estado actual se muestra abajo.',
+  'Read-only tools can be used in Agent conversations. Write tools are granted individually and run only in Workflows after approval.': 'Las herramientas de solo lectura se pueden usar en conversaciones del agente. Las de escritura requieren autorización individual y solo se ejecutan en flujos aprobados.',
   'Keep waiting': 'Seguir esperando',
+  'Only workspace-approved tools marked read-only are available. Choose each tool this Agent may use in your private conversations.': 'Las herramientas de solo lectura aprobadas por el espacio están disponibles en conversaciones del agente. Las herramientas de escritura se autorizan individualmente y solo se ejecutan en flujos de trabajo aprobados.',
+  'Workflow approval required': 'Requiere aprobación del flujo',
+  'Choose an enabled tool': 'Elige una herramienta habilitada',
+  'approval required': 'requiere aprobación',
+  'This tool can write to an external service. Add an Approval step immediately before it. The approver will see the tool name and rendered arguments.': 'Esta herramienta escribe en un servicio externo. Añade inmediatamente antes un paso de aprobación. La persona verá el nombre y los argumentos procesados.',
+  'Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.': 'Autoriza esta herramienta Remote MCP en la pestaña Conexiones del agente antes de usarla aquí.',
+  'Calls only the selected tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.': 'Solo llama a la herramienta seleccionada. Worker vuelve a comprobar el esquema y los permisos antes y después de cada solicitud. No incluyas credenciales en los argumentos.',
+  'Require approval for Workflow writes from {tool}': 'Requerir aprobación para escrituras del flujo de {tool}',
+  'Allow Workflow writes · requires approval': 'Permitir escrituras del flujo · requiere aprobación',
+  'Choose the tools this Agent needs. Write tools require Workflow approval and never run in chat.': 'Elige las herramientas del agente. Las escrituras requieren aprobación del flujo y nunca se ejecutan desde el chat.',
+  'This server has no workspace-approved tools. A workspace admin can refresh its tool list in Tools → Apps.': 'Este servidor no tiene herramientas aprobadas. Un administrador puede actualizar la lista en Herramientas → Aplicaciones.',
 }
 
 export default table

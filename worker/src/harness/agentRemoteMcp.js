@@ -22,11 +22,11 @@ async function enabledToolNames(db, orgId, agentId, githubId, serverId, offeredT
     WHERE g.org_id=?1 AND g.agent_id=?2 AND g.user_github_id=?3 AND g.server_id=?4`)
     .bind(orgId, agentId, String(githubId), serverId).all();
   const specific = new Set((grants.results || []).map(row => row.tool_name));
-  return new Set(offeredTools.filter(tool => legacy || specific.has(tool._remote.toolName)).map(tool => tool._remote.toolName));
+  return new Set(offeredTools.filter(tool => (legacy && !tool._remote.requiresApproval) || specific.has(tool._remote.toolName)).map(tool => tool._remote.toolName));
 }
 
 async function readOnlyToolsByServer(db, orgId) {
-  const tools = await remoteMcpTools(db, orgId, { readOnlyOnly: true }).catch(() => []);
+  const tools = await remoteMcpTools(db, orgId, { workflowWritable: true }).catch(() => []);
   const grouped = new Map();
   for (const tool of tools) {
     const id = tool?._remote?.serverId;
@@ -45,9 +45,9 @@ export async function agentRemoteMcpConnections(db, { orgId, agentId, githubId }
   return Promise.all((servers.results || []).map(async (server) => {
     const offered = grouped.get(server.id) || [];
     const allowedTools = await enabledToolNames(db, orgId, agentId, githubId, server.id, offered);
-    const readOnlyToolCount = offered.length;
+    const readOnlyToolCount = offered.filter(tool => !tool._remote.requiresApproval).length;
     const oauthConnected = server.auth_mode !== 'oauth' || await remoteMcpOAuthStatus(db, orgId, server.id, githubId);
-    const available = readOnlyToolCount > 0 && oauthConnected;
+    const available = offered.length > 0 && oauthConnected;
     return {
       serverId: server.id,
       name: server.name,
@@ -55,7 +55,7 @@ export async function agentRemoteMcpConnections(db, { orgId, agentId, githubId }
       enabled: available && (grants.has(server.id) || offered.length > 0 && allowedTools.size === offered.length),
       tools: offered.map(tool => ({ name: tool._remote.toolName, title: tool.title || tool._remote.toolName,
         description: tool.description || '', inputSchema: tool.inputSchema,
-        enabled: available && allowedTools.has(tool._remote.toolName) })),
+        enabled: available && allowedTools.has(tool._remote.toolName), requiresApproval: tool._remote.requiresApproval })),
       readOnlyToolCount,
       needsOAuth: !oauthConnected,
     };
@@ -68,14 +68,14 @@ export async function setAgentRemoteMcpTool(env, { orgId, agentId, session, serv
     return { error: 'Choose a Remote MCP tool and whether to allow it.' };
   const githubId = String(session?.github_id || '');
   if (!githubId) return { error: 'Sign in again before changing this connection.', status: 401 };
-  const offered = await remoteMcpTools(env.DB, orgId, { readOnlyOnly: true }).catch(() => []);
+  const offered = await remoteMcpTools(env.DB, orgId, { workflowWritable: true }).catch(() => []);
   const tool = offered.find(item => item?._remote?.serverId === id && item?._remote?.toolName === name);
-  if (!tool) return { error: 'This Remote MCP tool is not currently approved for read-only use.', status: 409 };
+  if (!tool) return { error: 'This Remote MCP tool is not currently enabled for Workflow use.', status: 409 };
   const current = await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId });
   if (!current.some(item => item.serverId === id && item.available)) return { error: 'This Remote MCP server or Agent is unavailable.', status: 409 };
   const at = new Date().toISOString();
   const legacy = await currentGrants(env.DB, orgId, agentId, githubId);
-  const convert = legacy.has(id) ? offered.filter(item => item?._remote?.serverId === id).map(item => env.DB.prepare(`
+  const convert = legacy.has(id) ? offered.filter(item => item?._remote?.serverId === id && !item?._remote?.requiresApproval).map(item => env.DB.prepare(`
     INSERT OR IGNORE INTO hx_agent_remote_mcp_tool_grants(org_id,agent_id,user_github_id,membership_since,server_id,tool_name,created_at)
     SELECT ?1,?2,?3,m.created_at,?4,?5,?6 FROM memberships m
       JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?2 AND a.deleted_at IS NULL
@@ -113,7 +113,7 @@ export async function setAgentRemoteMcpConnection(env, { orgId, agentId, session
   if (enabled) {
     const current = await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId });
     const server = current.find((connection) => connection.serverId === id);
-    if (!server?.available) return { error: 'This Remote MCP server has no workspace-approved read-only tools.', status: 409 };
+    if (!server?.available) return { error: 'This Remote MCP server has no workspace-approved tools.', status: 409 };
     const result = await env.DB.prepare(`INSERT INTO hx_agent_remote_mcp_grants
         (org_id,agent_id,user_github_id,membership_since,server_id,created_at)
       SELECT ?1,?2,?3,m.created_at,?4,?5 FROM memberships m
@@ -145,12 +145,13 @@ export async function mayUseAgentRemoteMcp(env, { orgId, agentId, session, serve
   if (!await mayRunAgent(env.DB, orgId, { id: agentId }, githubId).catch(() => false)) return false;
   const [grants, tools] = await Promise.all([
     currentGrants(env.DB, orgId, agentId, githubId).catch(() => new Set()),
-    remoteMcpTools(env.DB, orgId, { readOnlyOnly: true }).catch(() => []),
+    remoteMcpTools(env.DB, orgId, { workflowWritable: true }).catch(() => []),
   ]);
-  const matching = tools.filter(tool => tool?._remote?.serverId === serverId && (!toolName || tool?._remote?.toolName === toolName));
+  const matching = tools.filter(tool => tool?._remote?.serverId === serverId && (!toolName || tool?._remote?.toolName === toolName)
+    && (tool._remote.requiresApproval ? toolName !== null : true));
   if (!matching.length) return false;
-  if (grants.has(serverId)) return true;
   const specific = await enabledToolNames(env.DB, orgId, agentId, githubId, serverId, tools).catch(() => new Set());
+  if (grants.has(serverId) && matching.every(tool => !tool._remote.requiresApproval)) return true;
   return matching.every(tool => specific.has(tool._remote.toolName));
 }
 
