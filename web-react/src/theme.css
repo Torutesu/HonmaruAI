@@ -712,6 +712,7 @@
 .ws-item { gap: 12px; padding: 8px 10px; }
 .ws-item .ws-mark { border-radius: 10px; }
 .ws-key { flex: none; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; color: var(--ash); background: none; border: none; }
+.ws-unread-count { flex: none; min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--mist); color: var(--ink-black); font: 650 11px/1 var(--font-display); }
 .ws-item.on .ws-mark { box-shadow: 0 0 0 2px var(--signal-white, #fff), 0 0 0 4px var(--ink-black, #111); }
 .ws-add { display: flex; align-items: center; gap: 12px; font-weight: 600; }
 .ws-add-plus { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--mist, #f2f2f2); flex: none; }

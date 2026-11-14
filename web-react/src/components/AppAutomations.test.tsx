@@ -2,9 +2,17 @@ import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {expect,test,vi} from 'vitest'
 import {AppAutomations} from './AppAutomations'
+import {changeLocale,localeReady} from '../utils/i18n'
+import ja from '../utils/locales/ja'
+import es from '../utils/locales/es'
+import fr from '../utils/locales/fr'
+import de from '../utils/locales/de'
 const definition={name:'Review',enabled:true,trigger:{type:'manual'},steps:[{type:'post',channel:'b:general',text:'Review'}]}
 const state={version:2,revision:2,draft:{version:1,items:[{key:'review',...definition}]},published:{version:1,items:[]},plan:[{key:'review',workflowId:'wf',status:'drifted',declared:definition,published:definition,live:{...definition,name:'Independent edit'}}]}
+const localeStore=new Map<string,string>()
 async function setup(overrides={}) {
+ vi.stubGlobal('localStorage',{getItem:(key:string)=>localeStore.get(key)||null,setItem:(key:string,value:string)=>localeStore.set(key,value),removeItem:(key:string)=>localeStore.delete(key)})
+ changeLocale('ja');await localeReady()
  const api={appAutomations:vi.fn().mockResolvedValue(state),workflows:vi.fn().mockResolvedValue({workflows:[]}),releaseAppAutomations:vi.fn().mockResolvedValue({saved:true}),...overrides}
  let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<AppAutomations app={{id:'app',version:2,definition:{}}as any} api={api as any} reload={()=>{}}/>)})
@@ -62,7 +70,7 @@ test('editing a step changes only the draft and blocks publication until saved',
 
 test('new app automation starts disabled and remains a local draft',async()=>{
  const {tree,api}=await setup()
- const add=tree.root.findAllByType('button').find(b=>b.children.includes(' 自動化を作成'))!
+ const add=tree.root.findAllByType('button').find(b=>b.children.some(c=>typeof c==='string'&&c.includes('自動化を作成')))!
  await act(async()=>add.props.onClick())
  const {AutomationTriggerEditor}=await import('./AutomationTriggerEditor')
  expect(tree.root.findAllByType(AutomationTriggerEditor)).toHaveLength(2)
@@ -301,3 +309,10 @@ test.each([[119800,false],[119801,true]])('combined source release of length %s 
  await act(async()=>source.findByType('input').props.onChange({target:{checked:false}}));expect(tree!.root.findAllByType('button').find(b=>b.children.join('')==='確認した内容を公開')!.props.disabled).toBe(false)
  act(()=>tree!.unmount())
 })
+
+
+test.each([
+ ['ja',ja['App automations'],'アプリの自動化'],['es',es['App automations'],'Automatizaciones de la aplicación'],
+ ['fr',fr['App automations'],'Automatisations de l’application'],['de',de['App automations'],'App-Automatisierungen'],
+ ['en','App automations','App automations'],
+])('has an App automation heading translation for %s',(_locale,actual,expected)=>expect(actual).toBe(expected))

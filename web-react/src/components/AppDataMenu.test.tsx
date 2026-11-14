@@ -1,4 +1,4 @@
-vi.mock('../utils/i18n',()=>({useT:()=>(key:string)=>key==='More data viewer actions'?'その他のデータビューアー操作':key}))
+vi.mock('../utils/i18n',()=>({useT:()=>(key:string)=>({'More data viewer actions':'その他のデータビューアー操作','Export CSV':'CSVを書き出す','Export to Excel (.xlsx)':'Excelを書き出す（.xlsx）','Wrap text':'テキストを折り返す'}[key]||key)}))
 import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {afterEach,expect,test,vi} from 'vitest'

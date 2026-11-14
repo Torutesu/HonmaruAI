@@ -13,8 +13,10 @@ describe('soundForMessage', () => {
     expect(soundForMessage({ ...channel, mentionsMe: true }, { level: 'all', open: false })).toBe('mention')
     expect(soundForMessage(channel, { level: 'all', open: false })).toBe('message')
   })
-  it('respects mute and mentions-only', () => {
-    expect(soundForMessage({ ...channel, mentionsMe: true }, { level: 'mute', open: false })).toBe(null)
+  it('keeps explicit mentions audible through mute and filters other messages', () => {
+    expect(soundForMessage({ ...channel, mentionsMe: true }, { level: 'mute', open: false })).toBe('mention')
+    expect(soundForMessage({ ...channel, channel: 'dm:abc' }, { level: 'mute', open: false })).toBe(null)
+    expect(soundForMessage(channel, { level: 'mute', open: false })).toBe(null)
     expect(soundForMessage(channel, { level: 'mentions', open: false })).toBe(null)
     expect(soundForMessage({ ...channel, mentionsMe: true }, { level: 'mentions', open: false })).toBe('mention')
   })

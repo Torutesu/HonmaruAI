@@ -78,6 +78,40 @@ test("a business channel is the workspace's; messages come back by name, never b
   expect((await post("/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "   " })).status).toBe(400);
 });
 
+test("workspace unread badges count only visible unread conversations across authorized workspaces", async () => {
+  const SECOND = "personal:second";
+  const { upsertMembership, upsertBusiness } = await import("../src/db.js");
+  await upsertMembership(env.DB, SECOND, "9701", "admin");
+  await upsertMembership(env.DB, SECOND, "email:mika@example.com", "member");
+  await upsertBusiness(env.DB, SECOND, { name: "Other cafe", createdBy: "9701" });
+  await env.DB.prepare("INSERT INTO businesses (org_id,slug,name,created_by,created_at,private) VALUES (?1,'secret','Secret','9701',?2,1)")
+    .bind(ORG, new Date().toISOString()).run();
+  await env.DB.prepare("INSERT INTO conversation_members (org_id,channel,login,added_at) VALUES (?1,'b:secret','u:mika@example.com',?2)")
+    .bind(ORG, new Date().toISOString()).run();
+  await post("/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "Cafe update" });
+  await post("/channels/messages", mika, { orgId: ORG, channel: "b:secret", body: "Private update" });
+  await post("/channels/messages", mika, { orgId: SECOND, channel: "b:other-cafe", body: "Second workspace update" });
+
+  const summary = await post("/channels/workspace-unread", toru, { orgIds: [ORG, SECOND, "personal:else"] });
+  expect(summary.status).toBe(200);
+  expect(await summary.json()).toEqual({ counts: { [ORG]: 1, [SECOND]: 1 } });
+  await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id='9703'").bind(ORG).run();
+  expect(await (await post("/channels/workspace-unread", kenji, { orgIds: [ORG] })).json()).toEqual({ counts: { [ORG]: 0 } });
+
+  await post("/channels/read", toru, { orgId: ORG, channel: "b:cafe" });
+  await env.DB.prepare("INSERT INTO channel_prefs (org_id,login,channel,level) VALUES (?1,'toru','b:other-cafe','mute')").bind(SECOND).run();
+  const afterChanges = await post("/channels/workspace-unread", toru, { orgIds: [ORG, SECOND] });
+  expect(await afterChanges.json()).toEqual({ counts: { [ORG]: 0, [SECOND]: 0 } });
+  await env.DB.prepare("INSERT INTO channel_prefs (org_id,login,channel,level) VALUES (?1,'toru','b:cafe','mentions')").bind(ORG).run();
+  await post("/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "@Toru please review this" });
+  const mentioned = await post("/channels/workspace-unread", toru, { orgIds: [ORG] });
+  expect(await mentioned.json()).toEqual({ counts: { [ORG]: 1 } });
+  await post("/channels/messages", mika, { orgId: ORG, channel: "b:cafe", body: "A regular update" });
+  const mentionsOnly = await post("/channels/workspace-unread", toru, { orgIds: [ORG] });
+  expect(await mentionsOnly.json()).toEqual({ counts: { [ORG]: 0 } });
+  expect((await post("/channels/workspace-unread", toru, { orgIds: [ORG, ORG] })).status).toBe(400);
+});
+
 test("a direct conversation is the two people's, named by the other's handle", async () => {
   await post("/channels/messages", toru, { orgId: ORG, channel: `dm:${refs.Mika}`, body: "Can you check the lease?" });
   const mine = await (await get(`/channels/messages?${q({ orgId: ORG, channel: `dm:${refs.Mika}` })}`, toru)).json();

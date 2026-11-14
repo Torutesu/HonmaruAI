@@ -154,11 +154,13 @@ test("each person a message is for hears it at once in their open apps, with why
   expect(told).toEqual([]);
 });
 
-test("a muted conversation is nobody's push", async () => {
+test("a muted conversation only notifies for explicit mentions", async () => {
   const members = await listMembers(env.DB, ORG, null);
   await env.DB.prepare("INSERT INTO channel_prefs (org_id, login, channel, level) VALUES (?1, 'kenji', 'b:cafe', 'mute')").bind(ORG).run();
   expect(await recipientsOf(env.DB, ORG, { id: "x4", kind: "message", channel: "b:cafe", author_login: "toru", body: "@Kenji @Mika" }, members))
-    .toEqual([{ login: "mika", reason: "mention" }]);
+    .toEqual([{ login: "kenji", reason: "mention" }, { login: "mika", reason: "mention" }]);
+  expect(await recipientsOf(env.DB, ORG, { id: "x5", kind: "message", channel: "b:cafe", author_login: "toru", body: "A regular room update" }, members))
+    .toEqual([]);
 });
 
 test.each(["mute", "private", "guest", "thread-mute"])("queued push honors a later %s change before delivery", async (change) => {
@@ -191,8 +193,9 @@ test.each(["mute", "private", "guest", "thread-mute"])("queued push honors a lat
     if (change === "mute") await env.DB.prepare("INSERT INTO channel_prefs (org_id,login,channel,level) VALUES (?1,'kenji','b:cafe','mute')").bind(ORG).run();
     if (change === "private") await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
     if (change === "guest") await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id='8803'").bind(ORG).run();
-    expect(await sendDuePushes(penv, now + PUSH_DELAY_MS + 1000)).toEqual({ sent: 0, skipped: 1 });
-    expect(pushed).toHaveLength(0);
+    const mentionStillNotifies = change === "mute" || change === "thread-mute";
+    expect(await sendDuePushes(penv, now + PUSH_DELAY_MS + 1000)).toEqual(mentionStillNotifies ? { sent: 1, skipped: 0 } : { sent: 0, skipped: 1 });
+    expect(pushed).toHaveLength(mentionStillNotifies ? 1 : 0);
     // Restoring access/preferences allows new notifications, but never replays the skipped message.
     await env.DB.prepare("DELETE FROM channel_prefs WHERE org_id=?1").bind(ORG).run();
     await env.DB.prepare("DELETE FROM channel_thread_mutes WHERE org_id=?1").bind(ORG).run();
@@ -200,6 +203,31 @@ test.each(["mute", "private", "guest", "thread-mute"])("queued push honors a lat
     await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='8803'").bind(ORG).run();
     await say("after-change", now + 2 * PUSH_DELAY_MS);
     expect(await sendDuePushes(penv, now + 3 * PUSH_DELAY_MS + 1000)).toEqual({ sent: 1, skipped: 0 });
+    expect(pushed).toHaveLength(mentionStillNotifies ? 2 : 1);
+  } finally { fetchMock.deactivate(); }
+});
+
+test("a muted DM still delivers a current explicit mention and keeps its direct reason", async () => {
+  const { registerDevice } = await import("../src/db.js");
+  const token = "f".repeat(64), now = Date.now(), channel = "dm:mika|toru";
+  await registerDevice(env.DB, { deviceToken: token, githubId: "8801", login: "toru", environment: "production", platform: "ios" });
+  await env.DB.prepare("INSERT INTO channel_prefs (org_id,login,channel,level) VALUES (?1,'toru',?2,'mute')").bind(ORG, channel).run();
+  const row = { id: "muted-dm-mention", kind: "message", channel, author_login: "mika", body: "@Toru please check", created_at: new Date(now).toISOString() };
+  await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,body,kind,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)")
+    .bind(row.id, ORG, row.channel, row.author_login, row.body, row.kind, row.created_at).run();
+  const members = await listMembers(env.DB, ORG, null);
+  expect(await recipientsOf(env.DB, ORG, row, members)).toEqual([{ login: "toru", reason: "direct" }]);
+
+  const pushed = [];
+  fetchMock.activate();
+  fetchMock.get("https://api.push.apple.com")
+    .intercept({ path: `/3/device/${token}`, method: "POST" })
+    .reply((opts) => { pushed.push(JSON.parse(opts.body)); return { statusCode: 200, data: "" }; }).persist();
+  try {
+    await queueMessagePushes(env, ORG, row, { members, now });
+    expect((await queued()).map(({ login, reason }) => ({ login, reason }))).toEqual([{ login: "toru", reason: "direct" }]);
+    const penv = { ...env, APNS_KEY_ID: "ABC1234567", APNS_TEAM_ID: "TEAM123456", APNS_TOPIC: "com.honmaru.ai", APNS_PRIVATE_KEY: TEST_P8 };
+    expect(await sendDuePushes(penv, now + PUSH_DELAY_MS + 1000)).toEqual({ sent: 1, skipped: 0 });
     expect(pushed).toHaveLength(1);
   } finally { fetchMock.deactivate(); }
 });
@@ -262,11 +290,12 @@ test("a translation that lost a spoiler's bars is not what a lock screen shows",
   expect(pushWords("lunch?", "")).toBe("lunch?");
 });
 
-test('thread mute suppresses mentions only in that thread for that person', async () => {
+test('a thread mute still notifies an explicit mention, but suppresses ordinary thread replies', async () => {
   const members = await listMembers(env.DB, ORG, null);
-  await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,body,kind,created_at) VALUES ('mute-root',?1,'b:cafe','toru','Root','message','2026-01-01')").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,body,kind,created_at) VALUES ('mute-root',?1,'b:cafe','kenji','Root','message','2026-01-01')").bind(ORG).run();
   await env.DB.prepare("INSERT INTO channel_thread_mutes(org_id,login,message_id) VALUES (?1,'kenji','mute-root')").bind(ORG).run();
   const row={id:'reply',kind:'message',channel:'b:cafe',author_login:'toru',body:'@Kenji @Mika',parent_id:'mute-root'};
-  expect(await recipientsOf(env.DB,ORG,row,members)).toEqual([{login:'mika',reason:'mention'}]);
+  expect(await recipientsOf(env.DB,ORG,row,members)).toEqual([{login:'kenji',reason:'mention'},{login:'mika',reason:'mention'}]);
+  expect(await recipientsOf(env.DB,ORG,{...row,author_login:'mika',body:'A regular thread reply'},members)).toEqual([]);
   expect((await recipientsOf(env.DB,ORG,{...row,parent_id:null},members)).map(r=>r.login)).toEqual(['kenji','mika']);
 });
