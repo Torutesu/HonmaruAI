@@ -249,6 +249,7 @@ test('a runner that never renders exposes retry and ignores old acknowledgements
 
 const commitState = (status: string) => ({
   commit: { owner:'acme',repo:'static-app',branch:'main',sha:'a'.repeat(40),path:'index.html',sourceHash:'b'.repeat(64),appVersion:3,assets:[] },
+  gitDraftAutoSync:null,
   scope: { visibility:'workspace',accessVersion:0,domainScope:'' },
   approval: { id:'approval-1',status,appVersion:3,commitSha:'a'.repeat(40),sourceHash:'b'.repeat(64),visibility:'workspace',requestedBy:'9101',reviewerId:status==='approved'?'9103':null },
 });
@@ -282,6 +283,16 @@ test('custom app Git draft connection writes only through the generated branch f
   await act(async()=>{refresh.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
   expect(customCommit).toHaveBeenCalledWith('app',{action:'refresh_git_draft',version:3});
   expect(reload).toHaveBeenCalledTimes(2);
+  act(()=>tree!.unmount());
+});
+
+test('custom app editor explains when automatic GitHub draft refresh needs reconnection', async () => {
+  const state={...commitState('none'),gitDraft:{owner:'acme',repo:'private-app',defaultBranch:'main',branch:'honmaru/apps/app/draft',path:'honmaru/apps/app/draft/index.html',headSha:'c'.repeat(40),boundAt:'now'},gitDraftAutoSync:{lastCheckAt:'2026-11-15T00:00:00.000Z',nextCheckAt:'2026-11-15T01:00:00.000Z',lastError:'Reconnect the GitHub account to resume automatic draft updates.',failures:2}};
+  const api={customCommitState:vi.fn().mockResolvedValue(state)} as any;
+  let tree:ReturnType<typeof create>;
+  await act(async()=>{tree=create(<CustomAppEditor app={editorApp} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
+  expect(tree!.root.findAllByProps({role:'alert'}).some(node=>node.children.join('').includes('自動同期が一時停止しています'))).toBe(true);
+  expect(tree!.root.findAllByProps({role:'alert'}).some(node=>node.children.join('').includes('Reconnect the GitHub account'))).toBe(true);
   act(()=>tree!.unmount());
 });
 
