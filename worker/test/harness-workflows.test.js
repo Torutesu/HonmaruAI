@@ -79,15 +79,15 @@ const signedWebhook = async (hookUrl, secret, body = '{}', eventId = `evt-${++we
   });
 };
 
-async function addWorkflowRemoteMcpServer(tools, allowedTools) {
+async function addWorkflowRemoteMcpServer(tools, allowedTools, writeTools = []) {
   const response = await send('POST', '/remote-mcp', toru, {
     orgId: ORG, name: 'Workflow knowledge', endpoint: 'https://workflow-mcp.example.com/mcp', headers: [],
   });
   expect(response.status).toBe(201);
   const { server } = await response.json();
-  await env.DB.prepare(`UPDATE hx_remote_mcp_servers SET tools_json=?1, allowed_tools=?2, connected_at=?3
-    WHERE org_id=?4 AND id=?5`)
-    .bind(JSON.stringify(tools), JSON.stringify(allowedTools), new Date().toISOString(), ORG, server.id).run();
+  await env.DB.prepare(`UPDATE hx_remote_mcp_servers SET tools_json=?1, allowed_tools=?2, write_tools=?3, connected_at=?4
+    WHERE org_id=?5 AND id=?6`)
+    .bind(JSON.stringify(tools), JSON.stringify(allowedTools), JSON.stringify(writeTools), new Date().toISOString(), ORG, server.id).run();
   return server;
 }
 
@@ -1561,6 +1561,62 @@ test('a direct Workflow Remote MCP step calls only its explicitly granted tool a
     expect(result.status).toBe('done');
     expect(result.log[0]).toMatchObject({ type: 'connection', status: 'ok', output: 'Policy source result' });
     expect(dispatched).toMatchObject({ name: 'search_policy', arguments: { query: 'retention' } });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+});
+
+
+test('write-capable Remote MCP tools require an exact Agent grant and an immediately preceding approval before dispatch', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Workflow writer', handle: 'workflow-writer', instructions: 'Write only when approved.', scope: 'team',
+  })).json();
+  const server = await addWorkflowRemoteMcpServer([
+    { name: 'create_ticket', title: 'Create ticket', inputSchema: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'], additionalProperties: false }, annotations: { readOnlyHint: false } },
+  ], ['create_ticket'], ['create_ticket']);
+  const policy = await send('PUT', `/remote-mcp/${server.id}/tools`, toru, { orgId: ORG, allowedTools: ['create_ticket'], writeTools: ['create_ticket'] });
+  expect(policy.status).toBe(200);
+  expect((await policy.json()).server.writeTools).toEqual(['create_ticket']);
+  const invalidPolicy = await send('PUT', `/remote-mcp/${server.id}/tools`, toru, { orgId: ORG, allowedTools: [], writeTools: ['create_ticket'] });
+  expect(invalidPolicy.status).toBe(400);
+  const { setAgentRemoteMcpTool, agentRemoteMcpTools, setAgentRemoteMcpConnection, mayUseAgentRemoteMcp } = await import('../src/harness/agentRemoteMcp.js');
+  await setAgentRemoteMcpConnection(env, { orgId: ORG, agentId: agent.id, session: { github_id: '9302' }, serverId: server.id, enabled: true });
+  expect(await mayUseAgentRemoteMcp(env, { orgId: ORG, agentId: agent.id, session: { github_id: '9302' }, serverId: server.id, toolName: 'create_ticket' })).toBe(false);
+  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId: agent.id, session: { github_id: '9302' } })).toEqual([]);
+  await env.DB.prepare('DELETE FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND server_id=?3').bind(ORG, agent.id, server.id).run();
+  const granted = await setAgentRemoteMcpTool(env, { orgId: ORG, agentId: agent.id, session: { github_id: '9302' }, serverId: server.id, toolName: 'create_ticket', enabled: true });
+  expect(granted.error).toBeUndefined();
+  expect(granted.connections.find(item => item.serverId === server.id).tools).toMatchObject([{ name: 'create_ticket', enabled: true, requiresApproval: true }]);
+  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId: agent.id, session: { github_id: '9302' } })).toEqual([]);
+  const { createWorkflow, startRun, settleWorkflowApproval } = await import('../src/harness/workflows.js');
+  const action = { type: 'connection', agentId: agent.id, source: 'remote_mcp', serverId: server.id, toolName: 'create_ticket', args: { title: '{{input.title}}' } };
+  const rejected = await createWorkflow(env.DB, ORG, { name: 'Unsafe workflow', trigger: { type: 'manual' }, steps: [action] }, '9302');
+  expect(rejected.error).toContain('immediately follow an approval');
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: 'Approved ticket', trigger: { type: 'manual' }, steps: [
+    { type: 'approval', to: 'toru', title: 'Create this ticket?', summary: 'Review the exact ticket details.' }, action,
+  ] }, '9302');
+  expect(workflow.error).toBeUndefined();
+  let dispatched = 0;
+  const endpoint = fetchMock.get('https://workflow-mcp.example.com');
+  const rpc = opts => JSON.parse(opts.body);
+  fetchMock.activate();
+  endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'initialize' })
+    .reply(opts => ({ statusCode: 200, data: { jsonrpc: '2.0', id: rpc(opts).id, result: { protocolVersion: '2025-06-18' } }, responseOptions: { headers: { 'mcp-session-id': 'write-workflow-session' } } }));
+  endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'notifications/initialized' }).reply(202, null);
+  endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'tools/call' })
+    .reply(opts => { dispatched++; expect(rpc(opts).params).toMatchObject({ name: 'create_ticket', arguments: { title: 'Investigate outage' } }); return { statusCode: 200, data: { jsonrpc: '2.0', id: rpc(opts).id, result: { content: [{ type: 'text', text: 'Ticket created' }] } } }; });
+  try {
+    const waiting = await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302', input: { title: 'Investigate outage' } });
+    expect(waiting.status).toBe('waiting');
+    const { getCard } = await import('../src/db.js');
+    const card = await getCard(env.DB, ORG, waiting.cardId);
+    expect(card.context).toContain('create_ticket');
+    expect(card.context).toContain('Investigate outage');
+    expect(dispatched).toBe(0);
+    const done = await settleWorkflowApproval(env, ORG, { ...card, status: 'approved', decision: { action: 'approve', actorUserID: 'toru', decidedAt: new Date().toISOString() } });
+    console.log('APPROVED_WRITE_RESULT', JSON.stringify(done));
+    expect(done.status).toBe('done');
+    expect(dispatched).toBe(1);
+    expect(done.log[1]).toMatchObject({ type: 'connection', status: 'ok', output: 'Ticket created' });
     fetchMock.assertNoPendingInterceptors();
   } finally { fetchMock.deactivate(); }
 });

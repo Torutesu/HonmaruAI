@@ -2048,6 +2048,7 @@ CREATE TABLE IF NOT EXISTS hx_remote_mcp_servers (
   oauth_client TEXT,
   tools_json TEXT NOT NULL DEFAULT '[]',
   allowed_tools TEXT NOT NULL DEFAULT '[]',
+  write_tools TEXT NOT NULL DEFAULT '[]',
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,

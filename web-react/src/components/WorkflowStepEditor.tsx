@@ -76,13 +76,13 @@ export function StepEditor({ api, step, onChange, onRemove, tables, agents, trig
               {mcpConnections.filter(server=>server.tools?.some(tool=>tool.enabled)).map(server=><option key={server.serverId} value={server.serverId}>{server.name}</option>)}
             </select>
             {step.serverId&&<select aria-label={t('Remote MCP tool')} value={step.toolName||''} onChange={event=>set({toolName:event.target.value,args:{}})}>
-              <option value="">{t('Choose a read-only tool')}</option>
-              {mcpConnections.find(server=>server.serverId===step.serverId)?.tools?.filter(tool=>tool.enabled).map(tool=><option key={tool.name} value={tool.name}>{tool.title}</option>)}
+              <option value="">{t('Choose an enabled tool')}</option>
+              {mcpConnections.find(server=>server.serverId===step.serverId)?.tools?.filter(tool=>tool.enabled).map(tool=><option key={tool.name} value={tool.name}>{tool.title}{tool.requiresApproval?` · ${t('approval required')}`:''}</option>)}
             </select>}
             {step.toolName&&<textarea className="context-input hx-workflow-mcp-arguments" rows={5} placeholder={'{}'} value={argsText} onChange={event=>{setArgsText(event.target.value);try{const parsed=JSON.parse(event.target.value);if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))set({args:parsed})}catch{}}} aria-label={t('Remote MCP arguments (JSON)')} />}
             {mcpError&&<p role="alert" className="form-error">{mcpError}</p>}
-            {!mcpBusy&&!mcpError&&step.agentId&&mcpConnections.every(server=>!server.tools?.some(tool=>tool.enabled))&&<div className="row-sub">{t('Grant this Agent a specific read-only Remote MCP tool in its Connections tab before using it here.')}</div>}
-            <div className="row-sub">{t('Calls only the selected, granted, read-only tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.')}</div>
+            {!mcpBusy&&!mcpError&&step.agentId&&mcpConnections.every(server=>!server.tools?.some(tool=>tool.enabled))&&<div className="row-sub">{t('Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.')}</div>}
+            <div className="row-sub">{t('Calls only the selected tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.')}</div>{mcpConnections.find(server=>server.serverId===step.serverId)?.tools?.find(tool=>tool.name===step.toolName)?.requiresApproval&&<div className="form-note">{t('This tool can write to an external service. Add an Approval step immediately before it. The approver will see the tool name and rendered arguments.')}</div>}
           </>:<>
             <textarea className="context-input" rows={2} placeholder={t('Search query')} value={step.query || ''} onChange={(e) => set({ query: e.target.value, action: 'search' })} aria-label={t('Search query')} />
             <div className="row-sub">{t('Uses the selected Agent’s current connection grant. Read-only search; writes are not available.')}</div>

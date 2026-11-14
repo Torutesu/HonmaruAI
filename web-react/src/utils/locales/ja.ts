@@ -3841,7 +3841,19 @@ const table: Record<string, string> = {
   'This follow-up is still running. Try again if it has not finished within 30 minutes.': 'このフォローアップはまだ実行中です。30分たっても終わらない場合は、もう一度お試しください。',
   'Cancel this run? It is waiting for approval. Its approval card will close and no later step will run.': 'この実行をキャンセルしますか？承認待ちです。承認カードは閉じられ、以降のステップは実行されません。',
   'This run changed before it could be cancelled. Its current status is shown below.': 'キャンセルする前にこの実行の状態が変わりました。現在の状態を下に表示しています。',
+  'Read-only tools can be used in Agent conversations. Write tools are granted individually and run only in Workflows after approval.': 'Agentの会話では読み取り専用ツールを使えます。書き込みツールは個別許可が必要で、承認後のWorkflowでのみ実行されます。',
   'Keep waiting': '待機を続ける',
+  'Only workspace-approved tools marked read-only are available. Choose each tool this Agent may use in your private conversations.': 'ワークスペースが許可した読み取り専用ツールはAgentの会話で使えます。書き込みツールは個別に許可し、承認後のWorkflowでのみ実行します。',
+  'Workflow approval required': 'Workflowでの承認が必要',
+  'Choose an enabled tool': '有効なツールを選択',
+  'approval required': '承認が必要',
+  'This tool can write to an external service. Add an Approval step immediately before it. The approver will see the tool name and rendered arguments.': 'このツールは外部サービスに書き込みます。直前に承認ステップを追加してください。承認者にはツール名と展開後の引数が表示されます。',
+  'Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.': 'ここで使う前に、Agentの接続タブでRemote MCPツールを個別に許可してください。',
+  'Calls only the selected tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.': '選択したツールだけを呼び出します。Workerは各リクエストの前後にスキーマと権限を再確認します。引数に認証情報を含めないでください。',
+  'Require approval for Workflow writes from {tool}': '{tool}のWorkflow書き込みに承認を必須にする',
+  'Allow Workflow writes · requires approval': 'Workflowからの書き込みを許可 · 承認必須',
+  'Choose the tools this Agent needs. Write tools require Workflow approval and never run in chat.': 'Agentに必要なツールを選択します。書き込みツールはWorkflowでの承認が必要で、チャットからは実行されません。',
+  'This server has no workspace-approved tools. A workspace admin can refresh its tool list in Tools → Apps.': 'このサーバーにはワークスペースで許可されたツールがありません。管理者は「ツール → アプリ」で一覧を更新できます。',
 }
 
 export default table
