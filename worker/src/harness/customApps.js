@@ -55,11 +55,18 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
     // Restoring a release creates a new draft. Its prior GitHub approval does not
     // transfer: republishing still uses the normal current-version approval gate.
     if (input.action === 'restore_release') delete custom.draftCommit;
+  } else if (input.action === 'bind_git_repo') {
+    const binding=trusted.gitDraft;
+    if(!binding||typeof binding.owner!=='string'||typeof binding.repo!=='string'||typeof binding.defaultBranch!=='string'||typeof binding.branch!=='string'||typeof binding.path!=='string')return {error:'Choose a GitHub repository with write access.',status:400};
+    custom.gitDraft={...binding,boundAt:new Date().toISOString(),boundBy:String(by)};
+  } else if (input.action === 'unbind_git_repo') {
+    delete custom.gitDraft;
   } else if (input.action === 'draft') {
     if (!validateSource(input.html)) return { error: 'HTML source must contain 1–120000 characters.', status: 400 };
     custom.draft = input.html;
     if (trusted.commit) custom.draftCommit = { ...trusted.commit, appVersion: nextVersion };
     else delete custom.draftCommit;
+    if(trusted.gitDraftHeadSha&&custom.gitDraft)custom.gitDraft={...custom.gitDraft,headSha:trusted.gitDraftHeadSha};
   } else if (input.action === 'publish') {
     if (!validateSource(custom.draft)) return { error: 'Save a draft before publishing.', status: 400 };
     if (custom.draft.length > MAX_PREVIEW_SOURCE) return { error: `Shorten the draft to ${MAX_PREVIEW_SOURCE} characters or fewer before previewing and publishing.`, status: 400 };
@@ -85,14 +92,25 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
   const version = nextVersion;
   const stoppedRelease = crypto.randomUUID();
   // Both statements run in a D1 transaction; the snapshot is inserted only when CAS won.
-  const updateSql=`UPDATE hx_apps SET definition = ?1, version = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5 AND version = ?6${input.action==='publish'?' AND '+previewCandidateExistsSql('?7','?4','?5','?6','?8'):''}`;
   const updateArgs=[JSON.stringify(definition), version, at, app.id, orgId, app.version];
   if(input.action==='publish')updateArgs.push(input.candidateId,await sourceHash(custom.draft));
+  const actorParam=trusted.actorId?`?${updateArgs.length+1}`:null;
+  const editorGuard=actorParam?` AND EXISTS(SELECT 1 FROM hx_apps current
+    JOIN memberships m ON m.org_id=current.org_id AND m.user_github_id=${actorParam}
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+    LEFT JOIN hx_app_access access ON access.org_id=current.org_id AND access.app_id=current.id
+    LEFT JOIN hx_app_person_access person ON person.org_id=current.org_id AND person.app_id=current.id AND person.user_github_id=${actorParam}
+    WHERE current.org_id=?5 AND current.id=?4 AND current.deleted_at IS NULL AND (
+      current.created_by=${actorParam} OR person.permission='edit'
+      OR (person.user_github_id IS NULL AND COALESCE(access.visibility,'workspace')='workspace' AND LOWER(TRIM(m.role)) IN ('owner','admin'))
+    ))`:'';
+  if(trusted.actorId)updateArgs.push(String(trusted.actorId));
+  const updateSql=`UPDATE hx_apps SET definition = ?1, version = ?2, updated_at = ?3 WHERE id = ?4 AND org_id = ?5 AND version = ?6${input.action==='publish'?' AND '+previewCandidateExistsSql('?7','?4','?5','?6','?8'):''}${editorGuard}`;
   const result = await db.batch([
     db.prepare(updateSql).bind(...updateArgs),
     db.prepare('INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE changes() = 1')
       .bind(app.id, orgId, version, JSON.stringify({ ...definition, name: app.name, columns: table.columns }), trusted.commit ? `Custom app: GitHub commit ${trusted.commit.owner}/${trusted.commit.repo}@${trusted.commit.sha}` : `Custom app: ${input.action}`, String(by), at),
-    ...((input.action === 'draft' || input.action === 'restore' || input.action === 'restore_release') ? [
+    ...((input.action === 'draft' || input.action === 'restore' || input.action === 'restore_release' || input.action === 'bind_git_repo' || input.action === 'unbind_git_repo') ? [
       db.prepare("UPDATE hx_app_publish_approvals SET status='revoked',reviewed_at=?1 WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved') AND consumed_at IS NULL AND draft_version<?4").bind(at,orgId,app.id,version),
       db.prepare(`UPDATE hx_app_commit_approvals SET status='revoked',reviewed_at=?1
         WHERE org_id=?2 AND app_id=?3 AND status IN ('pending','approved') AND consumed_at IS NULL
@@ -118,6 +136,6 @@ export async function saveCustomRelease(db, orgId, app, input, by, trusted = {})
         .bind(orgId,app.id,stoppedRelease),
     ] : []),
   ]);
-  if (!result[0]?.meta?.changes) return { error: 'This app changed. Reload before saving.', status: 409 };
+  if (!result[0]?.meta?.changes) return { error: trusted.actorId?'Your access or the app changed. Reload before saving.':'This app changed. Reload before saving.', status: 409 };
   return { saved: true, version };
 }
