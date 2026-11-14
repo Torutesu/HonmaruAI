@@ -7,20 +7,28 @@ const err = (error, status=400) => ({ error, status });
 const nameOK = n => typeof n === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(n);
 const codeOK = c => typeof c === 'string' && c.trim() && c.length <= 40000;
 export async function actions(db, orgId, appId) {
-  const { results } = await db.prepare('SELECT name,version,draft,published,published_version AS publishedVersion,updated_at AS updatedAt FROM hx_app_actions WHERE org_id=?1 AND app_id=?2 ORDER BY name').bind(orgId,appId).all();
+  const { results } = await db.prepare(`SELECT name,version,draft,COALESCE(draft_language,'javascript') AS language,published,
+    COALESCE(published_language,draft_language,'javascript') AS publishedLanguage,published_version AS publishedVersion,updated_at AS updatedAt
+    FROM hx_app_actions WHERE org_id=?1 AND app_id=?2 ORDER BY name`).bind(orgId,appId).all();
   return { actions: results || [] };
 }
-export async function generateAction(prompt, complete) {
+export async function generateAction(prompt, complete, language='javascript') {
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length>4000) return err('Describe the action in 1–4000 characters.');
+  if (!['javascript','typescript'].includes(language)) return err('Choose JavaScript or TypeScript.');
   if (!complete) return err('AI generation is unavailable within the current allowance.',503);
   try {
-    const raw=await complete('Return JSON {"name":"lowercase_action_name","code":"JavaScript async function body"}. The code MUST be a function BODY, for example: return input.a + input.b; The body receives input and a read-only env object containing this app\'s configured secrets. Use env.KEY only when the app owner configured that key; never return, log, or include a secret in an error. Do not declare an outer function or export. Return a JSON value. Run calculations, transformations or validation. No network, filesystem, process, imports, database access or external dependencies. Use only JavaScript built-ins. Maximum runtime 60 seconds. Code is reviewed and explicitly published before execution.',prompt);
+    const contract=language==='typescript'
+      ? 'Return a standalone TypeScript module exporting one default async function: export default async function(input: unknown, env: Readonly<Record<string,string>>): Promise<unknown> { ... }. Return JSON {"name":"lowercase_action_name","language":"typescript","code":"..."}. Use type annotations only; do not import modules or declare dependencies. The function receives JSON input and a read-only env object containing this app\'s configured secrets. Use env.KEY only when the app owner configured that key; never return, log, or include a secret in an error. It must return a JSON value. No network, filesystem, process, database access or external dependencies. Maximum runtime 60 seconds. Code is reviewed and explicitly published before execution.'
+      : 'Return JSON {"name":"lowercase_action_name","language":"javascript","code":"JavaScript async function body"}. The code MUST be a function BODY, for example: return input.a + input.b; The body receives input and a read-only env object containing this app\'s configured secrets. Use env.KEY only when the app owner configured that key; never return, log, or include a secret in an error. Do not declare an outer function or export. Return a JSON value. Run calculations, transformations or validation. No network, filesystem, process, imports, database access or external dependencies. Use only JavaScript built-ins. Maximum runtime 60 seconds. Code is reviewed and explicitly published before execution.';
+    const raw=await complete(contract,prompt);
     const result=JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm,'').trim());
-    if (!nameOK(result.name)||!codeOK(result.code)) return err('Invalid generated action.',502);
+    result.language=result.language??language;
+    if (!nameOK(result.name)||!codeOK(result.code)||result.language!==language) return err('Invalid generated action.',502);
     // Some models return a complete function despite the body-only contract.
     // Invoke that function inside the existing sandbox; never evaluate it here.
     const source=result.code.trim();
-    if (/^(?:async\s+)?function\s+[A-Za-z_$][\w$]*\s*\(\s*input\s*\)\s*\{[\s\S]*\}\s*;?$/.test(source)) {
+    if (language==='typescript'&&!/^export\s+default\s+(?:async\s+)?function\b/.test(source)) return err('TypeScript actions must export a default function.',502);
+    if (language==='javascript'&&/^(?:async\s+)?function\s+[A-Za-z_$][\w$]*\s*\(\s*input\s*\)\s*\{[\s\S]*\}\s*;?$/.test(source)) {
       result.code=`return await (${source.replace(/;$/, '')})(input);`;
     }
     return result;
@@ -28,30 +36,32 @@ export async function generateAction(prompt, complete) {
 }
 export async function saveAction(db,orgId,appId,input,by) {
   if (!nameOK(input.name)||!Number.isSafeInteger(input.version)||input.version<0) return err('A name and current action version are required.');
+  if(input.language!==undefined&&!['javascript','typescript'].includes(input.language))return err('Choose JavaScript or TypeScript.');
   const old=await db.prepare('SELECT * FROM hx_app_actions WHERE org_id=?1 AND app_id=?2 AND name=?3').bind(orgId,appId,input.name).first();
   if ((old?.version||0)!==input.version) return err('Action changed. Reload before saving.',409);
-  let code=old?.draft, published=old?.published??null,publishedVersion=old?.published_version??null;
-  if(input.action==='draft') code=input.code;
-  else if(input.action==='publish') { published=code; publishedVersion=input.version+1; }
-  else if(input.action==='unpublish') {published=null;publishedVersion=null;}
+  let code=old?.draft, language=old?.draft_language||'javascript', published=old?.published??null,publishedLanguage=old?.published_language||old?.draft_language||'javascript',publishedVersion=old?.published_version??null;
+  if(input.action==='draft') {code=input.code;language=input.language||language;}
+  else if(input.action==='publish') { published=code;publishedLanguage=language; publishedVersion=input.version+1; }
+  else if(input.action==='unpublish') {published=null;publishedLanguage=null;publishedVersion=null;}
   else if(input.action==='restore') {
-    const prior=await db.prepare('SELECT code FROM hx_app_action_versions WHERE org_id=?1 AND app_id=?2 AND name=?3 AND version=?4').bind(orgId,appId,input.name,Number(input.restoreVersion)).first();code=prior?.code;
+    const prior=await db.prepare("SELECT code,COALESCE(language,'javascript') AS language FROM hx_app_action_versions WHERE org_id=?1 AND app_id=?2 AND name=?3 AND version=?4").bind(orgId,appId,input.name,Number(input.restoreVersion)).first();code=prior?.code;language=prior?.language||'javascript';
   } else return err('Unknown action change.');
-  if(!codeOK(code)) return err('JavaScript code must contain 1–40000 characters.');
+  if(!['javascript','typescript'].includes(language))return err('Choose JavaScript or TypeScript.');
+  if(!codeOK(code)) return err('Server action code must contain 1–40000 characters.');
   const at=new Date().toISOString(),version=input.version+1;
-  const stmt=old ? db.prepare('UPDATE hx_app_actions SET version=?4,draft=?5,published=?6,published_version=?7,updated_at=?8 WHERE org_id=?1 AND app_id=?2 AND name=?3 AND version=?9').bind(orgId,appId,input.name,version,code,published,publishedVersion,at,input.version)
-    : db.prepare('INSERT OR IGNORE INTO hx_app_actions (org_id,app_id,name,version,draft,published,published_version,updated_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE (SELECT COUNT(*) FROM hx_app_actions WHERE org_id=?1 AND app_id=?2)<20').bind(orgId,appId,input.name,version,code,published,publishedVersion,at);
-  const results=await db.batch([stmt,db.prepare('INSERT INTO hx_app_action_versions (org_id,app_id,name,version,code,created_by,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE changes()=1').bind(orgId,appId,input.name,version,code,String(by),at)]);
+  const stmt=old ? db.prepare('UPDATE hx_app_actions SET version=?4,draft=?5,draft_language=?6,published=?7,published_language=?8,published_version=?9,updated_at=?10 WHERE org_id=?1 AND app_id=?2 AND name=?3 AND version=?11').bind(orgId,appId,input.name,version,code,language,published,publishedLanguage,publishedVersion,at,input.version)
+    : db.prepare('INSERT OR IGNORE INTO hx_app_actions (org_id,app_id,name,version,draft,draft_language,published,published_language,published_version,updated_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10 WHERE (SELECT COUNT(*) FROM hx_app_actions WHERE org_id=?1 AND app_id=?2)<20').bind(orgId,appId,input.name,version,code,language,published,publishedLanguage,publishedVersion,at);
+  const results=await db.batch([stmt,db.prepare("INSERT INTO hx_app_action_versions (org_id,app_id,name,version,code,language,created_by,created_at) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE changes()=1").bind(orgId,appId,input.name,version,code,language,String(by),at)]);
   return results[0].meta?.changes?{saved:true,version}:err('Action changed or the 20-action limit was reached.',409);
 }
 export async function runAction(db,orgId,appId,input,by) {
-  const action=await db.prepare('SELECT published,published_version FROM hx_app_actions WHERE org_id=?1 AND app_id=?2 AND name=?3').bind(orgId,appId,String(input.name||'')).first();
+  const action=await db.prepare("SELECT published,published_version,COALESCE(published_language,draft_language,'javascript') AS language FROM hx_app_actions WHERE org_id=?1 AND app_id=?2 AND name=?3").bind(orgId,appId,String(input.name||'')).first();
   if(!action?.published) return err('No published action.',404);
   if(input.version!==action.published_version) return err('Published action changed. Review it before running.',409);
   if(typeof input.requestId!=='string'||! /^[\w-]{1,80}$/.test(input.requestId)) return err('A unique request ID is required.');
   // Namespaced idempotency prevents an unrelated gateway request being read through an app.
   const requestId=await digest(JSON.stringify([appId,input.name,input.version,input.requestId]));
-  const result=await enqueueExecution(db,orgId,by,{gatewayId:input.gatewayId,code:action.published,input:input.input,requestId},{appId,name:input.name,version:input.version});
+  const result=await enqueueExecution(db,orgId,by,{gatewayId:input.gatewayId,code:action.published,language:action.language,input:input.input,requestId},{appId,name:input.name,version:input.version});
   if(result.error)return result;
 
   return result;

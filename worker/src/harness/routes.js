@@ -1684,17 +1684,17 @@ export async function handleHarness(request, env, url, context = {}) {
           const history=url.searchParams.get('history');
           if(history){
             if(!canManage)return json({message:'Only its maker or an admin can read draft history.'},403);
-            const result=await env.DB.prepare('SELECT version,code,created_at AS createdAt FROM hx_app_action_versions WHERE org_id=?1 AND app_id=?2 AND name=?3 ORDER BY version DESC LIMIT 50').bind(orgId,appId,history).all();return json({versions:result.results||[]});
+            const result=await env.DB.prepare("SELECT version,code,COALESCE(language,'javascript') AS language,created_at AS createdAt FROM hx_app_action_versions WHERE org_id=?1 AND app_id=?2 AND name=?3 ORDER BY version DESC LIMIT 50").bind(orgId,appId,history).all();return json({versions:result.results||[]});
           }
           const jobId=url.searchParams.get('jobId');
           if(jobId)return respond(await readActionJob(env.DB,orgId,appId,me,jobId));
           const result=await actions(env.DB,orgId,appId);
-          return json({actions:canManage?result.actions:result.actions.filter(a=>a.published).map(({draft,...a})=>a)});
+          return json({actions:canManage?result.actions:result.actions.filter(a=>a.published).map(({draft,...a})=>({...a,language:a.publishedLanguage||'javascript'}))});
         }
         if (request.method !== 'POST') return json({message:'Method not allowed.'},405);
         if(input.action==='run')return respond(await runAction(env.DB,orgId,appId,input,me),'app.action_requested');
         if(!canManage)return json({message:'Only its maker or an admin can publish server actions.'},403);
-        if(input.action==='generate')return respond(await withGuidedGeneration(input.prompt,()=>completer(env,orgId,me,'app_action_generate',{maxTokens:6000,usageContext:{appId}}),(prompt,complete)=>generateAction(prompt,complete)));
+        if(input.action==='generate')return respond(await withGuidedGeneration(input.prompt,()=>completer(env,orgId,me,'app_action_generate',{maxTokens:6000,usageContext:{appId}}),(prompt,complete)=>generateAction(prompt,complete,input.language||'javascript')));
         return respond(await saveAction(env.DB,orgId,appId,input,me),'app.action_'+input.action);
       }
       if (sub === 'connections') {

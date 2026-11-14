@@ -607,3 +607,7 @@ ALTER TABLE hx_followups ADD COLUMN claimed_at TEXT;
 
 -- Archived apps keep their tables and records for the lifetime of the workspace.
 ALTER TABLE hx_apps ADD COLUMN deleted_at TEXT;
+-- App server actions retain the interpreter with each draft, release and history version.
+ALTER TABLE hx_app_actions ADD COLUMN draft_language TEXT NOT NULL DEFAULT 'javascript';
+ALTER TABLE hx_app_actions ADD COLUMN published_language TEXT;
+ALTER TABLE hx_app_action_versions ADD COLUMN language TEXT NOT NULL DEFAULT 'javascript';

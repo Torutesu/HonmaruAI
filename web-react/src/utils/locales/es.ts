@@ -1,6 +1,11 @@
 // The interface in es: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Execution language': 'Lenguaje de ejecución',
+  'JavaScript function body': 'Cuerpo de función JavaScript',
+  'TypeScript module (default export)': 'Módulo TypeScript (exportación predeterminada)',
+  'Server action code': 'Código de acción del servidor',
+  'App server actions run as JavaScript or TypeScript in the existing isolated Mac execution node. Inputs and outputs are JSON. The app environment is available as env.KEY. No packages, network, or host files are available.': 'Las acciones del servidor de la app se ejecutan como JavaScript o TypeScript en el nodo Mac aislado existente. Las entradas y salidas son JSON. El entorno de la app está disponible como env.KEY. No hay paquetes, red ni archivos del host.',
   'Edit text assets, replace or remove files, then save the whole package together.': 'Edita los archivos de texto, sustituye o elimina archivos y guarda el paquete completo.',
   'Add support files': 'Añadir archivos auxiliares',
   'File path': 'Ruta del archivo',
