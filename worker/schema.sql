@@ -2108,7 +2108,7 @@ CREATE TABLE IF NOT EXISTS hx_app_remote_mcp_grants (
   org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
   owner_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, source_agent_id TEXT NOT NULL,
   server_id TEXT NOT NULL, tool_name TEXT NOT NULL, granted_by TEXT NOT NULL, created_at TEXT NOT NULL,
-  PRIMARY KEY(org_id,app_id,owner_github_id,server_id,tool_name)
+  PRIMARY KEY(org_id,app_id,server_id,tool_name)
 );
 CREATE INDEX IF NOT EXISTS idx_hx_app_remote_mcp_grants_target ON hx_app_remote_mcp_grants(org_id,app_id,server_id,tool_name);
 CREATE TABLE IF NOT EXISTS hx_app_domains (org_id TEXT NOT NULL, app_id TEXT NOT NULL UNIQUE REFERENCES hx_apps(id) ON DELETE CASCADE, hostname TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK(status IN ('configuring','initializing','pending','active','deactivated','blocked','error')), validation_status TEXT NOT NULL DEFAULT 'pending', verification_status TEXT NOT NULL DEFAULT 'pending', error_message TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,app_id));

@@ -81,8 +81,8 @@ export async function changeAppRemoteMcpGrant(db, orgId, appId, actorId, input) 
       SELECT 1 FROM memberships m JOIN hx_apps a ON a.org_id=m.org_id AND a.id=?2
       WHERE m.org_id=?1 AND m.user_github_id=?3 AND m.created_at=?4 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
         AND (COALESCE((SELECT visibility FROM hx_app_access p WHERE p.org_id=a.org_id AND p.app_id=a.id),'workspace')='workspace' OR a.created_by=?3))
-    ON CONFLICT(org_id,app_id,owner_github_id,server_id,tool_name) DO UPDATE SET
-      membership_since=excluded.membership_since,source_agent_id=excluded.source_agent_id,granted_by=excluded.granted_by,created_at=excluded.created_at`)
+    ON CONFLICT(org_id,app_id,server_id,tool_name) DO UPDATE SET
+      owner_github_id=excluded.owner_github_id,membership_since=excluded.membership_since,source_agent_id=excluded.source_agent_id,granted_by=excluded.granted_by,created_at=excluded.created_at`)
     .bind(orgId, appId, String(actorId), actor.membershipSince, source.id, serverId, toolName, at).run();
   const grant = await getGrant(db, orgId, appId, serverId, toolName);
   if (!grant || grant.createdAt !== at) return err('App, Agent, or membership access changed. Reload and try again.', 409);

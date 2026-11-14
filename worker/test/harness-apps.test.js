@@ -2596,7 +2596,12 @@ test('an App can explicitly share and invoke only a source Agent read-only Remot
    expect(invoked.status,JSON.stringify(await invoked.clone().json())).toBe(200);
    expect(await invoked.json()).toMatchObject({data:{content:[{text:'approved knowledge result'}]}});
    expect(fetch).toHaveBeenCalledTimes(3);
-   const revoke=await send('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'remote_mcp_revoke',serverId,toolName:'lookup'});
+   const mikaAgentGrant=await setAgentRemoteMcpTool(env,{orgId:ORG,agentId,session:{github_id:'9102'},serverId,toolName:'lookup',enabled:true});
+   expect(mikaAgentGrant.error,JSON.stringify(mikaAgentGrant)).toBeUndefined();
+   const transferred=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_grant',serverId,toolName:'lookup'});
+   expect(transferred.status,JSON.stringify(await transferred.clone().json())).toBe(200);
+   expect(await env.DB.prepare('SELECT owner_github_id AS ownerId FROM hx_app_remote_mcp_grants WHERE org_id=? AND app_id=? AND server_id=? AND tool_name=?').bind(ORG,app.id,serverId,'lookup').first()).toEqual({ownerId:'9102'});
+   const revoke=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_revoke',serverId,toolName:'lookup'});
    expect(revoke.status).toBe(200);
    const blocked=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_request',serverId,toolName:'lookup',args:{query:'secret'}});
    expect(blocked.status).toBe(403);
