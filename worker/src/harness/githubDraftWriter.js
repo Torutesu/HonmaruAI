@@ -301,3 +301,17 @@ export async function inspectGitHubAppDraftRepository(sessionToken, input) {
   const resolved = await resolveBinding(token, normalized);
   return resolved.error ? resolved.error : { ok: true, ...resolved.binding };
 }
+
+/** Read the current generated draft branch without writing Git objects or refs. */
+export async function readGitHubAppDraftHead(sessionToken, input) {
+  const token = typeof sessionToken === 'string' && sessionToken.trim() && sessionToken !== 'email-auth' ? sessionToken : null;
+  if (!token) return error('Connect a GitHub account before reading an app draft.', 403);
+  const normalized = normalizedBindingInput(input);
+  if (!normalized) return error('Choose a repository and a safe app ID.', 400);
+  const resolved = await resolveBinding(token, normalized);
+  if (resolved.error) return resolved.error;
+  const binding = resolved.binding;
+  const ref = await resolveRef(token, repoRoot(binding.owner, binding.repo), binding.branch);
+  if (!ref.ok || !validSha(ref.data?.object?.sha)) return apiError(ref, 'The generated app draft branch could not be read.');
+  return { ok: true, ...binding, commitSha: ref.data.object.sha.toLowerCase() };
+}
