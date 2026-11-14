@@ -1328,6 +1328,12 @@
           "scope": "File/App reusable sign-in links store only a SHA-256 token hash, return the raw token once, require an authenticated nonmember, support expiry and revocation, and revoke only grants minted through the selected link. Simple mode remains outside this Harness grant flow.",
           "verification": "PR exact-head CI 43226278325 passed; main CI 43228926457 passed; Worker D1 migration/deploy/Verify 43228926509 and Web Pages/domain verification 43228926470 passed. This turn also reran 367 focused Worker tests, 115 Web tests, the Web production build, and the 109-requirement inventory consistency check successfully.",
           "remaining": "Separate-account production redemption/revocation and direct Kylon interaction comparison remain."
+        },
+        "latestThreadRoomGuard": {
+          "release": "Local implementation on codex/kylon-external-collaborator-scope-batch; exact-head CI, merge and deployment are pending.",
+          "scope": "Thread Room audiences now require the referenced Room to remain present, unarchived and without a deletion tombstone in both the shared SQL authorization predicate and externalThreadPermission. Existing stale conversation_members rows no longer keep an archived or deleted Room audience alive.",
+          "verification": "The batched external Thread, App, collaborator and File regression suites passed 67/67. The new Thread integration test verifies access before archive, denial after archive and tombstone deletion through both the permission helper and generated SQL predicate.",
+          "remaining": "Production multi-user acceptance, Kylon UI comparison, and the other KY-099 gaps remain open."
         }
       }
     },

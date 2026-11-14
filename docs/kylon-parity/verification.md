@@ -1,5 +1,11 @@
 # 検証記録
 
+### 2026-11-14 — Thread Room audience archive/deletion fence (local QA)
+
+- Closed the stale-membership gap in Thread Room sharing. Both `externalThreadPermission` and every caller of the shared Thread audience SQL predicate now require the target Room to still exist, remain unarchived, and have no deletion tombstone. Existing Room memberships alone cannot preserve access after archive/delete.
+- Batched Worker regressions across external Thread, App, collaborator and File grants passed **67/67**. The new integration test verifies a Room-scoped Thread is readable before archive, denied after archive and denied after a deletion tombstone through both the helper and generated SQL predicate.
+- Exact-head CI, merge and production deployment remain pending. KY-099 remains partial; cross-workspace authenticated production acceptance and direct Kylon UI comparison are still open. Simple mode is unchanged; no paid service or schema migration was added.
+
 ### 2026-11-13 — Search, budget admission and Workflow CLI batch (PR #939 released)
 
 - Added opt-in resource results to Room search in Harness mode: file body search is constrained to the exact Room scope and linked App records are searched only after current App/row ACL checks. Search results are reauthorized against current file version/deletion state, Room membership and App links before being returned. Simple-only users retain the previous message-only Room response; workspace-wide and thread-only search paths remain unchanged.
