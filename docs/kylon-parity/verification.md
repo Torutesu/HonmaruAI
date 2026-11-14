@@ -4371,3 +4371,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Added bounded Harness MCP assignment for up to five Skills and five Agents per call. Every pair rechecks Skill visibility and current Agent-manager authority, successes and failures are returned separately, and each assignment is audited. The CLI now includes `skill install`, `skill uninstall`, and confirmed `skill share` aliases.
 - Worker `harness-mcp.test.js`: **25/25** passed; CLI suite: **64/64** passed. Tests cover explicit confirmation, per-Agent permission denial, partial failure reporting, and Simple-mode exclusion. Exact-head CI, merge, and production deployment are pending. No schema change or paid service was added.
+
+### 2026-11-14 — Reconcile Thread Room guard release and App source privacy
+
+- PR #987 merged as `df2f244b921389463d608513933f41153aae8af5`. Exact-head CI #43547376216 passed required Worker shards, E2E, iOS, Windows Edge, Web, Desktop and Gateway jobs. Main CI #43549057275 and Worker deploy/Verify #43549057273 succeeded; production Worker `410772bf-c9a1-4889-91da-9bab0c5c117f` reported `ok:true` and encryption `all:true`. This supersedes the earlier local/pending status for KY-099 `latestThreadRoomGuard`.
+- Added regression coverage that App templates created from direct and group conversations inherit private visibility and remain unreadable to a different participant. The complete `harness-apps.test.js` suite passed 170/170. This protects the existing private-by-default behavior for non-room sources; no new runtime behavior was needed.
+- Authenticated multi-user production acceptance and direct Kylon comparison remain open. Simple mode, database schema and paid-service configuration are unchanged.
