@@ -761,13 +761,14 @@ test('Room Agent file tools are bound to the current Room and recheck placement 
  await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since) VALUES(?1,?2,'9401','member','9402','now',?3)").bind(ORG,agentId,toruMembership.created_at).run();
  await env.DB.prepare('INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES(?1,?2,?3,\'9401\',\'now\')').bind(ORG,channel,agentId).run();
  const context={orgId:ORG,session:{github_id:'9401',token:'room-token'},personal:false,ownAgentsOnly:false,fileScope:channel,taint:{value:false},fileProposalAgentId:agentId,sourceMessageId:'room-source',managedRoom:true};
- const tools=await fileAgentTools(env,context);
+ const tools=await fileAgentTools({...env,APP_WEB_URL:'https://workspace.example.test/app/'},context);
  expect(tools.create_file_text).toBeDefined();expect(tools.update_file_text).toBeDefined();
  expect(tools.delete_file).toBeUndefined();expect(tools.restore_file_version).toBeUndefined();expect(tools.create_file_upload).toBeUndefined();
  expect(tools.create_file_text.parameters.properties.scope).toBeUndefined();
  const requestId=`file-${crypto.randomUUID()}`;
  const created=JSON.parse(await tools.create_file_text.run({scope:'workspace',requestId,path:'handoff.md',text:'Room notes v1',contentType:'text/markdown'}));
- expect(created).toMatchObject({saved:true,version:1});
+ expect(created).toMatchObject({saved:true,version:1,openUrl:expect.any(String)});
+ const roomFileUrl=new URL(created.openUrl);expect(roomFileUrl.origin).toBe('https://workspace.example.test');expect(roomFileUrl.pathname).toBe('/app/');expect(roomFileUrl.search).toBe('');expect(roomFileUrl.hash).toContain(`#/c/${encodeURIComponent(channel)}?org=${encodeURIComponent(ORG)}&file=${requestId}`);
  expect((await env.DB.prepare('SELECT scope FROM hx_workspace_files WHERE org_id=?1 AND id=?2').bind(ORG,requestId).first()).scope).toBe(channel);
  expect(JSON.parse(await tools.read_file_text.run({fileId:requestId,version:1})).text).toBe('Room notes v1');
  const updated=JSON.parse(await tools.update_file_text.run({fileId:requestId,expectedVersion:1,text:'Room notes v2'}));
@@ -788,6 +789,11 @@ test('conversation file links use configured deployments and exclude inherited c
  const url=new URL(conversationFileUrl('http://localhost:4173/app/?token=secret#old',target));
  expect(url.origin).toBe('http://localhost:4173');expect(url.pathname).toBe('/app/');expect(url.search).toBe('');
  expect(url.hash).toBe('#/c/ag%3Awriter?org=team%3Afiles&file=file-123');
+ for(const fileScope of ['b:planning','g:group-id']){
+  const roomUrl=new URL(conversationFileUrl('https://workspace.example.test/app/',{...target,fileScope}));
+  expect(roomUrl.hash).toBe(`#/c/${encodeURIComponent(fileScope)}?org=team%3Afiles&file=file-123`);
+ }
+ for(const fileScope of ['workspace','dm:toru|mika','ag:writer','b:bad|scope'])expect(conversationFileUrl('https://workspace.example.test/',{...target,fileScope})).toBeNull();
  for(const address of [undefined,'invalid','javascript:alert(1)','https://user:password@example.test'])expect(conversationFileUrl(address,target)).toBeNull();
 });
 

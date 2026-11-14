@@ -33,7 +33,7 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
   const actor={orgId,githubId:userId,login:user.login,name:user.name,agentName:currentAgent.name,source:'conversation',fileRoomWrite:{agentId:currentAgent.id,channel:fileScope}};
   const tools=Object.fromEntries([...FILE_READ_TOOLS,...FILE_WRITE_TOOLS.filter(t=>['create_file_text','update_file_text'].includes(t.name))].map(tool=>{
    const {scope:unused,...properties}=tool.inputSchema.properties;
-   return [tool.name,{description:tool.description+' This tool is bound to the current Room; never provide or request another scope.',parameters:{...tool.inputSchema,properties,required:tool.inputSchema.required.filter(key=>key!=='scope')},strict:false,
+   return [tool.name,{description:tool.description+' This tool is bound to the current Room; never provide or request another scope. After saving, include the returned openUrl as a Markdown link so Room members can open the file.',parameters:{...tool.inputSchema,properties,required:tool.inputSchema.required.filter(key=>key!=='scope')},strict:false,
     run:async(args={})=>{
      if(!await current())return JSON.stringify({error:'This Room Agent is no longer available.'});
      if(!args||typeof args!=='object'||Array.isArray(args))return JSON.stringify({error:'Invalid file arguments.'});
@@ -44,6 +44,10 @@ export async function fileAgentTools(env,{orgId,session,personal,ownAgentsOnly,f
      if(taint)taint.value=true;
      const input={...args,scope:fileScope};
      const result=FILE_WRITE_TOOLS.some(t=>t.name===tool.name)?await callFileWriteTool(env,actor,tool.name,input):await callFileReadTool(env,actor,tool.name,input);
+     if(result.structuredContent?.saved&&result.structuredContent.fileId){
+      const openUrl=conversationFileUrl(env.APP_WEB_URL,{orgId,fileScope,fileId:result.structuredContent.fileId});
+      if(openUrl)result.structuredContent={...result.structuredContent,openUrl};
+     }
      return JSON.stringify(result.structuredContent||{error:result.content?.[0]?.text||'File operation failed.'});
     }}];
   }));
@@ -109,8 +113,14 @@ export function conversationFileUrl(webUrl,{orgId,fileScope,fileId}){
  try{
   const url=new URL(webUrl);
   if(!['https:','http:'].includes(url.protocol)||url.username||url.password)return null;
-  const channel=fileScope.slice(0,fileScope.lastIndexOf('|'));
-  if(!channel.startsWith('ag:')||channel.length<=3)return null;
+  if(typeof fileScope!=='string'||typeof orgId!=='string'||typeof fileId!=='string'||fileScope.length>300||/[\u0000-\u001f\u007f]/.test(fileScope))return null;
+  let channel=fileScope;
+  if(fileScope.startsWith('ag:')){
+   const match=/^ag:[\w-]{1,80}\|[\w-]{1,100}$/.exec(fileScope);
+   if(!match)return null;
+   channel=fileScope.slice(0,fileScope.indexOf('|'));
+  }else if((!fileScope.startsWith('b:')&&!fileScope.startsWith('g:'))||fileScope.includes('|')||/\s/.test(fileScope))return null;
+  if(channel.length<=3)return null;
   url.search='';url.hash=`/c/${encodeURIComponent(channel)}?${new URLSearchParams({org:orgId,file:fileId})}`;
   return url.toString();
  }catch{return null;}
