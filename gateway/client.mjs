@@ -3,6 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { runIsolated } from './runner.mjs';
 import {runWorkflowIsolated,WORKFLOW_EXECUTION_TIMEOUT_MS} from './workflow-runner.mjs';
 import {runAcp,configuredAcpAgentIds} from './acp.mjs';
+import {runBrowserSessionAction} from './browser-session.mjs';
 
 export function gatewayClient(baseUrl, token, fetcher = fetch) {
   const base = new URL(baseUrl);
@@ -60,10 +61,13 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
       // Workflow programs use the documented fifteen-minute execution cap;
       // the Worker keeps a separate 30-second result-delivery grace period.
       // ACP jobs retain their 110-second cap inside a 120-second lease.
-      const timeoutCap=job.workflow===true?WORKFLOW_EXECUTION_TIMEOUT_MS:job.payload?.acp===true?110000:60000;
+      const timeoutCap=job.workflow===true?WORKFLOW_EXECUTION_TIMEOUT_MS:job.payload?.browserTools===true?270000:job.payload?.acp===true?110000:60000;
       const options={timeoutMs:Math.min(job.timeoutMs||timeoutCap,timeoutCap),signal:cancel.signal};
       result=job.payload?.acp===true
         ? await runAcpAgent(job.payload,{...options,acpAgents,
+          browserCall: job.payload?.browserTools===true
+            ? (action,{signal}={}) => runBrowserSessionAction({workspaceId:job.payload.workspaceId,agentId:job.payload.browserIdentity,action,signal})
+            : undefined,
           onProgress: progress => call(`jobs/${job.id}/progress`,{lease:job.lease,progress},{signal:cancel.signal}),
           mcpCall: job.payload?.workspaceTools === true
             ? async (method,params) => (await call(`jobs/${job.id}/mcp`,{lease:job.lease,method,params},{signal:cancel.signal})).result

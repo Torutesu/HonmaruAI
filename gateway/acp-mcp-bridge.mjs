@@ -20,11 +20,15 @@ async function relay(method, params = {}) {
     redirect: 'error',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ method, params }),
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(messageMethodTimeout(method, params)),
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : 'Workspace tool request failed.');
   return body;
+}
+
+function messageMethodTimeout(method, params) {
+  return method === 'tools/call' && typeof params?.name === 'string' && params.name.startsWith('browser.') ? 260000 : 20000;
 }
 
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });

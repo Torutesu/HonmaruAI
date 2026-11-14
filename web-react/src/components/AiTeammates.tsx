@@ -25,6 +25,7 @@ interface Teammate {
   repos: string[]; model: string; instructions: string; channels: string[] | null
   monthlyLimit: number | null; spentThisMonth: number; tools: Tool[]; ready: boolean
   workspaceTools: boolean
+  browserTools: boolean
   /// Claude: an issue link or a bug report posted in a channel starts it.
   autoBuild?: boolean
   gatewayId: string; agentKey: string; webhookUrl: string; completionMcpUrl: string
@@ -35,7 +36,7 @@ interface Gateway { id: string; name: string; lastSeenAt?: number | null; acpAge
 interface Draft {
   apiKey: string; githubToken: string; account: string; model: string; instructions: string; repos: string
   everywhere: boolean; channels: Set<string>; limit: string; tools: Tool[]; autoBuild: boolean
-  gatewayId: string; agentKey: string; workspaceTools: boolean; webhookUrl: string
+  gatewayId: string; agentKey: string; workspaceTools: boolean; browserTools: boolean; webhookUrl: string
 }
 
 const draftOf = (tm: Teammate): Draft => ({
@@ -44,7 +45,7 @@ const draftOf = (tm: Teammate): Draft => ({
   limit: tm.monthlyLimit === null ? '' : String(tm.monthlyLimit), tools: tm.tools.map((x) => ({ ...x, secretValue: '' })),
   autoBuild: tm.autoBuild !== false,
   gatewayId: tm.gatewayId || '', agentKey: tm.agentKey || '',
-  workspaceTools: tm.workspaceTools === true, webhookUrl: tm.webhookUrl || '',
+  workspaceTools: tm.workspaceTools === true, browserTools: tm.browserTools === true, webhookUrl: tm.webhookUrl || '',
 })
 
 export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionToken: string }> = ({ httpBase, orgId, sessionToken }) => {
@@ -116,7 +117,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
     if (tm.models.length || tm.freeModel) body.model = draft.model
     if (tm.needs.account) body.account = draft.account
     if (tm.needs.gateway) { body.gatewayId = draft.gatewayId; body.agentKey = draft.agentKey }
-    if (tm.needs.gateway) body.workspaceTools = draft.workspaceTools
+    if (tm.needs.gateway) { body.workspaceTools = draft.workspaceTools; body.browserTools = draft.browserTools }
     if (tm.needs.webhookBot) body.webhookUrl = draft.webhookUrl.trim()
     if (tm.needs.tools) body.tools = draft.tools.map((x) => ({ name: x.name, secretName: x.secretName, host: x.host, ...(x.secretValue?.trim() ? { secretValue: x.secretValue.trim() } : {}) }))
     if (draft.apiKey.trim()) body.apiKey = draft.apiKey.trim()
@@ -214,6 +215,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
             </label>
             <label className="teammate-field">
               <span><input type="checkbox" disabled={off || !harnessMode} checked={draft.workspaceTools} onChange={(e) => set({ workspaceTools: e.target.checked })} data-teammate-workspace-tools /> {t('Allow this ACP agent to read Workspace data')}</span>
+              <span><input type="checkbox" disabled={off || !harnessMode} checked={draft.browserTools} onChange={(e) => set({ browserTools: e.target.checked })} data-teammate-browser-tools /> {t('Allow this ACP agent to use its isolated browser')}</span>
               {!harnessMode && <small>{t('Workspace MCP tools are available in Harness mode only.')}</small>}
               <small>{t('When enabled, it can read apps, tables, and workflows the person who asked may access. Their contents are sent to the local ACP agent and its existing provider. Read-only; writes and external MCP connections stay disabled.')}</small>
             </label>

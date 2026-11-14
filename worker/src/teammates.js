@@ -155,6 +155,7 @@ export function toClientTeammate(t, provider, spentCents = 0, canRevealWebhookUr
     webhookUrl: canRevealWebhookUrl ? (t?.remote?.webhookUrl || "") : "",
     completionMcpUrl: p.webhookBot && canRevealWebhookUrl ? completionMcpUrl : "",
     workspaceTools: Boolean(t?.remote?.workspaceTools),
+    browserTools: Boolean(t?.remote?.browserTools),
     repos: t?.repos || [], model: t?.model || p.defaultModel || "", instructions: t?.instructions || "",
     channels: t?.channels ?? null,
     autoBuild: t ? t.autoBuild !== false : true,
@@ -174,11 +175,13 @@ function cleanInput(input, current, provider) {
     const gatewayId = String(input.gatewayId ?? current?.remote?.gatewayId ?? "").trim();
     const agentKey = String(input.agentKey ?? current?.remote?.agentKey ?? "").trim();
     if (input.workspaceTools !== undefined && typeof input.workspaceTools !== "boolean") return { error: "Workspace MCP access must be enabled or disabled." };
+    if (input.browserTools !== undefined && typeof input.browserTools !== "boolean") return { error: "Isolated browser access must be enabled or disabled." };
     if (gatewayId && !/^[A-Za-z0-9_-]{8,80}$/.test(gatewayId)) return { error: "Choose a registered execution node." };
     if (agentKey && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(agentKey)) return { error: "Write the local ACP agent key configured on the node." };
     out.gatewayId = gatewayId || null;
     out.agentKey = agentKey || null;
     out.workspaceTools = input.workspaceTools === undefined ? Boolean(current?.remote?.workspaceTools) : input.workspaceTools;
+    out.browserTools = input.browserTools === undefined ? Boolean(current?.remote?.browserTools) : input.browserTools;
   }
   if (p.webhookBot && input.webhookUrl !== undefined) {
     const raw = String(input.webhookUrl || "").trim();
@@ -639,6 +642,7 @@ async function queueAcpPrompt(env, t, { orgId, requesterId, task, sessionId = nu
   const queued = await enqueueAcpExecution(env.DB, orgId, requesterId, {
     gatewayId: t.remote?.gatewayId, agentKey: t.remote?.agentKey, prompt: task, sessionId, context,
     agentId: t.agentId, workspaceTools: t.remote?.workspaceTools === true,
+    browserTools: t.remote?.browserTools === true,
   });
   if (queued.error) throw Object.assign(new Error(queued.error), { status: queued.status || 400 });
   return queued.job;
@@ -942,10 +946,10 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
     channels: current ? current.channels : null, monthlyLimitCents: current ? current.monthlyLimitCents : p.defaultLimit,
     tools: current?.tools || [], remote: current?.remote || {}, agentId: current?.agentId || null,
     autoBuild: current ? current.autoBuild !== false : true,
-    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools", "webhookUrl"].includes(k))),
+    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools", "browserTools", "webhookUrl"].includes(k))),
   };
   if (out.account !== undefined) next.remote = { ...next.remote, account: out.account };
-  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey, workspaceTools: out.workspaceTools === true };
+  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey, workspaceTools: out.workspaceTools === true, browserTools: out.browserTools === true };
   if (p.webhookBot && out.webhookUrl !== undefined) next.remote = { ...next.remote, webhookUrl: out.webhookUrl };
   if (p.githubToken && !p.keyless && next.repos.length && !next.githubToken) return { error: `Add a GitHub token so ${p.name} can reach the repositories.` };
   let toolChanges = { kept: next.tools, written: [], removed: [] };

@@ -316,20 +316,32 @@ test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks
   expect(JSON.parse(stored.payload)).not.toHaveProperty('workspaceTools');
   expect((await api('POST', `/jobs/${simple.job.id}/cancel`, member)).status).toBe(200);
   const simpleFallback = await enqueueAcpExecution(env.DB, orgId, '9502', {
-    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true,
+    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true, browserTools:true,
   });
   expect(simpleFallback.statusCode).toBe(201);
   const fallbackPayload = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(simpleFallback.job.id).first();
   expect(JSON.parse(fallbackPayload.payload)).not.toHaveProperty('workspaceTools');
+  expect(JSON.parse(fallbackPayload.payload)).not.toHaveProperty('browserTools');
   expect((await api('POST', `/jobs/${simpleFallback.job.id}/cancel`, member)).status).toBe(200);
 
   await setMode(env.DB, orgId, 'harness', '9501');
+  const browserOnly = await enqueueAcpExecution(env.DB, orgId, '9502', {
+    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Open the release notes', browserTools:true,
+  });
+  expect(browserOnly.statusCode).toBe(201);
+  stored = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(browserOnly.job.id).first();
+  expect(JSON.parse(stored.payload)).toMatchObject({acp:true,browserTools:true,browserIdentity:'local-workspace-reader',workspaceId:orgId});
+  expect(JSON.parse(stored.payload)).not.toHaveProperty('agentId');
+  const browserClaim=await claim(token,['acp-v1'],['workspace-reader']);
+  expect(browserClaim).toMatchObject({id:browserOnly.job.id,timeoutMs:270000,payload:{browserTools:true}});
+  expect((await api('POST', `/jobs/${browserOnly.job.id}/cancel`, member)).status).toBe(200);
+
   const enabled = await enqueueAcpExecution(env.DB, orgId, '9502', {
-    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true,
+    gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true, browserTools:true,
   });
   expect(enabled.statusCode).toBe(201);
   stored = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(enabled.job.id).first();
-  expect(JSON.parse(stored.payload)).toMatchObject({ acp: true, workspaceTools: true, agentId: 'acp-workspace' });
+  expect(JSON.parse(stored.payload)).toMatchObject({ acp: true, workspaceTools: true, browserTools:true, workspaceId:orgId, agentId: 'acp-workspace' });
 
   const claimed = await api('POST', '/claim', null, { capabilities: ['acp-v1'], acpAgents: ['workspace-reader'] }, token);
   const running = (await claimed.json()).job;

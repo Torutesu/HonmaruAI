@@ -109,10 +109,10 @@ export async function handleGateways(request, env, url, input) {
       const lease = secret();
       const programCapable=Array.isArray(input?.capabilities)&&input.capabilities.includes('workflow-program-v1');
       const acpCapable=Array.isArray(input?.capabilities)&&input.capabilities.includes('acp-v1');
-      const row = await db.prepare(`${workflowProgramAccessCTE('?2')} UPDATE hx_gateway_jobs SET status = 'running', lease_hash = ?3, lease_until = ?2 + 90000, deadline = ?2 + CASE WHEN json_extract(payload,'$.workflowProgram')=1 THEN ${WORKFLOW_PROGRAM_TIMEOUT_MS+WORKFLOW_PROGRAM_RESULT_GRACE_MS} ELSE 120000 END, started_at = ?2
+      const row = await db.prepare(`${workflowProgramAccessCTE('?2')} UPDATE hx_gateway_jobs SET status = 'running', lease_hash = ?3, lease_until = ?2 + 90000, deadline = ?2 + CASE WHEN json_extract(payload,'$.workflowProgram')=1 THEN ${WORKFLOW_PROGRAM_TIMEOUT_MS+WORKFLOW_PROGRAM_RESULT_GRACE_MS} WHEN json_extract(payload,'$.browserTools')=1 THEN 300000 ELSE 120000 END, started_at = ?2
         WHERE id = (SELECT id FROM hx_gateway_jobs WHERE gateway_id = ?1 AND status = 'queued'
           AND (?4=1 OR (COALESCE(json_extract(payload,'$.workflowProgram'),0)!=1 AND NOT EXISTS(SELECT 1 FROM hx_workflow_activations a WHERE a.job_id=hx_gateway_jobs.id)))
-          AND (?5=1 OR COALESCE(json_extract(payload,'$.acp'),0)!=1)
+        AND (?5=1 OR COALESCE(json_extract(payload,'$.acp'),0)!=1)
           AND (COALESCE(json_extract(payload,'$.acp'),0)!=1 OR EXISTS(SELECT 1 FROM hx_gateway_acp_agents c WHERE c.org_id=hx_gateway_jobs.org_id AND c.gateway_id=hx_gateway_jobs.gateway_id AND c.agent_key=json_extract(hx_gateway_jobs.payload,'$.agentKey')))
           ORDER BY created_at, id LIMIT 1)
         AND status = 'queued' AND ${activeMember} AND ${workflowProgramJobAccess}
@@ -141,7 +141,7 @@ export async function handleGateways(request, env, url, input) {
           environment[variable.name]=value;
         }
       }
-      return json({ job: row ? { ...jobView(row), workflow:Boolean(workflow), payload, ...(appAction?{environment}:{}), lease, timeoutMs: payload?.workflowProgram===true?WORKFLOW_PROGRAM_TIMEOUT_MS:payload?.acp===true?110000:60000 } : null });
+      return json({ job: row ? { ...jobView(row), workflow:Boolean(workflow), payload, ...(appAction?{environment}:{}), lease, timeoutMs: payload?.workflowProgram===true?WORKFLOW_PROGRAM_TIMEOUT_MS:payload?.browserTools===true?270000:payload?.acp===true?110000:60000 } : null });
     }
     if (typeof input?.lease !== 'string' || input.lease.length > 150) return failure('Execution lease required.', 409);
     const leaseHash = await digest(input.lease);

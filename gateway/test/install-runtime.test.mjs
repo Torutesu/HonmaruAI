@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -12,6 +12,11 @@ test('installed runtime resolves ordinary and optional document dependencies out
  try {
   await copyServiceRuntime(fileURLToPath(new URL('../',import.meta.url)),directory);
   const client=await import(pathToFileURL(join(directory,'client.mjs')));
+  const browser=await import(pathToFileURL(join(directory,'browser-session.mjs')));
+  assert.equal(typeof browser.runBrowserSessionAction,'function');
+  assert.equal(typeof browser.browserSessionIdentity,'function');
+  assert.match(await readFile(join(directory,'browser-image','Dockerfile'),'utf8'),/playwright install --with-deps chromium/);
+  assert.match(await readFile(join(directory,'browser-image','browser-guest.mjs'),'utf8'),/launchPersistentContext/);
   let claims=0;
   await client.serve(async()=>{claims++;return {job:null}}, {once:true});
   assert.equal(claims,1);
