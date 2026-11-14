@@ -26,6 +26,7 @@ export const AUDIT_ACTIONS = {
   "skill.share_delivery_denied": { category: "security", severity: "warning", text: "A Skill share link could not be delivered to {actor}" },
   "skill.share_revoked": { category: "security", severity: "notice", text: "{actor} revoked a Skill share link" },
   "skill.visibility_changed": { category: "workspace", severity: "warning", text: "{actor} changed the audience of {entity}" },
+  "skill.shared_with_agent": { category: "workspace", severity: "notice", text: "{actor} installed {entity} on an Agent" },
   "skill.import_delivery_denied": { category: "security", severity: "warning", text: "An imported Skill could not be delivered to {actor}" },
   "document.conversion_requested": {category:"files",severity:"info",text:"{actor} requested document conversion"},
   "document.cancel_requested": {category:"files",severity:"info",text:"{actor} requested conversion cancellation"},

@@ -50,6 +50,7 @@ test("workspace call sends JSON arguments and returns the MCP result", async () 
 
 test("skill aliases map reads and assignment changes to the scoped MCP tools", async () => {
   const calls = [];
+  let partialShare = false;
   const fetcher = async (_url, init) => {
     const req = JSON.parse(init.body);
     calls.push(req.params);
@@ -59,6 +60,10 @@ test("skill aliases map reads and assignment changes to the scoped MCP tools", a
         ? { agentId: "agent_1", skills: [{ id: "skill_1", name: "Release" }] }
       : req.params.name === "assign_skill_to_agent"
         ? { agentId: "agent_1", skillId: "skill_1", assigned: true }
+        : req.params.name === "share_skills_with_agents"
+          ? partialShare
+            ? { assigned: [{ skillId: "skill_1", agentId: "agent_1" }], failed: [{ skillId: "skill_2", agentId: "agent_1", message: "No access." }], complete: false }
+            : { assigned: req.params.arguments.skillIds.flatMap(skillId => req.params.arguments.agentIds.map(agentId => ({ skillId, agentId }))), failed: [], complete: true }
         : { agentId: "agent_1", skillId: "skill_1", removed: true };
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
   };
@@ -80,12 +85,34 @@ test("skill aliases map reads and assignment changes to the scoped MCP tools", a
   stdout.clear();
   assert.equal(await run(["workspace", "skill", "agent", "remove", "agent_1", "skill_1"]), 0);
   assert.match(stdout.read(), /Removed Skill skill_1 from Agent agent_1/);
+  stdout.clear();
+  assert.equal(await run(["workspace", "skill", "install", "skill_1", "--agent", "agent_1"]), 0);
+  assert.match(stdout.read(), /Assigned Skill skill_1 to Agent agent_1/);
+  stdout.clear();
+  assert.equal(await run(["workspace", "skill", "uninstall", "skill_1", "--agent", "agent_1"]), 0);
+  assert.match(stdout.read(), /Removed Skill skill_1 from Agent agent_1/);
+  stdout.clear();
+  assert.notEqual(await run(["workspace", "skill", "share", "skill_1", "--to-agent", "agent_1,agent_2"]), 0);
+  assert.equal(calls.length, 7);
+  stderr.clear();
+  assert.equal(await run(["workspace", "skill", "share", "skill_1,skill_2", "--to-agent", "agent_1,agent_2", "--confirm"]), 0);
+  assert.match(stdout.read(), /4 Skill-Agent assignment/);
+  partialShare = true;
+  stdout.clear();
+  assert.equal(await run(["workspace", "skill", "share", "skill_1,skill_2", "--to-agent", "agent_1,agent_2", "--confirm"]), 2);
+  const partialOutput = stdout.read();
+  assert.match(partialOutput, /1 denied or unavailable/);
+  assert.match(partialOutput, /Failed Skill skill_2 → Agent agent_1: No access/);
   assert.deepEqual(calls, [
     { name: "list_skills", arguments: {} },
     { name: "list_skills", arguments: { ownerId: "9401", publishedOnly: true } },
     { name: "list_shareable_skills", arguments: { agentId: "agent_1" } },
     { name: "assign_skill_to_agent", arguments: { agentId: "agent_1", skillId: "skill_1" } },
     { name: "remove_skill_from_agent", arguments: { agentId: "agent_1", skillId: "skill_1" } },
+    { name: "assign_skill_to_agent", arguments: { agentId: "agent_1", skillId: "skill_1" } },
+    { name: "remove_skill_from_agent", arguments: { agentId: "agent_1", skillId: "skill_1" } },
+    { name: "share_skills_with_agents", arguments: { skillIds: ["skill_1", "skill_2"], agentIds: ["agent_1", "agent_2"], confirm: true } },
+    { name: "share_skills_with_agents", arguments: { skillIds: ["skill_1", "skill_2"], agentIds: ["agent_1", "agent_2"], confirm: true } },
   ]);
   assert.equal(stderr.read(), "");
 });

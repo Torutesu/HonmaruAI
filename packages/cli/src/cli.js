@@ -21,6 +21,9 @@ Usage:
   honmaru workspace skill publish <skill-id> --version N --confirm
   honmaru workspace skill unpublish <skill-id> --version N
   honmaru workspace skill installed|shareable --agent <agent-id>
+  honmaru workspace skill install <skill-id> --agent <agent-id>
+  honmaru workspace skill uninstall <skill-id> --agent <agent-id>
+  honmaru workspace skill share <skill-id,...> --to-agent <agent-id,...> --confirm
   honmaru workspace skill agent list <agent-id>
   honmaru workspace skill agent add <agent-id> <skill-id>
   honmaru workspace skill agent remove <agent-id> <skill-id>
@@ -142,7 +145,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "direction", "title", "name", "members", "grant-access-members", "to", "summary", "context", "priority",
   "from", "visibility", "owner", "expected-updated-at",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
-  "agent",
+  "agent", "to-agent",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id",
 ]);
@@ -568,6 +571,22 @@ async function resolveWorkspaceCommand(resource, operation, positional, options,
       if (!options.agent?.trim()) throw new Error("--agent is required.");
       return { tool: operation === "installed" ? "list_agent_skills" : "list_shareable_skills", args: { agentId: options.agent } };
     }
+    case "skill install":
+    case "skill uninstall": {
+      onlyFlags(options, ["agent"]); positionalCount(positional, 1, `honmaru workspace skill ${operation} <skill-id> --agent AGENT_ID`);
+      if (!options.agent?.trim()) throw new Error("--agent is required.");
+      return { tool: operation === "install" ? "assign_skill_to_agent" : "remove_skill_from_agent", args: { agentId: options.agent.trim(), skillId: positional[0] } };
+    }
+    case "skill share": {
+      onlyFlags(options, ["toAgent", "confirm"]); positionalCount(positional, 1, "honmaru workspace skill share <skill-id,...> --to-agent <agent-id,...> --confirm");
+      if (!options.confirm) throw new Error("--confirm is required after reviewing the exact Skill and Agent IDs.");
+      if (typeof options.toAgent !== "string" || !options.toAgent.trim()) throw new Error("--to-agent is required.");
+      const skillIds = positional[0].split(",").map(value => value.trim()).filter(Boolean);
+      const agentIds = options.toAgent.split(",").map(value => value.trim()).filter(Boolean);
+      if (skillIds.length < 1 || skillIds.length > 5 || agentIds.length < 1 || agentIds.length > 5) throw new Error("Choose one to five Skill IDs and one to five Agent IDs.");
+      if (new Set(skillIds).size !== skillIds.length || new Set(agentIds).size !== agentIds.length) throw new Error("Skill and Agent ID lists cannot contain duplicates.");
+      return { tool: "share_skills_with_agents", args: { skillIds, agentIds, confirm: true } };
+    }
     case "skill agent": {
       const [action, ...target] = positional;
       if (action === "list") {
@@ -937,6 +956,11 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "set_skill_visibility") return `${value.visibility === "workspace" ? "Published" : "Unpublished"} Skill ${value.skillId} (access version ${value.version}).`;
   if (command?.tool === "assign_skill_to_agent") return `Assigned Skill ${value.skillId} to Agent ${value.agentId}.`;
   if (command?.tool === "remove_skill_from_agent") return `Removed Skill ${value.skillId} from Agent ${value.agentId}.`;
+  if (command?.tool === "share_skills_with_agents") {
+    const summary = `${value.assigned?.length || 0} Skill-Agent assignment(s) installed${value.failed?.length ? `; ${value.failed.length} denied or unavailable` : ""}.`;
+    const failures = (value.failed || []).map(item => `Failed Skill ${item.skillId} → Agent ${item.agentId}: ${item.message}`);
+    return [summary, ...failures].join("\n");
+  }
   if (command?.tool === "get_room_agent_access") return value.canGrantAccess
     ? value.missingAccessMembers?.length
       ? value.missingAccessMembers.map(member => `${member.memberRef}\t${member.name}`).join("\n")
@@ -1078,6 +1102,7 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
     const command = await resolveWorkspaceCommand(resource, operation, commandArgs, options, env);
     const result = await client.callTool(command.tool, command.args);
     writeOut(formatWorkspaceResult(result, options.json, command));
+    if (command.tool === "share_skills_with_agents" && result?.structuredContent?.complete === false) return 2;
     return 0;
   } catch (error) {
     writeError(error instanceof Error ? error.message : "The command failed.");
