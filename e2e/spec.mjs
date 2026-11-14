@@ -1827,10 +1827,12 @@ await step('a message is edited, reacted to, answered in a thread, pinned and un
     const pinResult = await pinResponse.json()
     if (!pinResponse.ok() || !(pinResult.message?.pinVersion > 0)) throw new Error(`pin request failed: HTTP ${pinResponse.status()}`)
     await d.waitForSelector(`${msg}.pinned`, { timeout: 10000 }).catch(() => { throw new Error('pinning did not mark the message') })
-    // A delayed socket snapshot must not undo the acknowledged mutation.
-    // The body marker proves React processed that event before asserting.
+    // A delayed event has newer content but an older pin version. Keep those
+    // independent versions explicit so a concurrent canonical pin broadcast
+    // cannot replace the test marker at the same content version.
     await d.evaluate(message => window.dispatchEvent(new CustomEvent('honmaru:channel-message', { detail: {
-      ...message, pinned: false, pinVersion: message.pinVersion - 1, body: message.body + ' [late update]',
+      ...message, pinned: false, pinVersion: message.pinVersion - 1,
+      contentVersion: message.contentVersion + 1, body: message.body + ' [late update]',
     } })), pinResult.message)
     await d.waitForSelector(`${msg}.pinned:has-text("[late update]")`, { timeout: 10000 })
       .catch(() => { throw new Error('a delayed message event undid the confirmed pin') })

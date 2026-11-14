@@ -52,8 +52,13 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
       }
       stage = 'open filter popover'
       await foreground.getByRole('button', { name: /^(?:フィルター|Filter records)$/ }).click()
-      stage = 'adjust filter'
+      stage = 'verify direct filter editor'
       await foreground.getByRole('button', { name: 'フィルターを調整', exact: true }).click()
+      await foreground.getByRole('button', { name: '条件を追加', exact: true }).waitFor()
+      await foreground.getByRole('button', { name: 'キャンセル', exact: true }).click()
+      await foreground.getByRole('button', { name: /^(?:フィルター|Filter records)$/ }).click()
+      stage = 'ask AI for a filter adjustment'
+      await foreground.getByRole('button', { name: 'AIに調整案を相談', exact: true }).click()
       stage = 'wait for source thread'
       await page.locator('.slk-thread-pane .slk-composer textarea').waitFor({ timeout: 20000 })
       // The previous source panel remains mounted while the source route resolves.
