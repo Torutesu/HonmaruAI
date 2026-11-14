@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-14",
+  "asOf": "2026-11-15",
   "baseline": "b8949ca6386479afb03fe18ce6d2425c873e303c",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -383,8 +383,8 @@
       "code": "worker/src/harness/skills.js; worker/src/harness/skillAccess.js; worker/src/harness/skillShares.js; worker/src/harness/mcpTools.js; packages/cli/src/cli.js",
       "acceptance": "SKILL.mdと補助ファイルをfile/folderから作成・更新。private既定、更新CAS、owner/adminとAgent assignment権限を検証。付与解除は次のAgent実行から反映。所有者だけが共有リンクのメタデータを閲覧・明示確認付きで失効でき、Bearer token/URLはMCP/CLIに返さない。公開はWorkspace全員が読めることを明示確認し、現在のaccessVersionでCAS、非公開化も対応。SimpleモードにHarnessツールを表示しない。 Kylon-style skill share/install supports explicit selections of up to five Skills and five Agents, per-pair authorization, explicit confirmation, and visible partial failures; assignment changes are audited. Harness Skills画面でも最大5件ずつのSkillとAgentを選び、一括割当を明示実行できること。既割当を除外し、割当ごとの権限拒否を部分結果として表示する。",
       "evidence": {
-        "verified": "PR #984 added owner-only Workspace publish/unpublish via Harness MCP/CLI with explicit Workspace-wide confirmation and accessVersion CAS. Exact-head CI #43530673812, main CI #43533006849, Worker migration/deploy #43533006832, and Web deploy #43533007031 succeeded. Production Worker health returned HTTP 200 with encryption.all=true; app.honmaruai.com returned HTTP 200 and served index-BcqpUk0X.js. Current follow-up adds a bounded multi-Skill/multi-Agent assignment tool and Kylon-style CLI aliases, reusing the existing per-pair visibility and Agent-manager authorization. This batch adds the equivalent signed-in Harness Skills UI: explicitly select up to five Skills and five Agents, skip existing pairs, process at most five writes concurrently, and report each denied pair while retaining successes. Japanese UI labels and responsive dark-mode-aware styling are included. HarnessSkills UI tests passed 6/6, the full Web suite passed 2,030/2,030 across 268 files, and the Web production build passed. Exact-head CI, merge, production deployment and live device/Kylon comparison remain pending.",
-        "remaining": "Exact-head CI, merge and production deployment, authenticated multi-user/device roundtrip, signed-in browser acceptance, Kylon side-by-side interaction comparison, and CLI/MCP link creation/import remain."
+        "verified": "PR #984 added owner-only Workspace publish/unpublish via Harness MCP/CLI with explicit Workspace-wide confirmation and accessVersion CAS. Exact-head CI #43530673812, main CI #43533006849, Worker migration/deploy #43533006832, and Web deploy #43533007031 succeeded. Production Worker health returned HTTP 200 with encryption.all=true; app.honmaruai.com returned HTTP 200 and served index-BcqpUk0X.js. PR #1006 adds the equivalent signed-in Harness Skills UI: explicitly select up to five Skills and five Agents, skip existing pairs, process at most five writes concurrently, and report each denied pair while retaining successes. Japanese labels, responsive theme-aware styling and partial-result tests are included. HarnessSkills tests 6/6, Web suite 2,030/2,030 across 268 files, and production build passed. Exact-head CI #43637314442 succeeded; PR #1006 merged as 599762db667a6c5e802bb8c3d12902804894812c. Main Web deploy #43639336448 succeeded, including Pages and app.honmaruai.com asset verification. Main CI #43639336451 has successful Web/shared/Desktop/gateway/relay jobs, but Worker shards and E2E remain in progress with no recent GitHub update. This release has not yet had signed-in user/device acceptance.",
+        "remaining": "Wait for main CI #43639336451 to reach a terminal result. Authenticated multi-user/device roundtrip, signed-in browser acceptance, Kylon side-by-side interaction comparison, and CLI/MCP link creation/import remain."
       }
     },
     {
@@ -1476,6 +1476,21 @@
       "evidence": {
         "verified": "Kylon公式changelogはGrok Bot desktop appをworkspace teammateへ接続する経路を説明。xAI公式routine docsはWebhookを入力トリガーとして説明し、HTTP 200が受付であって完了ではないことを明記。xAI公式computer/apps docsはGrok BotのRemote HTTPS custom MCP connectorを説明。Honmaruは既存routine webhook、暗号化保存、ワンタイムtoken、元threadへの結果配信、取消/期限処理とStreamable HTTP MCP completion toolを実装。PR #922 merged as f8ebc6b3; exact-head/main CI, Worker migration/deploy/health, Web deploy/domain checks succeeded. Production health and read-only MCP tools/list were verified. No external Grok Bot mutation was called.",
         "remaining": "Grok Bot実画面でRemote HTTPS connectorの登録とroutineからのtool呼び出しを未確認。実アカウントでの外部実行・進捗とKylon UI/操作比較も未確認。Webhookキー・URL設定から完了MCP登録までのユーザー導線を実画面で検証し、実際のGrok Bot互換性を確認する。"
+      }
+    }
+    ,
+    {
+      "id": "KY-120",
+      "category": "Agents",
+      "requirement": "会話から操作できる隔離ブラウザとLive Desktop引き継ぎ",
+      "status": "missing",
+      "priority": "P0",
+      "source": "https://kylon.io/product/sandbox",
+      "code": "gateway/runner.mjs, gateway/client.mjs, worker/src/harness/gateways.js",
+      "acceptance": "Harness Agentが会話タスク中にHTTP APIでは扱えないWebサイトを、Agentごとに隔離された永続ブラウザで操作できる。実行画面を同じRoomで認可された人だけがリアルタイム閲覧・操作引き継ぎでき、Agentと人の排他制御、停止、監査、入力・画面の出力上限、セッション分離を検証する。サインイン情報は対象Agentにだけ保存され、共有Roomや別Agentへ流用されない。実行は会話から明示的に開始し、Automation・サブエージェントでは使えない。ユーザー所有Mac miniを選んだ場合でも、現在のネットワークなし計算VMをネットワークへ接続せず、専用ブラウザ境界で分離する。新規契約・課金を追加せずSimpleモードを維持する。",
+      "evidence": {
+        "verified": "Kylon公式Sandbox仕様は、ホストAgentごとの永続クラウドPC、ブラウザ、Agentのroom/thread会話限定ブラウズ、および同じ会話のLive Desktopで人が画面を見てマウス/キーボードを使うことを示す。Honmaru gatewayはNodeコードをApple Container VM内でネットワークなし・read-only root・host mountなしで実行する。Repo内にHarnessの永続ブラウザセッション、ライブ画像ストリーム、人の入力リレーは確認できない。gateway docsもbrowser sessionsをfuture workとして列挙している。",
+        "remaining": "隔離ブラウザ実装、認証済みLive Desktop表示・引継ぎ、Agentごとのサインイン永続化、複数Room/利用者の認可・失効・同時操作試験、Kylonとの同一タスク操作比較は未実装。"
       }
     }
   ]
