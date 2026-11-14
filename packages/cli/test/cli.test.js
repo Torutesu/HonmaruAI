@@ -90,6 +90,26 @@ test("skill aliases map reads and assignment changes to the scoped MCP tools", a
   assert.equal(stderr.read(), "");
 });
 
+test("Skill get shows the visibility access version needed for safe publish changes", async () => {
+  let params;
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    params = req.params;
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: {
+      skill: { id: "skill_1", name: "Release", visibility: "private", accessVersion: 1, updatedAt: "2026-11-14T00:00:00Z", body: "Check rollback." },
+    } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const code = await runCli(["workspace", "skill", "get", "skill_1"], {
+    env: { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token },
+    fetcher, stdout: stdout.stream, stderr: stderr.stream,
+  });
+  assert.equal(code, 0);
+  assert.match(stdout.read(), /Visibility: private\nAccess version: 1/);
+  assert.match(stdout.read(), /Check rollback\./);
+  assert.deepEqual(params, { name: "get_skill", arguments: { skillId: "skill_1" } });
+});
+
 test("Skill share aliases require confirmation to revoke and never request token values", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
@@ -114,6 +134,34 @@ test("Skill share aliases require confirmation to revoke and never request token
   assert.deepEqual(calls, [
     { name: "list_skill_shares", arguments: { skillId: "skill_1" } },
     { name: "revoke_skill_share", arguments: { skillId: "skill_1", shareId: "share_1", confirm: true } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("Skill publish aliases require whole-workspace confirmation and preserve access-version fencing", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    const args = req.params.arguments;
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: {
+      skillId: args.skillId, visibility: args.visibility, version: args.version + 1,
+    } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.notEqual(await run(["workspace", "skill", "publish", "skill_1", "--version", "0"]), 0);
+  assert.equal(calls.length, 0);
+  stderr.clear();
+  assert.equal(await run(["workspace", "skill", "publish", "skill_1", "--version", "0", "--confirm"]), 0);
+  assert.match(stdout.read(), /Published Skill skill_1/);
+  stdout.clear();
+  assert.equal(await run(["workspace", "skill", "unpublish", "skill_1", "--version", "1"]), 0);
+  assert.match(stdout.read(), /Unpublished Skill skill_1/);
+  assert.deepEqual(calls, [
+    { name: "set_skill_visibility", arguments: { skillId: "skill_1", visibility: "workspace", version: 0, confirmWorkspaceAccess: true } },
+    { name: "set_skill_visibility", arguments: { skillId: "skill_1", visibility: "private", version: 1 } },
   ]);
   assert.equal(stderr.read(), "");
 });

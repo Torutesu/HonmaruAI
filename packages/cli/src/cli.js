@@ -18,6 +18,8 @@ Usage:
   honmaru workspace skill update <skill-id> --from <SKILL.md|directory> --expected-updated-at ISO
   honmaru workspace skill shares list <skill-id>
   honmaru workspace skill shares revoke <skill-id> <share-id> --confirm
+  honmaru workspace skill publish <skill-id> --version N --confirm
+  honmaru workspace skill unpublish <skill-id> --version N
   honmaru workspace skill installed|shareable --agent <agent-id>
   honmaru workspace skill agent list <agent-id>
   honmaru workspace skill agent add <agent-id> <skill-id>
@@ -552,6 +554,14 @@ async function resolveWorkspaceCommand(resource, operation, positional, options,
       }
       throw new Error("Usage: honmaru workspace skill shares list|revoke.");
     }
+    case "skill publish":
+    case "skill unpublish": {
+      const published = operation === "publish";
+      onlyFlags(options, ["version", ...(published ? ["confirm"] : [])]); positionalCount(positional, 1, `honmaru workspace skill ${operation} <skill-id> --version N${published ? " --confirm" : ""}`);
+      const version = integerOption(options, "version", { min: 0, max: 2147483647, required: true });
+      if (published && !options.confirm) throw new Error("--confirm is required after confirming the whole Workspace may read this Skill.");
+      return { tool: "set_skill_visibility", args: { skillId: positional[0], visibility: published ? "workspace" : "private", version, ...(published ? { confirmWorkspaceAccess: true } : {}) } };
+    }
     case "skill installed":
     case "skill shareable": {
       onlyFlags(options, ["agent"]); positionalCount(positional, 0, `honmaru workspace skill ${operation} --agent AGENT_ID`);
@@ -911,7 +921,9 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "rename_room") return `Renamed Room ${value.conversationId} to ${value.name}.`;
   if (command?.tool === "update_room_settings") return `Updated Room ${value.conversationId} settings (version ${value.settings?.version}).`;
   if (command?.tool === "get_room_settings") return JSON.stringify(value, null, 2);
-  if (command?.tool === "get_skill") return value.skill?.body || "No such Skill.";
+  if (command?.tool === "get_skill") return value.skill
+    ? `Skill ${value.skill.id} — ${value.skill.name}\nVisibility: ${value.skill.visibility}\nAccess version: ${value.skill.accessVersion}\nUpdated: ${value.skill.updatedAt}\n\n${value.skill.body}`
+    : "No such Skill.";
   if (Array.isArray(value.skills) && command?.tool === "list_skills") return value.skills.length
     ? value.skills.map(skill => `${skill.id}\t${skill.name}${skill.visibility ? `\t${skill.visibility}` : ""}${skill.description ? `\t${skill.description}` : ""}`).join("\n")
     : "No Skills are available.";
@@ -922,6 +934,7 @@ function formatWorkspaceResult(result, json, command = null) {
   if (command?.tool === "update_skill") return `Updated Skill ${value.skill?.id} (${value.skill?.name}) at ${value.skill?.updatedAt}.`;
   if (command?.tool === "list_skill_shares") return value.shares?.length ? value.shares.map(share => `${share.id}\t${share.revokedAt ? `revoked ${share.revokedAt}` : `expires ${share.expiresAt}`}`).join("\n") : "No Skill share links found.";
   if (command?.tool === "revoke_skill_share") return `Revoked Skill share link ${value.shareId}.`;
+  if (command?.tool === "set_skill_visibility") return `${value.visibility === "workspace" ? "Published" : "Unpublished"} Skill ${value.skillId} (access version ${value.version}).`;
   if (command?.tool === "assign_skill_to_agent") return `Assigned Skill ${value.skillId} to Agent ${value.agentId}.`;
   if (command?.tool === "remove_skill_from_agent") return `Removed Skill ${value.skillId} from Agent ${value.agentId}.`;
   if (command?.tool === "get_room_agent_access") return value.canGrantAccess

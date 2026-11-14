@@ -4348,4 +4348,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 ### 2026-11-14 — Skill share link management through Harness MCP/CLI (local QA)
 
 - Added owner-only metadata listing for custom Skill share links and explicit `confirm=true` / `--confirm` revocation. Responses never include bearer tokens or URLs. Revocation rechecks the actor's current non-guest membership and Skill ownership in the update statement; successful revocations enter the audit log. Share-link creation and import remain human-session operations.
-- Worker `harness-mcp.test.js`: **25/25** passed; CLI suite: **62/62** passed; Worker module syntax checks and `git diff --check` passed. Worker Vitest required the permitted localhost runtime because the default sandbox blocks its listener. Exact-head CI, merge, and production deployment are pending. No schema change, paid service, or Simple-mode tool exposure was added.
+- Worker `harness-mcp.test.js`: **25/25** passed; CLI suite: **62/62** passed; Worker module syntax checks and `git diff --check` passed. Worker Vitest required the permitted localhost runtime because the default sandbox blocks its listener. PR #983 merged as `b36ade40a9211a13935c0a15a25908c199a59fd8`; exact-head CI #43525561796, main CI #43527903917, Worker migration/Deploy/Verify #43527903906 and Web Deploy/Verify #43527903996 succeeded. Production health returned `ok:true` with encryption `all:true`; `app.honmaruai.com` served `index-BcqpUk0X.js`. No schema change, paid service, or Simple-mode tool exposure was added.
+
+### 2026-11-14 — Skill visibility controls through Harness MCP/CLI (local QA)
+
+- Added owner-only publish/unpublish using the current access version. Publishing requires explicit confirmation that the whole Workspace can read the Skill; unpublishing returns it to private. The API never creates an anyone-with-link URL, and successful changes are audited.
+- Worker `harness-mcp.test.js` and CLI tests cover scope, explicit publication confirmation, access-version conflicts, and the existing Simple-mode boundary. Exact-head CI, merge, and production deployment are pending. No schema change or paid service was added.

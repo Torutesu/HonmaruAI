@@ -16,6 +16,7 @@ import { readWorkflowSafety, resumeWorkflowSafety } from "./workflowSafety.js";
 import { listSkills, getSkill, skillsOf, giveSkill, takeSkill, createSkill, updateSkill } from "./skills.js";
 import { skillAgentManager } from "./skillAgentAuthority.js";
 import { listSkillShares, revokeSkillShare } from "./skillShares.js";
+import { setSkillAccess } from "./skillAccess.js";
 import { mayAccessAgent } from "./agents.js";
 import { parseSkillMarkdown } from "./skillMarkdown.js";
 import { allowed } from "../permissions.js";
@@ -24,7 +25,7 @@ import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 import { audit } from "../audit.js";
 
-export const HARNESS_TOOL_SCOPE = { get_workflow: "read", list_skill_shares: "read", revoke_skill_share: "write", create_skill: "write", update_skill: "write", assign_skill_to_agent: "write", remove_skill_from_agent: "write", create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
+export const HARNESS_TOOL_SCOPE = { get_workflow: "read", list_skill_shares: "read", revoke_skill_share: "write", set_skill_visibility: "write", create_skill: "write", update_skill: "write", assign_skill_to_agent: "write", remove_skill_from_agent: "write", create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
 
 export const HARNESS_TOOLS = [
   ...EXECUTION_TOOLS,
@@ -80,6 +81,13 @@ export const HARNESS_TOOLS = [
     title: "Revoke a Skill share link",
     description: "Revoke an active share link on a custom Skill you own. This is irreversible for that link; pass confirm=true after checking its metadata with list_skill_shares. No replacement link is created.",
     inputSchema: { type: "object", properties: { skillId: { type: "string", minLength: 1, maxLength: 200 }, shareId: { type: "string", minLength: 1, maxLength: 200 }, confirm: { type: "boolean" } }, required: ["skillId", "shareId", "confirm"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "set_skill_visibility",
+    title: "Publish or unpublish a Skill",
+    description: "Change workspace visibility for a custom Skill you own using its current access version. Publishing exposes it to everyone in this Workspace and requires confirmWorkspaceAccess=true. This does not create an anyone-with-link URL.",
+    inputSchema: { type: "object", properties: { skillId: { type: "string", minLength: 1, maxLength: 200 }, visibility: { type: "string", enum: ["private", "workspace"] }, version: { type: "integer", minimum: 0 }, confirmWorkspaceAccess: { type: "boolean" } }, required: ["skillId", "visibility", "version"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
@@ -361,6 +369,17 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
       if (result.error) return err(result.error);
       await audit(env, request, { orgId, action: 'skill.share_revoked', actor: { type: 'user', id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: 'skill', id: skillId, name: skill.name }, details: { shareId } });
       return out({ skillId, shareId, ...result });
+    }
+    case "set_skill_visibility": {
+      const skillId = String(args.skillId || ""), visibility = String(args.visibility || "");
+      if (!['private', 'workspace'].includes(visibility)) return err("Visibility must be private or workspace.");
+      if (visibility === 'workspace' && args.confirmWorkspaceAccess !== true) return err("Set confirmWorkspaceAccess=true after confirming the whole Workspace may read this Skill.");
+      const skill = await getSkill(db, orgId, skillId, by);
+      if (!skill || skill.sourceScope || !skill.canShare) return err("No such Skill.");
+      const result = await setSkillAccess(db, orgId, skillId, by, { visibility, version: args.version });
+      if (result.error) return err(result.error);
+      await audit(env, request, { orgId, action: 'skill.visibility_changed', actor: { type: 'user', id: agent.login || String(by), name: agent.name || agent.login || null }, entity: { type: 'skill', id: skillId, name: skill.name }, details: { visibility } });
+      return out({ skillId, ...result.access });
     }
     case "assign_skill_to_agent": {
       const result = await giveSkill(db, orgId, String(args.agentId || ""), String(args.skillId || ""), by);
