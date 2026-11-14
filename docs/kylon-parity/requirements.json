@@ -76,10 +76,10 @@
       "priority": "P0",
       "source": "https://kylon.io/product/workspace",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "参照リンクは閲覧権限を付与しない。アプリ作成者/Adminだけが編集でき、参照先ルームへの現在のアクセスを一覧・詳細・Home・MCP・アクセス設定API・リンク書込み時に検証する。非公開ルーム名を除去し、アクセス失効と同時にリンク書込みを拒否する。非公開ルーム・DM由来の直接作成とテンプレート作成は初期非公開。ログイン済み本番の複数利用者隔離とKylon UI比較は残る",
+      "acceptance": "参照リンクは閲覧権限を付与しない。アプリ作成者/Adminだけが編集でき、参照先ルームへの現在のアクセスを一覧・詳細・Home・MCP・アクセス設定API・リンク書込み時に検証する。非公開ルーム名を除去し、アクセス失効と同時にリンク書込みを拒否する。非公開ルーム・DM・グループ会話由来の直接作成とテンプレート作成は初期非公開。ログイン済み本番の複数利用者隔離とKylon UI比較は残る",
       "evidence": {
-        "verified": "Room links are filtered from ordinary app responses, Home, MCP, and access settings based on current readableConversation. The access settings API also redacts the App's room scope for a viewer who has a personal App view grant but is not a room member. linkApp now uses conversationWriteAuthority in the INSERT and treats a concurrent membership/private-room revocation as not found. `npm test -- --run test/harness-apps.test.js` passed (136 tests), including private room-name redaction and a revoked-membership write regression.",
-        "remaining": "The exact-head PR CI and production release for the access-settings/API write-fence fix, authenticated multi-user production isolation, and Kylon UI comparison remain. DM/group source/template privacy remains less directly covered than private business rooms."
+        "verified": "Room links are filtered from ordinary app responses, Home, MCP, and access settings based on current readableConversation. The access settings API also redacts the App's room scope for a viewer who has a personal App view grant but is not a room member. linkApp now uses conversationWriteAuthority in the INSERT and treats a concurrent membership/private-room revocation as not found. The complete `harness-apps.test.js` suite passes (170 tests), including private room-name redaction, revoked-membership write rejection, and DM/group source-template creation remaining private and unreadable to a different participant.",
+        "remaining": "Authenticated multi-user production isolation and direct Kylon UI comparison remain open."
       }
     },
     {
@@ -1330,10 +1330,10 @@
           "remaining": "Separate-account production redemption/revocation and direct Kylon interaction comparison remain."
         },
         "latestThreadRoomGuard": {
-          "release": "Local implementation on codex/kylon-external-collaborator-scope-batch; exact-head CI, merge and deployment are pending.",
+          "release": "PR #987 merged as df2f244b921389463d608513933f41153aae8af5. Exact-head CI #43547376216 passed all required jobs; main CI #43549057275 and Worker deploy/Verify #43549057273 succeeded.",
           "scope": "Thread Room audiences now require the referenced Room to remain present, unarchived and without a deletion tombstone in both the shared SQL authorization predicate and externalThreadPermission. Existing stale conversation_members rows no longer keep an archived or deleted Room audience alive.",
-          "verification": "The batched external Thread, App, collaborator and File regression suites passed 67/67. The new Thread integration test verifies access before archive, denial after archive and tombstone deletion through both the permission helper and generated SQL predicate.",
-          "remaining": "Production multi-user acceptance, Kylon UI comparison, and the other KY-099 gaps remain open."
+          "verification": "The batched external Thread, App, collaborator and File regression suites passed 67/67 before merge. Exact-head CI included Worker shards 1–4, E2E, iOS, Windows Edge, Web, Desktop and Gateway. Production Worker version 410772bf-c9a1-4889-91da-9bab0c5c117f passed Verify; health returned `ok:true` and encryption `all:true`.",
+          "remaining": "Authenticated production multi-user acceptance, Kylon UI comparison and the other KY-099 gaps remain open."
         }
       }
     },

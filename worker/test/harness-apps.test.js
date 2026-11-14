@@ -231,6 +231,21 @@ test("room links require app authority and room access, and hidden room names ar
   const { app: templateApp } = await privateTemplate.json();
   expect(await env.DB.prepare("SELECT visibility FROM hx_app_access WHERE org_id=?1 AND app_id=?2").bind(ORG, templateApp.id).first()).toEqual({ visibility: "private" });
 
+  // A source conversation without a persisted business room (DM or group)
+  // must inherit private visibility just like a private room. Otherwise a
+  // template created from a private conversation could become workspace-wide.
+  const directChannel = "dm:mika|toru";
+  const groupChannel = "g:aaaaaaaaaaaaaaaa";
+  await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,?2,'toru','toru',?3), (?1,?2,'mika','toru',?3)").bind(ORG, groupChannel, at).run();
+  for (const [threadId, channel] of [["private-source-dm", directChannel], ["private-source-group-thread", groupChannel]]) {
+    await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at,parent_id) VALUES(?,?,?,'toru','message','Create a private app from this conversation',?,NULL)").bind(threadId, ORG, channel, at).run();
+    const createdFromThread = await send("POST", "/apps", toru, { orgId: ORG, template: "tracker", sourceThreadId: threadId, sample: false });
+    expect(createdFromThread.status, JSON.stringify(await createdFromThread.clone().json())).toBe(201);
+    const { app: privateConversationApp } = await createdFromThread.json();
+    expect(await env.DB.prepare("SELECT visibility FROM hx_app_access WHERE org_id=?1 AND app_id=?2").bind(ORG, privateConversationApp.id).first()).toEqual({ visibility: "private" });
+    expect((await get(`/apps/${privateConversationApp.id}?orgId=${ORG}`, mika)).status).toBe(404);
+  }
+
   const hidden = await (await get(`/apps/${app.id}?orgId=${ORG}`, mika)).json();
   expect(hidden.app.channels).toEqual([]);
   expect(hidden.canCustomize).toBe(false);
