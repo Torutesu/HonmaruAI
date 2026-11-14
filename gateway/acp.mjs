@@ -6,12 +6,21 @@ import { createServer } from 'node:http';
 
 const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const MAX_PROMPT_BYTES = 48 * 1024;
-const MAX_LINE_BYTES = 1024 * 1024;
+const MAX_LINE_BYTES = 4 * 1024 * 1024;
 const MAX_TEXT_BYTES = 48 * 1024;
 const ACP_CANCEL_GRACE_MS = 3000;
 const ACP_CANCEL_TERM_MS = 750;
 const ACP_PERMISSION_POLICIES = new Set(['default', 'strict']);
 const ACP_READ_TOOL_KINDS = new Set(['read', 'search', 'fetch', 'think']);
+const BROWSER_TOOLS = Object.freeze([
+  {name:'browser.navigate',title:'Open a web page',description:'Open a public HTTP or HTTPS page in this Agent’s persistent isolated browser.',inputSchema:{type:'object',properties:{url:{type:'string',maxLength:2048}},required:['url'],additionalProperties:false}},
+  {name:'browser.click',title:'Click the page',description:'Click a visible point in the browser viewport.',inputSchema:{type:'object',properties:{x:{type:'integer',minimum:0,maximum:4096},y:{type:'integer',minimum:0,maximum:4096}},required:['x','y'],additionalProperties:false}},
+  {name:'browser.type',title:'Type into the page',description:'Type text into the currently focused browser field.',inputSchema:{type:'object',properties:{text:{type:'string',maxLength:2000}},required:['text'],additionalProperties:false}},
+  {name:'browser.press',title:'Press a browser key',description:'Press a supported navigation or editing key.',inputSchema:{type:'object',properties:{key:{type:'string',enum:['Enter','Escape','Tab','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Backspace','Delete','Home','End','PageUp','PageDown']}},required:['key'],additionalProperties:false}},
+  {name:'browser.scroll',title:'Scroll the page',description:'Scroll the browser viewport.',inputSchema:{type:'object',properties:{x:{type:'integer',minimum:0,maximum:4096},y:{type:'integer',minimum:0,maximum:4096},deltaX:{type:'integer',minimum:-2000,maximum:2000},deltaY:{type:'integer',minimum:-2000,maximum:2000}},required:['x','y','deltaX','deltaY'],additionalProperties:false}},
+  {name:'browser.screenshot',title:'Capture the browser page',description:'Return a screenshot of the current viewport.',inputSchema:{type:'object',properties:{},additionalProperties:false}},
+  {name:'browser.visible_text',title:'Read visible page text',description:'Read visible text from the current page.',inputSchema:{type:'object',properties:{},additionalProperties:false}},
+]);
 
 function permissionResponse(options, toolCall, policy) {
   const entries = Array.isArray(options) ? options : [];
@@ -138,10 +147,14 @@ function chunkText(content) {
   return '';
 }
 
-async function startWorkspaceMcp(mcpCall) {
-  if (typeof mcpCall !== 'function') throw new Error('Workspace MCP relay is unavailable.');
+async function startWorkspaceMcp(mcpCall, browserCall, signal) {
+  if (typeof mcpCall !== 'function' && typeof browserCall !== 'function') throw new Error('Workspace MCP relay is unavailable.');
   const token = randomBytes(32).toString('hex');
   const server = createServer(async (request, response) => {
+    const disconnected=new AbortController();
+    request.once('aborted',()=>disconnected.abort());
+    response.once('close',()=>{if(!response.writableEnded)disconnected.abort();});
+    const callSignal=signal?AbortSignal.any([signal,disconnected.signal]):disconnected.signal;
     const chunks = [];
     let size = 0;
     try {
@@ -154,12 +167,26 @@ async function startWorkspaceMcp(mcpCall) {
       }
       const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (!input || !['tools/list', 'tools/call'].includes(input.method)) throw Object.assign(new Error('Unsupported MCP method.'), { status: 400 });
-      const result = await mcpCall(input.method, input.params || {});
+      const params=input.params||{};
+      let result;
+      if(input.method==='tools/list'){
+        const remote=typeof mcpCall==='function'?await mcpCall(input.method,params):{tools:[]};
+        result={...remote,tools:[...(Array.isArray(remote?.tools)?remote.tools:[]),...(typeof browserCall==='function'?BROWSER_TOOLS:[])]};
+      } else if(input.method==='tools/call' && typeof browserCall==='function' && typeof params.name==='string' && params.name.startsWith('browser.')) {
+        const tool=BROWSER_TOOLS.find(item=>item.name===params.name);
+        if(!tool)throw Object.assign(new Error('Unknown browser tool.'),{status:400});
+        const action={type:tool.name.slice('browser.'.length),...(params.arguments||{})};
+        const value=await browserCall(action,{signal:callSignal});
+        result={content:[...(value?.text?[{type:'text',text:value.text}]:[]),...(value?.image?[{type:'image',data:value.image,mimeType:'image/jpeg'}]:[])],structuredContent:Object.fromEntries(Object.entries(value||{}).filter(([key])=>key!=='image')),isError:false};
+      } else if(typeof mcpCall==='function') result=await mcpCall(input.method,params);
+      else throw Object.assign(new Error('Workspace tools are not configured.'),{status:403});
+      if(response.destroyed||response.writableEnded)return;
       const body = JSON.stringify(result);
-      if (Buffer.byteLength(body) > 210 * 1024) throw Object.assign(new Error('Result too large.'), { status: 413 });
+      if (Buffer.byteLength(body) > 3 * 1024 * 1024) throw Object.assign(new Error('Result too large.'), { status: 413 });
       response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       response.end(body);
     } catch (error) {
+      if(response.destroyed||response.writableEnded)return;
       response.writeHead(error.status || 502, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       response.end(JSON.stringify({ error: error.status ? error.message : 'Workspace MCP request failed.' }));
     }
@@ -187,7 +214,7 @@ async function startWorkspaceMcp(mcpCall) {
  * The job can select an allowlist key, but can never choose a command, args,
  * cwd, environment, MCP server, filesystem capability, or terminal.
  */
-export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 60000, mcpCall, onProgress } = {}) {
+export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 60000, mcpCall, browserCall, onProgress } = {}) {
   const cfg = agentConfig(acpAgents, payload?.agentKey);
   const prompt = String(payload?.prompt || '');
   if (!prompt.trim() || Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) throw new Error('Invalid ACP prompt.');
@@ -280,7 +307,7 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     // ACP agents own their sign-in and credentials. The host must not call
     // `authenticate`; an operator signs into the provider on this Mac first.
     if (authMethods.some(method => method?.type === 'terminal')) throw new Error('This ACP agent requires an interactive login. Sign it in on the Mac first.');
-    if (payload.workspaceTools === true) workspaceMcp = await startWorkspaceMcp(mcpCall);
+    if (payload.workspaceTools === true || payload.browserTools === true) workspaceMcp = await startWorkspaceMcp(payload.workspaceTools===true?mcpCall:null,payload.browserTools===true?browserCall:null,signal);
     const sessionParams = { cwd: cfg.cwd, mcpServers: workspaceMcp ? [workspaceMcp.config] : [] };
     if (payload.sessionId && initialized.agentCapabilities?.loadSession) {
       try {

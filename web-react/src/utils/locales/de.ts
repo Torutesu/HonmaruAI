@@ -2275,6 +2275,9 @@ const table: Record<string, string> = {
   'Wrap text': 'Text umbrechen',
   'Run by': 'Ausgeführt von',
   'Actor': 'Akteur',
+  'Allow this ACP agent to use its isolated browser': 'Diesem ACP-Agent den isolierten Browser erlauben',
+  'Isolated browser access is available in Harness mode only.': 'Der isolierte Browser ist nur im Harness-Modus verfügbar.',
+  'Page text, screenshots, and text entered by this agent are sent to the local ACP agent and its existing provider. Sign-ins persist in this agent’s isolated browser on the execution node.': 'Seitentext, Screenshots und von diesem Agent eingegebener Text werden an den lokalen ACP-Agent und seinen bestehenden Anbieter gesendet. Anmeldungen bleiben im isolierten Browser dieses Agents auf dem Ausführungsknoten gespeichert.',
 
 }
 

@@ -94,8 +94,9 @@ test('ACP Workspace tools use the short-lived local MCP relay only when explicit
         bridge.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'}) + String.fromCharCode(10));
         const listed = await bridgeRequest('tools/list');
         const called = await bridgeRequest('tools/call',{name:'read_app',arguments:{appId:'synthetic-app'}});
+        const browser = await bridgeRequest('tools/call',{name:'browser.navigate',arguments:{url:'https://example.com'}});
         write({jsonrpc:'2.0',id:message.id,result:{sessionId:'fixture-session'}});
-        globalThis.observed={servers:message.params.mcpServers,init,listed,called};
+        globalThis.observed={servers:message.params.mcpServers,init,listed,called,browser};
       }
       if (message.method === 'session/prompt') {
         write({jsonrpc:'2.0',method:'session/update',params:{sessionId:message.params.sessionId,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify(globalThis.observed)}}}});
@@ -106,7 +107,8 @@ test('ACP Workspace tools use the short-lived local MCP relay only when explicit
   `);
   const acpAgents = { fixture: { command: process.execPath, args: [agentFile], cwd: directory } };
   const calls = [];
-  const result = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize the app', workspaceTools: true }, {
+  const browserCalls=[];
+  const result = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize the app', workspaceTools: true, browserTools:true }, {
     acpAgents,
     timeoutMs: 7000,
     mcpCall: async (method, params) => {
@@ -114,18 +116,23 @@ test('ACP Workspace tools use the short-lived local MCP relay only when explicit
       if (method === 'tools/list') return {tools:[{name:'read_app'}]};
       return {content:[{type:'text',text:'synthetic only'}],structuredContent:{app:{id:params.arguments.appId}}};
     },
+    browserCall:async (action,{signal}={})=>{assert.ok(signal instanceof AbortSignal);browserCalls.push(action);return {url:action.url,title:'Example Domain',status:200}},
   });
   assert.equal(result.status, 'succeeded');
   const observed=JSON.parse(JSON.parse(result.stdout).text);
   assert.equal(observed.servers.length,1);
   assert.equal(observed.servers[0].name,'honmaru-workspace');
   assert.deepEqual(observed.init.capabilities,{tools:{listChanged:false}});
-  assert.deepEqual(observed.listed,{tools:[{name:'read_app'}]});
+  assert.equal(observed.listed.tools.length,8);
+  assert.equal(observed.listed.tools[0].name,'read_app');
+  assert.ok(observed.listed.tools.some(tool=>tool.name==='browser.navigate'));
   assert.deepEqual(observed.called.structuredContent,{app:{id:'synthetic-app'}});
+  assert.deepEqual(observed.browser.structuredContent,{url:'https://example.com',title:'Example Domain',status:200});
   assert.deepEqual(calls,[
     {method:'tools/list',params:{}},
     {method:'tools/call',params:{name:'read_app',arguments:{appId:'synthetic-app'}}},
   ]);
+  assert.deepEqual(browserCalls,[{type:'navigate',url:'https://example.com'}]);
 });
 
 test('ACP cancellation lets the agent settle its turn before terminating the process', async () => {

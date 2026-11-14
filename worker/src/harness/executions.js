@@ -131,7 +131,9 @@ export async function enqueueAcpExecution(db, orgId, me, input) {
   if (typeof input?.prompt !== 'string' || !input.prompt.trim()) return error('ACP prompt is required.');
   // Keep the Simple experience usable even if an administrator enabled this
   // teammate's Harness-only tools earlier. No Workspace data is offered here.
-  const workspaceTools = input.workspaceTools === true && await getMode(db, orgId) === 'harness';
+  const harnessMode = await getMode(db, orgId) === 'harness';
+  const workspaceTools = input.workspaceTools === true && harnessMode;
+  const browserTools = input.browserTools === true && harnessMode;
   if (workspaceTools) {
     const budget = await workspaceBudgetAdmission(db, orgId);
     if (!budget.allowed) return error(budget.message, budget.status);
@@ -144,7 +146,9 @@ export async function enqueueAcpExecution(db, orgId, me, input) {
     if (!acpAgent || !(await mayRunAgent(db, orgId, acpAgent, me))) return error('This person may not use Workspace MCP tools through this ACP agent.', 403);
   }
   const context = Array.isArray(input.context) ? input.context.slice(-30).map(line => String(line || '').slice(0, 4000)) : [];
-  const payload = JSON.stringify({ acp: true, agentKey, prompt: input.prompt.slice(0, 48000), ...(typeof input.sessionId === 'string' && input.sessionId.length <= 200 ? { sessionId: input.sessionId } : {}), ...(context.length ? { context } : {}), ...(workspaceTools ? { workspaceTools: true, agentId: acpAgentId } : {}) });
+  const requestedBrowserIdentity=typeof input.agentId==='string'&&/^[A-Za-z0-9_.:-]{1,160}$/.test(input.agentId)?input.agentId:null;
+  const browserIdentity=workspaceTools?acpAgentId:requestedBrowserIdentity||`local-${agentKey}`;
+  const payload = JSON.stringify({ acp: true, agentKey, prompt: input.prompt.slice(0, 48000), ...(typeof input.sessionId === 'string' && input.sessionId.length <= 200 ? { sessionId: input.sessionId } : {}), ...(context.length ? { context } : {}), ...(workspaceTools ? { workspaceTools: true, agentId: acpAgentId } : {}), ...(browserTools ? { browserTools: true, browserIdentity, workspaceId: orgId } : {}) });
   if (new TextEncoder().encode(payload).length > 65536) return error('ACP prompt is too large.', 413);
   const jobId = id();
   const requestId = id();

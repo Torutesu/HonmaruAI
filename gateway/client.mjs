@@ -3,6 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { runIsolated } from './runner.mjs';
 import {runWorkflowIsolated,WORKFLOW_EXECUTION_TIMEOUT_MS} from './workflow-runner.mjs';
 import {runAcp,configuredAcpAgentIds} from './acp.mjs';
+import {runBrowserSessionAction} from './browser-session.mjs';
 
 export function gatewayClient(baseUrl, token, fetcher = fetch) {
   const base = new URL(baseUrl);
@@ -24,7 +25,7 @@ export const FINISH_RETRY_MS = [1000, 2000, 4000, 8000, 15000, 15000, 15000];
 // server saying it could not take it just now.
 const transient = (error) => !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
 
-export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000 } = {}) {
+export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, runBrowser = runBrowserSessionAction, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000 } = {}) {
   const capabilities=['workflow-program-v1'];
   const localAcpAgents=configuredAcpAgentIds(acpAgents);
   if(localAcpAgents.length)capabilities.push('acp-v1');
@@ -60,10 +61,16 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
       // Workflow programs use the documented fifteen-minute execution cap;
       // the Worker keeps a separate 30-second result-delivery grace period.
       // ACP jobs retain their 110-second cap inside a 120-second lease.
-      const timeoutCap=job.workflow===true?WORKFLOW_EXECUTION_TIMEOUT_MS:job.payload?.acp===true?110000:60000;
+      const timeoutCap=job.workflow===true?WORKFLOW_EXECUTION_TIMEOUT_MS:job.payload?.browserTools===true?270000:job.payload?.acp===true?110000:60000;
       const options={timeoutMs:Math.min(job.timeoutMs||timeoutCap,timeoutCap),signal:cancel.signal};
       result=job.payload?.acp===true
         ? await runAcpAgent(job.payload,{...options,acpAgents,
+          browserCall: job.payload?.browserTools===true
+            ? async (action,{signal}={}) => {
+                await call(`jobs/${job.id}/browser`,{lease:job.lease},{signal:signal||cancel.signal});
+                return runBrowser({workspaceId:job.payload.workspaceId,agentId:job.payload.browserIdentity,action,signal});
+              }
+            : undefined,
           onProgress: progress => call(`jobs/${job.id}/progress`,{lease:job.lease,progress},{signal:cancel.signal}),
           mcpCall: job.payload?.workspaceTools === true
             ? async (method,params) => (await call(`jobs/${job.id}/mcp`,{lease:job.lease,method,params},{signal:cancel.signal})).result
