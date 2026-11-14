@@ -744,6 +744,44 @@ test('own-agent conversation tools create files in their bound scope and cannot 
  expect(JSON.parse(await tools.create_file_text.run({...args,requestId:`file-${crypto.randomUUID()}`})).error).toContain('no longer');
 });
 
+test('Room Agent file tools are bound to the current Room and recheck placement on create and edit',async()=>{
+ const {fileAgentTools}=await import('../src/harness/fileAgentTools.js');
+ const {upsertBusiness}=await import('../src/db.js');
+ await env.DB.exec((await import('../workspace-files.sql?raw')).default.replace(/\n/g,' '));
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'harness'})});
+ const {upsertUser,upsertMembership}=await import('../src/db.js');
+ await upsertUser(env.DB,{githubId:'9402',login:'mika',name:'Mika',locale:'en'});
+ await upsertMembership(env.DB,ORG,'9402','member');
+ const business=await upsertBusiness(env.DB,ORG,{name:'Agent Files',createdBy:'9401'});
+ const channel=`b:${business.slug}`;
+ const agentId='room-file-agent';
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES(?1,?2,'room-file-agent','Room Files','Help','team','mika','now','now')").bind(ORG,agentId).run();
+ await env.DB.prepare("INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_at) VALUES(?1,?2,'private','[]','now')").bind(ORG,agentId).run();
+ const toruMembership=await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9401'").bind(ORG).first();
+ await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since) VALUES(?1,?2,'9401','member','9402','now',?3)").bind(ORG,agentId,toruMembership.created_at).run();
+ await env.DB.prepare('INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES(?1,?2,?3,\'9401\',\'now\')').bind(ORG,channel,agentId).run();
+ const context={orgId:ORG,session:{github_id:'9401',token:'room-token'},personal:false,ownAgentsOnly:false,fileScope:channel,taint:{value:false},fileProposalAgentId:agentId,sourceMessageId:'room-source',managedRoom:true};
+ const tools=await fileAgentTools(env,context);
+ expect(tools.create_file_text).toBeDefined();expect(tools.update_file_text).toBeDefined();
+ expect(tools.delete_file).toBeUndefined();expect(tools.restore_file_version).toBeUndefined();expect(tools.create_file_upload).toBeUndefined();
+ expect(tools.create_file_text.parameters.properties.scope).toBeUndefined();
+ const requestId=`file-${crypto.randomUUID()}`;
+ const created=JSON.parse(await tools.create_file_text.run({scope:'workspace',requestId,path:'handoff.md',text:'Room notes v1',contentType:'text/markdown'}));
+ expect(created).toMatchObject({saved:true,version:1});
+ expect((await env.DB.prepare('SELECT scope FROM hx_workspace_files WHERE org_id=?1 AND id=?2').bind(ORG,requestId).first()).scope).toBe(channel);
+ expect(JSON.parse(await tools.read_file_text.run({fileId:requestId,version:1})).text).toBe('Room notes v1');
+ const updated=JSON.parse(await tools.update_file_text.run({fileId:requestId,expectedVersion:1,text:'Room notes v2'}));
+ expect(updated).toMatchObject({saved:true,version:2});
+ expect(JSON.parse(await tools.update_file_text.run({fileId:requestId,expectedVersion:1,text:'stale edit'})).error).toContain('current version');
+ await env.DB.prepare("DELETE FROM hx_agent_members WHERE org_id=?1 AND agent_id=?2 AND user_id='9401'").bind(ORG,agentId).run();
+ expect(JSON.parse(await tools.create_file_text.run({requestId:`file-${crypto.randomUUID()}`,path:'access-revoked.md',text:'denied',contentType:'text/plain'})).error).toContain('no longer');
+ await env.DB.prepare("INSERT INTO hx_agent_members(org_id,agent_id,user_id,role,updated_by,updated_at,member_since) VALUES(?1,?2,'9401','member','9402','now',?3)").bind(ORG,agentId,(await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9401'").bind(ORG).first()).created_at).run();
+ await env.DB.prepare('DELETE FROM channel_agents WHERE org_id=?1 AND channel=?2 AND agent_id=?3').bind(ORG,channel,agentId).run();
+ expect(JSON.parse(await tools.create_file_text.run({requestId:`file-${crypto.randomUUID()}`,path:'revoked.md',text:'denied',contentType:'text/plain'})).error).toContain('no longer');
+ await call('/orgs/mode',{method:'PUT',headers:headers(toru),body:JSON.stringify({orgId:ORG,mode:'simple'})});
+ expect(await fileAgentTools(env,context)).toEqual({});
+});
+
 test('conversation file links use configured deployments and exclude inherited credentials',async()=>{
  const {conversationFileUrl}=await import('../src/harness/fileAgentTools.js');
  const target={orgId:'team:files',fileScope:'ag:writer|toru',fileId:'file-123'};

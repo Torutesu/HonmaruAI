@@ -6,6 +6,7 @@ import {audit} from '../audit.js';
 import {FileVersionInputError,readFileVersionContent,createFileLedger,workspaceFilePath,appendFileVersion} from './fileVersionLedger.js';
 import {uploadFileVersion,restoreFileVersion} from './fileUpload.js';
 import {proposePublicFileShare} from './fileShareApprovals.js';
+import {fileScopeAuthority,roomAgentFileAuthority} from './fileAuthority.js';
 
 const textTypes=['text/plain','text/markdown','text/csv','text/html','application/json','application/xml','application/yaml','application/javascript'];
 export const FILE_WRITE_TOOLS=[{
@@ -82,7 +83,8 @@ export async function callFileWriteTool(env,agent,name,args={}) {
   if(!source)return error('File content is unavailable.');
   const mime=source.contentType.split(';')[0].trim().toLowerCase();
   if(!mime.startsWith('text/')&&!['application/json','application/xml','application/yaml','application/javascript'].includes(mime))return error('This file is not text.');
-  const saved=await uploadFileVersion(env,{...file,expectedVersion:args.expectedVersion,size:bytes.length,contentType:mime,stream:new Blob([bytes]).stream()});
+  const saved=await uploadFileVersion(env,{...file,expectedVersion:args.expectedVersion,size:bytes.length,contentType:mime,stream:new Blob([bytes]).stream(),
+   ...(agent.fileRoomWrite?{authoritySql:`${fileScopeAuthority('f.org_id','f.scope','?3')} AND ${roomAgentFileAuthority('?1','f.scope','?3',agent.fileRoomWrite.agentId,agent.fileRoomWrite.channel)}`,commitAuthoritySql:`${fileScopeAuthority('f.org_id','f.scope','?10')} AND ${roomAgentFileAuthority('?1','f.scope','?10',agent.fileRoomWrite.agentId,agent.fileRoomWrite.channel)}`}:{})});
   if(!saved.saved)return error('The file changed or is unavailable. Read its current version before editing again.');
   await audit(env,null,{orgId,action:'workspace.file_changed',actor:{type:'user',id:agent.login,name:agent.name},entity:{type:'file',id:args.fileId},details:{source:agent.source||'mcp',tokenId:agent.tokenId,agentName:agent.agentName,operation:'update_file_text',version:saved.version}});
   await announceFileChanged(env,orgId,args.fileId);
@@ -137,7 +139,8 @@ async function createText(env,agent,args,bytes){
  if(typeof args.requestId!=='string'||!/^file-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(args.requestId))throw new FileVersionInputError('A stable file UUID requestId is required.');
  if(!textTypes.includes(args.contentType))throw new FileVersionInputError('Unsupported text content type.');
  const orgId=agent.orgId,userId=String(agent.githubId),fileId=args.requestId,path=workspaceFilePath(args.path);
- const created=await createFileLedger(env.DB,{orgId,fileId,scope:args.scope,path,createdBy:userId,origin:'agent'});
+ const created=await createFileLedger(env.DB,{orgId,fileId,scope:args.scope,path,createdBy:userId,origin:'agent',
+  ...(agent.fileRoomWrite?{authoritySql:roomAgentFileAuthority('?1','?3','?5',agent.fileRoomWrite.agentId,agent.fileRoomWrite.channel)}:{})});
  if(!created.created){
   // A retry may resume only this author's exact agent reservation. A human
   // reservation, different path or scope cannot be adopted by an agent call.
@@ -150,7 +153,8 @@ async function createText(env,agent,args,bytes){
    return success({fileId,version:1,saved:true,replayed:true});
   }
  }
- const saved=await uploadFileVersion(env,{orgId,fileId,userId,expectedVersion:0,size:bytes.length,contentType:args.contentType,stream:new Blob([bytes]).stream()});
+ const saved=await uploadFileVersion(env,{orgId,fileId,userId,expectedVersion:0,size:bytes.length,contentType:args.contentType,stream:new Blob([bytes]).stream(),
+  ...(agent.fileRoomWrite?{authoritySql:`${fileScopeAuthority('f.org_id','f.scope','?3')} AND ${roomAgentFileAuthority('?1','f.scope','?3',agent.fileRoomWrite.agentId,agent.fileRoomWrite.channel)}`,commitAuthoritySql:`${fileScopeAuthority('f.org_id','f.scope','?10')} AND ${roomAgentFileAuthority('?1','f.scope','?10',agent.fileRoomWrite.agentId,agent.fileRoomWrite.channel)}`}:{})});
  if(!saved.saved)return error('File creation conflicted or access changed. Retry the same request to check the saved result.');
  await audit(env,null,{orgId,action:'workspace.file_changed',actor:{type:'user',id:agent.login,name:agent.name},entity:{type:'file',id:fileId},details:{source:agent.source||'mcp',tokenId:agent.tokenId,agentName:agent.agentName,operation:'create_file_text',version:saved.version}});
  await announceFileChanged(env,orgId,fileId);

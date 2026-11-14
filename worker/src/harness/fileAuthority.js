@@ -33,6 +33,30 @@ export function fileDeleteAuthority(org,creator,actor,scope) {
    AND lower(trim(member.role)) IN ('owner','admin','member','designer','engineer','triager','maintainer') AND role.member_since=member.created_at||'/'||room_member.added_at))`;
 }
 
+// A Room Agent's placement and current calling grant are part of the write
+// capability. `fileScopeAuthority` separately checks live human membership
+// and room access; this fragment fences the Agent side at every storage
+// mutation (reservation, upload stage, and version commit).
+export function roomAgentFileAuthority(org,scope,actor,agentId,channel) {
+ const literal=value=>`'${String(value).replaceAll("'","''")}'`;
+ if(typeof agentId!=='string'||!agentId||agentId.length>200||/[\u0000-\u001f\u007f]/.test(agentId)||typeof channel!=='string'||!['b:','g:'].some(prefix=>channel.startsWith(prefix))||channel.length>200||/[\u0000-\u001f\u007f]/.test(channel)) throw new TypeError('Invalid Room Agent file authority.');
+ const id=literal(agentId),room=literal(channel);
+ return `EXISTS(SELECT 1 FROM custom_agents a JOIN users caller ON caller.github_id=${actor}
+  JOIN memberships member ON member.org_id=a.org_id AND member.user_github_id=caller.github_id
+    AND lower(trim(member.role)) IN ('owner','admin','member','designer','engineer','triager','maintainer')
+  WHERE a.org_id=${org} AND a.id=${id} AND a.deleted_at IS NULL
+   AND (a.scope='team' OR a.owner_login=caller.login)
+   AND ${scope}=${room}
+   AND EXISTS(SELECT 1 FROM channel_agents placed WHERE placed.org_id=a.org_id AND placed.channel=${room} AND placed.agent_id=a.id)
+   AND (a.owner_login=caller.login
+    OR NOT EXISTS(SELECT 1 FROM hx_agent_profiles profile WHERE profile.org_id=a.org_id AND profile.agent_id=a.id)
+    OR EXISTS(SELECT 1 FROM hx_agent_profiles profile WHERE profile.org_id=a.org_id AND profile.agent_id=a.id AND (
+      profile.access='everyone'
+      OR (profile.access='people' AND EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(profile.people) THEN profile.people ELSE '[]' END) person WHERE person.value=caller.login))
+      OR (a.scope='team' AND EXISTS(SELECT 1 FROM hx_agent_members grant_row WHERE grant_row.org_id=a.org_id AND grant_row.agent_id=a.id AND grant_row.user_id=caller.github_id AND grant_row.member_since=member.created_at AND grant_row.role IN ('admin','member')))
+    ))))`;
+}
+
 // Exact-file guest edits are intentionally narrower than workspace authority:
 // External edit authority unions verified exact grants with current Room or
 // workspace audiences. Every upload stage re-evaluates the same SQL fence.
