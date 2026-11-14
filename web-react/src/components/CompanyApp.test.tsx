@@ -93,6 +93,22 @@ test('new table builder adds an entity with a stable key and starter field to th
  act(()=>tree.unmount())
 })
 
+test('typed column builder adds a select column with bounded options to the reviewed plan',async()=>{
+ const {tree,api}=await setup()
+ const name=tree.root.findByProps({'aria-label':'新しい列名'})
+ await act(async()=>name.props.onChange({target:{value:'Status'}}))
+ const type=tree.root.findByProps({'aria-label':'新しい列の型'})
+ await act(async()=>type.props.onChange({target:{value:'select'}}))
+ const options=tree.root.findByProps({'aria-label':'列の選択肢'})
+ await act(async()=>options.props.onChange({target:{value:'Open, In progress, Done, Open'}}))
+ const form=tree.root.findByProps({className:'hx-db-builder-form hx-db-column-builder'})
+ await act(async()=>form.props.onSubmit({preventDefault:vi.fn()}))
+ expect(JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)).toEqual([{op:'add_columns',entity:'primary',columns:[{name:'Status',type:'select',options:['Open','In progress','Done']}]}])
+ expect(api.previewDatabaseMigration).not.toHaveBeenCalled()
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
+
 test('ambiguous relation migrations let the owner select a target and require a new preview',async()=>{
  const {tree,button,api}=await setup()
  const candidateBlocker={entity:'primary',id:'source-row',column:'Assignee',reason:'Value cannot be converted without data loss.',resolution:{entity:'primary',columnId:'assignee',label:'Alex',candidates:['record-a','record-b']}}
