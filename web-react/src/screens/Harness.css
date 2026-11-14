@@ -72,6 +72,19 @@
 .hx-builder { border: 1px solid var(--bone); border-radius: var(--radius-card); padding: 12px; margin: 8px 0 16px; display: flex; flex-direction: column; gap: 8px; }
 .hx-skill-package-editor { display: grid; gap: 10px; margin: 8px 0; padding: 12px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-card); background: var(--hx-surface-muted, var(--signal-white)); color: var(--hx-text, var(--ink-black)); }
 .hx-skill-package-editor > p { margin: 0; }
+.hx-skill-bulk-share { display: grid; gap: 12px; margin: 10px 0 16px; padding: 14px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-card); background: var(--hx-surface-muted, var(--signal-white)); color: var(--hx-text, var(--ink-black)); }
+.hx-skill-bulk-share > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.hx-skill-bulk-share > header p { margin: 4px 0 0; }
+.hx-skill-bulk-share-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.hx-skill-bulk-share fieldset { min-width: 0; max-height: 260px; overflow: auto; margin: 0; padding: 8px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-input); }
+.hx-skill-bulk-share legend { padding: 0 5px; color: var(--hx-muted, var(--ash)); font-size: 12px; font-weight: 600; }
+.hx-skill-bulk-option { display: flex; align-items: flex-start; gap: 9px; padding: 8px 5px; border-radius: 8px; cursor: pointer; }
+.hx-skill-bulk-option:hover { background: var(--hx-hover, var(--mist)); }
+.hx-skill-bulk-option input { flex: 0 0 auto; margin-top: 3px; accent-color: var(--hx-accent, var(--ink-black)); }
+.hx-skill-bulk-option > span { display: grid; min-width: 0; gap: 2px; }
+.hx-skill-bulk-option small { overflow-wrap: anywhere; color: var(--hx-muted, var(--ash)); font-size: 11px; }
+.hx-skill-bulk-share [role="alert"] p, .hx-skill-bulk-share [role="status"] p { margin: 4px 0; }
+@media (max-width: 640px) { .hx-skill-bulk-share-columns { grid-template-columns: minmax(0, 1fr); } }
 .hx-skill-support-file { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--hx-border, var(--bone)); border-radius: 10px; background: var(--hx-surface, var(--signal-white)); }
 .hx-skill-support-file label { display: grid; gap: 5px; color: var(--hx-muted, var(--ash)); font-size: 12px; }
 .hx-skill-support-file .context-input { min-height: 100px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
