@@ -1377,9 +1377,14 @@ test('Harness agent tool traces are safe, reply-scoped, and filtered by the curr
   const response = await get(`/channels/agent-tool-traces?${q({orgId: ORG, channel: 'b:cafe', messageId: answer.id})}`, mika);
   expect(response.status).toBe(200);
   const payload = await response.json();
-  expect(payload.trace).toEqual({startedAt: '2026-11-07T00:00:00.000Z', finishedAt: '2026-11-07T00:00:00.125Z', elapsedMs: 125, steps: [{name: 'lookup_records', status: 'completed', elapsedMs: 125}]});
+  expect(payload.trace).toEqual({startedAt: '2026-11-07T00:00:00.000Z', finishedAt: '2026-11-07T00:00:00.125Z', elapsedMs: 125, steps: [{name: 'lookup_records', status: 'completed', elapsedMs: 125}], runByName: 'Mika'});
   expect(JSON.stringify(payload)).not.toContain(secretInput);
   expect(JSON.stringify(payload)).not.toContain(secretResult);
+  expect(JSON.stringify(payload)).not.toContain('8802');
+  await env.DB.prepare("UPDATE users SET name=NULL WHERE github_id='8802'").run();
+  const unnamed = await (await get(`/channels/agent-tool-traces?${q({orgId: ORG, channel: 'b:cafe', messageId: answer.id})}`, mika)).json();
+  expect(unnamed.trace).not.toHaveProperty('runByName');
+  expect(JSON.stringify(unnamed)).not.toContain('8802');
   const {deleteMessage} = await import('../src/channels.js');
   await deleteMessage(env.DB, {orgId: ORG, id: root.id, authorLogin: 'mika', withThread: true});
   expect(await env.DB.prepare('SELECT message_id FROM hx_agent_tool_traces WHERE org_id=?1 AND message_id=?2').bind(ORG, answer.id).first()).toBeNull();

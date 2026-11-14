@@ -3927,6 +3927,7 @@ const table: Record<string, string> = {
   'Export CSV': 'CSVを書き出す',
   'Export to Excel (.xlsx)': 'Excelを書き出す（.xlsx）',
   'Wrap text': 'テキストを折り返す',
+  'Run by': '実行者',
 
 }
 

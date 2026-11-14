@@ -57,12 +57,16 @@ export async function storeAgentToolTrace(db, { orgId, messageId, channel, agent
 export function traceFromRow(row) {
   if (!row) return null;
   try {
-    return normalizeAgentToolTrace({
+    const trace = normalizeAgentToolTrace({
       startedAt: row.started_at,
       finishedAt: row.finished_at,
       elapsedMs: row.elapsed_ms,
       steps: JSON.parse(row.steps_json),
     });
+    const runByName = typeof row.run_by_name === 'string'
+      ? row.run_by_name.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 120)
+      : '';
+    return trace ? {...trace, ...(runByName && runByName !== String(row.run_by) ? {runByName} : {})} : null;
   } catch {
     return null;
   }

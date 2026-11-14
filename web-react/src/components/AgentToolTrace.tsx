@@ -7,7 +7,7 @@ import './AgentToolTrace.css'
 
 type Api = {httpBase: string; orgId: string; sessionToken: string}
 type Step = {name: string; status: 'completed' | 'failed' | 'interrupted'; elapsedMs: number}
-type Trace = {startedAt: string; finishedAt: string; elapsedMs: number; steps: Step[]}
+type Trace = {startedAt: string; finishedAt: string; elapsedMs: number; runByName?: string; steps: Step[]}
 
 function safeTrace(value: unknown): Trace | null {
   if (!value || typeof value !== 'object') return null
@@ -17,7 +17,8 @@ function safeTrace(value: unknown): Trace | null {
       !Number.isFinite(trace.elapsedMs) || !Array.isArray(trace.steps)) return null
   const steps = trace.steps.filter((step): step is Step => Boolean(step) && typeof step.name === 'string' &&
     ['completed', 'failed', 'interrupted'].includes(step.status) && Number.isFinite(step.elapsedMs)).slice(0, 16)
-  return steps.length ? {startedAt: trace.startedAt, finishedAt: trace.finishedAt, elapsedMs: trace.elapsedMs!, steps} : null
+  const runByName = typeof trace.runByName === 'string' ? trace.runByName.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 120) : ''
+  return steps.length ? {startedAt: trace.startedAt, finishedAt: trace.finishedAt, elapsedMs: trace.elapsedMs!, ...(runByName && !/^\d+$/.test(runByName) ? {runByName} : {}), steps} : null
 }
 
 export function AgentToolTrace({api, channel, messageId}: {api: Api; channel: string; messageId: string}) {
@@ -44,6 +45,7 @@ export function AgentToolTrace({api, channel, messageId}: {api: Api; channel: st
     <summary><span className="slk-agent-tool-trace-chevron"><Icon name="chevron-right" size={12}/></span><Icon name="tools" size={13}/><span>{t('Worked for')}</span>{trace && <span className="slk-agent-tool-trace-duration">{formatElapsedDuration(trace.startedAt, trace.finishedAt, getLocale())}</span>}</summary>
     {state.status === 'loading' && <p role="status">{t('Loading execution details…')}</p>}
     {state.status === 'error' && <p role="status">{t('Execution details unavailable')} <button type="button" onClick={event => {setState({scope, status: 'idle'}); const disclosure = event.currentTarget.closest('details'); if (disclosure) disclosure.open = false}}>{t('Retry')}</button></p>}
+    {trace?.runByName && <p className="slk-agent-tool-trace-run-by">{t('Run by')}: {trace.runByName}</p>}
     {trace && <ol>{trace.steps.map((step, index) => <li key={`${index}:${step.name}`}>
       <span className="slk-agent-tool-step-icon" data-status={step.status} aria-hidden="true"><Icon name={step.status === 'completed' ? 'check' : step.status === 'failed' ? 'x' : 'clock'} size={12}/></span>
       <span className="slk-agent-tool-step-name">{step.name}</span>

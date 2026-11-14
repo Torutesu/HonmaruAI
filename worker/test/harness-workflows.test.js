@@ -182,6 +182,27 @@ test('Simple mode does not expose or save Workflow Connection steps', async () =
   expect(await response.json()).toMatchObject({ message: 'Workflow Connection steps are available only in Harness mode.' });
 });
 
+test('workflow run history resolves actors to workspace names and omits raw user IDs', async () => {
+  const made = await send('POST', '/workflows', mika, { orgId: ORG, name: 'Actor history', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'Run for actor test.' }] });
+  const { workflow } = await made.json();
+  const startedAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,log,started_by,started_at,finished_at)
+    VALUES('run-actor-known',?1,?2,'manual','done','[]','9302',?3,?3),('run-actor-unknown',?1,?2,'manual','done','[]','missing-user',?3,?3)`)
+    .bind(ORG, workflow.id, startedAt).run();
+
+  const listed = await (await get(`/workflows/${workflow.id}/runs?${q({ orgId: ORG })}`, mika)).json();
+  const known = listed.runs.find(run => run.id === 'run-actor-known');
+  const unknown = listed.runs.find(run => run.id === 'run-actor-unknown');
+  expect(known).toMatchObject({ startedByName: 'Mika' });
+  expect(known).not.toHaveProperty('startedBy');
+  expect(unknown).not.toHaveProperty('startedByName');
+  expect(unknown).not.toHaveProperty('startedBy');
+
+  const detail = await (await get(`/workflows/${workflow.id}/runs/run-actor-known?${q({ orgId: ORG })}`, mika)).json();
+  expect(detail.run).toMatchObject({ startedByName: 'Mika' });
+  expect(detail.run).not.toHaveProperty('startedBy');
+});
+
 test("a row turning overdue runs the workflow: it posts, waits on a person's approval, and goes on when approved", async () => {
   const made = await send("POST", "/workflows", mika, overdueFlow());
   expect(made.status).toBe(201);
