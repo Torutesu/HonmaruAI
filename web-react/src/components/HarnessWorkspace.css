@@ -379,11 +379,13 @@
 .hx-company-app .hx-db-builder { border-color: color-mix(in srgb,var(--hx-action) 30%,var(--hx-border)); background: color-mix(in srgb,var(--hx-action) 3%,var(--hx-surface)); }
 .hx-company-app .hx-db-builder-form { display: grid; grid-template-columns: minmax(150px,1fr) auto; align-items: end; gap: 10px; padding-top: 12px; border-top: 1px solid var(--hx-border); }
 .hx-company-app .hx-db-builder-form:not(.hx-db-relation-builder) { grid-template-columns: minmax(130px,1fr) minmax(120px,.7fr) auto; }
+.hx-company-app .hx-db-column-builder { grid-template-columns: repeat(3,minmax(120px,1fr)) auto; }
 .hx-company-app .hx-db-builder-form label { min-width: 0; }
 .hx-company-app .hx-db-builder-action { display: flex; align-items: center; gap: 8px; }
 .hx-company-app .hx-db-builder-action code { color: var(--hx-muted); font-size: 12px; }
 .hx-company-app .hx-db-relation-builder { grid-template-columns: repeat(4,minmax(110px,1fr)) auto; }
 @media (max-width: 800px) { .hx-company-app .hx-db-relation-builder { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 800px) { .hx-company-app .hx-db-column-builder { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 520px) { .hx-company-app .hx-db-builder-form,.hx-company-app .hx-db-builder-form:not(.hx-db-relation-builder) { grid-template-columns: minmax(0,1fr); } .hx-company-app .hx-db-builder-action { justify-content: space-between; flex-wrap: wrap; } .hx-company-app .hx-db-entity li { grid-template-columns: 18px minmax(50px,1fr) auto; } .hx-company-app .hx-db-relation-link { grid-column: 2/-1; justify-self: start; margin-bottom: 7px; } }
 .hx-company-app h2, .hx-company-app h3, .hx-company-app p { margin: 0; }
 .hx-company-app small { overflow-wrap: anywhere; }

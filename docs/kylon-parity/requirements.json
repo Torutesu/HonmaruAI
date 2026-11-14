@@ -465,7 +465,7 @@
       "evidence": {
         "reviewedAt": "2026-10-30",
         "inspectedMain": "1c587b85fd",
-        "implementedScope": "App-scoped primary/additional entities, typed tables, inherited table ACL, single/multiple same-app relations, reference existence checks, linked-row delete protection, and final-state preview validation (PR #514). Company App now renders entity/field cards and relation targets, and offers visual create-entity and relation builders that append reviewed operations to the existing migration plan without applying them directly.",
+        "implementedScope": "App-scoped primary/additional entities, typed tables, inherited table ACL, single/multiple same-app relations, reference existence checks, linked-row delete protection, and final-state preview validation (PR #514). Company App renders entity/field cards and relation targets, and offers visual create-entity, typed-column (including Select options), and relation builders that append reviewed operations to the existing migration plan without applying them directly.",
         "remaining": "Honmaru uses D1 logical isolation rather than Kylon's dedicated per-App Postgres DB/login; authenticated Kylon side-by-side UI parity and production acceptance remain unverified.",
         "verification": "docs/kylon-parity/verification.md"
       }
