@@ -133,8 +133,8 @@ async function loadBlob(token,owner,repo,sha,maxBytes){
 export async function fetchGitHubCommitSource(sessionToken,input){
   const token=tokenValue(sessionToken);
   if(!token)return {error:'Sign in with the connected GitHub account to import a commit.',status:403};
-  const owner=String(input?.owner||'').trim(),repo=String(input?.repo||'').trim(),branch=String(input?.branch||'').trim(),requestedSha=String(input?.commitSha||'').toLowerCase();
-  if(!safeRepoPart(owner)||!safeRepoPart(repo)||!safeBranch(branch)||!SHA.test(requestedSha))return {error:'Choose a GitHub repository, branch, and full commit SHA.',status:400};
+  const owner=String(input?.owner||'').trim(),repo=String(input?.repo||'').trim(),branch=String(input?.branch||'').trim(),requestedSha=String(input?.commitSha||'').toLowerCase(),sourcePath=typeof input?.path==='string'?input.path:'index.html';
+  if(!safeRepoPart(owner)||!safeRepoPart(repo)||!safeBranch(branch)||!safePath(sourcePath)||!SHA.test(requestedSha))return {error:'Choose a GitHub repository, branch, safe source path, and full commit SHA.',status:400};
   try{
     const resolved=await currentBranchSha(token,owner,repo,branch);
     if(resolved!==requestedSha)return {error:'The branch no longer points to this commit. Select the current commit and request a new review.',status:409};
@@ -144,13 +144,13 @@ export async function fetchGitHubCommitSource(sessionToken,input){
     if(tree?.truncated||!Array.isArray(tree.tree)||tree.tree.length>MAX_TREE_ENTRIES)return {error:'The commit tree is too large to import safely.',status:413};
     const entries=new Map();
     for(const entry of tree.tree){if(entry?.type==='blob'&&['100644','100755'].includes(entry.mode)&&safePath(entry.path)&&SHA.test(String(entry.sha||''))&&Number.isSafeInteger(Number(entry.size))&&Number(entry.size)>=0)entries.set(entry.path,entry);}
-    const root=entries.get('index.html');
-    if(!root||Number(root.size)>MAX_HTML_BYTES)return {error:'The commit must contain a root index.html under 119800 bytes.',status:400};
+    const root=entries.get(sourcePath);
+    if(!root||Number(root.size)>MAX_HTML_BYTES)return {error:'The commit must contain the selected HTML source under 119800 bytes.',status:400};
     const rootBytes=await loadBlob(token,owner,repo,root.sha,MAX_HTML_BYTES);
     const html=new TextDecoder('utf-8',{fatal:true}).decode(rootBytes);
     if(!html.trim()||html.length>MAX_HTML_BYTES||html.includes('\0'))return {error:'The pinned HTML source is empty, invalid, or too large.',status:400};
     const htmlHash=await sha256(rootBytes);
-    const assets=new Map(), queue=references('index.html',html).map(target=>resolveReference('index.html',target)).filter(x=>!x.ignored).map(x=>x.path);
+    const assets=new Map(), queue=references(sourcePath,html).map(target=>resolveReference(sourcePath,target)).filter(x=>!x.ignored).map(x=>x.path);
     let total=0;
     while(queue.length){
       const path=queue.shift();if(assets.has(path))continue;
@@ -169,11 +169,11 @@ export async function fetchGitHubCommitSource(sessionToken,input){
         }
       }
     }
-    const manifest=['index.html|text/html|'+htmlHash,...[...assets.values()].sort((a,b)=>a.path.localeCompare(b.path)).map(a=>`${a.path}|${a.mimeType}|${a.contentHash}`)].join('\n');
+    const manifest=[sourcePath+'|text/html|'+htmlHash,...[...assets.values()].sort((a,b)=>a.path.localeCompare(b.path)).map(a=>`${a.path}|${a.mimeType}|${a.contentHash}`)].join('\n');
     const sourceHash=await sha256(new TextEncoder().encode(manifest));
     const latest=await currentBranchSha(token,owner,repo,branch);
     if(latest!==requestedSha)return {error:'The branch moved while importing. Select its current commit and request a new review.',status:409};
-    return {source:html,assets:[...assets.values()],commit:{owner,repo,branch,sha:requestedSha,path:'index.html',htmlHash,sourceHash,assetToken:crypto.randomUUID(),assets:[...assets.values()].map(({path,mimeType,contentHash,size})=>({path,mimeType,contentHash,size}))}};
+    return {source:html,assets:[...assets.values()],commit:{owner,repo,branch,sha:requestedSha,path:sourcePath,htmlHash,sourceHash,assetToken:crypto.randomUUID(),assets:[...assets.values()].map(({path,mimeType,contentHash,size})=>({path,mimeType,contentHash,size}))}};
   }catch(error){
     const message=error instanceof Error?error.message:'GitHub source could not be verified.';
     const invalidSourcePath=/escapes the repository root|External, absolute, and query-based assets are not supported|A GitHub asset path is invalid/.test(message);
@@ -184,7 +184,7 @@ export async function fetchGitHubCommitSource(sessionToken,input){
 export async function verifyGitHubCommitRef(sessionToken,commit){
   const token=tokenValue(sessionToken);
   if(!token)return {error:'Sign in with the connected GitHub account to verify this commit.',status:403};
-  if(!commit||!safeRepoPart(commit.owner)||!safeRepoPart(commit.repo)||!safeBranch(commit.branch)||!SHA.test(String(commit.sha||'')))return {error:'The saved GitHub commit source is invalid.',status:409};
+  if(!commit||!safeRepoPart(commit.owner)||!safeRepoPart(commit.repo)||!safeBranch(commit.branch)||!safePath(typeof commit.path==='string'?commit.path:'index.html')||!SHA.test(String(commit.sha||'')))return {error:'The saved GitHub commit source is invalid.',status:409};
   try{
     const sha=await currentBranchSha(token,commit.owner,commit.repo,commit.branch);
     if(sha!==String(commit.sha).toLowerCase())return {error:'The approved branch moved to a different commit. Import and review the new commit.',status:409};
