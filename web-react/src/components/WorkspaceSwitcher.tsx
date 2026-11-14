@@ -54,6 +54,7 @@ export const WorkspaceSwitcher: React.FC<Props> = ({ workspaces, currentId, onSw
   const t = useT()
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
   // ⌘1–⌘9 (Ctrl on Windows): straight to a workspace, as in Slack. Only
   // the rail's switcher listens, so two on the page do not both jump.
   useEffect(() => {
@@ -71,13 +72,48 @@ export const WorkspaceSwitcher: React.FC<Props> = ({ workspaces, currentId, onSw
     return () => window.removeEventListener('keydown', onKey)
   }, [variant, workspaces, currentId, onSwitch])
   const box = useRef<HTMLDivElement>(null)
+  const workspaceIdsKey = JSON.stringify(workspaces.map((workspace) => workspace.id))
+  const apiBase = api?.httpBase || ''
+  const sessionToken = api?.sessionToken || ''
+  useEffect(() => {
+    if (!open || !apiBase || !sessionToken || workspaces.length === 0) {
+      setUnreadCounts({})
+      return
+    }
+    const controller = new AbortController()
+    setUnreadCounts({})
+    const load = async () => {
+      const ids = JSON.parse(workspaceIdsKey) as string[]
+      const loaded: Record<string, number> = {}
+      for (let at = 0; at < ids.length; at += 20) {
+        try {
+          const response = await fetch(`${apiBase}/channels/workspace-unread`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+            body: JSON.stringify({ orgIds: ids.slice(at, at + 20) }),
+            signal: controller.signal,
+          })
+          if (!response.ok) continue
+          const result = await response.json() as { counts?: Record<string, number> }
+          for (const [orgId, count] of Object.entries(result.counts || {})) {
+            if (ids.includes(orgId) && Number.isSafeInteger(count) && count >= 0) loaded[orgId] = count
+          }
+          setUnreadCounts((current) => ({ ...current, ...loaded }))
+        } catch {
+          if (controller.signal.aborted) return
+        }
+      }
+    }
+    void load()
+    return () => controller.abort()
+  }, [open, apiBase, sessionToken, workspaceIdsKey])
   // Workspaces your company's domain lets you ask to join.
   const [joinable, setJoinable] = useState<Array<{ orgId: string; name: string; domain: string; requested: boolean; declined: boolean }>>([])
   useEffect(() => {
-    if (!open || !api) return
-    fetch(`${api.httpBase}/orgs/joinable`, { headers: { 'x-session-token': api.sessionToken } })
+    if (!open || !apiBase || !sessionToken) return
+    fetch(`${apiBase}/orgs/joinable`, { headers: { 'x-session-token': sessionToken } })
       .then((r) => (r.ok ? r.json() : { workspaces: [] })).then((d) => setJoinable(d.workspaces || [])).catch(() => {})
-  }, [open, api])
+  }, [open, apiBase, sessionToken])
   const askToJoin = async (orgId: string) => {
     if (!api) return
     const res = await fetch(`${api.httpBase}/orgs/join-requests/ask`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': api.sessionToken }, body: JSON.stringify({ orgId }) })
@@ -135,6 +171,7 @@ export const WorkspaceSwitcher: React.FC<Props> = ({ workspaces, currentId, onSw
                         {' · '}{t(w.role.charAt(0).toUpperCase() + w.role.slice(1))}
                       </span>
                     </span>
+                    {(unreadCounts[w.id] || 0) > 0 && <span className="ws-unread-count" aria-label={t('{n} unread conversations', { n: unreadCounts[w.id] })}>{unreadCounts[w.id] > 99 ? '99+' : unreadCounts[w.id]}</span>}
                     {i < 9 && <kbd className="ws-key" aria-hidden="true">{formatCombo(`Mod+${i + 1}`, isMac)}</kbd>}
                   </button>
                 </li>

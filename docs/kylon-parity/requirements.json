@@ -41,11 +41,11 @@
       "priority": "P1",
       "source": "https://kylon.io/product/workspace",
       "code": "web-react/src/components/ClassicList.tsx",
-      "acceptance": "一覧と通知既読位置が複数端末で一致",
+      "acceptance": "複数端末で一覧と既読位置を一致させ、Workspace切替器では参加中Workspaceごとに認可された未読会話数を表示する。会話/スレッドのミュート中も明示@メンションは通知し、それ以外は抑制する",
       "evidence": {
         "release": "PR #443 / efb65d31",
-        "verified": "Production native left mention-filter empty state; local nonempty fixture preserved chat, draft and app.",
-        "remaining": "Physical multi-device unread/read synchronization and nonempty reference comparison remain unverified."
+        "verified": "Production native left mention-filter empty state; local nonempty fixture preserved chat, draft and app. Follow-up on branch codex/kylon-parity-audit-20261114: muted Room/thread explicit-mention push and sound regressions pass (Worker pushes 16/16; sound 13/13). Authorized per-workspace unread-conversation summary, private-room/guest filtering, reads, mute and mentions-only cases pass in Worker tests; switcher badge rendering passes. Current badge counts conversations whose latest sidebar activity is unread, not every unread message.",
+        "remaining": "Physical multi-device unread/read synchronization, exact Kylon reference comparison and production validation remain unverified."
       }
     },
     {

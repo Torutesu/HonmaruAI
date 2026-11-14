@@ -320,7 +320,8 @@ export function soundForMessage(m: {
   mine: boolean; channel: string; mentionsMe: boolean; kind?: string; parentId?: string | null
 }, ctx: { level: string; open: boolean }): SoundKind | null {
   if (m.mine) return null
-  if (ctx.level === 'mute') return null
+  // A muted conversation stays quiet except when the message names you.
+  if (ctx.level === 'mute' && !m.mentionsMe) return null
   const direct = m.channel.startsWith('dm:')
   const important = direct || m.mentionsMe
   // A reply deep in a channel's thread is the Activity inbox's to tell you

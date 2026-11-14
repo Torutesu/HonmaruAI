@@ -41,3 +41,21 @@ it('Escape from workspace creation does not close the underlying conversation',(
   act(()=>tree.unmount())
  }finally{vi.unstubAllGlobals()}
 })
+
+it('loads unread badges only for workspaces in the signed-in workspace list',async()=>{
+ const listeners=new Map<string,(e:any)=>void>(),fetchMock=vi.fn(async(url:string,init?:RequestInit)=>({ok:true,json:async()=>url.includes('/channels/workspace-unread')?{counts:{'team:one':0,'team:two':3,'team:outside':99}}:{workspaces:[]}}))
+ vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ vi.stubGlobal('document',{addEventListener:(type:string,fn:any)=>listeners.set(type,fn),removeEventListener:(type:string)=>listeners.delete(type)})
+ vi.stubGlobal('fetch',fetchMock)
+ let tree!:ReturnType<typeof create>
+ try{
+  act(()=>{tree=create(<WorkspaceSwitcher workspaces={[{id:'team:one',name:'One',role:'owner'},{id:'team:two',name:'Two',role:'member'}]} currentId="team:one" api={{httpBase:'https://example.test',sessionToken:'test'}} onSwitch={vi.fn()} onSettings={vi.fn()} onCreate={vi.fn()} onJoin={vi.fn()} onLogout={vi.fn()}/> )})
+  await act(async()=>{tree.root.findByProps({className:'ws-button'}).props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+  const unread=tree.root.findAllByProps({className:'ws-unread-count'})
+  expect(unread).toHaveLength(1);expect(unread[0].children).toEqual(['3'])
+  const request=fetchMock.mock.calls.find(([url])=>String(url).includes('/channels/workspace-unread'))
+  expect(request?.[1]?.method).toBe('POST')
+  expect(JSON.parse(String(request?.[1]?.body))).toEqual({orgIds:['team:one','team:two']})
+  act(()=>tree.unmount())
+ }finally{vi.unstubAllGlobals()}
+})

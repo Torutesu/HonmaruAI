@@ -1008,6 +1008,56 @@ async function previewsInLanguage(env, orgId, user, items, after = null) {
 export async function handleChannels(request, env, url, { route, after }) {
   const path = url.pathname;
 
+  // Workspace switchers need a compact unread badge before the user opens a
+  // workspace. Accept only a small batch and run the same membership,
+  // policy, channel visibility, read-position and mute checks as that
+  // workspace's sidebar. Returning counts only avoids sending conversation
+  // previews to a different workspace's UI.
+  if (path === "/channels/workspace-unread" && request.method === "POST") {
+    if (!await getSession(env.DB, request.headers.get("x-session-token"))) return json({ message: "Please sign in." }, 401);
+    const body = await request.json().catch(() => null);
+    if (!body || !Array.isArray(body.orgIds) || body.orgIds.length < 1 || body.orgIds.length > 20
+      || body.orgIds.some((id) => typeof id !== "string" || !id.trim() || id.length > 256)
+      || new Set(body.orgIds).size !== body.orgIds.length) {
+      return json({ message: "Provide 1–20 distinct workspace ids." }, 400);
+    }
+    const counts = {};
+    // Bound concurrent D1 work when someone belongs to many workspaces.
+    for (let i = 0; i < body.orgIds.length; i += 4) {
+      const batch = await Promise.all(body.orgIds.slice(i, i + 4).map(async (orgId) => {
+        const who = await caller(env, request, orgId);
+        if (who.denied) return null;
+        const members = await listMembers(env.DB, orgId, who.session.github_id);
+        const [activity, reads, rawPrefs, access] = await Promise.all([
+          channelActivity(env.DB, orgId, who.user.login, members),
+          readsFor(env.DB, orgId, who.user.login, members),
+          prefsFor(env.DB, orgId, who.user.login),
+          accessFor(env.DB, orgId, who.user.login),
+        ]);
+        const prefs = {};
+        for (const pref of rawPrefs) {
+          const view = viewOf(pref.channel, who.user.login, members, access);
+          if (view) prefs[view] = pref.level;
+        }
+        // The existing activity query can return tied timestamps for one
+        // conversation; the sidebar's object map keeps the last row.
+        const latestByView = new Map(activity.map((item) => [item.channel, item]));
+        const unread = [...latestByView.values()].reduce((n, item) => {
+          if (item.lastBy === "me" || item.lastAt <= (reads[item.channel] || "")) return n;
+          const level = prefs[item.channel];
+          const direct = item.channel.startsWith("dm:") || item.channel.startsWith("g:") || item.channel.startsWith("ag:");
+          const named = (level === "mute" || level === "mentions")
+            && resolveMentions(item._row?.body || item.preview || "", members, { here: false }).some((person) => person.login === who.user.login);
+          const relevant = level === "mute" ? named : level === "mentions" ? named || direct : true;
+          return relevant ? n + 1 : n;
+        }, 0);
+        return [orgId, unread];
+      }));
+      for (const result of batch) if (result) counts[result[0]] = result[1];
+    }
+    return json({ counts });
+  }
+
   if (path.startsWith("/channels/shared/") && request.method === "GET") {
     const limited = await enforce(env, request, "thread-share/read");
     if (limited) return limited;
