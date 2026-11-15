@@ -1733,6 +1733,7 @@ test('write-capable Remote MCP tools require an exact Agent grant and an immedia
     expect(card.context).toContain('Investigate outage');
     expect(card.workflowApproval.remoteMcp).toMatchObject({ approvalStep: 1, connectionStep: 2, serverId: server.id, toolName: 'create_ticket' });
     expect(card.workflowApproval.remoteMcp.argsHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(card.workflowApproval.remoteMcp.toolDescriptorHash).toMatch(/^[a-f0-9]{64}$/);
     expect(dispatched).toBe(0);
     const done = await settleWorkflowApproval({ ...env, DATA_KEY: testDataKey }, ORG, { ...card, status: 'approved', decision: { action: 'approve', actorUserID: 'toru', decidedAt: new Date().toISOString() } });
     expect(done.status).toBe('done');
@@ -1747,6 +1748,15 @@ test('write-capable Remote MCP tools require an exact Agent grant and an immedia
     const stale = await settleWorkflowApproval({ ...env, DATA_KEY: testDataKey }, ORG, { ...staleCard, status: 'approved', decision: { action: 'approve', actorUserID: 'toru', decidedAt: new Date().toISOString() } });
     expect(stale.status).toBe('failed');
     expect(stale.log[1].error).toContain('matching approval');
+    expect(dispatched).toBe(1);
+
+    const changedDefinitionWaiting = await startRun({ ...env, DATA_KEY: testDataKey }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302', input: { title: 'Investigate outage' } });
+    const changedDefinitionCard = await getCard(env.DB, ORG, changedDefinitionWaiting.cardId);
+    await env.DB.prepare('UPDATE hx_remote_mcp_servers SET tools_json=?1 WHERE org_id=?2 AND id=?3')
+      .bind(JSON.stringify([{ name: 'create_ticket', title: 'Create ticket', description: 'Creates an incident ticket in a different system.', inputSchema: { type: 'object', properties: { title: { type: 'string', description: 'Ticket summary' } }, required: ['title'], additionalProperties: false }, annotations: { readOnlyHint: false } }]), ORG, server.id).run();
+    const changedDefinition = await settleWorkflowApproval({ ...env, DATA_KEY: testDataKey }, ORG, { ...changedDefinitionCard, status: 'approved', decision: { action: 'approve', actorUserID: 'toru', decidedAt: new Date().toISOString() } });
+    expect(changedDefinition.status).toBe('failed');
+    expect(changedDefinition.log[1].error).toContain('matching approval');
     expect(dispatched).toBe(1);
     fetchMock.assertNoPendingInterceptors();
   } finally { deactivateWorkflowFetchMock(); }

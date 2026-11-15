@@ -3,6 +3,7 @@ import { act, create } from 'react-test-renderer'
 import { afterEach, expect, test, vi } from 'vitest'
 import { CustomAppEditor, CustomAppFrame, CustomAppReleaseHistory } from './CustomApp'
 vi.mock('../utils/appearance', () => ({ useAppearance: () => ({ theme: 'dark' }) }))
+vi.mock('../utils/i18n', () => ({ useT: () => (key: string, vars?: Record<string, string | number>) => Object.entries(vars || {}).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), key) }))
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 const table = { id: 'only-this-table', name: 'Tasks', columns: [] }
 test('custom app history distinguishes the active published release from a restorable old release', () => {
@@ -16,16 +17,16 @@ test('custom app history distinguishes the active published release from a resto
     { version: 7, note: 'Custom app: unpublish', createdAt: '2026-11-12T00:00:00Z', release: null, releaseEvent: { type: 'unpublished', at: '2026-11-12T00:00:00Z', by: '9101' } },
   ]} busy={false} restore={restore} />) })
   const statuses = tree!.root.findAllByProps({ role: 'status' }).map(node => node.children.join(''))
-  expect(statuses[0]).toContain('現在公開中')
+  expect(statuses[0]).toContain('Currently published')
   expect(statuses[0]).toContain('GitHub 0123456789ab')
-  expect(statuses[0]).toContain('公開者 Custom Publisher')
-  expect(statuses.some(status => status.includes('後続の版に差し替え済み'))).toBe(true)
-  expect(statuses.some(status => status.includes('公開版 v5 を維持'))).toBe(true)
-  expect(statuses.some(status => status.includes('公開停止'))).toBe(true)
-  expect(tree!.root.findAllByProps({ role: 'status' }).some(node => node.children.join('').includes('GitHub commit審査 · 公開済み · 申請 Reviewer · 審査 Custom Publisher'))).toBe(true)
-  expect(tree!.root.findAllByType('p').some(node => node.children.join('').includes('未公開の下書き'))).toBe(true)
+  expect(statuses[0]).toContain('Published by Custom Publisher')
+  expect(statuses.some(status => status.includes('Replaced by a later version'))).toBe(true)
+  expect(statuses.some(status => status.includes('Published version v5 remains active'))).toBe(true)
+  expect(statuses.some(status => status.includes('Publication stopped'))).toBe(true)
+  expect(tree!.root.findAllByProps({ role: 'status' }).some(node => node.children.join('').includes('GitHub commit review · Published · Requested by Reviewer · Reviewed by Custom Publisher'))).toBe(true)
+  expect(tree!.root.findAllByType('p').some(node => node.children.join('').includes('Unpublished draft'))).toBe(true)
   const buttons = tree!.root.findAllByType('button')
-  expect(buttons[0].children.join('')).toBe('この公開版を下書きに復元')
+  expect(buttons[0].children.join('')).toBe('Restore this published version as a draft')
   act(() => { buttons[0].props.onClick() })
   expect(restore).toHaveBeenCalledWith(3)
 })

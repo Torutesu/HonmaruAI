@@ -237,6 +237,25 @@ async function remoteMcpArgumentsHash(args) {
   return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalJson(args)))));
 }
 
+// Approval covers what the reviewer saw as well as what the tool will receive.
+// Servers can rediscover a same-name tool with a changed description or schema
+// while a run is waiting; an old approval must not authorize that definition.
+async function remoteMcpToolDescriptorHash(tool) {
+  const descriptor = {
+    name: tool?.name ?? null,
+    title: tool?.title ?? null,
+    description: tool?.description ?? null,
+    inputSchema: tool?.inputSchema ?? null,
+    annotations: tool?.annotations ?? null,
+    remote: {
+      serverId: tool?._remote?.serverId ?? null,
+      toolName: tool?._remote?.toolName ?? null,
+      requiresApproval: Boolean(tool?._remote?.requiresApproval),
+    },
+  };
+  return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalJson(descriptor)))));
+}
+
 async function appEntityTable(db, orgId, appId, entityId) {
   if (entityId === 'primary') return (await db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId, appId).first())?.table_id || null;
   return (await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId, appId, entityId).first())?.table_id || null;
@@ -1636,7 +1655,8 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         if (requiresApproval && (!priorApproval || priorApproval.runId !== runId || priorApproval.workflowId !== workflow.id
           || priorApproval.approvalStep !== number - 1 || priorApproval.connectionStep !== number
           || priorApproval.serverId !== step.serverId || priorApproval.toolName !== step.toolName
-          || priorApproval.argsHash !== await remoteMcpArgumentsHash(args))) {
+          || priorApproval.argsHash !== await remoteMcpArgumentsHash(args)
+          || priorApproval.toolDescriptorHash !== await remoteMcpToolDescriptorHash(tool))) {
           return { status: 'failed', error: 'The write-capable Remote MCP action has no matching approval for this run, tool and exact arguments.' };
         }
         if (!await authorize(authorizationTrace) || !await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, tool, { requiresApproval }))
@@ -1749,6 +1769,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
           serverId: next.serverId,
           toolName: next.toolName,
           argsHash: await remoteMcpArgumentsHash(args),
+          toolDescriptorHash: await remoteMcpToolDescriptorHash(tool),
         };
         context = `Workflow: ${workflow.name}\nApproved next action: ${tool.title}\nArguments: ${encodedArgs}`;
       }

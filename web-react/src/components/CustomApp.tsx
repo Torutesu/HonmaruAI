@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAppearance } from '../utils/appearance'
+import { useT } from '../utils/i18n'
 import type { App, AppAction, AppConnection, AppFork, AppEntity, HarnessApi, Row, Table } from '../utils/harness'
 
 import {MAX_PREVIEW_SOURCE} from '../utils/customAppLimits'
@@ -166,24 +167,25 @@ type CustomAppHistoryEntry = {
 }
 
 export function CustomAppReleaseHistory({ history, busy, restore }: { history: CustomAppHistoryEntry[]; busy: boolean; restore: (version: number) => void }) {
+  const t = useT()
   const approvalStatus: Record<NonNullable<CustomAppHistoryEntry['approvals']>[number]['status'], string> = {
-    pending: '承認待ち', approved: '承認済み・公開待ち', rejected: '却下', revoked: '取り消し', published: '公開済み',
+    pending: t('Awaiting approval'), approved: t('Approved · awaiting publication'), rejected: t('Rejected'), revoked: t('Revoked'), published: t('Published'),
   }
   const releaseStatus: Record<NonNullable<CustomAppHistoryEntry['release']>['status'], string> = {
-    current: '現在公開中', replaced: '後続の版に差し替え済み', stopped: '公開停止',
+    current: t('Currently published'), replaced: t('Replaced by a later version'), stopped: t('Publication stopped'),
   }
   return <>{history.filter(v => v.note?.startsWith('Custom app:') || v.note?.startsWith('GitHub commit:')).map(v => <article key={v.version} className="hx-custom-history-entry">
     <p><strong>v{v.version}</strong> · {v.note} · {new Date(v.createdAt).toLocaleString()}</p>
-    {v.release ? <p role="status">{v.release.isReleaseVersion ? releaseStatus[v.release.status] : `公開版 v${v.release.version} を維持`} · {new Date(v.release.publishedAt).toLocaleString()} · {v.release.source === 'github-commit' ? `GitHub ${v.release.commitSha?.slice(0, 12)}` : 'カスタムコード'} · 公開者 {v.release.publishedByName || v.release.publishedBy}</p>
-      : v.releaseEvent?.type === 'unpublished' ? <p role="status">公開停止 · {new Date(v.releaseEvent.at).toLocaleString()}</p>
-        : <p>未公開の下書き</p>}
-    {v.approvals?.map((approval, index) => <p key={`${approval.kind}-${approval.requestedAt}-${index}`} role="status">{approval.kind === 'github-commit' ? 'GitHub commit審査' : '公開審査'} · {approvalStatus[approval.status]} · 申請 {approval.requestedByName} · {approval.reviewedAt ? `審査 ${approval.reviewerName || approval.reviewerId} · ${new Date(approval.reviewedAt).toLocaleString()}` : `申請 ${new Date(approval.requestedAt).toLocaleString()}`}</p>)}
-    {v.release?.isReleaseVersion && !v.release.current ? <><button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>この公開版を下書きに復元</button><p>復元後、現在の公開承認ルールに従って改めて公開します。履歴は新しい版として追加されます。</p></> : !v.release && !v.releaseEvent ? <button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>下書きに復元</button> : null}
+    {v.release ? <p role="status">{v.release.isReleaseVersion ? releaseStatus[v.release.status] : t('Published version v{version} remains active', { version: v.release.version })} · {new Date(v.release.publishedAt).toLocaleString()} · {v.release.source === 'github-commit' ? t('GitHub {sha}', { sha: v.release.commitSha?.slice(0, 12) || '' }) : t('Custom code')} · {t('Published by {name}', { name: v.release.publishedByName || v.release.publishedBy })}</p>
+      : v.releaseEvent?.type === 'unpublished' ? <p role="status">{t('Publication stopped')} · {new Date(v.releaseEvent.at).toLocaleString()}</p>
+        : <p>{t('Unpublished draft')}</p>}
+    {v.approvals?.map((approval, index) => <p key={`${approval.kind}-${approval.requestedAt}-${index}`} role="status">{approval.kind === 'github-commit' ? t('GitHub commit review') : t('Publication review')} · {approvalStatus[approval.status]} · {t('Requested by {name}', { name: approval.requestedByName })} · {approval.reviewedAt ? t('Reviewed by {name} · {time}', { name: approval.reviewerName || approval.reviewerId || '', time: new Date(approval.reviewedAt).toLocaleString() }) : t('Requested {time}', { time: new Date(approval.requestedAt).toLocaleString() })}</p>)}
+    {v.release?.isReleaseVersion && !v.release.current ? <><button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>{t('Restore this published version as a draft')}</button><p>{t('After restoring, publish it again under the current approval rules. The history will record it as a new version.')}</p></> : !v.release && !v.releaseEvent ? <button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>{t('Restore draft')}</button> : null}
   </article>)}</>
 }
 
 export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { app: App; table: Table; rows: Row[]; api: HarnessApi; reload: () => unknown; httpBase: string }) {
-  const scope=useMemo(()=>({}),[app.id,api]),activeScope=useRef<object|null>(scope);activeScope.current=scope
+  const t=useT(),scope=useMemo(()=>({}),[app.id,api]),activeScope=useRef<object|null>(scope);activeScope.current=scope
   const [html, setHtml] = useState(app.definition.custom?.draft || '')
   const htmlRef=useRef(html),editGeneration=useRef(0),remote=useRef({scope,draft:app.definition.custom?.draft||'',generation:0}),pending=useRef<{scope:object}|null>(null)
   const [shownScope,setShownScope]=useState(scope),[generated,setGenerated]=useState<{html:string;prompt:string;startingHtml:string;contextGeneration:number;version:number}|null>(null),[remoteChanged,setRemoteChanged]=useState(false)
@@ -334,7 +336,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
       {app.definition.custom?.published && <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'unpublish', app.version); if(activeScope.current===scope)await reload() })}>公開を停止</button>}
     </div>
     {html.length > MAX_PREVIEW_SOURCE && <p role="alert" className="form-error">プレビューして公開するには、コードを119800文字以下に短くしてください。下書きは保持されます。</p>}
-    <details onToggle={e => { if (e.currentTarget.open) void api.versions(app.id).then(r => {if(activeScope.current===scope)setHistory(r.versions)}).catch(e => {if(activeScope.current===scope)setError(String(e))}) }}><summary>公開・コード履歴</summary><CustomAppReleaseHistory history={history} busy={busy} restore={version => void run(async () => { const entry=history.find(item=>item.version===version); await api.saveCustom(app.id, entry?.release ? 'restore_release' : 'restore', app.version, undefined, version); if(activeScope.current===scope)await reload() })} /></details>
+    <details onToggle={e => { if (e.currentTarget.open) void api.versions(app.id).then(r => {if(activeScope.current===scope)setHistory(r.versions)}).catch(e => {if(activeScope.current===scope)setError(String(e))}) }}><summary>{t('Publication and code history')}</summary><CustomAppReleaseHistory history={history} busy={busy} restore={version => void run(async () => { const entry=history.find(item=>item.version===version); await api.saveCustom(app.id, entry?.release ? 'restore_release' : 'restore', app.version, undefined, version); if(activeScope.current===scope)await reload() })} /></details>
     <small>{changed ? '未保存の変更があります' : `バージョン ${app.version}`} · 直接の外部通信なし・接続は確認付き · アプリの閲覧権限を継承 · 公開操作は監査ログに記録</small>
     {preview && <ForkPreview appId={app.id} api={api} httpBase={httpBase} html={html} table={table} rows={rows} canReview={!changed&&!remoteConflict&&html.length<=MAX_PREVIEW_SOURCE} candidate={publishGate?.candidate||null} onCandidate={async(forkId,revision)=>{await api.customPublish(app.id,{action:'preview_candidate',version:app.version,forkId,revision});setPublishGate(await api.customPublishState(app.id))}} onForkChange={async()=>setPublishGate(await api.customPublishState(app.id))} />}
   </section>
