@@ -436,6 +436,16 @@ test('workflow table query pages the exact frozen App/Table source and denies sc
  expect(page1.complete).toBe(false);expect(page1.cursor).toEqual(expect.any(String));
  const second=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,cursor:page1.cursor}});
  expect(second.status).toBe(200);expect(await second.json()).toMatchObject({rows:[{id:'query-row-3'}],complete:true,cursor:null});
+ const [payload,signature]=page1.cursor.split('.');
+ const decode=value=>JSON.parse(atob(value.replaceAll('-','+').replaceAll('_','/')+'='.repeat((4-value.length%4)%4)));
+ const encode=value=>btoa(JSON.stringify(value)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');
+ const cursorValue=decode(payload);
+ for(const changed of [{...cursorValue,dataVersion:cursorValue.dataVersion+1},{...cursorValue,id:'query-row-999'}]){
+  const tampered=`${encode(changed)}.${signature}`;
+  const rejected=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,cursor:tampered}});
+  expect(rejected.status).toBe(400);
+  expect(await rejected.json()).toMatchObject({message:'Invalid App/Table query or cursor.'});
+ }
  const filtered=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,where:{status:['closed']}}});
  expect((await filtered.json()).rows.map(row=>row.id)).toEqual(['query-row-2']);
  const escaped=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,tableId:'foreign-table',orgId:'other-org'}});
@@ -444,6 +454,18 @@ test('workflow table query pages the exact frozen App/Table source and denies sc
  expect(invalidCursor.status).toBe(400);
  const tooLarge=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:101}});
  expect(tooLarge.status).toBe(400);
+});
+
+test.each(['insert','update','delete'])('paged Workflow App reads restart when a row is %s between pages',async operation=>{
+ const {api,job}=await setupProgramTableSource();
+ const first=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:1}});
+ expect(first.status).toBe(200);const page=await first.json();expect(page.complete).toBe(false);
+ if(operation==='insert')await env.DB.prepare("INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,created_at,updated_at) VALUES('query-row-new','query-table','program-org','{}',4,'query-app-owner',?1,?1)").bind(new Date().toISOString()).run();
+ if(operation==='update')await env.DB.prepare("UPDATE hx_rows SET data='{}',updated_at=?1 WHERE org_id='program-org' AND table_id='query-table' AND id='query-row-1'").bind(new Date().toISOString()).run();
+ if(operation==='delete')await env.DB.prepare("DELETE FROM hx_rows WHERE org_id='program-org' AND table_id='query-table' AND id='query-row-1'").run();
+ const next=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:1,cursor:page.cursor}});
+ expect(next.status).toBe(409);
+ expect(await next.json()).toMatchObject({message:'The App/Table changed during this scan. Restart the query to read a consistent result.'});
 });
 
 test('a TypeScript table.insert is staged by the authorized source and commits atomically with program settlement',async()=>{

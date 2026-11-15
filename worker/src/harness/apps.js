@@ -375,25 +375,94 @@ export async function updateApp(db, orgId, id, { name, tableName, description, i
 export async function listVersions(db, orgId, id) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
-  const { results } = await db
+  const { results = [] } = await db
     .prepare("SELECT v.version, v.definition, v.note, v.created_by, v.created_at, COALESCE(pu.name, pu.login) AS published_by_name FROM hx_app_versions v LEFT JOIN users pu ON pu.github_id = json_extract(v.definition, '$.custom.publishedBy') WHERE v.app_id = ?1 AND v.org_id = ?2 ORDER BY v.version DESC")
     .bind(id, orgId)
     .all();
-  const currentPublishedAt = app.definition?.custom?.published ? app.definition.custom.publishedAt : null;
-  return { versions: (results || []).map((v) => {
-    let custom = null;
-    try { custom = JSON.parse(v.definition || "{}").custom || null; } catch {}
-    const published = typeof custom?.published === "string" && custom.published.trim().length > 0;
-    const commit = custom?.publishedCommit;
-    const release = published ? {
-      publishedAt: typeof custom.publishedAt === "string" ? custom.publishedAt : v.created_at,
-      publishedBy: typeof custom.publishedBy === "string" ? custom.publishedBy : v.created_by,
-      publishedByName: v.published_by_name || null,
-      source: typeof commit?.sha === "string" ? "github-commit" : "inline",
-      ...(typeof commit?.sha === "string" ? { commitSha: commit.sha } : {}),
-      current: Boolean(currentPublishedAt && currentPublishedAt === custom.publishedAt),
-    } : null;
-    return { version: v.version, note: v.note, createdBy: v.created_by, createdAt: v.created_at, release };
+  const [publishApprovals, commitApprovals] = await Promise.all([
+    db.prepare(`SELECT a.id,a.draft_version AS version,a.requested_by AS requestedBy,a.reviewer_id AS reviewerId,
+        a.status,a.created_at AS createdAt,a.reviewed_at AS reviewedAt,a.consumed_at AS consumedAt,
+        COALESCE(requester.name,requester.login) AS requestedByName,COALESCE(reviewer.name,reviewer.login) AS reviewerName
+      FROM hx_app_publish_approvals a LEFT JOIN users requester ON requester.github_id=a.requested_by
+      LEFT JOIN users reviewer ON reviewer.github_id=a.reviewer_id WHERE a.org_id=?1 AND a.app_id=?2 ORDER BY a.created_at DESC`)
+      .bind(orgId,id).all(),
+    db.prepare(`SELECT a.id,a.app_version AS version,a.requested_by AS requestedBy,a.reviewer_id AS reviewerId,
+        a.status,a.created_at AS createdAt,a.reviewed_at AS reviewedAt,a.consumed_at AS consumedAt,
+        COALESCE(requester.name,requester.login) AS requestedByName,COALESCE(reviewer.name,reviewer.login) AS reviewerName
+      FROM hx_app_commit_approvals a LEFT JOIN users requester ON requester.github_id=a.requested_by
+      LEFT JOIN users reviewer ON reviewer.github_id=a.reviewer_id WHERE a.org_id=?1 AND a.app_id=?2 ORDER BY a.created_at DESC`)
+      .bind(orgId,id).all(),
+  ]);
+  const snapshots = results.map(v => {
+    let definition = {};
+    try { definition = JSON.parse(v.definition || "{}"); } catch {}
+    return { row: v, custom: definition.custom || {} };
+  });
+  const publishEvents = snapshots.filter(({ row, custom }) =>
+    typeof custom.published === 'string' && custom.published.trim().length > 0
+      && (row.note === 'Custom app: publish' || String(row.note || '').startsWith('GitHub commit:')));
+  const unpublishVersions = snapshots.filter(({ row, custom }) => row.note === 'Custom app: unpublish' && !custom.published)
+    .map(({ row }) => Number(row.version));
+  const currentCustom = app.definition?.custom || {};
+  const currentPublished = typeof currentCustom.published === 'string' && currentCustom.published.trim().length > 0;
+  const approvalsByVersion = new Map();
+  for (const { rows = [], kind } of [
+    { rows: publishApprovals.results || [], kind: 'inline' },
+    { rows: commitApprovals.results || [], kind: 'github-commit' },
+  ]) for (const approval of rows) {
+    const version = Number(approval.version);
+    if (!approvalsByVersion.has(version)) approvalsByVersion.set(version, []);
+    approvalsByVersion.get(version).push({
+      kind,
+      status: approval.consumedAt || approval.status === 'published' ? 'published' : approval.status,
+      requestedBy: approval.requestedBy,
+      requestedByName: approval.requestedByName || approval.requestedBy,
+      reviewerId: approval.reviewerId || null,
+      reviewerName: approval.reviewerName || approval.reviewerId || null,
+      requestedAt: approval.createdAt,
+      reviewedAt: approval.reviewedAt || null,
+    });
+  }
+  return { versions: snapshots.map(({ row: v, custom }) => {
+    const published = typeof custom.published === "string" && custom.published.trim().length > 0;
+    const commit = custom.publishedCommit;
+    let release = null;
+    let releaseEvent = null;
+    if (published) {
+      const event = publishEvents.filter(({ row, custom: eventCustom }) => Number(row.version) <= Number(v.version)
+        && eventCustom.publishedAt === custom.publishedAt
+        && eventCustom.published === custom.published
+        && (eventCustom.publishedCommit?.sha || null) === (commit?.sha || null))
+        .sort((a,b) => Number(b.row.version) - Number(a.row.version))[0];
+      const releaseVersion = Number(event?.row.version || v.version);
+      const sameAsCurrent = currentPublished && currentCustom.publishedAt === custom.publishedAt
+        && currentCustom.published === custom.published
+        && (currentCustom.publishedCommit?.sha || null) === (commit?.sha || null);
+      const currentEvent = sameAsCurrent ? publishEvents.filter(({ row, custom: eventCustom }) => Number(row.version) <= Number(app.version)
+        && eventCustom.publishedAt === currentCustom.publishedAt
+        && eventCustom.published === currentCustom.published
+        && (eventCustom.publishedCommit?.sha || null) === (currentCustom.publishedCommit?.sha || null))
+        .sort((a,b) => Number(b.row.version) - Number(a.row.version))[0] : null;
+      const isCurrentRelease = Boolean(currentEvent && releaseVersion === Number(currentEvent.row.version));
+      const replaced = publishEvents.some(({ row }) => Number(row.version) > releaseVersion && Number(row.version) <= Number(app.version));
+      const stopped = !replaced && unpublishVersions.some(version => version > releaseVersion && version <= Number(app.version));
+      const releaseStatus = isCurrentRelease ? 'current' : stopped ? 'stopped' : 'replaced';
+      release = {
+        publishedAt: typeof custom.publishedAt === "string" ? custom.publishedAt : v.created_at,
+        publishedBy: typeof custom.publishedBy === "string" ? custom.publishedBy : v.created_by,
+        publishedByName: v.published_by_name || null,
+        source: typeof commit?.sha === "string" ? "github-commit" : "inline",
+        ...(typeof commit?.sha === "string" ? { commitSha: commit.sha } : {}),
+        current: isCurrentRelease,
+        status: releaseStatus,
+        version: releaseVersion,
+        isReleaseVersion: Number(v.version) === releaseVersion,
+      };
+    } else if (v.note === 'Custom app: unpublish') {
+      releaseEvent = { type: 'unpublished', at: v.created_at, by: v.created_by };
+    }
+    const approvals = approvalsByVersion.get(Number(v.version)) || [];
+    return { version: v.version, note: v.note, createdBy: v.created_by, createdAt: v.created_at, release, ...(releaseEvent ? { releaseEvent } : {}), ...(approvals.length ? { approvals } : {}) };
   }) };
 }
 

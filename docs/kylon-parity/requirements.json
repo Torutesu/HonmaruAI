@@ -654,7 +654,13 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
       "code": "worker/src/harness/apps.js",
-      "acceptance": "現行定義のversionと実デプロイの復元を区別"
+      "acceptance": "現行定義のversionと実デプロイの復元を区別",
+      "evidence": {
+        "reviewedAt": "2026-11-16",
+        "implementedScope": "The version API distinguishes an actual publish event from later drafts that carry the same live release. It reports current, replaced, and stopped releases, identifies the publication version, and records an unpublish event. Version history also includes safe publish-review metadata (requester, reviewer, times, and pending/approved/rejected/revoked/published status) without returning source hashes or preview candidate identifiers. The Harness detail screen displays these states and preserves restore-as-new-draft with the existing approval gate.",
+        "verification": "Current-main Worker harness-apps integration suite passed 171/171; CustomApp UI history test passed 20/20; web TypeScript and production build passed; node --check, git diff --check and Kylon inventory consistency check passed. No migration or paid service was added. Exact-head CI, production release and authenticated Kylon screen comparison are pending.",
+        "remaining": "Runtime execution logs, detailed deployment status, direct rollback, environment-specific release history and Kylon live comparison remain incomplete."
+      }
     },
     {
       "id": "KY-052",
@@ -765,7 +771,7 @@
         "reviewedAt": "2026-11-12",
         "inspectedMain": "6184e93043cb0a98e210eb063442fb085a32105e",
         "implementedScope": "The isolated TypeScript SDK provides table.query() for up to 20 explicitly bound entities in one saved App, opt-in table.insert() for row creation and a separate opt-in mutate grant for table.update()/table.delete(). A program may stage up to four combined row mutations and 24 KB. The Worker validates strict schema, exact App/entity/Table source, current membership and edit ACL, relation constraints, row expectedUpdatedAt and the captured table schema before applying. Successful program settlement commits all rows, watched-row outbox events, run state and checkpoint in one D1 batch; a failed mutation rolls the batch back. Legacy tableWrites insert results remain accepted for already-installed nodes. Reads use the activation-bound Worker broker; the VM has no direct network or database access. Reads validate current Workflow/source authority, exact App/entity/Table mapping, membership and App/Table visibility before and after each page. Multi-entity queries name entityId; cursors bind to App/entity/Table/filter and use an immutable createdAt/id keyset plus first-page snapshot cutoff. Page size is at most 100, SDK page count at most 32 and total read output at most 1 MB. Row-triggered programs expose ctx.trigger.rows with added/changed/deleted events, rowId, title and cells; deleted events contain no cell data, and the prior trigger.input remains available for saved-program compatibility. External effects remain at-most-once/unknown on ambiguous completion.",
-        "verified": "On 2026-11-15, workflow-code-jobs.test.js passed 47/47 in the isolated candidate branch, including queued-program delivery for normalized row triggers, added/changed/deleted shapes and deletion cell-data omission. Exact-head CI, merge, deployment, installed-node refresh and authenticated production acceptance are pending.",
+        "verified": "On 2026-11-15, workflow-code-jobs.test.js passed 47/47 in the isolated candidate branch, including queued-program delivery for normalized row triggers, added/changed/deleted shapes and deletion cell-data omission. Exact-head CI, merge, deployment, installed-node refresh and authenticated production acceptance are pending. App Table page reads now bind a D1 row generation, captured atomically with each page; row insert/update/delete invalidates an in-progress cursor with HTTP 409 instead of mixing values from different times. Focused Worker integration and migration tests pass (76 tests).",
         "remaining": "No app(), provider proxy or general Connection operations are exposed. Reads are limited to at most 20 explicitly bound entities from one App. Row values are live across pages (the cursor pins the creation-time scan boundary, not a historical row snapshot); a mutation/deletion during a long scan can change observed values. Per-step evidence/reconciliation and safe continuation after ambiguous external effects, Kylon's mention option format, installed-node refresh/reboot, authenticated production UI execution of a saved TypeScript Workflow, and broader continuation recovery remain open. Agent invocation is bounded and at-most-once for an activation input; it is not an exactly-once guarantee."
       }
     },
@@ -1079,6 +1085,11 @@
           "scope": "PR #994 adds explicitly approved write-capable Remote MCP calls for direct Workflow Connection steps, bound to the current actor, exact Agent grant, server/tool, current workspace classification and preceding Approval step. Simple mode is unchanged and no paid service was added.",
           "verification": "Exact-head CI #43579317332, main CI #43581230340, Worker deployment #43581229709 and Web deployment #43581229717 succeeded.",
           "remaining": "DNS rebinding remains open because Worker fetch cannot pin the resolved peer IP. Arbitrary external connections, full App/workflow principal administration, all Kylon operation categories and authenticated operation comparison remain incomplete."
+        },
+        "approvalBinding": {
+          "reviewedAt": "2026-11-16",
+          "scope": "A write-capable Workflow approval now carries a SHA-256 of the canonical rendered arguments, plus the run, workflow, approval step, connection step, server and tool. The accepted decision is copied to the durable run log and the write is refused unless every binding and the exact argument hash still match at execution time. This closes the gap where Workflow input or a same-run argument source could change between approval and dispatch.",
+          "verification": "Current-main Worker Workflow and Remote MCP suites passed 164/164, including an authorized write and a changed-input-after-approval regression that is rejected before dispatch. node --check and git diff --check passed. Exact-head CI and production rollout pending."
         },
         "safetyHardening": {
           "reviewedAt": "2026-11-15",

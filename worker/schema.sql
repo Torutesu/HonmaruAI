@@ -1793,7 +1793,8 @@ CREATE TABLE IF NOT EXISTS hx_tables (
   columns       TEXT NOT NULL,
   created_by    TEXT NOT NULL,
   created_at    TEXT NOT NULL,
-  updated_at    TEXT NOT NULL
+  updated_at    TEXT NOT NULL,
+  data_version  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_hx_tables_org ON hx_tables(org_id);
 
@@ -3183,3 +3184,7 @@ CREATE TABLE IF NOT EXISTS hx_external_resource_audiences (org_id TEXT NOT NULL 
 CREATE INDEX IF NOT EXISTS idx_hx_external_resource_audiences_expiry ON hx_external_resource_audiences(org_id,resource_type,expires_at,resource_id);
 CREATE TABLE IF NOT EXISTS hx_external_audience_requests (request_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, resource_type TEXT NOT NULL CHECK(resource_type IN ('app','file')), resource_id TEXT NOT NULL, guest_github_id TEXT NOT NULL, audience_version INTEGER NOT NULL CHECK(audience_version>0), created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_hx_external_audience_requests_scope ON hx_external_audience_requests(org_id,resource_type,resource_id,audience_version,guest_github_id);
+
+CREATE TRIGGER IF NOT EXISTS hx_rows_data_version_insert AFTER INSERT ON hx_rows BEGIN UPDATE hx_tables SET data_version=data_version+1 WHERE org_id=NEW.org_id AND id=NEW.table_id AND (EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=NEW.org_id AND a.table_id=NEW.table_id) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=NEW.org_id AND e.table_id=NEW.table_id)); END;
+CREATE TRIGGER IF NOT EXISTS hx_rows_data_version_update AFTER UPDATE ON hx_rows BEGIN UPDATE hx_tables SET data_version=data_version+1 WHERE org_id=OLD.org_id AND id=OLD.table_id AND (EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=OLD.org_id AND a.table_id=OLD.table_id) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=OLD.org_id AND e.table_id=OLD.table_id)); UPDATE hx_tables SET data_version=data_version+1 WHERE org_id=NEW.org_id AND id=NEW.table_id AND (OLD.org_id!=NEW.org_id OR OLD.table_id!=NEW.table_id) AND (EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=NEW.org_id AND a.table_id=NEW.table_id) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=NEW.org_id AND e.table_id=NEW.table_id)); END;
+CREATE TRIGGER IF NOT EXISTS hx_rows_data_version_delete AFTER DELETE ON hx_rows BEGIN UPDATE hx_tables SET data_version=data_version+1 WHERE org_id=OLD.org_id AND id=OLD.table_id AND (EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=OLD.org_id AND a.table_id=OLD.table_id) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=OLD.org_id AND e.table_id=OLD.table_id)); END;
