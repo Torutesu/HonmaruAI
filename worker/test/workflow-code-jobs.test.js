@@ -446,6 +446,18 @@ test('workflow table query pages the exact frozen App/Table source and denies sc
  expect(tooLarge.status).toBe(400);
 });
 
+test.each(['insert','update','delete'])('paged Workflow App reads restart when a row is %s between pages',async operation=>{
+ const {api,job}=await setupProgramTableSource();
+ const first=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:1}});
+ expect(first.status).toBe(200);const page=await first.json();expect(page.complete).toBe(false);
+ if(operation==='insert')await env.DB.prepare("INSERT INTO hx_rows(id,table_id,org_id,data,position,created_by,created_at,updated_at) VALUES('query-row-new','query-table','program-org','{}',4,'query-app-owner',?1,?1)").bind(new Date().toISOString()).run();
+ if(operation==='update')await env.DB.prepare("UPDATE hx_rows SET data='{}',updated_at=?1 WHERE org_id='program-org' AND table_id='query-table' AND id='query-row-1'").bind(new Date().toISOString()).run();
+ if(operation==='delete')await env.DB.prepare("DELETE FROM hx_rows WHERE org_id='program-org' AND table_id='query-table' AND id='query-row-1'").run();
+ const next=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:1,cursor:page.cursor}});
+ expect(next.status).toBe(409);
+ expect(await next.json()).toMatchObject({message:'The App/Table changed during this scan. Restart the query to read a consistent result.'});
+});
+
 test('a TypeScript table.insert is staged by the authorized source and commits atomically with program settlement',async()=>{
  const {api,job}=await setupProgramTableSource({writable:true});
  const write=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.insert',params:{entityId:'primary',values:{status:'created'}}});
