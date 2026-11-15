@@ -423,6 +423,8 @@ test("external App row writes honor exact edit grants, linked table scope, and d
   expect(created.status).toBe(201);
   const createdRow = (await created.json()).row;
   expect(createdRow.values).toEqual({ title: "guest record" });
+  expect((await call(`${primaryRows}/${createdRow.id}`, f.sessions.guest, "PATCH", { values: { title: "missing version" } })).status).toBe(400);
+  expect((await call(`${primaryRows}/${createdRow.id}`, f.sessions.guest, "DELETE", {})).status).toBe(400);
   const deniedUpdate = await call(`${primaryRows}/${createdRow.id}`, f.sessions.guest, "PATCH", {
     values: { unexpected: "must not store" }, expectedUpdatedAt: createdRow.updatedAt,
   });
