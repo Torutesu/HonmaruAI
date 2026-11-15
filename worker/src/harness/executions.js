@@ -47,6 +47,24 @@ const MAX_FILE_COUNT = 8;
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_FILES_BYTES = 1024 * 1024;
 const MAX_JOB_BYTES = 1600000;
+export async function browserConversationAllowed(db, orgId, userId, browserContext) {
+  if (!browserContext || typeof browserContext !== 'object' || Array.isArray(browserContext) ||
+      typeof browserContext.channel !== 'string' || browserContext.channel.length > 200 ||
+      typeof browserContext.threadId !== 'string' || browserContext.threadId.length > 200 ||
+      typeof browserContext.sourceMessageId !== 'string' || browserContext.sourceMessageId.length > 80 ||
+      typeof browserContext.requesterLogin !== 'string' || browserContext.requesterLogin.length > 100) return false;
+  const identity = await db.prepare('SELECT login FROM users WHERE github_id=?1').bind(String(userId)).first();
+  if (!identity?.login || identity.login !== browserContext.requesterLogin) return false;
+  const message = await db.prepare(`SELECT id,channel,parent_id,author_login,deleted_at FROM channel_messages
+    WHERE org_id=?1 AND id=?2`).bind(orgId,browserContext.sourceMessageId).first();
+  if (!message || message.deleted_at || message.channel !== browserContext.channel || message.author_login !== identity.login ||
+      (message.parent_id || message.id) !== browserContext.threadId) return false;
+  if (message.parent_id && !await db.prepare(`SELECT 1 FROM channel_messages
+      WHERE org_id=?1 AND id=?2 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL`)
+      .bind(orgId,message.parent_id,browserContext.channel).first()) return false;
+  return Boolean(await mayUseConversation(db,orgId,userId,browserContext.channel));
+}
+
 function validateExecutionFiles(files) {
   if (files === undefined) return undefined;
   if (!Array.isArray(files) || files.length > MAX_FILE_COUNT) throw new Error('Invalid execution files.');
@@ -133,7 +151,10 @@ export async function enqueueAcpExecution(db, orgId, me, input) {
   // teammate's Harness-only tools earlier. No Workspace data is offered here.
   const harnessMode = await getMode(db, orgId) === 'harness';
   const workspaceTools = input.workspaceTools === true && harnessMode;
-  const browserTools = input.browserTools === true && harnessMode;
+  const browserContext = input.browserContext && typeof input.browserContext === 'object' && !Array.isArray(input.browserContext)
+    ? input.browserContext : null;
+  let browserTools = input.browserTools === true && harnessMode && input.conversationTask === true &&
+    await browserConversationAllowed(db,orgId,me,browserContext);
   if (workspaceTools) {
     const budget = await workspaceBudgetAdmission(db, orgId);
     if (!budget.allowed) return error(budget.message, budget.status);
@@ -148,7 +169,7 @@ export async function enqueueAcpExecution(db, orgId, me, input) {
   const context = Array.isArray(input.context) ? input.context.slice(-30).map(line => String(line || '').slice(0, 4000)) : [];
   const requestedBrowserIdentity=typeof input.agentId==='string'&&/^[A-Za-z0-9_.:-]{1,160}$/.test(input.agentId)?input.agentId:null;
   const browserIdentity=workspaceTools?acpAgentId:requestedBrowserIdentity||`local-${agentKey}`;
-  const payload = JSON.stringify({ acp: true, agentKey, prompt: input.prompt.slice(0, 48000), ...(typeof input.sessionId === 'string' && input.sessionId.length <= 200 ? { sessionId: input.sessionId } : {}), ...(context.length ? { context } : {}), ...(workspaceTools ? { workspaceTools: true, agentId: acpAgentId } : {}), ...(browserTools ? { browserTools: true, browserIdentity, workspaceId: orgId } : {}) });
+  const payload = JSON.stringify({ acp: true, agentKey, prompt: input.prompt.slice(0, 48000), ...(typeof input.sessionId === 'string' && input.sessionId.length <= 200 ? { sessionId: input.sessionId } : {}), ...(context.length ? { context } : {}), ...(workspaceTools ? { workspaceTools: true, agentId: acpAgentId } : {}), ...(browserTools ? { browserTools: true, browserIdentity, workspaceId: orgId, browserContext } : {}) });
   if (new TextEncoder().encode(payload).length > 65536) return error('ACP prompt is too large.', 413);
   const jobId = id();
   const requestId = id();

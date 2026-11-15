@@ -206,11 +206,12 @@ test.each([
  expect(teammate).toMatchObject({provider,name,handle,enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey,unit:'task',workspaceTools:false,browserTools:true});
  const sent=await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:`@${handle} inspect the current project`},{TEAMMATE_WATCH_MS:'0'});
  expect(sent.status).toBe(201);
+ const sentMessage=(await sent.json()).message;
  const run=await env.DB.prepare('SELECT provider,status FROM ai_teammate_runs WHERE org_id=?1 AND provider=?2').bind(ORG,provider).first();
  expect(run).toMatchObject({provider,status:'running'});
  const job=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE org_id=?1 AND gateway_id=?2').bind(ORG,gateway.id).first();
  const ownerAgent=await env.DB.prepare('SELECT agent_id FROM ai_teammates WHERE org_id=?1 AND provider=?2').bind(ORG,provider).first();
- expect(JSON.parse(job.payload)).toMatchObject({acp:true,agentKey,browserTools:true,browserIdentity:ownerAgent.agent_id,workspaceId:ORG,prompt:expect.stringContaining('inspect the current project')});
+ expect(JSON.parse(job.payload)).toMatchObject({acp:true,agentKey,browserTools:true,browserIdentity:ownerAgent.agent_id,workspaceId:ORG,browserContext:{channel:'b:cafe',threadId:sentMessage.id,sourceMessageId:sentMessage.id,requesterLogin:'toru'},prompt:expect.stringContaining('inspect the current project')});
 });
 
 test("@claude in a thread starts a session with the repo, vault and budget, and its answer comes back into the thread", async () => {

@@ -21,6 +21,14 @@ async function enqueue(gatewayId, requestId = crypto.randomUUID()) {
   expect(r.status).toBe(201); return (await r.json()).job;
 }
 const claim = async (token, capabilities = [], acpAgents = []) => (await (await api('POST', '/claim', null, { capabilities, acpAgents }, token)).json()).job;
+async function browserConversation(userId='9502') {
+  const channel='b:browser-work', threadId=crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO businesses(org_id,slug,name,created_by,created_at,private)
+    VALUES(?1,'browser-work','Browser work',?2,'now',0)`).bind(orgId,userId).run();
+  await env.DB.prepare(`INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at)
+    VALUES(?1,?2,?3,?4,'message','Review this page','now')`).bind(threadId,orgId,channel,`user${userId}`).run();
+  return {channel,threadId,sourceMessageId:threadId,requesterLogin:`user${userId}`};
+}
 beforeEach(async () => {
   const { upsertUser, upsertMembership, createSession } = await import('../src/db.js');
   const sessions = [];
@@ -76,6 +84,36 @@ test('ACP prompts require a local capability and carry only the configured agent
  const got=await claim(token,['acp-v1'],['codex-local']);expect(got.id).toBe(queued.job.id);
  expect(got.timeoutMs).toBe(110000);
  expect(got.payload).not.toHaveProperty('command');expect(got.payload).not.toHaveProperty('cwd');
+});
+test('ACP browser tools require a current conversation source and are bound to that room and thread',async()=>{
+ const {gateway,token}=await node();
+ await claim(token,['acp-v1'],['codex-local']);
+ await setMode(env.DB,orgId,'harness','9501');
+ await env.DB.prepare(`INSERT INTO ai_teammates(org_id,provider,enabled,remote,agent_id,updated_at)
+   VALUES(?1,'acp',1,?2,'browser-agent','now')`).bind(orgId,JSON.stringify({gatewayId:gateway.id,agentKey:'codex-local',browserTools:true})).run();
+ const context=await browserConversation();
+ const {browserConversationAllowed}=await import('../src/harness/executions.js');
+ expect(await browserConversationAllowed(env.DB,orgId,'9502',context)).toBe(true);
+ const noOrigin=await enqueueAcpExecution(env.DB,orgId,'9502',{
+   gatewayId:gateway.id,agentKey:'codex-local',prompt:'Browse this page',agentId:'browser-agent',browserTools:true,
+ });
+ expect(noOrigin.statusCode).toBe(201);
+ let payload=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(noOrigin.job.id).first();
+ expect(JSON.parse(payload.payload)).not.toHaveProperty('browserTools');
+ const invalidOrigin=await enqueueAcpExecution(env.DB,orgId,'9502',{
+   gatewayId:gateway.id,agentKey:'codex-local',prompt:'Browse this page',agentId:'browser-agent',browserTools:true,
+   conversationTask:true,browserContext:{...context,channel:'b:other-room'},
+ });
+ payload=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(invalidOrigin.job.id).first();
+ expect(JSON.parse(payload.payload)).not.toHaveProperty('browserTools');
+ const queued=await enqueueAcpExecution(env.DB,orgId,'9502',{
+   gatewayId:gateway.id,agentKey:'codex-local',prompt:'Browse this page',agentId:'browser-agent',browserTools:true,
+   conversationTask:true,browserContext:context,
+ });
+ payload=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first();
+ expect(JSON.parse(payload.payload)).toMatchObject({browserTools:true,browserContext:context});
+ await env.DB.prepare('UPDATE businesses SET private=1 WHERE org_id=?1 AND slug=?2').bind(orgId,'browser-work').run();
+ await env.DB.prepare(`DELETE FROM hx_gateway_jobs WHERE id IN (?1,?2,?3)`).bind(noOrigin.job.id,invalidOrigin.job.id,queued.job.id).run();
 });
 test('ACP progress is lease-bound, bounded, and never persists tool arguments or reasoning',async()=>{
  const {gateway,token}=await node();
@@ -325,12 +363,16 @@ test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks
   expect((await api('POST', `/jobs/${simpleFallback.job.id}/cancel`, member)).status).toBe(200);
 
   await setMode(env.DB, orgId, 'harness', '9501');
+  const conversation = await browserConversation();
   await env.DB.prepare(`INSERT INTO ai_teammates(org_id,provider,enabled,remote,agent_id,updated_at)
     VALUES(?1,'acp',1,?2,'acp-workspace','now')`).bind(orgId,JSON.stringify({gatewayId:gateway.id,agentKey:'workspace-reader',browserTools:true})).run();
   const browserOnly = await enqueueAcpExecution(env.DB, orgId, '9502', {
     gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Open the release notes', agentId:'acp-workspace', browserTools:true,
+    conversationTask:true,browserContext:conversation,
   });
   expect(browserOnly.statusCode).toBe(201);
+  const browserOnlyPayload=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(browserOnly.job.id).first();
+  expect(JSON.parse(browserOnlyPayload.payload)).toMatchObject({browserTools:true,browserContext:conversation});
   const setBrowserAllowed = enabled => env.DB.prepare('UPDATE ai_teammates SET remote=?2 WHERE org_id=?1 AND provider=\'acp\'')
     .bind(orgId,JSON.stringify({gatewayId:gateway.id,agentKey:'workspace-reader',browserTools:enabled})).run();
   await setBrowserAllowed(false);
@@ -339,6 +381,7 @@ test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks
   await setBrowserAllowed(true);
   const simpleBrowser = await enqueueAcpExecution(env.DB,orgId,'9502',{
     gatewayId:gateway.id,agentKey:'workspace-reader',prompt:'Open the release notes',agentId:'acp-workspace',browserTools:true,
+    conversationTask:true,browserContext:conversation,
   });
   expect(simpleBrowser.statusCode).toBe(201);
   await setMode(env.DB,orgId,'simple','9501');
@@ -347,13 +390,17 @@ test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks
   await setMode(env.DB,orgId,'harness','9501');
   const activeBrowser = await enqueueAcpExecution(env.DB,orgId,'9502',{
     gatewayId:gateway.id,agentKey:'workspace-reader',prompt:'Open the release notes',agentId:'acp-workspace',browserTools:true,
+    conversationTask:true,browserContext:conversation,
   });
   expect(activeBrowser.statusCode).toBe(201);
   stored = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(activeBrowser.job.id).first();
-  expect(JSON.parse(stored.payload)).toMatchObject({acp:true,browserTools:true,browserIdentity:'acp-workspace',workspaceId:orgId});
+  expect(JSON.parse(stored.payload)).toMatchObject({acp:true,browserTools:true,browserIdentity:'acp-workspace',workspaceId:orgId,browserContext:conversation});
   const browserClaim=await claim(token,['acp-v1'],['workspace-reader']);
   expect(browserClaim).toMatchObject({id:activeBrowser.job.id,timeoutMs:270000,payload:{browserTools:true}});
   expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser`,null,{lease:browserClaim.lease},token)).status).toBe(200);
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='browser-work'").bind(orgId).run();
+  expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser`,null,{lease:browserClaim.lease},token)).status).toBe(403);
+  await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1 AND slug='browser-work'").bind(orgId).run();
   await setBrowserAllowed(false);
   expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser`,null,{lease:browserClaim.lease},token)).status).toBe(403);
   await setBrowserAllowed(true);
@@ -361,6 +408,7 @@ test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks
 
   const enabled = await enqueueAcpExecution(env.DB, orgId, '9502', {
     gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true, browserTools:true,
+    conversationTask:true,browserContext:conversation,
   });
   expect(enabled.statusCode).toBe(201);
   stored = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(enabled.job.id).first();
