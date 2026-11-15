@@ -805,7 +805,7 @@ test('MCP record writes handle 39 valid relation fields',async()=>{
  const token=await mint(['read','write']);const seed=(await tool(token,'add_row',{tableId:app.tableId,values:{task:'Seed'}})).result.structuredContent;
  const values={task:'MCP'};for(let i=0;i<39;i++)values[`link_${i}`]=i%2?[seed.row.id]:seed.row.id;
  const inserted=(await tool(token,'add_row',{tableId:app.tableId,values})).result;expect(inserted.isError).not.toBe(true);expect(inserted.structuredContent.row.link_38).toBe(seed.row.id);
- const updated=(await tool(token,'update_row',{tableId:app.tableId,rowId:inserted.structuredContent.row.id,values})).result;expect(updated.isError).not.toBe(true);expect(updated.structuredContent.row.link_37).toEqual([seed.row.id]);
+ const updated=(await tool(token,'update_row',{tableId:app.tableId,rowId:inserted.structuredContent.row.id,expectedUpdatedAt:inserted.structuredContent.rowVersions[inserted.structuredContent.row.id],values})).result;expect(updated.isError).not.toBe(true);expect(updated.structuredContent.row.link_37).toEqual([seed.row.id]);
 });
 
 test('MCP file sharing can only stage a stable approval request and read token-free owned-file requests',async()=>{

@@ -148,8 +148,8 @@ export const HARNESS_TOOLS = [
   {
     name: "update_row",
     title: "Change a row",
-    description: "Change some values of a row; the rest stay. rowId is the system id or recordId returned by a row tool, not a user column value. Workflows watching the table run.",
-    inputSchema: { type: "object", properties: { tableId: { type: "string" }, rowId: { type: "string" }, expectedUpdatedAt: { type: "string", description: "Token from rowVersions[rowId] in query_rows or read_app; rejects stale edits." }, values: { type: "object" } }, required: ["tableId", "rowId", "values"] },
+    description: "Change some values of a row; the rest stay. rowId is the system id or recordId returned by a row tool, not a user column value. Provide the exact expectedUpdatedAt from rowVersions[rowId]; missing or stale versions are rejected. Workflows watching the table run.",
+    inputSchema: { type: "object", properties: { tableId: { type: "string" }, rowId: { type: "string" }, expectedUpdatedAt: { type: "string", description: "Required. Exact token from rowVersions[rowId] in query_rows or read_app; rejects missing or stale edits." }, values: { type: "object" } }, required: ["tableId", "rowId", "expectedUpdatedAt", "values"] },
   },
   {
     name: "list_workflows",
@@ -446,6 +446,7 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
     }
     case "update_row": {
       if (!(await mayEditTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
+      if (typeof args.expectedUpdatedAt !== 'string' || !args.expectedUpdatedAt) return err('expectedUpdatedAt is required. Read the current row version before editing it.');
       const r = await updateRow(db, orgId, String(args.tableId || ""), String(args.rowId || ""), args.values, by, args.expectedUpdatedAt, undefined, by);
       if (r.error) return err(r.error);
       if(r.rowEventId)await drainWorkflowRowEvents(env,{eventId:r.rowEventId,limit:1});

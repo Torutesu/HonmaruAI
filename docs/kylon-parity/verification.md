@@ -4442,3 +4442,15 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - KY-063 already has paginated held-webhook events, on-demand payload inspection, explicit selected IDs for replay/discard, confirmation and regression coverage. Updated its acceptance record to leave authenticated production UI acceptance and direct Kylon comparison open instead of describing the discard UI as missing. `AutomationRuns.test.tsx`: **27/27 passed**.
 - PR #920 had already merged and its main CI run #43161866406 succeeded. PR #1015's release record now reflects exact-head CI #43680371839, merge `429e306c`, production rollout, and the still-open Worker DNS pinning gap.
 - Parity inventory consistency, JSON parsing and `git diff --check` passed. No runtime code, paid service, schema or Simple-mode behavior changed in this reconciliation.
+
+### 2026-11-15 — KY-048 additive migration rollback release evidence
+
+- Current main contains PR [#938](https://github.com/Torutesu/HonmaruAI/pull/938), merge `eb67a254b4b5a0e77d26ed8916e3490b3fc0da46`. Additive `add_columns` journal entries retain checksum-bound stable column IDs and can prepare a separate `drop_empty_column` migration. The normal preview/apply flow rechecks data; populated columns block the rollback, including at apply time. Tampered inverse metadata is hidden and prevents replay.
+- Exact-head CI [#43329104671](https://github.com/Torutesu/HonmaruAI/actions/runs/43329104671) succeeded. Descendant PR #939 main CI #43340080575, Worker migration/deploy/Verify #43340080401 and Web deploy #43340080328 succeeded, so the change is on the released main lineage.
+- Current focused rerun: Worker `harness-company.test.js` + `harness-app-relations.test.js` **61/61**; Web `CompanyApp.test.tsx` **13/13**. Parity inventory, JSON parse and `git diff --check` passed. This fixes a stale “pending” ledger statement only; no runtime code changed in this batch. Destructive/renamed/data-conversion rollback, legacy entries without inverse metadata, large snapshots and authenticated Kylon comparison remain open.
+
+### 2026-11-15 — KY-040 strict row-version enforcement (local batch QA)
+
+- Strict App HTTP writes and externally granted App writes now reject missing `expectedUpdatedAt`; Harness MCP `update_row` requires it in both schema and execution. Workflow row updates carry the event row's captured version when targeting that row, while other explicit targets use their own current version. User-defined `id` columns cannot shadow the internal row identity used for version selection.
+- Legacy/Simple table calls remain compatible when the token is omitted; provided stale tokens still conflict. Regression coverage includes strict HTTP, external App writes, MCP, workflows and relation paths.
+- Batched Worker QA: `harness-apps`, `harness-workflows`, `harness-mcp`, `external-apps`, `harness-app-relations`, and `workflow-code-jobs` passed **443/443**. Exact-head CI, merge and production deployment are pending.

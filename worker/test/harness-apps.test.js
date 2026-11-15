@@ -862,6 +862,7 @@ test('record edits and deletes reject stale snapshots without losing newer value
   const { table } = await (await send('POST', '/tables', mika, { orgId: ORG, name: 'Concurrent', columns: [{ name: 'Name', type: 'text' }] })).json();
   const path = `/tables/${table.id}/rows`;
   const { row } = await (await send('POST', path, mika, { orgId: ORG, values: { name: 'Initial' } })).json();
+  expect((await send('PATCH', `${path}/${row.id}`, mika, { orgId: ORG, validation: 'strict', values: { name: 'No version' } })).status).toBe(400);
   const updated = await send('PATCH', `${path}/${row.id}`, mika, { orgId: ORG, values: { name: 'Newer' }, expectedUpdatedAt: row.updatedAt });
   expect(updated.status).toBe(200);
   const next = (await updated.json()).row;
@@ -875,6 +876,8 @@ test('record edits and deletes reject stale snapshots without losing newer value
   expect(queried.structuredContent.rowVersions[row.id]).toBe(next.updatedAt);
   const staleMcp = await callHarnessTool(env, { orgId: ORG, githubId: '9102' }, 'update_row', { tableId: table.id, rowId: row.id, values: { name: 'MCP stale' }, expectedUpdatedAt: row.updatedAt });
   expect(staleMcp.isError).toBe(true);
+  const missingMcp = await callHarnessTool(env, { orgId: ORG, githubId: '9102' }, 'update_row', { tableId: table.id, rowId: row.id, values: { name: 'MCP no version' } });
+  expect(missingMcp.isError).toBe(true);
   expect((await call(`${path}/${row.id}?orgId=${ORG}&expectedUpdatedAt=${encodeURIComponent(next.updatedAt)}`, { method: 'DELETE', headers: headers(mika) })).status).toBe(200);
 });
 

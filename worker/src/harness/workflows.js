@@ -45,7 +45,7 @@ import { appendCardEvent } from "../events.js";
 import { announceCards } from "../announce.js";
 import { localizeForRecipient } from "../localize.js";
 import { notifyCard, anyChannelConfigured } from "../notify.js";
-import { addRow, updateRow, getTable } from "./tables.js";
+import { addRow, updateRow, getRow, getTable } from "./tables.js";
 import { completer } from "./model.js";
 import { prepareAgent, mayRunAgent } from "./agents.js";
 import { scheduleFollowup } from "./followups.js";
@@ -1057,6 +1057,8 @@ async function rowScope(db, orgId, tableId, row, tableSnapshot) {
   const table = tableSnapshot === undefined ? await getTable(db, orgId, tableId) : tableSnapshot;
   const out = { id: row.id, ...row.values };
   for (const c of table?.columns || []) out[c.name] = row.values[c.id];
+  out.__rowId = row.id;
+  out.updatedAt = row.updatedAt;
   return out;
 }
 
@@ -1690,7 +1692,11 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       }
       if (!step.rowId && runTrigger === 'row' && !rowId) return { status: "failed", error: "The source record ID was not preserved for this older run. Start a new run to update the intended record safely." };
       if (!tableId || !rowId) return { status: "failed", error: "No row to change." };
-      const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, undefined, owner, undefined, { deferWrite: true });
+      const observedRowVersion = (String(scope.row?.__rowId || '') === String(rowId) ? scope.row?.updatedAt : null)
+        || scope.input?.records?.find(record => String(record?.recordId || '') === String(rowId))?.updatedAt
+        || (await getRow(db, orgId, tableId, rowId))?.updatedAt;
+      if (!observedRowVersion) return { status: 'failed', error: 'The row version is unavailable. Reload the source record before updating it.' };
+      const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`, observedRowVersion, undefined, owner, undefined, { deferWrite: true });
       if (r.error) return { status: "failed", error: r.error };
       const event=await prepareWorkflowRowEvent(db,{orgId,table:r.table,before:r.before,row:r.row,by:`workflow:${workflow.id}`,depth:depth+1});
       return { status: "ok", output: rowId, rowId,
@@ -1846,6 +1852,7 @@ async function startAppRecordRuns(env, { orgId, table, before, row, by, depth, s
     if (!isDelete && !whereHolds(trigger.when?.where, row.values, table.columns)) continue;
     const appRecord = {
       event, appId: trigger.appId, entityId: trigger.entityId, recordId: (row || before).id,
+      ...(!isDelete ? { updatedAt: row.updatedAt } : {}),
       ...(!isDelete ? { data: row.values || {} } : {}),
     };
     const rowEventHash = await rowEventFingerprint(table, before, row);

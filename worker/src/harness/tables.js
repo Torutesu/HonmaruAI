@@ -325,12 +325,15 @@ export async function addRow(db, orgId, tableId, values, by, validation, writeUs
 /// Change some values of a row; the others stay. Returns the row before and
 /// after, so a caller can tell what changed (Workflows trigger on it).
 export async function updateRow(db, orgId, tableId, rowId, values, by, expectedUpdatedAt, validation, writeUserId, writeGuard, { deferWrite = false } = {}) {
+  // Legacy/simple table calls remain compatible. The version token is
+  // mandatory for strict app writes and externally guarded writes.
+  if ((validation === 'strict' || writeGuard) && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt)) return { error: 'expectedUpdatedAt is required. Reload the row before editing it.', status: 400 };
   const observed = await tableForWrite(db, orgId, tableId);
   if (!observed) return { error: "No such table.", status: 404 };
   const {table}=observed;
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
-  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) return rowConflict();
+  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== null && expectedUpdatedAt !== before.updatedAt) return rowConflict();
   const invalid = checkValues(table, values, validation);
   if (invalid) return invalid;
   const merged = { ...before.values, ...(validation === "strict" ? values : cleanValues(table.columns, values)) };
@@ -362,12 +365,13 @@ export async function updateRow(db, orgId, tableId, rowId, values, by, expectedU
 const rowConflict = () => ({ error: "This row changed. Reload the app before trying again.", status: 409 });
 
 export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt, writeUserId, writeGuard, { by = writeUserId, deferWrite = false } = {}) {
+  if (writeGuard && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt)) return { error: 'expectedUpdatedAt is required. Reload the row before deleting it.', status: 400 };
   const observed = await tableForWrite(db, orgId, tableId);
   if (!observed) return { error: "No such row.", status: 404 };
   const {table}=observed;
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
-  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) return rowConflict();
+  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== null && expectedUpdatedAt !== before.updatedAt) return rowConflict();
   if (await hasAppRelationsToRow(db, orgId, tableId, rowId)) return { error: 'This record is linked from another app record. Remove that link before deleting it.', status: 409 };
   const relationGuard = await appRelationDeleteGuard(db, orgId, tableId, 5);
   const authorityParam = 8 + relationGuard.binds.length;
