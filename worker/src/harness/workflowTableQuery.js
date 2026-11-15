@@ -6,13 +6,22 @@ const MAX_PAGE_SIZE = 100;
 const MAX_SCAN_SIZE = 500;
 const MAX_FILTERS = 40;
 const MAX_CANDIDATES = 100;
+const CURSOR_KEY_NAME = 'workflow-table-cursor-signing-key';
+let cachedCursorKey;
 
 const b64encode = value => btoa(String.fromCharCode(...new TextEncoder().encode(value)))
+  .replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
+const b64encodeBytes = value => btoa(String.fromCharCode(...value))
   .replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
 const b64decode = value => {
   const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
   const binary = atob(normalized + '='.repeat((4 - normalized.length % 4) % 4));
   return new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)));
+};
+const b64decodeBytes = value => {
+  const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
+  const binary = atob(normalized + '='.repeat((4 - normalized.length % 4) % 4));
+  return Uint8Array.from(binary, character => character.charCodeAt(0));
 };
 
 function normalizeWhere(table, input) {
@@ -39,11 +48,36 @@ async function filterFingerprint(where, q, appId, entityId, tableId) {
   return Array.from(digest, byte => byte.toString(16).padStart(2,'0')).join('');
 }
 
-function decodeCursor(cursor, expected) {
+async function cursorKey(db) {
+  if (cachedCursorKey) return cachedCursorKey;
+  let row = await db.prepare('SELECT value FROM kv WHERE key=?1').bind(CURSOR_KEY_NAME).first();
+  if (!row) {
+    const raw = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    await db.prepare('INSERT OR IGNORE INTO kv (key,value,updated_at) VALUES (?1,?2,?3)')
+      .bind(CURSOR_KEY_NAME, raw, new Date().toISOString()).run();
+    row = await db.prepare('SELECT value FROM kv WHERE key=?1').bind(CURSOR_KEY_NAME).first();
+  }
+  cachedCursorKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(row.value), {name:'HMAC',hash:'SHA-256'}, false, ['sign','verify']);
+  return cachedCursorKey;
+}
+
+async function encodeSignedCursor(db, value) {
+  const payload = b64encode(JSON.stringify(value));
+  const signature = new Uint8Array(await crypto.subtle.sign('HMAC', await cursorKey(db), new TextEncoder().encode(payload)));
+  return `${payload}.${b64encodeBytes(signature)}`;
+}
+
+async function decodeCursor(db, cursor, expected) {
   if (cursor === undefined) return {snapshotAt: new Date().toISOString(), afterCreatedAt: null, afterId: null, dataVersion: null};
   if (typeof cursor !== 'string' || cursor.length > 2048) throw Object.assign(new Error('Invalid table query cursor.'), {status:400});
   let value;
-  try { value = JSON.parse(b64decode(cursor)); } catch { throw Object.assign(new Error('Invalid table query cursor.'), {status:400}); }
+  try {
+    const [payload, signature, ...extra] = cursor.split('.');
+    if (!payload || !signature || extra.length) throw new Error('Malformed cursor');
+    const sig = b64decodeBytes(signature);
+    if (!(await crypto.subtle.verify('HMAC', await cursorKey(db), sig, new TextEncoder().encode(payload)))) throw new Error('Invalid cursor signature');
+    value = JSON.parse(b64decode(payload));
+  } catch { throw Object.assign(new Error('Invalid table query cursor.'), {status:400}); }
   const keys = ['v','appId','entityId','tableId','filter','snapshotAt','createdAt','id','dataVersion'].sort();
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join('\0') !== keys.join('\0')
     || value.v !== 2 || value.appId !== expected.appId || value.entityId !== expected.entityId || value.tableId !== expected.tableId
@@ -55,10 +89,10 @@ function decodeCursor(cursor, expected) {
   return {snapshotAt:value.snapshotAt,afterCreatedAt:value.createdAt,afterId:value.id,dataVersion:value.dataVersion};
 }
 
-const nextCursor = (identity, filter, snapshotAt, dataVersion, row) => b64encode(JSON.stringify({
+const nextCursor = (db, identity, filter, snapshotAt, dataVersion, row) => encodeSignedCursor(db, {
   v:2, appId:identity.appId, entityId:identity.entityId, tableId:identity.tableId,
   filter, snapshotAt, dataVersion, createdAt:row.created_at, id:row.id,
-}));
+});
 
 function matches(row, where, q) {
   for (const [column, filter] of Object.entries(where)) {
@@ -84,7 +118,7 @@ export async function queryWorkflowTablePage(db, {orgId, appId, entityId, tableI
   const where = normalizeWhere(table,input.where);
   const normalizedQ = q.trim().toLowerCase();
   const filter = await filterFingerprint(where,normalizedQ,appId,entityId,tableId);
-  const cursor = decodeCursor(input.cursor,{appId,entityId,tableId,filter});
+  const cursor = await decodeCursor(db,input.cursor,{appId,entityId,tableId,filter});
   const scanLimit = MAX_SCAN_SIZE + 1;
   const [versionResult,rowsResult] = await db.batch([
     db.prepare('SELECT data_version FROM hx_tables WHERE org_id=?1 AND id=?2').bind(orgId,tableId),
@@ -111,10 +145,10 @@ export async function queryWorkflowTablePage(db, {orgId, appId, entityId, tableI
   let continuation;
   if (matched.length > pageSize) {
     complete=false;
-    continuation=nextCursor({appId,entityId,tableId},filter,cursor.snapshotAt,dataVersion,selected.at(-1).source);
+    continuation=await nextCursor(db,{appId,entityId,tableId},filter,cursor.snapshotAt,dataVersion,selected.at(-1).source);
   } else if (hasUnscanned) {
     complete=false;
-    continuation=nextCursor({appId,entityId,tableId},filter,cursor.snapshotAt,dataVersion,considered.at(-1));
+    continuation=await nextCursor(db,{appId,entityId,tableId},filter,cursor.snapshotAt,dataVersion,considered.at(-1));
   } else {
     complete=true;
     continuation=null;
@@ -122,7 +156,7 @@ export async function queryWorkflowTablePage(db, {orgId, appId, entityId, tableI
   let outputRows=selected.map(item=>item.row);
   while(outputRows.length&&new TextEncoder().encode(JSON.stringify({rows:outputRows,complete,cursor:continuation})).length>180_000){
     outputRows=outputRows.slice(0,-1);
-    continuation=outputRows.length?nextCursor({appId,entityId,tableId},filter,cursor.snapshotAt,dataVersion,selected[outputRows.length-1].source):(input.cursor??null);
+    continuation=outputRows.length?await nextCursor(db,{appId,entityId,tableId},filter,cursor.snapshotAt,dataVersion,selected[outputRows.length-1].source):(input.cursor??null);
     complete=false;
   }
   if(!outputRows.length&&selected.length)return {error:'A single table row exceeds the Workflow page transport limit.',status:413};

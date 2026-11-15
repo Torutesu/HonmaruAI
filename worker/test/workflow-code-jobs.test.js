@@ -436,6 +436,16 @@ test('workflow table query pages the exact frozen App/Table source and denies sc
  expect(page1.complete).toBe(false);expect(page1.cursor).toEqual(expect.any(String));
  const second=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,cursor:page1.cursor}});
  expect(second.status).toBe(200);expect(await second.json()).toMatchObject({rows:[{id:'query-row-3'}],complete:true,cursor:null});
+ const [payload,signature]=page1.cursor.split('.');
+ const decode=value=>JSON.parse(atob(value.replaceAll('-','+').replaceAll('_','/')+'='.repeat((4-value.length%4)%4)));
+ const encode=value=>btoa(JSON.stringify(value)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');
+ const cursorValue=decode(payload);
+ for(const changed of [{...cursorValue,dataVersion:cursorValue.dataVersion+1},{...cursorValue,id:'query-row-999'}]){
+  const tampered=`${encode(changed)}.${signature}`;
+  const rejected=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,cursor:tampered}});
+  expect(rejected.status).toBe(400);
+  expect(await rejected.json()).toMatchObject({message:'Invalid App/Table query or cursor.'});
+ }
  const filtered=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,where:{status:['closed']}}});
  expect((await filtered.json()).rows.map(row=>row.id)).toEqual(['query-row-2']);
  const escaped=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:2,tableId:'foreign-table',orgId:'other-org'}});
