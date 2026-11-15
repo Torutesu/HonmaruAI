@@ -735,6 +735,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           deadline: Date.now() + (env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 25000 : 240000),
           onRound: () => progress(agent, "agent"), authorize, harnessTools: harness, signal,
           usageContext: { roomSlug: resolved.kind === "business" ? resolved.slug : null, agentId: agent.id },
+          subagentPersistence: harness ? {orgId,messageId:row.id,channel:resolved.key,runBy:session.github_id,agentId:agent.id} : null,
         });
         toolTrace = result.toolTrace || null;
         if (result.called && allowance.metered) await allowance.consume();

@@ -92,6 +92,19 @@ test("OpenAI helper read tool cannot hold the run beyond its deadline", async ()
   expect(toolSignal.aborted).toBe(true);
 });
 
+test("Harness helper runs persist bounded private status and final findings",async()=>{
+ const statements=[];
+ const env={DB:{prepare(sql){return{bind(...values){return{run:async()=>{statements.push({sql,values});return{meta:{changes:1}}}}}}}}};
+ response({content:"Private finding"});
+ const delegate=agentSubagentTool({provider,env,agent:{id:'agent-1',name:'A'},parentInput:'parent context',tools:{},persistence:{orgId:'org-1',messageId:'message-1',channel:'b:general',runBy:'user-1',agentId:'agent-1'}});
+ await expect(delegate.run({tasks:[{title:'Bounded title',task:'never persist this private prompt'}]})).resolves.toContain('Private finding');
+ const insert=statements.find(item=>item.sql.includes('INSERT INTO hx_agent_subagent_runs'));
+ expect(insert.values).toContain('org-1');expect(insert.values).toContain('message-1');expect(insert.values).toContain('user-1');
+ expect(insert.values).toContain('Bounded title');expect(insert.values).not.toContain('never persist this private prompt');
+ expect(statements.filter(item=>item.sql.includes('UPDATE hx_agent_subagent_runs')).map(item=>item.values[3])).toEqual(['running','completed']);
+ expect(statements.at(-1).values[5]).toContain('Private finding');
+});
+
 test("Simple Agent path never advertises helper delegation", async () => {
   response({ content: "Simple answer" }, body => expect(body.tools).toBeUndefined());
   const out = await askAgent({ provider, agent: { name: "A", handle: "a", instructions: "" }, request: "task", transcript: [], tools: { search_team_decisions: tool(async () => "ok") } });

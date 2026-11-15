@@ -1991,6 +1991,14 @@ body.slk-resizing iframe { pointer-events: none; }
 
 .classic.slk .slk-handoff-disclosure { display: inline-flex; }
 .classic.slk .slk-run-handoffs[open] > summary .slk-handoff-disclosure { transform: rotate(90deg); }
+.classic.slk .slk-run-subagents { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--slk-line); }
+.classic.slk .slk-run-subagents summary { font-size: 11px; }
+.classic.slk .slk-run-subagents ul { margin: 4px 0 0; padding: 0 0 0 12px; }
+.classic.slk .slk-run-subagents li { display: block; border-left: 1px solid var(--slk-line); padding: 5px 0 5px 10px; overflow-wrap: anywhere; }
+.classic.slk .slk-run-helper-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.classic.slk .slk-run-helper-heading strong { color: var(--slk-ink); }
+.classic.slk .slk-run-helper-result { margin: 4px 0 0; color: var(--slk-ink); white-space: pre-wrap; }
+.classic.slk .slk-run-helper-source { display: inline-block; margin: 4px 8px 0 0; }
 
 .classic.slk .slk-run-stop { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .classic.slk .slk-run-stop button { padding: 3px 8px; border: 1px solid var(--slk-line); border-radius: 5px; background: var(--slk-bg); color: var(--slk-ink); font: inherit; cursor: pointer; }
