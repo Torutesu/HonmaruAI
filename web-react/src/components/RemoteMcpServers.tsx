@@ -265,7 +265,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
               <div className="remote-mcp-subline">{t('Egress Gateway')}: {server.egressGatewayName || t('Not assigned')} · {server.egressGatewayId ? server.egressGatewayOnline ? t('Online') : t('Offline') : t('Required')}</div>
               {canManage && <div className="remote-mcp-gateway-control">
                 <label>{t('Route requests through')}
-                  <select value={gatewayEdits[server.id] ?? server.egressGatewayId ?? ''} onChange={(event) => { setGatewayEdits(items => ({ ...items, [server.id]: event.target.value })); setGatewayTrustEdits(items => ({ ...items, [server.id]: false })) }}>
+                  <select aria-label={t('Route requests through')} value={gatewayEdits[server.id] ?? server.egressGatewayId ?? ''} onChange={(event) => { setGatewayEdits(items => ({ ...items, [server.id]: event.target.value })); setGatewayTrustEdits(items => ({ ...items, [server.id]: false })) }}>
                     <option value="">{t('Choose a connected Gateway')}</option>
                     {gateways.map(gateway => <option key={gateway.id} value={gateway.id} disabled={!gateway.online}>{gateway.name} · {gateway.online ? t('Online') : t('Offline')}</option>)}
                   </select>
@@ -295,13 +295,13 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
               <h3>{t('Add a server')}</h3>
               <label>{t('Display name')}<input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} required placeholder={t('e.g. Internal knowledge base')} /></label>
               <label>{t('Server URL')}<input type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} required placeholder="https://mcp.example.com/mcp" /></label>
-              <label>{t('Route requests through')}<select value={egressGatewayId} onChange={(event) => { setEgressGatewayId(event.target.value); setConfirmGatewayTrust(false) }} required>
+              <label>{t('Route requests through')}<select aria-label={t('Route requests through')} value={egressGatewayId} onChange={(event) => { setEgressGatewayId(event.target.value); setConfirmGatewayTrust(false) }} required>
                 <option value="">{t('Choose a connected Gateway')}</option>
                 {gateways.map(gateway => <option key={gateway.id} value={gateway.id} disabled={!gateway.online}>{gateway.name} · {gateway.online ? t('Online') : t('Offline')}</option>)}
               </select></label>
               <p className="remote-mcp-form-note">{t('The selected Mac Gateway resolves and pins the server IP for each HTTPS request. Requests fail closed if it is offline. The isolated app runner receives no network access.')}</p>
               <label className="remote-mcp-toggle"><input type="checkbox" checked={confirmGatewayTrust} onChange={(event) => setConfirmGatewayTrust(event.target.checked)} required />{t('I trust this Gateway to receive this server’s request data and credentials and make HTTPS requests.')}</label>
-              <label>{t('Authentication')}<select value={authMode} onChange={(event) => setAuthMode(event.target.value as 'headers' | 'oauth')}>
+              <label>{t('Authentication')}<select aria-label={t('Authentication')} value={authMode} onChange={(event) => setAuthMode(event.target.value as 'headers' | 'oauth')}>
                 <option value="headers">{t('Bearer token or custom headers')}</option><option value="oauth">OAuth 2.1</option>
               </select></label>
               {authMode === 'oauth' ? <>

@@ -519,7 +519,7 @@ test('public MCP catalog results can be reviewed and selected for the connection
   expect(tree!.root.findByProps({ className: 'remote-mcp-message' }).children).toContain('The listing marks these headers as required. Enter credentials yourself; registry examples are never copied.')
   expect(tree!.root.findByProps({ 'aria-label': 'Header value' }).props.required).toBe(true)
   expect(tree!.root.findByProps({ 'aria-label': 'Header value' }).props['aria-description']).toBe('Paste a token from the provider.')
-  expect(tree!.root.findAllByType('select')[0].props.value).toBe('headers')
+  expect(tree!.root.findByProps({ 'aria-label': 'Authentication' }).props.value).toBe('headers')
   await act(async () => {
     tree!.root.findAllByType('button').find(node => node.children.includes('Browse catalog'))!.props.onClick()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -541,7 +541,7 @@ test('Remote MCP OAuth lets members connect their own account from the Harness A
   expect(fetchStub.mock.calls.map(([url]) => url)).toContain('https://api.example/remote-mcp?orgId=team%3Aone')
   expect(JSON.stringify(tree!.toJSON())).toContain('Private CRM')
   expect(tree!.root.findAllByType('button').some(node => node.children.includes('Connect my account'))).toBe(true)
-  const authSelect = tree!.root.findAllByType('select')[0]
+  const authSelect = tree!.root.findByProps({ 'aria-label': 'Authentication' })
   expect(authSelect.findAllByType('option').map(node => node.props.value)).toContain('oauth')
   act(() => authSelect.props.onChange({ target: { value: 'oauth' } }))
   expect(JSON.stringify(tree!.toJSON())).toContain('Workflow runs use the workflow creator’s connected account.')
