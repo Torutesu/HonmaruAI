@@ -49,6 +49,18 @@ test("workflow usage dashboards have an organization and time-window index", asy
   expect(results.map((row) => row.name)).toContain("idx_hx_workflow_usage_org_created");
 });
 
+test("schema.sql recreates all App row generation triggers without migration help", async () => {
+  await applyDeploy(env.DB);
+  await env.DB.exec("DROP TRIGGER IF EXISTS hx_rows_data_version_insert; DROP TRIGGER IF EXISTS hx_rows_data_version_update; DROP TRIGGER IF EXISTS hx_rows_data_version_delete;");
+  for (const statement of schemaSql.split("\n").filter(line => line.startsWith('CREATE TRIGGER IF NOT EXISTS hx_rows_data_version_'))) {
+    await env.DB.exec(statement);
+  }
+  const { results } = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'hx_rows_data_version_%'").all();
+  expect(results.map(row => row.name).sort()).toEqual([
+    'hx_rows_data_version_delete', 'hx_rows_data_version_insert', 'hx_rows_data_version_update',
+  ]);
+});
+
 test("Agent peer-role migration creates its table and lookup index on the deploy path", async () => {
   await applyDeploy(env.DB);
   const table = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hx_agent_agent_members'").first();
