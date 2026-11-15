@@ -61,6 +61,7 @@ Usage:
   honmaru workspace reaction add <message-id> --emoji EMOJI
   honmaru workspace reaction remove <message-id> --emoji EMOJI
   honmaru workspace thread get <room-id> <root-id> [--limit N] [--cursor CURSOR]
+  honmaru workspace thread create <room-id> --text TEXT --request-id ID [--file-ids ID,...]
   honmaru workspace thread msg <room-id> <root-id> --text TEXT --request-id ID [--reply-to MESSAGE]
   honmaru workspace thread rename <room-id> <root-id> --title TITLE --version N
   honmaru workspace thread mute|unmute <room-id> <root-id>
@@ -488,6 +489,15 @@ async function resolveWorkspaceCommand(resource, operation, positional, options,
       if (limit !== undefined) args.limit = limit;
       if (options.cursor !== undefined) args.cursor = options.cursor;
       return { tool: "read_thread", args };
+    }
+    case "thread create": {
+      onlyFlags(options, ["text", "requestId", "fileIds"]); positionalCount(positional, 1, "honmaru workspace thread create <room-id> --text TEXT --request-id ID [--file-ids ID,...]");
+      if (typeof options.text !== "string" || !options.text.trim()) throw new Error("--text is required.");
+      if (typeof options.requestId !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(options.requestId)) throw new Error("--request-id must be 8 to 100 letters, numbers, underscores or hyphens; reuse it only for the identical retry.");
+      const args = { conversationId: positional[0], body: options.text, requestId: options.requestId };
+      if (options.fileIds !== undefined) args.fileIds = [...new Set(options.fileIds.split(",").map(value => value.trim()).filter(Boolean))];
+      if (args.fileIds?.length > 10) throw new Error("--file-ids accepts at most 10 file IDs.");
+      return { tool: "send_message", args };
     }
     case "thread msg": {
       onlyFlags(options, ["text", "requestId", "replyTo", "fileIds"]); positionalCount(positional, 2, "honmaru workspace thread msg <room-id> <root-id> --text TEXT --request-id ID [--reply-to MESSAGE]");
