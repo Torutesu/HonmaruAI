@@ -1,3 +1,9 @@
+### 2026-11-16 — CLI thread creation alias (candidate)
+
+- Added `honmaru workspace thread create <room-id> --text ... --request-id ... [--file-ids ...]`. It creates a thread root through the existing user-authored, idempotent `send_message` MCP path; request IDs and attachment count are validated before network calls.
+- The explicit Room argument and existing token scope/Room ACL checks are preserved. No new service, paid contract, database change, or Simple-mode behavior change.
+- CLI suite passed **64/64**; `git diff --check` passed. Exact-head CI, merge, and production deployment are pending. KY-085 remains partial: thread activation/participants and the wider CLI surface still need implementation and Kylon comparison.
+
 # 検証記録
 
 ### 2026-11-15 — Concurrent read-only Workflow table queries (candidate)

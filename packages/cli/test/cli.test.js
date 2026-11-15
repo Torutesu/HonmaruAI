@@ -492,6 +492,8 @@ test("room, message and thread aliases use scoped MCP tools with explicit paging
   assert.match(stdout.read(), /Deleted message msg_2 and 1 thread replies/); stdout.clear();
   assert.equal(await run(["workspace", "message", "send", "--room", "b:ops", "--text", "Deploy complete", "--request-id", "send-deploy-01", "--reply-to", "msg_0", "--file-ids", "file_1,file_2,file_1"]), 0);
   assert.equal(stdout.read(), "Sent message msg_1.\n"); stdout.clear();
+  assert.equal(await run(["workspace", "thread", "create", "b:ops", "--text", "Incident review", "--request-id", "thread-create-01", "--file-ids", "file_3,file_4,file_3"]), 0);
+  assert.equal(stdout.read(), "Sent message msg_1.\n"); stdout.clear();
   assert.equal(await run(["workspace", "thread", "get", "b:ops", "root_1", "--limit", "25"]), 0); stdout.clear();
   assert.equal(await run(["workspace", "thread", "msg", "b:ops", "root_1", "--text", "Follow-up", "--request-id", "thread-reply-01"]), 0);
   assert.equal(await run(["workspace", "thread", "rename", "b:ops", "root_1", "--title", "Roadmap", "--version", "2"]), 0); stdout.clear();
@@ -506,6 +508,7 @@ test("room, message and thread aliases use scoped MCP tools with explicit paging
     { name: "edit_message", arguments: { conversationId: "b:ops", messageId: "msg_1", expectedContentVersion: 3, body: "Updated text", acknowledgeDlp: true } },
     { name: "delete_message", arguments: { conversationId: "b:ops", messageId: "msg_2", expectedContentVersion: 1, withThread: true } },
     { name: "send_message", arguments: { conversationId: "b:ops", body: "Deploy complete", requestId: "send-deploy-01", replyToMessageId: "msg_0", fileIds: ["file_1", "file_2"] } },
+    { name: "send_message", arguments: { conversationId: "b:ops", body: "Incident review", requestId: "thread-create-01", fileIds: ["file_3", "file_4"] } },
     { name: "read_thread", arguments: { conversationId: "b:ops", threadId: "root_1", limit: 25 } },
     { name: "send_message", arguments: { conversationId: "b:ops", threadId: "root_1", body: "Follow-up", requestId: "thread-reply-01" } },
     { name: "rename_thread", arguments: { conversationId: "b:ops", threadId: "root_1", title: "Roadmap", version: 2 } },
@@ -528,6 +531,10 @@ test("room/message aliases reject malformed writes and page limits before making
   assert.match(stderr.read(), /scope must be public or private/); stderr.clear();
   assert.equal(await run(["workspace", "message", "send", "--room", "b:ops", "--text", "hi", "--request-id", "bad/id"]), 1);
   assert.match(stderr.read(), /request-id must be 8 to 100/); stderr.clear();
+  assert.equal(await run(["workspace", "thread", "create", "b:ops", "--text", "Incident review"]), 1);
+  assert.match(stderr.read(), /--request-id must be 8 to 100/); stderr.clear();
+  assert.equal(await run(["workspace", "thread", "create", "b:ops", "--request-id", "thread-create-01"]), 1);
+  assert.match(stderr.read(), /--text is required/); stderr.clear();
   assert.equal(await run(["workspace", "thread", "get", "b:ops", "root_1", "--limit", "51"]), 1);
   assert.match(stderr.read(), /must be an integer from 1 to 50/);
   assert.equal(requests, 0);
