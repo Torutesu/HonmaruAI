@@ -172,7 +172,7 @@ test('embedded history never offers a resume action to a reader',async()=>{
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
  expect(JSON.stringify(tree.toJSON())).toContain(t('Paused after three consecutive failures'))
- expect(tree.root.findAllByType('button')).toHaveLength(1)
+ expect(tree.root.findAllByType('button')).toHaveLength(2)
  act(()=>tree.unmount())
 })
 
@@ -212,6 +212,42 @@ test('failed-only filter shows matching runs and a clear empty state',async()=>{
  await act(async()=>refresh(tree).props.onClick())
  await act(async()=>filter().props.onClick())
  expect(JSON.stringify(tree.toJSON())).toContain(t('No failed runs.'))
+ act(()=>tree.unmount())
+})
+
+test('execution history appends keyset pages and the failed filter restarts at the first page',async()=>{
+ const first={runs:[{id:'new-run',startedAt:'2026-10-24T12:00:00Z',status:'done',log:[]}],hasMore:true,nextCursor:'cursor-one'}
+ const older={runs:[{id:'older-run',startedAt:'2026-10-22T12:00:00Z',status:'failed',log:[]}],hasMore:false,nextCursor:null}
+ const failed={runs:[{id:'failed-first',startedAt:'2026-10-24T11:00:00Z',status:'failed',log:[]}],hasMore:false,nextCursor:null}
+ const api={workflow:vi.fn().mockResolvedValue({runs:[]}),workflowRunsPage:vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(older).mockResolvedValueOnce(failed)};let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={api as any}/>)})
+ await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('new-run')
+ const olderButton=()=>tree.root.findAllByType('button').find((button:any)=>button.children.includes(t('Load older runs')))
+ await act(async()=>olderButton().props.onClick())
+ expect(api.workflowRunsPage).toHaveBeenNthCalledWith(2,'wf',{limit:50,cursor:'cursor-one'})
+ expect(JSON.stringify(tree.toJSON())).toContain('older-run')
+ const filter=()=>tree.root.findAllByType('button').find((button:any)=>button.props['aria-pressed']!==undefined)
+ await act(async()=>filter().props.onClick())
+ expect(api.workflowRunsPage).toHaveBeenNthCalledWith(3,'wf',{limit:50,status:'failed'})
+ expect(JSON.stringify(tree.toJSON())).toContain('failed-first')
+ expect(JSON.stringify(tree.toJSON())).not.toContain('new-run')
+ act(()=>tree.unmount())
+})
+
+test('failed run history can load older matching runs after a filtered page',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[]})
+ const workflowRunsPage=vi.fn().mockResolvedValueOnce({runs:[],hasMore:false,nextCursor:null}).mockResolvedValueOnce({runs:[{id:'failed-one',startedAt:'2026-10-24T12:00:00Z',status:'failed',log:[]}],hasMore:true,nextCursor:'failed-cursor'}).mockResolvedValueOnce({runs:[{id:'failed-two',startedAt:'2026-10-23T12:00:00Z',status:'failed',log:[]}],hasMore:false,nextCursor:null})
+ let tree:any;act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow,workflowRunsPage}as any}/>)})
+ await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+ const filter=()=>tree.root.findAllByType('button').find((button:any)=>button.props['aria-pressed']!==undefined)
+ await act(async()=>filter().props.onClick())
+ expect(JSON.stringify(tree.toJSON())).toContain('failed-one')
+ const older=()=>tree.root.findAllByType('button').find((button:any)=>button.children.includes(t('Load older runs')))
+ await act(async()=>older().props.onClick())
+ expect(workflowRunsPage).toHaveBeenLastCalledWith('wf',{limit:50,cursor:'failed-cursor',status:'failed'})
+ expect(JSON.stringify(tree.toJSON())).toContain('failed-one')
+ expect(JSON.stringify(tree.toJSON())).toContain('failed-two')
  act(()=>tree.unmount())
 })
 

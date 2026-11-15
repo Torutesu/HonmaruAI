@@ -102,7 +102,7 @@ import { skillMarkdown } from "./skillMarkdown.js";
 import { generateWorkflow, previewWorkflow } from './workflowCreation.js';
 import { respondToRecurringAutomationOffer } from './recurringAutomationOffers.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, setWorkflowArchived, listRuns, getRun, workflowRunSummary, startRun, cancelWorkflowRun, recoverStalledRun, TRIGGERS, STEP_TYPES, onRowChange, onRowDelete } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, setWorkflowArchived, listRuns, listRunHistoryPage, getRun, workflowRunSummary, startRun, cancelWorkflowRun, recoverStalledRun, TRIGGERS, STEP_TYPES, onRowChange, onRowDelete } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
@@ -955,9 +955,16 @@ export async function handleHarness(request, env, url, context = {}) {
         return run && run.workflowId === wfId ? json({ run: await runForHistory(env.DB, orgId, run) }) : json({ message: "No such run." }, 404);
       }
       if (request.method === 'GET') {
-        const runs = await listRuns(env.DB, orgId, wfId, url.searchParams.get("limit"), me);
+        const rawLimit = url.searchParams.get('limit');
+        const page = await listRunHistoryPage(env.DB, orgId, wfId, {
+          limit: rawLimit === null ? 50 : Number(rawLimit),
+          cursor: url.searchParams.get('cursor'),
+          status: url.searchParams.get('status'),
+          viewerId: me,
+        });
+        if (page.error) return json({ message: page.error, code: page.status === 409 ? 'stale_run_history_cursor' : undefined }, page.status);
         const names = new Map();
-        return json({ runs: await Promise.all(runs.map(run => runForHistory(env.DB, orgId, run, names))) });
+        return json({ runs: await Promise.all(page.runs.map(run => runForHistory(env.DB, orgId, run, names))), hasMore: page.hasMore, nextCursor: page.nextCursor });
       }
     }
     return null;

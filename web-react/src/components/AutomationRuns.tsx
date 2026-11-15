@@ -2,7 +2,7 @@ import {WorkflowRunUsage} from './WorkflowRunUsage'
 import {HeldWebhookEvents} from './HeldWebhookEvents'
 import {WorkflowRunSummaryCard} from './WorkflowRunSummary'
 import React,{useCallback,useEffect,useRef,useState} from 'react'
-import type {HarnessApi,HeldWorkflowEvents,Run,WorkflowRunSummary as WorkflowRunSummaryData,WorkflowSafety} from '../utils/harness'
+import type {HarnessApi,HeldWorkflowEvents,Run,WorkflowRunPage,WorkflowRunSummary as WorkflowRunSummaryData,WorkflowSafety} from '../utils/harness'
 import {useT} from '../utils/i18n'
 import {getLocale} from '../utils/locale'
 import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHistory'
@@ -13,21 +13,28 @@ const authorizationResourceLabels:Record<NonNullable<Run['log'][number]['authori
  workflow:'Workflow resource',conversation:'Conversation resource',agent:'Agent resource',table:'Table resource',app:'App resource',connection:'Connection resource',member:'Member resource',
 }
 
+async function readRunPage(api:HarnessApi,workflowId:string,detailRuns:Run[],failedOnly:boolean,cursor?:string|null):Promise<WorkflowRunPage>{
+ if(typeof api.workflowRunsPage==='function')return api.workflowRunsPage(workflowId,{limit:50,...(cursor?{cursor}:{}),...(failedOnly?{status:'failed'}:{})})
+ const runs=failedOnly?detailRuns.filter(run=>run.status==='failed'):detailRuns
+ return {runs,hasMore:false,nextCursor:null}
+}
+
 export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessApi}) {
  const t=useT(),[runs,setRuns]=useState<Run[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[isOpen,setIsOpen]=useState(false),[failedOnly,setFailedOnly]=useState(false)
+ const [runCursor,setRunCursor]=useState<string|null>(null),[hasMoreRuns,setHasMoreRuns]=useState(false),[loadingMore,setLoadingMore]=useState(false),[pageError,setPageError]=useState('')
  const [summary,setSummary]=useState<WorkflowRunSummaryData|null>(null)
  const [safety,setSafety]=useState<WorkflowSafety|null>(null),[canEdit,setCanEdit]=useState(false),[held,setHeld]=useState<HeldWorkflowEvents|null>(null),[isWebhook,setIsWebhook]=useState(false)
  const request=useRef(0),pending=useRef<number|null>(null),opened=useRef(false)
- const load=useCallback(async(heldOffset=0)=>{
+ const load=useCallback(async(heldOffset=0,failedFilter=false)=>{
   if(pending.current!==null)return
   const current=++request.current;pending.current=current;setBusy(true);setError('')
-  try{const result=heldOffset?await api.workflow(workflowId,heldOffset):await api.workflow(workflowId);if(current===request.current){setRuns(result.runs);setSummary(result.summary||null);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true);setHeld(result.held||null);setIsWebhook(result.workflow?.trigger?.type==='webhook')}}
-  catch(e){if(current===request.current){setRuns(null);setSummary(null);setSafety(null);setCanEdit(false);setHeld(null);setIsWebhook(false);setError(e instanceof Error?e.message:String(e))}}
+  try{const result=heldOffset?await api.workflow(workflowId,heldOffset):await api.workflow(workflowId);const page=await readRunPage(api,workflowId,result.runs||[],failedFilter);if(current===request.current){setRuns(page.runs);setRunCursor(page.nextCursor);setHasMoreRuns(page.hasMore);setPageError('');setSummary(result.summary||null);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true);setHeld(result.held||null);setIsWebhook(result.workflow?.trigger?.type==='webhook')}}
+  catch(e){if(current===request.current){setRuns(null);setRunCursor(null);setHasMoreRuns(false);setPageError('');setSummary(null);setSafety(null);setCanEdit(false);setHeld(null);setIsWebhook(false);setError(e instanceof Error?e.message:String(e))}}
   finally{if(pending.current===current)pending.current=null;if(current===request.current)setBusy(false)}
  },[workflowId,api])
  useEffect(()=>{
-  request.current++;pending.current=null;setRuns(null);setSummary(null);setSafety(null);setCanEdit(false);setHeld(null);setIsWebhook(false);setError('');setBusy(false);setFailedOnly(false)
-  if(opened.current)void load()
+  request.current++;pending.current=null;setRuns(null);setRunCursor(null);setHasMoreRuns(false);setLoadingMore(false);setPageError('');setSummary(null);setSafety(null);setCanEdit(false);setHeld(null);setIsWebhook(false);setError('');setBusy(false);setFailedOnly(false)
+  if(opened.current)void load(0,false)
   return ()=>{request.current++}
  },[load])
  const resume=async()=>{
@@ -36,18 +43,28 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
   try{
    await api.resumeWorkflow(workflowId,safety.generation)
    const result=await api.workflow(workflowId)
-   if(current===request.current){setRuns(result.runs);setSummary(result.summary||null);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true);setHeld(result.held||null);setIsWebhook(result.workflow?.trigger?.type==='webhook')}
+   const page=await readRunPage(api,workflowId,result.runs||[],failedOnly)
+   if(current===request.current){setRuns(page.runs);setRunCursor(page.nextCursor);setHasMoreRuns(page.hasMore);setPageError('');setSummary(result.summary||null);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true);setHeld(result.held||null);setIsWebhook(result.workflow?.trigger?.type==='webhook')}
   }catch(e){if(current===request.current)setError(e instanceof Error?e.message:String(e))}
   finally{if(pending.current===current)pending.current=null;if(current===request.current)setBusy(false)}
  }
  useEffect(()=>{
   if(!isOpen||busy||error||!runs?.some(run=>run.status==='running'||run.status==='waiting'))return
-  const timer=setTimeout(()=>void load(),10000)
+  const timer=setTimeout(()=>void load(0,failedOnly),10000)
   return ()=>clearTimeout(timer)
- },[isOpen,busy,error,runs,load])
- const visibleRuns=(runs||[]).filter(run=>!failedOnly||run.status==='failed')
+ },[isOpen,busy,error,runs,load,failedOnly])
+ const loadMore=async()=>{
+  if(!hasMoreRuns||!runCursor||loadingMore||busy)return
+  const current=request.current;setLoadingMore(true);setPageError('')
+  try{
+   const page=await api.workflowRunsPage(workflowId,{limit:50,cursor:runCursor,...(failedOnly?{status:'failed'}:{})})
+   if(current===request.current){setRuns(previous=>{const existing=new Set((previous||[]).map(run=>run.id));return [...(previous||[]),...page.runs.filter(run=>!existing.has(run.id))]});setRunCursor(page.nextCursor);setHasMoreRuns(page.hasMore)}
+  }catch(e){if(current===request.current)setPageError(e instanceof Error?e.message:String(e))}
+  finally{if(current===request.current)setLoadingMore(false)}
+ }
+ const visibleRuns=runs||[]
  const orderedDays=groupRunsByStartDay(visibleRuns)
- return <details className="hx-run-history-panel" onToggle={e=>{opened.current=e.currentTarget.open;setIsOpen(opened.current);if(opened.current && runs===null && !busy)void load()}}><summary>{t('Run history')}</summary>
+ return <details className="hx-run-history-panel" onToggle={e=>{opened.current=e.currentTarget.open;setIsOpen(opened.current);if(opened.current && runs===null && !busy)void load(0,failedOnly)}}><summary>{t('Run history')}</summary>
   {busy&&<p role="status">{t('Loading…')}</p>}{error&&<p role="alert">{error}</p>}
   {runs!==null&&!error&&<WorkflowRunSummaryCard summary={summary}/>}
   {safety?.paused_at&&<section className="form-note" role="status">
@@ -56,10 +73,11 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
    {canEdit&&!safety.pause_reason?.startsWith('budget_')&&<button type="button" className="pill-btn" disabled={busy} onClick={()=>void resume()}>{t('Resume after review')}</button>}
   </section>}
   {isWebhook&&canEdit&&held&&<HeldWebhookEvents workflowId={workflowId} held={held} api={api} busy={busy} onRefresh={load}/>}
-  {runs?.length===0&&<p>{t('No runs yet.')}</p>}
-  {!!runs?.length&&<div className="hx-run-history">
-   <div className="hx-run-history-tools"><button type="button" className="pill-btn quiet hx-run-filter" aria-pressed={failedOnly} onClick={()=>setFailedOnly(value=>!value)}>{t('Failed runs only')}</button></div>
-   {visibleRuns.length===0?<p className="hx-run-empty">{t('No failed runs.')}</p>:orderedDays.map(([key,group])=><section className="hx-run-day" key={key}><h4>{runDayLabel(group.date,getLocale(),t)}</h4>
+  {runs?.length===0&&!failedOnly&&<p>{t('No runs yet.')}</p>}
+  {runs?.length===0&&failedOnly&&<p className="hx-run-empty">{t('No failed runs.')}</p>}
+  {runs!==null&&<div className="hx-run-history">
+   <div className="hx-run-history-tools"><button type="button" className="pill-btn quiet hx-run-filter" aria-pressed={failedOnly} disabled={busy||loadingMore} onClick={()=>{const next=!failedOnly;setFailedOnly(next);void load(0,next)}}>{t('Failed runs only')}</button></div>
+   {visibleRuns.length===0&&failedOnly?<p className="hx-run-empty">{t('No failed runs.')}</p>:orderedDays.map(([key,group])=><section className="hx-run-day" key={key}><h4>{runDayLabel(group.date,getLocale(),t)}</h4>
     {group.runs.map(run=><details key={run.id}><summary>{runTimestampLabel(run.startedAt,getLocale(),t('Date unavailable'))} · {t(labels[run.status]||run.status)}{run.startedByName&&<> · {t('Run by')}: {run.startedByName}</>}{run.definitionRevision ? <span className="row-sub">{t('Version {version}',{version:run.definitionRevision})}</span> : run.definitionSnapshotAvailable===true ? <span className="row-sub">{t('Version not recorded')}</span> : run.definitionSnapshotAvailable===false ? <span className="row-sub">{t('Original definition snapshot unavailable')}</span> : null}{runDuration(run)!==null&&<> · <span title={t('Elapsed time, including approval waits')}>{runDuration(run)}</span></>}</summary>
      <WorkflowRunUsage usage={run.usage}/>
      <ol>{run.log.map((entry,index)=><li key={index}><strong>{entry.step}. {t(labels[entry.status]||entry.status)}</strong>{entry.error&&<p className="form-error">{entry.error}</p>}{entry.output&&<pre>{entry.output}</pre>}{!!entry.messages?.length&&<section className="hx-run-drafts"><strong>{t('Draft messages')}</strong>{entry.messages.map((draft,draftIndex)=><article key={draftIndex}><p>{draft.text}</p>{draft.mention!==undefined&&<small>{t('Mention')}: {Array.isArray(draft.mention)?draft.mention.join(', '):draft.mention}</small>}</article>)}</section>}
@@ -69,6 +87,8 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
     </details>)}
    </section>)}
   </div>}
-  <button type="button" className="pill-btn quiet" disabled={busy} onClick={()=>void load()}>{error?t('Retry'):t('Refresh history')}</button>
+  {!!pageError&&<p role="alert">{pageError}</p>}
+  {hasMoreRuns&&<button type="button" className="pill-btn quiet" disabled={busy||loadingMore} onClick={()=>void loadMore()}>{loadingMore?t('Loading older runs…'):pageError?t('Retry'):t('Load older runs')}</button>}
+  <button type="button" className="pill-btn quiet" disabled={busy||loadingMore} onClick={()=>void load(0,failedOnly)}>{error||pageError?t('Retry'):t('Refresh history')}</button>
  </details>
 }
