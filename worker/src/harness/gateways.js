@@ -103,7 +103,8 @@ export async function handleGateways(request, env, url, input) {
     if (!token) return failure('Node authentication required.', 401);
     const g = await db.prepare('SELECT * FROM hx_gateways WHERE token_hash = ?1 AND revoked_at IS NULL').bind(await digest(token)).first();
     if (!g) return failure('Node authentication required.', 401);
-    const limited = await enforceSubject(env, 'gateway/node', `gateway:${g.id}`);
+    const pollOnly=parts[3]==='browser-frame'&&input?.poll===true;
+    const limited = await enforceSubject(env, pollOnly?'gateway/control-poll':'gateway/node', `gateway:${g.id}`);
     if (limited) return limited;
     // Removing the registering administrator disables the node as well.
     if (!(await allowed(db, g.org_id, g.created_by, 'workspace.mode'))) return failure('Node owner access was revoked.', 403);
@@ -191,7 +192,6 @@ export async function handleGateways(request, env, url, input) {
       return json({ok:true});
     }
     if (parts[3] === 'browser-frame') {
-      if (typeof input?.image !== 'string' || input.image.length > 2_800_000 || !/^\/9j\/[A-Za-z0-9+/]+={0,2}$/.test(input.image)) return failure('Invalid browser frame.',413);
       const job = await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by,gateway_id FROM hx_gateway_jobs WHERE ${guard}`)
         .bind(parts[2],g.id,leaseHash,now()).first();
       if (!job) return failure('Execution is no longer authorized.',409);
@@ -199,6 +199,15 @@ export async function handleGateways(request, env, url, input) {
       try { payload=JSON.parse(job.payload); } catch { return failure('Browser authorization is invalid.',400); }
       if (!(await acpBrowserAllowed(db,job,payload))) return failure('Isolated browser access was revoked or is no longer allowed.',403);
       const relay=env.ORG_RELAY.get(env.ORG_RELAY.idFromName(job.org_id));
+      if (input?.poll === true) {
+        const response=await relay.fetch(`https://relay.invalid/desktop/controls?orgId=${encodeURIComponent(job.org_id)}`,{
+          method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jobId:parts[2]})
+        });
+        if(!response.ok)return failure('Browser control access is no longer authorized.',403);
+        const result=await response.json().catch(()=>({controls:[]}));
+        return json({ok:true,controls:Array.isArray(result.controls)?result.controls.slice(0,5):[]});
+      }
+      if (typeof input?.image !== 'string' || input.image.length > 2_800_000 || !/^\/9j\/[A-Za-z0-9+/]+={0,2}$/.test(input.image)) return failure('Invalid browser frame.',413);
       const response=await relay.fetch(`https://relay.invalid/desktop/frame?orgId=${encodeURIComponent(job.org_id)}`,{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jobId:parts[2],image:input.image})
       });

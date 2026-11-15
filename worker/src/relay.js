@@ -59,6 +59,14 @@ const MESSAGE_WINDOW_MS = 10_000;
 // No message this product sends is near this; a JSON.parse of something much
 // larger is a cost paid before anything has been checked.
 const MAX_MESSAGE_BYTES = 256 * 1024;
+export function cleanDesktopAction(action) {
+  if (!action || typeof action !== 'object' || Array.isArray(action)) return null;
+  if (action.type === 'click' && Number.isFinite(action.x) && Number.isFinite(action.y) && action.x >= 0 && action.x < 1280 && action.y >= 0 && action.y < 800) return { type: 'click', x: Math.round(action.x), y: Math.round(action.y) };
+  if (action.type === 'type' && typeof action.text === 'string' && action.text.length > 0 && action.text.length <= 2000 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(action.text)) return { type: 'type', text: action.text };
+  if (action.type === 'press' && ['Enter','Tab','Escape','Backspace','Delete','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(action.key)) return { type: 'press', key: action.key };
+  if (action.type === 'scroll' && Number.isFinite(action.x) && Number.isFinite(action.y) && Number.isFinite(action.deltaX) && Number.isFinite(action.deltaY) && action.x >= 0 && action.x < 1280 && action.y >= 0 && action.y < 800 && Math.abs(action.deltaX) <= 1200 && Math.abs(action.deltaY) <= 1200) return { type: 'scroll', x: Math.round(action.x), y: Math.round(action.y), deltaX: Math.round(action.deltaX), deltaY: Math.round(action.deltaY) };
+  return null;
+}
 // `join` runs before `overBudget` can name a user, so it gets its own bound:
 // a handful of attempts per socket, each of which costs a session lookup and
 // a membership check against D1.
@@ -116,6 +124,26 @@ export class OrgRelay {
         try { ws.send(JSON.stringify({ type: 'CUSTOM', name: 'browser_frame', value: { jobId: job.id, image: frame.image } })); delivered++; } catch {}
       }
       return Response.json({ delivered });
+    }
+
+    if (url.pathname === '/desktop/controls' && request.headers.get("Upgrade") !== "websocket") {
+      if (request.method !== 'POST') return new Response('not found', { status: 404 });
+      let requestData;
+      try { requestData = await request.json(); } catch { return new Response('bad request', { status: 400 }); }
+      if (typeof requestData?.jobId !== 'string' || requestData.jobId.length > 80) return new Response('bad request', { status: 400 });
+      const job = await this.db.prepare("SELECT id,org_id,created_by,payload FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2 AND status='running'").bind(orgId, requestData.jobId).first();
+      if (!job || await getMode(this.db, orgId) !== 'harness') return new Response('not found', { status: 404 });
+      let payload;
+      try { payload = JSON.parse(job.payload); } catch { return new Response('not found', { status: 404 }); }
+      if (!await browserConversationAllowed(this.db, orgId, job.created_by, payload.browserContext)) return new Response('not found', { status: 404 });
+      const queued = this.desktopControls?.get(job.id) || [];
+      const controls=[],remaining=[];
+      for(const item of queued){
+        if(String(item.userId)!==String(job.created_by) || !(await allowed(this.db,orgId,item.userId,'harness.build')) || !(await mayUseConversation(this.db,orgId,item.userId,payload.browserContext?.channel)))continue;
+        if(controls.length<5)controls.push(item.action);else remaining.push(item);
+      }
+      if(remaining.length)this.desktopControls?.set(job.id,remaining);else this.desktopControls?.delete(job.id);
+      return Response.json({ controls });
     }
 
     // Cards written outside this object — a connector sync, which runs in the
@@ -605,12 +633,31 @@ export class OrgRelay {
       if (!job || jobPayload?.browserTools !== true || !(await allowed(this.db, orgId, att.githubId, 'harness.build')) ||
           !(await browserConversationAllowed(this.db, orgId, job.created_by, context)) ||
           !(await mayUseConversation(this.db, orgId, att.githubId, context.channel))) {
-        ws.serializeAttachment({ ...att, desktopJobId: null });
+        ws.serializeAttachment({ ...att, desktopJobId: null, desktopCanControl: false });
         ws.send(JSON.stringify({ type: 'CUSTOM', name: 'browser_frame_unavailable', value: { jobId } }));
         return;
       }
-      ws.serializeAttachment({ ...att, desktopJobId: job.id });
-      ws.send(JSON.stringify({ type: 'CUSTOM', name: 'browser_frame_ready', value: { jobId: job.id } }));
+      const canControl=String(job.created_by)===String(att.githubId);
+      ws.serializeAttachment({ ...att, desktopJobId: job.id, desktopCanControl: canControl });
+      ws.send(JSON.stringify({ type: 'CUSTOM', name: 'browser_frame_ready', value: { jobId: job.id, canControl } }));
+      return;
+    }
+
+    if (type === 'desktop_control') {
+      const current=ws.deserializeAttachment()||att;
+      const jobId=typeof payload?.jobId==='string'?payload.jobId.slice(0,80):'';
+      const action=cleanDesktopAction(payload?.action);
+      if(!action||!jobId||current.desktopJobId!==jobId||current.desktopCanControl!==true){ws.send(JSON.stringify({type:'CUSTOM',name:'browser_control_rejected',value:{jobId}}));return;}
+      const job=await this.db.prepare("SELECT id,created_by,payload FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2 AND status='running'").bind(orgId,jobId).first();
+      let jobPayload;try{jobPayload=job?JSON.parse(job.payload):null}catch{jobPayload=null}
+      if(!job||String(job.created_by)!==String(current.githubId)||jobPayload?.browserTools!==true||!(await allowed(this.db,orgId,current.githubId,'harness.build'))||!(await browserConversationAllowed(this.db,orgId,job.created_by,jobPayload.browserContext))||!(await mayUseConversation(this.db,orgId,current.githubId,jobPayload.browserContext?.channel))){
+        ws.serializeAttachment({...current,desktopJobId:null,desktopCanControl:false});
+        ws.send(JSON.stringify({type:'CUSTOM',name:'browser_control_rejected',value:{jobId}}));return;
+      }
+      const queues=this.desktopControls||(this.desktopControls=new Map()),queue=queues.get(jobId)||[];
+      if(queue.length>=10){ws.send(JSON.stringify({type:'CUSTOM',name:'browser_control_rejected',value:{jobId}}));return;}
+      queue.push({userId:String(current.githubId),action});queues.set(jobId,queue);
+      ws.send(JSON.stringify({type:'CUSTOM',name:'browser_control_queued',value:{jobId}}));
       return;
     }
 

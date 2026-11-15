@@ -53,6 +53,7 @@ export const LIMITS = {
   // human team operations, then limit each authenticated node independently.
   'gateway/edge': { max: 600, windowSeconds: 300 },
   'gateway/node': { max: 120, windowSeconds: 300 },
+  'gateway/control-poll': { max: 180, windowSeconds: 300 },
   // Talking: messages, edits, reactions, pins. A conversation is many small
   // writes — a burst of emoji is normal — so this is its own, wider bucket,
   // and chatting never locks a person out of their team screen.

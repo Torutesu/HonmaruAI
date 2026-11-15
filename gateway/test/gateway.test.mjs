@@ -233,6 +233,23 @@ test('browser actions publish only bounded JPEG frames through the same executio
  assert.deepEqual(browserActions,[{type:'click',x:20,y:30},{type:'screenshot'}]);
  assert.deepEqual(calls.find(item=>item.path==='jobs/acp-live/browser-frame')?.body,{lease:'live-lease',image:'/9j/AA=='});
 });
+test('local ACP browser accepts bounded requester control actions while the task is active',async()=>{
+ const calls=[],browserActions=[];let delivered=false;
+ await processOne(async(path,body)=>{
+  calls.push({path,body});
+  if(path==='claim')return{job:{id:'acp-control',lease:'control-lease',payload:{acp:true,browserTools:true,agentKey:'codex',browserIdentity:'agent-1',workspaceId:'org-1',prompt:'Open the release notes'}}};
+  if(path==='jobs/acp-control/browser-frame'&&body.poll){if(delivered)return{controls:[]};delivered=true;return{controls:[{type:'click',x:42,y:84}]};}
+  return{ok:true};
+ },{
+  browserControlPollIntervalMs:2,
+  runAcpAgent:async(_payload,{browserCall,signal})=>{await browserCall({type:'screenshot'},{signal});await new Promise(resolve=>setTimeout(resolve,15));return{status:'succeeded',stdout:'{}',stderr:'',exitCode:0};},
+  runBrowser:async options=>{browserActions.push(options.action);return options.action.type==='screenshot'?{image:'/9j/AA=='}:{clicked:true};},
+ });
+ assert.ok(browserActions.some(action=>action.type==='click'&&action.x===42&&action.y===84));
+ assert.ok(calls.some(item=>item.path==='jobs/acp-control/browser'&&item.body.lease==='control-lease'));
+ assert.ok(calls.some(item=>item.path==='jobs/acp-control/browser-frame'&&item.body.image==='/9j/AA=='));
+ assert.equal(calls.at(-1).path,'jobs/acp-control/finish');
+});
 test('API request cancellation propagates into the host fetch',async()=>{
  const abort=new AbortController();let signal;
  const call=gatewayClient('https://example.com',token,async(_url,options)=>{signal=options.signal;return Response.json({ok:true});});
