@@ -12,12 +12,12 @@ test('service plist escapes paths, starts on login and restarts only failed exit
 });
 test('unavailable runtime prevents a job from being claimed and retries later', async () => {
   let claims = 0, failures = 0;
-  await serve(async () => { claims++; }, { once: true, beforeClaim: async () => { throw new Error('runtime down'); }, onError: () => failures++ });
+  await serve(async () => { claims++; }, { once: true, enableRemoteMcpEgress: false, beforeClaim: async () => { throw new Error('runtime down'); }, onError: () => failures++ });
   assert.equal(claims, 0); assert.equal(failures, 1);
 });
 test('recovered runtime permits claims while revoked credentials stop the service', async () => {
   let checked = false;
-  await assert.rejects(serve(async () => { assert.ok(checked); throw Object.assign(new Error('revoked'), { status: 401 }); }, { beforeClaim: async () => { checked = true; } }), /revoked/);
+  await assert.rejects(serve(async () => { assert.ok(checked); throw Object.assign(new Error('revoked'), { status: 401 }); }, { enableRemoteMcpEgress: false, beforeClaim: async () => { checked = true; } }), /revoked/);
 });
 
 test('runtime stopped with exit zero still triggers restart, running runtime is preserved', async () => {

@@ -1,10 +1,10 @@
 import {copyFile,mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 
-// All service dependencies must ship even when document conversion is disabled:
-// client.mjs imports the optional document processor at module load time.
+// All service dependencies must ship even when optional capabilities are disabled:
+// both the document processor and DNS-pinned Remote MCP client load at startup.
 export const serviceModules = Object.freeze([
-  'service.mjs', 'client.mjs', 'runner.mjs', 'runtime.mjs', 'acp.mjs', 'acp-mcp-bridge.mjs',
+  'service.mjs', 'client.mjs', 'remote-mcp-http.mjs', 'runner.mjs', 'runtime.mjs', 'acp.mjs', 'acp-mcp-bridge.mjs',
   'browser-session.mjs', 'browser-proxy.mjs',
   'workflow-runner.mjs', 'workflow-guest.mjs', 'workflow-bridge.mjs', 'workflow-sdk.mjs',
   'document-client.mjs', 'document-runner.mjs', 'document-converter.mjs',

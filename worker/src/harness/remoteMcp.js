@@ -1,7 +1,9 @@
 import { aad, openField, sealField } from "../secrets.js";
 import { audit } from "../audit.js";
+import { allowed } from "../permissions.js";
 import { isPublicUrl } from "../links.js";
 import { getMode } from "./mode.js";
+import { remoteMcpFetch } from "./remoteMcpTransport.js";
 import { disconnectRemoteMcpOAuth, remoteMcpOAuthAccessToken, remoteMcpOAuthStatus, startRemoteMcpOAuth } from "./remoteMcpOAuth.js";
 
 const REMOTE_MCP_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -12,6 +14,7 @@ const MCP_REGISTRY_RESULT_LIMIT = 20;
 const MCP_REGISTRY_MAX_BYTES = 512_000;
 const MCP_REGISTRY_TTL_MS = 60_000;
 const mcpRegistryCache = new Map();
+const GATEWAY_ONLINE_WINDOW_MS = 90_000;
 const RESERVED_HEADERS = new Set([
   "accept", "connection", "content-length", "content-type", "host", "mcp-protocol-version",
   "mcp-session-id", "origin", "transfer-encoding", "upgrade",
@@ -256,7 +259,12 @@ function parseRpcBody(body, contentType, expectedId) {
   return parsed;
 }
 
-async function postRpc(endpoint, headers, message, { protocol, sessionId, deadline } = {}) {
+function responseFromEgress(result) {
+  const body = [204, 205, 304].includes(result.status) ? null : result.body;
+  return new Response(body, { status: result.status, headers: result.headers });
+}
+
+async function postRpc(endpoint, headers, message, { protocol, sessionId, deadline, env, egress, authorization } = {}) {
   const requestHeaders = new Headers();
   for (const header of headers) requestHeaders.set(header.name, header.value);
   requestHeaders.set("content-type", "application/json");
@@ -267,15 +275,16 @@ async function postRpc(endpoint, headers, message, { protocol, sessionId, deadli
   if (remaining <= 0) throw new Error("Remote MCP request timed out.");
   let response;
   try {
-    response = await fetch(endpoint, {
+    const result = await remoteMcpFetch(env, { ...egress, authorization }, {
+      url: endpoint,
       method: "POST",
-      headers: requestHeaders,
+      headers: [...requestHeaders].map(([name, value]) => ({ name, value })),
       body: JSON.stringify(message),
-      redirect: "manual",
-      signal: AbortSignal.timeout(Math.min(15_000, remaining)),
+      timeoutMs: Math.min(15_000, remaining),
     });
+    response = responseFromEgress(result);
   } catch {
-    throw new Error("Could not reach the MCP server over HTTPS.");
+    throw new Error("Could not reach the MCP server through its assigned Gateway over HTTPS.");
   }
   if (response.status >= 300 && response.status < 400) throw new Error("MCP server redirects are blocked. Use its final HTTPS endpoint.");
   if (!response.ok) throw new Error(`MCP server returned HTTP ${response.status}. Check its URL and authentication.`);
@@ -286,25 +295,25 @@ async function postRpc(endpoint, headers, message, { protocol, sessionId, deadli
   return { response, rpc: message.id == null ? null : parseRpcBody(text, contentType, message.id) };
 }
 
-async function withMcp(endpoint, headers, action) {
+async function withMcp(endpoint, headers, action, env, egress, authorization) {
   const deadline = Date.now() + 25_000;
   const init = await postRpc(endpoint, headers, {
     jsonrpc: "2.0", id: 1, method: "initialize",
     params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "Honmaru AI", version: "1.0.0" } },
-  }, { deadline });
+  }, { deadline, env, egress, authorization });
   if (init.rpc.error) throw new Error("MCP server rejected initialization. Check its supported protocol and authentication.");
   const protocol = REMOTE_MCP_PROTOCOLS.includes(init.rpc.result?.protocolVersion) ? init.rpc.result.protocolVersion : "2025-06-18";
   const sessionId = init.response.headers.get("mcp-session-id") || null;
-  await postRpc(endpoint, headers, { jsonrpc: "2.0", method: "notifications/initialized" }, { protocol, sessionId, deadline });
+  await postRpc(endpoint, headers, { jsonrpc: "2.0", method: "notifications/initialized" }, { protocol, sessionId, deadline, env, egress, authorization });
   return action({ protocol, sessionId, deadline });
 }
 
-async function listToolsAt(endpoint, headers) {
+async function listToolsAt(endpoint, headers, env, egress, authorization = null) {
   return withMcp(endpoint, headers, async ({ protocol, sessionId, deadline }) => {
-    const listed = await postRpc(endpoint, headers, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, { protocol, sessionId, deadline });
+    const listed = await postRpc(endpoint, headers, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, { protocol, sessionId, deadline, env, egress, authorization });
     if (listed.rpc.error) throw new Error("MCP server could not list its tools.");
     return cleanTools(listed.rpc.result?.tools);
-  });
+  }, env, egress, authorization);
 }
 
 function publicServer(row) {
@@ -320,6 +329,9 @@ function publicServer(row) {
     tools: tools.map(({ name, title, description, inputSchema }) => ({ name, title, description, inputSchema })),
     allowedTools: parseJSON(row.allowed_tools, []),
     writeTools: parseJSON(row.write_tools, []),
+    egressGatewayId: row.egress_gateway_id || null,
+    egressGatewayName: row.egress_gateway_name || null,
+    egressGatewayOnline: Boolean(row.egress_gateway_id && row.egress_gateway_revoked_at == null && Number(row.egress_gateway_last_seen_at) >= Date.now() - 90_000),
     connectedAt: row.connected_at || null,
     createdAt: row.created_at,
   };
@@ -327,6 +339,14 @@ function publicServer(row) {
 
 async function getServer(db, orgId, id) {
   return db.prepare("SELECT * FROM hx_remote_mcp_servers WHERE org_id = ?1 AND id = ?2").bind(orgId, id).first();
+}
+
+async function trustedEgressGateway(db, orgId, gatewayId) {
+  const gateway = await db.prepare(`SELECT id,name,last_seen_at AS lastSeenAt,created_by AS createdBy FROM hx_gateways
+    WHERE org_id=?1 AND id=?2 AND revoked_at IS NULL`).bind(orgId, String(gatewayId || '')).first();
+  if (!gateway || !Number.isFinite(Number(gateway.lastSeenAt)) || Number(gateway.lastSeenAt) < Date.now() - GATEWAY_ONLINE_WINDOW_MS
+    || !await allowed(db, orgId, gateway.createdBy, 'workspace.mode')) return null;
+  return gateway;
 }
 
 async function writeAudit(env, request, who, orgId, action, row, details = {}) {
@@ -342,7 +362,7 @@ async function writeAudit(env, request, who, orgId, action, row, details = {}) {
 export async function handleRemoteMcp(request, env, url, input, { orgId, who, canManage }) {
   if (!orgId) return json({ message: "orgId is required." }, 400);
   if (await getMode(env.DB, orgId) !== "harness") return json({ message: "Remote MCP connections are available in Harness mode." }, 404);
-  const match = url.pathname.match(/^\/remote-mcp(?:\/([^/]+)(?:\/(discover|tools|oauth\/(?:start|disconnect)))?)?$/);
+  const match = url.pathname.match(/^\/remote-mcp(?:\/([^/]+)(?:\/(discover|tools|gateway|oauth\/(?:start|disconnect)))?)?$/);
   if (!match) return null;
   const [, id, operation] = match;
 
@@ -359,13 +379,22 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
   }
 
   if (request.method === "GET" && !id) {
-    const { results = [] } = await env.DB.prepare("SELECT * FROM hx_remote_mcp_servers WHERE org_id = ?1 ORDER BY created_at DESC LIMIT 20").bind(orgId).all();
+    const { results = [] } = await env.DB.prepare(`SELECT s.*,g.name AS egress_gateway_name,g.last_seen_at AS egress_gateway_last_seen_at,g.revoked_at AS egress_gateway_revoked_at
+      FROM hx_remote_mcp_servers s LEFT JOIN hx_gateways g ON g.org_id=s.org_id AND g.id=s.egress_gateway_id
+      WHERE s.org_id = ?1 ORDER BY s.created_at DESC LIMIT 20`).bind(orgId).all();
     const userId = String(who?.session?.github_id || "");
+    const { results: gatewayRows = [] } = await env.DB.prepare(`SELECT id,name,last_seen_at AS lastSeenAt,created_by AS createdBy FROM hx_gateways
+      WHERE org_id=?1 AND revoked_at IS NULL ORDER BY created_at DESC`).bind(orgId).all();
+    const gateways = [];
+    for (const gateway of gatewayRows) if (await allowed(env.DB, orgId, gateway.createdBy, "workspace.mode")) {
+      gateways.push({ id: gateway.id, name: gateway.name, lastSeenAt: gateway.lastSeenAt || null,
+        online: Number(gateway.lastSeenAt) >= Date.now() - GATEWAY_ONLINE_WINDOW_MS });
+    }
     const servers = await Promise.all(results.map(async (row) => ({
       ...publicServer(row),
       oauthConnected: row.auth_mode === "oauth" && userId ? await remoteMcpOAuthStatus(env.DB, orgId, row.id, userId) : false,
     })));
-    return json({ servers, canManage });
+    return json({ servers, gateways, canManage });
   }
   if (request.method === "POST" && !id) {
     if (!canManage) return json({ message: "Only a workspace admin can add a Remote MCP server." }, 403);
@@ -376,6 +405,9 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
     const oauthRegistration = authMode === "oauth" && input?.oauthRegistration === "manual" ? "manual" : "auto";
     const oauthClientId = String(input?.oauthClientId || "").trim();
     const oauthClientSecret = String(input?.oauthClientSecret || "");
+    const egressGateway = await trustedEgressGateway(env.DB, orgId, input?.egressGatewayId);
+    if (!egressGateway || input?.confirmGatewayTrust !== true) return json({ message: "Choose a connected Gateway and confirm that it will make HTTPS requests for this Remote MCP server." }, 409);
+    if (!env.DATA_KEY) return json({ message: "Workspace encryption is required before connecting a Remote MCP server." }, 503);
     if (!name || !endpoint) return json({ message: "Enter a name and a valid public HTTPS endpoint without a query string or embedded credentials." }, 400);
     if (!headers) return json({ message: "Headers must have unique valid names and values, with at most 20 entries." }, 400);
     if (authMode === "oauth" && headers.length) return json({ message: "Choose OAuth or header authentication for a server, not both." }, 400);
@@ -393,11 +425,11 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
     const oauthClient = authMode === "oauth" && oauthRegistration === "manual"
       ? await sealField(JSON.stringify({ clientId: oauthClientId, clientSecret: oauthClientSecret, clientSecretExpiresAt: 0 }), aad.remoteMcpOAuthClient(orgId, id), orgId)
       : null;
-    await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers (id, org_id, name, endpoint, auth_headers, auth_mode, oauth_registration, oauth_client, tools_json, allowed_tools, created_by, created_at, updated_at, connected_at)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '[]', '[]', ?9, ?10, ?10, NULL)`)
-      .bind(id, orgId, name, endpoint, sealedHeaders, authMode, oauthRegistration, oauthClient, String(who.session.github_id), now).run();
+    await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers (id, org_id, name, endpoint, auth_headers, auth_mode, oauth_registration, oauth_client, tools_json, allowed_tools, created_by, created_at, updated_at, connected_at, egress_gateway_id)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '[]', '[]', ?9, ?10, ?10, NULL, ?11)`)
+      .bind(id, orgId, name, endpoint, sealedHeaders, authMode, oauthRegistration, oauthClient, String(who.session.github_id), now, egressGateway.id).run();
     const row = await getServer(env.DB, orgId, id);
-    await writeAudit(env, request, who, orgId, "remote_mcp.server_added", row, { endpointHost: new URL(endpoint).hostname, authHeaderCount: headers.length, authMode });
+    await writeAudit(env, request, who, orgId, "remote_mcp.server_added", row, { endpointHost: new URL(endpoint).hostname, authHeaderCount: headers.length, authMode, egressGatewayId: egressGateway.id });
     return json({ server: publicServer(row) }, 201);
   }
   if (!id) return json({ message: "Method not allowed." }, 405);
@@ -421,6 +453,25 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
   }
   if (!canManage) return json({ message: "Only a workspace admin can manage Remote MCP servers." }, 403);
 
+  if (request.method === "PUT" && operation === "gateway") {
+    const gateway = await trustedEgressGateway(env.DB, orgId, input?.egressGatewayId);
+    if (!gateway || input?.confirmGatewayTrust !== true) return json({ message: "Choose a connected Gateway and confirm that it may receive Remote MCP request data and credentials." }, 409);
+    if (gateway.id !== row.egress_gateway_id) {
+      const at = Date.now();
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE hx_remote_mcp_egress SET status='cancelled',lease_hash=NULL,finished_at=?3,expires_at=?3+120000
+          WHERE org_id=?1 AND server_id=?2 AND status IN ('queued','running')`).bind(orgId, id, at),
+        env.DB.prepare("UPDATE hx_remote_mcp_servers SET egress_gateway_id=?3,connected_at=NULL,updated_at=?4 WHERE org_id=?1 AND id=?2")
+          .bind(orgId, id, gateway.id, new Date(at).toISOString()),
+      ]);
+    }
+    const updated = await env.DB.prepare(`SELECT s.*,g.name AS egress_gateway_name,g.last_seen_at AS egress_gateway_last_seen_at,g.revoked_at AS egress_gateway_revoked_at
+      FROM hx_remote_mcp_servers s LEFT JOIN hx_gateways g ON g.org_id=s.org_id AND g.id=s.egress_gateway_id
+      WHERE s.org_id=?1 AND s.id=?2`).bind(orgId, id).first();
+    await writeAudit(env, request, who, orgId, "remote_mcp.gateway_changed", updated, { egressGatewayId: gateway.id });
+    return json({ server: publicServer(updated) });
+  }
+
   if (request.method === "POST" && operation === "discover") {
     const endpoint = safeEndpoint(row.endpoint);
     if (!endpoint) return json({ message: "This saved endpoint is no longer allowed." }, 400);
@@ -428,13 +479,13 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
     let tools;
     try {
       if (row.auth_mode === "oauth") {
-        const auth = await remoteMcpOAuthAccessToken(env, { orgId, serverId: row.id, userId: who?.session?.github_id });
+        const auth = await remoteMcpOAuthAccessToken(env, { orgId, serverId: row.id, userId: who?.session?.github_id, authorization: { kind: "admin" } });
         if (!auth.token) return json({ message: auth.error || "Connect your own OAuth account before discovering tools." }, 409);
         headers = [{ name: "Authorization", value: `Bearer ${auth.token}` }];
       } else {
         headers = await loadHeaders(env, row);
       }
-      tools = await listToolsAt(endpoint, headers);
+      tools = await listToolsAt(endpoint, headers, env, { orgId, serverId: row.id, actorId: String(who.session.github_id) }, { kind: "admin" });
     } catch (err) {
       return json({ message: err instanceof Error ? err.message : "Could not connect to the MCP server." }, 502);
     }
@@ -464,6 +515,8 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
     return json({ server: publicServer(updated) });
   }
   if (request.method === "DELETE" && !operation) {
+    await env.DB.prepare("UPDATE hx_remote_mcp_egress SET status='cancelled',lease_hash=NULL,finished_at=?3,expires_at=?3+120000 WHERE org_id=?1 AND server_id=?2 AND status IN ('queued','running')")
+      .bind(orgId, id, Date.now()).run();
     await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
     await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_tool_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
     await env.DB.prepare("DELETE FROM hx_app_remote_mcp_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
@@ -499,7 +552,7 @@ export async function remoteMcpTools(db, orgId, { readOnlyOnly = false, workflow
   return exposed;
 }
 
-export async function callRemoteMcpTool(env, agent, offeredTool, args, { readOnlyOnly = false, requiresApproval = false } = {}) {
+export async function callRemoteMcpTool(env, agent, offeredTool, args, { readOnlyOnly = false, requiresApproval = false, authorization = null } = {}) {
   const ref = offeredTool?._remote;
   if (!ref || !args || typeof args !== "object" || Array.isArray(args)) return null;
   if (JSON.stringify(args).length > 64_000) return { content: [{ type: "text", text: "Tool arguments are too large." }], isError: true };
@@ -520,21 +573,22 @@ export async function callRemoteMcpTool(env, agent, offeredTool, args, { readOnl
   try {
     let headers;
     if (row.auth_mode === "oauth") {
-      const auth = await remoteMcpOAuthAccessToken(env, { orgId: agent.orgId, serverId: row.id, userId: agent.githubId });
+      const auth = await remoteMcpOAuthAccessToken(env, { orgId: agent.orgId, serverId: row.id, userId: agent.githubId, authorization });
       if (!auth.token) return { content: [{ type: "text", text: auth.error || "Connect your OAuth account before using this source." }], isError: true };
       headers = [{ name: "Authorization", value: `Bearer ${auth.token}` }];
     } else {
       headers = await loadHeaders(env, row);
     }
+    const egress = { orgId: agent.orgId, serverId: row.id, actorId: String(agent.githubId) };
     const result = await withMcp(endpoint, headers, async ({ protocol, sessionId, deadline }) => {
       const called = await postRpc(endpoint, headers, {
         jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: ref.toolName, arguments: args },
-      }, { protocol, sessionId, deadline });
+      }, { protocol, sessionId, deadline, env, egress, authorization });
       if (called.rpc.error) return { content: [{ type: "text", text: "The remote MCP server rejected this tool call." }], isError: true };
       const value = called.rpc.result;
       if (!value || typeof value !== "object" || !Array.isArray(value.content)) return { content: [{ type: "text", text: "The remote MCP server returned an invalid tool result." }], isError: true };
       return value;
-    });
+    }, env, egress, authorization);
     await audit(env, null, {
       orgId: agent.orgId,
       action: "remote_mcp.tool_called",

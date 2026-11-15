@@ -15,11 +15,16 @@ import { saveWorkspaceAIBudget } from "../src/workspaceAIBudget.js";
 
 const ORG = "personal:hxflows";
 let toru, mika;
+let mcpGateway;
+let mcpGatewayToken;
+let remoteGatewayPoller = null;
+let remoteGatewayBusy = false;
+const testDataKey = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
 const pending = [];
 const ctx = { waitUntil: (p) => pending.push(p) };
 const settle = async () => { while (pending.length) await pending.shift(); };
 const call = async (path, init, over = {}) => {
-  const res = await worker.fetch(new Request("https://example.com" + path, init), { ...env, OPENAI_API_KEY: undefined, ...over }, ctx);
+  const res = await worker.fetch(new Request("https://example.com" + path, init), { ...env, OPENAI_API_KEY: undefined, DATA_KEY: testDataKey, ...over }, ctx);
   await settle();
   return res;
 };
@@ -28,6 +33,44 @@ const send = (method, path, token, body) => call(path, { method, headers: header
 const get = (path, token) => call(path, { headers: headers(token) });
 const q = (o) => new URLSearchParams(o).toString();
 const messages = async (token) => (await (await get(`/channels/messages?${q({ orgId: ORG, channel: "b:ops" })}`, token)).json()).messages || [];
+function activateWorkflowFetchMock() {
+  fetchMock.activate();
+  if (remoteGatewayPoller || !mcpGatewayToken) return;
+  remoteGatewayPoller = setInterval(async () => {
+    if (remoteGatewayBusy) return;
+    remoteGatewayBusy = true;
+    try {
+      const nodeRequest = (path, body = {}) => worker.fetch(new Request(`https://example.com/gateways/${path}`, {
+        method: "POST", headers: { authorization: `Bearer ${mcpGatewayToken}`, "content-type": "application/json" }, body: JSON.stringify(body),
+      }), { ...env, DATA_KEY: testDataKey }, ctx);
+      const claimed = await (await nodeRequest("remote-mcp/claim")).json();
+      if (!claimed.job) return;
+      const job = claimed.job;
+      let result;
+      try {
+        const response = await fetch(job.request.url, {
+          method: job.request.method, headers: Object.fromEntries(job.request.headers.map(({ name, value }) => [name, value])),
+          ...(job.request.body == null ? {} : { body: job.request.body }), redirect: "manual",
+        });
+        const responseHeaders = {};
+        for (const name of ["content-type", "mcp-session-id", "www-authenticate"]) {
+          const value = response.headers.get(name);
+          if (value) responseHeaders[name] = value;
+        }
+        result = { status: response.status, headers: responseHeaders, body: Buffer.from(await response.arrayBuffer()).toString("utf8") };
+      } catch { result = { error: "Gateway could not complete the Remote MCP HTTPS request." }; }
+      await nodeRequest(`remote-mcp/jobs/${job.id}/finish`, { lease: job.lease, result });
+    } catch { /* assertions surface uncompleted relay requests */ }
+    finally { remoteGatewayBusy = false; }
+  }, 250);
+}
+function deactivateWorkflowFetchMock() {
+  if (remoteGatewayPoller) clearInterval(remoteGatewayPoller);
+  remoteGatewayPoller = null;
+  remoteGatewayBusy = false;
+  fetchMock.deactivate();
+}
+
 function revokeSourceBeforeWrite(db, appId, targetSql) {
   let revoked = false;
   const guarded = new Proxy(db, {
@@ -82,6 +125,7 @@ const signedWebhook = async (hookUrl, secret, body = '{}', eventId = `evt-${++we
 async function addWorkflowRemoteMcpServer(tools, allowedTools, writeTools = []) {
   const response = await send('POST', '/remote-mcp', toru, {
     orgId: ORG, name: 'Workflow knowledge', endpoint: 'https://workflow-mcp.example.com/mcp', headers: [],
+    egressGatewayId: mcpGateway.id, confirmGatewayTrust: true,
   });
   expect(response.status).toBe(201);
   const { server } = await response.json();
@@ -130,6 +174,13 @@ beforeEach(async () => {
   await upsertBusiness(env.DB, ORG, { name: "Ops", createdBy: "9301" });
   toru = await createSession(env.DB, "9301", "gho_t");
   mika = await createSession(env.DB, "9302", "gho_m");
+  const gatewayResponse = await send("POST", "/gateways", toru, { orgId: ORG, name: "Workflow MCP test Gateway" });
+  const registeredGateway = await gatewayResponse.json();
+  mcpGateway = registeredGateway.gateway;
+  mcpGatewayToken = registeredGateway.token;
+  await worker.fetch(new Request("https://example.com/gateways/claim", {
+    method: "POST", headers: { authorization: `Bearer ${registeredGateway.token}`, "content-type": "application/json" }, body: "{}",
+  }), { ...env, DATA_KEY: testDataKey }, ctx);
   await send("PUT", "/orgs/mode", toru, { orgId: ORG, mode: "harness" });
   const app = (await (await send("POST", "/apps", mika, { orgId: ORG, template: "invoices", sample: false })).json()).app;
   invoices = app.tableId; invoicesAppId = app.id;
@@ -1496,7 +1547,7 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
   const remote = fetchMock.get('https://workflow-mcp.example.com');
   const message = opts => JSON.parse(opts.body);
   let remoteToolName = null;
-  fetchMock.activate();
+  activateWorkflowFetchMock();
   remote.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'initialize' })
     .reply(opts => ({ statusCode: 200, data: { jsonrpc: '2.0', id: message(opts).id, result: { protocolVersion: '2025-06-18' } }, responseOptions: { headers: { 'mcp-session-id': 'workflow-session' } } }));
   remote.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'notifications/initialized' }).reply(202, null);
@@ -1516,7 +1567,7 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
     return { choices: [{ message: { content: 'The policy says never share keys.' } }], usage: { prompt_tokens: 20, completion_tokens: 6 } };
   }).times(2);
   try {
-    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    const result = await startRun({ ...env, DATA_KEY: testDataKey, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
     expect(result.status).toBe('done');
     expect(result.log[0].output).toBe('The policy says never share keys.');
     const offered = requests[0].tools.map(tool => tool.function.name);
@@ -1528,7 +1579,7 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
     expect((await messages(mika)).map(message => message.body)).toContain('The policy says never share keys.');
     expect(result.usage).toMatchObject({ calls: 2, inputTokens: 30, outputTokens: 10, unknownCalls: 0 });
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); }
+  } finally { deactivateWorkflowFetchMock(); }
 
   // Revoking the Agent's personal allow grant during the MCP request discards
   // its result and prevents the next model round.
@@ -1538,7 +1589,7 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
   }, '9302');
   const priorMessages = await messages(mika);
   const secondRequests = [];
-  fetchMock.activate();
+  activateWorkflowFetchMock();
   interceptWorkflowRemoteMcp(async () => {
     await env.DB.prepare('DELETE FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND server_id=?4')
       .bind(ORG, agent.id, '9302', server.id).run();
@@ -1553,13 +1604,13 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
     throw new Error('The model was called again after the Agent Remote MCP grant was revoked.');
   }).times(1);
   try {
-    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow: secondWorkflow, trigger: 'manual', startedBy: '9302' });
+    const result = await startRun({ ...env, DATA_KEY: testDataKey, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow: secondWorkflow, trigger: 'manual', startedBy: '9302' });
     expect(result.status).toBe('failed');
     expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
     expect(await messages(mika)).toHaveLength(priorMessages.length);
     expect(result.usage).toMatchObject({ calls: 1, unknownCalls: 0, unpricedCalls: 0 });
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); }
+  } finally { deactivateWorkflowFetchMock(); }
 });
 
 test('a direct Workflow Remote MCP step calls only its explicitly granted tool and returns its bounded result', async () => {
@@ -1585,19 +1636,19 @@ test('a direct Workflow Remote MCP step calls only its explicitly granted tool a
   const endpoint = fetchMock.get('https://workflow-mcp.example.com');
   const message = opts => JSON.parse(opts.body);
   let dispatched;
-  fetchMock.activate();
+  activateWorkflowFetchMock();
   endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'initialize' })
     .reply(opts => ({ statusCode: 200, data: { jsonrpc: '2.0', id: message(opts).id, result: { protocolVersion: '2025-06-18' } }, responseOptions: { headers: { 'mcp-session-id': 'direct-workflow-session' } } }));
   endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'notifications/initialized' }).reply(202, null);
   endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'tools/call' })
     .reply(opts => { dispatched = message(opts).params; return { statusCode: 200, data: { jsonrpc: '2.0', id: message(opts).id, result: { content: [{ type: 'text', text: 'Policy source result' }] } } }; });
   try {
-    const result = await startRun({ ...env }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302', input: { query: 'retention' } });
+    const result = await startRun({ ...env, DATA_KEY: testDataKey }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302', input: { query: 'retention' } });
     expect(result.status).toBe('done');
     expect(result.log[0]).toMatchObject({ type: 'connection', status: 'ok', output: 'Policy source result' });
     expect(dispatched).toMatchObject({ name: 'search_policy', arguments: { query: 'retention' } });
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); }
+  } finally { deactivateWorkflowFetchMock(); }
 });
 
 
@@ -1633,27 +1684,27 @@ test('write-capable Remote MCP tools require an exact Agent grant and an immedia
   let dispatched = 0;
   const endpoint = fetchMock.get('https://workflow-mcp.example.com');
   const rpc = opts => JSON.parse(opts.body);
-  fetchMock.activate();
+  activateWorkflowFetchMock();
   endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'initialize' })
     .reply(opts => ({ statusCode: 200, data: { jsonrpc: '2.0', id: rpc(opts).id, result: { protocolVersion: '2025-06-18' } }, responseOptions: { headers: { 'mcp-session-id': 'write-workflow-session' } } }));
   endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'notifications/initialized' }).reply(202, null);
   endpoint.intercept({ path: '/mcp', method: 'POST', body: body => JSON.parse(body).method === 'tools/call' })
     .reply(opts => { dispatched++; expect(rpc(opts).params).toMatchObject({ name: 'create_ticket', arguments: { title: 'Investigate outage' } }); return { statusCode: 200, data: { jsonrpc: '2.0', id: rpc(opts).id, result: { content: [{ type: 'text', text: 'Ticket created' }] } } }; });
   try {
-    const waiting = await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302', input: { title: 'Investigate outage' } });
+    const waiting = await startRun({ ...env, DATA_KEY: testDataKey }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302', input: { title: 'Investigate outage' } });
     expect(waiting.status).toBe('waiting');
     const { getCard } = await import('../src/db.js');
     const card = await getCard(env.DB, ORG, waiting.cardId);
     expect(card.context).toContain('create_ticket');
     expect(card.context).toContain('Investigate outage');
     expect(dispatched).toBe(0);
-    const done = await settleWorkflowApproval(env, ORG, { ...card, status: 'approved', decision: { action: 'approve', actorUserID: 'toru', decidedAt: new Date().toISOString() } });
+    const done = await settleWorkflowApproval({ ...env, DATA_KEY: testDataKey }, ORG, { ...card, status: 'approved', decision: { action: 'approve', actorUserID: 'toru', decidedAt: new Date().toISOString() } });
     console.log('APPROVED_WRITE_RESULT', JSON.stringify(done));
     expect(done.status).toBe('done');
     expect(dispatched).toBe(1);
     expect(done.log[1]).toMatchObject({ type: 'connection', status: 'ok', output: 'Ticket created' });
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); }
+  } finally { deactivateWorkflowFetchMock(); }
 });
 
 test('a Workflow Agent does not receive workspace Remote MCP tools without its personal grant', async () => {
@@ -1669,18 +1720,18 @@ test('a Workflow Agent does not receive workspace Remote MCP tools without its p
     steps: [{ type: 'agent', agentId: agent.id, prompt: 'Summarize the release.' }],
   }, '9302');
   let requestBody;
-  fetchMock.activate();
+  activateWorkflowFetchMock();
   fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
     requestBody = JSON.parse(opts.body);
     return { choices: [{ message: { content: 'No connection was used.' } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
   });
   try {
-    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    const result = await startRun({ ...env, DATA_KEY: testDataKey, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
     expect(result.status).toBe('done');
     expect(requestBody.tools || []).toEqual([]);
     expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_agent_remote_mcp_grants WHERE org_id=?1').bind(ORG).first()).n).toBe(0);
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); }
+  } finally { deactivateWorkflowFetchMock(); }
 });
 
 test('a Workflow Agent discards a read-only Remote MCP result when its source App is revoked during the tool call', async () => {
@@ -1700,7 +1751,7 @@ test('a Workflow Agent discards a read-only Remote MCP result when its source Ap
   }, '9302');
   const requests = [];
   let remoteToolName = null;
-  fetchMock.activate();
+  activateWorkflowFetchMock();
   interceptWorkflowRemoteMcp(async () => {
     await env.DB.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
       ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, sourceApp.id).run();
@@ -1716,7 +1767,7 @@ test('a Workflow Agent discards a read-only Remote MCP result when its source Ap
     } };
   }).times(1);
   try {
-    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, {
+    const result = await startRun({ ...env, DATA_KEY: testDataKey, OPENAI_API_KEY: 'sk-test' }, {
       orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
       input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'private-row', data: { Status: 'private' } }], totalCount: 1, truncated: false },
     });
@@ -1726,7 +1777,7 @@ test('a Workflow Agent discards a read-only Remote MCP result when its source Ap
     expect(requests).toHaveLength(1);
     expect((await messages(mika)).some(message => message.body.includes('Workspace policy: keep all keys private.'))).toBe(false);
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); }
+  } finally { deactivateWorkflowFetchMock(); }
 });
 
 test('Workflow Agent steps do not receive Remote MCP tools in Simple mode', async () => {
@@ -1743,18 +1794,18 @@ test('Workflow Agent steps do not receive Remote MCP tools in Simple mode', asyn
   }, '9302');
   await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
   let requestBody;
-  fetchMock.activate();
+  activateWorkflowFetchMock();
   fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
     requestBody = JSON.parse(opts.body);
     return { choices: [{ message: { content: 'Simple stays simple.' } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
   });
   try {
-    const result = await startRun({ ...env, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
+    const result = await startRun({ ...env, DATA_KEY: testDataKey, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302' });
     expect(result.status).toBe('done');
     expect(requestBody.tools || []).toEqual([]);
     expect(result.log[0].output).toBe('Simple stays simple.');
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); }
+  } finally { deactivateWorkflowFetchMock(); }
 });
 
 test('an app record workflow stops its Agent after its maker loses app access during the model turn', async () => {

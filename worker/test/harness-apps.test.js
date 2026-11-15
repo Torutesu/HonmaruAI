@@ -24,12 +24,53 @@ test("column schemas reject explicit unsupported types while retaining omitted-t
 
 const ORG = "personal:harness";
 let toru, mika, guest, outsider;
-const call = (path, init) => worker.fetch(new Request("https://example.com" + path, init), { ...env });
+let egressTestEnv = env;
+let egressGatewayToken = null;
+let egressPoller = null;
+let egressBusy = false;
+const call = (path, init) => worker.fetch(new Request("https://example.com" + path, init), egressTestEnv);
 const headers = (token) => ({ "content-type": "application/json", "x-session-token": token });
 const get = (path, token) => call(path, { headers: headers(token) });
 const send = (method, path, token, body) => call(path, { method, headers: headers(token), body: JSON.stringify(body) });
 
+function startRemoteMcpGateway() {
+  if (egressPoller || !egressGatewayToken) return;
+  egressPoller = setInterval(async () => {
+    if (egressBusy) return;
+    egressBusy = true;
+    try {
+      const nodeRequest = (path, body = {}) => worker.fetch(new Request(`https://example.com/gateways/${path}`, {
+        method: "POST", headers: { authorization: `Bearer ${egressGatewayToken}`, "content-type": "application/json" }, body: JSON.stringify(body),
+      }), egressTestEnv);
+      const job = (await (await nodeRequest("remote-mcp/claim")).json()).job;
+      if (!job) return;
+      let result;
+      try {
+        const response = await fetch(job.request.url, { method: job.request.method,
+          headers: Object.fromEntries(job.request.headers.map(({ name, value }) => [name, value])),
+          ...(job.request.body == null ? {} : { body: job.request.body }), redirect: "manual" });
+        const responseHeaders = {};
+        for (const name of ["content-type", "mcp-session-id", "www-authenticate"]) {
+          const value = response.headers.get(name);
+          if (value) responseHeaders[name] = value;
+        }
+        result = { status: response.status, headers: responseHeaders, body: Buffer.from(await response.arrayBuffer()).toString("utf8") };
+      } catch { result = { error: "Gateway could not complete the Remote MCP HTTPS request." }; }
+      await nodeRequest(`remote-mcp/jobs/${job.id}/finish`, { lease: job.lease, result });
+    } catch { /* app request assertions report unfinished relay requests */ }
+    finally { egressBusy = false; }
+  }, 250);
+}
+
+function stopRemoteMcpGateway() {
+  if (egressPoller) clearInterval(egressPoller);
+  egressPoller = null;
+  egressBusy = false;
+}
+
 beforeEach(async () => {
+  egressTestEnv = env;
+  egressGatewayToken = null;
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "9101", login: "toru", name: "Toru", avatarUrl: null, locale: "ja" });
@@ -2583,12 +2624,17 @@ test('a different current Agent member can explicitly grant their own App connec
 
 test('an App can explicitly share and invoke only a source Agent read-only Remote MCP tool', async()=>{
  const {app,agentId}=await makeDirectAgentApp({access:'people',people:['toru','mika']});
+ egressTestEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const gatewayResponse=await send('POST','/gateways',toru,{orgId:ORG,name:'App MCP test Gateway'});
+ const registeredGateway=await gatewayResponse.json();
+ egressGatewayToken=registeredGateway.token;
+ await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${egressGatewayToken}`,'content-type':'application/json'},body:'{}'}),egressTestEnv);
  const serverId='app_remote_mcp_readonly';
  const at=new Date().toISOString();
  await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers
-   (id,org_id,name,endpoint,auth_mode,tools_json,allowed_tools,created_by,created_at,updated_at)
-   VALUES(?1,?2,'Knowledge MCP','https://mcp.example.com/mcp','headers',?3,'["lookup"]','9101',?4,?4)`)
-   .bind(serverId,ORG,JSON.stringify([{name:'lookup',title:'Look up knowledge',description:'Search approved company knowledge.',inputSchema:{type:'object',properties:{query:{type:'string'}},required:['query']},annotations:{readOnlyHint:true,destructiveHint:false}}]),at).run();
+   (id,org_id,name,endpoint,auth_mode,tools_json,allowed_tools,created_by,created_at,updated_at,egress_gateway_id)
+   VALUES(?1,?2,'Knowledge MCP','https://mcp.example.com/mcp','headers',?3,'["lookup"]','9101',?4,?4,?5)`)
+   .bind(serverId,ORG,JSON.stringify([{name:'lookup',title:'Look up knowledge',description:'Search approved company knowledge.',inputSchema:{type:'object',properties:{query:{type:'string'}},required:['query']},annotations:{readOnlyHint:true,destructiveHint:false}}]),at,registeredGateway.gateway.id).run();
  const {setAgentRemoteMcpTool}=await import('../src/harness/agentRemoteMcp.js');
  const agentGrant=await setAgentRemoteMcpTool(env,{orgId:ORG,agentId,session:{github_id:'9101'},serverId,toolName:'lookup',enabled:true});
  expect(agentGrant.error,JSON.stringify(agentGrant)).toBeUndefined();
@@ -2609,6 +2655,7 @@ test('an App can explicitly share and invoke only a source Agent read-only Remot
    return new Response(JSON.stringify({jsonrpc:'2.0',id:rpc.id,result}),{headers:{'content-type':'application/json','mcp-session-id':'app-session'}});
  });
  vi.stubGlobal('fetch',fetch);
+ startRemoteMcpGateway();
  try {
    const invoked=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_request',serverId,toolName:'lookup',args:{query:'release policy'}});
    expect(invoked.status,JSON.stringify(await invoked.clone().json())).toBe(200);
@@ -2624,7 +2671,7 @@ test('an App can explicitly share and invoke only a source Agent read-only Remot
    const blocked=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_request',serverId,toolName:'lookup',args:{query:'secret'}});
    expect(blocked.status).toBe(403);
    expect(fetch).toHaveBeenCalledTimes(3);
- } finally {vi.unstubAllGlobals();}
+ } finally {stopRemoteMcpGateway();vi.unstubAllGlobals();}
 });
 
 test('a member without current source-Agent access cannot grant their own App connection',async()=>{

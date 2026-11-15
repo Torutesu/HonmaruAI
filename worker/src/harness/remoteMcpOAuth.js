@@ -1,6 +1,7 @@
 import { aad, openField, sealField } from "../secrets.js";
 import { isPublicUrl } from "../links.js";
 import { audit } from "../audit.js";
+import { remoteMcpFetch } from "./remoteMcpTransport.js";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -63,18 +64,21 @@ async function readBounded(response, max = MAX_METADATA_BYTES) {
   return dec.decode(bytes);
 }
 
-async function fetchJson(url, { method = "GET", body = null, headers = {} } = {}) {
+function responseFromEgress(result) {
+  const body = [204, 205, 304].includes(result.status) ? null : result.body;
+  return new Response(body, { status: result.status, headers: result.headers });
+}
+
+async function fetchJson(env, egress, url, { method = "GET", body = null, headers = {} } = {}) {
   const endpoint = safeOAuthUrl(url);
   if (!endpoint) throw new Error("OAuth endpoints must use a public HTTPS host without embedded credentials or fragments.");
   let response;
   try {
-    response = await fetch(endpoint, {
-      method,
-      headers: { accept: "application/json", ...(body == null ? {} : { "content-type": "application/json" }), ...headers },
-      ...(body == null ? {} : { body: JSON.stringify(body) }),
-      redirect: "manual",
-      signal: AbortSignal.timeout(12_000),
-    });
+    const requestHeaders = { accept: "application/json", ...(body == null ? {} : { "content-type": "application/json" }), ...headers };
+    const result = await remoteMcpFetch(env, egress, { url: endpoint, method,
+      headers: Object.entries(requestHeaders).map(([name, value]) => ({ name, value: String(value) })),
+      ...(body == null ? {} : { body: JSON.stringify(body) }), timeoutMs: 12_000 });
+    response = responseFromEgress(result);
   } catch {
     throw new Error("Could not reach the OAuth server over HTTPS.");
   }
@@ -94,15 +98,13 @@ function authParameter(header, key) {
   return match ? (match[1] ?? match[2] ?? "").replace(/\\"/g, '"').replace(/\\\\/g, "\\") : null;
 }
 
-async function challengeAt(endpoint) {
+async function challengeAt(env, egress, endpoint) {
   try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    const result = await remoteMcpFetch(env, egress, { url: endpoint, method: "POST",
+      headers: [{ name: "content-type", value: "application/json" }, { name: "accept", value: "application/json, text/event-stream" }],
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "Honmaru AI", version: "1.0.0" } } }),
-      redirect: "manual",
-      signal: AbortSignal.timeout(10_000),
-    });
+      timeoutMs: 10_000 });
+    const response = responseFromEgress(result);
     const header = response.status === 401 || response.status === 403 ? response.headers.get("www-authenticate") : null;
     await response.body?.cancel().catch(() => {});
     return header || "";
@@ -121,12 +123,12 @@ function protectedResourceCandidates(endpoint, challenge) {
   return [...new Set(candidates)];
 }
 
-async function discoverProtectedResource(endpoint) {
-  const challenge = await challengeAt(endpoint);
+async function discoverProtectedResource(env, egress, endpoint) {
+  const challenge = await challengeAt(env, egress, endpoint);
   let metadata = null;
   let lastError = null;
   for (const candidate of protectedResourceCandidates(endpoint, challenge)) {
-    try { metadata = await fetchJson(candidate); break; } catch (err) { lastError = err; }
+    try { metadata = await fetchJson(env, egress, candidate); break; } catch (err) { lastError = err; }
   }
   if (!metadata) throw new Error(lastError?.message || "The MCP server did not publish OAuth Protected Resource Metadata.");
   const resource = safeOAuthUrl(metadata.resource || endpoint);
@@ -150,7 +152,7 @@ async function discoverProtectedResource(endpoint) {
   return { metadata, issuer, resource, scope: scopes || null };
 }
 
-async function discoverAuthorizationServer(issuer) {
+async function discoverAuthorizationServer(env, egress, issuer) {
   const url = new URL(issuer);
   const path = url.pathname.replace(/\/$/, "");
   const candidates = [
@@ -161,7 +163,7 @@ async function discoverAuthorizationServer(issuer) {
   let lastError = null;
   for (const candidate of candidates) {
     if (!safeOAuthUrl(candidate)) continue;
-    try { metadata = await fetchJson(candidate); break; } catch (err) { lastError = err; }
+    try { metadata = await fetchJson(env, egress, candidate); break; } catch (err) { lastError = err; }
   }
   if (!metadata) throw new Error(lastError?.message || "The OAuth server does not publish authorization server metadata.");
   if (typeof metadata.issuer !== "string" || metadata.issuer !== issuer) {
@@ -229,7 +231,7 @@ async function saveClient(env, row, client) {
     .bind(row.org_id, row.id, sealed, new Date().toISOString()).run();
 }
 
-async function registerClient(env, row, metadata, redirectUri) {
+async function registerClient(env, row, metadata, redirectUri, egress) {
   const issuer = typeof metadata.issuer === "string" ? metadata.issuer : "";
   if (row.oauth_registration === "manual") {
     const client = await loadClient(env, row);
@@ -258,7 +260,7 @@ async function registerClient(env, row, metadata, redirectUri) {
   if (!metadata.registration_endpoint) throw new Error("Automatic client registration is unavailable for this OAuth server. Choose manual registration and enter its client ID.");
   const tokenAuthMethod = chooseRegistrationTokenAuthMethod(metadata);
   if (!tokenAuthMethod) throw new Error("This OAuth server does not support a token endpoint authentication method Honmaru can register.");
-  const registered = await fetchJson(metadata.registration_endpoint, {
+  const registered = await fetchJson(env, egress, metadata.registration_endpoint, {
     method: "POST",
     body: {
       redirect_uris: [redirectUri],
@@ -304,11 +306,12 @@ export async function startRemoteMcpOAuth(env, url, { orgId, serverId, userId })
   if (!activeMembership) throw new Error("A current workspace member account is required to connect OAuth.");
   const endpoint = safeOAuthUrl(row.endpoint);
   if (!endpoint) throw new Error("This saved MCP endpoint is no longer allowed.");
-  const resourceInfo = await discoverProtectedResource(endpoint);
-  const authorizationServer = await discoverAuthorizationServer(resourceInfo.issuer);
+  const egress = { orgId, serverId, actorId: String(userId) };
+  const resourceInfo = await discoverProtectedResource(env, egress, endpoint);
+  const authorizationServer = await discoverAuthorizationServer(env, egress, resourceInfo.issuer);
   const redirectUri = `${url.origin}/remote-mcp/oauth/callback`;
   await env.DB.prepare("DELETE FROM hx_remote_mcp_oauth_states WHERE org_id=?1 AND expires_at <= ?2").bind(orgId, new Date().toISOString()).run();
-  const client = await registerClient(env, row, authorizationServer, redirectUri);
+  const client = await registerClient(env, row, authorizationServer, redirectUri, egress);
   const state = randomToken(32);
   const stateHash = await hash(state);
   const verifier = randomToken(48);
@@ -379,7 +382,7 @@ function basicAuthorization(clientId, clientSecret) {
   return `Basic ${btoa(String.fromCharCode(...encoded))}`;
 }
 
-async function exchangeToken(url, form, clientSecret = "", tokenAuthMethod = "none") {
+async function exchangeToken(env, egress, url, form, clientSecret = "", tokenAuthMethod = "none") {
   const endpoint = safeOAuthUrl(url);
   if (!endpoint) throw new Error("The token endpoint is no longer allowed.");
   const body = new URLSearchParams(form);
@@ -399,7 +402,9 @@ async function exchangeToken(url, form, clientSecret = "", tokenAuthMethod = "no
   }
   let response;
   try {
-    response = await fetch(endpoint, { method: "POST", headers, body, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+    const result = await remoteMcpFetch(env, egress, { url: endpoint, method: "POST",
+      headers: Object.entries(headers).map(([name, value]) => ({ name, value })), body: body.toString(), timeoutMs: 15_000 });
+    response = responseFromEgress(result);
   } catch { throw new Error("Could not reach the OAuth token endpoint over HTTPS."); }
   if (response.status >= 300 && response.status < 400) throw new Error("OAuth token endpoint redirects are blocked.");
   const data = parseJSON(await readBounded(response), null);
@@ -435,11 +440,12 @@ export async function finishRemoteMcpOAuth(env, url) {
   const server = await env.DB.prepare("SELECT id FROM hx_remote_mcp_servers WHERE org_id=?1 AND id=?2 AND auth_mode='oauth'")
     .bind(row.org_id, row.server_id).first();
   if (!server) return fail("server_removed");
+  const egress = { orgId: row.org_id, serverId: row.server_id, actorId: row.user_github_id };
   const stateSecret = row.client_secret ? await openField(row.client_secret, `hx_remote_mcp_oauth_states.client_secret:${row.org_id}:${row.state_hash}`) : "";
   if (row.client_secret && !stateSecret) return fail("client_configuration_changed");
   let tokens;
   try {
-    tokens = await exchangeToken(row.token_endpoint, {
+    tokens = await exchangeToken(env, egress, row.token_endpoint, {
       grant_type: "authorization_code", code, redirect_uri: row.redirect_uri,
       client_id: row.client_id, code_verifier: verifier, resource: row.resource,
     }, stateSecret || "", row.token_auth_method || "none");
@@ -485,14 +491,14 @@ export async function disconnectRemoteMcpOAuth(db, orgId, serverId, userId) {
   return Boolean(result.meta?.changes);
 }
 
-async function refreshCredential(env, row, credential) {
+async function refreshCredential(env, row, credential, authorization = null) {
   if (!credential.refreshToken) return null;
   const server = await env.DB.prepare("SELECT id FROM hx_remote_mcp_servers WHERE org_id=?1 AND id=?2 AND auth_mode='oauth'")
     .bind(row.org_id, row.server_id).first();
   if (!server) return null;
   let tokens;
   try {
-    tokens = await exchangeToken(credential.tokenEndpoint, {
+    tokens = await exchangeToken(env, { orgId: row.org_id, serverId: row.server_id, actorId: row.user_github_id, authorization }, credential.tokenEndpoint, {
       grant_type: "refresh_token", refresh_token: credential.refreshToken,
       client_id: credential.clientId, resource: credential.resource,
     }, typeof credential.clientSecret === "string" ? credential.clientSecret : "", credential.tokenAuthMethod || "none");
@@ -523,7 +529,7 @@ async function latestUsableCredential(env, row) {
   return value;
 }
 
-export async function remoteMcpOAuthAccessToken(env, { orgId, serverId, userId }) {
+export async function remoteMcpOAuthAccessToken(env, { orgId, serverId, userId, authorization = null }) {
   const row = await env.DB.prepare(`SELECT c.* FROM hx_remote_mcp_oauth_credentials c
     JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id AND m.created_at=c.membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     JOIN hx_remote_mcp_servers s ON s.org_id=c.org_id AND s.id=c.server_id AND s.auth_mode='oauth'
@@ -536,7 +542,7 @@ export async function remoteMcpOAuthAccessToken(env, { orgId, serverId, userId }
     return { token: null, error: "The OAuth credential is unavailable. Reconnect this Remote MCP server." };
   }
   if (credential.expiresAt && credential.expiresAt <= Date.now() + 30_000) {
-    const refreshed = await refreshCredential(env, row, credential);
+    const refreshed = await refreshCredential(env, row, credential, authorization);
     if (!refreshed) return { token: null, error: "The OAuth authorization expired. Reconnect this Remote MCP server." };
     return { token: refreshed.accessToken, error: null };
   }
