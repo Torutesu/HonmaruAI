@@ -8,7 +8,7 @@ import { emitMessage } from './webhooks.js';
 import { createMcpConversation } from './mcpConversationCreation.js';
 import { publicRooms, joinPublicRoom, roomRoleState, removeRoomSubject, archiveManagedRoom, changeManagedRoomMembers, addManagedRoomAgent, setRoomPrivacy } from './harness/roomRoles.js';
 import { audit } from './audit.js';
-import { announceTo } from './announce.js';
+import { announceTo, announceEvents } from './announce.js';
 import { custom as customEvent } from './agui/events.js';
 import { listBusinesses } from './db.js';
 import { listMembers } from './team.js';
@@ -26,6 +26,9 @@ import { roomAgentAccessPlan } from './harness/agentAccessRequests.js';
 import { listAgents } from './customAgents.js';
 import { checkOutgoing } from './dlp.js';
 import { dropFiles } from './files.js';
+import { sentFile, fileConversation } from './fileConversations.js';
+import { conversationFile, workspaceFileConversation } from './harness/fileConversation.js';
+import { readableFile } from './mcpContentTools.js';
 
 const id = { type: 'string', minLength: 1, maxLength: 200 };
 const text = { type: 'string', maxLength: 4000 };
@@ -65,6 +68,8 @@ export const CHAT_TOOLS = [
   write('delete_message', 'Delete your own message using its exact current contentVersion. Deleting a thread with other people’s replies requires withThread=true and removes those replies too.', { conversationId: id, messageId: id, expectedContentVersion: { type: 'integer', minimum: 0 }, withThread: { type: 'boolean' } }, ['conversationId', 'messageId', 'expectedContentVersion'], 'chat:write', { destructiveHint: true, idempotentHint: false }),
   read('read_channel', 'Read a bounded history page without marking it read. Follow nextCursor for older messages.', { conversationId: id, cursor, limit }, ['conversationId']),
   read('read_thread', 'Read the parent and a bounded page of thread replies without marking them read. Follow nextCursor for older replies.', { conversationId: id, threadId: id, cursor, limit }, ['conversationId', 'threadId']),
+  read('get_file_conversation', 'Get the existing conversation attached to a file you can access. Looking up a file never creates a thread.', { fileId: id }, ['fileId'], 'files:read'),
+  write('open_file_conversation', 'Open or create the conversation attached to a file you can access. The thread inherits the file Room/DM access; creation is idempotent and notifies current participants.', { fileId: id }, ['fileId'], 'chat:write'),
   write('rename_thread', 'Rename an accessible thread using its current title version. Supply version 0 when it has no custom title.', { conversationId: id, threadId: id, title: { type: 'string', minLength: 1, maxLength: 160 }, version: { type: 'integer', minimum: 0 } }, ['conversationId', 'threadId', 'title', 'version'], 'chat:write'),
   write('set_thread_muted', 'Set your personal notification preference for an accessible thread.', { conversationId: id, threadId: id, muted: { type: 'boolean' } }, ['conversationId', 'threadId', 'muted'], 'chat:write'),
   write('set_thread_pin', 'Save or remove an accessible thread in your personal pinned threads. Up to 50 threads can be saved.', { conversationId: id, threadId: id, pinned: { type: 'boolean' } }, ['conversationId', 'threadId', 'pinned'], 'chat:write'),
@@ -140,6 +145,39 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
   requireMcpScope(actor, tool.scope);
   validateMcpInput(args, tool.inputSchema);
   const size = args.limit || 30;
+  if (name === 'get_file_conversation' || name === 'open_file_conversation') {
+    requireMcpScope(actor, 'files:read');
+    const context = await mcpConversationContext(env, actor);
+    const attachment = await sentFile(env.DB, actor.orgId, args.fileId);
+    if (attachment) await readableFile(env, actor, args.fileId);
+    const file = attachment
+      || await conversationFile(env.DB, { orgId: actor.orgId, userId: String(actor.githubId), fileId: args.fileId });
+    if (!file) throw new McpInputError('No accessible file.');
+    const view = viewOf(file.channel, actor.login, context.members, context.access);
+    if (!view) throw new McpInputError('No accessible file.');
+    const channel = await resolveMcpConversation(env, actor, view);
+    const create = name === 'open_file_conversation';
+    const result = file.versioned
+      ? await workspaceFileConversation(env.DB, { orgId: actor.orgId, userId: String(actor.githubId), file, create })
+      : await fileConversation(env.DB, { orgId: actor.orgId, file, login: actor.login, create });
+    failResult(result);
+    if (create && result.row) {
+      const deliver = async () => {
+        if (channel.resolved.kind === 'business' && !channel.resolved.logins) {
+          const [message] = await present(env.DB, actor.orgId, [result.row], null, channel.resolved.key, channel.members);
+          await announceEvents(env, actor.orgId, [customEvent('channel_message', { message })]);
+          return;
+        }
+        const deliveries = await Promise.all((channel.resolved.logins || []).map(async to => {
+          const [recipientMessage] = await present(env.DB, actor.orgId, [result.row], to, viewOf(channel.resolved.key, to, channel.members), channel.members);
+          return { to, event: customEvent('channel_message', { message: recipientMessage }) };
+        }));
+        await announceTo(env, actor.orgId, deliveries);
+      };
+      if (ctx?.waitUntil) ctx.waitUntil(deliver()); else await deliver();
+    }
+    return mcpResult({ fileId: args.fileId, threadId: result.threadId, conversation: view });
+  }
   if (name === 'list_conversations') {
     const context = await mcpConversationContext(env, actor);
     const page = decode(args.cursor, name);

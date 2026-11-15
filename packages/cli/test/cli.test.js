@@ -568,6 +568,35 @@ test("message forward alias preserves the source, destination, comment, and idem
   assert.equal(stderr.read(), "");
 });
 
+test("file conversation aliases map lookup and open to their scoped MCP tools", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: { fileId: "f_1", threadId: null } } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "file", "conversation", "get", "f_1"]), 0); stdout.clear();
+  assert.equal(await run(["workspace", "file", "conversation", "open", "f_1"]), 0);
+  assert.deepEqual(calls, [
+    { name: "get_file_conversation", arguments: { fileId: "f_1" } },
+    { name: "open_file_conversation", arguments: { fileId: "f_1" } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
+test("file conversation aliases reject unsupported operations and flags", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "file", "conversation", "delete", "f_1"]), 1);
+  assert.equal(await run(["workspace", "file", "conversation", "get", "f_1", "--force"]), 1);
+  assert.equal(requests, 0);
+});
+
 test("message forward alias validates required destination and safe retry key before MCP", async () => {
   let requests = 0;
   const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };

@@ -104,7 +104,7 @@ function checked(result) {
   return result;
 }
 
-async function readableFile(env, actor, fileId) {
+export async function readableFile(env, actor, fileId) {
   const row = await env.DB.prepare(`SELECT f.* FROM message_files f WHERE f.org_id=?1 AND f.id=?2 AND (
     (f.message_id IS NULL AND f.uploader=?3) OR EXISTS (SELECT 1 FROM channel_messages m WHERE m.org_id=f.org_id AND m.id=f.message_id AND m.channel=f.channel AND m.deleted_at IS NULL AND (m.parent_id IS NULL OR EXISTS (SELECT 1 FROM channel_messages p WHERE p.org_id=m.org_id AND p.id=m.parent_id AND p.channel=m.channel AND p.deleted_at IS NULL))))`).bind(actor.orgId, fileId, actor.login).first();
   if (!row) throw new McpInputError('No such file.');

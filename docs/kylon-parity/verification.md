@@ -4,6 +4,11 @@
 - The explicit Room argument and existing token scope/Room ACL checks are preserved. No new service, paid contract, database change, or Simple-mode behavior change.
 - CLI suite passed **64/64**; `git diff --check` passed. Exact-head CI, merge, and production deployment are pending. KY-085 remains partial: thread activation/participants and the wider CLI surface still need implementation and Kylon comparison.
 
+### 2026-11-16 — CLI/MCP file conversations (candidate)
+
+- Added file conversation `get` and `open` to MCP and the workspace CLI. `get` never creates a thread; `open` reuses the deterministic file-thread root and synchronizes its message through normal channel events. Both resolve the current file and channel membership before returning; opening requires `files:read` and `chat:write`, and private Room/DM scopes remain enforced by the shared conversation resolver.
+- CLI suite passed **66/66** and Worker `mcp-chat.test.js` passed **52/52**, including absent-root lookup, idempotent open, current audience, missing file scope and private Room scope. The full Worker suite is still running. No migration or paid dependency; Simple mode is unchanged. Exact-head CI, merge, production release and authenticated Kylon comparison remain pending.
+
 # 検証記録
 
 ### 2026-11-15 — Concurrent read-only Workflow table queries (candidate)
