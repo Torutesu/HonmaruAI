@@ -1483,14 +1483,16 @@
       "id": "KY-120",
       "category": "Agents",
       "requirement": "会話から操作できる隔離ブラウザとLive Desktop引き継ぎ",
-      "status": "missing",
+      "status": "partial",
       "priority": "P0",
       "source": "https://kylon.io/product/sandbox",
-      "code": "gateway/runner.mjs, gateway/client.mjs, worker/src/harness/gateways.js",
+      "code": "gateway/browser-session.mjs, gateway/browser-proxy.mjs, gateway/client.mjs, worker/src/harness/executions.js, worker/src/harness/gateways.js, worker/src/relay.js, web-react/src/components/HarnessThreadHeader.tsx",
       "acceptance": "Harness Agentが会話タスク中にHTTP APIでは扱えないWebサイトを、Agentごとに隔離された永続ブラウザで操作できる。実行画面を同じRoomで認可された人だけがリアルタイム閲覧・操作引き継ぎでき、Agentと人の排他制御、停止、監査、入力・画面の出力上限、セッション分離を検証する。サインイン情報は対象Agentにだけ保存され、共有Roomや別Agentへ流用されない。実行は会話から明示的に開始し、Automation・サブエージェントでは使えない。ユーザー所有Mac miniを選んだ場合でも、現在のネットワークなし計算VMをネットワークへ接続せず、専用ブラウザ境界で分離する。新規契約・課金を追加せずSimpleモードを維持する。",
       "evidence": {
-        "verified": "Kylon公式Sandbox仕様は、ホストAgentごとの永続クラウドPC、ブラウザ、Agentのroom/thread会話限定ブラウズ、および同じ会話のLive Desktopで人が画面を見てマウス/キーボードを使うことを示す。Honmaru gatewayはNodeコードをApple Container VM内でネットワークなし・read-only root・host mountなしで実行する。Repo内にHarnessの永続ブラウザセッション、ライブ画像ストリーム、人の入力リレーは確認できない。gateway docsもbrowser sessionsをfuture workとして列挙している。",
-        "remaining": "隔離ブラウザ実装、認証済みLive Desktop表示・引継ぎ、Agentごとのサインイン永続化、複数Room/利用者の認可・失効・同時操作試験、Kylonとの同一タスク操作比較は未実装。"
+        "reviewedAt": "2026-11-15",
+        "inspectedMain": "aa897cf641e2b235bb28d77330626e1a18020f02",
+        "verified": "PR #1008 (merge e1af3c9c) adds explicit ACP teammate opt-in, a workspace+Agent-isolated Apple Container browser VM and persistent profile, with a DNS-pinning proxy that rejects private/special addresses and arbitrary CONNECT ports. Its exact-head CI #43652504240 passed all jobs; local Gateway 79, Worker browser/gateway 21, Web 2,030 tests and production build passed. PR #1009 (merge fad36d82) binds browser jobs and every action to a live author-owned source message, room/thread and current conversation permission; Worker full suite passed 3,538 tests. Follow-up main commits ea01cca and aa897cf add ephemeral same-thread JPEG streaming and requester-only live control. On current main, Gateway browser session/proxy tests 15/15, Gateway client tests 24/24, Worker gateway+relay tests 31/31, and Web ThreadHeader+WebSocket tests 25/25 passed. Automation and Workflow jobs cannot claim the ACP browser capability.",
+        "remaining": "Apple Container Chromium runtime smoke is still unverified (PR #1008 reported insufficient free disk for the image). Cloud-hosted PC and first-party non-ACP Agent providers are not implemented; the current runtime requires the user's connected Mac mini gateway. Authenticated Mac production acceptance, multiple-room/user revoke and concurrent-control behavior on device, and a same-task Kylon UI comparison remain unverified. Simple mode is unchanged and no new billing was added."
       }
     }
   ]
