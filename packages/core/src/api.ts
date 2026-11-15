@@ -28,6 +28,13 @@ export interface ApiOptions {
   fetch?: typeof fetch
 }
 
+export interface WorkspaceModeSnapshot {
+  mode: 'simple' | 'harness'
+  canEdit: boolean
+  simpleOnly: boolean
+  revision: number
+}
+
 export class Api {
   private readonly base: string
   private readonly token: () => string | null | undefined
@@ -69,6 +76,12 @@ export class Api {
   acceptInvite(code: string) { return this.request<InviteAccepted>('/invites/accept', { method: 'POST', body: { code } }) }
   me() { return this.request<Me>('/me') }
   businesses(orgId: string) { return this.request<{ businesses: Business[] }>('/businesses', { query: { orgId } }) }
+  workspaceMode(orgId: string) { return this.request<WorkspaceModeSnapshot>('/orgs/mode', { query: { orgId } }) }
+  setSimpleOnly(orgId: string, simpleOnly: boolean, expectedRevision: number) {
+    return this.request<{ simpleOnly: boolean; revision: number }>('/hx/display-preference', {
+      method: 'PUT', body: { orgId, simpleOnly, expectedRevision },
+    })
+  }
 
   // ---- Push ----
   /// This phone's native push token, for whoever is signed in. Sent again on
