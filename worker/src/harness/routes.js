@@ -1142,7 +1142,11 @@ export async function handleHarness(request, env, url, context = {}) {
     const isPersonalMemoryPreference = sub === 'memory' && parts[4] === 'private-follow';
     if (!read && !canEdit && sub !== 'members' && sub !== 'apps'
       && !(sub === "memory" && request.method === "POST") && !ownsPersonalMemory
-      && !(isPersonalMemoryPreference && request.method === 'PUT')) {
+      && !(isPersonalMemoryPreference && request.method === 'PUT')
+      // Skill owners can delegate their own workspace Skills. giveSkill and
+      // takeSkill enforce ownership, current membership, target Agent and
+      // source scope again at the write boundary.
+      && !(sub === 'skills' && ['POST','DELETE'].includes(request.method))) {
       return json({ message: "Only the agent's maker or an admin can change it." }, 403);
     }
     if (sub === 'ownership' && request.method==='PUT') {
@@ -1469,9 +1473,10 @@ export async function handleHarness(request, env, url, context = {}) {
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "DELETE") {
-        if (!canEdit) return json({ message: "Only the agent's maker or an admin can change it." }, 403);
         const id = parts[4] || url.searchParams.get("skillId") || "";
-        if (!(await getSkill(env.DB, orgId, id, me))) return json({ message: 'No such skill.' }, 404);
+        const skill = await getSkill(env.DB, orgId, id, me);
+        if (!skill) return json({ message: 'No such skill.' }, 404);
+        if (!canEdit && !(skill.visibility === 'workspace' && skill.canShare)) return json({ message: "Only the skill owner or an agent's manager can change it." }, 403);
         const result = await takeSkill(env.DB, orgId, agentId, id, me);
         return result.error ? fail(result) : json(result);
       }

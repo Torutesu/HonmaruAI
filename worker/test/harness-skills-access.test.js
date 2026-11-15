@@ -153,6 +153,85 @@ test('skill-to-agent grants recheck manager authority in the service and at the 
     .bind(orgId, agentId, raceSkill.id).first()).toBeNull();
 });
 
+test('a workspace Skill owner can assign and revoke it on another active same-workspace Agent', async () => {
+  const skill = await create('workspace');
+  const made = await request('POST', '/channels/agents', member, {
+    name: 'Member agent', handle: 'member-agent', instructions: 'Help', scope: 'team',
+  });
+  expect(made.status).toBe(201);
+  const otherAgentId = (await made.json()).agent.id;
+
+  // The Skill owner does not manage this Agent, but owns the workspace Skill.
+  expect((await request('POST', `/hx/agents/${otherAgentId}/skills`, owner, { skillId: skill.id })).status).toBe(200);
+  expect((await env.DB.prepare('SELECT added_by FROM hx_agent_skills WHERE org_id=?1 AND agent_id=?2 AND skill_id=?3')
+    .bind(orgId, otherAgentId, skill.id).first()).added_by).toBe('9401');
+  expect((await executionSkills(env.DB, orgId, otherAgentId, { userId: '9402', channel: 'b:room' })).map(item => item.id)).toContain(skill.id);
+
+  expect((await request('DELETE', `/hx/agents/${otherAgentId}/skills?skillId=${encodeURIComponent(skill.id)}`, owner)).status).toBe(200);
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_skills WHERE org_id=?1 AND agent_id=?2 AND skill_id=?3')
+    .bind(orgId, otherAgentId, skill.id).first()).toBeNull();
+});
+
+test('workspace Skill owner grants fail closed for private/source skills, inaccessible actors, wrong workspace, and deleted Agents', async () => {
+  const workspaceSkill = await create('workspace');
+  const privateSkill = await create('private');
+  const made = await request('POST', '/channels/agents', member, {
+    name: 'Member agent', handle: 'member-agent', instructions: 'Help', scope: 'team',
+  });
+  const otherAgentId = (await made.json()).agent.id;
+
+  expect(await giveSkill(env.DB, orgId, agentId, workspaceSkill.id, '9402')).toMatchObject({ status: 403 });
+  expect((await request('POST', `/hx/agents/${agentId}/skills`, member, { skillId: workspaceSkill.id })).status).toBe(403);
+  expect(await giveSkill(env.DB, orgId, otherAgentId, privateSkill.id, '9401')).toMatchObject({ status: 403 });
+
+  const otherOrg = 'skills-grants-other';
+  const { upsertMembership } = await import('../src/db.js');
+  await upsertMembership(env.DB, otherOrg, '9401', 'member');
+  const foreign = await worker.fetch(new Request('https://example.com/channels/agents', {
+    method: 'POST', headers: { 'x-session-token': owner, 'content-type': 'application/json' },
+    body: JSON.stringify({ orgId: otherOrg, name: 'Foreign agent', handle: 'foreign-agent', instructions: 'Help', scope: 'team' }),
+  }), env, { waitUntil() {} });
+  expect(foreign.status).toBe(201);
+  const foreignAgentId = (await foreign.json()).agent.id;
+  expect(await giveSkill(env.DB, orgId, foreignAgentId, workspaceSkill.id, '9401')).toMatchObject({ status: 409 });
+
+  await env.DB.prepare('UPDATE custom_agents SET deleted_at=?1 WHERE org_id=?2 AND id=?3').bind(new Date().toISOString(), orgId, otherAgentId).run();
+  expect(await giveSkill(env.DB, orgId, otherAgentId, workspaceSkill.id, '9401')).toMatchObject({ status: 409 });
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_skills WHERE org_id=?1 AND skill_id=?2').bind(orgId, workspaceSkill.id).first()).toBeNull();
+});
+
+test('skill owner membership revocation at the insert boundary prevents a workspace Agent grant', async () => {
+  const skill = await create('workspace');
+  const made = await request('POST', '/channels/agents', member, {
+    name: 'Member agent', handle: 'member-agent', instructions: 'Help', scope: 'team',
+  });
+  const otherAgentId = (await made.json()).agent.id;
+  let revoked = false;
+  const raceDb = {
+    prepare(sql) {
+      const statement = env.DB.prepare(sql);
+      if (!sql.startsWith('INSERT OR IGNORE INTO hx_agent_skills')) return statement;
+      return {
+        bind(...values) {
+          const bound = statement.bind(...values);
+          return {
+            run: async () => {
+              if (!revoked) {
+                revoked = true;
+                await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, '9401').run();
+              }
+              return bound.run();
+            },
+          };
+        },
+      };
+    },
+  };
+  expect(await giveSkill(raceDb, orgId, otherAgentId, skill.id, '9401')).toMatchObject({ status: 409 });
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_skills WHERE org_id=?1 AND agent_id=?2 AND skill_id=?3')
+    .bind(orgId, otherAgentId, skill.id).first()).toBeNull();
+});
+
 test('Skill share links expose a temporary package, import private copies, install on managed agents, and revoke immediately', async () => {
   const body = 'Confidential procedure body';
   const asset = new TextEncoder().encode('Keep this support file with the skill.');

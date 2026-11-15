@@ -62,12 +62,13 @@ test('Harness MCP exposes scoped Skill reads and permission-checked Agent assign
   const mikaToken = (await (await call('/tokens', { method: 'POST', headers: headers(mikaSession), body: JSON.stringify({ orgId: ORG, name: 'Read only', scopes: ['read', 'write'] }) })).json()).token;
   const deniedShare = (await tool(mikaToken, 'share_skills_with_agents', { skillIds: [created.skill.id], agentIds: ['skill-agent'], confirm: true })).result.structuredContent;
   expect(deniedShare).toMatchObject({ complete: false, assigned: [] });
-  expect(deniedShare.failed[0].message).toMatch(/maker or an admin/);
+  expect(deniedShare.failed[0].message).toMatch(/skill owner or an agent's manager/);
   expect((await tool(mikaToken, 'list_agent_skills', { agentId: 'skill-agent' })).result.isError).toBe(true);
   expect((await tool(mikaToken, 'assign_skill_to_agent', { agentId: 'skill-agent', skillId: created.skill.id })).result.isError).toBe(true);
 
+  expect((await tool(mikaToken, 'remove_skill_from_agent', { agentId: 'skill-agent', skillId: created.skill.id })).result.isError).toBe(true);
   await env.DB.prepare("UPDATE custom_agents SET owner_login='someone-else' WHERE org_id=? AND id='skill-agent'").bind(ORG).run();
-  expect((await tool(writer, 'remove_skill_from_agent', { agentId: 'skill-agent', skillId: created.skill.id })).result.isError).toBe(true);
+  expect((await tool(writer, 'remove_skill_from_agent', { agentId: 'skill-agent', skillId: created.skill.id })).result.structuredContent).toMatchObject({ removed: true });
   await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'simple' }) });
   expect(await names(writer)).not.toContain('list_skills');
   expect((await tool(writer, 'list_skills')).error.message).toContain('Unknown tool');
