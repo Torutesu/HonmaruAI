@@ -41,7 +41,7 @@ export function createStateBroker(operation,{signal}={}) {
   const clean=validateStateRequest(request);
   if(seen.has(clean.id))throw Error('Duplicate state request.');
   seen.add(clean.id);
-  const result=queue.then(async()=>{
+  const run=async()=>{
    if(signal?.aborted)throw Error('Activation ended.');
    try {
     const value=await operation(clean.method,clean.params,{signal});
@@ -50,7 +50,11 @@ export function createStateBroker(operation,{signal}={}) {
     if(Buffer.byteLength(JSON.stringify(reply))>180000)throw Error('State reply is too large.');
     return reply;
    } catch {return {id:clean.id,ok:false,error:'State operation failed.'};}
-  });
+  };
+  // Table queries are read-only and can use the SDK's bounded concurrency.
+  // Keep checkpoint/state and effectful operations in one order-preserving lane.
+  if(clean.method==='table.query')return run();
+  const result=queue.then(run);
   queue=result.catch(()=>{});return result;
  };
 }
