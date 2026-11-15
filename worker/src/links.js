@@ -76,13 +76,25 @@ function publicIpv4(host) {
 /// answered; throws on a refused hop or too many.
 export async function publicFetch(url, init = {}, { hops = 5 } = {}) {
   let current = String(url);
+  const requestHeaders = new Headers(init.headers || {});
   for (let hop = 0; hop <= hops; hop++) {
     if (!isPublicUrl(current)) throw new Error("Only public http(s) addresses can be fetched.");
-    const res = await fetch(current, { ...init, redirect: "manual" });
+    const previous = new URL(current);
+    const res = await fetch(current, { ...init, headers: requestHeaders, redirect: "manual" });
     const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
     if (!location) return { res, url: current };
     await res.body?.cancel().catch(() => {});
-    current = new URL(location, current).toString();
+    const next = new URL(location, current);
+    if (!isPublicUrl(next.toString())) throw new Error("Only public http(s) addresses can be fetched.");
+    if (previous.protocol === "https:" && next.protocol !== "https:") {
+      throw new Error("HTTPS redirects cannot downgrade to HTTP.");
+    }
+    if (previous.origin !== next.origin) {
+      requestHeaders.delete("authorization");
+      requestHeaders.delete("cookie");
+      requestHeaders.delete("proxy-authorization");
+    }
+    current = next.toString();
   }
   throw new Error("Too many redirects.");
 }

@@ -172,3 +172,24 @@ test("a redirect to a private address is not followed", async () => {
   expect(res.status).toBe(200);
   expect(url).toBe("https://public.example.com/there");
 });
+
+test("public fetch blocks HTTPS downgrade redirects", async () => {
+  const { publicFetch } = await import("../src/links.js");
+  fetchMock.get("https://secure.example.com").intercept({ path: "/downgrade", method: "GET" })
+    .reply(302, "", { headers: { location: "http://plain.example.net/next" } });
+  await expect(publicFetch("https://secure.example.com/downgrade")).rejects.toThrow(/cannot downgrade/i);
+});
+
+test("public fetch strips credentials when a redirect changes origin", async () => {
+  const { publicFetch } = await import("../src/links.js");
+  fetchMock.get("https://source.example.com").intercept({ path: "/redirect", method: "GET" })
+    .reply(302, "", { headers: { location: "https://target.example.net/final" } });
+  fetchMock.get("https://target.example.net").intercept({ path: "/final", method: "GET", headers: (headers) =>
+    !headers.authorization && !headers.cookie && !headers["proxy-authorization"],
+  }).reply(200, "ok");
+  const { res, url } = await publicFetch("https://source.example.com/redirect", {
+    headers: { Authorization: "Bearer secret", Cookie: "sid=secret", "Proxy-Authorization": "Basic secret", Accept: "text/html" },
+  });
+  expect(res.status).toBe(200);
+  expect(url).toBe("https://target.example.net/final");
+});
