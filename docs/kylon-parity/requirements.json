@@ -1080,6 +1080,11 @@
           "verification": "Exact-head CI #43579317332, main CI #43581230340, Worker deployment #43581229709 and Web deployment #43581229717 succeeded.",
           "remaining": "DNS rebinding remains open because Worker fetch cannot pin the resolved peer IP. Arbitrary external connections, full App/workflow principal administration, all Kylon operation categories and authenticated operation comparison remain incomplete."
         },
+        "approvalBinding": {
+          "reviewedAt": "2026-11-16",
+          "scope": "A write-capable Workflow approval now carries a SHA-256 of the canonical rendered arguments, plus the run, workflow, approval step, connection step, server and tool. The accepted decision is copied to the durable run log and the write is refused unless every binding and the exact argument hash still match at execution time. This closes the gap where Workflow input or a same-run argument source could change between approval and dispatch.",
+          "verification": "Current-main Worker Workflow and Remote MCP suites passed 164/164, including an authorized write and a changed-input-after-approval regression that is rejected before dispatch. node --check and git diff --check passed. Exact-head CI and production rollout pending."
+        },
         "safetyHardening": {
           "reviewedAt": "2026-11-15",
           "scope": "PR #1015 merged as 429e306c refuses HTTPS-to-HTTP redirects and strips Authorization, Cookie and Proxy-Authorization headers before following a cross-origin redirect. Per-hop URL checks and manual redirect handling remain in place.",
