@@ -174,15 +174,27 @@ export async function giveSkill(db, orgId, agentId, skillId, by) {
   const userId = String(by);
   const managesAgent = await db.prepare(`SELECT 1 AS ok WHERE ${skillAgentManager('?1', '?2', '?3')}`)
     .bind(orgId, agentId, userId).first();
-  if (!managesAgent) return {error:"Only an agent's maker or an admin can change it.",status:403};
+  // A workspace Skill's owner can explicitly grant it to an active Agent in
+  // the same workspace. Agent managers keep their existing assignment path;
+  // private and memory-derived Skills retain their narrower source rules.
+  const grantsWorkspaceSkill = skill.visibility === 'workspace' && skill.canShare;
+  if (!managesAgent && !grantsWorkspaceSkill) return {error:"Only the skill owner or an agent's manager can assign this skill.",status:403};
 
-  // Keep this service-level grant authoritative even when a caller bypasses
-  // the HTTP route. Recheck both the manager role and the skill's current
-  // visibility in the INSERT so a concurrent role or sharing change wins.
+  // Keep the grant authoritative even when a caller bypasses the HTTP route.
+  // Recheck workspace membership, target Agent, Skill ownership/visibility,
+  // and source scope in the insert so a concurrent change wins.
   const inserted = await db.prepare(`INSERT OR IGNORE INTO hx_agent_skills
     (org_id, agent_id, skill_id, added_by, added_at)
     SELECT ?1, ?2, ?3, ?4, ?5
-    WHERE ${skillAgentManager('?1', '?2', '?4')}
+    WHERE EXISTS (SELECT 1 FROM custom_agents a WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL)
+      AND EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?4 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
+      AND (${skillAgentManager('?1', '?2', '?4')} OR EXISTS (
+        SELECT 1 FROM hx_skills owned
+        LEFT JOIN hx_skill_access access ON access.org_id=owned.org_id AND access.skill_id=owned.id
+        LEFT JOIN hx_skill_source_scopes source ON source.org_id=owned.org_id AND source.skill_id=owned.id
+        WHERE owned.org_id=?1 AND owned.id=?3 AND COALESCE(owned.owner_id,owned.created_by)=?4
+          AND COALESCE(access.visibility,'workspace')='workspace' AND source.skill_id IS NULL
+      ))
       AND EXISTS (SELECT 1 FROM hx_skills s
         LEFT JOIN hx_skill_access p ON p.org_id=s.org_id AND p.skill_id=s.id
         LEFT JOIN hx_skill_source_scopes ss ON ss.org_id=s.org_id AND ss.skill_id=s.id
@@ -192,7 +204,15 @@ export async function giveSkill(db, orgId, agentId, skillId, by) {
     .bind(orgId, agentId, skillId, userId, now()).run();
   if (!inserted.meta?.changes) {
     const stillAuthorized = await db.prepare(`SELECT 1 AS ok
-      WHERE ${skillAgentManager('?1', '?2', '?3')}
+      WHERE EXISTS (SELECT 1 FROM custom_agents a WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL)
+        AND EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
+        AND (${skillAgentManager('?1', '?2', '?3')} OR EXISTS (
+          SELECT 1 FROM hx_skills owned
+          LEFT JOIN hx_skill_access access ON access.org_id=owned.org_id AND access.skill_id=owned.id
+          LEFT JOIN hx_skill_source_scopes source ON source.org_id=owned.org_id AND source.skill_id=owned.id
+          WHERE owned.org_id=?1 AND owned.id=?4 AND COALESCE(owned.owner_id,owned.created_by)=?3
+            AND COALESCE(access.visibility,'workspace')='workspace' AND source.skill_id IS NULL
+        ))
         AND EXISTS (SELECT 1 FROM hx_skills s
           LEFT JOIN hx_skill_access p ON p.org_id=s.org_id AND p.skill_id=s.id
           LEFT JOIN hx_skill_source_scopes ss ON ss.org_id=s.org_id AND ss.skill_id=s.id
@@ -206,14 +226,36 @@ export async function giveSkill(db, orgId, agentId, skillId, by) {
 }
 
 export async function takeSkill(db, orgId, agentId, skillId, by) {
+  const skill = await getSkill(db,orgId,skillId,by);
+  const userId = String(by);
+  const managesAgent = await db.prepare(`SELECT 1 AS ok WHERE ${skillAgentManager('?1', '?2', '?3')}`)
+    .bind(orgId, agentId, userId).first();
+  const ownsWorkspaceSkill = skill?.visibility === 'workspace' && skill.canShare;
+  if (!managesAgent && !ownsWorkspaceSkill) return { error: "Only the skill owner or an agent's manager can remove this assignment.", status: skill ? 403 : 404 };
   const removed = await db.prepare(`DELETE FROM hx_agent_skills
     WHERE org_id = ?1 AND agent_id = ?2 AND skill_id = ?3
-      AND ${skillAgentManager('?1', '?2', '?4')}`)
-    .bind(orgId, agentId, skillId, String(by)).run();
+      AND EXISTS (SELECT 1 FROM custom_agents a WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL)
+      AND EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?4 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
+      AND (${skillAgentManager('?1', '?2', '?4')} OR EXISTS (
+        SELECT 1 FROM hx_skills owned
+        LEFT JOIN hx_skill_access access ON access.org_id=owned.org_id AND access.skill_id=owned.id
+        LEFT JOIN hx_skill_source_scopes source ON source.org_id=owned.org_id AND source.skill_id=owned.id
+        WHERE owned.org_id=?1 AND owned.id=?3 AND COALESCE(owned.owner_id,owned.created_by)=?4
+          AND COALESCE(access.visibility,'workspace')='workspace' AND source.skill_id IS NULL
+      ))`)
+    .bind(orgId, agentId, skillId, userId).run();
   if (removed.meta?.changes) return { taken: true };
-  const manager = await db.prepare(`SELECT 1 AS ok WHERE ${skillAgentManager('?1', '?2', '?3')}`)
-    .bind(orgId, agentId, String(by)).first();
-  if (!manager) return { error: "Only an agent's maker or an admin can change it.", status: 403 };
+  const stillAuthorized = await db.prepare(`SELECT 1 AS ok
+    WHERE EXISTS (SELECT 1 FROM custom_agents a WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL)
+      AND EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
+      AND (${skillAgentManager('?1', '?2', '?3')} OR EXISTS (
+        SELECT 1 FROM hx_skills owned
+        LEFT JOIN hx_skill_access access ON access.org_id=owned.org_id AND access.skill_id=owned.id
+        LEFT JOIN hx_skill_source_scopes source ON source.org_id=owned.org_id AND source.skill_id=owned.id
+        WHERE owned.org_id=?1 AND owned.id=?4 AND COALESCE(owned.owner_id,owned.created_by)=?3
+          AND COALESCE(access.visibility,'workspace')='workspace' AND source.skill_id IS NULL
+      ))`).bind(orgId,agentId,userId,skillId).first();
+  if (!stillAuthorized) return { error: "Skill or Agent access changed. Reload before removing the assignment.", status: 409 };
   return { taken: true };
 }
 
