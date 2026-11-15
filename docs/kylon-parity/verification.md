@@ -1,5 +1,11 @@
 # 検証記録
 
+### 2026-11-15 — Workflow Agent read-only skills and memory (candidate)
+
+- Extended the existing `agent(prompt, { agentId, schema, tier? })` Workflow SDK to use the saved Agent's installed skills and memories. Tool calls are filtered to the established read-only skill readers and user-scoped memory search/read helpers; memory review/write, remote connectors, recursive Agents, and delegation are not supplied. Existing per-call access rechecks, provider usage accounting, Workflow AI budgets, timeout and bounded tool-call loop remain in force.
+- Added a Worker integration regression that walks the actual model tool loop for a saved skill and memory, checks returned source text reaches the next model request, and verifies write/external tools are absent. No new service, paid contract, package, migration or Simple-mode change.
+- Local QA passed: **107/107** tests across `workflow-agent-invoke`, `harness-skills-access`, `harness-agents`, and `harness-model-tools`. The invocation regression verifies that the model receives only the five allowlisted read tools, sees the actual skill and memory text in subsequent turns, and has no memory-review or remote/write tools. Exact-head CI, merge and deployment are pending. KY-059 remains partial; `app()`, provider proxy/general Connection API, complete runtime parity, and authenticated production/Kylon acceptance remain open.
+
 ### 2026-11-15 — Workflow SDK Agent invocation (local QA)
 
 - Added `agent(prompt, { agentId, schema, tier? })` to the isolated Workflow TypeScript SDK. Saved programs must explicitly bind 1–20 Agents; save, view and enqueue paths validate current access, and the Worker rechecks the exact binding and live Agent/Workflow ACL before, during and after invocation. The guest cannot provide workspace, run, lease or replay identity.
