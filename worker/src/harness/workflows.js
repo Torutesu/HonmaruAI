@@ -252,6 +252,17 @@ async function validProgramTableSource(db,orgId,step,viewerId) {
   return true;
 }
 
+async function validProgramAgentSources(db,orgId,step,viewerId) {
+  if(step?.sourceAgents===undefined)return true;
+  if(!Array.isArray(step.sourceAgents)||step.sourceAgents.length<1||step.sourceAgents.length>20
+    ||step.sourceAgents.some(id=>typeof id!=='string'||!id.trim()||id.length>200)||new Set(step.sourceAgents).size!==step.sourceAgents.length)return false;
+  for(const id of step.sourceAgents){
+    const agent=await db.prepare('SELECT id,scope,owner_login FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL').bind(orgId,id).first();
+    if(!agent||!await mayRunAgent(db,orgId,agent,viewerId))return false;
+  }
+  return true;
+}
+
 async function validAppRecordTrigger(db, orgId, trigger, expectedTableId = undefined) {
   if (trigger.type !== 'app_record_change') return true;
   const tableId=await appEntityTable(db, orgId, trigger.appId, trigger.entityId);
@@ -274,6 +285,8 @@ export function normalizeSteps(raw) {
         if(typeof s.gatewayId!=='string'||!s.gatewayId.trim()||s.gatewayId.length>200)return {error:'Choose an execution node for the TypeScript program.'};
         {
           const sourceFields=['sourceEntityId','sourceTableId'];
+          if(s.sourceAgents!==undefined&&(!Array.isArray(s.sourceAgents)||s.sourceAgents.length<1||s.sourceAgents.length>20||s.sourceAgents.some(id=>typeof id!=='string'||!id.trim()||id.length>200)||new Set(s.sourceAgents).size!==s.sourceAgents.length))return {error:'Choose between 1 and 20 distinct Agents for the TypeScript program.'};
+          const sourceAgents=s.sourceAgents===undefined?{}:{sourceAgents:[...s.sourceAgents]};
           const hasLegacySource=sourceFields.some(key=>s[key]!==undefined&&s[key]!==null&&s[key]!=='');
           const hasSourceTables=s.sourceTables!==undefined;
           const hasSource=Boolean(s.sourceAppId)||hasLegacySource||hasSourceTables;
@@ -288,11 +301,11 @@ export function normalizeSteps(raw) {
                 ||typeof source.tableId!=='string'||!source.tableId.trim()||source.tableId.length>200||source.write!==undefined&&typeof source.write!=='boolean'||source.mutate!==undefined&&typeof source.mutate!=='boolean'||seen.has(source.entityId))return {error:'Choose distinct, complete App entities for the TypeScript program.'};
               seen.add(source.entityId);
             }
-            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,sourceAppId:text('sourceAppId',200),sourceTables:s.sourceTables.map(source=>({entityId:source.entityId,tableId:source.tableId,...(source.write?{write:true}:{}),...(source.mutate?{mutate:true}:{})}))});
+            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,sourceAppId:text('sourceAppId',200),sourceTables:s.sourceTables.map(source=>({entityId:source.entityId,tableId:source.tableId,...(source.write?{write:true}:{}),...(source.mutate?{mutate:true}:{})})),...sourceAgents});
           }else{
             if(hasLegacySource&&sourceFields.some(key=>typeof s[key]!=='string'||!s[key].trim()||s[key].length>200))return {error:'Choose one complete App/Table source for the TypeScript program.'};
             if(hasLegacySource&&!/^([a-z][a-z0-9_]{0,39})$/.test(s.sourceEntityId))return {error:'Choose a valid App entity for the TypeScript program.'};
-            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,...(hasLegacySource?{sourceAppId:text('sourceAppId',200),sourceEntityId:text('sourceEntityId',40),sourceTableId:text('sourceTableId',200)}:{})});
+            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,...(hasLegacySource?{sourceAppId:text('sourceAppId',200),sourceEntityId:text('sourceEntityId',40),sourceTableId:text('sourceTableId',200)}:{}),...sourceAgents});
           }
         }
         break;
@@ -500,7 +513,7 @@ export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
   if (workflow.trigger?.type === 'app_record_change' && !(await mayUseApp(db, orgId, workflow.trigger.appId, viewerId))) return false;
   for (const step of workflow.steps || []) {
     if (step.tableId && !(await mayUseTable(db, orgId, step.tableId, viewerId))) return false;
-    if (step.type==='code' && !(await validProgramTableSource(db,orgId,step,viewerId))) return false;
+    if (step.type==='code' && (!(await validProgramTableSource(db,orgId,step,viewerId))||!(await validProgramAgentSources(db,orgId,step,viewerId)))) return false;
     if (step.channel && !(await mayUseConversation(db, orgId, viewerId, step.channel))) return false;
     if (step.agentId) {
       const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
@@ -549,6 +562,7 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   if(unavailable)return unavailable;
   const programSource=s.steps.find(step=>step.type==='code');
   if(programSource&&!await validProgramTableSource(db,orgId,programSource,by))return {error:'Choose an App/Table source you can access.'};
+  if(programSource&&!await validProgramAgentSources(db,orgId,programSource,by))return {error:'Choose Agents you can access for this TypeScript program.'};
   if (t.trigger.type === "row" && !(await getTable(db, orgId, t.trigger.tableId))) return { error: "No such table." };
   if (t.trigger.type === 'app_record_change' && (!(await validAppRecordTrigger(db, orgId, t.trigger)) || !(await mayUseApp(db, orgId, t.trigger.appId, by)))) return { error: "Choose an app and entity you can access." };
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id = ?1").bind(orgId).first();
@@ -602,6 +616,7 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
     if(unavailable)return unavailable;
     const programSource=s.steps.find(step=>step.type==='code');
     if(programSource&&(!await validProgramTableSource(db,orgId,programSource,wf.createdBy)||(changedBy!==null&&!await validProgramTableSource(db,orgId,programSource,changedBy))))return {error:'Choose an App/Table source you can access.'};
+    if(programSource&&(!await validProgramAgentSources(db,orgId,programSource,wf.createdBy)||(changedBy!==null&&!await validProgramAgentSources(db,orgId,programSource,changedBy))))return {error:'Choose Agents you can access for this TypeScript program.'};
     const unavailableConnection=await connectionStepsAvailable(db,orgId,s.steps,wf.createdBy);
     if(unavailableConnection)return unavailableConnection;
     steps = s.steps;

@@ -6,6 +6,7 @@ import {getMode} from './mode.js';
 import {workspaceBudgetAdmission} from '../workspaceAIBudget.js';
 import {mayUseApp,mayUseTable} from './resourceAccess.js';
 import {workflowProgramSources} from './workflowProgramSources.js';
+import {mayRunAgent} from './agents.js';
 import {addRow,updateRow,deleteRow} from './tables.js';
 import {prepareWorkflowRowEventIfWatched,drainWorkflowRowEvents} from './workflowRowEventDispatch.js';
 const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
@@ -54,6 +55,13 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  const definition=JSON.parse(run.definition),step=definition.steps?.[0];
  if(definition.id!==run.workflow_id||!definition.safetyGeneration||definition.steps?.length!==1||step?.type!=='code'||typeof step.code!=='string'||!step.code.trim()||typeof step.gatewayId!=='string')return {status:'failed',error:'A program requires one frozen TypeScript definition.'};
  if(!await allowed(db,orgId,definition.createdBy,'harness.build'))return {status:'failed',error:'Workflow execution access was removed.'};
+ if(step.sourceAgents!==undefined){
+  if(!Array.isArray(step.sourceAgents)||step.sourceAgents.length<1||step.sourceAgents.length>20||step.sourceAgents.some(id=>typeof id!=='string'||!id.trim()||id.length>200)||new Set(step.sourceAgents).size!==step.sourceAgents.length)return {status:'failed',error:'The Workflow Agent bindings are invalid.'};
+  for(const agentId of step.sourceAgents){
+   const agent=await db.prepare('SELECT id,scope,owner_login FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL').bind(orgId,agentId).first();
+   if(!agent||!await mayRunAgent(db,orgId,agent,definition.createdBy))return {status:'failed',error:'A Workflow Agent binding is no longer accessible.'};
+  }
+ }
  const tableSources=workflowProgramSources(step);
  if(step.sourceAppId||step.sourceEntityId||step.sourceTableId||step.sourceTables!==undefined){
   if(!step.sourceAppId||!tableSources.length||tableSources.length>20||new Set(tableSources.map(source=>source.entityId)).size!==tableSources.length

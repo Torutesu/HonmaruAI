@@ -258,7 +258,7 @@ export async function handleGateways(request, env, url, input) {
     if (parts[3] === 'state') {
       if(new TextEncoder().encode(JSON.stringify(input)).length>165000)return failure('State request is too large.',413);
       try {
-        const result=await workflowActivationState(db,{jobId:parts[2],gatewayId:g.id,leaseHash},input.operation,input.params,at);
+        const result=await workflowActivationState(db,{jobId:parts[2],gatewayId:g.id,leaseHash},input.operation,input.params,at,env);
         if(result.error)return failure(result.error,result.status);
         if(result.available===false||result.saved===false)return failure('State revision or activation is no longer current.',409);
         return json(result);

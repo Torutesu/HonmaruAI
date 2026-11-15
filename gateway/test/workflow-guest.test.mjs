@@ -84,3 +84,31 @@ test('isolated guest stages a row only through an explicitly writable entity',as
   assert.equal(await completion,0,stderr);assert.equal(requests.length,1);assert.equal(requests[0].method,'table.insert');assert.deepEqual(requests[0].params,{entityId:'primary',values:{name:'Alpha'}});
  }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
 });
+
+test('isolated guest sends the normalized agent.invoke request through the host broker',async()=>{
+ const nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce,requests=[];
+ const child=spawn(process.execPath,['--input-type=module','--eval',WORKFLOW_BOOTSTRAP],{stdio:['pipe','pipe','pipe'],shell:false});
+ let stderr='';
+ const parser=createWorkflowOutputParser(prefix,{text:()=>{},request:request=>{requests.push(request);child.stdin.write(JSON.stringify({id:request.id,ok:true,value:{output:{answer:'42'}}})+'\n')}});
+ child.stdout.on('data',chunk=>parser.push(chunk.toString('utf8')));child.stderr.on('data',chunk=>stderr+=chunk.toString('utf8'));
+ const completion=new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',exitCode=>{try{parser.end();resolve(exitCode)}catch(error){reject(error)}})});
+ const timer=setTimeout(()=>child.kill('SIGKILL'),5000);
+ try{
+  child.stdin.write(JSON.stringify({nonce,context:{workspaceId:'workspace'},code:`import {agent} from '@honmaru/workflow-sdk';const answer=await agent('Solve',{agentId:'agent-main',tier:'high',schema:{type:'object',properties:{answer:{type:'string'}},required:['answer'],additionalProperties:false}});console.log(answer.answer);`})+'\n');
+  assert.equal(await completion,0,stderr);assert.equal(requests.length,1);assert.equal(requests[0].method,'agent.invoke');
+  assert.deepEqual(requests[0].params,{agentId:'agent-main',prompt:'Solve',tier:'high',schema:{type:'object',properties:{answer:{type:'string'}},required:['answer'],additionalProperties:false}});
+ }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
+});
+
+test('isolated guest rejects unsupported agent schemas before sending an RPC',async()=>{
+ const nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce,requests=[];
+ const child=spawn(process.execPath,['--input-type=module','--eval',WORKFLOW_BOOTSTRAP],{stdio:['pipe','pipe','pipe'],shell:false});let stderr='';
+ const parser=createWorkflowOutputParser(prefix,{text:()=>{},request:request=>requests.push(request)});
+ child.stdout.on('data',chunk=>parser.push(chunk.toString('utf8')));child.stderr.on('data',chunk=>stderr+=chunk.toString('utf8'));
+ const completion=new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',exitCode=>{try{parser.end();resolve(exitCode)}catch(error){reject(error)}})});
+ const timer=setTimeout(()=>child.kill('SIGKILL'),5000);
+ try{
+  child.stdin.write(JSON.stringify({nonce,context:{workspaceId:'workspace'},code:`import {agent} from '@honmaru/workflow-sdk';await agent('Solve',{agentId:'agent-main',schema:{type:'object',properties:{answer:{type:'string',pattern:'unsafe'}},additionalProperties:false}});`})+'\n');
+  assert.equal(await completion,1);assert.match(stderr,/Unsupported agent schema keyword/);assert.equal(requests.length,0);
+ }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
+});

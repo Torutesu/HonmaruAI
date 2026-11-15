@@ -1,13 +1,20 @@
+import { normalizeWorkflowAgentCall } from './workflow-sdk.mjs';
+
 // Internal host broker. The callback must already be bound to an authorized
 // activation; the guest never supplies workspace/run/lease credentials.
-const METHODS=new Set(['state.get','state.set','table.query','table.insert','table.update','table.delete']);
+const METHODS=new Set(['state.get','state.set','table.query','table.insert','table.update','table.delete','agent.invoke']);
 export function validateStateRequest(request) {
  if(!request||!Number.isSafeInteger(request.id)||request.id<1||request.id>64||!METHODS.has(request.method))throw Error('Invalid state operation.');
  const params=request.params;
  if(!params||typeof params!=='object'||Array.isArray(params))throw Error('Invalid state parameters.');
- const keys=request.method==='state.get'?['view','includeCurrentRun']:request.method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:request.method==='table.query'?['where','q','pageSize','cursor','entityId']:request.method==='table.insert'?['entityId','values']:request.method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:['entityId','rowId','expectedUpdatedAt'];
+ let cleanParams=params;
+ const keys=request.method==='agent.invoke'?['agentId','prompt','schema','tier']:request.method==='state.get'?['view','includeCurrentRun']:request.method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:request.method==='table.query'?['where','q','pageSize','cursor','entityId']:request.method==='table.insert'?['entityId','values']:request.method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:['entityId','rowId','expectedUpdatedAt'];
  if(Object.keys(params).some(key=>!keys.includes(key)))throw Error('Unexpected state parameter.');
- if(request.method==='state.get') {
+ if(request.method==='agent.invoke') {
+  const clean=normalizeWorkflowAgentCall(params.prompt,{agentId:params.agentId,schema:params.schema,tier:params.tier});
+  if(Object.keys(params).length!==4||params.tier!==clean.tier)throw Error('Invalid agent invocation.');
+  cleanParams=clean;
+ } else if(request.method==='state.get') {
   if(params.view!==undefined&&!['committed','checkpoint'].includes(params.view))throw Error('Invalid state view.');
   if(params.includeCurrentRun!==undefined&&typeof params.includeCurrentRun!=='boolean')throw Error('Invalid current-run option.');
  } else if(request.method==='state.set') {
@@ -24,7 +31,7 @@ export function validateStateRequest(request) {
   if(request.method==='table.update'&&(!validRowTarget(params)))throw Error('Invalid row target.');
  } else if(request.method==='table.delete'&&!validRowTarget(params))throw Error('Invalid row target.');
  if(Buffer.byteLength(JSON.stringify(request))>160000)throw Error('State request is too large.');
- return {id:request.id,method:request.method,params};
+ return {id:request.id,method:request.method,params:cleanParams};
 }
 function validRowTarget(params){return typeof params.entityId==='string'&&/^([a-z][a-z0-9_]{0,39})$/.test(params.entityId)&&typeof params.rowId==='string'&&params.rowId.length>0&&params.rowId.length<=200&&typeof params.expectedUpdatedAt==='string'&&params.expectedUpdatedAt.length<=64&&Number.isFinite(Date.parse(params.expectedUpdatedAt));}
 export function createStateBroker(operation,{signal}={}) {

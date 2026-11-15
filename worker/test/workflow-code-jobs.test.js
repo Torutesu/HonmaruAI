@@ -398,6 +398,19 @@ test('saved TypeScript sources are normalized to explicit App entities and canno
  expect(rejected.error).toContain('App/Table source');
 });
 
+test('saved TypeScript Agent bindings are explicit, bounded and rechecked at enqueue',async()=>{
+ const code='await agent.invoke({agentId:"worker",prompt:"run",schema:{type:"object",properties:{},additionalProperties:false}});';
+ expect(normalizeSteps([{type:'code',code,gatewayId:'program-node',sourceAgents:['agent-a','agent-b']}]).steps[0].sourceAgents).toEqual(['agent-a','agent-b']);
+ for(const sourceAgents of [[],['agent-a','agent-a'],['  '],Array.from({length:21},(_,index)=>`agent-${index}`)])
+  expect(normalizeSteps([{type:'code',code,gatewayId:'program-node',sourceAgents}]).error).toContain('distinct Agents');
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES('program-org','worker-agent','worker','Worker','Do work','team','program-owner','now','now')").run();
+ definition.steps=[{type:'code',code,gatewayId:'program-node',sourceAgents:['worker-agent']}];
+ await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=?1 WHERE run_id='program-run'").bind(JSON.stringify(definition)).run();
+ expect((await enqueue({at:3000})).status).toBe('pending');
+ await env.DB.prepare("UPDATE custom_agents SET deleted_at='now' WHERE org_id='program-org' AND id='worker-agent'").run();
+ expect(await enqueue({at:4000})).toMatchObject({status:'failed',error:'A Workflow Agent binding is no longer accessible.'});
+});
+
 test('multi-entity table queries require a bound entity and scope cursors to the exact entity',async()=>{
  const {api,job}=await setupProgramTableSource({multiSource:true});
  const ambiguous=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'table.query',params:{pageSize:1}});
