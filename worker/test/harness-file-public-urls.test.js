@@ -69,17 +69,40 @@ test('media URLs reuse a current-version link, publish later versions, prevent c
  expect(await publicRead(new URL(third.url).pathname.split('/').at(-1)).then(x=>x.status)).toBe(200);
 });
 
-test('guest creation, non-manager revoke, and non-media publication are rejected',async()=>{
+test('guest creation and non-manager revoke are rejected',async()=>{
  const file=await makeFile({bytes:'private image'});
  const guest=await call(`/hx/files/${file.id}/public-url`,'POST',{},guestToken);expect(guest.status).toBe(403);
  expect((await env.DB.prepare('SELECT count(*) AS n FROM hx_workspace_file_public_urls WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
  const created=await call(`/hx/files/${file.id}/public-url`,'POST',{});expect(created.status).toBe(201);
  const memberRevoke=await call(`/hx/files/${file.id}/public-url`,'DELETE',{},memberToken);expect(memberRevoke.status).toBe(404);
  expect(await publicRead(new URL((await created.json()).url).pathname.split('/').at(-1)).then(x=>x.status)).toBe(200);
+});
 
- const text=await makeFile({path:'docs/notes.txt',contentType:'text/plain',bytes:'not public media'});
- const rejected=await call(`/hx/files/${text.id}/public-url`,'POST',{});expect(rejected.status).toBe(415);
- expect((await env.DB.prepare('SELECT count(*) AS n FROM hx_workspace_file_public_urls WHERE org_id=?1 AND file_id=?2').bind(orgId,text.id).first()).n).toBe(0);
+test('non-media public URLs force downloads with an inert MIME type and preserve exact bytes',async()=>{
+ for(const [contentType,bytes] of [
+  ['text/plain','plain text'],
+  ['text/html','<script>window.compromised=true</script>'],
+  ['application/pdf','%PDF-1.7 private document'],
+  ['application/zip','PK\x03\x04archive'],
+  ['application/octet-stream','opaque bytes'],
+ ]){
+  const file=await makeFile({path:`downloads/${crypto.randomUUID()}.html`,contentType,bytes});
+  const created=await call(`/hx/files/${file.id}/public-url`,'POST',{});expect(created.status).toBe(201);
+  const result=await created.json();expect(result).toMatchObject({contentType,disposition:'attachment'});
+  const token=new URL(result.url).pathname.split('/').at(-1);
+  const response=await publicRead(token);expect(response.status).toBe(200);
+  expect(response.headers.get('content-type')).toBe('application/octet-stream');
+  expect(response.headers.get('content-disposition')).toMatch(/^attachment; filename\*=UTF-8''/);
+  expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+  expect(response.headers.get('content-security-policy')).toContain('sandbox');
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(new TextDecoder().decode(await response.arrayBuffer())).toBe(bytes);
+  const head=await publicRead(token,{method:'HEAD'});expect(head.status).toBe(200);expect(head.headers.get('content-type')).toBe('application/octet-stream');expect(await head.text()).toBe('');
+ }
+
+ const invalid=await makeFile({path:'bad.bin',contentType:'application/invalid type',bytes:'bad type'});
+ const rejected=await call(`/hx/files/${invalid.id}/public-url`,'POST',{});expect(rejected.status).toBe(415);
+ expect((await env.DB.prepare('SELECT count(*) AS n FROM hx_workspace_file_public_urls WHERE org_id=?1 AND file_id=?2').bind(orgId,invalid.id).first()).n).toBe(0);
 });
 
 test('uncommon valid image, video, audio, and font types can be published',async()=>{
@@ -91,6 +114,7 @@ test('uncommon valid image, video, audio, and font types can be published',async
   const response=await publicRead(token);
   expect(response.status).toBe(200);
   expect(response.headers.get('content-type')).toBe(contentType);
+  expect(response.headers.get('content-disposition')).toMatch(/^inline;/);
  }
 });
 
