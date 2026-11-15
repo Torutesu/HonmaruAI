@@ -1,6 +1,12 @@
 // The interface in de: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Private helper runs ({count})': 'Ausführungen privater Helfer ({count})',
+  'Helper waiting': 'Helfer wartet',
+  'Helper running': 'Helfer wird ausgeführt',
+  'Helper completed': 'Helfer abgeschlossen',
+  'Helper failed': 'Helfer fehlgeschlagen',
+  'Helper interrupted': 'Helfer unterbrochen',
   'Execution language': 'Ausführungssprache',
   'JavaScript function body': 'JavaScript-Funktionskörper',
   'TypeScript module (default export)': 'TypeScript-Modul (Default-Export)',

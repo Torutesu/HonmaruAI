@@ -1,5 +1,6 @@
 import {decorateAssignmentStatuses} from './agentAssignmentStatus.js';
 import {decorateAgentRequestStatuses} from '../agentRequestDispatch.js';
+import {getMode} from './mode.js';
 
 async function restrictedRunRows(db,orgId,rowIds,viewer) {
   const marks=rowIds.map((_,i)=>`?${i+2}`).join(',');
@@ -61,7 +62,7 @@ async function restrictedRunRows(db,orgId,rowIds,viewer) {
     for(const row of rows)canAccess.set(row.id,Boolean(row.can_access));
   }
   for(const [rowId,ids] of agentsByRow) if([...ids].some(id=>!canAccess.get(id)))hidden.add(rowId);
-  return hidden;
+  return {hidden,agentsByRow};
 }
 
 // Caller must validate every source against the current reader's canonical
@@ -89,10 +90,41 @@ export async function agentRunSnapshot(env, orgId, rowIds, viewer) {
   }
   // A D1 failure must propagate, not manufacture current stop rights from a
   // previous response or report the assignment cancelled.
-  const hidden=await restrictedRunRows(env.DB,orgId,rowIds,viewer);
+  const {hidden,agentsByRow}=await restrictedRunRows(env.DB,orgId,rowIds,viewer);
   const visible=results.filter(result=>!hidden.has(result.rowId));
   const decorated=await decorateAgentRequestStatuses(env.DB,orgId,visible);
   const visibleWithAssignments=await decorateAssignmentStatuses(env.DB,orgId,decorated,{...viewer,env});
   const byId=new Map(visibleWithAssignments.map(result=>[result.rowId,result]));
-  return {available,results:rowIds.map(rowId=>byId.get(rowId)||{rowId,status:'unknown',answered:0})};
+  // Helper findings are private to the person who requested them. Run rows
+  // for agents the viewer can no longer access are already withheld above.
+  const childRuns = rowIds.length && viewer.actorId && await getMode(env.DB,orgId)==='harness'
+    ? await (async()=>{
+        const staleBefore=new Date(Date.now()-35_000).toISOString();
+        const finishedParam=rowIds.length+3,staleParam=rowIds.length+4;
+        await env.DB.prepare(`UPDATE hx_agent_subagent_runs SET status='interrupted',finished_at=?${finishedParam},
+          elapsed_ms=MIN(30000,MAX(0,CAST((julianday(?${finishedParam})-julianday(started_at))*86400000 AS INTEGER)))
+          WHERE org_id=?1 AND run_by=?2 AND message_id IN (${rowIds.map((_,i)=>`?${i+3}`).join(',')})
+            AND status IN ('queued','running') AND started_at<?${staleParam}`).bind(orgId,viewer.actorId,...rowIds,new Date().toISOString(),staleBefore).run();
+        return env.DB.prepare(`SELECT c.id,c.message_id,c.agent_id,c.title,c.status,c.started_at,c.finished_at,c.elapsed_ms,c.result_json
+        FROM hx_agent_subagent_runs c
+        JOIN channel_messages m ON m.org_id=c.org_id AND m.id=c.message_id AND m.channel=c.channel
+        JOIN custom_agents a ON a.org_id=c.org_id AND a.id=c.agent_id AND a.deleted_at IS NULL
+        WHERE c.org_id=?1 AND c.run_by=?2 AND c.message_id IN (${rowIds.map((_,i)=>`?${i+3}`).join(',')})
+          AND m.kind='message' AND m.deleted_at IS NULL
+        ORDER BY c.created_at,c.id LIMIT 800`).bind(orgId,viewer.actorId,...rowIds).all();
+      })()
+    : {results:[]};
+  const childrenByRow=new Map();
+  for(const child of childRuns.results||[]) {
+    if(!byId.has(child.message_id)||!agentsByRow.get(child.message_id)?.has(child.agent_id))continue;
+    let result=null;
+    if(child.status==='completed')try {
+      const saved=JSON.parse(child.result_json||'null');
+      if(saved&&typeof saved.result==='string')result={result:saved.result.slice(0,2400),sources:Array.isArray(saved.sources)?saved.sources.slice(0,5).flatMap(source=>source&&typeof source.title==='string'&&typeof source.url==='string'&&/^https?:\/\//.test(source.url)?[{title:source.title.slice(0,120),url:source.url.slice(0,1000)}]:[]):[]};
+    } catch { /* Malformed stored results are not returned. */ }
+    const runs=childrenByRow.get(child.message_id)||[];
+    if(runs.length<40)runs.push({id:child.id,title:String(child.title||'').slice(0,120),status:child.status,startedAt:child.started_at,...(child.finished_at?{finishedAt:child.finished_at}:{}),...(Number.isSafeInteger(child.elapsed_ms)?{elapsedMs:child.elapsed_ms}:{}),...(result?{result}: {})});
+    childrenByRow.set(child.message_id,runs);
+  }
+  return {available,results:rowIds.map(rowId=>{const result=byId.get(rowId)||{rowId,status:'unknown',answered:0};const subagents=childrenByRow.get(rowId);return subagents?{...result,subagents}:result;})};
 }

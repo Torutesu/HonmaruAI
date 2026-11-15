@@ -507,7 +507,7 @@ Research — whenever the request needs facts from outside this chat (anything c
 /// helpers: `called` is whether a model was paid for. `tools` are the
 /// function tools it may call while researching (see agentResearch.js);
 /// `env` names the research model.
-export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, authorize = null, harnessTools = false, allowSubagents = true, signal = null, usageContext = null }) {
+export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, authorize = null, harnessTools = false, allowSubagents = true, signal = null, usageContext = null, subagentPersistence = null }) {
   if (!provider) return { called: false, answer: null };
   if (signal?.aborted || (authorize && !await authorize())) return { called: false, answer: null, cancelled: true };
   const today = new Date().toISOString().slice(0, 10);
@@ -525,7 +525,7 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
   // caller's already scoped read tools; Simple and legacy agent calls stay put.
   const activeTools = { ...tools };
   if (harnessTools && allowSubagents) {
-    const delegate = agentSubagentTool({ provider, env, agent, parentInput: user, tools, language: readerLanguage, deadline, authorize, usageContext });
+    const delegate = agentSubagentTool({ provider, env, agent, parentInput: user, tools, language: readerLanguage, deadline, authorize, usageContext, persistence: subagentPersistence });
     if (delegate) activeTools.delegate_subagents = delegate;
   }
   // With OpenAI, a research loop: a reasoning model, web search, and our

@@ -3041,6 +3041,26 @@ CREATE TABLE IF NOT EXISTS hx_agent_tool_traces (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_tool_traces_access ON hx_agent_tool_traces(org_id, channel, agent_id, message_id);
 
+/* Private helper runs are visible only to the person who delegated them.
+   Keep the bounded final finding, never the full prompt or tool arguments. */
+CREATE TABLE IF NOT EXISTS hx_agent_subagent_runs (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  message_id TEXT NOT NULL REFERENCES channel_messages(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  run_by TEXT NOT NULL,
+  title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 120),
+  status TEXT NOT NULL CHECK(status IN ('queued','running','completed','failed','interrupted')),
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  elapsed_ms INTEGER CHECK(elapsed_ms IS NULL OR elapsed_ms BETWEEN 0 AND 30000),
+  result_json TEXT CHECK(result_json IS NULL OR length(result_json)<=12000),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_subagent_runs_message ON hx_agent_subagent_runs(org_id,message_id,run_by,created_at);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_subagent_runs_retention ON hx_agent_subagent_runs(org_id,created_at);
+
 CREATE TABLE IF NOT EXISTS hx_external_file_invites (
  id TEXT PRIMARY KEY,
  org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,

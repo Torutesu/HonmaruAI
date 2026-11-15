@@ -1262,6 +1262,36 @@ test('queued direct Agent status stays private until the caller has the current 
  expect((await hiddenSimple.json()).results).toEqual([{rowId:row.id,status:'unknown',answered:0}]);
 });
 
+test('private helper history is returned only to its requesting member',async()=>{
+ const {setMode}=await import('../src/harness/mode.js');const {postMessage}=await import('../src/channels.js');const {agentRequestStatement}=await import('../src/agentRequestDispatch.js');
+ await setMode(env.DB,ORG,'harness','8801');
+ const {agent}=await(await send('POST','/channels/agents',mika,{orgId:ORG,markdown:HAYAO})).json();
+ await send('PUT',`/hx/agents/${agent.id}/profile`,mika,{orgId:ORG,access:'everyone',people:[]});
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@hayao check the policy'});
+ await(await agentRequestStatement(env.DB,{orgId:ORG,row,sessionKey:'h1:private-helper-test',agentIds:[agent.id]})).run();
+ const helperStart=new Date(Date.now()-3000).toISOString(),helperEnd=new Date().toISOString();
+ await env.DB.prepare(`INSERT INTO hx_agent_subagent_runs(id,org_id,message_id,agent_id,channel,run_by,title,status,started_at,finished_at,elapsed_ms,result_json,created_at)
+   VALUES('helper-1',?1,?2,?3,'b:cafe','8802','Policy review','completed',?4,?5,3000,'{"result":"Private finding","sources":[]}',?4)`).bind(ORG,row.id,agent.id,helperStart,helperEnd).run();
+ const {agent:unrelated}=await(await send('POST','/channels/agents',toru,{orgId:ORG,markdown:HAYAO.replaceAll('Hayao','Unrelated').replaceAll('hayao','unrelated')})).json();
+ await env.DB.prepare(`INSERT INTO hx_agent_subagent_runs(id,org_id,message_id,agent_id,channel,run_by,title,status,started_at,created_at)
+   VALUES('helper-unrelated',?1,?2,?3,'b:cafe','8802','Unrelated private title','running',?4,?4)`).bind(ORG,row.id,unrelated.id,helperStart).run();
+ const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>Response.json({results:JSON.parse(init.body).rowIds.map(rowId=>({rowId,status:'finished',answered:1}))})})};
+ const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:row.id})}`;
+ const requester=await(await call(url,{headers:headers(mika)},{AGENT_RUNNER:runner})).json();
+ expect(requester.results[0].subagents).toEqual([expect.objectContaining({id:'helper-1',title:'Policy review',status:'completed',result:{result:'Private finding',sources:[]}})]);
+ const observer=await(await call(url,{headers:headers(kenji)},{AGENT_RUNNER:runner})).json();
+ expect(observer.results[0].subagents).toBeUndefined();
+ await send('PUT','/orgs/mode',toru,{orgId:ORG,mode:'simple'});
+ const simple=await(await call(url,{headers:headers(mika)},{AGENT_RUNNER:runner})).json();
+ expect(simple.results[0].subagents).toBeUndefined();
+ await setMode(env.DB,ORG,'harness','8801');
+ const staleStart=new Date(Date.now()-60000).toISOString();
+ await env.DB.prepare(`INSERT INTO hx_agent_subagent_runs(id,org_id,message_id,agent_id,channel,run_by,title,status,started_at,created_at)
+   VALUES('helper-stale',?1,?2,?3,'b:cafe','8802','Interrupted helper','running',?4,?4)`).bind(ORG,row.id,agent.id,staleStart).run();
+ const recovered=await(await call(url,{headers:headers(mika)},{AGENT_RUNNER:runner})).json();
+ expect(recovered.results[0].subagents.find(child=>child.id==='helper-stale')).toMatchObject({status:'interrupted'});
+});
+
 test('only the requester or agent manager can stop the observed assignment generation',async()=>{
  const f=await assignmentStatusFixture();
  const body={orgId:ORG,channel:'b:cafe',messageId:f.row.id,assignmentId:f.assignmentId,generation:1};

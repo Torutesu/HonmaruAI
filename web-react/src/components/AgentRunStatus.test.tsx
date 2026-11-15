@@ -106,6 +106,13 @@ test('uses agent identity images and emoji in assignments and handoff history', 
  act(() => tree.unmount())
 })
 
+test('shows requester-visible private helper status and saved findings',async()=>{
+ setup();vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({available:true,results:[{rowId:'one',status:'finished',answered:1,subagents:[{id:'child-1',title:'Check policy',status:'completed',startedAt:'2026-10-24T00:00:00Z',finishedAt:'2026-10-24T00:00:03Z',elapsedMs:3000,result:{result:'The policy is current.',sources:[{title:'Policy',url:'https://example.com/policy'}]}},{id:'child-2',title:'Check references',status:'running',startedAt:'2026-10-24T00:00:01Z'}]}]})}));
+ let tree!:ReturnType<typeof create>;await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/>)})
+ expect(JSON.stringify(tree.toJSON())).toContain('Private helper runs (2)');expect(JSON.stringify(tree.toJSON())).toContain('Helper completed');expect(JSON.stringify(tree.toJSON())).toContain('The policy is current.');expect(tree.root.findByProps({href:'https://example.com/policy'}).props.rel).toBe('noreferrer')
+ act(()=>tree.unmount())
+})
+
 test('shows live and completed agent work duration from the authorized assignment timestamps',async()=>{
  setup();vi.setSystemTime(new Date('2026-10-24T00:00:12Z'))
  let status:'running'|'finished'='running'
