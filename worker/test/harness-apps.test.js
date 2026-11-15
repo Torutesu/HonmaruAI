@@ -2978,6 +2978,27 @@ test('custom app publication and approval require the exact current preview data
  expect((await requestCustomApproval(path,app.version)).status).toBe(200);
 });
 
+test('custom release preview becomes stale after the live App database schema advances',async()=>{
+ const {app,path}=await customApprovalFixture();
+ const candidateId=await ensureCustomPreview(path,app.version,mika);
+ const before=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
+ expect(before.candidate).toMatchObject({id:candidateId,current:true});
+ const currentTable=await env.DB.prepare('SELECT columns FROM hx_tables WHERE org_id=?1 AND id=?2').bind(ORG,app.tableId).first();
+ const changedColumns=JSON.parse(currentTable.columns);changedColumns.push({id:'lifecycle_added',name:'Lifecycle added',type:'text'});
+ await env.DB.batch([
+  env.DB.prepare('UPDATE hx_tables SET columns=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify(changedColumns),ORG,app.tableId),
+  env.DB.prepare('UPDATE hx_app_database_state SET version=version+1 WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id),
+ ]);
+ const stale=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
+ expect(stale.candidate).toMatchObject({id:candidateId,current:false,staleReason:'database_schema_changed'});
+ const {previewCandidateExistsSql}=await import('../src/harness/customAppPreview.js');
+ const publicationGuard=previewCandidateExistsSql('?1','?2','?3','?4','?5');
+ const guarded=await env.DB.prepare(`SELECT ${publicationGuard} AS current`).bind(candidateId,app.id,ORG,app.version,stale.sourceHash).first();
+ expect(guarded.current).toBe(0);
+ expect((await send('POST',path,mika,{orgId:ORG,action:'request_approval',version:app.version,candidateId})).status).toBe(409);
+ expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version,candidateId})).status).toBe(409);
+});
+
 test('requester access loss between approval preflight and insert cannot leave a pending request',async()=>{
  const {app}=await customApprovalFixture();
  const current=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;

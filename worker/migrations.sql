@@ -629,6 +629,10 @@ INSERT OR IGNORE INTO hx_app_git_draft_watches(org_id,app_id,next_check_at) SELE
 CREATE TABLE IF NOT EXISTS hx_agent_memory_preferences (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, user_github_id TEXT NOT NULL, follow_across_conversations INTEGER NOT NULL DEFAULT 1 CHECK(follow_across_conversations IN (0,1)), updated_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,user_github_id));
 CREATE INDEX IF NOT EXISTS idx_hx_agent_memory_preferences_user ON hx_agent_memory_preferences(org_id,user_github_id,agent_id);
 
+-- #KY-051: bind a custom App preview approval to the exact validation DB schema.
+ALTER TABLE hx_app_preview_candidates ADD COLUMN schema_version INTEGER NOT NULL DEFAULT -1;
+ALTER TABLE hx_app_preview_candidates ADD COLUMN schema_snapshot TEXT NOT NULL DEFAULT '[]';
+
 -- #KY-059: pin paged Workflow App reads to one consistent row generation.
 ALTER TABLE hx_tables ADD COLUMN data_version INTEGER NOT NULL DEFAULT 0;
 CREATE TRIGGER IF NOT EXISTS hx_rows_data_version_insert AFTER INSERT ON hx_rows BEGIN UPDATE hx_tables SET data_version=data_version+1 WHERE org_id=NEW.org_id AND id=NEW.table_id AND (EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=NEW.org_id AND a.table_id=NEW.table_id) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=NEW.org_id AND e.table_id=NEW.table_id)); END;
