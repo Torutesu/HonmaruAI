@@ -1166,9 +1166,9 @@
         "remaining": "Room avatar updates, Thread activate/participants (thread replies already support file attachment IDs), File share approval/decline/revoke/purge from CLI (human-session login needed), Connections/Agents, Skill share/import links, browser/device auth, secure credential helper and Gateway repair/upgrade remain unimplemented. Complete JSON/exit-code behavior, user/Agent principal audit, SSO/IP restrictions, authenticated multi-user production acceptance and Kylon live comparison also remain.",
         "latestIncrement": {
           "reviewedAt": "2026-11-16",
-          "scope": "Added an explicit `honmaru workspace thread create` alias that creates a thread root through the existing idempotent send_message path, with attachment IDs, bounded to ten files, strict flags and requestId validation. No API, schema, service, paid contract or Simple-mode change.",
-          "verification": "CLI suite 64/64 passed locally; exact-head CI and production deployment pending.",
-          "remaining": "Thread activation/participants, human-session file approvals, room avatar, Connection/Agent management, skill sharing links, device auth, secure credential helper, and authenticated production/Kylon interaction comparison remain."
+          "scope": "Added explicit workspace thread-create plus file-conversation get/open aliases through scoped MCP tools. File thread creation reuses the deterministic existing root, revalidates current file and channel access, requires files:read plus chat:write to open and preserves private/DM scope boundaries; live participant updates follow normal channel message events. CLI strict flags and no-create-on-get behavior are covered. No schema, service, paid contract or Simple-mode change.",
+          "verification": "CLI suite 66/66 and Worker mcp-chat suite 52/52 passed locally; full Worker suite is running. Exact-head CI, merge and deployment pending.",
+          "remaining": "Thread activation/participants, human-session file approval/decline/revoke/purge, room avatar, Connection/Agent management, skill sharing links, device auth, secure credential helper, and authenticated production/Kylon interaction comparison remain."
         }
       }
     },

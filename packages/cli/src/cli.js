@@ -62,6 +62,7 @@ Usage:
   honmaru workspace reaction remove <message-id> --emoji EMOJI
   honmaru workspace thread get <room-id> <root-id> [--limit N] [--cursor CURSOR]
   honmaru workspace thread create <room-id> --text TEXT --request-id ID [--file-ids ID,...]
+  honmaru workspace file conversation get|open <file-id>
   honmaru workspace thread msg <room-id> <root-id> --text TEXT --request-id ID [--reply-to MESSAGE]
   honmaru workspace thread rename <room-id> <root-id> --title TITLE --version N
   honmaru workspace thread mute|unmute <room-id> <root-id>
@@ -783,6 +784,12 @@ async function resolveWorkspaceCommand(resource, operation, positional, options,
       for (const key of ["room", "instruction"]) if (!options[key]) throw new Error(`--${key} is required.`);
       const minutes = numberOption(options, "minutes", { min: 0.01, max: 525600, required: true });
       return { tool: "schedule_followup", args: { channel: options.room, instruction: options.instruction, minutes } };
+    }
+    case "file conversation": {
+      const [action, ...target] = positional;
+      if (!["get", "open"].includes(action)) throw new Error("Usage: honmaru workspace file conversation get|open <file-id>.");
+      onlyFlags(options, []); positionalCount(target, 1, `honmaru workspace file conversation ${action} <file-id>`);
+      return { tool: action === "get" ? "get_file_conversation" : "open_file_conversation", args: { fileId: target[0] } };
     }
     case "file list": {
       onlyFlags(options, ["scope", "query", "origin", "type", "createdBy", "since", "until", "directory", "directOnly", "includeDeleted", "order", "cursor", "limit"]);

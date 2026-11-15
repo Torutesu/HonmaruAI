@@ -398,6 +398,35 @@ test('old read/write scopes do not grant chat tools', async () => {
   await expect(call('list_conversations', {}, { ...actor, scopes: ['read', 'write'] })).rejects.toThrow('chat:read');
 });
 
+test('file conversations stay read-only until open, reuse one root, and keep the source audience', async () => {
+  const source = await seed('b:general', 'source');
+  const fileId = 'f_0123456789abcdef01234567';
+  await env.DB.prepare("INSERT INTO message_files(id,org_id,channel,message_id,uploader,name,type,size,created_at) VALUES(?1,?2,'b:general',?3,'alex','notes.txt','text/plain',4,?4)")
+    .bind(fileId, orgId, source.id, new Date().toISOString()).run();
+  const withFiles = { ...actor, scopes: [...actor.scopes, 'files:read'] };
+  const get = () => call('get_file_conversation', { fileId }, withFiles);
+  const open = () => call('open_file_conversation', { fileId }, withFiles);
+  expect(await get()).toMatchObject({ fileId, threadId: null, conversation: 'b:general' });
+  expect(await env.DB.prepare("SELECT COUNT(*) n FROM channel_messages WHERE org_id=?1 AND id LIKE 'file-thread-%'").bind(orgId).first('n')).toBe(0);
+  const first = await open();
+  const second = await open();
+  expect(first.threadId).toBe(`file-thread-${fileId}`);
+  expect(second.threadId).toBe(first.threadId);
+  expect((await get()).threadId).toBe(first.threadId);
+  expect(await env.DB.prepare("SELECT COUNT(*) n FROM channel_messages WHERE org_id=?1 AND id=?2").bind(orgId, first.threadId).first('n')).toBe(1);
+});
+
+test('file conversation tools enforce file and private-room scopes', async () => {
+  const source = await seed('b:private', 'secret source');
+  const fileId = 'f_1123456789abcdef01234567';
+  await env.DB.prepare("INSERT INTO message_files(id,org_id,channel,message_id,uploader,name,type,size,created_at) VALUES(?1,?2,'b:private',?3,'alex','secret.txt','text/plain',6,?4)")
+    .bind(fileId, orgId, source.id, new Date().toISOString()).run();
+  await expect(call('get_file_conversation', { fileId }, { ...actor, scopes: ['files:read'] })).rejects.toThrow('chat:private');
+  const privateActor = { ...actor, scopes: [...actor.scopes, 'files:read', 'chat:private'] };
+  expect((await call('open_file_conversation', { fileId }, privateActor)).conversation).toBe('b:private');
+  await expect(call('open_file_conversation', { fileId }, { ...privateActor, scopes: ['chat:write', 'chat:private'] })).rejects.toThrow('files:read');
+});
+
 test('MCP scheduled delivery rejects a padded case-variant guest membership', async () => {
   await env.DB.prepare("UPDATE memberships SET role=' gUeSt ' WHERE org_id=?1 AND user_github_id=?2").bind(orgId, actor.githubId).run();
   const result = await deliverMcpScheduledMessage(env, { org_id: orgId }, { user_id: actor.githubId, membership_since: (await env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(orgId, actor.githubId).first()).created_at });
