@@ -1725,11 +1725,14 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       let context = `Workflow: ${workflow.name}`;
       const next = workflow.steps[number];
       if (next?.type === 'connection' && next.source === 'remote_mcp') {
+        const tool = (await remoteMcpTools(db, orgId, { workflowWritable: true }).catch(() => []))
+          .find(item => item?._remote?.serverId === next.serverId && item?._remote?.toolName === next.toolName);
+        if (!tool) return { status: 'failed', error: 'The approved Remote MCP tool is no longer available. No request was sent.' };
         const args = renderRemoteMcpArguments(next.args, scope);
         const encodedArgs = JSON.stringify(args);
         if (new TextEncoder().encode(encodedArgs).length > 12_000)
           return { status: 'failed', error: 'The approved Remote MCP arguments are too large to show in full. No request was sent.' };
-        context = `Workflow: ${workflow.name}\nApproved next action: Remote MCP ${next.serverId}/${next.toolName}\nArguments: ${encodedArgs}`;
+        context = `Workflow: ${workflow.name}\nApproved next action: ${tool.title}\nArguments: ${encodedArgs}`;
       }
       const card = {
         id: `wf-${runId}-${number}`,
