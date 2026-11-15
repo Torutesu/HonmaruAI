@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:test';
 import {test,expect,beforeEach} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
-import {enqueueWorkflowProgram,settleWorkflowProgram,workflowProgramAccessCTE,workflowProgramJobAccess} from '../src/harness/workflowCodeJobs.js';
+import {enqueueWorkflowProgram,settleWorkflowProgram,workflowProgramAccessCTE,workflowProgramJobAccess,workflowProgramTrigger} from '../src/harness/workflowCodeJobs.js';
 import {ensureWorkflowSafety} from '../src/harness/workflowSafety.js';
 import {readExecution,cancelExecution,enqueueExecution} from '../src/harness/executions.js';
 import {expireGatewayJobs} from '../src/harness/gateways.js';
@@ -275,6 +275,22 @@ test('app record programs receive Kylon records and are fenced if the app become
  const response=await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['workflow-program-v1']})}),env,{waitUntil(){}});
  expect(response.status).toBe(200);expect((await response.json()).job).toBeNull();
  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(jobId).first()).status).toBe('failed');
+});
+test('TypeScript row triggers expose Kylon rows and preserve the original input',async()=>{
+ const input={tableId:'source-table',recordId:'row-42',row:{id:'row-42',__rowId:'row-42',title:'Open order',Title:'Open order',status:'open',updatedAt:'2026-11-15T00:00:00.000Z'}};
+ expect(workflowProgramTrigger('row',input)).toEqual({kind:'row',rows:[{event:'added',rowId:'row-42',title:'Open order',cells:{id:'row-42',title:'Open order',Title:'Open order',status:'open'}}],totalCount:1,truncated:false,input});
+ expect(workflowProgramTrigger('row',{...input,before:{id:'row-42'}}).rows[0].event).toBe('changed');
+ expect(workflowProgramTrigger('row',{tableId:'source-table',recordId:'row-42',event:'deleted',row:{id:'row-42'}})).toEqual({kind:'row',rows:[{event:'deleted',rowId:'row-42',title:null,cells:{}}],totalCount:1,truncated:false,input:{tableId:'source-table',recordId:'row-42',event:'deleted',row:{id:'row-42'}}});
+});
+test('queued row programs receive normalized SDK trigger fields',async()=>{
+ const input={tableId:'source-table',recordId:'row-42',row:{id:'row-42',__rowId:'row-42',title:'Open order',status:'open'}};
+ await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('source-table','program-org','Source','[]','program-owner','now','now')").run();
+ definition.trigger={type:'row',tableId:'source-table'};
+ await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=?1 WHERE run_id='program-run'").bind(JSON.stringify(definition)).run();
+ await env.DB.prepare("UPDATE hx_workflow_runs SET trigger='row',input=?1 WHERE id='program-run'").bind(JSON.stringify(input)).run();
+ const result=await enqueue();expect(result.status).toBe('pending');const {jobId}=result;
+ const payload=JSON.parse((await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(jobId).first()).payload);
+ expect(payload.context.trigger).toEqual(workflowProgramTrigger('row',input));
 });
 test('program output fails closed when its frozen definition is missing',async()=>{
  const {jobId}=await enqueue();
