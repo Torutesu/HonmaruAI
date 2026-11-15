@@ -188,10 +188,10 @@ On 2026-10-25 a later health check found the copied Node executable failing macO
 
 The TypeScript workflow editor and frozen-source execution are on production main. A program is the whole workflow: choose an execution node, save source, then run manually or use an existing supported trigger. Switching editor formats retains each draft. A run pins the saved immutable definition; later edits create a new revision. The module executes from the top, and exported functions are not invoked automatically. The production workflow chunk `HarnessWorkflows-D4Ouf3Mn.js` was served from `app.honmaruai.com` after main commit `a3b91f9681bc9c1a31fc2b72bd1c7b8d95a0e419`.
 
-The isolated guest exposes durable state, activation context, and bounded deterministic work helpers:
+The isolated guest exposes durable state, activation context, bounded deterministic work helpers, and an opt-in model call through the Worker broker:
 
 ```ts
-import {state, ctx, parallel, pipeline} from '@honmaru/workflow-sdk';
+import {state, ctx, parallel, pipeline, agent} from '@honmaru/workflow-sdk';
 const previous = await state.get();
 const items = previous.state?.items ?? [];
 const processed = await pipeline(items, validate, transform, {concurrency: 8, onError: (error, index, stage) => {
@@ -199,7 +199,12 @@ const processed = await pipeline(items, validate, transform, {concurrency: 8, on
 }});
 await state.set({items: processed}, {validationStatus: 'passed', schemaVersion: 'v1'});
 console.log({workspace: ctx.workspaceId});
+const decision = await agent('Classify the item', {agentId: 'agent-id', tier: 'medium', schema: {
+  type: 'object', properties: {label: {type: 'string'}}, required: ['label'], additionalProperties: false
+}});
 ```
+
+`agent(prompt, {agentId, schema, tier?})` calls only the selected workspace agent through the lease-bound `agent.invoke` broker and returns its schema-validated `output`. The optional tier is `low`, `medium` (default), or `high`. Prompts are non-empty and at most 12 KB; schemas are at most 16 KB and use a bounded JSON Schema subset (object/string/number/integer/boolean/null/array, limited properties/items/string and numeric bounds, and scalar enums). The isolated guest receives no host credentials or direct network capability; the Worker rechecks the agent authorization and output schema.
 
 `parallel` accepts up to 10,000 thunks and concurrency 1–32. `pipeline` accepts up to 10,000 items, 32 transformation stages, and concurrency 1–32. Both preserve item order; an item failure becomes `null`, reports its index through `onError`, and does not stop other items. A failed pipeline item is not sent to later stages. The gateway SDK contract and install snapshot have regression tests.
 
@@ -207,4 +212,4 @@ Read state before writing. The SDK carries a revision into compare-and-swap writ
 
 Programs can also read their explicitly selected App entities with `table.query()`. Row creation is opt-in per selected entity in the editor. `table.insert({entityId, values})` stages up to four strict-schema rows; no row is written while guest code is running. The Worker rechecks the frozen entity binding, active membership, App edit access, gateway lease and table schema, then commits the rows, watched row-event outbox entries, and successful run settlement in one D1 batch. A program failure, revoked grant or conflicting schema rolls back all staged rows. Updates, deletes, provider calls and general App/Connection proxies are not exposed by this write helper.
 
-The workflow-program guest is restricted to a 15-minute hard runtime cap, 48 KB saved source, a 64 KB combined execution payload, 128 KB state, 64 state operations and bounded logs. Gateway and activation checkpoint leases renew together while the workflow remains authorized; the Worker imposes a separate 30-second result-delivery grace period. Ordinary custom-app code remains capped at 60 seconds. Workflow programs have no outbound network, host files, host credentials, package installation, `agent()`, or Connection proxy. Paging/completeness policies and broad continuation recovery are also absent; this is not full Kylon SDK/runtime parity. The existing gateway service installs a fixed module snapshot and must be refreshed to receive code changes. In this environment, `container`, Docker, Podman and Lima executables were absent, so the physical Mac runtime could not execute the VM smoke test. Production Worker health and web bundle success do not prove a live TypeScript program run or a post-reboot node connection. No new paid service is required.
+The workflow-program guest is restricted to a 15-minute hard runtime cap, 48 KB saved source, a 64 KB combined execution payload, 128 KB state, 64 broker operations and bounded logs. Gateway and activation checkpoint leases renew together while the workflow remains authorized; the Worker imposes a separate 30-second result-delivery grace period. Ordinary custom-app code remains capped at 60 seconds. Workflow programs have no outbound network, host files, host credentials, package installation, or general Connection proxy. Paging/completeness policies and broad continuation recovery are also absent; this is not full Kylon SDK/runtime parity. The existing gateway service installs a fixed module snapshot and must be refreshed to receive code changes. In this environment, `container`, Docker, Podman and Lima executables were absent, so the physical Mac runtime could not execute the VM smoke test. Production Worker health and web bundle success do not prove a live TypeScript program run or a post-reboot node connection. No new paid service is required.

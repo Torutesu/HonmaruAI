@@ -5,6 +5,18 @@ import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable,normalizeWor
 test('guest cannot choose activation identity or call arbitrary host operations',()=>{
  for(const request of [{id:1,method:'shell',params:{}},{id:1,method:'state.get',params:{runId:'other'}},{id:1,method:'state.set',params:{state:{},expectedRevision:0,owner:'other'}},{id:65,method:'state.get',params:{}}])assert.throws(()=>validateStateRequest(request));
 });
+
+test('agent.invoke accepts only the bounded prompt, schema and tier contract',()=>{
+ const params={agentId:'agent-main',prompt:'Classify this item',schema:{type:'object',properties:{label:{type:'string',maxLength:40}},required:['label'],additionalProperties:false},tier:'high'};
+ assert.deepEqual(validateStateRequest({id:1,method:'agent.invoke',params}),{id:1,method:'agent.invoke',params});
+ for(const bad of [
+  {...params,extra:true},{...params,prompt:'x'.repeat(12001)},{...params,tier:'ultra'},
+  {...params,schema:{type:'object',properties:{},additionalProperties:true}},
+  {...params,schema:{type:'object',properties:{label:{type:'string',pattern:'x'}},additionalProperties:false}},
+ ]) assert.throws(()=>validateStateRequest({id:1,method:'agent.invoke',params:bad}));
+ assert.throws(()=>validateStateRequest({id:1,method:'agent.invoke',params:{...params,prompt:'  '}}));
+});
+
 test('broker serializes writes, rejects duplicate IDs and hides host error details',async()=>{
  const observed=[];let revision=0;
  const broker=createStateBroker(async(method,params)=>{observed.push(params.expectedRevision);if(params.expectedRevision!==revision)return {saved:false};await new Promise(resolve=>setTimeout(resolve,5));return {saved:true,revision:++revision};});
@@ -67,6 +79,22 @@ test('sendMessage stages bounded report drafts without posting or accepting arbi
   assert.throws(()=>normalizeWorkflowDraft('ok',{mention:['']}),/mention/);
   assert.throws(()=>normalizeWorkflowDraft('x'.repeat(12001)),/12 KB/);
  } finally { delete globalThis.__honmaruWorkflowTestBridge; }
+});
+
+
+test('agent SDK normalizes and dispatches the explicit agent.invoke contract',async()=>{
+ const requests=[],bridge={invokeAgent:async params=>{requests.push(params);return {output:{label:'urgent'}}}};
+ const {invokeWorkflowAgent,normalizeWorkflowAgentCall}=await import('../workflow-sdk.mjs');
+ const schema={type:'object',properties:{label:{type:'string'}},required:['label'],additionalProperties:false};
+ assert.deepEqual(await invokeWorkflowAgent('Classify',{agentId:'agent-main',schema,tier:'low'},bridge),{label:'urgent'});
+ assert.deepEqual(requests,[{agentId:'agent-main',prompt:'Classify',schema,tier:'low'}]);
+ assert.deepEqual(normalizeWorkflowAgentCall('Classify',{agentId:'agent-main',schema}),{agentId:'agent-main',prompt:'Classify',schema,tier:'medium'});
+ assert.throws(()=>normalizeWorkflowAgentCall('x'.repeat(12001),{agentId:'agent-main',schema}));
+ assert.throws(()=>normalizeWorkflowAgentCall('x',{agentId:'agent-main',schema,tier:'fast'}));
+ assert.throws(()=>normalizeWorkflowAgentCall('x',{agentId:'agent-main',schema:{type:'object',properties:{x:{type:'string',format:'email'}},additionalProperties:false}}));
+ assert.throws(()=>normalizeWorkflowAgentCall('あ'.repeat(5000),{agentId:'agent-main',schema}));
+ assert.throws(()=>normalizeWorkflowAgentCall('x',{agentId:'agent-main',schema:{type:'object',properties:{x:{type:'string',enum:['x'.repeat(16001)]}},additionalProperties:false}}));
+ await assert.rejects(()=>invokeWorkflowAgent('x',{agentId:'agent-main',schema},{}),/unavailable/);
 });
 
 test('table.query follows stable cursors and reports a bounded incomplete result',async()=>{

@@ -66,6 +66,56 @@ export function normalizeWorkflowDraft(text, options = {}) {
   return { text, ...(mention !== undefined ? { mention } : {}) };
 }
 
+// Keep this deliberately small JSON Schema subset aligned with the Worker.
+// The host broker repeats these checks; guest validation is for quick feedback.
+export function normalizeWorkflowAgentCall(prompt, options = {}) {
+  if (typeof prompt !== 'string' || !prompt.trim() || new TextEncoder().encode(prompt).length > 12000) throw Error('agent expects non-empty prompt up to 12 KB.');
+  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => !['agentId','schema','tier'].includes(key))) throw Error('Invalid agent options.');
+  if (typeof options.agentId !== 'string' || !options.agentId.trim() || options.agentId.length > 200) throw Error('Invalid agentId.');
+  const tier = options.tier === undefined ? 'medium' : options.tier;
+  if (!['high','medium','low'].includes(tier)) throw Error('Invalid agent tier.');
+  const schema = options.schema;
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) throw Error('agent requires a JSON Schema object.');
+  let encoded;
+  try { encoded = JSON.stringify(schema); } catch { throw Error('Invalid agent schema.'); }
+  if (new TextEncoder().encode(encoded).length > 16000) throw Error('Agent schema exceeds 16 KB.');
+  const cleanSchema = JSON.parse(encoded);
+  let nodes = 0;
+  const visit = (node, depth, root = false) => {
+    if (!node || typeof node !== 'object' || Array.isArray(node) || depth > 5 || ++nodes > 128) throw Error('Invalid agent schema.');
+    const allowed = ['type','properties','required','additionalProperties','items','maxItems','minLength','maxLength','minimum','maximum','enum'];
+    if (Object.keys(node).some(key => !allowed.includes(key))) throw Error('Unsupported agent schema keyword.');
+    if (typeof node.type !== 'string' || !['object','string','number','integer','boolean','null','array'].includes(node.type) || root && node.type !== 'object') throw Error('Unsupported agent schema type.');
+    if (node.enum !== undefined && (!Array.isArray(node.enum) || !node.enum.length || node.enum.length > 100 || node.enum.some(value => value !== null && !['string','number','boolean'].includes(typeof value) || typeof value === 'number' && !Number.isFinite(value)))) throw Error('Invalid agent schema enum.');
+    if (node.type === 'object') {
+      const props = node.properties;
+      if (!props || typeof props !== 'object' || Array.isArray(props) || Object.keys(props).length > 32 || node.additionalProperties !== false) throw Error('Agent object schemas require bounded properties and additionalProperties:false.');
+      if (Object.keys(props).some(key => !key || key.length > 100)) throw Error('Invalid agent schema property name.');
+      if (node.required !== undefined && (!Array.isArray(node.required) || node.required.length > 32 || new Set(node.required).size !== node.required.length || node.required.some(key => typeof key !== 'string' || !Object.hasOwn(props, key)))) throw Error('Invalid agent schema required fields.');
+      for (const value of Object.values(props)) visit(value, depth + 1);
+    } else if (node.properties !== undefined || node.required !== undefined || node.additionalProperties !== undefined) throw Error('Object schema keywords require type object.');
+    if (node.type === 'array') {
+      if (node.items === undefined) throw Error('Agent array schemas require items.');
+      if (node.maxItems !== undefined && (!Number.isSafeInteger(node.maxItems) || node.maxItems < 0 || node.maxItems > 100)) throw Error('Invalid agent schema maxItems.');
+      visit(node.items, depth + 1);
+    } else if (node.items !== undefined || node.maxItems !== undefined) throw Error('Array schema keywords require type array.');
+    for (const key of ['minLength','maxLength']) if (node[key] !== undefined && (!Number.isSafeInteger(node[key]) || node[key] < 0 || node[key] > 10000)) throw Error('Invalid agent schema string length.');
+    if (node.minLength !== undefined || node.maxLength !== undefined) if (node.type !== 'string' || node.minLength !== undefined && node.maxLength !== undefined && node.minLength > node.maxLength) throw Error('String length constraints require type string.');
+    for (const key of ['minimum','maximum']) if (node[key] !== undefined && (typeof node[key] !== 'number' || !Number.isFinite(node[key]))) throw Error('Invalid agent schema numeric bound.');
+    if (node.minimum !== undefined || node.maximum !== undefined) if (!['number','integer'].includes(node.type) || node.minimum !== undefined && node.maximum !== undefined && node.minimum > node.maximum) throw Error('Numeric bounds require number or integer type.');
+  };
+  visit(cleanSchema, 1, true);
+  return {agentId:options.agentId, prompt, schema:cleanSchema, tier};
+}
+
+export async function invokeWorkflowAgent(prompt, options = {}, bridge = undefined) {
+  const clean = normalizeWorkflowAgentCall(prompt, options);
+  if (typeof bridge?.invokeAgent !== 'function') throw Error('Workflow agent invocation is unavailable.');
+  const result = await bridge.invokeAgent(clean);
+  if (!result || !Object.hasOwn(result, 'output')) throw Error('Workflow agent returned an invalid result.');
+  return result.output;
+}
+
 export function normalizeWorkflowQueryOptions(options = {}) {
   if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => !['entityId','where','q','pageSize','maxPages','cursor'].includes(key))) throw Error('Invalid table query options.');
   if(options.entityId!==undefined&&(typeof options.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(options.entityId)))throw Error('Invalid App entity.');
@@ -137,7 +187,7 @@ export async function deleteWorkflowTableRow(input={},bridge=undefined) {
 }
 
 function workflowSdkBaseSource(bridgeExpression = 'undefined') {
-  return `const parallel=${parallel.toString()};\nconst pipeline=${pipeline.toString()};\nconst normalizeWorkflowDraft=${normalizeWorkflowDraft.toString()};\nconst workflowBridge=()=>${bridgeExpression};\nexport async function sendMessage(text,options={}){const draft=normalizeWorkflowDraft(text,options);const bridge=workflowBridge();if(typeof bridge?.stageMessage!==\"function\")throw Error(\"Workflow message staging is unavailable.\");return bridge.stageMessage(draft)}\nexport {parallel,pipeline};`;
+  return `const parallel=${parallel.toString()};\nconst pipeline=${pipeline.toString()};\nconst normalizeWorkflowDraft=${normalizeWorkflowDraft.toString()};\nconst normalizeWorkflowAgentCall=${normalizeWorkflowAgentCall.toString()};\nconst invokeWorkflowAgent=${invokeWorkflowAgent.toString()};\nconst workflowBridge=()=>${bridgeExpression};\nexport async function sendMessage(text,options={}){const draft=normalizeWorkflowDraft(text,options);const bridge=workflowBridge();if(typeof bridge?.stageMessage!==\"function\")throw Error(\"Workflow message staging is unavailable.\");return bridge.stageMessage(draft)}\nexport async function agent(prompt,options={}){return invokeWorkflowAgent(prompt,options,workflowBridge())}\nexport {parallel,pipeline};`;
 }
 
 export function workflowSdkSource(bridgeExpression = 'undefined') {

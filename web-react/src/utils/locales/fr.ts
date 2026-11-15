@@ -2291,6 +2291,9 @@ const table: Record<string, string> = {
   'I trust this Gateway to receive this server’s request data and credentials and make HTTPS requests.': 'J’autorise ce Gateway à recevoir les données et identifiants des requêtes de ce serveur et à envoyer les requêtes HTTPS.',
   'Confirm that this Gateway may receive this server’s request data and credentials.': 'Confirmez que ce Gateway peut recevoir les données et identifiants des requêtes de ce serveur.',
 
+  'Authorized Agents': 'Agents autorisés',
+  'Choose Agents that this program may call with agent(prompt, { agentId, schema }).': 'Choisissez les agents que ce programme peut appeler avec agent(prompt, { agentId, schema }).',
+  'Some selected Agents are unavailable. Repair the binding before saving.': 'Certains agents sélectionnés sont indisponibles. Corrigez la liaison avant l’enregistrement.',
 }
 
 export default table

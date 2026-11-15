@@ -326,6 +326,7 @@ ALTER TABLE hx_agent_assignments ADD COLUMN remote_stop_updated_at TEXT;
 CREATE TRIGGER IF NOT EXISTS hx_workflow_state_immutable BEFORE UPDATE ON hx_workflow_state_versions BEGIN SELECT RAISE(ABORT,'Workflow state versions are immutable'); END;
 
 CREATE TABLE IF NOT EXISTS hx_workflow_activations (org_id TEXT NOT NULL, job_id TEXT PRIMARY KEY REFERENCES hx_gateway_jobs(id) ON DELETE CASCADE, run_id TEXT NOT NULL REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, node_id TEXT NOT NULL, node_owner TEXT NOT NULL, node_attempt INTEGER NOT NULL CHECK(node_attempt>0), UNIQUE(org_id,run_id,node_id,node_attempt));
+CREATE TABLE IF NOT EXISTS hx_workflow_agent_invocations (org_id TEXT NOT NULL, job_id TEXT NOT NULL REFERENCES hx_gateway_jobs(id) ON DELETE CASCADE, id TEXT NOT NULL CHECK(length(id)=64), agent_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('running','complete','failed')), output TEXT, created_at TEXT NOT NULL, PRIMARY KEY(org_id,job_id,id), CHECK((status IN ('running','failed') AND output IS NULL) OR (status='complete' AND output IS NOT NULL)));
 
 -- Workspace file history, staged transfers and lifecycle recovery.
 CREATE TABLE IF NOT EXISTS hx_workspace_files ( org_id TEXT NOT NULL, id TEXT NOT NULL, scope TEXT NOT NULL, path TEXT NOT NULL, created_by TEXT NOT NULL, created_login TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, current_version INTEGER NOT NULL DEFAULT 0 CHECK(current_version>=0), PRIMARY KEY(org_id,id), UNIQUE(org_id,scope,path) );

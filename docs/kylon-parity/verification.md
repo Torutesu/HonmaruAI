@@ -1,5 +1,12 @@
 # 検証記録
 
+### 2026-11-15 — Workflow SDK Agent invocation (local QA)
+
+- Added `agent(prompt, { agentId, schema, tier? })` to the isolated Workflow TypeScript SDK. Saved programs must explicitly bind 1–20 Agents; save, view and enqueue paths validate current access, and the Worker rechecks the exact binding and live Agent/Workflow ACL before, during and after invocation. The guest cannot provide workspace, run, lease or replay identity.
+- Calls use the existing configured provider and Workflow/workspace AI budgets, record usage, run without tools or recursive Agent delegation, cap each completion at 25 seconds and each Gateway job at five distinct invocations, and validate bounded JSON Schema/output. A D1 invocation journal caches completed output for identical inputs; running or failed calls are not resent after an ambiguous result.
+- Added the Agent allowlist to the Workflow program editor and persisted `sourceAgents` bindings. No new provider/service or package was added; existing Simple mode is unchanged.
+- Focused Worker Workflow invocation/code-job/state/Gateway/migration suites passed **134/134**. Gateway bridge/guest tests passed **19/19**. The Workflow editor suite passed **8/8**, including explicit Agent binding persistence, and Web production build plus TypeScript check passed. Worker also enforces the 12 KB UTF-8 prompt limit and rechecks access after output validation immediately before result persistence. Exact-head CI, merge, deployment and authenticated production/Kylon acceptance are pending.
+
 ### 2026-11-14 — Thread Room audience archive/deletion fence (local QA)
 
 - Closed the stale-membership gap in Thread Room sharing. Both `externalThreadPermission` and every caller of the shared Thread audience SQL predicate now require the target Room to still exist, remain unarchived, and have no deletion tombstone. Existing Room memberships alone cannot preserve access after archive/delete.

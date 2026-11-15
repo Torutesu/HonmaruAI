@@ -3,13 +3,14 @@ import {activationScope} from './workflowActivationGuard.js';
 import {queryWorkflowTablePage} from './workflowTableQuery.js';
 import {workflowProgramSources} from './workflowProgramSources.js';
 import {mayEditApp,mayEditTable} from './resourceAccess.js';
+import {invokeWorkflowAgent} from './workflowAgentInvoke.js';
 
 // Node authentication must supply gatewayId. Request bodies never supply run,
 // checkpoint owner, attempt or workspace identity; the private binding does.
-export async function workflowActivationState(db,activation,method,params,at=Date.now()) {
+export async function workflowActivationState(db,activation,method,params,at=Date.now(),env=null) {
  activationScope(activation);
  if(!activation)throw Error('An authenticated activation is required.');
- const keys=method==='state.get'?['view','includeCurrentRun']:method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:method==='table.query'?['where','q','pageSize','cursor','entityId']:method==='table.insert'?['entityId','values']:method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:method==='table.delete'?['entityId','rowId','expectedUpdatedAt']:null;
+ const keys=method==='agent.invoke'?['agentId','prompt','schema','tier']:method==='state.get'?['view','includeCurrentRun']:method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:method==='table.query'?['where','q','pageSize','cursor','entityId']:method==='table.insert'?['entityId','values']:method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:method==='table.delete'?['entityId','rowId','expectedUpdatedAt']:null;
  if(!keys||!params||typeof params!=='object'||Array.isArray(params)||Object.keys(params).some(key=>!keys.includes(key)))return {error:'Invalid state operation.',status:400};
  const binding=await db.prepare(`SELECT a.org_id,a.run_id,a.node_id,a.node_owner,a.node_attempt,d.definition,r.workflow_id FROM hx_workflow_activations a
  JOIN hx_gateway_jobs j ON j.org_id=a.org_id AND j.id=a.job_id
@@ -19,6 +20,7 @@ export async function workflowActivationState(db,activation,method,params,at=Dat
  .bind(activation.jobId,activation.gatewayId,activation.leaseHash).first();
  if(!binding)return {error:'No active workflow execution.',status:409};
  const identity={orgId:binding.org_id,runId:binding.run_id,nodeId:binding.node_id,owner:binding.node_owner,attempt:binding.node_attempt,activation,at};
+ if(method==='agent.invoke')return await invokeWorkflowAgent(env,{db,activation,binding,identity,params,at});
  if(['table.query','table.insert','table.update','table.delete'].includes(method)){
   const authorized=await readWorkflowState(db,{...identity,view:'committed',includeCurrentRun:false});
   if(authorized.available===false)return {error:'Workflow execution is no longer authorized.',status:409};

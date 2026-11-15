@@ -50,12 +50,23 @@ test('Remote MCP Workflow steps choose an Agent-granted tool and store JSON argu
 
 test('app automation program editing uses the source editor without converting to a form step',async()=>{
  const step={type:'code' as const,code:'console.log("saved");',gatewayId:'mini'};
- const onChange=vi.fn(),api:any={gateways:vi.fn().mockResolvedValue({gateways:[{id:'mini',name:'Mac mini',revokedAt:null}]})};let tree:any;
+ const onChange=vi.fn(),api:any={gateways:vi.fn().mockResolvedValue({gateways:[{id:'mini',name:'Mac mini',revokedAt:null}]}),workflowAgents:vi.fn().mockResolvedValue({agents:[{id:'a1',handle:'policy',name:'Policy Agent'}]})};let tree:any;
  await act(async()=>{tree=create(<StepEditor api={api} step={step} onChange={onChange} onRemove={()=>{}} tables={[]} agents={[]}/>)});
  const source=tree.root.findByType('textarea');expect(source.props.value).toBe(step.code);
  act(()=>source.props.onChange({target:{value:'console.log("edited");'}}));
  expect(onChange).toHaveBeenCalledWith({...step,code:'console.log("edited");'});
  expect(tree.root.findAllByType('option').some((option:any)=>option.props.value==='post')).toBe(false);
+ act(()=>tree.unmount());
+});
+
+test('program editor persists only explicitly selected Agent bindings',async()=>{
+ const step={type:'code' as const,code:'const result = await agent("Review", {agentId:"a1",schema:{type:"object",properties:{ok:{type:"boolean"}},additionalProperties:false}});',gatewayId:'mini'};
+ const onChange=vi.fn(),api:any={gateways:vi.fn().mockResolvedValue({gateways:[{id:'mini',name:'Mac mini',revokedAt:null}]}),workflowAgents:vi.fn().mockResolvedValue({agents:[{id:'a1',handle:'policy',name:'Policy Agent'}]})};let tree:any;
+ await act(async()=>{tree=create(<StepEditor api={api} step={step} onChange={onChange} onRemove={()=>{}} tables={[]} agents={[]}/>) });
+ const binding=tree.root.findByProps({'aria-label':'Authorized Agents'}).findByType('input');
+ expect(binding.props.checked).toBe(false);
+ act(()=>binding.props.onChange({target:{checked:true}}));
+ expect(onChange).toHaveBeenCalledWith({...step,sourceAgents:['a1']});
  act(()=>tree.unmount());
 });
 
