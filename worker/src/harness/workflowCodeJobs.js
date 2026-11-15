@@ -12,6 +12,21 @@ const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('
 export const WORKFLOW_PROGRAM_TIMEOUT_MS=15*60*1000;
 export const WORKFLOW_PROGRAM_RESULT_GRACE_MS=30*1000;
 
+// Keep the saved Workflow's original input for compatibility while exposing
+// row triggers in the SDK shape used by Kylon's TypeScript runtime.
+export function workflowProgramTrigger(kind,input) {
+ if(kind==='app_record_change'&&Array.isArray(input?.records))return {kind,records:input.records,totalCount:input.totalCount??input.records.length,truncated:Boolean(input.truncated)};
+ if(kind==='row'){
+  const deleted=input?.event==='deleted';
+  const row=input?.row&&typeof input.row==='object'&&!Array.isArray(input.row)?input.row:{};
+  const rowId=typeof input?.recordId==='string'?input.recordId:typeof row.__rowId==='string'?row.__rowId:typeof row.id==='string'?row.id:null;
+  const title=deleted?null:[row.title,row.Title,row.name,row.Name].find(value=>typeof value==='string')??null;
+  const cells=deleted?{}:Object.fromEntries(Object.entries(row).filter(([key])=>!['__rowId','updatedAt'].includes(key)));
+  return {kind,rows:[{event:deleted?'deleted':input?.before?'changed':'added',rowId,title,cells}],totalCount:1,truncated:false,input};
+ }
+ return {kind,input};
+}
+
 // Evaluated inside claim/heartbeat/finish/expiry SQL, before a node receives
 // private workflow input. Ordinary jobs have neither marker nor binding.
 export function workflowProgramAccessCTE(at) {
@@ -58,7 +73,7 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  }
  const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,run.workflow_id).first();
  const input=run.input?JSON.parse(run.input):null;
- const trigger={kind:run.trigger,...(run.trigger==='app_record_change'&&input?.records?{records:input.records,totalCount:input.totalCount??input.records.length,truncated:Boolean(input.truncated)}:{input})};
+ const trigger=workflowProgramTrigger(run.trigger,input);
  const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSources:tableSources.map(item=>({appId:step.sourceAppId,entityId:item.entityId,tableId:item.tableId,...(item.write?{write:true}:{}),...(item.mutate?{mutate:true}:{})}))}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
  if(new TextEncoder().encode(payload).length>65536)return {status:'failed',error:'Workflow code and input exceed the execution limit.'};
  const nodeId='program',fingerprint=await digest(run.definition),lease=await claimWorkflowNode(db,{orgId,runId,nodeId,fingerprint,effect:true,at,ttl:300000});

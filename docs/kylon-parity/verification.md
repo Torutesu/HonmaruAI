@@ -22,6 +22,12 @@
 - Gateway **63/63**, focused Worker Workflow/table suites **204/204**, full Web **1,956/1,956**, Workflow editor/source tests **9/9** and Web production build passed locally. PR #915 exact-head CI run **43138768742** passed all jobs; squash merge commit `6184e93043cb0a98e210eb063442fb085a32105e`. Main CI **43141503880**, Worker migration/deploy/health **43141503812**, and Web deploy/asset verification **43141503866** succeeded. Worker `/health` returned `ok:true`; deployed Pages served its new JS asset.
 - KY-059 remains partial: `app()`, `agent()`, provider proxy, general Connection operations, historical row snapshots across pages, step-level external-effect reconciliation and authenticated saved-Workflow interaction/side-by-side Kylon acceptance remain unverified or absent.
 
+### 2026-11-15 — KY-059 row trigger context for TypeScript programs (candidate)
+
+- TypeScript programs now receive Kylon-shaped `ctx.trigger.rows` entries for row additions, changes and deletions, including `rowId`, a derived title and cell values. Deleted records expose no cell data. The existing `ctx.trigger.input` remains available for compatibility with saved programs.
+- The focused Worker `workflow-code-jobs.test.js` suite passed 47/47, including queue-payload delivery and all three event shapes. `node --check` and `git diff --check` passed. Initial local test startup was blocked by sandbox loopback/log permissions; the same local test passed after approved permission elevation.
+- This candidate is not yet merged or deployed. Exact-head CI and production acceptance remain pending. KY-059 remains partial; no new paid service or Simple-mode change.
+
 ### 2026-11-12 — KY-059 opt-in staged App row creation (local, not deployed)
 
 - Added `table.insert({entityId, values})` for App entities whose Workflow source explicitly enables row creation. Each activation can stage at most four strict-schema rows; the Worker rechecks current App/Table edit permission and exact source binding before committing.
