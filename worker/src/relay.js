@@ -44,6 +44,10 @@ import { TYPING_TYPES, TYPING_BUDGET, handleTyping } from "./typing.js";
 import { useSecretKey } from "./secrets.js";
 import { useMirrorEnv } from "./store/mirror.js";
 import { useMediaEnv } from "./mediaToken.js";
+import { browserConversationAllowed } from './harness/executions.js';
+import { mayUseConversation } from './harness/conversationAccess.js';
+import { allowed } from './permissions.js';
+import { getMode } from './harness/mode.js';
 
 /// Said to a client that tries to put an unposted daily report away.
 const DRAFT_MUST_POST = "This daily report is a draft: check it and post it to finish it.";
@@ -89,6 +93,30 @@ export class OrgRelay {
     // internal paths always carry one. Nothing here belongs to a default room.
     const orgId = url.searchParams.get("orgId");
     if (!orgId) return new Response("orgId is required", { status: 400 });
+
+    // Live desktop frames are transient. The node endpoint has already
+    // validated the running lease and browser authorization; this relay only
+    // forwards the bounded JPEG to currently authorized viewers.
+    if (url.pathname === '/desktop/frame' && request.headers.get("Upgrade") !== "websocket") {
+      if (request.method !== 'POST') return new Response('not found', { status: 404 });
+      let frame;
+      try { frame = await request.json(); } catch { return new Response('bad request', { status: 400 }); }
+      if (typeof frame?.jobId !== 'string' || frame.jobId.length > 80 || typeof frame.image !== 'string' || frame.image.length > 2_800_000 || !/^\/9j\/[A-Za-z0-9+/]+={0,2}$/.test(frame.image)) return new Response('bad request', { status: 400 });
+      const job = await this.db.prepare("SELECT id,org_id,created_by,payload FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2 AND status='running'").bind(orgId, frame.jobId).first();
+      if (!job || await getMode(this.db, orgId) !== 'harness') return new Response('not found', { status: 404 });
+      let payload;
+      try { payload = JSON.parse(job.payload); } catch { return new Response('not found', { status: 404 }); }
+      if (!await browserConversationAllowed(this.db, orgId, job.created_by, payload.browserContext)) return new Response('not found', { status: 404 });
+      let delivered = 0;
+      for (const ws of this.state.getWebSockets()) {
+        const att = ws.deserializeAttachment() || {};
+        if (ws.readyState !== 1 || att.orgId !== orgId || !att.authed || att.desktopJobId !== job.id ||
+            !(await allowed(this.db, orgId, att.githubId, 'harness.build')) ||
+            !(await mayUseConversation(this.db, orgId, att.githubId, payload.browserContext?.channel))) continue;
+        try { ws.send(JSON.stringify({ type: 'CUSTOM', name: 'browser_frame', value: { jobId: job.id, image: frame.image } })); delivered++; } catch {}
+      }
+      return Response.json({ delivered });
+    }
 
     // Cards written outside this object — a connector sync, which runs in the
     // Worker and writes straight to D1 — are announced through here so they
@@ -565,6 +593,24 @@ export class OrgRelay {
       for (const ev of presenceEvents(userId, "online")) this.broadcast(orgId, ev, ws);
       // Who is talking where, for the channels this person can see.
       for (const ev of await jamStatesFor(this, orgId, userId, String(session.github_id))) ws.send(JSON.stringify(ev));
+      return;
+    }
+
+    if (type === 'desktop_join') {
+      const jobId = typeof payload?.jobId === 'string' ? payload.jobId.slice(0, 80) : '';
+      const job = jobId ? await this.db.prepare("SELECT id,org_id,created_by,payload,status FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2 AND status='running'").bind(orgId, jobId).first() : null;
+      let jobPayload;
+      try { jobPayload = job ? JSON.parse(job.payload) : null; } catch { jobPayload = null; }
+      const context = jobPayload?.browserContext;
+      if (!job || jobPayload?.browserTools !== true || !(await allowed(this.db, orgId, att.githubId, 'harness.build')) ||
+          !(await browserConversationAllowed(this.db, orgId, job.created_by, context)) ||
+          !(await mayUseConversation(this.db, orgId, att.githubId, context.channel))) {
+        ws.serializeAttachment({ ...att, desktopJobId: null });
+        ws.send(JSON.stringify({ type: 'CUSTOM', name: 'browser_frame_unavailable', value: { jobId } }));
+        return;
+      }
+      ws.serializeAttachment({ ...att, desktopJobId: job.id });
+      ws.send(JSON.stringify({ type: 'CUSTOM', name: 'browser_frame_ready', value: { jobId: job.id } }));
       return;
     }
 

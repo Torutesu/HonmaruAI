@@ -65,6 +65,7 @@ import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
 import { appAccess, appPeopleAccess, hasExplicitAppPermission, mayEditApp, mayEditTable, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
 import { mayUseConversation, readableConversation } from './conversationAccess.js';
+import { browserConversationAllowed } from './executions.js';
 import { listMembers as memoryMembers } from '../team.js';
 import { createAgentAccessRequest, requestableAgentOptions, roomAgentAccessPlans } from './agentAccessRequests.js';
 import { clientAgentAvatarUrl } from '../agentAvatarAccess.js';
@@ -463,6 +464,21 @@ export async function handleHarness(request, env, url, context = {}) {
   const who = await member(env, request, orgId, { withMembership: aiConversationRequest || (parts[0] === 'skills' && parts[2] === 'shares' && request.method === 'POST' && (parts.length === 3 || (parts.length === 5 && parts[4] === 'revoke'))) || (parts[0] === 'apps' && parts[2] === 'conversation-notifications' && parts.length === 3) });
   if (who.denied) return who.denied;
   const me = who.session.github_id;
+  if (url.pathname === '/hx/browser-sessions') {
+    if (request.method !== 'GET') return json({ message: 'Method not allowed.' }, 405);
+    const channel = url.searchParams.get('channel') || '';
+    const threadId = url.searchParams.get('threadId') || '';
+    if (channel.length > 200 || threadId.length > 200 || !channel || !threadId || !(await allowed(env.DB, orgId, me, 'harness.build')) || !(await mayUseConversation(env.DB, orgId, me, channel))) return json({ sessions: [] });
+    const { results = [] } = await env.DB.prepare(`SELECT id,created_by,payload,created_at FROM hx_gateway_jobs WHERE org_id=?1 AND status='running'
+      AND json_extract(payload,'$.browserTools')=1 AND json_extract(payload,'$.browserContext.channel')=?2
+      AND json_extract(payload,'$.browserContext.threadId')=?3 ORDER BY started_at DESC LIMIT 10`).bind(orgId, channel, threadId).all();
+    const sessions=[];
+    for(const row of results){
+      let payload; try{payload=JSON.parse(row.payload)}catch{continue}
+      if(await browserConversationAllowed(env.DB,orgId,row.created_by,payload.browserContext))sessions.push({id:row.id,createdAt:row.created_at});
+    }
+    return json({ sessions });
+  }
   if (url.pathname === '/hx/agent-wake-grants') {
     if (request.method === 'GET') {
       const { results = [] } = await env.DB.prepare(`SELECT g.id,g.source_agent_id AS sourceAgentId,g.target_agent_id AS targetAgentId,

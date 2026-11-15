@@ -21,7 +21,7 @@ const failure = (message, status = 400) => json({ message }, status);
 const activeMember = `(EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND LOWER(TRIM(COALESCE(m.role,'guest'))) != 'guest') AND NOT EXISTS (SELECT 1 FROM hx_app_action_jobs j WHERE j.job_id=hx_gateway_jobs.id AND NOT EXISTS (SELECT 1 FROM hx_apps a LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=j.org_id AND a.id=j.app_id AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=hx_gateway_jobs.created_by))))`;
 
 
-export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp|progress|browser))\/?$/.test(pathname);
+export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp|progress|browser|browser-frame))\/?$/.test(pathname);
 
 const ACP_READ_ONLY_TOOLS = new Set(['list_apps','read_app','list_tables','query_rows','list_workflows','list_followups']);
 const acpReadTools = () => HARNESS_TOOLS.filter(tool => ACP_READ_ONLY_TOOLS.has(tool.name))
@@ -188,6 +188,21 @@ export async function handleGateways(request, env, url, input) {
       let payload;
       try { payload=JSON.parse(job.payload); } catch { return failure('Browser authorization is invalid.',400); }
       if (!(await acpBrowserAllowed(db,job,payload))) return failure('Isolated browser access was revoked or is no longer allowed.',403);
+      return json({ok:true});
+    }
+    if (parts[3] === 'browser-frame') {
+      if (typeof input?.image !== 'string' || input.image.length > 2_800_000 || !/^\/9j\/[A-Za-z0-9+/]+={0,2}$/.test(input.image)) return failure('Invalid browser frame.',413);
+      const job = await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by,gateway_id FROM hx_gateway_jobs WHERE ${guard}`)
+        .bind(parts[2],g.id,leaseHash,now()).first();
+      if (!job) return failure('Execution is no longer authorized.',409);
+      let payload;
+      try { payload=JSON.parse(job.payload); } catch { return failure('Browser authorization is invalid.',400); }
+      if (!(await acpBrowserAllowed(db,job,payload))) return failure('Isolated browser access was revoked or is no longer allowed.',403);
+      const relay=env.ORG_RELAY.get(env.ORG_RELAY.idFromName(job.org_id));
+      const response=await relay.fetch(`https://relay.invalid/desktop/frame?orgId=${encodeURIComponent(job.org_id)}`,{
+        method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jobId:parts[2],image:input.image})
+      });
+      if(!response.ok)return failure('The live desktop frame could not be delivered.',503);
       return json({ok:true});
     }
     if (parts[3] === 'mcp') {

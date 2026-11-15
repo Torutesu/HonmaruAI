@@ -528,6 +528,11 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
       if (type) wsClient.sendJam(type, payload)
     }
     window.addEventListener('honmaru:jam-send', jamSend)
+    const desktopJoin = (e: Event) => {
+      const { jobId } = (e as CustomEvent<{ jobId: string }>).detail || {}
+      if (jobId) wsClient.sendDesktopJoin(jobId)
+    }
+    window.addEventListener('honmaru:desktop-join', desktopJoin)
     const typingSend = (e: Event) => {
       const { channel, parentId, stop } = (e as CustomEvent<{ channel: string; parentId: string | null; stop: boolean }>).detail || {}
       if (channel) wsClient.sendTyping(channel, parentId ?? null, Boolean(stop))
@@ -536,6 +541,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     return () => {
       ignore = true
       window.removeEventListener('honmaru:jam-send', jamSend)
+      window.removeEventListener('honmaru:desktop-join', desktopJoin)
       window.removeEventListener('honmaru:typing-send', typingSend)
       wsClient.disconnect()
     }

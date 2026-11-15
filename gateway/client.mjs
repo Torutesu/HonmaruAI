@@ -68,7 +68,13 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
           browserCall: job.payload?.browserTools===true
             ? async (action,{signal}={}) => {
                 await call(`jobs/${job.id}/browser`,{lease:job.lease},{signal:signal||cancel.signal});
-                return runBrowser({workspaceId:job.payload.workspaceId,agentId:job.payload.browserIdentity,action,signal});
+                const browser={workspaceId:job.payload.workspaceId,agentId:job.payload.browserIdentity,signal};
+                const result=await runBrowser({...browser,action});
+                const frame=action?.type==='screenshot'&&typeof result?.image==='string'?result:await runBrowser({...browser,action:{type:'screenshot'}});
+                if(typeof frame?.image==='string'&&frame.image.length<=2_800_000){
+                  try{await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,image:frame.image},{signal:signal||cancel.signal});}catch{}
+                }
+                return result;
               }
             : undefined,
           onProgress: progress => call(`jobs/${job.id}/progress`,{lease:job.lease,progress},{signal:cancel.signal}),

@@ -224,6 +224,15 @@ test('each local browser action rechecks its leased Harness grant before touchin
  assert.ok(browserOptions.signal instanceof AbortSignal);
  assert.equal(calls.at(-1).path,'jobs/acp-browser/finish');
 });
+test('browser actions publish only bounded JPEG frames through the same execution lease',async()=>{
+ const calls=[];const browserActions=[];
+ await processOne(async(path,body)=>{calls.push({path,body});return path==='claim'?{job:{id:'acp-live',lease:'live-lease',payload:{acp:true,browserTools:true,agentKey:'codex',browserIdentity:'agent-1',workspaceId:'org-1',prompt:'Open the release notes'}}}:{ok:true};},{
+  runAcpAgent:async(_payload,{browserCall,signal})=>{await browserCall({type:'click',x:20,y:30},{signal});return {status:'succeeded',stdout:'{}',stderr:'',exitCode:0};},
+  runBrowser:async options=>{browserActions.push(options.action);return options.action.type==='screenshot'?{image:'/9j/AA=='}:{clicked:true};},
+ });
+ assert.deepEqual(browserActions,[{type:'click',x:20,y:30},{type:'screenshot'}]);
+ assert.deepEqual(calls.find(item=>item.path==='jobs/acp-live/browser-frame')?.body,{lease:'live-lease',image:'/9j/AA=='});
+});
 test('API request cancellation propagates into the host fetch',async()=>{
  const abort=new AbortController();let signal;
  const call=gatewayClient('https://example.com',token,async(_url,options)=>{signal=options.signal;return Response.json({ok:true});});
