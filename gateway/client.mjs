@@ -4,6 +4,7 @@ import { runIsolated } from './runner.mjs';
 import {runWorkflowIsolated,WORKFLOW_EXECUTION_TIMEOUT_MS} from './workflow-runner.mjs';
 import {runAcp,configuredAcpAgentIds} from './acp.mjs';
 import {runBrowserSessionAction} from './browser-session.mjs';
+import { requestRemoteMcp } from './remote-mcp-http.mjs';
 
 export function gatewayClient(baseUrl, token, fetcher = fetch) {
   const base = new URL(baseUrl);
@@ -24,6 +25,71 @@ export const FINISH_RETRY_MS = [1000, 2000, 4000, 8000, 15000, 15000, 15000];
 // Worth trying again: no answer at all (the network, a timeout), or the
 // server saying it could not take it just now.
 const transient = (error) => !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
+
+// Remote MCP requests are deliberately handled by this host-side HTTPS client;
+// code running in runner.mjs remains isolated with networking disabled.
+export async function processRemoteMcpEgressOne(call, { signal, request = requestRemoteMcp, heartbeatIntervalMs = 8000, retryMs = FINISH_RETRY_MS } = {}) {
+  const { job } = await call('remote-mcp/claim', {}, { signal });
+  if (!job) return false;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
+  let heartbeatBusy = false;
+  let leaseLost = false;
+  let lastHeartbeatAt = Date.now();
+  const heartbeat = setInterval(async () => {
+    if (heartbeatBusy || controller.signal.aborted) return;
+    heartbeatBusy = true;
+    try {
+      await call(`remote-mcp/jobs/${job.id}/heartbeat`, { lease: job.lease });
+      lastHeartbeatAt = Date.now();
+    } catch (error) {
+      if (!transient(error) || Date.now() - lastHeartbeatAt > 25_000) {
+        leaseLost = true;
+        controller.abort();
+      }
+    } finally { heartbeatBusy = false; }
+  }, heartbeatIntervalMs);
+  heartbeat.unref?.();
+  let result;
+  try {
+    try {
+      result = await request(job.request, { timeoutMs: Math.max(1000, Math.min(Number(job.timeoutMs) || 30_000, 30_000)), signal: controller.signal });
+      if (!result || !Number.isInteger(result.status) || typeof result.body !== 'string') throw new Error('Invalid Gateway response.');
+    } catch (error) {
+      if (leaseLost || signal?.aborted) return true;
+      // Keep local DNS/network details and request data out of Gateway logs and
+      // the relay; only a bounded generic failure crosses back to the Worker.
+      result = { error: error?.message === 'Remote MCP host resolved to a non-public address.'
+        ? 'Remote MCP host resolved to a non-public address.'
+        : 'Gateway could not complete the Remote MCP HTTPS request.' };
+    }
+  } finally { clearInterval(heartbeat); signal?.removeEventListener('abort', abort); }
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await call(`remote-mcp/jobs/${job.id}/finish`, { lease: job.lease, result }, { signal });
+      return true;
+    } catch (error) {
+      if (error.code === 'already_finished') return true;
+      if (!transient(error) || attempt >= retryMs.length || signal?.aborted) throw error;
+      try { await sleep(retryMs[attempt], undefined, { signal }); } catch { return true; }
+    }
+  }
+}
+
+export async function serveRemoteMcpEgress(call, { signal, onError = () => {}, once = false, intervalMs = 1000, ...options } = {}) {
+  while (!signal?.aborted) {
+    try { await processRemoteMcpEgressOne(call, { signal, ...options }); }
+    catch (error) {
+      if ([401, 403].includes(error.status)) throw error;
+      onError(error.status || 'remote-mcp-egress');
+    }
+    if (once) return;
+    try { await sleep(intervalMs, undefined, { signal }); } catch { return; }
+  }
+}
 
 export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, runBrowser = runBrowserSessionAction, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000, browserControlPollIntervalMs = 6000 } = {}) {
   const capabilities=['workflow-program-v1'];
@@ -138,28 +204,41 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
   } finally { clearInterval(heartbeat); signal?.removeEventListener('abort', abort); }
 }
 
-export async function serve(call, { signal, once = false, onError = () => {}, beforeClaim = async () => {}, document = null, documentRun = processDocumentOne, acpAgents = {} } = {}) {
+export async function serve(call, { signal, once = false, onError = () => {}, beforeClaim = async () => {}, document = null, documentRun = processDocumentOne, acpAgents = {}, enableRemoteMcpEgress = true } = {}) {
   let preferDocument=false;
-  while (!signal?.aborted) {
-    try {
-      await beforeClaim();
-      if (!signal?.aborted) {
-        const documentAttempt=async()=>{
-          if(!document)return false;
-          try{return await documentRun(document.call,{image:document.image,signal});}
-          catch(error){if([401,403].includes(error.status))throw error;onError(error.status||'document-runtime');return false;}
-        };
-        if(preferDocument){if(!await documentAttempt()&&!signal?.aborted)await processOne(call,{signal,acpAgents});}
-        else if(!await processOne(call,{signal,acpAgents})&&!signal?.aborted)await documentAttempt();
-        preferDocument=!preferDocument;
+  const egressStop = new AbortController();
+  const abortEgress = () => egressStop.abort();
+  signal?.addEventListener('abort', abortEgress, { once: true });
+  const egressPump = enableRemoteMcpEgress && !once ? serveRemoteMcpEgress(call, { signal: egressStop.signal, onError }).catch(error => {
+    if (![401, 403].includes(error.status)) onError(error.status || 'remote-mcp-egress');
+  }) : Promise.resolve();
+  try {
+    if (once) { egressStop.abort(); await egressPump; }
+    while (!signal?.aborted) {
+      try {
+        await beforeClaim();
+        if (!signal?.aborted) {
+          const documentAttempt=async()=>{
+            if(!document)return false;
+            try{return await documentRun(document.call,{image:document.image,signal});}
+            catch(error){if([401,403].includes(error.status))throw error;onError(error.status||'document-runtime');return false;}
+          };
+          if(preferDocument){if(!await documentAttempt()&&!signal?.aborted)await processOne(call,{signal,acpAgents});}
+          else if(!await processOne(call,{signal,acpAgents})&&!signal?.aborted)await documentAttempt();
+          preferDocument=!preferDocument;
+        }
       }
+      catch (error) {
+        // Authentication revocation is terminal. Never log the token or payload.
+        if ([401, 403].includes(error.status)) throw error;
+        onError(error.status || 'network');
+      }
+      if (once) return;
+      try { await sleep(5000, undefined, { signal }); } catch { return; }
     }
-    catch (error) {
-      // Authentication revocation is terminal. Never log the token or payload.
-      if ([401, 403].includes(error.status)) throw error;
-      onError(error.status || 'network');
-    }
-    if (once) return;
-    try { await sleep(5000, undefined, { signal }); } catch { return; }
+  } finally {
+    egressStop.abort();
+    await egressPump;
+    signal?.removeEventListener('abort', abortEgress);
   }
 }

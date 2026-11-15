@@ -8,9 +8,14 @@ import { remoteMcpOAuthAccessToken, remoteMcpOAuthStatus } from "../src/harness/
 
 const ORG = "personal:remote-mcp";
 let session;
-const call = (path, init) => worker.fetch(new Request(`https://example.com${path}`, init), env);
+let testEnv = env;
+let egressEnv = env;
+let gatewayPump = null;
+let gatewayPumpBusy = false;
+const call = (path, init) => worker.fetch(new Request(`https://example.com${path}`, init), testEnv);
 const headers = (token) => ({ "content-type": "application/json", "x-session-token": token });
 let seq = 0;
+let testGateway = null;
 const rpc = (token, method, params = {}) => call("/mcp", {
   method: "POST",
   headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${token}` },
@@ -21,11 +26,66 @@ const mint = async (scopes) => (await (await call("/tokens", {
 })).json()).token;
 
 beforeEach(async () => {
+  testEnv = { ...env, DATA_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))) };
+  egressEnv = testEnv;
   const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
   await upsertUser(env.DB, { githubId: "9551", login: "remote-admin", name: "Remote Admin" });
   await upsertMembership(env.DB, ORG, "9551", "admin");
   session = await createSession(env.DB, "9551", "gho_remote_admin");
+  const stored = await env.DB.prepare("SELECT id FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL ORDER BY created_at LIMIT 1").bind(ORG).first();
+  if (!testGateway || !stored || stored.id !== testGateway.id) {
+    const registration = await call("/gateways", { method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG, name: "Remote MCP test Gateway" }) });
+    if (registration.status === 201) testGateway = await registration.json();
+    else {
+      const active = await env.DB.prepare("SELECT id FROM hx_gateways WHERE org_id=?1 AND revoked_at IS NULL ORDER BY created_at LIMIT 1").bind(ORG).first();
+      testGateway = active ? { gateway: active, token: null } : null;
+    }
+  }
+  if (testGateway?.token) await call("/gateways/claim", { method: "POST", headers: { authorization: `Bearer ${testGateway.token}`, "content-type": "application/json" }, body: "{}" });
 });
+
+const gatewayTrust = () => ({ egressGatewayId: testGateway?.gateway?.id, confirmGatewayTrust: true });
+
+function activateRemoteFetchMock() {
+  fetchMock.activate();
+  if (gatewayPump || !testGateway?.token) return;
+  gatewayPump = setInterval(async () => {
+    if (gatewayPumpBusy) return;
+    gatewayPumpBusy = true;
+    try {
+      const nodeRequest = (path, body = {}) => worker.fetch(new Request(`https://example.com/gateways/${path}`, {
+        method: "POST", headers: { authorization: `Bearer ${testGateway.token}`, "content-type": "application/json" }, body: JSON.stringify(body),
+      }), egressEnv);
+      const claimed = await (await nodeRequest("remote-mcp/claim")).json();
+      if (!claimed.job) return;
+      const job = claimed.job;
+      let result;
+      try {
+        const response = await fetch(job.request.url, {
+          method: job.request.method,
+          headers: Object.fromEntries(job.request.headers.map(({ name, value }) => [name, value])),
+          ...(job.request.body == null ? {} : { body: job.request.body }),
+          redirect: "manual",
+        });
+        const responseHeaders = {};
+        for (const name of ["content-type", "mcp-session-id", "www-authenticate"]) {
+          const value = response.headers.get(name);
+          if (value) responseHeaders[name] = value;
+        }
+        result = { status: response.status, headers: responseHeaders, body: Buffer.from(await response.arrayBuffer()).toString("utf8") };
+      } catch { result = { error: "Gateway could not complete the Remote MCP HTTPS request." }; }
+      await nodeRequest(`remote-mcp/jobs/${job.id}/finish`, { lease: job.lease, result });
+    } catch { /* assertions below report any uncompleted relay request */ }
+    finally { gatewayPumpBusy = false; }
+  }, 250);
+}
+
+function deactivateRemoteFetchMock() {
+  if (gatewayPump) clearInterval(gatewayPump);
+  gatewayPump = null;
+  gatewayPumpBusy = false;
+  fetchMock.deactivate();
+}
 
 test("Remote MCP endpoint validation rejects local, insecure, IP-literal, special-use, and query-secret URLs", () => {
   expect(safeEndpoint("https://mcp.example.com/mcp")).toBe("https://mcp.example.com/mcp");
@@ -109,7 +169,7 @@ test("public MCP catalog lists only active latest public HTTPS Streamable HTTP s
     metadata: { nextCursor: "next-page-token" },
     } };
   });
-  fetchMock.activate();
+  activateRemoteFetchMock();
   try {
     const response = await call("/remote-mcp/registry?orgId=" + encodeURIComponent(ORG) + "&q=mcp-catalog-filter-check", { headers: headers(session) });
     expect(response.status).toBe(200);
@@ -124,7 +184,7 @@ test("public MCP catalog lists only active latest public HTTPS Streamable HTTP s
     expect(JSON.stringify(result)).not.toContain("Bearer {api_key}");
     expect(JSON.stringify(result)).not.toContain("token=secret");
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); }
+  } finally { deactivateRemoteFetchMock(); }
 });
 
 test("public MCP catalog requires a useful search query", async () => {
@@ -144,13 +204,13 @@ test("public MCP catalog can browse active listings without a search term", asyn
       expect(url.searchParams.get("version")).toBe("latest");
       return { statusCode: 200, data: { servers: [], metadata: { nextCursor: null } } };
     });
-  fetchMock.activate();
+  activateRemoteFetchMock();
   try {
     const response = await call(`/remote-mcp/registry?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ servers: [], nextCursor: null });
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); }
+  } finally { deactivateRemoteFetchMock(); }
 });
 
 test("public MCP catalog search is rate limited per signed-in member", async () => {
@@ -165,7 +225,7 @@ test("public MCP catalog search is rate limited per signed-in member", async () 
   fetchMock.get("https://registry.modelcontextprotocol.io")
     .intercept({ path: /^\/v0\.1\/servers\?/, method: "GET" })
     .reply(200, { servers: [], metadata: { nextCursor: null } });
-  fetchMock.activate();
+  activateRemoteFetchMock();
   try {
     const responses = [];
     for (let i = 0; i < 31; i += 1) {
@@ -175,12 +235,13 @@ test("public MCP catalog search is rate limited per signed-in member", async () 
     expect(responses[30].status).toBe(429);
     expect(responses[30].headers.get("retry-after")).toBeTruthy();
     fetchMock.assertNoPendingInterceptors();
-  } finally { fetchMock.deactivate(); vi.useRealTimers(); }
+  } finally { deactivateRemoteFetchMock(); vi.useRealTimers(); }
 });
 
 test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each member's token private", async () => {
   const { upsertUser, upsertMembership } = await import("../src/db.js");
   const secureEnv = { ...env, DATA_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))) };
+  egressEnv = secureEnv;
   const secureCall = (path, init) => worker.fetch(new Request(`https://example.com${path}`, init), secureEnv);
   await upsertUser(env.DB, { githubId: "9552", login: "remote-reader", name: "Remote Reader" });
   await upsertMembership(env.DB, ORG, "9552", "member");
@@ -188,7 +249,7 @@ test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each 
   const endpoint = "https://mcp-oauth.example.com/mcp";
   const serverRes = await secureCall("/remote-mcp", {
     method: "POST", headers: headers(session),
-    body: JSON.stringify({ orgId: ORG, name: "OAuth MCP", endpoint, authMode: "oauth", oauthRegistration: "auto", headers: [] }),
+    body: JSON.stringify({ orgId: ORG, name: "OAuth MCP", endpoint, authMode: "oauth", oauthRegistration: "auto", headers: [], ...gatewayTrust() }),
   });
   expect(serverRes.status).toBe(201);
   const { server } = await serverRes.json();
@@ -236,7 +297,7 @@ test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each 
       ? { access_token: "refreshed-user-token", refresh_token: "private-refresh-token", token_type: "Bearer", expires_in: 3600, scope: "files:read" }
       : { access_token: "private-user-token", refresh_token: "private-refresh-token", token_type: "Bearer", expires_in: 1, scope: "files:read" } };
   }).times(2);
-  fetchMock.activate();
+  activateRemoteFetchMock();
   try {
     const start = await secureCall(`/remote-mcp/${server.id}/oauth/start`, {
       method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG }),
@@ -302,18 +363,19 @@ test("OAuth Remote MCP uses PKCE, validates issuer and redirect, and keeps each 
     fetchMock.assertNoPendingInterceptors();
 
   } finally {
-    fetchMock.deactivate();
+    deactivateRemoteFetchMock();
   }
 });
 
 test("OAuth Remote MCP rejects a different resource identifier in protected-resource metadata", async () => {
   const secureEnv = { ...env, DATA_KEY: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))) };
+  egressEnv = secureEnv;
   const secureCall = (path, init) => worker.fetch(new Request(`https://example.com${path}`, init), secureEnv);
   await secureCall("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
   const endpoint = "https://mcp-resource-mismatch.example.com/mcp";
   const added = await secureCall("/remote-mcp", {
     method: "POST", headers: headers(session),
-    body: JSON.stringify({ orgId: ORG, name: "Mismatched OAuth MCP", endpoint, authMode: "oauth", oauthRegistration: "auto", headers: [] }),
+    body: JSON.stringify({ orgId: ORG, name: "Mismatched OAuth MCP", endpoint, authMode: "oauth", oauthRegistration: "auto", headers: [], ...gatewayTrust() }),
   });
   const { server } = await added.json();
   const mcp = fetchMock.get("https://mcp-resource-mismatch.example.com");
@@ -321,7 +383,7 @@ test("OAuth Remote MCP rejects a different resource identifier in protected-reso
     .reply(401, "", { "www-authenticate": 'Bearer resource_metadata="https://mcp-resource-mismatch.example.com/.well-known/oauth-protected-resource/mcp"' });
   mcp.intercept({ path: "/.well-known/oauth-protected-resource/mcp", method: "GET" })
     .reply(200, { resource: "https://mcp-resource-mismatch.example.com/", authorization_servers: ["https://auth-resource-mismatch.example.com"] });
-  fetchMock.activate();
+  activateRemoteFetchMock();
   try {
     const response = await secureCall(`/remote-mcp/${server.id}/oauth/start`, {
       method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG }),
@@ -330,33 +392,34 @@ test("OAuth Remote MCP rejects a different resource identifier in protected-reso
     expect(await response.json()).toMatchObject({ message: "The OAuth resource metadata does not identify the configured MCP server." });
     fetchMock.assertNoPendingInterceptors();
   } finally {
-    fetchMock.deactivate();
+    deactivateRemoteFetchMock();
   }
 });
 
 test("Remote MCP is Harness-only and does not save credentials without encryption", async () => {
-  const simple = await call(`/remote-mcp?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) });
+  const noKeyCall = (path, init) => worker.fetch(new Request(`https://example.com${path}`, init), env);
+  const simple = await noKeyCall(`/remote-mcp?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) });
   expect(simple.status).toBe(404);
-  await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  await noKeyCall("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
   const origin = "https://app.honmaruai.com";
-  const preflight = await call("/remote-mcp", {
+  const preflight = await noKeyCall("/remote-mcp", {
     method: "OPTIONS",
     headers: { origin, "access-control-request-method": "GET", "access-control-request-headers": "x-session-token" },
   });
   expect(preflight.headers.get("access-control-allow-origin")).toBe(origin);
   expect(preflight.headers.get("access-control-allow-headers")).toContain("x-session-token");
-  const listed = await call(`/remote-mcp?orgId=${encodeURIComponent(ORG)}`, { headers: { ...headers(session), origin } });
+  const listed = await noKeyCall(`/remote-mcp?orgId=${encodeURIComponent(ORG)}`, { headers: { ...headers(session), origin } });
   expect(listed.status).toBe(200);
   expect(listed.headers.get("access-control-allow-origin")).toBe(origin);
   expect((await listed.json()).servers).toEqual([]);
-  const rejected = await call("/remote-mcp", {
+  const rejected = await noKeyCall("/remote-mcp", {
     method: "POST", headers: headers(session),
-    body: JSON.stringify({ orgId: ORG, name: "Private MCP", endpoint: "https://mcp.example.com/mcp", headers: [{ name: "Authorization", value: "Bearer do-not-store" }] }),
+    body: JSON.stringify({ orgId: ORG, name: "Private MCP", endpoint: "https://mcp.example.com/mcp", headers: [{ name: "Authorization", value: "Bearer do-not-store" }], ...gatewayTrust() }),
   });
   expect(rejected.status).toBe(503);
-    const oauthRejected = await call("/remote-mcp", {
+    const oauthRejected = await noKeyCall("/remote-mcp", {
       method: "POST", headers: headers(session),
-      body: JSON.stringify({ orgId: ORG, name: "Private OAuth MCP", endpoint: "https://mcp.example.com/oauth", authMode: "oauth", headers: [] }),
+      body: JSON.stringify({ orgId: ORG, name: "Private OAuth MCP", endpoint: "https://mcp.example.com/oauth", authMode: "oauth", headers: [], ...gatewayTrust() }),
     });
     expect(oauthRejected.status).toBe(503);
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_remote_mcp_servers").first()).toMatchObject({ n: 0 });
@@ -366,7 +429,7 @@ test("an admin discovers a Remote MCP tool, allows it, and only execute-scoped a
   await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
   const addedResponse = await call("/remote-mcp", {
     method: "POST", headers: headers(session),
-    body: JSON.stringify({ orgId: ORG, name: "Public MCP", endpoint: "https://mcp.example.com/mcp", headers: [] }),
+    body: JSON.stringify({ orgId: ORG, name: "Public MCP", endpoint: "https://mcp.example.com/mcp", headers: [], ...gatewayTrust() }),
   });
   expect(addedResponse.status).toBe(201);
   const { server } = await addedResponse.json();
@@ -376,13 +439,13 @@ test("an admin discovers a Remote MCP tool, allows it, and only execute-scoped a
   endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "initialize" })
     .reply((opts) => ({ statusCode: 200, data: { jsonrpc: "2.0", id: mcpMessage(opts).id, result: { protocolVersion: "2025-06-18" } }, responseOptions: { headers: { "mcp-session-id": "session-test" } } })).times(2);
   endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "notifications/initialized" })
-    .reply(202, null).times(2);
+    .reply(204, null).times(2);
   endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "tools/list" })
     .reply((opts) => ({ statusCode: 200, data: { jsonrpc: "2.0", id: mcpMessage(opts).id, result: { tools: [{ name: "find_records", title: "Find records", description: "Search the approved knowledge base.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } }] } } }));
   endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "tools/call" })
     .reply((opts) => ({ statusCode: 200, data: { jsonrpc: "2.0", id: mcpMessage(opts).id, result: { content: [{ type: "text", text: "approved result" }] } } }));
 
-  fetchMock.activate();
+  activateRemoteFetchMock();
   try {
     const discovered = await call(`/remote-mcp/${server.id}/discover`, {
       method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG }),
@@ -406,7 +469,7 @@ test("an admin discovers a Remote MCP tool, allows it, and only execute-scoped a
     expect((await call(`/remote-mcp/${server.id}?orgId=${encodeURIComponent(ORG)}`, { method: "DELETE", headers: headers(session) })).status).toBe(200);
   } finally {
     fetchMock.assertNoPendingInterceptors();
-    fetchMock.deactivate();
+    deactivateRemoteFetchMock();
   }
 });
 
@@ -420,7 +483,7 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
   const { agent } = await madeAgent.json();
   const addedResponse = await call("/remote-mcp", {
     method: "POST", headers: headers(session),
-    body: JSON.stringify({ orgId: ORG, name: "Knowledge MCP", endpoint: "https://knowledge.example.com/mcp", headers: [] }),
+    body: JSON.stringify({ orgId: ORG, name: "Knowledge MCP", endpoint: "https://knowledge.example.com/mcp", headers: [], ...gatewayTrust() }),
   });
   expect(addedResponse.status).toBe(201);
   const { server } = await addedResponse.json();
@@ -452,7 +515,7 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
       return { statusCode: 200, data: { jsonrpc: "2.0", id: message(opts).id, result: { content: [{ type: "text", text: calls === 1 ? "approved policy result" : "revoked private result" }] } } };
     }).times(3);
 
-  fetchMock.activate();
+  activateRemoteFetchMock();
   try {
     const discovered = await call(`/remote-mcp/${server.id}/discover`, {
       method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG }),
@@ -465,7 +528,7 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
 
     let state = await (await call(`/hx/agents/${agent.id}/apps?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) })).json();
     expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: false, readOnlyToolCount: 2 }]);
-    let tools = await agentTools(env, { orgId: ORG, session: { github_id: "9551" }, personal: true, agentId: agent.id });
+    let tools = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: true, agentId: agent.id });
     expect(Object.keys(tools).filter((name) => name.startsWith("mcp_"))).toEqual([]);
 
     const otherId = "9552";
@@ -484,7 +547,7 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
     expect(granted.status).toBe(200);
     state = await granted.json();
     expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: true, readOnlyToolCount: 2 }]);
-    tools = await agentTools(env, { orgId: ORG, session: { github_id: "9551" }, personal: true, agentId: agent.id });
+    tools = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: true, agentId: agent.id });
     const readOnly = Object.keys(tools).find((name) => name.startsWith("mcp_"));
     expect(readOnly).toBeTruthy();
     expect(Object.keys(tools).some((name) => name.includes("delete_record"))).toBe(false);
@@ -502,11 +565,11 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
     state = await (await call(`/hx/agents/${agent.id}/apps?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) })).json();
     expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: true, readOnlyToolCount: 1 }]);
 
-    const shared = await agentTools(env, { orgId: ORG, session: { github_id: "9551" }, personal: false, agentId: agent.id });
+    const shared = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: false, agentId: agent.id });
     expect(Object.keys(shared).some((name) => name.startsWith("mcp_"))).toBe(false);
   } finally {
     fetchMock.assertNoPendingInterceptors();
-    fetchMock.deactivate();
+    deactivateRemoteFetchMock();
   }
 });
 
@@ -520,9 +583,9 @@ test("a mixed-case Guest cannot keep or reacquire a Remote MCP Agent grant", asy
     VALUES (?1,?2,'remote-guest-case','Remote Guest Case','Read only with permission.','team','remote-admin',?3,?3)`)
     .bind(ORG, agentId, createdAt).run();
   await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers
-    (id,org_id,name,endpoint,tools_json,allowed_tools,created_by,created_at,updated_at)
-    VALUES (?1,?2,'Read only','https://mcp.example.com/mcp',?3,'["read"]','9551',?4,?4)`)
-    .bind(serverId, ORG, JSON.stringify([{ name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]), createdAt).run();
+    (id,org_id,name,endpoint,tools_json,allowed_tools,created_by,created_at,updated_at,egress_gateway_id)
+    VALUES (?1,?2,'Read only','https://mcp.example.com/mcp',?3,'["read"]','9551',?4,?4,?5)`)
+    .bind(serverId, ORG, JSON.stringify([{ name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]), createdAt, testGateway?.gateway?.id).run();
 
   const { agentRemoteMcpConnections, mayUseAgentRemoteMcp, setAgentRemoteMcpConnection } = await import("../src/harness/agentRemoteMcp.js");
   const agentSession = { github_id: "9551" };
@@ -557,9 +620,9 @@ test("Remote MCP execution rechecks the requester's current Agent audience", asy
     VALUES (?1,?2,'remote-private','Private','Read only.','team','remote-admin',?3,?3)`)
     .bind(ORG, agentId, createdAt).run();
   await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers
-    (id,org_id,name,endpoint,tools_json,allowed_tools,created_by,created_at,updated_at)
-    VALUES (?1,?2,'Read only','https://mcp.example.com/mcp',?3,'["read"]','9551',?4,?4)`)
-    .bind(serverId, ORG, JSON.stringify([{ name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]), createdAt).run();
+    (id,org_id,name,endpoint,tools_json,allowed_tools,created_by,created_at,updated_at,egress_gateway_id)
+    VALUES (?1,?2,'Read only','https://mcp.example.com/mcp',?3,'["read"]','9551',?4,?4,?5)`)
+    .bind(serverId, ORG, JSON.stringify([{ name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]), createdAt, testGateway?.gateway?.id).run();
   await env.DB.prepare(`INSERT INTO hx_agent_remote_mcp_grants
     (org_id,agent_id,user_github_id,membership_since,server_id,created_at)
     SELECT ?1,?2,'9552',created_at,?3,?4 FROM memberships WHERE org_id=?1 AND user_github_id='9552'`)

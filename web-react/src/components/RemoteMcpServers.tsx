@@ -6,9 +6,11 @@ import './RemoteMcpServers.css'
 type RemoteTool = { name: string; title: string; description: string; inputSchema: Record<string, unknown> }
 type RemoteServer = {
   id: string; name: string; endpoint: string; hasAuthentication: boolean
+  egressGatewayId?: string | null; egressGatewayName?: string | null; egressGatewayOnline?: boolean
   authMode?: 'headers' | 'oauth'; oauthRegistration?: 'auto' | 'manual'; oauthConnected?: boolean
   tools: RemoteTool[]; allowedTools: string[]; writeTools?: string[]; connectedAt: string | null; createdAt: string
 }
+type EgressGateway = { id: string; name: string; online: boolean; lastSeenAt: number | null }
 type HeaderRow = { id: string; name: string; value: string; required?: boolean; description?: string }
 type RegistryServer = {
   name: string; title: string; description: string; version: string; endpoint: string
@@ -23,6 +25,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
   const t = useT()
   const [mode, setMode] = useState<'loading' | 'simple' | 'harness'>('loading')
   const [servers, setServers] = useState<RemoteServer[]>([])
+  const [gateways, setGateways] = useState<EgressGateway[]>([])
   const [canManage, setCanManage] = useState(false)
   const [expanded, setExpanded] = useState(true)
   const [name, setName] = useState('')
@@ -40,6 +43,10 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  const [egressGatewayId, setEgressGatewayId] = useState('')
+  const [confirmGatewayTrust, setConfirmGatewayTrust] = useState(false)
+  const [gatewayEdits, setGatewayEdits] = useState<Record<string, string>>({})
+  const [gatewayTrustEdits, setGatewayTrustEdits] = useState<Record<string, boolean>>({})
 
   const authHeaders = { 'content-type': 'application/json', 'x-session-token': sessionToken }
   const load = useCallback(async () => {
@@ -53,6 +60,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.message || t('Could not load Remote MCP servers.'))
       setServers(data.servers || [])
+      setGateways(data.gateways || [])
       setCanManage(Boolean(data.canManage))
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
   }, [httpBase, orgId, sessionToken, t])
@@ -101,11 +109,29 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
     try {
       await call('/remote-mcp', 'POST', {
         name, endpoint, authMode, oauthRegistration,
+        egressGatewayId, confirmGatewayTrust,
         ...(authMode === 'oauth' && oauthRegistration === 'manual' ? { oauthClientId, oauthClientSecret } : {}),
         headers: outgoing.map(({ name: headerName, value }) => ({ name: headerName, value })),
       })
-      setName(''); setEndpoint(''); setBearer(''); setHeaders([]); setAuthMode('headers'); setOauthRegistration('auto'); setOauthClientId(''); setOauthClientSecret('')
+      setName(''); setEndpoint(''); setBearer(''); setHeaders([]); setAuthMode('headers'); setOauthRegistration('auto'); setOauthClientId(''); setOauthClientSecret(''); setConfirmGatewayTrust(false)
       setNote(t('Server saved. Discover its tools to check the connection.'))
+      await load()
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setBusy(null) }
+  }
+
+  const assignGateway = async (server: RemoteServer) => {
+    const gatewayId = gatewayEdits[server.id] ?? server.egressGatewayId ?? ''
+    if (!gatewayId) { setError(t('Choose a connected Gateway before saving.')); return }
+    if (gatewayId !== server.egressGatewayId && !gatewayTrustEdits[server.id]) {
+      setError(t('Confirm that this Gateway may receive this server’s request data and credentials.'))
+      return
+    }
+    setBusy(`${server.id}:gateway`); setError(null); setNote(null)
+    try {
+      await call(`/remote-mcp/${encodeURIComponent(server.id)}/gateway`, 'PUT', { egressGatewayId: gatewayId, confirmGatewayTrust: true })
+      setGatewayTrustEdits(items => ({ ...items, [server.id]: false }))
+      setNote(t('Gateway assignment saved. The server connection needs to be checked again.'))
       await load()
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(null) }
@@ -236,6 +262,17 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
                 </div>
               </div>
               <code className="remote-mcp-endpoint">{server.endpoint}</code>
+              <div className="remote-mcp-subline">{t('Egress Gateway')}: {server.egressGatewayName || t('Not assigned')} · {server.egressGatewayId ? server.egressGatewayOnline ? t('Online') : t('Offline') : t('Required')}</div>
+              {canManage && <div className="remote-mcp-gateway-control">
+                <label>{t('Route requests through')}
+                  <select aria-label={t('Route requests through')} value={gatewayEdits[server.id] ?? server.egressGatewayId ?? ''} onChange={(event) => { setGatewayEdits(items => ({ ...items, [server.id]: event.target.value })); setGatewayTrustEdits(items => ({ ...items, [server.id]: false })) }}>
+                    <option value="">{t('Choose a connected Gateway')}</option>
+                    {gateways.map(gateway => <option key={gateway.id} value={gateway.id} disabled={!gateway.online}>{gateway.name} · {gateway.online ? t('Online') : t('Offline')}</option>)}
+                  </select>
+                </label>
+                {gatewayEdits[server.id] !== undefined && gatewayEdits[server.id] !== server.egressGatewayId && <label className="remote-mcp-toggle"><input type="checkbox" checked={Boolean(gatewayTrustEdits[server.id])} onChange={(event) => setGatewayTrustEdits(items => ({ ...items, [server.id]: event.target.checked }))} />{t('I trust this Gateway to receive this server’s request data and credentials and make HTTPS requests.')}</label>}
+                <button type="button" className="studio-btn" disabled={busy === `${server.id}:gateway` || !(gatewayEdits[server.id] ?? server.egressGatewayId) || gatewayEdits[server.id] !== server.egressGatewayId && !gatewayTrustEdits[server.id]} onClick={() => void assignGateway(server)}>{busy === `${server.id}:gateway` ? t('Saving…') : t('Save Gateway')}</button>
+              </div>}
               <div className="remote-mcp-subline">{server.authMode === 'oauth' ? t('Each member connects their own account · encrypted') : server.hasAuthentication ? t('Authentication saved · encrypted') : t('No authentication header')} · {t('{n} tools available', { n: server.tools.length })}</div>
               {server.tools.length > 0 && <div className="remote-mcp-tools">
                 {server.tools.map((tool) => {
@@ -258,7 +295,13 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
               <h3>{t('Add a server')}</h3>
               <label>{t('Display name')}<input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} required placeholder={t('e.g. Internal knowledge base')} /></label>
               <label>{t('Server URL')}<input type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} required placeholder="https://mcp.example.com/mcp" /></label>
-              <label>{t('Authentication')}<select value={authMode} onChange={(event) => setAuthMode(event.target.value as 'headers' | 'oauth')}>
+              <label>{t('Route requests through')}<select aria-label={t('Route requests through')} value={egressGatewayId} onChange={(event) => { setEgressGatewayId(event.target.value); setConfirmGatewayTrust(false) }} required>
+                <option value="">{t('Choose a connected Gateway')}</option>
+                {gateways.map(gateway => <option key={gateway.id} value={gateway.id} disabled={!gateway.online}>{gateway.name} · {gateway.online ? t('Online') : t('Offline')}</option>)}
+              </select></label>
+              <p className="remote-mcp-form-note">{t('The selected Mac Gateway resolves and pins the server IP for each HTTPS request. Requests fail closed if it is offline. The isolated app runner receives no network access.')}</p>
+              <label className="remote-mcp-toggle"><input type="checkbox" checked={confirmGatewayTrust} onChange={(event) => setConfirmGatewayTrust(event.target.checked)} required />{t('I trust this Gateway to receive this server’s request data and credentials and make HTTPS requests.')}</label>
+              <label>{t('Authentication')}<select aria-label={t('Authentication')} value={authMode} onChange={(event) => setAuthMode(event.target.value as 'headers' | 'oauth')}>
                 <option value="headers">{t('Bearer token or custom headers')}</option><option value="oauth">OAuth 2.1</option>
               </select></label>
               {authMode === 'oauth' ? <>
@@ -280,7 +323,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
                 </div>)}
                 {headers.length < 10 && <button type="button" className="remote-mcp-add-header" onClick={() => setHeaders((rows) => [...rows, { id: crypto.randomUUID(), name: '', value: '' }])}>+ {t('Add header')}</button>}
               </>}
-              <button type="submit" className="studio-btn primary remote-mcp-submit" disabled={busy === 'add' || !name.trim() || !endpoint.trim()}>
+              <button type="submit" className="studio-btn primary remote-mcp-submit" disabled={busy === 'add' || !name.trim() || !endpoint.trim() || !egressGatewayId || !confirmGatewayTrust || !gateways.some(gateway => gateway.id === egressGatewayId && gateway.online)}>
                 <Icon name="plug" size={14} /> {busy === 'add' ? t('Saving…') : t('Save server')}
               </button>
             </form>

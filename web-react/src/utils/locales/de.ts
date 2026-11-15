@@ -2279,6 +2279,18 @@ const table: Record<string, string> = {
   'Isolated browser access is available in Harness mode only.': 'Der isolierte Browser ist nur im Harness-Modus verfügbar.',
   'Page text, screenshots, and text entered by this agent are sent to the local ACP agent and its existing provider. Sign-ins persist in this agent’s isolated browser on the execution node.': 'Seitentext, Screenshots und von diesem Agent eingegebener Text werden an den lokalen ACP-Agent und seinen bestehenden Anbieter gesendet. Anmeldungen bleiben im isolierten Browser dieses Agents auf dem Ausführungsknoten gespeichert.',
 
+  'Egress Gateway': 'Ausgangs-Gateway',
+  'Not assigned': 'Nicht zugewiesen',
+  'Required': 'Erforderlich',
+  'Route requests through': 'Anfragen weiterleiten über',
+  'Choose a connected Gateway': 'Verbundenes Gateway auswählen',
+  'Save Gateway': 'Gateway speichern',
+  'Choose a connected Gateway before saving.': 'Wähle vor dem Speichern ein verbundenes Gateway aus.',
+  'Gateway assignment saved. The server connection needs to be checked again.': 'Gateway-Zuweisung gespeichert. Prüfe die Serververbindung erneut.',
+  'The selected Mac Gateway resolves and pins the server IP for each HTTPS request. Requests fail closed if it is offline. The isolated app runner receives no network access.': 'Das ausgewählte Mac-Gateway löst die Server-IP für jede HTTPS-Anfrage auf und fixiert sie. Bei Offline-Status werden Anfragen abgelehnt. Die isolierte App-Ausführung erhält keinen Netzwerkzugriff.',
+  'I trust this Gateway to receive this server’s request data and credentials and make HTTPS requests.': 'Ich vertraue diesem Gateway, die Anfragedaten und Zugangsdaten dieses Servers zu erhalten und HTTPS-Anfragen auszuführen.',
+  'Confirm that this Gateway may receive this server’s request data and credentials.': 'Bestätige, dass dieses Gateway die Anfragedaten und Zugangsdaten dieses Servers erhalten darf.',
+
 }
 
 export default table

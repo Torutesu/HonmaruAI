@@ -1512,7 +1512,9 @@ async function workflowAgentRemoteTools(env, { orgId, agentRow, owner, actorId, 
           login: actor.login,
           name: actor.name || actor.login,
           agentName: agentRow.handle || agentRow.name || 'Agent',
-        }, offered, args, { readOnlyOnly: true }).catch(() => null);
+        }, offered, args, { readOnlyOnly: true, authorization: {
+          kind: 'agent', agentId: agentRow.id, toolName: ref.toolName,
+        } }).catch(() => null);
         const allowedAfterCall = await workflowRemoteToolAllowed(env, orgId, agentRow.id, actorId, offered);
         authorizationTrace.record('connection', `${ref.serverId}/${ref.toolName}`, allowedAfterCall);
         if (!await authorizeAgent() || !allowedAfterCall) {
@@ -1633,7 +1635,9 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         const result = await callRemoteMcpTool(env, {
           orgId, githubId: String(actorId), login: actor.login, name: actor.name || actor.login,
           agentName: selectedAgent.handle || selectedAgent.name || 'Agent',
-        }, tool, args, { readOnlyOnly: !requiresApproval, requiresApproval }).catch(() => null);
+        }, tool, args, { readOnlyOnly: !requiresApproval, requiresApproval, authorization: {
+          kind: 'agent', agentId: step.agentId, toolName: step.toolName,
+        } }).catch(() => null);
         const allowedAfterCall = await authorize(authorizationTrace)
           && await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, tool, { requiresApproval });
         authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, allowedAfterCall);

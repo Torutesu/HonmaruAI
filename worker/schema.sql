@@ -2052,9 +2052,29 @@ CREATE TABLE IF NOT EXISTS hx_remote_mcp_servers (
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  connected_at TEXT
+  connected_at TEXT,
+  egress_gateway_id TEXT REFERENCES hx_gateways(id)
 );
 CREATE INDEX IF NOT EXISTS hx_remote_mcp_org ON hx_remote_mcp_servers(org_id, created_at);
+CREATE TABLE IF NOT EXISTS hx_remote_mcp_egress (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE,
+  gateway_id TEXT NOT NULL REFERENCES hx_gateways(id) ON DELETE CASCADE,
+  actor_id TEXT NOT NULL,
+  membership_since TEXT NOT NULL,
+  request TEXT NOT NULL,
+  response TEXT,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','cancelled')),
+  lease_hash TEXT,
+  lease_until INTEGER,
+  deadline INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hx_remote_mcp_egress_queue ON hx_remote_mcp_egress(gateway_id,status,created_at);
+CREATE INDEX IF NOT EXISTS hx_remote_mcp_egress_expiry ON hx_remote_mcp_egress(expires_at);
 CREATE TABLE IF NOT EXISTS hx_remote_mcp_oauth_credentials (
   org_id TEXT NOT NULL,
   server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE,

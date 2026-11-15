@@ -7,6 +7,7 @@ import { HARNESS_TOOLS, callHarnessTool } from './mcpTools.js';
 import { mayRunAgent } from './agents.js';
 import { getMode } from './mode.js';
 import { browserConversationAllowed } from './executions.js';
+import { handleRemoteMcpEgressNode, expireRemoteMcpEgress, cancelRemoteMcpEgressForGateway } from './remoteMcpEgress.js';
 // Outbound-only execution nodes. A node token grants access to one workspace's
 // assigned jobs, never to workspace files, agent memories or integration keys.
 import { member, json } from './routes.js';
@@ -21,7 +22,7 @@ const failure = (message, status = 400) => json({ message }, status);
 const activeMember = `(EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND LOWER(TRIM(COALESCE(m.role,'guest'))) != 'guest') AND NOT EXISTS (SELECT 1 FROM hx_app_action_jobs j WHERE j.job_id=hx_gateway_jobs.id AND NOT EXISTS (SELECT 1 FROM hx_apps a LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=j.org_id AND a.id=j.app_id AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=hx_gateway_jobs.created_by))))`;
 
 
-export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp|progress|browser|browser-frame))\/?$/.test(pathname);
+export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp|progress|browser|browser-frame)|remote-mcp\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish)))\/?$/.test(pathname);
 
 const ACP_READ_ONLY_TOOLS = new Set(['list_apps','read_app','list_tables','query_rows','list_workflows','list_followups']);
 const acpReadTools = () => HARNESS_TOOLS.filter(tool => ACP_READ_ONLY_TOOLS.has(tool.name))
@@ -74,6 +75,11 @@ async function acpBrowserAllowed(db, row, payload) {
 }
 
 export async function expireGatewayJobs(db, at = now(), env = null) {
+  if (env?.DATA_KEY) {
+    const { results: orgs = [] } = await db.prepare(`SELECT DISTINCT org_id AS id FROM hx_remote_mcp_egress
+      WHERE expires_at<=?1 OR deadline<=?1 ORDER BY org_id LIMIT 500`).bind(at).all();
+    for (const org of orgs) await expireRemoteMcpEgress(db, org.id, at);
+  }
   const result=await db.prepare(`${workflowProgramAccessCTE('?1')} UPDATE hx_gateway_jobs SET status = 'failed', finished_at = ?1, lease_hash = NULL,
     result = '{"error":"Execution lease or requester access expired."}'
     WHERE (status = 'running' AND (lease_until <= ?1 OR deadline <= ?1 OR NOT ${activeMember} OR NOT ${workflowProgramJobAccess}))
@@ -111,6 +117,9 @@ export async function handleGateways(request, env, url, input) {
     const at = now();
     await db.prepare('UPDATE hx_gateways SET last_seen_at = ?2 WHERE id = ?1').bind(g.id, at).run();
     await db.prepare('UPDATE hx_gateway_acp_agents SET last_seen_at=?2 WHERE gateway_id=?1').bind(g.id,at).run();
+    if (parts[1] === 'remote-mcp') {
+      return handleRemoteMcpEgressNode(request, env, url, input, { gateway: g, now: at });
+    }
     if (parts[1] === 'claim') {
       if (input?.acpAgents !== undefined) {
         if (!Array.isArray(input.acpAgents) || input.acpAgents.length > 20 || input.acpAgents.some(key => typeof key !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(key))) return failure('Invalid local ACP agent registration.');
@@ -376,6 +385,7 @@ export async function handleGateways(request, env, url, input) {
   if (parts[2] === 'revoke' && request.method === 'POST') {
     if (!admin) return failure('Only an administrator can revoke an execution node.', 403);
     const at = now();
+    await cancelRemoteMcpEgressForGateway(db, orgId, parts[1], at);
     const r = await db.batch([
       db.prepare('UPDATE hx_gateways SET revoked_at = ?3 WHERE org_id = ?1 AND id = ?2 AND revoked_at IS NULL').bind(orgId, parts[1], at),
       db.prepare("UPDATE hx_gateway_jobs SET status = 'cancelled', lease_hash = NULL, finished_at = ?3 WHERE org_id = ?1 AND gateway_id = ?2 AND status IN ('queued', 'running')").bind(orgId, parts[1], at),

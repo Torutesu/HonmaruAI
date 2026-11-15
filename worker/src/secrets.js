@@ -133,6 +133,7 @@ export const aad = {
   remoteMcpOAuthClient: (orgId, id) => `hx_remote_mcp_servers.oauth_client:${orgId}:${id}`,
   remoteMcpOAuthVerifier: (orgId, stateHash) => `hx_remote_mcp_oauth_states.code_verifier:${orgId}:${stateHash}`,
   remoteMcpOAuthCredential: (orgId, serverId, userId, membershipSince) => `hx_remote_mcp_oauth_credentials.credential:${orgId}:${serverId}:${userId}:${membershipSince}`,
+  remoteMcpEgress: (orgId, requestId, field) => `hx_remote_mcp_egress.${field}:${orgId}:${requestId}`,
 };
 
 // Values that mark a session without a GitHub token; not secrets.

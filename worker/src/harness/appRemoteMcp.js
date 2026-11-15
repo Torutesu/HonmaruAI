@@ -105,7 +105,9 @@ export async function invokeAppRemoteMcp(env, orgId, appId, viewerId, input) {
   const agentGrant = await agentRemoteMcpConnections(env.DB, { orgId, agentId: source.id, githubId: grant.ownerId });
   if (!tool || !agentGrant.find(item => item.serverId === serverId)?.tools?.some(item => item.name === toolName && item.enabled)) return err('The source Agent’s read-only access was revoked.', 403);
   const pseudoAgent = { orgId, githubId: grant.ownerId, login: owner.login, name: source.name || source.id, agentName: source.name || source.id };
-  const result = await callRemoteMcpTool(env, pseudoAgent, tool, input.args, { readOnlyOnly: true });
+  const result = await callRemoteMcpTool(env, pseudoAgent, tool, input.args, { readOnlyOnly: true, authorization: {
+    kind: 'app', agentId: source.id, toolName, appId, viewerId,
+  } });
   const [appStillAccessible, sourceAfter, sourceStillAccessible, grantAfter, ownerAfter, toolAfter, agentAfter] = await Promise.all([
     mayUseAppAsMember(env.DB, orgId, appId, viewerId),
     sourceAgent(env.DB, orgId, appId),

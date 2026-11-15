@@ -166,7 +166,9 @@ export async function agentTools(env, { orgId, session, language = "en", persona
             login: agentLogin || String(session.github_id),
             agentName: agentName || "Agent",
             name: agentLogin || String(session.github_id),
-          }, offered, args, { readOnlyOnly: true }).catch(() => null);
+          }, offered, args, { readOnlyOnly: true, authorization: {
+            kind: "agent", agentId, toolName: offered?._remote?.toolName,
+          } }).catch(() => null);
           if (!await mayUseAgentRemoteMcp(env, grant)) return "Not searched: Remote MCP access changed while the request was running; the result was discarded.";
           if (!result || result.isError) return "The connected Remote MCP source could not return a result.";
           const text = (Array.isArray(result.content) ? result.content : [])
