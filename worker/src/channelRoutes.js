@@ -829,7 +829,7 @@ async function runTeammate(env, { orgId, user, requesterId, resolved, row, membe
     }
     if (authorize && !await authorize()) return;
     started = await startTeammateRun(env, {
-      orgId, t, key: resolved.key, threadId: parentId || "-", where, askedBy: user.name || "a teammate",
+      orgId, t, key: resolved.key, threadId: parentId || "-", sourceThreadId: parentId || row.id, sourceMessageId: row.id, where, askedBy: user.name || "a teammate",
       transcript, request: [requestFor(taskText, agent),handoffInstruction].filter(Boolean).join('\n\n'), login: user.login, requesterId, roomHookSource: roomHookSource ? row.id : null, assignment:replyFence?{assignmentId:replyFence.assignmentId,generation:replyFence.generation,agentId:agent.id}:null,
     });
   } catch (err) {

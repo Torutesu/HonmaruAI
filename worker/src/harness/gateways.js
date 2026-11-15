@@ -6,6 +6,7 @@ import { enqueueExecution, jobView, readExecution, cancelExecution } from './exe
 import { HARNESS_TOOLS, callHarnessTool } from './mcpTools.js';
 import { mayRunAgent } from './agents.js';
 import { getMode } from './mode.js';
+import { browserConversationAllowed } from './executions.js';
 // Outbound-only execution nodes. A node token grants access to one workspace's
 // assigned jobs, never to workspace files, agent memories or integration keys.
 import { member, json } from './routes.js';
@@ -60,7 +61,8 @@ async function acpWorkspacePrincipal(db, row, payload) {
 async function acpBrowserAllowed(db, row, payload) {
   if (payload?.acp !== true || payload?.browserTools !== true || typeof payload.browserIdentity !== 'string' ||
       typeof payload.agentKey !== 'string' || await getMode(db, row.org_id) !== 'harness' ||
-      !(await allowed(db, row.org_id, row.created_by, 'harness.build'))) return false;
+      !(await allowed(db, row.org_id, row.created_by, 'harness.build')) ||
+      !(await browserConversationAllowed(db,row.org_id,row.created_by,payload.browserContext))) return false;
   const teammate = await db.prepare(`SELECT a.id,a.scope,a.owner_login,t.remote
     FROM ai_teammates t JOIN custom_agents a ON a.org_id=t.org_id AND a.id=t.agent_id
     WHERE t.org_id=?1 AND t.agent_id=?2 AND t.enabled=1 AND t.provider IN ('acp','hermes','grok-build','antigravity-cli')

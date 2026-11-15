@@ -638,23 +638,24 @@ const codex = {
   },
 };
 
-async function queueAcpPrompt(env, t, { orgId, requesterId, task, sessionId = null, context = [] }) {
+async function queueAcpPrompt(env, t, { orgId, requesterId, task, sessionId = null, context = [], conversation = null }) {
   const queued = await enqueueAcpExecution(env.DB, orgId, requesterId, {
     gatewayId: t.remote?.gatewayId, agentKey: t.remote?.agentKey, prompt: task, sessionId, context,
     agentId: t.agentId, workspaceTools: t.remote?.workspaceTools === true,
     browserTools: t.remote?.browserTools === true,
+    ...(conversation ? { conversationTask: true, browserContext: conversation } : {}),
   });
   if (queued.error) throw Object.assign(new Error(queued.error), { status: queued.status || 400 });
   return queued.job;
 }
 
 const acp = {
-  async start(t, { task, orgId, requesterId, env }) {
-    const job = await queueAcpPrompt(env, t, { orgId, requesterId, task });
+  async start(t, { task, orgId, requesterId, env, conversation }) {
+    const job = await queueAcpPrompt(env, t, { orgId, requesterId, task, conversation });
     return { remoteId: job.id, turn: null, tasks: 1 };
   },
-  async send(t, run, task, { orgId, requesterId, env, context = [] } = {}) {
-    const job = await queueAcpPrompt(env, t, { orgId, requesterId, task, sessionId: run.remote_turn, context });
+  async send(t, run, task, { orgId, requesterId, env, context = [], conversation = null } = {}) {
+    const job = await queueAcpPrompt(env, t, { orgId, requesterId, task, sessionId: run.remote_turn, context, conversation });
     return { remoteId: job.id, turn: run.remote_turn || null, tasks: 1 };
   },
   async read(t, run, { env } = {}) {
@@ -1019,7 +1020,7 @@ export async function teammateForAgent(db, orgId, agent, env = null) {
 
 /// @claude (or another) in a thread: new work for a new thread, the same
 /// work handed on for a follow-up. Returns the run to watch, or why not.
-export async function startTeammateRun(env, { orgId, t, key, threadId, where, askedBy, transcript, request, login, requesterId = login, onBehalfOf = null, roomHookSource = null, assignment = null, now = new Date() }) {
+export async function startTeammateRun(env, { orgId, t, key, threadId, sourceThreadId = null, sourceMessageId = null, where, askedBy, transcript, request, login, requesterId = login, onBehalfOf = null, roomHookSource = null, assignment = null, now = new Date() }) {
   const p = PROVIDERS[t.provider];
   const adapter = ADAPTERS[t.provider];
   if(assignment) {
@@ -1046,7 +1047,10 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
     if (!t.agentId || !await roomHookAgentAllowed(env.DB,orgId,roomHookSource,t.agentId)) return {refused:'notHere'};
   }
   if (existing && existing.status !== "failed" && existing.status !== "budget" && existing.status !== "starting") {
-    const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`, { env, orgId, requesterId, context: transcript });
+    const conversation = !roomHookSource && !assignment && sourceMessageId ? {
+      channel:key, threadId:sourceThreadId || threadId, sourceMessageId, requesterLogin:login,
+    } : null;
+    const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`, { env, orgId, requesterId, context: transcript, conversation });
     if (sent.busy) return { refused: "busy" };
     // The next answer is for whoever this turn was asked for.
     const advanced = await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_id = COALESCE(?10, remote_id), remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2, turn_version=turn_version+1, result_delivery_id=NULL, assignment_id=?7, assignment_generation=?8, assignment_agent_id=?9 WHERE id = ?1 RETURNING turn_version")
@@ -1082,6 +1086,7 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, where, as
     started = await adapter.start(t, {
       task: taskText({ where, askedBy, transcript, request: turnRequest }), title: `${where}: ${request}`.slice(0, 200),
       remaining, orgId, key, threadId, env, requesterId,
+      conversation: !roomHookSource && !assignment && sourceMessageId ? { channel:key, threadId:sourceThreadId || threadId, sourceMessageId, requesterLogin:login } : null,
     });
   } catch (err) {
     // Nothing started: the reservation goes, so the next mention can start one.
