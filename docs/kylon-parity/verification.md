@@ -4563,6 +4563,12 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Worker `harness-apps.test.js` passed **171/171**; Web `CustomApp.test.tsx` passed **20/20**; Web TypeScript and production build passed. Regression coverage includes publication, inherited release, replacement, unpublish, pending/approved/published review state and removal of sensitive approval fields. `node --check`, parity inventory, and `git diff --check` passed.
 - No schema migration, new paid service or Simple-mode behavior change. Exact-head CI, production release, direct rollback, runtime logs, environment-specific release history and authenticated Kylon comparison remain pending.
 
+### 2026-11-16 — Workflow table page snapshot consistency (combined PR #1037)
+
+- A query cursor now pins pages to one table data generation. Row insert/update/delete and moves between tables increment version counters through triggers; each page reads the counter and rows in one D1 batch and refuses a stale generation. Cursor payloads carry a Worker-signed HMAC, so the isolated Workflow SDK cannot edit the generation or offset. The cursor key stays in D1 KV and is never sent to the Gateway/guest.
+- Added a schema-only replay regression for all three triggers and a caller-tampered generation regression. On the combined tree, Worker workflow/MCP/App/table-query suites passed **386/386**, workflow query plus migration tests passed **77/77**, and Web `CustomApp.test.tsx` passed **20/20**. TypeScript/production build, `node --check`, parity inventory and `git diff --check` passed.
+- No new paid service or Simple-mode change. Exact-head CI, production release and authenticated Kylon comparison remain pending.
+
 ### 2026-11-16 — Remote MCP approval descriptor binding and localized release history (PR #1037 follow-up)
 
 - Security review found a pending approval could otherwise survive a same-name tool definition change. Approval now hashes the displayed name, title, description, input schema, annotations, and server/tool identity in addition to exact rendered arguments; dispatch fails closed if the reviewed descriptor changes. Regression coverage changes a schema-compatible tool description while approval is pending and proves no second MCP dispatch occurs.
