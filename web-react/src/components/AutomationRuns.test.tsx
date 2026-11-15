@@ -12,6 +12,20 @@ test('execution history loads on demand and exposes failed step details',async()
  expect(workflow).toHaveBeenCalledWith('wf');expect(JSON.stringify(tree.toJSON())).toContain('Permission revoked')
  act(()=>tree.unmount())
 })
+test('embedded automation history displays the shared seven-day overview',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[],summary:{windowStart:'2026-10-17T00:00:00Z',windowEnd:'2026-10-24T00:00:00Z',timezone:'UTC',windowHours:168,runCount:12,failedCount:2,completedDurationCount:10,typicalDurationMs:90000,usage:{trackedRuns:8,calls:5,inputTokens:100,outputTokens:50,unknownCalls:1,unpricedCalls:1,estimatedMicros:12345},truncated:false}});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>tree.root.findByType('button').props.onClick())
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain(t('Last 7 days'))
+ expect(text).toContain(t('Typical duration'))
+ expect(text).toContain(t('Estimated AI usage'))
+ expect(text).toContain(t('{count} failed runs',{count:'2'}))
+ expect(text).toContain(t('Provider-reported token estimate only. This is not provider credits or an invoice; unpriced and unreported usage is excluded.'))
+ expect(text).toContain(t('{count} unpriced calls',{count:'1'}))
+ expect(text).toContain(t('{count} calls with unknown token usage',{count:'1'}))
+ act(()=>tree.unmount())
+})
 test('execution history shows the workspace-resolved run actor',async()=>{
  const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-actor',startedAt:'2026-10-24T00:00:00Z',status:'done',startedByName:'Mika',log:[]}]});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})

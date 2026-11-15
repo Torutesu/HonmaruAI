@@ -772,8 +772,13 @@
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js; worker/src/harness/workflowInputPreview.js; web-react/src/screens/HarnessWorkflows.tsx",
-      "acceptance": "全ステップの入力出力・エラー・コスト・権限を追跡。失敗runから作成元スレッドを開き、再実行せず復旧を相談できる",
+      "acceptance": "全ステップの入力出力・エラー・コスト・権限を追跡。Workflow詳細とApp内Automation詳細の両方で過去7日間の実行数・失敗数・典型時間・推定AI使用量を表示する。失敗runから作成元スレッドを開き、再実行せず復旧を相談できる",
       "evidence": {
+        "embeddedAppSummary": {
+          "scope": "AppAutomationではGET /workflows/:idがすでに返す過去168時間のsummaryを履歴パネルに表示し、中央Harness Workflow詳細と同じ共有UIを使う。token usage/costは推定値であり請求額ではない旨、未価格/使用量不明件数も表示する。",
+          "localQA": "AutomationRuns, HarnessWorkflows and AppAutomations suites passed; full Web tests and production build passed. See docs/kylon-parity/verification.md.",
+          "remaining": "Exact-head CI, production release, authenticated Kylon visual comparison and acceptance are pending."
+        },
         "latestIncrement": {
           "base": "76db474ee0a4400e6adfc9b93b79dc562d40e433",
           "scope": "Run details now show bounded, sanitized definition-template previews, existing authorization trace events, and per-step AI token usage/estimated cost. Runtime-expanded records/messages/connection responses are not copied into previews; previews are capped at 1,200 bytes per step and 8 KB per run. Existing getRun ACL remains in force.",
