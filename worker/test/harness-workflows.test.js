@@ -268,6 +268,39 @@ test('workflow run history resolves actors to workspace names and omits raw user
   expect(detail.run).not.toHaveProperty('startedBy');
 });
 
+test('run history uses stable keyset pages, filters status on the server, and omits ACL-hidden rows', async () => {
+  const made = await send('POST', '/workflows', mika, { orgId: ORG, name: 'Paged history', trigger: { type: 'manual' }, steps: [{ type: 'post', channel: 'b:ops', text: 'History fixture.' }] });
+  const { workflow } = await made.json();
+  const startedAt = '2026-11-01T12:00:00.000Z';
+  const rows = [
+    ['run-a', 'done', {}], ['run-b', 'failed', {}], ['run-c', 'failed', {}],
+    ['run-hidden', 'failed', { tableId: 'missing-private-table' }],
+  ];
+  for (const [id, status, input] of rows) {
+    await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,started_at,finished_at)
+      VALUES(?1,?2,?3,'manual',?4,?5,'[]',?6,?6)`).bind(id, ORG, workflow.id, status, JSON.stringify(input), startedAt).run();
+  }
+
+  const firstResponse = await get(`/workflows/${workflow.id}/runs?${q({ orgId: ORG, limit: 2 })}`, mika);
+  expect(firstResponse.status).toBe(200);
+  const first = await firstResponse.json();
+  expect(first.runs.map(run => run.id)).toEqual(['run-c', 'run-b']);
+  expect(first).toMatchObject({ hasMore: true });
+  expect(first.nextCursor).toBeTruthy();
+  expect(first.nextCursor).not.toContain('run-hidden');
+
+  const second = await (await get(`/workflows/${workflow.id}/runs?${q({ orgId: ORG, limit: 2, cursor: first.nextCursor })}`, mika)).json();
+  expect(second.runs.map(run => run.id)).toEqual(['run-a']);
+  expect(second).toMatchObject({ hasMore: false, nextCursor: null });
+  expect(JSON.stringify([first, second])).not.toContain('missing-private-table');
+
+  const failed = await (await get(`/workflows/${workflow.id}/runs?${q({ orgId: ORG, limit: 1, status: 'failed' })}`, mika)).json();
+  expect(failed.runs.map(run => run.id)).toEqual(['run-c']);
+  expect(failed.hasMore).toBe(true);
+  expect((await get(`/workflows/${workflow.id}/runs?${q({ orgId: ORG, cursor: 'not-a-cursor' })}`, mika)).status).toBe(400);
+  expect((await get(`/workflows/${workflow.id}/runs?${q({ orgId: ORG, status: 'private' })}`, mika)).status).toBe(400);
+});
+
 test("a row turning overdue runs the workflow: it posts, waits on a person's approval, and goes on when approved", async () => {
   const made = await send("POST", "/workflows", mika, overdueFlow());
   expect(made.status).toBe(201);

@@ -746,7 +746,6 @@
         "reviewedAt": "2026-11-12",
         "inspectedMain": "6184e93043cb0a98e210eb063442fb085a32105e",
         "implementedScope": "The isolated TypeScript SDK provides table.query() for up to 20 explicitly bound entities in one saved App, opt-in table.insert() for row creation and a separate opt-in mutate grant for table.update()/table.delete(). A program may stage up to four combined row mutations and 24 KB. The Worker validates strict schema, exact App/entity/Table source, current membership and edit ACL, relation constraints, row expectedUpdatedAt and the captured table schema before applying. Successful program settlement commits all rows, watched-row outbox events, run state and checkpoint in one D1 batch; a failed mutation rolls the batch back. Legacy tableWrites insert results remain accepted for already-installed nodes. Reads use the activation-bound Worker broker; the VM has no direct network or database access. Reads validate current Workflow/source authority, exact App/entity/Table mapping, membership and App/Table visibility before and after each page. Multi-entity queries name entityId; cursors bind to App/entity/Table/filter and use an immutable createdAt/id keyset plus first-page snapshot cutoff. Page size is at most 100, SDK page count at most 32 and total read output at most 1 MB. Row-triggered programs expose ctx.trigger.rows with added/changed/deleted events, rowId, title and cells; deleted events contain no cell data, and the prior trigger.input remains available for saved-program compatibility. External effects remain at-most-once/unknown on ambiguous completion.",
-        "verified": "PR #915 head 037541fa095efe72939e7c802ed04c3cfee9f07f CI run 43138768742 passed all jobs. Focused local Worker Workflow/table suites passed 204/204, Gateway passed 63/63, full Web passed 1,956/1,956 and Web production build passed. The commit merged as 6184e93043cb0a98e210eb063442fb085a32105e; main CI 43141503880, Worker migration/deploy/health verification 43141503812 and Web build/deploy/asset verification 43141503866 succeeded. Health reported ok:true and the Pages deployment served the new JS asset. Exact evidence is recorded in verification.md.",
         "verified": "On 2026-11-15, workflow-code-jobs.test.js passed 47/47 in the isolated candidate branch, including queued-program delivery for normalized row triggers, added/changed/deleted shapes and deletion cell-data omission. Exact-head CI, merge, deployment, installed-node refresh and authenticated production acceptance are pending.",
         "remaining": "No app(), provider proxy or general Connection operations are exposed. Reads are limited to at most 20 explicitly bound entities from one App. Row values are live across pages (the cursor pins the creation-time scan boundary, not a historical row snapshot); a mutation/deletion during a long scan can change observed values. Per-step evidence/reconciliation and safe continuation after ambiguous external effects, Kylon's mention option format, installed-node refresh/reboot, authenticated production UI execution of a saved TypeScript Workflow, and broader continuation recovery remain open. Agent invocation is bounded and at-most-once for an activation input; it is not an exactly-once guarantee."
       }
@@ -772,7 +771,7 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
-      "code": "worker/src/harness/workflows.js; worker/src/harness/workflowInputPreview.js; web-react/src/screens/HarnessWorkflows.tsx",
+      "code": "worker/src/harness/workflows.js; worker/src/harness/routes.js; web-react/src/components/AutomationRuns.tsx; web-react/src/utils/harness.ts",
       "acceptance": "全ステップの入力出力・エラー・コスト・権限を追跡。Workflow詳細とApp内Automation詳細の両方で過去7日間の実行数・失敗数・典型時間・推定AI使用量を表示する。失敗runから作成元スレッドを開き、再実行せず復旧を相談できる",
       "evidence": {
         "embeddedAppSummary": {
@@ -781,10 +780,9 @@
           "remaining": "Exact-head CI, production release, authenticated Kylon visual comparison and acceptance are pending."
         },
         "latestIncrement": {
-          "base": "76db474ee0a4400e6adfc9b93b79dc562d40e433",
-          "scope": "Run details now show bounded, sanitized definition-template previews, existing authorization trace events, and per-step AI token usage/estimated cost. Runtime-expanded records/messages/connection responses are not copied into previews; previews are capped at 1,200 bytes per step and 8 KB per run. Existing getRun ACL remains in force.",
-          "localQA": "Worker workflow/input-preview/authorization/usage suites passed 153 tests; Web HarnessWorkflows passed within the 157-test focused batch; TypeScript and Web production build passed. PR exact-head CI 43345382463 passed all required jobs; main CI 43347623523 passed; Worker migration/deploy/Verify 43347623374 and Web Pages/domain Verify 43347623133 passed. Worker health reports encryption.all=true; the deployed app asset is index-D4wM6RDL.js.",
-          "remaining": "Run-level input context is not captured; authenticated production/Kylon parity acceptance and trigger-specific template visibility remain open."
+          "scope": "GET /workflows/:id/runs now supports stable keyset pagination (1–100 rows), server-side status filtering, and an opaque cursor anchored only to the last visible run. ACL-hidden runs are checked and omitted from both results and cursor state. AutomationRuns appends older pages and restarts from page one when the failed-only filter changes.",
+          "localQA": "Worker harness-workflows suite includes stable tie ordering, page continuation, server-side failed filtering, ACL-hidden row omission, and invalid cursor/status coverage. Web AutomationRuns, AppAutomations, and API suites passed 67 tests. The production build passed before a final fixture-only Worker test correction; Worker suite rerun is in progress. See docs/kylon-parity/verification.md.",
+          "remaining": "Exact-head CI, production release, authenticated Kylon visual comparison, and production acceptance remain pending. Run-level input context and full effect traces are not captured."
         }
       }
     },
@@ -1068,7 +1066,11 @@
           "scope": "PR #1015 merged as 429e306c refuses HTTPS-to-HTTP redirects and strips Authorization, Cookie and Proxy-Authorization headers before following a cross-origin redirect. Per-hop URL checks and manual redirect handling remain in place.",
           "verification": "Worker links, preview and SSO suites passed 34/34. Exact-head CI #43680371839 succeeded; PR #1015 merged as 429e306c. Main CI and Worker/Web production deployment succeeded; production app and Worker health returned HTTP 200/ok.",
           "runtimeEvidence": "Cloudflare Workers Request API documents resolveOverride as limited to hosts in the Worker's zone. The TCP Sockets API accepts hostnames or addresses and secure transport but documents no TLS server-name override to pin an IP while verifying the original hostname.",
-          "sources": ["https://developers.cloudflare.com/workers/runtime-apis/request/", "https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/", "https://developers.cloudflare.com/workers/platform/known-issues/"],
+          "sources": [
+            "https://developers.cloudflare.com/workers/runtime-apis/request/",
+            "https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/",
+            "https://developers.cloudflare.com/workers/platform/known-issues/"
+          ],
           "remaining": "DNS rebinding remains open because Worker fetch cannot pin the resolved peer IP. A Mac mini Gateway relay would need to preserve the existing secret boundary: remote MCP credentials must not be copied into Gateway jobs without an explicit trusted-node design and user-visible scope. Any relay must be tenant scoped and fail closed while offline; direct Worker fetch must not be a fallback. Arbitrary external connections, full App/workflow principal administration, all Kylon operation categories and authenticated operation comparison remain incomplete."
         },
         "gatewayEgress": {
@@ -1502,8 +1504,7 @@
         "verified": "Kylon公式changelogはGrok Bot desktop appをworkspace teammateへ接続する経路を説明。xAI公式routine docsはWebhookを入力トリガーとして説明し、HTTP 200が受付であって完了ではないことを明記。xAI公式computer/apps docsはGrok BotのRemote HTTPS custom MCP connectorを説明。Honmaruは既存routine webhook、暗号化保存、ワンタイムtoken、元threadへの結果配信、取消/期限処理とStreamable HTTP MCP completion toolを実装。PR #922 merged as f8ebc6b3; exact-head/main CI, Worker migration/deploy/health, Web deploy/domain checks succeeded. Production health and read-only MCP tools/list were verified. No external Grok Bot mutation was called.",
         "remaining": "Grok Bot実画面でRemote HTTPS connectorの登録とroutineからのtool呼び出しを未確認。実アカウントでの外部実行・進捗とKylon UI/操作比較も未確認。Webhookキー・URL設定から完了MCP登録までのユーザー導線を実画面で検証し、実際のGrok Bot互換性を確認する。"
       }
-    }
-    ,
+    },
     {
       "id": "KY-120",
       "category": "Agents",

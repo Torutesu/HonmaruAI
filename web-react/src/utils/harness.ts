@@ -110,6 +110,7 @@ export interface RunUsageCounters { calls:number; inputTokens:number; outputToke
 export interface RunUsage extends RunUsageCounters { coverage:'priced-token-estimate'; estimatedUsd:number; steps:Array<RunUsageCounters & {stepNumber:number}> }
 export interface WorkflowRunSummary { windowStart:string; windowEnd:string; timezone:'UTC'; windowHours:168; runCount:number; failedCount:number; completedDurationCount:number; typicalDurationMs:number|null; usage:{trackedRuns:number;calls:number;inputTokens:number;outputTokens:number;unknownCalls:number;unpricedCalls:number;estimatedMicros:number}; truncated:boolean }
 export interface Run { definitionRevision?:number|null; definitionSnapshotAvailable?:boolean; usage?:RunUsage; startedByName?:string; id: string; trigger: string; status: string; log: RunLog[]; startedAt: string; finishedAt: string | null; cardId: string | null }
+export interface WorkflowRunPage { runs: Run[]; hasMore: boolean; nextCursor: string | null }
 export interface Followup { id: string; threadId?: string | null; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null; result?: string | null; doneAt?: string | null; claimedAt?: string | null }
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null; acpAgents?: string[] }
 export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }
@@ -243,6 +244,9 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     restoreWorkflowRevision: (id:string,input:{revision:number;expectedUpdatedAt:string;confirmAutoPaused?:boolean}) => call<WorkflowRevisionRestore>('POST',`/workflows/${id}/rollback`,input),
     workflows: () => call<{ workflows: Workflow[] }>('GET', '/workflows'),
     workflow: (id: string, heldOffset = 0) => call<{ workflow: Workflow; runs: Run[]; summary: WorkflowRunSummary; canEdit: boolean; held?: HeldWorkflowEvents }>('GET', `/workflows/${id}`, undefined, { heldOffset: String(heldOffset) }),
+    workflowRunsPage: (id: string, options: { limit?: number; cursor?: string | null; status?: string } = {}) => call<WorkflowRunPage>('GET', `/workflows/${id}/runs`, undefined, {
+      limit: String(options.limit ?? 50), ...(options.cursor ? { cursor: options.cursor } : {}), ...(options.status ? { status: options.status } : {}),
+    }),
     generateWorkflow: (prompt: string, channel?: string, options?: {requestId: string; captureSource?: boolean}) => call<{ workflow: Workflow; source: string }>('POST', '/workflows/generate', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...options }),
     previewWorkflow: (prompt: string, channel?: string) => call<{ workflow: Workflow; source: string; preview: true }>('POST', '/workflows/preview', { prompt, channel, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     createWorkflow: (w: { name: string; trigger: Trigger; steps: Step[]; enabled?: boolean }) => call<{ workflow: Workflow; hookUrl?: string }>('POST', '/workflows', w as unknown as Record<string, unknown>),

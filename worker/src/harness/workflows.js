@@ -756,6 +756,74 @@ export async function listRuns(db, orgId, workflowId, limit = 50, viewerId) {
   return visible;
 }
 
+const RUN_HISTORY_PAGE_SIZE = 200;
+const RUN_HISTORY_STATUSES = new Set(['done','running','waiting','failed','declined','ok','cancelled','interrupted','no_agents','unknown']);
+const encodeRunHistoryCursor = run => btoa(JSON.stringify({ startedAt: run.startedAt, id: run.id }))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+
+function decodeRunHistoryCursor(value) {
+  if (value == null || value === '') return { value: null };
+  if (typeof value !== 'string' || value.length > 2048) return { error: 'Invalid run-history cursor.' };
+  try {
+    const json = atob(value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4));
+    const cursor = JSON.parse(json);
+    if (!cursor || typeof cursor !== 'object' || typeof cursor.id !== 'string' || !cursor.id || cursor.id.length > 200 ||
+        typeof cursor.startedAt !== 'string' || !Number.isFinite(Date.parse(cursor.startedAt)) || new Date(cursor.startedAt).toISOString() !== cursor.startedAt) {
+      return { error: 'Invalid run-history cursor.' };
+    }
+    return { value: { id: cursor.id, startedAt: cursor.startedAt } };
+  } catch { return { error: 'Invalid run-history cursor.' }; }
+}
+
+/**
+ * Keyset-paged execution history. Hidden runs are scanned and ACL-checked but
+ * never returned or used as the client cursor. The cursor always names the
+ * last visible row, so paging cannot expose a private run identifier.
+ */
+export async function listRunHistoryPage(db, orgId, workflowId, { limit = 50, cursor: rawCursor = null, status = null, viewerId } = {}) {
+  const pageSize = Number(limit);
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) return { error: 'Run-history page size must be between 1 and 100.', status: 400 };
+  if (status != null && !RUN_HISTORY_STATUSES.has(status)) return { error: 'Unsupported run-history status filter.', status: 400 };
+  const decoded = decodeRunHistoryCursor(rawCursor);
+  if (decoded.error) return { error: decoded.error, status: 400 };
+  let scanAfter = decoded.value;
+  if (scanAfter) {
+    const anchor = await getRun(db, orgId, scanAfter.id, { viewerId });
+    if (!anchor || anchor.workflowId !== workflowId || anchor.startedAt !== scanAfter.startedAt) {
+      return { error: 'Run-history cursor is no longer available. Refresh the history.', status: 409 };
+    }
+  }
+
+  const revisions = await workflowRevisionRows(db, orgId, workflowId);
+  const visible = [];
+  let exhausted = false;
+  while (visible.length <= pageSize && !exhausted) {
+    const clauses = ['r.org_id=?1', 'r.workflow_id=?2'];
+    const bindings = [orgId, workflowId];
+    if (status != null) { bindings.push(status); clauses.push(`r.status=?${bindings.length}`); }
+    if (scanAfter) {
+      bindings.push(scanAfter.startedAt, scanAfter.id);
+      clauses.push(`(r.started_at < ?${bindings.length - 1} OR (r.started_at = ?${bindings.length - 1} AND r.id < ?${bindings.length}))`);
+    }
+    bindings.push(RUN_HISTORY_PAGE_SIZE);
+    const { results = [] } = await db.prepare(`SELECT r.*,d.definition AS definition_snapshot
+      FROM hx_workflow_runs r LEFT JOIN hx_workflow_run_definitions d ON d.run_id=r.id AND d.org_id=r.org_id
+      WHERE ${clauses.join(' AND ')} ORDER BY r.started_at DESC,r.id DESC LIMIT ?${bindings.length}`).bind(...bindings).all();
+    if (!results.length) { exhausted = true; break; }
+    for (const row of results) {
+      scanAfter = { startedAt: row.started_at, id: row.id };
+      const run = viewerId ? await getRun(db, orgId, row.id, { viewerId, revisions }) : publicRun(row, revisions);
+      if (run) visible.push(run);
+      if (visible.length > pageSize) break;
+    }
+    if (visible.length > pageSize) break;
+    if (results.length < RUN_HISTORY_PAGE_SIZE) exhausted = true;
+  }
+  const runs = visible.slice(0, pageSize);
+  const hasMore = visible.length > pageSize;
+  return { runs, hasMore, nextCursor: hasMore ? encodeRunHistoryCursor(runs[runs.length - 1]) : null };
+}
+
 
 /**
  * Summary for the rolling 168-hour window ending at now (UTC instants).

@@ -3458,6 +3458,8 @@ const table: Record<string, string> = {
   "Version not recorded": "版未記録",
   "Original definition snapshot unavailable": "元の定義スナップショットがありません",
   "Failed runs only": "失敗のみ",
+  "Load older runs": "過去の実行を読み込む",
+  "Loading older runs…": "過去の実行を読み込み中…",
   "This run has been active for over 30 minutes and may have stopped responding.": "この実行は30分以上続いており、応答が止まっている可能性があります。",
   "The current step may already have changed data or sent a message. Reconciliation will mark its outcome unknown and will never replay it.": "現在のステップは、すでにデータを変更したりメッセージを送信した可能性があります。結果を不明として記録し、再実行はしません。",
   "Review stalled run": "停止した実行を確認",

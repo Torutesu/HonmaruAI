@@ -4504,3 +4504,10 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Added a mobile Workspace settings switch backed by the existing user×Workspace preference endpoint. It loads on screen focus, saves with the server revision, reloads the current value after a stale-revision conflict, and offers a retry when the preference cannot be loaded. The label explains that this affects the signed-in user only and does not change the Workspace mode or other members.
 - Added typed core API methods and focused request tests. `npm test --workspace @honmaru/core -- test/workspacePreferences.test.ts` passed **2/2**; mobile TypeScript (`npx tsc --noEmit -p tsconfig.json`) and Expo lint passed with no warnings. `git diff --check` passed. Simulator/device interaction and visual QA are not available in this local run.
 - No new paid service; existing Simple mode remains the default experience and this preference only controls the signed-in user's view. PR, exact-head CI, merge, production deployment, and cross-device live sync verification remain pending.
+
+
+### 2026-11-15 — KY-061 run-history paging and server-side status filter (local batch QA)
+
+- Workflow run history now pages by a stable `(started_at DESC, id DESC)` keyset, with a 1–100 page size and optional status filter at the Worker. The cursor anchors only to an ACL-visible run; inaccessible runs are omitted from results and cursor output. The AutomationRuns panel loads older pages and restarts at page one when toggling failed-only.
+- Web AutomationRuns, AppAutomations and API targeted suites passed **67/67**; the Web TypeScript/production build passed. Worker `harness-workflows` passed **151/151** after correcting the fixture's invalid empty-step workflow (the first run's 150 passing tests exposed that fixture error). Exact-head CI, merge, production deployment and authenticated Kylon screen comparison remain pending.
+- No schema or paid-service change; existing workflow/run access control is retained and Simple mode is unchanged.
