@@ -34,7 +34,8 @@ beforeEach(async () => {
   await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
     VALUES(?1,?2,'helper','Helper','Answer plainly','team','another-owner','now','now')`).bind(ORG, AGENT).run();
   activation = { jobId: JOB, gatewayId: 'agent-invoke-gateway', leaseHash: 'lease' };
-  binding = { org_id: ORG, run_id: 'agent-invoke-run', workflow_id: 'agent-invoke-workflow', node_owner: 'agent-invoke-owner', definition: JSON.stringify(definition) };
+  // node_owner is the Gateway lease UUID, not a human authorization principal.
+  binding = { org_id: ORG, run_id: 'agent-invoke-run', workflow_id: 'agent-invoke-workflow', node_owner: lease.owner, definition: JSON.stringify(definition) };
   identity = { orgId: ORG, runId: 'agent-invoke-run', nodeId: 'program', owner: lease.owner, attempt: lease.attempt, activation, at: 2000 };
 });
 
@@ -124,6 +125,37 @@ test('Workflow Agent invocation can read its installed skills and authorized mem
   expect(requests[2].messages.at(-1).content).toContain('Check the deployed commit.');
   expect(requests[0].tools.some(tool => tool.function.name === 'review_agent_memory')).toBe(false);
   expect(requests[0].tools.some(tool => tool.function.name.includes('remote') || tool.function.name.includes('write'))).toBe(false);
+});
+
+test('SDK Agent invocation exposes only individually granted read-only Remote MCP tools', async () => {
+  const { setMode } = await import('../src/harness/mode.js');
+  await setMode(env.DB, ORG, 'harness', 'agent-invoke-owner');
+  const serverId = 'agent-invoke-mcp';
+  await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers
+    (id,org_id,name,endpoint,tools_json,allowed_tools,write_tools,created_by,created_at,updated_at)
+    VALUES(?1,?2,'Policy source','https://mcp.example.com/mcp',?3,?4,'["delete_policy"]','agent-invoke-owner','now','now')`)
+    .bind(serverId, ORG, JSON.stringify([
+      { name: 'search_policy', description: 'Search policies', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'], additionalProperties: false }, annotations: { readOnlyHint: true } },
+      { name: 'search_secrets', description: 'Search secrets', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } },
+      { name: 'delete_policy', description: 'Delete a policy', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false, destructiveHint: true } },
+    ]), JSON.stringify(['search_policy', 'search_secrets', 'delete_policy'])).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_remote_mcp_tool_grants(org_id,agent_id,user_github_id,membership_since,server_id,tool_name,created_at)
+    SELECT ?1,?2,?3,created_at,?4,'search_policy','now' FROM memberships WHERE org_id=?1 AND user_github_id=?3`)
+    .bind(ORG, AGENT, 'agent-invoke-owner', serverId).run();
+
+  const { toolName } = await import('../src/harness/remoteMcp.js');
+  let offered = [];
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    offered = JSON.parse(opts.body).tools.map(item => item.function.name);
+    return { model: 'gpt-4o-mini', choices: [{ message: { content: '{"answer":"done"}' } }], usage: { prompt_tokens: 20, completion_tokens: 4 } };
+  });
+  expect(await invokeWorkflowAgent({ ...env, OPENAI_API_KEY: 'sk-workflow-agent-invoke-test' }, {
+    activation, binding, identity,
+    params: { agentId: AGENT, prompt: 'Find a policy', schema, tier: 'medium' }, at: 2000,
+  })).toEqual({ output: { answer: 'done' } });
+  expect(offered).toContain(toolName(serverId, 'search_policy'));
+  expect(offered).not.toContain(toolName(serverId, 'search_secrets'));
+  expect(offered).not.toContain(toolName(serverId, 'delete_policy'));
 });
 
 test('an identical in-flight invocation is never repeated and the durable per-job limit is enforced', async () => {
