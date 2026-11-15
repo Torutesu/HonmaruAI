@@ -341,6 +341,10 @@ export class WebSocketClient {
     return this.sendJam(stop ? 'typing_stop' : 'typing', { channel, parentId: parentId || null })
   }
 
+  sendDesktopJoin(jobId: string): boolean {
+    return this.sendJam('desktop_join', { jobId })
+  }
+
   /// Send now if the relay will take it, otherwise keep it for when it will.
   private post(message: { type: string; payload: unknown }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.joined) {
@@ -451,7 +455,10 @@ export class WebSocketClient {
   }
 
   private handleCustom(event: any): void {
-    if (event.name === 'workspace_ai_budget_reached' && typeof event.value?.orgId === 'string' && Array.isArray(event.value?.periods)
+    if (['browser_frame','browser_frame_ready','browser_frame_unavailable'].includes(event.name) && typeof window !== 'undefined') {
+      if (event.name !== 'browser_frame' || (typeof event.value?.jobId === 'string' && typeof event.value?.image === 'string'))
+        window.dispatchEvent(new CustomEvent(`honmaru:${event.name.replaceAll('_','-')}`, { detail: event.value }))
+    } else if (event.name === 'workspace_ai_budget_reached' && typeof event.value?.orgId === 'string' && Array.isArray(event.value?.periods)
       && Number.isSafeInteger(event.value?.revision) && event.value.revision >= 0) {
       // A budget notice is sent only to current workspace owners/admins. Keep
       // it as a small local event so the active client can show a settings link.
