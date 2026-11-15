@@ -26,6 +26,22 @@ test('broker serializes writes, rejects duplicate IDs and hides host error detai
  const failing=createStateBroker(async()=>{throw Error('/Users/private/token');});
  assert.deepEqual(await failing({id:1,method:'state.get',params:{}}),{id:1,ok:false,error:'State operation failed.'});
 });
+test('broker allows concurrent table reads while checkpoint operations keep their ordered lane',async()=>{
+ const started=[],releases=[];
+ const broker=createStateBroker(async(method,params)=>{
+  started.push([method,params.q||'']);
+  await new Promise(resolve=>releases.push(resolve));
+  return {read:true};
+ });
+ const checkpoint=broker({id:1,method:'state.set',params:{state:{},expectedRevision:0}});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ const first=broker({id:2,method:'table.query',params:{q:'first'}});
+ const second=broker({id:3,method:'table.query',params:{q:'second'}});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.deepEqual(started,[['state.set',''],['table.query','first'],['table.query','second']]);
+ releases.forEach(release=>release());
+ assert.deepEqual((await Promise.all([checkpoint,first,second])).map(reply=>reply.value),[{read:true},{read:true},{read:true}]);
+});
 test('ended activations cannot begin queued operations or return results',async()=>{
  const controller=new AbortController();let calls=0,release;
  const broker=createStateBroker(async()=>{calls++;await new Promise(resolve=>release=resolve);return {};},{signal:controller.signal});

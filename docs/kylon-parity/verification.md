@@ -1,5 +1,11 @@
 # 検証記録
 
+### 2026-11-15 — Concurrent read-only Workflow table queries (candidate)
+
+- The TypeScript SDK already bounds `parallel()` and `pipeline()` concurrency, but the Guest-to-host broker serialized every RPC, which silently serialized concurrent `table.query()` reads too. The broker now lets only read-only table queries bypass that queue. State/checkpoint and staged-effect operations retain their existing serialized order; table queries still pass through the same activation-bound Worker broker, live ACL checks, and page/result limits.
+- Added a regression proving concurrent table reads can finish while a checkpoint write is pending and checkpoint execution remains ordered. No new service, paid contract, package, migration or Simple-mode change.
+- Local Gateway suite passed **97/97**, including the new concurrency regression and existing ordered-checkpoint, activation-cancellation and isolated-guest tests. `git diff --check` and parity requirements JSON parse passed. Exact-head CI, merge and deployment are pending. KY-060 remains partial; broader App/Connection API paging, run interruption recovery, and production/Kylon acceptance remain open.
+
 ### 2026-11-15 — Workflow Agent read-only skills and memory (candidate)
 
 - Extended the existing `agent(prompt, { agentId, schema, tier? })` Workflow SDK to use the saved Agent's installed skills and memories. Tool calls are filtered to the established read-only skill readers and user-scoped memory search/read helpers; memory review/write, remote connectors, recursive Agents, and delegation are not supplied. Existing per-call access rechecks, provider usage accounting, Workflow AI budgets, timeout and bounded tool-call loop remain in force.
