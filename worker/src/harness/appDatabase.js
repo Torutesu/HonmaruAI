@@ -422,13 +422,19 @@ export async function applyMigration(db, orgId, app, input, by) {
   if (preview.nonAdditive && input.previewChecksum !== preview.previewChecksum) return err('Data changed after preview. Preview the migration again.', 409);
   if (input.previewChecksum && input.previewChecksum !== preview.previewChecksum) return err('Migration preview changed. Review it again.', 409);
   const { current, planned } = preview;
-  const additiveOnly = input.operations.length > 0 && input.operations.every(operation => operation?.op === 'add_columns');
-  const inverseOperations = additiveOnly
-    ? planned.changes.flatMap(change => {
-      const existingIds = new Set(current.entities.find(entity => entity.key === change.key)?.table.columns.map(column => column.id) || []);
-      return change.table.columns.filter(column => !existingIds.has(column.id)).map(column => ({
-        op: 'drop_empty_column', entity: change.key, column: column.id,
-      }));
+  const reversibleSchemaOnly = input.operations.length > 0
+    && input.operations.every(operation => ['add_columns', 'rename_column'].includes(operation?.op));
+  const inverseOperations = reversibleSchemaOnly
+    ? [...input.operations].reverse().flatMap(operation => {
+      if (operation.op === 'add_columns') {
+        const change = planned.changes.find(item => item.key === operation.entity);
+        const existingIds = new Set(current.entities.find(entity => entity.key === operation.entity)?.table.columns.map(column => column.id) || []);
+        return (change?.table.columns || []).filter(column => !existingIds.has(column.id)).map(column => ({
+          op: 'drop_empty_column', entity: operation.entity, column: column.id,
+        }));
+      }
+      const before = current.entities.find(entity => entity.key === operation.entity)?.table.columns.find(column => column.id === operation.column);
+      return before ? [{ op: 'rename_column', entity: operation.entity, column: operation.column, name: before.name }] : [];
     })
     : null;
   // New journal entries wrap the exact requested operations and their reviewed,
