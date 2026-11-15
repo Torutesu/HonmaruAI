@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { publicMediaType } from '../../../packages/core/src/publicMediaType.ts';
+import { publicFileType, publicMediaType } from '../../../packages/core/src/publicMediaType.ts';
 import { allowed } from '../permissions.js';
 import { byteRange, UNSATISFIABLE } from '../files.js';
 import { fileScopeAuthority, fileDeleteAuthority } from './fileAuthority.js';
@@ -13,6 +13,7 @@ const validId = value => typeof value==='string'&&value.length>0&&value.length<=
 const basename = path => String(path||'').split('/').at(-1)||'file';
 const tokenPattern = /^fpu_[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/;
 export const publicUrlMediaType=publicMediaType;
+export const publicUrlFileType=publicFileType;
 
 function dataKeyBytes(env){
  if(typeof env?.DATA_KEY!=='string')return null;
@@ -71,7 +72,8 @@ export async function filePublicUrlState(env,{orgId,fileId,userId,baseUrl}){
  const canCreate=Boolean(await allowed(env.DB,orgId,String(userId),'harness.build'));
  const canRevoke=Boolean(await env.DB.prepare(`SELECT 1 AS ok FROM hx_workspace_files f WHERE f.org_id=?1 AND f.id=?2
   AND ${fileDeleteAuthority('f.org_id','f.created_by','?3','f.scope')}`).bind(orgId,fileId,String(userId)).first());
- const type=publicUrlMediaType(file.content_type);
+ const type=publicUrlFileType(file.content_type);
+ const disposition=publicUrlMediaType(type)?'inline':'attachment';
  let url=null;
  if(type&&file.kind==='content'&&canRevoke){
   const live=await env.DB.prepare(`SELECT p.id,p.org_id,p.file_id,p.version,p.token_hash FROM hx_workspace_file_public_urls p
@@ -85,7 +87,7 @@ export async function filePublicUrlState(env,{orgId,fileId,userId,baseUrl}){
    url=publicPath(baseUrl,token);
   }
  }
- return {url,version:file.current_version,contentType:type,canCreate,canRevoke};
+ return {url,version:file.current_version,contentType:type,disposition,canCreate,canRevoke};
 }
 
 export async function createFilePublicUrl(env,{orgId,fileId,userId,login,baseUrl}){
@@ -94,8 +96,9 @@ export async function createFilePublicUrl(env,{orgId,fileId,userId,login,baseUrl
  const file=await currentVersion(env.DB,{orgId,fileId,userId});
  if(!file)return failure('File is unavailable.',404);
  if(file.kind!=='content'||file.version!==file.current_version)return failure('A current content version is required.',409);
- const type=publicUrlMediaType(file.content_type);
- if(!type)return failure('Permanent public URLs are limited to image, video, audio, and font files.',415);
+ const type=publicUrlFileType(file.content_type);
+ if(!type)return failure('This file does not have a valid content type for a public download.',415);
+ const disposition=publicUrlMediaType(type)?'inline':'attachment';
  if(file.size>25*1024*1024||file.size<0||!file.object_key)return failure('File content is unavailable.',404);
  const existing=await env.DB.prepare(`SELECT p.id,p.org_id,p.file_id,p.version,p.token_hash FROM hx_workspace_file_public_urls p
   WHERE p.org_id=?1 AND p.file_id=?2 AND p.version=?3
@@ -104,7 +107,7 @@ export async function createFilePublicUrl(env,{orgId,fileId,userId,login,baseUrl
  if(existing){
   const token=await tokenFor(env,existing);if(!token)return failure('Workspace encryption is unavailable.',503);
   if(hashToken(token)!==existing.token_hash)return failure('Public URL signing key is unavailable for this link.',409);
-  return {url:publicPath(baseUrl,token),version:file.version,contentType:type,reused:true};
+  return {url:publicPath(baseUrl,token),version:file.version,contentType:type,disposition,reused:true};
  }
  const id=newPublicId(),token=await tokenFor(env,{org_id:orgId,file_id:fileId,version:file.version,id});
  if(!token)return failure('Workspace encryption is unavailable.',503);
@@ -124,7 +127,7 @@ export async function createFilePublicUrl(env,{orgId,fileId,userId,login,baseUrl
  if(!winner)return failure('The file changed or became unavailable. Refresh it before publishing.',409);
  const winnerToken=await tokenFor(env,winner);if(!winnerToken)return failure('Workspace encryption is unavailable.',503);
  if(hashToken(winnerToken)!==winner.token_hash)return failure('Public URL signing key is unavailable for this link.',409);
- return {url:publicPath(baseUrl,winnerToken),version:winner.version,contentType:type,reused:inserted.meta?.changes!==1};
+ return {url:publicPath(baseUrl,winnerToken),version:winner.version,contentType:type,disposition,reused:inserted.meta?.changes!==1};
 }
 
 export async function revokeFilePublicUrls(db,{orgId,fileId,userId}){
@@ -154,15 +157,16 @@ async function activePublicUrl(env,token){
    .bind(parts.id,tokenHash).first();
  }catch{return null;}
  if(!row||row.id!==parts.id||!await validToken(env,row,token,parts.signatureBytes))return null;
- const contentType=publicUrlMediaType(row.content_type);
+ const contentType=publicUrlFileType(row.content_type);
  if(!contentType||row.size<0||row.size>25*1024*1024||!row.object_key)return null;
  return {...row,content_type:contentType};
 }
 
 function responseHeaders(row,{range=null,status=200}={}){
+ const inlineType=publicUrlMediaType(row.content_type);
  const headers={
-  'content-type':row.content_type,
-  'content-disposition':`inline; filename*=UTF-8''${safeFilename(row.path)}`,
+  'content-type':inlineType||'application/octet-stream',
+  'content-disposition':`${inlineType?'inline':'attachment'}; filename*=UTF-8''${safeFilename(row.path)}`,
   'content-length':String(range?range.length:row.size),
   // These are bearer URLs. Do not let a browser or shared cache retain bytes
   // after revoke, version purge, deletion, or key rotation.
