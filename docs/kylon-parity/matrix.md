@@ -4,6 +4,8 @@
 
 全110項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
+2026-11-15の最新台帳集計は110件（実装あり4、一部105、要検証1）。2026-11-12の109件集計は当時の履歴として残す。PR #1006 main CI #43639336451の停滞は後続main CI #43678815421で解消を確認（PR #1014の後続main）。PR #1015はexact-head CI #43680371839成功後、merge commit `429e306c`としてmainへ統合され、main CIとWorker/Web deploy成功。公開URLのredirect credential/downgrade hardeningを反映した。DNS rebindingは未解決のまま。
+
 2026-11-10 PR #862反映: main `b5fea8e2` にマージ済み。正確なhead CI #42681479871、main CI #42684677206、Worker deploy #42684677210（D1 migration/deploy/verify）、Web deploy #42684677047 が成功。KY-030/044/051は機能範囲を更新したが、Kylon同等性の残差は各行に明記。受入確認の詳細は [verification.md](verification.md) を参照。
 
 2026-11-10 PR #863反映: main `20c603199918c5ece30ddfc1606985fa37384c42` にマージ済み。PR exact-head CI #42690260184、main CI #42693865694、Worker deploy #42693865965、Web deploy #42693865973が成功。`https://app.honmaruai.com` はHTTP 200、Worker `/health` は `ok: true`。KY-044のCLI TypeScript SDK生成とKY-051の過去公開版からの下書き復元を本番反映。全104項目の数は維持し、同等性の残差は各項目に記載。

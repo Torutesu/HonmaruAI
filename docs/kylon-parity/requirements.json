@@ -805,11 +805,11 @@
       "priority": "P0",
       "source": "https://docs.kylon.io/cli/workspace/workflow",
       "code": "worker/src/harness/workflows.js; worker/src/harness/routes.js; web-react/src/screens/HarnessWorkflows.tsx",
-      "acceptance": "再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止を実装。中断した実行は30分以上経過後に作成者/Adminが結果不明として記録できる。有効な実行リースがあれば拒否し、副作用の二重実行を避ける。保留イベント破棄UI、本番と実画面の確認は残る。",
+      "acceptance": "再発行・失効、停止中イベントの7日/1000件保持、明示IDによる古い順の再実行、二重起動防止を実装。中断した実行は30分以上経過後に作成者/Adminが結果不明として記録できる。有効な実行リースがあれば拒否し、副作用の二重実行を避ける。保留イベント一覧・本文確認・明示IDによる再実行と破棄UIは実装済み。本番での認証済み受入とKylon実画面比較は残る。",
       "evidence": {
-        "reviewedAt": "2026-11-08",
-        "verified": "Added explicit stale-run reconciliation with 30-minute age threshold, exact started_at/log/next_step compare-and-swap, active node lease guard, no-replay outcome marker and workflow settlement/audit. Focused Worker workflow suite 110/110 and focused Web suite 57/57 passed; full Web suite 248 files/1,831 tests and Web TypeScript+build passed. The implementation is on main through eb977ae6 and is included in main CI run 42494741384 and Worker deployment run 42494741296; migrations, deploy and Verify passed.",
-        "remaining": "Production webhook detail/held-event UI acceptance and exact Kylon screen comparison remain. Uncertain side effects are never automatically replayed; users must reconcile externally before starting a new run."
+        "reviewedAt": "2026-11-15",
+        "verified": "Added explicit stale-run reconciliation with a 30-minute age threshold, exact started_at/log/next_step compare-and-swap, active node lease guard, no-replay outcome marker and workflow settlement/audit. The existing AutomationRuns/HeldWebhookEvents UI lists held events in pages, loads a selected event payload on demand, and requires explicit event IDs plus confirmation for replay or discard; current AutomationRuns UI suite passed 27/27. The implementation is on main through eb977ae6 and is included in main CI run 42494741384 and Worker deployment run 42494741296; migrations, deploy and Verify passed.",
+        "remaining": "Authenticated production acceptance of the webhook detail/held-event UI and exact Kylon screen comparison remain. Uncertain side effects are never automatically replayed; users must reconcile externally before starting a new run."
       }
     },
     {
@@ -1059,11 +1059,11 @@
         },
         "safetyHardening": {
           "reviewedAt": "2026-11-15",
-          "scope": "Candidate shared public-link fetch change refuses HTTPS-to-HTTP redirects and strips Authorization, Cookie and Proxy-Authorization headers before following a cross-origin redirect.",
-          "verification": "Worker link, preview and SSO suites passed 34/34. Exact-head CI, merge and deployment are pending.",
+          "scope": "PR #1015 merged as 429e306c refuses HTTPS-to-HTTP redirects and strips Authorization, Cookie and Proxy-Authorization headers before following a cross-origin redirect. Per-hop URL checks and manual redirect handling remain in place.",
+          "verification": "Worker links, preview and SSO suites passed 34/34. Exact-head CI #43680371839 succeeded; PR #1015 merged as 429e306c. Main CI and Worker/Web production deployment succeeded; production app and Worker health returned HTTP 200/ok.",
           "runtimeEvidence": "Cloudflare Workers Request API documents resolveOverride as limited to hosts in the Worker's zone. The TCP Sockets API accepts hostnames or addresses and secure transport but documents no TLS server-name override to pin an IP while verifying the original hostname.",
           "sources": ["https://developers.cloudflare.com/workers/runtime-apis/request/", "https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/", "https://developers.cloudflare.com/workers/platform/known-issues/"],
-          "remaining": "DNS rebinding remains open. A possible no-new-vendor route is an authenticated, tenant-scoped relay through the existing Mac mini Gateway with fail-closed behavior while offline; do not fall back to direct Worker fetch. Arbitrary external connections, full App/workflow principal administration, all Kylon operation categories and authenticated operation comparison remain incomplete."
+          "remaining": "DNS rebinding remains open because Worker fetch cannot pin the resolved peer IP. A Mac mini Gateway relay would need to preserve the existing secret boundary: remote MCP credentials must not be copied into Gateway jobs without an explicit trusted-node design and user-visible scope. Any relay must be tenant scoped and fail closed while offline; direct Worker fetch must not be a fallback. Arbitrary external connections, full App/workflow principal administration, all Kylon operation categories and authenticated operation comparison remain incomplete."
         },
         "remaining": "DNS rebinding remains open because Worker fetch cannot pin the resolved peer IP. Arbitrary external connections, full App/workflow principal administration, all Kylon operation categories and authenticated operation comparison remain incomplete.",
         "verification": "docs/kylon-parity/verification.md; focused Worker tests 143/143 + 163/163; main CI 43085800275; Worker deploy 43085800394; Web deploy 43085800314"
