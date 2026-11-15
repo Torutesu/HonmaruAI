@@ -4517,3 +4517,15 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Fixed the race where an assignment could be stopped while Claude was still creating an external session. The stop route now recognizes a fresh `starting` reservation and returns `pending`; when the provider returns its exact session ID, the start path rechecks the same assignment generation and sends cancellation. Provider cancellation failure remains visible and retryable; a failed start resolves to `no_remote_run`. Stale reservations older than the existing start hold are excluded.
 - Batched Worker suites `teammates`, `agents`, `agent-assignments`, and `agent-job-result` passed **117/117**; `git diff --check` and parity JSON parsing passed. Exact-head CI, merge, production deployment and live provider cancellation acceptance remain pending.
 - No schema or paid-service changes; Simple mode is unaffected.
+
+### 2026-11-16 — KY-020 stop-during-start race (production release)
+
+- PR [#1028](https://github.com/Torutesu/HonmaruAI/pull/1028) merged as `3140ea4791a09bafa42cb48e84ef608260721925` after all exact-head CI jobs passed, including all four Worker shards, E2E, Windows (Edge), and iOS. Local batched Worker regression suites passed **117/117**.
+- Exact-head CI #43726759665 passed all required jobs. Main CI #43728595549 and Worker migration/deploy/Verify #43728595654 were in progress at the time of this update; live provider-side cancellation remains unverified.
+- No schema or paid-service change; Simple mode is unaffected.
+
+### 2026-11-16 — KY-115 durable private helper history (local batch QA)
+
+- Persisted bounded private helper status, timing, title, and final finding for 30 days, and show them on the existing parent Agent run card only to the requester's authorized run view. Raw prompts and tool arguments are not stored; stale active helpers become interrupted after their bounded deadline. Simple mode remains unchanged.
+- Worker `agent-subagents`, `agents`, `migration`, and `workspace-queries` suites passed **94/94**; AgentRunStatus tests **16/16**; Web typecheck/build, migration formatting, parity JSON parse, and `git diff --check` passed. Changes are in local branch `codex/ky115-durable-private-helpers-20261115`; exact-head CI, merge, deployment, and authenticated Kylon acceptance are pending.
+- No new paid service. Independent helper resumption, separate child credentials, and long-running cloud helpers remain out of scope.

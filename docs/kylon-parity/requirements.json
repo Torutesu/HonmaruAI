@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-15",
+  "asOf": "2026-11-16",
   "baseline": "b8949ca6386479afb03fe18ce6d2425c873e303c",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1451,6 +1451,11 @@
       "acceptance": "A Harness Agent may delegate up to two independent private subtasks to parallel copies of itself. Each helper receives bounded context, the parent Agent’s current scoped read-only team/memory/skill/thread tools, a 30-second deadline, at most four model rounds and three tool calls, and returns only a bounded final finding. Helpers cannot browse, execute code, write or publish records, message people, approve, change grants, or delegate again. Parent authorization, cancellation, deadline and usage accounting remain in force. Preserve Simple mode and add no service or separate charge.",
       "evidence": {
         "verified": "Implemented a Harness-only delegate_subagents tool for OpenRouter chat-tools and OpenAI Responses. Helpers run in parallel, are limited to two, use an explicit read-only allowlist, have bounded task/context/results and per-helper budgets, recheck parent authorization, and discard results if authorization is revoked. Simple calls do not receive the tool.",
+        "latestIncrement": {
+          "scope": "Persist bounded child helper lifecycle records (queued/running/completed/failed/interrupted), timing, helper title, and bounded final finding for 30 days. The requester's existing Agent run card displays these details; snapshot reads remain scoped to the parent run requester and current Agent access. Prompts and tool arguments are not persisted. Stale queued/running records are recovered as interrupted after the 35-second helper deadline plus grace.",
+          "localQA": "Worker agent-subagents, agents, migration, and workspace-queries suites passed 94/94; AgentRunStatus tests passed 16/16; Web typecheck and production build passed; migration one-line and diff checks passed. Changes are local on codex/ky115-durable-private-helpers-20261115 and await exact-head CI/release.",
+          "remaining": "Independent child resumption, separate child identities/credentials, longer cloud execution, authenticated production exercise, and side-by-side Kylon acceptance remain open. Simple mode is unchanged and no new service or charge was added."
+        },
         "remaining": "Authenticated production exercise and side-by-side Kylon verification remain. Kylon routing choices, durable helper run cards/history, independent helper identities/credentials and longer-running cloud execution are not implemented; this is partial parity."
       }
     },
