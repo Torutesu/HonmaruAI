@@ -1,6 +1,6 @@
 import { env, expect, test, beforeEach } from "vitest";
 import { validateIncomingCard, MAX_CONTEXT_BYTES } from "../src/agui/validate.js";
-import { OrgRelay } from "../src/relay.js";
+import { OrgRelay, cleanDesktopAction } from "../src/relay.js";
 
 // CARD_SCHEMA was served at GET /agui/tools and never checked against anything,
 // so the relay stored whatever JSON arrived. Every member receives every card in
@@ -10,6 +10,17 @@ const valid = {
   id: "c1", recipientUserID: "octocat", senderUserID: "watcher",
   type: "approval", status: "pending", priority: "high", title: "Approve it",
 };
+
+test('browser control accepts only bounded pointer, text, navigation-key and scroll input', () => {
+  expect(cleanDesktopAction({type:'click',x:1279,y:799})).toEqual({type:'click',x:1279,y:799});
+  expect(cleanDesktopAction({type:'click',x:1280,y:799})).toBeNull();
+  expect(cleanDesktopAction({type:'type',text:'release notes'})).toEqual({type:'type',text:'release notes'});
+  expect(cleanDesktopAction({type:'type',text:'x'.repeat(2001)})).toBeNull();
+  expect(cleanDesktopAction({type:'press',key:'Enter'})).toEqual({type:'press',key:'Enter'});
+  expect(cleanDesktopAction({type:'press',key:'Control+Enter'})).toBeNull();
+  expect(cleanDesktopAction({type:'scroll',x:20,y:40,deltaX:0,deltaY:1200})).toEqual({type:'scroll',x:20,y:40,deltaX:0,deltaY:1200});
+  expect(cleanDesktopAction({type:'scroll',x:20,y:40,deltaX:0,deltaY:1201})).toBeNull();
+});
 
 test("a well-formed card is accepted", () => {
   expect(validateIncomingCard(valid)).toBeNull();

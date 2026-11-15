@@ -455,7 +455,7 @@ export class WebSocketClient {
   }
 
   private handleCustom(event: any): void {
-    if (['browser_frame','browser_frame_ready','browser_frame_unavailable'].includes(event.name) && typeof window !== 'undefined') {
+    if (['browser_frame','browser_frame_ready','browser_frame_unavailable','browser_control_queued','browser_control_rejected'].includes(event.name) && typeof window !== 'undefined') {
       if (event.name !== 'browser_frame' || (typeof event.value?.jobId === 'string' && typeof event.value?.image === 'string'))
         window.dispatchEvent(new CustomEvent(`honmaru:${event.name.replaceAll('_','-')}`, { detail: event.value }))
     } else if (event.name === 'workspace_ai_budget_reached' && typeof event.value?.orgId === 'string' && Array.isArray(event.value?.periods)

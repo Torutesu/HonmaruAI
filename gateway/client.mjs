@@ -25,13 +25,22 @@ export const FINISH_RETRY_MS = [1000, 2000, 4000, 8000, 15000, 15000, 15000];
 // server saying it could not take it just now.
 const transient = (error) => !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
 
-export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, runBrowser = runBrowserSessionAction, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000 } = {}) {
+export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, runBrowser = runBrowserSessionAction, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000, browserControlPollIntervalMs = 6000 } = {}) {
   const capabilities=['workflow-program-v1'];
   const localAcpAgents=configuredAcpAgentIds(acpAgents);
   if(localAcpAgents.length)capabilities.push('acp-v1');
   const { job } = await call('claim',{capabilities,acpAgents:localAcpAgents});
   if (!job) return false;
   const cancel = new AbortController();
+  const controlStop = new AbortController();
+  let controlPump = null;
+  let browserTail = Promise.resolve();
+  const withBrowser = fn => {
+    const pending = browserTail.then(fn, fn);
+    browserTail = pending.catch(() => {});
+    return pending;
+  };
+  const browserOptions = { workspaceId: job.payload?.workspaceId, agentId: job.payload?.browserIdentity };
   const abort = () => cancel.abort();
   signal?.addEventListener('abort', abort, { once: true });
   if (signal?.aborted) abort();
@@ -63,18 +72,41 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
       // ACP jobs retain their 110-second cap inside a 120-second lease.
       const timeoutCap=job.workflow===true?WORKFLOW_EXECUTION_TIMEOUT_MS:job.payload?.browserTools===true?270000:job.payload?.acp===true?110000:60000;
       const options={timeoutMs:Math.min(job.timeoutMs||timeoutCap,timeoutCap),signal:cancel.signal};
+      if(job.payload?.acp===true&&job.payload?.browserTools===true){
+        const controlSignal=AbortSignal.any([cancel.signal,controlStop.signal]);
+        controlPump=(async()=>{
+          while(!controlSignal.aborted){
+            try{await sleep(browserControlPollIntervalMs,undefined,{signal:controlSignal});}catch{return;}
+            try{
+              const {controls=[]}=await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,poll:true},{signal:controlSignal});
+              for(const action of controls.slice(0,5))await withBrowser(async()=>{
+                await call(`jobs/${job.id}/browser`,{lease:job.lease},{signal:controlSignal});
+                await runBrowser({...browserOptions,action,signal:controlSignal});
+                const frame=await runBrowser({...browserOptions,action:{type:'screenshot'},signal:controlSignal});
+                if(typeof frame?.image==='string'&&frame.image.length<=2_800_000)
+                  await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,image:frame.image},{signal:controlSignal});
+              });
+            }catch(error){
+              if(controlSignal.aborted)return;
+              if(error?.status&&error.status<500&&![408,429].includes(error.status))return;
+            }
+          }
+        })();
+      }
       result=job.payload?.acp===true
         ? await runAcpAgent(job.payload,{...options,acpAgents,
           browserCall: job.payload?.browserTools===true
             ? async (action,{signal}={}) => {
                 await call(`jobs/${job.id}/browser`,{lease:job.lease},{signal:signal||cancel.signal});
-                const browser={workspaceId:job.payload.workspaceId,agentId:job.payload.browserIdentity,signal};
-                const result=await runBrowser({...browser,action});
-                const frame=action?.type==='screenshot'&&typeof result?.image==='string'?result:await runBrowser({...browser,action:{type:'screenshot'}});
-                if(typeof frame?.image==='string'&&frame.image.length<=2_800_000){
-                  try{await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,image:frame.image},{signal:signal||cancel.signal});}catch{}
-                }
-                return result;
+                return withBrowser(async()=>{
+                  const browser={...browserOptions,signal:signal||cancel.signal};
+                  const result=await runBrowser({...browser,action});
+                  const frame=action?.type==='screenshot'&&typeof result?.image==='string'?result:await runBrowser({...browser,action:{type:'screenshot'}});
+                  if(typeof frame?.image==='string'&&frame.image.length<=2_800_000){
+                    try{await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,image:frame.image},{signal:signal||cancel.signal});}catch{}
+                  }
+                  return result;
+                });
               }
             : undefined,
           onProgress: progress => call(`jobs/${job.id}/progress`,{lease:job.lease,progress},{signal:cancel.signal}),
@@ -87,6 +119,8 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
           : await run(job.payload,{...options,...(job.environment?{environment:job.environment}:{})});
     }
     catch { result = { status: 'failed', stdout: '', stderr: 'The local runtime could not start this execution.', exitCode: null }; }
+    controlStop.abort();
+    if(controlPump)await controlPump.catch(()=>{});
     if (leaseLost) return true;
     // The result is kept until the server has it. A failed upload is tried
     // again, the heartbeat holding the lease meanwhile, rather than the job
