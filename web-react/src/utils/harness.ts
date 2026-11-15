@@ -317,6 +317,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     profile: (agentId: string) => call<{ profile: AgentProfile; canEdit: boolean }>('GET', `/hx/agents/${agentId}/profile`),
     saveProfile: (agentId: string, p: Partial<AgentProfile> & { name?: string; emoji?: string }) => call<{ profile: AgentProfile; identity?: { name: string; emoji: string | null } }>('PUT', `/hx/agents/${agentId}/profile`, p as Record<string, unknown>),
     memoryScopes: (agentId: string) => call<{ scopes: Array<{ channel: string; label: string }> }>('GET', `/hx/agents/${agentId}/memory/scopes`),
+    privateMemoryFollow: (agentId: string) => call<{ followAcrossConversations: boolean }>('GET', `/hx/agents/${encodeURIComponent(agentId)}/memory/private-follow`),
+    setPrivateMemoryFollow: (agentId: string, followAcrossConversations: boolean) => call<{ followAcrossConversations: boolean; updatedAt: string }>('PUT', `/hx/agents/${encodeURIComponent(agentId)}/memory/private-follow`, { followAcrossConversations }),
     memoryReviewLog: (agentId: string, channel = '', cursor?: string) => call<{ reviews: MemoryReview[]; nextCursor: string | null }>('GET', `/hx/agents/${agentId}/memory/reviews`, undefined, { channel, ...(cursor ? { cursor } : {}) }),
     memoryPromotions: (agentId: string) => call<{ canDecide: boolean; requests: MemoryPromotionRequest[] }>('GET', `/hx/agents/${encodeURIComponent(agentId)}/memory/promotions`),
     promoteMemory: (agentId: string, memory: AgentMemory, requestKey: string) => call<{ request: MemoryPromotionRequest; replayed?: boolean }>('POST', `/hx/agents/${encodeURIComponent(agentId)}/memory/promotions`, { memoryId: memory.id, expectedVersion: memory.version ?? 0, requestKey }),

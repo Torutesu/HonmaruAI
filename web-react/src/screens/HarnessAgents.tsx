@@ -127,6 +127,8 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [remember, setRemember] = useState('')
   const [memoryKind, setMemoryKind] = useState<MemoryKind>('context')
   const [memorySharing, setMemorySharing] = useState<'shared'|'personal'>('shared')
+  const [privateMemoryFollows, setPrivateMemoryFollows] = useState(true)
+  const [privateMemoryPreferenceUnavailable, setPrivateMemoryPreferenceUnavailable] = useState(false)
   const [promotionRevision, setPromotionRevision] = useState(0)
   const [people, setPeople] = useState('')
   const [saved, setSaved] = useState(false)
@@ -138,9 +140,11 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
 
   const load = useCallback(() => act('load', async () => {
     const version = ++memoryLoad.current
-    const [p, m, s, all, scopes, apps] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel, undefined, memorySearch), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id), api.agentApps(agent.id).catch(() => ({ connections: [], nativeConnections: [], remoteMcpConnections: [] }))])
+    const [p, m, s, all, scopes, apps, privateMemoryPreference] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel, undefined, memorySearch), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id), api.agentApps(agent.id).catch(() => ({ connections: [], nativeConnections: [], remoteMcpConnections: [] })), api.privateMemoryFollow(agent.id).catch(() => null)])
     if (version !== memoryLoad.current) return
     setMemoryScopes(scopes.scopes)
+    setPrivateMemoryPreferenceUnavailable(!privateMemoryPreference)
+    if (privateMemoryPreference) setPrivateMemoryFollows(privateMemoryPreference.followAcrossConversations)
     setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' ')); setAgentApps(apps.connections || []); setNativeConnections(apps.nativeConnections || []); setRemoteMcpConnections(apps.remoteMcpConnections || [])
     setMemories(m.memories); setMemoryCursor(m.nextCursor); setSkills(s.skills); setAllSkills(all.skills)
   }), [api, act, agent.id, memoryChannel, memorySearch])
@@ -157,6 +161,8 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         ++memoryLoad.current
         setProfile(null); setCanEdit(false); setPeople(''); setAgentApps(null); setNativeConnections(null)
         setMemories([]); setMemoryCursor(null); setSkills([]); setAllSkills([]); setMemoryScopes([])
+        setPrivateMemoryFollows(true)
+        setPrivateMemoryPreferenceUnavailable(false)
         setPromotionRevision(value => value + 1)
         setHistoryMemory(null); setConvertingMemory(null); setReviewingMemory(null); setMemoryDraft(null); setRemember('')
         void load()
@@ -383,6 +389,11 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         <option value="">{t('Agent memory')}</option>
         {memoryScopes.map(scope => <option key={scope.channel} value={scope.channel}>{scope.label}</option>)}
       </select>
+      {!memoryChannel && <label className="row static hx-memory-follow-setting">
+        <span className="row-main">{t('Private memory across conversations')}<span className="row-sub">{t('When off, your private memories stay available only in their source conversation. Shared memories are unchanged.')}</span></span>
+        <input type="checkbox" aria-label={t('Private memory across conversations')} disabled={busy !== null || privateMemoryPreferenceUnavailable} checked={privateMemoryFollows} onChange={event => { const enabled = event.target.checked; void act('private-memory-follow', async () => { const result = await api.setPrivateMemoryFollow(agent.id, enabled); setPrivateMemoryFollows(result.followAcrossConversations); setPrivateMemoryPreferenceUnavailable(false) }) }} />
+      </label>}
+      {!memoryChannel && privateMemoryPreferenceUnavailable && <p role="alert">{t('Could not load your personal memory setting.')} <button className="btn-text" onClick={() => void load()}>{t('Retry')}</button></p>}
       <div className="rows">
         <div className="row static">
           <span className="row-main">

@@ -74,6 +74,17 @@ test("a profile: everyone reads it, only its owner or assigned agent admin chang
   expect((await send("PUT", `/hx/agents/${agentId}/profile`, toru, { orgId: ORG, mentionOnly: true })).status).toBe(200);
 });
 
+test('private-memory follow preference is self-service, private to the member, and defaults on for existing users', async () => {
+  const path = `/hx/agents/${agentId}/memory/private-follow`;
+  expect(await (await get(`${path}?${q({ orgId: ORG })}`, kenji)).json()).toEqual({ followAcrossConversations: true });
+  expect((await send('PUT', path, kenji, { orgId: ORG, followAcrossConversations: false, userId: '9202' })).status).toBe(200);
+  expect(await (await get(`${path}?${q({ orgId: ORG })}`, kenji)).json()).toMatchObject({ followAcrossConversations: false });
+  expect(await (await get(`${path}?${q({ orgId: ORG })}`, mika)).json()).toEqual({ followAcrossConversations: true });
+  expect((await send('PUT', path, kenji, { orgId: ORG, followAcrossConversations: 'off' })).status).toBe(400);
+  expect((await env.DB.prepare(`SELECT user_github_id,follow_across_conversations FROM hx_agent_memory_preferences WHERE org_id=?1 AND agent_id=?2 ORDER BY user_github_id`)
+    .bind(ORG,agentId).all()).results).toEqual([{ user_github_id: '9203', follow_across_conversations: 0 }]);
+});
+
 test('profile audience changes refresh only the affected members without sharing profile data',async()=>{
  const events=[];
  const relayStub={fetch:async(_url,init)=>{events.push(JSON.parse(init.body));return new Response('{}')}};

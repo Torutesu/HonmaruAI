@@ -1,5 +1,6 @@
 import { explicitAgentRoles } from './agentRoles.js';
 import { memoryFields, memoryEntry } from './memoryEntries.js';
+import { personalMemoryPreference } from './personalMemoryPreference.js';
 // Agents as members (docs/kylon-gap-plan.md): a custom agent gets what a
 // Kylon agent has — a specialty, a tier, its own memory, skills, a setting
 // to speak only when named, and a say in who may call it. All of it sits
@@ -149,7 +150,8 @@ export async function filterResponders(db, orgId, login, agents, { named = null,
 
 // ── Memory ──────────────────────────────────────────────────────────────
 
-export async function listAgentMemories(db, orgId, agentId, { channel = "", userId = null } = {}) {
+export async function listAgentMemories(db, orgId, agentId, { channel = "", userId = null, forAgentUse = false } = {}) {
+  const preference = forAgentUse && userId ? await personalMemoryPreference(db, orgId, agentId, userId) : { enabled: true, error: false };
   const { results } = await db
     .prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id,
       d.title, d.description, d.body, d.version, d.updated_at, d.updated_by,
@@ -160,8 +162,8 @@ export async function listAgentMemories(db, orgId, agentId, { channel = "", user
       LEFT JOIN users cu ON cu.github_id = m.created_by LEFT JOIN users uu ON uu.github_id = d.updated_by
       LEFT JOIN hx_memory_reviews r ON r.memory_id=m.id AND r.org_id=m.org_id
       WHERE m.org_id = ?1 AND m.agent_id = ?2 AND (s.memory_id IS NULL OR s.channel = '' OR s.channel = ?4)
-        AND (s.user_github_id IS NULL OR s.user_github_id = ?5) ORDER BY m.created_at DESC LIMIT ?3`)
-    .bind(orgId, agentId, MAX_MEMORIES, channel, userId ? String(userId) : "")
+        AND (s.user_github_id IS NULL OR (s.user_github_id = ?5 AND ?7 = 1 AND (?6 = 1 OR s.source_channel = ?4))) ORDER BY m.created_at DESC LIMIT ?3`)
+    .bind(orgId, agentId, MAX_MEMORIES, channel, userId ? String(userId) : "", preference.enabled ? 1 : 0, preference.error ? 0 : 1)
     .all();
   return (results || []).map(memoryEntry);
 }
@@ -254,7 +256,7 @@ export async function prepareAgent(env, orgId, agent, provider, context = {}) {
   }
   const [profile, memories, skills] = await Promise.all([
     getProfile(env.DB, orgId, agent.id),
-    canReadMemoryScope ? listAgentMemories(env.DB, orgId, agent.id, context) : Promise.resolve([]),
+    canReadMemoryScope ? listAgentMemories(env.DB, orgId, agent.id, { ...context, forAgentUse: true }) : Promise.resolve([]),
     (async () => { const { executionSkills } = await import("./skills.js"); return executionSkills(env.DB, orgId, agent.id, context); })(),
   ]);
   const blocks = [];

@@ -164,6 +164,39 @@ test('memory search requests saved entries and retries additional pages without 
  }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
 
+test('the Agent memory panel saves the signed-in person’s private-memory follow preference',async()=>{
+ let tree!:ReturnType<typeof create>
+ const requests:Array<{url:URL;init?:RequestInit}> = []
+ let follows=true
+ const fetch=vi.fn(async(input:string|URL|Request,init?:RequestInit)=>{
+  const url=new URL(String(input));requests.push({url,init})
+  let data:Record<string,unknown>={}
+  if(url.pathname==='/channels/agents')data={agents:[{id:'agent-private-follow',name:'Memory agent',handle:'memory-agent',scope:'team'}]}
+  else if(url.pathname.endsWith('/memory/private-follow')){
+   if(init?.method==='PUT')follows=JSON.parse(String(init.body)).followAcrossConversations
+   data={followAcrossConversations:follows,updatedAt:'2026-11-16T00:00:00.000Z'}
+  } else if(url.pathname.endsWith('/profile'))data={profile:{tier:'standard',people:[],access:'everyone'},canEdit:false}
+  else if(url.pathname.endsWith('/memory'))data={memories:[],nextCursor:null,canEdit:false}
+  else if(url.pathname.endsWith('/memory/scopes'))data={scopes:[]}
+  else if(url.pathname.endsWith('/members'))data={members:[],managed:false,scope:'team'}
+  else if(url.pathname.endsWith('/apps'))data={connections:[],nativeConnections:[],remoteMcpConnections:[]}
+  else if(url.pathname.endsWith('/skills'))data={skills:[]}
+  return {ok:true,json:async()=>data}
+ })
+ vi.stubGlobal('fetch',fetch)
+ try{
+  await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
+  await act(async()=>tree.root.findByProps({'data-agent':'agent-private-follow'}).props.onClick())
+  await act(async()=>tree.root.findAllByProps({role:'tab'}).find(t=>t.children.includes('Memory'))!.props.onClick())
+  const control=tree.root.findByProps({'aria-label':'Private memory across conversations'})
+  expect(control.props.checked).toBe(true)
+  await act(async()=>control.props.onChange({target:{checked:false}}))
+  expect(requests.some(({url,init})=>url.pathname.endsWith('/memory/private-follow')&&init?.method==='PUT'&&JSON.parse(String(init.body)).followAcrossConversations===false)).toBe(true)
+  expect(tree.root.findByProps({'aria-label':'Private memory across conversations'}).props.checked).toBe(false)
+  expect(JSON.stringify(tree.toJSON())).toContain('Shared memories are unchanged.')
+ }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})
+
 vi.mock('../components/Dialog',()=>({Dialog:({children,onClose}:any)=><section role="dialog">{children}<button onClick={onClose}>Close dialog</button></section>}))
 test('read-only members can open memory history with the selected conversation scope',async()=>{
  let tree!:ReturnType<typeof create>
