@@ -282,6 +282,50 @@ test('stopping an assignment interrupts only the exact Claude session and genera
  expect(sent).toEqual({events:[{type:'user.interrupt'}]});
 });
 
+test.each([['success','requested'],['provider failure','failed'],['start failure','no_remote_run']])('stopping while Claude is creating a session reconciles the provider outcome: %s',async(outcome,stopStatus)=>{
+ await launch();
+ const {setMode}=await import('../src/harness/mode.js');
+ const {postMessage}=await import('../src/channels.js');
+ const {getSession}=await import('../src/db.js');
+ const {beginAuthorizedAssignment}=await import('../src/harness/agentAssignmentGrant.js');
+ const {loadTeammate,startTeammateRun}=await import('../src/teammates.js');
+ await setMode(env.DB,ORG,'harness','9701');
+ const teammateAgent=await env.DB.prepare("SELECT id FROM custom_agents WHERE org_id=?1 AND provider='claude'").bind(ORG).first();
+ await env.DB.prepare("INSERT OR IGNORE INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:cafe',?2,'9701','2026-11-15')").bind(ORG,teammateAgent.id).run();
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'Please review the deployment.'});
+ const begun=await beginAuthorizedAssignment(env,{orgId:ORG,token:(await getSession(env.DB,mika)).token,rowId:row.id},teammateAgent.id);
+ expect(begun.started).toBe(true);
+ const t=await loadTeammate(env.DB,ORG,'claude');
+ let allowStart,startedRequest;
+ const startSeen=new Promise(resolve=>{startedRequest=resolve;});
+ const releaseStart=new Promise(resolve=>{allowStart=resolve;});
+ anthropic().intercept({path:'/v1/sessions?beta=true',method:'POST'}).reply(200,async()=>{
+  startedRequest();await releaseStart;
+  if(outcome==='start failure')throw new Error('provider start failed');
+  return{id:'sesn_late_stop',type:'session',status:'running'};
+ });
+ let interrupt;
+ if(outcome!=='start failure')anthropic().intercept({path:'/v1/sessions/sesn_late_stop/events?beta=true',method:'POST'}).reply(200,opts=>{
+   if(outcome==='provider failure')throw new Error('provider unavailable');
+   interrupt=JSON.parse(opts.body);return{data:[{type:'user.interrupt'}]};
+  });
+ const starting=startTeammateRun(env,{orgId:ORG,t,key:'b:cafe',threadId:row.id,where:'Cafe',askedBy:'Mika',transcript:[],request:'Review the deployment.',login:'mika',requesterId:'9702',assignment:{assignmentId:begun.assignment.id,generation:0,agentId:teammateAgent.id}});
+ await startSeen;
+ const stopped=await send('POST','/channels/agent-runs/stop',mika,{orgId:ORG,channel:'b:cafe',messageId:row.id,assignmentId:begun.assignment.id,generation:0});
+ expect(stopped.status).toBe(200);
+ expect(await stopped.json()).toEqual({stopped:true,remoteStop:'pending'});
+ expect(await env.DB.prepare('SELECT status,remote_stop_status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:'cancelled',remote_stop_status:'pending'});
+ allowStart();
+ const result=outcome==='start failure'?null:await starting;
+ if(outcome==='start failure')await expect(starting).rejects.toThrow();
+ if(result) {
+  expect(result.run.remote_id).toBe('sesn_late_stop');
+  expect(interrupt).toEqual(outcome==='success'?{events:[{type:'user.interrupt'}]}:undefined);
+  expect(await env.DB.prepare('SELECT status FROM ai_teammate_runs WHERE id=?1').bind(result.run.id).first()).toEqual({status:'running'});
+ }
+ expect(await env.DB.prepare('SELECT status,remote_stop_status FROM hx_agent_assignments WHERE id=?1').bind(begun.assignment.id).first()).toEqual({status:'cancelled',remote_stop_status:stopStatus});
+});
+
 test('stopping a Cursor assignment calls the provider run cancel endpoint',async()=>{
  const cursorApi=fetchMock.get('https://api.cursor.com');
  cursorApi.intercept({path:'/v1/me',method:'GET'}).reply(200,{id:'user'});

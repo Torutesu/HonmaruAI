@@ -4511,3 +4511,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Workflow run history now pages by a stable `(started_at DESC, id DESC)` keyset, with a 1–100 page size and optional status filter at the Worker. The cursor anchors only to an ACL-visible run; inaccessible runs are omitted from results and cursor output. The AutomationRuns panel loads older pages and restarts at page one when toggling failed-only.
 - Web AutomationRuns, AppAutomations and API targeted suites passed **67/67**; the Web TypeScript/production build passed. Worker `harness-workflows` passed **151/151** after correcting the fixture's invalid empty-step workflow (the first run's 150 passing tests exposed that fixture error). Exact-head CI, merge, production deployment and authenticated Kylon screen comparison remain pending.
 - No schema or paid-service change; existing workflow/run access control is retained and Simple mode is unchanged.
+
+### 2026-11-15 — KY-020 stop during external session creation (local batch QA)
+
+- Fixed the race where an assignment could be stopped while Claude was still creating an external session. The stop route now recognizes a fresh `starting` reservation and returns `pending`; when the provider returns its exact session ID, the start path rechecks the same assignment generation and sends cancellation. Provider cancellation failure remains visible and retryable; a failed start resolves to `no_remote_run`. Stale reservations older than the existing start hold are excluded.
+- Batched Worker suites `teammates`, `agents`, `agent-assignments`, and `agent-job-result` passed **117/117**; `git diff --check` and parity JSON parsing passed. Exact-head CI, merge, production deployment and live provider cancellation acceptance remain pending.
+- No schema or paid-service changes; Simple mode is unaffected.

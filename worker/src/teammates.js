@@ -1092,11 +1092,51 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, sourceThr
     // Nothing started: the reservation goes, so the next mention can start one.
     await env.DB.prepare("DELETE FROM ai_teammate_runs WHERE id = ?1 AND org_id = ?2 AND status = 'starting'").bind(id, orgId).run()
       .catch((e) => console.error("teammate reservation cleanup failed", safe(e?.message)));
+    if (assignment) await env.DB.prepare(`UPDATE hx_agent_assignments SET remote_stop_status='no_remote_run',remote_stop_updated_at=?4
+      WHERE org_id=?1 AND id=?2 AND generation=?3 AND status='cancelled' AND remote_stop_status IN ('pending','requesting','failed','partial','unavailable')`)
+      .bind(orgId,assignment.assignmentId,assignment.generation,new Date().toISOString()).run()
+      .catch(e=>console.error('failed external-start cancellation reconciliation',safe(e?.message)));
     throw err;
   }
+  const run = { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:0, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null };
   await env.DB.prepare("UPDATE ai_teammate_runs SET remote_id = ?3, remote_turn = ?4, status = 'running', cost_cents = ?5, updated_at = ?6 WHERE id = ?1 AND org_id = ?2 AND status = 'starting'")
     .bind(id, orgId, started.remoteId, started.turn || null, (started.tasks || 0) * 100, stamp).run();
-  return { run: { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:0, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null } };
+  // Stop can win while the provider's start request is in flight. Once the
+  // exact remote ID exists, reconcile that late start against the same
+  // assignment generation; never leave provider work running after the local
+  // assignment was cancelled just because the stop lookup saw `starting`.
+  if (assignment) await cancelLateAssignmentStart(env, t, run, assignment);
+  return { run };
+}
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const settledProviderStops = new Set(['requested','already_finished','unsupported']);
+
+async function cancelLateAssignmentStart(env, teammate, run, identity) {
+  // A stop request may currently be cancelling the run through the normal
+  // path. Let that request record its outcome before deciding whether this
+  // late-start path must make the provider call itself.
+  for (let attempt=0; attempt<180; attempt++) {
+    const assignment = await env.DB.prepare(`SELECT status,remote_stop_status FROM hx_agent_assignments
+      WHERE org_id=?1 AND id=?2 AND generation=?3`).bind(run.org_id,identity.assignmentId,identity.generation).first();
+    if (!assignment || assignment.status !== 'cancelled' || settledProviderStops.has(assignment.remote_stop_status)) return;
+    const previous = assignment.remote_stop_status || 'pending';
+    if (previous === 'requesting') { await sleep(50); continue; }
+    const claimed = await env.DB.prepare(`UPDATE hx_agent_assignments SET remote_stop_status='requesting',remote_stop_updated_at=?5
+      WHERE org_id=?1 AND id=?2 AND generation=?3 AND status='cancelled' AND remote_stop_status IS ?4`)
+      .bind(run.org_id,identity.assignmentId,identity.generation,assignment.remote_stop_status,new Date().toISOString()).run();
+    if (!claimed.meta?.changes) continue;
+    let status = 'failed';
+    try { status = (await ADAPTERS[teammate.provider]?.cancel?.(teammate,run,{env}))?.status || 'unavailable'; }
+    catch (error) { console.error('late external agent cancellation failed',teammate.provider,error?.status || 'network'); }
+    await env.DB.prepare(`UPDATE hx_agent_assignments SET remote_stop_status=?4,remote_stop_updated_at=?5
+      WHERE org_id=?1 AND id=?2 AND generation=?3 AND status='cancelled' AND remote_stop_status='requesting'`)
+      .bind(run.org_id,identity.assignmentId,identity.generation,status,new Date().toISOString()).run();
+    return;
+  }
+  // If another stop request is still in flight, leave its visible `requesting`
+  // state intact. The retry control can safely recheck it after the lease age.
+  console.warn('late external agent cancellation is awaiting the active stop request');
 }
 
 /// What a run has done since it was last looked at: its words since the last
@@ -1109,12 +1149,16 @@ export async function readRun(env, t, run, options = {}) {
 /// assignment generation. Local cancellation remains authoritative even when
 /// the provider is unavailable or has no cancellation API.
 export async function cancelAssignedTeammateRuns(env, {orgId, assignmentId, generation}) {
+  const held = new Date(Date.now() - START_HOLD_MS).toISOString();
   const {results = []} = await env.DB.prepare(`SELECT * FROM ai_teammate_runs
-    WHERE org_id=?1 AND assignment_id=?2 AND assignment_generation=?3 AND status='running'
-    ORDER BY updated_at DESC LIMIT 8`).bind(orgId, assignmentId, generation).all();
+    WHERE org_id=?1 AND assignment_id=?2 AND assignment_generation=?3
+      AND (status='running' OR (status='starting' AND updated_at>?4))
+    ORDER BY updated_at DESC LIMIT 8`).bind(orgId, assignmentId, generation, held).all();
   if (!results.length) return {status: "no_remote_run"};
+  const starting = results.some(run => run.status === 'starting');
   const outcomes = [];
   for (const run of results) {
+    if (run.status === 'starting') { outcomes.push('pending'); continue; }
     const adapter = ADAPTERS[run.provider];
     if (!adapter?.cancel) { outcomes.push("unsupported"); continue; }
     const teammate = await loadTeammate(env.DB, orgId, run.provider, env).catch(() => null);
@@ -1126,6 +1170,14 @@ export async function cancelAssignedTeammateRuns(env, {orgId, assignmentId, gene
       console.error("external agent cancellation request failed", run.provider, error?.status || "network");
       outcomes.push("failed");
     }
+  }
+  if (starting) {
+    // Release the route's short request lease so the start path can claim and
+    // cancel the exact run as soon as the provider returns its remote ID.
+    await env.DB.prepare(`UPDATE hx_agent_assignments SET remote_stop_status='pending',remote_stop_updated_at=?4
+      WHERE org_id=?1 AND id=?2 AND generation=?3 AND status='cancelled' AND remote_stop_status='requesting'`)
+      .bind(orgId,assignmentId,generation,new Date().toISOString()).run();
+    return {status:'pending'};
   }
   const status = outcomes.includes("failed") || outcomes.includes("unsupported") || outcomes.includes("unavailable")
     ? (outcomes.some(value => value === "requested" || value === "already_finished") ? "partial" : "failed")
