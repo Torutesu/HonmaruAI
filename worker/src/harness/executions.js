@@ -6,7 +6,6 @@ import {settleWorkflowProgram} from './workflowCodeJobs.js';
 import { mayRunAgent } from './agents.js';
 import { getMode } from './mode.js';
 import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
-import { mayUseConversation } from './conversationAccess.js';
 export const jobView = row => row && ({ id: row.id, gatewayId: row.gateway_id, status: row.status, createdAt: row.created_at, startedAt: row.started_at, finishedAt: row.finished_at, result: row.result ? JSON.parse(row.result) : null });
 const id = () => crypto.randomUUID();
 const now = () => Date.now();
