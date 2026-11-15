@@ -114,6 +114,26 @@ test('renaming a database column preserves its stable ID and existing row values
  expect(data.table.columns).toEqual([{id:'task',name:'Title',type:'text'}]);
  expect(data.rows[0]).toMatchObject({id:row.id,values:{task:'Keep this value'}});
 });
+test('rename rollback is a checksummed new schema migration and leaves row data unchanged',async()=>{
+ const inserted=await worker.fetch(new Request(`https://example.com/tables/${app.tableId}/rows`,{method:'POST',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,values:{task:'Keep this value'}})}),{...env});
+ const row=(await inserted.json()).row;
+ const rename={id:'rename_task_v1',version:0,operations:[{op:'rename_column',entity:'primary',column:'task',name:'Title'}]};
+ let preview=await (await run('database',{action:'preview',...rename})).json();
+ expect(preview).toMatchObject({canApply:true,blockerCount:0});
+ expect(await (await run('database',{action:'migrate',...rename,previewChecksum:preview.previewChecksum})).json()).toMatchObject({applied:true,version:1});
+ let state=await databaseView(env.DB,orgId,app);
+ const applied=state.migrations.find(item=>item.id===rename.id);
+ expect(applied).toMatchObject({integrityValid:true,inverseOperations:[{op:'rename_column',entity:'primary',column:'task',name:'Task'}]});
+ const rollback={id:'rollback_rename_task_v1',version:1,operations:applied.inverseOperations};
+ preview=await (await run('database',{action:'preview',...rollback})).json();
+ expect(preview).toMatchObject({canApply:true,blockerCount:0});
+ expect(await (await run('database',{action:'migrate',...rollback,previewChecksum:preview.previewChecksum})).json()).toMatchObject({applied:true,version:2});
+ state=await databaseView(env.DB,orgId,app);
+ expect(state.entities[0].table.columns).toEqual([{id:'task',name:'Task',type:'text'}]);
+ expect(state.migrations.find(item=>item.id===rollback.id)).toMatchObject({integrityValid:true,inverseOperations:[{op:'rename_column',entity:'primary',column:'task',name:'Title'}]});
+ const data=await (await call(`/tables/${app.tableId}`,owner)).json();
+ expect(data.rows[0]).toMatchObject({id:row.id,values:{task:'Keep this value'}});
+});
 test('data migrations preview strict conversions, reject stale rows, and only drop empty columns',async()=>{
  const add={action:'migrate',id:'amount_text_v1',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Amount',type:'text'},{name:'Flag',type:'checkbox'},{name:'Score',type:'number'},{name:'Unused',type:'text'}]}]};
  expect((await run('database',add)).status).toBe(200);

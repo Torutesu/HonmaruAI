@@ -51,11 +51,11 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
     if(!blocker.resolution)return
     try { const operations=JSON.parse(plan);if(!Array.isArray(operations))return;const operation=operations.find((item:any)=>item?.entity===blocker.resolution!.entity&&item?.column===blocker.resolution!.columnId&&item?.op==='convert_column');if(!operation)return;operation.matchResolutions={...(operation.matchResolutions||{}),[blocker.resolution.label]:recordId};setPlan(JSON.stringify(operations,null,2));setConfirmMigration(false) } catch { /* invalid JSON remains unchanged */ }
   }
-  function prepareAdditiveRollback(migration:AppMigration) {
+  function prepareSchemaRollback(migration:AppMigration) {
     if(!migration.integrityValid||!migration.inverseOperations?.length)return
-    if(plan!=='[]'&&!window.confirm('編集中の変更案を、追加列を取り除く新しいDB変更案で置き換えます。現在の入力は保持されません。続けますか？'))return
+    if(plan!=='[]'&&!window.confirm('編集中の変更案を、検証済みの可逆スキーマ変更から作る新しいDB変更案で置き換えます。現在の入力は保持されません。続けますか？'))return
     const safeId=`rollback_${migration.id.toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,10)}_v${db?.version??0}`
-    setPlan(JSON.stringify(migration.inverseOperations,null,2));setMigrationId(safeId);setMigrationPreview(null);setConfirmMigration(false);setNotice(`${migration.id}の追加列を取り除く新しい変更案を用意しました。プレビューしてから適用してください。`)
+    setPlan(JSON.stringify(migration.inverseOperations,null,2));setMigrationId(safeId);setMigrationPreview(null);setConfirmMigration(false);setNotice(`${migration.id}から作る新しい逆変更案を用意しました。プレビューしてから適用してください。`)
   }
   function appendMigrationOperation(operation:Record<string,unknown>) {
     let operations:unknown[]
@@ -107,7 +107,7 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
         <h3>DB変更履歴</h3>
         {!db.migrations.length?<p>適用済みの変更はありません。</p>:<ol className="hx-db-migration-history">{db.migrations.map(migration=><li key={`${migration.id}:${migration.version}`}>
           <details><summary>v{migration.version} · {migration.id} · {new Date(migration.createdAt).toLocaleString()}</summary>
-            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre>{canManage&&migration.inverseOperations&&migration.inverseOperations.length>0&&<><p>この変更で追加した列だけを対象にした逆変更案を作れます。列に値が入っている場合はプレビューで適用が止まります。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>prepareAdditiveRollback(migration)}>追加列を戻す変更案を作成</button></>}</>}
+            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre>{canManage&&migration.inverseOperations&&migration.inverseOperations.length>0&&<><p>追加列と列名変更だけの検証済み逆変更案を作れます。追加列に値が入っている場合はプレビューで適用が止まります。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>prepareSchemaRollback(migration)}>逆変更案を作成</button></>}</>}
           </details>
         </li>)}</ol>}
       </section>
