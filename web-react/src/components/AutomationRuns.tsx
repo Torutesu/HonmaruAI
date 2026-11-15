@@ -1,7 +1,8 @@
 import {WorkflowRunUsage} from './WorkflowRunUsage'
 import {HeldWebhookEvents} from './HeldWebhookEvents'
+import {WorkflowRunSummaryCard} from './WorkflowRunSummary'
 import React,{useCallback,useEffect,useRef,useState} from 'react'
-import type {HarnessApi,HeldWorkflowEvents,Run,WorkflowSafety} from '../utils/harness'
+import type {HarnessApi,HeldWorkflowEvents,Run,WorkflowRunSummary as WorkflowRunSummaryData,WorkflowSafety} from '../utils/harness'
 import {useT} from '../utils/i18n'
 import {getLocale} from '../utils/locale'
 import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHistory'
@@ -14,17 +15,18 @@ const authorizationResourceLabels:Record<NonNullable<Run['log'][number]['authori
 
 export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessApi}) {
  const t=useT(),[runs,setRuns]=useState<Run[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[isOpen,setIsOpen]=useState(false),[failedOnly,setFailedOnly]=useState(false)
+ const [summary,setSummary]=useState<WorkflowRunSummaryData|null>(null)
  const [safety,setSafety]=useState<WorkflowSafety|null>(null),[canEdit,setCanEdit]=useState(false),[held,setHeld]=useState<HeldWorkflowEvents|null>(null),[isWebhook,setIsWebhook]=useState(false)
  const request=useRef(0),pending=useRef<number|null>(null),opened=useRef(false)
  const load=useCallback(async(heldOffset=0)=>{
   if(pending.current!==null)return
   const current=++request.current;pending.current=current;setBusy(true);setError('')
-  try{const result=heldOffset?await api.workflow(workflowId,heldOffset):await api.workflow(workflowId);if(current===request.current){setRuns(result.runs);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true);setHeld(result.held||null);setIsWebhook(result.workflow?.trigger?.type==='webhook')}}
-  catch(e){if(current===request.current){setRuns(null);setSafety(null);setCanEdit(false);setHeld(null);setIsWebhook(false);setError(e instanceof Error?e.message:String(e))}}
+  try{const result=heldOffset?await api.workflow(workflowId,heldOffset):await api.workflow(workflowId);if(current===request.current){setRuns(result.runs);setSummary(result.summary||null);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true);setHeld(result.held||null);setIsWebhook(result.workflow?.trigger?.type==='webhook')}}
+  catch(e){if(current===request.current){setRuns(null);setSummary(null);setSafety(null);setCanEdit(false);setHeld(null);setIsWebhook(false);setError(e instanceof Error?e.message:String(e))}}
   finally{if(pending.current===current)pending.current=null;if(current===request.current)setBusy(false)}
  },[workflowId,api])
  useEffect(()=>{
-  request.current++;pending.current=null;setRuns(null);setSafety(null);setCanEdit(false);setHeld(null);setIsWebhook(false);setError('');setBusy(false);setFailedOnly(false)
+  request.current++;pending.current=null;setRuns(null);setSummary(null);setSafety(null);setCanEdit(false);setHeld(null);setIsWebhook(false);setError('');setBusy(false);setFailedOnly(false)
   if(opened.current)void load()
   return ()=>{request.current++}
  },[load])
@@ -34,7 +36,7 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
   try{
    await api.resumeWorkflow(workflowId,safety.generation)
    const result=await api.workflow(workflowId)
-   if(current===request.current){setRuns(result.runs);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true);setHeld(result.held||null);setIsWebhook(result.workflow?.trigger?.type==='webhook')}
+   if(current===request.current){setRuns(result.runs);setSummary(result.summary||null);setSafety(result.workflow?.safety||null);setCanEdit(result.canEdit===true);setHeld(result.held||null);setIsWebhook(result.workflow?.trigger?.type==='webhook')}
   }catch(e){if(current===request.current)setError(e instanceof Error?e.message:String(e))}
   finally{if(pending.current===current)pending.current=null;if(current===request.current)setBusy(false)}
  }
@@ -47,6 +49,7 @@ export function AutomationRuns({workflowId,api}:{workflowId:string;api:HarnessAp
  const orderedDays=groupRunsByStartDay(visibleRuns)
  return <details className="hx-run-history-panel" onToggle={e=>{opened.current=e.currentTarget.open;setIsOpen(opened.current);if(opened.current && runs===null && !busy)void load()}}><summary>{t('Run history')}</summary>
   {busy&&<p role="status">{t('Loading…')}</p>}{error&&<p role="alert">{error}</p>}
+  {runs!==null&&!error&&<WorkflowRunSummaryCard summary={summary}/>}
   {safety?.paused_at&&<section className="form-note" role="status">
    <strong>{safety.pause_reason?.startsWith('budget_ai_')?t('Paused by estimated AI usage budget'):safety.pause_reason?.startsWith('budget_')?t('Paused by run budget'):t('Paused after three consecutive failures')}</strong>
    <p>{safety.pause_reason?.startsWith('budget_ai_unpriced')?t('Some AI usage could not be priced. Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.'):safety.pause_reason?.startsWith('budget_ai_')?t('Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.'):safety.pause_reason?.startsWith('budget_')?t('Review the usage windows and budget settings. This workflow can run on its next trigger when all budget conditions are clear.'):t('Review the failed runs below before resuming. Held events will not replay automatically.')}</p>
