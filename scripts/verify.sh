@@ -27,6 +27,7 @@ trap 'echo "verify: failed during: ${current:-setup}" >&2' ERR
 current="gateway and release checks"; step "$current"
 node --test gateway/test/*.test.mjs
 node --test .github/scripts/worker-dependency.test.cjs .github/scripts/migrate-columns.test.cjs .github/scripts/ci-dependency.test.cjs .github/scripts/wrangler-pin.test.cjs
+node scripts/check-kylon-parity.mjs
 
 if [ "$quick" = 0 ]; then
   current="worker"; step "$current"
