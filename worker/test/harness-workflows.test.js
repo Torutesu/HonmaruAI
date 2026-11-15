@@ -1728,11 +1728,11 @@ test('write-capable Remote MCP tools require an exact Agent grant and an immedia
     expect(waiting.status).toBe('waiting');
     const { getCard } = await import('../src/db.js');
     const card = await getCard(env.DB, ORG, waiting.cardId);
-    expect(card.context).toContain('create_ticket');
+    expect(card.context).toContain('Workflow knowledge: Create ticket');
+    expect(card.context).not.toContain(server.id);
     expect(card.context).toContain('Investigate outage');
     expect(dispatched).toBe(0);
     const done = await settleWorkflowApproval({ ...env, DATA_KEY: testDataKey }, ORG, { ...card, status: 'approved', decision: { action: 'approve', actorUserID: 'toru', decidedAt: new Date().toISOString() } });
-    console.log('APPROVED_WRITE_RESULT', JSON.stringify(done));
     expect(done.status).toBe('done');
     expect(dispatched).toBe(1);
     expect(done.log[1]).toMatchObject({ type: 'connection', status: 'ok', output: 'Ticket created' });
