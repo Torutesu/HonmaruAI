@@ -1018,7 +1018,7 @@ test('custom releases require owner permission, separate drafts and reject stale
   expect(current.app.definition.custom.draft).toBe(draft.html);
 });
 
-test('app version history identifies immutable published releases and clears the active marker after unpublish', async () => {
+test('app version history distinguishes release, inherited release, replacement and unpublish events', async () => {
   const { upsertUser } = await import('../src/db.js');
   await upsertUser(env.DB, { githubId: '9101', login: 'toru', name: 'Toru Tanaka' });
   const { app } = await (await send('POST', '/apps', toru, { orgId: ORG, template: 'tracker', sample: false })).json();
@@ -1027,7 +1027,7 @@ test('app version history identifies immutable published releases and clears the
   let candidateId=await ensureCustomPreview(path,2,toru);
   await send('POST', path, toru, { orgId: ORG, action: 'publish', version: 2,candidateId });
   let history = (await (await get(`/apps/${app.id}/versions?orgId=${ORG}`, toru)).json()).versions;
-  expect(history[0]).toMatchObject({ version: 3, release: { source: 'inline', current: true, publishedBy: '9101', publishedByName: 'Toru Tanaka' } });
+  expect(history[0]).toMatchObject({ version: 3, release: { source: 'inline', current: true, status: 'current', version: 3, isReleaseVersion: true, publishedBy: '9101', publishedByName: 'Toru Tanaka' } });
   expect(history[0].release.publishedAt).toEqual(expect.any(String));
   expect(history[0]).not.toHaveProperty('definition');
   expect(history[1]).toMatchObject({ version: 2, release: null });
@@ -1035,11 +1035,20 @@ test('app version history identifies immutable published releases and clears the
   await send('POST', path, toru, { orgId: ORG, action: 'draft', version: 3, html: '<h1>next draft</h1>' });
   history = (await (await get(`/apps/${app.id}/versions?orgId=${ORG}`, toru)).json()).versions;
   expect(history.find(version => version.version === 3).release.current).toBe(true);
+  expect(history.find(version => version.version === 4)).toMatchObject({ release: { current: true, status: 'current', version: 3, isReleaseVersion: false } });
 
-  await send('POST', path, toru, { orgId: ORG, action: 'unpublish', version: 4 });
+  await send('POST', path, toru, { orgId: ORG, action: 'draft', version: 4, html: '<h1>release two</h1>' });
+  candidateId=await ensureCustomPreview(path,5,toru);
+  await send('POST', path, toru, { orgId: ORG, action: 'publish', version: 5,candidateId });
   history = (await (await get(`/apps/${app.id}/versions?orgId=${ORG}`, toru)).json()).versions;
-  expect(history.find(version => version.version === 3).release).toMatchObject({ source: 'inline', current: false });
-  expect(history[0]).toMatchObject({ version: 5, release: null });
+  expect(history.find(version => version.version === 3).release).toMatchObject({ source: 'inline', current: false, status: 'replaced' });
+  expect(history.find(version => version.version === 6).release).toMatchObject({ current: true, status: 'current', version: 6, isReleaseVersion: true });
+
+  await send('POST', path, toru, { orgId: ORG, action: 'unpublish', version: 6 });
+  history = (await (await get(`/apps/${app.id}/versions?orgId=${ORG}`, toru)).json()).versions;
+  expect(history.find(version => version.version === 3).release).toMatchObject({ source: 'inline', current: false, status: 'replaced' });
+  expect(history.find(version => version.version === 6).release).toMatchObject({ current: false, status: 'stopped' });
+  expect(history[0]).toMatchObject({ version: 7, release: null, releaseEvent: { type: 'unpublished', by: '9101' } });
 });
 
 test('custom generation validates source and fails without an existing AI allowance', async () => {
@@ -2813,6 +2822,26 @@ async function requestCustomApproval(path, version) {
 async function approveCustomRelease(path, state, reviewer=toru, token=reviewer) {
   return send('POST',path,token,{orgId:ORG,action:'review',decision:'approve',approvalId:state.approval.id,version:state.draftVersion,sourceHash:state.sourceHash,candidateId:state.candidate?.id});
 }
+
+test('custom app version history exposes publish approval state and reviewer without leaking approval hashes', async()=>{
+  const {app,path}=await customApprovalFixture();
+  expect((await requestCustomApproval(path,app.version)).status).toBe(200);
+  let history=(await(await get(`/apps/${app.id}/versions?orgId=${ORG}`,mika)).json()).versions;
+  const pending=history.find(version=>version.version===app.version);
+  expect(pending.approvals).toMatchObject([{kind:'inline',status:'pending',requestedBy:'9102',requestedByName:'Mika'}]);
+  expect(JSON.stringify(pending)).not.toMatch(/sourceHash|candidateId/);
+  let gate=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
+  expect((await approveCustomRelease(path,gate)).status).toBe(200);
+  history=(await(await get(`/apps/${app.id}/versions?orgId=${ORG}`,mika)).json()).versions;
+  expect(history.find(version=>version.version===app.version).approvals).toMatchObject([
+    {kind:'inline',status:'approved',requestedBy:'9102',reviewerId:'9101',reviewerName:'Toru'},
+  ]);
+  gate=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
+  expect((await send('POST',path,mika,{orgId:ORG,action:'publish',version:app.version,candidateId:gate.candidate?.id})).status).toBe(200);
+  history=(await(await get(`/apps/${app.id}/versions?orgId=${ORG}`,mika)).json()).versions;
+  expect(history.find(version=>version.version===app.version).approvals).toMatchObject([{kind:'inline',status:'published'}]);
+  expect(history[0]).toMatchObject({release:{status:'current',isReleaseVersion:true}});
+});
 
 test('restoring an older published custom app release creates a gated draft and preserves release history', async()=>{
   const {app,path}=await customApprovalFixture();

@@ -9,16 +9,21 @@ test('custom app history distinguishes the active published release from a resto
   const restore = vi.fn()
   let tree: ReturnType<typeof create>
   act(() => { tree = create(<CustomAppReleaseHistory history={[
-    { version: 5, note: 'Custom app: publish', createdAt: '2026-11-10T00:00:00Z', release: { publishedAt: '2026-11-10T00:00:00Z', publishedBy: '9101', publishedByName: 'Custom Publisher', source: 'github-commit', commitSha: '0123456789abcdef', current: true } },
-    { version: 3, note: 'Custom app: publish', createdAt: '2026-11-08T00:00:00Z', release: { publishedAt: '2026-11-08T00:00:00Z', publishedBy: '9102', source: 'inline', current: false } },
+    { version: 5, note: 'Custom app: publish', createdAt: '2026-11-10T00:00:00Z', release: { publishedAt: '2026-11-10T00:00:00Z', publishedBy: '9101', publishedByName: 'Custom Publisher', source: 'github-commit', commitSha: '0123456789abcdef', current: true, status: 'current', version: 5, isReleaseVersion: true }, approvals: [{ kind: 'github-commit', status: 'published', requestedBy: '9102', requestedByName: 'Reviewer', reviewerId: '9101', reviewerName: 'Custom Publisher', requestedAt: '2026-11-09T00:00:00Z', reviewedAt: '2026-11-09T00:01:00Z' }] },
+    { version: 6, note: 'Custom app: draft', createdAt: '2026-11-11T00:00:00Z', release: { publishedAt: '2026-11-10T00:00:00Z', publishedBy: '9101', publishedByName: 'Custom Publisher', source: 'github-commit', commitSha: '0123456789abcdef', current: true, status: 'current', version: 5, isReleaseVersion: false } },
+    { version: 3, note: 'Custom app: publish', createdAt: '2026-11-08T00:00:00Z', release: { publishedAt: '2026-11-08T00:00:00Z', publishedBy: '9102', source: 'inline', current: false, status: 'replaced', version: 3, isReleaseVersion: true } },
     { version: 4, note: 'Custom app: draft', createdAt: '2026-11-09T00:00:00Z', release: null },
+    { version: 7, note: 'Custom app: unpublish', createdAt: '2026-11-12T00:00:00Z', release: null, releaseEvent: { type: 'unpublished', at: '2026-11-12T00:00:00Z', by: '9101' } },
   ]} busy={false} restore={restore} />) })
   const statuses = tree!.root.findAllByProps({ role: 'status' }).map(node => node.children.join(''))
   expect(statuses[0]).toContain('現在公開中')
   expect(statuses[0]).toContain('GitHub 0123456789ab')
   expect(statuses[0]).toContain('公開者 Custom Publisher')
-  expect(statuses[1]).toContain('公開した版')
-  expect(tree!.root.findAllByType('p').some(node => node.children.join('').includes('公開されていない版'))).toBe(true)
+  expect(statuses.some(status => status.includes('後続の版に差し替え済み'))).toBe(true)
+  expect(statuses.some(status => status.includes('公開版 v5 を維持'))).toBe(true)
+  expect(statuses.some(status => status.includes('公開停止'))).toBe(true)
+  expect(tree!.root.findAllByProps({ role: 'status' }).some(node => node.children.join('').includes('GitHub commit審査 · 公開済み · 申請 Reviewer · 審査 Custom Publisher'))).toBe(true)
+  expect(tree!.root.findAllByType('p').some(node => node.children.join('').includes('未公開の下書き'))).toBe(true)
   const buttons = tree!.root.findAllByType('button')
   expect(buttons[0].children.join('')).toBe('この公開版を下書きに復元')
   act(() => { buttons[0].props.onClick() })

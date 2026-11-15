@@ -156,10 +156,30 @@ export function CustomAppFrame({ html, table, rows, httpBase, api, reload, appId
   return <>{change && <div className="hx-custom-approval" role="alertdialog" aria-label="アプリのデータ変更を確認"><h3>{change.action ? 'サーバー処理の実行確認' : change.connection ? '外部API読み取りの確認' : change.remoteMcp ? 'Remote MCP読み取りの確認' : 'データ変更の確認'}</h3><p>{change.remoteMcp?.title || change.targetTable?.name || table.name} · {change.operation === 'create' ? '行を追加' : change.operation === 'update' ? '行を更新' : change.operation === 'run' ? 'サーバー処理' : change.operation === 'connect' ? '外部API' : change.operation === 'remote_mcp' ? '読み取り専用ツール' : '行を削除'}</p><pre>{JSON.stringify(change.action ? {処理:change.action.name,公開版:change.action.publishedVersion,コード:change.action.published,入力:change.args.input,実行ノード:change.gatewayId} : change.connection ? {接続:change.connection.name,URL:change.connection.endpoint,操作:change.connection.method||'GET',送信内容:change.args.body||null} : change.remoteMcp ? {ツール:change.remoteMcp.title,引数:change.args.args||{}} : { ...(change.before ? { '対象レコード': change.before.id, '変更前': labeled(change.before.values) } : {}), ...(change.operation !== 'remove' ? { '変更内容': labeled(change.args.values || {}) } : {}) }, null, 2)}</pre>{change.remoteMcp&&<p>このAppに共有された読み取り専用ツールを、接続所有者の認証で実行します。接続先や認証情報はアプリに公開されません。</p>}<button disabled={working} onClick={() => decide(false)}>キャンセル</button><button disabled={working} onClick={() => decide(true)}>この変更を許可</button></div>}{renderState !== 'ready' && <div className="hx-custom-status" role="status">{renderState === 'loading' ? 'アプリを読み込んでいます…' : <><span>アプリを表示できませんでした。</span><button type="button" onClick={() => setAttempt(value => value + 1)}>再試行</button></>}</div>}<iframe tabIndex={decorative ? -1 : undefined} ref={frame} onLoad={() => initialize()} title="カスタムアプリ" sandbox="allow-scripts" referrerPolicy="no-referrer" key={`${html}:${theme}:${appId}:${httpBase}:${attempt}`} src={`${httpBase}/custom-app-runner?v=4`} className="hx-custom-frame" /></>
 }
 
-type CustomAppHistoryEntry = { version: number; note: string | null; createdAt: string; release?: { publishedAt: string; publishedBy: string; publishedByName?: string | null; source: 'inline' | 'github-commit'; commitSha?: string; current: boolean } | null }
+type CustomAppHistoryEntry = {
+  version: number
+  note: string | null
+  createdAt: string
+  release?: { publishedAt: string; publishedBy: string; publishedByName?: string | null; source: 'inline' | 'github-commit'; commitSha?: string; current: boolean; status: 'current' | 'replaced' | 'stopped'; version: number; isReleaseVersion: boolean } | null
+  releaseEvent?: { type: 'unpublished'; at: string; by: string }
+  approvals?: Array<{ kind: 'inline' | 'github-commit'; status: 'pending' | 'approved' | 'rejected' | 'revoked' | 'published'; requestedBy: string; requestedByName: string; reviewerId: string | null; reviewerName: string | null; requestedAt: string; reviewedAt: string | null }>
+}
 
 export function CustomAppReleaseHistory({ history, busy, restore }: { history: CustomAppHistoryEntry[]; busy: boolean; restore: (version: number) => void }) {
-  return <>{history.filter(v => v.note?.startsWith('Custom app:')).map(v => <article key={v.version} className="hx-custom-history-entry"><p><strong>v{v.version}</strong> · {v.note}</p>{v.release ? <p role="status">{v.release.current ? '現在公開中' : '公開した版'} · {new Date(v.release.publishedAt).toLocaleString()} · {v.release.source === 'github-commit' ? `GitHub ${v.release.commitSha?.slice(0, 12)}` : 'カスタムコード'} · 公開者 {v.release.publishedByName || v.release.publishedBy}</p> : <p>公開されていない版</p>}{v.release && !v.release.current ? <><button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>この公開版を下書きに復元</button><p>復元後、現在の公開承認ルールに従って改めて公開します。履歴は新しい版として追加されます。</p></> : !v.release ? <button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>下書きに復元</button> : null}</article>)}</>
+  const approvalStatus: Record<NonNullable<CustomAppHistoryEntry['approvals']>[number]['status'], string> = {
+    pending: '承認待ち', approved: '承認済み・公開待ち', rejected: '却下', revoked: '取り消し', published: '公開済み',
+  }
+  const releaseStatus: Record<NonNullable<CustomAppHistoryEntry['release']>['status'], string> = {
+    current: '現在公開中', replaced: '後続の版に差し替え済み', stopped: '公開停止',
+  }
+  return <>{history.filter(v => v.note?.startsWith('Custom app:') || v.note?.startsWith('GitHub commit:')).map(v => <article key={v.version} className="hx-custom-history-entry">
+    <p><strong>v{v.version}</strong> · {v.note} · {new Date(v.createdAt).toLocaleString()}</p>
+    {v.release ? <p role="status">{v.release.isReleaseVersion ? releaseStatus[v.release.status] : `公開版 v${v.release.version} を維持`} · {new Date(v.release.publishedAt).toLocaleString()} · {v.release.source === 'github-commit' ? `GitHub ${v.release.commitSha?.slice(0, 12)}` : 'カスタムコード'} · 公開者 {v.release.publishedByName || v.release.publishedBy}</p>
+      : v.releaseEvent?.type === 'unpublished' ? <p role="status">公開停止 · {new Date(v.releaseEvent.at).toLocaleString()}</p>
+        : <p>未公開の下書き</p>}
+    {v.approvals?.map((approval, index) => <p key={`${approval.kind}-${approval.requestedAt}-${index}`} role="status">{approval.kind === 'github-commit' ? 'GitHub commit審査' : '公開審査'} · {approvalStatus[approval.status]} · 申請 {approval.requestedByName} · {approval.reviewedAt ? `審査 ${approval.reviewerName || approval.reviewerId} · ${new Date(approval.reviewedAt).toLocaleString()}` : `申請 ${new Date(approval.requestedAt).toLocaleString()}`}</p>)}
+    {v.release?.isReleaseVersion && !v.release.current ? <><button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>この公開版を下書きに復元</button><p>復元後、現在の公開承認ルールに従って改めて公開します。履歴は新しい版として追加されます。</p></> : !v.release && !v.releaseEvent ? <button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>下書きに復元</button> : null}
+  </article>)}</>
 }
 
 export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { app: App; table: Table; rows: Row[]; api: HarnessApi; reload: () => unknown; httpBase: string }) {
