@@ -175,6 +175,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
   const [error, setError] = useState('')
   const [history, setHistory] = useState<CustomAppHistoryEntry[]>([])
   const [commitState,setCommitState]=useState<Awaited<ReturnType<typeof api.customCommitState>>|null>(null)
+  const [draftRepository,setDraftRepository]=useState<({owner:string;repo:string;repository:string;branch:string;path:string;entryPath:string;currentDraftSha:string|null;version:number}|null)>(null)
   const [publishGate,setPublishGate]=useState<Awaited<ReturnType<typeof api.customPublishState>>|null>(null)
   const [gitOwner,setGitOwner]=useState(''),[gitRepo,setGitRepo]=useState(''),[gitBranch,setGitBranch]=useState('main'),[gitSha,setGitSha]=useState('')
   const [hosting,setHosting]=useState<Awaited<ReturnType<typeof api.appHosting>>|null>(null)
@@ -183,7 +184,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
     activeScope.current=scope
     const draft=app.definition.custom?.draft||''
     htmlRef.current=draft;editGeneration.current++;remote.current={scope,draft,generation:editGeneration.current};promptGeneration.current++;pending.current=null
-    setHtml(draft);setPrompt('');setPreview(Boolean(draft));setGenerated(null);setRemoteChanged(false);setBusy(false);setError('');setHistory([]);setShownScope(scope)
+    setHtml(draft);setPrompt('');setPreview(Boolean(draft));setGenerated(null);setRemoteChanged(false);setBusy(false);setError('');setHistory([]);setDraftRepository(null);setShownScope(scope)
     return()=>{if(activeScope.current===scope)activeScope.current=null}
   },[scope])
   useEffect(()=>{
@@ -237,11 +238,30 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
       <h3>GitHubコミットから公開</h3>
       <p>接続中のGitHubアカウントから、固定したcommitのHTMLと静的アセットだけを取り込みます。公開範囲と保存済みバンドルに別のOwner/Adminの承認が必要です。ビルドやGitHubへの書き込みは行いません。</p>
       <div className="hx-form-grid">
-        <label>Owner<input aria-label="GitHub owner" value={gitOwner} onChange={e=>setGitOwner(e.target.value)} /></label>
-        <label>Repository<input aria-label="GitHub repository" value={gitRepo} onChange={e=>setGitRepo(e.target.value)} /></label>
+        <label>Owner<input aria-label="GitHub owner" value={gitOwner} onChange={e=>{setGitOwner(e.target.value);setDraftRepository(null)}} /></label>
+        <label>Repository<input aria-label="GitHub repository" value={gitRepo} onChange={e=>{setGitRepo(e.target.value);setDraftRepository(null)}} /></label>
         <label>Branch<input aria-label="GitHub branch" value={gitBranch} onChange={e=>setGitBranch(e.target.value)} /></label>
         <label>Full commit SHA<input aria-label="GitHub commit SHA" value={gitSha} onChange={e=>setGitSha(e.target.value)} /></label>
       </div>
+      <div className="hx-actions">
+        <button type="button" className="pill-btn quiet" disabled={busy||!gitOwner.trim()||!gitRepo.trim()||!api.customCommit} onClick={()=>void run(async()=>{
+          const result=await api.customCommit(app.id,{action:'inspect_draft_repository',owner:gitOwner.trim(),repo:gitRepo.trim()}) as any
+          setDraftRepository({...result,version:app.version})
+        })}>下書きブランチを確認</button>
+        {draftRepository&&<button type="button" className="pill-btn" disabled={busy||changed||remoteConflict||!app.definition.custom?.draft||draftRepository.version!==app.version||draftRepository.owner!==gitOwner.trim()||draftRepository.repo!==gitRepo.trim()} onClick={()=>{
+          const state=draftRepository.currentDraftSha?`既存の下書きブランチ ${draftRepository.currentDraftSha.slice(0,12)}… を更新します。`:'専用の下書きブランチを作成します。'
+          if(!window.confirm(`${draftRepository.repository} の ${draftRepository.branch} に、保存済みのカスタムAppを書き込みます。${state}デフォルトブランチには書き込みません。続けますか？`))return
+          void run(async()=>{
+            const result=await api.customCommit(app.id,{action:'write_github_draft',owner:draftRepository.owner,repo:draftRepository.repo,expectedSha:draftRepository.currentDraftSha}) as any
+            setDraftRepository(current=>current?{...current,...result,currentDraftSha:result.commitSha}:current)
+          })
+        }}>保存済み下書きをGitHubへ書き出す</button>}
+      </div>
+      {draftRepository&&<div className="hx-commit-review" aria-label="GitHub下書きブランチ">
+        <p>{draftRepository.repository} · <code>{draftRepository.branch}</code> · {draftRepository.currentDraftSha?`現在のSHA ${draftRepository.currentDraftSha.slice(0,12)}…`:'まだ作成されていません'}</p>
+        <p>対象ファイル: <code>{draftRepository.path}</code>{draftRepository.currentDraftSha&&<> · <a href={`https://github.com/${encodeURIComponent(draftRepository.owner)}/${encodeURIComponent(draftRepository.repo)}/tree/${draftRepository.branch.split('/').map(encodeURIComponent).join('/')}`} target="_blank" rel="noreferrer">GitHubで下書きを確認</a></>}</p>
+        <p>保存済みコードだけを書き出します。GitHubへは別のbranchを作成し、デフォルトbranchやHonmaru内の公開状態は変更しません。branchが確認後に変わった場合は書き込みを拒否します。</p>
+      </div>}
       <button type="button" className="pill-btn quiet" disabled={busy||!gitOwner.trim()||!gitRepo.trim()||!gitBranch.trim()||!gitSha.trim()} onClick={()=>void run(async()=>{
         await api.customCommit(app.id,{action:'import_commit',owner:gitOwner.trim(),repo:gitRepo.trim(),branch:gitBranch.trim(),commitSha:gitSha.trim()})
         await reload()

@@ -56,6 +56,7 @@ import { createCustomPreviewCandidate, currentCustomPreviewCandidate } from './c
 import { createAppShare, listAppShares, revokeAppShare, readAppShare } from './appShares.js';
 import { listPublicAppShareApprovals, reviewPublicAppShareApproval } from './appShareApproval.js';
 import { fetchGitHubCommitSource, verifyGitHubCommitRef } from './githubCommitSource.js';
+import { inspectGitHubAppDraftRepository, writeGitHubAppDraft } from './githubDraftWriter.js';
 import { commitPublishScope, customCommitState, requestCustomCommitApproval, reviewCustomCommitApproval, publishApprovedCustomCommit, hashSource } from './appCommitRelease.js';
 import { servePublishedCommitAsset } from './appCommitAssets.js';
 import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHosting.js';
@@ -120,6 +121,23 @@ export function json(body, status = 200) {
     status,
     headers: { "cache-control": "no-store", "content-type": "application/json", ...CORS_HEADERS },
   });
+}
+
+function encodeBase64(bytes) {
+  const data = bytes instanceof Uint8Array ? bytes : bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : null;
+  if (!data) return null;
+  let binary = '';
+  for (let offset = 0; offset < data.byteLength; offset += 0x6000) {
+    binary += String.fromCharCode(...data.subarray(offset, Math.min(offset + 0x6000, data.byteLength)));
+  }
+  return btoa(binary);
+}
+
+async function sha256Hex(bytes) {
+  const data=bytes instanceof Uint8Array?bytes:bytes instanceof ArrayBuffer?new Uint8Array(bytes):null;
+  if(!data)return null;
+  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',data));
+  return [...digest].map(byte=>byte.toString(16).padStart(2,'0')).join('');
 }
 
 const fail = (result) => json({ message: result.error, ...(result.fields ? { fields: result.fields } : {}) }, result.status || 400);
@@ -1767,6 +1785,36 @@ export async function handleHarness(request, env, url, context = {}) {
       if (request.method === 'GET') return json({...await customCommitState(env.DB,orgId,app),publishGate:await customPublishState(env.DB,orgId,app)});
       if (!(await mayChangeApp())) return json({ message: "Only its maker, an editor, or an admin can change custom code." }, 403);
       if (request.method !== 'POST') return json({ message: 'Method not allowed.' }, 405);
+      if(input.action==='inspect_draft_repository'){
+        const entryPath=app.definition?.custom?.draftCommit?.path||'index.html';
+        const result=await inspectGitHubAppDraftRepository(who.session.github_access_token,{owner:input.owner,repo:input.repo,appId,entryPath});
+        return result.error?fail(result):json(result);
+      }
+      if(input.action==='write_github_draft'){
+        const custom=app.definition?.custom||{};
+        if(typeof custom.draft!=='string'||!custom.draft.trim()||custom.draft.length>120_000)return json({message:'Save a custom app draft before writing it to GitHub.'},409);
+        if(!Object.hasOwn(input,'expectedSha')||(input.expectedSha!==null&&(typeof input.expectedSha!=='string'||!(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(input.expectedSha)))))return json({message:'Check the current draft branch before writing.'},400);
+        const commit=custom.draftCommit;
+        let entryPath=commit?.path||'index.html';
+        const assets=[];
+        if(commit){
+          if(commit.appVersion!==app.version||!Array.isArray(commit.assets))return json({message:'The imported GitHub bundle is stale. Import it again before writing.'},409);
+          const {results=[]}=await env.DB.prepare(`SELECT path,content_type AS contentType,content_bytes AS contentBytes,content_hash AS contentHash,size
+            FROM hx_app_git_assets WHERE org_id=?1 AND app_id=?2 AND app_version=?3 AND commit_sha=?4 ORDER BY path`)
+            .bind(orgId,appId,app.version,commit.sha).all();
+          const expected=[...commit.assets].sort((a,b)=>String(a.path).localeCompare(String(b.path)));
+          if(results.length!==expected.length)return json({message:'The saved GitHub bundle is incomplete. Import the commit again before writing.'},409);
+          for(let index=0;index<expected.length;index++){
+            const asset=results[index],manifest=expected[index],content=encodeBase64(asset.contentBytes);
+            if(!content||asset.path!==manifest.path||asset.contentType!==manifest.mimeType||asset.contentHash!==manifest.contentHash||Number(asset.size)!==Number(manifest.size)||await sha256Hex(asset.contentBytes)!==manifest.contentHash)return json({message:'The saved GitHub bundle changed. Import the commit again before writing.'},409);
+            assets.push({path:asset.path,encoding:'base64',content});
+          }
+        }
+        const result=await writeGitHubAppDraft(who.session.github_access_token,{owner:input.owner,repo:input.repo,appId,entryPath,html:custom.draft,assets,expectedSha:input.expectedSha});
+        if(result.error)return fail(result);
+        await audit(env,request,{orgId,action:'app.custom_draft_written_to_github',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{version:app.version,repository:result.repository,branch:result.branch,path:result.path,commitSha:result.commitSha,assetCount:result.assetCount}});
+        return json(result);
+      }
       if (input.action === 'policy') {
         if (!await allowed(env.DB,orgId,who.session.github_id,'harness.delete_others')) return json({message:'Only a workspace Owner or Admin can change the publish approval policy.'},403);
         if (typeof input.enabled !== 'boolean') return json({message:'Choose whether independent approval is required.'},400);

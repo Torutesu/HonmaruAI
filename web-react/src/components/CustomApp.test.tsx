@@ -311,6 +311,27 @@ test('Git commit editor imports through its API action and publishes only after 
   act(()=>tree!.unmount());
 });
 
+test('custom app GitHub export checks a branch revision before an explicit draft write', async () => {
+  vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn(),confirm:vi.fn(()=>true)});
+  const customCommit=vi.fn(async(_id:string,input:any)=>input.action==='inspect_draft_repository'
+    ?{ok:true,owner:'acme',repo:'static-app',repository:'acme/static-app',branch:'honmaru/apps/app/draft',entryPath:'index.html',path:'honmaru/apps/app/draft/index.html',currentDraftSha:null}
+    :{ok:true,commitSha:'a'.repeat(40)});
+  const api={customCommitState:vi.fn().mockResolvedValue(commitState('none')),customCommit} as any;
+  let tree:ReturnType<typeof create>;
+  await act(async()=>{tree=create(<CustomAppEditor app={editorApp} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
+  const owner=tree!.root.findByProps({'aria-label':'GitHub owner'}),repo=tree!.root.findByProps({'aria-label':'GitHub repository'});
+  act(()=>{owner.props.onChange({target:{value:'acme'}});repo.props.onChange({target:{value:'static-app'}})});
+  const inspect=tree!.root.findAllByType('button').find(button=>button.children.join('')==='下書きブランチを確認')!;
+  await act(async()=>{await inspect.props.onClick()});
+  expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({action:'inspect_draft_repository',owner:'acme',repo:'static-app'}));
+  const write=tree!.root.findAllByType('button').find(button=>button.children.join('')==='保存済み下書きをGitHubへ書き出す')!;
+  await act(async()=>{await write.props.onClick()});
+  expect(window.confirm).toHaveBeenCalled();
+  expect(customCommit).toHaveBeenLastCalledWith('app',expect.objectContaining({action:'write_github_draft',owner:'acme',repo:'static-app',expectedSha:null}));
+  expect(JSON.stringify(tree!.toJSON())).toContain('aaaaaaaaaaaa');
+  act(()=>tree!.unmount());
+});
+
 test('custom domain publishing requires a visible explicit all-records consent', async () => {
   const hosting={configured:true,project:'honmaru-web',dnsTarget:'',domain:null,environment:[]};
   const changeAppHosting=vi.fn().mockResolvedValue({saved:true});
