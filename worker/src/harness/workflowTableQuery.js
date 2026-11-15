@@ -40,23 +40,24 @@ async function filterFingerprint(where, q, appId, entityId, tableId) {
 }
 
 function decodeCursor(cursor, expected) {
-  if (cursor === undefined) return {snapshotAt: new Date().toISOString(), afterCreatedAt: null, afterId: null};
+  if (cursor === undefined) return {snapshotAt: new Date().toISOString(), afterCreatedAt: null, afterId: null, dataVersion: null};
   if (typeof cursor !== 'string' || cursor.length > 2048) throw Object.assign(new Error('Invalid table query cursor.'), {status:400});
   let value;
   try { value = JSON.parse(b64decode(cursor)); } catch { throw Object.assign(new Error('Invalid table query cursor.'), {status:400}); }
-  const keys = ['v','appId','entityId','tableId','filter','snapshotAt','createdAt','id'].sort();
+  const keys = ['v','appId','entityId','tableId','filter','snapshotAt','createdAt','id','dataVersion'].sort();
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join('\0') !== keys.join('\0')
-    || value.v !== 1 || value.appId !== expected.appId || value.entityId !== expected.entityId || value.tableId !== expected.tableId
+    || value.v !== 2 || value.appId !== expected.appId || value.entityId !== expected.entityId || value.tableId !== expected.tableId
     || value.filter !== expected.filter || typeof value.snapshotAt !== 'string' || Number.isNaN(Date.parse(value.snapshotAt))
-    || typeof value.createdAt !== 'string' || Number.isNaN(Date.parse(value.createdAt)) || typeof value.id !== 'string' || !value.id || value.id.length > 200) {
+    || typeof value.createdAt !== 'string' || Number.isNaN(Date.parse(value.createdAt)) || typeof value.id !== 'string' || !value.id || value.id.length > 200
+    || !Number.isSafeInteger(value.dataVersion) || value.dataVersion < 0) {
     throw Object.assign(new Error('Invalid table query cursor.'), {status:400});
   }
-  return {snapshotAt:value.snapshotAt,afterCreatedAt:value.createdAt,afterId:value.id};
+  return {snapshotAt:value.snapshotAt,afterCreatedAt:value.createdAt,afterId:value.id,dataVersion:value.dataVersion};
 }
 
-const nextCursor = (identity, filter, snapshotAt, row) => b64encode(JSON.stringify({
-  v:1, appId:identity.appId, entityId:identity.entityId, tableId:identity.tableId,
-  filter, snapshotAt, createdAt:row.created_at, id:row.id,
+const nextCursor = (identity, filter, snapshotAt, dataVersion, row) => b64encode(JSON.stringify({
+  v:2, appId:identity.appId, entityId:identity.entityId, tableId:identity.tableId,
+  filter, snapshotAt, dataVersion, createdAt:row.created_at, id:row.id,
 }));
 
 function matches(row, where, q) {
@@ -66,9 +67,8 @@ function matches(row, where, q) {
   return !q || Object.values(row.values).some(value => value != null && String(value).toLowerCase().includes(q));
 }
 
-// Page through an immutable creation-order keyset. The first-page timestamp
-// excludes rows inserted after a scan begins; row values are read live on each
-// page, so callers still need to tolerate edits/deletions during a long scan.
+// Page through an immutable creation-order keyset. A table generation makes
+// every page belong to the same row state; a concurrent write requires restart.
 export async function queryWorkflowTablePage(db, {orgId, appId, entityId, tableId, viewerId}, input, at=Date.now()) {
   if (!Number.isSafeInteger(at) || at < 0 || ![orgId,appId,entityId,tableId,viewerId].every(value => typeof value === 'string' && value.length > 0)) return {error:'Invalid table query scope.',status:400};
   const pageSize = input.pageSize === undefined ? 100 : input.pageSize;
@@ -86,10 +86,17 @@ export async function queryWorkflowTablePage(db, {orgId, appId, entityId, tableI
   const filter = await filterFingerprint(where,normalizedQ,appId,entityId,tableId);
   const cursor = decodeCursor(input.cursor,{appId,entityId,tableId,filter});
   const scanLimit = MAX_SCAN_SIZE + 1;
-  const rowsResult = await db.prepare(`SELECT id,table_id,data,position,created_by,updated_by,created_at,updated_at FROM hx_rows
-    WHERE org_id=?1 AND table_id=?2 AND created_at<=?3
-      AND (?4 IS NULL OR created_at>?4 OR (created_at=?4 AND id>?5))
-    ORDER BY created_at ASC,id ASC LIMIT ?6`).bind(orgId,tableId,cursor.snapshotAt,cursor.afterCreatedAt,cursor.afterId,scanLimit).all();
+  const [versionResult,rowsResult] = await db.batch([
+    db.prepare('SELECT data_version FROM hx_tables WHERE org_id=?1 AND id=?2').bind(orgId,tableId),
+    db.prepare(`SELECT id,table_id,data,position,created_by,updated_by,created_at,updated_at FROM hx_rows
+      WHERE org_id=?1 AND table_id=?2 AND created_at<=?3
+        AND (?4 IS NULL OR created_at>?4 OR (created_at=?4 AND id>?5))
+      ORDER BY created_at ASC,id ASC LIMIT ?6`).bind(orgId,tableId,cursor.snapshotAt,cursor.afterCreatedAt,cursor.afterId,scanLimit),
+  ]);
+  const dataVersion=versionResult?.results?.[0]?.data_version;
+  if(!Number.isSafeInteger(dataVersion)||dataVersion<0)return {error:'The workflow source is no longer accessible.',status:404};
+  if(cursor.dataVersion!==null&&cursor.dataVersion!==dataVersion)return {error:'The App/Table changed during this scan. Restart the query to read a consistent result.',status:409};
+  cursor.dataVersion=dataVersion;
   const scanned = rowsResult.results || [];
   const hasUnscanned = scanned.length > MAX_SCAN_SIZE;
   const considered = scanned.slice(0,MAX_SCAN_SIZE);
@@ -104,10 +111,10 @@ export async function queryWorkflowTablePage(db, {orgId, appId, entityId, tableI
   let continuation;
   if (matched.length > pageSize) {
     complete=false;
-    continuation=nextCursor({appId,entityId,tableId},filter,cursor.snapshotAt,selected.at(-1).source);
+    continuation=nextCursor({appId,entityId,tableId},filter,cursor.snapshotAt,dataVersion,selected.at(-1).source);
   } else if (hasUnscanned) {
     complete=false;
-    continuation=nextCursor({appId,entityId,tableId},filter,cursor.snapshotAt,considered.at(-1));
+    continuation=nextCursor({appId,entityId,tableId},filter,cursor.snapshotAt,dataVersion,considered.at(-1));
   } else {
     complete=true;
     continuation=null;
@@ -115,7 +122,7 @@ export async function queryWorkflowTablePage(db, {orgId, appId, entityId, tableI
   let outputRows=selected.map(item=>item.row);
   while(outputRows.length&&new TextEncoder().encode(JSON.stringify({rows:outputRows,complete,cursor:continuation})).length>180_000){
     outputRows=outputRows.slice(0,-1);
-    continuation=outputRows.length?nextCursor({appId,entityId,tableId},filter,cursor.snapshotAt,selected[outputRows.length-1].source):(input.cursor??null);
+    continuation=outputRows.length?nextCursor({appId,entityId,tableId},filter,cursor.snapshotAt,dataVersion,selected[outputRows.length-1].source):(input.cursor??null);
     complete=false;
   }
   if(!outputRows.length&&selected.length)return {error:'A single table row exceeds the Workflow page transport limit.',status:413};

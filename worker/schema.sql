@@ -1793,7 +1793,8 @@ CREATE TABLE IF NOT EXISTS hx_tables (
   columns       TEXT NOT NULL,
   created_by    TEXT NOT NULL,
   created_at    TEXT NOT NULL,
-  updated_at    TEXT NOT NULL
+  updated_at    TEXT NOT NULL,
+  data_version  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_hx_tables_org ON hx_tables(org_id);
 
