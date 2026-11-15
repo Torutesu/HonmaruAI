@@ -624,3 +624,7 @@ ALTER TABLE hx_app_action_versions ADD COLUMN language TEXT NOT NULL DEFAULT 'ja
 CREATE TABLE IF NOT EXISTS hx_app_git_draft_watches (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, next_check_at TEXT NOT NULL, last_check_at TEXT, last_error TEXT, failures INTEGER NOT NULL DEFAULT 0 CHECK(failures>=0), PRIMARY KEY(org_id,app_id));
 CREATE INDEX IF NOT EXISTS hx_app_git_draft_watches_due ON hx_app_git_draft_watches(next_check_at,org_id,app_id);
 INSERT OR IGNORE INTO hx_app_git_draft_watches(org_id,app_id,next_check_at) SELECT org_id,id,CURRENT_TIMESTAMP FROM hx_apps WHERE deleted_at IS NULL AND json_extract(definition,'$.custom.gitDraft') IS NOT NULL;
+
+-- #KY-029: a member controls whether their private Agent memories follow them across conversations.
+CREATE TABLE IF NOT EXISTS hx_agent_memory_preferences (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, user_github_id TEXT NOT NULL, follow_across_conversations INTEGER NOT NULL DEFAULT 1 CHECK(follow_across_conversations IN (0,1)), updated_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,user_github_id));
+CREATE INDEX IF NOT EXISTS idx_hx_agent_memory_preferences_user ON hx_agent_memory_preferences(org_id,user_github_id,agent_id);

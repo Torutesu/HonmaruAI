@@ -1,9 +1,10 @@
 import { env } from "cloudflare:test";
 import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
-import { addAgentMemory, listAgentMemories, deleteAgentMemory } from "../src/harness/agents.js";
+import { addAgentMemory, listAgentMemories, deleteAgentMemory, prepareAgent } from "../src/harness/agents.js";
 import { memoryPage, updateMemoryEntry, reviewMemoryEntry, memoryReviewHistory } from "../src/harness/memoryEntries.js";
 import { agentMemoryTools } from "../src/harness/memoryReader.js";
+import { setPersonalMemoryPreference } from "../src/harness/personalMemoryPreference.js";
 
 const ORG = "personal:memory-person-scope";
 let agentId;
@@ -66,6 +67,60 @@ test("person memories stay private across list, page, search, read, edit, review
   expect((await deleteAgentMemory(env.DB, ORG, agentId, personalId, { userId: "9212" })).deleted).toBe(1);
   expect((await memoryReviewHistory(env.DB, ORG, agentId, personalId, { userId: "9212" })).reviews).toHaveLength(1);
   expect((await memoryReviewHistory(env.DB, ORG, agentId, personalId, { userId: "9213" })).reviews).toHaveLength(0);
+});
+
+test('an owner can keep private Agent memory in its source room while stopping it from following into other conversations', async () => {
+  const sourceChannel = 'b:source';
+  const otherChannel = 'b:finance';
+  for (const [slug, name] of [['source','Source room'],['finance','Finance room']]) {
+    await env.DB.prepare(`INSERT INTO businesses(org_id,slug,name,created_at,private) VALUES (?1,?2,?3,datetime('now'),0)`).bind(ORG,slug,name).run();
+  }
+  const personal = await addAgentMemory(env.DB, ORG, agentId, { title: 'Private policy', description: 'Follow-up note', body: 'Never share the confidential account detail.' }, {
+    by: '9212', userId: '9212', scope: 'person', kind: 'preference', sourceChannel,
+  });
+  const shared = await addAgentMemory(env.DB, ORG, agentId, 'Shared memory stays available', { by: '9212' });
+  const prepare = channel => prepareAgent(env, ORG, { id: agentId, name: 'Memory agent', instructions: 'Help' }, null, { channel, userId: '9212' });
+  const memoryTools = channel => agentMemoryTools(env.DB, ORG, agentId, { channel, userId: '9212' });
+
+  // No setting row preserves legacy cross-conversation behavior.
+  expect((await prepare(otherChannel)).agent.instructions).toContain(personal.memory.text);
+  const defaultSearch = JSON.parse(await memoryTools(otherChannel).search_agent_memory.run({ query: 'confidential account' }));
+  expect(defaultSearch.memories.map(memory => memory.id)).toContain(personal.memory.id);
+  expect((await setPersonalMemoryPreference(env.DB,ORG,agentId,'9212',false)).enabled).toBe(false);
+
+  const source = await prepare(sourceChannel);
+  expect(source.agent.instructions).toContain(personal.memory.text);
+  expect(source.agent.instructions).toContain('Shared memory stays available');
+  const elsewhere = await prepare(otherChannel);
+  expect(elsewhere.agent.instructions).not.toContain(personal.memory.text);
+  expect(elsewhere.agent.instructions).toContain('Shared memory stays available');
+  const tools = memoryTools(otherChannel);
+  expect(JSON.parse(await tools.search_agent_memory.run({ query: 'confidential account' })).memories).toHaveLength(0);
+  expect(await tools.read_agent_memory.run({ memory_id: personal.memory.id })).toBe('Memory unavailable.');
+  expect(JSON.parse(await tools.search_agent_memory.run({ query: 'Shared memory stays available' })).memories.map(memory => memory.id)).toContain(shared.memory.id);
+  expect(JSON.parse(await memoryTools(sourceChannel).read_agent_memory.run({ memory_id: personal.memory.id })).id).toBe(personal.memory.id);
+  // Owner management listing is independent from whether the Agent may use it.
+  expect((await listAgentMemories(env.DB, ORG, agentId, { userId: '9212' })).map(memory => memory.id)).toContain(personal.memory.id);
+});
+
+test('a failed preference read hides personal memories from prompt, search, and read while keeping shared memories available',async()=>{
+  await env.DB.prepare(`INSERT INTO businesses(org_id,slug,name,created_at,private) VALUES (?1,'finance','Finance room',datetime('now'),0)`).bind(ORG).run();
+  const personal=await addAgentMemory(env.DB,ORG,agentId,{title:'Private',description:'',body:'Secret preference value'},{by:'9212',userId:'9212',scope:'person',sourceChannel:'b:source'});
+  const shared=await addAgentMemory(env.DB,ORG,agentId,'Shared memory remains',{by:'9212'});
+  const failedPreferenceDb={
+    prepare(sql,...args){
+      if(String(sql).includes('hx_agent_memory_preferences'))return{bind(){return{first:async()=>{throw new Error('read failed')}}}};
+      return env.DB.prepare(sql,...args);
+    },
+  };
+  const failedEnv={...env,DB:failedPreferenceDb};
+  const prepared=await prepareAgent(failedEnv,ORG,{id:agentId,name:'Memory agent',instructions:'Help'},null,{channel:'b:finance',userId:'9212'});
+  expect(prepared.agent.instructions).not.toContain(personal.memory.text);
+  expect(prepared.agent.instructions).toContain('Shared memory remains');
+  const tools=agentMemoryTools(failedPreferenceDb,ORG,agentId,{channel:'b:finance',userId:'9212'});
+  expect(JSON.parse(await tools.search_agent_memory.run({query:'Secret preference'})).memories).toHaveLength(0);
+  expect(JSON.parse(await tools.search_agent_memory.run({query:'Shared memory remains'})).memories.map(memory=>memory.id)).toContain(shared.memory.id);
+  expect(await tools.read_agent_memory.run({memory_id:personal.memory.id})).toBe('Memory unavailable.');
 });
 
 test("personal memory edit fails closed if ownership changes between read and write", async () => {

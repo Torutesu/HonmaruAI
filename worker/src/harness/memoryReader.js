@@ -1,6 +1,7 @@
 import { mayRunAgent } from './agents.js';
 import { mayUseConversation } from './conversationAccess.js';
 import { memoryEntry, reviewMemoryEntry } from './memoryEntries.js';
+import { personalMemoryPreference } from './personalMemoryPreference.js';
 
 // Agent identity, workspace and room are server-bound; the model supplies
 // only an entry ID. Permissions are checked again at the moment of reading.
@@ -19,17 +20,19 @@ export function agentMemoryTools(db, orgId, agentId, context) {
       run: async args => {
         if (typeof args?.query !== 'string' || !args.query.trim() || args.query.length > 200) return 'Enter a search phrase between 1 and 200 characters.';
         if (!await authorized()) return 'Memory unavailable.';
+        const preference = await personalMemoryPreference(db, orgId, agentId, userId);
         const { results } = await db.prepare(`SELECT m.id, COALESCE(s.kind,'context') AS kind,
           COALESCE(d.title,substr(m.text,1,120)) AS title, COALESCE(d.description,'') AS description
           FROM hx_agent_memories m
           LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
           LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
-          WHERE m.org_id=?1 AND m.agent_id=?2 AND COALESCE(s.channel,'') IN ('',?3) AND (s.user_github_id IS NULL OR s.user_github_id=?5)
+          WHERE m.org_id=?1 AND m.agent_id=?2 AND COALESCE(s.channel,'') IN ('',?3)
+          AND (s.user_github_id IS NULL OR (s.user_github_id=?5 AND ?7=1 AND (?6=1 OR s.source_channel=?3)))
           AND (instr(lower(COALESCE(d.title,'')),lower(?4))>0
             OR instr(lower(COALESCE(d.description,'')),lower(?4))>0
             OR instr(lower(COALESCE(d.body,m.text)),lower(?4))>0)
           ORDER BY m.created_at DESC,m.id DESC LIMIT 21`)
-          .bind(orgId,agentId,channel,args.query.trim(),String(userId)).all();
+          .bind(orgId,agentId,channel,args.query.trim(),String(userId),preference.enabled?1:0,preference.error?0:1).all();
         return JSON.stringify({ memories: results.slice(0,20), truncated: results.length > 20 });
       },
     },
@@ -40,13 +43,15 @@ export function agentMemoryTools(db, orgId, agentId, context) {
         const denied = 'Memory unavailable.';
         if (!userId || typeof args?.memory_id !== 'string' || args.memory_id.length > 100) return denied;
         if (!await authorized()) return denied;
+        const preference = await personalMemoryPreference(db, orgId, agentId, userId);
         const row = await db.prepare(`SELECT m.*, s.channel, s.kind, s.user_github_id, s.source_channel, s.source_message_id, s.source_thread_id, d.title, d.description, d.body, d.version, d.updated_at,
             r.reviewed_version,r.evidence AS review_evidence,r.reviewed_by,r.reviewed_at FROM hx_agent_memories m
           LEFT JOIN hx_memory_scopes s ON s.memory_id=m.id AND s.org_id=m.org_id
           LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
           LEFT JOIN hx_memory_reviews r ON r.memory_id=m.id AND r.org_id=m.org_id
-          WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'') IN ('',?4) AND (s.user_github_id IS NULL OR s.user_github_id=?5)`)
-          .bind(orgId,agentId,args.memory_id,channel,String(userId)).first();
+          WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'') IN ('',?4)
+            AND (s.user_github_id IS NULL OR (s.user_github_id=?5 AND ?7=1 AND (?6=1 OR s.source_channel=?4)))`)
+          .bind(orgId,agentId,args.memory_id,channel,String(userId),preference.enabled?1:0,preference.error?0:1).first();
         return row ? JSON.stringify(memoryEntry(row)) : denied;
       },
     },
@@ -66,6 +71,7 @@ export function agentMemoryTools(db, orgId, agentId, context) {
           || !['keep','update','delete'].includes(args?.verdict)
           || typeof args?.evidence!=='string' || !args.evidence.trim() || args.evidence.length>2000) return denied;
         if (!await authorized()) return denied;
+        const preference = await personalMemoryPreference(db, orgId, agentId, userId);
         const row=await db.prepare(`SELECT m.*,s.channel,s.kind,s.user_github_id,s.source_channel,s.source_message_id,s.source_thread_id,
             d.title,d.description,d.body,d.version,d.updated_at,d.updated_by,
             r.reviewed_version,r.evidence AS review_evidence,r.reviewed_by,r.reviewed_at
@@ -74,7 +80,7 @@ export function agentMemoryTools(db, orgId, agentId, context) {
           LEFT JOIN hx_memory_entries d ON d.memory_id=m.id AND d.org_id=m.org_id
           LEFT JOIN hx_memory_reviews r ON r.memory_id=m.id AND r.org_id=m.org_id
           WHERE m.org_id=?1 AND m.agent_id=?2 AND m.id=?3 AND COALESCE(s.channel,'') IN ('',?4)
-            AND (s.user_github_id IS NULL OR s.user_github_id=?5)`).bind(orgId,agentId,args.memory_id,channel,String(userId)).first();
+            AND (s.user_github_id IS NULL OR (s.user_github_id=?5 AND ?7=1 AND (?6=1 OR s.source_channel=?4)))`).bind(orgId,agentId,args.memory_id,channel,String(userId),preference.enabled?1:0,preference.error?0:1).first();
         if (!row) return denied;
         const memory=memoryEntry(row);
         if (!memory.reviewDue) return 'This memory is not due for review.';

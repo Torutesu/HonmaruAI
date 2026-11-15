@@ -97,6 +97,7 @@ import {
 import { templateList } from "./templates.js";
 import { createTemplateShare, listTemplateShares, revokeTemplateShare, readTemplateShare, importTemplateShare } from './templateShares.js';
 import { getProfile, saveProfile, listAgentMemories, addAgentMemory, deleteAgentMemory, TIERS, ACCESS } from "./agents.js";
+import { personalMemoryPreference, setPersonalMemoryPreference } from './personalMemoryPreference.js';
 import { listSkills, createSkill, updateSkill, deleteSkill, getSkill, giveSkill, takeSkill, skillsOf } from "./skills.js";
 import { skillMarkdown } from "./skillMarkdown.js";
 import { generateWorkflow, previewWorkflow } from './workflowCreation.js';
@@ -1138,8 +1139,10 @@ export async function handleHarness(request, env, url, context = {}) {
           WHERE org_id=?1 AND memory_id=?2 AND channel='' AND user_github_id=?3`)
           .bind(orgId, requestedMemoryId, String(me)).first()
       : false;
+    const isPersonalMemoryPreference = sub === 'memory' && parts[4] === 'private-follow';
     if (!read && !canEdit && sub !== 'members' && sub !== 'apps'
-      && !(sub === "memory" && request.method === "POST") && !ownsPersonalMemory) {
+      && !(sub === "memory" && request.method === "POST") && !ownsPersonalMemory
+      && !(isPersonalMemoryPreference && request.method === 'PUT')) {
       return json({ message: "Only the agent's maker or an admin can change it." }, 403);
     }
     if (sub === 'ownership' && request.method==='PUT') {
@@ -1352,6 +1355,20 @@ export async function handleHarness(request, env, url, context = {}) {
       }
     }
     if (sub === "memory") {
+      if (isPersonalMemoryPreference && parts.length === 5) {
+        if (request.method === 'GET') {
+          const preference = await personalMemoryPreference(env.DB, orgId, agentId, me);
+          if (preference.error) return json({ message: 'Could not load personal memory preference.' }, 503);
+          return json({ followAcrossConversations: preference.enabled });
+        }
+        if (request.method === 'PUT') {
+          const result = await setPersonalMemoryPreference(env.DB, orgId, agentId, me, input?.followAcrossConversations);
+          if (result.error) return json({ message: result.error }, result.status || 400);
+          await audit(env, request, { orgId, action: 'agent.private_memory_follow_changed', actor: person(who.user), entity: { type: 'custom_agent', id: agentId }, details: { followAcrossConversations: result.enabled } });
+          return json(result);
+        }
+        return json({ message: 'Method not allowed.' }, 405);
+      }
       if (parts[4] === 'promotions') {
         if (request.method === 'GET' && parts.length === 5) {
           return json(await listMemoryPromotions(env.DB, orgId, agentId, me, who.user.login));

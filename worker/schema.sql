@@ -2009,6 +2009,17 @@ CREATE INDEX IF NOT EXISTS idx_hx_followups_channel ON hx_followups(org_id, chan
 CREATE TABLE IF NOT EXISTS hx_room_guidelines (org_id TEXT NOT NULL, channel TEXT NOT NULL, body TEXT NOT NULL, version INTEGER NOT NULL, updated_by TEXT, updated_at TEXT NOT NULL, PRIMARY KEY (org_id, channel));
 
 CREATE TABLE IF NOT EXISTS hx_memory_scopes (memory_id TEXT PRIMARY KEY REFERENCES hx_agent_memories(id) ON DELETE CASCADE, org_id TEXT NOT NULL, channel TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT 'context', user_github_id TEXT, source_channel TEXT, source_message_id TEXT, source_thread_id TEXT);
+/* A member's private memory-follow preference for each workspace Agent. No
+   row preserves the prior behavior; only that member can change their row. */
+CREATE TABLE IF NOT EXISTS hx_agent_memory_preferences (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  follow_across_conversations INTEGER NOT NULL DEFAULT 1 CHECK(follow_across_conversations IN (0,1)),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,agent_id,user_github_id)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_memory_preferences_user ON hx_agent_memory_preferences(org_id,user_github_id,agent_id);
 
 CREATE TABLE IF NOT EXISTS hx_workflow_run_definitions (run_id TEXT PRIMARY KEY REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, org_id TEXT NOT NULL, definition TEXT NOT NULL, created_at TEXT NOT NULL);
 

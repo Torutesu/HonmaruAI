@@ -2300,6 +2300,9 @@ const table: Record<string, string> = {
   'Authorized Agents': 'Agents autorisés',
   'Choose Agents that this program may call with agent(prompt, { agentId, schema }).': 'Choisissez les agents que ce programme peut appeler avec agent(prompt, { agentId, schema }).',
   'Some selected Agents are unavailable. Repair the binding before saving.': 'Certains agents sélectionnés sont indisponibles. Corrigez la liaison avant l’enregistrement.',
+  'Private memory across conversations': 'Mémoire privée entre les conversations',
+  'When off, your private memories stay available only in their source conversation. Shared memories are unchanged.': 'Désactivées, vos mémoires privées restent disponibles uniquement dans leur conversation d’origine. Les mémoires partagées ne changent pas.',
+  'Could not load your personal memory setting.': 'Impossible de charger votre réglage de mémoire personnelle.',
 }
 
 export default table

@@ -3966,6 +3966,9 @@ const table: Record<string, string> = {
   'Wrap text': 'テキストを折り返す',
   'Run by': '実行者',
   'Actor': '実行主体',
+  'Private memory across conversations': '個人メモリを会話間で利用',
+  'When off, your private memories stay available only in their source conversation. Shared memories are unchanged.': 'オフにすると、個人メモリは作成元の会話でのみ利用されます。共有メモリには影響しません。',
+  'Could not load your personal memory setting.': '個人メモリの設定を読み込めませんでした。',
 
 }
 
