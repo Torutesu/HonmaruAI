@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import { fetchMock } from './helpers/fetch-mock.js';
 import { upsertMembership, upsertUser } from '../src/db.js';
 import { claimWorkflowNode } from '../src/harness/workflowCheckpoints.js';
-import { invokeWorkflowAgent, validateWorkflowAgentSchema, workflowAgentOutputMatches, workflowAgentInvocationKey } from '../src/harness/workflowAgentInvoke.js';
+import { invokeWorkflowAgent, validateWorkflowAgentSchema, workflowAgentOutputMatches, workflowAgentInvocationKey, workflowAgentReadOnlyTools } from '../src/harness/workflowAgentInvoke.js';
 import { ensureWorkflowSafety } from '../src/harness/workflowSafety.js';
 
 const ORG = 'agent-invoke-org';
@@ -50,6 +50,17 @@ test('Agent schemas are bounded, strict, and enforced on generated output', () =
   expect(validateWorkflowAgentSchema({ type: 'object', properties: {}, additionalProperties: false, required: ['missing'] })).toBe(false);
 });
 
+test('Workflow Agent SDK only exposes read-only installed skill and memory helpers', () => {
+  const run = async () => null;
+  const tools = workflowAgentReadOnlyTools({
+    read_installed_skill: { run },
+    read_agent_memory: { run },
+    review_agent_memory: { run },
+    call_remote_service: { run },
+  });
+  expect(Object.keys(tools)).toEqual(['read_installed_skill', 'read_agent_memory']);
+});
+
 test('Worker rejects prompts above the SDK UTF-8 byte limit before provider use', async () => {
   const params = { agentId: AGENT, prompt: 'あ'.repeat(5000), schema, tier: 'medium' };
   expect(await invokeWorkflowAgent(env, { activation, binding, identity, params, at: 2000 })).toMatchObject({ status: 400 });
@@ -79,6 +90,40 @@ test('successful invocation checkpoints validated output and an identical retry 
   expect(await env.DB.prepare('SELECT status,agent_id,output FROM hx_workflow_agent_invocations WHERE org_id=?1 AND job_id=?2').bind(ORG, JOB).first())
     .toMatchObject({ status: 'complete', agent_id: AGENT, output: '{"answer":"done"}' });
   expect((await env.DB.prepare('SELECT COUNT(*) AS calls FROM hx_workflow_usage WHERE org_id=?1 AND run_id=?2').bind(ORG, 'agent-invoke-run').first()).calls).toBe(1);
+});
+
+test('Workflow Agent invocation can read its installed skills and authorized memory without write tools', async () => {
+  const { createSkill, giveSkill } = await import('../src/harness/skills.js');
+  const { addAgentMemory } = await import('../src/harness/agents.js');
+  const skill = await createSkill(env.DB, ORG, { name: 'Release steps', description: 'Release checklist', body: 'Verify the final release tag.' }, 'agent-invoke-owner');
+  expect(skill.error).toBeUndefined();
+  expect((await giveSkill(env.DB, ORG, AGENT, skill.skill.id, 'agent-invoke-owner')).error).toBeUndefined();
+  const { memory } = await addAgentMemory(env.DB, ORG, AGENT, { title: 'Release', body: 'Check the deployed commit.' }, { by: 'agent-invoke-owner' });
+  const requests = [];
+  const answer = (toolCall = null) => opts => {
+    const body = JSON.parse(opts.body);
+    requests.push(body);
+    return {
+      model: 'gpt-4o-mini',
+      choices: [{ message: toolCall ? { role: 'assistant', content: null, tool_calls: [{ id: `call-${requests.length}`, type: 'function', function: toolCall }] } : { content: '{"answer":"checked"}' } }],
+      usage: { prompt_tokens: 20, completion_tokens: 5 },
+    };
+  };
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, answer({ name: 'read_installed_skill', arguments: JSON.stringify({ skill_id: skill.skill.id }) }));
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, answer({ name: 'read_agent_memory', arguments: JSON.stringify({ memory_id: memory.id }) }));
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, answer());
+  const result = await invokeWorkflowAgent({ ...env, OPENAI_API_KEY: 'sk-workflow-agent-invoke-test' }, {
+    activation, binding, identity,
+    params: { agentId: AGENT, prompt: 'Follow the procedure', schema, tier: 'medium' }, at: 2000,
+  });
+  expect(result).toEqual({ output: { answer: 'checked' } });
+  expect(requests[0].tools.map(tool => tool.function.name).sort()).toEqual([
+    'list_installed_skill_files', 'read_agent_memory', 'read_installed_skill', 'read_installed_skill_file', 'search_agent_memory',
+  ]);
+  expect(requests[1].messages.at(-1).content).toContain('Verify the final release tag.');
+  expect(requests[2].messages.at(-1).content).toContain('Check the deployed commit.');
+  expect(requests[0].tools.some(tool => tool.function.name === 'review_agent_memory')).toBe(false);
+  expect(requests[0].tools.some(tool => tool.function.name.includes('remote') || tool.function.name.includes('write'))).toBe(false);
 });
 
 test('an identical in-flight invocation is never repeated and the durable per-job limit is enforced', async () => {

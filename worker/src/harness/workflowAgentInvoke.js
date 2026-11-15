@@ -1,4 +1,4 @@
-import { mayRunAgent } from './agents.js';
+import { mayRunAgent, prepareAgent } from './agents.js';
 import { completer } from './model.js';
 import { recordWorkflowUsage } from './workflowUsage.js';
 import { readWorkflowState } from './workflowState.js';
@@ -70,6 +70,11 @@ export function workflowAgentOutputMatches(value, schema) {
   return visit(value, schema);
 }
 
+export function workflowAgentReadOnlyTools(skillTools = {}) {
+  const allowed = new Set(['read_installed_skill', 'list_installed_skill_files', 'read_installed_skill_file', 'search_agent_memory', 'read_agent_memory']);
+  return Object.fromEntries(Object.entries(skillTools).filter(([name, tool]) => allowed.has(name) && tool && typeof tool.run === 'function'));
+}
+
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (isObject(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
@@ -139,6 +144,9 @@ export async function invokeWorkflowAgent(env, { db = env?.DB, activation, bindi
     ]);
     return Boolean(current && workflow.available !== false && await mayRunAgent(db, binding.org_id, current, binding.node_owner));
   };
+  const prepared = await prepareAgent(env, binding.org_id, { id: agent.id, name: agent.name, handle: agent.handle, instructions: agent.instructions }, null, { userId: binding.node_owner, allowPrivate: false });
+  if (!await authorize()) return { error: 'Workflow or Agent access changed before invocation.', status: 409 };
+  const tools = workflowAgentReadOnlyTools(prepared.skillTools);
   const complete = await completer(env, binding.org_id, binding.node_owner, 'workflow_agent_invoke', {
     json: true,
     maxTokens: params.tier === 'high' ? 1200 : params.tier === 'medium' ? 800 : 400,
@@ -157,9 +165,10 @@ export async function invokeWorkflowAgent(env, { db = env?.DB, activation, bindi
   const user = `Prompt:\n${params.prompt}\n\nReturn one JSON value that strictly matches this schema:\n${JSON.stringify(params.schema)}`;
   let result;
   try { result = await complete(
-    `You are ${agent.name || 'an Agent'} (@${agent.handle || 'agent'}), invoked by a workflow program. Follow your Agent instructions and answer the prompt. Return only JSON matching the supplied schema. You cannot call tools, invoke other Agents, or delegate work.\n\n<agent_instructions>\n${String(agent.instructions || '').slice(0, 12_000)}\n</agent_instructions>`,
+    `You are ${agent.name || 'an Agent'} (@${agent.handle || 'agent'}), invoked by a workflow program. Follow your saved Agent instructions and answer the prompt. Return only JSON matching the supplied schema. You may read the Agent's explicitly installed skills and authorized memory using the supplied read-only helpers. No external tools, writes, other Agents, or delegation are available.\n\n<agent_instructions>\n${String(prepared.agent.researchInstructions || prepared.agent.instructions || agent.instructions || '').slice(0, 20_000)}\n</agent_instructions>`,
     user,
     {
+      tools,
       authorize,
       recordUsage: (data, provider) => recordWorkflowUsage(db, {
         orgId: binding.org_id, workflowId: binding.workflow_id, runId: binding.run_id,
