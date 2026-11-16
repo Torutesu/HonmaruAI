@@ -97,6 +97,17 @@ Use `--api-url URL` to override the environment URL for one command. The CLI req
 
 Agent API tokens can request and list public file shares, but they cannot approve, decline, or revoke them. These decisions and permanent file purges require a signed-in human session token in `HONMARU_SESSION_TOKEN` and an explicit workspace `--org-id`. Supply the token through a trusted local credential store or shell environment; do not put it in command arguments, committed files, or shared logs.
 
+Public Skill share-link creation and import also use the signed-in human session, never an Agent API token. They are Harness-only operations. Create requires `--confirm` because anyone with the link can download the complete Skill package. The new bearer token is shown once; store the output securely. Import reads the bearer from an environment variable named by `--token-env`, never from a positional argument or shell history. Import is not retry-safe: after a timeout or an “import may be saved” response, inspect the destination Skill list before retrying. Set `HONMARU_APP_URL` when the app is hosted outside the default `https://app.honmaruai.com`.
+
+```sh
+export HONMARU_SESSION_TOKEN="<signed-in human session token>"
+export HONMARU_SKILL_SHARE_TOKEN="<skl_ token from the share creator>"
+honmaru workspace skill share-link create skill_id --org-id org_id --expires-in-days 7 --confirm
+honmaru workspace skill share-link import --org-id destination_org --token-env HONMARU_SKILL_SHARE_TOKEN --confirm
+```
+
+The create result includes the complete app URL with the one-time bearer token embedded in its fragment. Keep it private and share it only with intended recipients. To import, copy the token from the fragment into `HONMARU_SKILL_SHARE_TOKEN` using a local secret store.
+
 Every mutation requires `--confirm`. Approval returns a bearer URL once on stdout; treat it as a secret and avoid logging or sharing the output. Failed or timed-out mutations are never retried automatically. Inspect current state before retrying.
 
 ```sh
