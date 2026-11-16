@@ -7,6 +7,7 @@ import { installedSkillTools } from '../src/harness/skillReader.js';
 import { prepareAgent } from '../src/harness/agents.js';
 import { createSkill, executionSkills, getSkill, giveSkill } from '../src/harness/skills.js';
 import { setSkillAccess } from '../src/harness/skillAccess.js';
+import { setMode } from '../src/harness/mode.js';
 import { downloadSkillShare, importSkillShare } from '../src/harness/skillShares.js';
 
 const orgId = 'skills-access';
@@ -35,9 +36,11 @@ beforeEach(async () => {
   [owner, member, admin] = sessions;
   const made = await request('POST', '/channels/agents', owner, { name: 'Helper', handle: 'helper', instructions: 'Help', scope: 'team' });
   agentId = (await made.json()).agent.id;
+  await setMode(env.DB, orgId, 'harness', '9403');
 });
 
 test('public Skill share creation and import are unavailable in Simple mode', async () => {
+  await setMode(env.DB, orgId, 'simple', '9403');
   const simpleSkillResponse = await request('POST', '/skills', owner, {
     name: 'Simple mode Skill', description: 'A safe sharing description.', body: 'Shared instructions.',
   });
