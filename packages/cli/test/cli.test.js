@@ -1354,6 +1354,54 @@ test("file share decisions require confirmation and never retry or echo response
   assert.match(stderr.read(), /did not retry/);
 });
 
+test("file purge uses the human session route with a reason and one version fence", async () => {
+  const calls = [];
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_SESSION_TOKEN: "human-session-token-123456" };
+  const fetcher = async (url, init) => {
+    calls.push({ url: new URL(url), init });
+    return new Response(JSON.stringify(calls.length === 1 ? { purged: true } : { purgedCount: 2 }), { status: 200 });
+  };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "file", "purge", "file_1", "--org-id", "org_1", "--reason", "Remove historical copy", "--version", "2", "--confirm"]), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { purged: true });
+  stdout.clear();
+  assert.equal(await run(["workspace", "file", "purge", "file_1", "--org-id", "org_1", "--reason", "Purge deleted file", "--expected-version", "4", "--confirm"]), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { purgedCount: 2 });
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    assert.equal(call.url.pathname, "/hx/files/file_1/purge");
+    assert.equal(call.url.searchParams.get("orgId"), "org_1");
+    assert.equal(call.init.method, "POST");
+    assert.equal(call.init.headers["x-session-token"], env.HONMARU_SESSION_TOKEN);
+    assert.equal(call.init.headers.authorization, undefined);
+  }
+  assert.deepEqual(JSON.parse(calls[0].init.body), { reason: "Remove historical copy", version: 2 });
+  assert.deepEqual(JSON.parse(calls[1].init.body), { reason: "Purge deleted file", expectedVersion: 4 });
+  assert.equal(stderr.read(), "");
+});
+
+test("file purge requires explicit confirmation, reason, one CAS selector, and never retries ambiguous failures", async () => {
+  let calls = 0;
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_SESSION_TOKEN: "human-session-token-123456" };
+  const fetcher = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ secret: "must-not-be-echoed" }), { status: 409 });
+  };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  const base = ["workspace", "file", "purge", "file_1", "--org-id", "org_1", "--reason", "Erase old copy"];
+  assert.equal(await run([...base, "--version", "2"]), 1);
+  assert.equal(await run([...base, "--version", "2", "--confirm"]), 1);
+  assert.equal(calls, 1);
+  assert.doesNotMatch(stderr.read(), /must-not-be-echoed/);
+  assert.match(stderr.read(), /did not retry/);
+  assert.equal(await run([...base, "--version", "2", "--expected-version", "4", "--confirm"]), 1);
+  assert.equal(await run([...base, "--confirm"]), 1);
+  assert.equal(await run(["workspace", "file", "purge", "file_1", "--org-id", "org_1", "--reason", "bad\nreason", "--version", "2", "--confirm"]), 1);
+  assert.equal(calls, 1);
+});
+
 test("file export polls a local temporary artifact, checks origin/size/hash, and creates the output exclusively", async () => {
   const directory = await mkdtemp(join(tmpdir(), "honmaru-export-"));
   const outputPath = join(directory, "converted.pdf");
