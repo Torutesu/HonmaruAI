@@ -13,7 +13,8 @@ type Api = {httpBase: string; orgId: string; sessionToken: string}
 type AgentFace = AgentLook & {id: string; name: string; handle: string}
 type Assignment = {id: string; generation: number; status: string; startedAt?: string; updatedAt?: string; providerStopStatus?: string; canStop?: boolean; agent: AgentFace; hops: {id: string; from: AgentFace; to: AgentFace; at: string}[]}
 type HelperRun = {id:string; title:string; status:string; startedAt:string; finishedAt?:string; elapsedMs?:number; result?:{result:string;sources:{title:string;url:string}[]}}
-type Run = {rowId: string; status: string; answered: number; version?: number; assignments?: Assignment[]; subagents?:HelperRun[]}
+type ExecutionEvent = {type:string;at:number;agent?:string;tool?:string;elapsedMs?:number}
+type Run = {rowId: string; status: string; answered: number; version?: number; assignments?: Assignment[]; subagents?:HelperRun[];events?:ExecutionEvent[]}
 const activeStatus = (status: string) => ['pending_delivery', 'queued', 'running', 'pending'].includes(status)
 const activeRun = (run: Run) => activeStatus(run.status) || Boolean(run.assignments?.some(assignment => activeStatus(assignment.status))) || Boolean(run.subagents?.some(helper=>activeStatus(helper.status)))
 const faceValid = (face: AgentFace) => face && typeof face.id === 'string' && typeof face.name === 'string' && typeof face.handle === 'string'
@@ -41,6 +42,11 @@ const labels: Record<string, string> = {
   cancelled: 'Agent execution stopped after access changed', no_agents: 'No eligible agent to run',
 }
 const helperLabels: Record<string,string> = {queued:'Helper waiting',running:'Helper running',completed:'Helper completed',failed:'Helper failed',interrupted:'Helper interrupted'}
+const eventLabels:Record<string,string>={run_started:'Run started',agent_started:'{agent} started',tool_started:'{agent} started {tool}',tool_finished:'{tool} completed',tool_failed:'{tool} failed',tool_interrupted:'{tool} interrupted',agent_finished:'{agent} finished',agent_failed:'{agent} failed',agent_cancelled:'{agent} stopped',run_finished:'Run finished',run_failed:'Run failed',run_cancelled:'Run stopped',run_interrupted:'Run interrupted'}
+function eventsFrom(value:unknown):ExecutionEvent[]{
+  if(!Array.isArray(value))return []
+  return value.filter((event):event is ExecutionEvent=>Boolean(event&&typeof event==='object'&&eventLabels[(event as ExecutionEvent).type]&&Number.isSafeInteger((event as ExecutionEvent).at))).slice(-80).map(event=>({...event,agent:typeof event.agent==='string'?event.agent.slice(0,120):undefined,tool:typeof event.tool==='string'?event.tool.slice(0,80):undefined}))
+}
 function helpersFrom(value:unknown):HelperRun[] {
   if(!Array.isArray(value))return []
   return value.filter((child):child is HelperRun=>Boolean(child&&typeof child==='object'&&typeof child.id==='string'&&typeof child.title==='string'&&helperLabels[(child as HelperRun).status]&&typeof child.startedAt==='string')).slice(0,40).map(child=>({...child,title:child.title.slice(0,120),...(child.result&&typeof child.result.result==='string'?{result:{result:child.result.result.slice(0,2400),sources:Array.isArray(child.result.sources)?child.result.sources.slice(0,5).filter(source=>source&&typeof source.title==='string'&&typeof source.url==='string'&&/^https?:\/\//.test(source.url)).map(source=>({title:source.title.slice(0,120),url:source.url.slice(0,1000)})):[]}}:{})}))
@@ -79,7 +85,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
         if (!response.ok) throw new Error('unavailable')
         const result = await response.json()
         if (!Array.isArray(result.results)) throw new Error('unavailable')
-        const runs: Run[] = result.results.filter((run: Run) => run && rowIds.includes(run.rowId)).map((run: Run) => ({...run, assignments: assignmentsFrom(run.assignments),subagents:helpersFrom(run.subagents)})).filter((run: Run) => labels[run.status] || run.assignments?.length || run.subagents?.length)
+        const runs: Run[] = result.results.filter((run: Run) => run && rowIds.includes(run.rowId)).map((run: Run) => ({...run, assignments: assignmentsFrom(run.assignments),subagents:helpersFrom(run.subagents),events:eventsFrom(run.events)})).filter((run: Run) => labels[run.status] || run.assignments?.length || run.subagents?.length || run.events?.length)
         if (!stopped) setState({scope, runs, unavailable: result.available === false})
         attempts++
         again = runs.some(activeRun) || (attempts < 3 && (result.available === false || runs.length < rowIds.length))
@@ -113,6 +119,7 @@ export function AgentRunStatus({api, channel, messages}: {api: Api; channel: str
     <ul>{state.runs.map(run => <li key={run.rowId}>
       <span className="slk-run-source" title={sources.find(m => m.id === run.rowId)?.body}>{sources.find(m => m.id === run.rowId)?.body.slice(0, 100) || t('Message')}</span>
       {!run.assignments?.length && <span>{t(labels[run.status])}</span>}
+      {Boolean(run.events?.length) && <ol className="slk-run-timeline" aria-label={t('Execution timeline')}>{run.events!.map((event,index)=><li key={`${event.at}-${index}`} className={`slk-run-event slk-run-event-${event.type}`}><span>{t(eventLabels[event.type],{agent:event.agent||t('Agent'),tool:event.tool||t('tool')})}</span>{Number.isFinite(event.elapsedMs)&&event.elapsedMs!>0&&<span className="slk-run-duration">{t('Execution took {duration}',{duration:formatElapsedDuration(new Date(0).toISOString(),new Date(event.elapsedMs!).toISOString(),getLocale())||`${Math.round(event.elapsedMs!/1000)}s`})}</span>}<time dateTime={new Date(event.at).toISOString()}>{handoffTime(new Date(event.at).toISOString())}</time></li>)}</ol>}
       {Boolean(run.assignments?.length) && <div className="slk-run-assignments">{run.assignments!.map(assignment => <div className="slk-run-assignment" key={assignment.id}>
         <div className="slk-run-assignee"><RunFace agent={assignment.agent}/><span className="slk-run-agent-name" title={`@${assignment.agent.handle}`}>{assignment.agent.name || t('Agent')}</span><span className="slk-run-assignment-status">{t(assignment.status === 'cancelled' ? stoppedAssignmentLabel(assignment.providerStopStatus) : labels[assignment.status])}</span>{assignment.startedAt&&(()=>{const active=activeStatus(assignment.status),endedAt=active?null:assignment.updatedAt||null,duration=(active||endedAt)?formatElapsedDuration(assignment.startedAt,endedAt,getLocale()):null;return duration===null?null:<span className="slk-run-duration">{t(active?'Running for {duration}':'Execution took {duration}',{duration})}</span>})()}</div>
         {assignment.status === 'cancelled' && (() => {

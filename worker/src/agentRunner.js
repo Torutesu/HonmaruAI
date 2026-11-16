@@ -143,7 +143,7 @@ export class AgentRunner {
     // jobs remain queued until their result has been persisted.
     await this.state.storage.delete([...jobs].filter(([,job])=>job.kind === "proxy").map(([key])=>key));
     let retry=false;
-    await Promise.allSettled([...jobs].map(([key,job]) => (job.kind === "room_hook" ? this.runRoomHook(key,job) : job.kind === "proxy" ? runProxy(this.env, job) : job.kind === 'handoff' ? runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedHandoff(this.env,job,{registerAssignment:(identity,controller)=>this.registerAssignment(identity,controller)}),{kind:'handoff',onSettled:(result,job)=>settleHandoff(this.env,job,result)}) : runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedAgents(this.env,job,{details:true,registerAssignment:(identity,controller)=>this.registerAssignment(identity,controller)}),{onSettled:(result,job)=>settleInitialAssignments(this.env,job,result)})).catch((err) => {
+    await Promise.allSettled([...jobs].map(([key,job]) => (job.kind === "room_hook" ? this.runRoomHook(key,job) : job.kind === "proxy" ? runProxy(this.env, job) : job.kind === 'handoff' ? runTrackedAgentJob(this.state.storage,key,job,()=>runQueuedHandoff(this.env,job,{registerAssignment:(identity,controller)=>this.registerAssignment(identity,controller)}),{kind:'handoff',onSettled:(result,job)=>settleHandoff(this.env,job,result)}) : runTrackedAgentJob(this.state.storage,key,job,onEvent=>runQueuedAgents(this.env,job,{details:true,onEvent,registerAssignment:(identity,controller)=>this.registerAssignment(identity,controller)}),{onSettled:(result,job)=>settleInitialAssignments(this.env,job,result)})).catch((err) => {
       retry=true;
       console.error("queued agent failed", err?.message || err);
     })));
@@ -154,13 +154,15 @@ export class AgentRunner {
 
 /// One job: the message, who wrote it and where, found again from what was
 /// kept — then the agents it calls answer.
-export async function runQueuedAgents(env, { orgId, token, rowId, locale }, {details=false,registerAssignment=null}={}) {
+export async function runQueuedAgents(env, { orgId, token, rowId, locale }, {details=false,registerAssignment=null,onEvent=null}={}) {
   const request={orgId,token,rowId};
+  let cancelled=false;
+  const emit=event=>{if(event?.type==='agent_cancelled')cancelled=true;return onEvent?.(event)};
   const grant=await agentExecutionGrant(env,request);
   const respond=result=>details ? result : result.answered;
   if(!grant)return respond({status:'cancelled',answered:0});
   if(!grant.agents.length)return respond({status:'no_agents',answered:0});
   const authorize=agentExecutionAuthorizer(env,request,grant.row);
-  const answered=await runAgents(env,{...grant,locale,authorize,durableExecution:true,registerAssignment});
-  return respond({status:!answered && !await authorize() ? 'cancelled' : 'finished',answered});
+  const answered=await runAgents(env,{...grant,locale,authorize,durableExecution:true,registerAssignment,onRunEvent:emit});
+  return respond({status:cancelled||(!answered && !await authorize()) ? 'cancelled' : 'finished',answered});
 }

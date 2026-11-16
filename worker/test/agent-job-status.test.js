@@ -18,6 +18,17 @@ test('only real pending normal jobs are queued; receipts and other job types are
   expect(JSON.stringify(result)).not.toMatch(/secret|private/);
 });
 
+test('status returns only bounded safe execution events', async()=>{
+ const events=Array.from({length:90},(_,at)=>({type:'tool_started',at,agent:'A'.repeat(200),tool:'lookup',arguments:'private'}));
+ const data=new Map([['result:["org","agent","row"]',{status:'running',answered:0,at:100,events}]]);
+ const storage={get:async key=>data.get(key),list:async()=>new Map()};
+ const [run]=await readAgentJobStatuses(storage,{orgId:'org',rowIds:['row']});
+ expect(run.events).toHaveLength(80);
+ expect(run.events[0].at).toBe(10);
+ expect(run.events[0].agent).toHaveLength(120);
+ expect(JSON.stringify(run)).not.toContain('private');
+});
+
 test('batch reads reject empty, duplicate, oversized or malformed identifiers', () => {
   expect(validAgentStatusInput({orgId: 'org', rowIds: ['one', 'two']})).toBe(true);
   for (const rowIds of [[], ['one', 'one'], [''], [null], ['x'.repeat(101)], Array.from({length: 21}, (_, i) => String(i))]) {

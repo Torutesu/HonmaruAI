@@ -512,7 +512,7 @@ export function allOwnAgents(agents, login) {
 
 /// The agents' answers, side by side: each reads the conversation,
 /// researches with its tools, and answers as itself when it is ready.
-export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize = null, roomHookSource = false, assignment = null, requestOverride = null, durableExecution = false, registerAssignment = null }) {
+export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize = null, roomHookSource = false, assignment = null, requestOverride = null, durableExecution = false, registerAssignment = null, onRunEvent = null }) {
   if (authorize && !await authorize()) return 0;
   const taskText = requestOverride ?? row.body;
   locale = await loadCopy(env, locale || "en", { orgId });
@@ -736,6 +736,10 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
           onRound: () => progress(agent, "agent"), authorize, harnessTools: harness, signal,
           usageContext: { roomSlug: resolved.kind === "business" ? resolved.slug : null, agentId: agent.id },
           subagentPersistence: harness ? {orgId,messageId:row.id,channel:resolved.key,runBy:session.github_id,agentId:agent.id} : null,
+          onToolEvent: harness && durableExecution && onRunEvent ? event => onRunEvent({
+            type:event.phase==='started'?'tool_started':event.status==='failed'?'tool_failed':event.status==='interrupted'?'tool_interrupted':'tool_finished',
+            agent:agent.name||agent.handle,tool:event.name,elapsedMs:event.elapsedMs,
+          }) : null,
         });
         toolTrace = result.toolTrace || null;
         if (result.called && allowance.metered) await allowance.consume();
@@ -782,7 +786,16 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     }
   };
   const outcomes = await Promise.allSettled(agents.map((agent, index) => {
-    const execute = runtime => answerOne(agent,index,runtime.authorize,runtime.tools,runtime.replyFence,runtime.signal);
+    const execute = async runtime => {
+      const event = type => harness && durableExecution && onRunEvent?.({type,agent:agent.name||agent.handle});
+      await event('agent_started');
+      try {
+        const result=await answerOne(agent,index,runtime.authorize,runtime.tools,runtime.replyFence,runtime.signal);
+        const lostAccess=runtime.authorize && !await runtime.authorize();
+        await event(result?.cancelled||runtime.signal?.aborted||lostAccess?'agent_cancelled':result?.interrupted?'agent_failed':'agent_finished');
+        return result;
+      } catch(error) { await event('agent_failed'); throw error; }
+    };
     const run = durableExecution && harness && !roomHookSource && session?.token
       ? runAgentAssignment(env,{orgId,session,row,agent,authorize,existing:assignment,locale,
           registerCancellation:registerAssignment,

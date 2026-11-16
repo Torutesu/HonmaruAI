@@ -1199,7 +1199,7 @@ async function assignmentStatusFixture() {
  expect(begun.started).toBe(true);
  const accepted=await acceptAgentHandoff(env,{orgId:ORG,assignmentId:begun.assignment.id,generation:0,sourceAgentId:source.id,targetAgentId:target.id,operationId:'status-hop',brief:'Private handoff brief',messageBody:'@reviewer review'});
  expect(accepted.error).toBeUndefined();
- const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>Response.json({results:JSON.parse(init.body).rowIds.map(rowId=>({rowId,status:'finished',answered:0}))})})};
+ const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>Response.json({results:JSON.parse(init.body).rowIds.map(rowId=>({rowId,status:'finished',answered:0,events:[{type:'run_started',at:1760000000000,agent:'Private agent',tool:'private-tool'}]}))})})};
  return {row,source,target,assignmentId:begun.assignment.id,over:{AGENT_RUNNER:runner,APP_WEB_URL:"https://example.com",API_ORIGIN:"https://example.com",DATA_KEY:"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}};
 }
 
@@ -1218,6 +1218,7 @@ test('assignment status is hidden from room readers without current grants to ea
  for(const [token,canStop] of [[mika,true]]) {
   const response=await call(url,{headers:headers(token)},f.over);expect(response.status).toBe(200);
   const body=await response.json();const a=body.results[0].assignments[0];
+  expect(body.results[0].events).toEqual([{type:'run_started',at:1760000000000,agent:'Private agent',tool:'private-tool'}]);
   expect(a).toMatchObject({id:f.assignmentId,generation:1,status:'pending',canStop,agent:{id:f.target.id,name:'Reviewer',emoji:'📝'},hops:[{id:'status-hop',from:{id:f.source.id},to:{id:f.target.id,emoji:'📝'}}]});
   const avatar = new URL(a.agent.avatarUrl);
   expect(avatar.pathname).toBe('/agents/avatar/agent-avatar-00000000-0000-0000-0000-000000000000');
@@ -1251,15 +1252,17 @@ test('queued direct Agent status stays private until the caller has the current 
  const restricted=await send('PUT',`/hx/agents/${agent.id}/profile`,toru,{orgId:ORG,access:'people',people:['mika']});
  expect(restricted.status).toBe(200);
  const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'@hayao check this',agentRequest:{sessionKey:(await getSession(env.DB,mika)).token,agentIds:[agent.id],locale:'en'}});
- const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>Response.json({results:JSON.parse(init.body).rowIds.map(rowId=>({rowId,status:'queued',answered:0}))})})};
+ const runner={idFromName:name=>name,get:()=>({fetch:async(_url,init)=>Response.json({results:JSON.parse(init.body).rowIds.map(rowId=>({rowId,status:'queued',answered:0,events:[{type:'run_started',at:1760000000000,tool:'private-tool'}]}))})})};
  const url=`/channels/agent-runs?${q({orgId:ORG,channel:'b:cafe',messageId:row.id})}`;
  const authorized=await call(url,{headers:headers(mika)},{AGENT_RUNNER:runner});
- expect((await authorized.json()).results).toEqual([{rowId:row.id,status:'queued',answered:0}]);
+ expect((await authorized.json()).results).toEqual([{rowId:row.id,status:'queued',answered:0,events:[{type:'run_started',at:1760000000000,tool:'private-tool'}]}]);
  const hidden=await call(url,{headers:headers(kenji)},{AGENT_RUNNER:runner});
  expect((await hidden.json()).results).toEqual([{rowId:row.id,status:'unknown',answered:0}]);
  await send('PUT','/orgs/mode',toru,{orgId:ORG,mode:'simple'});
  const hiddenSimple=await call(url,{headers:headers(kenji)},{AGENT_RUNNER:runner});
  expect((await hiddenSimple.json()).results).toEqual([{rowId:row.id,status:'unknown',answered:0}]);
+ const simpleOwner=await call(url,{headers:headers(mika)},{AGENT_RUNNER:runner});
+ expect((await simpleOwner.json()).results).toEqual([{rowId:row.id,status:'queued',answered:0}]);
 });
 
 test('private helper history is returned only to its requesting member',async()=>{

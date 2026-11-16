@@ -81,7 +81,10 @@ export async function agentRunSnapshot(env, orgId, rowIds, viewer) {
         if (Array.isArray(body.results) && body.results.length === rowIds.length && new Set(body.results.map(row => row?.rowId)).size === rowIds.length && body.results.every(row => row && rowIds.includes(row.rowId) && statuses.has(row.status) && Number.isSafeInteger(row.answered) && row.answered >= 0)) {
           results = rowIds.map(rowId => {
             const row = body.results.find(row => row.rowId === rowId);
-            return {rowId, status: row.status, answered: row.answered, ...(Number.isSafeInteger(row.version) && row.version >= 0 ? {version: row.version} : {})};
+          const events = Array.isArray(row.events) ? row.events.filter(event => event && typeof event === 'object' &&
+            ['run_started','agent_started','tool_started','tool_finished','tool_failed','tool_interrupted','agent_finished','agent_failed','agent_cancelled','run_finished','run_failed','run_cancelled','run_interrupted'].includes(event.type) && Number.isSafeInteger(event.at) && event.at >= 0).slice(-80).map(event=>({type:event.type,at:event.at,
+              ...(typeof event.agent==='string'?{agent:event.agent.slice(0,120)}:{}),...(typeof event.tool==='string'?{tool:event.tool.slice(0,80)}:{}),...(Number.isSafeInteger(event.elapsedMs)?{elapsedMs:event.elapsedMs}:{})})) : [];
+          return {rowId, status: row.status, answered: row.answered, ...(Number.isSafeInteger(row.version) && row.version >= 0 ? {version: row.version} : {}), ...(events.length?{events}:{})};
           });
           available = true;
         }
@@ -97,7 +100,8 @@ export async function agentRunSnapshot(env, orgId, rowIds, viewer) {
   const byId=new Map(visibleWithAssignments.map(result=>[result.rowId,result]));
   // Helper findings are private to the person who requested them. Run rows
   // for agents the viewer can no longer access are already withheld above.
-  const childRuns = rowIds.length && viewer.actorId && await getMode(env.DB,orgId)==='harness'
+  const isHarness = rowIds.length && await getMode(env.DB,orgId)==='harness';
+  const childRuns = rowIds.length && viewer.actorId && isHarness
     ? await (async()=>{
         const staleBefore=new Date(Date.now()-35_000).toISOString();
         const finishedParam=rowIds.length+3,staleParam=rowIds.length+4;
@@ -126,5 +130,5 @@ export async function agentRunSnapshot(env, orgId, rowIds, viewer) {
     if(runs.length<40)runs.push({id:child.id,title:String(child.title||'').slice(0,120),status:child.status,startedAt:child.started_at,...(child.finished_at?{finishedAt:child.finished_at}:{}),...(Number.isSafeInteger(child.elapsed_ms)?{elapsedMs:child.elapsed_ms}:{}),...(result?{result}: {})});
     childrenByRow.set(child.message_id,runs);
   }
-  return {available,results:rowIds.map(rowId=>{const result=byId.get(rowId)||{rowId,status:'unknown',answered:0};const subagents=childrenByRow.get(rowId);return subagents?{...result,subagents}:result;})};
+  return {available,results:rowIds.map(rowId=>{const result=byId.get(rowId)||{rowId,status:'unknown',answered:0};const subagents=childrenByRow.get(rowId);return {...(isHarness?result:{...result,events:undefined}),...(subagents?{subagents}: {})};})};
 }
