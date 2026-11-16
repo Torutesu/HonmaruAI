@@ -960,13 +960,13 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/file",
-      "code": "web-react/src/components/DocumentCreate.tsx",
-      "acceptance": "Markdown/HTMLからPDF/DOCXへの変換で、出力ベース名を安全に指定できる。既存・実行中の同一scope/path競合はenqueue前に明示し、競合時に上書きしない。永続publish競合はジョブを速やかにfailedにする。入力版固定、権限・scope、ローカルnode、サイズ上限、no-network pinned実行、immutable artifactを維持。",
+      "code": "packages/cli/src/cli.js; worker/src/harness/documentMcp.js; worker/src/harness/documentArtifacts.js",
+      "acceptance": "Markdown/HTMLからPDF/DOCXへの変換をCLIから実行でき、exact source version、eligible local node、timeout/cancelを指定できる。--destは権限検証済みWorkspaceへimmutable versionとしてpublishし、--outputはローカル限定でno-overwrite、どちらも未指定なら期限付き一時URLを返してWorkspace fileを作らない。 origin・size・SHA-256を検証する。既存・実行中の同一scope/path競合はenqueue前に明示し、publish競合もジョブを速やかにfailedにする。入力サイズ、権限/scope、ローカルnode、no-network pinned実行、append-only artifactを維持。",
       "evidence": {
         "auditDate": "2026-11-16",
         "verified": "Pinned no-network container converts Markdown/HTML to PDF/DOCX. Local UI-to-node-to-Worker-to-versioned-storage-to-download verified for Japanese PDF and DOCX with matching stored/downloaded SHA256; PDF preview, Japanese text, table and link checked. Authorized admission/lease/receipt/origin/audit/lifecycle tests and reload restoration passed. Light/dark dialog inspected. Installed runtime dependency regression and 32 gateway tests passed.",
         "release": "Worker b2eabf7ccd4a7bfd40a6842bfb2895d9c19a4adb deployed successfully (Worker run 40201627974); Web de2aca6122b1b559ff284a2a39d9c4acdf283b43 deployed successfully (Web run 40202969923). Exact candidate CI 40202969910 passed all required jobs.",
-        "remaining": "この候補バッチはPDF/DOCX出力名編集、安全なbasename検証、事前競合拒否、永続publish競合の即時failed化を追加する。ローカル focused test/build のみ実行済み。exact-head CI・merge・本番反映、認証済みKylon画面比較、mobile/narrow viewport、CLI file export、ブラウザでの既存ファイル再変換受入れは未確認。",
+        "remaining": "この候補バッチはCLIの版固定exportとWorkspace/ローカル/一時URLの配信経路、および永続publish競合の即時failed化を追加する。ローカル focused tests はCLI 69/69、Worker document/MCP/migration 80/80。exact-head CI・merge・本番反映、認証済みKylon画面比較、mobile/narrow viewport、ブラウザからの既存ファイル再変換受入れは未確認。--destの出力はfileId/version/pathで、Kylonのリンク表現に対応するHonmaru deep linkは未確認。",
         "evidenceFile": "docs/kylon-parity/verification.md"
       }
     },

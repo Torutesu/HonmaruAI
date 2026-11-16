@@ -5,6 +5,7 @@ import {enforceSubject} from '../ratelimit.js';
 import {listDocumentJobs,enqueueDocumentJob,readDocumentJob,cancelDocumentJob} from './documentJobs.js';
 import {claimDocumentJob,heartbeatDocumentJob,failDocumentJob} from './documentLeases.js';
 import {publishDocumentArtifact} from './documentArtifacts.js';
+import {serveTemporaryDocumentExport} from './documentMcp.js';
 const failure=(message,status)=>json({message},status);
 async function bounded(request,limit){
  if(!request.body)return new Uint8Array();
@@ -19,6 +20,7 @@ async function input(request,limit){
 }
 export const isDocumentNodeRoute=path=>/^\/gateways\/documents\/(?:claim|jobs\/[^/]+\/(?:heartbeat|fail|artifact))$/.test(path);
 export async function handleDocuments(request,env,url){
+ if(/^\/hx\/document-exports\/[^/]+$/.test(url.pathname))return serveTemporaryDocumentExport(request,env,url);
  const node=isDocumentNodeRoute(url.pathname),parts=url.pathname.split('/').filter(Boolean);
  const ready=await env.DB.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name IN ('hx_document_jobs','hx_document_nodes')").first();
  if(ready.n!==2)return failure('Document conversion is not ready.',503);

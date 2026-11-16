@@ -265,7 +265,7 @@ export default {
       ctx.waitUntil(drainRoomHookDispatch(env).catch(() => console.error("room webhook dispatch failed")));
       ctx.waitUntil(refreshConnectedGitDrafts(env,{now:event?.scheduledTime||Date.now(),limit:5})
         .catch(err=>console.error("automatic app Git draft refresh failed",err?.message||err)));
-      ctx.waitUntil(maintainDocumentJobs(env.DB).catch(() => console.error("document expiry failed")));
+      ctx.waitUntil(maintainDocumentJobs(env.DB, event?.scheduledTime || Date.now(), env).catch(() => console.error("document expiry failed")));
       ctx.waitUntil(import('./harness/mediaGeneration.js').then(({processImageGenerationQueue})=>processImageGenerationQueue(env,{limit:1,at:event?.scheduledTime||Date.now()})).catch((err)=>console.error('image generation queue failed',err?.message||err)));
       ctx.waitUntil(expireGatewayJobs(env.DB, Date.now(), env).catch(() => console.error("gateway expiry failed")));
       // The harness: follow-ups and scheduled workflows whose time has come.

@@ -2,7 +2,7 @@ import { createMcpClient, mcpEndpoint } from "./client.js";
 import { formatGatewayStatus, getGatewayStatus, runGatewayForeground } from "./gateway.js";
 import { lstat, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { generateTableSdk } from "./sdk.js";
 
 const HELP = `Honmaru workspace CLI
@@ -97,6 +97,7 @@ Usage:
   honmaru workspace file upload --scope ROOM --path REMOTE_PATH --source LOCAL_PATH --request-id file-UUID [--content-type MIME]
   honmaru workspace file copy <file-id> --scope ROOM --path REMOTE_PATH --request-id file-UUID [--version N]
   honmaru workspace file download <file-id> [--version N] [--output PATH | --dir DIRECTORY] [--force]
+  honmaru workspace file export <file-id> --format pdf|docx --gateway-id NODE [--version N] [--dest /workspace/shared/PATH|/workspace/rooms/ROOM/PATH | --output PATH] [--timeout-seconds N] [--request-id ID]
   honmaru workspace file versions <file-id> [--before N] [--limit N]
   honmaru workspace file create --scope ROOM --path PATH --request-id file-UUID --text TEXT --content-type MIME
   honmaru workspace file update <file-id> --expected-version N --text TEXT
@@ -148,7 +149,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "from", "visibility", "owner", "expected-updated-at",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "agent", "to-agent",
-  "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
+  "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "dest", "format", "timeout-seconds", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
@@ -1112,6 +1113,10 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       await downloadWorkspaceFile({ options, positional: commandArgs, client, apiUrl, token, fetcher, writeOut });
       return 0;
     }
+    if (resource === "file" && operation === "export") {
+      await exportWorkspaceFile({ options, positional: commandArgs, client, apiUrl, fetcher, writeOut });
+      return 0;
+    }
     if (resource === "file" && operation === "copy") {
       await copyWorkspaceFile({ options, positional: commandArgs, client, apiUrl, token, fetcher, writeOut });
       return 0;
@@ -1195,6 +1200,120 @@ async function downloadWorkspaceFile({ options, positional, client, apiUrl, toke
   const output = options.output || join(options.dir || ".", basename(file.path));
   await writeFile(output, bytes, { flag: options.force ? "w" : "wx" });
   writeOut(JSON.stringify({ fileId, version: requestedVersion, output, size: bytes.byteLength }));
+}
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+function validateTemporaryExportUrl(value, apiUrl) {
+  let url, base;
+  try { url = new URL(value); base = new URL(apiUrl); }
+  catch { throw new Error("Honmaru returned an invalid temporary document URL."); }
+  if (url.origin !== base.origin || url.username || url.password || url.search || url.hash || !/^\/hx\/document-exports\/[A-Za-z0-9_-]{40,60}$/.test(url.pathname)) {
+    throw new Error("Honmaru returned an unsafe temporary document URL.");
+  }
+  return url;
+}
+
+async function exportWorkspaceFile({ options, positional, client, apiUrl, fetcher, writeOut }) {
+  onlyFlags(options, ["format", "version", "gatewayId", "dest", "output", "timeoutSeconds", "requestId"]);
+  positionalCount(positional, 1, "honmaru workspace file export <file-id> --format pdf|docx --gateway-id NODE [--version N] [--dest WORKSPACE_PATH | --output PATH] [--timeout-seconds N] [--request-id ID]");
+  if (!options.format || !["pdf", "docx"].includes(String(options.format).toLowerCase())) throw new Error("--format must be pdf or docx.");
+  const format = String(options.format).toLowerCase();
+  if (!options.gatewayId?.trim()) throw new Error("--gateway-id is required; choose an eligible connected local document node.");
+  if (options.dest && options.output) throw new Error("Use either --dest or --output, not both.");
+  const timeoutSeconds = integerOption(options, "timeoutSeconds", { min: 1, max: 240 }) ?? 120;
+  const timeoutAt = Date.now() + timeoutSeconds * 1000;
+  const fileId = positional[0];
+  const metadata = await client.callTool("get_workspace_file", { fileId });
+  const file = metadata?.structuredContent?.file;
+  if (!file || file.id !== fileId || typeof file.scope !== "string" || typeof file.path !== "string" || !Number.isSafeInteger(file.version) || !Number.isSafeInteger(file.size)) {
+    throw new Error("No accessible workspace file matches that ID.");
+  }
+  const version = options.version === undefined ? file.version : integerOption(options, "version", { min: 1, required: true });
+  let source = null, before;
+  for (;;) {
+    const history = await client.callTool("list_file_versions", { fileId, limit: 100, ...(before ? { before } : {}) });
+    const versions = history?.structuredContent?.versions;
+    if (!Array.isArray(versions)) throw new Error("Honmaru returned invalid file history.");
+    source = versions.find(item => item.version === version) || null;
+    if (source || versions.length < 100) break;
+    const oldest = Math.min(...versions.map(item => item.version));
+    if (!Number.isSafeInteger(oldest) || oldest <= 1 || (before !== undefined && oldest >= before)) break;
+    before = oldest;
+  }
+  if (!source || source.kind !== "content" || source.purged) throw new Error("The requested source version is unavailable or purged.");
+  if (!Number.isSafeInteger(source.size) || source.size < 0 || source.size > 2 * 1024 * 1024) throw new Error("Document sources are limited to 2 MiB.");
+  if (!["text/markdown", "text/html"].includes(String(source.contentType || "").split(";")[0].trim().toLowerCase())) {
+    throw new Error("Only Markdown and HTML files can be converted.");
+  }
+  if (options.dest && !options.dest.startsWith("/workspace/")) throw new Error("--dest must be a /workspace/shared/... or /workspace/rooms/... path.");
+  if (options.dest && !options.dest.toLowerCase().endsWith(`.${format}`)) throw new Error("--dest extension must match --format.");
+  const outputPath = options.output;
+  if (outputPath && !outputPath.toLowerCase().endsWith(`.${format}`)) throw new Error("--output extension must match --format.");
+  if (outputPath) {
+    try { await lstat(outputPath); throw new Error("The local output path already exists; choose another name."); }
+    catch (error) { if (error?.code !== "ENOENT") throw error; }
+  }
+  const requestId = options.requestId?.trim() || `doc-${randomUUID()}`;
+  if (!/^[-A-Za-z0-9_]{1,80}$/.test(requestId)) throw new Error("--request-id must contain 1 to 80 letters, numbers, dashes, or underscores.");
+  const started = await client.callTool("create_document_export", {
+    fileId, version, format, gatewayId: options.gatewayId.trim(), requestId,
+    ...(options.dest ? { destination: options.dest, temporary: false } : { temporary: true }),
+  });
+  let job = started?.structuredContent?.job;
+  if (!job || typeof job.id !== "string") throw new Error("Honmaru returned an invalid document export job.");
+  let status;
+  while (Date.now() < timeoutAt) {
+    status = await client.callTool("get_document_export", { jobId: job.id });
+    const result = status?.structuredContent;
+    if (!result?.job || result.job.id !== job.id) throw new Error("Honmaru returned an invalid document export status.");
+    job = result.job;
+    if (["succeeded", "failed", "cancelled"].includes(job.status)) break;
+    await sleep(Math.min(1000, Math.max(1, timeoutAt - Date.now())));
+  }
+  if (job.status !== "succeeded") {
+    if (!["failed", "cancelled"].includes(job.status)) {
+      await client.callTool("cancel_document_export", { jobId: job.id }).catch(() => {});
+      throw new Error(`Document export ${job.id} exceeded ${timeoutSeconds} seconds and was cancelled.`);
+    }
+    throw new Error(`Document export ${job.id} ${job.status}.`);
+  }
+  if (options.dest) {
+    if (!job.fileId || !Number.isSafeInteger(job.version)) throw new Error("Honmaru succeeded without a versioned Workspace artifact.");
+    writeOut(JSON.stringify({ fileId: job.fileId, version: job.version, path: job.path, sourceFileId: fileId, sourceVersion: version }));
+    return;
+  }
+  const artifact = status?.structuredContent?.artifact;
+  if (!artifact || typeof artifact.downloadUrl !== "string" || !/^[a-f0-9]{64}$/.test(artifact.sha256 || "") || !Number.isSafeInteger(artifact.size) || artifact.size < 5 || artifact.size > 25 * 1024 * 1024) {
+    throw new Error("Honmaru returned invalid temporary artifact metadata.");
+  }
+  const downloadUrl = validateTemporaryExportUrl(artifact.downloadUrl, apiUrl);
+  if (!outputPath) {
+    writeOut(artifact.downloadUrl);
+    return;
+  }
+  const response = await fetcher(downloadUrl, { method: "GET", redirect: "error" });
+  if (!response.ok) throw new Error(`Honmaru temporary document download returned HTTP ${response.status}.`);
+  const expectedContentType = format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (artifact.contentType !== expectedContentType || response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== expectedContentType) throw new Error("The temporary artifact format does not match --format.");
+  const declaredSize = Number(response.headers.get("content-length"));
+  if (declaredSize !== artifact.size) throw new Error("The temporary artifact size does not match its metadata.");
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Honmaru returned an empty temporary artifact body.");
+  const chunks = []; let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 25 * 1024 * 1024 || size > artifact.size) { await reader.cancel().catch(() => {}); throw new Error("The temporary artifact exceeded its verified size."); }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  if (bytes.length !== artifact.size || createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) throw new Error("The temporary artifact failed its size or SHA-256 check.");
+  await writeFile(outputPath, bytes, { flag: "wx" });
+  writeOut(JSON.stringify({ output: outputPath, size: bytes.length, sha256: artifact.sha256, expiresAt: artifact.expiresAt }));
 }
 
 async function copyWorkspaceFile({ options, positional, client, apiUrl, token, fetcher, writeOut }) {

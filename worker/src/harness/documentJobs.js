@@ -4,6 +4,7 @@ import {allowed} from '../permissions.js';
 import {getMode} from './mode.js';
 import {fileScopeAuthority} from './fileAuthority.js';
 import {workspaceFilePath} from './fileVersionLedger.js';
+export const TEMP_DOCUMENT_EXPORT_TTL_MS=15*60*1000;
 const error=(message,status=400)=>({error:message,status});
 const view=row=>({id:row.id,status:row.status,gatewayId:row.gateway_id,scope:row.scope,path:row.path,createdAt:row.created_at,finishedAt:row.finished_at,fileId:row.file_id,version:row.file_version});
 const metadata='d.id,d.status,d.gateway_id,d.scope,d.path,d.created_at,d.finished_at,d.file_id,d.file_version';
@@ -22,8 +23,9 @@ export async function listDocumentJobs(db,orgId,userId,scope){
  const {results}=await db.prepare(`SELECT ${metadata} FROM hx_document_jobs d WHERE d.org_id=?1 AND d.created_by=?2 AND d.scope=?3 AND ${access} ORDER BY d.created_at DESC,d.id DESC LIMIT 20`).bind(orgId,userId,scope).all();
  return {jobs:results.map(view)};
 }
-export async function enqueueDocumentJob(db,orgId,userId,input,{origin='human'}={}){
+export async function enqueueDocumentJob(db,orgId,userId,input,{origin='human',delivery='workspace'}={}){
  if(!['human','agent'].includes(origin))return error('Invalid document origin.');
+ if(!['workspace','temporary'].includes(delivery))return error('Invalid document delivery.');
  userId=String(userId);
  if(!await enabled(db,orgId,userId))return error('Document conversion is not allowed.',403);
  if(!input||typeof input.text!=='string'||new TextEncoder().encode(input.text).length>2*1024*1024||!['markdown','html'].includes(input.inputFormat)||!['pdf','docx'].includes(input.format))return error('Invalid document conversion input.');
@@ -31,7 +33,7 @@ export async function enqueueDocumentJob(db,orgId,userId,input,{origin='human'}=
  if(typeof input.scope!=='string'||input.scope.length>300||typeof input.gatewayId!=='string')return error('Invalid document destination.');
  let path;try{path=workspaceFilePath(input.path);}catch{return error('Invalid document path.');}
  if(!path.toLowerCase().endsWith('.'+input.format))return error('Document extension must match the output format.');
- const payload=JSON.stringify({text:input.text,inputFormat:input.inputFormat,format:input.format,...(origin==='agent'?{origin}: {})});
+ const payload=JSON.stringify({text:input.text,inputFormat:input.inputFormat,format:input.format,...(origin==='agent'?{origin}: {}),...(delivery==='temporary'?{delivery}: {})});
  // D1 limits apply to serialized rows, including JSON escaping and metadata.
  if(new TextEncoder().encode(payload).length>2000000-16384)return error('Serialized document input is too large.',413);
  const prior=await db.prepare('SELECT * FROM hx_document_jobs WHERE org_id=?1 AND created_by=?2 AND request_id=?3').bind(orgId,userId,input.requestId).first();
