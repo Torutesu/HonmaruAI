@@ -30,3 +30,11 @@ test('file type filters survive reload while invalid saved types are discarded',
  saveWorkspaceFileView('type',view);expect(readWorkspaceFileView('type').type).toBe('pdf')
  raw=JSON.stringify({version:1,...view,type:'invalid'});expect(readWorkspaceFileView('type').type).toBeUndefined()
 })
+
+test('creator filter survives reload and invalid values are discarded',()=>{
+ let raw='';vi.stubGlobal('sessionStorage',{getItem:()=>raw,setItem:(_key:string,value:string)=>{raw=value}})
+ const view={folderMode:true,directory:'Team/',search:'',includeDeleted:false,creator:'me' as const}
+ saveWorkspaceFileView('creator',view);expect(readWorkspaceFileView('creator').creator).toBe('me')
+ raw=JSON.stringify({version:1,...view,creator:'other-user'});expect(readWorkspaceFileView('creator').creator).toBeUndefined()
+ raw=JSON.stringify({version:1,folderMode:true,directory:'Team/',search:'',includeDeleted:false});expect(readWorkspaceFileView('creator').creator).toBeUndefined()
+})
