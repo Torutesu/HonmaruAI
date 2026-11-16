@@ -108,6 +108,7 @@ Usage:
   honmaru workspace file share approve <request-id> --org-id ORG --confirm
   honmaru workspace file share decline <request-id> --org-id ORG --confirm
   honmaru workspace file share revoke <share-id> --org-id ORG --confirm
+  honmaru workspace file purge <file-id> --org-id ORG --reason TEXT --version N|--expected-version N --confirm
   honmaru workspace member list
   honmaru workspace playbook read
   honmaru workspace decision pending [--direction mine|sent]
@@ -153,7 +154,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "agent", "to-agent",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "dest", "format", "timeout-seconds", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
-  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id", "org-id",
+  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id", "org-id", "reason",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
 
@@ -1083,6 +1084,10 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       await decideWorkspaceFileShare({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, fetcher, writeOut });
       return 0;
     }
+    if (aliasMode && resource === "file" && operation === "purge") {
+      await purgeWorkspaceFile({ positional: commandArgs, options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, fetcher, writeOut });
+      return 0;
+    }
     const client = createMcpClient({ apiUrl, token, fetcher });
 
     if (action === "sdk") {
@@ -1321,6 +1326,53 @@ async function exportWorkspaceFile({ options, positional, client, apiUrl, fetche
   if (bytes.length !== artifact.size || createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) throw new Error("The temporary artifact failed its size or SHA-256 check.");
   await writeFile(outputPath, bytes, { flag: "wx" });
   writeOut(JSON.stringify({ output: outputPath, size: bytes.length, sha256: artifact.sha256, expiresAt: artifact.expiresAt }));
+}
+
+async function purgeWorkspaceFile({ positional, options, apiUrl, sessionToken, fetcher, writeOut }) {
+  onlyFlags(options, ["orgId", "confirm", "reason", "version", "expectedVersion"]);
+  positionalCount(positional, 1, "honmaru workspace file purge <file-id> --org-id ORG --reason TEXT --version N|--expected-version N --confirm");
+  if (!options.confirm) throw new Error("--confirm is required because purge is permanent.");
+  if (typeof options.orgId !== "string" || !options.orgId.trim()) throw new Error("--org-id is required for human file purge.");
+  if (typeof options.reason !== "string" || !options.reason.trim() || options.reason.length > 1000 || /[\u0000-\u001f\u007f]/.test(options.reason)) {
+    throw new Error("--reason is required and must be at most 1000 characters without control characters.");
+  }
+  if ((options.version === undefined) === (options.expectedVersion === undefined)) {
+    throw new Error("Choose exactly one of --version for a historical version or --expected-version for a deleted file.");
+  }
+  const version = options.version === undefined ? undefined : integerOption(options, "version", { min: 1, required: true });
+  const expectedVersion = options.expectedVersion === undefined ? undefined : integerOption(options, "expectedVersion", { min: 1, required: true });
+  if (typeof sessionToken !== "string" || sessionToken.length < 16 || sessionToken.length > 4096 || /\s/.test(sessionToken)) {
+    throw new Error("Set HONMARU_SESSION_TOKEN to a signed-in human session token. File purge is never available to Agent API tokens.");
+  }
+
+  const origin = new URL(mcpEndpoint(apiUrl)).origin;
+  const endpoint = new URL("/hx/files/" + encodeURIComponent(positional[0]) + "/purge", origin);
+  endpoint.searchParams.set("orgId", options.orgId.trim());
+  const body = { reason: options.reason.trim(), ...(version !== undefined ? { version } : { expectedVersion }) };
+  let response;
+  try {
+    response = await fetcher(endpoint, {
+      method: "POST",
+      redirect: "error",
+      headers: { "x-session-token": sessionToken, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new Error("The purge result could not be confirmed. Inspect the file history before retrying; the CLI did not retry.");
+  }
+  if (!response.ok) {
+    throw new Error("Honmaru rejected the purge (HTTP " + response.status + "). Inspect the file history and purge state before retrying; the CLI did not retry.");
+  }
+  let result;
+  try { result = await response.json(); }
+  catch { throw new Error("Honmaru returned an unreadable purge result. Inspect the file history before retrying."); }
+  if (result?.error || typeof result !== "object" || result === null ||
+      (version !== undefined && typeof result.purged !== "boolean") ||
+      (expectedVersion !== undefined && !Number.isSafeInteger(result.purgedCount))) {
+    throw new Error("Honmaru returned an invalid purge result. Inspect the file history before retrying.");
+  }
+  writeOut(JSON.stringify(result));
 }
 
 async function decideWorkspaceFileShare({ action, positional, options, apiUrl, sessionToken, fetcher, writeOut }) {
