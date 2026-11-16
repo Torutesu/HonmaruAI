@@ -14,7 +14,6 @@ const context=await chromium.launchPersistentContext('/data',{
   viewport:{width:1280,height:800},
   args:[
     '--proxy-bypass-list=<-loopback>',
-    '--host-resolver-rules=MAP * ~NOTFOUND',
     '--disable-quic',
     '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
   ],
