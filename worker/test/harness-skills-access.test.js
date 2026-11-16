@@ -37,6 +37,45 @@ beforeEach(async () => {
   agentId = (await made.json()).agent.id;
 });
 
+test('public Skill share creation and import are unavailable in Simple mode', async () => {
+  const simpleSkillResponse = await request('POST', '/skills', owner, {
+    name: 'Simple mode Skill', description: 'A safe sharing description.', body: 'Shared instructions.',
+  });
+  expect(simpleSkillResponse.status).toBe(201);
+  const simpleSkill = (await simpleSkillResponse.json()).skill;
+  const simpleCreate = await request('POST', `/skills/${simpleSkill.id}/shares`, owner, {
+    expiresInDays: 7, confirmAnyoneWithLink: true,
+  });
+  expect(simpleCreate.status).toBe(404);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skill_shares WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
+
+  const harnessMode = await request('PUT', '/orgs/mode', admin, { mode: 'harness' });
+  expect(harnessMode.status).toBe(200);
+  const harnessSkillResponse = await request('POST', '/skills', owner, {
+    name: 'Harness mode Skill', description: 'A safe sharing description.', body: 'Shared instructions.',
+  });
+  expect(harnessSkillResponse.status).toBe(201);
+  const harnessSkill = (await harnessSkillResponse.json()).skill;
+  const createdShare = await request('POST', `/skills/${harnessSkill.id}/shares`, owner, {
+    expiresInDays: 7, confirmAnyoneWithLink: true,
+  });
+  expect(createdShare.status).toBe(201);
+  const { token } = await createdShare.json();
+  expect(token).toMatch(/^skl_[a-f0-9]{64}$/);
+
+  const imported = await request('POST', `/skill-shares/${token}/import`, owner, {});
+  expect(imported.status).toBe(201);
+  expect((await imported.json()).skill).toMatchObject({ name: 'Harness mode Skill', visibility: 'private' });
+  const countAfterHarnessImport = (await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills WHERE org_id=?1').bind(orgId).first()).n;
+
+  const simpleMode = await request('PUT', '/orgs/mode', admin, { mode: 'simple' });
+  expect(simpleMode.status).toBe(200);
+  expect((await request('GET', `/skill-shares/${token}/import-agents`, owner)).status).toBe(404);
+  const simpleImport = await request('POST', `/skill-shares/${token}/import`, owner, {});
+  expect(simpleImport.status).toBe(404);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills WHERE org_id=?1').bind(orgId).first()).n).toBe(countAfterHarnessImport);
+});
+
 test('SKILL.md preview writes nothing; saving and exporting preserve metadata and private access', async () => {
   const markdown = '---\nname: weekly-report\ndescription: Prepare weekly reports\nallowed-tools: [read_file]\n---\nReview the agreed sources.';
   const preview = await request('POST', '/skills/preview-import', owner, { markdown });
