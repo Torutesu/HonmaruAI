@@ -47,7 +47,7 @@ import { personalViews } from './personalViews.js';
 import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
-import { actions, generateAction, saveAction, runAction, readActionJob, connections, saveConnection } from './appCapabilities.js';
+import { actions, generateAction, saveAction, runAction, readActionJob, listAppActionRuns, connections, saveConnection } from './appCapabilities.js';
 import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
 import { appRemoteMcpForViewer, changeAppRemoteMcpGrant, invokeAppRemoteMcp } from './appRemoteMcp.js';
 import { generateCustomSource, saveCustomRelease, validateSource, MAX_PREVIEW_SOURCE } from "./customApps.js";
@@ -1780,6 +1780,12 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (sub === 'actions') {
         if (request.method === 'GET') {
+          if(url.searchParams.get('runs')==='1') {
+            const rawLimit=url.searchParams.get('limit');
+            const limit=rawLimit===null?50:/^(?:[1-9]|[1-4][0-9]|50)$/.test(rawLimit)?Number(rawLimit):NaN;
+            const result=await listAppActionRuns(env.DB,orgId,appId,me,{limit,cursor:url.searchParams.get('cursor')||undefined});
+            return result.error?fail(result):json(result);
+          }
           const history=url.searchParams.get('history');
           if(history){
             if(!canManage)return json({message:'Only its maker or an admin can read draft history.'},403);

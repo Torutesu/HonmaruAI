@@ -3,6 +3,31 @@ import {act,create} from 'react-test-renderer'
 import {expect,test,vi} from 'vitest'
 import {CompanyApp} from './CompanyApp'
 
+test('server action history loads own paged runs and only fetches a result when explicitly opened',async()=>{
+ const runItem={id:'run-1',actionName:'report',actionVersion:3,status:'succeeded',createdAt:1000,startedAt:1001,finishedAt:1002}
+ const api:any={
+  appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[]}),
+  appDatabase:vi.fn().mockResolvedValue({fork:null,version:1,entities:[],migrations:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),
+  actionRunHistory:vi.fn().mockResolvedValueOnce({runs:[runItem],nextCursor:'next-page'}).mockResolvedValueOnce({runs:[],nextCursor:undefined}),
+  actionJob:vi.fn().mockResolvedValue({job:{...runItem,result:{stdout:'safe output'}}}),
+ }
+ let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<CompanyApp app={{id:'app'}as any} api={api} canManage reload={vi.fn()}/>);await Promise.resolve()})
+ const button=(text:string)=>tree!.root.findAllByType('button').find(item=>item.children.join('')===text)!
+ expect(api.actionRunHistory).not.toHaveBeenCalled()
+ await act(async()=>button('Load execution history').props.onClick())
+ expect(api.actionRunHistory).toHaveBeenCalledWith('app',undefined)
+ expect(tree!.root.findAllByProps({role:'list'})).toHaveLength(0)
+ expect(tree!.root.findAllByType('strong').some(item=>item.children.join('').includes('report'))).toBe(true)
+ expect(tree!.root.findAllByType('pre').some(item=>item.children.join('').includes('safe output'))).toBe(false)
+ await act(async()=>button('View result').props.onClick())
+ expect(api.actionJob).toHaveBeenCalledWith('app','run-1')
+ expect(tree!.root.findAllByType('pre').some(item=>item.children.join('').includes('safe output'))).toBe(true)
+ await act(async()=>button('Load more runs').props.onClick())
+ expect(api.actionRunHistory).toHaveBeenLastCalledWith('app','next-page')
+ act(()=>tree!.unmount())
+})
+
 async function setup(conflicts:unknown[]=[],database:any=null) {
  const fork={id:'private-fork',revision:4,entities:[{key:'primary',table:{id:'table',name:'Tasks',columns:[]},rows:[]}]}
  const review={forkId:fork.id,revision:4,checksum:'reviewed-digest',resolved:conflicts.length===0,conflicts,changes:[{entity:'primary',tableId:'table',tableName:'Tasks',id:'row',operation:'create' as const,before:null,after:{name:'Draft'}}]}

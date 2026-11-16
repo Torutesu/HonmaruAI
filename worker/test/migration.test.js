@@ -49,6 +49,20 @@ test("workflow usage dashboards have an organization and time-window index", asy
   expect(results.map((row) => row.name)).toContain("idx_hx_workflow_usage_org_created");
 });
 
+test("App action history uses a creator-scoped locator index on the deploy path", async () => {
+  await applyDeploy(env.DB);
+  const index = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_hx_app_action_jobs_creator'").first();
+  expect(index?.name).toBe('idx_hx_app_action_jobs_creator');
+  const columns = await env.DB.prepare('PRAGMA index_info(idx_hx_app_action_jobs_creator)').all();
+  expect(columns.results.map(row => row.name)).toEqual(['org_id','app_id','created_by','job_id']);
+  const plan = await env.DB.prepare(`EXPLAIN QUERY PLAN SELECT g.id
+    FROM hx_app_action_jobs j JOIN hx_gateway_jobs g ON g.org_id=j.org_id AND g.id=j.job_id AND g.created_by=j.created_by
+    WHERE j.org_id='history-org' AND j.app_id='history-app' AND j.created_by='history-user'
+    ORDER BY g.created_at DESC,g.id DESC LIMIT 51`).all();
+  expect(plan.results.map(row => row.detail).join(' ')).toContain('idx_hx_app_action_jobs_creator');
+  await expect(applyDeploy(env.DB)).resolves.not.toThrow();
+});
+
 test("schema.sql recreates all App row generation triggers without migration help", async () => {
   await applyDeploy(env.DB);
   await env.DB.exec("DROP TRIGGER IF EXISTS hx_rows_data_version_insert; DROP TRIGGER IF EXISTS hx_rows_data_version_update; DROP TRIGGER IF EXISTS hx_rows_data_version_delete;");
