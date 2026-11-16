@@ -191,7 +191,7 @@ export async function visibleResources(items, mayUse) {
 // member who cannot open that room.
 export async function visibleAppLinks(db, orgId, apps, viewer) {
   const githubId = viewer?.github_id ?? viewer?.githubId;
-  if (!githubId || !viewer?.login) return (apps || []).map(app => ({ ...app, channels: [] }));
+  if (!githubId || !viewer?.login) return (apps || []).map(app => ({ ...app, channels: [], channelLinkVersions: {} }));
   const visible = [];
   const roomAccess = new Map();
   for (const app of apps || []) {
@@ -201,7 +201,8 @@ export async function visibleAppLinks(db, orgId, apps, viewer) {
       const room = await roomAccess.get(channel);
       if (room?.key === channel) channels.push(channel);
     }
-    visible.push({ ...app, channels });
+    const channelLinkVersions=Object.fromEntries(channels.filter(channel=>app.channelLinkVersions?.[channel]).map(channel=>[channel,app.channelLinkVersions[channel]]));
+    visible.push({ ...app, channels, channelLinkVersions });
   }
   return visible;
 }

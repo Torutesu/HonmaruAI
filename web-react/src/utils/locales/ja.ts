@@ -3168,6 +3168,8 @@ const table: Record<string, string> = {
   "Nothing here yet.": "まだ何もありません。",
   "Add a row": "行を追加",
   "Rooms": "ルーム",
+  'Move': '移動',
+  'Move linked app to the entered room': '入力したルームへアプリを移動',
   "Link it to a room and it shows there, next to the conversation.": "ルームに紐付けると、会話の横に表示されます。",
   "Room": "ルーム",
   "Versions": "バージョン",

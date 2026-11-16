@@ -92,7 +92,7 @@ import {
 } from "./tables.js";
 import {
   listApps, listArchivedApps, restoreArchivedApp, getApp, createApp, createFromTemplate, updateApp, deleteApp,
-  linkApp, unlinkApp, listVersions, restoreVersion, renderApp,
+  linkApp, unlinkApp, moveAppLink, listVersions, restoreVersion, renderApp,
 } from "./apps.js";
 import { templateList } from "./templates.js";
 import { createTemplateShare, listTemplateShares, revokeTemplateShare, readTemplateShare, importTemplateShare } from './templateShares.js';
@@ -2144,6 +2144,16 @@ export async function handleHarness(request, env, url, context = {}) {
       // links to rooms the admin cannot currently access.
       if (!canManagePrivateLinks && !await mayChangeApp()) return json({ message: "Only its maker, an editor, or an admin can change app links." }, 403);
       if (request.method === "POST") {
+        if(input?.action==='move'){
+          if(typeof input.fromChannel!=='string'||typeof input.toChannel!=='string'||typeof input.expectedSourceCreatedAt!=='string')return json({message:'A source, destination, and current link revision are required.'},400);
+          const sourceRoom=await readableConversation(env.DB,orgId,me,input.fromChannel);
+          const destinationRoom=await readableConversation(env.DB,orgId,me,input.toChannel);
+          if(!sourceRoom||!destinationRoom)return json({message:'No such room.'},404);
+          const result=await moveAppLink(env.DB,orgId,appId,sourceRoom.key,destinationRoom.key,me,input.expectedSourceCreatedAt);
+          if(result.error)return fail(result);
+          await audit(env,request,{orgId,action:'app.room_link_moved',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{from:sourceRoom.key,to:destinationRoom.key}});
+          return json(result);
+        }
         const room = await readableConversation(env.DB, orgId, me, input.channel);
         if (!room) return json({ message: 'No such room.' }, 404);
         const result = await linkApp(env.DB, orgId, appId, room.key, me);

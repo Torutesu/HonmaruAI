@@ -372,6 +372,42 @@ test('workspace admins can manage links on a private app without reading the app
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_links WHERE app_id=?1 AND org_id=?2 AND channel='b:hidden-links'").bind(app.id, ORG).first()).toEqual({ n: 1 });
 });
 
+test('App room moves are atomic, revision checked, and revalidate both room grants at commit',async()=>{
+ const at=new Date().toISOString();
+ for(const [slug,name,privateRoom] of [['move-source','Move source',0],['move-target','Move target',0],['move-private','Move private',1]]){
+  await env.DB.prepare('INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,?2,?3,?4,\'9101\',?5)').bind(ORG,slug,name,privateRoom,at).run();
+ }
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'b:move-private','toru','toru',?2)").bind(ORG,at).run();
+ const created=await send('POST','/apps',toru,{orgId:ORG,name:'Move-safe app',columns:[{name:'Title',type:'text'}]});
+ expect(created.status).toBe(201);const {app}=await created.json();
+ expect((await send('POST',`/apps/${app.id}/links`,toru,{orgId:ORG,channel:'b:move-source'})).status).toBe(200);
+ const initial=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const sourceVersion=initial.app.channelLinkVersions['b:move-source'];expect(sourceVersion).toEqual(expect.any(String));
+ const moved=await send('POST',`/apps/${app.id}/links`,toru,{orgId:ORG,action:'move',fromChannel:'b:move-source',toChannel:'b:move-target',expectedSourceCreatedAt:sourceVersion});
+ expect(moved.status).toBe(200);expect(await moved.json()).toMatchObject({moved:true,channel:'b:move-target'});
+ let current=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ expect(current.app.channels).toEqual(['b:move-target']);expect(current.app.channelLinkVersions['b:move-source']).toBeUndefined();
+ const stale=await send('POST',`/apps/${app.id}/links`,toru,{orgId:ORG,action:'move',fromChannel:'b:move-source',toChannel:'b:move-target',expectedSourceCreatedAt:sourceVersion});
+ expect(stale.status).toBe(409);
+
+ expect((await send('POST',`/apps/${app.id}/links`,toru,{orgId:ORG,channel:'b:move-source'})).status).toBe(200);
+ current=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ const raceVersion=current.app.channelLinkVersions['b:move-source'];
+ const realDb=env.DB;let revoked=false;
+ const racedDb={prepare(sql){
+  const statement=realDb.prepare(sql);
+  if(!sql.includes('UPDATE hx_app_links SET channel'))return statement;
+  return {bind(...values){const bound=statement.bind(...values);return {run:async()=>{if(!revoked){revoked=true;await realDb.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:move-private' AND login='toru'").bind(ORG).run();}return bound.run();}};}};
+ }};
+ egressTestEnv={...env,DB:racedDb};
+ let denied;
+ try{denied=await send('POST',`/apps/${app.id}/links`,toru,{orgId:ORG,action:'move',fromChannel:'b:move-source',toChannel:'b:move-private',expectedSourceCreatedAt:raceVersion});}
+ finally{egressTestEnv=env;}
+ expect(revoked).toBe(true);expect(denied.status).toBe(409);
+ current=await (await get(`/apps/${app.id}?orgId=${ORG}`,toru)).json();
+ expect(current.app.channels).toContain('b:move-source');expect(current.app.channels).not.toContain('b:move-private');
+});
+
 test('a room link never grants visibility to a private app in the room-filtered listing', async () => {
   const at = new Date().toISOString();
   await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'linked-room','Linked room',0,'9101',?2)").bind(ORG, at).run();

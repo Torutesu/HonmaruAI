@@ -962,6 +962,19 @@ test('read-only app viewers do not get room-link controls in settings', async ()
   expect(tree!.root.findAllByType('button').some(node => node.children.includes('Link'))).toBe(false)
   expect(JSON.stringify(tree!.toJSON())).not.toContain('Link it to a room')
 })
+test('App room settings can move one room link with its current revision',async()=>{
+ const view={id:'all',type:'table',name:'All',rows:[]},moveLink=vi.fn().mockResolvedValue({moved:true,channel:'b:new-room',createdAt:'next'});
+ state.api={
+  app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:['b:old-room'],channelLinkVersions:{'b:old-room':'link-v1'},definition:{views:[view]}},table:{id:'tasks',orgId:'team:one',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[view],canCustomize:true}),
+  personalViews:vi.fn().mockResolvedValue({revision:0,views:[],computed:[],layouts:{}}),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+  templateShares:vi.fn().mockResolvedValue({shares:[],canManage:true}),versions:vi.fn().mockResolvedValue({versions:[]}),moveLink,
+ }
+ await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="settings"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+ act(()=>tree!.root.findByProps({'aria-label':'Room'}).props.onChange({target:{value:'#new-room'}}))
+ const move=tree!.root.findAllByType('button').find(button=>button.children.includes('Move'))!
+ await act(async()=>{await move.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+ expect(moveLink).toHaveBeenCalledWith('tasks','b:old-room','b:new-room','link-v1')
+})
 test('late completion retains another destination and a revised prompt', async () => {
   const { completion } = await start()
   act(() => tree!.root.findByType('textarea').props.onChange({ target: { value: 'Next request' } }))
