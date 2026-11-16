@@ -80,6 +80,23 @@ test('folder listing is hierarchical paginated and excludes inaccessible content
  expect((await call('/hx/files/folders?scope=workspace&directory=..')).status).toBe(400);
 });
 
+test('createdBy=me resolves only from the authenticated session for both files and folders',async()=>{
+ const own=(await call('/hx/files','POST',{scope:'workspace',path:'mine/own.txt'}));expect(own.status).toBe(201);const ownId=(await own.json()).id;
+ expect((await call(`/hx/files/${ownId}/content?expectedVersion=0&size=1`,'PUT','x',token,true)).status).toBe(200);
+ await upsertUser(env.DB,{githubId:'file-peer',login:'file-peer',name:'Peer'});await upsertMembership(env.DB,orgId,'file-peer','member');
+ const peer=await createSession(env.DB,'file-peer','test');
+ const theirs=await call('/hx/files','POST',{scope:'workspace',path:'theirs/peer.txt'},peer);expect(theirs.status).toBe(201);const peerId=(await theirs.json()).id;
+ expect((await call(`/hx/files/${peerId}/content?expectedVersion=0&size=1`,'PUT','x',peer,true)).status).toBe(200);
+ const ownFiles=await (await call('/hx/files?scope=workspace&createdBy=me&userId=file-peer')).json();
+ expect(ownFiles.files.map(file=>file.path)).toEqual(['mine/own.txt']);
+ const ownFolders=await (await call('/hx/files/folders?scope=workspace&createdBy=me')).json();
+ expect(ownFolders.folders).toEqual([{name:'mine',path:'mine/'}]);
+ const peerFiles=await (await call('/hx/files?scope=workspace&createdBy=me', 'GET',undefined,peer)).json();
+ expect(peerFiles.files.map(file=>file.path)).toEqual(['theirs/peer.txt']);
+ const peerFolders=await (await call('/hx/files/folders?scope=workspace&createdBy=me','GET',undefined,peer)).json();
+ expect(peerFolders.folders).toEqual([{name:'theirs',path:'theirs/'}]);
+});
+
 test('recent files page by timestamp and ID without skipping equal-time rows',async()=>{
  const ids=[];
  for(const path of ['z-old.txt','a-new.txt','b-new.txt']){
