@@ -46,7 +46,7 @@ export function workspaceFileApi(base:string,orgId:string,sessionToken:string){
    if(search.cursor)query.cursor=JSON.stringify(search.cursor)
    return json<{files:WorkspaceFile[];next:FileCursor|null}>('/hx/files','GET',undefined,query,signal)
   },
-  folders:(scope:string,directory:string,includeDeleted:boolean,cursor?:string,signal?:AbortSignal,origin?:FileOrigin)=>json<{folders:{name:string;path:string}[];next:string|null}>('/hx/files/folders','GET',undefined,{scope,directory,includeDeleted:String(includeDeleted),...(origin?{origin}:{}),...(cursor?{cursor}:{})},signal),
+  folders:(scope:string,directory:string,includeDeleted:boolean,cursor?:string,signal?:AbortSignal,origin?:FileOrigin,createdBy?:string)=>json<{folders:{name:string;path:string}[];next:string|null}>('/hx/files/folders','GET',undefined,{scope,directory,includeDeleted:String(includeDeleted),...(origin?{origin}:{}),...(createdBy?{createdBy}:{}),...(cursor?{cursor}:{})},signal),
   create:(scope:string,filePath:string,requestId?:string)=>json<{id:string;version:number}>('/hx/files','POST',{scope,path:filePath,...(requestId?{requestId}:{})}),
   upload:async(id:string,expectedVersion:number,file:Blob,signal?:AbortSignal)=>{
    const result=await response(`${path(id)}/content`,'PUT',file,{expectedVersion:String(expectedVersion),size:String(file.size)},file.type||'application/octet-stream',signal)

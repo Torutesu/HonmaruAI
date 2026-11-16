@@ -90,7 +90,7 @@ test('folder navigation requests direct children, scopes search and resets pagin
  await act(async()=>{button('Folders')!.props.onClick()})
  expect(vi.mocked(api.list).mock.calls[0][0].order).toBe('recent')
  expect(vi.mocked(api.list).mock.calls.at(-1)![0].order).toBe('path')
- expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),undefined)
+ expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),undefined,undefined)
  await act(async()=>{renderer!.root.findByProps({className:'hx-file-folder'}).props.onClick()})
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({directory:'Alpha/',directOnly:true})
  await act(async()=>{renderer!.root.findByProps({'aria-label':'Search files'}).props.onChange({target:{value:'note'}})})
@@ -125,7 +125,7 @@ test('origin switches filter files and folders together and discard previous pag
  await click('Created by agents')
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({origin:'agent',order:'path'})
  expect(vi.mocked(api.list).mock.calls.at(-1)![0].cursor).toBeUndefined()
- expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),'agent')
+ expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),'agent',undefined)
  await act(async()=>tree!.root.findAllByType('select').find(select=>select.props['aria-label']==='File source')!.props.onChange({target:{value:'unknown'}}))
  expect(vi.mocked(api.list).mock.calls.at(-1)![0].origin).toBe('unknown')
  await act(async()=>tree!.root.findAllByType('select').find(select=>select.props['aria-label']==='File source')!.props.onChange({target:{value:'all'}}))
@@ -152,7 +152,7 @@ test('folder view ignores the recent origin filter and restores it on return',as
  expect(folderSearch.origin).toBeUndefined();expect(folderSearch.cursor).toBeUndefined()
  await act(async()=>tree!.root.findByProps({'aria-label':'Search files'}).props.onChange({target:{value:''}}))
  await act(async()=>tree!.root.findByType('form').props.onSubmit({preventDefault(){}}))
- expect(api.folders).toHaveBeenLastCalledWith('workspace','',true,undefined,expect.any(AbortSignal),undefined)
+ expect(api.folders).toHaveBeenLastCalledWith('workspace','',true,undefined,expect.any(AbortSignal),undefined,undefined)
  await click('Recent')
  expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({origin:'agent',order:'recent',type:'pdf',includeDeleted:true,query:''})
  expect(button('Created by agents')?.props['aria-pressed']).toBe(true)
@@ -212,13 +212,34 @@ test('a saved folder view never applies a hidden recent origin filter after remo
   const api={list:vi.fn().mockResolvedValue({files:[],next:null}),folders:vi.fn().mockResolvedValue({folders:[],next:null})} as unknown as WorkspaceFileApi
   await act(async()=>{tree=create(<WorkspaceFilesPanel allOriginsInFolders api={api} scope="workspace" preferenceKey="fixture" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
   expect(vi.mocked(api.list).mock.calls.at(-1)![0].origin).toBeUndefined()
-  expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),undefined)
+  expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),undefined,undefined)
   expect(tree!.root.findAllByProps({'aria-label':'File source'})).toHaveLength(0)
   expect(JSON.stringify(tree!.toJSON())).toContain('This folder is empty')
   await act(async()=>tree!.root.findByProps({'aria-label':'Recent'}).props.onClick())
   expect(vi.mocked(api.list).mock.calls.at(-1)![0].origin).toBe('human')
   expect(tree!.root.findByProps({'aria-label':'Uploaded by users'}).props['aria-pressed']).toBe(true)
  }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})
+
+test('creator filter applies to recent files and folder summaries, resets cursors and remains independent from origin',async()=>{
+ const api={list:vi.fn().mockResolvedValue({files:[],next:{path:'next.txt',id:'next-id'}}),folders:vi.fn().mockResolvedValue({folders:[],next:'next-folder'})} as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ const select=(value:string)=>renderer!.root.findByProps({'aria-label':'Created by'}).props.onChange({target:{value}})
+ await act(async()=>renderer!.root.findByProps({'aria-label':'Created by agents'}).props.onClick())
+ await act(async()=>renderer!.root.findAllByType('button').find(button=>button.children.includes('Next'))!.props.onClick())
+ await act(async()=>select('me'))
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({createdBy:'me',origin:'agent',order:'recent'})
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0].cursor).toBeUndefined()
+ await act(async()=>renderer!.root.findByProps({'aria-label':'Folders'}).props.onClick())
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0]).toMatchObject({createdBy:'me',origin:'agent',order:'path'})
+ expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),'agent','me')
+ await act(async()=>renderer!.root.findAllByType('button').find(button=>button.children.includes('More folders'))!.props.onClick())
+ await act(async()=>select('all'))
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0].createdBy).toBeUndefined()
+ expect(vi.mocked(api.list).mock.calls.at(-1)![0].cursor).toBeUndefined()
+ expect(api.folders).toHaveBeenLastCalledWith('workspace','',false,undefined,expect.any(AbortSignal),'agent',undefined)
+ act(()=>renderer!.unmount())
 })
 
 test('a socket file notification refreshes both the open list and its visible history',async()=>{
