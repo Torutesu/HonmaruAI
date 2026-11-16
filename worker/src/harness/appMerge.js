@@ -4,6 +4,10 @@ import { getTable } from './tables.js';
 import { prepareWorkflowRowEventIfWatched } from './workflowRowEventDispatch.js';
 const err=(error,status=409)=>({error,status});
 const canonical=value=>JSON.stringify(value, Object.keys(value).sort());
+// Leave headroom below D1's documented 2,000-statement batch example and
+// Workers' approximate 5,000 bindings-per-script limit. A watched row adds
+// one outbox statement and each row change adds one write statement.
+export const MAX_FORK_MERGE_RECORDS=250;
 
 // Match the app-management and table access checks at the point where a
 // preview is returned and where the reviewed merge is committed. A table can
@@ -110,7 +114,7 @@ export async function previewMerge(db,orgId,app,by,input) {
     const net=appliedChanges.filter(change=>change.tableId===snapshot.tableId).reduce((total,change)=>total+(change.operation==='create'?1:change.operation==='remove'?-1:0),0);
     if(snapshot.rows.length+net>5000)return err('Production row limit would be exceeded.',400);
   }
-  if(appliedChanges.length>50)return err('Merge at most 50 changed records at once. Use a smaller preview.',400);
+  if(appliedChanges.length>MAX_FORK_MERGE_RECORDS)return err(`Merge at most ${MAX_FORK_MERGE_RECORDS} changed records at once. Use a smaller preview.`,400);
   // Validate the exact merged production state after the user's conflict choices.
   // This allows a preview to add related rows together, but never leaves a dangling relation.
   const mergeEntities=snapshots.map(snapshot=>{
