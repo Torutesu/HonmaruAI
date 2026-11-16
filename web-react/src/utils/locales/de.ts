@@ -2244,7 +2244,6 @@ const table: Record<string, string> = {
   'Only workspace-approved tools marked read-only are available. Choose each tool this Agent may use in your private conversations.': 'Vom Workspace genehmigte schreibgeschützte Tools sind in Agentengesprächen verfügbar. Schreibtools werden einzeln freigegeben und nur nach Genehmigung in Workflows ausgeführt.',
   'Workflow approval required': 'Workflow-Genehmigung erforderlich',
   'Choose an enabled tool': 'Aktives Tool auswählen',
-  'approval required': 'Genehmigung erforderlich',
   'This tool can write to an external service. Add an Approval step immediately before it. The approver will see the tool name and rendered arguments.': 'Dieses Tool schreibt in einen externen Dienst. Füge direkt davor einen Genehmigungsschritt ein. Die genehmigende Person sieht Toolnamen und aufgelöste Argumente.',
   'Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.': 'Gib dieses Remote-MCP-Tool im Tab „Verbindungen“ des Agents frei, bevor du es hier verwendest.',
   'Calls only the selected tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.': 'Nur das ausgewählte Tool wird aufgerufen. Worker prüft Schema und Berechtigung vor und nach jedem Aufruf erneut. Keine Zugangsdaten in Argumente einfügen.',
@@ -2359,6 +2358,13 @@ const table: Record<string, string> = {
   'Publication and code history': 'Veröffentlichungs- und Codeverlauf',
   'Move': 'Verschieben',
   'Move linked app to the entered room': 'Verknüpfte App in den eingegebenen Raum verschieben',
+  'Choose an approved tool': 'Genehmigtes Tool auswählen',
+  'Connect this Remote MCP server with OAuth before using it in a Workflow.': 'Verbinde diesen Remote-MCP-Server per OAuth, bevor du ihn in einem Workflow verwendest.',
+  'approval required': 'Genehmigung erforderlich',
+  'A human approval is immediately before this write. The approver sees the exact tool and arguments.': 'Unmittelbar vor diesem Schreibvorgang steht eine menschliche Freigabe. Die freigebende Person sieht das genaue Tool und seine Argumente.',
+  'Add an approval step immediately before this write. The approver will see the exact tool and arguments.': 'Füge unmittelbar vor diesem Schreibvorgang einen Freigabeschritt hinzu. Die freigebende Person sieht das genaue Tool und seine Argumente.',
+  'Read-only tools require a specific Agent grant. The Worker checks the schema and permission before and after each request. Do not put credentials in the arguments.': 'Schreibgeschützte Tools benötigen eine bestimmte Agent-Freigabe. Worker prüft Schema und Berechtigung vor und nach jeder Anfrage. Füge keine Zugangsdaten in die Argumente ein.',
+  'A workspace admin must enable the tool in Remote MCP settings before it can be added to a Workflow.': 'Eine Workspace-Admin muss das Tool in den Remote-MCP-Einstellungen aktivieren, bevor es einem Workflow hinzugefügt werden kann.',
 }
 
 export default table

@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-16",
+  "asOf": "2026-11-17",
   "baseline": "b8949ca6386479afb03fe18ce6d2425c873e303c",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1110,7 +1110,12 @@
           "remaining": "A physical macOS reboot and live call against an explicitly configured production Remote MCP server were not performed. Arbitrary external connection types, Kylon's full connector catalog, full operation-category parity, authenticated multi-user production acceptance, and direct Kylon interaction comparison remain incomplete."
         },
         "remaining": "DNS rebinding-safe egress is implemented through the explicit Mac Gateway and production-released. Arbitrary external connections, full App/workflow principal administration, all Kylon operation categories and authenticated operation comparison remain incomplete.",
-        "verification": "docs/kylon-parity/verification.md; focused Worker tests 143/143 + 163/163; main CI 43085800275; Worker deploy 43085800394; Web deploy 43085800314"
+        "verification": "docs/kylon-parity/verification.md; focused Worker tests 143/143 + 163/163; main CI 43085800275; Worker deploy 43085800394; Web deploy 43085800314",
+        "workflowCatalog": {
+          "reviewedAt": "2026-11-17",
+          "scope": "Workflow gets a dedicated Remote MCP catalog showing workspace-approved tools separately from normal Agent Connections. Every tool still requires its exact Agent-specific grant; write-capable tools also need the existing one-time approval bound to the run and rendered arguments. OAuth-disconnected servers are excluded from selection and the editor explains the required connection. Simple mode is unchanged.",
+          "verification": "Candidate on latest main: WorkflowStepEditor tests 9/9, full Web suite 2,046/2,046, Web TypeScript/build passed; focused Worker harness-workflows suite 152/152. Full Worker suite is running. Exact-head CI, merge/deploy, authenticated Kylon UI comparison and a live OAuth provider roundtrip remain pending."
+        }
       }
     },
     {

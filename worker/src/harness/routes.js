@@ -74,7 +74,7 @@ import { notifyCard, anyChannelConfigured } from '../notify.js';
 import { handleRemoteMcp } from './remoteMcp.js';
 import { agentAppConnections, setAgentAppGrant } from '../smitheryApps.js';
 import { agentSourceConnections, setAgentSourceConnection, setAgentSourceShare, setAgentWorkspaceSourceConnection } from './agentConnections.js';
-import { agentRemoteMcpConnections, setAgentRemoteMcpConnection, setAgentRemoteMcpTool } from './agentRemoteMcp.js';
+import { agentRemoteMcpConnections, workflowRemoteMcpConnections, setAgentRemoteMcpConnection, setAgentRemoteMcpTool } from './agentRemoteMcp.js';
 // The harness routes (docs/kylon-gap-plan.md): the workspace's mode, Tables
 // and Apps. Every route asks for a member who is not a guest; building is a
 // member's, deleting someone else's is an admin's.
@@ -1233,7 +1233,11 @@ export async function handleHarness(request, env, url, context = {}) {
           agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') }),
           agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
         ]);
-        return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections });
+        const workflowRemoteMcp = url.searchParams.get('workflow') === '1'
+          ? await workflowRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me })
+          : undefined;
+        return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections,
+          ...(workflowRemoteMcp ? { workflowRemoteMcpConnections: workflowRemoteMcp } : {}) });
       }
       if (request.method === 'POST' || request.method === 'DELETE') {
         const source = String(input?.source || url.searchParams.get('source') || '');

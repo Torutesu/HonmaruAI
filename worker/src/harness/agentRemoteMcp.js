@@ -62,6 +62,44 @@ export async function agentRemoteMcpConnections(db, { orgId, agentId, githubId }
   }));
 }
 
+// Workflow definitions may use workspace-approved write tools only behind a
+// one-time human approval. Keep this catalog separate from an Agent's
+// read-only grants so adding it here never widens an Agent's standing access.
+export async function workflowRemoteMcpConnections(db, { orgId, agentId, githubId }) {
+  if (!orgId || !agentId || !githubId) return [];
+  const [servers, tools, agentConnections] = await Promise.all([
+    db.prepare('SELECT id, name, auth_mode FROM hx_remote_mcp_servers WHERE org_id=?1 ORDER BY created_at, id')
+      .bind(orgId).all().catch(() => ({ results: [] })),
+    remoteMcpTools(db, orgId, { workflowWritable: true }).catch(() => []),
+    agentRemoteMcpConnections(db, { orgId, agentId, githubId }).catch(() => []),
+  ]);
+  const grantedTools = new Map(agentConnections.map(server => [server.serverId,
+    new Set((server.tools || []).filter(tool => tool.enabled).map(tool => tool.name))]));
+  const byServer = new Map();
+  for (const tool of tools) {
+    const id = tool?._remote?.serverId;
+    if (id) byServer.set(id, [...(byServer.get(id) || []), tool]);
+  }
+  return Promise.all((servers.results || []).map(async server => {
+    const offered = byServer.get(server.id) || [];
+    const oauthConnected = server.auth_mode !== 'oauth' || await remoteMcpOAuthStatus(db, orgId, server.id, githubId);
+    return {
+      serverId: server.id,
+      name: server.name,
+      available: offered.length > 0 && oauthConnected,
+      needsOAuth: !oauthConnected,
+      tools: offered.map(tool => ({
+        name: tool._remote.toolName,
+        title: tool.title || tool._remote.toolName,
+        description: tool.description || '',
+        inputSchema: tool.inputSchema,
+        requiresApproval: tool._remote.requiresApproval === true,
+        enabled: Boolean(grantedTools.get(server.id)?.has(tool._remote.toolName)),
+      })),
+    };
+  }));
+}
+
 export async function setAgentRemoteMcpTool(env, { orgId, agentId, session, serverId, toolName, enabled }) {
   const id = String(serverId || '').trim(), name = String(toolName || '').trim();
   if (!id || id.length > 200 || !name || name.length > 200 || typeof enabled !== 'boolean')
