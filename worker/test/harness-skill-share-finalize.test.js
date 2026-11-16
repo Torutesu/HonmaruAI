@@ -3,12 +3,14 @@ import { expect, test } from 'vitest';
 import { createSession, sessionKey, upsertMembership, upsertUser } from '../src/db.js';
 import { createSkill } from '../src/harness/skills.js';
 import { createSkillShare, finalizeSkillShare } from '../src/harness/skillShares.js';
+import { setMode } from '../src/harness/mode.js';
 import worker from '../src/index.js';
 
 const org = 'share-finalize', actor = '9983';
 async function fixture() {
   await upsertUser(env.DB, { githubId: actor, login: 'finalize-owner', name: 'Owner', locale: 'en' });
   await upsertMembership(env.DB, org, actor, 'member');
+  await setMode(env.DB, org, 'harness', actor);
   const skill = (await createSkill(env.DB, org, { name: 'Procedure', description: 'A procedure', body: 'Instructions', visibility: 'private' }, actor)).skill;
   const share = () => createSkillShare(env.DB, org, skill, actor, { confirmAnyoneWithLink: true });
   const memberSince = (await env.DB.prepare('SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(org, actor).first()).created_at;
