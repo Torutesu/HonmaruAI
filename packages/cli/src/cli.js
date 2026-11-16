@@ -123,9 +123,9 @@ Usage:
 Environment:
   HONMARU_API_URL       HTTPS API origin for your Honmaru workspace
   HONMARU_API_TOKEN       Active agent token created under Studio → API
-  HONMARU_SESSION_TOKEN   Signed-in human session token (share decisions only)
+  HONMARU_SESSION_TOKEN   Signed-in human session token (file share decisions and purge)
 
-Agent commands use the API token. Public file-share approve/decline/revoke commands
+Agent commands use the API token. Public file-share decisions and permanent file purges
 require a human session token and explicit --org-id; they never use the agent token.
 `;
 
