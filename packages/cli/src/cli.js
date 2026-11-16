@@ -1369,7 +1369,7 @@ async function purgeWorkspaceFile({ positional, options, apiUrl, sessionToken, f
   catch { throw new Error("Honmaru returned an unreadable purge result. Inspect the file history before retrying."); }
   if (result?.error || typeof result !== "object" || result === null ||
       (version !== undefined && typeof result.purged !== "boolean") ||
-      (expectedVersion !== undefined && !Number.isSafeInteger(result.purgedCount))) {
+      (expectedVersion !== undefined && (!Number.isSafeInteger(result.purgedCount) || result.purgedCount < 0))) {
     throw new Error("Honmaru returned an invalid purge result. Inspect the file history before retrying.");
   }
   writeOut(JSON.stringify(result));
