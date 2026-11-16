@@ -18,6 +18,8 @@ Usage:
   honmaru workspace skill update <skill-id> --from <SKILL.md|directory> --expected-updated-at ISO
   honmaru workspace skill shares list <skill-id>
   honmaru workspace skill shares revoke <skill-id> <share-id> --confirm
+  honmaru workspace skill share-link create <skill-id> --org-id ORG [--expires-in-days 1|7|30|90] --confirm
+  honmaru workspace skill share-link import --org-id ORG --token-env ENV_NAME [--agent ID] --confirm
   honmaru workspace skill publish <skill-id> --version N --confirm
   honmaru workspace skill unpublish <skill-id> --version N
   honmaru workspace skill installed|shareable --agent <agent-id>
@@ -122,11 +124,14 @@ Usage:
 
 Environment:
   HONMARU_API_URL       HTTPS API origin for your Honmaru workspace
+  HONMARU_APP_URL       Honmaru app origin for generated share links (default: https://app.honmaruai.com)
   HONMARU_API_TOKEN       Active agent token created under Studio → API
-  HONMARU_SESSION_TOKEN   Signed-in human session token (file share decisions and purge)
+  HONMARU_SESSION_TOKEN   Signed-in human session token (file administration and Skill shares)
 
-Agent commands use the API token. Public file-share decisions and permanent file purges
-require a human session token and explicit --org-id; they never use the agent token.
+Agent commands use the API token. Public file-share decisions, permanent file purges, and
+Skill share-link create/import require a human session token and explicit --org-id; they never
+use the agent token. Skill import bearer tokens are read from the named --token-env variable,
+never from a positional argument.
 `;
 
 const GATEWAY_HELP = `Honmaru local execution gateway
@@ -154,7 +159,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "agent", "to-agent",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "dest", "format", "timeout-seconds", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
-  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id", "org-id", "reason",
+  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "expires-in-days", "file-id", "org-id", "reason", "token-env",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
 
@@ -1088,6 +1093,10 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       await purgeWorkspaceFile({ positional: commandArgs, options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, fetcher, writeOut });
       return 0;
     }
+    if (aliasMode && resource === "skill" && operation === "share-link" && ["create", "import"].includes(commandArgs[0])) {
+      await skillShareLink({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, secretEnv: env, fetcher, writeOut });
+      return 0;
+    }
     const client = createMcpClient({ apiUrl, token, fetcher });
 
     if (action === "sdk") {
@@ -1326,6 +1335,103 @@ async function exportWorkspaceFile({ options, positional, client, apiUrl, fetche
   if (bytes.length !== artifact.size || createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) throw new Error("The temporary artifact failed its size or SHA-256 check.");
   await writeFile(outputPath, bytes, { flag: "wx" });
   writeOut(JSON.stringify({ output: outputPath, size: bytes.length, sha256: artifact.sha256, expiresAt: artifact.expiresAt }));
+}
+
+async function skillShareLink({ action, positional, options, apiUrl, sessionToken, secretEnv, fetcher, writeOut }) {
+  const usage = action === "create"
+    ? "honmaru workspace skill share-link create <skill-id> --org-id ORG [--expires-in-days 1|7|30|90] --confirm"
+    : "honmaru workspace skill share-link import --org-id ORG --token-env ENV_NAME [--agent ID] --confirm";
+  if (action === "create") {
+    onlyFlags(options, ["orgId", "expiresInDays", "confirm"]);
+    positionalCount(positional, 1, usage);
+    if (!options.confirm) throw new Error("--confirm is required because anyone with the link can download the Skill package.");
+    if (typeof options.orgId !== "string" || !options.orgId.trim()) throw new Error("--org-id is required for human Skill sharing.");
+    const days = options.expiresInDays === undefined ? 7 : integerOption(options, "expiresInDays", { min: 1, max: 90, required: true });
+    if (![1, 7, 30, 90].includes(days)) throw new Error("--expires-in-days must be 1, 7, 30, or 90.");
+    if (typeof sessionToken !== "string" || sessionToken.length < 16 || sessionToken.length > 4096 || /\s/.test(sessionToken)) {
+      throw new Error("Set HONMARU_SESSION_TOKEN to a signed-in human session token. Agent API tokens cannot create public Skill links.");
+    }
+    const origin = new URL(mcpEndpoint(apiUrl)).origin;
+    const endpoint = new URL("/skills/" + encodeURIComponent(positional[0]) + "/shares", origin);
+    let response;
+    try {
+      response = await fetcher(endpoint, {
+        method: "POST", redirect: "error",
+        headers: { "x-session-token": sessionToken, "content-type": "application/json" },
+        body: JSON.stringify({ orgId: options.orgId.trim(), expiresInDays: days, confirmAnyoneWithLink: true }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch {
+      throw new Error("The Skill share link result could not be confirmed. Check share metadata before retrying; the CLI did not retry.");
+    }
+    if (!response.ok) throw new Error("Honmaru rejected Skill share-link creation (HTTP " + response.status + "). Check share metadata before retrying; the CLI did not retry.");
+    let result;
+    try { result = await response.json(); }
+    catch { throw new Error("Honmaru returned an unreadable Skill share-link result. Check share metadata before retrying; the CLI did not retry."); }
+    if (typeof result?.token !== "string" || !/^skl_[a-f0-9]{64}$/.test(result.token) || !result.share || typeof result.share.id !== "string") {
+      throw new Error("Honmaru returned an invalid Skill share-link result. Check share metadata before retrying; the CLI did not retry.");
+    }
+    let appOrigin;
+    try {
+      const configured = new URL(secretEnv?.HONMARU_APP_URL || "https://app.honmaruai.com");
+      if (!["https:", "http:"].includes(configured.protocol) || configured.username || configured.password) throw new Error();
+      appOrigin = configured.origin;
+    } catch {
+      throw new Error("HONMARU_APP_URL must be an HTTP(S) app origin without credentials.");
+    }
+    writeOut(JSON.stringify({
+      publicUrl: appOrigin + "/#/skill-share/" + result.token,
+      share: result.share,
+      warning: "Anyone with this link can inspect and download the complete Skill package until expiry or revocation. The bearer token is shown only once; store it securely.",
+    }));
+    return;
+  }
+
+  onlyFlags(options, ["orgId", "tokenEnv", "agent", "confirm"]);
+  positionalCount(positional, 0, usage);
+  if (!options.confirm) throw new Error("--confirm is required because this imports a Skill into the workspace.");
+  if (typeof options.orgId !== "string" || !options.orgId.trim()) throw new Error("--org-id is required for human Skill import.");
+  if (typeof options.tokenEnv !== "string" || !/^[A-Z_][A-Z0-9_]*$/.test(options.tokenEnv)) throw new Error("--token-env must name an environment variable, for example HONMARU_SKILL_SHARE_TOKEN.");
+  const bearer = secretEnv?.[options.tokenEnv];
+  if (typeof bearer !== "string" || !/^skl_[a-f0-9]{64}$/.test(bearer)) {
+    throw new Error("The named environment variable must contain a valid Skill share token. Do not pass bearer tokens as command arguments.");
+  }
+  if (typeof sessionToken !== "string" || sessionToken.length < 16 || sessionToken.length > 4096 || /\s/.test(sessionToken)) {
+    throw new Error("Set HONMARU_SESSION_TOKEN to a signed-in human session token. Agent API tokens cannot import public Skills.");
+  }
+  const origin = new URL(mcpEndpoint(apiUrl)).origin;
+  const endpoint = new URL("/skill-shares/" + bearer + "/import", origin);
+  const body = { orgId: options.orgId.trim(), ...(options.agent ? { agentId: options.agent } : {}) };
+  let response;
+  try {
+    response = await fetcher(endpoint, {
+      method: "POST", redirect: "error",
+      headers: { "x-session-token": sessionToken, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new Error("The Skill import result could not be confirmed. Check the destination Skill list before retrying; the CLI did not retry.");
+  }
+  if (!response.ok) {
+    let code = "";
+    try { code = (await response.clone().json())?.code || ""; } catch { /* Keep response details private. */ }
+    if (code === "import-may-be-saved") {
+      throw new Error("The Skill may already have been imported. Check the destination Skill list before retrying; the CLI did not retry.");
+    }
+    throw new Error("Honmaru rejected Skill import (HTTP " + response.status + "). Check the destination Skill list before retrying; the CLI did not retry.");
+  }
+  let result;
+  try { result = await response.json(); }
+  catch { throw new Error("Honmaru returned an unreadable Skill import result. Check the destination Skill list before retrying; the CLI did not retry."); }
+  if (typeof result?.skill?.id !== "string" || typeof result.skill.name !== "string") {
+    throw new Error("Honmaru returned an invalid Skill import result. Check the destination Skill list before retrying; the CLI did not retry.");
+  }
+  writeOut(JSON.stringify({
+    skill: { id: result.skill.id, name: result.skill.name, visibility: result.skill.visibility },
+    ...(result.source && typeof result.source.name === "string" ? { source: { name: result.source.name, expiresAt: result.source.expiresAt } } : {}),
+    installedOnAgent: result.installedOnAgent === true,
+  }));
 }
 
 async function purgeWorkspaceFile({ positional, options, apiUrl, sessionToken, fetcher, writeOut }) {
