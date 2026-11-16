@@ -149,6 +149,23 @@ test('creation origin is atomic, cannot be reclassified by a conflicting create 
  expect(await env.DB.prepare("SELECT 1 FROM hx_workspace_file_origins WHERE file_id='human'").first()).toBeNull();
 });
 
+test('creator filters narrow authorized files and folder summaries independently from file origin',async()=>{
+ const {listWorkspaceFiles}=await import('../src/harness/fileList.js');
+ const {listFileFolders}=await import('../src/harness/fileFolders.js');
+ await save();
+ await upsertUser(env.DB,{githubId:'peer',login:'peer',name:'Peer'});
+ await upsertMembership(env.DB,scope.orgId,'peer','member');
+ expect(await createFileLedger(env.DB,{...scope,fileId:'peer-file',createdBy:'peer',scope:'b:general',path:'peer/review.txt',origin:'human'})).toEqual({created:true});
+ expect(await appendFileVersion(env.DB,{...scope,fileId:'peer-file',createdBy:'peer',expectedVersion:0,...content,objectKey:'org/files-one/workspace-files/peer-file'})).toMatchObject({saved:true});
+ const identity={orgId:scope.orgId,userId:scope.createdBy,scope:'b:general'};
+ expect((await listWorkspaceFiles(env.DB,{...identity,createdBy:'owner'})).files.map(row=>row.path)).toEqual(['notes/report.txt']);
+ expect((await listWorkspaceFiles(env.DB,{...identity,createdBy:'peer'})).files.map(row=>row.path)).toEqual(['peer/review.txt']);
+ expect((await listFileFolders(env.DB,{...identity,createdBy:'owner'})).folders.map(folder=>folder.name)).toEqual(['notes']);
+ expect((await listFileFolders(env.DB,{...identity,createdBy:'peer'})).folders.map(folder=>folder.name)).toEqual(['peer']);
+ expect((await listFileFolders(env.DB,{...identity})).folders.map(folder=>folder.name)).toEqual(['notes','peer']);
+ await expect(listFileFolders(env.DB,{...identity,createdBy:''})).rejects.toThrow('creator');
+});
+
 test('file change announcements target current readers without carrying file or room identifiers',async()=>{
  const {announceFileChanged}=await import('../src/harness/fileEvents.js');
  for(const [id,role] of [['peer','member'],['visitor','guest']]){await upsertUser(env.DB,{githubId:id,login:id,name:id});await upsertMembership(env.DB,scope.orgId,id,role)}
