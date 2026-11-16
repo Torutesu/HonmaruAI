@@ -1387,7 +1387,9 @@ test("file purge requires explicit confirmation, reason, one CAS selector, and n
   const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_SESSION_TOKEN: "human-session-token-123456" };
   const fetcher = async () => {
     calls += 1;
-    return new Response(JSON.stringify({ secret: "must-not-be-echoed" }), { status: 409 });
+    return calls === 1
+      ? new Response(JSON.stringify({ secret: "must-not-be-echoed" }), { status: 409 })
+      : new Response(JSON.stringify({ purgedCount: -1 }), { status: 200 });
   };
   const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
   const base = ["workspace", "file", "purge", "file_1", "--org-id", "org_1", "--reason", "Erase old copy"];
@@ -1399,7 +1401,9 @@ test("file purge requires explicit confirmation, reason, one CAS selector, and n
   assert.equal(await run([...base, "--version", "2", "--expected-version", "4", "--confirm"]), 1);
   assert.equal(await run([...base, "--confirm"]), 1);
   assert.equal(await run(["workspace", "file", "purge", "file_1", "--org-id", "org_1", "--reason", "bad\nreason", "--version", "2", "--confirm"]), 1);
-  assert.equal(calls, 1);
+  assert.equal(await run([...base, "--expected-version", "4", "--confirm"]), 1);
+  assert.match(stderr.read(), /invalid purge result/);
+  assert.equal(calls, 2);
 });
 
 test("file export polls a local temporary artifact, checks origin/size/hash, and creates the output exclusively", async () => {
