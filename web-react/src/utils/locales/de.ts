@@ -1,6 +1,9 @@
 // The interface in de: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Output file name': 'Ausgabedateiname',
+  'Choose a file name without path separators or control characters.': 'Wählen Sie einen Dateinamen ohne Pfadtrenner oder Steuerzeichen.',
+  'A file or conversion already exists at this destination. Choose another name.': 'An diesem Ziel existiert bereits eine Datei oder Konvertierung. Wählen Sie einen anderen Namen.',
   'Private helper runs ({count})': 'Ausführungen privater Helfer ({count})',
   'Helper waiting': 'Helfer wartet',
   'Helper running': 'Helfer wird ausgeführt',

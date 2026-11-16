@@ -22,9 +22,19 @@ test('failed conversion reports failure without sending an artifact',async()=>{
  assert.deepEqual(paths,['claim','jobs/'+id+'/fail']);
 });
 test('revoked delivery is not retried',async()=>{
- let uploads=0;
- await assert.rejects(processDocumentOne(async path=>{if(path==='claim')return {job};uploads++;throw Object.assign(Error('revoked'),{status:409});},{image:'configured',ready:async()=>{},retryMs:[0],run:async()=>({bytes:Buffer.from('%PDF-test')})}),/revoked/);
- assert.equal(uploads,1);
+ const paths=[];
+ await assert.rejects(processDocumentOne(async path=>{if(path==='claim')return {job};paths.push(path);if(path.endsWith('/artifact'))throw Object.assign(Error('revoked'),{status:409});return {failed:false};},{image:'configured',ready:async()=>{},retryMs:[0],run:async()=>({bytes:Buffer.from('%PDF-test')})}),/revoked/);
+ assert.deepEqual(paths,['jobs/'+id+'/artifact','jobs/'+id+'/fail']);
+});
+test('a permanent artifact conflict fails the leased job promptly without retrying the upload',async()=>{
+ const paths=[];
+ await assert.rejects(processDocumentOne(async path=>{
+  if(path==='claim')return {job};
+  paths.push(path);
+  if(path.endsWith('/artifact'))throw Object.assign(Error('A file or conversion already exists at this destination.'),{status:409});
+  return {failed:true};
+ },{image:'configured',ready:async()=>{},retryMs:[0,0],run:async()=>({bytes:Buffer.from('%PDF-test')})}),/already exists/);
+ assert.deepEqual(paths,['jobs/'+id+'/artifact','jobs/'+id+'/fail']);
 });
 
 test('unavailable document image prevents claiming user work',async()=>{
@@ -66,3 +76,4 @@ test('service shutdown aborts the converter and never uploads its partial result
  });
  assert.equal(result,true);assert.deepEqual(paths,['claim','jobs/'+id+'/fail']);
 });
+

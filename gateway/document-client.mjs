@@ -32,8 +32,16 @@ export async function processDocumentOne(call,{image,signal,run=runDocumentIsola
   if(leaseLost||controller.signal.aborted)return true;
   for(let attempt=0;;attempt++){
    try{await call(`jobs/${job.id}/artifact`,{lease:job.lease,bytes:result.bytes},{signal:controller.signal});return true;}
-   catch(e){if(!transient(e)||leaseLost||attempt>=retryMs.length||controller.signal.aborted)throw e;}
+   catch(e){
+    if(!transient(e)||leaseLost||attempt>=retryMs.length||controller.signal.aborted){
+     // A non-retryable artifact failure is terminal for this leased job. Let
+     // the Worker release it now instead of leaving it running until lease expiry.
+     if(!leaseLost&&!controller.signal.aborted&&!signal?.aborted)await call(`jobs/${job.id}/fail`,{lease:job.lease},{signal}).catch(()=>{});
+     throw e;
+    }
+   }
    await sleep(retryMs[attempt],undefined,{signal:controller.signal});
   }
  }finally{clearInterval(heartbeat);signal?.removeEventListener('abort',abort);}
 }
+
