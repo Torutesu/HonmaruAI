@@ -28,6 +28,16 @@ test('polls active work in one batch and stops on terminal state without implyin
   expect(fetch).toHaveBeenCalledTimes(2)
   act(() => tree.unmount())
 })
+test('renders bounded safe execution events without exposing tool arguments or output',async()=>{
+ setup();const fetch=vi.fn().mockResolvedValue({ok:true,json:async()=>({available:true,results:[{rowId:'one',status:'running',answered:0,events:[
+  {type:'agent_started',at:1760000000000,agent:'Researcher'},
+  {type:'tool_started',at:1760000001000,agent:'Researcher',tool:'lookup',arguments:'private input'},
+  {type:'tool_finished',at:1760000002000,tool:'lookup',elapsedMs:1200,output:'private result'},
+ ]}]})});vi.stubGlobal('fetch',fetch)
+ let tree!:ReturnType<typeof create>;await act(async()=>{tree=create(<AgentRunStatus api={api} channel="b:general" messages={[message('one')]}/> )})
+ const rendered=JSON.stringify(tree.toJSON());expect(rendered).toContain('Execution timeline');expect(rendered).toContain('Researcher started lookup');expect(rendered).toContain('lookup completed');expect(rendered).not.toContain('private input');expect(rendered).not.toContain('private result')
+ act(()=>tree.unmount())
+})
 test('legacy unknown stops after three reads and empty lists make no request', async () => {
   setup(); const fetch = vi.fn().mockResolvedValue(ok('unknown')); vi.stubGlobal('fetch', fetch)
   let tree!: ReturnType<typeof create>

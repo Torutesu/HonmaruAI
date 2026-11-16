@@ -9,11 +9,11 @@ function store(){const data=new Map([[key,job]]);return {data,get:async k=>data.
 test('a normal job persists running and terminal results before removal',async()=>{
  const storage=store();
  await runTrackedAgentJob(storage,key,job,async()=>{
-  expect(await storage.get(resultKey)).toMatchObject({status:'running',at:101});
+  expect(await storage.get(resultKey)).toMatchObject({status:'running',at:102});
   expect(await storage.get(key)).toEqual(job);
   return {status:'finished',answered:1};
  },{now:()=>100});
- expect(await storage.get(resultKey)).toEqual({status:'finished',answered:1,at:102});
+ expect(await storage.get(resultKey)).toMatchObject({status:'finished',answered:1,at:104,events:[{type:'run_started'},{type:'run_finished'}]});
  expect(await storage.get(key)).toBeUndefined();
 });
 test('an interrupted running job is not executed again',async()=>{
@@ -21,7 +21,7 @@ test('an interrupted running job is not executed again',async()=>{
  await storage.put(resultKey,{status:'running',at:120});
  await runTrackedAgentJob(storage,key,job,execute,{now:()=>110});
  expect(execute).not.toHaveBeenCalled();
- expect(await storage.get(resultKey)).toEqual({status:'interrupted',at:121});
+ expect(await storage.get(resultKey)).toEqual({status:'interrupted',at:121,events:[{type:'run_interrupted',at:121}]});
  expect(await storage.get(key)).toBeUndefined();
 });
 test('failed execution records no sensitive error and cannot replay',async()=>{
@@ -108,4 +108,16 @@ test('terminal result retries settlement and removal without executing',async()=
 test('handoff result uses separate namespace',async()=>{
  const s=store();await runTrackedAgentJob(s,key,job,async()=>({status:'finished'}),{kind:'handoff'});
  assert.equal(await s.get(resultKey),undefined);assert.equal((await s.get('result:["org","handoff","request"]')).status,'finished');
+});
+test('execution events are serialized, bounded and exclude arbitrary input and output fields',async()=>{
+ const s=store();
+ await runTrackedAgentJob(s,key,job,async onEvent=>{
+  await Promise.all(Array.from({length:120},(_,i)=>onEvent({type:'tool_started',agent:`A${i}`,tool:`T${i}`,arguments:'secret input',output:'secret output'})));
+  return {status:'finished',answered:1};
+ });
+ const result=await s.get(resultKey);
+ expect(result.events).toHaveLength(80);
+ expect(result.events.at(-1).type).toBe('run_finished');
+ expect(JSON.stringify(result)).not.toMatch(/secret input|secret output|arguments|output/);
+ expect(result.events.map(event=>event.at)).toEqual([...result.events.map(event=>event.at)].sort((a,b)=>a-b));
 });

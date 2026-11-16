@@ -507,7 +507,7 @@ Research — whenever the request needs facts from outside this chat (anything c
 /// helpers: `called` is whether a model was paid for. `tools` are the
 /// function tools it may call while researching (see agentResearch.js);
 /// `env` names the research model.
-export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, authorize = null, harnessTools = false, allowSubagents = true, signal = null, usageContext = null, subagentPersistence = null }) {
+export async function askAgent({ provider, agent, request, transcript, playbook, where, askedBy, readerLanguage, research = "", links = "", tools = {}, env = null, deadline, onRound = null, onToolEvent = null, authorize = null, harnessTools = false, allowSubagents = true, signal = null, usageContext = null, subagentPersistence = null }) {
   if (!provider) return { called: false, answer: null };
   if (signal?.aborted || (authorize && !await authorize())) return { called: false, answer: null, cancelled: true };
   const today = new Date().toISOString().slice(0, 10);
@@ -535,7 +535,7 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
   if (harnessTools && canChatTools(provider) && Object.keys(activeTools).length) {
     const instructions = agent.researchInstructions && activeTools.read_installed_skill
       ? `${RULES}\n\nToday is ${today}.\n\nYou are ${agent.name} (@${agent.handle}).\n\n<agent_instructions>\n${agent.researchInstructions}\n</agent_instructions>` : system;
-    const out = await chatTools({provider, instructions, input: user, tools: activeTools, authorize, onRound, deadline, signal, usageContext});
+    const out = await chatTools({provider, instructions, input: user, tools: activeTools, authorize, onRound, onToolEvent, deadline, signal, usageContext});
     return {...out, answer: out.answer ? forChat(out.answer).slice(0, MAX_ANSWER) : null};
   }
   if (canResearch(provider)) {

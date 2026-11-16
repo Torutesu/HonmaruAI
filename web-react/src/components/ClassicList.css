@@ -1994,6 +1994,11 @@ body.slk-resizing iframe { pointer-events: none; }
 .classic.slk .slk-run-subagents { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--slk-line); }
 .classic.slk .slk-run-subagents summary { font-size: 11px; }
 .classic.slk .slk-run-subagents ul { margin: 4px 0 0; padding: 0 0 0 12px; }
+.classic.slk .slk-run-timeline { flex-basis: 100%; list-style: none; margin: 6px 0 4px 32px; padding: 0 0 0 10px; border-left: 1px solid var(--slk-line); }
+.classic.slk .slk-run-timeline li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 3px 0; color: var(--slk-ink); font-size: 11px; overflow-wrap: anywhere; }
+.classic.slk .slk-run-timeline time { color: var(--slk-dim); margin-left: auto; }
+.classic.slk .slk-run-event-tool_failed, .classic.slk .slk-run-event-agent_failed, .classic.slk .slk-run-event-run_failed { color: var(--slk-red) !important; }
+.classic.slk .slk-run-event-tool_interrupted, .classic.slk .slk-run-event-agent_cancelled, .classic.slk .slk-run-event-run_cancelled { color: var(--slk-amber) !important; }
 .classic.slk .slk-run-subagents li { display: block; border-left: 1px solid var(--slk-line); padding: 5px 0 5px 10px; overflow-wrap: anywhere; }
 .classic.slk .slk-run-helper-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .classic.slk .slk-run-helper-heading strong { color: var(--slk-ink); }
