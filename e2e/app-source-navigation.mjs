@@ -53,12 +53,12 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
       stage = 'open filter popover'
       await foreground.getByRole('button', { name: /^(?:フィルター|Filter records)$/ }).click()
       stage = 'verify direct filter editor'
-      await foreground.getByRole('button', { name: 'フィルターを調整', exact: true }).click()
-      await foreground.getByRole('button', { name: '条件を追加', exact: true }).waitFor()
-      await foreground.getByRole('button', { name: 'キャンセル', exact: true }).click()
+      await foreground.getByRole('button', { name: /^(?:Adjust filters|フィルターを調整)$/ }).click()
+      await foreground.getByRole('button', { name: /^(?:Add condition|条件を追加)$/ }).waitFor()
+      await foreground.getByRole('button', { name: /^(?:Cancel|キャンセル)$/ }).click()
       await foreground.getByRole('button', { name: /^(?:フィルター|Filter records)$/ }).click()
       stage = 'ask AI for a filter adjustment'
-      await foreground.getByRole('button', { name: 'AIに調整案を相談', exact: true }).click()
+      await foreground.getByRole('button', { name: /^(?:Ask AI to suggest changes|AIに調整案を相談)$/ }).click()
       stage = 'wait for source thread'
       await page.locator('.slk-thread-pane .slk-composer textarea').waitFor({ timeout: 20000 })
       // The previous source panel remains mounted while the source route resolves.
@@ -100,8 +100,8 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await appReply.fill('')
     stage = 'float app above workspace'
     const appScreen = page.locator('.shell > .hx-app-detail')
-    await appScreen.getByRole('button', { name: 'その他のアプリ操作', exact: true }).click()
-    await appScreen.getByRole('menuitem', { name: 'ワークスペース上にフローティング表示', exact: true }).click()
+    await appScreen.getByRole('button', { name: /^(?:More app actions|その他のアプリ操作)$/ }).click()
+    await appScreen.getByRole('menuitem', { name: /^(?:Float over the workspace|ワークスペース上にフローティング表示)$/ }).click()
     const floating = page.getByRole('region', { name: 'フローティングアプリ', exact: true })
     await floating.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
     const initialBox = await floating.boundingBox()
@@ -151,13 +151,13 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await page.screenshot({ path: `${shots}/app-floating.png` })
     stage = 'floating fullscreen and dark appearance'
     const compactRect = await floating.boundingBox()
-    await floating.getByRole('button', { name: '全画面表示', exact: true }).click()
+    await floating.getByRole('button', { name: /^(?:Full screen|全画面表示)$/ }).click()
     await page.waitForFunction(() => {
       const r = document.querySelector('.hx-floating-app .hx-app-fullscreen')?.getBoundingClientRect()
       return r && Math.abs(r.left) < 1 && Math.abs(r.top) < 1 && Math.abs(r.width - innerWidth) < 1 && Math.abs(r.height - innerHeight) < 1
     })
     if (await floating.locator('.hx-floating-resize').isVisible()) throw new Error('Fullscreen exposes floating resize handle')
-    await floating.getByRole('button', { name: '全画面表示を終了', exact: true }).click()
+    await floating.getByRole('button', { name: /^(?:Exit full screen|全画面表示を終了)$/ }).click()
     const restoredRect = await floating.boundingBox()
     if (!compactRect || !restoredRect || ['x', 'y', 'width', 'height'].some(key => Math.abs(compactRect[key] - restoredRect[key]) > 1)) throw new Error('Exiting fullscreen lost floating geometry')
     await page.emulateMedia({ colorScheme: 'dark' })
@@ -184,7 +184,7 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await page.screenshot({ path: `${shots}/app-floating-dark.png` })
     await page.emulateMedia({ colorScheme: 'light' })
     stage = 'preserve floating conversation across app sections'
-    await floating.getByRole('button', { name: 'アプリチャットを開く', exact: true }).click()
+    await floating.getByRole('button', { name: /^(?:Open app conversation|アプリチャットを開く)$/ }).click()
     const floatingReply = floating.locator('.hx-object-chat textarea')
     if (await floating.locator('.hx-app-main').getAttribute('inert') !== '') throw new Error('Covered floating app content remains interactive')
     await floating.locator('.hx-app-main button').first().focus()
@@ -201,17 +201,17 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
       return app && chat && chat.left >= app.left && chat.top >= app.top && chat.right <= app.right + 1 && chat.bottom <= app.bottom + 1
     })
     await page.screenshot({ path: `${shots}/app-floating-conversation-desktop.png` })
-    await floating.getByRole('button', { name: 'その他のアプリ操作', exact: true }).click()
-    await floating.getByRole('menuitem', { name: 'アプリを表示', exact: true }).click()
+    await floating.getByRole('button', { name: /^(?:More app actions|その他のアプリ操作)$/ }).click()
+    await floating.getByRole('menuitem', { name: /^(?:App overview|アプリ概要)$/ }).click()
     await floatingReply.waitFor({ state: 'visible' })
     if (await floatingReply.inputValue() !== 'Unsent floating draft — preserve while switching sections') throw new Error('Section change replaced the floating conversation draft')
-    await floating.getByRole('button', { name: 'その他のアプリ操作', exact: true }).click()
-    await floating.getByRole('menuitem', { name: 'データビューアー', exact: true }).click()
+    await floating.getByRole('button', { name: /^(?:More app actions|その他のアプリ操作)$/ }).click()
+    await floating.getByRole('menuitem', { name: /^(?:Data viewer|データビューアー)$/ }).click()
     await floatingReply.waitFor({ state: 'visible' })
     await floatingReply.fill('')
-    await floating.getByRole('button', { name: 'アプリチャットを閉じる', exact: true }).click()
+    await floating.getByRole('button', { name: /^(?:Close app conversation|アプリチャットを閉じる)$/ }).click()
     if (await floating.locator('.hx-app-main').getAttribute('inert') !== null) throw new Error('App content stayed inert after closing chat')
-    await floating.getByRole('button', { name: 'フローティングアプリを閉じる', exact: true }).click()
+    await floating.getByRole('button', { name: /^(?:Close floating app|フローティングアプリを閉じる)$/ }).click()
     await floating.waitFor({ state: 'detached' })
 
   } catch (error) {
