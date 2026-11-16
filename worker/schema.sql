@@ -3148,7 +3148,9 @@ CREATE TABLE IF NOT EXISTS hx_app_preview_candidates (
   fork_id TEXT NOT NULL,
   fork_revision INTEGER NOT NULL,
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT -1,
+  schema_snapshot TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS hx_app_preview_candidates_current ON hx_app_preview_candidates(org_id,app_id,app_version,created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS hx_app_preview_candidates_identity ON hx_app_preview_candidates(org_id,app_id,app_version,source_hash,fork_id,fork_revision,created_by);

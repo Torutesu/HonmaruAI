@@ -393,3 +393,21 @@ test('custom app editor exposes the independent approval gate for a saved draft'
  expect(tree!.root.findAllByProps({role:'status'}).some(n=>n.children.join('').includes('pending'))).toBe(true)
  act(()=>tree!.unmount())
 })
+
+test('stale validation schema offers a warned refresh that replaces only preview data',async()=>{
+ const {CustomAppEditor}=await import('./CustomApp')
+ const fork={id:'fork',revision:1,entities:[{key:'primary',table,rows:[{id:'preview-row',values:{},updatedAt:'draft-only'}]}]}
+ let state:any={policy:{enabled:false},draftVersion:1,sourceHash:'hash',scope:'custom-app.publish',candidate:{id:'candidate',appVersion:1,sourceHash:'hash',forkId:'fork',forkRevision:1,current:false,staleReason:'database_schema_changed'},approval:null}
+ const databaseChange=vi.fn().mockResolvedValue({saved:true})
+ const api={customPublishState:vi.fn(async()=>state),appDatabase:vi.fn().mockResolvedValue({fork}),databaseChange}as any
+ vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'<h1>draft</h1>'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>)} )
+ expect(JSON.stringify(tree!.toJSON())).toContain('作り直すと、このプレビューだけに保存したレコードは置き換えられます。本番レコードは変更されません。')
+ const refresh=tree!.root.findAllByType('button').find(button=>button.children.join('')==='検証DBを作り直す')!
+ act(()=>refresh.props.onClick())
+ expect(tree!.root.findAllByProps({role:'alertdialog'})).toHaveLength(1)
+ await act(async()=>tree!.root.findAllByType('button').find(button=>button.children.join('')==='置き換えて作成')!.props.onClick())
+ expect(databaseChange).toHaveBeenCalledWith('app',{action:'fork'})
+ act(()=>tree!.unmount())
+})
