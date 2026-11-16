@@ -7,6 +7,7 @@ import { installedSkillTools } from '../src/harness/skillReader.js';
 import { prepareAgent } from '../src/harness/agents.js';
 import { createSkill, executionSkills, getSkill, giveSkill } from '../src/harness/skills.js';
 import { setSkillAccess } from '../src/harness/skillAccess.js';
+import { setMode } from '../src/harness/mode.js';
 import { downloadSkillShare, importSkillShare } from '../src/harness/skillShares.js';
 
 const orgId = 'skills-access';
@@ -35,6 +36,47 @@ beforeEach(async () => {
   [owner, member, admin] = sessions;
   const made = await request('POST', '/channels/agents', owner, { name: 'Helper', handle: 'helper', instructions: 'Help', scope: 'team' });
   agentId = (await made.json()).agent.id;
+  await setMode(env.DB, orgId, 'harness', '9403');
+});
+
+test('public Skill share creation and import are unavailable in Simple mode', async () => {
+  await setMode(env.DB, orgId, 'simple', '9403');
+  const simpleSkillResponse = await request('POST', '/skills', owner, {
+    name: 'Simple mode Skill', description: 'A safe sharing description.', body: 'Shared instructions.',
+  });
+  expect(simpleSkillResponse.status).toBe(201);
+  const simpleSkill = (await simpleSkillResponse.json()).skill;
+  const simpleCreate = await request('POST', `/skills/${simpleSkill.id}/shares`, owner, {
+    expiresInDays: 7, confirmAnyoneWithLink: true,
+  });
+  expect(simpleCreate.status).toBe(404);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skill_shares WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
+
+  const harnessMode = await request('PUT', '/orgs/mode', admin, { mode: 'harness' });
+  expect(harnessMode.status).toBe(200);
+  const harnessSkillResponse = await request('POST', '/skills', owner, {
+    name: 'Harness mode Skill', description: 'A safe sharing description.', body: 'Shared instructions.',
+  });
+  expect(harnessSkillResponse.status).toBe(201);
+  const harnessSkill = (await harnessSkillResponse.json()).skill;
+  const createdShare = await request('POST', `/skills/${harnessSkill.id}/shares`, owner, {
+    expiresInDays: 7, confirmAnyoneWithLink: true,
+  });
+  expect(createdShare.status).toBe(201);
+  const { token } = await createdShare.json();
+  expect(token).toMatch(/^skl_[a-f0-9]{64}$/);
+
+  const imported = await request('POST', `/skill-shares/${token}/import`, owner, {});
+  expect(imported.status).toBe(201);
+  expect((await imported.json()).skill).toMatchObject({ name: 'Harness mode Skill', visibility: 'private' });
+  const countAfterHarnessImport = (await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills WHERE org_id=?1').bind(orgId).first()).n;
+
+  const simpleMode = await request('PUT', '/orgs/mode', admin, { mode: 'simple' });
+  expect(simpleMode.status).toBe(200);
+  expect((await request('GET', `/skill-shares/${token}/import-agents`, owner)).status).toBe(404);
+  const simpleImport = await request('POST', `/skill-shares/${token}/import`, owner, {});
+  expect(simpleImport.status).toBe(404);
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_skills WHERE org_id=?1').bind(orgId).first()).n).toBe(countAfterHarnessImport);
 });
 
 test('SKILL.md preview writes nothing; saving and exporting preserve metadata and private access', async () => {
@@ -154,15 +196,22 @@ test('skill-to-agent grants recheck manager authority in the service and at the 
 });
 
 test('a workspace Skill owner can assign and revoke it on another active same-workspace Agent', async () => {
+  await setMode(env.DB, orgId, 'harness', '9403');
   const skill = await create('workspace');
   const made = await request('POST', '/channels/agents', member, {
     name: 'Member agent', handle: 'member-agent', instructions: 'Help', scope: 'team',
   });
-  expect(made.status).toBe(201);
+  expect(made.status, await made.clone().text()).toBe(201);
   const otherAgentId = (await made.json()).agent.id;
+  // New Harness agents start as personal; explicitly share the target so this
+  // test exercises a same-workspace team Agent rather than private-agent hiding.
+  const shared = await request('PUT', '/channels/agents', member, { id: otherAgentId, scope: 'team' });
+  expect(shared.status, await shared.clone().text()).toBe(200);
+  expect((await shared.json()).agent.scope).toBe('team');
 
   // The Skill owner does not manage this Agent, but owns the workspace Skill.
-  expect((await request('POST', `/hx/agents/${otherAgentId}/skills`, owner, { skillId: skill.id })).status).toBe(200);
+  const assignment = await request('POST', `/hx/agents/${otherAgentId}/skills`, owner, { skillId: skill.id });
+  expect(assignment.status, await assignment.clone().text()).toBe(200);
   expect((await env.DB.prepare('SELECT added_by FROM hx_agent_skills WHERE org_id=?1 AND agent_id=?2 AND skill_id=?3')
     .bind(orgId, otherAgentId, skill.id).first()).added_by).toBe('9401');
   expect((await executionSkills(env.DB, orgId, otherAgentId, { userId: '9402', channel: 'b:room' })).map(item => item.id)).toContain(skill.id);
@@ -233,6 +282,7 @@ test('skill owner membership revocation at the insert boundary prevents a worksp
 });
 
 test('Skill share links expose a temporary package, import private copies, install on managed agents, and revoke immediately', async () => {
+  await setMode(env.DB, orgId, 'harness', '9403');
   const body = 'Confidential procedure body';
   const asset = new TextEncoder().encode('Keep this support file with the skill.');
   const created = await request('POST', '/skills', owner, {
@@ -266,6 +316,7 @@ test('Skill share links expose a temporary package, import private copies, insta
   const { upsertMembership } = await import('../src/db.js');
   await upsertMembership(env.DB, 'skills-imported', '9401', 'member');
   await upsertMembership(env.DB, 'skills-imported', '9402', 'member');
+  await setMode(env.DB, 'skills-imported', 'harness', '9401');
   const imported = await request('POST', `/skill-shares/${token}/import`, member, { orgId: 'skills-imported' });
   expect(imported.status).toBe(201);
   const { skill: privateCopy } = await imported.json();

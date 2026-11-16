@@ -3,6 +3,7 @@ import { expect, test } from 'vitest';
 import { createSession, sessionKey, upsertMembership, upsertUser } from '../src/db.js';
 import { createSkill } from '../src/harness/skills.js';
 import { createSkillShare, importSkillShare } from '../src/harness/skillShares.js';
+import { setMode } from '../src/harness/mode.js';
 import worker from '../src/index.js';
 
 const source = 'agent-import-source', destination = 'agent-import-destination';
@@ -11,6 +12,8 @@ async function fixture(kind) {
   await upsertUser(env.DB, { githubId: actor, login: 'importer', name: 'Importer', locale: 'en' });
   await upsertMembership(env.DB, source, actor, 'member');
   await upsertMembership(env.DB, destination, actor, kind === 'legacy-admin' ? 'admin' : 'member');
+  await setMode(env.DB, source, 'harness', actor);
+  await setMode(env.DB, destination, 'harness', actor);
   const skill = (await createSkill(env.DB, source, { name: 'Procedure', description: 'A procedure', body: 'Instructions', visibility: 'private' }, actor)).skill;
   const { token } = await createSkillShare(env.DB, source, skill, actor, { confirmAnyoneWithLink: true });
   await env.DB.prepare(`INSERT INTO custom_agents (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)

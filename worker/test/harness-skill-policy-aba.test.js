@@ -4,12 +4,14 @@ import worker from '../src/index.js';
 import { createSession, sessionKey, upsertMembership, upsertUser } from '../src/db.js';
 import { createSkill } from '../src/harness/skills.js';
 import { createSkillShare } from '../src/harness/skillShares.js';
+import { setMode } from '../src/harness/mode.js';
 import { forgetPolicies } from '../src/policy.js';
 import { forgetGovernance } from '../src/governance.js';
 
 test.each(['issue', 'import'].flatMap(operation => ['sso', 'connection', 'network', 'session'].flatMap(mode => ['before commit', 'before delivery'].map(phase => [operation, mode, phase]))))('%s rejects a %s restriction enabled then removed %s', async (operation, mode, phase) => {
   const source = 'skill-aba-source', destination = 'skill-aba-destination', actor = '9955';
   const target = operation === 'issue' ? source : destination;
+  await setMode(env.DB, target, 'harness', actor);
   await upsertUser(env.DB, { githubId: actor, login: 'aba-user', name: 'User', locale: 'en' });
   await env.DB.prepare("UPDATE users SET email='aba-user@example.test' WHERE github_id=?1").bind(actor).run();
   await upsertMembership(env.DB, source, actor, 'member');

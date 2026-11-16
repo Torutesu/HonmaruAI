@@ -347,6 +347,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (request.method === 'GET' && parts.length === 3 && parts[2] === 'import-agents') {
       const who = await member(env, request, orgId);
       if (who.denied) return who.denied;
+      if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Skill sharing is available in Harness mode.' }, 404);
       const shared = await readSkillShare(env.DB, parts[1]);
       if (shared.error) return fail(shared);
       const visible = await listAgents(env.DB, orgId, who.user.login);
@@ -369,6 +370,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (request.method === 'POST' && parts.length === 3 && parts[2] === 'import') {
       const who = await member(env, request, orgId, { withMembership: true });
       if (who.denied) return who.denied;
+      if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Skill sharing is available in Harness mode.' }, 404);
       const agentId = typeof input.agentId === 'string' && input.agentId ? input.agentId : null;
       if (agentId) {
         const agent = await env.DB.prepare("SELECT id, owner_login, scope FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, agentId).first();
@@ -1036,6 +1038,7 @@ export async function handleHarness(request, env, url, context = {}) {
       if (!skill.canShare) return json({ message: 'Only its owner can create or revoke Skill share links.' }, 403);
       if (request.method === 'GET' && parts.length === 3) return json(await listSkillShares(env.DB, orgId, skillId));
       if (request.method === 'POST' && parts.length === 3) {
+        if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Skill sharing is available in Harness mode.' }, 404);
         const initialPolicy = await currentSkillPolicy(env, orgId, me, who.session.token);
         if (!initialPolicy.allowed) return json({ message: 'Workspace access changed. Sign in again or contact an administrator.' }, 403);
         const result = await createSkillShare(env.DB, orgId, skill, me, { ...input, memberSince: who.membershipSince, sessionToken: who.session.token, policyFingerprint: initialPolicy.fingerprint, ssoDeadline: initialPolicy.ssoDeadline });
