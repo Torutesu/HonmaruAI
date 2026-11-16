@@ -201,8 +201,13 @@ test('a workspace Skill owner can assign and revoke it on another active same-wo
   const made = await request('POST', '/channels/agents', member, {
     name: 'Member agent', handle: 'member-agent', instructions: 'Help', scope: 'team',
   });
-  expect(made.status).toBe(201);
+  expect(made.status, await made.clone().text()).toBe(201);
   const otherAgentId = (await made.json()).agent.id;
+  // New Harness agents start as personal; explicitly share the target so this
+  // test exercises a same-workspace team Agent rather than private-agent hiding.
+  const shared = await request('PUT', '/channels/agents', member, { id: otherAgentId, scope: 'team' });
+  expect(shared.status, await shared.clone().text()).toBe(200);
+  expect((await shared.json()).agent.scope).toBe('team');
 
   // The Skill owner does not manage this Agent, but owns the workspace Skill.
   const assignment = await request('POST', `/hx/agents/${otherAgentId}/skills`, owner, { skillId: skill.id });
