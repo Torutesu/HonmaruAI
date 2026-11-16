@@ -3,7 +3,7 @@ import { fetchMock } from './helpers/fetch-mock.js';
 import { beforeEach,afterEach,test,expect } from 'vitest';
 import worker from '../src/index.js';
 import { createSession,upsertUser,upsertMembership } from '../src/db.js';
-import { generateAction,connectionEndpoint } from '../src/harness/appCapabilities.js';
+import { generateAction,connectionEndpoint,listAppActionRuns } from '../src/harness/appCapabilities.js';
 import { normalizeAppHostname } from '../src/harness/appHosting.js';
 import { applyMigration, databaseView } from '../src/harness/appDatabase.js';
 import { setDisplayPreference } from '../src/harness/displayPreferences.js';
@@ -273,6 +273,58 @@ test('action publication, exact revision, idempotency and app/caller job isolati
  expect((await (await run('actions')).json()).actions[0].published).toBe(draft.code);
  expect(JSON.parse((await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(job.id).first()).payload).code).toBe(draft.code);
 });
+test('app action history is paged, creator scoped, retained, and omits job payload and result until detail is requested',async()=>{
+ await run('actions',{action:'draft',name:'report',version:0,code:'return input.secret'});
+ await run('actions',{action:'publish',name:'report',version:1});
+ const gateway=(await(await call('/gateways',owner,{name:'History node'})).json()).gateway;
+ const rows=[];
+ for(let i=0;i<52;i++){
+  const id=`history-${String(i).padStart(2,'0')}`,createdAt=1000+i;
+  rows.push(env.DB.prepare(`INSERT INTO hx_gateway_jobs(id,org_id,gateway_id,created_by,request_id,payload,status,result,created_at,started_at,finished_at)
+    VALUES(?1,?2,?3,'1',?1,?4,?5,?6,?7,?8,?9)`).bind(id,orgId,gateway.id,JSON.stringify({code:'PRIVATE_CODE',input:{secret:'PRIVATE_INPUT'}}),i%2?'failed':'succeeded',JSON.stringify({stdout:'PRIVATE_RESULT',stderr:'PRIVATE_STDERR'}),createdAt,createdAt+1,createdAt+2));
+  rows.push(env.DB.prepare(`INSERT INTO hx_app_action_jobs(org_id,app_id,job_id,action_name,action_version,created_by)
+    VALUES(?1,?2,?3,'report',2,'1')`).bind(orgId,app.id,id));
+ }
+ rows.push(env.DB.prepare(`INSERT INTO hx_gateway_jobs(id,org_id,gateway_id,created_by,request_id,payload,status,created_at)
+   VALUES('history-old',?1,?2,'1','history-old','{}','succeeded',0)`).bind(orgId,gateway.id));
+ rows.push(env.DB.prepare(`INSERT INTO hx_app_action_jobs(org_id,app_id,job_id,action_name,action_version,created_by)
+   VALUES(?1,?2,'history-old','report',1,'1')`).bind(orgId,app.id));
+ rows.push(env.DB.prepare(`INSERT INTO hx_gateway_jobs(id,org_id,gateway_id,created_by,request_id,payload,status,created_at)
+   VALUES('history-member',?1,?2,'2','history-member','{"input":"private to member"}','queued',99999)`).bind(orgId,gateway.id));
+ rows.push(env.DB.prepare(`INSERT INTO hx_app_action_jobs(org_id,app_id,job_id,action_name,action_version,created_by)
+   VALUES(?1,?2,'history-member','report',2,'2')`).bind(orgId,app.id));
+ for(let offset=0;offset<rows.length;offset+=80)await env.DB.batch(rows.slice(offset,offset+80));
+
+ const first=await(await call(`/apps/${app.id}/actions?runs=1&limit=50`,owner)).json();
+ expect(first.runs).toHaveLength(50);
+ expect(first.runs[0]).toMatchObject({id:'history-51',actionName:'report',actionVersion:2,status:'failed',createdAt:1051,startedAt:1052,finishedAt:1053});
+ expect(first.runs.at(-1).id).toBe('history-02');
+ expect(first.nextCursor).toEqual(expect.any(String));
+ expect(JSON.stringify(first)).not.toMatch(/PRIVATE_(?:CODE|INPUT|RESULT|STDERR)/);
+ expect(first.runs[0]).not.toHaveProperty('result');
+ expect(first.runs[0]).not.toHaveProperty('payload');
+ const second=await(await call(`/apps/${app.id}/actions?runs=1&limit=50&cursor=${encodeURIComponent(first.nextCursor)}`,owner)).json();
+ expect(second.runs.map(item=>item.id)).toEqual(['history-01','history-00','history-old']);
+ expect(second.nextCursor).toBeUndefined();
+ const memberHistory=await(await call(`/apps/${app.id}/actions?runs=1`,member)).json();
+ expect(memberHistory.runs.map(item=>item.id)).toEqual(['history-member']);
+ expect((await call(`/apps/${app.id}/actions?jobId=history-51`,member)).status).toBe(404);
+ expect((await call(`/apps/${app.id}/actions?runs=1&limit=51`,owner)).status).toBe(400);
+ expect((await call(`/apps/${app.id}/actions?runs=1&cursor=not-a-cursor`,owner)).status).toBe(400);
+ await worker.fetch(new Request(`https://example.com/apps/${app.id}/access`,{method:'PUT',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,version:0,visibility:'private'})}),{...env});
+ expect((await call(`/apps/${app.id}/actions?runs=1`,member)).status).toBe(404);
+});
+test('action run history rechecks build permission and current app access at its boundary',async()=>{
+ await upsertUser(env.DB,{githubId:'3',login:'user3',name:'3'});
+ await upsertMembership(env.DB,orgId,'3','guest');
+ const noBuild=await listAppActionRuns(env.DB,orgId,app.id,'3');
+ expect(noBuild).toMatchObject({error:'You cannot build in this workspace.',status:403});
+
+ await worker.fetch(new Request(`https://example.com/apps/${app.id}/access`,{method:'PUT',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,version:0,visibility:'private'})}),{...env});
+ const revokedApp=await listAppActionRuns(env.DB,orgId,app.id,'2');
+ expect(revokedApp).toMatchObject({error:'No such app.',status:404});
+});
+
 test('an action created or updated elsewhere cannot be overwritten with a stale draft revision',async()=>{
  const original={action:'draft',name:'report',version:0,code:'return "original"'};
  expect((await run('actions',original)).status).toBe(200);

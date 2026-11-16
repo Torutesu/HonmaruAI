@@ -50,6 +50,8 @@ export interface App {
 }
 export interface ArchivedApp { id:string; name:string; description:string; icon:string; version:number; createdBy:string; archivedAt:string }
 export interface AppAction { name: string; version: number; draft?: string; language?: 'javascript'|'typescript'; published: string | null; publishedLanguage?: 'javascript'|'typescript'; publishedVersion: number | null }
+export interface AppActionRun { id:string; actionName:string; actionVersion:number; status:string; createdAt:number; startedAt:number|null; finishedAt:number|null }
+export interface AppActionRunPage { runs:AppActionRun[]; nextCursor?:string }
 export interface AppConnection { name: string; version: number; endpoint: string; method: string; enabled: number; hasToken: number; ownerId?: string; ownerName?: string; owned?: boolean; shared?: boolean; grantExists?: boolean; canShare?: boolean; sourceAgentName?: string }
 export interface AppRemoteMcpTool { serverId:string;toolName:string;title:string;description:string;inputSchema:Record<string,unknown>;granted:boolean;canGrant:boolean;grantedByYou:boolean }
 export interface AppHosting { configured:boolean; project:string; dnsTarget:string; domain:{hostname:string;status:string;validationStatus:string;verificationStatus:string;errorMessage:string;createdAt:string;updatedAt:string;dnsTarget:string}|null; environment:Array<{name:string;version:number;updatedAt:string;hasValue:boolean}> }
@@ -225,6 +227,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     appActions: (id: string) => call<{actions: AppAction[]}>('GET', `/apps/${id}/actions`),
     actionChange: (id: string, body: Record<string, unknown>) => call<{name?: string;code?: string;language?:'javascript'|'typescript';version?:number;job?: GatewayJob}>('POST', `/apps/${id}/actions`, body),
     actionHistory: (id: string, name: string) => call<{versions:Array<{version:number;code:string;language:'javascript'|'typescript';createdAt:string}>}>('GET', `/apps/${id}/actions`, undefined, {history:name}),
+    actionRunHistory: (id:string, cursor?:string) => call<AppActionRunPage>('GET', `/apps/${id}/actions`, undefined, {runs:'1',limit:'50',...(cursor?{cursor}:{})}),
     actionJob: (id: string, jobId: string) => call<{job: GatewayJob}>('GET', `/apps/${id}/actions`, undefined, {jobId}),
     appConnections: (id: string) => call<{connections: AppConnection[];hosts: string[];remoteMcp?:{sourceAgent:{id:string;name:string}|null;tools:AppRemoteMcpTool[]}}> ('GET', `/apps/${id}/connections`),
     connectionChange: (id: string, body: Record<string, unknown>) => call<{data?: unknown}>('POST', `/apps/${id}/connections`, body),

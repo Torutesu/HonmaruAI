@@ -3,6 +3,8 @@ import { sealField, openField, isSealed } from '../secrets.js';
 import { digest } from './appDatabase.js';
 import { getMode } from './mode.js';
 import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
+import { allowed } from '../permissions.js';
+import { mayUseApp } from './resourceAccess.js';
 const err = (error, status=400) => ({ error, status });
 const nameOK = n => typeof n === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(n);
 const codeOK = c => typeof c === 'string' && c.trim() && c.length <= 40000;
@@ -69,6 +71,41 @@ export async function runAction(db,orgId,appId,input,by) {
 export async function readActionJob(db,orgId,appId,by,id) {
   const link=await db.prepare('SELECT job_id FROM hx_app_action_jobs WHERE org_id=?1 AND app_id=?2 AND job_id=?3 AND created_by=?4').bind(orgId,appId,id,String(by)).first();
   return link?readExecution(db,orgId,by,id):err('No such app execution.',404);
+}
+
+function decodeActionRunCursor(cursor) {
+  if (cursor == null || cursor === '') return null;
+  if (typeof cursor !== 'string' || cursor.length > 512) return undefined;
+  try {
+    const parsed = JSON.parse(atob(cursor));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+        Object.keys(parsed).sort().join(',') !== 'createdAt,id' ||
+        !Number.isSafeInteger(parsed.createdAt) || parsed.createdAt < 0 ||
+        typeof parsed.id !== 'string' || !/^[\w-]{1,200}$/.test(parsed.id)) return undefined;
+    return parsed;
+  } catch { return undefined; }
+}
+
+export async function listAppActionRuns(db,orgId,appId,by,{limit=50,cursor}={}) {
+  if (!await allowed(db,orgId,by,'harness.build')) return err('You cannot build in this workspace.',403);
+  if (!await mayUseApp(db,orgId,appId,by)) return err('No such app.',404);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) return err('Choose between 1 and 50 execution history entries.');
+  const decoded=decodeActionRunCursor(cursor);
+  if(decoded===undefined)return err('This execution history cursor is invalid. Reload the history.');
+  const bindings=[orgId,appId,String(by)];
+  const after=decoded?` AND (g.created_at<?4 OR (g.created_at=?4 AND g.id<?5))`:'';
+  if(decoded)bindings.push(decoded.createdAt,decoded.id);
+  bindings.push(limit+1);
+  const {results=[]}=await db.prepare(`SELECT g.id,j.action_name AS actionName,j.action_version AS actionVersion,
+      g.status,g.created_at AS createdAt,g.started_at AS startedAt,g.finished_at AS finishedAt
+    FROM hx_app_action_jobs j JOIN hx_gateway_jobs g ON g.org_id=j.org_id AND g.id=j.job_id AND g.created_by=j.created_by
+    WHERE j.org_id=?1 AND j.app_id=?2 AND j.created_by=?3${after}
+    ORDER BY g.created_at DESC,g.id DESC LIMIT ?${bindings.length}`)
+    .bind(...bindings).all();
+  const hasMore=results.length>limit;
+  const runs=results.slice(0,limit);
+  const last=runs.at(-1);
+  return {runs,...(hasMore&&last?{nextCursor:btoa(JSON.stringify({createdAt:last.createdAt,id:last.id}) )}:{})};
 }
 
 // Only documented public API origins. No user-hosted URL, DNS rebinding or redirects.

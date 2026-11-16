@@ -1,7 +1,7 @@
 import {AppAutomations} from './AppAutomations'
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
-import type { App, AppAction, AppConnection, AppRemoteMcpTool, AppDatabase, AppMigration, AppHosting, MergeReview, MigrationPreview, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
+import type { App, AppAction, AppActionRun, AppConnection, AppRemoteMcpTool, AppDatabase, AppMigration, AppHosting, MergeReview, MigrationPreview, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
 
 export function CompanyApp({ app, api, canManage, reload }: {app: App; api: HarnessApi; canManage: boolean; reload: () => unknown}) {
   const t=useT()
@@ -14,6 +14,7 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
   const activeOperations=useRef(new Set<object>()),actionGenerationPending=useRef<object|null>(null)
   const [prompt,setPrompt]=useState(''),[name,setName]=useState(''),[code,setCode]=useState(''),[language,setLanguage]=useState<'javascript'|'typescript'>('javascript'),[node,setNode]=useState(''),[input,setInput]=useState('{}'),[job,setJob]=useState<GatewayJob|null>(null)
+  const [actionRuns,setActionRuns]=useState<AppActionRun[]|null>(null),[actionRunsCursor,setActionRunsCursor]=useState<string|undefined>(),[actionRunResults,setActionRunResults]=useState<Record<string,GatewayJob>>({}),[actionRunsLoading,setActionRunsLoading]=useState(false),[actionRunLoadingId,setActionRunLoadingId]=useState<string|null>(null)
   const [actionCandidate,setActionCandidate]=useState<{scope:typeof scope;prompt:string;name:string;code:string;language:'javascript'|'typescript';version:number;contextGeneration:number}|null>(null)
   const actionEditGeneration=useRef(0)
   // Capture the revision when the user chooses a target. A later list refresh
@@ -38,10 +39,16 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
   async function load() { setMergeReview(null);setMergeResolutions({});setMergeReviewReady(false);setMigrationPreview(null);setConfirmMigration(false); const [a,c,d,g]=await Promise.all([api.appActions(app.id),api.appConnections(app.id),api.appDatabase(app.id),api.gateways()]);if(activeScope.current!==scope)return;setActions(a.actions);setConnections(c.connections);setRemoteMcpTools(c.remoteMcp?.tools||[]);setDb(d);setNodes(g.gateways.filter(n=>!n.revokedAt)); }
   async function loadHosting() { const data=await api.appHosting(app.id);if(activeScope.current===scope)setHosting(data) }
   async function run(fn:()=>Promise<unknown>) {const operation={};activeOperations.current.add(operation);setBusy(true);setError('');setNotice('');try{await fn()}catch(e){if(activeScope.current===scope)setError(e instanceof Error?e.message:String(e))}finally{activeOperations.current.delete(operation);if(activeScope.current===scope)setBusy(activeOperations.current.size>0)}}
-  useLayoutEffect(()=>{activeScope.current=scope;setHistory([]);historyRequest.current++;setHistorySelectionEpoch(value=>value+1);setActionCandidate(null);actionEditGeneration.current++;actionBaseline.current={name:'',version:0};activeOperations.current.clear();actionGenerationPending.current=null;setBusy(false);setHosting(null);setHostname('');setPublicConfirmed(false);setEnvName('');setEnvValue('');return()=>{if(activeScope.current===scope)activeScope.current=null}},[scope])
+  useLayoutEffect(()=>{activeScope.current=scope;setHistory([]);historyRequest.current++;setHistorySelectionEpoch(value=>value+1);setActionCandidate(null);setActionRuns(null);setActionRunsCursor(undefined);setActionRunResults({});setActionRunsLoading(false);setActionRunLoadingId(null);actionEditGeneration.current++;actionBaseline.current={name:'',version:0};activeOperations.current.clear();actionGenerationPending.current=null;setBusy(false);setHosting(null);setHostname('');setPublicConfirmed(false);setEnvName('');setEnvValue('');return()=>{if(activeScope.current===scope)activeScope.current=null}},[scope])
   useEffect(()=>{void run(load)},[app.id,api])
   const selected=actions.find(a=>a.name===name),conn=connections.find(c=>c.name===connectionName)
   const selectAction=(a:AppAction)=>{actionEditGeneration.current++;historyRequest.current++;setHistorySelectionEpoch(value=>value+1);actionBaseline.current={name:a.name,version:a.version};setHistory([]);setName(a.name);setCode(a.draft||a.published||'');setLanguage(a.language||'javascript')}
+  async function loadActionRuns(cursor?:string,replace=false) {
+    if(!api.actionRunHistory)return
+    setActionRunsLoading(true)
+    try { await run(async()=>{const page=await api.actionRunHistory(app.id,cursor);if(activeScope.current!==scope)return;setActionRuns(previous=>replace||!previous?page.runs:[...previous,...page.runs]);setActionRunsCursor(page.nextCursor)}) }
+    finally {if(activeScope.current===scope)setActionRunsLoading(false)}
+  }
   const advanceActionBaseline=(target:string,expected:number,saved:{version?:number})=>{if(!Number.isSafeInteger(expected)||!Number.isSafeInteger(saved.version)||saved.version!==expected+1)throw new Error('保存結果を確認できません。現在の入力を控えてから再読み込みしてください。');if(actionBaseline.current.name===target&&actionBaseline.current.version===expected)actionBaseline.current={name:target,version:saved.version!}}
   const forkEntity=db?.fork?.entities.find(e=>e.key===entity)
   const previewCurrent=!!migrationPreview&&previewedPlan===plan&&previewedMigrationId===migrationId
@@ -93,6 +100,20 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
       {selected?.published&&<details><summary>今回実行される公開済みコード v{selected.publishedVersion}</summary><pre>{selected.published}</pre></details>}
       <button className="pill-btn" disabled={busy||!selected?.published||!node} onClick={()=>void run(async()=>{const r=await api.actionChange(app.id,{action:'run',name,version:selected!.publishedVersion,gatewayId:node,input:JSON.parse(input),requestId:crypto.randomUUID()});setJob(r.job||null)})}>この入力で公開済み処理を実行</button>
       {job&&<div role="status"><p>実行状態: {job.status}</p><pre>{JSON.stringify(job.result,null,2)}</pre><button className="pill-btn quiet" disabled={busy} onClick={()=>void run(async()=>setJob((await api.actionJob(app.id,job.id)).job))}>実行結果を更新</button></div>}
+      <section aria-label={t('Server action execution history')}>
+        <h3>{t('Server action execution history')}</h3>
+        <p>{t('Only your own runs are listed. Inputs and environment secrets are not included.')}</p>
+        <button type="button" className="pill-btn quiet" disabled={busy||actionRunsLoading||!api.actionRunHistory} onClick={()=>void loadActionRuns(undefined,true)}>{actionRunsLoading?t('Loading execution history…'):actionRuns===null?t('Load execution history'):t('Refresh execution history')}</button>
+        {actionRuns!==null&&(!actionRuns.length?<p role="status">{t('No app action runs yet.')}</p>:<ol aria-label={t('Your app action runs')}>
+          {actionRuns.map(actionRun=>{const result=actionRunResults[actionRun.id];return <li key={actionRun.id}>
+            <p><strong>{actionRun.actionName} · v{actionRun.actionVersion}</strong> · {actionRun.status} · {new Date(actionRun.createdAt).toLocaleString()}</p>
+            {actionRun.startedAt!==null&&<p>{t('Started')}: {new Date(actionRun.startedAt).toLocaleString()}{actionRun.finishedAt!==null?` · ${t('Finished')}: ${new Date(actionRun.finishedAt).toLocaleString()}`:''}</p>}
+            <button type="button" className="pill-btn quiet" disabled={busy||actionRunLoadingId===actionRun.id} onClick={()=>{setActionRunLoadingId(actionRun.id);void run(async()=>{const response=await api.actionJob(app.id,actionRun.id);if(activeScope.current===scope)setActionRunResults(previous=>({...previous,[actionRun.id]:response.job}))}).finally(()=>{if(activeScope.current===scope)setActionRunLoadingId(null)})}}>{actionRunLoadingId===actionRun.id?t('Loading result…'):result?t('Refresh result'):t('View result')}</button>
+            {result&&<div aria-label={t('Execution result for {name}',{name:actionRun.actionName})}><p>{t('Execution status')}: {result.status}</p><pre>{JSON.stringify(result.result,null,2)}</pre></div>}
+          </li>})}
+        </ol>)}
+        {actionRunsCursor&&<button type="button" className="pill-btn quiet" disabled={busy} onClick={()=>void loadActionRuns(actionRunsCursor)}>{t('Load more runs')}</button>}
+      </section>
     </>}
     {tab==='database'&&db&&<>
       <p>スキーマ v{db.version} · テーブル／列の追加、列名変更、型・Person・Relation変換、空列削除をプレビューしてから適用します。Relation名の解決結果と行データを確認し、適用時に競合を再検証します。検証DBの編集は本番に反映されません。</p>
