@@ -100,7 +100,7 @@ const openRouter=handler=>fetchMock.get('https://openrouter.ai')
     usage:{prompt_tokens:5,completion_tokens:3},
   }));
 
-test('a provider refusal is recorded as a failed durable run and is not replayed',async()=>{
+test('a provider refusal before any model call hands off once to a statically permitted local Agent',async()=>{
   const f=await fixture();
   fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'})
     .reply(503,{error:{message:'temporarily unavailable'}});
@@ -112,9 +112,59 @@ test('a provider refusal is recorded as a failed durable run and is not replayed
     {orgId:ORG,session:mika,user:{login:'mika',name:'Mika'},resolved:{kind:'business',slug:'cafe',key:'b:cafe',logins:[]},row:f.row,members:[],locale:'en',agents:[f.source],assignment:begun.assignment,durableExecution:true,onRunEvent:event=>events.push(event)});
   expect(result).toBe(0);
   expect(events.map(event=>event.type)).toEqual(['agent_started','agent_failed']);
+  expect(await env.DB.prepare('SELECT generation,status,current_agent_id,visited FROM hx_agent_assignments WHERE org_id=?1 AND source_message_id=?2').bind(ORG,f.row.id).first())
+    .toEqual({generation:1,status:'pending',current_agent_id:f.target.id,visited:JSON.stringify([f.source.id,f.target.id])});
+  expect((await env.DB.prepare('SELECT source_agent_id,target_agent_id,brief FROM hx_agent_handoffs WHERE org_id=?1').bind(ORG).all()).results)
+    .toEqual([{source_agent_id:f.source.id,target_agent_id:f.target.id,brief:'The previous Agent could not start a model call. Continue the original user request from this thread; do not repeat external work unless needed.'}]);
+  expect((await env.DB.prepare('SELECT status FROM hx_agent_handoff_dispatch WHERE org_id=?1').bind(ORG).all()).results).toEqual([{status:'accepted'}]);
+  expect(f.runnerJobs).toHaveLength(1);
+  expect(f.runnerJobs[0].job).toEqual({kind:'handoff',orgId:ORG,rowId:(await env.DB.prepare('SELECT operation_id FROM hx_agent_handoffs WHERE org_id=?1').bind(ORG).first()).operation_id});
+});
+
+test('a provider refusal never creates an approval or handoff without an existing static peer grant',async()=>{
+  const f=await fixture();
+  await env.DB.prepare('DELETE FROM hx_agent_agent_members WHERE org_id=?1 AND agent_id=?2 AND member_agent_id=?3').bind(ORG,f.target.id,f.source.id).run();
+  fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'})
+    .reply(503,{error:{message:'temporarily unavailable'}});
+  const {beginAuthorizedAssignment}=await import('../src/harness/agentAssignmentGrant.js');
+  const begun=await beginAuthorizedAssignment({...env,OPENROUTER_API_KEY:'test'},{orgId:ORG,token:mika.token,rowId:f.row.id},f.source.id);
+  const {runAgents}=await import('../src/channelRoutes.js');
+  await runAgents({...env,OPENROUTER_API_KEY:'test',AGENT_RUNNER:f.runner},
+    {orgId:ORG,session:mika,user:{login:'mika',name:'Mika'},resolved:{kind:'business',slug:'cafe',key:'b:cafe',logins:[]},row:f.row,members:[],locale:'en',agents:[f.source],assignment:begun.assignment,durableExecution:true});
   expect(await env.DB.prepare('SELECT generation,status FROM hx_agent_assignments WHERE org_id=?1 AND source_message_id=?2').bind(ORG,f.row.id).first())
     .toEqual({generation:0,status:'failed'});
+  expect((await env.DB.prepare('SELECT * FROM hx_agent_handoffs WHERE org_id=?1').bind(ORG).all()).results).toEqual([]);
   expect((await env.DB.prepare('SELECT * FROM hx_agent_handoff_dispatch WHERE org_id=?1').bind(ORG).all()).results).toEqual([]);
+  expect((await env.DB.prepare('SELECT * FROM hx_agent_wake_approvals WHERE org_id=?1').bind(ORG).all()).results).toEqual([]);
+  expect(f.runnerJobs).toEqual([]);
+});
+
+test('an unknown execution outcome is never automatically replayed by another Agent',async()=>{
+  const f=await fixture();
+  const {beginAuthorizedAssignment}=await import('../src/harness/agentAssignmentGrant.js');
+  const begun=await beginAuthorizedAssignment({...env,OPENROUTER_API_KEY:'test'},{orgId:ORG,token:mika.token,rowId:f.row.id},f.source.id);
+  const result=await runAgentAssignment({...env,AGENT_RUNNER:f.runner},
+    {orgId:ORG,session:mika,row:f.row,agent:f.source,existing:begun.assignment},async()=>({failed:true,outcome:'unknown'}));
+  expect(result).toEqual({failed:true,outcome:'unknown'});
+  expect(await env.DB.prepare('SELECT generation,status FROM hx_agent_assignments WHERE org_id=?1 AND source_message_id=?2').bind(ORG,f.row.id).first())
+    .toEqual({generation:0,status:'failed'});
+  expect((await env.DB.prepare('SELECT * FROM hx_agent_handoffs WHERE org_id=?1').bind(ORG).all()).results).toEqual([]);
+  expect(f.runnerJobs).toEqual([]);
+});
+
+test('a cancellation during a not-started failure prevents automatic takeover',async()=>{
+  const f=await fixture();
+  const {beginAuthorizedAssignment}=await import('../src/harness/agentAssignmentGrant.js');
+  const begun=await beginAuthorizedAssignment({...env,OPENROUTER_API_KEY:'test'},{orgId:ORG,token:mika.token,rowId:f.row.id},f.source.id);
+  let controller;
+  const result=await runAgentAssignment({...env,AGENT_RUNNER:f.runner},
+    {orgId:ORG,session:mika,row:f.row,agent:f.source,existing:begun.assignment,registerCancellation:(_identity,value)=>{controller=value;}},
+    async()=>{controller.abort();return {failed:true,outcome:'not_started'};});
+  expect(result).toEqual({failed:true,outcome:'not_started'});
+  expect(await env.DB.prepare('SELECT generation,status FROM hx_agent_assignments WHERE org_id=?1 AND source_message_id=?2').bind(ORG,f.row.id).first())
+    .toEqual({generation:0,status:'cancelled'});
+  expect((await env.DB.prepare('SELECT * FROM hx_agent_handoffs WHERE org_id=?1').bind(ORG).all()).results).toEqual([]);
+  expect(f.runnerJobs).toEqual([]);
 });
 
 test('ordinary remote tool output cannot auto-restart an agent or forge a recipient handoff',async()=>{
