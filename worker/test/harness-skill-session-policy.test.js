@@ -6,6 +6,7 @@ import { skillSessionAuthority } from '../src/harness/skillSessionAuthority.js';
 import { currentSkillPolicy, skillSsoDeadline } from '../src/harness/skillPolicyProof.js';
 import { createSkill } from '../src/harness/skills.js';
 import { createSkillShare } from '../src/harness/skillShares.js';
+import { setMode } from '../src/harness/mode.js';
 import worker from '../src/index.js';
 
 const org = 'skill-session-policy', user = '9949';
@@ -117,6 +118,8 @@ test.each(['issue', 'import'].flatMap(operation => ['mobile maximum', 'idle wall
   await upsertUser(env.DB, { githubId: user, login: 'skill-policy', name: 'User', locale: 'en' });
   await upsertMembership(env.DB, org, user, 'member');
   await upsertMembership(env.DB, 'skill-policy-target', user, 'member');
+  await setMode(env.DB, org, 'harness', user);
+  await setMode(env.DB, 'skill-policy-target', 'harness', user);
   const skill = (await createSkill(env.DB, org, { name: 'Procedure', description: 'Private procedure', body: 'Sensitive instructions', visibility: 'private' }, user)).skill;
   const share = await createSkillShare(env.DB, org, skill, user, { confirmAnyoneWithLink: true });
   const target = operation === 'issue' ? org : 'skill-policy-target';
