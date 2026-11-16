@@ -3150,10 +3150,42 @@ CREATE TABLE IF NOT EXISTS hx_app_preview_candidates (
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
   schema_version INTEGER NOT NULL DEFAULT -1,
-  schema_snapshot TEXT NOT NULL DEFAULT '[]'
+  schema_snapshot TEXT NOT NULL DEFAULT '[]',
+  fork_kind TEXT NOT NULL DEFAULT 'legacy'
 );
 CREATE INDEX IF NOT EXISTS hx_app_preview_candidates_current ON hx_app_preview_candidates(org_id,app_id,app_version,created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS hx_app_preview_candidates_identity ON hx_app_preview_candidates(org_id,app_id,app_version,source_hash,fork_id,fork_revision,created_by);
+CREATE TABLE IF NOT EXISTS hx_app_release_preview_forks (
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  app_version INTEGER NOT NULL,
+  source_hash TEXT NOT NULL,
+  id TEXT NOT NULL UNIQUE,
+  revision INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  schema_snapshot TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,app_id,app_version,source_hash),
+  UNIQUE(org_id,app_id,id)
+);
+CREATE TABLE IF NOT EXISTS hx_app_release_preview_fork_history (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,
+  app_version INTEGER NOT NULL,
+  source_hash TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  schema_snapshot TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  archived_at TEXT NOT NULL,
+  archive_reason TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hx_app_release_preview_forks_identity ON hx_app_release_preview_forks(org_id,app_id,app_version,source_hash);
 CREATE INDEX IF NOT EXISTS hx_app_publish_approvals_current ON hx_app_publish_approvals(org_id,app_id,status,draft_version);
 CREATE UNIQUE INDEX IF NOT EXISTS hx_app_publish_approvals_one_open ON hx_app_publish_approvals(org_id,app_id,draft_version,source_hash,scope) WHERE status IN ('pending','approved');
 

@@ -11,7 +11,7 @@ export async function customPublishState(db, orgId, app) {
   const policy = await db.prepare("SELECT enabled, updated_by AS updatedBy, updated_at AS updatedAt FROM hx_app_publish_policies WHERE org_id=?1 AND app_id=?2").bind(orgId,app.id).first();
   const draft = app.definition.custom?.draft || "";
   const hash = await sourceHash(draft);
-  const candidateRow=await db.prepare('SELECT id FROM hx_app_preview_candidates WHERE org_id=?1 AND app_id=?2 AND app_version=?3 AND source_hash=?4 ORDER BY created_at DESC LIMIT 1').bind(orgId,app.id,app.version,hash).first();
+  const candidateRow=await db.prepare("SELECT id FROM hx_app_preview_candidates WHERE org_id=?1 AND app_id=?2 AND fork_kind='custom_draft' ORDER BY app_version DESC,created_at DESC LIMIT 1").bind(orgId,app.id).first();
   const candidateId=candidateRow?.id||null;
   const candidate = candidateId ? await currentCustomPreviewCandidate(db,orgId,app,candidateId) : null;
   const approval = candidateId

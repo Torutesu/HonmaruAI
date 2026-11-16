@@ -71,8 +71,13 @@ async function importCommit(app) {
 }
 async function confirmCustomPreview(app, version, token=toru) {
   const path=`/apps/${app.id}/database`;
-  let state=await(await get(`${path}?orgId=${ORG}`,token)).json();
-  if(!state.fork){await send('POST',path,token,{action:'fork'});state=await(await get(`${path}?orgId=${ORG}`,token)).json();}
+  const previewUrl=`${path}?orgId=${ORG}&customPreview=1&version=${version}`;
+  let state=await(await get(previewUrl,token)).json();
+  if(!state.fork){
+    const created=await send('POST',path,token,{action:'custom_preview_fork',version});
+    expect(created.status,await created.clone().text()).toBe(200);
+    state=await(await get(previewUrl,token)).json();
+  }
   const result=await send('POST',`/apps/${app.id}/custom`,token,{action:'preview_candidate',version,forkId:state.fork.id,revision:state.fork.revision});
   expect(result.status,await result.clone().text()).toBe(200);
   return (await result.json()).candidate.id;

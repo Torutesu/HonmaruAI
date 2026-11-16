@@ -154,8 +154,8 @@ test('writable preview uses only its private fork and keeps the production SDK r
   let handler:(e:any)=>Promise<void>=async()=>{}
   const contentWindow={postMessage:vi.fn()}
   const row={id:'preview-row',values:{name:'Preview'},updatedAt:'v2'}
-  const databaseChange=vi.fn().mockResolvedValue({result:row,revision:2})
-  const api={appDatabase:vi.fn().mockResolvedValue({fork:{id:'fork',revision:1,entities:[{key:'primary',table,rows:[]}]}}),databaseChange,addRow:vi.fn()}as any
+  const customPreviewWrite=vi.fn().mockResolvedValue({result:row,revision:2})
+  const api={customPreviewDatabase:vi.fn().mockResolvedValue({fork:{id:'fork',revision:1,entities:[{key:'primary',table,rows:[]}]}}),customPreviewWrite,addRow:vi.fn()}as any
   vi.stubGlobal('window',{addEventListener:(_:string,fn:any)=>{handler=fn},removeEventListener:vi.fn()})
   let tree:ReturnType<typeof create>
   await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'test'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
@@ -164,7 +164,7 @@ test('writable preview uses only its private fork and keeps the production SDK r
   const confirm=tree!.root.findAllByType('button').find(b=>b.children.join('')==='この変更を許可')!
   await act(async()=>{await confirm.props.onClick()})
   expect(api.addRow).not.toHaveBeenCalled()
-  expect(databaseChange).toHaveBeenCalledWith('app',expect.objectContaining({action:'fork_write',forkId:'fork',revision:1,entity:'primary',operation:'create'}))
+  expect(customPreviewWrite).toHaveBeenCalledWith('app',1,expect.objectContaining({forkId:'fork',revision:1,entity:'primary',operation:'create'}))
   expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({id:'r',value:{row}}),'*')
   act(()=>tree!.unmount())
 })
@@ -193,7 +193,7 @@ test('preview waits for the fork before generated code can read its first snapsh
   const {CustomAppEditor}=await import('./CustomApp')
   let resolve!: (value:any)=>void, handler:(e:any)=>void=()=>{}
   const contentWindow={postMessage:vi.fn()}
-  const api={appDatabase:vi.fn(()=>new Promise(r=>{resolve=r}))} as any
+  const api={customPreviewDatabase:vi.fn(()=>new Promise(r=>{resolve=r}))} as any
   vi.stubGlobal('window',{addEventListener:(_:string,fn:any)=>{handler=fn},removeEventListener:vi.fn()})
   let tree:ReturnType<typeof create>
   await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'test'}}}as any} table={table} rows={[{id:'production',values:{},updatedAt:'p'}]} api={api} reload={()=>{}} httpBase="https://api.example"/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
@@ -210,8 +210,8 @@ test('secondary preview entities read and write only the private database',async
  let handler:(e:any)=>Promise<void>=async()=>{}
  const contentWindow={postMessage:vi.fn()},people={id:'people-table',name:'People',columns:[{id:'name',name:'Name',type:'text'}]}
  const row={id:'person',values:{name:'Private'},updatedAt:'v1'}
- const databaseChange=vi.fn().mockResolvedValue({result:row,revision:2})
- const api={appDatabase:vi.fn().mockResolvedValue({fork:{id:'fork',revision:1,entities:[{key:'primary',table,rows:[]},{key:'people',table:people,rows:[row]}]}}),databaseChange,addRow:vi.fn(),entityRows:vi.fn()}as any
+ const customPreviewWrite=vi.fn().mockResolvedValue({result:row,revision:2})
+ const api={customPreviewDatabase:vi.fn().mockResolvedValue({fork:{id:'fork',revision:1,entities:[{key:'primary',table,rows:[]},{key:'people',table:people,rows:[row]}]}}),customPreviewWrite,addRow:vi.fn(),entityRows:vi.fn()}as any
  vi.stubGlobal('window',{addEventListener:(_:string,fn:any)=>{handler=fn},removeEventListener:vi.fn()})
  let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'test'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
@@ -219,9 +219,9 @@ test('secondary preview entities read and write only the private database',async
  await act(async()=>handler({source:contentWindow,data:{type:'honmaru:request',id:'read',operation:'entity',args:{entity:'people'}}}))
  expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({id:'read',value:{table:people,rows:[{...row,values:{name:'Private',Name:'Private'}}]}}),'*')
  await act(async()=>handler({source:contentWindow,data:{type:'honmaru:request',id:'write',operation:'update',args:{id:'person',entity:'people',values:{name:'Updated'}}}}))
- expect(databaseChange).not.toHaveBeenCalled()
+ expect(customPreviewWrite).not.toHaveBeenCalled()
  await act(async()=>tree!.root.findAllByType('button').find(b=>b.children.join('')==='この変更を許可')!.props.onClick())
- expect(databaseChange).toHaveBeenCalledWith('app',expect.objectContaining({entity:'people',operation:'update',rowId:'person',expectedUpdatedAt:'v1'}))
+ expect(customPreviewWrite).toHaveBeenCalledWith('app',1,expect.objectContaining({entity:'people',operation:'update',rowId:'person',expectedUpdatedAt:'v1'}))
  expect(api.addRow).not.toHaveBeenCalled();expect(api.entityRows).not.toHaveBeenCalled()
  act(()=>tree!.unmount())
 })
@@ -383,7 +383,7 @@ test('custom app editor exposes the independent approval gate for a saved draft'
  const {CustomAppEditor}=await import('./CustomApp')
  let state:any={policy:{enabled:true},draftVersion:2,sourceHash:'hash',scope:'custom-app.publish',candidate:{id:'preview-1',appVersion:2,sourceHash:'hash',forkId:'fork',forkRevision:1,current:true},approval:null}
  vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn(),confirm:vi.fn(()=>true)})
- const api={customPublishState:vi.fn(async()=>state),customPublish:vi.fn(async(_id:string,input:any)=>{if(input.action==='request_approval')state={...state,approval:{id:'approval',status:'pending',requestedBy:'maker',reviewerId:null,sourceHash:'hash',draftVersion:2,scope:'custom-app.publish'}};return {saved:true}}),appDatabase:vi.fn().mockResolvedValue({fork:null})}as any
+ const api={customPublishState:vi.fn(async()=>state),customPublish:vi.fn(async(_id:string,input:any)=>{if(input.action==='request_approval')state={...state,approval:{id:'approval',status:'pending',requestedBy:'maker',reviewerId:null,sourceHash:'hash',draftVersion:2,scope:'custom-app.publish'}};return {saved:true}}),customPreviewDatabase:vi.fn().mockResolvedValue({fork:null}),customPreviewFork:vi.fn().mockResolvedValue({fork:null})}as any
  let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:2,definition:{custom:{draft:'<h1>saved</h1>'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>)} )
  expect(tree!.root.findAllByProps({'aria-label':'公開承認ポリシー'})).toHaveLength(1)
@@ -399,7 +399,7 @@ test('stale validation schema offers a warned refresh that replaces only preview
  const fork={id:'fork',revision:1,entities:[{key:'primary',table,rows:[{id:'preview-row',values:{},updatedAt:'draft-only'}]}]}
  let state:any={policy:{enabled:false},draftVersion:1,sourceHash:'hash',scope:'custom-app.publish',candidate:{id:'candidate',appVersion:1,sourceHash:'hash',forkId:'fork',forkRevision:1,current:false,staleReason:'database_schema_changed'},approval:null}
  const databaseChange=vi.fn().mockResolvedValue({saved:true})
- const api={customPublishState:vi.fn(async()=>state),appDatabase:vi.fn().mockResolvedValue({fork}),databaseChange}as any
+ const api={customPublishState:vi.fn(async()=>state),customPreviewDatabase:vi.fn().mockResolvedValue({fork}),customPreviewFork:vi.fn().mockResolvedValue({fork}),customPreviewWrite:vi.fn(),databaseChange}as any
  vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
  let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'<h1>draft</h1>'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>)} )
@@ -408,6 +408,6 @@ test('stale validation schema offers a warned refresh that replaces only preview
  act(()=>refresh.props.onClick())
  expect(tree!.root.findAllByProps({role:'alertdialog'})).toHaveLength(1)
  await act(async()=>tree!.root.findAllByType('button').find(button=>button.children.join('')==='置き換えて作成')!.props.onClick())
- expect(databaseChange).toHaveBeenCalledWith('app',{action:'fork'})
+ expect(api.customPreviewFork).toHaveBeenCalledWith('app',1,'fork',1)
  act(()=>tree!.unmount())
 })

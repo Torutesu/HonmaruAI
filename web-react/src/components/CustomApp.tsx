@@ -338,28 +338,28 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
     {html.length > MAX_PREVIEW_SOURCE && <p role="alert" className="form-error">プレビューして公開するには、コードを119800文字以下に短くしてください。下書きは保持されます。</p>}
     <details onToggle={e => { if (e.currentTarget.open) void api.versions(app.id).then(r => {if(activeScope.current===scope)setHistory(r.versions)}).catch(e => {if(activeScope.current===scope)setError(String(e))}) }}><summary>{t('Publication and code history')}</summary><CustomAppReleaseHistory history={history} busy={busy} restore={version => void run(async () => { const entry=history.find(item=>item.version===version); await api.saveCustom(app.id, entry?.release ? 'restore_release' : 'restore', app.version, undefined, version); if(activeScope.current===scope)await reload() })} /></details>
     <small>{changed ? '未保存の変更があります' : `バージョン ${app.version}`} · 直接の外部通信なし・接続は確認付き · アプリの閲覧権限を継承 · 公開操作は監査ログに記録</small>
-    {preview && <ForkPreview appId={app.id} api={api} httpBase={httpBase} html={html} table={table} rows={rows} canReview={!changed&&!remoteConflict&&html.length<=MAX_PREVIEW_SOURCE} candidate={publishGate?.candidate||null} onCandidate={async(forkId,revision)=>{await api.customPublish(app.id,{action:'preview_candidate',version:app.version,forkId,revision});setPublishGate(await api.customPublishState(app.id))}} onForkChange={async()=>setPublishGate(await api.customPublishState(app.id))} />}
+    {preview && <ForkPreview appId={app.id} version={app.version} api={api} httpBase={httpBase} html={html} table={table} rows={rows} canReview={!changed&&!remoteConflict&&html.length<=MAX_PREVIEW_SOURCE} candidate={publishGate?.candidate||null} onCandidate={async(forkId,revision)=>{await api.customPublish(app.id,{action:'preview_candidate',version:app.version,forkId,revision});setPublishGate(await api.customPublishState(app.id))}} onForkChange={async()=>setPublishGate(await api.customPublishState(app.id))} />}
   </section>
 }
 
-function ForkPreview({appId,api,httpBase,html,table,rows,canReview,candidate,onCandidate,onForkChange}:{appId:string;api:HarnessApi;httpBase:string;html:string;table:Table;rows:Row[];canReview:boolean;candidate:{id:string;current:boolean;forkRevision:number;staleReason?:string}|null;onCandidate:(forkId:string,revision:number)=>Promise<void>;onForkChange:()=>Promise<void>}) {
+function ForkPreview({appId,version,api,httpBase,html,table,rows,canReview,candidate,onCandidate,onForkChange}:{appId:string;version:number;api:HarnessApi;httpBase:string;html:string;table:Table;rows:Row[];canReview:boolean;candidate:{id:string;current:boolean;forkRevision:number;staleReason?:string}|null;onCandidate:(forkId:string,revision:number)=>Promise<void>;onForkChange:()=>Promise<void>}) {
   const [fork,setFork]=useState<AppFork|null>(null)
   const [loadedAppId,setLoadedAppId]=useState('')
   const [error,setError]=useState('')
   const [reviewing,setReviewing]=useState(false)
   const [confirmRefresh,setConfirmRefresh]=useState(false)
   const current=useRef<AppFork|null>(null)
-  const load=async()=>{try{setError('');const d=await api.appDatabase(appId);current.current=d.fork;setFork(d.fork);setLoadedAppId(appId);await onForkChange()}catch(e){setError(String(e))}}
-  useEffect(()=>{void load()},[appId,api])
+  const load=async()=>{try{setError('');const d=await api.customPreviewDatabase(appId,version);current.current=d.fork;setFork(d.fork);setLoadedAppId(appId);await onForkChange()}catch(e){setError(String(e))}}
+  useEffect(()=>{current.current=null;setFork(null);setLoadedAppId('');void load()},[appId,version,api])
   const mutate=async(tableId:string,operation:string,values?:Record<string,unknown>,rowId?:string,expectedUpdatedAt?:string)=>{
     const f=current.current;if(!f)throw new Error('No preview database.')
     const entity=f.entities.find(e=>e.table.id===tableId);if(!entity)throw new Error('No such preview entity.')
-    const r=await api.databaseChange(appId,{action:'fork_write',forkId:f.id,revision:f.revision,entity:entity.key,operation,values,rowId,expectedUpdatedAt})
+    const r=await api.customPreviewWrite(appId,version,{forkId:f.id,revision:f.revision,entity:entity.key,operation,values,rowId,expectedUpdatedAt})
     await load();return operation==='remove'?r.result:{row:r.result}
   }
   const staleSchema=candidate?.staleReason==='database_schema_changed'
   const adapter=fork&&!fork.mergedAt&&!staleSchema?{addRow:(t:string,v:Record<string,unknown>)=>mutate(t,'create',v),updateRow:(t:string,id:string,v:Record<string,unknown>,expected?:string)=>mutate(t,'update',v,id,expected),deleteRow:(t:string,id:string,expected?:string)=>mutate(t,'remove',undefined,id,expected)} as HarnessApi:undefined
-  const refresh=async()=>{setReviewing(true);setError('');try{await api.databaseChange(appId,{action:'fork'});setConfirmRefresh(false);await load()}catch(e){setError(String(e))}finally{setReviewing(false)}}
+  const refresh=async()=>{setReviewing(true);setError('');try{await api.customPreviewFork(appId,version,fork?.id,fork?.revision);setConfirmRefresh(false);await load()}catch(e){setError(String(e))}finally{setReviewing(false)}}
   const primary=fork?.entities.find(e=>e.key==='primary')
   // Do not let generated code read production before its private snapshot loads.
   if(loadedAppId!==appId)return error?<p role="alert">{error}<button onClick={()=>void load()}>再読み込み</button></p>:<p role="status">検証DBを読み込み中…</p>

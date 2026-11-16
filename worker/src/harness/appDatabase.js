@@ -491,16 +491,17 @@ export async function generateMigration(prompt, current, complete) {
   } catch { return err('The model did not return a valid migration.', 502); }
 }
 
-// A private writable snapshot, bounded to 750KB, never merged silently into production.
-export async function forkDatabase(db, orgId, app, by) {
+// Capture the schema and rows in one D1 batch so a snapshot never mixes database generations.
+export async function snapshotDatabase(db, orgId, app, by) {
   if (!await mayUseDatabase(db, orgId, app.id, by, [], true)) return err('No such app.',404);
   const tableScope = 'SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 UNION SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2';
-  const [tables,rows,links,total,primary] = await db.batch([
+  const [tables,rows,links,total,primary,state] = await db.batch([
     db.prepare(`SELECT * FROM hx_tables WHERE org_id=?1 AND id IN (${tableScope})`).bind(orgId,app.id),
     db.prepare(`SELECT * FROM hx_rows WHERE org_id=?1 AND table_id IN (${tableScope}) AND (SELECT COALESCE(SUM(length(CAST(data AS BLOB))),0) FROM hx_rows WHERE org_id=?1 AND table_id IN (${tableScope}))<=700000 ORDER BY position,id`).bind(orgId,app.id),
     db.prepare('SELECT entity_key,table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2').bind(orgId,app.id),
     db.prepare(`SELECT COALESCE(SUM(length(CAST(data AS BLOB))),0) AS bytes FROM hx_rows WHERE org_id=?1 AND table_id IN (${tableScope})`).bind(orgId,app.id),
     db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId,app.id),
+    db.prepare('SELECT version FROM hx_app_database_state WHERE org_id=?1 AND app_id=?2').bind(orgId,app.id),
   ]);
   if(primary.results?.[0]?.table_id!==app.tableId)return err('Database schema changed. Reload before creating a preview.',409);
   if(total.results[0].bytes>700000)return err('This database is too large for a preview snapshot.',413);
@@ -515,6 +516,14 @@ export async function forkDatabase(db, orgId, app, by) {
   if (!await mayUseDatabase(db, orgId, app.id, by, tableIds, true)) return err('No such app.',404);
   const data = JSON.stringify(entities);
   if (new TextEncoder().encode(data).length > 750000) return err('This database is too large for a preview snapshot.', 413);
+  return { entities, tableIds, data, schemaVersion:Number(state.results?.[0]?.version||0) };
+}
+
+// A private writable snapshot, bounded to 750KB, never merged silently into production.
+export async function forkDatabase(db, orgId, app, by) {
+  const snapshot=await snapshotDatabase(db,orgId,app,by);
+  if(snapshot.error)return snapshot;
+  const {entities,tableIds,data}=snapshot;
   const id = crypto.randomUUID();
   const authority=databaseAuthority('?1','?2','?3','?7',true);
   const saved=await db.batch([db.prepare(`INSERT INTO hx_app_forks (org_id,app_id,created_by,id,revision,data,created_at)
