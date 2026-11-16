@@ -489,6 +489,8 @@ test('reviewed preview merge is atomic, scoped, replayable and seals the preview
 
 test('a preview can add a nullable column and merge its reviewed schema and records atomically',async()=>{
  await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now') ON CONFLICT(org_id) DO UPDATE SET mode='harness',updated_at='now'").bind(orgId).run();
+ const workflow=await call('/workflows',owner,{name:'Observe merged schema row',enabled:true,trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['insert']},steps:[{type:'update_row',values:{task:'Schema-aware event'}}]});
+ expect(workflow.status).toBe(201);
  const {fork}=await (await run('database',{action:'fork'})).json();
  const added=await run('database',{action:'fork_schema',forkId:fork.id,revision:fork.revision,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Review status',type:'select',options:['Open','Done']}]}]});
  expect(added.status).toBe(200);
@@ -508,7 +510,9 @@ test('a preview can add a nullable column and merge its reviewed schema and reco
  expect(current.version).toBeGreaterThanOrEqual(1);
  expect(current.entities.find(entity=>entity.key==='primary').table.columns).toContainEqual(statusColumn);
  expect(current.migrations[0]).toMatchObject({integrityValid:true,inverseOperations:[{op:'drop_empty_column',entity:'primary',column:statusColumn.id}]});
- expect((await (await call('/tables/'+app.tableId,owner)).json()).rows).toMatchObject([{values:{task:'Schema-aware row',[statusColumn.id]:'Open'}}]);
+ expect((await (await call('/tables/'+app.tableId,owner)).json()).rows).toMatchObject([{values:{task:'Schema-aware event',[statusColumn.id]:'Open'}}]);
+ const event=await env.DB.prepare('SELECT payload FROM hx_workflow_row_event_outbox WHERE org_id=?1 AND table_id=?2 ORDER BY created_at DESC LIMIT 1').bind(orgId,app.tableId).first();
+ expect(JSON.parse(event.payload).table.columns).toContainEqual(statusColumn);
 });
 
 test('schema-only preview merges are accepted and a changed database version invalidates the review',async()=>{
@@ -521,6 +525,54 @@ test('schema-only preview merges are accepted and a changed database version inv
  await env.DB.prepare('INSERT INTO hx_app_database_state (org_id,app_id,version) VALUES (?1,?2,9) ON CONFLICT(org_id,app_id) DO UPDATE SET version=9').bind(orgId,app.id).run();
  expect((await run('database',{action:'merge_apply',forkId:previewFork.id,revision:previewFork.revision,checksum:review.checksum})).status).toBe(409);
  expect((await (await run('database')).json()).entities.find(entity=>entity.key==='primary').table.columns.some(column=>column.name==='Internal note')).toBe(false);
+});
+
+test('private preview supports rename, strict conversion and an empty-column drop before atomic merge',async()=>{
+ await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now') ON CONFLICT(org_id) DO UPDATE SET mode='harness',updated_at='now'").bind(orgId).run();
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'primary',operation:'create',values:{task:'42'}});
+ let current=(await (await run('database')).json()).fork;
+ expect((await run('database',{action:'fork_schema',forkId:current.id,revision:current.revision,operations:[{op:'rename_column',entity:'primary',column:'task',name:'Estimate'}]})).status).toBe(200);
+ current=(await (await run('database')).json()).fork;
+ expect((await run('database',{action:'fork_schema',forkId:current.id,revision:current.revision,operations:[{op:'convert_column',entity:'primary',column:'task',type:'number'}]})).status).toBe(200);
+ current=(await (await run('database')).json()).fork;
+ const numberColumn=current.entities[0].table.columns[0];
+ expect(current.entities[0].rows[0].values.task).toBe(42);
+ const review=await (await run('database',{action:'merge_preview',forkId:current.id,revision:current.revision})).json();
+ expect(review.schemaChanges).toMatchObject([{entity:'primary',before:[{id:'task',name:'Task',type:'text'}],after:[{id:'task',name:'Estimate',type:'number'}]}]);
+ const merged=await (await run('database',{action:'merge_apply',forkId:current.id,revision:current.revision,checksum:review.checksum})).json();
+ expect(merged).toMatchObject({merged:true,changed:1,schemaChanged:1});
+ expect((await (await call(`/tables/${app.tableId}`,owner)).json()).rows).toMatchObject([{values:{task:42}}]);
+ expect((await databaseView(env.DB,orgId,app)).entities[0].table.columns).toEqual([numberColumn]);
+ expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({integrityValid:true,inverseOperations:null,plan:[{op:'convert_column',entity:'primary',column:'task',type:'number'},{op:'rename_column',entity:'primary',column:'task',name:'Estimate'}]});
+});
+
+test('empty-column drop and a new private entity merge with rows under the reviewed receipt',async()=>{
+ await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now') ON CONFLICT(org_id) DO UPDATE SET mode='harness',updated_at='now'").bind(orgId).run();
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_schema',forkId:fork.id,revision:fork.revision,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Unused',type:'text'}]}]});
+ let current=(await (await run('database')).json()).fork;
+ const unused=current.entities[0].table.columns.find(column=>column.name==='Unused');
+ expect((await run('database',{action:'fork_schema',forkId:current.id,revision:current.revision,operations:[{op:'drop_empty_column',entity:'primary',column:unused.id}]})).status).toBe(200);
+ current=(await (await run('database')).json()).fork;
+ expect((await run('database',{action:'fork_schema',forkId:current.id,revision:current.revision,operations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]}]})).status).toBe(200);
+ current=(await (await run('database')).json()).fork;
+ const people=current.entities.find(entity=>entity.key==='people');
+ expect(people).toBeDefined();
+ const write=await run('database',{action:'fork_write',forkId:current.id,revision:current.revision,entity:'people',operation:'create',values:{name:'Mika'}});
+ expect(write.status).toBe(200);
+ current=(await (await run('database')).json()).fork;
+ const review=await (await run('database',{action:'merge_preview',forkId:current.id,revision:current.revision})).json();
+ expect(review.schemaChanges).toContainEqual(expect.objectContaining({entity:'people',newEntity:true,tableName:'People'}));
+ expect(review.changes).toContainEqual(expect.objectContaining({entity:'people',operation:'create',after:{name:'Mika'}}));
+ const merged=await run('database',{action:'merge_apply',forkId:current.id,revision:current.revision,checksum:review.checksum});
+ expect(merged.status).toBe(200);
+ expect(await merged.json()).toMatchObject({merged:true,changed:1,schemaChanged:1});
+ const live=(await (await run('database')).json()).entities.find(entity=>entity.key==='people');
+ expect(live.table.name).toBe('People');
+ expect((await call(`/tables/${live.table.id}`,owner)).status).toBe(200);
+ expect((await (await call(`/tables/${live.table.id}`,owner)).json()).rows).toMatchObject([{values:{name:'Mika'}}]);
+ expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({integrityValid:true,inverseOperations:null});
 });
 
 test('merge detects production updates/deletes/schema changes and rejects the entire batch',async()=>{

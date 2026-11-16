@@ -26,6 +26,23 @@ const mergeAuthority=ids=>`EXISTS(SELECT 1 FROM memberships m JOIN hx_apps targe
 const mayMerge=async(db,orgId,appId,by,tableIds)=>Boolean(await db.prepare(`SELECT 1 AS ok WHERE ${mergeAuthority('?4')}`)
   .bind(orgId,appId,String(by),JSON.stringify(tableIds)).first());
 
+function columnInput(column){const {id,...input}=column;return input;}
+function schemaJournalOperations(before,after){
+  const operations=[];
+  const oldById=new Map((before||[]).map(column=>[column.id,column]));
+  const nextById=new Map((after||[]).map(column=>[column.id,column]));
+  const additions=(after||[]).filter(column=>!oldById.has(column.id));
+  if(additions.length)operations.push({op:'add_columns',columns:additions.map(columnInput)});
+  for(const old of before||[]){
+    const next=nextById.get(old.id);
+    if(!next){operations.push({op:'drop_empty_column',column:old.id});continue;}
+    const shape=column=>JSON.stringify({type:column.type,options:column.options,targetEntity:column.targetEntity,multiple:column.multiple});
+    if(shape(old)!==shape(next))operations.push({op:'convert_column',column:old.id,type:next.type,...(next.options?{options:next.options}:{}),...(next.type==='relation'?{targetEntity:next.targetEntity,multiple:Boolean(next.multiple)}:{})});
+    if(old.name!==next.name)operations.push({op:'rename_column',column:old.id,name:next.name});
+  }
+  return operations;
+}
+
 // Compute a bounded three-way diff. Existing forks without a base cannot merge.
 export async function previewMerge(db,orgId,app,by,input) {
   const {fork}=await readFork(db,orgId,app.id,by);
@@ -39,13 +56,19 @@ export async function previewMerge(db,orgId,app,by,input) {
   const schema=await databaseView(db,orgId,app),changes=[],conflicts=[],snapshots=[],schemaChanges=[];
   const suppliedResolutions=input.resolutions||{};
   if(schema.entities.length!==original.length)return err('The production schema changed. Create a fresh preview.');
-  for(const entity of original) {
-    const current=schema.entities.find(e=>e.key===entity.key),edited=fork.entities.find(e=>e.key===entity.key);
-    if(!current||!edited||current.table.id!==entity.table.id||JSON.stringify(current.table.columns)!==JSON.stringify(entity.table.columns))return err('The production schema changed. Create a fresh preview.');
-    const baseColumns=entity.table.columns||[],previewColumns=edited.table.columns||[];
-    if(previewColumns.length<baseColumns.length||baseColumns.some((column,index)=>JSON.stringify(column)!==JSON.stringify(previewColumns[index])))return err('Preview schema changes must only add columns. Create a fresh preview for other schema changes.',409);
-    if(previewColumns.length>baseColumns.length)schemaChanges.push({entity:entity.key,tableId:current.table.id,tableName:current.table.name,before:baseColumns,after:previewColumns});
-    const {results}=await db.prepare('SELECT id,data,updated_at AS updatedAt FROM hx_rows WHERE org_id=?1 AND table_id=?2 ORDER BY id').bind(orgId,current.table.id).all();
+  const originalByKey=new Map(original.map(entity=>[entity.key,entity])),currentByKey=new Map(schema.entities.map(entity=>[entity.key,entity])),forkByKey=new Map(fork.entities.map(entity=>[entity.key,entity]));
+  if(forkByKey.size!==fork.entities.length||new Set(fork.entities.map(entity=>entity.table.id)).size!==fork.entities.length)return err('Preview entity keys and table IDs must be unique.',409);
+  for(const entity of original){
+    const current=currentByKey.get(entity.key),edited=forkByKey.get(entity.key);
+    if(!current||!edited||current.table.id!==entity.table.id||edited.table.id!==entity.table.id||JSON.stringify(current.table.columns)!==JSON.stringify(entity.table.columns))return err('The production schema changed. Create a fresh preview.');
+  }
+  const newEntities=fork.entities.filter(entity=>!originalByKey.has(entity.key));
+  if(newEntities.some(entity=>currentByKey.has(entity.key)||!/^tbl_[a-f0-9]{32}$/.test(entity.table.id)))return err('A preview entity conflicts with the production schema. Create a fresh preview.',409);
+  for(const entity of original){
+    const current=currentByKey.get(entity.key),edited=forkByKey.get(entity.key);
+    const beforeColumns=entity.table.columns||[],previewColumns=edited.table.columns||[];
+    if(JSON.stringify(beforeColumns)!==JSON.stringify(previewColumns))schemaChanges.push({entity:entity.key,tableId:current.table.id,tableName:current.table.name,before:beforeColumns,after:previewColumns,newEntity:false,operations:schemaJournalOperations(beforeColumns,previewColumns)});
+    const {results=[]}=await db.prepare('SELECT id,data,updated_at AS updatedAt FROM hx_rows WHERE org_id=?1 AND table_id=?2 ORDER BY id').bind(orgId,current.table.id).all();
     snapshots.push({key:entity.key,tableId:current.table.id,columns:JSON.stringify(current.table.columns),rows:results});
     const live=new Map(results.map(r=>[r.id,r])),before=new Map(entity.rows.map(r=>[r.id,r])),after=new Map(edited.rows.map(r=>[r.id,r]));
     for(const id of new Set([...before.keys(),...after.keys()])) {
@@ -56,6 +79,15 @@ export async function previewMerge(db,orgId,app,by,input) {
       if(a?(!row||row.updatedAt!==a.updatedAt||canonical(JSON.parse(row.data))!==canonical(a.values)):!!row)conflicts.push({changeId,entity:entity.key,id,reason:'Production changed after this preview was created.',production:row?JSON.parse(row.data):null,preview:b?.values??null});
       if(b&&validateValues(previewColumns,b.values).length)return err('Preview contains invalid values.',400);
       changes.push({entity:entity.key,tableId:current.table.id,tableName:current.table.name,id,operation,before:a?.values??null,after:b?.values??null});
+    }
+  }
+  for(const entity of newEntities){
+    const columns=entity.table.columns||[];
+    schemaChanges.push({entity:entity.key,tableId:entity.table.id,tableName:entity.table.name,before:[],after:columns,newEntity:true,operations:[{op:'create_entity',entity:entity.key,name:entity.table.name,columns:columns.map(columnInput)}]});
+    snapshots.push({key:entity.key,tableId:entity.table.id,columns:JSON.stringify(columns),rows:[],newEntity:true,name:entity.table.name});
+    for(const row of entity.rows){
+      if(validateValues(columns,row.values).length)return err('Preview contains invalid values.',400);
+      changes.push({entity:entity.key,tableId:entity.table.id,tableName:entity.table.name,id:row.id,operation:'create',before:null,after:row.values});
     }
   }
   const conflictIds=new Set(conflicts.map(conflict=>conflict.changeId));
@@ -129,21 +161,32 @@ export async function mergeFork(db,orgId,app,by,input) {
     EXISTS (SELECT 1 FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND id=?4 AND revision=?5)
     AND ${mergeAuthority('?11')}
     AND coalesce((SELECT version FROM hx_app_database_state WHERE org_id=?1 AND app_id=?2),0)=?12
-    AND (SELECT COUNT(*)+1 FROM hx_app_entities WHERE org_id=?1 AND app_id=?2)=json_array_length(?6)
+    AND (SELECT COUNT(*)+1 FROM hx_app_entities WHERE org_id=?1 AND app_id=?2)=json_array_length(?6)-(SELECT COUNT(*) FROM json_each(?6) WHERE json_extract(value,'$.newEntity')=1)
     AND NOT EXISTS (SELECT 1 FROM json_each(?6) e WHERE
-      NOT EXISTS (SELECT 1 FROM hx_tables t WHERE t.org_id=?1 AND t.id=json_extract(e.value,'$.tableId') AND t.columns=json_extract(e.value,'$.columns'))
-      OR NOT EXISTS (SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND ((json_extract(e.value,'$.key')='primary' AND a.table_id=json_extract(e.value,'$.tableId')) OR EXISTS (SELECT 1 FROM hx_app_entities l WHERE l.org_id=?1 AND l.app_id=?2 AND l.entity_key=json_extract(e.value,'$.key') AND l.table_id=json_extract(e.value,'$.tableId'))))
-      OR (SELECT COUNT(*) FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.tableId'))!=json_array_length(e.value,'$.rows')
-      OR EXISTS (SELECT 1 FROM json_each(e.value,'$.rows') expected WHERE NOT EXISTS
-        (SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.tableId') AND r.id=json_extract(expected.value,'$.id') AND r.data=json_extract(expected.value,'$.data') AND r.updated_at=json_extract(expected.value,'$.updatedAt')))
-    )`).bind(orgId,app.id,String(by),plan.forkId,plan.revision,JSON.stringify(plan.snapshots),plan.checksum,nonce,JSON.stringify({schemaChanges:plan.schemaChanges,changes:plan.changes}),at,JSON.stringify(plan.snapshots.map(snapshot=>snapshot.tableId)),plan.schemaVersion);
+      (json_extract(e.value,'$.newEntity')=1 AND (EXISTS (SELECT 1 FROM hx_tables t WHERE t.org_id=?1 AND t.id=json_extract(e.value,'$.tableId')) OR EXISTS (SELECT 1 FROM hx_app_entities l WHERE l.org_id=?1 AND l.app_id=?2 AND l.entity_key=json_extract(e.value,'$.key'))))
+      OR (coalesce(json_extract(e.value,'$.newEntity'),0)=0 AND (
+        NOT EXISTS (SELECT 1 FROM hx_tables t WHERE t.org_id=?1 AND t.id=json_extract(e.value,'$.tableId') AND t.columns=json_extract(e.value,'$.columns'))
+        OR NOT EXISTS (SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND ((json_extract(e.value,'$.key')='primary' AND a.table_id=json_extract(e.value,'$.tableId')) OR EXISTS (SELECT 1 FROM hx_app_entities l WHERE l.org_id=?1 AND l.app_id=?2 AND l.entity_key=json_extract(e.value,'$.key') AND l.table_id=json_extract(e.value,'$.tableId'))))
+        OR (SELECT COUNT(*) FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.tableId'))!=json_array_length(e.value,'$.rows')
+        OR EXISTS (SELECT 1 FROM json_each(e.value,'$.rows') expected WHERE NOT EXISTS
+          (SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.tableId') AND r.id=json_extract(expected.value,'$.id') AND r.data=json_extract(expected.value,'$.data') AND r.updated_at=json_extract(expected.value,'$.updatedAt')))))
+    )`).bind(orgId,app.id,String(by),plan.forkId,plan.revision,JSON.stringify(plan.snapshots),plan.checksum,nonce,JSON.stringify({schemaChanges:plan.schemaChanges,changes:plan.changes}),at,JSON.stringify(plan.snapshots.filter(snapshot=>!snapshot.newEntity).map(snapshot=>snapshot.tableId)),plan.schemaVersion);
   const guard='EXISTS (SELECT 1 FROM hx_app_fork_merges WHERE org_id=?1 AND app_id=?2 AND nonce=?3)';
   const statements=[receipt],queuedEvents=new Map();
-  for(const change of plan.schemaChanges) statements.push(db.prepare(`UPDATE hx_tables SET columns=?4,updated_at=?5 WHERE org_id=?1 AND id=?6 AND columns=?7 AND ${guard}`).bind(orgId,app.id,nonce,JSON.stringify(change.after),at,change.tableId,JSON.stringify(change.before)));
+  for(const change of plan.schemaChanges) {
+    if(change.newEntity){
+      statements.push(db.prepare(`INSERT INTO hx_tables (id,org_id,name,columns,created_by,created_at,updated_at) SELECT ?4,?1,?5,?6,?7,?8,?8 WHERE ${guard}`).bind(orgId,app.id,nonce,change.tableId,change.tableName,JSON.stringify(change.after),String(by),at));
+      statements.push(db.prepare(`INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) SELECT ?1,?2,?4,?5 WHERE ${guard}`).bind(orgId,app.id,nonce,change.entity,change.tableId));
+    }else statements.push(db.prepare(`UPDATE hx_tables SET columns=?4,updated_at=?5 WHERE org_id=?1 AND id=?6 AND columns=?7 AND ${guard}`).bind(orgId,app.id,nonce,JSON.stringify(change.after),at,change.tableId,JSON.stringify(change.before)));
+  }
   if(plan.schemaChanges.length) {
     statements.push(db.prepare(`INSERT INTO hx_app_database_state (org_id,app_id,version) SELECT ?1,?2,1 WHERE ${guard} ON CONFLICT(org_id,app_id) DO UPDATE SET version=version+1 WHERE ${guard}`).bind(orgId,app.id,nonce));
-    const operations=plan.schemaChanges.map(change=>({op:'add_columns',entity:change.entity,columns:change.after.slice(change.before.length).map(({id,...column})=>column)}));
-    const inverseOperations=[...plan.schemaChanges].reverse().flatMap(change=>change.after.slice(change.before.length).reverse().map(column=>({op:'drop_empty_column',entity:change.entity,column:column.id})));
+    const operations=plan.schemaChanges.flatMap(change=>(change.operations||[]).map(operation=>({...operation,entity:change.entity})));
+    const inverseOperations=operations.every(operation=>['add_columns','rename_column'].includes(operation.op))
+      ? [...operations].reverse().flatMap(operation=>operation.op==='add_columns'
+        ? operation.columns.map(column=>({op:'drop_empty_column',entity:operation.entity,column:plan.schemaChanges.find(change=>change.entity===operation.entity)?.after.find(item=>item.name===column.name)?.id})).filter(item=>item.column)
+        : [{op:'rename_column',entity:operation.entity,column:operation.column,name:plan.schemaChanges.find(change=>change.entity===operation.entity)?.before.find(item=>item.id===operation.column)?.name}])
+      : null;
     const journalPlan=JSON.stringify({format:2,operations,inverseOperations});
     const journalChecksum=await digest(journalPlan),migrationId=`preview_${nonce.replaceAll('-','').slice(0,16)}`;
     statements.push(db.prepare(`INSERT INTO hx_app_migrations (org_id,app_id,migration_id,version,checksum,plan,nonce,created_by,created_at) SELECT ?1,?2,?4,?5,?6,?7,?3,?8,?9 WHERE ${guard}`).bind(orgId,app.id,nonce,migrationId,plan.schemaVersion+1,journalChecksum,journalPlan,String(by),at));
@@ -154,6 +197,8 @@ export async function mergeFork(db,orgId,app,by,input) {
     else statements.push(db.prepare(`DELETE FROM hx_rows WHERE org_id=?1 AND table_id=?5 AND id=?4 AND ${guard}`).bind(orgId,app.id,nonce,c.id,c.tableId));
     const table=await getTable(db,orgId,c.tableId);
     if(table) {
+      const schemaChange=plan.schemaChanges.find(change=>change.tableId===c.tableId);
+      if(schemaChange)table.columns=schemaChange.after;
       const before=c.operation==='create'?null:{id:c.id,tableId:c.tableId,values:c.before||{},updatedAt:originalRows.get(`${c.tableId}:${c.id}`)?.updatedAt||null};
       const row=c.operation==='remove'?null:{id:c.id,tableId:c.tableId,values:c.after||{},updatedBy:String(by),updatedAt:at};
       // The event directly follows its row statement, which is fenced by the
