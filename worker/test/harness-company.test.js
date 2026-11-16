@@ -708,6 +708,35 @@ test('a merge rejected at transaction time queues no workflow events; an accepte
  expect(await outbox()).toBe(2);
 });
 
+test('a single reviewed preview merges 51 watched record changes in one atomic batch',async()=>{
+ const {mergeFork,MAX_FORK_MERGE_RECORDS}=await import('../src/harness/appMerge.js');
+ expect(MAX_FORK_MERGE_RECORDS).toBeGreaterThan(50);
+ await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now') ON CONFLICT(org_id) DO UPDATE SET mode='harness',updated_at='now'").bind(orgId).run();
+ expect((await call('/workflows',owner,{name:'Watch bulk preview changes',enabled:true,trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['update']},steps:[{type:'update_row',values:{task:'Observed'}}]})).status).toBe(201);
+ const ids=Array.from({length:51},(_,i)=>`bulk_${i}`);
+ const seededAt=new Date().toISOString();
+ await env.DB.batch(ids.map((id,i)=>env.DB.prepare(`INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at)
+   VALUES (?1,?2,?3,?4,?5,'1','1',?6,?6)`).bind(id,app.tableId,orgId,JSON.stringify({task:`Original ${i}`}),i,seededAt)));
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ const {mutateFork}=await import('../src/harness/appDatabase.js');
+ let revision=fork.revision;
+ for(let i=0;i<ids.length;i++){
+   const result=await mutateFork(env.DB,orgId,app.id,'1',{forkId:fork.id,revision,entity:'primary',operation:'update',rowId:ids[i],values:{task:`Reviewed ${i}`}});
+   expect(result.error).toBeUndefined();
+   revision=result.revision;
+ }
+ const request={forkId:fork.id,revision},review=await (await run('database',{action:'merge_preview',...request})).json();
+ expect(review.changes).toHaveLength(51);
+ expect(review.resolved).toBe(true);
+ const applied=await mergeFork(env.DB,orgId,app,'1',{...request,checksum:review.checksum});
+ expect(applied).toMatchObject({merged:true,changed:51});
+ expect(applied.changedRecords).toHaveLength(51);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox WHERE org_id=?1').bind(orgId).first()).n).toBe(51);
+ const rows=await env.DB.prepare('SELECT id,data FROM hx_rows WHERE org_id=?1 AND table_id=?2 ORDER BY id').bind(orgId,app.tableId).all();
+ expect(rows.results).toHaveLength(51);
+ expect(rows.results.every(row=>JSON.parse(row.data).task.startsWith('Reviewed '))).toBe(true);
+});
+
 
 test('display preference compare-and-set rejects an older request that reaches the database after revision 3',async()=>{
  const get=await call('/orgs/mode',owner);
