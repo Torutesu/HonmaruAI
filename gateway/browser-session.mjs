@@ -15,7 +15,7 @@ const BROWSER_READY_PROBE = [
  "  socket.once('error', () => { socket.destroy(); if (Date.now() >= deadline) process.exit(1); setTimeout(probe, 100); });",
  "}",
  "probe();",
-].join('\\n');
+].join(String.fromCharCode(10));
 
 function agentDigest(workspaceId, agentId) {
   if (!SAFE_ID.test(String(workspaceId || '')) || !SAFE_ID.test(String(agentId || ''))) {
