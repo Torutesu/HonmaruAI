@@ -1278,7 +1278,7 @@ test("gateway run delegates to the installed execution node runtime and exposes 
   assert.match(stdout.read(), /HONMARU_GATEWAY_TOKEN/);
 });
 
-test("file share CLI requests approval without exposing an approval or purge command", async () => {
+test("file share CLI lets agent tokens request and list approvals only", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
     const req = JSON.parse(init.body); calls.push(req.params);
@@ -1297,6 +1297,61 @@ test("file share CLI requests approval without exposing an approval or purge com
   assert.equal(await run(["workspace", "file", "share", "request", "file_1", "--version", "3", "--request-id", "bad"]), 1);
   assert.match(stderr.read(), /request-id must be share-/);
   assert.equal(calls.length, 2);
+});
+
+test("file share decisions use only a human session and print a bearer URL only after explicit approval", async () => {
+  const calls = [];
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_SESSION_TOKEN: "human-session-token-123456" };
+  const fetcher = async (url, init) => {
+    calls.push({ url: new URL(url), init });
+    if (calls.length === 1) return new Response(JSON.stringify({
+      shareId: "fshare_approved",
+      url: "/hx/public-file-shares/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn0123456789",
+      expiresAt: "2026-11-23T00:00:00.000Z",
+      allowDownload: false,
+    }), { status: 200 });
+    if (calls.length === 2) return new Response(JSON.stringify({ requestId: "fshare_req_1", status: "declined", decisionAt: "2026-11-16T00:00:00.000Z" }), { status: 200 });
+    return new Response(JSON.stringify({ shareId: "fshare_approved", revokedAt: "2026-11-16T00:00:00.000Z" }), { status: 200 });
+  };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+
+  assert.equal(await run(["workspace", "file", "share", "approve", "fshare_req_1", "--org-id", "org_1", "--confirm"]), 0);
+  const approved = JSON.parse(stdout.read());
+  assert.equal(approved.url, "https://api.example.com/hx/public-file-shares/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn0123456789");
+  assert.equal(await run(["workspace", "file", "share", "decline", "fshare_req_1", "--org-id", "org_1", "--confirm"]), 0);
+  assert.equal(await run(["workspace", "file", "share", "revoke", "fshare_approved", "--org-id", "org_1", "--confirm"]), 0);
+  assert.equal(calls.length, 3);
+  for (const call of calls) {
+    assert.equal(call.url.searchParams.get("orgId"), "org_1");
+    assert.equal(call.init.method, "POST");
+    assert.equal(call.init.redirect, "error");
+    assert.equal(call.init.headers["x-session-token"], env.HONMARU_SESSION_TOKEN);
+    assert.equal(call.init.headers.authorization, undefined);
+    assert.equal(call.init.body && JSON.parse(call.init.body).orgId, undefined);
+  }
+  assert.equal(calls[0].url.pathname, "/hx/files/share-requests/approve");
+  assert.equal(calls[1].url.pathname, "/hx/files/share-requests/decline");
+  assert.equal(calls[2].url.pathname, "/hx/files/shares/fshare_approved/revoke");
+  assert.equal(stderr.read(), "");
+});
+
+test("file share decisions require confirmation and never retry or echo response secrets", async () => {
+  let calls = 0;
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_SESSION_TOKEN: "human-session-token-123456" };
+  const fetcher = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ url: "/hx/public-file-shares/secretbearertoken123456789012345678901234567890" }), { status: 503 });
+  };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "file", "share", "approve", "fshare_req_1", "--org-id", "org_1"]), 1);
+  assert.equal(calls, 0);
+  assert.match(stderr.read(), /--confirm is required/);
+  assert.equal(await run(["workspace", "file", "share", "approve", "fshare_req_1", "--org-id", "org_1", "--confirm"]), 1);
+  assert.equal(calls, 1);
+  assert.doesNotMatch(stderr.read(), /secretbearer/);
+  assert.match(stderr.read(), /did not retry/);
 });
 
 test("file export polls a local temporary artifact, checks origin/size/hash, and creates the output exclusively", async () => {
