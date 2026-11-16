@@ -1436,6 +1436,12 @@ test("Skill share-link mutations require confirmation, secret environment input,
   assert.match(stderr.read(), /must be 1, 7, 30, or 90/);
   stderr.clear();
 
+  const insecureEnv = { ...env, HONMARU_APP_URL: "http://public.example.com" };
+  assert.equal(await runCli([...create, "--confirm"], { env: insecureEnv, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 1);
+  assert.equal(calls, 0);
+  assert.match(stderr.read(), /HTTP is allowed only on localhost/);
+  stderr.clear();
+
   const importCommand = ["workspace", "skill", "share-link", "import", "--org-id", "org_1", "--token-env", "HONMARU_SKILL_SHARE_TOKEN"];
   assert.equal(await run([...importCommand, "--confirm", skillToken]), 1);
   assert.equal(calls, 0);
