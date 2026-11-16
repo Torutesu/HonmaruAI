@@ -1018,6 +1018,38 @@ test('custom releases require owner permission, separate drafts and reject stale
   expect(current.app.definition.custom.draft).toBe(draft.html);
 });
 
+test('custom preview data is shared by draft reviewers and isolated across saved draft versions',async()=>{
+ const {app,path}=await customApprovalFixture();
+ const legacyUrl=`/apps/${app.id}/database`;
+ const legacy=await send('POST',legacyUrl,mika,{orgId:ORG,action:'fork'});
+ expect(legacy.status).toBe(200);
+ const legacyFork=(await legacy.json()).fork;
+ const legacyDataBefore=await env.DB.prepare('SELECT data,revision FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(ORG,app.id,'9102').first();
+
+ const {database,data}=await customDraftPreview(path,app.version,mika);
+ expect(data.fork).toMatchObject({id:expect.any(String),revision:1});
+ const table=data.fork.entities.find(entity=>entity.key==='primary').table;
+ const textColumn=table.columns.find(column=>column.type==='text');
+ expect(textColumn).toBeTruthy();
+ const write=await send('POST',database,mika,{orgId:ORG,action:'custom_preview_write',version:app.version,forkId:data.fork.id,revision:data.fork.revision,entity:'primary',operation:'create',values:{[textColumn.id]:'draft-a-only'}});
+ expect(write.status,await write.clone().text()).toBe(200);
+ const afterWrite=await(await get(`${database}?orgId=${ORG}&customPreview=1&version=${app.version}`,mika)).json();
+ expect(afterWrite.fork.entities[0].rows.some(row=>row.values[textColumn.id]==='draft-a-only')).toBe(true);
+ const reviewerView=await(await get(`${database}?orgId=${ORG}&customPreview=1&version=${app.version}`,toru)).json();
+ expect(reviewerView.fork.id).toBe(data.fork.id);
+ expect(reviewerView.fork.entities[0].rows.some(row=>row.values[textColumn.id]==='draft-a-only')).toBe(true);
+
+ const candidateId=await ensureCustomPreview(path,app.version,mika);
+ expect((await(await get(`${path}?orgId=${ORG}`,toru)).json()).publishGate.candidate).toMatchObject({id:candidateId,current:true,forkId:data.fork.id});
+ const nextDraft=await(await send('POST',path,mika,{orgId:ORG,action:'draft',version:app.version,html:'<h1>Draft B</h1>'})).json();
+ const next=await customDraftPreview(path,nextDraft.version,mika);
+ expect(next.data.fork.id).not.toBe(data.fork.id);
+ expect(next.data.fork.entities[0].rows.some(row=>row.values[textColumn.id]==='draft-a-only')).toBe(false);
+ expect((await(await get(`${path}?orgId=${ORG}`,toru)).json()).publishGate.candidate).toMatchObject({id:candidateId,current:false});
+ expect(await env.DB.prepare('SELECT data,revision FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(ORG,app.id,'9102').first()).toEqual(legacyDataBefore);
+ expect(legacyFork).toMatchObject({id:expect.any(String)});
+});
+
 test('app version history distinguishes release, inherited release, replacement and unpublish events', async () => {
   const { upsertUser } = await import('../src/db.js');
   await upsertUser(env.DB, { githubId: '9101', login: 'toru', name: 'Toru Tanaka' });
@@ -1548,9 +1580,8 @@ async function automationReleaseFixture() {
  return {app,automations,release};
 }
 async function directCustomPreview(app,by='9101') {
- const {forkDatabase}=await import('../src/harness/appDatabase.js');
- const {createCustomPreviewCandidate}=await import('../src/harness/customAppPreview.js');
- const result=await forkDatabase(env.DB,ORG,app,String(by));
+ const {createCustomDraftPreviewFork,createCustomPreviewCandidate}=await import('../src/harness/customAppPreview.js');
+ const result=await createCustomDraftPreviewFork(env.DB,ORG,app,String(by),{version:app.version});
  if(result.error)throw new Error(result.error);
  const candidate=await createCustomPreviewCandidate(env.DB,ORG,app,String(by),{version:app.version,forkId:result.fork.id,revision:result.fork.revision});
  if(candidate.error)throw new Error(candidate.error);
@@ -2808,10 +2839,19 @@ async function customApprovalFixture() {
   await send('POST',path,toru,{orgId:ORG,action:'policy',enabled:true});
   return {app:{...app,version:draft.version},path};
 }
-async function ensureCustomPreview(path, version, actor=mika) {
+async function customDraftPreview(path, version, actor=mika, query={}) {
   const appId=path.split('/')[2], database=`/apps/${appId}/database`;
-  let data=(await(await get(`${database}?orgId=${ORG}`,actor)).json());
-  if(!data.fork){await send('POST',database,actor,{orgId:ORG,action:'fork'});data=await(await get(`${database}?orgId=${ORG}`,actor)).json();}
+  const qs=new URLSearchParams({orgId:ORG,customPreview:'1',version:String(version),...query});
+  let data=await(await get(`${database}?${qs}`,actor)).json();
+  if(!data.fork){
+    await send('POST',database,actor,{orgId:ORG,action:'custom_preview_fork',version});
+    data=await(await get(`${database}?${qs}`,actor)).json();
+  }
+  return {database,data};
+}
+async function ensureCustomPreview(path, version, actor=mika) {
+  const {data}=await customDraftPreview(path,version,actor);
+  if(!data.fork)return undefined;
   const candidate=await(await send('POST',path,actor,{orgId:ORG,action:'preview_candidate',version,forkId:data.fork.id,revision:data.fork.revision})).json();
   return candidate.candidate?.id;
 }
@@ -2968,7 +3008,7 @@ test('requester membership removal permanently revokes an approval',async()=>{
 test('custom app publication and approval require the exact current preview database revision',async()=>{
  const {app,path}=await customApprovalFixture();
  const candidateId=await ensureCustomPreview(path,app.version,mika);
- await env.DB.prepare('UPDATE hx_app_forks SET revision=revision+1 WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(ORG,app.id,'9102').run();
+ await env.DB.prepare('UPDATE hx_app_release_preview_forks SET revision=revision+1 WHERE org_id=?1 AND app_id=?2 AND id=(SELECT fork_id FROM hx_app_preview_candidates WHERE org_id=?1 AND app_id=?2 AND id=?3)').bind(ORG,app.id,candidateId).run();
  const stale=(await(await get(`${path}?orgId=${ORG}`,mika)).json()).publishGate;
  expect(stale.candidate.current).toBe(false);
  expect((await send('POST',path,mika,{orgId:ORG,action:'request_approval',version:app.version,candidateId})).status).toBe(409);

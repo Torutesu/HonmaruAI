@@ -52,7 +52,7 @@ import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection 
 import { appRemoteMcpForViewer, changeAppRemoteMcpGrant, invokeAppRemoteMcp } from './appRemoteMcp.js';
 import { generateCustomSource, saveCustomRelease, validateSource, MAX_PREVIEW_SOURCE } from "./customApps.js";
 import { customPublishState, setCustomPublishPolicy, requestCustomPublishApproval, reviewCustomPublishApproval } from './customAppPublishApproval.js';
-import { createCustomPreviewCandidate, currentCustomPreviewCandidate } from './customAppPreview.js';
+import { createCustomPreviewCandidate, currentCustomPreviewCandidate, readCustomDraftPreviewFork, createCustomDraftPreviewFork, mutateCustomDraftPreviewFork } from './customAppPreview.js';
 import { createAppShare, listAppShares, revokeAppShare, readAppShare } from './appShares.js';
 import { listPublicAppShareApprovals, reviewPublicAppShareApproval } from './appShareApproval.js';
 import { fetchGitHubCommitSource, verifyGitHubCommitRef } from './githubCommitSource.js';
@@ -1727,7 +1727,13 @@ export async function handleHarness(request, env, url, context = {}) {
       };
       if (sub === 'database') {
         if (!await mayUseDatabase(env.DB, orgId, appId, me)) return json({message:'No such app.'},404);
-        if (request.method === 'GET') return respond({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
+        if (request.method === 'GET') {
+          if(url.searchParams.get('customPreview')==='1') {
+            const result=await readCustomDraftPreviewFork(env.DB,orgId,app,me,Number(url.searchParams.get('version')));
+            return respond(result.error?result:{...(await databaseView(env.DB,orgId,app)),...result});
+          }
+          return respond({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
+        }
         if (request.method !== 'POST') return json({ message: 'Method not allowed.' },405);
         if (!canManage) return json({ message: 'Only its maker, an editor, or an admin can develop this app.' },403);
         if (input.action === 'generate') {
@@ -1747,6 +1753,8 @@ export async function handleHarness(request, env, url, context = {}) {
         }
         if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
+        if (input.action === 'custom_preview_fork') return respond(await createCustomDraftPreviewFork(env.DB,orgId,app,me,input), 'app.custom_preview_forked');
+        if (input.action === 'custom_preview_refresh') return respond(await createCustomDraftPreviewFork(env.DB,orgId,app,me,input,true), 'app.custom_preview_refreshed');
         if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,appliedChanges,...review}=result; return respond(review,undefined,(snapshots||[]).map(snapshot=>snapshot.tableId)); }
         if (input.action === 'merge_apply') {
           const result=await mergeFork(env.DB,orgId,app,me,input);
@@ -1764,6 +1772,10 @@ export async function handleHarness(request, env, url, context = {}) {
         if (input.action === 'fork_write') {
           const {tableIds=[],...result}=await mutateFork(env.DB,orgId,appId,me,input);
           return respond(result,'app.preview_changed',tableIds);
+        }
+        if (input.action === 'custom_preview_write') {
+          const {tableIds=[],...result}=await mutateCustomDraftPreviewFork(env.DB,orgId,app,me,input);
+          return respond(result,'app.custom_preview_changed',tableIds);
         }
       }
       if (sub === 'actions') {
