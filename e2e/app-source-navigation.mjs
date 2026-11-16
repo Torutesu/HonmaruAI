@@ -53,12 +53,12 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
       stage = 'open filter popover'
       await foreground.getByRole('button', { name: /^(?:フィルター|Filter records)$/ }).click()
       stage = 'verify direct filter editor'
-      await foreground.getByRole('button', { name: 'フィルターを調整', exact: true }).click()
-      await foreground.getByRole('button', { name: '条件を追加', exact: true }).waitFor()
-      await foreground.getByRole('button', { name: 'キャンセル', exact: true }).click()
+      await foreground.getByRole('button', { name: /^(?:Adjust filters|フィルターを調整)$/ }).click()
+      await foreground.getByRole('button', { name: /^(?:Add condition|条件を追加)$/ }).waitFor()
+      await foreground.getByRole('button', { name: /^(?:Cancel|キャンセル)$/ }).click()
       await foreground.getByRole('button', { name: /^(?:フィルター|Filter records)$/ }).click()
       stage = 'ask AI for a filter adjustment'
-      await foreground.getByRole('button', { name: 'AIに調整案を相談', exact: true }).click()
+      await foreground.getByRole('button', { name: /^(?:Ask AI to suggest changes|AIに調整案を相談)$/ }).click()
       stage = 'wait for source thread'
       await page.locator('.slk-thread-pane .slk-composer textarea').waitFor({ timeout: 20000 })
       // The previous source panel remains mounted while the source route resolves.
@@ -100,8 +100,8 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     await appReply.fill('')
     stage = 'float app above workspace'
     const appScreen = page.locator('.shell > .hx-app-detail')
-    await appScreen.getByRole('button', { name: 'その他のアプリ操作', exact: true }).click()
-    await appScreen.getByRole('menuitem', { name: 'ワークスペース上にフローティング表示', exact: true }).click()
+    await appScreen.getByRole('button', { name: /^(?:More app actions|その他のアプリ操作)$/ }).click()
+    await appScreen.getByRole('menuitem', { name: /^(?:Float over the workspace|ワークスペース上にフローティング表示)$/ }).click()
     const floating = page.getByRole('region', { name: 'フローティングアプリ', exact: true })
     await floating.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
     const initialBox = await floating.boundingBox()
