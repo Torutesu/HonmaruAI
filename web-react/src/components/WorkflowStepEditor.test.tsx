@@ -31,20 +31,35 @@ test('connection actions include native read-only searches and explicitly grante
  act(()=>tree.unmount())
 })
 
-test('Remote MCP Workflow steps choose an Agent-granted tool and store JSON arguments',async()=>{
- const onChange=vi.fn();const api:any={agentApps:vi.fn().mockResolvedValue({remoteMcpConnections:[{serverId:'mcp-1',name:'Knowledge',available:true,enabled:false,readOnlyToolCount:1,tools:[{name:'search_policy',title:'Search policy',description:'Search the approved policy source.',enabled:true}]}]})};let tree:any,step:any={type:'connection',source:'remote_mcp',agentId:'a1',args:{}}
+test('Remote MCP Workflow steps list workspace-approved read and write tools and show their approval requirement',async()=>{
+ const onChange=vi.fn();const api:any={agentApps:vi.fn().mockResolvedValue({workflowRemoteMcpConnections:[{serverId:'mcp-1',name:'Knowledge',available:true,tools:[{name:'search_policy',title:'Search policy',description:'Search the approved policy source.',enabled:true,requiresApproval:false},{name:'create_issue',title:'Create issue',description:'Create an issue.',enabled:true,requiresApproval:true}]}]})};let tree:any,step:any={type:'connection',source:'remote_mcp',agentId:'a1',args:{}}
  const renderEditor=()=> <StepEditor api={api} step={step} onChange={next=>{step=next;onChange(next)}} onRemove={()=>{}} tables={[]} agents={[{id:'a1',handle:'policy',name:'Policy Agent'}]}/>
  await act(async()=>{tree=create(renderEditor())})
- expect(api.agentApps).toHaveBeenCalledWith('a1')
+ expect(api.agentApps).toHaveBeenCalledWith('a1',{workflow:true})
  const connection=()=>tree.root.findByProps({'aria-label':'Remote MCP connection'})
  act(()=>connection().props.onChange({target:{value:'mcp-1'}}))
  act(()=>tree.update(renderEditor()))
  const tool=()=>tree.root.findByProps({'aria-label':'Remote MCP tool'})
+ expect(tool().findAllByType('option').map((node:any)=>node.children.join(''))).toEqual(['Choose an approved tool','Search policy','Create issue · approval required'])
  act(()=>tool().props.onChange({target:{value:'search_policy'}}))
  act(()=>tree.update(renderEditor()))
  const argumentsInput=()=>tree.root.findByProps({'aria-label':'Remote MCP arguments (JSON)'})
  act(()=>argumentsInput().props.onChange({target:{value:'{"query":"{{input.query}}"}'}}))
  expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({serverId:'mcp-1',toolName:'search_policy',args:{query:'{{input.query}}'}}))
+ act(()=>tool().props.onChange({target:{value:'create_issue'}}))
+ act(()=>tree.update(renderEditor()))
+ expect(tree.root.findAllByType('div').some((node:any)=>node.children.includes('Add an approval step immediately before this write. The approver will see the exact tool and arguments.'))).toBe(true)
+ act(()=>tree.update(<StepEditor api={api} step={step} onChange={next=>{step=next;onChange(next)}} onRemove={()=>{}} tables={[]} agents={[{id:'a1',handle:'policy',name:'Policy Agent'}]} previousStepType="approval"/>))
+ expect(tree.root.findAllByType('div').some((node:any)=>node.children.includes('A human approval is immediately before this write. The approver sees the exact tool and arguments.'))).toBe(true)
+ act(()=>tree.unmount())
+})
+
+test('Workflow editor blocks OAuth-disconnected Remote MCP servers and explains how to connect them',async()=>{
+ const api:any={agentApps:vi.fn().mockResolvedValue({workflowRemoteMcpConnections:[{serverId:'mcp-oauth',name:'OAuth knowledge',available:false,needsOAuth:true,tools:[{name:'search',title:'Search',enabled:false,requiresApproval:false}]}]})};let tree:any
+ await act(async()=>{tree=create(<StepEditor api={api} step={{type:'connection',source:'remote_mcp',agentId:'a1',args:{}}} onChange={()=>{}} onRemove={()=>{}} tables={[]} agents={[{id:'a1',handle:'policy',name:'Policy Agent'}]}/> )})
+ const server=tree.root.findByProps({'aria-label':'Remote MCP connection'})
+ expect(server.findAllByType('option').map((node:any)=>node.props.value)).toEqual([''])
+ expect(tree.root.findAllByType('div').some((node:any)=>node.children.includes('Connect this Remote MCP server with OAuth before using it in a Workflow.'))).toBe(true)
  act(()=>tree.unmount())
 })
 

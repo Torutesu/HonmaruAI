@@ -126,7 +126,9 @@ export interface AgentAppConnection { server: string; name: string; description:
 export interface AgentNativeConnection { source: 'notion' | 'github'; available: boolean; enabled: boolean; canShare?: boolean; shareEnabled?: boolean; shared?: boolean; workspaceAvailable?: boolean; workspaceEnabled?: boolean; canManageWorkspace?: boolean }
 export interface AgentRemoteMcpTool { name: string; title: string; description: string; enabled: boolean; requiresApproval?: boolean }
 export interface AgentRemoteMcpConnection { serverId: string; name: string; available: boolean; enabled: boolean; readOnlyToolCount: number; tools?:AgentRemoteMcpTool[]; needsOAuth?: boolean }
-export interface AgentConnectionState { connections: AgentAppConnection[]; nativeConnections: AgentNativeConnection[]; remoteMcpConnections?: AgentRemoteMcpConnection[] }
+export interface WorkflowRemoteMcpTool extends AgentRemoteMcpTool { inputSchema?: Record<string, unknown>; requiresApproval: boolean }
+export interface WorkflowRemoteMcpConnection { serverId: string; name: string; available: boolean; needsOAuth?: boolean; tools: WorkflowRemoteMcpTool[] }
+export interface AgentConnectionState { connections: AgentAppConnection[]; nativeConnections: AgentNativeConnection[]; remoteMcpConnections?: AgentRemoteMcpConnection[]; workflowRemoteMcpConnections?: WorkflowRemoteMcpConnection[] }
 export interface HomeData {
   mode: WorkspaceMode
   approvals: {
@@ -311,7 +313,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     agentMembers: (agentId: string) => call<AgentRoleState>('GET', `/hx/agents/${agentId}/members`),
     agentPeerMembers: (agentId:string) => call<AgentPeerRoleState>('GET', `/hx/agents/${encodeURIComponent(agentId)}/agent-members`),
     setAgentPeerMember: (agentId:string, memberAgentId:string, role:'member'|'none', expectedVersion:number) => call<{version:number}>('PUT', `/hx/agents/${encodeURIComponent(agentId)}/agent-members`, {memberAgentId,role,expectedVersion}),
-    agentApps: (agentId: string) => call<AgentConnectionState>('GET', `/hx/agents/${agentId}/apps`),
+    agentApps: (agentId: string, options?: { workflow?: boolean }) => call<AgentConnectionState>('GET', `/hx/agents/${agentId}/apps`, undefined, options?.workflow ? { workflow: '1' } : undefined),
     setAgentApp: (agentId: string, server: string, granted: boolean) => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { server } : undefined, granted ? undefined : { server }),
     setAgentNativeSource: (agentId: string, source: AgentNativeConnection['source'], granted: boolean, scope: 'member' | 'workspace' = 'member') => call<AgentConnectionState>(granted ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, granted ? { source, scope } : undefined, granted ? undefined : { source, scope }),
     setAgentNativeSourceShare: (agentId: string, source: AgentNativeConnection['source'], shared: boolean) => call<AgentConnectionState>(shared ? 'POST' : 'DELETE', `/hx/agents/${agentId}/apps`, shared ? { source, shareWithAgent: true } : undefined, shared ? undefined : { source, shareWithAgent: '1' }),

@@ -291,6 +291,8 @@ function Builder({ api, tables, agents, triggerApps, onSave, onCancel, busy, ini
           step={s}
           tables={tables}
           agents={agents}
+          api={api}
+          previousStepType={i > 0 ? steps[i - 1]?.type : undefined}
           triggerTable={trigger.type === 'row' ? table : trigger.type === 'app_record_change' ? triggerEntity?.table : undefined}
           onChange={(next) => setSteps(steps.map((x, j) => (j === i ? next : x)))}
           onRemove={() => setSteps(steps.filter((_, j) => j !== i))}

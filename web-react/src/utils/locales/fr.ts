@@ -2244,7 +2244,6 @@ const table: Record<string, string> = {
   'Only workspace-approved tools marked read-only are available. Choose each tool this Agent may use in your private conversations.': 'Les outils en lecture seule approuvés sont disponibles dans les conversations de l’agent. Les outils d’écriture sont autorisés individuellement et exécutés uniquement dans un workflow approuvé.',
   'Workflow approval required': 'Approbation du workflow requise',
   'Choose an enabled tool': 'Choisir un outil activé',
-  'approval required': 'approbation requise',
   'This tool can write to an external service. Add an Approval step immediately before it. The approver will see the tool name and rendered arguments.': 'Cet outil écrit dans un service externe. Ajoutez une étape d’approbation juste avant. La personne verra le nom de l’outil et les arguments résolus.',
   'Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.': 'Autorisez cet outil Remote MCP dans l’onglet Connexions de l’agent avant de l’utiliser ici.',
   'Calls only the selected tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.': 'Appelle uniquement l’outil sélectionné. Worker revérifie son schéma et ses autorisations avant et après chaque requête. Ne mettez pas d’identifiants dans les arguments.',
@@ -2359,6 +2358,13 @@ const table: Record<string, string> = {
   'Publication and code history': 'Historique de publication et du code',
   'Move': 'Déplacer',
   'Move linked app to the entered room': 'Déplacer l’application liée vers la salle indiquée',
+  'Choose an approved tool': 'Choisir un outil autorisé',
+  'Connect this Remote MCP server with OAuth before using it in a Workflow.': 'Connectez ce serveur Remote MCP avec OAuth avant de l’utiliser dans un workflow.',
+  'approval required': 'approbation requise',
+  'A human approval is immediately before this write. The approver sees the exact tool and arguments.': 'Cette écriture est précédée d’une approbation humaine. La personne qui approuve voit l’outil et les arguments exacts.',
+  'Add an approval step immediately before this write. The approver will see the exact tool and arguments.': 'Ajoutez une étape d’approbation juste avant cette écriture. La personne qui approuve verra l’outil et les arguments exacts.',
+  'Read-only tools require a specific Agent grant. The Worker checks the schema and permission before and after each request. Do not put credentials in the arguments.': 'Les outils en lecture seule nécessitent une autorisation spécifique de l’agent. Worker vérifie le schéma et les droits avant et après chaque requête. N’incluez pas d’identifiants dans les arguments.',
+  'A workspace admin must enable the tool in Remote MCP settings before it can be added to a Workflow.': 'Un administrateur de l’espace doit activer l’outil dans les paramètres Remote MCP avant son ajout à un workflow.',
 }
 
 export default table

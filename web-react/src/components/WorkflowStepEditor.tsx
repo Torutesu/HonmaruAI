@@ -14,18 +14,18 @@ function stepLabel(t: (k: string) => string, type: StepType) {
   } as Record<StepType, string>)[type]
 }
 
-export function StepEditor({ api, step, onChange, onRemove, tables, agents, triggerTable }: {
-  api?:HarnessApi; step: Step; onChange: (s: Step) => void; onRemove: () => void; tables: Table[]; agents: AgentFace[]; triggerTable?: Table
+export function StepEditor({ api, step, onChange, onRemove, tables, agents, triggerTable, previousStepType }: {
+  api?:HarnessApi; step: Step; onChange: (s: Step) => void; onRemove: () => void; tables: Table[]; agents: AgentFace[]; triggerTable?: Table; previousStepType?: StepType
 }) {
   const t = useT()
-  const [mcpConnections,setMcpConnections]=useState<NonNullable<Awaited<ReturnType<NonNullable<HarnessApi>['agentApps']>>['remoteMcpConnections']>>([])
+  const [mcpConnections,setMcpConnections]=useState<NonNullable<Awaited<ReturnType<NonNullable<HarnessApi>['agentApps']>>['workflowRemoteMcpConnections']>>([])
   const [mcpBusy,setMcpBusy]=useState(false),[mcpError,setMcpError]=useState(''),[argsText,setArgsText]=useState(JSON.stringify(step.args||{},null,2))
   useEffect(()=>{setArgsText(JSON.stringify(step.args||{},null,2))},[step.args])
   useEffect(()=>{
     let live=true
     if(step.type!=='connection'||step.source!=='remote_mcp'||!step.agentId||!api){setMcpConnections([]);setMcpError('');setMcpBusy(false);return()=>{live=false}}
     setMcpBusy(true);setMcpError('')
-    void api.agentApps(step.agentId).then(result=>{if(live)setMcpConnections(result.remoteMcpConnections||[])}).catch(error=>{if(live){setMcpConnections([]);setMcpError(error instanceof Error?error.message:String(error))}}).finally(()=>{if(live)setMcpBusy(false)})
+    void api.agentApps(step.agentId,{workflow:true}).then(result=>{if(live)setMcpConnections(result.workflowRemoteMcpConnections||[])}).catch(error=>{if(live){setMcpConnections([]);setMcpError(error instanceof Error?error.message:String(error))}}).finally(()=>{if(live)setMcpBusy(false)})
     return()=>{live=false}
   },[api,step.agentId,step.source,step.type])
   const set = (patch: Partial<Step>) => onChange({ ...step, ...patch })
@@ -73,16 +73,20 @@ export function StepEditor({ api, step, onChange, onRemove, tables, agents, trig
           {step.source==='remote_mcp'?<>
             <select aria-label={t('Remote MCP connection')} value={step.serverId||''} disabled={mcpBusy} onChange={event=>{const serverId=event.target.value,server=mcpConnections.find(item=>item.serverId===serverId),tool=server?.tools?.find(item=>item.enabled);set({serverId,toolName:tool?.name,args:{}})}}>
               <option value="">{mcpBusy?t('Loading…'):t('Choose a Remote MCP connection')}</option>
-              {mcpConnections.filter(server=>server.tools?.some(tool=>tool.enabled)).map(server=><option key={server.serverId} value={server.serverId}>{server.name}</option>)}
+              {mcpConnections.filter(server=>server.available&&server.tools?.some(tool=>tool.enabled)).map(server=><option key={server.serverId} value={server.serverId}>{server.name}</option>)}
             </select>
             {step.serverId&&<select aria-label={t('Remote MCP tool')} value={step.toolName||''} onChange={event=>set({toolName:event.target.value,args:{}})}>
-              <option value="">{t('Choose an enabled tool')}</option>
-              {mcpConnections.find(server=>server.serverId===step.serverId)?.tools?.filter(tool=>tool.enabled).map(tool=><option key={tool.name} value={tool.name}>{tool.title}{tool.requiresApproval?` · ${t('approval required')}`:''}</option>)}
+              <option value="">{t('Choose an approved tool')}</option>
+              {mcpConnections.find(server=>server.serverId===step.serverId&&server.available)?.tools?.filter(tool=>tool.enabled).map(tool=><option key={tool.name} value={tool.name}>{tool.title}{tool.requiresApproval?` · ${t('approval required')}`:''}</option>)}
             </select>}
             {step.toolName&&<textarea className="context-input hx-workflow-mcp-arguments" rows={5} placeholder={'{}'} value={argsText} onChange={event=>{setArgsText(event.target.value);try{const parsed=JSON.parse(event.target.value);if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))set({args:parsed})}catch{}}} aria-label={t('Remote MCP arguments (JSON)')} />}
             {mcpError&&<p role="alert" className="form-error">{mcpError}</p>}
-            {!mcpBusy&&!mcpError&&step.agentId&&mcpConnections.every(server=>!server.tools?.some(tool=>tool.enabled))&&<div className="row-sub">{t('Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.')}</div>}
-            <div className="row-sub">{t('Calls only the selected tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.')}</div>{mcpConnections.find(server=>server.serverId===step.serverId)?.tools?.find(tool=>tool.name===step.toolName)?.requiresApproval&&<div className="form-note">{t('This tool can write to an external service. Add an Approval step immediately before it. The approver will see the tool name and rendered arguments.')}</div>}
+            {!mcpBusy&&!mcpError&&mcpConnections.some(server=>server.needsOAuth)&&<div className="row-sub">{t('Connect this Remote MCP server with OAuth before using it in a Workflow.')}</div>}
+            {!mcpBusy&&!mcpError&&step.agentId&&!mcpConnections.some(server=>server.needsOAuth)&&mcpConnections.every(server=>!server.available||!server.tools?.length)&&<div className="row-sub">{t('A workspace admin must enable the tool in Remote MCP settings before it can be added to a Workflow.')}</div>}
+            {!mcpBusy&&!mcpError&&step.agentId&&mcpConnections.some(server=>server.available&&server.tools?.length)&&mcpConnections.every(server=>!server.tools?.some(tool=>tool.enabled))&&<div className="row-sub">{t('Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.')}</div>}
+            {mcpConnections.find(server=>server.serverId===step.serverId)?.tools?.find(tool=>tool.name===step.toolName)?.requiresApproval
+              ? <div className="row-sub">{previousStepType==='approval'?t('A human approval is immediately before this write. The approver sees the exact tool and arguments.'):t('Add an approval step immediately before this write. The approver will see the exact tool and arguments.')}</div>
+              : <div className="row-sub">{t('Read-only tools require a specific Agent grant. The Worker checks the schema and permission before and after each request. Do not put credentials in the arguments.')}</div>}
           </>:<>
             <textarea className="context-input" rows={2} placeholder={t('Search query')} value={step.query || ''} onChange={(e) => set({ query: e.target.value, action: 'search' })} aria-label={t('Search query')} />
             <div className="row-sub">{t('Uses the selected Agent’s current connection grant. Read-only search; writes are not available.')}</div>

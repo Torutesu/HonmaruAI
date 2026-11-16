@@ -3930,7 +3930,6 @@ const table: Record<string, string> = {
   'Only workspace-approved tools marked read-only are available. Choose each tool this Agent may use in your private conversations.': 'ワークスペースが許可した読み取り専用ツールはAgentの会話で使えます。書き込みツールは個別に許可し、承認後のWorkflowでのみ実行します。',
   'Workflow approval required': 'Workflowでの承認が必要',
   'Choose an enabled tool': '有効なツールを選択',
-  'approval required': '承認が必要',
   'This tool can write to an external service. Add an Approval step immediately before it. The approver will see the tool name and rendered arguments.': 'このツールは外部サービスに書き込みます。直前に承認ステップを追加してください。承認者にはツール名と展開後の引数が表示されます。',
   'Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.': 'ここで使う前に、Agentの接続タブでRemote MCPツールを個別に許可してください。',
   'Calls only the selected tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.': '選択したツールだけを呼び出します。Workerは各リクエストの前後にスキーマと権限を再確認します。引数に認証情報を含めないでください。',
@@ -4102,7 +4101,13 @@ const table: Record<string, string> = {
   'Close floating app': 'フローティングアプリを閉じる',
   'Close panel': 'パネルを閉じる',
   'Personal': '個人',
-
+  'Choose an approved tool': '許可済みツールを選択',
+  'Connect this Remote MCP server with OAuth before using it in a Workflow.': 'Workflowで使う前に、このRemote MCPサーバーをOAuthで接続してください。',
+  'approval required': '承認が必要',
+  'A human approval is immediately before this write. The approver sees the exact tool and arguments.': 'この書き込みの直前に人の承認があります。承認者にはツールと引数がそのまま表示されます。',
+  'Add an approval step immediately before this write. The approver will see the exact tool and arguments.': 'この書き込みの直前に承認ステップを追加してください。承認者にはツールと引数がそのまま表示されます。',
+  'Read-only tools require a specific Agent grant. The Worker checks the schema and permission before and after each request. Do not put credentials in the arguments.': '読み取り専用ツールにはAgentごとの許可が必要です。Workerは各リクエストの前後にスキーマと権限を確認します。引数に認証情報を含めないでください。',
+  'A workspace admin must enable the tool in Remote MCP settings before it can be added to a Workflow.': 'Workflowに追加する前に、ワークスペース管理者がRemote MCP設定でツールを有効にする必要があります。',
 }
 
 export default table

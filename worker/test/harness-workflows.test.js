@@ -1762,6 +1762,30 @@ test('write-capable Remote MCP tools require an exact Agent grant and an immedia
   } finally { deactivateWorkflowFetchMock(); }
 });
 
+test('Workflow editor catalog separates workspace write approval from Agent tool grants', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Approved writer', handle: 'approved-writer', instructions: 'Update approved records.', scope: 'team',
+  })).json();
+  const server = await addWorkflowRemoteMcpServer([
+    { name: 'update_record', title: 'Update record', inputSchema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, annotations: { readOnlyHint: false } },
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+  ], ['update_record', 'search_policy'], ['update_record']);
+  const workflowConnections = await get(`/hx/agents/${agent.id}/apps?${q({ orgId: ORG, workflow: '1' })}`, mika);
+  expect(workflowConnections.status).toBe(200);
+  expect((await workflowConnections.json()).workflowRemoteMcpConnections).toMatchObject([{
+    serverId: server.id, available: true,
+    tools: [
+      { name: 'update_record', enabled: false, requiresApproval: true },
+      { name: 'search_policy', enabled: false, requiresApproval: false },
+    ],
+  }]);
+  const { setAgentRemoteMcpTool } = await import('../src/harness/agentRemoteMcp.js');
+  expect((await setAgentRemoteMcpTool(env, { orgId: ORG, agentId: agent.id, session: { github_id: '9302' }, serverId: server.id, toolName: 'update_record', enabled: true })).error).toBeUndefined();
+  expect((await setAgentRemoteMcpTool(env, { orgId: ORG, agentId: agent.id, session: { github_id: '9302' }, serverId: server.id, toolName: 'search_policy', enabled: true })).error).toBeUndefined();
+  const grantedConnections = await get(`/hx/agents/${agent.id}/apps?${q({ orgId: ORG, workflow: '1' })}`, mika);
+  expect((await grantedConnections.json()).workflowRemoteMcpConnections[0].tools.map(tool=>tool.enabled)).toEqual([true,true]);
+});
+
 test('a Workflow Agent does not receive workspace Remote MCP tools without its personal grant', async () => {
   const { agent } = await (await send('POST', '/channels/agents', mika, {
     orgId: ORG, name: 'No grant reviewer', handle: 'no-grant-reviewer', instructions: 'Review the request.', scope: 'team',
