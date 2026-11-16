@@ -28,6 +28,21 @@ export async function assignmentTargets(env, grant) {
   return available.filter(Boolean);
 }
 
+// Automatic recovery must only select a local managed Agent that is already
+// statically assigned to this source Agent. Do not turn recovery into an
+// implicit wake-approval or provider invocation.
+export async function hasStaticAgentPeerGrant(db,{orgId,sourceAgentId,targetAgentId}) {
+  return Boolean(await db.prepare(`SELECT 1 FROM hx_agent_agent_members peer
+    JOIN custom_agents target ON target.org_id=peer.org_id AND target.id=peer.agent_id
+      AND target.scope='team' AND target.provider IS NULL AND target.deleted_at IS NULL
+    JOIN hx_agent_profiles target_profile ON target_profile.org_id=target.org_id AND target_profile.agent_id=target.id
+    JOIN custom_agents source ON source.org_id=peer.org_id AND source.id=peer.member_agent_id
+      AND source.scope='team' AND source.provider IS NULL AND source.deleted_at IS NULL
+    JOIN hx_agent_profiles source_profile ON source_profile.org_id=source.org_id AND source_profile.agent_id=source.id
+    WHERE peer.org_id=?1 AND peer.agent_id=?2 AND peer.member_agent_id=?3`)
+    .bind(orgId,targetAgentId,sourceAgentId).first());
+}
+
 export async function beginAuthorizedAssignment(env, request, agentId) {
   if (await getMode(env.DB,request.orgId) !== 'harness') return null;
   const grant = await agentExecutionGrant(env,request);
@@ -78,6 +93,8 @@ export async function acceptAgentHandoff(env,input) {
   // managed Agent-to-Agent execution.
   const staticPermit=!targetExists || Boolean(target.provider)
     || Boolean(await env.DB.prepare(`SELECT 1 FROM hx_agent_agent_members WHERE org_id=?1 AND agent_id=?2 AND member_agent_id=?3`).bind(input.orgId,input.targetAgentId,input.sourceAgentId).first());
+  if(input.requireExistingPeerGrant && (!target || target.provider || !await hasStaticAgentPeerGrant(env.DB,{orgId:input.orgId,sourceAgentId:input.sourceAgentId,targetAgentId:input.targetAgentId})))
+    return {error:'The target Agent no longer has an existing static peer grant.',status:403};
   if(targetExists&&!staticPermit) {
     const wakeGrantId=await activeAgentWakeGrant(env.DB,{orgId:input.orgId,assignmentId:input.assignmentId,sourceAgentId:input.sourceAgentId,targetAgentId:input.targetAgentId,operationId:input.operationId});
     if(!wakeGrantId) {
