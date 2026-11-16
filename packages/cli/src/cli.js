@@ -1351,6 +1351,15 @@ async function skillShareLink({ action, positional, options, apiUrl, sessionToke
     if (typeof sessionToken !== "string" || sessionToken.length < 16 || sessionToken.length > 4096 || /\s/.test(sessionToken)) {
       throw new Error("Set HONMARU_SESSION_TOKEN to a signed-in human session token. Agent API tokens cannot create public Skill links.");
     }
+    let appOrigin;
+    try {
+      const configured = new URL(secretEnv?.HONMARU_APP_URL || "https://app.honmaruai.com");
+      const localHttp = configured.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(configured.hostname);
+      if ((configured.protocol !== "https:" && !localHttp) || configured.username || configured.password || configured.search || configured.hash || configured.pathname !== "/") throw new Error();
+      appOrigin = configured.origin;
+    } catch {
+      throw new Error("HONMARU_APP_URL must be an HTTPS origin without credentials, path, query, or fragment (HTTP is allowed only on localhost).");
+    }
     const origin = new URL(mcpEndpoint(apiUrl)).origin;
     const endpoint = new URL("/skills/" + encodeURIComponent(positional[0]) + "/shares", origin);
     let response;
@@ -1370,14 +1379,6 @@ async function skillShareLink({ action, positional, options, apiUrl, sessionToke
     catch { throw new Error("Honmaru returned an unreadable Skill share-link result. Check share metadata before retrying; the CLI did not retry."); }
     if (typeof result?.token !== "string" || !/^skl_[a-f0-9]{64}$/.test(result.token) || !result.share || typeof result.share.id !== "string") {
       throw new Error("Honmaru returned an invalid Skill share-link result. Check share metadata before retrying; the CLI did not retry.");
-    }
-    let appOrigin;
-    try {
-      const configured = new URL(secretEnv?.HONMARU_APP_URL || "https://app.honmaruai.com");
-      if (!["https:", "http:"].includes(configured.protocol) || configured.username || configured.password) throw new Error();
-      appOrigin = configured.origin;
-    } catch {
-      throw new Error("HONMARU_APP_URL must be an HTTP(S) app origin without credentials.");
     }
     writeOut(JSON.stringify({
       publicUrl: appOrigin + "/#/skill-share/" + result.token,
