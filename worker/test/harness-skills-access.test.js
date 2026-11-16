@@ -196,6 +196,7 @@ test('skill-to-agent grants recheck manager authority in the service and at the 
 });
 
 test('a workspace Skill owner can assign and revoke it on another active same-workspace Agent', async () => {
+  await setMode(env.DB, orgId, 'harness', '9403');
   const skill = await create('workspace');
   const made = await request('POST', '/channels/agents', member, {
     name: 'Member agent', handle: 'member-agent', instructions: 'Help', scope: 'team',
@@ -275,6 +276,7 @@ test('skill owner membership revocation at the insert boundary prevents a worksp
 });
 
 test('Skill share links expose a temporary package, import private copies, install on managed agents, and revoke immediately', async () => {
+  await setMode(env.DB, orgId, 'harness', '9403');
   const body = 'Confidential procedure body';
   const asset = new TextEncoder().encode('Keep this support file with the skill.');
   const created = await request('POST', '/skills', owner, {
