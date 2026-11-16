@@ -19,6 +19,8 @@ type Dict = Record<string, string>
 // well as a key, so they get a name and an entry here; `t` falls back through
 // this before falling back to the key itself.
 const en: Dict = {
+  'Move': 'Move',
+  'Move linked app to the entered room': 'Move linked app to the entered room',
   'room.automations': 'Automations',
   'mcp.consent.lede': 'This app will act as you. Allow only the permissions you want it to use. You can disconnect it under Studio, API & Webhooks.',
   'mcp.connections.lede': 'Connect an MCP-compatible app to Honmaru over the internet. Each connection acts as you with the permissions you approve.',

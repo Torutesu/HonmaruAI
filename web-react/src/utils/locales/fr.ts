@@ -2357,6 +2357,8 @@ const table: Record<string, string> = {
   'After restoring, publish it again under the current approval rules. The history will record it as a new version.': 'Après restauration, publiez-la de nouveau selon les règles d’approbation actuelles. L’historique l’enregistrera comme une nouvelle version.',
   'Restore draft': 'Restaurer le brouillon',
   'Publication and code history': 'Historique de publication et du code',
+  'Move': 'Déplacer',
+  'Move linked app to the entered room': 'Déplacer l’application liée vers la salle indiquée',
 }
 
 export default table

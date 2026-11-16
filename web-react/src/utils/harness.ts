@@ -46,7 +46,7 @@ export interface View {
 export interface App {
   definition: { views: View[]; custom?: { draft?: string; published?: string; publishedAt?: string } }
   id: string; name: string; description: string; icon: string; tableId: string
-  template: string | null; version: number; channels?: string[]; createdBy: string; updatedAt: string
+  template: string | null; version: number; channels?: string[]; channelLinkVersions?: Record<string,string>; createdBy: string; updatedAt: string
 }
 export interface ArchivedApp { id:string; name:string; description:string; icon:string; version:number; createdBy:string; archivedAt:string }
 export interface AppAction { name: string; version: number; draft?: string; language?: 'javascript'|'typescript'; published: string | null; publishedLanguage?: 'javascript'|'typescript'; publishedVersion: number | null }
@@ -238,6 +238,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     versions: (id: string) => call<{ versions: Array<{ version: number; note: string | null; createdBy: string; createdAt: string; release: null | { publishedAt: string; publishedBy: string; publishedByName?: string | null; source: 'inline' | 'github-commit'; commitSha?: string; current: boolean; status: 'current' | 'replaced' | 'stopped'; version: number; isReleaseVersion: boolean }; releaseEvent?: { type: 'unpublished'; at: string; by: string }; approvals?: Array<{ kind: 'inline' | 'github-commit'; status: 'pending' | 'approved' | 'rejected' | 'revoked' | 'published'; requestedBy: string; requestedByName: string; reviewerId: string | null; reviewerName: string | null; requestedAt: string; reviewedAt: string | null }> }> }>('GET', `/apps/${id}/versions`),
     restore: (id: string, version: number) => call<{ app: App }>('POST', `/apps/${id}/versions`, { version }),
     link: (id: string, channel: string) => call<{ linked: boolean }>('POST', `/apps/${id}/links`, { channel }),
+    moveLink: (id:string,fromChannel:string,toChannel:string,expectedSourceCreatedAt:string) => call<{moved:boolean;channel:string;createdAt:string}>('POST',`/apps/${id}/links`,{action:'move',fromChannel,toChannel,expectedSourceCreatedAt}),
     unlink: (id: string, channel: string) => call<{ unlinked: boolean }>('DELETE', `/apps/${id}/links`, undefined, { channel }),
 
     workflowAgents: () => call<{agents:Array<{id:string;handle:string;name:string;emoji?:string|null}>}>('GET', '/channels/agents'),

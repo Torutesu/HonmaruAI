@@ -542,13 +542,32 @@ export async function unlinkApp(db, orgId, id, channel) {
   return { unlinked: true };
 }
 
+/// Move one navigation link atomically. Both room grants and the exact source
+/// link revision are checked in the UPDATE that changes the link's channel.
+export async function moveAppLink(db, orgId, id, source, destination, by, expectedCreatedAt) {
+  const from=String(source||'').trim().slice(0,200), to=String(destination||'').trim().slice(0,200);
+  if(!from||!to||from===to||typeof expectedCreatedAt!=='string'||!expectedCreatedAt)return {error:'A source, destination, and current link revision are required.',status:400};
+  const sourceAuthority=conversationWriteAuthority('?1','?3','?6');
+  const destinationAuthority=conversationWriteAuthority('?1','?4','?6');
+  const movedAt=now();
+  const result=await db.prepare(`UPDATE hx_app_links SET channel=?4,created_by=?6,created_at=?7
+    WHERE org_id=?1 AND app_id=?2 AND channel=?3 AND created_at=?5
+      AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL)
+      AND ${sourceAuthority} AND ${destinationAuthority}
+      AND NOT EXISTS(SELECT 1 FROM hx_app_links existing WHERE existing.org_id=?1 AND existing.app_id=?2 AND existing.channel=?4)`)
+    .bind(orgId,id,from,to,expectedCreatedAt,String(by),movedAt).run();
+  if(result.meta?.changes)return {moved:true,channel:to,createdAt:movedAt};
+  return {error:'The app link, room access, or destination changed. Reload and try again.',status:409};
+}
+
 /// The app with every view worked out, ready to draw.
 export async function renderApp(db, orgId, id) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
   const { table, rows } = await listRows(db, orgId, app.tableId, { limit: MAX_ROWS });
-  const { results: links } = await db.prepare("SELECT channel FROM hx_app_links WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId).all();
+  const { results: links } = await db.prepare("SELECT channel,created_at AS createdAt FROM hx_app_links WHERE app_id = ?1 AND org_id = ?2").bind(id, orgId).all();
   app.channels = (links || []).map((l) => l.channel);
+  app.channelLinkVersions = Object.fromEntries((links || []).map(link=>[link.channel,link.createdAt]));
   return { app, table, rows, views: app.definition.views.map((v) => computeView(v, table, rows)) };
 }
 
