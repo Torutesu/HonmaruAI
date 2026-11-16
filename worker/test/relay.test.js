@@ -3,6 +3,7 @@ import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { joined, message, messageContaining, until, untilNoThrow } from "./helpers.js";
+import { setMode } from "../src/harness/mode.js";
 
 beforeEach(async () => {
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
@@ -18,6 +19,71 @@ beforeEach(async () => {
   // realdev connected Notion and picked a database, so their decisions attempt a
   // Notion write — the non-blocking test below leans on that.
   await setConnectorConfig(env.DB, "1001", "notion", { databaseId: "db-relay" });
+});
+
+test("live browser frames and controls stay inside the current private-room membership", async () => {
+  const { createSession, upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "1003", login: "outsider", name: "Outsider", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, "core-team", "1003", "Engineer");
+  const outsiderToken = await createSession(env.DB, "1003", "gho_outside");
+  const channel = "b:browser-private";
+  const threadId = crypto.randomUUID();
+  const jobId = crypto.randomUUID();
+  const browserContext = { channel, threadId, sourceMessageId: threadId, requesterLogin: "realdev" };
+  await env.DB.prepare(`INSERT INTO businesses(org_id,slug,name,created_by,created_at,private)
+    VALUES('core-team','browser-private','Private browser room','1001','now',1)`).run();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES('core-team',?1,'realdev','now')").bind(channel),
+    env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES('core-team',?1,'watcher','now')").bind(channel),
+    env.DB.prepare(`INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at)
+      VALUES(?1,'core-team',?2,'realdev','message','Review this page','now')`).bind(threadId, channel),
+    env.DB.prepare(`INSERT INTO hx_gateways(id,org_id,name,token_hash,created_by,created_at)
+      VALUES('browser-node','core-team','Mac mini',?1,'1001',1)`).bind("a".repeat(64)),
+    env.DB.prepare(`INSERT INTO hx_gateway_jobs(id,org_id,gateway_id,created_by,request_id,payload,status,created_at)
+      VALUES(?1,'core-team','browser-node','1001',?2,?3,'running',1)`)
+      .bind(jobId, jobId, JSON.stringify({ acp: true, browserTools: true, browserIdentity: "browser-agent", browserContext })),
+  ]);
+  await setMode(env.DB, "core-team", "harness", "1001");
+
+  const { ws: owner, messages: ownerMessages } = await joined("core-team", globalThis.__tokenA);
+  const { ws: roomMember, messages: memberMessages } = await joined("core-team", globalThis.__tokenB);
+  const { ws: outsider, messages: outsiderMessages } = await joined("core-team", outsiderToken);
+  owner.send(JSON.stringify({ type: "desktop_join", payload: { jobId } }));
+  roomMember.send(JSON.stringify({ type: "desktop_join", payload: { jobId } }));
+  outsider.send(JSON.stringify({ type: "desktop_join", payload: { jobId } }));
+  expect(await message(ownerMessages, m => m.type === "CUSTOM" && m.name === "browser_frame_ready" && m.value?.jobId === jobId)).toMatchObject({ value: { canControl: true } });
+  expect(await message(memberMessages, m => m.type === "CUSTOM" && m.name === "browser_frame_ready" && m.value?.jobId === jobId)).toMatchObject({ value: { canControl: false } });
+  expect(await message(outsiderMessages, m => m.type === "CUSTOM" && m.name === "browser_frame_unavailable" && m.value?.jobId === jobId)).toBeTruthy();
+
+  roomMember.send(JSON.stringify({ type: "desktop_control", payload: { jobId, action: { type: "click", x: 42, y: 84 } } }));
+  expect(await message(memberMessages, m => m.type === "CUSTOM" && m.name === "browser_control_rejected" && m.value?.jobId === jobId)).toBeTruthy();
+  owner.send(JSON.stringify({ type: "desktop_control", payload: { jobId, action: { type: "click", x: 42, y: 84 } } }));
+  expect(await message(ownerMessages, m => m.type === "CUSTOM" && m.name === "browser_control_queued" && m.value?.jobId === jobId)).toBeTruthy();
+
+  const relay = env.ORG_RELAY.get(env.ORG_RELAY.idFromName("core-team"));
+  const sendFrame = () => relay.fetch(new Request(`https://relay.invalid/desktop/frame?orgId=core-team`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobId, image: "/9j/AA==" }),
+  }));
+  const firstFrame = await sendFrame();
+  expect(firstFrame.status).toBe(200);
+  expect(await firstFrame.json()).toEqual({ delivered: 2 });
+  expect(ownerMessages.some(m => m.type === "CUSTOM" && m.name === "browser_frame" && m.value?.jobId === jobId)).toBe(true);
+  expect(memberMessages.some(m => m.type === "CUSTOM" && m.name === "browser_frame" && m.value?.jobId === jobId)).toBe(true);
+  expect(outsiderMessages.some(m => m.type === "CUSTOM" && m.name === "browser_frame" && m.value?.jobId === jobId)).toBe(false);
+
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id='core-team' AND channel=?1 AND login='watcher'").bind(channel).run();
+  const afterMemberRemoval = await sendFrame();
+  expect(await afterMemberRemoval.json()).toEqual({ delivered: 1 });
+  expect(memberMessages.filter(m => m.type === "CUSTOM" && m.name === "browser_frame" && m.value?.jobId === jobId)).toHaveLength(1);
+
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id='core-team' AND channel=?1 AND login='realdev'").bind(channel).run();
+  owner.send(JSON.stringify({ type: "desktop_control", payload: { jobId, action: { type: "click", x: 10, y: 20 } } }));
+  expect(await message(ownerMessages, m => m.type === "CUSTOM" && m.name === "browser_control_rejected" && m.value?.jobId === jobId)).toBeTruthy();
+  const revokedFrame = await sendFrame();
+  expect(revokedFrame.status).toBe(404);
+  owner.close();
+  roomMember.close();
+  outsider.close();
 });
 
 test("join then a created card round-trips to a second client", async () => {
