@@ -134,6 +134,20 @@ test('typed column builder adds a select column with bounded options to the revi
  act(()=>tree.unmount())
 })
 
+test('preview database schema builder sends an additive operation against its current revision',async()=>{
+ const {tree,api}=await setup()
+ const form=tree.root.findByProps({'aria-label':'検証DBの列を追加'})
+ const name=form.findAllByType('input')[0]
+ await act(async()=>name.props.onChange({target:{value:'Review status'}}))
+ const type=form.findAllByType('select').at(-1)!
+ await act(async()=>type.props.onChange({target:{value:'select'}}))
+ const options=form.findAllByType('input').at(-1)!
+ await act(async()=>options.props.onChange({target:{value:'Open, Done, Open'}}))
+ await act(async()=>form.props.onSubmit({preventDefault:vi.fn()}))
+ expect(api.databaseChange).toHaveBeenCalledWith('app',{action:'fork_schema',forkId:'private-fork',revision:4,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Review status',type:'select',options:['Open','Done']}]}]})
+ act(()=>tree.unmount())
+})
+
 test('existing column rename builder uses the stable column ID without applying it',async()=>{
  const database={fork:null,version:2,entities:[{key:'primary',table:{id:'tasks',name:'Tasks',columns:[{id:'old_name',name:'Old name',type:'text'},{id:'status',name:'Status',type:'select',options:['Open','Done']}]}}],migrations:[]}
  const {tree,api}=await setup([],database)

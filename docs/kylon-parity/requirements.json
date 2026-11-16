@@ -571,14 +571,14 @@
       "code": "worker/src/harness/appMerge.js",
       "acceptance": "プレビューの書込みが本番DBを変更しない",
       "evidence": {
-        "reviewedAt": "2026-11-13",
-        "inspectedMain": "2f5660ce10235df7c2f0bd884d299ad035e587fb",
-        "implementedScope": "Private database forks, baseline-aware merge review, atomic conflict protection and per-record conflict decisions are implemented. Reviewers can explicitly use the preview value or keep the current production value; the chosen outcome is included in the checksum and the exact final relation state is validated before any write. The changes are committed atomically, including the row-event outbox.",
-        "remaining": "50 changed rows per merge; schema changes cannot yet be merged from a fork, and legacy forks without baselines need recreation. Kylon's documented preview data remains a private copy; Honmaru's explicit data merge is an additional reviewed capability, not required for preview isolation.",
+        "reviewedAt": "2026-11-17",
+        "inspectedMain": "e6316f28a6950ba5c4ebc3d238ff9143a61a3cf3",
+        "implementedScope": "Private database forks, baseline-aware merge review, atomic conflict protection and per-record conflict decisions are implemented. Additive columns can now be created in a private fork and merged with its reviewed record changes. The merge checksum binds the production database version; the commit atomically updates table schemas, the database version, the integrity-checked migration journal, row mutations and row-event outbox. Preview conflicts remain explicitly resolvable per record.",
+        "remaining": "This candidate supports additive columns only; rename, convert, drop and new-entity schema changes cannot yet be merged from a fork. The 50 changed-record merge cap and legacy forks without baselines remain. Kylon's documented preview data remains a private copy; Honmaru's explicit reviewed merge is an additional capability. Exact-head CI, production release, authenticated multi-user acceptance and direct Kylon UI comparison remain open.",
         "latestIncrement": {
-          "scope": "Add record-level production-conflict choices to the Company App merge review UI. Choosing production skips that record; choosing preview revalidates and applies the preview value, including converting a colliding create into an explicit update. If every conflicting change keeps production, the preview can be completed without row writes. Resolution choices are checksum-bound, and final relation integrity is checked against the resulting production state.",
-          "verification": "Worker harness-company + harness-app-relations: 58/58 tests passed, including per-record keep/use decisions, checksum mismatch, create-ID collision, no-write completion, relation handling and atomic replay; harness-apps: 167/167 passed. CompanyApp UI: 6/6 tests passed. Web production TypeScript/Vite build passed. Exact-head CI and release pending.",
-          "remaining": "50 changed rows per merge, schema merge, legacy forks without baselines, Kylon visual comparison and authenticated production multi-user acceptance."
+          "scope": "Allow the private DB fork to add normalized columns, show those schema differences beside record differences, and merge additive schema plus row edits atomically. Commit-time fencing now rejects a stale database-version review; the resulting schema version and a checked migration journal entry are written in the same D1 batch. Inverse journal operations drop the added columns only after their values are empty.",
+          "verification": "Worker harness-company + harness-app-relations: 66/66 tests passed, including schema-only preview, schema-plus-row merge, migration integrity/inverse metadata, stale database-version rejection, per-record conflict decisions and atomic replay. CompanyApp UI: 15/15 passed. Web TypeScript and production build passed; parity inventory and git diff checks passed. Exact-head CI, merge and production release are pending.",
+          "remaining": "Non-additive and new-entity schema changes, the 50 changed-record merge cap, legacy forks without baselines, Kylon visual comparison and authenticated production multi-user acceptance remain."
         },
         "verification": "docs/kylon-parity/verification.md"
       }
