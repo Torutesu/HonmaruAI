@@ -46,7 +46,7 @@ import { listAppAnnotations, normalizeAppAnnotation, saveAppAnnotation } from '.
 import { personalViews } from './personalViews.js';
 import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
-import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork } from './appDatabase.js';
+import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork, mutateForkSchema } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, listAppActionRuns, connections, saveConnection } from './appCapabilities.js';
 import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
 import { appRemoteMcpForViewer, changeAppRemoteMcpGrant, invokeAppRemoteMcp } from './appRemoteMcp.js';
@@ -1728,7 +1728,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (['database','actions','connections'].includes(sub)) {
       const canManage = await mayChangeApp();
       const respond = async (result, action, extraTableIds = []) => {
-        if (!result.error && action) await audit(env, request, { orgId, action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version ?? null, name: typeof input?.name === 'string' ? input.name : null, ...(result.merged?{forkId:result.forkId,checksum:result.checksum,changed:result.changed??null,replay:Boolean(result.replay)}:{}) } });
+        if (!result.error && action) await audit(env, request, { orgId, action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version ?? null, name: typeof input?.name === 'string' ? input.name : null, ...(result.merged?{forkId:result.forkId,checksum:result.checksum,changed:result.changed??null,schemaChanged:result.schemaChanged??0,replay:Boolean(result.replay)}:{}) } });
         if (sub === 'database' && !result.error && !await mayUseDatabase(env.DB, orgId, appId, me, [...extraTableIds,...[...(result.fork?.entities || []), ...(result.entities || [])].map(entity=>entity.table?.id).filter(Boolean)], request.method !== 'GET')) return json({message:'No such app.'},404);
         return result.error ? fail(result) : json(result);
       };
@@ -1779,6 +1779,10 @@ export async function handleHarness(request, env, url, context = {}) {
         if (input.action === 'fork_write') {
           const {tableIds=[],...result}=await mutateFork(env.DB,orgId,appId,me,input);
           return respond(result,'app.preview_changed',tableIds);
+        }
+        if (input.action === 'fork_schema') {
+          const {tableIds=[],...result}=await mutateForkSchema(env.DB,orgId,appId,me,input);
+          return respond(result,'app.preview_schema_changed',tableIds);
         }
         if (input.action === 'custom_preview_write') {
           const {tableIds=[],...result}=await mutateCustomDraftPreviewFork(env.DB,orgId,app,me,input);

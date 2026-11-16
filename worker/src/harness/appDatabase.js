@@ -572,3 +572,26 @@ export async function mutateFork(db, orgId, appId, by, input) {
   if (!await mayUseDatabase(db,orgId,appId,by,fork.entities.map(entity=>entity.table.id),true)) return err('No such app.',404);
   return { result, revision: fork.revision+1, tableIds: fork.entities.map(entity=>entity.table.id) };
 }
+
+// A preview database may safely add nullable columns without changing the
+// production schema. The new shape remains private until merge review applies
+// its additive schema diff and record edits together.
+export async function mutateForkSchema(db, orgId, appId, by, input) {
+  const { fork } = await readFork(db, orgId, appId, by);
+  if (!fork || fork.id !== input.forkId || fork.revision !== input.revision) return err('Preview data changed. Reload before editing.', 409);
+  if (fork.mergedAt) return err('This preview was merged. Create a new preview before editing.', 409);
+  if (!Array.isArray(input.operations) || !input.operations.length || input.operations.length > 12
+    || input.operations.some(operation => operation?.op !== 'add_columns')) return err('Preview databases currently support additive column changes only.');
+  const planned = planMigration({ entities: fork.entities }, input.operations);
+  if (planned.error) return planned;
+  const entities = fork.entities.map(entity => {
+    const change = planned.changes.find(item => item.key === entity.key);
+    return change ? { ...entity, table: { ...entity.table, columns: change.table.columns } } : entity;
+  });
+  const data = JSON.stringify(entities);
+  if (new TextEncoder().encode(data).length > 750000) return err('Preview database is too large.', 413);
+  const authority = databaseAuthority('?2','?3','?4','?7',true);
+  const saved = await db.prepare(`UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6 AND NOT EXISTS (SELECT 1 FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id) AND ${authority}`).bind(data,orgId,appId,String(by),fork.id,fork.revision,JSON.stringify(fork.entities.map(entity=>entity.table.id))).run();
+  if (!saved.meta?.changes) return err('Preview data or access changed. Reload before editing.', 409);
+  return { revision: fork.revision + 1, tableIds: fork.entities.map(entity=>entity.table.id) };
+}

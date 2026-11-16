@@ -17,6 +17,12 @@
 - Added a regression proving concurrent table reads can finish while a checkpoint write is pending and checkpoint execution remains ordered. No new service, paid contract, package, migration or Simple-mode change.
 - Local Gateway suite passed **97/97**, including the new concurrency regression and existing ordered-checkpoint, activation-cancellation and isolated-guest tests. `git diff --check` and parity requirements JSON parse passed. Exact-head CI, merge and deployment are pending. KY-060 remains partial; broader App/Connection API paging, run interruption recovery, and production/Kylon acceptance remain open.
 
+### 2026-11-17 — KY-046 additive schema changes in private DB forks (candidate)
+
+- Private fork editors can add normalized columns (including Relation columns through the API) without changing production. Merge review displays the additive schema delta and validates edited rows against the fork schema. Applying a review atomically updates the schema, database version, integrity-checked migration journal, row edits and row-event outbox. The review checksum binds the observed production database version, so a migration committed after review makes application fail closed. The generated inverse removes added columns only if their values remain empty.
+- The Company App DB panel exposes typed column creation in the fork (including select, Person and Relation configuration); users review the complete diff before production changes. Existing Simple-mode and no-new-paid-service constraints are unchanged.
+- Worker `harness-company.test.js` + `harness-app-relations.test.js`: **66/66** passed. Web `CompanyApp.test.tsx`: **15/15** passed. Web TypeScript/production build, parity inventory and `git diff --check` passed. This is candidate-local QA; exact-head CI, merge, release, authenticated multi-user acceptance and direct Kylon UI comparison remain pending. Non-additive/new-entity schema merge and the existing 50-record cap remain open.
+
 ### 2026-11-15 — Workflow Agent read-only skills and memory (candidate)
 
 - Extended the existing `agent(prompt, { agentId, schema, tier? })` Workflow SDK to use the saved Agent's installed skills and memories. Tool calls are filtered to the established read-only skill readers and user-scoped memory search/read helpers; memory review/write, remote connectors, recursive Agents, and delegation are not supplied. Existing per-call access rechecks, provider usage accounting, Workflow AI budgets, timeout and bounded tool-call loop remain in force.
