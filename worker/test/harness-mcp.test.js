@@ -360,9 +360,64 @@ test('cancelling an agent stops its running JavaScript and published app action'
     { gatewayId: gateway.id, requestId: 'agent-cancel-race', code: 'return input', input: 2 },
     { signal: alreadyAborted.signal },
   ));
-  expect(stoppedBeforeQueueReply.job.status).toBe('cancelled');
+  expect(stoppedBeforeQueueReply).toEqual({ cancelled: true });
   await startAndCancel('run_javascript', { gatewayId: gateway.id, requestId: 'agent-cancel-js', code: 'return input', input: 1 });
   await startAndCancel('run_app_action', { appId: app.id, name: 'agent_task', version: 2, gatewayId: gateway.id, requestId: 'agent-cancel-app', input: { ok: true } });
+});
+
+test('assignment stop waits for an in-flight execution enqueue and cancels its late receipt', async () => {
+  await call('/orgs/mode', { method: 'PUT', headers: headers(toru), body: JSON.stringify({ orgId: ORG, mode: 'harness' }) });
+  const { gateway } = await (await call('/gateways', { method: 'POST', headers: headers(toru), body: JSON.stringify({ orgId: ORG, name: 'Mac mini' }) })).json();
+  let releaseQueue, queueStarted;
+  const queueGate = new Promise(resolve => { releaseQueue = resolve; });
+  const started = new Promise(resolve => { queueStarted = resolve; });
+  const db = new Proxy(env.DB, {
+    get(target, property) {
+      if (property !== 'prepare') return Reflect.get(target, property, target);
+      return sql => {
+        const statement = target.prepare(sql);
+        if (!sql.startsWith('INSERT OR IGNORE INTO hx_gateway_jobs')) return statement;
+        return new Proxy(statement, {
+          get(prepared, method) {
+            if (method !== 'bind') return Reflect.get(prepared, method, prepared);
+            return (...args) => {
+              const bound = prepared.bind(...args);
+              return new Proxy(bound, {
+                get(query, operation) {
+                  if (operation !== 'run') return Reflect.get(query, operation, query);
+                  return async (...runArgs) => {
+                    queueStarted();
+                    await queueGate;
+                    return query.run(...runArgs);
+                  };
+                },
+              });
+            };
+          },
+        });
+      };
+    },
+  });
+  const { executionAgentTools } = await import('../src/harness/executionTools.js');
+  const tools = await executionAgentTools({ ...env, DB: db }, { orgId: ORG, session: { github_id: '9401' }, personal: true, ownAgentsOnly: true });
+  const controller = new AbortController();
+  const submission = tools.run_javascript.run({ gatewayId: gateway.id, requestId: 'agent-enqueue-stop-race', code: 'return input', input: 3 }, { signal: controller.signal });
+  await started;
+
+  const { AgentRunner } = await import('../src/agentRunner.js');
+  const runner = new AgentRunner({ storage: {} }, env);
+  runner.registerAssignment({ orgId: ORG, assignmentId: 'assignment-enqueue-stop-race', generation: 0 }, controller);
+  let stopCompleted = false;
+  const stop = runner.fetch(new Request('https://agents/cancel-assignment', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId: ORG, assignmentId: 'assignment-enqueue-stop-race', generation: 0 }) })).then(response => { stopCompleted = true; return response; });
+  await Promise.resolve();
+  expect(stopCompleted).toBe(false);
+
+  releaseQueue();
+  const [submitted, response] = await Promise.all([submission, stop]);
+  expect(JSON.parse(submitted).job.status).toBe('cancelled');
+  expect(response.status).toBe(200);
+  const job = JSON.parse(submitted).job;
+  expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(job.id).first()).status).toBe('cancelled');
 });
 
 test('assignment stop waits for queued execution lease invalidation before completing', async () => {

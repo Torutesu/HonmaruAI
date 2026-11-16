@@ -10,6 +10,7 @@ import {isControlTool, handoffOperation} from './agentToolControl.js';
 /// has, saying what it could not check.
 
 import { noteUsage, noteSearches } from "./ledger.js";
+import { trackAgentOperation } from "./agentCancellation.js";
 
 /// The research model when the workspace's own is not a reasoning one:
 /// gpt-4o-mini searches once and summarises the snippets; a reasoning model
@@ -73,6 +74,7 @@ async function runWithinDeadline(run, signal, deadline) {
       resolve({ kind: "error", error });
     }
   });
+  trackAgentOperation(signal, operation);
   try {
     return await Promise.race([operation, timedOut, cancelled]);
   } finally {

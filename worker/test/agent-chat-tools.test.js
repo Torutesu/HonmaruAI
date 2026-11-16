@@ -3,6 +3,7 @@ import {beforeEach,afterEach,expect,test,vi} from 'vitest';
 import {chatTools} from '../src/agentChatTools.js';
 import {markControlTool,handoffControl} from '../src/agentToolControl.js';
 import {askAgent} from '../src/customAgents.js';
+import {waitForAgentCancellation} from '../src/agentCancellation.js';
 beforeEach(()=>fetchMock.activate());
 afterEach(()=>{vi.restoreAllMocks();fetchMock.assertNoPendingInterceptors();});
 const provider=()=>({providerName:'OpenRouter',endpoint:'https://openrouter.ai/api/v1/chat/completions',apiKey:'test',model:'test/free',usage:[]});
@@ -210,6 +211,24 @@ test('progress callback cannot bypass revocation before the next model request',
  reply({tool_calls:[call('one','lookup')]});
  const out=await run({authorize:async()=>allowed,onRound:async()=>{allowed=false;},tools:{lookup:tool(async()=>'found')}});
  expect(out.cancelled).toBe(true);
+});
+
+test('cancellation drain waits for a signal-insensitive chat tool to settle',async()=>{
+ const controller=new AbortController();let markStarted,release;
+ const started=new Promise(resolve=>{markStarted=resolve;});
+ reply({tool_calls:[call('one','write')]});
+ const pending=run({signal:controller.signal,tools:{write:tool(async()=>{
+  markStarted();return new Promise(resolve=>{release=resolve;});
+ })}});
+ await started;
+ controller.abort();
+ expect(await pending).toMatchObject({cancelled:true,rounds:1});
+ let drained=false;
+ const drain=waitForAgentCancellation(controller.signal).then(value=>{drained=value;return value;});
+ await Promise.resolve();
+ expect(drained).toBe(false);
+ release('committed');
+ expect(await drain).toBe(true);
 });
 
 test('a hanging tool reaches its deadline without replay, siblings or an inferred answer',async()=>{

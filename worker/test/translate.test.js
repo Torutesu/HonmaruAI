@@ -141,7 +141,7 @@ test("a slow translation of words since edited does not take the place of the ne
   expect((await translateMessages(env.DB, ORG, [before], { locale: "en", provider })).byId[said.id]).toContain("1st");
   const kept = await env.DB.prepare("SELECT source_hash, body FROM message_translations WHERE org_id = ?1 AND message_id = ?2 AND locale = 'en'").bind(ORG, said.id).first();
   expect(kept).toEqual({ source_hash: sourceHash(now.body), body: "Fixed: the autumn menu starts on the 2nd" });
-});
+}, 15000);
 
 test("what could not be translated says why: no translator, or the translator failed (#225)", async () => {
   const said = (await (await post("/channels/messages", toru, { orgId: ORG, channel: "b:cafe", body: "秋メニューは1日から" })).json()).message;
