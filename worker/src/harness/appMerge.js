@@ -62,19 +62,30 @@ export async function previewMerge(db,orgId,app,by,input) {
   if(schema.entities.length!==original.length)return err('The production schema changed. Create a fresh preview.');
   const originalByKey=new Map(original.map(entity=>[entity.key,entity])),currentByKey=new Map(schema.entities.map(entity=>[entity.key,entity])),forkByKey=new Map(fork.entities.map(entity=>[entity.key,entity]));
   if(forkByKey.size!==fork.entities.length||new Set(fork.entities.map(entity=>entity.table.id)).size!==fork.entities.length)return err('Preview entity keys and table IDs must be unique.',409);
+  const deletedEntities=original.filter(entity=>!forkByKey.has(entity.key));
+  if(deletedEntities.some(entity=>entity.key==='primary'))return err('The primary entity cannot be deleted.',409);
   for(const entity of original){
     const current=currentByKey.get(entity.key),edited=forkByKey.get(entity.key);
-    if(!current||!edited||current.table.id!==entity.table.id||edited.table.id!==entity.table.id||JSON.stringify(current.table.columns)!==JSON.stringify(entity.table.columns))return err('The production schema changed. Create a fresh preview.');
+    if(!current||current.table.id!==entity.table.id||JSON.stringify(current.table.columns)!==JSON.stringify(entity.table.columns))return err('The production schema changed. Create a fresh preview.');
+    if(edited&&edited.table.id!==entity.table.id)return err('The production schema changed. Create a fresh preview.');
   }
   const newEntities=fork.entities.filter(entity=>!originalByKey.has(entity.key));
   if(newEntities.some(entity=>currentByKey.has(entity.key)||!/^tbl_[a-f0-9]{32}$/.test(entity.table.id)))return err('A preview entity conflicts with the production schema. Create a fresh preview.',409);
+  for(const entity of deletedEntities){
+    const reference=await db.prepare(`SELECT 1 AS referenced FROM hx_workflows w WHERE w.org_id=?1 AND (
+      (json_extract(w.trigger,'$.type')='row' AND json_extract(w.trigger,'$.tableId')=?2)
+      OR (json_extract(w.trigger,'$.type')='app_record_change' AND json_extract(w.trigger,'$.appId')=?3 AND json_extract(w.trigger,'$.entityId')=?4)
+    ) LIMIT 1`).bind(orgId,entity.table.id,app.id,entity.key).first();
+    if(reference)return err('Remove Workflow references before deleting this entity.',409);
+  }
   for(const entity of original){
     const current=currentByKey.get(entity.key),edited=forkByKey.get(entity.key);
-    const beforeColumns=entity.table.columns||[],previewColumns=edited.table.columns||[];
-    if(JSON.stringify(beforeColumns)!==JSON.stringify(previewColumns))schemaChanges.push({entity:entity.key,tableId:current.table.id,tableName:current.table.name,before:beforeColumns,after:previewColumns,newEntity:false,operations:schemaJournalOperations(beforeColumns,previewColumns)});
+    const beforeColumns=entity.table.columns||[],previewColumns=edited?.table.columns||[];
+    if(!edited)schemaChanges.push({entity:entity.key,tableId:current.table.id,tableName:current.table.name,before:beforeColumns,after:[],newEntity:false,deletedEntity:true,operations:[{op:'drop_entity',entity:entity.key}]});
+    else if(JSON.stringify(beforeColumns)!==JSON.stringify(previewColumns))schemaChanges.push({entity:entity.key,tableId:current.table.id,tableName:current.table.name,before:beforeColumns,after:previewColumns,newEntity:false,operations:schemaJournalOperations(beforeColumns,previewColumns)});
     const {results=[]}=await db.prepare('SELECT id,data,updated_at AS updatedAt FROM hx_rows WHERE org_id=?1 AND table_id=?2 ORDER BY id').bind(orgId,current.table.id).all();
-    snapshots.push({key:entity.key,tableId:current.table.id,columns:JSON.stringify(current.table.columns),rows:results});
-    const live=new Map(results.map(r=>[r.id,r])),before=new Map(entity.rows.map(r=>[r.id,r])),after=new Map(edited.rows.map(r=>[r.id,r]));
+    snapshots.push({key:entity.key,tableId:current.table.id,columns:JSON.stringify(current.table.columns),rows:results,...(!edited?{deletedEntity:true}:{})});
+    const live=new Map(results.map(r=>[r.id,r])),before=new Map(entity.rows.map(r=>[r.id,r])),after=new Map((edited?.rows||[]).map(r=>[r.id,r]));
     for(const id of new Set([...before.keys(),...after.keys()])) {
       const a=before.get(id),b=after.get(id);
       if(a&&b&&canonical(a.values)===canonical(b.values))continue;
@@ -118,19 +129,25 @@ export async function previewMerge(db,orgId,app,by,input) {
   // Validate the exact merged production state after the user's conflict choices.
   // This allows a preview to add related rows together, but never leaves a dangling relation.
   const mergeEntities=snapshots.map(snapshot=>{
+    if(snapshot.deletedEntity)return null;
     const source=schema.entities.find(entity=>entity.key===snapshot.key);
     const previewEntity=fork.entities.find(entity=>entity.key===snapshot.key);
     return {key:snapshot.key,table:{id:snapshot.tableId,name:source?.table.name||'',columns:previewEntity?.table.columns||source?.table.columns||[]},rows:snapshot.rows.map(row=>({id:row.id,values:JSON.parse(row.data||'{}'),updatedAt:row.updatedAt}))};
   });
+  const survivingMergeEntities=mergeEntities.filter(Boolean);
   for(const change of appliedChanges){
-    const entity=mergeEntities.find(item=>item.key===change.entity);
+    if(deletedEntities.some(entity=>entity.key===change.entity)){
+      if(change.operation!=='remove')return err('A deleted entity cannot contain preview records.',409);
+      continue;
+    }
+    const entity=survivingMergeEntities.find(item=>item.key===change.entity);
     if(!entity)return err('The production schema changed. Create a fresh preview.',409);
     const index=entity.rows.findIndex(row=>row.id===change.id);
     if(change.operation==='remove'){if(index>=0)entity.rows.splice(index,1);}
     else if(index>=0)entity.rows[index]={...entity.rows[index],values:change.after};
     else entity.rows.push({id:change.id,values:change.after,updatedAt:null});
   }
-  const relationError=relationStateError(mergeEntities);
+  const relationError=relationStateError(survivingMergeEntities);
   if(relationError)return err(relationError,409);
   const resolutions=Object.fromEntries(Object.keys(suppliedResolutions).sort().map(id=>[id,suppliedResolutions[id]]));
   const review={forkId:fork.id,revision:fork.revision,schemaVersion:schema.version,changes,conflicts,schemaChanges,resolved:unresolved.length===0};
@@ -173,7 +190,10 @@ export async function mergeFork(db,orgId,app,by,input) {
         OR NOT EXISTS (SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND ((json_extract(e.value,'$.key')='primary' AND a.table_id=json_extract(e.value,'$.tableId')) OR EXISTS (SELECT 1 FROM hx_app_entities l WHERE l.org_id=?1 AND l.app_id=?2 AND l.entity_key=json_extract(e.value,'$.key') AND l.table_id=json_extract(e.value,'$.tableId'))))
         OR (SELECT COUNT(*) FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.tableId'))!=json_array_length(e.value,'$.rows')
         OR EXISTS (SELECT 1 FROM json_each(e.value,'$.rows') expected WHERE NOT EXISTS
-          (SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.tableId') AND r.id=json_extract(expected.value,'$.id') AND r.data=json_extract(expected.value,'$.data') AND r.updated_at=json_extract(expected.value,'$.updatedAt')))))
+          (SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.tableId') AND r.id=json_extract(expected.value,'$.id') AND r.data=json_extract(expected.value,'$.data') AND r.updated_at=json_extract(expected.value,'$.updatedAt')))
+        OR (json_extract(e.value,'$.deletedEntity')=1 AND EXISTS (SELECT 1 FROM hx_workflows w WHERE w.org_id=?1 AND (
+          (json_extract(w.trigger,'$.type')='row' AND json_extract(w.trigger,'$.tableId')=json_extract(e.value,'$.tableId'))
+          OR (json_extract(w.trigger,'$.type')='app_record_change' AND json_extract(w.trigger,'$.appId')=?2 AND json_extract(w.trigger,'$.entityId')=json_extract(e.value,'$.key')))))))
     )`).bind(orgId,app.id,String(by),plan.forkId,plan.revision,JSON.stringify(plan.snapshots),plan.checksum,nonce,JSON.stringify({schemaChanges:plan.schemaChanges,changes:plan.changes}),at,JSON.stringify(plan.snapshots.filter(snapshot=>!snapshot.newEntity).map(snapshot=>snapshot.tableId)),plan.schemaVersion);
   const guard='EXISTS (SELECT 1 FROM hx_app_fork_merges WHERE org_id=?1 AND app_id=?2 AND nonce=?3)';
   const statements=[receipt],queuedEvents=new Map();
@@ -181,7 +201,7 @@ export async function mergeFork(db,orgId,app,by,input) {
     if(change.newEntity){
       statements.push(db.prepare(`INSERT INTO hx_tables (id,org_id,name,columns,created_by,created_at,updated_at) SELECT ?4,?1,?5,?6,?7,?8,?8 WHERE ${guard}`).bind(orgId,app.id,nonce,change.tableId,change.tableName,JSON.stringify(change.after),String(by),at));
       statements.push(db.prepare(`INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) SELECT ?1,?2,?4,?5 WHERE ${guard}`).bind(orgId,app.id,nonce,change.entity,change.tableId));
-    }else statements.push(db.prepare(`UPDATE hx_tables SET columns=?4,updated_at=?5 WHERE org_id=?1 AND id=?6 AND columns=?7 AND ${guard}`).bind(orgId,app.id,nonce,JSON.stringify(change.after),at,change.tableId,JSON.stringify(change.before)));
+    }else if(!change.deletedEntity)statements.push(db.prepare(`UPDATE hx_tables SET columns=?4,updated_at=?5 WHERE org_id=?1 AND id=?6 AND columns=?7 AND ${guard}`).bind(orgId,app.id,nonce,JSON.stringify(change.after),at,change.tableId,JSON.stringify(change.before)));
   }
   if(plan.schemaChanges.length) {
     statements.push(db.prepare(`INSERT INTO hx_app_database_state (org_id,app_id,version) SELECT ?1,?2,1 WHERE ${guard} ON CONFLICT(org_id,app_id) DO UPDATE SET version=version+1 WHERE ${guard}`).bind(orgId,app.id,nonce));
@@ -210,6 +230,10 @@ export async function mergeFork(db,orgId,app,by,input) {
       const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row,by:String(by)},{afterRowChange:true});
       if(event){statements.push(event.statement);queuedEvents.set(`${c.tableId}:${c.id}`,event.id);}
     }
+  }
+  for(const change of plan.schemaChanges.filter(item=>item.deletedEntity)) {
+    statements.push(db.prepare(`DELETE FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?4 AND table_id=?5 AND ${guard}`).bind(orgId,app.id,nonce,change.entity,change.tableId));
+    statements.push(db.prepare(`DELETE FROM hx_tables WHERE org_id=?1 AND id=?4 AND NOT EXISTS (SELECT 1 FROM hx_rows WHERE org_id=?1 AND table_id=?4) AND ${guard}`).bind(orgId,app.id,nonce,change.tableId));
   }
   const results=await db.batch(statements);
   if(!results[0].meta?.changes)return err('Production or preview changed during merge. Review again.');

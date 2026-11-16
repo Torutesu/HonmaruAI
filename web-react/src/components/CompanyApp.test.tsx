@@ -160,6 +160,19 @@ test('preview database advanced schema editor supports rename, conversion, drop 
  act(()=>tree.unmount())
 })
 
+test('preview database queues deletion of an empty secondary entity without applying it',async()=>{
+ const fork={id:'private-fork',revision:4,entities:[
+  {key:'primary',table:{id:'table',name:'Tasks',columns:[]},rows:[]},
+  {key:'people',table:{id:'people-table',name:'People',columns:[{id:'name',name:'Name',type:'text'}]},rows:[]},
+ ]}
+ const {tree,api}=await setup([],{fork,version:1,entities:fork.entities,migrations:[]})
+ const deleteProposal=tree.root.findAllByType('button').find(item=>item.children.join('')==='「People」の空テーブル削除案を追加')!
+ await act(async()=>deleteProposal.props.onClick())
+ expect(JSON.parse(tree.root.findByProps({'aria-label':'検証DBのスキーマ変更案'}).props.value)).toEqual([{op:'drop_entity',entity:'people'}])
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
+
 test('existing column rename builder uses the stable column ID without applying it',async()=>{
  const database={fork:null,version:2,entities:[{key:'primary',table:{id:'tasks',name:'Tasks',columns:[{id:'old_name',name:'Old name',type:'text'},{id:'status',name:'Status',type:'select',options:['Open','Done']}]}}],migrations:[]}
  const {tree,api}=await setup([],database)

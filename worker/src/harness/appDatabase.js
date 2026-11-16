@@ -193,6 +193,13 @@ export function planMigration(current, operations) {
       if (cols.error) return cols;
       const table = { id: `tbl_${crypto.randomUUID().replace(/-/g, '')}`, name: op.name.trim(), columns: cols.columns };
       entities.set(op.entity, table); createdEntities.add(op.entity); changed.set(op.entity, { table, create: true });
+    } else if (op.op === 'drop_entity') {
+      if (op.entity === 'primary') return err('The primary entity cannot be deleted.');
+      const table = entities.get(op.entity);
+      if (!table) return err('No such entity.');
+      if (createdEntities.has(op.entity)) return err('Create and delete an entity in separate changes.');
+      entities.delete(op.entity);
+      changed.set(op.entity, { table, drop: true });
     } else if (op.op === 'add_columns') {
       const table = entities.get(op.entity);
       if (!table) return err('No such entity.');
@@ -255,7 +262,14 @@ export function planMigration(current, operations) {
   return { changes: [...changed].map(([key, value]) => ({ key, ...value })) };
 }
 
-const hasDataOperation = operations => operations.some(operation => ['convert_column', 'drop_empty_column'].includes(operation?.op));
+const hasDataOperation = operations => operations.some(operation => ['convert_column', 'drop_empty_column', 'drop_entity'].includes(operation?.op));
+
+async function hasWorkflowEntityReference(db, orgId, appId, entityKey, tableId) {
+  return Boolean(await db.prepare(`SELECT 1 AS referenced FROM hx_workflows w WHERE w.org_id=?1 AND (
+    (json_extract(w.trigger,'$.type')='row' AND json_extract(w.trigger,'$.tableId')=?2)
+    OR (json_extract(w.trigger,'$.type')='app_record_change' AND json_extract(w.trigger,'$.appId')=?3 AND json_extract(w.trigger,'$.entityId')=?4)
+  ) LIMIT 1`).bind(orgId,tableId,appId,entityKey).first());
+}
 
 async function buildMigrationPreview(db, orgId, app, input) {
   if (!keyOK(input.id) || !Number.isSafeInteger(input.version) || input.version < 0) return err('A migration ID and database version are required.');
@@ -265,9 +279,14 @@ async function buildMigrationPreview(db, orgId, app, input) {
   if (current.version !== input.version) return err('Database schema changed. Reload before previewing.', 409);
   const planned = planMigration(current, input.operations);
   if (planned.error) return planned;
+  for (const operation of input.operations.filter(item => item?.op === 'drop_entity')) {
+    const entity=current.entities.find(item=>item.key===operation.entity);
+    if(!entity)return err('No such entity.');
+    if(await hasWorkflowEntityReference(db,orgId,app.id,entity.key,entity.table.id))return err('Remove Workflow references before deleting this entity.',409);
+  }
   const snapshots = [], updates = [], summaries = [], blockers = [];
   const plannedEntities = new Map(current.entities.map(entity => [entity.key, entity.table]));
-  for (const change of planned.changes) plannedEntities.set(change.key, change.table);
+  for (const change of planned.changes) { if(change.drop)plannedEntities.delete(change.key);else plannedEntities.set(change.key, change.table); }
   const relationUses = new Map();
   const relationMatchExamples = new Map();
   const relationResolvers = new Map(), relationLookupSnapshots = new Map();
@@ -302,12 +321,24 @@ async function buildMigrationPreview(db, orgId, app, input) {
       const before = oldColumns.find(column => column.id === operation.column);
       const after = change.table.columns.find(column => column.id === operation.column);
       if (operation.op === 'create_entity') return { op: operation.op, entity: change.key, tableName: change.table.name, columns: change.table.columns };
+      if (operation.op === 'drop_entity') return { op: operation.op, entity: change.key, tableName: change.table.name };
       if (operation.op === 'add_columns') return { op: operation.op, columns: operation.columns };
       if (operation.op === 'rename_column') return { op: operation.op, column: operation.column, from: before?.name, to: after?.name };
       if (operation.op === 'convert_column') return { op: operation.op, column: operation.column, name: before?.name, from: before?.type, to: after?.type, options: after?.options, ...(after?.type === 'relation' ? { targetEntity: after.targetEntity, multiple: after.multiple, ...(operation.matchBy ? { matchBy: operation.matchBy } : {}) } : {}) };
       if (operation.op === 'drop_empty_column') return { op: operation.op, column: operation.column, name: before?.name, type: before?.type };
       return { op: operation.op };
     });
+    if(change.drop) {
+      const entity=current.entities.find(item=>item.key===change.key);
+      const size=await db.prepare('SELECT COUNT(*) AS rows FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(orgId,entity.table.id).first();
+      if(Number(size?.rows||0)>MAX_ROWS)return err('This entity has too many records to safely review for deletion.',413);
+      const {results=[]}=await db.prepare('SELECT id,data,updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 ORDER BY id LIMIT ?3').bind(orgId,entity.table.id,MAX_ROWS).all();
+      const rows=results.map(row=>({id:row.id,data:row.data,updatedAt:row.updated_at}));
+      snapshots.push({key:change.key,tableId:entity.table.id,columns:JSON.stringify(entity.table.columns),rows});
+      if(rows.length)blockers.push({entity:change.key,id:rows[0].id,reason:'Delete every record in the preview before deleting this entity.'});
+      summaries.push({entity:change.key,tableName:entity.table.name,operations:ops.map(operation=>operation.op),schemaChanges,rowsScanned:rows.length,rowsChanged:0,examples:[],blockers:rows.length?[{id:rows[0].id,reason:'The entity must be empty before it can be deleted.'}]:[]});
+      continue;
+    }
     if (!rowOps.length) {
       summaries.push({ entity: change.key, tableName: change.table.name, operations: ops.map(operation => operation.op), schemaChanges, rowsScanned: 0, rowsChanged: 0, examples: [], blockers: [] });
       continue;
@@ -467,6 +498,9 @@ export async function applyMigration(db, orgId, app, input, by) {
     if (c.create) {
       stmts.push(db.prepare(`INSERT INTO hx_tables (org_id,id,name,columns,created_by,created_at,updated_at) SELECT ?1,?4,?5,?6,?7,?8,?8 WHERE ${guard}`).bind(orgId, app.id, nonce, c.table.id, c.table.name, JSON.stringify(c.table.columns), String(by), at));
       stmts.push(db.prepare(`INSERT INTO hx_app_entities (org_id,app_id,entity_key,table_id) SELECT ?1,?2,?4,?5 WHERE ${guard}`).bind(orgId, app.id, nonce, c.key, c.table.id));
+    } else if (c.drop) {
+      stmts.push(db.prepare(`DELETE FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?4 AND table_id=?5 AND ${guard}`).bind(orgId,app.id,nonce,c.key,c.table.id));
+      stmts.push(db.prepare(`DELETE FROM hx_tables WHERE org_id=?1 AND id=?4 AND NOT EXISTS (SELECT 1 FROM hx_rows WHERE org_id=?1 AND table_id=?4) AND ${guard}`).bind(orgId,app.id,nonce,c.table.id));
     } else stmts.push(db.prepare(`UPDATE hx_tables SET columns=?4,updated_at=?5 WHERE org_id=?1 AND id=?6 AND ${guard}`).bind(orgId, app.id, nonce, JSON.stringify(c.table.columns), at, c.table.id));
   }
   for (const update of preview.updates) if (update.rows.length) {
@@ -482,7 +516,7 @@ export async function generateMigration(prompt, current, complete) {
   if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4000) return err('Describe the database change in 1–4000 characters.');
   if (!complete) return err('AI generation is unavailable within the current allowance.', 503);
   try {
-    const raw = await complete('Return JSON {"operations":[...]}. Supported database migration operations: {op:"create_entity",entity:"lowercase_key",name:"Name",columns:[{name,type,options?}]}, {op:"add_columns",entity:"existing_key",columns:[{name,type,options?}]}, {op:"rename_column",entity:"existing_key",column:"stable_column_id",name:"New name"}, {op:"convert_column",entity:"existing_key",column:"stable_column_id",type:"text|number|date|datetime|select|checkbox|url|email|person|relation",options?:[...],targetEntity?:"existing_entity_key",multiple?:boolean,matchBy?:"stable_target_column_id"} and {op:"drop_empty_column",entity:"existing_key",column:"stable_column_id"}. Conversion is strict: person conversion accepts only strings up to 64 characters; relation conversion may use stable record IDs or exact-match text against the target entity’s stable text/select/date/url/email column ID in matchBy. Every match must resolve to exactly one existing record; missing or duplicate matches are blockers, and target rows are checked again when applying. Multiple relations may use a JSON array of IDs or exact-match labels. Dropping is allowed only when every value is null, an empty string, or an empty multiple-relation list. Never create a column ID. Prefer additive changes; only rename, convert or drop a column when explicitly requested. Current schema: '+JSON.stringify(current.entities), prompt);
+    const raw = await complete('Return JSON {"operations":[...]}. Supported database migration operations: {op:"create_entity",entity:"lowercase_key",name:"Name",columns:[{name,type,options?}]}, {op:"drop_entity",entity:"existing_empty_entity_key"}, {op:"add_columns",entity:"existing_key",columns:[{name,type,options?}]}, {op:"rename_column",entity:"existing_key",column:"stable_column_id",name:"New name"}, {op:"convert_column",entity:"existing_key",column:"stable_column_id",type:"text|number|date|datetime|select|checkbox|url|email|person|relation",options?:[...],targetEntity?:"existing_entity_key",multiple?:boolean,matchBy?:"stable_target_column_id"} and {op:"drop_empty_column",entity:"existing_key",column:"stable_column_id"}. Entity deletion is restricted to empty non-primary entities with no Workflow trigger references; remove preview records first and keep every relation target available. Conversion is strict: person conversion accepts only strings up to 64 characters; relation conversion may use stable record IDs or exact-match text against the target entity’s stable text/select/date/url/email column ID in matchBy. Every match must resolve to exactly one existing record; missing or duplicate matches are blockers, and target rows are checked again when applying. Multiple relations may use a JSON array of IDs or exact-match labels. Dropping is allowed only when every value is null, an empty string, or an empty multiple-relation list. Never create a column ID. Prefer additive changes; only rename, convert or drop when explicitly requested. Current schema: '+JSON.stringify(current.entities), prompt);
     const plan = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
     const operations = Array.isArray(plan.operations) ? plan.operations.map(operation => operation && Array.isArray(operation.columns)
       ? { ...operation, columns: normalizeMemberFields(prompt, operation.columns) } : operation) : plan.operations;
@@ -598,6 +632,13 @@ export async function mutateForkSchema(db, orgId, appId, by, input) {
     if(planned.error)return planned;
     const change=planned.changes.find(item=>item.key===operation.entity);
     if(!change)continue;
+    if(change.drop){
+      const entity=entities.find(item=>item.key===change.key);
+      if(!entity||entity.rows.length)return err('Delete every record in the preview before deleting this entity.',409);
+      if(await hasWorkflowEntityReference(db,orgId,appId,entity.key,entity.table.id))return err('Remove Workflow references before deleting this entity.',409);
+      entities=entities.filter(item=>item.key!==change.key);
+      continue;
+    }
     if(change.create){entities.push({key:change.key,table:change.table,rows:[]});continue;}
     const entity=entities.find(item=>item.key===change.key);
     if(!entity)return err('No such preview entity.');

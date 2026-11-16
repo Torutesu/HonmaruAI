@@ -575,6 +575,58 @@ test('empty-column drop and a new private entity merge with rows under the revie
  expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({integrityValid:true,inverseOperations:null});
 });
 
+test('private preview can delete an entity after its rows are removed and records the deletion atomically',async()=>{
+ await run('database',{action:'migrate',id:'people_v1',version:0,operations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]}]});
+ const people=(await (await run('database')).json()).entities.find(entity=>entity.key==='people');
+ const inserted=await call(`/tables/${people.table.id}/rows`,owner,{values:{name:'Mika'}});
+ const row=(await inserted.json()).row;
+ let {fork}=await (await run('database',{action:'fork'})).json();
+ await run('database',{action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'people',operation:'remove',rowId:row.id});
+ fork=(await (await run('database')).json()).fork;
+ const rejected=await run('database',{action:'fork_schema',forkId:fork.id,revision:fork.revision,operations:[{op:'drop_entity',entity:'people'}]});
+ expect(rejected.status).toBe(200);
+ fork=(await (await run('database')).json()).fork;
+ expect(fork.entities.some(entity=>entity.key==='people')).toBe(false);
+ const request={forkId:fork.id,revision:fork.revision};
+ const review=await (await run('database',{action:'merge_preview',...request})).json();
+ expect(review.schemaChanges).toContainEqual(expect.objectContaining({entity:'people',deletedEntity:true,operations:[{op:'drop_entity',entity:'people'}]}));
+ expect(review.changes).toContainEqual(expect.objectContaining({entity:'people',id:row.id,operation:'remove'}));
+ const applied=await (await run('database',{action:'merge_apply',...request,checksum:review.checksum})).json();
+ expect(applied).toMatchObject({merged:true,changed:1,schemaChanged:1});
+ expect((await (run('database')).then(response=>response.json())).entities.some(entity=>entity.key==='people')).toBe(false);
+ expect(await env.DB.prepare('SELECT 1 FROM hx_tables WHERE org_id=?1 AND id=?2').bind(orgId,people.table.id).first()).toBeNull();
+ expect(await env.DB.prepare('SELECT 1 FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(orgId,people.table.id).first()).toBeNull();
+ expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({integrityValid:true,plan:[{op:'drop_entity',entity:'people'}],inverseOperations:null});
+});
+
+test('entity deletion is blocked while records or any Workflow trigger references the entity',async()=>{
+ await run('database',{action:'migrate',id:'people_v1',version:0,operations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]}]});
+ let state=await (await run('database')).json(),people=state.entities.find(entity=>entity.key==='people');
+ let fork=(await (await run('database',{action:'fork'})).json()).fork;
+ const addRow=await run('database',{action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'people',operation:'create',values:{name:'Non-empty'}});
+ expect(addRow.status).toBe(200);
+ fork=(await (await run('database')).json()).fork;
+ expect((await run('database',{action:'fork_schema',forkId:fork.id,revision:fork.revision,operations:[{op:'drop_entity',entity:'people'}]})).status).toBe(409);
+ await call('/workflows',owner,{name:'Watch people rows',enabled:true,trigger:{type:'app_record_change',appId:app.id,entityId:'people',events:['delete']},steps:[{type:'update_row',values:{task:'Observed'}}]});
+ fork=(await (await run('database',{action:'fork'})).json()).fork;
+ expect((await run('database',{action:'fork_schema',forkId:fork.id,revision:fork.revision,operations:[{op:'drop_entity',entity:'people'}]})).status).toBe(409);
+ state=await (await run('database')).json();
+ expect(state.fork.entities.some(entity=>entity.key==='people')).toBe(true);
+ expect(people.table.id).toBe(state.entities.find(entity=>entity.key==='people').table.id);
+});
+
+test('ordinary migration requires an empty unreferenced entity and journals its destructive plan',async()=>{
+ await run('database',{action:'migrate',id:'people_v1',version:0,operations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]}]});
+ const {entities,version}=await (await run('database')).json(),people=entities.find(entity=>entity.key==='people');
+ const request={id:'drop_people_v2',version,operations:[{op:'drop_entity',entity:'people'}]};
+ const preview=await (await run('database',{action:'preview',...request})).json();
+ expect(preview).toMatchObject({canApply:true,changes:[{entity:'people',operations:['drop_entity'],rowsScanned:0,rowsChanged:0}]});
+ expect(await (await run('database',{action:'migrate',...request,previewChecksum:preview.previewChecksum})).json()).toMatchObject({applied:true,version:2});
+ expect((await (await run('database')).json()).entities.some(entity=>entity.key==='people')).toBe(false);
+ expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({plan:[{op:'drop_entity',entity:'people'}],inverseOperations:null,integrityValid:true});
+ expect(await env.DB.prepare('SELECT 1 FROM hx_tables WHERE org_id=?1 AND id=?2').bind(orgId,people.table.id).first()).toBeNull();
+});
+
 test('merge detects production updates/deletes/schema changes and rejects the entire batch',async()=>{
  const row=(await (await call('/tables/'+app.tableId+'/rows',owner,{values:{task:'Original'}})).json()).row;
  const {fork}=await (await run('database',{action:'fork'})).json();
