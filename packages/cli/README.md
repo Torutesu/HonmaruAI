@@ -93,6 +93,27 @@ App action aliases list published actions, run an exact published version on a s
 
 Use `--api-url URL` to override the environment URL for one command. The CLI requires HTTPS; plain HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1` development servers. Redirects are rejected.
 
+## Human-only Workspace file administration
+
+Agent API tokens can request and list public file shares, but they cannot approve, decline, or revoke them. These decisions and permanent file purges require a signed-in human session token in `HONMARU_SESSION_TOKEN` and an explicit workspace `--org-id`. Supply the token through a trusted local credential store or shell environment; do not put it in command arguments, committed files, or shared logs.
+
+Every mutation requires `--confirm`. Approval returns a bearer URL once on stdout; treat it as a secret and avoid logging or sharing the output. Failed or timed-out mutations are never retried automatically. Inspect current state before retrying.
+
+```sh
+export HONMARU_SESSION_TOKEN="<signed-in human session token>"
+honmaru workspace file share requests
+honmaru workspace file share approve fshare_request_id --org-id org_id --confirm
+honmaru workspace file share decline fshare_request_id --org-id org_id --confirm
+honmaru workspace file share revoke fshare_id --org-id org_id --confirm
+```
+
+Permanent purge also requires a reason and one version fence. Use `--version` to purge an eligible historical version; use `--expected-version` only after the file has a deleted tombstone. The server still enforces current workspace membership, owner/administrator authority, held-file restrictions, and compare-and-set checks.
+
+```sh
+honmaru workspace file purge file_id --org-id org_id --reason "Remove retained copy" --version 2 --confirm
+honmaru workspace file purge file_id --org-id org_id --reason "Purge deleted file" --expected-version 5 --confirm
+```
+
 ## Local execution gateway
 
 Register a trusted node under **Studio → Harness → Execution nodes**, then keep its separate node token in the environment on that machine:
@@ -107,4 +128,4 @@ npm exec --workspace @honmaru/cli -- honmaru gateway run
 
 `gateway status` reports whether the macOS LaunchAgent is installed and loaded, including its process state and PID when available. It does not read the service configuration or token. `gateway run` starts the repository's existing outbound-only worker in the foreground; stop it with Ctrl+C. The node token is inherited through the environment and is never added to process arguments or printed. This does not install or manage the launch-at-login service.
 
-The aliases are an incremental CLI surface, not full Kylon CLI parity. Room management covers listing, public managed Room discovery, joining/leaving, rename, archive/restore, creation, conversation history, versioned public/private changes, member management, and Agent assignment. `room agent access` lists only the current Room members who still need access; `room agent add --grant-access-members REF,...` grants only the selected people. For external Agents, review and pass `--acknowledge-external-processing` only after the processing notice. None of these commands silently adds people to the Room. Thread/message management covers read, search, create replies, send, edit, and delete. Edits and deletes require the current message version; deleting a thread with other people's replies also requires `--with-replies`. `--acknowledge-dlp` acknowledges warning-only DLP matches; blocking rules still reject the edit. Message forward, participant management, and agent activation remain open. File aliases cover text and binary upload/download, immutable version history, reversible delete/restore, copying a readable source version into an explicitly writable scope, and requesting a version-pinned public share. Share approval, token reveal, revocation and human-only permanent purge remain in the Workspace UI. Skill management now supports Kylon-style install/uninstall aliases and explicit multi-Skill/multi-Agent assignment (up to five of each), with confirmation and per-pair authorization; Skill share-link create/import operations remain human-session UI actions. Gateway repair/upgrade, browser/device sign-in, secure credential storage, Connections, and the remaining Kylon command families are also still open.
+The aliases are an incremental CLI surface, not full Kylon CLI parity. Room management covers listing, public managed Room discovery, joining/leaving, rename, archive/restore, creation, conversation history, versioned public/private changes, member management, and Agent assignment. `room agent access` lists only the current Room members who still need access; `room agent add --grant-access-members REF,...` grants only the selected people. For external Agents, review and pass `--acknowledge-external-processing` only after the processing notice. None of these commands silently adds people to the Room. Thread/message management covers read, search, create replies, send, edit, and delete. Edits and deletes require the current message version; deleting a thread with other people's replies also requires `--with-replies`. `--acknowledge-dlp` acknowledges warning-only DLP matches; blocking rules still reject the edit. Message forward, participant management, and agent activation remain open. File aliases cover text and binary upload/download, immutable version history, reversible delete/restore, copying a readable source version into an explicitly writable scope, and requesting a version-pinned public share. Share approval, token reveal, revocation and human-only permanent purge are available through the session-authenticated CLI commands below. Skill management now supports Kylon-style install/uninstall aliases and explicit multi-Skill/multi-Agent assignment (up to five of each), with confirmation and per-pair authorization; Skill share-link create/import operations remain human-session UI actions. Gateway repair/upgrade, browser/device sign-in, secure credential storage, Connections, and the remaining Kylon command families are also still open.
