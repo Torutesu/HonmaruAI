@@ -29,14 +29,38 @@ test('queued conversion polls until saved and opens returned file',async()=>{
  act(()=>r!.unmount());vi.useRealTimers()
 })
 test('exporting a Markdown source keeps its contents and source format while choosing a PDF output',async()=>{
- const api={documentJobs:vi.fn().mockResolvedValue({jobs:[]}),documentNodes:vi.fn().mockResolvedValue({nodes:[{id:'node',name:'Mac mini'}]}),createDocument:vi.fn().mockResolvedValue({job:{id:'job',status:'queued',path:'reports/Brief.pdf'}})} as unknown as WorkspaceFileApi
+ const api={documentJobs:vi.fn().mockResolvedValue({jobs:[]}),documentNodes:vi.fn().mockResolvedValue({nodes:[{id:'node',name:'Mac mini'}]}),createDocument:vi.fn().mockResolvedValue({job:{id:'job',status:'queued',path:'reports/Brief-copy.pdf'}})} as unknown as WorkspaceFileApi
  let r:ReturnType<typeof create>;await act(async()=>{r=create(<DocumentCreate api={api} scope="room:42" directory="reports/" source={{name:'Brief',format:'markdown',text:'# Hello from the source'}} onOpen={vi.fn()}/> )})
  await act(async()=>{r!.root.findByProps({'aria-label':'Export file'}).props.onClick()})
- expect(r!.root.findByType('input').props.value).toBe('Brief');expect(r!.root.findByType('input').props.disabled).toBe(true)
+ expect(r!.root.findByType('input').props.value).toBe('Brief');expect(r!.root.findByType('input').props.disabled).toBe(false)
  expect(r!.root.findByType('textarea').props.value).toBe('# Hello from the source');expect(r!.root.findByType('textarea').props.disabled).toBe(true)
  const button=(text:string)=>r!.root.findAllByType('button').find(b=>b.children.includes(text))!
+ await act(async()=>{r!.root.findByType('input').props.onChange({target:{value:'Brief-copy'}})})
  await act(async()=>{button('Create document').props.onClick()})
- expect(api.createDocument).toHaveBeenCalledWith(expect.objectContaining({scope:'room:42',path:'reports/Brief.pdf',text:'# Hello from the source',inputFormat:'markdown',format:'pdf',gatewayId:'node'}),expect.any(AbortSignal))
+ expect(api.createDocument).toHaveBeenCalledWith(expect.objectContaining({scope:'room:42',path:'reports/Brief-copy.pdf',text:'# Hello from the source',inputFormat:'markdown',format:'pdf',gatewayId:'node'}),expect.any(AbortSignal))
+ act(()=>r!.unmount())
+})
+test('source exports allow a safe destination name and a new name after a preflight conflict',async()=>{
+ const message='A file or conversion already exists at this destination. Choose another name.'
+ const conflict=Object.assign(new Error(message),{status:409})
+ const api={documentJobs:vi.fn().mockResolvedValue({jobs:[]}),documentNodes:vi.fn().mockResolvedValue({nodes:[{id:'node',name:'Mac mini'}]}),createDocument:vi.fn().mockRejectedValueOnce(conflict).mockResolvedValueOnce({job:{id:'job',status:'queued',path:'reports/Brief-copy.docx'}})} as unknown as WorkspaceFileApi
+ let r:ReturnType<typeof create>;await act(async()=>{r=create(<DocumentCreate api={api} scope="room:42" directory="reports/" source={{name:'Brief',format:'markdown',text:'# Exact source version'}} onOpen={vi.fn()}/> )})
+ await act(async()=>{r!.root.findByProps({'aria-label':'Export file'}).props.onClick()})
+ const button=(text:string)=>r!.root.findAllByType('button').find(b=>b.children.includes(text))!
+ const name=r!.root.findByType('input');expect(name.props.disabled).toBe(false)
+ await act(async()=>{r!.root.findAllByType('select')[1].props.onChange({target:{value:'docx'}})})
+ await act(async()=>{name.props.onChange({target:{value:'../outside'}})})
+ await act(async()=>{button('Create document').props.onClick()})
+ expect(api.createDocument).not.toHaveBeenCalled();expect(r!.root.findByProps({role:'alert'}).findByType('p').children).toContain('Choose a file name without path separators or control characters.')
+ await act(async()=>{r!.root.findByType('input').props.onChange({target:{value:'Brief-copy'}})})
+ await act(async()=>{button('Create document').props.onClick()})
+ const first=vi.mocked(api.createDocument).mock.calls[0][0]
+ expect(first).toMatchObject({scope:'room:42',path:'reports/Brief-copy.docx',text:'# Exact source version',inputFormat:'markdown',format:'docx',gatewayId:'node'})
+ expect(r!.root.findByProps({role:'alert'}).findByType('p').children).toContain(message)
+ await act(async()=>{r!.root.findByType('input').props.onChange({target:{value:'Brief-copy-2'}})})
+ await act(async()=>{button('Create document').props.onClick()})
+ const second=vi.mocked(api.createDocument).mock.calls[1][0]
+ expect(second.path).toBe('reports/Brief-copy-2.docx');expect(second.requestId).not.toBe(first.requestId)
  act(()=>r!.unmount())
 })
 test('oversized serialized exports are rejected before the Worker request',async()=>{
@@ -115,3 +139,4 @@ test('visible history refreshes external jobs and clears inaccessible stale resu
   await vi.advanceTimersByTimeAsync(10000);expect(api.documentJobs).toHaveBeenCalledTimes(count);
  }finally{vi.useRealTimers()}
 });
+
