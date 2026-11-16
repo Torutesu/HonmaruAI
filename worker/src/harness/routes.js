@@ -215,7 +215,7 @@ export async function handleHarness(request, env, url, context = {}) {
     return new Response('Not found',{status:404,headers:{'cache-control':'no-store','referrer-policy':'no-referrer','x-robots-tag':'noindex, nofollow, noarchive','x-content-type-options':'nosniff'}});
   }
 
-  if (isDocumentNodeRoute(url.pathname)||/^\/hx\/documents(?:\/|$)/.test(url.pathname)) return handleDocuments(request,env,url);
+  if (isDocumentNodeRoute(url.pathname)||/^\/hx\/documents(?:\/|$)/.test(url.pathname)||/^\/hx\/document-exports\/[^/]+$/.test(url.pathname)) return handleDocuments(request,env,url);
   if (/^\/hx\/media-jobs(?:\/|$)/.test(url.pathname)) return handleMediaJobs(request,env,url);
 
   if (/^\/hx\/files(?:\/|$)/.test(url.pathname)) {

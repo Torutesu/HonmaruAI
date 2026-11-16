@@ -1299,3 +1299,93 @@ test("file share CLI requests approval without exposing an approval or purge com
   assert.equal(calls.length, 2);
 });
 
+test("file export polls a local temporary artifact, checks origin/size/hash, and creates the output exclusively", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "honmaru-export-"));
+  const outputPath = join(directory, "converted.pdf");
+  const bytes = Buffer.from("%PDF-verified-cli-export");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const calls = [];
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const fetcher = async (url, init) => {
+    if (new URL(url).pathname === "/hx/document-exports/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA") {
+      return new Response(bytes, { status: 200, headers: { "content-length": String(bytes.length), "content-type": "application/pdf" } });
+    }
+    const req = JSON.parse(init.body); calls.push(req.params);
+    let structuredContent;
+    if (req.params.name === "get_workspace_file") structuredContent = { file: { id: "source-1", scope: "workspace", path: "reports/source.md", version: 3, size: 20 } };
+    else if (req.params.name === "list_file_versions") structuredContent = { versions: [{ version: 2, kind: "content", purged: false, contentType: "text/markdown", size: 20 }, { version: 3, kind: "content", purged: false, contentType: "text/markdown", size: 20 }] };
+    else if (req.params.name === "create_document_export") structuredContent = { job: { id: "job-1", status: "queued" } };
+    else if (req.params.name === "get_document_export") structuredContent = { delivery: "temporary", job: { id: "job-1", status: "succeeded" }, artifact: { downloadUrl: "https://api.example.com/hx/document-exports/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", sha256, size: bytes.length, contentType: "application/pdf", expiresAt: "2099-01-01T00:00:00Z" } };
+    else throw new Error(`Unexpected MCP tool ${req.params.name}`);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  try {
+    assert.equal(await run(["workspace", "file", "export", "source-1", "--format", "pdf", "--gateway-id", "node-1", "--version", "2", "--output", outputPath, "--request-id", "retryable-1"]), 0);
+    assert.deepEqual(await readFile(outputPath), bytes);
+    assert.match(stdout.read(), new RegExp(sha256));
+    assert.equal(calls.find(call => call.name === "create_document_export").arguments.version, 2);
+    assert.equal(calls.find(call => call.name === "create_document_export").arguments.temporary, true);
+    assert.equal(await run(["workspace", "file", "export", "source-1", "--format", "pdf", "--gateway-id", "node-1", "--output", outputPath]), 1);
+    assert.match(stderr.read(), /already exists/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("file export publishes to the requested Workspace destination and default output prints a temporary URL", async () => {
+  const requests = [];
+  let localUrlCalls = 0;
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const fetcher = async (url, init) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.startsWith("/hx/document-exports/")) { localUrlCalls += 1; throw new Error("unexpected download"); }
+    const req = JSON.parse(init.body); requests.push(req.params);
+    const structuredContent = req.params.name === "get_workspace_file"
+      ? { file: { id: "source-1", scope: "workspace", path: "notes.md", version: 1, size: 8 } }
+      : req.params.name === "list_file_versions"
+        ? { versions: [{ version: 1, kind: "content", purged: false, contentType: "text/markdown", size: 8 }] }
+        : req.params.name === "create_document_export"
+          ? { job: { id: "job-2", status: "queued" } }
+          : req.params.name === "get_document_export"
+            ? [...requests].reverse().find(x => x.name === "create_document_export")?.arguments.temporary === false
+              ? { delivery: "workspace", job: { id: "job-2", status: "succeeded", fileId: "file-result", version: 1, path: "reports/result.pdf" } }
+              : { delivery: "temporary", job: { id: "job-2", status: "succeeded" }, artifact: { downloadUrl: "https://api.example.com/hx/document-exports/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", sha256: "a".repeat(64), size: 20, contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", expiresAt: "2099-01-01T00:00:00Z" } }
+            : (() => { throw new Error(`Unexpected MCP tool ${req.params.name}`); })();
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "file", "export", "source-1", "--format", "pdf", "--gateway-id", "node-1", "--dest", "/workspace/shared/reports/result.pdf"]), 0);
+  assert.match(stdout.read(), /file-result/);
+  assert.equal(requests.find(call => call.name === "create_document_export").arguments.destination, "/workspace/shared/reports/result.pdf");
+  assert.equal(requests.find(call => call.name === "create_document_export").arguments.temporary, false);
+  stdout.clear();
+  assert.equal(await run(["workspace", "file", "export", "source-1", "--format", "docx", "--gateway-id", "node-1"]), 0);
+  assert.match(stdout.read(), /^https:\/\/api\.example\.com\/hx\/document-exports\//);
+  assert.equal(localUrlCalls, 0);
+  assert.equal(stderr.read(), "");
+});
+
+test("file export rejects unsafe temporary origins, invalid destinations, and conflicting delivery options", async () => {
+  let calls = 0;
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body); calls += 1;
+    const structuredContent = req.params.name === "get_workspace_file"
+      ? { file: { id: "source-1", scope: "workspace", path: "source.md", version: 1, size: 8 } }
+      : req.params.name === "list_file_versions"
+        ? { versions: [{ version: 1, kind: "content", purged: false, contentType: "text/markdown", size: 8 }] }
+        : req.params.name === "create_document_export" ? { job: { id: "job-3", status: "queued" } }
+        : { delivery: "temporary", job: { id: "job-3", status: "succeeded" }, artifact: { downloadUrl: "https://evil.example/hx/document-exports/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", sha256: "a".repeat(64), size: 20, contentType: "application/pdf", expiresAt: "2099-01-01T00:00:00Z" } };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent } }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "file", "export", "source-1", "--format", "pdf", "--gateway-id", "node-1", "--dest", "/workspace/shared/reports/result.docx", "--output", "out.pdf"]), 1);
+  assert.match(stderr.read(), /either --dest or --output/);
+  assert.equal(calls, 0);
+  stderr.clear();
+  assert.equal(await run(["workspace", "file", "export", "source-1", "--format", "pdf", "--gateway-id", "node-1"]), 1);
+  assert.match(stderr.read(), /unsafe temporary document URL/);
+});
+

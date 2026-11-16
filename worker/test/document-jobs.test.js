@@ -136,12 +136,13 @@ test('cancellation during object upload prevents file publication and cleans obj
  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_workspace_file_versions').first()).n).toBe(0);
  expect((await env.MEDIA.list()).objects).toHaveLength(0);
 });
-test('artifact cannot overwrite an existing path and invalid format is rejected before upload',async()=>{
+test('artifact cannot overwrite an existing path and fails its job promptly; invalid format is rejected before upload',async()=>{
  const {identity,bytes,publishDocumentArtifact}=await artifactSetup();
  await expect(publishDocumentArtifact(env,identity,{bytes:new TextEncoder().encode('wrong format')})).rejects.toThrow('format');
  const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
  await createFileLedger(env.DB,{orgId:org,fileId:'existing',scope:input.scope,path:input.path,createdBy:actor});
- expect(await publishDocumentArtifact(env,identity,{bytes})).toEqual({saved:false});
+ expect(await publishDocumentArtifact(env,identity,{bytes})).toEqual({saved:false,conflict:true});
+ expect((await readDocumentJob(env.DB,org,actor,identity.jobId)).job.status).toBe('failed');
  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_workspace_file_versions').first()).n).toBe(0);
  expect((await env.MEDIA.list()).objects).toHaveLength(0);
 });
