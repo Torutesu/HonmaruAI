@@ -3,7 +3,7 @@ import {beforeEach,expect,test} from 'vitest';
 import schema from '../schema.sql?raw';
 import {upsertUser,upsertMembership} from '../src/db.js';
 import {beginAssignment,commitHandoff} from '../src/harness/agentAssignments.js';
-import {requestAgentWakeApproval,decideAgentWakeApproval,activeAgentWakeGrant,validAgentWakeGrantForHandoff} from '../src/harness/agentWakeApprovals.js';
+import {requestAgentWakeApproval,decideAgentWakeApproval,activeAgentWakeGrant,validAgentWakeGrantForHandoff,expireAgentWakeApprovals} from '../src/harness/agentWakeApprovals.js';
 
 const org='wake-approvals';
 const origin={id:'human-request',channel:'b:room',author_login:'owner',parent_id:null,kind:'message',body:'Please investigate'};
@@ -129,4 +129,54 @@ test('room-scoped approval remains usable for later assignments in the same room
   const laterOperation=await commitHandoff(env.DB,{orgId:org,assignmentId:later.id,generation:0,sourceAgentId:'source',targetAgentId:'target',operationId:'later-op',brief:'Another task',messageBody:'Passing it on',wakeGrantId:grantId});
   expect(laterOperation.operation).toBeTruthy();
   expect(await validAgentWakeGrantForHandoff(env.DB,laterOperation.operation)).toBe(true);
+});
+
+test('simultaneous decisions create at most one grant and settle the approval once',async()=>{
+  const pending=await request();
+  const card={id:pending.approval.cardId,recipientUserID:'owner',senderUserID:'agent:source',decision:{action:'approve',actorUserID:'owner',optionId:'room'}};
+  const decisions=await Promise.all([
+    decideAgentWakeApproval(env.DB,org,card,'owner','wake-human'),
+    decideAgentWakeApproval(env.DB,org,card,'owner','wake-human'),
+  ]);
+  expect(decisions.filter(result=>result.settled)).toHaveLength(1);
+  expect((await env.DB.prepare('SELECT status,grant_scope FROM hx_agent_wake_approvals WHERE org_id=?1 AND id=?2').bind(org,pending.approval.id).first()))
+    .toMatchObject({status:'approved',grant_scope:'room'});
+  expect((await env.DB.prepare('SELECT id FROM hx_agent_wake_grants WHERE org_id=?1 AND approval_id=?2').bind(org,pending.approval.id).all()).results)
+    .toHaveLength(1);
+});
+
+test('declining an approval cancels its assignment without creating a grant or handoff',async()=>{
+  const pending=await request();
+  const card={id:pending.approval.cardId,recipientUserID:'owner',senderUserID:'agent:source',decision:{action:'decline',actorUserID:'owner'}};
+  expect(await decideAgentWakeApproval(env.DB,org,card,'owner','wake-human')).toMatchObject({settled:true,action:'decline'});
+  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(org,assignment.id).first()).toMatchObject({status:'cancelled'});
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_wake_grants WHERE org_id=?1').bind(org).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_handoffs WHERE org_id=?1').bind(org).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_handoff_dispatch WHERE org_id=?1').bind(org).first()).toBeNull();
+});
+
+test('an assignment cancelled before its approval is decided cannot receive a wake grant',async()=>{
+  const pending=await request();
+  await env.DB.prepare(`UPDATE hx_agent_assignments SET status='cancelled' WHERE org_id=?1 AND id=?2 AND generation=?3`)
+    .bind(org,assignment.id,assignment.generation).run();
+  const card={id:pending.approval.cardId,recipientUserID:'owner',senderUserID:'agent:source',decision:{action:'approve',actorUserID:'owner',optionId:'room'}};
+  expect(await decideAgentWakeApproval(env.DB,org,card,'owner','wake-human')).toMatchObject({settled:false,cancelled:true});
+  expect(await env.DB.prepare('SELECT status FROM hx_agent_wake_approvals WHERE org_id=?1 AND id=?2').bind(org,pending.approval.id).first()).toMatchObject({status:'cancelled'});
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_wake_grants WHERE org_id=?1').bind(org).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_handoffs WHERE org_id=?1').bind(org).first()).toBeNull();
+});
+
+test('expired pending approvals are closed and cannot be replayed into a handoff',async()=>{
+  const pending=await request();
+  const past='2000-01-01T00:00:00.000Z';
+  await env.DB.prepare(`UPDATE hx_agent_wake_approvals SET request_expires_at=?3 WHERE org_id=?1 AND id=?2`)
+    .bind(org,pending.approval.id,past).run();
+  expect(await expireAgentWakeApprovals(env,past)).toBe(1);
+  expect(await env.DB.prepare('SELECT status FROM hx_agent_wake_approvals WHERE org_id=?1 AND id=?2').bind(org,pending.approval.id).first()).toMatchObject({status:'expired'});
+  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(org,assignment.id).first()).toMatchObject({status:'cancelled'});
+  expect(await env.DB.prepare('SELECT status FROM cards WHERE org_id=?1 AND card_id=?2').bind(org,pending.approval.cardId).first()).toMatchObject({status:'rejected'});
+  const card={id:pending.approval.cardId,recipientUserID:'owner',senderUserID:'agent:source',decision:{action:'approve',actorUserID:'owner',optionId:'room'}};
+  expect(await decideAgentWakeApproval(env.DB,org,card,'owner','wake-human')).toMatchObject({settled:false});
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_wake_grants WHERE org_id=?1').bind(org).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_handoffs WHERE org_id=?1').bind(org).first()).toBeNull();
 });
