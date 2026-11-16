@@ -152,6 +152,32 @@ test('an unknown execution outcome is never automatically replayed by another Ag
   expect(f.runnerJobs).toEqual([]);
 });
 
+test('a provider failure after a workspace tool call is classified as unknown and never auto-transferred',async()=>{
+  const f=await fixture();
+  const {beginAuthorizedAssignment}=await import('../src/harness/agentAssignmentGrant.js');
+  const begun=await beginAuthorizedAssignment({...env,OPENROUTER_API_KEY:'test'},{orgId:ORG,token:mika.token,rowId:f.row.id},f.source.id);
+  const {runAgentAssignment}=await import('../src/harness/runAgentAssignment.js');
+  const {classifyAgentFailure}=await import('../src/channelRoutes.js');
+  const provider=providerConfig({OPENAI_API_KEY:undefined,OPENROUTER_API_KEY:'test'});
+  fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'})
+    .reply(200,{choices:[{message:{role:'assistant',content:null,tool_calls:[functionCall('effect-1','workspace_write')]}}],usage:{prompt_tokens:5,completion_tokens:1}});
+  fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'})
+    .reply(503,{error:{message:'provider failed after tool execution'}});
+  let effects=0;
+  const result=await runAgentAssignment({...env,AGENT_RUNNER:f.runner},{orgId:ORG,session:mika,row:f.row,agent:f.source,existing:begun.assignment},async runtime=>{
+    const output=await askAgent({provider,agent:f.source,request:'Review the evidence',transcript:[],playbook:[],where:'#cafe',askedBy:'Mika',
+      tools:{workspace_write:tool(async()=>{effects++;return 'write complete';})},env,harnessTools:true,authorize:runtime.authorize,signal:runtime.signal});
+    const outcome=classifyAgentFailure(output);
+    return outcome?{...output,failed:true,outcome}:output;
+  });
+  expect(effects).toBe(1);
+  expect(result).toMatchObject({called:true,calls:1,failed:true,outcome:'unknown'});
+  expect(await env.DB.prepare('SELECT generation,status FROM hx_agent_assignments WHERE org_id=?1 AND source_message_id=?2').bind(ORG,f.row.id).first())
+    .toEqual({generation:0,status:'failed'});
+  expect((await env.DB.prepare('SELECT * FROM hx_agent_handoffs WHERE org_id=?1').bind(ORG).all()).results).toEqual([]);
+  expect(f.runnerJobs).toEqual([]);
+});
+
 test('a cancellation during a not-started failure prevents automatic takeover',async()=>{
   const f=await fixture();
   const {beginAuthorizedAssignment}=await import('../src/harness/agentAssignmentGrant.js');

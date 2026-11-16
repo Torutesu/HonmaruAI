@@ -510,6 +510,12 @@ export function allOwnAgents(agents, login) {
   return Boolean(login) && agents.length > 0 && agents.every((a) => (a.ownerLogin ?? a.owner_login) === login);
 }
 
+export function classifyAgentFailure(result) {
+  if (!result || result.cancelled || result.interrupted || result.handedOff) return null;
+  if (!(result.refused || !result.answer)) return null;
+  return !result.called && Number(result.calls || 0) === 0 ? 'not_started' : 'unknown';
+}
+
 /// The agents' answers, side by side: each reads the conversation,
 /// researches with its tools, and answers as itself when it is ready.
 export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize = null, roomHookSource = false, assignment = null, requestOverride = null, durableExecution = false, registerAssignment = null, onRunEvent = null }) {
@@ -746,7 +752,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         if (result.called && allowance.metered) await allowance.consume();
         if (result.cancelled || result.handedOff) return result.cancelled?{cancelled:true}:undefined;
         if (result.interrupted) return {interrupted:true};
-        if (result.refused || !result.answer) failureOutcome = result.called ? 'unknown' : 'not_started';
+        failureOutcome=classifyAgentFailure(result);
         // No answer: say why, so nobody waits on silence — the AI service
         // turned it down (no call was paid for), or it ran out of time.
         text = result.answer || serverText(locale, result.called ? "agent.failedEmpty" : "agent.failedService");
