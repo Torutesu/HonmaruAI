@@ -14,8 +14,8 @@ export async function maintainDocumentJobs(db,at=Date.now(),env=null){
    ]);
   }
  }
- await db.prepare('DELETE FROM hx_document_export_links WHERE expires_at<=?1').bind(at).run();
- await db.prepare('DELETE FROM hx_document_export_artifacts WHERE expires_at<=?1').bind(at).run();
+ await db.prepare(`DELETE FROM hx_document_export_links WHERE rowid IN
+  (SELECT rowid FROM hx_document_export_links WHERE expires_at<=?1 ORDER BY expires_at,org_id,job_id LIMIT 100)`).bind(at).run();
  // Expired delivery receipts do not remove the independently versioned file.
  // Bound each sweep; account/workspace deletion removes the source sooner.
  const result=await db.prepare(`DELETE FROM hx_document_jobs WHERE id IN

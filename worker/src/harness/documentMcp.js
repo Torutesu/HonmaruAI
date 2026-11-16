@@ -104,6 +104,8 @@ export async function callDocumentExportTool(env,agent,name,args={},request=null
 }
 export async function serveTemporaryDocumentExport(request,env,url){
  if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed.',{status:405,headers:{allow:'GET, HEAD','cache-control':'no-store'}});
+ const tables=await env.DB.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name IN ('hx_document_jobs','hx_document_export_artifacts','hx_document_export_links')").first();
+ if(tables?.n!==3)return new Response('Document exports are not ready.',{status:503,headers:{'cache-control':'no-store','retry-after':'30','content-type':'text/plain; charset=utf-8'}});
  const raw=url.pathname.split('/').at(-1)||'';
  if(!/^[A-Za-z0-9_-]{40,60}$/.test(raw))return new Response('Not found.',{status:404,headers:{'cache-control':'no-store','referrer-policy':'no-referrer'}});
  const tokenHash=await hash(raw),now=Date.now();

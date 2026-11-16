@@ -8,6 +8,7 @@ import {createFileLedger,appendFileVersion} from '../src/harness/fileVersionLedg
 import {claimDocumentJob} from '../src/harness/documentLeases.js';
 import {publishDocumentArtifact} from '../src/harness/documentArtifacts.js';
 import {maintainDocumentJobs} from '../src/harness/documentMaintenance.js';
+import {serveTemporaryDocumentExport} from '../src/harness/documentMcp.js';
 import {createHash} from 'node:crypto';
 
 const org='document-mcp-test',actor='document-mcp-admin',gatewayId='document-mcp-node';
@@ -76,6 +77,32 @@ test('temporary download URLs are hashed, origin-independent bearer secrets with
  expect((await env.DB.prepare('SELECT 1 FROM hx_document_export_artifacts WHERE org_id=?1 AND job_id=?2').bind(org,jobId).first())).toBeNull();
  expect((await env.MEDIA.head(key))).toBeNull();
  expect((await http(url.pathname)).status).toBe(404);
+});
+
+test('temporary export cleanup retains metadata for expired objects beyond the 100-object sweep and removes them next pass',async()=>{
+ const at=Date.now(),expired=at-1,bytes=new Uint8Array([37,80,68,70,45]),hash=createHash('sha256').update(bytes).digest('hex');
+ const statements=[];
+ for(let i=0;i<101;i++){
+  const jobId=`cleanup-${i}`,key=`org/${encodeURIComponent(org)}/document-exports/${jobId}/${hash}`;
+  await env.MEDIA.put(key,bytes);
+  statements.push(env.DB.prepare('INSERT INTO hx_document_export_artifacts(org_id,job_id,object_key,content_hash,content_type,size,created_at,expires_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)')
+   .bind(org,jobId,key,hash,'application/pdf',bytes.length,expired-1000,expired));
+ }
+ await env.DB.batch(statements);
+ await maintainDocumentJobs(env.DB,at,env);
+ expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_document_export_artifacts WHERE org_id=?1 AND expires_at<=?2').bind(org,at).first()).n).toBe(1);
+ const remaining=(await env.DB.prepare('SELECT object_key FROM hx_document_export_artifacts WHERE org_id=?1').bind(org).first()).object_key;
+ expect(await env.MEDIA.head(remaining)).toBeTruthy();
+ await maintainDocumentJobs(env.DB,at+1,env);
+ expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_document_export_artifacts WHERE org_id=?1').bind(org).first()).n).toBe(0);
+ expect(await env.MEDIA.head(remaining)).toBeNull();
+});
+
+test('temporary download endpoint waits for all export tables during partial migration',async()=>{
+ const db={prepare:()=>({first:async()=>({n:2})})};
+ const response=await serveTemporaryDocumentExport(new Request('https://example.com/hx/document-exports/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'),{DB:db},new URL('https://example.com/hx/document-exports/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'));
+ expect(response.status).toBe(503);
+ expect(response.headers.get('retry-after')).toBe('30');
 });
 
 test('Workspace destination exports are immutable and token read/build/write/node/source checks fail closed',async()=>{
