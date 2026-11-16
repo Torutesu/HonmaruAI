@@ -11,6 +11,7 @@ const table: Record<string, string> = {
   'Helper failed': 'Error del ayudante',
   'Helper interrupted': 'Ayudante interrumpido',
   'Execution language': 'Lenguaje de ejecución',
+  'Created by': 'Creado por',
   'Server action execution history': 'Historial de ejecuciones de acciones del servidor',
   'Only your own runs are listed. Inputs and environment secrets are not included.': 'Solo se muestran tus ejecuciones. No se incluyen entradas ni secretos del entorno.',
   'Loading execution history…': 'Cargando historial de ejecuciones…',
