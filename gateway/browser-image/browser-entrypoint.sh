@@ -50,8 +50,9 @@ chown "$BROWSER_UID:$BROWSER_GID" /data
 find /data -mindepth 1 -maxdepth 1 ! -name lost+found -exec chown -R "$BROWSER_UID:$BROWSER_GID" {} +
 umask 077
 head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > /run/honmaru/control-token
-chown "$BROWSER_UID:$BROWSER_GID" /run/honmaru/control-token
+# Restrict the token while root still owns it; the container drops FOWNER.
 chmod 0400 /run/honmaru/control-token
+chown "$BROWSER_UID:$BROWSER_GID" /run/honmaru/control-token
 
 setpriv --reuid=1001 --regid=1001 --clear-groups --bounding-set=-all \
   node /opt/honmaru/browser-proxy-server.mjs &
