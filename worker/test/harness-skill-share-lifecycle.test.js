@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { expect, test } from 'vitest';
 import { createSession, sessionKey, upsertMembership, upsertUser } from '../src/db.js';
 import { createSkill } from '../src/harness/skills.js';
+import { setMode } from '../src/harness/mode.js';
 import { createSkillShare, downloadSkillShare, importSkillShare, readSkillShare } from '../src/harness/skillShares.js';
 import worker from '../src/index.js';
 
@@ -140,6 +141,8 @@ test.each(['issue', 'import'])('HTTP %s keeps the membership generation from aut
     },
     batch: statements => env.DB.batch(statements),
   };
+  const orgId = operation === 'issue' ? source : destination;
+  await setMode(env.DB, orgId, 'harness', actor);
   const path = operation === 'issue' ? `/skills/${skill.id}/shares` : `/skill-shares/${token}/import`;
   const request = new Request(`https://example.com${path}`, {
     method: 'POST', headers: { 'x-session-token': session, 'content-type': 'application/json' },
@@ -157,6 +160,7 @@ test.each(['issue', 'import'])('HTTP %s rejects a session ended before its write
   const session = await createSession(env.DB, actor, 'test');
   const key = await sessionKey(session);
   const orgId = operation === 'issue' ? source : destination;
+  await setMode(env.DB, orgId, 'harness', actor);
   const before = await Promise.all(['hx_skills', 'hx_skill_access', 'hx_skill_shares'].map(count));
   let injected = false;
   const stop = async () => {
