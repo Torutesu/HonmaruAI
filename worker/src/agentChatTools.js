@@ -1,5 +1,6 @@
 import {noteUsage} from './ledger.js';
 import {isControlTool, handoffOperation} from './agentToolControl.js';
+import {trackAgentOperation} from './agentCancellation.js';
 
 // At most sixteen tools can actually execute in one run. Two lifecycle
 // events per execution provide a hard upper bound on trace volume.
@@ -185,6 +186,7 @@ export async function chatTools({provider, instructions, input, tools, authorize
                 result => ({kind:'value',result}),
                 error => ({kind:'error',error}),
               );
+              trackAgentOperation(signal, operation);
               const outcome = await raceSignal(Promise.race([
                 operation,
                 new Promise(resolve => {timer = setTimeout(() => resolve(expired), remaining);}),

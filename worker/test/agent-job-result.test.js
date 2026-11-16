@@ -2,7 +2,7 @@ import {env} from 'cloudflare:test';
 import {AgentRunner} from '../src/agentRunner.js';
 import {expect,test,vi} from 'vitest';
 import {runTrackedAgentJob} from '../src/agentJobResult.js';
-import {trackAgentCancellation} from '../src/agentCancellation.js';
+import {trackAgentCancellation,trackAgentOperation} from '../src/agentCancellation.js';
 const job={orgId:'org',rowId:'request',queuedAt:100};
 const key='job:100:agent:request',resultKey='result:["org","agent","request"]';
 function store(){const data=new Map([[key,job]]);return {data,get:async k=>data.get(k),put:async(k,v)=>{data.set(k,v)},delete:async k=>{data.delete(k)}}}
@@ -84,6 +84,21 @@ test('assignment stop reports failed when execution cancellation cleanup rejects
  expect(response.status).toBe(503);
  expect(await response.json()).toMatchObject({cancelled:false,error:expect.any(String)});
  expect(controller.signal.aborted).toBe(true);
+});
+
+test('assignment stop stays unconfirmed when an aborted tool operation never settles',async()=>{
+ vi.useFakeTimers();
+ try {
+  const runner=new AgentRunner({storage:store()},env);
+  const controller=new AbortController();
+  runner.registerAssignment({orgId:'org',assignmentId:'assignment-unknown-outcome',generation:1},controller);
+  trackAgentOperation(controller.signal,new Promise(()=>{}));
+  const pending=runner.fetch(new Request('https://agents/cancel-assignment',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({orgId:'org',assignmentId:'assignment-unknown-outcome',generation:1})}));
+  await vi.advanceTimersByTimeAsync(10000);
+  const response=await pending;
+  expect(response.status).toBe(503);
+  expect(await response.json()).toMatchObject({cancelled:false,error:'Execution cancellation could not be confirmed.'});
+ } finally { vi.useRealTimers(); }
 });
 
 import assert from 'node:assert/strict';

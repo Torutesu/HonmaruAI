@@ -2,6 +2,7 @@ import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import { research, agentModelFor, isReasoningModel, canResearch } from "../src/agentResearch.js";
 import { askAgent } from "../src/customAgents.js";
+import { waitForAgentCancellation } from "../src/agentCancellation.js";
 
 beforeEach(() => fetchMock.activate());
 afterEach(() => fetchMock.assertNoPendingInterceptors());
@@ -261,6 +262,27 @@ test("stopping a running research tool returns immediately and prevents another 
  expect(toolSignal.aborted).toBe(true);
  expect(await pending).toMatchObject({called:true,answer:null,cancelled:true,rounds:1,calls:1});
  expect(calls).toBe(1);
+});
+
+test("cancellation drain waits for a signal-insensitive research tool to settle",async()=>{
+ const controller=new AbortController();let markStarted,release;
+ const started=new Promise(resolve=>{markStarted=resolve;});
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(200,{
+  id:'tool-request-uncertain',output:[{type:'function_call',call_id:'write-call',name:'write',arguments:'{}'}],
+ });
+ const pending=research({provider:provider(),env:{},instructions:'Check',input:'Check',signal:controller.signal,
+  tools:{write:{description:'write',parameters:{type:'object',properties:{},required:[],additionalProperties:false},run:async()=>{
+   markStarted();return new Promise(resolve=>{release=resolve;});
+  }}}});
+ await started;
+ controller.abort();
+ expect(await pending).toMatchObject({cancelled:true,rounds:1,calls:1});
+ let drained=false;
+ const drain=waitForAgentCancellation(controller.signal).then(value=>{drained=value;return value;});
+ await Promise.resolve();
+ expect(drained).toBe(false);
+ release('committed');
+ expect(await drain).toBe(true);
 });
 
 test("revocation during the model call prevents its requested tools from running", async () => {
