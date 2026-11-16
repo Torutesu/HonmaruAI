@@ -4563,6 +4563,12 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Worker `harness-apps.test.js` passed **171/171**; Web `CustomApp.test.tsx` passed **20/20**; Web TypeScript and production build passed. Regression coverage includes publication, inherited release, replacement, unpublish, pending/approved/published review state and removal of sensitive approval fields. `node --check`, parity inventory, and `git diff --check` passed.
 - No schema migration, new paid service or Simple-mode behavior change. Exact-head CI, production release, direct rollback, runtime logs, environment-specific release history and authenticated Kylon comparison remain pending.
 
+### 2026-11-16 — KY-051 draft-scoped Custom App preview DB (PR #1040)
+
+- Custom App preview data is now keyed to the saved App version and source hash. Separate drafts receive separate preview data; authorized reviewers of one draft share its fork. Candidate creation, approval and publishing require that exact fork ID/revision and schema snapshot. A schema refresh archives the replaced preview data, while legacy `hx_app_forks` rows and generic Company App behavior remain unchanged.
+- On code commit `8f826018` in the isolated PR worktree, Worker `harness-apps.test.js` plus `migration.test.js` passed **199/199**; the regression covers reviewer sharing, cross-draft isolation, legacy-fork preservation and stale-candidate rejection. Web `CustomApp.test.tsx` passed **21/21**; TypeScript no-emit, production build, Kylon parity inventory checker and `git diff --check` passed. No new service, paid dependency or Simple-mode change.
+- PR #1040 remains unmerged. Exact-head CI after the documentation-only amendment and production release are pending. Runtime execution logs, detailed deployment status, direct rollback, environment-specific release history and authenticated Kylon comparison remain incomplete; this is not a claim of complete KY-051 or overall parity.
+
 ### 2026-11-16 — Workflow table page snapshot consistency (combined PR #1037)
 
 - A query cursor now pins pages to one table data generation. Row insert/update/delete and moves between tables increment version counters through triggers; each page reads the counter and rows in one D1 batch and refuses a stale generation. Cursor payloads carry a Worker-signed HMAC, so the isolated Workflow SDK cannot edit the generation or offset. The cursor key stays in D1 KV and is never sent to the Gateway/guest.
