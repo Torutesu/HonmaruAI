@@ -105,8 +105,10 @@ test('browser action protocol accepts bounded human-like actions and rejects cod
  ]) assert.throws(()=>validateBrowserAction(action));
 });
 
-test('browser control token permissions are set before ownership is delegated',async()=>{
+test('browser volume ownership avoids traversing private Chromium profile files',async()=>{
  const script=await readFile(new URL('../browser-image/browser-entrypoint.sh',import.meta.url),'utf8');
+ assert.match(script,/chown "\$BROWSER_UID:\$BROWSER_GID" \/data/);
+ assert.doesNotMatch(script,/find \/data .*chown -R/);
  const create=script.indexOf('> /run/honmaru/control-token');
  const mode=script.indexOf('chmod 0400 /run/honmaru/control-token');
  const owner=script.indexOf('chown "$BROWSER_UID:$BROWSER_GID" /run/honmaru/control-token');
