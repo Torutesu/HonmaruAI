@@ -1354,6 +1354,101 @@ test("file share decisions require confirmation and never retry or echo response
   assert.match(stderr.read(), /did not retry/);
 });
 
+test("Skill share-link create and import use the human session without exposing import tokens", async () => {
+  const calls = [];
+  const stdout = output(), stderr = output();
+  const skillToken = `skl_${"a".repeat(64)}`;
+  const env = {
+    HONMARU_API_URL: "https://api.example.com",
+    HONMARU_APP_URL: "https://app.example.com",
+    HONMARU_SESSION_TOKEN: "human-session-token-123456",
+    HONMARU_SKILL_SHARE_TOKEN: skillToken,
+  };
+  const fetcher = async (url, init) => {
+    const endpoint = new URL(url);
+    calls.push({ endpoint, init });
+    if (calls.length === 1) return new Response(JSON.stringify({
+      token: skillToken,
+      share: { id: "sshare_1", createdAt: "2026-11-16T00:00:00.000Z", expiresAt: "2026-12-16T00:00:00.000Z", fileCount: 2, totalBytes: 128 },
+    }), { status: 201 });
+    return new Response(JSON.stringify({
+      skill: { id: "skill_copy", name: "Imported", visibility: "private", body: "not printed" },
+      source: { name: "Shared source", expiresAt: "2026-12-16T00:00:00.000Z" },
+      installedOnAgent: true,
+    }), { status: 201 });
+  };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+
+  assert.equal(await run(["workspace", "skill", "share-link", "create", "skill_1", "--org-id", "org_1", "--expires-in-days", "30", "--confirm"]), 0);
+  const created = JSON.parse(stdout.read());
+  assert.equal(created.publicUrl, "https://app.example.com/#/skill-share/" + skillToken);
+  assert.equal(Object.hasOwn(created, "token"), false);
+  assert.equal(Object.hasOwn(created, "publicAppRoute"), false);
+  assert.match(created.warning, /shown only once/);
+  stdout.clear();
+
+  assert.equal(await run(["workspace", "skill", "share-link", "import", "--org-id", "org_2", "--token-env", "HONMARU_SKILL_SHARE_TOKEN", "--agent", "agent_1", "--confirm"]), 0);
+  const imported = JSON.parse(stdout.read());
+  assert.deepEqual(imported, {
+    skill: { id: "skill_copy", name: "Imported", visibility: "private" },
+    source: { name: "Shared source", expiresAt: "2026-12-16T00:00:00.000Z" },
+    installedOnAgent: true,
+  });
+  assert.doesNotMatch(stdout.read(), new RegExp(skillToken));
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].endpoint.pathname, "/skills/skill_1/shares");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.redirect, "error");
+  assert.equal(calls[0].init.headers["x-session-token"], env.HONMARU_SESSION_TOKEN);
+  assert.equal(calls[0].init.headers.authorization, undefined);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { orgId: "org_1", expiresInDays: 30, confirmAnyoneWithLink: true });
+  assert.equal(calls[1].endpoint.pathname, "/skill-shares/" + skillToken + "/import");
+  assert.equal(calls[1].init.method, "POST");
+  assert.equal(calls[1].init.redirect, "error");
+  assert.equal(calls[1].init.headers["x-session-token"], env.HONMARU_SESSION_TOKEN);
+  assert.equal(calls[1].init.headers.authorization, undefined);
+  assert.deepEqual(JSON.parse(calls[1].init.body), { orgId: "org_2", agentId: "agent_1" });
+  assert.equal(stderr.read(), "");
+});
+
+test("Skill share-link mutations require confirmation, secret environment input, and never retry ambiguous imports", async () => {
+  let calls = 0;
+  const stdout = output(), stderr = output();
+  const skillToken = `skl_${"c".repeat(64)}`;
+  const env = {
+    HONMARU_API_URL: "https://api.example.com",
+    HONMARU_SESSION_TOKEN: "human-session-token-123456",
+    HONMARU_SKILL_SHARE_TOKEN: skillToken,
+  };
+  const fetcher = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ message: skillToken, code: "import-may-be-saved" }), { status: 503 });
+  };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  const create = ["workspace", "skill", "share-link", "create", "skill_1", "--org-id", "org_1"];
+  assert.equal(await run(create), 1);
+  assert.equal(calls, 0);
+  assert.match(stderr.read(), /--confirm is required/);
+  stderr.clear();
+
+  assert.equal(await run([...create, "--confirm", "--expires-in-days", "2"]), 1);
+  assert.equal(calls, 0);
+  assert.match(stderr.read(), /must be 1, 7, 30, or 90/);
+  stderr.clear();
+
+  const importCommand = ["workspace", "skill", "share-link", "import", "--org-id", "org_1", "--token-env", "HONMARU_SKILL_SHARE_TOKEN"];
+  assert.equal(await run([...importCommand, "--confirm", skillToken]), 1);
+  assert.equal(calls, 0);
+  assert.doesNotMatch(stderr.read(), new RegExp(skillToken));
+  stderr.clear();
+
+  assert.equal(await run([...importCommand, "--confirm"]), 1);
+  assert.equal(calls, 1);
+  assert.match(stderr.read(), /may already have been imported/);
+  assert.match(stderr.read(), /did not retry/);
+  assert.doesNotMatch(stderr.read(), new RegExp(skillToken));
+});
+
 test("file purge uses the human session route with a reason and one version fence", async () => {
   const calls = [];
   const stdout = output(), stderr = output();
