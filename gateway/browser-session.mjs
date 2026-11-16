@@ -6,6 +6,16 @@ import {fileURLToPath} from 'node:url';
 const BROWSER_NAME = /^honmaru-browser-[a-f0-9]{32}$/;
 const SAFE_ID = /^[A-Za-z0-9_.:-]{1,160}$/;
 const imageBuilds=new Map();
+const BROWSER_READY_PROBE = [
+ "const net = require('node:net');",
+ "const deadline = Date.now() + 20_000;",
+ "function probe() {",
+ "  const socket = net.createConnection({ host: '127.0.0.1', port: 37654 });",
+ "  socket.once('connect', () => { socket.destroy(); process.exit(0); });",
+ "  socket.once('error', () => { socket.destroy(); if (Date.now() >= deadline) process.exit(1); setTimeout(probe, 100); });",
+ "}",
+ "probe();",
+].join(String.fromCharCode(10));
 
 function agentDigest(workspaceId, agentId) {
   if (!SAFE_ID.test(String(workspaceId || '')) || !SAFE_ID.test(String(agentId || ''))) {
@@ -115,6 +125,18 @@ async function ensureBrowserImage(binary,image,spawnProcess,signal) {
   await imageBuilds.get(key);
 }
 
+async function waitForBrowserCommand(binary,containerName,uid,spawnProcess,signal) {
+  if(signal?.aborted)throw new Error('Browser action cancelled.');
+  try {
+    await runCli(binary,['exec','--uid',String(uid),containerName,'node','-e',BROWSER_READY_PROBE],{
+      timeoutMs:25_000,spawnProcess,signal,
+    });
+  } catch {
+    if(signal?.aborted)throw new Error('Browser action cancelled.');
+    throw new Error('The local browser session did not become ready.');
+  }
+}
+
 export async function runBrowserSessionAction({
   binary=process.env.HONMARU_CONTAINER_BIN||'container',image='honmaru-browser:1650',
   workspaceId,agentId,action,uid=process.getuid(),gid=process.getgid(),spawnProcess=spawn,signal,
@@ -131,6 +153,7 @@ export async function runBrowserSessionAction({
     const args=browserContainerArgs({name:session.containerName,image,volumeName:session.volumeName,uid,gid});
     await runCli(binary,args,{timeoutMs:180000,spawnProcess,signal});
   }
+  await waitForBrowserCommand(binary,session.containerName,uid,spawnProcess,signal);
   const output=await runCli(binary,['exec','--interactive','--uid',String(uid),session.containerName,'node','/opt/honmaru/browser-command.mjs'],{
     input:JSON.stringify(cleanAction),timeoutMs:30000,spawnProcess,signal,
   });

@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {PassThrough} from 'node:stream';
@@ -51,8 +52,10 @@ test('the per-Agent VM and durable volume are created once and reused for later 
  assert.deepEqual(second,first);
  assert.equal([...volumes].length,1);
  assert.equal(calls.filter(call=>call.args[0]==='run').length,1);
- const firstExec=calls.find(call=>call.args[0]==='exec');
+ const readinessExec=calls.find(call=>call.args[0]==='exec'&&call.args.some(value=>typeof value==='string'&&value.includes('37654')));
+ const firstExec=calls.find(call=>call.args[0]==='exec'&&call.args.includes('/opt/honmaru/browser-command.mjs'));
  assert.deepEqual(calls[0].args.slice(0,3),['image','inspect','honmaru-browser:1650']);
+ assert.ok(readinessExec&&firstExec&&calls.indexOf(readinessExec)<calls.indexOf(firstExec));
  assert.equal(firstExec.args.includes('--interactive'),true);
  const other=await runBrowserSessionAction({...options,agentId:'agent-b',action:{type:'screenshot'}});
  assert.deepEqual(other,first);
@@ -100,4 +103,14 @@ test('browser action protocol accepts bounded human-like actions and rejects cod
   {type:'scroll',x:0,y:0,deltaX:0,deltaY:2001},
   {type:'evaluate',code:'fetch(\\"https://example.com\\")'},
  ]) assert.throws(()=>validateBrowserAction(action));
+});
+
+test('browser volume ownership avoids traversing private Chromium profile files',async()=>{
+ const script=await readFile(new URL('../browser-image/browser-entrypoint.sh',import.meta.url),'utf8');
+ assert.match(script,/chown "\$BROWSER_UID:\$BROWSER_GID" \/data/);
+ assert.doesNotMatch(script,/find \/data .*chown -R/);
+ const create=script.indexOf('> /run/honmaru/control-token');
+ const mode=script.indexOf('chmod 0400 /run/honmaru/control-token');
+ const owner=script.indexOf('chown "$BROWSER_UID:$BROWSER_GID" /run/honmaru/control-token');
+ assert.ok(create>=0&&mode>create&&owner>mode);
 });

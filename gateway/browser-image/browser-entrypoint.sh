@@ -43,15 +43,15 @@ ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
 mkdir -p /data /run/honmaru
-# Apple Container named volumes include a root-owned lost+found directory that
-# must remain inaccessible to the browser user. Give the profile root to the
-# browser and transfer only actual profile entries.
+# A workspace-Agent volume is always reused by the same local account. Change
+# only the mount root; recursively traversing Chromium's private profile would
+# require broader filesystem capabilities.
 chown "$BROWSER_UID:$BROWSER_GID" /data
-find /data -mindepth 1 -maxdepth 1 ! -name lost+found -exec chown -R "$BROWSER_UID:$BROWSER_GID" {} +
 umask 077
 head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > /run/honmaru/control-token
-chown "$BROWSER_UID:$BROWSER_GID" /run/honmaru/control-token
+# Restrict the token while root still owns it; the container drops FOWNER.
 chmod 0400 /run/honmaru/control-token
+chown "$BROWSER_UID:$BROWSER_GID" /run/honmaru/control-token
 
 setpriv --reuid=1001 --regid=1001 --clear-groups --bounding-set=-all \
   node /opt/honmaru/browser-proxy-server.mjs &
