@@ -148,6 +148,18 @@ test('preview database schema builder sends an additive operation against its cu
  act(()=>tree.unmount())
 })
 
+test('preview database advanced schema editor supports rename, conversion, drop and entity operations',async()=>{
+ const {tree,api}=await setup()
+ const form=tree.root.findByProps({'aria-label':'検証DBの高度なスキーマ変更'})
+ const editor=tree.root.findByProps({'aria-label':'検証DBのスキーマ変更案'})
+ const operations=[{op:'rename_column',entity:'primary',column:'task',name:'Title'},{op:'convert_column',entity:'primary',column:'amount',type:'number'},{op:'drop_empty_column',entity:'primary',column:'unused'},{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]}]
+ await act(async()=>editor.props.onChange({target:{value:JSON.stringify(operations,null,2)}}))
+ await act(async()=>form.props.onSubmit({preventDefault:vi.fn()}))
+ expect(api.databaseChange).toHaveBeenCalledWith('app',{action:'fork_schema',forkId:'private-fork',revision:4,operations})
+ expect(tree.root.findAllByType('summary').some(item=>item.children.join('')==='列の変換・削除・テーブル追加')).toBe(true)
+ act(()=>tree.unmount())
+})
+
 test('existing column rename builder uses the stable column ID without applying it',async()=>{
  const database={fork:null,version:2,entities:[{key:'primary',table:{id:'tasks',name:'Tasks',columns:[{id:'old_name',name:'Old name',type:'text'},{id:'status',name:'Status',type:'select',options:['Open','Done']}]}}],migrations:[]}
  const {tree,api}=await setup([],database)

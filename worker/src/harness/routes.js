@@ -1729,7 +1729,11 @@ export async function handleHarness(request, env, url, context = {}) {
       const canManage = await mayChangeApp();
       const respond = async (result, action, extraTableIds = []) => {
         if (!result.error && action) await audit(env, request, { orgId, action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version ?? null, name: typeof input?.name === 'string' ? input.name : null, ...(result.merged?{forkId:result.forkId,checksum:result.checksum,changed:result.changed??null,schemaChanged:result.schemaChanged??0,replay:Boolean(result.replay)}:{}) } });
-        if (sub === 'database' && !result.error && !await mayUseDatabase(env.DB, orgId, appId, me, [...extraTableIds,...[...(result.fork?.entities || []), ...(result.entities || [])].map(entity=>entity.table?.id).filter(Boolean)], request.method !== 'GET')) return json({message:'No such app.'},404);
+        if (sub === 'database' && !result.error) {
+          const candidateTableIds=[...new Set([...extraTableIds,...[...(result.fork?.entities || []), ...(result.entities || [])].map(entity=>entity.table?.id).filter(Boolean)])];
+          const {results:existingTables=[]}=await env.DB.prepare('SELECT id FROM hx_tables WHERE org_id=?1 AND id IN (SELECT value FROM json_each(?2))').bind(orgId,JSON.stringify(candidateTableIds)).all();
+          if(!await mayUseDatabase(env.DB, orgId, appId, me, existingTables.map(row=>row.id), request.method !== 'GET'))return json({message:'No such app.'},404);
+        }
         return result.error ? fail(result) : json(result);
       };
       if (sub === 'database') {
@@ -1762,7 +1766,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
         if (input.action === 'custom_preview_fork') return respond(await createCustomDraftPreviewFork(env.DB,orgId,app,me,input), 'app.custom_preview_forked');
         if (input.action === 'custom_preview_refresh') return respond(await createCustomDraftPreviewFork(env.DB,orgId,app,me,input,true), 'app.custom_preview_refreshed');
-        if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,appliedChanges,...review}=result; return respond(review,undefined,(snapshots||[]).map(snapshot=>snapshot.tableId)); }
+        if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,appliedChanges,...review}=result; return respond(review,undefined,(snapshots||[]).filter(snapshot=>!snapshot.newEntity).map(snapshot=>snapshot.tableId)); }
         if (input.action === 'merge_apply') {
           const result=await mergeFork(env.DB,orgId,app,me,input);
           if(result.error)return respond(result);

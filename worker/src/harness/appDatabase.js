@@ -71,7 +71,7 @@ function dateValue(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
 }
 
-function convertColumnValue(value, target, source, operation, relationResolver) {
+export function convertColumnValue(value, target, source, operation, relationResolver) {
   if (value === undefined) return { ok: true, value };
   if (value === null || value === '') return { ok: true, value: null };
   if (target.type === 'relation') {
@@ -543,7 +543,8 @@ export async function readFork(db, orgId, appId, by) {
 }
 export async function mutateFork(db, orgId, appId, by, input) {
   const { fork } = await readFork(db, orgId, appId, by);
-  if (fork && !await mayUseDatabase(db, orgId, appId, by, fork.entities.map(entity=>entity.table.id), true)) return err('No such app.',404);
+  const tableIds = fork ? await existingForkTableIds(db,orgId,fork.entities) : [];
+  if (fork && !await mayUseDatabase(db, orgId, appId, by, tableIds, true)) return err('No such app.',404);
   if (!fork || fork.id !== input.forkId || fork.revision !== input.revision) return err('Preview data changed. Reload before editing.', 409);
   if(fork.mergedAt)return err('This preview was merged. Create a new preview before editing.',409);
   const entity = fork.entities.find(e => e.key === input.entity);
@@ -567,31 +568,67 @@ export async function mutateFork(db, orgId, appId, by, input) {
   const data = JSON.stringify(fork.entities);
   if (new TextEncoder().encode(data).length > 750000) return err('Preview database is too large.', 413);
   const authority=databaseAuthority('?2','?3','?4','?7',true);
-  const saved = await db.prepare(`UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6 AND NOT EXISTS (SELECT 1 FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id) AND ${authority}`).bind(data, orgId, appId, String(by), fork.id, fork.revision,JSON.stringify(fork.entities.map(entity=>entity.table.id))).run();
+  const saved = await db.prepare(`UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6 AND NOT EXISTS (SELECT 1 FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id) AND ${authority}`).bind(data, orgId, appId, String(by), fork.id, fork.revision,JSON.stringify(tableIds)).run();
   if (!saved.meta?.changes) return err('Preview data or access changed. Reload before editing.', 409);
-  if (!await mayUseDatabase(db,orgId,appId,by,fork.entities.map(entity=>entity.table.id),true)) return err('No such app.',404);
-  return { result, revision: fork.revision+1, tableIds: fork.entities.map(entity=>entity.table.id) };
+  if (!await mayUseDatabase(db,orgId,appId,by,tableIds,true)) return err('No such app.',404);
+  return { result, revision: fork.revision+1, tableIds };
 }
 
-// A preview database may safely add nullable columns without changing the
-// production schema. The new shape remains private until merge review applies
-// its additive schema diff and record edits together.
+async function existingForkTableIds(db,orgId,entities) {
+  const ids=[...new Set((entities||[]).map(entity=>entity.table?.id).filter(Boolean))];
+  if(!ids.length)return [];
+  const {results=[]}=await db.prepare('SELECT id FROM hx_tables WHERE org_id=?1 AND id IN (SELECT value FROM json_each(?2))').bind(orgId,JSON.stringify(ids)).all();
+  return results.map(row=>row.id);
+}
+
+// Keep every schema edit private until review. Conversion and empty-drop
+// operations share the strict validation rules used by production migrations.
 export async function mutateForkSchema(db, orgId, appId, by, input) {
   const { fork } = await readFork(db, orgId, appId, by);
+  const tableIds=fork?await existingForkTableIds(db,orgId,fork.entities):[];
+  if(fork&&!await mayUseDatabase(db,orgId,appId,by,tableIds,true))return err('No such app.',404);
   if (!fork || fork.id !== input.forkId || fork.revision !== input.revision) return err('Preview data changed. Reload before editing.', 409);
   if (fork.mergedAt) return err('This preview was merged. Create a new preview before editing.', 409);
-  if (!Array.isArray(input.operations) || !input.operations.length || input.operations.length > 12
-    || input.operations.some(operation => operation?.op !== 'add_columns')) return err('Preview databases currently support additive column changes only.');
-  const planned = planMigration({ entities: fork.entities }, input.operations);
-  if (planned.error) return planned;
-  const entities = fork.entities.map(entity => {
-    const change = planned.changes.find(item => item.key === entity.key);
-    return change ? { ...entity, table: { ...entity.table, columns: change.table.columns } } : entity;
-  });
+  if (!Array.isArray(input.operations) || !input.operations.length || input.operations.length > 12) return err('Specify 1–12 preview database operations.');
+  const checked=planMigration({entities:fork.entities},input.operations);
+  if(checked.error)return checked;
+  let entities=fork.entities.map(entity=>({...entity,table:{...entity.table,columns:[...entity.table.columns]},rows:entity.rows.map(row=>({...row,values:{...row.values}}))}));
+  for(const operation of input.operations){
+    const planned=planMigration({entities},[operation]);
+    if(planned.error)return planned;
+    const change=planned.changes.find(item=>item.key===operation.entity);
+    if(!change)continue;
+    if(change.create){entities.push({key:change.key,table:change.table,rows:[]});continue;}
+    const entity=entities.find(item=>item.key===change.key);
+    if(!entity)return err('No such preview entity.');
+    if(operation.op==='convert_column'){
+      const source=entity.table.columns.find(column=>column.id===operation.column);
+      const target=change.table.columns.find(column=>column.id===operation.column);
+      const targetEntity=target?.type==='relation'?entities.find(item=>item.key===target.targetEntity):null;
+      const resolver=new Map();
+      if(operation.matchBy&&targetEntity)for(const row of targetEntity.rows){
+        const label=row.values?.[operation.matchBy];
+        if(typeof label==='string'){const key=JSON.stringify(label),matches=resolver.get(key)||[];matches.push(row.id);resolver.set(key,matches);}
+      }
+      for(const row of entity.rows){
+        const converted=convertColumnValue(row.values?.[operation.column],target,source,operation,operation.matchBy?resolver:null);
+        if(!converted.ok)return err(`Preview value in "${source?.name||operation.column}" cannot be converted without data loss.`,409);
+        if(converted.value===undefined)delete row.values[operation.column];else row.values[operation.column]=converted.value;
+      }
+    }else if(operation.op==='drop_empty_column'){
+      const source=entity.table.columns.find(column=>column.id===operation.column);
+      if(entity.rows.some(row=>!isEmptyMigrationValue(row.values?.[operation.column],source)))return err(`Preview column "${source?.name||operation.column}" contains values and cannot be dropped.`,409);
+      for(const row of entity.rows)delete row.values[operation.column];
+    }
+    entity.table={...entity.table,columns:change.table.columns};
+  }
+  const relationError=relationStateError(entities);if(relationError)return err(relationError,409);
+  for(const entity of entities)for(const row of entity.rows){const invalid=validateValues(entity.table.columns,row.values);if(invalid.length)return err(`Preview contains invalid values: ${invalid.map(item=>item.message||item).join(', ')}`,409);}
   const data = JSON.stringify(entities);
   if (new TextEncoder().encode(data).length > 750000) return err('Preview database is too large.', 413);
   const authority = databaseAuthority('?2','?3','?4','?7',true);
-  const saved = await db.prepare(`UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6 AND NOT EXISTS (SELECT 1 FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id) AND ${authority}`).bind(data,orgId,appId,String(by),fork.id,fork.revision,JSON.stringify(fork.entities.map(entity=>entity.table.id))).run();
+  const saved = await db.prepare(`UPDATE hx_app_forks SET data=?1,revision=revision+1 WHERE org_id=?2 AND app_id=?3 AND created_by=?4 AND id=?5 AND revision=?6 AND NOT EXISTS (SELECT 1 FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id) AND ${authority}`).bind(data,orgId,appId,String(by),fork.id,fork.revision,JSON.stringify(tableIds)).run();
   if (!saved.meta?.changes) return err('Preview data or access changed. Reload before editing.', 409);
-  return { revision: fork.revision + 1, tableIds: fork.entities.map(entity=>entity.table.id) };
+  if(!await mayUseDatabase(db,orgId,appId,by,tableIds,true))return err('No such app.',404);
+  return { revision: fork.revision + 1, tableIds };
 }
