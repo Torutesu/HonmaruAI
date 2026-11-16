@@ -153,7 +153,8 @@ export async function runBrowserSessionAction({
     const args=browserContainerArgs({name:session.containerName,image,volumeName:session.volumeName,uid,gid});
     await runCli(binary,args,{timeoutMs:180000,spawnProcess,signal});
   }
-  await waitForBrowserCommand(binary,session.containerName,uid,spawnProcess,signal);\n  const output=await runCli(binary,['exec','--interactive','--uid',String(uid),session.containerName,'node','/opt/honmaru/browser-command.mjs'],{
+  await waitForBrowserCommand(binary,session.containerName,uid,spawnProcess,signal);
+  const output=await runCli(binary,['exec','--interactive','--uid',String(uid),session.containerName,'node','/opt/honmaru/browser-command.mjs'],{
     input:JSON.stringify(cleanAction),timeoutMs:30000,spawnProcess,signal,
   });
   try { return JSON.parse(output.toString('utf8')); }
