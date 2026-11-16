@@ -46,7 +46,7 @@ export async function runAgentAssignment(env,{orgId,session,row,agent,authorize=
     await waitForAgentCancellation(controller.signal);
     if(await assignmentOwns(env.DB,identity)) {
       if(controller.signal.aborted || !await permitted())await endAssignment(env.DB,{...identity,status:'cancelled'});
-      else if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:result?.interrupted?'interrupted':'finished'});
+      else if(!await externalAssignmentPending(env.DB,identity))await endAssignment(env.DB,{...identity,status:result?.failed?'failed':result?.interrupted?'interrupted':'finished'});
     }
     return result;
   } catch(error) {
