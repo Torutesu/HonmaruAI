@@ -205,7 +205,8 @@ test('a workspace Skill owner can assign and revoke it on another active same-wo
   const otherAgentId = (await made.json()).agent.id;
 
   // The Skill owner does not manage this Agent, but owns the workspace Skill.
-  expect((await request('POST', `/hx/agents/${otherAgentId}/skills`, owner, { skillId: skill.id })).status).toBe(200);
+  const assignment = await request('POST', `/hx/agents/${otherAgentId}/skills`, owner, { skillId: skill.id });
+  expect(assignment.status, await assignment.clone().text()).toBe(200);
   expect((await env.DB.prepare('SELECT added_by FROM hx_agent_skills WHERE org_id=?1 AND agent_id=?2 AND skill_id=?3')
     .bind(orgId, otherAgentId, skill.id).first()).added_by).toBe('9401');
   expect((await executionSkills(env.DB, orgId, otherAgentId, { userId: '9402', channel: 'b:room' })).map(item => item.id)).toContain(skill.id);
@@ -310,6 +311,7 @@ test('Skill share links expose a temporary package, import private copies, insta
   const { upsertMembership } = await import('../src/db.js');
   await upsertMembership(env.DB, 'skills-imported', '9401', 'member');
   await upsertMembership(env.DB, 'skills-imported', '9402', 'member');
+  await setMode(env.DB, 'skills-imported', 'harness', '9401');
   const imported = await request('POST', `/skill-shares/${token}/import`, member, { orgId: 'skills-imported' });
   expect(imported.status).toBe(201);
   const { skill: privateCopy } = await imported.json();
