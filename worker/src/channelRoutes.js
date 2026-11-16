@@ -678,6 +678,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     await progress(agent, "agent");
     let text;
     let modelAnswered = false;
+    let failureOutcome = null;
     let toolTrace = null;
     try {
       // "@agent remember …": kept in the agent's own memory, no model
@@ -745,6 +746,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         if (result.called && allowance.metered) await allowance.consume();
         if (result.cancelled || result.handedOff) return result.cancelled?{cancelled:true}:undefined;
         if (result.interrupted) return {interrupted:true};
+        if (result.refused || !result.answer) failureOutcome = result.called ? 'unknown' : 'not_started';
         // No answer: say why, so nobody waits on silence — the AI service
         // turned it down (no call was paid for), or it ran out of time.
         text = result.answer || serverText(locale, result.called ? "agent.failedEmpty" : "agent.failedService");
@@ -769,6 +771,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         await broadcastWithParent(env, orgId, resolved, out.row, members);
         await emitMessage(env, orgId, out.row);
       }
+      if (replyFence && failureOutcome) return {failed:true,outcome:failureOutcome};
     } catch (err) {
       if(signal?.aborted)return {cancelled:true};
       console.error("agent answer failed", safe(err?.message));
@@ -779,6 +782,10 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, "agent.failedError"), kind: "agent", parentId, roomHookSource, assignmentFence:replyFence });
         if (out.row) await broadcastWithParent(env, orgId, resolved, out.row, members);
       } catch { /* the database itself is down: nothing more to say */ }
+      // A visible failure message is not a successful Agent run. Preserve an
+      // explicit unknown outcome so durable assignments cannot be settled as
+      // finished or automatically replayed after a model/tool side effect.
+      if (replyFence) return {failed:true,outcome:'unknown'};
     } finally {
       // Early cancellation must clear the typing indicator too; it must not
       // remain active until the client's two-minute silence timeout.
@@ -792,7 +799,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       try {
         const result=await answerOne(agent,index,runtime.authorize,runtime.tools,runtime.replyFence,runtime.signal);
         const lostAccess=runtime.authorize && !await runtime.authorize();
-        await event(result?.cancelled||runtime.signal?.aborted||lostAccess?'agent_cancelled':result?.interrupted?'agent_failed':'agent_finished');
+        await event(result?.cancelled||runtime.signal?.aborted||lostAccess?'agent_cancelled':result?.failed||result?.interrupted?'agent_failed':'agent_finished');
         return result;
       } catch(error) { await event('agent_failed'); throw error; }
     };
