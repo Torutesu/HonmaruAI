@@ -105,6 +105,9 @@ Usage:
   honmaru workspace file revert <file-id> --version N --expected-version N
   honmaru workspace file share request <file-id> --version N --request-id share-UUID [--expires-in 86400|604800|2592000] [--allow-download]
   honmaru workspace file share requests [--file-id FILE_ID]
+  honmaru workspace file share approve <request-id> --org-id ORG --confirm
+  honmaru workspace file share decline <request-id> --org-id ORG --confirm
+  honmaru workspace file share revoke <share-id> --org-id ORG --confirm
   honmaru workspace member list
   honmaru workspace playbook read
   honmaru workspace decision pending [--direction mine|sent]
@@ -118,11 +121,11 @@ Usage:
 
 Environment:
   HONMARU_API_URL       HTTPS API origin for your Honmaru workspace
-  HONMARU_API_TOKEN     Active agent token created under Studio → API
+  HONMARU_API_TOKEN       Active agent token created under Studio → API
+  HONMARU_SESSION_TOKEN   Signed-in human session token (share decisions only)
 
-The API enforces the token's scopes, workspace membership, and Simple/Harness
-mode. The CLI does not save or print tokens. Mutating commands can change
-workspace data, so review the target and arguments before running them.
+Agent commands use the API token. Public file-share approve/decline/revoke commands
+require a human session token and explicit --org-id; they never use the agent token.
 `;
 
 const GATEWAY_HELP = `Honmaru local execution gateway
@@ -150,7 +153,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "agent", "to-agent",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "dest", "format", "timeout-seconds", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
-  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id",
+  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "file-id", "org-id",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
 
@@ -1075,6 +1078,11 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
     const { options, positional } = parseOptions(rest, { allowArgs: action === "call", allowWorkspaceFlags: aliasMode });
     const apiUrl = options.apiUrl || env.HONMARU_API_URL;
     const token = env.HONMARU_API_TOKEN;
+    const [resource, operation, ...commandArgs] = [action, positional[0], ...positional.slice(1)];
+    if (aliasMode && resource === "file" && operation === "share" && ["approve", "decline", "revoke"].includes(commandArgs[0])) {
+      await decideWorkspaceFileShare({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, fetcher, writeOut });
+      return 0;
+    }
     const client = createMcpClient({ apiUrl, token, fetcher });
 
     if (action === "sdk") {
@@ -1104,7 +1112,6 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       return 0;
     }
     if (!aliasMode) throw new Error(`Unknown workspace command: ${action || "(missing)"}. Run honmaru --help.`);
-    const [resource, operation, ...commandArgs] = [action, positional[0], ...positional.slice(1)];
     if (resource === "file" && operation === "upload") {
       await uploadWorkspaceFile({ options, positional: commandArgs, client, apiUrl, token, fetcher, writeOut });
       return 0;
@@ -1314,6 +1321,70 @@ async function exportWorkspaceFile({ options, positional, client, apiUrl, fetche
   if (bytes.length !== artifact.size || createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) throw new Error("The temporary artifact failed its size or SHA-256 check.");
   await writeFile(outputPath, bytes, { flag: "wx" });
   writeOut(JSON.stringify({ output: outputPath, size: bytes.length, sha256: artifact.sha256, expiresAt: artifact.expiresAt }));
+}
+
+async function decideWorkspaceFileShare({ action, positional, options, apiUrl, sessionToken, fetcher, writeOut }) {
+  const targetName = action === "revoke" ? "share-id" : "request-id";
+  const usage = "honmaru workspace file share " + action + " <" + targetName + "> --org-id ORG --confirm";
+  onlyFlags(options, ["orgId", "confirm"]);
+  positionalCount(positional, 1, usage);
+  if (!options.confirm) throw new Error("--confirm is required because this changes public access.");
+  if (typeof options.orgId !== "string" || !options.orgId.trim()) throw new Error("--org-id is required for human share decisions.");
+  if (typeof sessionToken !== "string" || sessionToken.length < 16 || sessionToken.length > 4096 || /\s/.test(sessionToken)) {
+    throw new Error("Set HONMARU_SESSION_TOKEN to a signed-in human session token. Agent API tokens cannot approve public shares.");
+  }
+
+  const origin = new URL(mcpEndpoint(apiUrl)).origin;
+  const orgId = options.orgId.trim();
+  let path, body = {};
+  if (action === "approve") {
+    path = "/hx/files/share-requests/approve";
+    body = { requestId: positional[0] };
+  } else if (action === "decline") {
+    path = "/hx/files/share-requests/decline";
+    body = { requestId: positional[0] };
+  } else {
+    path = "/hx/files/shares/" + encodeURIComponent(positional[0]) + "/revoke";
+  }
+  const endpoint = new URL(path, origin);
+  endpoint.searchParams.set("orgId", orgId);
+
+  let response;
+  try {
+    response = await fetcher(endpoint, {
+      method: "POST",
+      redirect: "error",
+      headers: { "x-session-token": sessionToken, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new Error("The share decision could not be confirmed. Check the share request or active shares before retrying; the CLI did not retry.");
+  }
+  if (!response.ok) {
+    throw new Error("Honmaru rejected the share decision (HTTP " + response.status + "). Check the current request or share state before retrying; the CLI did not retry.");
+  }
+
+  let result;
+  try { result = await response.json(); }
+  catch { throw new Error("Honmaru returned an unreadable share decision result. Check the current request or share state before retrying."); }
+  if (result?.error || typeof result !== "object" || result === null) throw new Error("Honmaru returned an invalid share decision result.");
+  if (action === "approve") {
+    if (typeof result.shareId !== "string" || typeof result.url !== "string" ||
+        !/^\/hx\/public-file-shares\/[A-Za-z0-9_-]{40,60}$/.test(result.url) ||
+        typeof result.expiresAt !== "string" || typeof result.allowDownload !== "boolean") {
+      throw new Error("Honmaru returned an invalid approval result. Check the current request before retrying.");
+    }
+    writeOut(JSON.stringify({ shareId: result.shareId, url: new URL(result.url, origin).href, expiresAt: result.expiresAt, allowDownload: result.allowDownload }));
+    return;
+  }
+  if (action === "decline" && (result.requestId !== positional[0] || result.status !== "declined")) {
+    throw new Error("Honmaru returned an invalid decline result. Check the current request before retrying.");
+  }
+  if (action === "revoke" && (result.shareId !== positional[0] || typeof result.revokedAt !== "string")) {
+    throw new Error("Honmaru returned an invalid revoke result. Check the current share before retrying.");
+  }
+  writeOut(JSON.stringify(result));
 }
 
 async function copyWorkspaceFile({ options, positional, client, apiUrl, token, fetcher, writeOut }) {
