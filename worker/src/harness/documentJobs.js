@@ -39,14 +39,27 @@ export async function enqueueDocumentJob(db,orgId,userId,input,{origin='human'}=
   if(prior.payload!==payload||prior.scope!==input.scope||prior.path!==path||prior.gateway_id!==input.gatewayId)return error('Request ID was already used for a different document.',409);
   return readDocumentJob(db,orgId,userId,prior.id);
  }
+ const mayAddressScope=await db.prepare(`SELECT 1 WHERE ${fileScopeAuthority('?1','?2','?3')}
+   AND ${documentOriginAuthority('?1','?2','?3','?4')}`).bind(orgId,input.scope,userId,payload).first();
+ if(!mayAddressScope)return error('Document destination is unavailable or queue is full.',409);
+ const destinationConflict=()=>error('A file or conversion already exists at this destination. Choose another name.',409);
+ const conflict=async()=>await db.prepare(`SELECT 1 FROM hx_workspace_files WHERE org_id=?1 AND scope=?2 AND path=?3
+   UNION ALL SELECT 1 FROM hx_document_jobs WHERE org_id=?1 AND scope=?2 AND path=?3 AND status IN ('queued','running') LIMIT 1`)
+   .bind(orgId,input.scope,path).first();
+ if(await conflict())return destinationConflict();
  const id=crypto.randomUUID();
  const result=await db.prepare(`INSERT OR IGNORE INTO hx_document_jobs(id,org_id,gateway_id,created_by,request_id,scope,path,payload,status,created_at)
  SELECT ?1,?2,?3,?4,?5,?6,?7,?8,'queued',?9
  WHERE ${fileScopeAuthority('?2','?6','?4')}
  AND ${documentOriginAuthority('?2','?6','?4','?8')}
  AND EXISTS(SELECT 1 FROM hx_gateways g WHERE g.id=?3 AND g.org_id=?2 AND g.revoked_at IS NULL)
+ AND NOT EXISTS(SELECT 1 FROM hx_workspace_files f WHERE f.org_id=?2 AND f.scope=?6 AND f.path=?7)
+ AND NOT EXISTS(SELECT 1 FROM hx_document_jobs existing WHERE existing.org_id=?2 AND existing.scope=?6 AND existing.path=?7 AND existing.status IN ('queued','running'))
  AND (SELECT COUNT(*) FROM hx_document_jobs WHERE org_id=?2 AND status IN ('queued','running'))<25`).bind(id,orgId,input.gatewayId,userId,input.requestId,input.scope,path,payload,Date.now()).run();
- if(!result.meta?.changes)return error('Document destination is unavailable or queue is full. Retry with the same request ID.',409);
+ if(!result.meta?.changes){
+  if(await conflict())return destinationConflict();
+  return error('Document destination is unavailable or queue is full. Retry with the same request ID.',409);
+ }
  return readDocumentJob(db,orgId,userId,id);
 }
 export async function cancelDocumentJob(db,orgId,userId,jobId){
@@ -54,3 +67,4 @@ export async function cancelDocumentJob(db,orgId,userId,jobId){
  await db.prepare(`UPDATE hx_document_jobs AS d SET status='cancelled',finished_at=?4,lease_hash=NULL WHERE id=?1 AND org_id=?2 AND created_by=?3 AND status IN ('queued','running') AND ${access}`).bind(jobId,orgId,String(userId),Date.now()).run();
  return readDocumentJob(db,orgId,userId,jobId);
 }
+
