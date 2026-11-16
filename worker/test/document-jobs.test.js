@@ -30,6 +30,27 @@ test('scope, node, extension and Simple mode admission checks',async()=>{
  await setMode(env.DB,org,'simple',actor);expect((await enqueue()).status).toBe(403);
  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_document_jobs').first()).n).toBe(0);
 });
+test('an existing file or pending conversion at the destination is rejected before queue admission',async()=>{
+ const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
+ await createFileLedger(env.DB,{orgId:org,fileId:'existing-file',scope:input.scope,path:input.path,createdBy:actor});
+ const existing=await enqueue({requestId:'new-file'});
+ expect(existing).toMatchObject({status:409,error:'A file or conversion already exists at this destination. Choose another name.'});
+ expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_document_jobs').first()).n).toBe(0);
+
+ await env.DB.prepare('DELETE FROM hx_workspace_files WHERE org_id=?1 AND id=?2').bind(org,'existing-file').run();
+ expect((await enqueue()).job.status).toBe('queued');
+ const pending=await enqueue({requestId:'another-job'});
+ expect(pending).toMatchObject({status:409,error:'A file or conversion already exists at this destination. Choose another name.'});
+ expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_document_jobs').first()).n).toBe(1);
+});
+test('destination conflicts do not disclose files in an unauthorized scope',async()=>{
+ const {createFileLedger}=await import('../src/harness/fileVersionLedger.js');
+ await createFileLedger(env.DB,{orgId:org,fileId:'private-file',scope:'b:missing',path:input.path,createdBy:actor});
+ const result=await enqueue({scope:'b:missing',requestId:'private-destination'});
+ expect(result.status).toBe(409);
+ expect(result.error).not.toBe('A file or conversion already exists at this destination. Choose another name.');
+ expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_document_jobs').first()).n).toBe(0);
+});
 test('revoked membership blocks read and replay',async()=>{
  const first=await enqueue();expect(first.job).toBeTruthy();
  await env.DB.prepare('DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2').bind(org,actor).run();
@@ -39,8 +60,8 @@ test('concurrent retries cannot create duplicate documents and queue has a hard 
  const results=await Promise.all([enqueue(),enqueue()]);
  expect(results.some(r=>r.job)).toBe(true);
  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_document_jobs').first()).n).toBe(1);
- for(let i=1;i<25;i++)expect((await enqueue({requestId:'request-'+i})).job).toBeTruthy();
- expect((await enqueue({requestId:'overflow'})).status).toBe(409);
+ for(let i=1;i<25;i++)expect((await enqueue({requestId:'request-'+i,path:`report-${i}.pdf`})).job).toBeTruthy();
+ expect((await enqueue({requestId:'overflow',path:'report-overflow.pdf'})).status).toBe(409);
  expect((await enqueue()).job).toBeTruthy();
  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_document_jobs').first()).n).toBe(25);
 });
@@ -293,3 +314,4 @@ test('agent document cannot publish after ownership changes even when shared fil
  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_workspace_file_versions').first()).n).toBe(0);
  expect((await env.MEDIA.list()).objects).toHaveLength(0);
 });
+
