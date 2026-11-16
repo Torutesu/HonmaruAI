@@ -4,6 +4,7 @@ import worker from '../src/index.js';
 import {upsertUser,upsertMembership,createSession,sessionKey} from '../src/db.js';
 import {createSkill} from '../src/harness/skills.js';
 import {createSkillShare} from '../src/harness/skillShares.js';
+import {setMode} from '../src/harness/mode.js';
 import {forgetPolicies,policyDenial} from '../src/policy.js';
 import {forgetGovernance,ipDenial} from '../src/governance.js';
 import {getSession} from '../src/db.js';
@@ -13,6 +14,7 @@ test.each([['issue','workspace policy'],['import','workspace policy'],['issue','
  const source='independent-policy-source',destination='independent-policy-destination',actor='9942';
  await upsertUser(env.DB,{githubId:actor,login:'policy-user',name:'User',locale:'en'});
  await upsertMembership(env.DB,source,actor,'member');await upsertMembership(env.DB,destination,actor,'member');
+ await setMode(env.DB,source,'harness',actor);await setMode(env.DB,destination,'harness',actor);
  const {skill}=await createSkill(env.DB,source,{name:'Procedure',description:'Private procedure',body:'Sensitive instructions',visibility:'private'},actor);
  const issued=await createSkillShare(env.DB,source,skill,actor,{confirmAnyoneWithLink:true});
  const target=operation==='issue'?source:destination;
@@ -50,6 +52,7 @@ test.each([['issue','sso'],['import','sso'],['issue','network'],['import','netwo
  await upsertUser(env.DB,{githubId:actor,login:'policy-user',name:'User',locale:'en'});
  await env.DB.prepare('UPDATE users SET email=? WHERE github_id=?').bind(email,actor).run();
  await upsertMembership(env.DB,source,actor,'member');await upsertMembership(env.DB,destination,actor,'member');
+ await setMode(env.DB,source,'harness',actor);await setMode(env.DB,destination,'harness',actor);
  const {skill}=await createSkill(env.DB,source,{name:'Procedure',description:'Private procedure',body:'Sensitive instructions',visibility:'private'},actor);
  const issued=await createSkillShare(env.DB,source,skill,actor,{confirmAnyoneWithLink:true});
  const target=operation==='issue'?source:destination;
@@ -87,6 +90,7 @@ test.each([['issue','workspace policy'],['import','workspace policy'],['issue','
  await upsertUser(env.DB,{githubId:actor,login:'policy-user',name:'User',locale:'en'});
  await env.DB.prepare("UPDATE users SET email='policy-user@example.test' WHERE github_id=?").bind(actor).run();
  await upsertMembership(env.DB,source,actor,'member');await upsertMembership(env.DB,destination,actor,'member');
+ await setMode(env.DB,source,'harness',actor);await setMode(env.DB,destination,'harness',actor);
  const {skill}=await createSkill(env.DB,source,{name:'Procedure',description:'Private procedure',body:'Sensitive instructions',visibility:'private'},actor);
  const issued=await createSkillShare(env.DB,source,skill,actor,{confirmAnyoneWithLink:true});
  const target=operation==='issue'?source:destination,now=new Date().toISOString();
@@ -124,6 +128,7 @@ test.each([
  await upsertUser(env.DB,{githubId:actor,login:'policy-user',name:'User',locale:'en'});
  await env.DB.prepare("UPDATE users SET email='policy-user@example.test' WHERE github_id=?").bind(actor).run();
  await upsertMembership(env.DB,source,actor,'member');await upsertMembership(env.DB,destination,actor,'member');
+ await setMode(env.DB,source,'harness',actor);await setMode(env.DB,destination,'harness',actor);
  const {skill}=await createSkill(env.DB,source,{name:'Procedure',description:'Private procedure',body:'Sensitive instructions',visibility:'private'},actor);
  const issued=await createSkillShare(env.DB,source,skill,actor,{confirmAnyoneWithLink:true});
  const target=operation==='issue'?source:destination;
@@ -162,6 +167,7 @@ test.each(['issue','import'])('%s fails closed if legacy SSO migration cannot be
  await upsertUser(env.DB,{githubId:actor,login:'policy-user',name:'User',locale:'en'});
  await env.DB.prepare("UPDATE users SET email='policy-user@example.test' WHERE github_id=?").bind(actor).run();
  await upsertMembership(env.DB,source,actor,'member');await upsertMembership(env.DB,destination,actor,'member');
+ await setMode(env.DB,source,'harness',actor);await setMode(env.DB,destination,'harness',actor);
  const {skill}=await createSkill(env.DB,source,{name:'Procedure',description:'Private procedure',body:'Sensitive instructions',visibility:'private'},actor);
  const issued=await createSkillShare(env.DB,source,skill,actor,{confirmAnyoneWithLink:true});
  const target=operation==='issue'?source:destination;
@@ -192,6 +198,7 @@ test.each([
  const source='independent-policy-source',destination='independent-policy-destination',actor='9942',now=new Date().toISOString();
  await upsertUser(env.DB,{githubId:actor,login:'policy-user',name:'User',locale:'en'});
  await upsertMembership(env.DB,source,actor,'member');await upsertMembership(env.DB,destination,actor,'member');
+ await setMode(env.DB,source,'harness',actor);await setMode(env.DB,destination,'harness',actor);
  const {skill}=await createSkill(env.DB,source,{name:'Procedure',description:'Private procedure',body:'Sensitive instructions',visibility:'private'},actor);
  const issued=await createSkillShare(env.DB,source,skill,actor,{confirmAnyoneWithLink:true});
  const target=operation==='issue'?source:destination;
