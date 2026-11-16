@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {PassThrough} from 'node:stream';
@@ -100,4 +101,12 @@ test('browser action protocol accepts bounded human-like actions and rejects cod
   {type:'scroll',x:0,y:0,deltaX:0,deltaY:2001},
   {type:'evaluate',code:'fetch(\\"https://example.com\\")'},
  ]) assert.throws(()=>validateBrowserAction(action));
+});
+
+test('browser control token permissions are set before ownership is delegated',async()=>{
+ const script=await readFile(new URL('../browser-image/browser-entrypoint.sh',import.meta.url),'utf8');
+ const create=script.indexOf('> /run/honmaru/control-token');
+ const mode=script.indexOf('chmod 0400 /run/honmaru/control-token');
+ const owner=script.indexOf('chown "$BROWSER_UID:$BROWSER_GID" /run/honmaru/control-token');
+ assert.ok(create>=0&&mode>create&&owner>mode);
 });
