@@ -1,6 +1,9 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Output file name': '出力ファイル名',
+  'Choose a file name without path separators or control characters.': 'パス区切り文字や制御文字を含まないファイル名を指定してください。',
+  'A file or conversion already exists at this destination. Choose another name.': 'この保存先にはすでにファイルまたは変換があります。別の名前を選んでください。',
   'Execution language': '実行言語',
   'Server action execution history': 'サーバー処理の実行履歴',
   'Only your own runs are listed. Inputs and environment secrets are not included.': '自分が実行した履歴だけを表示します。入力と環境変数の秘密値は含まれません。',
