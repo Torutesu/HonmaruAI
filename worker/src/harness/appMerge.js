@@ -1,13 +1,13 @@
 import { databaseView, readFork, digest, relationStateError } from './appDatabase.js';
 import { validateValues } from './tableContract.js';
 import { getTable } from './tables.js';
-import { prepareWorkflowRowEventIfWatched } from './workflowRowEventDispatch.js';
+import { prepareWorkflowRowEvent, watchedWorkflowRowTables, MAX_PENDING_WORKFLOW_ROW_EVENTS_PER_ORG } from './workflowRowEventDispatch.js';
 const err=(error,status=409)=>({error,status});
 const canonical=value=>JSON.stringify(value, Object.keys(value).sort());
-// Leave headroom below D1's documented 2,000-statement batch example and
-// Workers' approximate 5,000 bindings-per-script limit. A watched row adds
-// one outbox statement and each row change adds one write statement.
-export const MAX_FORK_MERGE_RECORDS=250;
+// Leave headroom below D1's documented 2,000-statement batch example. Each
+// changed row uses one write statement and, when watched, one outbox statement;
+// schema and receipt statements use the remaining budget.
+export const MAX_FORK_MERGE_RECORDS=800;
 
 // Match the app-management and table access checks at the point where a
 // preview is returned and where the reviewed merge is committed. A table can
@@ -175,13 +175,31 @@ export async function mergeFork(db,orgId,app,by,input) {
   const latest=plan.snapshots.reduce((n,e)=>e.rows.reduce((m,r)=>Math.max(m,Date.parse(r.updatedAt)||0),n),Date.now());
   const nonce=crypto.randomUUID(),at=new Date(latest+1).toISOString();
   const originalRows=new Map(plan.snapshots.flatMap(entity=>entity.rows.map(row=>[`${entity.tableId}:${row.id}`,row])));
+  const eventTableIds=[...new Set(plan.appliedChanges.map(change=>change.tableId))];
+  const watchedTables=await watchedWorkflowRowTables(db,orgId,eventTableIds);
+  const eventChangeCount=plan.appliedChanges.filter(change=>watchedTables.has(change.tableId)).length;
+  if(eventChangeCount){
+    const pending=await db.prepare("SELECT COUNT(*) AS count FROM hx_workflow_row_event_outbox WHERE org_id=?1 AND status='pending'").bind(orgId).first();
+    if((pending?.count||0)+eventChangeCount>MAX_PENDING_WORKFLOW_ROW_EVENTS_PER_ORG)return err(`Workflow event queue has room for fewer than ${eventChangeCount} events. Drain pending events, then review and retry.`,409);
+  }
+  const eventTables=new Map();
+  for(const tableId of eventTableIds){
+    const table=await getTable(db,orgId,tableId);
+    if(!table)continue;
+    const schemaChange=plan.schemaChanges.find(change=>change.tableId===tableId);
+    if(schemaChange)table.columns=schemaChange.after;
+    eventTables.set(tableId,table);
+  }
   // The receipt and every mutation commit in one D1 transaction. Recheck the
-  // entire reviewed schema/data snapshot at transaction time, including deletes.
+  // entire reviewed schema/data snapshot and Workflow queue capacity at
+  // transaction time, including deletes. The outbox trigger repeats the same
+  // limit so a concurrent writer cannot make this merge partially apply.
   const receipt=db.prepare(`INSERT OR IGNORE INTO hx_app_fork_merges (org_id,app_id,created_by,fork_id,revision,checksum,nonce,plan,created_at)
     SELECT ?1,?2,?3,?4,?5,?7,?8,?9,?10 WHERE
     EXISTS (SELECT 1 FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND id=?4 AND revision=?5)
     AND ${mergeAuthority('?11')}
     AND coalesce((SELECT version FROM hx_app_database_state WHERE org_id=?1 AND app_id=?2),0)=?12
+    AND (SELECT COUNT(*) FROM hx_workflow_row_event_outbox WHERE org_id=?1 AND status='pending')+?13<=${MAX_PENDING_WORKFLOW_ROW_EVENTS_PER_ORG}
     AND (SELECT COUNT(*)+1 FROM hx_app_entities WHERE org_id=?1 AND app_id=?2)=json_array_length(?6)-(SELECT COUNT(*) FROM json_each(?6) WHERE json_extract(value,'$.newEntity')=1)
     AND NOT EXISTS (SELECT 1 FROM json_each(?6) e WHERE
       (json_extract(e.value,'$.newEntity')=1 AND (EXISTS (SELECT 1 FROM hx_tables t WHERE t.org_id=?1 AND t.id=json_extract(e.value,'$.tableId')) OR EXISTS (SELECT 1 FROM hx_app_entities l WHERE l.org_id=?1 AND l.app_id=?2 AND l.entity_key=json_extract(e.value,'$.key'))))
@@ -194,7 +212,7 @@ export async function mergeFork(db,orgId,app,by,input) {
         OR (json_extract(e.value,'$.deletedEntity')=1 AND EXISTS (SELECT 1 FROM hx_workflows w WHERE w.org_id=?1 AND (
           (json_extract(w.trigger,'$.type')='row' AND json_extract(w.trigger,'$.tableId')=json_extract(e.value,'$.tableId'))
           OR (json_extract(w.trigger,'$.type')='app_record_change' AND json_extract(w.trigger,'$.appId')=?2 AND json_extract(w.trigger,'$.entityId')=json_extract(e.value,'$.key')))))))
-    )`).bind(orgId,app.id,String(by),plan.forkId,plan.revision,JSON.stringify(plan.snapshots),plan.checksum,nonce,JSON.stringify({schemaChanges:plan.schemaChanges,changes:plan.changes}),at,JSON.stringify(plan.snapshots.filter(snapshot=>!snapshot.newEntity).map(snapshot=>snapshot.tableId)),plan.schemaVersion);
+    )`).bind(orgId,app.id,String(by),plan.forkId,plan.revision,JSON.stringify(plan.snapshots),plan.checksum,nonce,JSON.stringify({schemaChanges:plan.schemaChanges,changes:plan.changes}),at,JSON.stringify(plan.snapshots.filter(snapshot=>!snapshot.newEntity).map(snapshot=>snapshot.tableId)),plan.schemaVersion,eventChangeCount);
   const guard='EXISTS (SELECT 1 FROM hx_app_fork_merges WHERE org_id=?1 AND app_id=?2 AND nonce=?3)';
   const statements=[receipt],queuedEvents=new Map();
   for(const change of plan.schemaChanges) {
@@ -219,15 +237,13 @@ export async function mergeFork(db,orgId,app,by,input) {
     if(c.operation==='create')statements.push(db.prepare(`INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at) SELECT ?4,?5,?1,?6,COALESCE((SELECT MAX(position)+1 FROM hx_rows WHERE org_id=?1 AND table_id=?5),0),?7,?7,?8,?8 WHERE ${guard}`).bind(orgId,app.id,nonce,c.id,c.tableId,JSON.stringify(c.after),String(by),at));
     else if(c.operation==='update')statements.push(db.prepare(`UPDATE hx_rows SET data=?6,updated_by=?7,updated_at=?8 WHERE org_id=?1 AND table_id=?5 AND id=?4 AND ${guard}`).bind(orgId,app.id,nonce,c.id,c.tableId,JSON.stringify(c.after),String(by),at));
     else statements.push(db.prepare(`DELETE FROM hx_rows WHERE org_id=?1 AND table_id=?5 AND id=?4 AND ${guard}`).bind(orgId,app.id,nonce,c.id,c.tableId));
-    const table=await getTable(db,orgId,c.tableId);
-    if(table) {
-      const schemaChange=plan.schemaChanges.find(change=>change.tableId===c.tableId);
-      if(schemaChange)table.columns=schemaChange.after;
+    const table=eventTables.get(c.tableId);
+    if(table&&watchedTables.has(c.tableId)) {
       const before=c.operation==='create'?null:{id:c.id,tableId:c.tableId,values:c.before||{},updatedAt:originalRows.get(`${c.tableId}:${c.id}`)?.updatedAt||null};
       const row=c.operation==='remove'?null:{id:c.id,tableId:c.tableId,values:c.after||{},updatedBy:String(by),updatedAt:at};
       // The event directly follows its row statement, which is fenced by the
       // receipt, so a merge rejected at commit time queues no event.
-      const event=await prepareWorkflowRowEventIfWatched(db,{orgId,table,before,row,by:String(by)},{afterRowChange:true});
+      const event=await prepareWorkflowRowEvent(db,{orgId,table,before,row,by:String(by)},{afterRowChange:true});
       if(event){statements.push(event.statement);queuedEvents.set(`${c.tableId}:${c.id}`,event.id);}
     }
   }
