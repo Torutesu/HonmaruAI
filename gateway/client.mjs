@@ -146,7 +146,8 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
         if(typeof payload.workspaceId!=='string'||typeof payload.browserIdentity!=='string')throw new Error('Invalid browser action identity.');
         const action=validateBrowserAction(payload.browserAction);
         await call(`jobs/${job.id}/browser-action`,{lease:job.lease},{signal:cancel.signal});
-        const browserResult=await runBrowser({workspaceId:payload.workspaceId,agentId:payload.browserIdentity,action,signal:cancel.signal});
+        const browserAction=action.type==='screenshot'?{...action,thumbnail:true}:action;
+        const browserResult=await runBrowser({workspaceId:payload.workspaceId,agentId:payload.browserIdentity,action:browserAction,signal:cancel.signal});
         let bounded={};
         let screenshotTooLarge=false;
         if(browserResult&&typeof browserResult==='object'&&!Array.isArray(browserResult)){
