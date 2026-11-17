@@ -1423,6 +1423,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
           recent={recent}
           current={mode === 'classic' && !screen ? listView?.view ?? null : null}
           businesses={businesses}
+          showSearchProgress={workspaceMode==='harness'&&!simpleOnly}
           onPick={pickFromPalette}
           onClose={() => setPalette(false)}
         />

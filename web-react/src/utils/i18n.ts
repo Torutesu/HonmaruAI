@@ -19,6 +19,12 @@ type Dict = Record<string, string>
 // well as a key, so they get a name and an entry here; `t` falls back through
 // this before falling back to the key itself.
 const en: Dict = {
+  'Workspace search progress': 'Workspace search progress',
+  'Searching messages across your workspace…': 'Searching messages across your workspace…',
+  'Searching accessible files and app records…': 'Searching accessible files and app records…',
+  'Found {threads} threads across {rooms} Rooms; searching files and app records…': 'Found {threads} threads across {rooms} Rooms; searching files and app records…',
+  'Found {threads} threads across {rooms} Rooms; showing {messages} messages, {files} files and {records} app records.': 'Found {threads} threads across {rooms} Rooms; showing {messages} messages, {files} files and {records} app records.',
+  'Could not finish the workspace search. Try again.': 'Could not finish the workspace search. Try again.',
   'Move': 'Move',
   'Move linked app to the entered room': 'Move linked app to the entered room',
   'room.automations': 'Automations',

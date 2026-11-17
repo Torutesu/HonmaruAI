@@ -1428,6 +1428,76 @@ export async function handleChannels(request, env, url, { route, after }) {
   }
 
   // Search what was said, with Slack's filters.
+  if (path === "/channels/search/progress" && request.method === "GET") {
+    const orgId = url.searchParams.get("orgId");
+    const who = await caller(env, request, orgId);
+    if (who.denied) return who.denied;
+    const raw = url.searchParams.get('q') || '';
+    if (!raw.trim() || raw.length > 200) return json({ message: 'Enter a search phrase of up to 200 characters.' }, 400);
+    const headers = { ...CORS_HEADERS, 'cache-control': 'no-store, no-transform', 'content-type': 'text/event-stream; charset=utf-8', 'x-accel-buffering': 'no' };
+    let cancelled = false, closed = false;
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        const send = (event, data) => {
+          if (closed || cancelled || request.signal.aborted) return;
+          try { controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)); }
+          catch { closed = true; }
+        };
+        const finish = () => { if (!closed) { closed = true; try { controller.close(); } catch {} } };
+        const resourcesEnabled = async () => await getMode(env.DB, orgId) === 'harness'
+          && !(await getDisplayPreference(env.DB, orgId, who.session.github_id)).simpleOnly;
+        send('progress', { step: 'messages' });
+        void (async () => {
+          try {
+            const members = await listMembers(env.DB, orgId, who.session.github_id);
+            const messages = await searchMessages(env.DB, orgId, who.user.login, members, raw);
+            if (cancelled || request.signal.aborted) return;
+            const rows = messages.messages || [];
+            const stats = {
+              messages: rows.length,
+              threads: new Set(rows.map(item => item.parentId || item.id)).size,
+              rooms: new Set(rows.map(item => item.channel).filter(channel => channel?.startsWith('b:'))).size,
+            };
+            send('progress', { step: 'resources', stats });
+            const resources = await resourcesEnabled()
+              ? await searchHarnessResources(env, orgId, who.session.github_id, raw, {
+                  file: url.searchParams.get('fileCursor'), record: url.searchParams.get('recordCursor'),
+                  skipFiles: url.searchParams.get('skipFiles') === '1', skipRecords: url.searchParams.get('skipRecords') === '1',
+                })
+              : { files: [], records: [], filesTruncated: false, filesNextCursor: null, recordsTruncated: false, recordsNextCursor: null };
+            if (cancelled || request.signal.aborted) return;
+            // A long file scan must not let a revoked session or Room membership
+            // turn an earlier search snapshot into a result disclosure.
+            const current = await caller(env, request, orgId);
+            if (current.denied) { send('error', { message: 'Search access changed. Run the search again.' }); return; }
+            const currentMembers = await listMembers(env.DB, orgId, current.session.github_id);
+            const currentChannels = new Map();
+            for (const item of rows) if (!currentChannels.has(item.channel)) {
+              const resolved = await resolveChannel(env.DB, orgId, current.user, item.channel, currentMembers);
+              currentChannels.set(item.channel, Boolean(resolved && viewOf(resolved.key, current.user.login, currentMembers)));
+            }
+            const finalRows = rows.filter(item => currentChannels.get(item.channel));
+            const finalMessages = { ...messages, messages: finalRows };
+            const finalStats = {
+              messages: finalRows.length,
+              threads: new Set(finalRows.map(item => item.parentId || item.id)).size,
+              rooms: new Set(finalRows.map(item => item.channel).filter(channel => channel?.startsWith('b:'))).size,
+              files: resources.files?.length || 0,
+              records: resources.records?.length || 0,
+              filesTruncated: Boolean(resources.filesTruncated),
+              recordsTruncated: Boolean(resources.recordsTruncated),
+            };
+            send('complete', { ...finalMessages, ...resources, stats: finalStats });
+          } catch {
+            send('error', { message: 'Could not finish the workspace search. Try again.' });
+          } finally { finish(); }
+        })();
+      },
+      cancel() { cancelled = true; closed = true; },
+    });
+    return new Response(stream, { status: 200, headers });
+  }
   if (path === "/channels/search" && request.method === "GET") {
     const orgId = url.searchParams.get("orgId");
     const who = await caller(env, request, orgId);

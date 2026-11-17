@@ -42,6 +42,43 @@ beforeEach(async () => {
   await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_at) VALUES (?1,'b:payroll','alice','2026-01-01T00:00:00.000Z')").bind(ORG).run();
 });
 
+test('workspace Find streams real message and resource stages with bounded thread and Room counts', async () => {
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'general','General',0,'9201','2026-01-01T00:00:00.000Z')").bind(ORG).run();
+  for (const [id, parentId, body] of [['find-root', null, 'NeedleStar finding'], ['find-reply', 'find-root', 'NeedleStar follow-up']]) {
+    await env.DB.prepare('INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at,parent_id) VALUES (?1,?2,\'b:general\',\'alice\',\'message\',?3,?4,?5)')
+      .bind(id, ORG, body, `2026-11-17T12:00:0${parentId ? '1' : '0'}.000Z`, parentId).run();
+  }
+  await env.DB.prepare("INSERT INTO org_settings(org_id,mode,updated_by,updated_at) VALUES (?1,'harness','9201','now')").bind(ORG).run();
+  const response = await get(`/channels/search/progress?${q({ orgId: ORG, q: 'NeedleStar' })}`, alice);
+  expect(response.headers.get('content-type')).toContain('text/event-stream');
+  const events = (await response.text()).trim().split(/\n\n/).map(block => ({
+    name: block.match(/^event: (.+)$/m)?.[1], data: JSON.parse(block.match(/^data: (.+)$/m)?.[1] || '{}'),
+  }));
+  expect(events.map(event => event.name)).toEqual(['progress','progress','complete']);
+  expect(events[0].data).toEqual({ step: 'messages' });
+  expect(events[1].data).toEqual({ step: 'resources', stats: { messages: 2, threads: 1, rooms: 1 } });
+  expect(events[2].data.stats).toMatchObject({ messages: 2, threads: 1, rooms: 1, files: 0, records: 0 });
+  expect(events[2].data.messages.map(message => message.id)).toEqual(['find-reply','find-root']);
+  expect((await get(`/channels/search/progress?${q({ orgId: ORG, q: 'NeedleStar' })}`, outsider)).status).toBe(403);
+});
+
+test('workspace Find drops a Room hit when access is revoked during file search', async () => {
+  await seedFile({ id: 'progress-revoke-doc', body: 'NeedleStar workspace document.' });
+  await env.DB.prepare("INSERT INTO org_settings(org_id,mode,updated_by,updated_at) VALUES (?1,'harness','9201','now')").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at) VALUES ('private-find-hit',?1,'b:payroll','alice','message','NeedleStar private room result','2026-11-17T12:00:00.000Z')").bind(ORG).run();
+  const racedEnv = { ...env, MEDIA: { get: async key => {
+    const object = await env.MEDIA.get(key);
+    await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:payroll' AND login='alice'").bind(ORG).run();
+    return object;
+  } } };
+  const response = await worker.fetch(new Request(`https://example.com/channels/search/progress?${q({ orgId: ORG, q: 'NeedleStar' })}`, { headers: { 'x-session-token': alice } }), racedEnv);
+  const complete = (await response.text()).split(/\n\n/).find(block => block.startsWith('event: complete'));
+  const result = JSON.parse(complete.match(/^data: (.+)$/m)[1]);
+  expect(result.messages).toEqual([]);
+  expect(JSON.stringify(result)).not.toContain('private room result');
+  expect(result.files.map(file => file.id)).toEqual(['progress-revoke-doc']);
+});
+
 test('file body search includes authorized content and excludes private-room and cross-org files before limits', async () => {
   await seedFile({ id: 'workspace-doc', body: 'The unique NeedleStar is in this document.' });
   await seedFile({ id: 'private-doc', scope: 'b:payroll', body: 'NeedleStar behind the private room door.' });

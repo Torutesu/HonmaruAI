@@ -8,6 +8,8 @@ import { emptyQueryPlaces, placesFallback, rankPlaces } from '../utils/places'
 import type { Place } from '../utils/places'
 import type { Screen } from '../utils/route'
 import { Icon } from './Icon'
+import {WorkspaceFindProgress} from './WorkspaceFindProgress'
+import type {WorkspaceSearchProgressState} from './WorkspaceFindProgress'
 import { composing, enterKey } from '../utils/keys'
 
 export type PaletteAction =
@@ -37,6 +39,8 @@ interface Props {
   current?: string | null
   /// The workspace's channels, for before the list has been drawn.
   businesses?: Business[]
+  /// Harness Find streams truthful search stages; Simple keeps its existing request path.
+  showSearchProgress?: boolean
   onPick: (action: PaletteAction) => void
   onClose: () => void
 }
@@ -67,7 +71,7 @@ const ACTION_WORD: Record<string, string> = {
 /// few letters of its name, a screen, an action, a card the browser already
 /// has, and — a moment later — what the team decided before, from the
 /// Worker's search. Enter takes the highlighted row; Escape closes.
-export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards, places = NONE, recent = NONE, current = null, businesses = NONE, onPick, onClose }) => {
+export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards, places = NONE, recent = NONE, current = null, businesses = NONE, showSearchProgress = false, onPick, onClose }) => {
   const t = useT()
   const locale = getLocale()
   const [query, setQuery] = useState('')
@@ -79,6 +83,8 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
   const [resourcePage, setResourcePage] = useState<{ file: string | null; record: string | null } | null>(null)
   const [nextFileCursor, setNextFileCursor] = useState<string | null>(null)
   const [nextRecordCursor, setNextRecordCursor] = useState<string | null>(null)
+  const [searchProgress, setSearchProgress] = useState<WorkspaceSearchProgressState|null>(null)
+  const [searchError,setSearchError] = useState('')
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => { input.current?.focus() }, [])
@@ -186,13 +192,41 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
 
   // What was said in channels and DMs, from the Worker.
   useEffect(() => {
-    setResources([]); setResourcePage(null); setNextFileCursor(null); setNextRecordCursor(null); setResourceTruncated(false)
+    setSaid([]); setResources([]); setResourcePage(null); setNextFileCursor(null); setNextRecordCursor(null); setResourceTruncated(false); setSearchProgress(null); setSearchError('')
   }, [query])
 
   useEffect(() => {
     const raw = query.trim()
-    if (raw.length < 2) { setSaid([]); setResources([]); setResourceTruncated(false); return }
+    if (raw.length < 2) { setSaid([]); setResources([]); setResourceTruncated(false); setSearchProgress(null); return }
     let ignore = false
+    const abort = new AbortController()
+    const applyResults = (data: any) => {
+      if (ignore) return
+      if (!resourcePage) setSaid((data.messages || []).slice(0, 12).map((m: { id: string; channel: string; body: string; authorName: string | null; mine: boolean; kind: string; createdAt: string; parentId?: string | null }) => ({
+        key: `m:${m.id}`, group: 'messages' as const,
+        label: m.body.replace(/\s+/g, ' ').slice(0, 140),
+        meta: `${m.kind === 'ai' ? t('Your AI') : m.mine ? t('You') : (m.authorName || '')} · ${m.createdAt.slice(0, 10)}`,
+        action: { kind: 'message' as const, view: m.channel, id: m.id, parentId: m.parentId || null },
+      })))
+      const fileItems = (data.files || []).slice(0, 8).map((f: { id: string; name: string; scope: string; updatedAt: string; snippet: string }) => ({
+        key: `f:${f.id}`, group: 'files' as const, label: f.name,
+        meta: `${f.snippet} · ${f.updatedAt.slice(0, 10)}`,
+        action: { kind: 'file' as const, fileId: f.id, scope: f.scope },
+      }))
+      const recordItems = (data.records || []).slice(0, 8).map((r: { appId: string; appName: string; tableId: string; rowId: string; tableName: string; snippet: string; updatedAt: string }) => ({
+        key: `r:${r.appId}:${r.rowId}`, group: 'records' as const,
+        label: r.snippet, meta: `${r.appName} · ${r.tableName} · ${r.updatedAt.slice(0, 10)}`,
+        action: { kind: 'appRecord' as const, appId: r.appId, tableId: r.tableId, rowId: r.rowId },
+      }))
+      setResources((previous) => {
+        const next = resourcePage ? [...previous, ...fileItems, ...recordItems] : [...fileItems, ...recordItems]
+        return [...new Map(next.map((item) => [item.key, item])).values()]
+      })
+      setNextFileCursor(data.filesNextCursor || null)
+      setNextRecordCursor(data.recordsNextCursor || null)
+      setResourceTruncated(Boolean(data.filesTruncated || data.recordsTruncated))
+      if (data.stats) setSearchProgress({ step:'done', ...data.stats })
+    }
     const id = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ orgId, q: raw })
@@ -200,37 +234,42 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
           if (resourcePage.file) params.set('fileCursor', resourcePage.file); else params.set('skipFiles', '1')
           if (resourcePage.record) params.set('recordCursor', resourcePage.record); else params.set('skipRecords', '1')
         }
-        const res = await fetch(`${httpBase}/channels/search?${params}`, { headers: { 'x-session-token': sessionToken } })
+        if (showSearchProgress) {
+          setSearchProgress({step:'messages'})
+          const res = await fetch(`${httpBase}/channels/search/progress?${params}`, { headers: { 'x-session-token': sessionToken }, signal: abort.signal })
+          if (!res.ok || !res.body) throw new Error('Search is unavailable')
+          const reader = res.body.getReader(), decoder = new TextDecoder(); let buffer = ''
+          const readEvent = (block: string) => {
+            let event = 'message', payload = ''
+            for (const line of block.split(/\r?\n/)) {
+              if (line.startsWith('event:')) event = line.slice(6).trim()
+              else if (line.startsWith('data:')) payload += line.slice(5).trim()
+            }
+            if (!payload) return
+            const data = JSON.parse(payload)
+            if (event === 'progress') setSearchProgress({step:data.step, ...data.stats})
+            else if (event === 'complete') applyResults(data)
+            else if (event === 'error') { setSearchProgress({step:'error'}); setSearchError(t('Could not finish the workspace search. Try again.')) }
+          }
+          setSearchError('')
+          for (;;) {
+            const {value,done} = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, {stream:true})
+            const blocks = buffer.split(/\r?\n\r?\n/); buffer = blocks.pop() || ''
+            for (const block of blocks) readEvent(block)
+          }
+          buffer += decoder.decode(); if (buffer.trim()) readEvent(buffer)
+          return
+        }
+        const res = await fetch(`${httpBase}/channels/search?${params}`, { headers: { 'x-session-token': sessionToken }, signal: abort.signal })
         if (!res.ok) return
         const data = await res.json()
-        if (ignore) return
-        if (!resourcePage) setSaid((data.messages || []).slice(0, 12).map((m: { id: string; channel: string; body: string; authorName: string | null; mine: boolean; kind: string; createdAt: string; parentId?: string | null }) => ({
-          key: `m:${m.id}`, group: 'messages' as const,
-          label: m.body.replace(/\s+/g, ' ').slice(0, 140),
-          meta: `${m.kind === 'ai' ? t('Your AI') : m.mine ? t('You') : (m.authorName || '')} · ${m.createdAt.slice(0, 10)}`,
-          action: { kind: 'message' as const, view: m.channel, id: m.id, parentId: m.parentId || null },
-        })))
-        const fileItems = (data.files || []).slice(0, 8).map((f: { id: string; name: string; scope: string; updatedAt: string; snippet: string }) => ({
-          key: `f:${f.id}`, group: 'files' as const, label: f.name,
-          meta: `${f.snippet} · ${f.updatedAt.slice(0, 10)}`,
-          action: { kind: 'file' as const, fileId: f.id, scope: f.scope },
-        }))
-        const recordItems = (data.records || []).slice(0, 8).map((r: { appId: string; appName: string; tableId: string; rowId: string; tableName: string; snippet: string; updatedAt: string }) => ({
-          key: `r:${r.appId}:${r.rowId}`, group: 'records' as const,
-          label: r.snippet, meta: `${r.appName} · ${r.tableName} · ${r.updatedAt.slice(0, 10)}`,
-          action: { kind: 'appRecord' as const, appId: r.appId, tableId: r.tableId, rowId: r.rowId },
-        }))
-        setResources((previous) => {
-          const next = resourcePage ? [...previous, ...fileItems, ...recordItems] : [...fileItems, ...recordItems]
-          return [...new Map(next.map((item) => [item.key, item])).values()]
-        })
-        setNextFileCursor(data.filesNextCursor || null)
-        setNextRecordCursor(data.recordsNextCursor || null)
-        setResourceTruncated(Boolean(data.filesTruncated || data.recordsTruncated))
-      } catch { /* the rest of the palette stands */ }
+        applyResults(data)
+      } catch (error) { if (!ignore && !(error instanceof DOMException && error.name === 'AbortError')) { setSearchError(t('Could not finish the workspace search. Try again.')); setSearchProgress({step:'error'}) } }
     }, 250)
-    return () => { ignore = true; clearTimeout(id) }
-  }, [query, httpBase, orgId, sessionToken, t, resourcePage])
+    return () => { ignore = true; abort.abort(); clearTimeout(id) }
+  }, [query, httpBase, orgId, sessionToken, t, resourcePage, showSearchProgress])
 
   const items = useMemo(() => filtered ? [...said, ...resources] : [...jumps, ...here, ...said, ...resources, ...past, ...actions], [jumps, here, said, resources, past, actions, filtered])
   useEffect(() => { setCursor(0) }, [q, items.length])
@@ -312,6 +351,7 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
           ))}
           <span className="palette-filter-hint" title={t('search.syntax')}>{t('"exact words" · -without · on:2026-09-01 · in:@name')}</span>
         </div>
+        {showSearchProgress && searchProgress && query.trim().length >= 2 && <WorkspaceFindProgress progress={searchProgress} error={searchError}/>}
         <ul ref={list} className="palette-list" id="palette-list" role="listbox">
           {items.length === 0 && <li className="palette-empty">{t('Nothing matches that.')}</li>}
           {items.map((it, i) => {
