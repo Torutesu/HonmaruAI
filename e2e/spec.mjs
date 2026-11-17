@@ -4846,8 +4846,17 @@ await step('Harness voice input reaches an ordinary field and stays off the Simp
     const mic = page.locator('.hx-global-dictation')
     await mic.waitFor({ state: 'visible' })
     await mic.click()
-    await page.evaluate(() => window.__honmaruSpeech.emit('invoice tracker'))
-    if (await search.inputValue() !== 'invoice tracker') throw new Error(`speech did not reach the field: ${await search.inputValue()}`)
+    const marker = `voicecheck${Date.now()}`
+    const typo = `${marker}typo`, correction = `${marker}typed`
+    await page.evaluate(text => window.__honmaruSpeech.emit(text), typo)
+    if (await search.inputValue() !== typo) throw new Error(`speech did not reach the field: ${await search.inputValue()}`)
+    await search.fill(correction)
+    await page.waitForFunction(async ({ api, orgId, token, typo, correction }) => {
+      const response = await fetch(`${api}/hx/dictation-vocabulary?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': token } })
+      if (!response.ok) return false
+      const state = await response.json()
+      return state.corrections?.some(item => item.from === typo && item.to === correction)
+    }, { api: API, orgId: auth.orgId, token: auth.token, typo, correction }, { timeout: 5000 })
     await page.screenshot({ path: `${SHOTS}/21-harness-voice-input.png` })
     await setWorkspaceMode('simple', true)
     await page.goto(`${WEB}/?e2eHarnessVoice=simple#/tools`, { waitUntil: 'load' })
