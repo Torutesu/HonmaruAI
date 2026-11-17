@@ -673,14 +673,25 @@ test('entity deletion is blocked while records or any Workflow trigger reference
 });
 
 test('ordinary migration requires an empty unreferenced entity and journals its destructive plan',async()=>{
- await run('database',{action:'migrate',id:'people_v1',version:0,operations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]}]});
+ await run('database',{action:'migrate',id:'people_v1',version:0,operations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'},{name:'Status',type:'select',options:['New','Active']}]}]});
  const {entities,version}=await (await run('database')).json(),people=entities.find(entity=>entity.key==='people');
+ expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({id:'people_v1',inverseOperations:[{op:'drop_entity',entity:'people'}],integrityValid:true});
  const request={id:'drop_people_v2',version,operations:[{op:'drop_entity',entity:'people'}]};
  const preview=await (await run('database',{action:'preview',...request})).json();
  expect(preview).toMatchObject({canApply:true,changes:[{entity:'people',operations:['drop_entity'],rowsScanned:0,rowsChanged:0}]});
  expect(await (await run('database',{action:'migrate',...request,previewChecksum:preview.previewChecksum})).json()).toMatchObject({applied:true,version:2});
  expect((await (await run('database')).json()).entities.some(entity=>entity.key==='people')).toBe(false);
- expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({plan:[{op:'drop_entity',entity:'people'}],inverseOperations:null,integrityValid:true});
+ let journal=await databaseView(env.DB,orgId,app);
+ expect(journal.migrations[0]).toMatchObject({plan:[{op:'drop_entity',entity:'people'}],inverseOperations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'},{name:'Status',type:'select',options:['New','Active']}]}],integrityValid:true});
+ const rollback={id:'restore_people_v3',version:2,operations:journal.migrations[0].inverseOperations};
+ const restorePreview=await (await run('database',{action:'preview',...rollback})).json();
+ expect(restorePreview).toMatchObject({canApply:true,blockerCount:0});
+ expect(await (await run('database',{action:'migrate',...rollback,previewChecksum:restorePreview.previewChecksum})).json()).toMatchObject({applied:true,version:3});
+ const restored=(await (await run('database')).json()).entities.find(entity=>entity.key==='people');
+ expect(restored.table.name).toBe('People');
+ expect(restored.table.columns).toEqual(people.table.columns);
+ journal=await databaseView(env.DB,orgId,app);
+ expect(journal.migrations[0]).toMatchObject({id:'restore_people_v3',inverseOperations:[{op:'drop_entity',entity:'people'}],integrityValid:true});
  expect(await env.DB.prepare('SELECT 1 FROM hx_tables WHERE org_id=?1 AND id=?2').bind(orgId,people.table.id).first()).toBeNull();
 });
 
