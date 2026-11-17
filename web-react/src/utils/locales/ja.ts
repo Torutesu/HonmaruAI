@@ -4133,6 +4133,12 @@ const table: Record<string, string> = {
   'Loading thread status…': 'スレッドの状態を読み込み中…',
   'Follow thread': 'スレッドをフォロー',
   'Leave thread': 'スレッドから退出',
+  'Ask AI about these results': '検索結果についてAIに質問',
+  'No matching sources were found.': '一致する情報源が見つかりませんでした。',
+  'AI answer is unavailable. Your search results are still available.': 'AIの回答を利用できません。検索結果は引き続き表示されます。',
+  'Could not get an AI answer. Try again.': 'AIの回答を取得できませんでした。もう一度お試しください。',
+  'Sources': '情報源',
+  'Open source': '情報源を開く',
 }
 
 export default table

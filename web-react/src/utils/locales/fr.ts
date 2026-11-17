@@ -2387,6 +2387,14 @@ const table: Record<string, string> = {
   'Loading thread status…': 'Chargement de l’état du fil…',
   'Follow thread': 'Suivre le fil',
   'Leave thread': 'Quitter le fil',
+  'Ask in chat': 'Demander dans le chat',
+  'Open the automation thread to ask how to recover without rerunning this workflow.': 'Ouvrez le fil de l’automatisation pour demander comment la reprendre sans la relancer.',
+  'Ask AI about these results': 'Interroger l’IA sur ces résultats',
+  'No matching sources were found.': 'Aucune source correspondante trouvée.',
+  'AI answer is unavailable. Your search results are still available.': 'La réponse de l’IA est indisponible. Vos résultats de recherche restent accessibles.',
+  'Could not get an AI answer. Try again.': 'Impossible d’obtenir une réponse de l’IA. Réessayez.',
+  'Sources': 'Sources',
+  'Open source': 'Ouvrir la source',
 }
 
 export default table

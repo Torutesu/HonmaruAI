@@ -1637,11 +1637,11 @@
       "priority": "P1",
       "source": "https://kylon.io/changelog",
       "code": "worker/src/channelRoutes.js; web-react/src/components/Palette.tsx; web-react/src/components/WorkspaceFindProgress.tsx",
-      "acceptance": "⌘KのWorkspace Findで、実際に実行中のメッセージ検索とファイル／アプリレコード検索の段階を表示し、見つかったスレッド・Room・メッセージ・ファイル・レコード数を示す。検索結果は現時点で閲覧可能な内容だけにし、完了直前にWorkspaceとRoomアクセスを再確認する。Simple modeは既存の検索経路・表示を維持し、新規契約・課金なし。Kylonの実画面と同一タスクで比較する。",
+      "acceptance": "⌘KのWorkspace Findで、実際に実行中のメッセージ検索とファイル／アプリレコード検索の段階を表示し、見つかったスレッド・Room・メッセージ・ファイル・レコード数を示す。任意操作でAI回答を生成し、回答の根拠をメッセージ・ファイル・レコードに引用し、出典を開ける。検索・回答とも現時点で閲覧可能な内容だけにし、Workspace/RoomアクセスとAI予算を再確認する。Simple modeの検索経路を維持し、新規契約・課金なし。Kylonの実画面と同一タスクで比較する。",
       "evidence": {
         "reviewedAt": "2026-11-17",
-        "verified": "Authenticated search progress endpoint streams message and resource phases, final accessible result counts, and revalidates membership/Room access after resource scanning. Harness command palette shows a thin accessible progress bar and result summary. PR #1076 exact-head CI, all Worker shards, E2E, iOS and Windows succeeded; main CI #44092298996 and Worker/Web deployment #44092299189/#44092299139 succeeded. Production app.honmaruai.com serves index-C710QHh7.js with the new Find strings; Worker /health returned ok:true and encryption.all=true. Local focused Worker 12/12, Web 10/10, full Web 2,061/2,061, TypeScript and production build passed.",
-        "remaining": "Authenticated Kylon visual/task comparison remains. Kylon's AI-generated answer, cited source/thread reading steps and exact total of threads/Rooms checked are not implemented by this progress-only search surface."
+        "verified": "Authenticated search progress endpoint streams message and resource phases, final accessible result counts, and revalidates membership/Room access after resource scanning. Harness command palette shows the search phases and result summary. PR #1076 exact-head CI, all Worker shards, E2E, iOS and Windows succeeded; main CI #44092298996 and Worker/Web deployment #44092299189/#44092299139 succeeded. PR #1078 added explicit opt-in AI answers grounded in accessible results, with source citations and open-source actions; exact-head/main CI and Worker/Web deployment succeeded on 2026-11-17 (main a951c596). AI answer uses existing provider and allowance. The search results remain available if AI is unavailable. Simple keeps the existing search flow.",
+        "remaining": "Authenticated Kylon visual/task comparison remains, including confirmation that the same query exposes equivalent search/read steps and thread/Room totals."
       }
     },
     {
