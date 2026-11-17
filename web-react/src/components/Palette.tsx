@@ -85,6 +85,9 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
   const [nextRecordCursor, setNextRecordCursor] = useState<string | null>(null)
   const [searchProgress, setSearchProgress] = useState<WorkspaceSearchProgressState|null>(null)
   const [searchError,setSearchError] = useState('')
+  const [answerLoading,setAnswerLoading] = useState(false)
+  const [workspaceAnswer,setWorkspaceAnswer] = useState<{answer:string;sources:Array<{id:string;kind:string;title:string}>;reason:string|null}|null>(null)
+  const answerRequest = useRef(0)
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => { input.current?.focus() }, [])
@@ -192,8 +195,35 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
 
   // What was said in channels and DMs, from the Worker.
   useEffect(() => {
-    setSaid([]); setResources([]); setResourcePage(null); setNextFileCursor(null); setNextRecordCursor(null); setResourceTruncated(false); setSearchProgress(null); setSearchError('')
+    answerRequest.current += 1
+    setSaid([]); setResources([]); setResourcePage(null); setNextFileCursor(null); setNextRecordCursor(null); setResourceTruncated(false); setSearchProgress(null); setSearchError(''); setWorkspaceAnswer(null); setAnswerLoading(false)
   }, [query])
+
+  const askWorkspace = async () => {
+    const raw = query.trim()
+    if (answerLoading || raw.length < 2) return
+    const requestId = ++answerRequest.current
+    setAnswerLoading(true); setWorkspaceAnswer(null)
+    try {
+      const response = await fetch(`${httpBase}/channels/search/answer`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+        body: JSON.stringify({ orgId, q: raw }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || t('Could not get an AI answer. Try again.'))
+      if (requestId !== answerRequest.current) return
+      setWorkspaceAnswer({ answer: typeof data.answer === 'string' ? data.answer : '', sources: Array.isArray(data.sources) ? data.sources : [], reason: data.reason || null })
+    } catch (error) {
+      if (requestId === answerRequest.current) setWorkspaceAnswer({ answer: error instanceof Error ? error.message : t('Could not get an AI answer. Try again.'), sources: [], reason: 'error' })
+    } finally { if (requestId === answerRequest.current) setAnswerLoading(false) }
+  }
+
+  const pickWorkspaceSource = (id: string) => {
+    const item = id.startsWith('message:') ? said.find(candidate => candidate.key === `m:${id.slice(8)}`)
+      : id.startsWith('file:') ? resources.find(candidate => candidate.key === `f:${id.slice(5)}`)
+      : id.startsWith('record:') ? resources.find(candidate => candidate.key === `r:${id.slice(7)}`) : undefined
+    if (item) onPick(item.action)
+  }
 
   useEffect(() => {
     const raw = query.trim()
@@ -352,6 +382,16 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
           <span className="palette-filter-hint" title={t('search.syntax')}>{t('"exact words" · -without · on:2026-09-01 · in:@name')}</span>
         </div>
         {showSearchProgress && searchProgress && query.trim().length >= 2 && <WorkspaceFindProgress progress={searchProgress} error={searchError}/>}
+        {showSearchProgress && searchProgress?.step === 'done' && (said.length + resources.length > 0) && <div className="palette-answer">
+          <button type="button" className="palette-answer-ask" onClick={askWorkspace} disabled={answerLoading}>{answerLoading ? t('Thinking…') : t('Ask AI about these results')}</button>
+          {workspaceAnswer && <>
+            {workspaceAnswer.answer && <p className="palette-answer-text">{workspaceAnswer.answer}</p>}
+            {!workspaceAnswer.answer && <p className="palette-answer-note">{workspaceAnswer.reason === 'no_matches' ? t('No matching sources were found.') : t('AI answer is unavailable. Your search results are still available.')}</p>}
+            {workspaceAnswer.sources.length > 0 && <div className="palette-answer-citations" aria-label={t('Sources')}>
+              {workspaceAnswer.sources.map(source => <button key={source.id} type="button" onClick={() => pickWorkspaceSource(source.id)}>{source.title || t('Open source')}</button>)}
+            </div>}
+          </>}
+        </div>}
         <ul ref={list} className="palette-list" id="palette-list" role="listbox">
           {items.length === 0 && <li className="palette-empty">{t('Nothing matches that.')}</li>}
           {items.map((it, i) => {
