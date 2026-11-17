@@ -1629,6 +1629,21 @@
         "verified": "利用者個別のD1 pin状態、GET/PUT、表示・固定ごとのファイルACL再確認、削除・アクセス失効時の非表示、Kylon風side railからRoom-scoped file routeを開く導線を実装中。",
         "remaining": "Focused tests、exact-head CI、main CI、本番デプロイと実端末確認が未完了。認証済みKylonとのサイドバー比較も未実施。"
       }
+  },
+  {
+    "id": "KY-124",
+    "category": "Threads",
+    "requirement": "Workspace Findの検索過程と結果件数",
+    "status": "partial",
+    "priority": "P1",
+    "source": "https://kylon.io/changelog",
+    "code": "worker/src/channelRoutes.js; web-react/src/components/Palette.tsx; web-react/src/components/WorkspaceFindProgress.tsx",
+    "acceptance": "⌘KのWorkspace Findで、実際に実行中のメッセージ検索とファイル／アプリレコード検索の段階を表示し、見つかったスレッド・Room・メッセージ・ファイル・レコード数を示す。検索結果は現時点で閲覧可能な内容だけにし、完了直前にWorkspaceとRoomアクセスを再確認する。Simple modeは既存の検索経路・表示を維持し、新規契約・課金なし。Kylonの実画面と同一タスクで比較する。",
+    "evidence": {
+      "reviewedAt": "2026-11-17",
+        "verified": "Authenticated search progress endpoint streams message and resource phases, final accessible result counts, and revalidates membership/Room access after resource scanning. Harness command palette shows a thin accessible progress bar and result summary. Focused Worker unified-search suite passed 12/12; Web progress/Palette tests passed 10/10; full Web suite passed 2,061/2,061; TypeScript and production build passed.",
+      "remaining": "Exact-head CI, main CI, production deployment and authenticated Kylon visual/task comparison remain. Kylon's AI-generated answer, cited source/thread reading steps and exact total of threads/Rooms checked are not implemented by this progress-only search surface."
+    }
     }
   ]
 }

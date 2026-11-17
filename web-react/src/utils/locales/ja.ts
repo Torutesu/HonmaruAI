@@ -2092,6 +2092,12 @@ const table: Record<string, string> = {
   'Filed': '分類',
   // ⌘K
   'Search or jump to': '検索・移動',
+  'Workspace search progress': 'ワークスペース検索の進捗',
+  'Searching messages across your workspace…': 'ワークスペース全体のメッセージを検索中…',
+  'Searching accessible files and app records…': 'アクセス可能なファイルとアプリのレコードを検索中…',
+  'Found {threads} threads across {rooms} Rooms; searching files and app records…': '{rooms}個のRoomで{threads}件のスレッドが見つかりました。ファイルとアプリのレコードを検索中…',
+  'Found {threads} threads across {rooms} Rooms; showing {messages} messages, {files} files and {records} app records.': '{rooms}個のRoomで{threads}件のスレッドが見つかりました。メッセージ{messages}件、ファイル{files}件、アプリレコード{records}件を表示しています。',
+  'Could not finish the workspace search. Try again.': 'ワークスペース検索を完了できませんでした。もう一度お試しください。',
   'Search decisions, or type where to go…': '決定を検索、または行き先を入力…',
   'Go to': '移動',
   'Decided before': '以前の決定',
