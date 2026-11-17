@@ -68,6 +68,7 @@ export function tableContract(table) {
   } } } });
   return {
     openapi: '3.1.0', info: { title: `${table.name} record API`, version: '1.0.0', description: 'Strict opt-in contract. Legacy requests without validation=strict continue to coerce values. All operations require current table access. PATCH merges supplied fields; null clears a value.' },
+    'x-honmaru-table': { id: table.id, name: table.name, columns: table.columns },
     security: [{ session: [] }], components: { securitySchemes: { session: { type: 'apiKey', in: 'header', name: 'x-session-token' } }, schemas: {
       Values: values,
       Row: { type: 'object', required: ['id', 'tableId', 'values', 'position', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'], properties: {

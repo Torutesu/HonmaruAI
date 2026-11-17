@@ -541,8 +541,14 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/tableContract.js",
-      "acceptance": "テーブル単位のOpenAPI 3.1とstrict値検証を追加。アプリ独自API登録・契約のバージョン固定・SDK生成は未実装"
+      "code": "worker/src/harness/tableContract.js; worker/src/harness/tableContracts.js; worker/src/harness/routes.js; packages/cli/src/sdk.js",
+      "acceptance": "OpenAPI 3.1 strict CRUD契約をschema updatedAt CASで不変版保存し、SHA-256の検証済みIDから列挙・取得。CLIで版指定SDKを生成し、ソースにversionを固定。ランタイム書込みは現在のschemaへ再検証する。任意API登録と配布SDKは未実装",
+      "evidence": {
+        "reviewedAt": "2026-11-18",
+        "implementedScope": "Added explicit immutable snapshots of the existing table OpenAPI contract, content-addressed by SHA-256. Publishing is idempotent for identical bytes, fenced by the table schema updatedAt and limited to 100 snapshots per table. Authorized viewers can list and retrieve a pinned version; integrity is checked on read, and creator display names are limited to current workspace members. The CLI can generate a nullable TypeScript SDK from a chosen snapshot and records CONTRACT_VERSION in the output. Existing current-schema CRUD and Simple mode are unchanged.",
+        "verification": "Local Worker harness-apps plus migration suites passed 206/206, including publish/replay, stale schema CAS, immutable old snapshot after rename, cross-workspace denial, malformed/missing version, creator-name privacy and tamper detection. CLI suite passed 78/78, including pinned snapshot generation plus publish/list commands with signed-in session credentials. No new paid service.",
+        "remaining": "This does not register arbitrary App APIs, package/distribute the SDK, or enforce old contract hashes on runtime requests; CRUD always checks the current schema and permissions. Authenticated production use and Kylon side-by-side comparison remain unverified."
+      }
     },
     {
       "id": "KY-045",

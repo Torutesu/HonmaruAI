@@ -991,6 +991,57 @@ test('strict record contract rejects invalid fields atomically while legacy coer
   expect((await send('POST', `/tables/${table.id}/rows`, mika, { orgId: ORG, values: { amount: '$1,200' } })).status).toBe(201);
 });
 
+test('table contracts publish immutable hash-pinned versions and fail closed on stale or tampered snapshots', async () => {
+  const created = await (await send('POST', '/tables', mika, { orgId: ORG, name: 'Versioned contract', columns: [{ name: 'Status', type: 'select', options: ['Open'] }] })).json();
+  const first = await send('POST', '/tables/' + created.table.id + '/contracts', mika, { orgId: ORG, expectedUpdatedAt: created.table.updatedAt });
+  expect(first.status).toBe(201);
+  const firstVersion = await first.json();
+  expect(firstVersion.contractVersion).toMatch(/^[a-f0-9]{64}$/);
+  expect(firstVersion.created).toBe(true);
+
+  const pinnedPath = `/tables/${created.table.id}/contracts/${firstVersion.contractVersion}?orgId=${ORG}`;
+  const pinned = await get(pinnedPath, mika);
+  expect(pinned.status).toBe(200);
+  const pinnedBody = await pinned.json();
+  expect(pinnedBody.contractVersion).toBe(firstVersion.contractVersion);
+  expect(pinnedBody.contract.info.title).toBe('Versioned contract record API');
+  expect(pinnedBody.createdBy).toBeTruthy();
+  expect(pinnedBody.createdBy).not.toBe('9102');
+
+  const replay = await send('POST', `/tables/${created.table.id}/contracts`, mika, { orgId: ORG, expectedUpdatedAt: created.table.updatedAt });
+  expect(replay.status).toBe(200);
+  expect(await replay.json()).toEqual({ contractVersion: firstVersion.contractVersion, created: false });
+
+  await new Promise(resolve => setTimeout(resolve, 2));
+  const changed = await send('PUT', `/tables/${created.table.id}`, mika, { orgId: ORG, name: 'Renamed contract', columns: [{ id: 'status', name: 'Status', type: 'select', options: ['Open', 'Closed'] }] });
+  expect(changed.status).toBe(200);
+  const changedTable = (await changed.json()).table;
+  const stale = await send('POST', `/tables/${created.table.id}/contracts`, mika, { orgId: ORG, expectedUpdatedAt: created.table.updatedAt });
+  expect(stale.status).toBe(409);
+  const second = await send('POST', `/tables/${created.table.id}/contracts`, mika, { orgId: ORG, expectedUpdatedAt: changedTable.updatedAt });
+  expect(second.status).toBe(201);
+  const secondVersion = await second.json();
+  expect(secondVersion.contractVersion).not.toBe(firstVersion.contractVersion);
+  expect((await (await get(pinnedPath, mika)).json()).contract.components.schemas.Values.properties.status.enum).toEqual(['Open', null]);
+  const listing = await (await get(`/tables/${created.table.id}/contracts?orgId=${ORG}`, mika)).json();
+  expect(listing.versions.map(version => version.contractVersion).sort()).toEqual([firstVersion.contractVersion, secondVersion.contractVersion].sort());
+  expect((await get(pinnedPath, outsider)).status).toBe(403);
+  expect((await get(`/tables/${created.table.id}/contracts/${firstVersion.contractVersion}?orgId=other-workspace`, mika)).status).toBe(403);
+  expect((await get(`/tables/${created.table.id}/contracts/not-a-hash?orgId=${ORG}`, mika)).status).toBe(400);
+  expect((await get(`/tables/${created.table.id}/contracts/${'a'.repeat(64)}?orgId=${ORG}`, mika)).status).toBe(404);
+
+  await env.DB.prepare('UPDATE hx_table_contract_versions SET contract_json=?1 WHERE org_id=?2 AND table_id=?3 AND contract_hash=?4')
+    .bind('{"openapi":"tampered"}', ORG, created.table.id, firstVersion.contractVersion).run();
+  expect((await get(pinnedPath, mika)).status).toBe(503);
+
+  const capped = await (await send('POST', '/tables', mika, { orgId: ORG, name: 'Capped contract', columns: [{ name: 'Name', type: 'text' }] })).json();
+  await env.DB.batch(Array.from({ length: 100 }, (_, index) => env.DB.prepare(`INSERT INTO hx_table_contract_versions
+    (org_id,table_id,contract_hash,contract_json,created_by,created_at) VALUES (?1,?2,?3,'{}',?4,?5)`)
+    .bind(ORG, capped.table.id, index.toString(16).padStart(64, '0'), '9102', new Date(index).toISOString())));
+  expect((await send('POST', `/tables/${capped.table.id}/contracts`, mika, { orgId: ORG, expectedUpdatedAt: capped.table.updatedAt })).status).toBe(409);
+  expect((await (await get(`/tables/${capped.table.id}/contracts?orgId=${ORG}`, mika)).json()).versions).toHaveLength(100);
+});
+
  test('two writers using the same snapshot cannot both commit', async () => {
   const { createTable, addRow, updateRow, getRow } = await import('../src/harness/tables.js');
   const { table } = await createTable(env.DB, { orgId: ORG, name: 'Race', columns: [{ name: 'Name', type: 'text' }], by: '9102' });

@@ -64,6 +64,7 @@ import { readAppHosting, changeAppHosting, servePublicAppDomain } from './appHos
 import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
+import { listTableContracts, publishTableContract, readTableContract } from './tableContracts.js';
 import { appAccess, appPeopleAccess, hasExplicitAppPermission, mayEditApp, mayEditTable, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
 import { mayUseConversation, readableConversation } from './conversationAccess.js';
 import { browserConversationAllowed } from './executions.js';
@@ -728,6 +729,23 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "contract" && request.method === "GET") {
       const table = await getTable(env.DB, orgId, tableId);
       return table ? json(tableContract(table)) : json({ message: "No such table." }, 404);
+    }
+    if (sub === 'contracts') {
+      if (request.method === 'GET' && !rowId) return json(await listTableContracts(env.DB, orgId, tableId));
+      if (request.method === 'GET' && rowId) {
+        const result = await readTableContract(env.DB, orgId, tableId, rowId);
+        return result.error ? fail(result) : json(result);
+      }
+      if (request.method === 'POST' && !rowId) {
+        const table = await getTable(env.DB, orgId, tableId);
+        if (!table) return json({ message: 'No such table.' }, 404);
+        if (typeof input.expectedUpdatedAt !== 'string' || input.expectedUpdatedAt !== table.updatedAt) return json({ message: 'The table changed. Reload before publishing its contract.' }, 409);
+        const result = await publishTableContract(env.DB, { orgId, table, contract: tableContract(table), by: me });
+        if (result.error) return fail(result);
+        if (result.created) await audit(env, request, { orgId, action: 'table.contract_published', actor: person(who.user), entity: { type: 'table', id: tableId }, details: { contractVersion: result.contractVersion } });
+        return json(result, result.created ? 201 : 200);
+      }
+      return json({ message: 'Method not allowed.' }, 405);
     }
     if (!sub) {
       if (request.method === "GET") {

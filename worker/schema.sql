@@ -1797,6 +1797,8 @@ CREATE TABLE IF NOT EXISTS hx_tables (
   data_version  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_hx_tables_org ON hx_tables(org_id);
+CREATE TABLE IF NOT EXISTS hx_table_contract_versions (org_id TEXT NOT NULL, table_id TEXT NOT NULL, contract_hash TEXT NOT NULL CHECK(length(contract_hash)=64), contract_json TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,table_id,contract_hash));
+CREATE INDEX IF NOT EXISTS idx_hx_table_contract_versions_order ON hx_table_contract_versions(org_id,table_id,created_at DESC,contract_hash);
 
 /* One row of a table. data is JSON keyed by column id. */
 CREATE TABLE IF NOT EXISTS hx_rows (
