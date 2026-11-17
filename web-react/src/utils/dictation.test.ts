@@ -36,6 +36,7 @@ test('learns only a single token correction within the dictated suffix',()=>{
 
 test('learns a dictated-range correction only while the surrounding selection stays unchanged',()=>{
  expect(detectDictationRangeCorrection('Send wor1d today','Send world today','Send ',' today')).toEqual({from:'wor1d',to:'world'})
+ expect(detectDictationRangeCorrection('Send wor1d today','Send  today','Send ',' today')).toBeNull()
  expect(detectDictationRangeCorrection('Send wor1d today','Please send world today','Send ',' today')).toBeNull()
  expect(detectDictationRangeCorrection('Send wor1d today','Send world tomorrow','Send ',' today')).toBeNull()
  expect(detectDictationRangeCorrection('Send wor1d today','Send the final word today','Send ',' today')).toBeNull()

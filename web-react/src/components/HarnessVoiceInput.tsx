@@ -142,9 +142,9 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
       const field = pending.target
       if (Date.now() - pending.at > 5 * 60_000 || !field.isConnected) { learningRef.current = null; return }
       if (field.value === pending.expected) return
-      learningRef.current = null
+      if (!field.value.startsWith(pending.prefix) || pending.suffix && !field.value.endsWith(pending.suffix)) { learningRef.current = null; return }
       const correction = detectDictationRangeCorrection(pending.expected, field.value, pending.prefix, pending.suffix, getLocale())
-      if (correction) saveLearnedCorrection(correction)
+      if (correction) { learningRef.current = null; saveLearnedCorrection(correction) }
     }
     const blur = () => queueMicrotask(() => {
       if (document.activeElement === targetRef.current || document.activeElement === buttonRef.current) return
