@@ -1686,7 +1686,22 @@
       "evidence": {
         "reviewedAt": "2026-11-18",
         "verified": "HarnessのDashboardにフォーカス連動する共通音声入力を追加。既存SpeechRecognition、個人語彙・補正とHarness APIを再利用し、テキスト/検索/email/url/tel入力とtextareaへ挿入。既存のchat mic、disabled/readonly、passwordや非テキスト型は除外。選択範囲・末尾空白・maxLengthを保持。Simple表示ではコンポーネントをmountしない。単体テスト4/4、Web全体2072/2072、TypeScriptとproduction build成功。ローカルHarness Playwright voice stepはlaptop/phone双方で通過。",
-        "remaining": "Harness tourのRoom fixtureには必須guidelinesを追加済み。main E2EはPR #1080のexact-head CIで成功し、main Web deployも成功。main CIのE2Eは引き続き実行中。今回、全通常フィールドで発話後5分以内の単一語訂正を学習する処理を追加し、選択範囲の前後が保たれる場合だけ個人辞書に保存する。revision競合時は最新辞書を一度取得して再試行し、同一利用者の端末同期イベントも反映する。訂正範囲utilityと関連suiteは9/9、TypeScript成功。新しい変更の全Web suite/build/exact-head CIは未実行。一般contenteditable、ネイティブWeb Speechの実マイク/権限挙動、認証済みKylonとの全フィールド同一タスク・Web/Mac比較は未検証。"
+        "remaining": "Harness tourのRoom fixtureには必須guidelinesを追加済み。PR #1081のexact-head CIとmain CI（Worker shards/E2Eを含む）は成功し、main Web deployも成功。全通常フィールドで発話後5分以内の単一語訂正を学習し、選択範囲の前後が保たれる場合だけ個人辞書へ保存。revision競合時は最新辞書を一度取得して再試行し、同一利用者の端末同期イベントも反映する。一般contenteditable、ネイティブWeb Speechの実マイク/権限挙動、認証済みKylonとの全フィールド同一タスク・Web/Mac比較は未検証。"
+      }
+    },
+    {
+      "id": "KY-128",
+      "category": "Agents and integrations",
+      "requirement": "AgentのSlack投稿を編集可能なDraftとして保持し、人がSendしたときだけ投稿",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "worker/src/agentTools.js; worker/src/harness/agentConnections.js; worker/src/harness/slackDrafts.js; worker/src/channelRoutes.js; web-react/src/components/SlackDraftCard.tsx; web-react/src/components/MessageVisualization.tsx",
+      "acceptance": "AgentのSlack投稿依頼は接続済みの既存Slackアカウントを使って保存し、作成・表示・編集・破棄ではSlack APIへ投稿しない。Draftを作成した利用者だけが、現在のWorkspace/Agent/Slack grantを再確認した上で明示Sendできる。宛先は本人のSlackから取得した候補に限って変更でき、選択変更ごとにrevisionを更新し、別チャンネルへ移す時は元threadを消去する。Sendでは保存済み宛先とthreadを使い、リクエストから上書きできない。revision CASで二重送信と競合編集を拒否し、送信の不確定結果はunknownにして自動再送しない。Simple mode・既存カード返信を維持し、追加サービス・契約なし。CI、本番反映、Kylonとの同一タスク画面比較を確認する。",
+      "evidence": {
+        "reviewedAt": "2026-11-18",
+        "verified": "Kylon公式changelog (2026-11-14) は、AgentのSlackメッセージを会話中のdraft cardとして表示し、編集可能、Sendを選ぶまで投稿しないと説明する。HonmaruにはAgent→Slack汎用Draft機能がなく、既存のカード返信は決定済みカードへの人の返信で別経路。Slack Draft実装とテストは進行中。",
+        "remaining": "実装完了、認可・revocation・競合・provider timeoutを含むWorker/Webテスト、exact-head CI、main deploy、実画面のKylon比較と本番受入は未完了。"
       }
     }
   ]

@@ -1,5 +1,6 @@
 import React, { useId, useMemo, useState } from 'react'
 import { renderRich } from './MessageParts'
+import { SlackDraftCard } from './SlackDraftCard'
 
 export type MessageChart = {
   type: 'chart'
@@ -23,7 +24,7 @@ export type IllustrationElement =
 export type MessageIllustration = { type: 'illustration'; title: string; description?: string; elements: IllustrationElement[] }
 export type MessageImageJob = { type: 'image_job'; title: string; jobId: string }
 export type MessageVisualizationData = MessageChart | MessageExplainer | MessageIllustration | MessageImageJob
-export type MessageSegment = { kind: 'text'; text: string } | { kind: 'visualization'; value: MessageVisualizationData }
+export type MessageSegment = { kind: 'text'; text: string } | { kind: 'visualization'; value: MessageVisualizationData } | { kind: 'slack-draft'; draftId: string }
 
 const MAX_SOURCE = 16_000
 const cleanText = (value: unknown, max: number) => typeof value === 'string' && value.trim().length > 0 && value.length <= max
@@ -105,16 +106,33 @@ export function parseMessageVisualization(source: string): MessageVisualizationD
 }
 
 const VISUAL_BLOCK = /^```honmaru-visual\s*\n([\s\S]*?)\n```\s*$/gm
+const SLACK_DRAFT_BLOCK = /^```honmaru-slack-draft\s*\n([\s\S]*?)\n```\s*$/gm
 
-export function splitMessageVisualizations(source: string): MessageSegment[] {
+export function splitMessageVisualizations(source: string, conversation?: string): MessageSegment[] {
   const segments: MessageSegment[] = []
   let cursor = 0
-  for (const match of source.matchAll(VISUAL_BLOCK)) {
+  const blocks = [
+    ...[...source.matchAll(VISUAL_BLOCK)].map(match => ({ match, kind: 'visualization' as const })),
+    ...(conversation?.startsWith('ag:') ? [...source.matchAll(SLACK_DRAFT_BLOCK)].map(match => ({ match, kind: 'slack-draft' as const })) : []),
+  ].sort((a, b) => (a.match.index ?? 0) - (b.match.index ?? 0))
+  for (const { match, kind } of blocks) {
     const start = match.index ?? 0
+    if (start < cursor) continue
     if (start > cursor) segments.push({ kind: 'text', text: source.slice(cursor, start) })
-    const value = parseMessageVisualization(match[1])
-    if (value) segments.push({ kind: 'visualization', value })
-    else segments.push({ kind: 'text', text: match[0] })
+    if (kind === 'slack-draft') {
+      let value: unknown
+      try { value = JSON.parse(match[1]) } catch { value = null }
+      const draftId = value && typeof value === 'object' && !Array.isArray(value) && (value as Record<string, unknown>).type === 'slack_draft'
+        && Object.keys(value).every(key => ['type', 'draftId'].includes(key)) && typeof (value as Record<string, unknown>).draftId === 'string'
+        && /^[\w-]{1,100}$/.test((value as Record<string, unknown>).draftId as string)
+        ? (value as Record<string, string>).draftId : null
+      if (draftId) segments.push({ kind: 'slack-draft', draftId })
+      else segments.push({ kind: 'text', text: match[0] })
+    } else {
+      const value = parseMessageVisualization(match[1])
+      if (value) segments.push({ kind: 'visualization', value })
+      else segments.push({ kind: 'text', text: match[0] })
+    }
     cursor = start + match[0].length
   }
   if (cursor < source.length) segments.push({ kind: 'text', text: source.slice(cursor) })
@@ -226,9 +244,11 @@ function ExplainerCard({ value }: { value: MessageExplainer }) {
   </section>
 }
 
-export function MessageVisualText({ text, renderText, api }: { text: string; renderText: (text: string) => React.ReactNode; api?: MediaJobApi }) {
-  const segments = useMemo(() => splitMessageVisualizations(text), [text])
+export function MessageVisualText({ text, renderText, api, conversation }: { text: string; renderText: (text: string) => React.ReactNode; api?: MediaJobApi; conversation?: string }) {
+  const segments = useMemo(() => splitMessageVisualizations(text, conversation), [text, conversation])
   return <>{segments.map((segment, index) => segment.kind === 'visualization'
     ? <MessageVisualization key={`visual-${index}`} value={segment.value} api={api} />
-    : <React.Fragment key={`text-${index}`}>{renderText(segment.text)}</React.Fragment>)}</>
+    : segment.kind === 'slack-draft' && api && conversation
+      ? <SlackDraftCard key={`slack-draft-${segment.draftId}`} {...api} draftId={segment.draftId} conversation={conversation} />
+      : <React.Fragment key={`text-${index}`}>{renderText(segment.kind === 'text' ? segment.text : `\`\`\`honmaru-slack-draft\n${JSON.stringify({ type: 'slack_draft', draftId: segment.draftId })}\n\`\`\``)}</React.Fragment>)}</>
 }

@@ -2458,6 +2458,47 @@ CREATE TABLE IF NOT EXISTS hx_agent_source_shares (
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
 
+/* Slack can be used by a Harness Agent to prepare a message, but only its
+   author may explicitly send it. The account and destination are bound when
+   the draft is made; callers never supply them on edit or send. */
+CREATE TABLE IF NOT EXISTS hx_agent_slack_draft_grants (
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  membership_since TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, agent_id, user_github_id),
+  FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS hx_slack_drafts (
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  creator_github_id TEXT NOT NULL,
+  creator_login TEXT NOT NULL,
+  conversation TEXT NOT NULL,
+  source_message_id TEXT NOT NULL,
+  provider_user_id TEXT NOT NULL,
+  connection_version TEXT NOT NULL,
+  target_channel TEXT NOT NULL,
+  target_name TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_private INTEGER NOT NULL DEFAULT 0 CHECK (target_private IN (0,1)),
+  target_thread_ts TEXT,
+  text TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+  status TEXT NOT NULL CHECK (status IN ('pending','sending','sent','failed','unknown','discarded')),
+  claim_id TEXT,
+  provider_ts TEXT,
+  error_code TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  sent_at TEXT,
+  PRIMARY KEY (org_id, id),
+  FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_hx_slack_drafts_creator ON hx_slack_drafts(org_id, creator_github_id, created_at DESC);
+
 /* A user may grant their private Agent conversation read-only access to
    workspace-managed Remote MCP servers. Membership stamps stop a rejoin
    from reviving the grant. */
