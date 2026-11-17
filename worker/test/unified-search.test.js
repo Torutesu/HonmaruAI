@@ -62,6 +62,25 @@ test('workspace Find streams real message and resource stages with bounded threa
   expect((await get(`/channels/search/progress?${q({ orgId: ORG, q: 'NeedleStar' })}`, outsider)).status).toBe(403);
 });
 
+test('Workspace Find AI answer endpoint returns only bounded authorized source citations and stays Harness-only', async () => {
+  await env.DB.prepare("INSERT INTO org_settings(org_id,mode,updated_by,updated_at) VALUES (?1,'harness','9201','now')").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'general','General',0,'9201','2026-01-01T00:00:00.000Z')").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,kind,body,created_at) VALUES ('answer-source',?1,'b:general','alice','message','NeedleStar was approved on Tuesday.','2026-11-17T12:00:00.000Z')").bind(ORG).run();
+  const response = await send('/channels/search/answer', alice, { orgId: ORG, q: 'NeedleStar' });
+  expect(response.status).toBe(200);
+  const payload = await response.json();
+  expect(payload.answer).toBeNull(); // No configured model or allowance in this test environment.
+  expect(payload.reason).toBe('ai_unavailable');
+  expect(payload.sources).toEqual([{ id: 'message:answer-source', kind: 'message', title: 'NeedleStar was approved on Tuesday.' }]);
+  expect((await send('/channels/search/answer', outsider, { orgId: ORG, q: 'NeedleStar' })).status).toBe(403);
+  expect((await send('/channels/search/answer', alice, { orgId: 'personal:other-org', q: 'NeedleStar' })).status).toBe(403);
+  await env.DB.prepare("INSERT INTO hx_user_display_preferences(org_id,user_id,simple_only,revision,updated_at) VALUES (?1,'9201',1,1,'now')").bind(ORG).run();
+  expect((await send('/channels/search/answer', alice, { orgId: ORG, q: 'NeedleStar' })).status).toBe(404);
+  await env.DB.prepare("DELETE FROM hx_user_display_preferences WHERE org_id=?1 AND user_id='9201'").bind(ORG).run();
+  await env.DB.prepare("UPDATE org_settings SET mode='simple' WHERE org_id=?1").bind(ORG).run();
+  expect((await send('/channels/search/answer', alice, { orgId: ORG, q: 'NeedleStar' })).status).toBe(404);
+});
+
 test('workspace Find drops a Room hit when access is revoked during file search', async () => {
   await seedFile({ id: 'progress-revoke-doc', body: 'NeedleStar workspace document.' });
   await env.DB.prepare("INSERT INTO org_settings(org_id,mode,updated_by,updated_at) VALUES (?1,'harness','9201','now')").bind(ORG).run();
