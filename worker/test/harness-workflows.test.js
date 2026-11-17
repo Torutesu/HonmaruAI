@@ -1786,6 +1786,66 @@ test('Workflow editor catalog separates workspace write approval from Agent tool
   expect((await grantedConnections.json()).workflowRemoteMcpConnections[0].tools.map(tool=>tool.enabled)).toEqual([true,true]);
 });
 
+test('a Workflow card update cannot replace the approved Remote MCP arguments or what the approver saw', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Approval integrity writer', handle: 'approval-integrity-writer', instructions: 'Update approved records.', scope: 'team',
+  })).json();
+  const server = await addWorkflowRemoteMcpServer([
+    { name: 'update_record', title: 'Update record', inputSchema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, annotations: { readOnlyHint: false } },
+  ], ['update_record'], ['update_record']);
+  const { setAgentRemoteMcpTool } = await import('../src/harness/agentRemoteMcp.js');
+  expect((await setAgentRemoteMcpTool(env, { orgId: ORG, agentId: agent.id, session: { github_id: '9302' }, serverId: server.id, toolName: 'update_record', enabled: true })).error).toBeUndefined();
+  const { createWorkflow, startRun, getRun } = await import('../src/harness/workflows.js');
+  const connection = { type: 'connection', agentId: agent.id, source: 'remote_mcp', serverId: server.id, toolName: 'update_record', args: { status: '{{input.status}}' } };
+  const created = await createWorkflow(env.DB, ORG, {
+    name: 'Keep approval exact', trigger: { type: 'manual' },
+    steps: [{ type: 'approval', to: 'toru', title: 'Approve planned status?' }, connection],
+  }, '9302');
+  expect(created.error).toBeUndefined();
+  const { workflow } = created;
+  const waiting = await startRun(env, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302', input: { status: 'Planned' } });
+  const { getCard } = await import('../src/db.js');
+  const original = await getCard(env.DB, ORG, waiting.cardId);
+  expect(original.context).toContain('Planned');
+
+  // Simulate the run input changing after the card was rendered, then try to
+  // use a full-card client update to rewrite both the approval evidence and
+  // visible card into authorizing the changed write.
+  await env.DB.prepare('UPDATE hx_workflow_runs SET input=?1 WHERE org_id=?2 AND id=?3')
+    .bind(JSON.stringify({ status: 'Changed after approval' }), ORG, waiting.id).run();
+  const changedArgs = { status: 'Changed after approval' };
+  const changedHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(changedArgs))))]
+    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+  let dispatched = 0;
+  fetchMock.activate();
+  const normalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { dispatched += 1; throw new Error('Remote MCP call was blocked by the test spy.'); };
+  const { ws, messages } = await joined(ORG, toru);
+  try {
+    ws.send(JSON.stringify({ type: 'card_updated', payload: { card: {
+      ...original,
+      title: 'Approve changed write?',
+      context: `Workflow: ${workflow.name}\\nApproved next action: ${server.name}: Update record\\nArguments: ${JSON.stringify(changedArgs)}`,
+      workflowApproval: { ...original.workflowApproval, remoteMcp: {
+        ...original.workflowApproval.remoteMcp, argsHash: changedHash,
+      } },
+      status: 'approved', decision: { action: 'approve', decidedAt: new Date().toISOString() },
+    } } }));
+    const result = await until(async () => {
+      const run = await getRun(env.DB, ORG, waiting.id);
+      return run?.status === 'failed' || run?.status === 'done' ? run : null;
+    });
+    expect(result.status).toBe('failed');
+    expect(result.log[1].error).toContain('matching approval');
+    expect(dispatched).toBe(0);
+    const stored = await getCard(env.DB, ORG, original.id);
+    expect(stored.workflowApproval).toEqual(original.workflowApproval);
+    expect(stored.title).toBe(original.title);
+    expect(stored.context).toBe(original.context);
+    expect(messages.some(item => item.type === 'RUN_ERROR')).toBe(false);
+  } finally { globalThis.fetch = normalFetch; fetchMock.deactivate(); ws.close(); }
+});
+
 test('a Workflow Agent does not receive workspace Remote MCP tools without its personal grant', async () => {
   const { agent } = await (await send('POST', '/channels/agents', mika, {
     orgId: ORG, name: 'No grant reviewer', handle: 'no-grant-reviewer', instructions: 'Review the request.', scope: 'team',
