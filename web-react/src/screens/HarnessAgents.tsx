@@ -108,6 +108,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [profileDialog, setProfileDialog] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState(false)
   const [profile, setProfile] = useState<AgentProfile | null>(null)
+  const [browserGateways, setBrowserGateways] = useState<Array<{id:string;name:string;lastSeenAt:number|null;revokedAt:number|null}>>([])
   const [agentApps, setAgentApps] = useState<AgentAppConnection[] | null>(null)
   const [nativeConnections, setNativeConnections] = useState<AgentNativeConnection[] | null>(null)
   const [remoteMcpConnections, setRemoteMcpConnections] = useState<AgentRemoteMcpConnection[] | null>(null)
@@ -177,6 +178,13 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
     setProfile(r.profile); setSaved(true); setTimeout(() => setSaved(false), 1500)
   })
 
+  useEffect(() => {
+    if (!editingProfile || !canEdit) return
+    let current = true
+    void api.gateways().then(result => { if (current) setBrowserGateways(result.gateways || []) }).catch(() => { if (current) setBrowserGateways([]) })
+    return () => { current = false }
+  }, [api, canEdit, editingProfile])
+
   if (!profile) return <Shell title={agent.name} onClose={props.onBack} nested>{error ? <div className="form-error">{error}</div> : <div className="empty">{t('Loading…')}</div>}</Shell>
   return (
     <Shell title={`${agent.emoji || '🤖'} ${agent.name}`} onClose={props.onBack} nested actions={saved ? <span className="row-sub">{t('Saved.')}</span> : null}>
@@ -245,6 +253,20 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
           <span className="row-main">{t('Answer only when named')}<span className="row-sub">{t('It stays out of a thread unless someone writes its @name.')}</span></span>
           <input type="checkbox" disabled={!canEdit} checked={profile.mentionOnly} onChange={(e) => save({ mentionOnly: e.target.checked })} />
         </label>
+        <label className="row static" data-testid="native-browser-setting">
+          <span className="row-main">{t('Allow this Agent to use a local browser')}<span className="row-sub">{t('When enabled, this Agent can open websites through the selected connected node. Simple mode is not affected.')}</span></span>
+          <input type="checkbox" disabled={!canEdit || busy === 'save'} checked={profile.nativeBrowserEnabled === true} onChange={e => {
+            const enabled = e.currentTarget.checked
+            void save({ nativeBrowserEnabled: enabled, ...(enabled && !profile.nativeBrowserGatewayId ? {} : { nativeBrowserGatewayId: enabled ? profile.nativeBrowserGatewayId : null }) })
+          }} />
+        </label>
+        {profile.nativeBrowserEnabled === true && <label className="row static">
+          <span className="row-main">{t('Local browser node')}<span className="row-sub">{t('Choose a node that connected within the last 90 seconds.')}</span></span>
+          <select aria-label={t('Local browser node')} disabled={!canEdit || busy === 'save'} value={profile.nativeBrowserGatewayId || ''} onChange={e => void save({ nativeBrowserGatewayId: e.currentTarget.value || null })}>
+            <option value="">{t('Choose a connected node')}</option>
+            {browserGateways.filter(g => !g.revokedAt && g.lastSeenAt !== null && Date.now() - g.lastSeenAt <= 90_000).map(g => <option value={g.id} key={g.id}>{g.name}</option>)}
+          </select>
+        </label>}
         <div className="row static">
           <span className="row-main">{t('Who may call it')}
             <span className="hx-seg">

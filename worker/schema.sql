@@ -1882,6 +1882,8 @@ CREATE TABLE IF NOT EXISTS hx_agent_profiles (
   mention_only  INTEGER NOT NULL DEFAULT 0,
   access        TEXT NOT NULL DEFAULT 'everyone',
   people        TEXT,
+  native_browser_enabled INTEGER NOT NULL DEFAULT 0,
+  native_browser_gateway_id TEXT,
   updated_by    TEXT,
   updated_at    TEXT NOT NULL,
   PRIMARY KEY (org_id, agent_id)

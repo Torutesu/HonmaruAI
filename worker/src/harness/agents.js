@@ -16,7 +16,7 @@ const now = () => new Date().toISOString();
 const newId = (p) => `${p}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 const parse = (s, f) => { try { return JSON.parse(s); } catch { return f; } };
 
-const DEFAULT_PROFILE = { specialty: "", tier: "standard", mentionOnly: false, access: "everyone", people: [] };
+const DEFAULT_PROFILE = { specialty: "", tier: "standard", mentionOnly: false, access: "everyone", people: [], nativeBrowserEnabled: false, nativeBrowserGatewayId: null };
 
 function toProfile(row) {
   if (!row) return { ...DEFAULT_PROFILE };
@@ -26,6 +26,8 @@ function toProfile(row) {
     mentionOnly: Boolean(row.mention_only),
     access: ACCESS.includes(row.access) ? row.access : "everyone",
     people: parse(row.people, []),
+    nativeBrowserEnabled: Boolean(row.native_browser_enabled),
+    nativeBrowserGatewayId: row.native_browser_gateway_id || null,
     updatedAt: row.updated_at,
   };
 }
@@ -65,17 +67,27 @@ export async function saveProfile(db, orgId, agentId, input, by) {
   if (input.people !== undefined) {
     next.people = [...new Set((Array.isArray(input.people) ? input.people : []).map((p) => String(p).replace(/^@/, "").trim()).filter(Boolean))].slice(0, 100);
   }
-  const columns = { specialty: "specialty", tier: "tier", mentionOnly: "mention_only", access: "access", people: "people" };
-  const updates = Object.entries(columns).filter(([key]) => input[key] !== undefined)
+  if (input.nativeBrowserEnabled !== undefined) {
+    if (typeof input.nativeBrowserEnabled !== "boolean") return { error: "nativeBrowserEnabled must be a boolean." };
+    next.nativeBrowserEnabled = input.nativeBrowserEnabled;
+    if (!next.nativeBrowserEnabled) next.nativeBrowserGatewayId = null;
+  }
+  if (input.nativeBrowserGatewayId !== undefined) {
+    if (input.nativeBrowserGatewayId !== null && (typeof input.nativeBrowserGatewayId !== "string" || input.nativeBrowserGatewayId.length > 100)) return { error: "Invalid browser Gateway." };
+    next.nativeBrowserGatewayId = input.nativeBrowserGatewayId || null;
+    if (next.nativeBrowserGatewayId) next.nativeBrowserEnabled = true;
+  }
+  const columns = { specialty: "specialty", tier: "tier", mentionOnly: "mention_only", access: "access", people: "people", nativeBrowserEnabled: "native_browser_enabled", nativeBrowserGatewayId: "native_browser_gateway_id" };
+  const updates = Object.entries(columns).filter(([key]) => input[key] !== undefined || (key === "nativeBrowserGatewayId" && input.nativeBrowserEnabled === false))
     .map(([, column]) => `${column} = excluded.${column}`);
   const stamp = now();
   const profileWrite = db
     .prepare(
-      `INSERT INTO hx_agent_profiles (org_id, agent_id, specialty, tier, mention_only, access, people, updated_by, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+      `INSERT INTO hx_agent_profiles (org_id, agent_id, specialty, tier, mention_only, access, people, native_browser_enabled, native_browser_gateway_id, updated_by, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
        ON CONFLICT(org_id, agent_id) DO UPDATE SET ${[...updates, "updated_by = excluded.updated_by", "updated_at = excluded.updated_at"].join(", ")}`,
     )
-    .bind(orgId, agentId, next.specialty, next.tier, next.mentionOnly ? 1 : 0, next.access, JSON.stringify(next.people), String(by), stamp);
+    .bind(orgId, agentId, next.specialty, next.tier, next.mentionOnly ? 1 : 0, next.access, JSON.stringify(next.people), next.nativeBrowserEnabled ? 1 : 0, next.nativeBrowserGatewayId, String(by), stamp);
   const identity = input.name !== undefined || input.emoji !== undefined;
   if (identity) {
     // One transaction: a failed identity write cannot leave half a dialog saved.

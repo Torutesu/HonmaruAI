@@ -2362,6 +2362,11 @@ const table: Record<string, string> = {
   'Add an approval step immediately before this write. The approver will see the exact tool and arguments.': 'Añade un paso de aprobación justo antes de esta escritura. La persona que aprueba verá la herramienta y los argumentos exactos.',
   'Read-only tools require a specific Agent grant. The Worker checks the schema and permission before and after each request. Do not put credentials in the arguments.': 'Las herramientas de solo lectura requieren un permiso específico del agente. Worker comprueba el esquema y los permisos antes y después de cada solicitud. No incluyas credenciales en los argumentos.',
   'A workspace admin must enable the tool in Remote MCP settings before it can be added to a Workflow.': 'Una persona administradora del espacio debe habilitar la herramienta en la configuración de Remote MCP antes de añadirla a un flujo de trabajo.',
+  'Allow this Agent to use a local browser': 'Permitir que este agente use un navegador local',
+  'When enabled, this Agent can open websites through the selected connected node. Simple mode is not affected.': 'Al activarlo, este agente puede abrir sitios web mediante el nodo conectado seleccionado. El modo simple no cambia.',
+  'Local browser node': 'Nodo del navegador local',
+  'Choose a node that connected within the last 90 seconds.': 'Elige un nodo que se haya conectado en los últimos 90 segundos.',
+  'Choose a connected node': 'Elige un nodo conectado',
 }
 
 export default table

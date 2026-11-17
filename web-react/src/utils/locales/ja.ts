@@ -4108,6 +4108,11 @@ const table: Record<string, string> = {
   'Add an approval step immediately before this write. The approver will see the exact tool and arguments.': 'この書き込みの直前に承認ステップを追加してください。承認者にはツールと引数がそのまま表示されます。',
   'Read-only tools require a specific Agent grant. The Worker checks the schema and permission before and after each request. Do not put credentials in the arguments.': '読み取り専用ツールにはAgentごとの許可が必要です。Workerは各リクエストの前後にスキーマと権限を確認します。引数に認証情報を含めないでください。',
   'A workspace admin must enable the tool in Remote MCP settings before it can be added to a Workflow.': 'Workflowに追加する前に、ワークスペース管理者がRemote MCP設定でツールを有効にする必要があります。',
+  'Allow this Agent to use a local browser': 'このAgentにローカルブラウザの利用を許可',
+  'When enabled, this Agent can open websites through the selected connected node. Simple mode is not affected.': '有効にすると、このAgentは選択した接続済みノード経由でWebサイトを開けます。シンプルモードには影響しません。',
+  'Local browser node': 'ローカルブラウザノード',
+  'Choose a node that connected within the last 90 seconds.': '直近90秒以内に接続したノードを選んでください。',
+  'Choose a connected node': '接続済みノードを選択',
 }
 
 export default table

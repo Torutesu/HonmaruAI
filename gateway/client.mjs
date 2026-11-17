@@ -3,7 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { runIsolated } from './runner.mjs';
 import {runWorkflowIsolated,WORKFLOW_EXECUTION_TIMEOUT_MS} from './workflow-runner.mjs';
 import {runAcp,configuredAcpAgentIds} from './acp.mjs';
-import {runBrowserSessionAction} from './browser-session.mjs';
+import {runBrowserSessionAction,validateBrowserAction} from './browser-session.mjs';
 import { requestRemoteMcp } from './remote-mcp-http.mjs';
 
 export function gatewayClient(baseUrl, token, fetcher = fetch) {
@@ -93,6 +93,9 @@ export async function serveRemoteMcpEgress(call, { signal, onError = () => {}, o
 
 export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, runBrowser = runBrowserSessionAction, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000, browserControlPollIntervalMs = 6000 } = {}) {
   const capabilities=['workflow-program-v1'];
+  // This is a separate, one-action capability. ACP remains opt-in by the
+  // local agent allowlist and does not grant native Harness Agents access.
+  capabilities.push('browser-action-v1');
   const localAcpAgents=configuredAcpAgentIds(acpAgents);
   if(localAcpAgents.length)capabilities.push('acp-v1');
   const { job } = await call('claim',{capabilities,acpAgents:localAcpAgents});
@@ -136,9 +139,35 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
       // Workflow programs use the documented fifteen-minute execution cap;
       // the Worker keeps a separate 30-second result-delivery grace period.
       // ACP jobs retain their 110-second cap inside a 120-second lease.
-      const timeoutCap=job.workflow===true?WORKFLOW_EXECUTION_TIMEOUT_MS:job.payload?.browserTools===true?270000:job.payload?.acp===true?110000:60000;
+      const timeoutCap=job.workflow===true?WORKFLOW_EXECUTION_TIMEOUT_MS:job.payload?.browserTools===true?270000:job.payload?.nativeBrowserAction===true?60000:job.payload?.acp===true?110000:60000;
       const options={timeoutMs:Math.min(job.timeoutMs||timeoutCap,timeoutCap),signal:cancel.signal};
-      if(job.payload?.acp===true&&job.payload?.browserTools===true){
+      if(job.payload?.nativeBrowserAction===true){
+        const payload=job.payload;
+        if(typeof payload.workspaceId!=='string'||typeof payload.browserIdentity!=='string')throw new Error('Invalid browser action identity.');
+        const action=validateBrowserAction(payload.browserAction);
+        await call(`jobs/${job.id}/browser-action`,{lease:job.lease},{signal:cancel.signal});
+        const browserResult=await runBrowser({workspaceId:payload.workspaceId,agentId:payload.browserIdentity,action,signal:cancel.signal});
+        let bounded={};
+        let screenshotTooLarge=false;
+        if(browserResult&&typeof browserResult==='object'&&!Array.isArray(browserResult)){
+          if(typeof browserResult.url==='string')bounded.url=browserResult.url.slice(0,2048);
+          if(typeof browserResult.text==='string')bounded.text=browserResult.text.slice(0,12000);
+          if(typeof browserResult.image==='string'){
+            if(action.type==='screenshot'&&browserResult.image.length>48_000)screenshotTooLarge=true;
+            else if(browserResult.image.length<=48_000)bounded.image=browserResult.image;
+          }
+          if(typeof browserResult.title==='string')bounded.title=browserResult.title.slice(0,500);
+          if(typeof browserResult.clicked==='boolean')bounded.clicked=browserResult.clicked;
+          if(typeof browserResult.scrolled==='boolean')bounded.scrolled=browserResult.scrolled;
+        }
+        if(screenshotTooLarge){
+          result={status:'failed',stdout:'',stderr:'The browser screenshot exceeded the 48 KB transfer limit.',exitCode:1};
+        }else{
+          const stdout=JSON.stringify(bounded);
+          if(Buffer.byteLength(stdout)>65_000)throw new Error('Browser response is too large.');
+          result={status:'succeeded',stdout,stderr:'',exitCode:0};
+        }
+      } else if(job.payload?.acp===true&&job.payload?.browserTools===true){
         const controlSignal=AbortSignal.any([cancel.signal,controlStop.signal]);
         controlPump=(async()=>{
           while(!controlSignal.aborted){
@@ -159,7 +188,7 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
           }
         })();
       }
-      result=job.payload?.acp===true
+      result??=job.payload?.acp===true
         ? await runAcpAgent(job.payload,{...options,acpAgents,
           browserCall: job.payload?.browserTools===true
             ? async (action,{signal}={}) => {
