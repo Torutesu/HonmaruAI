@@ -453,8 +453,18 @@ export async function applyMigration(db, orgId, app, input, by) {
   if (preview.nonAdditive && input.previewChecksum !== preview.previewChecksum) return err('Data changed after preview. Preview the migration again.', 409);
   if (input.previewChecksum && input.previewChecksum !== preview.previewChecksum) return err('Migration preview changed. Review it again.', 409);
   const { current, planned } = preview;
+  const emptyColumnConversion = operation => {
+    if (operation?.op !== 'convert_column') return false;
+    const entity = current.entities.find(item => item.key === operation.entity);
+    const column = entity?.table.columns.find(item => item.id === operation.column);
+    const snapshot = preview.snapshots.find(item => item.tableId === entity?.table.id);
+    return Boolean(column && snapshot && snapshot.rows.every(row => {
+      try { return isEmptyMigrationValue(JSON.parse(row.data || '{}')?.[column.id], column); }
+      catch { return false; }
+    }));
+  };
   const reversibleSchemaOnly = input.operations.length > 0
-    && input.operations.every(operation => ['add_columns', 'rename_column'].includes(operation?.op));
+    && input.operations.every(operation => ['add_columns', 'rename_column'].includes(operation?.op) || emptyColumnConversion(operation));
   const inverseOperations = reversibleSchemaOnly
     ? [...input.operations].reverse().flatMap(operation => {
       if (operation.op === 'add_columns') {
@@ -465,7 +475,11 @@ export async function applyMigration(db, orgId, app, input, by) {
         }));
       }
       const before = current.entities.find(entity => entity.key === operation.entity)?.table.columns.find(column => column.id === operation.column);
-      return before ? [{ op: 'rename_column', entity: operation.entity, column: operation.column, name: before.name }] : [];
+      if (!before) return [];
+      if (operation.op === 'rename_column') return [{ op: 'rename_column', entity: operation.entity, column: operation.column, name: before.name }];
+      return [{ op: 'convert_column', entity: operation.entity, column: operation.column, type: before.type,
+        ...(before.type === 'select' ? { options: before.options || [] } : {}),
+        ...(before.type === 'relation' ? { targetEntity: before.targetEntity, multiple: Boolean(before.multiple) } : {}) }];
     })
     : null;
   // New journal entries wrap the exact requested operations and their reviewed,

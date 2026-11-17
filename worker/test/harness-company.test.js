@@ -134,6 +134,25 @@ test('rename rollback is a checksummed new schema migration and leaves row data 
  const data=await (await call(`/tables/${app.tableId}`,owner)).json();
  expect(data.rows[0]).toMatchObject({id:row.id,values:{task:'Keep this value'}});
 });
+test('empty-column conversion rollback restores the prior type through a new previewed migration',async()=>{
+ const add={id:'add_blank_amount_v1',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Amount',type:'text'}]}]};
+ expect((await run('database',{action:'migrate',...add})).status).toBe(200);
+ const inserted=await worker.fetch(new Request(`https://example.com/tables/${app.tableId}/rows`,{method:'POST',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,values:{task:'blank',amount:null}})}),{...env});
+ expect(inserted.status).toBe(201);
+ const convert={id:'convert_blank_amount_v1',version:1,operations:[{op:'convert_column',entity:'primary',column:'amount',type:'number'}]};
+ let preview=await (await run('database',{action:'preview',...convert})).json();
+ expect(preview).toMatchObject({canApply:true,blockerCount:0});
+ expect((await run('database',{action:'migrate',...convert,previewChecksum:preview.previewChecksum})).status).toBe(200);
+ let state=await databaseView(env.DB,orgId,app);
+ expect(state.migrations.find(item=>item.id===convert.id).inverseOperations).toEqual([{op:'convert_column',entity:'primary',column:'amount',type:'text'}]);
+ const rollback={id:'rollback_blank_amount_v1',version:2,operations:state.migrations.find(item=>item.id===convert.id).inverseOperations};
+ preview=await (await run('database',{action:'preview',...rollback})).json();
+ expect(preview).toMatchObject({canApply:true,blockerCount:0});
+ expect((await run('database',{action:'migrate',...rollback,previewChecksum:preview.previewChecksum})).status).toBe(200);
+ state=await databaseView(env.DB,orgId,app);
+ expect(state.entities[0].table.columns.find(column=>column.id==='amount')).toMatchObject({type:'text',name:'Amount'});
+ expect(state.migrations.find(item=>item.id===rollback.id)).toMatchObject({integrityValid:true,inverseOperations:[{op:'convert_column',entity:'primary',column:'amount',type:'number'}]});
+});
 test('data migrations preview strict conversions, reject stale rows, and only drop empty columns',async()=>{
  const add={action:'migrate',id:'amount_text_v1',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Amount',type:'text'},{name:'Flag',type:'checkbox'},{name:'Score',type:'number'},{name:'Unused',type:'text'}]}]};
  expect((await run('database',add)).status).toBe(200);

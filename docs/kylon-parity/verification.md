@@ -4654,3 +4654,15 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - The Workflow outbox retains its 100-pending-event-per-workspace safety limit. A merge that would exceed the available queue capacity fails with a conflict before writes; the transaction receipt repeats the capacity check, so a concurrent event cannot make the reviewed merge partially apply. A watched 800-row merge therefore remains bounded by available queue capacity.
 - Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **75/75**. The regressions prove 800 unwatched row changes commit atomically, 101 watched row changes are rejected without writes, and a concurrent queue fill from 99 to 100 prevents a one-row merge. Exact-head CI, merge and deployment are pending. No new service, paid dependency, migration, or Simple-mode change.
 - Authenticated multi-user production acceptance and direct Kylon comparison remain open.
+
+### 2026-11-17 — KY-048 reversible empty-column type migrations (candidate)
+
+- Migration journals now record a stable-ID inverse conversion when every existing value in the converted column is empty. The inverse restores the original type and, where applicable, Select options or Relation target/multiplicity. Rename and additive inverses continue to use the same checksum-protected journal. A conversion with any populated row still has no automatic inverse because the journal does not retain original row values.
+- The Company App journal explains this boundary and offers only integrity-checked inverses. The generated inverse is a separate migration; standard preview/apply performs schema and row concurrency checks again. No schema change, paid service, or Simple-mode behavior change.
+- Local QA on the merged #1064 main base: Worker `harness-company.test.js` + `harness-app-relations.test.js` **76/76**, including an empty-column type conversion and previewed rollback; Web `CompanyApp.test.tsx` **18/18**; Web TypeScript/production build, parity inventory, JSON validation, `node --check`, and `git diff --check` passed. Exact-head CI, merge, and production release remain pending.
+- Authenticated production acceptance and direct Kylon UI comparison remain open.
+
+### 2026-11-17 — Batch CI timeout stabilization (candidate)
+
+- The main CI for #1064 exposed one unrelated timeout in `remote-mcp.test.js`: a single authorization/revocation integration test exceeded Vitest's 5-second default by 596 ms while its Worker shard had already spent over 11 minutes running 1,000+ tests. Increased only that case's limit to 30 seconds; authorization assertions and mocks are unchanged.
+- Re-ran the combined Worker `harness-company`, `harness-app-relations`, and `remote-mcp` suites: **89/89**. CompanyApp UI **18/18**, Web production build, parity inventory, JSON validation and diff check passed. This timeout correction is included in PR #1065 so exact-head CI validates the combined batch.
