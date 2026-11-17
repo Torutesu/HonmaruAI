@@ -798,33 +798,80 @@ test('a merge rejected at transaction time queues no workflow events; an accepte
  expect(await outbox()).toBe(2);
 });
 
-test('a single reviewed preview merges 51 watched record changes in one atomic batch',async()=>{
+test('a single reviewed preview atomically merges 800 record changes under the D1 batch ceiling',async()=>{
  const {mergeFork,MAX_FORK_MERGE_RECORDS}=await import('../src/harness/appMerge.js');
- expect(MAX_FORK_MERGE_RECORDS).toBeGreaterThan(50);
+ expect(MAX_FORK_MERGE_RECORDS).toBe(800);
  await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now') ON CONFLICT(org_id) DO UPDATE SET mode='harness',updated_at='now'").bind(orgId).run();
- expect((await call('/workflows',owner,{name:'Watch bulk preview changes',enabled:true,trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['update']},steps:[{type:'update_row',values:{task:'Observed'}}]})).status).toBe(201);
- const ids=Array.from({length:51},(_,i)=>`bulk_${i}`);
+ const ids=Array.from({length:MAX_FORK_MERGE_RECORDS},(_,i)=>`bulk_${i}`);
  const seededAt=new Date().toISOString();
  await env.DB.batch(ids.map((id,i)=>env.DB.prepare(`INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at)
    VALUES (?1,?2,?3,?4,?5,'1','1',?6,?6)`).bind(id,app.tableId,orgId,JSON.stringify({task:`Original ${i}`}),i,seededAt)));
  const {fork}=await (await run('database',{action:'fork'})).json();
- const {mutateFork}=await import('../src/harness/appDatabase.js');
- let revision=fork.revision;
- for(let i=0;i<ids.length;i++){
-   const result=await mutateFork(env.DB,orgId,app.id,'1',{forkId:fork.id,revision,entity:'primary',operation:'update',rowId:ids[i],values:{task:`Reviewed ${i}`}});
-   expect(result.error).toBeUndefined();
-   revision=result.revision;
- }
+ const stored=await env.DB.prepare('SELECT data FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND id=?4').bind(orgId,app.id,'1',fork.id).first();
+ const preview=JSON.parse(stored.data),previewRows=preview.find(entity=>entity.key==='primary').rows;
+ for(let i=0;i<previewRows.length;i++)previewRows[i].values.task=`Reviewed ${i}`;
+ const revision=fork.revision+1;
+ await env.DB.prepare('UPDATE hx_app_forks SET data=?1,revision=?2 WHERE org_id=?3 AND app_id=?4 AND created_by=?5 AND id=?6').bind(JSON.stringify(preview),revision,orgId,app.id,'1',fork.id).run();
  const request={forkId:fork.id,revision},review=await (await run('database',{action:'merge_preview',...request})).json();
- expect(review.changes).toHaveLength(51);
+ expect(review.changes).toHaveLength(MAX_FORK_MERGE_RECORDS);
  expect(review.resolved).toBe(true);
  const applied=await mergeFork(env.DB,orgId,app,'1',{...request,checksum:review.checksum});
- expect(applied).toMatchObject({merged:true,changed:51});
- expect(applied.changedRecords).toHaveLength(51);
- expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox WHERE org_id=?1').bind(orgId).first()).n).toBe(51);
+ expect(applied).toMatchObject({merged:true,changed:MAX_FORK_MERGE_RECORDS});
+ expect(applied.changedRecords).toHaveLength(MAX_FORK_MERGE_RECORDS);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
  const rows=await env.DB.prepare('SELECT id,data FROM hx_rows WHERE org_id=?1 AND table_id=?2 ORDER BY id').bind(orgId,app.tableId).all();
- expect(rows.results).toHaveLength(51);
+ expect(rows.results).toHaveLength(MAX_FORK_MERGE_RECORDS);
  expect(rows.results.every(row=>JSON.parse(row.data).task.startsWith('Reviewed '))).toBe(true);
+});
+
+test('a reviewed merge refuses more Workflow events than the durable queue can accept',async()=>{
+ const {mergeFork}=await import('../src/harness/appMerge.js');
+ await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now') ON CONFLICT(org_id) DO UPDATE SET mode='harness',updated_at='now'").bind(orgId).run();
+ expect((await call('/workflows',owner,{name:'Watch queue capacity',enabled:true,trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['update']},steps:[{type:'update_row',values:{task:'Observed'}}]})).status).toBe(201);
+ const ids=Array.from({length:101},(_,i)=>`queue_${i}`),seededAt=new Date().toISOString();
+ await env.DB.batch(ids.map((id,i)=>env.DB.prepare(`INSERT INTO hx_rows (id,table_id,org_id,data,position,created_by,updated_by,created_at,updated_at)
+   VALUES (?1,?2,?3,?4,?5,'1','1',?6,?6)`).bind(id,app.tableId,orgId,JSON.stringify({task:`Original ${i}`}),i,seededAt)));
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ const stored=await env.DB.prepare('SELECT data FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND id=?4').bind(orgId,app.id,'1',fork.id).first();
+ const preview=JSON.parse(stored.data),previewRows=preview.find(entity=>entity.key==='primary').rows;
+ for(let i=0;i<previewRows.length;i++)previewRows[i].values.task=`Reviewed ${i}`;
+ const revision=fork.revision+1;
+ await env.DB.prepare('UPDATE hx_app_forks SET data=?1,revision=?2 WHERE org_id=?3 AND app_id=?4 AND created_by=?5 AND id=?6').bind(JSON.stringify(preview),revision,orgId,app.id,'1',fork.id).run();
+ const request={forkId:fork.id,revision},review=await (await run('database',{action:'merge_preview',...request})).json();
+ expect(review.changes).toHaveLength(101);
+ const result=await mergeFork(env.DB,orgId,app,'1',{...request,checksum:review.checksum});
+ expect(result).toMatchObject({status:409});
+ expect(result.error).toMatch(/Workflow event queue/);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(orgId,app.tableId).first()).n).toBe(101);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox WHERE org_id=?1').bind(orgId).first()).n).toBe(0);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_fork_merges WHERE org_id=?1 AND app_id=?2').bind(orgId,app.id).first()).n).toBe(0);
+});
+
+test('a concurrent Workflow queue fill cannot race an accepted merge past the atomic capacity fence',async()=>{
+ const {mergeFork}=await import('../src/harness/appMerge.js');
+ await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now') ON CONFLICT(org_id) DO UPDATE SET mode='harness',updated_at='now'").bind(orgId).run();
+ const created=await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Original'}}),original=(await created.json()).row;
+ expect((await call('/workflows',owner,{name:'Watch one merge event',enabled:true,trigger:{type:'app_record_change',appId:app.id,entityId:'primary',events:['update']},steps:[{type:'update_row',values:{task:'Observed'}}]})).status).toBe(201);
+ const {fork}=await (await run('database',{action:'fork'})).json();
+ const forkRow=fork.entities.find(entity=>entity.key==='primary').rows.find(row=>row.id===original.id);
+ const changed=await run('database',{action:'fork_write',forkId:fork.id,revision:fork.revision,entity:'primary',operation:'update',rowId:forkRow.id,expectedUpdatedAt:forkRow.updatedAt,values:{task:'Draft'}});
+ expect(changed.status).toBe(200);
+ const current=(await (await run('database')).json()).fork,request={forkId:current.id,revision:current.revision};
+ const review=await (await run('database',{action:'merge_preview',...request})).json();
+ await env.DB.batch(Array.from({length:99},(_,i)=>env.DB.prepare(`INSERT INTO hx_workflow_row_event_outbox
+   (id,org_id,table_id,event_hash,payload,status,attempts,next_attempt,lease_until,created_at)
+   VALUES (?1,?2,?3,'pending-capacity','{}','pending',0,0,0,?4)`).bind(`pending_${i}`,orgId,app.tableId,Date.now())));
+ let injected=false;
+ const racing={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+   if(!injected){injected=true;await env.DB.prepare(`INSERT INTO hx_workflow_row_event_outbox
+     (id,org_id,table_id,event_hash,payload,status,attempts,next_attempt,lease_until,created_at)
+     VALUES (?1,?2,?3,'racing-capacity','{}','pending',0,0,0,?4)`).bind('pending_race',orgId,app.tableId,Date.now()).run();}
+   return env.DB.batch(statements);
+ }};
+ expect((await mergeFork(racing,orgId,app,'1',{...request,checksum:review.checksum})).status).toBe(409);
+ expect(JSON.parse((await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(orgId,app.tableId,original.id).first()).data)).toEqual({task:'Original'});
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox WHERE org_id=?1 AND status=\'pending\'').bind(orgId).first()).n).toBe(100);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_fork_merges WHERE org_id=?1 AND app_id=?2').bind(orgId,app.id).first()).n).toBe(0);
 });
 
 

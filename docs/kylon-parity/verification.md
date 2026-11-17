@@ -4640,9 +4640,17 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - PR #1061 merged as `ad72852db88ff557e430e7831ea9bd12497fe865`. Exact-head CI #43977698670 and main CI #43981329588 succeeded. Worker D1 migration/deploy/Verify #43981329411 succeeded; production Worker version `e4ccaf67-1426-468e-8f44-9970d53fbb3f` returned `/health` with `ok:true` and `encryption.all=true`. Web deploy #43981329434 succeeded and `app.honmaruai.com` served `index-D5yIK20j.js`.
 - Remaining: the 250-record merge bound, baseline-less legacy forks, authenticated production multi-user acceptance and direct Kylon UI comparison. Inventory count remains 110 (4 implemented, 105 partial, 1 unverified); this is not a completion percentage.
 
-### 2026-11-17 — KY-046 explicit baseline adoption for legacy private DB forks (candidate)
+### 2026-11-17 — KY-046 explicit baseline adoption for legacy private DB forks (released)
 
 - Legacy private forks without their creation-time baseline now expose an explicit recovery flow. The UI explains that historical production state cannot be recovered and requires confirmation before treating current production as the new baseline; the existing preview data and schema remain intact for diff review.
 - Baseline creation is inserted only if the live fork ID/revision still match, schema version and entity/table links match the captured snapshot, columns/table names are unchanged, and every production row exactly matches captured values and `updated_at`. This avoids silently inventing historical state. Later production edits are surfaced as ordinary three-way conflicts.
 - Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **73/73**; CompanyApp UI **18/18**; TypeScript/production build, parity inventory and `git diff --check` pass. The regression retains both an edited row and an added column through adoption, then verifies live changes become conflicts and can be explicitly resolved.
-- Exact-head CI, merge, production deployment and authenticated Kylon comparison remain pending. The merge limit remains 250 records; multi-user production acceptance also remains.
+- PR #1063 merged as `c0d859cc56344ec1d3ae465cf06d533400a3246`. Exact-head CI #43991413732 passed all required jobs. Main CI #43994773550 passed; Worker D1 migration/deploy/Verify #43994773631 and Web build/deploy/domain verification #43994773653 passed. Production Worker `/health` returned `ok:true` and `encryption.all:true`; `app.honmaruai.com` served `index-DnAzM4Ld.js`.
+- Authenticated production multi-user acceptance and direct Kylon UI comparison remain. At release, the reviewed merge bound was 250 records.
+
+### 2026-11-17 — KY-046 larger atomic private DB merges with Workflow queue fencing (candidate)
+
+- Raised the private DB reviewed merge ceiling from 250 to 800 changed rows while preserving one atomic D1 batch. Workflow watcher discovery and table-schema reads are now performed once per touched table rather than once per row.
+- The Workflow outbox retains its 100-pending-event-per-workspace safety limit. A merge that would exceed the available queue capacity fails with a conflict before writes; the transaction receipt repeats the capacity check, so a concurrent event cannot make the reviewed merge partially apply. A watched 800-row merge therefore remains bounded by available queue capacity.
+- Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **75/75**. The regressions prove 800 unwatched row changes commit atomically, 101 watched row changes are rejected without writes, and a concurrent queue fill from 99 to 100 prevents a one-row merge. Exact-head CI, merge and deployment are pending. No new service, paid dependency, migration, or Simple-mode change.
+- Authenticated multi-user production acceptance and direct Kylon comparison remain open.

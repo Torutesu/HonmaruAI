@@ -4,6 +4,7 @@ const MAX_PAYLOAD_BYTES = 200_000;
 const LEASE_MS = 60_000;
 const MAX_BACKOFF_MS = 60 * 60_000;
 const DONE_RETENTION_MS = 7 * 24 * 60 * 60_000;
+export const MAX_PENDING_WORKFLOW_ROW_EVENTS_PER_ORG = 100;
 
 // `afterRowChange` makes the event conditional on the statement placed just
 // before it in the same batch having changed a row. A guarded write that is
@@ -48,6 +49,23 @@ export async function prepareWorkflowRowEventIfWatched(db, change, options) {
           AND e.entity_key=json_extract(w.trigger,'$.entityId') AND e.table_id=?2)))) LIMIT 1`)
     .bind(orgId,table.id).first();
   return watcher?prepareWorkflowRowEvent(db,change,options):null;
+}
+
+// Bulk writers already know the complete set of touched tables. Resolve their
+// watchers in one query so a large reviewed merge does not spend one D1 read
+// per changed record before its atomic batch.
+export async function watchedWorkflowRowTables(db,orgId,tableIds) {
+  const ids=[...new Set((tableIds||[]).filter(id=>typeof id==='string'&&id))];
+  if(!orgId||!ids.length)return new Set();
+  const {results=[]}=await db.prepare(`SELECT DISTINCT ids.value AS table_id FROM json_each(?2) ids
+    JOIN hx_workflows w ON w.org_id=?1 AND w.enabled=1 AND (
+      (json_extract(w.trigger,'$.type')='row' AND json_extract(w.trigger,'$.tableId')=ids.value)
+      OR (json_extract(w.trigger,'$.type')='app_record_change' AND (
+        EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=w.org_id AND a.id=json_extract(w.trigger,'$.appId') AND a.table_id=ids.value)
+        OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=w.org_id AND e.app_id=json_extract(w.trigger,'$.appId')
+          AND e.entity_key=json_extract(w.trigger,'$.entityId') AND e.table_id=ids.value))))`)
+    .bind(orgId,JSON.stringify(ids)).all();
+  return new Set((results||[]).map(row=>row.table_id));
 }
 
 async function deliverWorkflowRowEvent(env,payload) {
