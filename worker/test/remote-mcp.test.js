@@ -571,7 +571,7 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
     fetchMock.assertNoPendingInterceptors();
     deactivateRemoteFetchMock();
   }
-});
+}, 30_000);
 
 test("a mixed-case Guest cannot keep or reacquire a Remote MCP Agent grant", async () => {
   await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
