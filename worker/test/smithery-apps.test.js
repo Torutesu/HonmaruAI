@@ -370,6 +370,7 @@ test("Harness native Notion access needs an agent grant and discards a result re
   expect(initial.nativeConnections).toEqual([
     { source: "notion", available: true, enabled: false, canShare: true, shareEnabled: false, shared: false },
     { source: "github", available: false, enabled: false, canShare: false, shareEnabled: false, shared: false },
+    { source: "slack", available: false, enabled: false, canShare: false, shareEnabled: false, shared: false },
   ]);
   const session = await sessionOf(mika);
   const denied = await agentTools(apiEnv(), { orgId: ORG, session, personal: true, agentId });

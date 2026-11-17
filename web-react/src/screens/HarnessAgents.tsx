@@ -317,12 +317,19 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         <p className="row-sub">{t('By default, each connection grant is for your account in private conversations. A Notion owner can also share that connection with people who already have access to this Agent.')}</p>
         {nativeConnections === null ? <div className="empty">{t('Loading…')}</div> : <div className="rows">
           {nativeConnections.map(connection => {
-            const sourceName = connection.source === 'notion' ? 'Notion' : 'GitHub'
+            const sourceName = connection.source === 'notion' ? 'Notion' : connection.source === 'github' ? 'GitHub' : 'Slack'
+            const sourceDescription = connection.source === 'slack'
+              ? connection.available
+                ? t('This allows the agent to prepare drafts in your connected Slack account. It never sends a message; you must choose Send on the draft.')
+                : t('Connect Slack in Tools before allowing this agent to prepare drafts.')
+              : connection.available || connection.shared
+                ? t('Use the connected {source} source in this Agent’s private conversations.', { source: sourceName })
+                : t('Connect {source} for this workspace in Tools before allowing it.', { source: sourceName })
             return <div className="rows" key={connection.source} data-agent-source={connection.source}>
               <label className="row static">
-                <span className="row-icon"><Icon name={connection.source} size={18} /></span>
+                <span className="row-icon"><Icon name={connection.source === 'slack' ? 'plug' : connection.source} size={18} /></span>
                 <span className="row-main">{sourceName}
-                  <span className="row-sub">{connection.available || connection.shared ? t('Use the connected {source} source in this Agent’s private conversations.', { source: sourceName }) : t('Connect {source} for this workspace in Tools before allowing it.', { source: sourceName })}</span>
+                  <span className="row-sub">{sourceDescription}</span>
                 </span>
                 <input type="checkbox" aria-label={t('Allow {agent} to use the connected {source} source', { agent: agent.name, source: sourceName })} checked={connection.enabled} disabled={!connection.available || busy !== null} onChange={e => {
                   const granted = e.currentTarget.checked

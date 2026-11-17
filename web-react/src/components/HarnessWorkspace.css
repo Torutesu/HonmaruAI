@@ -1201,6 +1201,19 @@ a.hx-chat-origin:hover{text-decoration:underline;color:var(--hx-text)}
 .hx-message-visual button:hover{background:var(--hx-hover);color:var(--hx-text)}
 .hx-message-visual button:focus-visible{outline:2px solid var(--hx-accent);outline-offset:2px}
 .hx-message-visual button[aria-pressed="true"]{background:var(--hx-chip-surface,var(--hx-hover));color:var(--hx-text);border-color:var(--hx-accent)}
+.hx-slack-draft textarea{width:100%;min-height:88px;resize:vertical;padding:10px 12px;border:1px solid var(--hx-border);border-radius:9px;background:var(--hx-app-surface,var(--hx-surface));color:var(--hx-text);font:inherit;line-height:1.5}
+.hx-slack-draft-destination{display:flex;align-items:center;gap:10px;color:var(--hx-muted);font-size:12px}
+.hx-slack-draft-destination select{min-width:0;max-width:100%;padding:7px 10px;border:1px solid var(--hx-border);border-radius:8px;background:var(--hx-app-surface,var(--hx-surface));color:var(--hx-text);font:inherit}
+.hx-slack-draft-destination select:disabled{opacity:.7}
+.hx-slack-draft-text{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.hx-slack-draft-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.hx-slack-draft-actions button,.hx-slack-draft [role="alert"] button{padding:7px 11px;border:1px solid var(--hx-border);border-radius:8px;background:var(--hx-app-surface,var(--hx-surface));color:var(--hx-text);font:inherit;font-size:12px;cursor:pointer}
+.hx-slack-draft-actions button.primary{border-color:var(--hx-accent);background:var(--hx-accent);color:var(--hx-on-accent,#fff)}
+.hx-slack-draft-actions button:disabled{opacity:.5;cursor:default}
+.hx-slack-draft [role="alert"]{margin:0;color:var(--hx-danger,#a32929);font-size:12px;line-height:1.5}
+.hx-slack-draft-warning{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--hx-warning-border,#d7a737);border-radius:9px;background:var(--hx-warning-surface,#fff8e5);color:var(--hx-text)}
+.hx-slack-draft-warning p{flex:1 1 220px;margin:0;font-size:12px;line-height:1.5}
+.hx-slack-draft-warning button{padding:7px 11px;border:1px solid var(--hx-border);border-radius:8px;background:var(--hx-app-surface,var(--hx-surface));color:var(--hx-text);font:inherit;font-size:12px;cursor:pointer}
 .hx-message-chart-scroll{position:relative;min-width:0;overflow-x:auto}
 .hx-message-chart-scroll svg{display:block;width:100%;min-width:440px;height:auto;max-height:300px;overflow:visible}
 .hx-message-illustration>svg{display:block;width:100%;max-height:min(560px,72vh);aspect-ratio:1;border-radius:10px;background:var(--hx-app-surface,var(--hx-surface));color:var(--hx-text)}

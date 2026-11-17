@@ -276,7 +276,7 @@ test('late review-log responses cannot cross a changed conversation scope',async
 })
 
 test('the agent Connections tab keeps personal grants separate from owner-shared Notion access',async()=>{
- let tree!:ReturnType<typeof create>, granted=false, nativeGranted=false, shared=false, remoteMcpGranted=false
+ let tree!:ReturnType<typeof create>, granted=false, nativeGranted=false, slackGranted=false, shared=false, remoteMcpGranted=false
  const requests:Array<{url:URL;method:string;body:any}> = []
  vi.stubGlobal('fetch',vi.fn(async(input:string,init:any={})=>{
   const url=new URL(input), method=init.method||'GET', body=init.body?JSON.parse(init.body):null
@@ -286,13 +286,15 @@ test('the agent Connections tab keeps personal grants separate from owner-shared
   if(url.pathname==='/hx/agents/a/apps') {
    if(method==='POST'&&body?.server) granted=true
    if(method==='DELETE'&&url.searchParams.has('server')) granted=false
+   if(method==='POST'&&body?.source==='slack') slackGranted=true
    if(method==='POST'&&body?.source==='notion'&&body?.shareWithAgent) shared=true
    else if(method==='POST'&&body?.source==='notion') nativeGranted=true
+   if(method==='DELETE'&&url.searchParams.get('source')==='slack') slackGranted=false
    if(method==='DELETE'&&url.searchParams.get('source')==='notion'&&url.searchParams.has('shareWithAgent')) shared=false
    else if(method==='DELETE'&&url.searchParams.get('source')==='notion') nativeGranted=false
    if(method==='POST'&&body?.remoteMcpToolName==='search_policy') remoteMcpGranted=true
    if(method==='DELETE'&&url.searchParams.get('remoteMcpToolName')==='search_policy') remoteMcpGranted=false
-   return {ok:true,json:async()=>({connections:[{server:'linear',name:'Linear',description:'Issues',iconUrl:null,verified:true,allowWrites:false,connectedAt:'2026-10-30T00:00:00Z',granted}],nativeConnections:[{source:'notion',available:true,enabled:nativeGranted,canShare:true,shareEnabled:shared,shared},{source:'github',available:false,enabled:false,canShare:false,shareEnabled:false,shared:false}],remoteMcpConnections:[{serverId:'remote-1',name:'Knowledge server',available:true,enabled:remoteMcpGranted,readOnlyToolCount:2,tools:[{name:'search_policy',title:'Search policy',description:'Search approved policy.',enabled:remoteMcpGranted},{name:'get_manual',title:'Get manual',description:'Read approved manuals.',enabled:false}]}]})}
+   return {ok:true,json:async()=>({connections:[{server:'linear',name:'Linear',description:'Issues',iconUrl:null,verified:true,allowWrites:false,connectedAt:'2026-10-30T00:00:00Z',granted}],nativeConnections:[{source:'notion',available:true,enabled:nativeGranted,canShare:true,shareEnabled:shared,shared},{source:'github',available:false,enabled:false,canShare:false,shareEnabled:false,shared:false},{source:'slack',available:true,enabled:slackGranted}],remoteMcpConnections:[{serverId:'remote-1',name:'Knowledge server',available:true,enabled:remoteMcpGranted,readOnlyToolCount:2,tools:[{name:'search_policy',title:'Search policy',description:'Search approved policy.',enabled:remoteMcpGranted},{name:'get_manual',title:'Get manual',description:'Read approved manuals.',enabled:false}]}]})}
   }
   if(url.pathname.endsWith('/memory/scopes')) return {ok:true,json:async()=>({scopes:[]})}
   if(url.pathname.endsWith('/memory')) return {ok:true,json:async()=>({memories:[],nextCursor:null,canEdit:false})}
@@ -319,6 +321,15 @@ test('the agent Connections tab keeps personal grants separate from owner-shared
   await act(async()=>notion().props.onChange({currentTarget:{checked:false}}))
   expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('source')==='notion')).toBe(true)
   expect(notion().props.checked).toBe(false)
+  const slack=()=>tree.root.findByProps({'data-agent-source':'slack'}).findByProps({'aria-label':'Allow {agent} to use the connected {source} source'})
+  expect(slack().props.checked).toBe(false)
+  expect(JSON.stringify(tree.toJSON())).toContain('It never sends a message; you must choose Send on the draft.')
+  await act(async()=>slack().props.onChange({currentTarget:{checked:true}}))
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='POST'&&r.body.source==='slack')).toBe(true)
+  expect(slack().props.checked).toBe(true)
+  await act(async()=>slack().props.onChange({currentTarget:{checked:false}}))
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('source')==='slack')).toBe(true)
+  expect(slack().props.checked).toBe(false)
   const shareNotion=()=>tree.root.findByProps({'data-agent-source-share':'notion'}).findByProps({'aria-label':'Share your Notion connection with people who can access {agent}'})
   expect(shareNotion().props.checked).toBe(false)
   await act(async()=>shareNotion().props.onChange({currentTarget:{checked:true}}))

@@ -18,7 +18,7 @@ const TIMEOUT_MS = 6000;
 
 /// Which sources this person can be searched through, in this workspace.
 export async function connectedSources(env, session, orgId) {
-  const sources = { notion: false, github: false };
+  const sources = { notion: false, github: false, slack: false };
   if (!session) return sources;
   // A person's own Notion is read only in the one workspace their tools
   // pull into (db.js ingestWorkspaceOf): not in every team they belong to.
@@ -32,6 +32,14 @@ export async function connectedSources(env, session, orgId) {
   // a token for it. Any other workspace can have named a repository and hold
   // a token of its own (see githubWorkspace.js).
   sources.github = Boolean(await githubAccess(env, session, orgId));
+  // Slack is always the caller's own Composio account. An Agent may only use
+  // it after this account is connected and the caller grants that Agent.
+  if (env.COMPOSIO_API_KEY) {
+    try {
+      const slack = await getConnectorConfig(env.DB, session.github_id, "slack");
+      sources.slack = Boolean(slack?.connected);
+    } catch { /* fail closed when the connection state cannot be read */ }
+  }
   return sources;
 }
 

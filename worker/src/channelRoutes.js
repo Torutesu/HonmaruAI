@@ -37,6 +37,9 @@ import { getDisplayPreference } from "./harness/displayPreferences.js";
 import { completer } from "./harness/model.js";
 import { storeAgentToolTrace, traceFromRow } from "./harness/agentToolTraces.js";
 import { agentSourceProvider } from "./harness/agentConnections.js";
+import { mayUseAgentSlackDraft } from "./harness/agentConnections.js";
+import { executeTool } from "./composio.js";
+import { claimSlackDraft, discardSlackDraft, expireUncertainSlackSend, getSlackDraftInternal, listSlackDestinations, publicSlackDraft, readSlackDraft, releaseSlackDraftClaim, resolveSlackDestination, settleSlackDraft, slackActionResult, slackDraftText, updateSlackDraft } from "./harness/slackDrafts.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
 import { createRecurringAutomationOffer, isRecurringWorkPrompt } from "./harness/recurringAutomationOffers.js";
@@ -154,6 +157,19 @@ export async function inChannel(env, request, { orgId, channel }) {
   const resolved = await resolveChannel(env.DB, orgId, who.user, channel, members);
   if (!resolved) return { denied: json({ message: "No such channel." }, 404) };
   return { who, members, resolved, view: viewOf(resolved.key, who.user.login, members) };
+}
+
+async function slackConnectionVersion(db, githubId) {
+  const row = await db.prepare(`SELECT updated_at,config FROM connector_config
+    WHERE user_github_id=?1 AND connector='slack'`).bind(String(githubId)).first();
+  let config;
+  try { config = JSON.parse(row?.config || '{}'); } catch { return null; }
+  return config?.connected === true && row?.updated_at ? row.updated_at : null;
+}
+
+function agentConversationAlias(value) {
+  const match = String(value || '').match(/^ag:([\w-]{1,80})(?:\|[^|]{1,100})?$/);
+  return match ? `ag:${match[1]}` : null;
 }
 
 /// Tell whoever can see a channel about a message in it, each in their own
@@ -619,6 +635,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     }
   }
   const where = resolved.kind === "business" ? `#${resolved.slug}` : resolved.kind === "agent" ? "a direct conversation with you" : "a direct conversation";
+  const slackDraftIds = [];
   // What it may call while it researches: open any page; in its own
   // conversation, the team's decisions and this person's tools too.
   const tools = provider && allowance?.allowed
@@ -630,6 +647,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       agentLogin: user.login,
       onNativeSourceUsed: (source, providerId) => nativeSourcesUsed.set(source, String(providerId || session?.github_id || "")),
       onRemoteMcpUsed: (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }),
+      onSlackDraftCreated: (draftId) => slackDraftIds.push(draftId),
       // An app that may write does so only for agents the person wrote
       // themselves: a teammate's agent's instructions never steer it.
       ownAgentsOnly: allOwnAgents(agents, user.login),
@@ -758,6 +776,11 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         // turned it down (no call was paid for), or it ran out of time.
         text = result.answer || serverText(locale, result.called ? "agent.failedEmpty" : "agent.failedService");
         modelAnswered = Boolean(result.answer);
+      }
+      if (slackDraftIds.length) {
+        const markers = [...new Set(slackDraftIds)].filter(id => !String(text || '').includes(id))
+          .map(id => `\n\n\`\`\`honmaru-slack-draft\n{"type":"slack_draft","draftId":"${id}"}\n\`\`\``);
+        if (markers.length) text = `${text || ''}${markers.join('')}`;
       }
       if(signal?.aborted)return {cancelled:true};
       if (authorize && !await authorize()) return;
@@ -1035,6 +1058,137 @@ async function previewsInLanguage(env, orgId, user, items, after = null) {
 
 export async function handleChannels(request, env, url, { route, after }) {
   const path = url.pathname;
+
+  if (path === '/channels/slack-draft-targets' && request.method === 'GET') {
+    const limited = await enforce(env, request, 'chat');
+    if (limited) return limited;
+    const orgId = url.searchParams.get('orgId') || '';
+    const conversation = url.searchParams.get('conversation') || '';
+    const alias = agentConversationAlias(conversation);
+    if (!orgId || !alias) return json({ message: 'Workspace and Agent conversation are required.' }, 400);
+    const ctx = await inChannel(env, request, { orgId, channel: alias });
+    if (ctx.denied) return ctx.denied;
+    if (ctx.resolved.kind !== 'agent' || !ctx.resolved.agent?.id) return json({ message: 'No such Agent conversation.' }, 404);
+    if (!await mayUseAgentSlackDraft(env, { orgId, agentId: ctx.resolved.agent.id, session: ctx.who.session })) {
+      return json({ message: 'Grant this Agent access to your connected Slack account first.' }, 403);
+    }
+    try {
+      const targets = await listSlackDestinations(env, ctx.who.session.github_id);
+      if (!await mayUseAgentSlackDraft(env, { orgId, agentId: ctx.resolved.agent.id, session: ctx.who.session })) {
+        return json({ message: 'Slack access changed while destinations were loading.' }, 409);
+      }
+      return json({ targets });
+    } catch {
+      return json({ message: 'Slack destinations could not be loaded. Reconnect Slack and try again.' }, 502);
+    }
+  }
+
+  const slackDraftRoute = path.match(/^\/channels\/slack-drafts\/([^/]+)(\/send)?$/);
+  if (slackDraftRoute) {
+    const sending = Boolean(slackDraftRoute[2]);
+    const method = request.method;
+    if (sending ? method !== 'POST' : !['GET','PUT','DELETE'].includes(method)) {
+      return json({ message: 'Method not allowed.' }, 405);
+    }
+    if (method !== 'GET') {
+      const limited = await enforce(env, request, 'chat');
+      if (limited) return limited;
+    }
+    const input = method === 'GET' ? Object.fromEntries(url.searchParams) : await request.json().catch(() => null);
+    const orgId = typeof input?.orgId === 'string' ? input.orgId : '';
+    const conversation = typeof input?.conversation === 'string' ? input.conversation : '';
+    const draftId = decodeURIComponent(slackDraftRoute[1]);
+    if (!orgId || !conversation || conversation.length > 256) return json({ message: 'Workspace and Agent conversation are required.' }, 400);
+    const alias = agentConversationAlias(conversation);
+    if (!alias) return json({ message: 'A private Agent conversation is required.' }, 400);
+    const ctx = await inChannel(env, request, { orgId, channel: alias });
+    if (ctx.denied) return ctx.denied;
+    if (ctx.resolved.kind !== 'agent' || !ctx.resolved.agent?.id) return json({ message: 'No such Agent draft.' }, 404);
+    const identity = { orgId, id: draftId, creatorGithubId: ctx.who.session.github_id, conversation: ctx.resolved.key };
+    let row = await getSlackDraftInternal(env.DB, identity);
+    // A draft belongs to the member who connected Slack and created it. Do
+    // not expose it to other people who can open the same Agent.
+    if (!row || row.agent_id !== ctx.resolved.agent.id || row.provider_user_id !== String(ctx.who.session.github_id)) {
+      return json({ message: 'No such Slack draft.' }, 404);
+    }
+    if (method === 'GET') {
+      if (await expireUncertainSlackSend(env.DB, row)) row = await getSlackDraftInternal(env.DB, identity);
+      return json({ draft: publicSlackDraft(row) });
+    }
+    const revision = Number(input?.revision);
+    if (!Number.isSafeInteger(revision) || revision < 1) return json({ message: 'Reload this draft before continuing.' }, 400);
+    if (method === 'PUT') {
+      const content = slackDraftText(input?.text);
+      if (content.error) return json({ message: content.error }, 400);
+      let target = null;
+      if (Object.prototype.hasOwnProperty.call(input, 'targetChannelId')) {
+        if (typeof input.targetChannelId !== 'string' || !input.targetChannelId.trim()) return json({ message: 'Choose a Slack destination from the list.' }, 400);
+        if (!await mayUseAgentSlackDraft(env, { orgId, agentId: row.agent_id, session: ctx.who.session })) return json({ message: 'Slack access changed. Reload the destination list.' }, 409);
+        const version = await slackConnectionVersion(env.DB, ctx.who.session.github_id).catch(() => null);
+        if (!version || version !== row.connection_version) return json({ message: 'The connected Slack account changed. Reconnect and reload this draft.' }, 409);
+        try { target = await resolveSlackDestination(env, ctx.who.session.github_id, input.targetChannelId); }
+        catch { return json({ message: 'Slack destinations could not be verified. Reload the destination list.' }, 502); }
+        if (!target) return json({ message: 'That destination is not available in the connected Slack account.' }, 400);
+      }
+      const updated = await updateSlackDraft(env.DB, { ...identity, revision, text: content.text, target });
+      if (!updated) return json({ message: 'This draft changed or is no longer editable. Reload it before continuing.' }, 409);
+      await audit(env, request, { orgId, action: 'agent.slack_draft_edited', actor: person(ctx.who.user),
+        entity: { type: 'slack_draft', id: row.id }, details: { agentId: row.agent_id, revision: updated.revision } });
+      return json({ draft: updated });
+    }
+    if (method === 'DELETE') {
+      const discarded = await discardSlackDraft(env.DB, { ...identity, revision });
+      if (!discarded) return json({ message: 'This draft changed or can no longer be discarded. Reload it before continuing.' }, 409);
+      await audit(env, request, { orgId, action: 'agent.slack_draft_discarded', actor: person(ctx.who.user),
+        entity: { type: 'slack_draft', id: row.id }, details: { agentId: row.agent_id } });
+      return json({ draft: discarded });
+    }
+
+    if (await expireUncertainSlackSend(env.DB, row)) {
+      return json({ message: 'Slack may already have received this message. Check Slack before creating another draft.', draft: { ...publicSlackDraft(row), status: 'unknown' } }, 409);
+    }
+    if (row.status !== 'pending') return json({ message: row.status === 'unknown'
+      ? 'The delivery outcome is unknown. Check Slack before creating another draft.'
+      : 'This draft can no longer be sent.', draft: publicSlackDraft(row) }, 409);
+    const canDraft = await mayUseAgentSlackDraft(env, { orgId, agentId: row.agent_id, session: ctx.who.session });
+    const connectionVersion = await slackConnectionVersion(env.DB, ctx.who.session.github_id).catch(() => null);
+    if (!canDraft || !connectionVersion || connectionVersion !== row.connection_version) {
+      return json({ message: 'The Slack connection or this Agent permission changed. Reconnect and reload the draft.', draft: publicSlackDraft(row) }, 409);
+    }
+    const stopped = await checkOutgoing(env, request, { orgId, login: ctx.who.user.login, text: row.text,
+      ack: input.dlpAck === true, where: 'slack_draft' });
+    if (stopped) return stopped;
+    const claim = await claimSlackDraft(env.DB, { ...identity, revision, connectionVersion });
+    if (!claim) return json({ message: 'This draft changed or another send is already in progress. Reload it before continuing.' }, 409);
+    // Revalidate after the CAS and immediately before the only external side
+    // effect. A revoked grant must not let a queued send escape.
+    const stillAllowed = await mayUseAgentSlackDraft(env, { orgId, agentId: row.agent_id, session: ctx.who.session }).catch(() => false);
+    const latestVersion = await slackConnectionVersion(env.DB, ctx.who.session.github_id).catch(() => null);
+    if (!stillAllowed || latestVersion !== row.connection_version) {
+      await releaseSlackDraftClaim(env.DB, { orgId, id: row.id, claimId: claim.claim_id, errorCode: 'connection_changed' });
+      return json({ message: 'The Slack connection or this Agent permission changed before sending. Reload the draft.' }, 409);
+    }
+    let response;
+    try {
+      response = await executeTool(env.COMPOSIO_API_KEY, 'SLACK_SEND_MESSAGE',
+        row.provider_user_id, { channel: row.target_channel, text: row.text, ...(row.target_thread_ts ? { thread_ts: row.target_thread_ts } : {}) });
+      // HTTP 200 alone does not prove Slack accepted the post. Composio's
+      // action envelope and Slack's own `ok` field must both report success.
+      response = slackActionResult(response);
+    } catch {
+      await settleSlackDraft(env.DB, { orgId, id: row.id, claimId: claim.claim_id, status: 'unknown', errorCode: 'provider_outcome_unknown' }).catch(() => {});
+      const uncertain = await getSlackDraftInternal(env.DB, identity).catch(() => null);
+      await audit(env, request, { orgId, action: 'agent.slack_draft_outcome_unknown', actor: person(ctx.who.user),
+        entity: { type: 'slack_draft', id: row.id }, details: { agentId: row.agent_id, outcome: 'unknown' } });
+      return json({ message: 'Slack may or may not have received the message. Check Slack before creating another draft.', draft: uncertain ? publicSlackDraft(uncertain) : null }, 202);
+    }
+    const providerTs = response?.message?.ts || response?.ts || null;
+    await settleSlackDraft(env.DB, { orgId, id: row.id, claimId: claim.claim_id, status: 'sent', providerTs });
+    const sent = await getSlackDraftInternal(env.DB, identity);
+    await audit(env, request, { orgId, action: 'agent.slack_draft_sent', actor: person(ctx.who.user),
+      entity: { type: 'slack_draft', id: row.id }, details: { agentId: row.agent_id, outcome: 'sent' } });
+    return json({ draft: publicSlackDraft(sent) });
+  }
 
   // Workspace switchers need a compact unread badge before the user opens a
   // workspace. Accept only a small batch and run the same membership,

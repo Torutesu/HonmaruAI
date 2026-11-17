@@ -49,6 +49,55 @@ export async function hasAgentSourceGrant(db, { orgId, agentId, githubId, source
   return (await grantsFor(db, orgId, agentId, githubId)).has(source);
 }
 
+async function hasSlackDraftGrant(db, orgId, agentId, githubId) {
+  if (!orgId || !agentId || !githubId) return false;
+  const row = await db.prepare(`SELECT 1 FROM hx_agent_slack_draft_grants g
+    JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.user_github_id
+      AND m.created_at=g.membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+    JOIN custom_agents a ON a.org_id=g.org_id AND a.id=g.agent_id AND a.deleted_at IS NULL
+    WHERE g.org_id=?1 AND g.agent_id=?2 AND g.user_github_id=?3`)
+    .bind(orgId, agentId, String(githubId)).first();
+  return Boolean(row);
+}
+
+export async function mayUseAgentSlackDraft(env, { orgId, agentId, session }) {
+  if (!session?.github_id || !env.COMPOSIO_API_KEY) return false;
+  try {
+    const available = await connectedSources(env, session, orgId);
+    if (available.slack !== true) return false;
+    if (!await currentAgentAccess(env.DB, orgId, agentId, String(session.github_id))) return false;
+    return await hasSlackDraftGrant(env.DB, orgId, agentId, session.github_id);
+  } catch { return false; }
+}
+
+export async function setAgentSlackDraftConnection(env, { orgId, agentId, session, enabled }) {
+  if (typeof enabled !== 'boolean') return { error: 'Choose whether this Agent may prepare Slack drafts.' };
+  const githubId = String(session?.github_id || '');
+  if (!githubId) return { error: 'Sign in again before changing this connection.', status: 401 };
+  if (!await currentAgentAccess(env.DB, orgId, agentId, githubId).catch(() => false)) {
+    return { error: 'You need access to this Agent before changing its Slack connection.', status: 403 };
+  }
+  if (enabled) {
+    const available = await connectedSources(env, session, orgId).catch(() => ({}));
+    if (available.slack !== true) return { error: 'Connect Slack in Tools before allowing this Agent to prepare drafts.', status: 409 };
+    const result = await env.DB.prepare(`INSERT INTO hx_agent_slack_draft_grants
+      (org_id,agent_id,user_github_id,membership_since,created_at)
+      SELECT ?1,?2,?3,m.created_at,?4 FROM memberships m
+      JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?2 AND a.deleted_at IS NULL
+      WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+      ON CONFLICT(org_id,agent_id,user_github_id) DO UPDATE SET membership_since=excluded.membership_since,created_at=excluded.created_at`)
+      .bind(orgId, agentId, githubId, new Date().toISOString()).run();
+    if (!result.meta?.changes && !await hasSlackDraftGrant(env.DB, orgId, agentId, githubId)) {
+      return { error: 'The workspace or Agent access changed. Reload and try again.', status: 409 };
+    }
+  } else {
+    await env.DB.prepare('DELETE FROM hx_agent_slack_draft_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3')
+      .bind(orgId, agentId, githubId).run();
+  }
+  return { ok: true, available: Boolean((await connectedSources(env, session, orgId).catch(() => ({}))).slack),
+    enabled: await hasSlackDraftGrant(env.DB, orgId, agentId, githubId) };
+}
+
 export async function agentSourceConnections(env, { orgId, agentId, session, canManageWorkspace = false }) {
   if (!session?.github_id || !orgId || !agentId) return { connections: [] };
   const githubId = String(session.github_id);
@@ -64,7 +113,7 @@ export async function agentSourceConnections(env, { orgId, agentId, session, can
   const workspaceAvailable = Boolean(workspace?.repo && (workspace?.token || (workspace?.composioUser && env.COMPOSIO_API_KEY)));
   const sharedNotionAvailable = Boolean(share && canAccessAgent && (await connectedSources(env, { github_id: String(share.owner_github_id) }, orgId).catch(() => ({}))).notion === true);
   return {
-    connections: AGENT_CONNECTION_SOURCES.map(source => {
+    connections: [...AGENT_CONNECTION_SOURCES.map(source => {
       const personalAvailable = source === 'github' ? personalGithubAvailable(session, orgId, workspace?.repo) : available[source] === true;
       const personal = {
         source,
@@ -80,7 +129,14 @@ export async function agentSourceConnections(env, { orgId, agentId, session, can
         workspaceEnabled: workspaceGrants.has(source),
         canManageWorkspace: canManageWorkspace === true,
       } : personal;
-    }),
+    }), {
+      source: 'slack',
+      available: available.slack === true,
+      enabled: available.slack === true && await hasSlackDraftGrant(env.DB, orgId, agentId, githubId).catch(() => false),
+      canShare: false,
+      shareEnabled: false,
+      shared: false,
+    }],
   };
 }
 
@@ -165,6 +221,7 @@ export async function setAgentWorkspaceSourceConnection(env, { orgId, agentId, s
 }
 
 export async function setAgentSourceConnection(env, { orgId, agentId, session, source, enabled }) {
+  if (source === 'slack') return setAgentSlackDraftConnection(env, { orgId, agentId, session, enabled });
   if (!AGENT_CONNECTION_SOURCES.includes(source) || typeof enabled !== 'boolean') {
     return { error: 'Choose a supported connection and whether to allow it.' };
   }
