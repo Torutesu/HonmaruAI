@@ -132,7 +132,7 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
         <h3>DB変更履歴</h3>
         {!db.migrations.length?<p>適用済みの変更はありません。</p>:<ol className="hx-db-migration-history">{db.migrations.map(migration=><li key={`${migration.id}:${migration.version}`}>
           <details><summary>v{migration.version} · {migration.id} · {new Date(migration.createdAt).toLocaleString()}</summary>
-            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre>{canManage&&migration.inverseOperations&&migration.inverseOperations.length>0&&<><p>追加列と列名変更だけの検証済み逆変更案を作れます。追加列に値が入っている場合はプレビューで適用が止まります。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>prepareSchemaRollback(migration)}>逆変更案を作成</button></>}</>}
+            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre>{canManage&&migration.inverseOperations&&migration.inverseOperations.length>0&&<><p>追加列・列名変更・空欄だけの型変更から、検証済み逆変更案を作れます。値が入った列の変換は自動で戻せません。作成した案もプレビューしてから適用します。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>prepareSchemaRollback(migration)}>逆変更案を作成</button></>}</>}
           </details>
         </li>)}</ol>}
       </section>
