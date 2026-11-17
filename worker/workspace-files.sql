@@ -4,6 +4,15 @@ CREATE TABLE IF NOT EXISTS hx_workspace_files (
  current_version INTEGER NOT NULL DEFAULT 0 CHECK(current_version>=0),
  PRIMARY KEY(org_id,id), UNIQUE(org_id,scope,path)
 );
+CREATE TABLE IF NOT EXISTS hx_file_pins (
+ org_id TEXT NOT NULL,
+ user_id TEXT NOT NULL REFERENCES users(github_id) ON DELETE CASCADE,
+ file_id TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ PRIMARY KEY(org_id,user_id,file_id),
+ FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS hx_file_pins_by_user ON hx_file_pins(org_id,user_id,created_at,file_id);
 CREATE TABLE IF NOT EXISTS hx_workspace_file_versions (
  org_id TEXT NOT NULL, file_id TEXT NOT NULL, version INTEGER NOT NULL CHECK(version>0),
  operation_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('content','deleted')),

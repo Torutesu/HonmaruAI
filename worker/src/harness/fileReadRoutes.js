@@ -2,15 +2,25 @@ import {listFileFolders} from './fileFolders.js';
 import {listWorkspaceFiles} from './fileList.js';
 import {listFileVersions,FileVersionInputError} from './fileVersionLedger.js';
 import {downloadFileVersion} from './fileDownload.js';
+import {filePins,setFilePin} from './filePins.js';
 
 // Mounted behind existing member() authentication and file schema readiness.
 // Identity is supplied by that caller, never by a query parameter or body.
 export async function handleFileReads(request,env,url,{orgId,userId,headers={}}) {
  if(!/^\/hx\/files(?:\/|$)/.test(url.pathname))return null;
  const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{...headers,'content-type':'application/json','cache-control':'private, no-store'}});
- if(request.method!=='GET')return json({message:'Method not allowed.'},405);
  try {
   const parts=url.pathname.split('/').filter(Boolean),params=url.searchParams;
+  if(parts.length===3&&parts[2]==='pins'){
+   if(request.method==='GET')return json(await filePins(env.DB,orgId,userId));
+   if(request.method==='PUT'){
+    let input;try{input=await request.json()}catch{return json({message:'Invalid JSON body.'},400)}
+    const result=await setFilePin(env.DB,orgId,userId,input?.fileId,input?.pinned);
+    return result.error?json({message:result.error},result.status):json(result);
+   }
+   return json({message:'Method not allowed.'},405);
+  }
+  if(request.method!=='GET')return json({message:'Method not allowed.'},405);
   const integer=(name,fallback)=>{
    const value=params.get(name);if(value===null)return fallback;
    if(!/^[1-9]\d*$/.test(value)||!Number.isSafeInteger(Number(value)))throw new FileVersionInputError(`Invalid ${name}.`);

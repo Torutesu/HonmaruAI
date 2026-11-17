@@ -132,3 +132,15 @@ test('File audience API preserves CAS conflicts for a reload instead of retrying
  await expect(api.updateExternalAudience('file',{version:2,type:'workspace',permission:'view'})).rejects.toMatchObject({status:409})
  expect(fetcher).toHaveBeenCalledTimes(1)
 })
+
+test('file pins use authenticated GET and PUT without putting credentials in the URL',async()=>{
+ const fetcher=vi.fn().mockResolvedValueOnce(new Response('{"pins":[]}')).mockResolvedValueOnce(new Response('{"pins":[]}'));vi.stubGlobal('fetch',fetcher)
+ const api=workspaceFileApi('https://api.example','org one','private-token')
+ await api.filePins();await api.setFilePin('file/one',true)
+ expect(fetcher.mock.calls.map(call=>[call[0],call[1].method])).toEqual([
+  ['https://api.example/hx/files/pins?orgId=org+one','GET'],
+  ['https://api.example/hx/files/pins?orgId=org+one','PUT'],
+ ])
+ expect(fetcher.mock.calls.map(call=>call[1].headers['x-session-token'])).toEqual(['private-token','private-token'])
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({fileId:'file/one',pinned:true})
+})

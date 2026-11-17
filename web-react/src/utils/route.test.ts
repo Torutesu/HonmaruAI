@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appSectionHash, APP_SECTIONS, consumeAppDraftHash, parseRoute, hashForWorkflow, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForMessage, hashForThread, hashForSkillImport, pathToHash } from './route'
+import { appSectionHash, APP_SECTIONS, consumeAppDraftHash, parseRoute, hashForWorkflow, hashForApp, hashForAppSource, hashForJoin, hashForCard, hashForScreen, hashForView, hashForFileView, hashForMessage, hashForThread, hashForSkillImport, pathToHash } from './route'
 
 it('source-app links enter chat in the named workspace, without accepting malformed targets',()=>{
  expect(parseRoute(hashForAppSource('app_one','team:acme'))).toMatchObject({screen:null,mode:'classic',appSource:true,appId:'app_one',appOrg:'team:acme'})
@@ -214,6 +214,7 @@ it('app section links restore each screen and retain conversation context withou
 
 it('file links remain bound to a valid conversation route',()=>{
  const id='file-12345678-1234-4234-8234-123456789abc'
+ expect(parseRoute(hashForFileView('b:design','team:acme',id))).toMatchObject({openView:'b:design',openOrg:'team:acme',fileId:id})
  expect(parseRoute(`#/c/b%3Adesign?org=team%3Aacme&file=${id}`)).toMatchObject({openView:'b:design',openOrg:'team:acme',fileId:id})
  expect(parseRoute(`#/c/invalid?file=${id}`).fileId).toBeUndefined()
  expect(parseRoute('#/c/b%3Adesign?file=../private').fileId).toBeUndefined()

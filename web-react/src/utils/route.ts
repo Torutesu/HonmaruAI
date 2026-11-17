@@ -170,6 +170,10 @@ export function hashForCard(cardId: string, orgId?: string | null): string {
 export function hashForMode(mode: Mode): string { return mode === 'classic' ? '#/list' : '#/feed' }
 /// A conversation, opened in the list: `#/c/ag%3A<id>` for one with an agent.
 export function hashForView(view: string): string { return `#/c/${encodeURIComponent(view)}` }
+export function hashForFileView(view:string,orgId:string,fileId:string):string {
+  const query=new URLSearchParams({org:orgId,file:fileId})
+  return `${hashForView(view)}?${query}`
+}
 /// A link's path (`/c/…?org=…`, `/join/…`) as the hash it means here, or
 /// null when the path is not a link — the root, `/index.html`, anything else.
 export function pathToHash(pathAndQuery: string): string | null {
