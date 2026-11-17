@@ -209,7 +209,7 @@ test("restricted agent data stays private through direct APIs, listings and Simp
 });
 
 test("the channel overview does not advertise a restricted agent placed in a readable room", async () => {
-  await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, access: "private" });
+  await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, access: "private", specialty: "Accounts payable" });
   const placed = await send("POST", "/channels/channel-agents", mika, { orgId: ORG, channel: "b:ops", agentId });
   expect(placed.status).toBe(200);
 
@@ -220,6 +220,10 @@ test("the channel overview does not advertise a restricted agent placed in a rea
   // The owner still sees the room participant and can manage its placement.
   const ownerDetails = await (await get(`/channels/details?${q({ orgId: ORG, channel: "b:ops" })}`, mika)).json();
   expect(ownerDetails.members.agents.some((agent) => agent.id === agentId)).toBe(true);
+  const ownerDirectory = await (await get(`/channels/agents?${q({ orgId: ORG })}`, mika)).json();
+  expect(ownerDirectory.agents.find((agent) => agent.id === agentId)).toMatchObject({ specialty: "Accounts payable" });
+  const hiddenDirectory = await (await get(`/channels/agents?${q({ orgId: ORG })}`, kenji)).json();
+  expect(hiddenDirectory.agents.some((agent) => agent.id === agentId)).toBe(false);
 });
 
 test("profile lookup failures do not silently grant access", async () => {

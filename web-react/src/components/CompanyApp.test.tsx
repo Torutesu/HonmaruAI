@@ -305,3 +305,24 @@ test('a source-Agent connection grant can be enabled and revoked from the App co
  expect(api.connectionChange).toHaveBeenLastCalledWith('app',{action:'revoke',name:'repo_api'})
  act(()=>tree.unmount())
 })
+
+test('Google OAuth connection starts from the saved App connection without exposing a client secret',async()=>{
+ const connection={name:'google_api',version:2,endpoint:'https://www.googleapis.com/drive/v3/files',method:'GET',enabled:1,hasToken:1,authMode:'oauth',oauthProvider:'google',oauthClientId:'1234567890-abcdefgh.apps.googleusercontent.com',oauthScope:'drive.readonly',oauthConfigured:true,oauthConnected:false,oauthRequiresReauthorization:false,owned:true}
+ const api:any={appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[connection]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),appDatabase:vi.fn().mockResolvedValue({fork:null,version:1,entities:[],migrations:[]}),connectionChange:vi.fn().mockResolvedValue({authorizeUrl:'https://accounts.google.com/o/oauth2/v2/auth?state=high-entropy'})}
+ const popup={opener:{},location:{replace:vi.fn()},close:vi.fn()};const open=vi.fn(()=>popup)
+ vi.stubGlobal('window',{open});vi.stubGlobal('location',{origin:'https://example.com'})
+ let tree!:ReturnType<typeof create>
+ try{
+  await act(async()=>{tree=create(<CompanyApp app={{id:'app'} as any} api={api} canManage reload={()=>{}}/>);await Promise.resolve()})
+  const button=(name:string)=>tree.root.findAllByType('button').find(item=>item.children.join('')===name)!
+  await act(async()=>button('外部接続').props.onClick())
+  await act(async()=>tree.root.findAllByType('button').find(item=>item.children.join('').startsWith('google_api'))!.props.onClick())
+  const authSelect=tree.root.findAllByType('select').find(item=>item.findAllByType('option').some(option=>option.props.value==='oauth'))!
+  await act(async()=>authSelect.props.onChange({target:{value:'oauth'}}))
+  expect(tree.root.findAllByType('input').some(input=>input.props.type==='password'&&input.props.value)).toBe(false)
+  await act(async()=>button('Googleアカウントを接続').props.onClick())
+  expect(api.connectionChange).toHaveBeenCalledWith('app',{action:'oauth_start',name:'google_api'})
+  expect(open).toHaveBeenCalledWith('about:blank','_blank')
+  expect(popup.location.replace).toHaveBeenCalledWith('https://accounts.google.com/o/oauth2/v2/auth?state=high-entropy')
+ }finally{vi.unstubAllGlobals();if(tree)act(()=>tree.unmount())}
+})

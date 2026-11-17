@@ -97,6 +97,8 @@
 .hx-chat-filters { display: flex; gap: 3px; padding: 2px 18px 20px; }
 .hx-chat-filters button { border: 0; background: transparent; color: var(--hx-muted); padding: 7px 12px; font: inherit; font-size: 13px; border-radius: 18px; cursor: pointer; }
 .hx-chat-filters button[aria-selected="true"] { background: var(--hx-hover); color: var(--hx-text); font-weight: 600; }
+.hx-agent-search { padding: 0 18px 16px; }
+.hx-agent-search input { box-sizing: border-box; width: 100%; margin: 0; }
 .hx-filtered-chats { padding: 0; margin: 0; list-style: none; }
 .hx-chat-filter-empty { display:flex; flex-direction:column; align-items:center; gap:12px; padding:42px 22px; text-align:center; color:var(--hx-muted); font-size:12px; line-height:1.65; }
 .hx-chat-filter-empty strong { color:var(--hx-text); font-size:13px; font-weight:500; }

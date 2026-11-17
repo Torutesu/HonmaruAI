@@ -52,7 +52,7 @@ export interface ArchivedApp { id:string; name:string; description:string; icon:
 export interface AppAction { name: string; version: number; draft?: string; language?: 'javascript'|'typescript'; published: string | null; publishedLanguage?: 'javascript'|'typescript'; publishedVersion: number | null }
 export interface AppActionRun { id:string; actionName:string; actionVersion:number; status:string; createdAt:number; startedAt:number|null; finishedAt:number|null }
 export interface AppActionRunPage { runs:AppActionRun[]; nextCursor?:string }
-export interface AppConnection { name: string; version: number; endpoint: string; method: string; enabled: number; hasToken: number; ownerId?: string; ownerName?: string; owned?: boolean; shared?: boolean; grantExists?: boolean; canShare?: boolean; sourceAgentName?: string }
+export interface AppConnection { name: string; version: number; endpoint: string; method: string; enabled: number; hasToken: number; authMode?: 'bearer'|'oauth'; oauthProvider?: 'google'; oauthClientId?: string; oauthScope?: string; oauthConfigured?: boolean; oauthConnected?: boolean; oauthRequiresReauthorization?: boolean; ownerId?: string; ownerName?: string; owned?: boolean; shared?: boolean; grantExists?: boolean; canShare?: boolean; sourceAgentName?: string }
 export interface AppRemoteMcpTool { serverId:string;toolName:string;title:string;description:string;inputSchema:Record<string,unknown>;granted:boolean;canGrant:boolean;grantedByYou:boolean }
 export interface AppHosting { configured:boolean; project:string; dnsTarget:string; domain:{hostname:string;status:string;validationStatus:string;verificationStatus:string;errorMessage:string;createdAt:string;updatedAt:string;dnsTarget:string}|null; environment:Array<{name:string;version:number;updatedAt:string;hasValue:boolean}> }
 export interface AppEntity { key: string; table: Table; rows?: Row[] }
@@ -232,7 +232,7 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     actionRunHistory: (id:string, cursor?:string) => call<AppActionRunPage>('GET', `/apps/${id}/actions`, undefined, {runs:'1',limit:'50',...(cursor?{cursor}:{})}),
     actionJob: (id: string, jobId: string) => call<{job: GatewayJob}>('GET', `/apps/${id}/actions`, undefined, {jobId}),
     appConnections: (id: string) => call<{connections: AppConnection[];hosts: string[];remoteMcp?:{sourceAgent:{id:string;name:string}|null;tools:AppRemoteMcpTool[]}}> ('GET', `/apps/${id}/connections`),
-    connectionChange: (id: string, body: Record<string, unknown>) => call<{data?: unknown}>('POST', `/apps/${id}/connections`, body),
+    connectionChange: (id: string, body: Record<string, unknown>) => call<{data?: unknown; authorizeUrl?: string}>('POST', `/apps/${id}/connections`, body),
     appHosting: (id:string) => call<AppHosting>('GET', `/apps/${id}/hosting`),
     changeAppHosting: (id:string, body:Record<string,unknown>) => call<Partial<AppHosting> & {saved?:boolean;deleted?:boolean;name?:string;version?:number}>('POST', `/apps/${id}/hosting`, body),
     entityRows: (tableId: string) => call<{table: Table; rows: Row[]}>('GET', `/tables/${tableId}`, undefined, {limit:'5000'}),

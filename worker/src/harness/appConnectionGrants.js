@@ -216,7 +216,20 @@ export async function invokeAppConnection(env, orgId, appId, viewerId, input) {
     if (!grant) return err('No enabled connection granted to this App visitor.', 404);
   }
   const ownerId = grant ? String(grant.ownerId) : String(viewerId);
-  const result = await invokeConnection(db, orgId, appId, ownerId, input);
+  const authorize = async () => {
+    if (!await mayUseAppAsMember(db, orgId, appId, viewerId)) return false;
+    if (!await mayUseAppAsMember(db, orgId, appId, ownerId)) return false;
+    const current = await db.prepare(`SELECT version,endpoint,method,enabled FROM hx_app_connections
+      WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4`)
+      .bind(orgId,appId,ownerId,name).first().catch(()=>null);
+    if (!current || Number(current.enabled)!==1 || current.endpoint!==(grant?.endpoint||current.endpoint) || current.method!==(grant?.method||current.method) || (grant && current.version!==grant.version)) return false;
+    if (grant) {
+      const live=await getGrant(db,orgId,appId,name,viewerId);
+      return Boolean(live && live.createdAt===grant.createdAt && live.version===grant.version && live.grantVersion===grant.grantVersion && live.ownerMembershipSince===grant.ownerMembershipSince && live.sourceAgentId===grant.sourceAgentId);
+    }
+    return ownerId===String(viewerId);
+  };
+  const result = await invokeConnection(db, orgId, appId, ownerId, input,{env,authorize});
   if (result.error) return result;
   const markWriteUncertain = async () => {
     if (typeof input?.requestId !== 'string' || !/^[\w-]{1,80}$/.test(input.requestId)) return;

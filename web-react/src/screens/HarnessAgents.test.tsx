@@ -9,6 +9,32 @@ vi.mock('../components/Icon', () => ({ Icon: () => null }))
 vi.mock('../components/AgentAccessDialog',()=>({AgentAccessDialog:({onClose}:any)=><button data-testid="close-access" onClick={()=>onClose('team')}>Close access</button>}))
 vi.mock('../components/AgentPersona',()=>({AgentPersona:()=>null}))
 
+test('the Agents directory searches visible Agents by name or specialty and retains the tab controls',async()=>{
+ let tree!:ReturnType<typeof create>
+ const agents=[
+  {id:'ledger',name:'Ledger',handle:'ledger',scope:'team',specialty:'Accounts payable'},
+  {id:'research',name:'Researcher',handle:'research',scope:'team',specialty:'Market research'},
+ ]
+ vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({agents})})))
+ try{
+  await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
+  const search=()=>tree.root.findByProps({'aria-label':'Search agents by name or specialty'})
+  const shown=()=>tree.root.findAllByType('button').filter(node=>typeof node.props['data-agent']==='string').map(node=>node.props['data-agent'])
+  expect(search().props.type).toBe('search')
+  expect(shown()).toEqual(['ledger','research'])
+  await act(async()=>search().props.onChange({target:{value:'payable'}}))
+  expect(shown()).toEqual(['ledger'])
+  await act(async()=>search().props.onChange({target:{value:'researcher'}}))
+  expect(shown()).toEqual(['research'])
+  await act(async()=>search().props.onChange({target:{value:'  '}}))
+  expect(shown()).toEqual(['ledger','research'])
+  const peopleTab=tree.root.findAllByProps({role:'tab'}).find(tab=>tab.children.includes('People'))!
+  await act(async()=>peopleTab.props.onClick())
+  expect(tree.root.findAllByProps({'aria-label':'Search agents by name or specialty'})).toHaveLength(0)
+  expect(shown()).toHaveLength(0)
+ }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})
+
 test('Skill-link import previews a public package, optionally installs it on a managed Agent, and reports the private copy',async()=>{
  let tree!:ReturnType<typeof create>
  const requests:Array<{url:URL;init?:RequestInit}> = []

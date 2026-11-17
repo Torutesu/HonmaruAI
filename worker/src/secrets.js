@@ -133,6 +133,8 @@ export const aad = {
   remoteMcpOAuthClient: (orgId, id) => `hx_remote_mcp_servers.oauth_client:${orgId}:${id}`,
   remoteMcpOAuthVerifier: (orgId, stateHash) => `hx_remote_mcp_oauth_states.code_verifier:${orgId}:${stateHash}`,
   remoteMcpOAuthCredential: (orgId, serverId, userId, membershipSince) => `hx_remote_mcp_oauth_credentials.credential:${orgId}:${serverId}:${userId}:${membershipSince}`,
+  appConnectionOAuthVerifier: (orgId, stateHash) => `hx_app_connection_oauth_states.code_verifier:${orgId}:${stateHash}`,
+  appConnectionOAuthClient: (orgId, appId, ownerId, name) => `hx_app_connections.oauth_client:${orgId}:${appId}:${ownerId}:${name}`,
   remoteMcpEgress: (orgId, requestId, field) => `hx_remote_mcp_egress.${field}:${orgId}:${requestId}`,
 };
 

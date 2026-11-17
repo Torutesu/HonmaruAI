@@ -2140,6 +2140,13 @@ CREATE TABLE IF NOT EXISTS hx_app_connection_grants (
   granted_by TEXT NOT NULL, created_at TEXT NOT NULL,
   PRIMARY KEY(org_id,app_id,connection_owner_id,connection_name)
 );
+CREATE TABLE IF NOT EXISTS hx_app_connection_oauth_states (
+ state_hash TEXT PRIMARY KEY, org_id TEXT NOT NULL, app_id TEXT NOT NULL, owner_id TEXT NOT NULL,
+ connection_name TEXT NOT NULL, connection_version INTEGER NOT NULL, endpoint TEXT NOT NULL, method TEXT NOT NULL,
+ credential_ciphertext TEXT NOT NULL, client_id TEXT NOT NULL, client_secret TEXT NOT NULL, scope TEXT NOT NULL,
+ redirect_uri TEXT NOT NULL, code_verifier TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hx_app_connection_oauth_states_expiry ON hx_app_connection_oauth_states(org_id,expires_at);
 CREATE INDEX IF NOT EXISTS idx_hx_app_connection_grants_target ON hx_app_connection_grants(org_id,app_id,connection_name);
 CREATE TABLE IF NOT EXISTS hx_app_remote_mcp_grants (
   org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE,

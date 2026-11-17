@@ -2,9 +2,11 @@
 
 調査基準日: 2026-11-17。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。PR #939をmain `76db474ee0a4400e6adfc9b93b79dc562d40e433`へマージ。PR exact-head CI #43337139421、main CI #43340080575、Worker deploy #43340080401、Web deploy #43340080328の必須job・Verifyが成功。PR #940は `def4fbd6b04a87b28784d05261f363b2925ee694` としてmainへmerge済み。PR CI #43345382463はiOS/Windowsを含む全必須job成功、main CI #43347623523、Worker migration/deploy/Verify #43347623374、Web Pages/domain Verify #43347623133成功。Worker healthはencryption.all=true、両Web domainは `index-D4wM6RDL.js` を配信。KY-061/097の認証済みKylon並列比較は未確認。DNS rebindingの解決とは扱わない。全110項目の再受入を意味しない。PR #941 (`ac732e0f3d1a4ef61ea626aef63a699ff10beef0`) のexact-head CI #43351662357・main CI #43353765545・Worker deploy #43353765648成功。PR #942 (`b8949ca6386479afb03fe18ce6d2425c873e303c`) はexact-head CI #43358291159/#43358341647、main CI #43360721660、Worker deploy #43360721699、Web deploy #43360721616成功。D1の259 schema statements一括適用、Worker health encryption.all=true、Pages配信を確認。PR #980 (`bc1afc527b4b38cdd0478e511297b98256584bb5`) はmain `1c32e12c2b80188accba7cb1f7e59e82b515770f` にマージ。main CI #43504779958（Worker 4 shards・E2E含む）success、Worker deploy #43504780175は本番D1 migration・deploy・Verify success、healthは `ok:true` / `encryption.all=true`。Web deploy #43504779834 success、`app.honmaruai.com` が `index-BcqpUk0X.js` を配信。PR #1006をmain `599762db667a6c5e802bb8c3d12902804894812c`へ統合。exact-head CI #43637314442は成功、Web deploy #43639336448はPagesと独自ドメインで配信確認済み。main CI #43639336451はWorker 4 shards・E2EがGitHub上でin_progressのまま更新がなく、完了未確認。
 
-全110項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
+全111項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
-2026-11-15の最新台帳集計は110件（実装あり4、一部105、要検証1）。2026-11-12の109件集計は当時の履歴として残す。PR #1006 main CI #43639336451の停滞は後続main CI #43678815421で解消を確認（PR #1014の後続main）。PR #1015はexact-head CI #43680371839成功後、merge commit `429e306c`としてmainへ統合され、main CIとWorker/Web deploy成功。公開URLのredirect credential/downgrade hardeningを反映した。DNS rebindingは未解決のまま。
+2026-11-15時点の台帳集計は110件（実装あり4、一部105、要検証1）。2026-11-12の109件集計は当時の履歴として残す。PR #1006 main CI #43639336451の停滞は後続main CI #43678815421で解消を確認（PR #1014の後続main）。PR #1015はexact-head CI #43680371839成功後、merge commit `429e306c`としてmainへ統合され、main CIとWorker/Web deploy成功。公開URLのredirect credential/downgrade hardeningを反映した。DNS rebindingは未解決のまま。
+
+2026-11-17 candidate batchでKY-121「Agent一覧を名前・専門分野で絞り込む」を追加。現在111件（実装あり4、一部106、要検証1）。この追加は未マージで、Kylon画面の認証済み比較・本番ACL受入を含めていない。
 
 2026-11-10 PR #862反映: main `b5fea8e2` にマージ済み。正確なhead CI #42681479871、main CI #42684677206、Worker deploy #42684677210（D1 migration/deploy/verify）、Web deploy #42684677047 が成功。KY-030/044/051は機能範囲を更新したが、Kylon同等性の残差は各行に明記。受入確認の詳細は [verification.md](verification.md) を参照。
 
@@ -62,6 +64,7 @@
 | KY-024 | Codex/Claude Code/Devinの実行選択 | 一部 | P1 | [worker/src/teammates.js](../../worker/src/teammates.js) | クラウドAPI接続とローカルCLIを区別して実機で検証 |
 | KY-025 | ACP接続契約 | 一部 | P2 | [gateway/acp.mjs](../../gateway/acp.mjs), [worker/src/teammates.js](../../worker/src/teammates.js) | ACP v1 stdio initialize/session new/load/prompt/cancel、ホストのfs/terminal能力無効化、agent所有の既存認証利用、Mac側allowlist、ACP agentチームメイト、スレッド回答の取り込みを実装。2026-11-01、既存OpenCode認証で合成プロンプトと `list_apps` MCPの実機往復成功（実Workspaceデータなし）。Workspace MCP read-only連携はHarness内で明示opt-in、既定off、Simpleでは通常ACPを継続しtoolsなし、6ツール・ユーザー/agent/resource ACL再確認、lease/node認証、query上限。進捗はリース認証付きで開始元会話に要約を一時配信し、引数・思考本文は送らない。権限要求はMac側allowlistのdefault（既定許可）/strict（読み取り系のみ許可）で自動応答。取消はsession/cancelと$/cancel_requestを送って応答猶予を設け、無応答時は5秒以内にプロセスを終了。Gateway/Worker合成試験とUIテスト済み。複数ACP実装の再接続・二台同期、実機QAは残る |
 | KY-026 | 既存ChatGPT契約でクラウドCodex | 要検証 | P2 | [worker/src/teammates.js](../../worker/src/teammates.js) | 提供元条件と対応実行方式の確認後に隔離環境で検証 |
+| KY-121 | Agent一覧を名前・専門分野で絞り込む | 一部 | P1 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js), [HarnessAgents.tsx](../../web-react/src/screens/HarnessAgents.tsx) | Agents画面の名前／専門分野検索と可視Agent限定の取得を実装。People一覧は維持。認証済みKylon画面と比較し、PR/本番反映後のACL受入を確認する |
 
 ## Memory
 

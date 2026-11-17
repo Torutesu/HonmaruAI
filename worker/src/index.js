@@ -66,6 +66,7 @@ import { handleDlp } from "./dlp.js";
 import { handleDomains, recheckDomains } from "./domains.js";
 import { handleSso, checkSsoGrants } from "./sso.js";
 import { finishRemoteMcpOAuth, remoteMcpOAuthClientMetadata } from "./harness/remoteMcpOAuth.js";
+import { finishAppConnectionOAuth } from "./harness/appConnectionOAuth.js";
 import { handleApps, sweepAppConnections, forgetAppConnections } from "./smitheryApps.js";
 import { requestContext } from "./requestContext.js";
 import { settleCors } from "./cors.js";
@@ -472,6 +473,12 @@ async function handle(request, env, url, ctx) {
       const limited = await enforce(env, request, "oauth/token");
       if (limited) return limited;
       return finishRemoteMcpOAuth(env, url);
+    }
+    if (url.pathname === "/apps/oauth/callback") {
+      if (request.method !== "GET") return new Response("Method not allowed", { status: 405, headers: { allow: "GET", "cache-control": "no-store" } });
+      const limited = await enforce(env, request, "oauth/token");
+      if (limited) return limited;
+      return finishAppConnectionOAuth(env, url);
     }
 
     // Conversations from a workspace's own Durable Object (PoC, off unless
