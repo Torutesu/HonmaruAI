@@ -1661,8 +1661,13 @@
       "acceptance": "`@room`で現在のRoomに所属する人間だけへ通知する。Agent、DM/group DM、非メンバー、Roomアクセス失効者へ通知しない。公開/非公開、ゲスト、解除後、全角記号、URL/email、mention push/activityを検証し、既存Simple modeの通知経路を維持する。新規契約・課金なし。Kylon実画面との同一タスク比較を行う。",
       "evidence": {
         "reviewedAt": "2026-11-17",
-        "verified": "Kylon公式通知ガイドのRoom通知要件を実装。@roomをRoomの認可済みhuman audienceに限定し、public/private、joined guest、removed member、Agent、DM/group DMを回帰確認。Worker関連5 suiteは101/101成功。",
-        "remaining": "Activity/@meへの履歴表示、mention token境界の認証済みKylon比較、exact-head CI・本番デプロイ・複数端末の本番受入は残る。"
+        "verified": "Kylon公式通知ガイドのRoom通知要件を実装。@roomをRoomの認可済みhuman audienceに限定し、public/private、joined guest、removed member、Agent、DM/group DMを回帰確認。Activity/@meにもRoom audienceを再認可して履歴表示する。最新の focused reading・push・query-budget suites は34/34成功し、private Roomの非メンバーとauthorを除外する回帰を含む。",
+        "latestIncrement": {
+          "scope": "Activity feed previously resolved @room without its channel audience, so push reached the Room but recipients could not see the same message in Activity. It now resolves Room mentions against current human members and the current public/private Room audience, cached per Room for the feed request. This does not broaden message visibility or allow a stored mention to grant access.",
+          "localQA": "Regression first failed before the implementation, then reading.test.js + pushes.test.js + latency-query-budget.test.js passed 34/34.",
+          "remaining": "Exact-head CI, production deployment, multi-device production acceptance, mention-token boundary comparison, and authenticated Kylon UI comparison remain."
+        },
+        "remaining": "Exact-head CI・本番デプロイ・複数端末の本番受入、mention token境界の認証済みKylon比較は残る。"
       }
     },
     {
