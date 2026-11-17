@@ -572,17 +572,16 @@
       "acceptance": "プレビューの書込みが本番DBを変更しない",
       "evidence": {
         "reviewedAt": "2026-11-17",
-        "inspectedMain": "ad72852db88ff557e430e7831ea9bd12497fe865",
+        "inspectedMain": "4d9abea2c53587ebf347a142553a71cbf760f039",
         "implementedScope": "Private database forks support additive columns, stable-ID renames, strict type conversions, empty-column drops, new entities with private rows and dropping an empty secondary entity. Schema and row differences are reviewed together; conversion, relation integrity, Workflow-reference checks, database-version fencing and full snapshot checks are enforced at commit. D1 atomically updates schemas, table/entity links, version, integrity-checked migration journal, rows and watched-row outbox. Workflow event payloads use the reviewed resulting schema, while record conflicts remain individually resolvable.",
-        "remaining": "The 250-record merge bound, legacy forks without baselines, authenticated production multi-user acceptance and direct Kylon UI comparison remain. The explicit reviewed merge remains an additional capability beyond Kylon private preview data.",
+        "remaining": "The 250-record merge bound, authenticated production multi-user acceptance and direct Kylon UI comparison remain. The explicit reviewed merge remains an additional capability beyond Kylon private preview data.",
         "latestIncrement": {
-          "scope": "Add deletion of an empty secondary entity in private DB forks. Require removal of its rows and Workflow references before review; atomically recheck database version, row state and Workflow references, then apply row removals before entity/table deletion. Add migration and Company App UI support; preserve Simple mode.",
-          "localQA": "Worker harness-company.test.js and harness-app-relations.test.js passed 72/72. CompanyApp.test.tsx passed 17/17. Web TypeScript and production build passed. Exact-head CI #43977698670 and main CI #43981329588 passed; Worker D1 migration/deploy/Verify #43981329411 and Web deploy #43981329434 succeeded.",
-          "release": "PR #1061 merged as ad72852db88ff557e430e7831ea9bd12497fe865. Worker version e4ccaf67-1426-468e-8f44-9970d53fbb3f reports /health ok:true and encryption.all=true; app.honmaruai.com serves index-D5yIK20j.js.",
-          "remaining": "The 250-record per-merge bound, legacy forks without baselines, authenticated production multi-user acceptance and direct Kylon UI comparison remain."
+          "scope": "Allow an owner/editor to explicitly rebase a legacy private DB fork that lacks its creation-time baseline. Preserve the existing fork contents and schema changes; capture current production as the new three-way baseline only after a D1-side fence verifies fork id/revision, schema version, entity links, columns, table names, exact row values and updated_at. Show an explicit warning/confirmation in Company App; normal reviewed merge then reports data/schema changes and later live changes as conflicts. Simple mode stays untouched.",
+          "localQA": "Candidate QA: Worker harness-company.test.js + harness-app-relations.test.js passed 73/73; CompanyApp.test.tsx passed 18/18; Web TypeScript/production build passed; parity inventory and git diff --check passed. Exact-head CI, merge and production deployment remain pending.",
+          "remaining": "The 250-record merge bound, authenticated production multi-user acceptance and direct Kylon UI comparison remain."
         },
         "verification": "docs/kylon-parity/verification.md",
-        "release": "PR #1059 merged as 2640be4a0d0584ca04997c1ce10fe61310c9a3e7. Exact-head CI #43961521128 passed all required jobs. Main CI #43965711639 passed; Worker D1 migration/deploy/Verify #43965711832 passed with /health ok:true and encryption.all=true; Web deploy #43965711788 passed and app.honmaruai.com served the release asset."
+        "release": "PR #1059 merged as 2640be4a0d0584ca04997c1ce10fe61310c9a3e7. PR #1060 raised the merge capacity to 250 (main CI #43972784699 and Worker D1 migration/deploy/Verify #43972784632 passed). PR #1061 added guarded empty secondary entity deletion and deployed as ad72852db88ff557e430e7831ea9bd12497fe865; exact-head CI #43977698670, main CI #43981329588, Worker migration/deploy/Verify #43981329411 and Web deploy #43981329434 passed. Production Worker /health returned ok:true and encryption.all=true; app.honmaruai.com served index-D5yIK20j.js. PR #1062 recorded the release ledger; its exact-head CI #43984398375 and main CI #43987966182 passed, merge 4d9abea2c53587ebf347a142553a71cbf760f039."
       }
     },
     {
