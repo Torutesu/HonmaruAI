@@ -206,6 +206,17 @@ test('native browser action advertises its dedicated capability and performs one
  assert.deepEqual(JSON.parse(calls[2].body.stdout),{url:'https://example.com',title:'Example',text:'Visible page text'});
  assert.equal(calls[2].body.status,'succeeded');
 });
+test('native screenshot asks the local browser for a bounded visual thumbnail',async()=>{
+ const calls=[],payload={nativeBrowserAction:true,workspaceId:'org-1',browserIdentity:'agent-1',browserAction:{type:'screenshot'}};
+ await processOne(async(path,body)=>{calls.push({path,body});return path==='claim'?{job:{id:'native-thumbnail',lease:'lease',payload}}:{ok:true};},{runBrowser:async({action})=>{
+  assert.deepEqual(action,{type:'screenshot',thumbnail:true});
+  return{url:'https://kylon.io/ja',image:'a'.repeat(40_000)};
+ }});
+ const finish=calls.find(({path})=>path==='jobs/native-thumbnail/finish')?.body;
+ assert.equal(finish.status,'succeeded');
+ assert.equal(JSON.parse(finish.stdout).image.length,40_000);
+ assert.ok(Buffer.byteLength(JSON.stringify(finish))<70_000);
+});
 test('native browser action rejects malformed actions before authorization or browser access',async()=>{
  const calls=[],payload={nativeBrowserAction:true,workspaceId:'org-1',browserIdentity:'agent-1',browserAction:{type:'navigate',url:'javascript:alert(1)'}};
  await processOne(async(path,body)=>{calls.push({path,body});return path==='claim'?{job:{id:'native-browser',lease:'lease',payload}}:{ok:true};},{runBrowser:async()=>assert.fail('invalid action must not reach browser')});

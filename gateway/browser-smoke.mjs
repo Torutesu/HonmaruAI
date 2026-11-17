@@ -14,6 +14,7 @@ let serviceConfig={};
 try{serviceConfig=JSON.parse(await readFile(gatewayConfigPath,'utf8'));}catch{}
 const binary=process.env.HONMARU_CONTAINER_BIN||serviceConfig.containerBinary||'container';
 const pageUrl=process.env.HONMARU_BROWSER_SMOKE_URL||'https://example.com/';
+const nativeThumbnail=process.env.HONMARU_BROWSER_SMOKE_NATIVE_THUMBNAIL==='1';
 const suffix=randomUUID();
 const workspaceId=`honmaru-browser-smoke-${suffix}`;
 const agentIds=[`smoke-a-${suffix}`,`smoke-b-${suffix}`];
@@ -38,9 +39,10 @@ try{
   assert.equal(page.url,new URL(pageUrl).href);
   assert.ok(page.title,'The browser page should expose a title.');
   phase='capture-screenshot';
-  const screenshot=await act(agentIds[0],{type:'screenshot'});
+  const screenshot=await act(agentIds[0],{type:'screenshot',...(nativeThumbnail?{thumbnail:true}:{})});
   const bytes=Buffer.from(screenshot.image,'base64');
   assert.ok(bytes.length>1000&&bytes.length<=2*1024*1024,'The JPEG must be non-empty and bounded.');
+  if(nativeThumbnail)assert.ok(screenshot.image.length<=40_000,'Native browser thumbnail must fit the Worker result limit.');
   await writeFile(screenshotPath,bytes,{flag:'wx',mode:0o600});
 
   // A second Agent in the same Workspace must receive its own clean profile.

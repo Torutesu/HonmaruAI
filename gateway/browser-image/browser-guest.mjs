@@ -64,6 +64,27 @@ async function run(action) {
     case 'screenshot': {
       const image=await page.screenshot({type:'jpeg',quality:65,animations:'disabled',fullPage:false,timeout:7000});
       if(image.length>2*1024*1024)throw new Error('Browser screenshot is too large.');
+      if(action.thumbnail===true){
+        const imageBase64=image.toString('base64');
+        const thumbnail=await page.evaluate(async({source,maxChars})=>{
+          const image=new Image();image.src=`data:image/jpeg;base64,${source}`;await image.decode();
+          const canvas=document.createElement('canvas');const context=canvas.getContext('2d');
+          if(!context)return null;
+          for(const maxWidth of [640,560,480,400,320]){
+            const scale=Math.min(maxWidth/image.naturalWidth,400/image.naturalHeight,1);
+            canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));
+            canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+            context.drawImage(image,0,0,canvas.width,canvas.height);
+            for(const quality of [0.72,0.62,0.52,0.42,0.32]){
+              const data=canvas.toDataURL('image/jpeg',quality).slice('data:image/jpeg;base64,'.length);
+              if(data.length<=maxChars)return data;
+            }
+          }
+          return null;
+        },{source:imageBase64,maxChars:40_000});
+        if(typeof thumbnail!=='string')throw new Error('Browser screenshot thumbnail exceeds the transfer limit.');
+        return {url:page.url(),image:thumbnail};
+      }
       return {url:page.url(),image:image.toString('base64')};
     }
     case 'visible_text': return {url:page.url(),title:await page.title(),text:(await page.locator('body').innerText({timeout:7000})).slice(0,16000)};

@@ -65,7 +65,7 @@ export function validateBrowserAction(value) {
     case 'scroll':
       if (![value.x,value.y,value.deltaX,value.deltaY].every(Number.isSafeInteger) || value.x < 0 || value.y < 0 || value.x > 4096 || value.y > 4096 || Math.abs(value.deltaX) > 2000 || Math.abs(value.deltaY) > 2000) throw new Error('Invalid browser scroll.');
       return {type:'scroll',x:value.x,y:value.y,deltaX:value.deltaX,deltaY:value.deltaY};
-    case 'screenshot': return {type:'screenshot'};
+    case 'screenshot': return {type:'screenshot',...(value.thumbnail===true?{thumbnail:true}:{})};
     case 'visible_text': return {type:'visible_text'};
     default: throw new Error('Unsupported browser action.');
   }
@@ -138,7 +138,7 @@ async function waitForBrowserCommand(binary,containerName,uid,spawnProcess,signa
 }
 
 export async function runBrowserSessionAction({
-  binary=process.env.HONMARU_CONTAINER_BIN||'container',image='honmaru-browser:1654',
+  binary=process.env.HONMARU_CONTAINER_BIN||'container',image='honmaru-browser:1655',
   workspaceId,agentId,action,uid=process.getuid(),gid=process.getgid(),spawnProcess=spawn,signal,
 }={}) {
   const cleanAction=validateBrowserAction(action);
