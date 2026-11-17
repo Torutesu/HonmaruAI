@@ -53,7 +53,8 @@ const api = async (method, path, body) => {
 let invoices, crm
 await step('the workspace becomes a harness, with apps and a workflow in it', async () => {
   await api('PUT', '/orgs/mode', { mode: 'harness' })
-  invoices = (await api('POST', '/apps', { template: 'invoices', channel: 'b:ops' })).app
+  const room = (await api('POST', '/channels/rooms', { requestId: 'harness-tour-room', name: 'ops', private: true, color: 'teal', guidelines: '', memberRefs: [], agentIds: [] })).room
+  invoices = (await api('POST', '/apps', { template: 'invoices', channel: room.channel })).app
   crm = (await api('POST', '/apps', { template: 'crm' })).app
   const rows = (await api('GET', `/tables/${invoices.tableId}?orgId=${encodeURIComponent(orgId)}`)).rows
   await api('PATCH', `/tables/${invoices.tableId}/rows/${rows[0].id}`, { values: { Due: '2026-09-01', Status: 'Overdue' } })
@@ -61,7 +62,7 @@ await step('the workspace becomes a harness, with apps and a workflow in it', as
     name: 'Chase overdue invoices',
     trigger: { type: 'row', tableId: invoices.tableId, on: 'changed', where: { Status: ['Overdue'] } },
     steps: [
-      { type: 'post', channel: 'b:ops', text: '{{row.Client}} is overdue on {{row.Invoice #}}.' },
+      { type: 'post', channel: room.channel, text: '{{row.Client}} is overdue on {{row.Invoice #}}.' },
       { type: 'approval', to: login, title: 'Send {{row.Client}} a reminder?', summary: '{{row.Amount}} overdue' },
     ],
   })
@@ -78,6 +79,20 @@ const browser = await chromium.launch({
 
 for (const [label, viewport] of [['laptop', { width: 1280, height: 860 }], ['phone', { width: 390, height: 844 }]]) {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1 })
+  await ctx.addInitScript(() => {
+    class HonmaruSpeechRecognition {
+      onresult = null
+      onend = null
+      onerror = null
+      start() { window.__honmaruSpeech = this }
+      stop() { this.onend?.() }
+      emit(text) {
+        const result = { 0: { transcript: text }, isFinal: true, length: 1 }
+        this.onresult?.({ resultIndex: 0, results: [result] })
+      }
+    }
+    window.SpeechRecognition = HonmaruSpeechRecognition
+  })
   await ctx.addInitScript(([t, u, o, h]) => {
     localStorage.setItem('sessionToken', t); localStorage.setItem('userId', u)
     localStorage.setItem('orgId', o); localStorage.setItem('host', h)
@@ -108,6 +123,17 @@ for (const [label, viewport] of [['laptop', { width: 1280, height: 860 }], ['pho
   await step(`${label}: the hub switches the mode and leads everywhere`, async () => {
     await visit('#/harness', '[data-open="apps"]')
     await shot('01-hub')
+  })
+  await step(`${label}: voice input fills a non-chat Harness text field`, async () => {
+    await visit('#/apps', '[aria-label="Search apps"]')
+    const search = page.locator('[aria-label="Search apps"]')
+    await search.focus()
+    const mic = page.locator('.hx-global-dictation')
+    await mic.waitFor({ state: 'visible' })
+    await mic.click()
+    await page.evaluate(() => window.__honmaruSpeech.emit('invoice tracker'))
+    if (await search.inputValue() !== 'invoice tracker') throw new Error(`voice text was not inserted: ${await search.inputValue()}`)
+    await shot('01b-voice-input')
   })
   await step(`${label}: apps, and one opened as a table, a board and its numbers`, async () => {
     await visit('#/apps', `[data-app="${invoices.id}"]`)

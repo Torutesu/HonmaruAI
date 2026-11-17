@@ -810,3 +810,11 @@
 .tidy-list li .tidy-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; font-size: 14px; }
 .tidy-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tidy-meta { font-size: 12px; color: var(--ash, #838383); }
+
+.hx-global-dictation { position: fixed; z-index: 1100; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--hx-border, #dddfd7); border-radius: 8px; color: var(--hx-muted, #62695c); background: var(--hx-surface, #fff); box-shadow: 0 2px 8px #0002; cursor: pointer; }
+.hx-global-dictation:hover, .hx-global-dictation:focus-visible { color: var(--hx-accent, #667345); border-color: var(--hx-accent, #667345); outline: none; }
+.hx-global-dictation.is-listening { color: #b42318; background: #fff5f4; border-color: #e4a19c; animation: hx-dictation-pulse 1.2s ease-in-out infinite; }
+.hx-global-dictation-status { position: fixed; z-index: 1101; max-width: 240px; padding: 7px 9px; border: 1px solid var(--hx-border, #dddfd7); border-radius: 7px; color: var(--hx-text, #242722); background: var(--hx-surface, #fff); box-shadow: 0 3px 12px #0002; font-size: 12px; }
+@keyframes hx-dictation-pulse { 50% { box-shadow: 0 0 0 4px #b4231822; } }
+:where(:root[data-theme="dark"]) .hx-global-dictation.is-listening { color: #ffb4ab; background: #3a2020; border-color: #8f4841; }
+@media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"])) .hx-global-dictation.is-listening { color: #ffb4ab; background: #3a2020; border-color: #8f4841; } }

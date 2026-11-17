@@ -4,6 +4,7 @@ import { isWorkspaceBudgetNoticeContextCurrent, shouldRestoreWorkspaceBudgetNoti
 import {WorkspaceModeLoading} from './WorkspaceModeLoading'
 import { FloatingAppWorkspace } from './FloatingAppWorkspace'
 import { HarnessRail } from './HarnessRail'
+import { HarnessVoiceInput } from './HarnessVoiceInput'
 const HarnessGateways = React.lazy(() => import('../screens/HarnessGateways'))
 import { channelMessageCache } from '../utils/channelMessageCache'
 import { setQuietState, getQuietState, onQuietChange, type QuietState } from '../utils/quiet'
@@ -44,7 +45,7 @@ import { isMacPlatform, formatCombo, hasPrimaryMod, composing } from '../utils/k
 import { tabWithin, TAB_STOPS } from '../utils/focusTrap'
 import type { ChannelMessage } from '../types/card'
 import { ForYou } from '../utils/forYou'
-import { useWorkspaceMode } from '../utils/harness'
+import { harnessApi, useWorkspaceMode } from '../utils/harness'
 
 // The screens a person opens now and then load when they are opened: the
 // first page is the conversation, not the settings behind it.
@@ -300,6 +301,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   // Simple or harness (docs/kylon-gap-plan.md): what the rail offers.
   const jamSnapshot=useJamSnapshot(JSON.stringify([relayUrl,userId,orgId,sessionToken]))
   const { mode: workspaceMode, simpleOnly, loaded: workspaceModeLoaded,offline:workspaceModeOffline,error:workspaceModeError,retry:retryWorkspaceMode,setSimpleOnly } = useWorkspaceMode(relayHttpUrl, orgId, sessionToken)
+  const voiceApi = useMemo(() => harnessApi(relayHttpUrl, orgId, sessionToken), [relayHttpUrl, orgId, sessionToken])
   const workspaceBudgetNoticeScope = JSON.stringify([relayHttpUrl, orgId, userId, sessionToken])
   const workspaceBudgetNoticeContextRef = useRef({ scope: workspaceBudgetNoticeScope, workspaceMode, simpleOnly, workspaceModeLoaded })
   workspaceBudgetNoticeContextRef.current = { scope: workspaceBudgetNoticeScope, workspaceMode, simpleOnly, workspaceModeLoaded }
@@ -1124,6 +1126,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
     // on a laptop navigation is a place on the page and disappearing would be
     // the app losing its own chrome.
     <div className={`shell${workspaceMode === 'harness' ? ' harness-workspace' : ''}${screen ? ' screen-open' : ''}${screen === 'home' ? ' home-open' : ''}${immersive && mode === 'classic' && !screen ? ' immersive' : ''}${mode === 'classic' && !screen ? ' list-mode' : ''}`}>
+      {workspaceMode === 'harness' && !simpleOnly && <HarnessVoiceInput userId={userId} api={voiceApi}/>}
       <FloatingAppWorkspace key={`${relayHttpUrl}:${orgId}:${userId}:${sessionToken}`} httpBase={relayHttpUrl} orgId={orgId} userId={userId} sessionToken={sessionToken} enabled={workspaceMode==='harness'} interactive={!panel&&!palette&&!shortcuts}>
       {workbench ? (
         <div className="workbench">

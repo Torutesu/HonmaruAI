@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-17",
+  "asOf": "2026-11-18",
   "baseline": "befb931ab44a78ff34a728422bd117d9293d97d6",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1672,6 +1672,21 @@
         "reviewedAt": "2026-11-17",
         "verified": "Muteと独立した個人別leave状態をD1/APIに追加し、Leave中はthread list、Activity、返信通知を抑制。read/reply ACLは維持し、別session同期・Follow復帰を回帰確認。Worker関連5 suite 101/101、Web全270 files・2,063 tests、TypeScript・production build成功。",
         "remaining": "明示@mentionを含む通知の抑制/Follow後の再開、端末・利用者間の本番受入、Kylonとの画面比較、exact-head CIと本番deployは未確認。"
+      }
+    },
+    {
+      "id": "KY-127",
+      "category": "Workspace UI",
+      "requirement": "音声入力をすべてのテキスト欄で利用",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "web-react/src/components/HarnessVoiceInput.tsx; web-react/src/components/Dashboard.tsx; web-react/src/utils/dictation.ts",
+      "acceptance": "Harnessの検索・フォーム・レコード編集等の全通常テキスト入力とtextareaで、個人の語彙/補正、選択範囲、カーソル、文字数上限を保って音声入力する。パスワード、読み取り専用、無効欄、既に独自マイクを持つ入力は除外し、フォーカス移動/停止・キーボード操作・ダーク/ライト表示を検証。Simple表示には共通コントロールを出さず既存フローを維持。認証済みKylonと同一入力欄で比較し、追加契約・課金なし。",
+      "evidence": {
+        "reviewedAt": "2026-11-18",
+        "verified": "HarnessのDashboardにフォーカス連動する共通音声入力を追加。既存SpeechRecognition、個人語彙・補正とHarness APIを再利用し、テキスト/検索/email/url/tel入力とtextareaへ挿入。既存のchat mic、disabled/readonly、passwordや非テキスト型は除外。選択範囲・末尾空白・maxLengthを保持。Simple表示ではコンポーネントをmountしない。単体テスト4/4、Web全体2072/2072、TypeScriptとproduction build成功。ローカルHarness Playwright voice stepはlaptop/phone双方で通過。",
+        "remaining": "Harness tourのRoom fixtureには必須guidelinesを追加済み。main E2Eでroute遷移時にmount後focusinが起きないと音声コントロールが現れない欠陥を確認し、mount時のactiveElement確認を追加。main E2Eでは個人別Simple-only設定を解除せず、同一hash内遷移でDashboardがサーバー設定を再読込しないテスト設計上の問題を修正。元設定を保存/復元し、Harness設定後にqueryを変えたfull reloadを行い、reload前にcontext mockを注入する。修正版E2E・exact-head CI・本番デプロイ・ログイン済みKylonとの全フィールド同一タスクの比較は未完了。一般contenteditable、ネイティブWeb Speechの実マイク/権限挙動、話者修正から辞書へ学習する経路も未検証。"
       }
     }
   ]
