@@ -19,6 +19,14 @@ test('search filters unjoined rooms and excludes rooms already joined',async()=>
  expect(joined).not.toHaveBeenCalled();expect(fetch).toHaveBeenCalledTimes(1)
  act(()=>tree.unmount())
 })
+test('room search finds a public room when one character is missing from its name',async()=>{
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(response({rooms})));let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<RoomJoinDialog api={api} onClose={vi.fn()} onJoined={vi.fn()}/>)})
+ act(()=>tree.root.findByType('input').props.onChange({target:{value:'Plannig'}}))
+ const items=tree.root.findAllByType('li');expect(items).toHaveLength(1)
+ expect(items[0].findAllByType('span').some(span=>span.children.includes('Planning'))).toBe(true)
+ act(()=>tree.unmount())
+})
 test('failed joining preserves the search and offers retry; pending cannot duplicate or close',async()=>{
  let resolve!:(r:unknown)=>void
  const fetch=vi.fn().mockResolvedValueOnce(response({rooms})).mockImplementationOnce(()=>new Promise(r=>{resolve=r})).mockResolvedValue(response({joined:true}))
