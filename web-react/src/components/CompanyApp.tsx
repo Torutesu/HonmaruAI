@@ -132,7 +132,7 @@ export function CompanyApp({ app, api, canManage, reload }: {app: App; api: Harn
         <h3>DB変更履歴</h3>
         {!db.migrations.length?<p>適用済みの変更はありません。</p>:<ol className="hx-db-migration-history">{db.migrations.map(migration=><li key={`${migration.id}:${migration.version}`}>
           <details><summary>v{migration.version} · {migration.id} · {new Date(migration.createdAt).toLocaleString()}</summary>
-            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre>{canManage&&migration.inverseOperations&&migration.inverseOperations.length>0&&<><p>追加列・列名変更・空欄だけの型変更・空テーブルの作成／削除から、検証済み逆変更案を作れます。値があるデータ変更は自動で戻せません。作成した案もプレビューしてから適用します。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>prepareSchemaRollback(migration)}>逆変更案を作成</button></>}</>}
+            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre>{canManage&&migration.inverseOperations&&migration.inverseOperations.length>0&&<><p>追加列・空欄だけの列削除／型変更・列名変更・空テーブルの作成／削除から、検証済み逆変更案を作れます。値があるデータ変更は自動で戻せません。作成した案もプレビューしてから適用します。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>prepareSchemaRollback(migration)}>逆変更案を作成</button></>}</>}
           </details>
         </li>)}</ol>}
       </section>
