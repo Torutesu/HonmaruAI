@@ -3,7 +3,7 @@ import { formatGatewayStatus, getGatewayStatus, runGatewayForeground } from "./g
 import { lstat, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { generateTableSdk } from "./sdk.js";
+import { generateTableSdk, generateTableSdkFromContract } from "./sdk.js";
 
 const HELP = `Honmaru workspace CLI
 
@@ -70,7 +70,9 @@ Usage:
   honmaru workspace thread mute|unmute <room-id> <root-id>
   honmaru workspace thread pin|unpin <room-id> <root-id>
   honmaru workspace table list
-  honmaru workspace sdk generate <table-id> --out <file.ts>
+  honmaru workspace table contract publish <table-id> --expected-updated-at ISO [--org-id ORG]
+  honmaru workspace table contract list <table-id> [--org-id ORG]
+  honmaru workspace sdk generate <table-id> --out <file.ts> [--contract-version SHA256 --org-id ORG]
   honmaru workspace row list <table-id> [--query TEXT] [--where JSON] [--sort FIELD] [--limit N] [--offset N]
   honmaru workspace row create <table-id> --values JSON
   honmaru workspace row update <table-id> <row-id> --values JSON [--expected-updated-at ISO]
@@ -126,7 +128,8 @@ Environment:
   HONMARU_API_URL       HTTPS API origin for your Honmaru workspace
   HONMARU_APP_URL       Honmaru app origin for generated share links (default: https://app.honmaruai.com)
   HONMARU_API_TOKEN       Active agent token created under Studio → API
-  HONMARU_SESSION_TOKEN   Signed-in human session token (file administration and Skill shares)
+  HONMARU_SESSION_TOKEN   Signed-in human session token (file administration, Skill shares, pinned contracts)
+  HONMARU_ORG_ID          Workspace id for commands that address a specific workspace
 
 Agent commands use the API token. Public file-share decisions, permanent file purges, and
 Skill share-link create/import require a human session token and explicit --org-id; they never
@@ -159,7 +162,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "agent", "to-agent",
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "dest", "format", "timeout-seconds", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
-  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "expires-in-days", "file-id", "org-id", "reason", "token-env",
+  "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "expires-in-days", "file-id", "org-id", "reason", "token-env", "contract-version",
 ]);
 const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
 
@@ -1097,19 +1100,45 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       await skillShareLink({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, secretEnv: env, fetcher, writeOut });
       return 0;
     }
+    if (aliasMode && resource === "table" && operation === "contract") {
+      await tableContractCommand({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, orgId: env.HONMARU_ORG_ID, fetcher, writeOut });
+      return 0;
+    }
     const client = createMcpClient({ apiUrl, token, fetcher });
 
     if (action === "sdk") {
       const [sdkAction, tableId] = positional;
-      onlyFlags(options, ["out"]);
+      onlyFlags(options, ["out", "contractVersion", "orgId"]);
       if (sdkAction !== "generate" || !tableId || positional.length !== 2 || !options.out) {
-        throw new Error("Usage: honmaru workspace sdk generate <table-id> --out <file.ts>.");
+        throw new Error("Usage: honmaru workspace sdk generate <table-id> --out <file.ts> [--contract-version SHA256 --org-id ORG].");
       }
-      const result = await client.callTool("list_tables");
-      const table = result?.structuredContent?.tables?.find((item) => item.id === tableId);
-      if (!table) throw new Error("No accessible table matches that ID.");
-      await writeFile(options.out, generateTableSdk(table), { encoding: "utf8", flag: "w" });
-      writeOut(`Generated typed client for ${table.name} at ${options.out}`);
+      let source, tableName;
+      if (options.contractVersion !== undefined) {
+        if (!/^[a-f0-9]{64}$/.test(options.contractVersion)) throw new Error("--contract-version must be a SHA-256 contract version.");
+        const orgId = options.orgId || env.HONMARU_ORG_ID;
+        const sessionToken = env.HONMARU_SESSION_TOKEN;
+        if (!orgId) throw new Error("Set HONMARU_ORG_ID or pass --org-id to fetch a pinned table contract.");
+        if (!sessionToken) throw new Error("Set HONMARU_SESSION_TOKEN to fetch a pinned table contract.");
+        const access = await client.callTool("list_tables");
+        if (!access?.structuredContent?.tables?.some((item) => item.id === tableId)) throw new Error("No accessible table matches that ID.");
+        const url = new URL(`/tables/${encodeURIComponent(tableId)}/contracts/${options.contractVersion}`, new URL(mcpEndpoint(apiUrl)).origin);
+        url.searchParams.set("orgId", orgId);
+        const response = await fetcher(url, { method: "GET", redirect: "error", headers: { "x-session-token": sessionToken, accept: "application/json" } });
+        if (!response.ok) throw new Error(`Honmaru API returned HTTP ${response.status} while reading the pinned contract.`);
+        const pinned = await response.json();
+        if (pinned.contractVersion !== options.contractVersion || pinned.contract?.["x-honmaru-table"]?.id !== tableId) throw new Error("Honmaru returned a mismatched pinned contract.");
+        source = generateTableSdkFromContract(pinned.contract, pinned.contractVersion);
+        tableName = pinned.contract["x-honmaru-table"].name;
+      } else {
+        if (options.orgId !== undefined) throw new Error("--org-id is only used with --contract-version.");
+        const result = await client.callTool("list_tables");
+        const table = result?.structuredContent?.tables?.find((item) => item.id === tableId);
+        if (!table) throw new Error("No accessible table matches that ID.");
+        source = generateTableSdk(table);
+        tableName = table.name;
+      }
+      await writeFile(options.out, source, { encoding: "utf8", flag: "w" });
+      writeOut(`Generated typed client for ${tableName} at ${options.out}`);
       return 0;
     }
 
@@ -1151,6 +1180,32 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
     writeError(error instanceof Error ? error.message : "The command failed.");
     return 1;
   }
+}
+
+async function tableContractCommand({ action, positional, options, apiUrl, sessionToken, orgId: configuredOrgId, fetcher, writeOut }) {
+  onlyFlags(options, ["orgId", "expectedUpdatedAt"]);
+  if (!(["list", "publish"].includes(action)) || positional.length !== 1) {
+    throw new Error("Usage: honmaru workspace table contract publish <table-id> --expected-updated-at ISO | list <table-id> [--org-id ORG].");
+  }
+  const [tableId] = positional;
+  if (!/^[A-Za-z0-9_.:-]{1,160}$/.test(tableId)) throw new Error("A valid table ID is required.");
+  const workspaceId = options.orgId || configuredOrgId;
+  if (!workspaceId) throw new Error("Set HONMARU_ORG_ID or pass --org-id to access a pinned table contract.");
+  if (!sessionToken) throw new Error("Set HONMARU_SESSION_TOKEN to access a pinned table contract.");
+  const base = new URL(mcpEndpoint(apiUrl)).origin;
+  const url = new URL(`/tables/${encodeURIComponent(tableId)}/contracts`, base);
+  url.searchParams.set("orgId", workspaceId);
+  const init = action === "publish" ? (() => {
+    if (typeof options.expectedUpdatedAt !== "string" || !options.expectedUpdatedAt.trim()) throw new Error("--expected-updated-at is required to publish the current table contract.");
+    return { method: "POST", redirect: "error", headers: { "x-session-token": sessionToken, "content-type": "application/json", accept: "application/json" }, body: JSON.stringify({ orgId: workspaceId, expectedUpdatedAt: options.expectedUpdatedAt }) };
+  })() : (() => {
+    if (options.expectedUpdatedAt !== undefined) throw new Error("--expected-updated-at is only used when publishing a contract.");
+    return { method: "GET", redirect: "error", headers: { "x-session-token": sessionToken, accept: "application/json" } };
+  })();
+  const response = await fetcher(url, init);
+  if (!response.ok) throw new Error(`Honmaru API returned HTTP ${response.status} while ${action === "publish" ? "publishing" : "listing"} table contracts.`);
+  const result = await response.json();
+  writeOut(JSON.stringify(result, null, 2));
 }
 
 const MIME_BY_EXTENSION = {

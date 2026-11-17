@@ -658,3 +658,5 @@ CREATE TABLE IF NOT EXISTS hx_document_export_artifacts (org_id TEXT NOT NULL,jo
 CREATE INDEX IF NOT EXISTS idx_hx_document_export_artifacts_expiry ON hx_document_export_artifacts(org_id,expires_at,job_id);
 CREATE TABLE IF NOT EXISTS hx_document_export_links (org_id TEXT NOT NULL,token_hash TEXT NOT NULL,job_id TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,PRIMARY KEY(org_id,token_hash));
 CREATE INDEX IF NOT EXISTS idx_hx_document_export_links_expiry ON hx_document_export_links(org_id,expires_at,job_id);
+CREATE TABLE IF NOT EXISTS hx_table_contract_versions (org_id TEXT NOT NULL, table_id TEXT NOT NULL, contract_hash TEXT NOT NULL CHECK(length(contract_hash)=64), contract_json TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,table_id,contract_hash));
+CREATE INDEX IF NOT EXISTS idx_hx_table_contract_versions_order ON hx_table_contract_versions(org_id,table_id,created_at DESC,contract_hash);
