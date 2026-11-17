@@ -62,6 +62,60 @@ test("@channel reaches everyone who can read the conversation; @here only who is
   expect(here.map((r) => r.login)).toEqual(["mika"]);
 });
 
+test("@room reaches authorized humans in that public Room, including only joined guests", async () => {
+  const { upsertUser, upsertMembership, upsertBusiness } = await import("../src/db.js");
+  for (const [id, login] of [["8804", "guest-in"], ["8805", "guest-out"]]) {
+    await upsertUser(env.DB, { githubId: id, login, name: login, avatarUrl: null, locale: "en" });
+    await upsertMembership(env.DB, ORG, id, "guest");
+  }
+  await upsertBusiness(env.DB, ORG, { name: "Other", createdBy: "8801" });
+  await env.DB.prepare(`INSERT INTO conversation_members(org_id,channel,login,added_by,added_at)
+    VALUES(?1,'b:cafe','guest-in','toru','now'),(?1,'b:other','guest-out','toru','now')`).bind(ORG).run();
+  await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES(?1,'room-helper','helper','Helper','Help','team','toru','now','now')`).bind(ORG).run();
+  await env.DB.prepare(`INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at)
+    VALUES(?1,'b:cafe','room-helper','toru','now')`).bind(ORG).run();
+
+  const members = await listMembers(env.DB, ORG, null);
+  const recipients = await recipientsOf(env.DB, ORG, {
+    id: "room-mention-public", kind: "message", channel: "b:cafe", author_login: "toru", body: "@room please review",
+  }, members);
+  expect(recipients.map(item => item.login).sort()).toEqual(["guest-in", "kenji", "mika"]);
+  expect(recipients.every(item => item.reason === "mention")).toBe(true);
+});
+
+test("@room in a private Room excludes removed Room and Workspace members", async () => {
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "8804", login: "guest-in", name: "Guest", avatarUrl: null, locale: "en" });
+  await upsertMembership(env.DB, ORG, "8804", "guest");
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
+  await env.DB.prepare(`INSERT INTO conversation_members(org_id,channel,login,added_by,added_at)
+    VALUES(?1,'b:cafe','mika','toru','member-mika'),(?1,'b:cafe','guest-in','toru','member-guest')`).bind(ORG).run();
+
+  const row = { id: "room-mention-private", kind: "message", channel: "b:cafe", author_login: "toru", body: "@room private update" };
+  let members = await listMembers(env.DB, ORG, null);
+  expect((await recipientsOf(env.DB, ORG, row, members)).map(item => item.login).sort()).toEqual(["guest-in", "mika"]);
+
+  await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:cafe' AND login='guest-in'").bind(ORG).run();
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='8802'").bind(ORG).run();
+  members = await listMembers(env.DB, ORG, null);
+  expect((await recipientsOf(env.DB, ORG, row, members)).map(item => item.login)).toEqual([]);
+});
+
+test("@room has no broadcast meaning in DMs, group DMs, or Agent DMs", async () => {
+  const members = await listMembers(env.DB, ORG, null);
+  const dm = await recipientsOf(env.DB, ORG, { id: "room-token-dm", kind: "message", channel: "dm:mika|toru", author_login: "toru", body: "@room hello" }, members);
+  expect(dm).toEqual([{ login: "mika", reason: "direct" }]);
+
+  await env.DB.prepare(`INSERT INTO conversation_members(org_id,channel,login,added_by,added_at)
+    VALUES(?1,'g:roomtest','toru','toru','1'),(?1,'g:roomtest','mika','toru','2'),(?1,'g:roomtest','kenji','toru','3')`).bind(ORG).run();
+  const group = await recipientsOf(env.DB, ORG, { id: "room-token-group", kind: "message", channel: "g:roomtest", author_login: "toru", body: "@room hello" }, members);
+  expect(group).toEqual([{ login: "mika", reason: "direct" }, { login: "kenji", reason: "direct" }]);
+
+  const agentDm = await recipientsOf(env.DB, ORG, { id: "room-token-agent", kind: "message", channel: "ag:helper|toru", author_login: "agent:helper", body: "@room hello" }, members);
+  expect(agentDm).toEqual([{ login: "toru", reason: "direct" }]);
+});
+
 test("the member list carries a presence key that matches the relay's login, and no login", async () => {
   const res = await (await call(`/members?orgId=${encodeURIComponent(ORG)}`, toru)).json();
   const mika = res.members.find((m) => m.name === "Mika");

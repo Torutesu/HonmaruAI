@@ -41,6 +41,10 @@ export function broadcastOf(token) {
   return m ? (m[1] === "here" ? "here" : "channel") : null;
 }
 
+export function isRoomMention(token) {
+  return /^room(?![a-z0-9_.\-])/.test(fold(token));
+}
+
 /// What may come right before "@" for it to start a mention (the same rule
 /// as MENTION_RE), as a regex source to build other patterns from.
 export const MENTION_BEFORE = `(^|[^\\x21-\\x7E]|[(\\[{"'])`;
@@ -52,12 +56,18 @@ const handleOf = (login) => fold(login).replace(/^(u:|email:)/, "").split("@")[0
 /// the member list carries them — case-folded, so "@kenji" finds "Kenji
 /// Tanaka". Unmatched tokens are left alone. "@channel", "@all" and
 /// "@everyone" name everyone in `members`, "@here" those online.
-export function resolveMentions(text, members, { here = true, online = null } = {}) {
+export function resolveMentions(text, members, { here = true, online = null, roomLogins = null } = {}) {
   const tokens = mentionTokens(text);
   if (!tokens.length) return [];
   const found = new Map();
   for (const token of tokens) {
     const want = fold(token);
+    // @room is reserved for Room messages. Callers provide a current,
+    // authorization-filtered human audience; without one it names nobody.
+    if (isRoomMention(token)) {
+      if (here && roomLogins) for (const m of members) if (roomLogins.has(m.login)) found.set(m.login, m);
+      continue;
+    }
     // "@channel" reaches everyone the conversation's
     // `members` are; "@here" only those at the app now — `online`, a set of
     // logins, when the caller knows it. For a closed conversation the caller

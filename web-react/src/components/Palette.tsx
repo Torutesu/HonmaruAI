@@ -138,14 +138,14 @@ export const Palette: React.FC<Props> = ({ httpBase, orgId, sessionToken, cards,
     // you are, not where you were, so a lone # does not lead with it either.
     const before = recent.filter((v) => v !== current)
     const found = query.trim()
-      ? rankPlaces(known, query, before)
+      ? rankPlaces(known, query, before, 8, showSearchProgress)
       : emptyQueryPlaces(known.filter((p) => p.view !== current), before)
     return found.map((p) => ({
       key: `v:${p.view}`, group: 'places' as const, label: p.name, place: p,
       meta: p.kind === 'agent' ? t('Agent') : p.kind === 'person' && p.handle ? `@${p.handle}` : undefined,
       action: { kind: 'view' as const, view: p.view },
     }))
-  }, [filtered, query, known, recent, current, t])
+  }, [filtered, query, known, recent, current, t, showSearchProgress])
 
   const here: Item[] = useMemo(() => {
     if (!q) return []

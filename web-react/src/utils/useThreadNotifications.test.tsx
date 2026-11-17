@@ -5,16 +5,24 @@ import {useThreadNotifications} from './useThreadNotifications'
 const api={httpBase:'https://api.example',orgId:'team:test',sessionToken:'token'}
 let state:ReturnType<typeof useThreadNotifications>
 function Probe({id='root',open=true}:{id?:string;open?:boolean}){state=useThreadNotifications(api,'b:general',id,open);return null}
-const ok=(muted:boolean)=>({ok:true,json:async()=>({muted})})
+const ok=(muted:boolean,left=false)=>({ok:true,json:async()=>({muted,left})})
 afterEach(()=>vi.unstubAllGlobals())
 test('loads the personal preference on each menu opening and writes only this thread',async()=>{
  const fetch=vi.fn().mockResolvedValueOnce(ok(false)).mockResolvedValueOnce(ok(true)).mockResolvedValueOnce(ok(false));vi.stubGlobal('fetch',fetch)
  let tree:ReturnType<typeof create>
- await act(async()=>{tree=create(<Probe/>)});expect(state.muted).toBe(false)
+ await act(async()=>{tree=create(<Probe/>)});expect(state.muted).toBe(false);expect(state.left).toBe(false)
  await act(async()=>{await state.toggle()});expect(state.muted).toBe(true)
  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({orgId:'team:test',channel:'b:general',messageId:'root',muted:true})
  await act(async()=>tree!.update(<Probe open={false}/>));await act(async()=>tree!.update(<Probe/>))
  expect(state.muted).toBe(false);act(()=>tree!.unmount())
+})
+test('leave and follow are saved per thread and survive a fresh load',async()=>{
+ const fetch=vi.fn().mockResolvedValueOnce(ok(false,false)).mockResolvedValueOnce(ok(false,true)).mockResolvedValueOnce(ok(false,true)).mockResolvedValueOnce(ok(false,false));vi.stubGlobal('fetch',fetch)
+ let tree:ReturnType<typeof create>;await act(async()=>{tree=create(<Probe/>)});expect(state.left).toBe(false)
+ await act(async()=>{await state.toggleLeft()});expect(state.left).toBe(true)
+ expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({orgId:'team:test',channel:'b:general',messageId:'root',left:true})
+ await act(async()=>tree!.update(<Probe open={false}/>));await act(async()=>tree!.update(<Probe/>));expect(state.left).toBe(true)
+ await act(async()=>{await state.toggleLeft()});expect(state.left).toBe(false);act(()=>tree!.unmount())
 })
 test('an old thread response cannot replace the new thread preference',async()=>{
  let resolve!:(v:any)=>void

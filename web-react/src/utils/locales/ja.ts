@@ -4129,6 +4129,10 @@ const table: Record<string, string> = {
   'Register this redirect URI in your Google OAuth web client:': 'このリダイレクト URI を Google OAuth ウェブクライアントに登録してください:',
   'Allow pop-ups to connect Google OAuth.': 'Google OAuth を接続するにはポップアップを許可してください。',
   'Could not start OAuth authorization.': 'OAuth 認証を開始できませんでした。',
+  'Saving thread status…': 'スレッドの状態を保存中…',
+  'Loading thread status…': 'スレッドの状態を読み込み中…',
+  'Follow thread': 'スレッドをフォロー',
+  'Leave thread': 'スレッドから退出',
 }
 
 export default table

@@ -1,3 +1,5 @@
+import { roomNameMatches } from './roomNameSearch'
+
 // The quick switcher's half of ⌘K: every conversation you can open — a
 // channel, a DM, a group DM, an agent — found by a few letters of its name,
 // the way a chat client's switcher finds it. Typing a channel's name used to
@@ -152,7 +154,7 @@ export function emptyQueryPlaces(places: Place[], recent: string[], limit = 8): 
 /// you, then to where you were most recently. A leading # looks only at
 /// channels, a leading @ only at people and agents — what has an @handle
 /// to type; a group DM has none — and either on its own lists them all.
-export function rankPlaces(places: Place[], query: string, recent: string[], limit = 8): Place[] {
+export function rankPlaces(places: Place[], query: string, recent: string[], limit = 8, tolerateRoomTypos = false): Place[] {
   let q = fold(query.trim())
   let pool = places
   if (q.startsWith('#')) { pool = places.filter((p) => p.kind === 'channel'); q = q.slice(1).trim() }
@@ -165,7 +167,15 @@ export function rankPlaces(places: Place[], query: string, recent: string[], lim
   }
   const recency = recencyOf(recent)
   return pool
-    .map((p, i) => ({ p, i, score: Math.max(matchScore(fold(p.name), q), matchScore(fold(p.handle || '').replace(/^@/, ''), q)) }))
+    .map((p, i) => {
+      const name = fold(p.name), handle = fold(p.handle || '').replace(/^@/, '')
+      const regular = Math.max(matchScore(name, q), matchScore(handle, q))
+      // Workspace Find additionally catches one-character Room typos. Keep
+      // the looser match opt-in so Simple mode retains its existing ranking.
+      const typo = tolerateRoomTypos && p.kind === 'channel' && q.length >= 4
+        && (roomNameMatches(q, p.name) || roomNameMatches(q, p.handle || '')) ? 1.5 : 0
+      return { p, i, score: Math.max(regular, typo) }
+    })
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score || byAttention(a.p, b.p) || recency(a.p) - recency(b.p) || a.i - b.i)
     .slice(0, limit)

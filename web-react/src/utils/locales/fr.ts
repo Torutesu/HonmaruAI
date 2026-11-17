@@ -2383,6 +2383,10 @@ const table: Record<string, string> = {
   'Register this redirect URI in your Google OAuth web client:': 'Enregistrez cet URI de redirection dans votre client Web Google OAuth :',
   'Allow pop-ups to connect Google OAuth.': 'Autorisez les fenêtres contextuelles pour connecter Google OAuth.',
   'Could not start OAuth authorization.': 'Impossible de démarrer l’autorisation OAuth.',
+  'Saving thread status…': 'Enregistrement de l’état du fil…',
+  'Loading thread status…': 'Chargement de l’état du fil…',
+  'Follow thread': 'Suivre le fil',
+  'Leave thread': 'Quitter le fil',
 }
 
 export default table
