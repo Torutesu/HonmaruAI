@@ -463,10 +463,25 @@ export async function applyMigration(db, orgId, app, input, by) {
       catch { return false; }
     }));
   };
+  const emptyEntityChange = operation => {
+    if (operation?.op === 'create_entity') return !current.entities.some(item => item.key === operation.entity);
+    if (operation?.op !== 'drop_entity') return false;
+    const snapshot = preview.snapshots.find(item => item.key === operation.entity);
+    return Boolean(snapshot && snapshot.rows.length === 0 && planned.changes.some(item => item.key === operation.entity && item.drop));
+  };
   const reversibleSchemaOnly = input.operations.length > 0
-    && input.operations.every(operation => ['add_columns', 'rename_column'].includes(operation?.op) || emptyColumnConversion(operation));
+    && input.operations.every(operation => ['add_columns', 'rename_column'].includes(operation?.op) || emptyColumnConversion(operation) || emptyEntityChange(operation));
   const inverseOperations = reversibleSchemaOnly
     ? [...input.operations].reverse().flatMap(operation => {
+      if (operation.op === 'create_entity') return [{ op: 'drop_entity', entity: operation.entity }];
+      if (operation.op === 'drop_entity') {
+        const before = current.entities.find(entity => entity.key === operation.entity);
+        if (!before) return [];
+        return [{ op: 'create_entity', entity: operation.entity, name: before.table.name,
+          columns: before.table.columns.map(column => ({ name: column.name, type: column.type,
+            ...(column.type === 'select' ? { options: column.options || [] } : {}),
+            ...(column.type === 'relation' ? { targetEntity: column.targetEntity, multiple: Boolean(column.multiple) } : {}) })) }];
+      }
       if (operation.op === 'add_columns') {
         const change = planned.changes.find(item => item.key === operation.entity);
         const existingIds = new Set(current.entities.find(entity => entity.key === operation.entity)?.table.columns.map(column => column.id) || []);

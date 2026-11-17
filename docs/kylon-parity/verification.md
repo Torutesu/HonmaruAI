@@ -4648,21 +4648,29 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - PR #1063 merged as `c0d859cc56344ec1d3ae465cf06d533400a3246`. Exact-head CI #43991413732 passed all required jobs. Main CI #43994773550 passed; Worker D1 migration/deploy/Verify #43994773631 and Web build/deploy/domain verification #43994773653 passed. Production Worker `/health` returned `ok:true` and `encryption.all:true`; `app.honmaruai.com` served `index-DnAzM4Ld.js`.
 - Authenticated production multi-user acceptance and direct Kylon UI comparison remain. At release, the reviewed merge bound was 250 records.
 
-### 2026-11-17 — KY-046 larger atomic private DB merges with Workflow queue fencing (candidate)
+### 2026-11-17 — KY-046 larger atomic private DB merges with Workflow queue fencing (released)
 
 - Raised the private DB reviewed merge ceiling from 250 to 800 changed rows while preserving one atomic D1 batch. Workflow watcher discovery and table-schema reads are now performed once per touched table rather than once per row.
 - The Workflow outbox retains its 100-pending-event-per-workspace safety limit. A merge that would exceed the available queue capacity fails with a conflict before writes; the transaction receipt repeats the capacity check, so a concurrent event cannot make the reviewed merge partially apply. A watched 800-row merge therefore remains bounded by available queue capacity.
-- Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **75/75**. The regressions prove 800 unwatched row changes commit atomically, 101 watched row changes are rejected without writes, and a concurrent queue fill from 99 to 100 prevents a one-row merge. Exact-head CI, merge and deployment are pending. No new service, paid dependency, migration, or Simple-mode change.
+- Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **75/75**. The regressions prove 800 unwatched row changes commit atomically, 101 watched row changes are rejected without writes, and a concurrent queue fill from 99 to 100 prevents a one-row merge.
+- PR #1064 exact-head CI #43998464745 passed; main merge commit #339732eb included the change. Main CI #44005868485 and Worker migration/deploy/Verify #44005868413 succeeded. Production Worker version `ba530238-fe42-4d1d-83e4-16c9291ef0f8` reported `/health` `ok:true` and `encryption.all=true`. Web deploy #44005868493 succeeded and `app.honmaruai.com` served `index-C_FpFnt6.js`. No new service, paid dependency, migration, or Simple-mode change.
 - Authenticated multi-user production acceptance and direct Kylon comparison remain open.
 
-### 2026-11-17 — KY-048 reversible empty-column type migrations (candidate)
+### 2026-11-17 — KY-048 reversible empty-column type migrations (released)
 
 - Migration journals now record a stable-ID inverse conversion when every existing value in the converted column is empty. The inverse restores the original type and, where applicable, Select options or Relation target/multiplicity. Rename and additive inverses continue to use the same checksum-protected journal. A conversion with any populated row still has no automatic inverse because the journal does not retain original row values.
 - The Company App journal explains this boundary and offers only integrity-checked inverses. The generated inverse is a separate migration; standard preview/apply performs schema and row concurrency checks again. No schema change, paid service, or Simple-mode behavior change.
-- Local QA on the merged #1064 main base: Worker `harness-company.test.js` + `harness-app-relations.test.js` **76/76**, including an empty-column type conversion and previewed rollback; Web `CompanyApp.test.tsx` **18/18**; Web TypeScript/production build, parity inventory, JSON validation, `node --check`, and `git diff --check` passed. Exact-head CI, merge, and production release remain pending.
+- Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **76/76**, including an empty-column type conversion and previewed rollback; Web `CompanyApp.test.tsx` **18/18**; Web TypeScript/production build, parity inventory, JSON validation, `node --check`, and `git diff --check` passed.
+- PR #1065 exact-head CI #44003341559 passed all jobs. Squash merge `339732eb85afdaf85b538054c0fa6504d9c1d3a2`; main CI #44005868485, Worker migration/deploy/Verify #44005868413 and Web deploy #44005868493 succeeded. Production Worker health returned `ok:true` / `encryption.all=true`; `app.honmaruai.com` served `index-C_FpFnt6.js`.
 - Authenticated production acceptance and direct Kylon UI comparison remain open.
 
 ### 2026-11-17 — Batch CI timeout stabilization (candidate)
 
 - The main CI for #1064 exposed one unrelated timeout in `remote-mcp.test.js`: a single authorization/revocation integration test exceeded Vitest's 5-second default by 596 ms while its Worker shard had already spent over 11 minutes running 1,000+ tests. Increased only that case's limit to 30 seconds; authorization assertions and mocks are unchanged.
 - Re-ran the combined Worker `harness-company`, `harness-app-relations`, and `remote-mcp` suites: **89/89**. CompanyApp UI **18/18**, Web production build, parity inventory, JSON validation and diff check passed. This timeout correction is included in PR #1065 so exact-head CI validates the combined batch.
+
+
+### 2026-11-17 — KY-048 rollback of empty entity deletion (candidate)
+
+- Ordinary App DB migration journal entries now carry inverse operations for a newly created entity and for deleting an empty, unreferenced entity. Restoring an empty entity recreates its name, column types and options, then goes through a separate preview/apply migration. Subsequent rows or Workflow references block the normal drop preview. Existing table rows are never copied into rollback metadata.
+- Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **76/76**, covering inverse journal entries for create/delete and a previewed empty-entity restore with original columns/options; CompanyApp UI **18/18**; TypeScript/production build, parity inventory, JSON validation, `node --check`, and `git diff --check` passed. Exact-head CI, merge, deployment, authenticated production acceptance and Kylon UI comparison remain pending.
