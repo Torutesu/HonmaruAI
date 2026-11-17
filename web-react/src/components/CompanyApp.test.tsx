@@ -173,6 +173,21 @@ test('preview database queues deletion of an empty secondary entity without appl
  act(()=>tree.unmount())
 })
 
+test('legacy preview warns before adopting current production as an explicit baseline',async()=>{
+ const fork={id:'legacy-fork',revision:8,hasBaseline:false,entities:[{key:'primary',table:{id:'table',name:'Tasks',columns:[]},rows:[{id:'row',values:{name:'Draft'},updatedAt:'2026-11-01T00:00:00.000Z'}]}]}
+ const {tree,button,api}=await setup([],{fork,version:3,entities:fork.entities,migrations:[]})
+ expect(tree.root.findByProps({'aria-label':'旧検証DBの比較基準'})).toBeTruthy()
+ await act(async()=>button('古い検証DBの差分を引き継ぐ').props.onClick())
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ expect(tree.root.findByProps({role:'alertdialog'})).toBeTruthy()
+ await act(async()=>button('キャンセル').props.onClick())
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ await act(async()=>button('古い検証DBの差分を引き継ぐ').props.onClick())
+ await act(async()=>button('現在の本番を基準に保存').props.onClick())
+ expect(api.databaseChange).toHaveBeenCalledWith('app',{action:'fork_rebase_legacy',forkId:'legacy-fork',revision:8})
+ act(()=>tree.unmount())
+})
+
 test('existing column rename builder uses the stable column ID without applying it',async()=>{
  const database={fork:null,version:2,entities:[{key:'primary',table:{id:'tasks',name:'Tasks',columns:[{id:'old_name',name:'Old name',type:'text'},{id:'status',name:'Status',type:'select',options:['Open','Done']}]}}],migrations:[]}
  const {tree,api}=await setup([],database)

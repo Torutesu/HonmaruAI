@@ -571,9 +571,43 @@ export async function forkDatabase(db, orgId, app, by) {
   if (!await mayUseDatabase(db, orgId, app.id, by, tableIds, true)) return err('No such app.',404);
   return readFork(db, orgId, app.id, by);
 }
+
+// Older previews predate the persisted three-way baseline. Never guess their
+// creation-time state. A user explicitly adopting the current production state
+// creates a new, transaction-fenced baseline while preserving the preview.
+export async function rebaseLegacyFork(db,orgId,app,by,input) {
+  const {fork}=await readFork(db,orgId,app.id,by);
+  if(!fork||fork.id!==input.forkId||fork.revision!==input.revision)return err('Preview changed. Reload before creating a baseline.',409);
+  if(fork.mergedAt)return err('This preview was already merged. Create a fresh preview before editing.',409);
+  const existing=await db.prepare('SELECT 1 AS present FROM hx_app_fork_bases WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND fork_id=?4').bind(orgId,app.id,String(by),fork.id).first();
+  if(existing)return {rebased:true,replay:true,forkId:fork.id,revision:fork.revision};
+  const snapshot=await snapshotDatabase(db,orgId,app,by);
+  if(snapshot.error)return snapshot;
+  const {data,tableIds,schemaVersion}=snapshot;
+  const authority=databaseAuthority('?1','?2','?3','?8',true);
+  const saved=await db.prepare(`INSERT INTO hx_app_fork_bases (org_id,app_id,created_by,fork_id,data)
+    SELECT ?1,?2,?3,?4,?5 WHERE ${authority}
+      AND EXISTS (SELECT 1 FROM hx_app_forks f WHERE f.org_id=?1 AND f.app_id=?2 AND f.created_by=?3 AND f.id=?4 AND f.revision=?6)
+      AND NOT EXISTS (SELECT 1 FROM hx_app_fork_bases b WHERE b.org_id=?1 AND b.app_id=?2 AND b.created_by=?3 AND b.fork_id=?4)
+      AND COALESCE((SELECT version FROM hx_app_database_state WHERE org_id=?1 AND app_id=?2),0)=?7
+      AND (SELECT COUNT(DISTINCT table_id) FROM (SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2 UNION SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2))=json_array_length(?8)
+      AND NOT EXISTS (SELECT 1 FROM json_each(?8) wanted WHERE wanted.value NOT IN (SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2 UNION SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2))
+      AND NOT EXISTS (SELECT 1 FROM json_each(?5) e WHERE
+        NOT EXISTS (SELECT 1 FROM hx_tables t WHERE t.org_id=?1 AND t.id=json_extract(e.value,'$.table.id') AND json(t.columns)=json_extract(e.value,'$.table.columns') AND t.name=json_extract(e.value,'$.table.name'))
+        OR (json_extract(e.value,'$.key')='primary' AND NOT EXISTS (SELECT 1 FROM hx_apps a WHERE a.org_id=?1 AND a.id=?2 AND a.table_id=json_extract(e.value,'$.table.id')))
+        OR (json_extract(e.value,'$.key')!='primary' AND NOT EXISTS (SELECT 1 FROM hx_app_entities l WHERE l.org_id=?1 AND l.app_id=?2 AND l.entity_key=json_extract(e.value,'$.key') AND l.table_id=json_extract(e.value,'$.table.id'))))
+      AND (SELECT COUNT(*) FROM hx_rows r WHERE r.org_id=?1 AND r.table_id IN (SELECT json_extract(value,'$.table.id') FROM json_each(?5)))=(SELECT COALESCE(SUM(json_array_length(value,'$.rows')),0) FROM json_each(?5))
+      AND NOT EXISTS (SELECT 1 FROM json_each(?5) e JOIN json_each(e.value,'$.rows') expected WHERE NOT EXISTS
+        (SELECT 1 FROM hx_rows r WHERE r.org_id=?1 AND r.table_id=json_extract(e.value,'$.table.id') AND r.id=json_extract(expected.value,'$.id') AND json(r.data)=json(json_extract(expected.value,'$.values')) AND r.updated_at=json_extract(expected.value,'$.updatedAt')))
+  `).bind(orgId,app.id,String(by),fork.id,data,fork.revision,schemaVersion,JSON.stringify(tableIds)).run();
+  if(!saved.meta?.changes)return err('Production data, schema or preview changed while creating the legacy baseline. Reload and try again.',409);
+  if(!await mayUseDatabase(db,orgId,app.id,by,tableIds,true))return err('No such app.',404);
+  return {rebased:true,forkId:fork.id,revision:fork.revision,baselineSchemaVersion:schemaVersion};
+}
+
 export async function readFork(db, orgId, appId, by) {
-  const row = await db.prepare('SELECT id,revision,data,created_at AS createdAt,(SELECT created_at FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id) AS mergedAt FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId, appId, String(by)).first();
-  return { fork: row ? { id: row.id, revision: row.revision, entities: JSON.parse(row.data), createdAt: row.createdAt, mergedAt:row.mergedAt } : null };
+  const row = await db.prepare('SELECT id,revision,data,created_at AS createdAt,(SELECT created_at FROM hx_app_fork_merges m WHERE m.fork_id=hx_app_forks.id) AS mergedAt,EXISTS(SELECT 1 FROM hx_app_fork_bases b WHERE b.org_id=hx_app_forks.org_id AND b.app_id=hx_app_forks.app_id AND b.created_by=hx_app_forks.created_by AND b.fork_id=hx_app_forks.id) AS hasBaseline FROM hx_app_forks WHERE org_id=?1 AND app_id=?2 AND created_by=?3').bind(orgId, appId, String(by)).first();
+  return { fork: row ? { id: row.id, revision: row.revision, entities: JSON.parse(row.data), createdAt: row.createdAt, mergedAt:row.mergedAt, hasBaseline:Boolean(row.hasBaseline) } : null };
 }
 export async function mutateFork(db, orgId, appId, by, input) {
   const { fork } = await readFork(db, orgId, appId, by);

@@ -46,7 +46,7 @@ import { listAppAnnotations, normalizeAppAnnotation, saveAppAnnotation } from '.
 import { personalViews } from './personalViews.js';
 import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
-import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, readFork, mutateFork, mutateForkSchema } from './appDatabase.js';
+import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, rebaseLegacyFork, readFork, mutateFork, mutateForkSchema } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, listAppActionRuns, connections, saveConnection } from './appCapabilities.js';
 import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
 import { appRemoteMcpForViewer, changeAppRemoteMcpGrant, invokeAppRemoteMcp } from './appRemoteMcp.js';
@@ -1764,6 +1764,7 @@ export async function handleHarness(request, env, url, context = {}) {
         }
         if (input.action === 'migrate') return respond(await applyMigration(env.DB, orgId, app, input, me), 'app.database_migrated');
         if (input.action === 'fork') return respond(await forkDatabase(env.DB, orgId, app, me), 'app.database_forked');
+        if (input.action === 'fork_rebase_legacy') return respond(await rebaseLegacyFork(env.DB,orgId,app,me,input),'app.database_fork_rebased');
         if (input.action === 'custom_preview_fork') return respond(await createCustomDraftPreviewFork(env.DB,orgId,app,me,input), 'app.custom_preview_forked');
         if (input.action === 'custom_preview_refresh') return respond(await createCustomDraftPreviewFork(env.DB,orgId,app,me,input,true), 'app.custom_preview_refreshed');
         if (input.action === 'merge_preview') { const result=await previewMerge(env.DB,orgId,app,me,input); const {snapshots,appliedChanges,...review}=result; return respond(review,undefined,(snapshots||[]).filter(snapshot=>!snapshot.newEntity).map(snapshot=>snapshot.tableId)); }
