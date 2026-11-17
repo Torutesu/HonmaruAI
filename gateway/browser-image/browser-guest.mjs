@@ -42,7 +42,19 @@ async function run(action) {
     case 'navigate': {
       const url=new URL(action.url);
       if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw new Error('Invalid browser URL.');
-      const response=await page.goto(url.href,{waitUntil:'domcontentloaded',timeout:20000});
+      let response;
+      for(let attempt=0;attempt<2;attempt++){
+        try { response=await page.goto(url.href,{waitUntil:'domcontentloaded',timeout:20000});break; }
+        catch(error){
+          if(attempt!==0||!String(error?.message||'').includes('net::ERR_NETWORK_CHANGED'))throw error;
+          await new Promise(resolve=>setTimeout(resolve,150));
+        }
+      }
+      // Some sites attach their stylesheets and fonts after DOMContentLoaded.
+      // Give the page a short, bounded chance to finish loading before the
+      // next screenshot, without making slow or long-polling pages block the
+      // browser session indefinitely.
+      await page.waitForLoadState('load',{timeout:5000}).catch(()=>{});
       return {url:page.url(),title:await page.title(),status:response?.status()??null};
     }
     case 'click': await page.mouse.click(action.x,action.y);return {url:page.url()};
@@ -71,7 +83,12 @@ const server=createServer(async(request,response)=>{
   const operation=active.then(()=>run(input));
   active=operation.catch(()=>{});
   try { result=await operation; }
-  catch { response.writeHead(422,{'content-type':'application/json'}).end('{"error":"Browser action failed."}');return; }
+  catch(error) {
+    const message=String(error?.message||'');
+    const code=error?.name==='TimeoutError'?'timeout':/net::ERR_/.test(message)?'network':'action_failed';
+    const detail=message.replace(/https?:\/\/[^\s)]+/g,'[url]').replace(/Bearer\s+\S+/gi,'Bearer [redacted]').slice(0,180);
+    response.writeHead(422,{'content-type':'application/json'}).end(JSON.stringify({error:'Browser action failed.',code,detail}));return;
+  }
   const output=JSON.stringify(result);
   if(Buffer.byteLength(output)>3*1024*1024){response.writeHead(413).end();return;}
   response.writeHead(200,{'content-type':'application/json'}).end(output);

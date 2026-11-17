@@ -138,7 +138,7 @@ async function waitForBrowserCommand(binary,containerName,uid,spawnProcess,signa
 }
 
 export async function runBrowserSessionAction({
-  binary=process.env.HONMARU_CONTAINER_BIN||'container',image='honmaru-browser:1650',
+  binary=process.env.HONMARU_CONTAINER_BIN||'container',image='honmaru-browser:1654',
   workspaceId,agentId,action,uid=process.getuid(),gid=process.getgid(),spawnProcess=spawn,signal,
 }={}) {
   const cleanAction=validateBrowserAction(action);

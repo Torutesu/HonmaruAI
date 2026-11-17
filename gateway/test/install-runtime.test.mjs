@@ -17,6 +17,10 @@ test('installed runtime resolves ordinary and optional document dependencies out
   assert.equal(typeof browser.browserSessionIdentity,'function');
   assert.match(await readFile(join(directory,'browser-image','Dockerfile'),'utf8'),/playwright install --with-deps chromium/);
   assert.match(await readFile(join(directory,'browser-image','browser-guest.mjs'),'utf8'),/launchPersistentContext/);
+  assert.match(await readFile(join(directory,'browser-image','browser-guest.mjs'),'utf8'),/waitForLoadState\('load',\{timeout:5000\}\)/);
+  assert.match(await readFile(join(directory,'browser-image','browser-guest.mjs'),'utf8'),/net::ERR_NETWORK_CHANGED/);
+  assert.match(await readFile(join(directory,'browser-image','browser-guest.mjs'),'utf8'),/JSON\.stringify\(\{error:'Browser action failed\.',code,detail\}\)/);
+  assert.match(await readFile(join(directory,'browser-image','browser-command.mjs'),'utf8'),/\['timeout','network','action_failed'\]/);
   let claims=0;
   await client.serve(async()=>{claims++;return {job:null}}, {once:true});
   assert.equal(claims,1);
