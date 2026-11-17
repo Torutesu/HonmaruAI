@@ -463,6 +463,16 @@ export async function applyMigration(db, orgId, app, input, by) {
       catch { return false; }
     }));
   };
+  const emptyColumnDrop = operation => {
+    if (operation?.op !== 'drop_empty_column') return false;
+    const entity = current.entities.find(item => item.key === operation.entity);
+    const column = entity?.table.columns.find(item => item.id === operation.column);
+    const snapshot = preview.snapshots.find(item => item.tableId === entity?.table.id);
+    return Boolean(column && snapshot && snapshot.rows.every(row => {
+      try { return isEmptyMigrationValue(JSON.parse(row.data || '{}')?.[column.id], column); }
+      catch { return false; }
+    }));
+  };
   const emptyEntityChange = operation => {
     if (operation?.op === 'create_entity') return !current.entities.some(item => item.key === operation.entity);
     if (operation?.op !== 'drop_entity') return false;
@@ -470,7 +480,7 @@ export async function applyMigration(db, orgId, app, input, by) {
     return Boolean(snapshot && snapshot.rows.length === 0 && planned.changes.some(item => item.key === operation.entity && item.drop));
   };
   const reversibleSchemaOnly = input.operations.length > 0
-    && input.operations.every(operation => ['add_columns', 'rename_column'].includes(operation?.op) || emptyColumnConversion(operation) || emptyEntityChange(operation));
+    && input.operations.every(operation => ['add_columns', 'rename_column'].includes(operation?.op) || emptyColumnConversion(operation) || emptyColumnDrop(operation) || emptyEntityChange(operation));
   const inverseOperations = reversibleSchemaOnly
     ? [...input.operations].reverse().flatMap(operation => {
       if (operation.op === 'create_entity') return [{ op: 'drop_entity', entity: operation.entity }];
@@ -481,6 +491,13 @@ export async function applyMigration(db, orgId, app, input, by) {
           columns: before.table.columns.map(column => ({ name: column.name, type: column.type,
             ...(column.type === 'select' ? { options: column.options || [] } : {}),
             ...(column.type === 'relation' ? { targetEntity: column.targetEntity, multiple: Boolean(column.multiple) } : {}) })) }];
+      }
+      if (operation.op === 'drop_empty_column') {
+        const before = current.entities.find(entity => entity.key === operation.entity)?.table.columns.find(column => column.id === operation.column);
+        if (!before) return [];
+        return [{ op: 'add_columns', entity: operation.entity, columns: [{ name: before.name, type: before.type,
+          ...(before.type === 'select' ? { options: before.options || [] } : {}),
+          ...(before.type === 'relation' ? { targetEntity: before.targetEntity, multiple: Boolean(before.multiple) } : {}) }] }];
       }
       if (operation.op === 'add_columns') {
         const change = planned.changes.find(item => item.key === operation.entity);

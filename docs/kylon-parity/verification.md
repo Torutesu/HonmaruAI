@@ -4670,7 +4670,14 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Re-ran the combined Worker `harness-company`, `harness-app-relations`, and `remote-mcp` suites: **89/89**. CompanyApp UI **18/18**, Web production build, parity inventory, JSON validation and diff check passed. This timeout correction is included in PR #1065 so exact-head CI validates the combined batch.
 
 
-### 2026-11-17 — KY-048 rollback of empty entity deletion (candidate)
+### 2026-11-17 — KY-048 rollback of empty entity deletion (released)
 
 - Ordinary App DB migration journal entries now carry inverse operations for a newly created entity and for deleting an empty, unreferenced entity. Restoring an empty entity recreates its name, column types and options, then goes through a separate preview/apply migration. Subsequent rows or Workflow references block the normal drop preview. Existing table rows are never copied into rollback metadata.
-- Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **76/76**, covering inverse journal entries for create/delete and a previewed empty-entity restore with original columns/options; CompanyApp UI **18/18**; TypeScript/production build, parity inventory, JSON validation, `node --check`, and `git diff --check` passed. Exact-head CI, merge, deployment, authenticated production acceptance and Kylon UI comparison remain pending.
+- Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **76/76**, covering inverse journal entries for create/delete and a previewed empty-entity restore with original columns/options; CompanyApp UI **18/18**; TypeScript/production build, parity inventory, JSON validation, `node --check`, and `git diff --check` passed.
+- PR #1066 exact-head CI #44009015623 passed all jobs. Squash merge `9e122d277f27d432c75ada039b563343857dd303`; main CI #44011426199, Worker migration/deploy/Verify #44011426352 and Web deploy #44011426237 succeeded. Production Worker `0a05c12b-fd5a-4b00-8722-eec31d231898` returned health `ok:true` / `encryption.all=true`; `app.honmaruai.com` served `index-MBLm9mqi.js`.
+
+
+### 2026-11-17 — KY-048 rollback of empty column deletion (candidate)
+
+- Dropping a column is now eligible for a journal inverse only when the preview snapshot proves every existing value is empty under the same null/empty-string/empty-relation rules as migration apply. The inverse recreates the column metadata through `add_columns`; it is a separate preview/apply migration and rechecks row/schema state.
+- Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **77/77**, covering the empty-column delete/restore roundtrip and retained row data; CompanyApp UI **18/18**; Web TypeScript/production build, parity inventory, JSON validation, `node --check`, and `git diff --check` passed. Exact-head CI, merge, deployment, authenticated production acceptance and Kylon UI comparison remain pending.
