@@ -1886,7 +1886,7 @@ export async function handleChannels(request, env, url, { route, after }) {
 
   if (path === "/channels/thread/notifications" && ["GET", "PUT"].includes(request.method)) {
     const body = request.method === "PUT" ? await request.json().catch(() => null) : Object.fromEntries(url.searchParams);
-    if (!body || (request.method === "PUT" && typeof body.muted !== "boolean")) return json({ message: "A muted boolean is required." }, 400);
+    if (!body || (request.method === "PUT" && typeof body.muted !== "boolean" && typeof body.left !== "boolean")) return json({ message: "A thread preference is required." }, 400);
     const ctx = await inChannel(env, request, body);
     if (ctx.denied) return ctx.denied;
     if (request.method === "PUT") {
@@ -1894,7 +1894,8 @@ export async function handleChannels(request, env, url, { route, after }) {
       if (limited) return limited;
     }
     const result = await threadNotificationPreference(env.DB, body.orgId, ctx.resolved.key, ctx.who.user.login,
-      body.messageId, request.method === "PUT" ? body.muted : undefined);
+      body.messageId, request.method === "PUT" && typeof body.muted === "boolean" ? body.muted : undefined,
+      request.method === "PUT" && typeof body.left === "boolean" ? body.left : undefined);
     return result.error ? json({ message: result.error }, result.status) : json(result);
   }
 

@@ -32,6 +32,16 @@ describe('rankPlaces', () => {
     expect(views(rankPlaces([ch('marketing')], 'ktg', []))).toEqual([])
   })
 
+  it('tolerates one extra or mistyped letter in Room names only when Workspace Find opts in', () => {
+    const rooms = [ch('planning', { name: 'Planning room' }), ch('general')]
+    expect(views(rankPlaces(rooms, '#plannning', []))).toEqual([])
+    expect(views(rankPlaces(rooms, '#plannning', [], 8, true))).toEqual(['b:planning'])
+    expect(views(rankPlaces(rooms, '#plannxng', [], 8, true))).toEqual(['b:planning'])
+    expect(views(rankPlaces(rooms, '#plx', [], 8, true))).toEqual([])
+    // The opt-in never widens DM or Agent matching.
+    expect(views(rankPlaces([{ view: 'dm:r1', kind: 'person', name: 'Planning room' }], 'plannxng', [], 8, true))).toEqual([])
+  })
+
   it('reads a handle as well as a name, and an exact name first', () => {
     expect(views(rankPlaces(team, 'kenji', [])).slice(0, 1)).toEqual(['dm:r1'])
     expect(views(rankPlaces(team, '@hayao', []))).toEqual(['ag:7'])

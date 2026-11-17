@@ -1,6 +1,6 @@
 import {messageDeliveryAllowed,discardPendingMessagePushes} from './messageDelivery.js';
 import { deliverOnce, retryable, retryDelay, MAX_ATTEMPTS } from './notificationJobs.js';
-import { threadMuted } from "./threadNotifications.js";
+import { threadMuted, threadLeft } from "./threadNotifications.js";
 // A message that needs somebody, pushed to their phone — but only when they
 // are not already looking.
 //
@@ -22,7 +22,7 @@ import { sendPush, isDeadToken, isConfigured as apnsConfigured } from "./apns.js
 import { sendFcm, isDeadFcmToken, isFcmConfigured } from "./fcm.js";
 import { sendWebPush, isWebPushConfigured, isDeadSubscription } from "./webpush.js";
 import { audienceOf } from "./access.js";
-import { resolveMentions, mentionTokens, broadcastOf } from "./threads.js";
+import { resolveMentions, mentionTokens, broadcastOf, isRoomMention } from "./threads.js";
 import { viewOf } from "./channels.js";
 import { listMembers } from "./team.js";
 import { quietFor, quietEnds, HOLD_MAX_MS, keywordsIn, keywordHit } from "./quiet.js";
@@ -46,6 +46,15 @@ export async function noteActivity(db, orgId, login, client = "web", now = Date.
 }
 
 const HERE_WINDOW_MS = 10 * 60_000;
+
+// A Room-wide mention uses the same read audience as the rest of the
+// conversation, intersected with current workspace people (never Agents).
+async function roomAudienceLogins(db, orgId, channel, members) {
+  if (!String(channel || "").startsWith("b:")) return null;
+  const audience = await audienceOf(db, orgId, channel);
+  const currentPeople = new Set((members || []).map(member => member.login));
+  return new Set((audience || [...currentPeople]).filter(login => currentPeople.has(login)));
+}
 
 /// Who has been at the app in the last ten minutes: "@here" reaches them.
 export async function onlineLogins(db, orgId, now = Date.now()) {
@@ -86,6 +95,16 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
   // "ai") reaches whoever asked it — it used to reach nobody, so asking
   // and switching away meant never hearing that it had answered.
   if (!row?.id || row.deleted_at) return [];
+  if (row.parent_id) {
+    const { results: left } = await db.prepare("SELECT login FROM channel_thread_leaves WHERE org_id=?1 AND message_id=?2")
+      .bind(orgId, row.parent_id).all();
+    const departed = new Set((left || []).map((entry) => entry.login));
+    // Leaving suppresses all later thread notices, including direct mentions.
+    if (departed.size) {
+      // Filter after all recipient sources are assembled below.
+      row = { ...row, _leftThreadLogins: departed };
+    }
+  }
   if (row.kind !== "message" && row.kind !== "agent" && !(row.kind === "ai" && askedBy)) return [];
   const author = row.author_login;
   const out = new Map();
@@ -97,7 +116,8 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
   }
   // "@here": the people at the app in the last ten minutes.
   const online = mentionTokens(row.body || "").some((t) => broadcastOf(t) === "here") ? await onlineLogins(db, orgId) : null;
-  const explicitMentions = new Set(resolveMentions(row.body || "", members, { online }).map((m) => m.login));
+  const roomLogins = await roomAudienceLogins(db, orgId, key, members);
+  const explicitMentions = new Set(resolveMentions(row.body || "", members, { online, roomLogins }).map((m) => m.login));
   for (const login of explicitMentions) add(login, "mention");
   // Words they asked to hear about, said anywhere they can read.
   for (const k of await keywordsIn(db, orgId)) if (keywordHit(row.body, k.keywords)) add(k.login, "keyword");
@@ -129,6 +149,7 @@ export async function recipientsOf(db, orgId, row, members, { askedBy = null } =
   // theirs to be told.
   const here = new Set((members || []).map((m) => m.login));
   for (const login of [...out.keys()]) if (!here.has(login)) out.delete(login);
+  for (const login of row._leftThreadLogins || []) out.delete(login);
   // A closed conversation's words go only to the people in it.
   const audience = await audienceOf(db, orgId, key);
   if (audience) for (const login of [...out.keys()]) if (!audience.includes(login)) out.delete(login);
@@ -233,8 +254,12 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
   if (audience && !audience.includes(job.login)) return { skipped: true };
   if (!membersOf.has(job.org_id)) membersOf.set(job.org_id, await listMembers(db, job.org_id, null));
   const members = membersOf.get(job.org_id);
+  const roomLogins = await roomAudienceLogins(db, job.org_id, msg.channel, members);
+  const hasRoomMention = mentionTokens(msg.body || "").some(isRoomMention);
+  if (hasRoomMention && roomLogins && !roomLogins.has(job.login)) return { skipped: true };
   const explicitMention = resolveMentions(msg.body || "", members, { here: false }).some((person) => person.login === job.login);
   if (job.reason !== "mention" && !explicitMention && await threadMuted(db, job.org_id, job.login, msg.parent_id)) return { skipped: true };
+  if (msg.parent_id && await threadLeft(db, job.org_id, job.login, msg.parent_id)) return { skipped: true };
   if (!await messageDeliveryAllowed(db,job.org_id,msg.id)) return { skipped: true };
   const pref = await db.prepare(
     "SELECT level FROM channel_prefs WHERE org_id = ?1 AND login = ?2 AND channel = ?3"

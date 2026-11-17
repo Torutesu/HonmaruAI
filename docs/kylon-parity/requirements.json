@@ -685,11 +685,11 @@
           "verification": "Focused current-main worker/test/harness-apps.test.js: 166/166 passed; includes Business and Group sources, multiple-Agent ambiguity denial, placement revocation, and existing direct Agent DM grant/in-flight write tests.",
           "remaining": "Broader native/OAuth/Remote MCP grant management, authenticated Google roundtrip, and production multi-user/Kylon acceptance remain. This OAuth candidate's CI and deployment are not yet recorded."
         },
-      "release": "PR #910 merged as 14d7ef3be2966a7508a619385985f34eb066e3c9. Exact-head CI #43103201143 and main CI #43106011753 succeeded; Worker deployment #43106011634 completed D1 migrations, Deploy and Verify successfully.",
-      "candidateIncrement": {
-        "scope": "Google OAuth for App connections using a fixed HTTPS provider endpoint, PKCE callback, encrypted client/token storage, CAS refresh-token lease, owner-only safe metadata and reauthorization on ambiguous refresh. Existing bearer rows remain unchanged.",
-        "verification": "Before PR: combined Worker App, migration, Agent and Workflow suites passed 267/267; Web Agent/CompanyApp tests passed 32/32; TypeScript and production build passed. Exact-head CI, merge, migration/deploy, authenticated Google roundtrip and production verification remain pending."
-      }
+        "release": "PR #910 merged as 14d7ef3be2966a7508a619385985f34eb066e3c9. Exact-head CI #43103201143 and main CI #43106011753 succeeded; Worker deployment #43106011634 completed D1 migrations, Deploy and Verify successfully.",
+        "candidateIncrement": {
+          "scope": "Google OAuth for App connections using a fixed HTTPS provider endpoint, PKCE callback, encrypted client/token storage, CAS refresh-token lease, owner-only safe metadata and reauthorization on ambiguous refresh. Existing bearer rows remain unchanged.",
+          "verification": "Before PR: combined Worker App, migration, Agent and Workflow suites passed 267/267; Web Agent/CompanyApp tests passed 32/32; TypeScript and production build passed. Exact-head CI, merge, migration/deploy, authenticated Google roundtrip and production verification remain pending."
+        }
       }
     },
     {
@@ -1575,12 +1575,12 @@
         "reviewedAt": "2026-11-15",
         "inspectedMain": "aa897cf641e2b235bb28d77330626e1a18020f02",
         "verified": "PR #1008 (merge e1af3c9c) adds explicit ACP teammate opt-in, a workspace+Agent-isolated Apple Container browser VM and persistent profile, with a DNS-pinning proxy that rejects private/special addresses and arbitrary CONNECT ports. Its exact-head CI #43652504240 passed all jobs; local Gateway 79, Worker browser/gateway 21, Web 2,030 tests and production build passed. PR #1009 (merge fad36d82) binds browser jobs and every action to a live author-owned source message, room/thread and current conversation permission; Worker full suite passed 3,538 tests. Follow-up main commits ea01cca and aa897cf add ephemeral same-thread JPEG streaming and requester-only live control. On current main, Gateway browser session/proxy tests 15/15, Gateway client tests 24/24, Worker gateway+relay tests 31/31, and Web ThreadHeader+WebSocket tests 25/25 passed. Automation and Workflow jobs cannot claim the ACP browser capability.",
-      "runtimeSmoke": {
-        "reviewedAt": "2026-11-17",
-        "environment": "Existing user-owned Mac mini Apple Container 1.5.0 runtime; signed CLI 1.7.1 used only to inspect it. Built browser image honmaru-browser:1655 for this verification; no global install or new paid service.",
-        "verification": "PR #1070 merged as main commit 2dd4dfa1f33bff46b0ed5b821efb801d6262431e; exact-head CI #44037652013, main CI #44040391993, Worker migration/deploy/Verify #44040392248, and Web deploy/Verify #44040392069 succeeded. Production health returned HTTP 200, ok:true, encryption.all=true. The local browser runtime was reinstalled from the released source and its LaunchAgent confirmed running. `cd gateway && HONMARU_BROWSER_SMOKE_URL=https://kylon.io/ja npm run smoke:browser` passed on the real container runtime. The isolated page returned HTTPS 200, Kylon's Japanese title and 13,507 visible-text bytes; screenshot was visually inspected. A second Agent started at about:blank. Container and volume cleanup succeeded. Follow-up thumbnail candidate image 1655 also passed a real Kylon smoke with a 28,055-byte JPEG and a <=40,000-character encoded image, staying inside Gateway/Worker transfer limits. Gateway suite passed 104/104.",
-        "limitation": "Authenticated production-conversation and multi-room permission/control acceptance, cloud-hosted PC, first-party non-ACP Agent providers, and same-task authenticated Kylon UI comparison remain open. The bounded thumbnail is a viewport overview and small text may need enlargement for legibility."
-      }
+        "runtimeSmoke": {
+          "reviewedAt": "2026-11-17",
+          "environment": "Existing user-owned Mac mini Apple Container 1.5.0 runtime; signed CLI 1.7.1 used only to inspect it. Built browser image honmaru-browser:1655 for this verification; no global install or new paid service.",
+          "verification": "PR #1070 merged as main commit 2dd4dfa1f33bff46b0ed5b821efb801d6262431e; exact-head CI #44037652013, main CI #44040391993, Worker migration/deploy/Verify #44040392248, and Web deploy/Verify #44040392069 succeeded. Production health returned HTTP 200, ok:true, encryption.all=true. The local browser runtime was reinstalled from the released source and its LaunchAgent confirmed running. `cd gateway && HONMARU_BROWSER_SMOKE_URL=https://kylon.io/ja npm run smoke:browser` passed on the real container runtime. The isolated page returned HTTPS 200, Kylon's Japanese title and 13,507 visible-text bytes; screenshot was visually inspected. A second Agent started at about:blank. Container and volume cleanup succeeded. Follow-up thumbnail candidate image 1655 also passed a real Kylon smoke with a 28,055-byte JPEG and a <=40,000-character encoded image, staying inside Gateway/Worker transfer limits. Gateway suite passed 104/104.",
+          "limitation": "Authenticated production-conversation and multi-room permission/control acceptance, cloud-hosted PC, first-party non-ACP Agent providers, and same-task authenticated Kylon UI comparison remain open. The bounded thumbnail is a viewport overview and small text may need enlargement for legibility."
+        }
       },
       "remaining": "The Mac-owned isolated Chromium runtime has been verified against the public Kylon sandbox page. Cloud-hosted PC and first-party non-ACP Agent providers are not implemented. Authenticated production-conversation acceptance, multiple-room/user revoke and concurrent-control behavior on-device, and a same-task authenticated Kylon UI comparison remain unverified. Simple mode is unchanged; no new contract or billing was added."
     },
@@ -1606,15 +1606,14 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://kylon.io/changelog",
-      "code": "web-react/src/components/RoomJoinDialog.tsx; web-react/src/utils/roomNameSearch.ts",
+      "code": "web-react/src/components/RoomJoinDialog.tsx; web-react/src/components/Palette.tsx; web-react/src/utils/roomNameSearch.ts; web-react/src/utils/places.ts",
       "acceptance": "Room名検索が一文字の省略・余分・誤りを許容する。短い検索語は誤検出を避けて完全一致だけにし、検索候補はAPIで現利用者に返された可視Roomに限定する。全体Findと公開/非公開Room検索を認証済みKylonと比較し、ACL漏えいと日本語名を検証する。Simple modeを維持し、新規契約・課金を追加しない。",
       "evidence": {
         "reviewedAt": "2026-11-17",
-        "verified": "Room参加ダイアログはサーバーが返した公開Room候補だけを検索し、正規化部分一致と一文字の編集距離を許容する。短い語は部分一致だけ、曖昧な補正は行わない。検索utilityとRoomJoinDialogの6テスト、Web TypeScript、production buildが成功。",
-        "remaining": "検索体験は公開Room参加ダイアログに限定され、KylonのFindに相当するWorkspace横断Room名検索は未実装。ログイン済みKylonの誤字検索、非公開候補の隔離、認証済み本番・端末比較も未受入。"
+        "verified": "Room参加ダイアログはAPIが返した公開Room候補のみ検索し、Harness Workspace Findは既存利用可能なRoom一覧に限定して1文字の挿入・置換を補正する。Findの補正はHarnessのみにopt-inし、SimpleのrankPlaces経路は維持。検索utility、Palette、Placesテストを含むWeb全体2061/2061、TypeScript、production build成功。",
+        "remaining": "非公開候補の隔離・日本語名はWorkspace候補に対するFocused受入のみで、Kylonの認証済み同一検索・画面比較と本番複数ユーザーの受入は未完了。"
       }
-    }
-    ,
+    },
     {
       "id": "KY-123",
       "category": "Files",
@@ -1629,21 +1628,51 @@
         "verified": "利用者個別のD1 pin状態、GET/PUT、表示・固定ごとのファイルACL再確認、削除・アクセス失効時の非表示、Kylon風side railからRoom-scoped file routeを開く導線を実装中。",
         "remaining": "Focused tests、exact-head CI、main CI、本番デプロイと実端末確認が未完了。認証済みKylonとのサイドバー比較も未実施。"
       }
-  },
-  {
-    "id": "KY-124",
-    "category": "Threads",
-    "requirement": "Workspace Findの検索過程と結果件数",
-    "status": "partial",
-    "priority": "P1",
-    "source": "https://kylon.io/changelog",
-    "code": "worker/src/channelRoutes.js; web-react/src/components/Palette.tsx; web-react/src/components/WorkspaceFindProgress.tsx",
-    "acceptance": "⌘KのWorkspace Findで、実際に実行中のメッセージ検索とファイル／アプリレコード検索の段階を表示し、見つかったスレッド・Room・メッセージ・ファイル・レコード数を示す。検索結果は現時点で閲覧可能な内容だけにし、完了直前にWorkspaceとRoomアクセスを再確認する。Simple modeは既存の検索経路・表示を維持し、新規契約・課金なし。Kylonの実画面と同一タスクで比較する。",
-    "evidence": {
-      "reviewedAt": "2026-11-17",
-        "verified": "Authenticated search progress endpoint streams message and resource phases, final accessible result counts, and revalidates membership/Room access after resource scanning. Harness command palette shows a thin accessible progress bar and result summary. Focused Worker unified-search suite passed 12/12; Web progress/Palette tests passed 10/10; full Web suite passed 2,061/2,061; TypeScript and production build passed.",
-      "remaining": "Exact-head CI, main CI, production deployment and authenticated Kylon visual/task comparison remain. Kylon's AI-generated answer, cited source/thread reading steps and exact total of threads/Rooms checked are not implemented by this progress-only search surface."
-    }
+    },
+    {
+      "id": "KY-124",
+      "category": "Threads",
+      "requirement": "Workspace Findの検索過程と結果件数",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "worker/src/channelRoutes.js; web-react/src/components/Palette.tsx; web-react/src/components/WorkspaceFindProgress.tsx",
+      "acceptance": "⌘KのWorkspace Findで、実際に実行中のメッセージ検索とファイル／アプリレコード検索の段階を表示し、見つかったスレッド・Room・メッセージ・ファイル・レコード数を示す。検索結果は現時点で閲覧可能な内容だけにし、完了直前にWorkspaceとRoomアクセスを再確認する。Simple modeは既存の検索経路・表示を維持し、新規契約・課金なし。Kylonの実画面と同一タスクで比較する。",
+      "evidence": {
+        "reviewedAt": "2026-11-17",
+        "verified": "Authenticated search progress endpoint streams message and resource phases, final accessible result counts, and revalidates membership/Room access after resource scanning. Harness command palette shows a thin accessible progress bar and result summary. PR #1076 exact-head CI, all Worker shards, E2E, iOS and Windows succeeded; main CI #44092298996 and Worker/Web deployment #44092299189/#44092299139 succeeded. Production app.honmaruai.com serves index-C710QHh7.js with the new Find strings; Worker /health returned ok:true and encryption.all=true. Local focused Worker 12/12, Web 10/10, full Web 2,061/2,061, TypeScript and production build passed.",
+        "remaining": "Authenticated Kylon visual/task comparison remains. Kylon's AI-generated answer, cited source/thread reading steps and exact total of threads/Rooms checked are not implemented by this progress-only search surface."
+      }
+    },
+    {
+      "id": "KY-125",
+      "category": "Notifications",
+      "requirement": "Room内の@roomメンション",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/help/manage-notifications",
+      "code": "worker/src/threads.js; worker/src/pushes.js; worker/test/threads.test.js; worker/test/pushes.test.js",
+      "acceptance": "`@room`で現在のRoomに所属する人間だけへ通知する。Agent、DM/group DM、非メンバー、Roomアクセス失効者へ通知しない。公開/非公開、ゲスト、解除後、全角記号、URL/email、mention push/activityを検証し、既存Simple modeの通知経路を維持する。新規契約・課金なし。Kylon実画面との同一タスク比較を行う。",
+      "evidence": {
+        "reviewedAt": "2026-11-17",
+        "verified": "Kylon公式通知ガイドのRoom通知要件を実装。@roomをRoomの認可済みhuman audienceに限定し、public/private、joined guest、removed member、Agent、DM/group DMを回帰確認。Worker関連5 suiteは101/101成功。",
+        "remaining": "Activity/@meへの履歴表示、mention token境界の認証済みKylon比較、exact-head CI・本番デプロイ・複数端末の本番受入は残る。"
+      }
+    },
+    {
+      "id": "KY-126",
+      "category": "Threads",
+      "requirement": "スレッドをLeave/Follow",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/help/manage-notifications",
+      "code": "worker/src/threadNotifications.js; worker/src/channelRoutes.js; worker/src/channels.js; worker/src/pushes.js; worker/schema.sql; worker/migrations.sql; web-react/src/components/HarnessThreadHeader.tsx; web-react/src/utils/useThreadNotifications.ts",
+      "acceptance": "Muteとは独立した利用者別follow状態を端末間同期する。Leave中も既存read/reply accessを維持し、thread updateと通知を抑制する。明示Followで復帰し、Workspace/Room/thread ACLを再検証する。Mute中の明示@mention通知、他利用者のfollow状態、membership失効を回帰検証する。新規課金なし。Kylonと同一スレッドの操作比較を行う。",
+      "evidence": {
+        "reviewedAt": "2026-11-17",
+        "verified": "Muteと独立した個人別leave状態をD1/APIに追加し、Leave中はthread list、Activity、返信通知を抑制。read/reply ACLは維持し、別session同期・Follow復帰を回帰確認。Worker関連5 suite 101/101、Web全270 files・2,063 tests、TypeScript・production build成功。",
+        "remaining": "明示@mentionを含む通知の抑制/Follow後の再開、端末・利用者間の本番受入、Kylonとの画面比較、exact-head CIと本番deployは未確認。"
+      }
     }
   ]
 }

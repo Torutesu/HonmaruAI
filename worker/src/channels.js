@@ -1050,7 +1050,7 @@ export const VISIBLE = `(
 /// said anywhere you can read — the last 30 days, newest first.
 export async function activityFeed(db, orgId, login, members, { days = 30, limit = 60 } = {}) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
-  const [recent, mine, read, kw] = await Promise.all([
+  const [recent, mine, read, kw, left] = await Promise.all([
     db.prepare(
       `SELECT m.*, COALESCE(u.name, (SELECT ca.name FROM custom_agents ca WHERE ca.org_id = m.org_id AND 'agent:' || ca.id = m.author_login), (SELECT 'Webhook · ' || h.name FROM hx_room_hooks h WHERE h.org_id = m.org_id AND h.channel = m.channel AND 'webhook:' || h.id = m.author_login)) AS author_name,
               (SELECT o.author_login FROM channel_messages o WHERE o.org_id = m.org_id AND o.id = m.reply_to_id AND o.channel = m.channel AND o.deleted_at IS NULL) AS reply_to_login
@@ -1065,8 +1065,10 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
     ).bind(orgId, login, new Date(Date.now() - 90 * 86400000).toISOString()).all(),
     db.prepare("SELECT last_read_at FROM channel_reads WHERE org_id = ?1 AND login = ?2 AND channel = 'activity'").bind(orgId, login).first(),
     db.prepare("SELECT notify_keywords FROM users WHERE login = ?1").bind(login).first().catch(() => null),
+    db.prepare("SELECT message_id FROM channel_thread_leaves WHERE org_id = ?1 AND login = ?2").bind(orgId, login).all(),
   ]);
   const threads = new Set((mine.results || []).map((r) => r.thread));
+  const leftThreads = new Set((left.results || []).map((r) => r.message_id));
   const keywords = parseKeywords(kw?.notify_keywords);
   // "@here" was for whoever was at the app then — a push, not a later
   // entry in Activity; "@channel" is for everyone.
@@ -1083,6 +1085,7 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
   }
   const picked = [];
   for (const r of recent.results || []) {
+    if (leftThreads.has(r.parent_id || r.id)) continue;
     const mention = names.get(r.id);
     // A reply: in a thread you are in, or inline to what you wrote.
     const inThread = r.parent_id && (threads.has(r.parent_id) || (namedAt.has(r.parent_id) && r.created_at > namedAt.get(r.parent_id)));
@@ -1216,6 +1219,9 @@ export async function threadsFor(db, orgId, login, members, { days = 30, limit =
     ).bind(orgId, login, new Date(Date.now() - 90 * 86400000).toISOString()).all(),
   ]);
   const inThread = new Set((mine.results || []).map((r) => r.thread));
+  const { results: leftRows = [] } = await db.prepare("SELECT message_id FROM channel_thread_leaves WHERE org_id=?1 AND login=?2")
+    .bind(orgId, login).all();
+  const leftThreads = new Set(leftRows.map((row) => row.message_id));
   const named = (row) => Boolean(row.body) && resolveMentions(row.body, members, { online: NOBODY }).some((m) => m.login === login);
   // Replies by thread, newest first, in the order their newest reply came.
   const byParent = new Map();
@@ -1241,6 +1247,7 @@ export async function threadsFor(db, orgId, login, members, { days = 30, limit =
   const views = new Map();
   for (const [parentId, replies] of byParent) {
     if (selected.length >= limit) break;
+    if (leftThreads.has(parentId)) continue;
     const parentRow = parents.get(parentId);
     if (!parentRow || parentRow.deleted_at) continue;
     if (!inThread.has(parentId) && !named(parentRow) && !replies.some(named)) continue;

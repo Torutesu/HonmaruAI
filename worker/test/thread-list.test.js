@@ -595,16 +595,50 @@ test('thread mute is personal, persists for another session, and does not mute t
   const url = `/channels/thread/notifications?${new URLSearchParams({orgId:ORG,channel:'b:cafe',messageId:root.id})}`;
   const { createSession } = await import('../src/db.js');
   const otherSession = await createSession(env.DB, '6601', 'other-session');
-  expect(await (await call(url, otherSession)).json()).toEqual({muted:true});
-  expect(await (await call(url, mika)).json()).toEqual({muted:false});
+  expect(await (await call(url, otherSession)).json()).toEqual({muted:true,left:false});
+  expect(await (await call(url, mika)).json()).toEqual({muted:false,left:false});
   expect(await env.DB.prepare('SELECT 1 FROM channel_prefs WHERE org_id=?1').bind(ORG).first()).toBeNull();
   expect((await muteThread(toru, reply.id, true)).status).toBe(404);
   expect((await muteThread(toru, root.id, 'true')).status).toBe(400);
   expect((await muteThread(toru, root.id, true, {orgId:'personal:elsewhere'})).status).not.toBe(200);
-  expect(await (await muteThread(toru, root.id, false)).json()).toEqual({muted:false});
+  expect(await (await muteThread(toru, root.id, false)).json()).toEqual({muted:false,left:false});
   await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
   expect((await call(url, mika)).status).not.toBe(200);
   expect((await muteThread(mika, root.id, true)).status).not.toBe(200);
+});
+
+test('leaving a thread is personal across sessions, hides its updates, and keeps read/reply access', async () => {
+  const root = await say(toru, 'Root'), firstReply = await say(mika, 'First reply', root.id);
+  const url = `/channels/thread/notifications?${new URLSearchParams({orgId:ORG,channel:'b:cafe',messageId:root.id})}`;
+  const { createSession } = await import('../src/db.js');
+  const otherSession = await createSession(env.DB, '6601', 'toru-second-device');
+
+  expect((await (await call('/channels/thread/notifications', toru, {method:'PUT',body:{orgId:ORG,channel:'b:cafe',messageId:root.id,left:true}})).json()).left).toBe(true);
+  expect(await (await call(url, otherSession)).json()).toMatchObject({muted:false,left:true});
+  await say(mika, 'A later reply', root.id);
+  expect((await threads(toru)).some(thread => thread.parent.id === root.id)).toBe(false);
+  expect((await threads(mika)).some(thread => thread.parent.id === root.id)).toBe(true);
+  const accessible = await call(`/channels/thread?${new URLSearchParams({orgId:ORG,channel:'b:cafe',messageId:root.id})}`, otherSession);
+  expect(accessible.status).toBe(200);
+  expect((await accessible.json()).replies.map(reply => reply.id)).toContain(firstReply.id);
+
+  await say(otherSession, 'Reply while left', root.id);
+  expect((await (await call(url, otherSession)).json()).left).toBe(true);
+  expect((await threads(toru)).some(thread => thread.parent.id === root.id)).toBe(false);
+
+  await call('/channels/thread/notifications', otherSession, {method:'PUT',body:{orgId:ORG,channel:'b:cafe',messageId:root.id,left:false}});
+  expect((await threads(toru)).some(thread => thread.parent.id === root.id)).toBe(true);
+});
+
+test('leaving a thread also removes its replies and mentions from Activity without revoking access', async () => {
+  const root = await say(mika, 'Root for Activity');
+  const mention = await say(toru, '@Mika please review this thread', root.id);
+  await env.DB.prepare("INSERT INTO channel_thread_leaves(org_id,login,message_id) VALUES (?1,'toru',?2)").bind(ORG, root.id).run();
+  const activity = await (await call(`/channels/activity?${new URLSearchParams({orgId:ORG})}`, toru)).json();
+  expect(activity.items.some(item => item.message.id === mention.id)).toBe(false);
+  expect((await threads(toru)).some(thread => thread.parent.id === root.id)).toBe(false);
+  const accessible = await call(`/channels/thread?${new URLSearchParams({orgId:ORG,channel:'b:cafe',messageId:root.id})}`, toru);
+  expect(accessible.status).toBe(200);
 });
 
 

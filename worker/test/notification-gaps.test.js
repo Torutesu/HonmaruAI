@@ -58,6 +58,16 @@ test("the AI's answer is for whoever asked it", async () => {
   expect(await recipientsOf(env.DB, ORG, answer, members, { askedBy: "ann" })).toEqual([{ login: "ann", reason: "reply" }]);
 });
 
+test('leaving a thread suppresses all reply notices, including explicit mentions', async () => {
+  await say('root', { author: 'ann' });
+  await say('reply', { parent: 'root', author: 'ben' });
+  await env.DB.prepare("INSERT INTO channel_thread_leaves(org_id,login,message_id) VALUES (?1,'ann','root')").bind(ORG).run();
+  const reply = await env.DB.prepare("SELECT * FROM channel_messages WHERE id='reply'").first();
+  const members = await listMembers(env.DB, ORG, null);
+  expect(await recipientsOf(env.DB, ORG, reply, members)).toEqual([]);
+  expect(await recipientsOf(env.DB, ORG, {...reply, body:'@ann please review'}, members)).toEqual([]);
+});
+
 test("a push not sent is not marked as sent", async () => {
   await say("dm1", { channel: "dm:ann|ben" });
   await env.DB.prepare("INSERT INTO push_queue (org_id, login, message_id, reason, created_at, due_at) VALUES (?1, 'ann', 'dm1', 'direct', ?2, ?2)").bind(ORG, ago(60_000)).run();

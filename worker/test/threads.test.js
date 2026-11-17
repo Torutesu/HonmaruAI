@@ -95,6 +95,23 @@ test("@channel and @all call everyone — with a Japanese keyboard's ＠, and ri
   expect(mentionTokens("＠美香 見て、@Kenjiも")).toEqual(["美香", "Kenjiも"]);
 });
 
+test("@room is a reserved Room-only mention and resolves only its supplied human audience", () => {
+  const members = [
+    { login: "toru", ref: "r1", name: "Toru" },
+    { login: "mika", ref: "r2", name: "Mika" },
+    { login: "kenji", ref: "r3", name: "Kenji" },
+  ];
+  const roomLogins = new Set(["mika", "kenji"]);
+  expect(resolveMentions("@room please check", members, { roomLogins }).map(member => member.login)).toEqual(["mika", "kenji"]);
+  expect(resolveMentions("確認お願いします＠roomへ", members, { roomLogins }).map(member => member.login)).toEqual(["mika", "kenji"]);
+  expect(resolveMentions("@room please check", members)).toEqual([]);
+  expect(resolveMentions("@room please check", members, { here: false, roomLogins })).toEqual([]);
+  expect(resolveMentions("@roommate please check", [...members, { login: "roommate", name: "Roommate" }], { roomLogins }).map(member => member.login)).toEqual(["roommate"]);
+  for (const text of ["mail toru@room.jp", "https://example.com/@room", "@roommate", "@rooms"]) {
+    if (text !== "@roommate") expect(resolveMentions(text, members, { roomLogins })).toEqual([]);
+  }
+});
+
 test("a comment lands in the thread, counts on the card, and reaches the people it concerns", async () => {
   const res = await post("/cards/c1/comments", toru, { orgId: ORG, body: "@Mika the supplier confirmed the price." }, { RESEND_API_KEY: "re_test", NOTIFY_EMAIL_FROM: "Honmaru <no-reply@x.jp>" });
   expect(res.status).toBe(201);
