@@ -344,56 +344,6 @@ await step('the relay is connected', async () => {
   await page.waitForSelector('[data-connected="1"]', { state: 'attached', timeout: 20000 })
 })
 
-await step('Harness voice input reaches an ordinary field and stays off the Simple UI', async () => {
-  const auth = await page.evaluate(() => ({ token: localStorage.getItem('sessionToken'), orgId: localStorage.getItem('orgId') }))
-  const getWorkspaceMode = async () => {
-    const response = await fetch(`${API}/orgs/mode?orgId=${encodeURIComponent(auth.orgId)}`, { headers: { 'x-session-token': auth.token } })
-    if (!response.ok) throw new Error(`workspace settings returned ${response.status}`)
-    return response.json()
-  }
-  const setWorkspaceMode = async (mode, simpleOnly) => {
-    const response = await fetch(`${API}/orgs/mode`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': auth.token }, body: JSON.stringify({ orgId: auth.orgId, mode }) })
-    if (!response.ok) throw new Error(`workspace mode ${mode} returned ${response.status}`)
-    if (typeof simpleOnly === 'boolean') {
-      const current = await getWorkspaceMode()
-      const preference = await fetch(`${API}/hx/display-preference`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': auth.token }, body: JSON.stringify({ orgId: auth.orgId, simpleOnly, expectedRevision: current.revision }) })
-      if (!preference.ok) throw new Error(`Simple display preference returned ${preference.status}`)
-    }
-  }
-  const original = await getWorkspaceMode()
-  await page.context().addInitScript(() => {
-    class HonmaruSpeechRecognition {
-      onresult = null; onend = null; onerror = null
-      start() { window.__honmaruSpeech = this }
-      stop() { this.onend?.() }
-      emit(text) { this.onresult?.({ resultIndex: 0, results: [{ 0: { transcript: text }, isFinal: true, length: 1 }] }) }
-    }
-    window.SpeechRecognition = HonmaruSpeechRecognition
-  })
-  await setWorkspaceMode('harness', false)
-  try {
-    // Change the query as well as the hash so this is a full document load and
-    // Dashboard re-reads server mode and the preference we just set.
-    await page.goto(`${WEB}/?e2eHarnessVoice=1#/apps`, { waitUntil: 'load' })
-    const search = page.locator('[aria-label="Search apps"]')
-    await search.waitFor({ state: 'visible', timeout: 15000 })
-    await search.focus()
-    const mic = page.locator('.hx-global-dictation')
-    await mic.waitFor({ state: 'visible' })
-    await mic.click()
-    await page.evaluate(() => window.__honmaruSpeech.emit('invoice tracker'))
-    if (await search.inputValue() !== 'invoice tracker') throw new Error(`speech did not reach the field: ${await search.inputValue()}`)
-    await page.screenshot({ path: `${SHOTS}/21-harness-voice-input.png` })
-  } finally {
-    await setWorkspaceMode(original.mode, original.simpleOnly)
-  }
-  await page.goto(`${WEB}/?e2eHarnessVoice=restore#/`, { waitUntil: 'load' })
-  await page.click('nav [data-tab="compose"]')
-  await page.waitForSelector('.create-decision textarea', { timeout: 10000 })
-  if (await page.$('.hx-global-dictation')) throw new Error('Harness voice control appeared in Simple mode')
-  await closeEverything()
-})
-
 await step('telling your AI something produces a decision', async () => {
   await page.click('[data-tab="compose"]')
   await page.waitForSelector('.sheet-bottom')
@@ -4858,6 +4808,57 @@ await step('workflow conditions can be created, reviewed after reload and skip u
 await step('TypeScript execution preserves language drafts and queues the selected module',()=>gatewayTypeScript({context:phone,web:WEB,apiHost:API,shots:SHOTS}))
 await step('Program workflow editor persists source and completes through node state transport',()=>workflowProgram({context:phone,web:WEB,apiHost:API,shots:SHOTS}))
 
+
+await step('Harness voice input reaches an ordinary field and stays off the Simple UI', async () => {
+  const auth = await page.evaluate(() => ({ token: localStorage.getItem('sessionToken'), orgId: localStorage.getItem('orgId') }))
+  const getWorkspaceMode = async () => {
+    const response = await fetch(`${API}/orgs/mode?orgId=${encodeURIComponent(auth.orgId)}`, { headers: { 'x-session-token': auth.token } })
+    if (!response.ok) throw new Error(`workspace settings returned ${response.status}`)
+    return response.json()
+  }
+  const setWorkspaceMode = async (mode, simpleOnly) => {
+    const response = await fetch(`${API}/orgs/mode`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': auth.token }, body: JSON.stringify({ orgId: auth.orgId, mode }) })
+    if (!response.ok) throw new Error(`workspace mode ${mode} returned ${response.status}`)
+    if (typeof simpleOnly === 'boolean') {
+      const current = await getWorkspaceMode()
+      const preference = await fetch(`${API}/hx/display-preference`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': auth.token }, body: JSON.stringify({ orgId: auth.orgId, simpleOnly, expectedRevision: current.revision }) })
+      if (!preference.ok) throw new Error(`Simple display preference returned ${preference.status}`)
+    }
+  }
+  const original = await getWorkspaceMode()
+  await page.context().addInitScript(() => {
+    class HonmaruSpeechRecognition {
+      onresult = null; onend = null; onerror = null
+      start() { window.__honmaruSpeech = this }
+      stop() { this.onend?.() }
+      emit(text) { this.onresult?.({ resultIndex: 0, results: [{ 0: { transcript: text }, isFinal: true, length: 1 }] }) }
+    }
+    window.SpeechRecognition = HonmaruSpeechRecognition
+  })
+  try {
+    await setWorkspaceMode('harness', false)
+    // Change the query as well as the hash so this is a full document load and
+    // Dashboard re-reads server mode and the preference we just set.
+    await page.goto(`${WEB}/?e2eHarnessVoice=1#/apps`, { waitUntil: 'load' })
+    const search = page.locator('[aria-label="Search apps"]')
+    await search.waitFor({ state: 'visible', timeout: 15000 })
+    await search.focus()
+    const mic = page.locator('.hx-global-dictation')
+    await mic.waitFor({ state: 'visible' })
+    await mic.click()
+    await page.evaluate(() => window.__honmaruSpeech.emit('invoice tracker'))
+    if (await search.inputValue() !== 'invoice tracker') throw new Error(`speech did not reach the field: ${await search.inputValue()}`)
+    await page.screenshot({ path: `${SHOTS}/21-harness-voice-input.png` })
+    await setWorkspaceMode('simple', true)
+    await page.goto(`${WEB}/?e2eHarnessVoice=simple#/tools`, { waitUntil: 'load' })
+    const simpleSearch = page.locator('[aria-label="Search apps"]')
+    await simpleSearch.waitFor({ state: 'visible', timeout: 15000 })
+    await simpleSearch.focus()
+    if (await page.$('.hx-global-dictation')) throw new Error('Harness voice control appeared in Simple mode')
+  } finally {
+    await setWorkspaceMode(original.mode, original.simpleOnly)
+  }
+})
 for (const ctx of extras) await ctx.close()
 if (mate) await mate.close()
 await browser.close()
