@@ -30,7 +30,7 @@ import { searchThread } from "./threadSearch.js";
 import { previewThreadShare, threadSharePolicy, setThreadSharePolicy, storeThreadShare, readThreadShare, revokeOwnThreadShare } from "./threadShares.js";
 import { appActivity, readAppActivity, appActivityProof, appActivityDeliveryKeys } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
-import { prepareAgent, rememberRequest, addAgentMemory, listAgentMemories, filterResponders } from "./harness/agents.js";
+import { prepareAgent, rememberRequest, addAgentMemory, listAgentMemories, filterResponders, profilesFor } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
 import { searchHarnessResources } from "./harness/unifiedSearch.js";
 import { getDisplayPreference } from "./harness/displayPreferences.js";
@@ -1302,7 +1302,14 @@ export async function handleChannels(request, env, url, { route, after }) {
     const members = await listMembers(env.DB, orgId, who.session.github_id);
     const isAdmin = await allowed(env.DB, orgId, who.session.github_id, "agent.manage_others");
     const login = who.user.login;
-    const list = async () => Promise.all((await listAgents(env.DB, orgId, login)).map((a) => clientAgentForViewer(env, orgId, a, members, login, { isAdmin })));
+    const list = async () => {
+      const visible = await listAgents(env.DB, orgId, login);
+      const profiles = await profilesFor(env.DB, orgId, visible.map((agent) => agent.id));
+      return Promise.all(visible.map(async (agent) => ({
+        ...await clientAgentForViewer(env, orgId, agent, members, login, { isAdmin }),
+        specialty: profiles.get(agent.id)?.specialty || "",
+      })));
+    };
     if (request.method === "GET") return json({ agents: await list(), presets: presetsFor(who.user.locale || url.searchParams.get("locale") || "en"), privateCreation: await getMode(env.DB, orgId) === "harness" });
     const limited = await enforce(env, request, "chat");
     if (limited) return limited;

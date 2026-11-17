@@ -32,7 +32,7 @@ import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 // An agent is still written on the Agents screen; this is where it gets a
 // specialty, a tier, a memory, skills, and a say in who may call it.
 
-interface AgentFace { avatarUrl?: string | null; instructions?: string; id: string; handle: string; name: string; emoji?: string | null; description?: string; scope?: string; mine?: boolean; createdByName?: string | null; createdAt?: string }
+interface AgentFace { avatarUrl?: string | null; instructions?: string; id: string; handle: string; name: string; emoji?: string | null; description?: string; specialty?: string; scope?: string; mine?: boolean; createdByName?: string | null; createdAt?: string }
 
 const TIER_HINT: Record<AgentProfile['tier'], string> = {
   lite: 'Fast and cheap, for simple work.',
@@ -57,6 +57,7 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
   useEffect(()=>{if(!initialSelected.current && agents!==null){initialSelected.current=true;if(props.initialAgentId)setOpen(agents.find(a=>a.id===props.initialAgentId)||null)}},[agents,props.initialAgentId])
   const [creating, setCreating] = useState(false)
   const [filter, setFilter] = useState<'all' | 'people' | 'agents'>('all')
+  const [agentQuery, setAgentQuery] = useState('')
   const [accessRevision,setAccessRevision]=useState(0)
   const members = useMembers(props.httpBase, props.orgId, props.sessionToken)
   const { error, act } = useAct()
@@ -82,9 +83,10 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
       <div className="hx-chat-filters" role="tablist" aria-label={t('Members')}>
         {(['all', 'people', 'agents'] as const).map(f => <button key={f} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}>{t(f === 'all' ? 'All' : f === 'people' ? 'People' : 'Agents')}</button>)}
       </div>
+      {filter !== 'people' && <div className="hx-agent-search"><input className="cl-input" type="search" value={agentQuery} onChange={event=>setAgentQuery(event.target.value)} placeholder={t('Search agents by name or specialty')} aria-label={t('Search agents by name or specialty')}/></div>}
       {error && <p role="alert">{error}</p>}
       {filter !== 'agents' && members.map(m => <button className={`hx-member-row${person?.ref === m.ref ? ' on' : ''}`} key={m.ref} onClick={() => { setPerson(m); setOpen(null) }}><Avatar name={m.name} url={m.avatarUrl} round size={40} /><span><b>{m.name}</b><small>{m.mine ? t('You') : t('Member')}</small></span></button>)}
-      {filter !== 'people' && agents?.map(a => <button className={`hx-member-row${open?.id === a.id ? ' on' : ''}`} key={a.id} onClick={() => { setOpen(a); setPerson(null) }} data-agent={a.id}><AgentAvatar agent={a} className="hx-member-avatar" /><span><b>{a.name}</b><small>{t('Agent')}{a.scope === 'personal' ? ` · ${t('Only you')}` : ''}</small></span></button>)}
+      {filter !== 'people' && agents?.filter(a=>`${a.name} ${a.specialty || ''}`.normalize('NFKC').toLowerCase().includes(agentQuery.trim().normalize('NFKC').toLowerCase())).map(a => <button className={`hx-member-row${open?.id === a.id ? ' on' : ''}`} key={a.id} onClick={() => { setOpen(a); setPerson(null) }} data-agent={a.id}><AgentAvatar agent={a} className="hx-member-avatar" /><span><b>{a.name}</b><small>{a.specialty || t('Agent')}{a.scope === 'personal' ? ` · ${t('Only you')}` : ''}</small></span></button>)}
       {agents === null && <p className="hx-members-note">{t('Loading…')}</p>}
     </aside>
     <main className="hx-member-detail">

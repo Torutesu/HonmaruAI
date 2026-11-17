@@ -1150,6 +1150,7 @@ const table: Record<string, string> = {
   'Resume {title}': '「{title}」を再開',
   'Reading the channel…': 'チャンネルを読んでいます…',
   'Search members': 'メンバーを検索',
+  'Search agents by name or specialty': 'エージェント名または専門分野で検索',
   'Settings': '設定',
   'Start of the journal': 'ジャーナルの始まり',
   'The busiest conversations of the day. With an AI key, your AI writes this up.': 'その日いちばん盛り上がった会話です。AIキーがあれば、AIが要約を書きます。',
@@ -4113,6 +4114,12 @@ const table: Record<string, string> = {
   'Local browser node': 'ローカルブラウザノード',
   'Choose a node that connected within the last 90 seconds.': '直近90秒以内に接続したノードを選んでください。',
   'Choose a connected node': '接続済みノードを選択',
+  'Google OAuth client ID': 'Google OAuth クライアント ID',
+  'Google OAuth client secret': 'Google OAuth クライアントシークレット',
+  'OAuth scopes': 'OAuth スコープ',
+  'Register this redirect URI in your Google OAuth web client:': 'このリダイレクト URI を Google OAuth ウェブクライアントに登録してください:',
+  'Allow pop-ups to connect Google OAuth.': 'Google OAuth を接続するにはポップアップを許可してください。',
+  'Could not start OAuth authorization.': 'OAuth 認証を開始できませんでした。',
 }
 
 export default table

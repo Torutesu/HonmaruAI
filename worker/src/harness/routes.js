@@ -49,6 +49,7 @@ import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, rebaseLegacyFork, readFork, mutateFork, mutateForkSchema } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, listAppActionRuns, connections, saveConnection } from './appCapabilities.js';
 import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
+import { startAppConnectionOAuth } from './appConnectionOAuth.js';
 import { appRemoteMcpForViewer, changeAppRemoteMcpGrant, invokeAppRemoteMcp } from './appRemoteMcp.js';
 import { generateCustomSource, saveCustomRelease, validateSource, MAX_PREVIEW_SOURCE } from "./customApps.js";
 import { customPublishState, setCustomPublishPolicy, requestCustomPublishApproval, reviewCustomPublishApproval } from './customAppPublishApproval.js';
@@ -1842,7 +1843,11 @@ export async function handleHarness(request, env, url, context = {}) {
         if(request.method!=='POST')return json({message:'Method not allowed.'},405);
         if(input.action==='request')return respond(await invokeAppConnection(env,orgId,appId,me,input),'app.connection_requested');
         if(input.action==='remote_mcp_request')return respond(await invokeAppRemoteMcp(env,orgId,appId,me,input),'app.remote_mcp_requested');
-        if(input.action==='save')return respond(await saveConnection(env.DB,orgId,appId,me,input),'app.connection_saved');
+        if(input.action==='save')return respond(await saveConnection(env.DB,orgId,appId,me,input,env),'app.connection_saved');
+        if(input.action==='oauth_start'){
+          if(!canManage)return json({message:'Only its maker, an editor, or an admin can connect an OAuth account.'},403);
+          return respond(await startAppConnectionOAuth(env,orgId,appId,me,String(input.name||''),new URL(request.url).origin));
+        }
         if(input.action==='grant'||input.action==='revoke') {
           const result=await changeAppConnectionGrant(env.DB,orgId,appId,me,input);
           return respond(result, result.error?null:`app.connection_${input.action==='grant'?'granted':'grant_revoked'}`);

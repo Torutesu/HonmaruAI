@@ -1,13 +1,19 @@
 import { enqueueExecution, readExecution } from './executions.js';
-import { sealField, openField, isSealed } from '../secrets.js';
+import { aad, sealField, openField, isSealed } from '../secrets.js';
 import { digest } from './appDatabase.js';
 import { getMode } from './mode.js';
 import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
 import { allowed } from '../permissions.js';
 import { mayUseApp } from './resourceAccess.js';
+import { decodeAppOAuth, encodeAppOAuth, parseAppOAuth, refreshGoogleToken } from './appConnectionOAuth.js';
 const err = (error, status=400) => ({ error, status });
 const nameOK = n => typeof n === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(n);
 const codeOK = c => typeof c === 'string' && c.trim() && c.length <= 40000;
+async function openConnectionCredential(orgId,appId,ownerId,name,stored) {
+  const oauth=await openField(stored,aad.appConnectionOAuthClient(orgId,appId,ownerId,name));
+  if(oauth!==null)return oauth;
+  return openField(stored,`hx_app_connection:${orgId}:${appId}:${ownerId}:${name}`);
+}
 export async function actions(db, orgId, appId) {
   const { results } = await db.prepare(`SELECT name,version,draft,COALESCE(draft_language,'javascript') AS language,published,
     COALESCE(published_language,draft_language,'javascript') AS publishedLanguage,published_version AS publishedVersion,updated_at AS updatedAt
@@ -135,20 +141,38 @@ export function connectionEndpoint(raw, method='GET') {
   } catch {return null;}
 }
 export async function connections(db,orgId,appId,by) {
-  const {results}=await db.prepare('SELECT name,version,endpoint,method,enabled,CASE WHEN token IS NOT NULL THEN 1 ELSE 0 END AS hasToken FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3 ORDER BY name').bind(orgId,appId,String(by)).all();
-  return {connections:results||[],hosts:CONNECTION_HOSTS};
+  const {results=[]}=await db.prepare('SELECT name,version,endpoint,method,enabled,token FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3 ORDER BY name').bind(orgId,appId,String(by)).all();
+  const safe=[];
+  for(const row of results){
+    const raw=row.token?await openConnectionCredential(orgId,appId,by,row.name,row.token):null;
+    const c=parseAppOAuth(raw);
+    if(c){
+      safe.push({name:row.name,version:row.version,endpoint:row.endpoint,method:row.method,enabled:row.enabled,hasToken:Number(Boolean(c)),authMode:'oauth',oauthProvider:'google',oauthClientId:c?.clientId||'',oauthScope:c?.scope||'',oauthConfigured:Boolean(c?.clientId&&c?.clientSecret),oauthConnected:Boolean(c?.accessToken&&!c?.requiresReauthorization),oauthRequiresReauthorization:Boolean(c?.requiresReauthorization)});
+    } else safe.push({name:row.name,version:row.version,endpoint:row.endpoint,method:row.method,enabled:row.enabled,hasToken:Number(row.token!==null),authMode:'bearer'});
+  }
+  return {connections:safe,hosts:CONNECTION_HOSTS};
 }
-export async function saveConnection(db,orgId,appId,by,input) {
+export async function saveConnection(db,orgId,appId,by,input,env=null) {
   if(!nameOK(input.name)||!Number.isSafeInteger(input.version)||input.version<0)return err('A connection name and version are required.');
   const method=input.method||'GET';
   const endpoint=connectionEndpoint(input.endpoint,method);
   if(!endpoint)return err('Use a supported HTTPS API endpoint and method, without credentials in the URL.');
   if(input.token!==undefined&&(typeof input.token!=='string'||input.token.length>8000||/[\r\n]/.test(input.token)))return err('Invalid bearer token.');
+  if(input.authMode!==undefined&&!['bearer','oauth'].includes(input.authMode))return err('Choose a supported authentication mode.');
   const old=await db.prepare('SELECT * FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4').bind(orgId,appId,String(by),input.name).first();
   if((old?.version||0)!==input.version)return err('Connection changed. Reload before saving.',409);
   // Changing origin clears the old credential instead of sending it to a new service.
   const context=`hx_app_connection:${orgId}:${appId}:${by}:${input.name}`;
-  let token=input.token===undefined?(old?.endpoint&&new URL(old.endpoint).origin===new URL(endpoint).origin?old.token:null):input.token?await sealField(input.token,context,orgId):null;
+  let token;
+  if(input.authMode==='oauth'){
+    const clientId=String(input.clientId||'').trim();let clientSecret=String(input.clientSecret||'');
+    const scope=String(input.scope||'openid email profile').trim();
+    if(!clientSecret&&old){const previous=await decodeAppOAuth(orgId,appId,by,input.name,old.token);clientSecret=previous?.clientSecret||'';}
+    if(!/^https:\/\/(?:www|sheets)\.googleapis\.com\//.test(endpoint)||!/^\d+-[\w-]+\.apps\.googleusercontent\.com$/.test(clientId)||clientSecret.length>2000||!clientSecret||scope.length>2000||/[\r\n]/.test(scope))return err('Configure a Google OAuth web client and supported Google API endpoint.');
+    if(!env)return err('OAuth configuration is unavailable.',503);
+    token=await encodeAppOAuth(env,orgId,appId,by,input.name,{clientId,clientSecret,scope,accessToken:'',refreshToken:'',expiresAt:0,requiresReauthorization:false});
+    if(!token)return err('Workspace encryption is required for OAuth credentials.',503);
+  } else token=input.token===undefined?(old?.endpoint&&new URL(old.endpoint).origin===new URL(endpoint).origin?old.token:null):input.token?await sealField(input.token,context,orgId):null;
   if(token&&!isSealed(token))return err('Encrypted credential storage is unavailable.',503);
   const enabled=input.enabled===false?0:1,version=input.version+1;
   const stmt=old?db.prepare('UPDATE hx_app_connections SET version=?5,endpoint=?6,token=?7,enabled=?8,method=?10 WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4 AND version=?9').bind(orgId,appId,String(by),input.name,version,endpoint,token,enabled,input.version,method)
@@ -174,12 +198,22 @@ export async function saveConnection(db,orgId,appId,by,input) {
   const r=results[0];
   return r.meta?.changes?{saved:true,version}:err('Connection changed or limit reached.',409);
 }
-export async function invokeConnection(db,orgId,appId,by,input) {
+export async function invokeConnection(db,orgId,appId,by,input,{env=null,authorize=async()=>true}={}) {
   const row=await db.prepare('SELECT * FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4 AND enabled=1').bind(orgId,appId,String(by),String(input.name||'')).first();
   if(!row)return err('No enabled connection for this account.',404);
   if(input.version!==row.version)return err('Connection changed. Review it before requesting.',409);
   if(!connectionEndpoint(row.endpoint,row.method))return err('Connection is no longer supported.',403);
-  const token=row.token?await openField(row.token,`hx_app_connection:${orgId}:${appId}:${by}:${row.name}`):null;
+  let token=null;
+  const openedCredential=row.token?await openConnectionCredential(orgId,appId,by,row.name,row.token):null;
+  const oauthCredential=parseAppOAuth(openedCredential);
+  if(oauthCredential){
+    let credential=oauthCredential;
+    if(!credential)return err('The credential cannot be opened.',503);
+    if(!await authorize())return err('Connection access changed.',403);
+    credential=await refreshGoogleToken(env,orgId,appId,by,row.name,row,credential,authorize);
+    if(!credential)return err('Reconnect this Google account before using the connection.',409);
+    token=credential.accessToken;
+  }else token=openedCredential;
   if(row.token&&!token)return err('The credential cannot be opened.',503);
   let body;
   if(row.method!=='GET') {
@@ -201,7 +235,14 @@ export async function invokeConnection(db,orgId,appId,by,input) {
     return result;
   };
   try {
+    if(!await authorize())return finish('failed',err('Connection access changed.',403));
     const response=await fetch(row.endpoint,{method:row.method,body,redirect:'manual',signal:AbortSignal.timeout(15000),headers:{...(body?{'content-type':'application/json'}:{}),accept:'application/json','user-agent':'HonmaruAI','notion-version':'2026-03-11',...(token?{authorization:`Bearer ${token}`}:{})}});
+    // The provider may finish after the App, visitor, owner, or grant loses
+    // authority. Discard every response before status or body can escape.
+    if(!await authorize()) {
+      await response.body?.cancel().catch(()=>{});
+      return finish('unknown',err('Connection access changed while the request was running; the result was discarded. If this was a write, check the external service before retrying.',403));
+    }
     if(!response.ok){await response.body?.cancel();return finish('failed',err(`External API returned ${response.status}.`,502));}
     if(response.status===204)return finish('succeeded',{data:null});
     if(!response.headers.get('content-type')?.includes('json')){await response.body?.cancel();return finish('unknown',err('The connection did not return JSON. Check the service before retrying.',502));}

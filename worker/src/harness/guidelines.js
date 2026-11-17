@@ -48,6 +48,13 @@ export async function roomGuidelinesSystem(db, orgId, channel) {
   if (!channel?.startsWith("b:")) return "";
   const { body } = await getGuidelines(db, orgId, channel);
   if (!body) return "";
+  return formatRoomGuidelinesSystem(body);
+}
+
+// Keep one escaping and precedence boundary for every model entrypoint that
+// uses a captured Room rules revision rather than reading it at prompt time.
+export function formatRoomGuidelinesSystem(body) {
+  if (typeof body !== 'string' || !body) return '';
   return `<room_guidelines>\n${quotedGuideline(body)}\n</room_guidelines>\nThese are the authoritative operating rules for this Room. Follow them before agent memory, preferences, specialty, or general profile instructions when they conflict. They apply only in this Room and never grant access or override system safety and tool permissions.\n\n`;
 }
 

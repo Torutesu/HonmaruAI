@@ -2675,6 +2675,119 @@ test('App connection grant lists only metadata, decrypts as its owner, and revoc
  } finally {vi.unstubAllGlobals();useSecretKey({});}
 });
 
+test('App Google OAuth refresh is single-flight, rotates tokens atomically, and never exposes credentials',async()=>{
+ const {app}=await makeDirectAgentApp();
+ const {useSecretKey,openField,sealField,aad}=await import('../src/secrets.js');
+ const keyEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ let releaseRefresh;const refreshStarted=new Promise(resolve=>{releaseRefresh=resolve;});
+ const fetch=vi.fn(async(url,init)=>{
+  if(String(url)==='https://oauth2.googleapis.com/token'){
+   await refreshStarted;
+   return new Response(JSON.stringify({access_token:'ROTATED_ACCESS_SECRET',refresh_token:'ROTATED_REFRESH_SECRET',expires_in:3600}),{headers:{'content-type':'application/json'}});
+  }
+  return new Response(JSON.stringify({ok:true}),{headers:{'content-type':'application/json'}});
+ });
+ vi.stubGlobal('fetch',fetch);
+ try {
+  const saved=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'google_api',version:0,endpoint:'https://www.googleapis.com/drive/v3/files',method:'GET',authMode:'oauth',clientId:'1234567890-abcdefgh.apps.googleusercontent.com',clientSecret:'CLIENT_SECRET_NEVER_EXPOSE',scope:'https://www.googleapis.com/auth/drive.readonly'});
+  expect(saved.status,JSON.stringify(await saved.clone().json())).toBe(200);
+  const row=await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first();
+  const ctx=aad.appConnectionOAuthClient(ORG,app.id,'9101','google_api');
+  const config=JSON.parse(await openField(row.token,ctx));
+  const expired=await sealField(JSON.stringify({...config,accessToken:'OLD_ACCESS_SECRET',refreshToken:'OLD_REFRESH_SECRET',expiresAt:Date.now()-1000}),ctx,ORG);
+  await env.DB.prepare("UPDATE hx_app_connections SET token=? WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(expired,ORG,app.id).run();
+  const pending=[1,2].map(()=>keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'request',name:'google_api',version:1}));
+  await new Promise(resolve=>setTimeout(resolve,80));releaseRefresh();
+  const responses=await Promise.all(pending);
+  for(const response of responses)expect(response.status,JSON.stringify(await response.clone().json())).toBe(200);
+  expect(fetch.mock.calls.filter(([url])=>String(url)==='https://oauth2.googleapis.com/token')).toHaveLength(1);
+  expect(fetch.mock.calls.filter(([url])=>String(url)==='https://www.googleapis.com/drive/v3/files')).toHaveLength(2);
+  expect(fetch.mock.calls.filter(([url])=>String(url)==='https://www.googleapis.com/drive/v3/files').every(([,init])=>init.headers.authorization==='Bearer ROTATED_ACCESS_SECRET')).toBe(true);
+  const rotated=await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first();
+  const after=JSON.parse(await openField(rotated.token,ctx));
+  expect(after.refreshToken).toBe('ROTATED_REFRESH_SECRET');expect(after.accessToken).toBe('ROTATED_ACCESS_SECRET');
+  const listed=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);
+  const serialized=JSON.stringify(await listed.json());
+  for(const secret of ['CLIENT_SECRET_NEVER_EXPOSE','OLD_ACCESS_SECRET','OLD_REFRESH_SECRET','ROTATED_ACCESS_SECRET','ROTATED_REFRESH_SECRET'])expect(serialized).not.toContain(secret);
+ } finally {vi.unstubAllGlobals();useSecretKey({});}
+});
+
+test('Google OAuth authorization uses fixed endpoints and stores callback tokens only in encrypted connection state',async()=>{
+ const {app}=await makeDirectAgentApp();
+ const {useSecretKey,openField,aad,isSealed}=await import('../src/secrets.js');
+ const keyEnv={...env,APP_WEB_URL:'https://example.com',DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ const fetch=vi.fn(async(url,init)=>new Response(JSON.stringify({access_token:'AUTH_CALLBACK_ACCESS',refresh_token:'AUTH_CALLBACK_REFRESH',expires_in:3600}),{headers:{'content-type':'application/json'}}));vi.stubGlobal('fetch',fetch);
+ try{
+  const saved=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'google_api',version:0,endpoint:'https://www.googleapis.com/drive/v3/files',method:'GET',authMode:'oauth',clientId:'1234567890-abcdefgh.apps.googleusercontent.com',clientSecret:'CALLBACK_CLIENT_SECRET',scope:'https://www.googleapis.com/auth/drive.readonly'});expect(saved.status).toBe(200);
+  const start=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'oauth_start',name:'google_api'});expect(start.status).toBe(200);
+  const {authorizeUrl}=await start.json();const auth=new URL(authorizeUrl);
+  expect(auth.origin).toBe('https://accounts.google.com');expect(auth.searchParams.get('redirect_uri')).toBe('https://example.com/apps/oauth/callback');
+  expect(auth.searchParams.get('code_challenge_method')).toBe('S256');
+  const callback=await worker.fetch(new Request(`https://example.com/apps/oauth/callback?state=${encodeURIComponent(auth.searchParams.get('state'))}&code=callback-code`),keyEnv);
+  expect(callback.status).toBe(200);expect(callback.headers.get('cache-control')).toBe('no-store');
+  expect(fetch).toHaveBeenCalledTimes(1);expect(String(fetch.mock.calls[0][0])).toBe('https://oauth2.googleapis.com/token');expect(fetch.mock.calls[0][1].redirect).toBe('manual');
+  const row=await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first();expect(isSealed(row.token)).toBe(true);
+  const config=JSON.parse(await openField(row.token,aad.appConnectionOAuthClient(ORG,app.id,'9101','google_api')));
+  expect(config.accessToken).toBe('AUTH_CALLBACK_ACCESS');expect(config.refreshToken).toBe('AUTH_CALLBACK_REFRESH');
+  const listing=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);const serialized=JSON.stringify(await listing.json());
+  for(const secret of ['CALLBACK_CLIENT_SECRET','AUTH_CALLBACK_ACCESS','AUTH_CALLBACK_REFRESH'])expect(serialized).not.toContain(secret);
+ }finally{vi.unstubAllGlobals();useSecretKey({});}
+});
+
+test('failed Google OAuth refresh marks reauthorization required and never starts an external write',async()=>{
+ const {app}=await makeDirectAgentApp();
+ const {useSecretKey,openField,sealField,aad}=await import('../src/secrets.js');
+ const keyEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ const fetch=vi.fn(async()=>new Response(JSON.stringify({error:'invalid_grant'}),{status:400,headers:{'content-type':'application/json'}}));vi.stubGlobal('fetch',fetch);
+ try{
+  const saved=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'google_api',version:0,endpoint:'https://www.googleapis.com/drive/v3/files',method:'POST',authMode:'oauth',clientId:'1234567890-abcdefgh.apps.googleusercontent.com',clientSecret:'FAILURE_SECRET',scope:'https://www.googleapis.com/auth/drive.file'});
+  expect(saved.status).toBe(200);
+  const ctx=aad.appConnectionOAuthClient(ORG,app.id,'9101','google_api');
+  const old=(await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first()).token;
+  const credential=JSON.parse(await openField(old,ctx));
+  const expired=await sealField(JSON.stringify({...credential,accessToken:'EXPIRED_ACCESS',refreshToken:'OLD_REFRESH',expiresAt:Date.now()-1}),ctx,ORG);
+  await env.DB.prepare("UPDATE hx_app_connections SET token=? WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(expired,ORG,app.id).run();
+  const response=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'request',name:'google_api',version:1,body:{name:'no-write'},requestId:'oauth-failed-write'});
+  expect(response.status).toBe(409);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id=? AND app_id=? AND request_id='oauth-failed-write'").bind(ORG,app.id).first()).n).toBe(0);
+  const latest=(await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first()).token;
+  expect(JSON.parse(await openField(latest,ctx)).requiresReauthorization).toBe(true);
+ }finally{vi.unstubAllGlobals();useSecretKey({});}
+});
+
+test('revoking an App connection grant during OAuth refresh discards the token result before API invocation',async()=>{
+ const {app}=await makeDirectAgentApp();
+ const {useSecretKey,openField,sealField,aad}=await import('../src/secrets.js');
+ const keyEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ let continueRefresh,started;const startedPromise=new Promise(resolve=>{started=resolve;}),continuePromise=new Promise(resolve=>{continueRefresh=resolve;});
+ const fetch=vi.fn(async url=>{if(String(url)==='https://oauth2.googleapis.com/token'){started();await continuePromise;return new Response(JSON.stringify({access_token:'SHOULD_BE_DISCARDED',refresh_token:'SHOULD_BE_DISCARDED_REFRESH',expires_in:3600}),{headers:{'content-type':'application/json'}});}return new Response('{}',{headers:{'content-type':'application/json'}});});vi.stubGlobal('fetch',fetch);
+ try{
+  const saved=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'shared_google',version:0,endpoint:'https://www.googleapis.com/drive/v3/files',method:'GET',authMode:'oauth',clientId:'1234567890-abcdefgh.apps.googleusercontent.com',clientSecret:'SHARED_FAILURE_SECRET',scope:'https://www.googleapis.com/auth/drive.readonly'});expect(saved.status).toBe(200);
+  const ctx=aad.appConnectionOAuthClient(ORG,app.id,'9101','shared_google');
+  const token=(await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='shared_google'").bind(ORG,app.id).first()).token;
+  const config=JSON.parse(await openField(token,ctx));const expired=await sealField(JSON.stringify({...config,accessToken:'OLD_ACCESS',refreshToken:'OLD_REFRESH',expiresAt:Date.now()-1}),ctx,ORG);
+  await env.DB.prepare("UPDATE hx_app_connections SET token=? WHERE org_id=? AND app_id=? AND created_by='9101' AND name='shared_google'").bind(expired,ORG,app.id).run();
+  const grant=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'grant',name:'shared_google'});expect(grant.status).toBe(200);
+  const pending=keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'request',name:'shared_google',version:1});
+  await startedPromise;
+  const revoked=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'revoke',name:'shared_google'});expect(revoked.status).toBe(200);
+  continueRefresh();const response=await pending;
+  expect(response.status).toBe(409);
+  expect(fetch.mock.calls.filter(([url])=>String(url)==='https://www.googleapis.com/drive/v3/files')).toHaveLength(0);
+  const current=(await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='shared_google'").bind(ORG,app.id).first()).token;
+  expect(JSON.parse(await openField(current,ctx)).accessToken).not.toBe('SHOULD_BE_DISCARDED');
+ }finally{vi.unstubAllGlobals();useSecretKey({});}
+});
+
 test('a different current Agent member can explicitly grant their own App connection',async()=>{
  const {app}=await makeDirectAgentApp({access:'people',people:['toru','mika']});
  const {useSecretKey}=await import('../src/secrets.js');
@@ -2805,13 +2918,14 @@ test('an App write whose grant is revoked in flight is recorded as unknown and c
  vi.stubGlobal('fetch',vi.fn(async()=>{
   externalCalls++;
   await env.DB.prepare("DELETE FROM hx_app_connection_grants WHERE org_id=? AND app_id=? AND connection_name='repo_api'").bind(ORG,app.id).run();
-  return new Response(JSON.stringify({number:42}),{status:201,headers:{'content-type':'application/json'}});
+  return new Response(JSON.stringify({private:'provider error after revocation'}),{status:502,headers:{'content-type':'application/json'}});
  }));
  const request={name:'repo_api',version:1,requestId:'revoked-write-1',body:{title:'Release'}};
  try {
   const result=await invokeAppConnection({DB:env.DB},ORG,app.id,'9102',request);
   expect(result).toMatchObject({status:403});
   expect(result.error).toMatch(/check the external service before retrying/i);
+  expect(result.error).not.toContain('provider error after revocation');
   expect((await env.DB.prepare("SELECT status FROM hx_app_connection_requests WHERE request_id='revoked-write-1'").first()).status).toBe('unknown');
   expect((await invokeAppConnection({DB:env.DB},ORG,app.id,'9102',request)).status).toBe(404);
   expect(externalCalls).toBe(1);

@@ -557,6 +557,7 @@ const table: Record<string, string> = {
   'Resume {title}': '{title} fortsetzen',
   'Reading the channel…': 'Kanal wird gelesen …',
   'Search members': 'Mitglieder suchen',
+  'Search agents by name or specialty': 'Agenten nach Name oder Fachgebiet suchen',
   'Settings': 'Einstellungen',
   'Start of the journal': 'Anfang des Journals',
   'The busiest conversations of the day. With an AI key, your AI writes this up.': 'Die lebhaftesten Gespräche des Tages. Mit einem KI-Schlüssel fasst deine KI sie zusammen.',
@@ -2370,6 +2371,12 @@ const table: Record<string, string> = {
   'Local browser node': 'Lokaler Browserknoten',
   'Choose a node that connected within the last 90 seconds.': 'Wähle einen Knoten, der innerhalb der letzten 90 Sekunden verbunden war.',
   'Choose a connected node': 'Verbundenen Knoten auswählen',
+  'Google OAuth client ID': 'Google OAuth-Client-ID',
+  'Google OAuth client secret': 'Google OAuth-Clientgeheimnis',
+  'OAuth scopes': 'OAuth-Bereiche',
+  'Register this redirect URI in your Google OAuth web client:': 'Registriere diese Weiterleitungs-URI in deinem Google-OAuth-Webclient:',
+  'Allow pop-ups to connect Google OAuth.': 'Erlaube Pop-ups, um Google OAuth zu verbinden.',
+  'Could not start OAuth authorization.': 'OAuth-Autorisierung konnte nicht gestartet werden.',
 }
 
 export default table
