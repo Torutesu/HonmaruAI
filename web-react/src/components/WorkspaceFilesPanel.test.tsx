@@ -23,6 +23,25 @@ test('history navigates past fifty versions with an exclusive cursor and returns
  act(()=>renderer!.unmount())
 })
 
+test('a file can be pinned from its detail view and the current pin state is shown',async()=>{
+ let pins:WorkspaceFile[]=[]
+ const api={
+  list:vi.fn().mockResolvedValue({files:[file],next:null}),
+  versions:vi.fn().mockResolvedValue({versions:[version(51)]}),
+  filePins:vi.fn().mockImplementation(async()=>({pins})),
+  setFilePin:vi.fn().mockImplementation(async(_id:string,pinned:boolean)=>{pins=pinned?[file]:[];return {pins}}),
+ } as unknown as WorkspaceFileApi
+ let renderer:ReturnType<typeof create>
+ await act(async()=>{renderer=create(<WorkspaceFilesPanel api={api} scope="workspace" onClose={vi.fn()} onAttachments={vi.fn()}/> )})
+ await act(async()=>{renderer!.root.findByProps({className:'hx-file-row'}).props.onClick()})
+ const button=renderer!.root.findByProps({className:'hx-file-pin-trigger'})
+ expect(button.props['aria-pressed']).toBe(false)
+ await act(async()=>{button.props.onClick()})
+ expect(api.setFilePin).toHaveBeenCalledWith('file',true)
+ expect(renderer!.root.findByProps({className:'hx-file-pin-trigger'}).props['aria-pressed']).toBe(true)
+ act(()=>renderer!.unmount())
+})
+
 test('restoring uses the observed current version and refreshes history and listing',async()=>{
  const old={...version(1),currentVersion:51},current={...version(51),currentVersion:51}
  const api={list:vi.fn().mockResolvedValue({files:[file],next:null}),versions:vi.fn().mockResolvedValue({versions:[current,old]}),restore:vi.fn().mockResolvedValue({saved:true,version:52})} as unknown as WorkspaceFileApi

@@ -1,4 +1,5 @@
 import { HarnessPinnedApps } from './HarnessPinnedApps'
+import { HarnessPinnedFiles } from './HarnessPinnedFiles'
 import React from 'react'
 import { Icon } from './Icon'
 import { useT } from '../utils/i18n'
@@ -26,6 +27,7 @@ export function HarnessRail({ workspace, screen, chat, onChat, onNew, onSearch, 
       </div>
     </details>
     {api && <HarnessPinnedApps {...api} />}
+    {api && <HarnessPinnedFiles {...api} />}
     <div className="hx-rail-spacer" />
     <button className={screen === 'tools' ? 'on' : ''} title={t('Integrations')} aria-label={t('Integrations')} onClick={() => onOpen('tools')}><Icon name="plug" size={18} /></button>
     <button className="hx-rail-avatar" title={t('You')} aria-label={t('You')} onClick={() => onOpen('profile')}>{avatar}</button>

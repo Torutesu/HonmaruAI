@@ -80,6 +80,23 @@ test('folder listing is hierarchical paginated and excludes inaccessible content
  expect((await call('/hx/files/folders?scope=workspace&directory=..')).status).toBe(400);
 });
 
+test('file sidebar pins are personal, idempotent, and never bypass current file access',async()=>{
+ const {id}=await (await call('/hx/files','POST',{scope:'workspace',path:'Pinned/report.txt'})).json();
+ expect((await call(`/hx/files/${id}/content?expectedVersion=0&size=1`,'PUT','x',token,true)).status).toBe(200);
+ expect((await call('/hx/files/pins','PUT',{fileId:id,pinned:true})).status).toBe(200);
+ expect((await call('/hx/files/pins','PUT',{fileId:id,pinned:true})).status).toBe(200);
+ expect((await (await call('/hx/files/pins')).json()).pins.map(file=>file.id)).toEqual([id]);
+ await upsertUser(env.DB,{githubId:'file-pin-peer',login:'file-pin-peer',name:'peer'});await upsertMembership(env.DB,orgId,'file-pin-peer','member');
+ const peer=await createSession(env.DB,'file-pin-peer','test');
+ expect((await (await call('/hx/files/pins','GET',undefined,peer)).json()).pins).toEqual([]);
+ await env.DB.prepare('UPDATE hx_workspace_files SET scope=? WHERE org_id=? AND id=?').bind('g:closed',orgId,id).run();
+ expect((await (await call('/hx/files/pins')).json()).pins).toEqual([]);
+ expect((await call('/hx/files/pins','PUT',{fileId:id,pinned:true})).status).toBe(404);
+ expect((await call('/hx/files/pins','PUT',{fileId:id,pinned:false})).status).toBe(200);
+ expect((await call('/hx/files/pins','PUT',{fileId:id,pinned:'yes'})).status).toBe(400);
+ expect((await call('/hx/files/pins','GET',undefined,guest)).status).toBe(403);
+});
+
 test('createdBy=me resolves only from the authenticated session for both files and folders',async()=>{
  const own=(await call('/hx/files','POST',{scope:'workspace',path:'mine/own.txt'}));expect(own.status).toBe(201);const ownId=(await own.json()).id;
  expect((await call(`/hx/files/${ownId}/content?expectedVersion=0&size=1`,'PUT','x',token,true)).status).toBe(200);
