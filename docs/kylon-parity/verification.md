@@ -4691,10 +4691,10 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - PR #1066 exact-head CI #44009015623 passed all jobs. Squash merge `9e122d277f27d432c75ada039b563343857dd303`; main CI #44011426199, Worker migration/deploy/Verify #44011426352 and Web deploy #44011426237 succeeded. Production Worker `0a05c12b-fd5a-4b00-8722-eec31d231898` returned health `ok:true` / `encryption.all=true`; `app.honmaruai.com` served `index-MBLm9mqi.js`.
 
 
-### 2026-11-17 — KY-048 rollback of empty column deletion (candidate)
+### 2026-11-17 — KY-048 rollback of empty column deletion (released)
 
 - Dropping a column is now eligible for a journal inverse only when the preview snapshot proves every existing value is empty under the same null/empty-string/empty-relation rules as migration apply. The inverse recreates the column metadata through `add_columns`; it is a separate preview/apply migration and rechecks row/schema state.
-- Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **77/77**, covering the empty-column delete/restore roundtrip and retained row data; CompanyApp UI **18/18**; Web TypeScript/production build, parity inventory, JSON validation, `node --check`, and `git diff --check` passed. Exact-head CI, merge, deployment, authenticated production acceptance and Kylon UI comparison remain pending.
+- Local QA: Worker `harness-company.test.js` + `harness-app-relations.test.js` **77/77**, covering the empty-column delete/restore roundtrip and retained row data; CompanyApp UI **18/18**; Web TypeScript/production build, parity inventory, JSON validation, `node --check`, and `git diff --check` passed. PR #1067 exact-head CI run #44013982657 passed all 13 checks and merged as `c0c9264d4867dce20798ceed324830cbfba547c7`. Main checks #44017003051, #44017003075 and #44017003062 passed, including Worker and Web deploy. Authenticated production acceptance and Kylon UI comparison remain pending.
 
 ### 2026-11-17 — KY-120 bounded native browser screenshot delivery (released)
 
