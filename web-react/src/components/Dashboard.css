@@ -772,16 +772,16 @@
 .palette-search-progress.is-error { color: #b42318; }
 .palette-search-progress-track { height: 2px; overflow: hidden; border-radius: 2px; background: #e8e8e8; }
 .palette-search-progress-track span { display: block; height: 100%; background: #6647f0; transition: width 180ms ease-out; }
-.palette-answer { display: grid; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #e8e8e8; color: var(--text, #222); font-size: 12px; }
+.palette-answer { display: grid; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #e8e8e8; color: #202020; font-size: 12px; }
 .palette-answer-ask { justify-self: start; border: 1px solid #ded9fb; border-radius: 6px; padding: 6px 10px; background: #f7f5ff; color: #5137c8; font: inherit; font-weight: 600; cursor: pointer; }
 .palette-answer-ask:disabled { cursor: wait; opacity: .65; }
 .palette-answer-text, .palette-answer-note { margin: 0; line-height: 1.5; white-space: pre-wrap; }
-.palette-answer-note { color: #666; }
+.palette-answer-note { color: #646464; }
 .palette-answer-citations { display: flex; flex-wrap: wrap; gap: 6px; }
 .palette-answer-citations button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid #e5e5e5; border-radius: 999px; padding: 4px 9px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-:where(:root[data-theme="dark"]) .palette-answer { border-bottom-color: #2a2a2a; }
+:where(:root[data-theme="dark"]) .palette-answer { border-bottom-color: #2a2a2a; color: #f2f2f2; }
 :where(:root[data-theme="dark"]) .palette-answer-ask { border-color: #484064; background: #29243b; color: #c7baff; }
-:where(:root[data-theme="dark"]) .palette-answer-note { color: #aaa; }
+:where(:root[data-theme="dark"]) .palette-answer-note { color: #a3a3a3; }
 :where(:root[data-theme="dark"]) .palette-answer-citations button { border-color: #3a3a3a; }
 @media (max-width: 600px) { .palette-filter-hint { display: none; } }
 @media (prefers-color-scheme: dark) {
@@ -792,6 +792,9 @@
   :where(:root:not([data-theme="light"])) .palette-filter { border-color: #333; color: #c8c8c8; }
   :where(:root:not([data-theme="light"])) .palette-filter:hover { background: #222; }
   :where(:root:not([data-theme="light"])) .palette-filter.on { background: #26233a; color: #b7a6ff; border-color: #6647f0; }
+  :where(:root:not([data-theme="light"])) .palette-answer { color: #f2f2f2; border-bottom-color: #2a2a2a; }
+  :where(:root:not([data-theme="light"])) .palette-answer-note { color: #a3a3a3; }
+  :where(:root:not([data-theme="light"])) .palette-answer-ask { border-color: #484064; background: #29243b; color: #c7baff; }
 }
 :where(:root[data-theme="dark"]) .palette-filters { border-bottom-color: #2a2a2a; }
 :where(:root[data-theme="dark"]) .palette-search-progress { border-bottom-color: #2a2a2a; color: #aaa; }

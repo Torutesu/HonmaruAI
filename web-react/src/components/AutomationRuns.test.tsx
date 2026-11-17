@@ -12,6 +12,20 @@ test('execution history loads on demand and exposes failed step details',async()
  expect(workflow).toHaveBeenCalledWith('wf');expect(JSON.stringify(tree.toJSON())).toContain('Permission revoked')
  act(()=>tree.unmount())
 })
+test('failed App automation runs link back to their source chat only when it is still accessible',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[{id:'failed',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[]}]})
+ const workflowSource=vi.fn().mockResolvedValue({source:{threadId:'source-thread',channel:'b:ops'}});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" orgId="org-1" api={{workflow,workflowSource}as any}/>)})
+ await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+ expect(workflowSource).toHaveBeenCalledWith('wf',undefined,false)
+ expect(tree.root.findAllByType('a').map((link:any)=>link.props.href)).toContain('#/t/source-thread/org-1')
+ act(()=>tree.unmount())
+ const inaccessible={workflow:vi.fn().mockResolvedValue({runs:[{id:'failed',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[]}]}),workflowSource:vi.fn().mockResolvedValue({source:null})}
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" orgId="org-1" api={inaccessible as any}/>)})
+ await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+ expect(tree.root.findAllByType('a')).toHaveLength(0)
+ act(()=>tree.unmount())
+})
 test('embedded automation history displays the shared seven-day overview',async()=>{
  const workflow=vi.fn().mockResolvedValue({runs:[],summary:{windowStart:'2026-10-17T00:00:00Z',windowEnd:'2026-10-24T00:00:00Z',timezone:'UTC',windowHours:168,runCount:12,failedCount:2,completedDurationCount:10,typicalDurationMs:90000,usage:{trackedRuns:8,calls:5,inputTokens:100,outputTokens:50,unknownCalls:1,unpricedCalls:1,estimatedMicros:12345},truncated:false}});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})

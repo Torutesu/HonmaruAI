@@ -2387,6 +2387,14 @@ const table: Record<string, string> = {
   'Loading thread status…': 'Thread-Status wird geladen …',
   'Follow thread': 'Thread folgen',
   'Leave thread': 'Thread verlassen',
+  'Ask in chat': 'Im Chat nachfragen',
+  'Open the automation thread to ask how to recover without rerunning this workflow.': 'Öffne den Automatisierungs-Thread, um nach einer Lösung zu fragen, ohne den Workflow erneut auszuführen.',
+  'Ask AI about these results': 'KI zu diesen Ergebnissen befragen',
+  'No matching sources were found.': 'Keine passenden Quellen gefunden.',
+  'AI answer is unavailable. Your search results are still available.': 'Die KI-Antwort ist nicht verfügbar. Deine Suchergebnisse bleiben erhalten.',
+  'Could not get an AI answer. Try again.': 'KI-Antwort konnte nicht abgerufen werden. Versuche es erneut.',
+  'Sources': 'Quellen',
+  'Open source': 'Quelle öffnen',
 }
 
 export default table
