@@ -1116,6 +1116,12 @@
           "reviewedAt": "2026-11-17",
           "scope": "Workflow gets a dedicated Remote MCP catalog showing workspace-approved tools separately from normal Agent Connections. Every tool still requires its exact Agent-specific grant; write-capable tools also need the existing one-time approval bound to the run and rendered arguments. OAuth-disconnected servers are excluded from selection and the editor explains the required connection. Simple mode is unchanged.",
           "verification": "Candidate on latest main: WorkflowStepEditor tests 9/9, full Web suite 2,046/2,046, Web TypeScript/build passed; focused Worker harness-workflows suite 152/152. Full Worker suite is running. Exact-head CI, merge/deploy, authenticated Kylon UI comparison and a live OAuth provider roundtrip remain pending."
+        },
+        "approvalCardIntegrity": {
+          "reviewedAt": "2026-11-17",
+          "scope": "Relay card_updated now preserves the server-authored workflowApproval binding and its visible title/context when the recipient republishes a full card. A card cannot replace the approved rendered-argument hash and the visible action description in the same approval request.",
+          "verification": "Workflow and relay-auth suites passed 169/169. A regression changes run input, then submits a rewritten card with the changed argument hash; the original card is restored, exact-argument validation fails, and a fetch spy confirms zero Remote MCP dispatches. Full Worker suite passed 3,625/3,625 tests across 321 files.",
+          "remaining": "Exact-head CI, production release, authenticated Kylon comparison and a live provider roundtrip remain pending."
         }
       }
     },

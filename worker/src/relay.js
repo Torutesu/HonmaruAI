@@ -911,6 +911,17 @@ export class OrgRelay {
             card.senderUserID = existing.senderUserID;
             card.recipientUserID = existing.recipientUserID;
           }
+          // Workflow approval details are the server-authored description of
+          // the side effect the recipient is deciding. A client republishes
+          // its full card on approval; never let that payload rewrite the
+          // scope or the text shown for a pending workflow action.
+          if (existing.workflowApproval) {
+            card.workflowApproval = existing.workflowApproval;
+            for (const field of ['title', 'summary', 'context', 'sourceApp', 'sourceDetail', 'requestedBy']) {
+              if (existing[field] !== undefined) card[field] = existing[field];
+              else delete card[field];
+            }
+          }
         }
       }
       await saveCard(this.db, orgId, card);
