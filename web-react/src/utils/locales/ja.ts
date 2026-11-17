@@ -1017,6 +1017,7 @@ const table: Record<string, string> = {
   'Production events': '本番イベント',
   'Pulled every 15 minutes into your own feed in this workspace.': '15分ごとに、このワークスペースのあなたのフィードへ自動で取り込みます。',
   'Search apps': 'アプリを検索',
+  'Open {name}': '{name}を開く',
   'No apps match your search.': '該当するアプリがありません。',
   'Pin {name} to navigation': '{name}をナビゲーションに固定',
   'Unpin {name} from navigation': '{name}の固定を解除',
