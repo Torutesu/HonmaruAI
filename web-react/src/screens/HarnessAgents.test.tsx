@@ -311,3 +311,44 @@ test('the agent Connections tab keeps personal grants separate from owner-shared
   expect(remoteMcp().props.checked).toBe(false)
  } finally {act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
+
+test('native browser access is an explicit Harness Agent opt-in bound to a recently connected node',async()=>{
+ let tree!:ReturnType<typeof create>
+ let profile:any={specialty:'',tier:'standard',mentionOnly:false,access:'everyone',people:[],nativeBrowserEnabled:false,nativeBrowserGatewayId:null}
+ const requests:Array<{url:URL;method:string;body:any}> = []
+ vi.stubGlobal('fetch',vi.fn(async(input:string,init:any={})=>{
+  const url=new URL(input),method=init.method||'GET',body=init.body?JSON.parse(init.body):null
+  requests.push({url,method,body})
+  if(url.pathname==='/channels/agents')return{ok:true,json:async()=>({agents:[{id:'a',name:'Local Agent',handle:'local',scope:'team'}]})}
+  if(url.pathname==='/hx/agents/a/profile'){
+   if(method==='PUT')profile={...profile,...body}
+   return{ok:true,json:async()=>({profile,canEdit:true})}
+  }
+  if(url.pathname==='/gateways')return{ok:true,json:async()=>({gateways:[
+   {id:'online',name:'Mac mini',lastSeenAt:Date.now()-1000,revokedAt:null},
+   {id:'offline',name:'Old Mac',lastSeenAt:Date.now()-120000,revokedAt:null},
+   {id:'revoked',name:'Revoked node',lastSeenAt:Date.now(),revokedAt:Date.now()},
+  ]})}
+  if(url.pathname.endsWith('/memory/scopes'))return{ok:true,json:async()=>({scopes:[]})}
+  if(url.pathname.endsWith('/memory'))return{ok:true,json:async()=>({memories:[],nextCursor:null,canEdit:true})}
+  if(url.pathname.endsWith('/skills'))return{ok:true,json:async()=>({skills:[]})}
+  if(url.pathname.endsWith('/private-follow'))return{ok:true,json:async()=>({followAcrossConversations:true})}
+  if(url.pathname==='/hx/agents/a/apps')return{ok:true,json:async()=>({connections:[],nativeConnections:[],remoteMcpConnections:[]})}
+  return{ok:true,json:async()=>({})}
+ }))
+ try{
+  await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
+  await act(async()=>tree.root.findByProps({'data-agent':'a'}).props.onClick())
+  expect(tree.root.findAllByProps({'data-testid':'native-browser-setting'})).toHaveLength(0)
+  await act(async()=>tree.root.findAllByType('button').find(b=>b.children.includes('Advanced settings'))!.props.onClick())
+  const checkbox=tree.root.findByProps({'data-testid':'native-browser-setting'}).findByType('input')
+  expect(checkbox.props.checked).toBe(false)
+  await act(async()=>checkbox.props.onChange({currentTarget:{checked:true}}))
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/profile'&&r.method==='PUT'&&r.body.nativeBrowserEnabled===true)).toBe(true)
+  const select=tree.root.findByProps({'aria-label':'Local browser node'})
+  const options=select.findAllByType('option').map(option=>option.props.value)
+  expect(options).toContain('online');expect(options).not.toContain('offline');expect(options).not.toContain('revoked')
+  await act(async()=>select.props.onChange({currentTarget:{value:'online'}}))
+  expect(requests.some(r=>r.url.pathname==='/hx/agents/a/profile'&&r.method==='PUT'&&r.body.nativeBrowserGatewayId==='online')).toBe(true)
+ }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})

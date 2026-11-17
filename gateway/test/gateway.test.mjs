@@ -181,7 +181,7 @@ test('assigned workflow jobs use scoped state transport without placing leases i
   const result=await stateOperation('state.get',{}, {signal});assert.equal(result.revision,0);
   return {status:'succeeded',stdout:'',stderr:'',exitCode:0};
  }});
- assert.deepEqual(calls[0].body,{capabilities:['workflow-program-v1'],acpAgents:[]});
+ assert.deepEqual(calls[0].body,{capabilities:['workflow-program-v1','browser-action-v1'],acpAgents:[]});
  assert.deepEqual(calls[1].body,{lease:'host-only-lease',operation:'state.get',params:{}});
  assert.equal(calls[1].path,'jobs/workflow-job/state');
  assert.equal(calls[2].path,'jobs/workflow-job/finish');
@@ -190,7 +190,38 @@ test('assigned workflow jobs use scoped state transport without placing leases i
 test('client advertises only the ACP keys configured on the local node',async()=>{
  const calls=[];const local={codex:{command:'/usr/bin/codex-acp',args:['--stdio'],cwd:'/Users/operator/project'}};
  await processOne(async(path,body)=>{calls.push({path,body});return path==='claim'?{job:{id:'acp-job',lease:'lease',payload:{acp:true,agentKey:'codex',prompt:'Review'}}}:{ok:true};},{acpAgents:local,runAcpAgent:async(payload,{acpAgents})=>{assert.equal(payload.acp,true);assert.equal(acpAgents,local);return {status:'succeeded',stdout:'{}',stderr:'',exitCode:0};}});
- assert.deepEqual(calls[0].body,{capabilities:['workflow-program-v1','acp-v1'],acpAgents:['codex']});
+ assert.deepEqual(calls[0].body,{capabilities:['workflow-program-v1','browser-action-v1','acp-v1'],acpAgents:['codex']});
+});
+test('native browser action advertises its dedicated capability and performs one leased action only',async()=>{
+ const calls=[],actions=[];
+ const payload={nativeBrowserAction:true,workspaceId:'org-1',browserIdentity:'agent-1',browserContext:{channel:'room-1',messageId:'turn-1'},browserAction:{type:'visible_text'}};
+ await processOne(async(path,body,options)=>{
+  calls.push({path,body,options});
+  return path==='claim'?{job:{id:'native-browser',lease:'browser-lease',payload}}:{ok:true};
+ },{runBrowser:async options=>{actions.push(options);return{url:'https://example.com',title:'Example',text:'Visible page text',extra:'discard'};}});
+ assert.deepEqual(calls[0].body,{capabilities:['workflow-program-v1','browser-action-v1'],acpAgents:[]});
+ assert.equal(calls[1].path,'jobs/native-browser/browser-action');
+ assert.deepEqual(actions.map(({workspaceId,agentId,action})=>({workspaceId,agentId,action})),[{workspaceId:'org-1',agentId:'agent-1',action:{type:'visible_text'}}]);
+ assert.equal(calls[2].path,'jobs/native-browser/finish');
+ assert.deepEqual(JSON.parse(calls[2].body.stdout),{url:'https://example.com',title:'Example',text:'Visible page text'});
+ assert.equal(calls[2].body.status,'succeeded');
+});
+test('native browser action rejects malformed actions before authorization or browser access',async()=>{
+ const calls=[],payload={nativeBrowserAction:true,workspaceId:'org-1',browserIdentity:'agent-1',browserAction:{type:'navigate',url:'javascript:alert(1)'}};
+ await processOne(async(path,body)=>{calls.push({path,body});return path==='claim'?{job:{id:'native-browser',lease:'lease',payload}}:{ok:true};},{runBrowser:async()=>assert.fail('invalid action must not reach browser')});
+ assert.equal(calls.some(({path})=>path==='jobs/native-browser/browser-action'),false);
+ assert.equal(calls.at(-1).path,'jobs/native-browser/finish');
+ assert.equal(calls.at(-1).body.status,'failed');
+});
+test('native screenshot larger than the Worker result envelope is not forwarded',async()=>{
+ const calls=[],payload={nativeBrowserAction:true,workspaceId:'org-1',browserIdentity:'agent-1',browserAction:{type:'screenshot'}};
+ await processOne(async(path,body)=>{calls.push({path,body});return path==='claim'?{job:{id:'native-screenshot',lease:'lease',payload}}:{ok:true};},{runBrowser:async()=>({url:'https://example.com',image:'a'.repeat(48_001)})});
+ const finish=calls.find(({path})=>path==='jobs/native-screenshot/finish')?.body;
+ assert.ok(finish);
+ assert.equal(finish.status,'failed');
+ assert.match(finish.stderr,/48 KB transfer limit/);
+ assert.equal(finish.stdout,'');
+ assert.ok(Buffer.byteLength(JSON.stringify(finish))<70_000);
 });
 test('Workspace MCP requests are forwarded with this ACP job lease only when its opt-in is present',async()=>{
  const calls=[];

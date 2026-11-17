@@ -1351,6 +1351,20 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "profile") {
       if (request.method === "GET") return json({ profile: await getProfile(env.DB, orgId, agentId), tiers: TIERS, access: ACCESS, canEdit });
       if (request.method === "PUT") {
+        const currentProfile=(input.nativeBrowserEnabled!==undefined||input.nativeBrowserGatewayId!==undefined)
+          ? await getProfile(env.DB,orgId,agentId) : null;
+        if (input.nativeBrowserEnabled === true || input.nativeBrowserGatewayId) {
+          if (!canEdit) return json({ message: 'You may not change this Agent profile.' }, 403);
+          if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Native browser access is available only in Harness.' }, 409);
+          const nativeAgent = await env.DB.prepare('SELECT provider FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL').bind(orgId, agentId).first();
+          if (!nativeAgent || nativeAgent.provider) return json({ message: 'Native browser access is only available to built in Harness Agents.' }, 409);
+        }
+        const selectedGateway=input.nativeBrowserGatewayId!==undefined?input.nativeBrowserGatewayId:currentProfile?.nativeBrowserGatewayId;
+        if(input.nativeBrowserEnabled===true&&!selectedGateway)return json({message:'Select an online execution node before enabling browser access.'},409);
+        if (selectedGateway && input.nativeBrowserEnabled!==false) {
+          const node = await env.DB.prepare('SELECT id FROM hx_gateways WHERE org_id=?1 AND id=?2 AND revoked_at IS NULL AND last_seen_at>?3').bind(orgId, selectedGateway, Date.now()-90000).first();
+          if (!node) return json({ message: 'Choose an online execution node.' }, 409);
+        }
         const accessFieldsChanged=input.access!==undefined||input.people!==undefined;
         const previousAccess=accessFieldsChanged?await getProfile(env.DB,orgId,agentId):null;
         const r = await saveProfile(env.DB, orgId, agentId, input, me);
@@ -1360,7 +1374,7 @@ export async function handleHarness(request, env, url, context = {}) {
             if(previousAccess.access==='everyone'||r.profile.access==='everyone')affected.push(...(await memoryMembers(env.DB,orgId,me)).map(member=>member.login));
             await announceAgentAccessChanged(env,orgId,agentId,affected);
           }
-          await audit(env, request, { orgId, action: "agent.profile_changed", actor: person(who.user), entity: { type: "agent", id: agentId }, details: { tier: r.profile.tier, access: r.profile.access, mentionOnly: r.profile.mentionOnly } });
+          await audit(env, request, { orgId, action: "agent.profile_changed", actor: person(who.user), entity: { type: "agent", id: agentId }, details: { tier: r.profile.tier, access: r.profile.access, mentionOnly: r.profile.mentionOnly, nativeBrowserEnabled: r.profile.nativeBrowserEnabled, nativeBrowserGatewaySelected: Boolean(r.profile.nativeBrowserGatewayId) } });
         }
         return r.error ? fail(r) : json({ ...r, canEdit });
       }

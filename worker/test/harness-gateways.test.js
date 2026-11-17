@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, expect, test } from 'vitest';
 import worker from '../src/index.js';
 import { expireGatewayJobs } from '../src/harness/gateways.js';
-import { enqueueAcpExecution } from '../src/harness/executions.js';
+import { enqueueAcpExecution, enqueueNativeBrowserAction } from '../src/harness/executions.js';
 import { setMode } from '../src/harness/mode.js';
 const orgId = 'gateway-tests';
 let admin, member, other;
@@ -114,6 +114,50 @@ test('ACP browser tools require a current conversation source and are bound to t
  expect(JSON.parse(payload.payload)).toMatchObject({browserTools:true,browserContext:context});
  await env.DB.prepare('UPDATE businesses SET private=1 WHERE org_id=?1 AND slug=?2').bind(orgId,'browser-work').run();
  await env.DB.prepare(`DELETE FROM hx_gateway_jobs WHERE id IN (?1,?2,?3)`).bind(noOrigin.job.id,invalidOrigin.job.id,queued.job.id).run();
+});
+test('native browser actions require explicit Harness Agent opt-in and the selected live node',async()=>{
+ const {gateway,token}=await node();
+ await claim(token);
+ await setMode(env.DB,orgId,'harness','9501');
+ const agentId='native-browser-agent';
+ await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+   VALUES(?1,?2,'browser-agent','Browser Agent','Use the browser carefully.','team','user9501','now','now')`).bind(orgId,agentId).run();
+ await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,tier,mention_only,access,people,native_browser_enabled,native_browser_gateway_id,updated_at)
+   VALUES(?1,?2,'standard',0,'everyone','[]',1,?3,'now')`).bind(orgId,agentId,gateway.id).run();
+ const context=await browserConversation();
+ const queued=await enqueueNativeBrowserAction(env.DB,orgId,'9502',{agentId,browserContext:context,browserAction:{type:'visible_text'}});
+ expect(queued.job).toBeTruthy();
+ let stored=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first();
+ expect(JSON.parse(stored.payload)).toMatchObject({nativeBrowserAction:true,workspaceId:orgId,agentId,browserIdentity:agentId,browserAction:{type:'visible_text'},browserContext:context});
+ expect(await claim(token)).toBeNull();
+ const running=await claim(token,['browser-action-v1']);
+ expect(running.id).toBe(queued.job.id);
+ expect((await api('POST',`/jobs/${running.id}/browser-action`,null,{lease:running.lease},token)).status).toBe(200);
+ await env.DB.prepare('UPDATE hx_agent_profiles SET native_browser_enabled=0 WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).run();
+ expect((await api('POST',`/jobs/${running.id}/browser-action`,null,{lease:running.lease},token)).status).toBe(403);
+ expect((await api('POST',`/jobs/${running.id}/finish`,null,{lease:running.lease,status:'succeeded',stdout:'{}',exitCode:0},token)).status).toBe(403);
+ expect((await api('GET',`/jobs/${running.id}`,member)).status).toBe(404);
+ await env.DB.prepare('UPDATE hx_agent_profiles SET native_browser_enabled=1 WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).run();
+ const cancellable=await enqueueNativeBrowserAction(env.DB,orgId,'9502',{agentId,browserContext:context,browserAction:{type:'screenshot'}});
+ expect((await api('POST',`/jobs/${cancellable.job.id}/cancel`,member)).status).toBe(200);
+ expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(cancellable.job.id).first()).status).toBe('cancelled');
+});
+test('native browser jobs fail closed for Simple mode, a wrong source, and provider-backed ACP Agents',async()=>{
+ const {gateway,token}=await node();
+ await claim(token);
+ const agentId='native-browser-disabled';
+ await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+   VALUES(?1,?2,'browser-agent','Browser Agent','Use the browser carefully.','team','user9501','now','now')`).bind(orgId,agentId).run();
+ await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,tier,mention_only,access,people,native_browser_enabled,native_browser_gateway_id,updated_at)
+   VALUES(?1,?2,'standard',0,'everyone','[]',1,?3,'now')`).bind(orgId,agentId,gateway.id).run();
+ const context=await browserConversation();
+ expect((await enqueueNativeBrowserAction(env.DB,orgId,'9502',{agentId,browserContext:context,browserAction:{type:'screenshot'}})).status).toBe(403);
+ await setMode(env.DB,orgId,'harness','9501');
+ expect((await enqueueNativeBrowserAction(env.DB,orgId,'9502',{agentId,browserContext:{...context,channel:'b:wrong'},browserAction:{type:'screenshot'}})).status).toBe(403);
+ await env.DB.prepare("UPDATE custom_agents SET provider='acp' WHERE org_id=?1 AND id=?2").bind(orgId,agentId).run();
+ const {nativeBrowserAgentTools}=await import('../src/harness/nativeBrowserTools.js');
+ expect(await nativeBrowserAgentTools(env,{orgId,userId:'9502',login:'user9502',agentId,browserContext:context})).toEqual({});
+ await setMode(env.DB,orgId,'simple','9501');
 });
 test('ACP progress is lease-bound, bounded, and never persists tool arguments or reasoning',async()=>{
  const {gateway,token}=await node();

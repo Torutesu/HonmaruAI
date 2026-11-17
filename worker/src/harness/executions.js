@@ -19,6 +19,12 @@ export async function listExecutionNodes(db, orgId, me) {
 export async function readExecution(db, orgId, me, jobId) {
   if (!(await allowed(db, orgId, me, 'harness.build'))) return error('Execution is not allowed.', 403);
   const row = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id = ?1 AND id = ?2 AND created_by = ?3').bind(orgId, String(jobId || ''), String(me)).first();
+  if (row) {
+    try {
+      const payload=JSON.parse(row.payload);
+      if (payload.nativeBrowserAction===true && !await nativeBrowserActionAllowed(db,row,payload)) return error('No such execution.',404);
+    } catch { return error('No such execution.',404); }
+  }
   const scope = row && await db.prepare('SELECT app_id FROM hx_app_action_jobs WHERE job_id=?1 AND org_id=?2').bind(row.id,orgId).first();
   if(scope && !(await mayUseApp(db,orgId,scope.app_id,me))) return error('No such execution.',404);
   const activation = row && await db.prepare(`SELECT d.definition FROM hx_workflow_activations a
@@ -63,6 +69,64 @@ export async function browserConversationAllowed(db, orgId, userId, browserConte
       WHERE org_id=?1 AND id=?2 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL`)
       .bind(orgId,message.parent_id,browserContext.channel).first()) return false;
   return Boolean(await mayUseConversation(db,orgId,userId,browserContext.channel));
+}
+
+function validNativeBrowserAction(action) {
+  if (!action || typeof action !== 'object' || Array.isArray(action)) return false;
+  const exact=(...keys)=>Object.keys(action).sort().join(',')===['type',...keys].sort().join(',');
+  switch (action.type) {
+    case 'navigate': {
+      if(!exact('url'))return false;
+      if (typeof action.url !== 'string' || action.url.length > 2048) return false;
+      try { const url=new URL(action.url); return ['http:','https:'].includes(url.protocol) && !url.username && !url.password; } catch { return false; }
+    }
+    case 'click': return exact('x','y')&&[action.x,action.y].every(value=>Number.isSafeInteger(value)&&value>=0&&value<=4096);
+    case 'type': return exact('text')&&typeof action.text==='string'&&action.text.length<=2000;
+    case 'press': return exact('key')&&['Enter','Escape','Tab','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Backspace','Delete','Home','End','PageUp','PageDown'].includes(action.key);
+    case 'scroll': return exact('x','y','deltaX','deltaY')&&[action.x,action.y,action.deltaX,action.deltaY].every(Number.isSafeInteger)&&action.x>=0&&action.y>=0&&action.x<=4096&&action.y<=4096&&Math.abs(action.deltaX)<=2000&&Math.abs(action.deltaY)<=2000;
+    case 'screenshot': case 'visible_text': return exact();
+    default: return false;
+  }
+}
+
+/** Recheck every fence for a native Harness Agent browser action. This is
+ * intentionally separate from ACP authorization: ACP settings never grant
+ * a native Agent access to a Gateway browser. */
+export async function nativeBrowserActionAllowed(db, row, payload) {
+  if (payload?.nativeBrowserAction !== true || payload?.workspaceId !== row.org_id ||
+      payload?.browserIdentity !== payload?.agentId || typeof payload.agentId !== 'string' ||
+      !validNativeBrowserAction(payload.browserAction) || await getMode(db,row.org_id)!=='harness' ||
+      !(await allowed(db,row.org_id,row.created_by,'harness.build')) ||
+      !(await browserConversationAllowed(db,row.org_id,row.created_by,payload.browserContext))) return false;
+  const setting=await db.prepare(`SELECT p.native_browser_enabled,p.native_browser_gateway_id,a.provider,a.id,a.scope,a.owner_login
+    FROM hx_agent_profiles p JOIN custom_agents a ON a.org_id=p.org_id AND a.id=p.agent_id
+    WHERE p.org_id=?1 AND p.agent_id=?2 AND a.deleted_at IS NULL`).bind(row.org_id,payload.agentId).first();
+  const gateway=await db.prepare('SELECT id FROM hx_gateways WHERE org_id=?1 AND id=?2 AND revoked_at IS NULL AND last_seen_at>?3')
+    .bind(row.org_id,row.gateway_id,now()-90000).first();
+  return Boolean(gateway && setting?.native_browser_enabled===1 && setting.native_browser_gateway_id===row.gateway_id && !setting.provider &&
+    await mayRunAgent(db,row.org_id,setting,row.created_by));
+}
+
+export async function enqueueNativeBrowserAction(db, orgId, me, input) {
+  me=String(me);
+  if (!(await allowed(db,orgId,me,'harness.build')) || await getMode(db,orgId)!=='harness') return error('Native browser access is not allowed.',403);
+  if (typeof input?.agentId!=='string' || !validNativeBrowserAction(input.browserAction)) return error('Invalid browser action.');
+  const agent=await db.prepare(`SELECT p.native_browser_enabled,p.native_browser_gateway_id,a.id,a.scope,a.owner_login,a.provider
+    FROM hx_agent_profiles p JOIN custom_agents a ON a.org_id=p.org_id AND a.id=p.agent_id
+    WHERE p.org_id=?1 AND p.agent_id=?2 AND a.deleted_at IS NULL`).bind(orgId,input.agentId).first();
+  if (!agent || agent.provider || agent.native_browser_enabled!==1 || !agent.native_browser_gateway_id ||
+      !(await mayRunAgent(db,orgId,agent,me))) return error('This Agent has not enabled native browser access.',403);
+  const gateway=await db.prepare('SELECT id FROM hx_gateways WHERE org_id=?1 AND id=?2 AND revoked_at IS NULL AND last_seen_at>?3').bind(orgId,agent.native_browser_gateway_id,now()-90000).first();
+  if (!gateway) return error('The selected execution node is offline.',409);
+  if (!(await browserConversationAllowed(db,orgId,me,input.browserContext))) return error('The source conversation is no longer authorized.',403);
+  const payload=JSON.stringify({nativeBrowserAction:true,workspaceId:orgId,agentId:input.agentId,browserIdentity:input.agentId,browserContext:input.browserContext,browserAction:input.browserAction});
+  const requestId=typeof input.requestId==='string'&&/^[\w-]{1,80}$/.test(input.requestId)?input.requestId:id();
+  const jobId=id();
+  const inserted=await db.prepare(`INSERT OR IGNORE INTO hx_gateway_jobs(id,org_id,gateway_id,created_by,request_id,payload,status,created_at)
+    SELECT ?1,?2,?3,?4,?5,?6,'queued',?7 WHERE (SELECT COUNT(*) FROM hx_gateway_jobs WHERE org_id=?2 AND status IN ('queued','running'))<100
+    AND EXISTS(SELECT 1 FROM hx_gateways WHERE id=?3 AND org_id=?2 AND revoked_at IS NULL)`).bind(jobId,orgId,gateway.id,me,requestId,payload,now()).run();
+  if (!inserted.meta?.changes) return error('Queue is full or the browser action was already submitted.',409);
+  return success({job:jobView(await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2').bind(orgId,jobId).first())},201);
 }
 
 function validateExecutionFiles(files) {

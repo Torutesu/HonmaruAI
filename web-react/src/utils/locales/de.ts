@@ -2365,6 +2365,11 @@ const table: Record<string, string> = {
   'Add an approval step immediately before this write. The approver will see the exact tool and arguments.': 'Füge unmittelbar vor diesem Schreibvorgang einen Freigabeschritt hinzu. Die freigebende Person sieht das genaue Tool und seine Argumente.',
   'Read-only tools require a specific Agent grant. The Worker checks the schema and permission before and after each request. Do not put credentials in the arguments.': 'Schreibgeschützte Tools benötigen eine bestimmte Agent-Freigabe. Worker prüft Schema und Berechtigung vor und nach jeder Anfrage. Füge keine Zugangsdaten in die Argumente ein.',
   'A workspace admin must enable the tool in Remote MCP settings before it can be added to a Workflow.': 'Eine Workspace-Admin muss das Tool in den Remote-MCP-Einstellungen aktivieren, bevor es einem Workflow hinzugefügt werden kann.',
+  'Allow this Agent to use a local browser': 'Diesem Agent die Nutzung eines lokalen Browsers erlauben',
+  'When enabled, this Agent can open websites through the selected connected node. Simple mode is not affected.': 'Wenn aktiviert, kann dieser Agent Websites über den ausgewählten verbundenen Knoten öffnen. Der einfache Modus bleibt unverändert.',
+  'Local browser node': 'Lokaler Browserknoten',
+  'Choose a node that connected within the last 90 seconds.': 'Wähle einen Knoten, der innerhalb der letzten 90 Sekunden verbunden war.',
+  'Choose a connected node': 'Verbundenen Knoten auswählen',
 }
 
 export default table
