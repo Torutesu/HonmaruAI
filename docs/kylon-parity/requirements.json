@@ -1,6 +1,6 @@
 {
   "asOf": "2026-11-17",
-  "baseline": "b8949ca6386479afb03fe18ce6d2425c873e303c",
+  "baseline": "35609a26dc306e03b224645322349448a5c7525a",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
     "partial": "基礎のみ。受入条件に未達項目あり",
@@ -1597,6 +1597,21 @@
         "reviewedAt": "2026-11-17",
         "verified": "Candidate UI adds normalized name/specialty filtering to the Agents list while preserving People tabs. Focused Web test 13/13 and Worker Agent ACL test 48/48 passed; combined Worker suite 267/267 and Web Agent/CompanyApp suite 32/32 passed. TypeScript and production Web build passed.",
         "remaining": "Exact-head CI, production deployment, authenticated Kylon screen comparison and production multi-user ACL acceptance remain."
+      }
+    },
+    {
+      "id": "KY-122",
+      "category": "Rooms",
+      "requirement": "一文字抜けに強いルーム名検索",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "web-react/src/components/RoomJoinDialog.tsx; web-react/src/utils/roomNameSearch.ts",
+      "acceptance": "Room名検索が一文字の省略・余分・誤りを許容する。短い検索語は誤検出を避けて完全一致だけにし、検索候補はAPIで現利用者に返された可視Roomに限定する。全体Findと公開/非公開Room検索を認証済みKylonと比較し、ACL漏えいと日本語名を検証する。Simple modeを維持し、新規契約・課金を追加しない。",
+      "evidence": {
+        "reviewedAt": "2026-11-17",
+        "verified": "Room参加ダイアログはサーバーが返した公開Room候補だけを検索し、正規化部分一致と一文字の編集距離を許容する。短い語は部分一致だけ、曖昧な補正は行わない。検索utilityとRoomJoinDialogの6テスト、Web TypeScript、production buildが成功。",
+        "remaining": "検索体験は公開Room参加ダイアログに限定され、KylonのFindに相当するWorkspace横断Room名検索は未実装。ログイン済みKylonの誤字検索、非公開候補の隔離、認証済み本番・端末比較も未受入。"
       }
     }
   ]

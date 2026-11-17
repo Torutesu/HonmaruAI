@@ -2,11 +2,13 @@
 
 調査基準日: 2026-11-17。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。PR #939をmain `76db474ee0a4400e6adfc9b93b79dc562d40e433`へマージ。PR exact-head CI #43337139421、main CI #43340080575、Worker deploy #43340080401、Web deploy #43340080328の必須job・Verifyが成功。PR #940は `def4fbd6b04a87b28784d05261f363b2925ee694` としてmainへmerge済み。PR CI #43345382463はiOS/Windowsを含む全必須job成功、main CI #43347623523、Worker migration/deploy/Verify #43347623374、Web Pages/domain Verify #43347623133成功。Worker healthはencryption.all=true、両Web domainは `index-D4wM6RDL.js` を配信。KY-061/097の認証済みKylon並列比較は未確認。DNS rebindingの解決とは扱わない。全110項目の再受入を意味しない。PR #941 (`ac732e0f3d1a4ef61ea626aef63a699ff10beef0`) のexact-head CI #43351662357・main CI #43353765545・Worker deploy #43353765648成功。PR #942 (`b8949ca6386479afb03fe18ce6d2425c873e303c`) はexact-head CI #43358291159/#43358341647、main CI #43360721660、Worker deploy #43360721699、Web deploy #43360721616成功。D1の259 schema statements一括適用、Worker health encryption.all=true、Pages配信を確認。PR #980 (`bc1afc527b4b38cdd0478e511297b98256584bb5`) はmain `1c32e12c2b80188accba7cb1f7e59e82b515770f` にマージ。main CI #43504779958（Worker 4 shards・E2E含む）success、Worker deploy #43504780175は本番D1 migration・deploy・Verify success、healthは `ok:true` / `encryption.all=true`。Web deploy #43504779834 success、`app.honmaruai.com` が `index-BcqpUk0X.js` を配信。PR #1006をmain `599762db667a6c5e802bb8c3d12902804894812c`へ統合。exact-head CI #43637314442は成功、Web deploy #43639336448はPagesと独自ドメインで配信確認済み。main CI #43639336451はWorker 4 shards・E2EがGitHub上でin_progressのまま更新がなく、完了未確認。
 
-全111項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
+全112項目。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
 2026-11-15時点の台帳集計は110件（実装あり4、一部105、要検証1）。2026-11-12の109件集計は当時の履歴として残す。PR #1006 main CI #43639336451の停滞は後続main CI #43678815421で解消を確認（PR #1014の後続main）。PR #1015はexact-head CI #43680371839成功後、merge commit `429e306c`としてmainへ統合され、main CIとWorker/Web deploy成功。公開URLのredirect credential/downgrade hardeningを反映した。DNS rebindingは未解決のまま。
 
-2026-11-17 candidate batchでKY-121「Agent一覧を名前・専門分野で絞り込む」を追加。現在111件（実装あり4、一部106、要検証1）。この追加は未マージで、Kylon画面の認証済み比較・本番ACL受入を含めていない。
+2026-11-17 PR #1073をmain `35609a26dc306e03b224645322349448a5c7525a`へ統合。PR exact-head CI #44060919420の全必須job（Worker 4 shard・E2E・Windows Edgeを含む）成功。main CI #44064395471（Worker全4 shard・E2Eを含む）成功、Worker deploy #44064395577はD1 migration・deploy・Verify成功、`/health`は`ok:true`・`encryption.all=true`。Web deploy #44064395491のPages/domain Verify成功し、`app.honmaruai.com`が`index-DIsAY4L5.js`を配信。KY-052 OAuth接続・KY-004 Workflow SDK AgentへのRoom規則・KY-121 Agent名/専門検索を反映。Google OAuthの認証済み外部往復、Kylonとの実画面比較、複数利用者本番ACL受入は未確認。
+
+2026-11-17 candidate batchでKY-121「Agent一覧を名前・専門分野で絞り込む」を追加し、PR #1073として本番反映。最新の[2026-11-15 Kylon changelog](https://kylon.io/changelog)で「Room名の一文字抜け検索」を確認したためKY-122を追加。KY-122は公開Room参加ダイアログで一文字の省略・追加・誤りを許容するが、Workspace横断Findは未実装。現在112件（実装あり4、一部107、要検証1）。受入条件・残差は各要件に記録し、Kylonとの認証済み画面比較は未完了。
 
 2026-11-10 PR #862反映: main `b5fea8e2` にマージ済み。正確なhead CI #42681479871、main CI #42684677206、Worker deploy #42684677210（D1 migration/deploy/verify）、Web deploy #42684677047 が成功。KY-030/044/051は機能範囲を更新したが、Kylon同等性の残差は各行に明記。受入確認の詳細は [verification.md](verification.md) を参照。
 
@@ -40,6 +42,7 @@
 | KY-008 | ルーム横断検索 | 一部 | P1 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js), [worker/src/harness/unifiedSearch.js](../../worker/src/harness/unifiedSearch.js), [web-react/src/components/ThreadSearch.tsx](../../web-react/src/components/ThreadSearch.tsx) | Room内のメッセージに加え、同じRoom scopeのファイル本文とそのRoomへリンク済みのAppレコードを同じ検索語で探し、現在のRoom/File/App ACLを候補取得・本文読込・結果返却の各段階で再確認。PR exact-head CI/Worker deployと、認証済み複数利用者でのKylon対比は未確認。 |
 | KY-009 | ルームのアーカイブ・退出・削除 | 一部 | P1 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js) | 管理対象ルームの最後の人間Admin保護、退出時の権限失効、削除後の閉鎖履歴、退会時の後任引き継ぎを公開済み。空のQAルームの可逆アーカイブを本番確認。自動GitHub除名・アカウント削除・復旧・保持期間・実行中自動化は残る |
 | KY-010 | チャットから作業開始・送信先自動選択 | 一部 | P1 | [web-react/src/components/ClassicList.tsx](../../web-react/src/components/ClassicList.tsx) | 候補ルームに権限を適用し曖昧な送信先を確認 |
+| KY-122 | 一文字抜けに強いルーム名検索 | 一部 | P1 | [RoomJoinDialog.tsx](../../web-react/src/components/RoomJoinDialog.tsx), [roomNameSearch.ts](../../web-react/src/utils/roomNameSearch.ts) | 公開Room参加ダイアログで一文字の省略・追加・置換を許容。4文字未満は曖昧一致せず、既存のAPI認可済み候補内だけで検索する。Focused UI/utility 6件・TypeScript・Web build成功。Kylon変更履歴はWorkspace FindのRoom名typo searchを記載しており、Workspace横断Findへの適用、公開/非公開候補の実機比較、本番・日本語・multi-user ACL受入は残る。 |
 
 ## Agents
 

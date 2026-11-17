@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from 'react'
 import {Dialog} from './Dialog'
 import {Icon} from './Icon'
 import {useT} from '../utils/i18n'
+import {roomNameMatches} from '../utils/roomNameSearch'
 import './RoomJoinDialog.css'
 interface PublicRoom {channel:string;name:string;joined:boolean;memberCount:number}
 export function RoomJoinDialog({api,onClose,onJoined}:{api:{httpBase:string;orgId:string;sessionToken:string};onClose:()=>void;onJoined:(channel:string)=>void}) {
@@ -29,7 +30,7 @@ export function RoomJoinDialog({api,onClose,onJoined}:{api:{httpBase:string;orgI
   }catch(e){if(current===generation.current)setError(e instanceof Error?e.message:String(e))}
   finally{pending.current=false;setBusy('')}
  }
- const filtered=rooms?.filter(r=>!r.joined&&r.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+ const filtered=rooms?.filter(r=>!r.joined&&roomNameMatches(query,r.name))
  return <Dialog title={t('Join public room')} className="room-join" onClose={()=>{if(!pending.current)onClose()}}
   footer={error?<button className="dlg-btn" disabled={!!busy} onClick={()=>setRevision(n=>n+1)}>{t('Reload')}</button>:undefined}>
   <label className="room-join-search"><Icon name="search" size={16}/><input autoFocus value={query} onChange={e=>setQuery(e.target.value)} placeholder={t('Search public rooms')} aria-label={t('Search public rooms')}/></label>
