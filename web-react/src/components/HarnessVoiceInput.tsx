@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from './Icon'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
-import { dictationAvailable, readDictationCorrections, readDictationVocabulary, startDictation, writeDictationCorrections, writeDictationVocabulary, type Dictation } from '../utils/dictation'
+import { detectDictationRangeCorrection, dictationAvailable, readDictationCorrections, readDictationVocabulary, startDictation, writeDictationCorrections, writeDictationVocabulary, type Dictation } from '../utils/dictation'
 
 type TextControl = HTMLInputElement | HTMLTextAreaElement
 type Dictionary = { vocabulary: string[]; corrections: Array<{ from: string; to: string }>; revision: number }
@@ -54,8 +54,38 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
   const targetRef = useRef<TextControl | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const sessionRef = useRef<{ target: TextControl; handle: Dictation | null; active: boolean; prefix: string; suffix: string; lastValue: string } | null>(null)
+  const learningRef = useRef<{ target: TextControl; expected: string; prefix: string; suffix: string; at: number } | null>(null)
+  const savingCorrectionRef = useRef(false)
   const dictionaryRef = useRef<Dictionary>({ vocabulary: readDictationVocabulary(userId), corrections: readDictationCorrections(userId), revision: 0 })
   const canDictate = dictationAvailable()
+
+  const saveLearnedCorrection = useCallback((correction: { from: string; to: string }) => {
+    const current = dictionaryRef.current
+    if (savingCorrectionRef.current || current.corrections.some(item => item.from.toLocaleLowerCase() === correction.from.toLocaleLowerCase())) return
+    savingCorrectionRef.current = true
+    const add = (base: Dictionary) => ({ ...base, corrections: writeDictationCorrections(userId, [...base.corrections, correction]) })
+    const pending = add(current)
+    dictionaryRef.current = pending
+    void (async () => {
+      try {
+        const saved = await api.saveDictationVocabulary(pending.vocabulary, pending.corrections, current.revision)
+        dictionaryRef.current = { ...saved, vocabulary: writeDictationVocabulary(userId, saved.vocabulary), corrections: writeDictationCorrections(userId, saved.corrections) }
+      } catch {
+        // Another device may have updated the dictionary. Refresh once, then
+        // retry with its revision so a correction never overwrites newer data.
+        try {
+          const latest = await api.dictationVocabulary()
+          if (latest.corrections.some(item => item.from.toLocaleLowerCase() === correction.from.toLocaleLowerCase())) {
+            dictionaryRef.current = { ...latest, vocabulary: writeDictationVocabulary(userId, latest.vocabulary), corrections: writeDictationCorrections(userId, latest.corrections) }
+          } else {
+            const retry = add(latest)
+            const saved = await api.saveDictationVocabulary(retry.vocabulary, retry.corrections, latest.revision)
+            dictionaryRef.current = { ...saved, vocabulary: writeDictationVocabulary(userId, saved.vocabulary), corrections: writeDictationCorrections(userId, saved.corrections) }
+          }
+        } catch { /* The account-local correction still applies on this device. */ }
+      } finally { savingCorrectionRef.current = false }
+    })()
+  }, [api, userId])
 
   const stop = useCallback(() => {
     const session = sessionRef.current
@@ -83,7 +113,15 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
       if (cancelled) return
       dictionaryRef.current = { ...remote, vocabulary: writeDictationVocabulary(userId, remote.vocabulary), corrections: writeDictationCorrections(userId, remote.corrections) }
     }).catch(() => { /* Use the account-scoped local copy when offline. */ })
-    return () => { cancelled = true; stop() }
+    const changed = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string; revision?: number }>).detail
+      if (detail?.userId !== userId || !Number.isSafeInteger(detail.revision) || Number(detail.revision) <= dictionaryRef.current.revision) return
+      void api.dictationVocabulary().then(remote => {
+        if (!cancelled && remote.revision >= dictionaryRef.current.revision) dictionaryRef.current = { ...remote, vocabulary: writeDictationVocabulary(userId, remote.vocabulary), corrections: writeDictationCorrections(userId, remote.corrections) }
+      }).catch(() => { /* Keep the last account-local copy when offline. */ })
+    }
+    window.addEventListener('honmaru:dictation-vocabulary-changed', changed)
+    return () => { cancelled = true; window.removeEventListener('honmaru:dictation-vocabulary-changed', changed); stop() }
   }, [api, userId, stop])
 
   useEffect(() => {
@@ -98,6 +136,16 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
       place(next)
     }
     const focus = (event: FocusEvent) => activate(event.target)
+    const input = (event: Event) => {
+      const pending = learningRef.current
+      if (!pending || event.target !== pending.target) return
+      const field = pending.target
+      if (Date.now() - pending.at > 5 * 60_000 || !field.isConnected) { learningRef.current = null; return }
+      if (field.value === pending.expected) return
+      learningRef.current = null
+      const correction = detectDictationRangeCorrection(pending.expected, field.value, pending.prefix, pending.suffix, getLocale())
+      if (correction) saveLearnedCorrection(correction)
+    }
     const blur = () => queueMicrotask(() => {
       if (document.activeElement === targetRef.current || document.activeElement === buttonRef.current) return
       stop()
@@ -108,6 +156,7 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
     const reposition = () => place(targetRef.current)
     document.addEventListener('focusin', focus)
     document.addEventListener('focusout', blur)
+    document.addEventListener('input', input)
     window.addEventListener('resize', reposition)
     window.addEventListener('scroll', reposition, true)
     // The Harness shell can mount after route navigation has already focused
@@ -116,10 +165,11 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
     return () => {
       document.removeEventListener('focusin', focus)
       document.removeEventListener('focusout', blur)
+      document.removeEventListener('input', input)
       window.removeEventListener('resize', reposition)
       window.removeEventListener('scroll', reposition, true)
     }
-  }, [canDictate, place, stop])
+  }, [canDictate, place, saveLearnedCorrection, stop])
 
   const toggle = useCallback(() => {
     if (sessionRef.current) { stop(); return }
@@ -141,6 +191,7 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
       // transcripts replace one another instead of duplicating words.
       const fixed = dictatedValue(session.lastValue, session.prefix.length, session.lastValue.length - session.suffix.length, spoken, field.maxLength)
       const value = fixed.value
+      learningRef.current = { target: field, expected: value, prefix: session.prefix, suffix: session.suffix, at: Date.now() }
       setInputValue(field, value, fixed.caret)
       session.lastValue = value
       if (fixed.truncated) stop()
