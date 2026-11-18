@@ -278,6 +278,36 @@ test('Data Viewer exports the searched view rows with relation labels',async()=>
  download.mockRestore();downloadExcel.mockRestore()
 })
 
+test('Data Viewer exports enabled system columns using their displayed values in CSV and Excel',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+ const download=vi.spyOn(csvExport,'downloadCsv').mockImplementation(()=>{}),downloadExcel=vi.spyOn(csvExport,'downloadXlsx').mockImplementation(()=>{})
+ const row={id:'ID-ABC-123',values:{title:'Alpha'},createdAt:'2026-10-09T08:07:06Z',updatedAt:'2026-10-12T11:10:09Z'}
+ const view={id:'all',type:'table',name:'All records',rows:[row]}
+ state.api={
+  app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[view],canCustomize:false}),
+  personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),
+  savePersonalViews:vi.fn().mockResolvedValue({revision:1,activeView:'all',views:[],computed:[],layouts:{all:{order:['title','$row.id','$row.createdAt','$row.updatedAt'],hidden:[],widths:{}}}}),
+  conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+ }
+ await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+ act(()=>tree!.root.findByProps({'aria-label':'Manage fields'}).props.onClick())
+ for(const name of ['ID','作成日時','更新日時'])act(()=>tree!.root.findByProps({'aria-label':`${name}を表示`}).props.onClick())
+ await act(async()=>{tree!.root.findAllByProps({role:'dialog'}).find(node=>node.props['aria-label']==='列の表示設定')!.findAllByType('button').find(button=>button.children.includes('保存'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
+ expect(state.api.savePersonalViews).toHaveBeenCalledWith('tasks',expect.objectContaining({layouts:expect.objectContaining({all:expect.objectContaining({hidden:[]})})}))
+ const openMenu=()=>act(()=>tree!.root.findAllByType('button').find(node=>node.props['aria-label']==='More data viewer actions'||node.props['aria-label']==='その他のデータビューアー操作')!.props.onClick())
+ const menuItem=(index:number)=>tree!.root.findAllByProps({role:'menuitem'})[index]
+ openMenu();act(()=>menuItem(0).props.onClick())
+ const created=systemCellText(row,'$row.createdAt'),updated=systemCellText(row,'$row.updatedAt')
+ expect(download).toHaveBeenCalledOnce()
+ expect(download.mock.calls[0][1]).toBe(`"Title","ID","作成日時","更新日時"\r\n"Alpha","ID-ABC-123","${created}","${updated}"`)
+ expect(download.mock.calls[0][1]).not.toContain(row.createdAt)
+ openMenu();act(()=>menuItem(1).props.onClick())
+ const workbook=new TextDecoder().decode(downloadExcel.mock.calls[0][1])
+ expect(workbook).toContain('ID-ABC-123');expect(workbook).toContain(created);expect(workbook).toContain(updated)
+ expect(workbook).not.toContain(row.createdAt)
+ download.mockRestore();downloadExcel.mockRestore()
+})
+
 test.each(['table','board','calendar'] as const)('record search finds system IDs and timestamps in the %s view', async type => {
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
   const now=new Date(),today=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`

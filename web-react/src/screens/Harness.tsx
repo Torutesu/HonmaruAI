@@ -620,8 +620,21 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
       const source=table.columns.find(item=>item.id===column.id)
       return source?displayCellText(source,row.values[source.id]):''
     }
-    if(format==='csv') downloadCsv(safeName,csvText(displayColumns,exportRows,formatCell))
-    else downloadXlsx(safeName,serializeRowsToXlsx(displayColumns,exportRows,formatCell))
+    // The serializers read system fields from the Row object before calling
+    // formatCell. Give enabled fields the same display values as the table.
+    const rowsWithDisplayedSystemColumns=exportRows.map(row=>{
+      const displayed={...row}
+      for(const column of displayColumns){
+        if(!isSystemColumn(column.id))continue
+        const value=systemCellText(row,column.id)
+        if(column.id==='$row.id')displayed.id=value
+        else if(column.id==='$row.createdAt')displayed.createdAt=value
+        else if(column.id==='$row.updatedAt')displayed.updatedAt=value
+      }
+      return displayed
+    })
+    if(format==='csv') downloadCsv(safeName,csvText(displayColumns,rowsWithDisplayedSystemColumns,formatCell))
+    else downloadXlsx(safeName,serializeRowsToXlsx(displayColumns,rowsWithDisplayedSystemColumns,formatCell))
   }
   const shownLanes = (view.lanes || []).map(lane => ({...lane, rows: lane.rows.filter(matchesSearch)}))
   const shownDays = (view.days || []).map(day => ({...day, rows: day.rows.filter(matchesSearch)}))

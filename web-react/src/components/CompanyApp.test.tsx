@@ -274,18 +274,32 @@ test('ambiguous relation migrations let the owner select a target and require a 
 test('database migration history shows verified plans and prepares an inverse only for verified reversible schema changes',async()=>{
  const verified={id:'schema_v1',version:2,checksum:'abcdef1234567890',plan:[{op:'add_columns',entity:'primary',columns:[{name:'Priority',type:'number'}]},{op:'rename_column',entity:'primary',column:'task',name:'Title'}],inverseOperations:[{op:'rename_column',entity:'primary',column:'task',name:'Task'},{op:'drop_empty_column',entity:'primary',column:'priority'}],createdAt:'2026-11-09T00:00:00.000Z',integrityValid:true}
  const tampered={id:'schema_v2',version:3,checksum:'deadbeef01234567',plan:null,createdAt:'2026-11-09T01:00:00.000Z',integrityValid:false}
- const {tree}=await setup([],{fork:null,version:3,entities:[],migrations:[verified,tampered]})
+ const {tree,api,button}=await setup([],{fork:null,version:3,entities:[],migrations:[verified,tampered]})
  const history=tree.root.findByProps({'aria-label':'DB変更履歴'})
  expect(history.findAllByType('summary').map(item=>item.children.join(''))).toEqual(expect.arrayContaining([expect.stringContaining('schema_v1'),expect.stringContaining('schema_v2')]))
  expect(history.findByProps({role:'alert'}).children.join('')).toContain('整合性を確認できません')
  const plans=history.findAllByType('pre').map(item=>item.children.join(''))
  expect(plans).toHaveLength(1)
  expect(plans[0]).toContain('Priority')
- const rollback=tree.root.findAllByType('button').find(item=>item.children.join('')==='逆変更案を作成')
+ const rollback=tree.root.findAllByType('button').find(item=>/rollback|逆変更|ロールバック/i.test(item.children.join('')))
  expect(rollback).toBeTruthy()
  await act(async()=>rollback!.props.onClick())
  expect(JSON.parse(tree.root.findByProps({'aria-label':'DB変更案'}).props.value)).toEqual(verified.inverseOperations)
  expect(tree.root.findByProps({placeholder:'convert_amount_v1'}).props.value).toBe('rollback_schema_v1_v3')
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ await act(async()=>button('変更内容をプレビュー').props.onClick())
+ expect(api.previewDatabaseMigration).toHaveBeenLastCalledWith('app',{action:'preview',id:'rollback_schema_v1_v3',version:3,operations:verified.inverseOperations})
+ expect(api.databaseChange).not.toHaveBeenCalled()
+ await act(async()=>button('本番への変更を確認').props.onClick())
+ await act(async()=>button('このDB変更を適用').props.onClick())
+ expect(api.databaseChange).toHaveBeenCalledWith('app',{action:'migrate',id:'rollback_schema_v1_v3',version:3,operations:verified.inverseOperations,previewChecksum:'reviewed-schema-digest'})
+ act(()=>tree.unmount())
+})
+
+test('database migration history explains when the bounded rollback snapshot was omitted',async()=>{
+ const oversized={id:'large_snapshot',version:2,checksum:'abcdef1234567890',plan:[],inverseOperations:null,rollbackUnavailableReason:'snapshot_limit' as const,createdAt:'2026-11-09T00:00:00.000Z',integrityValid:true}
+ const {tree}=await setup([],{fork:null,version:2,entities:[],migrations:[oversized]})
+ expect(tree.root.findAllByType('p').some(item=>/上限|safe rollback|snapshot/i.test(item.children.join('')))).toBe(true)
  act(()=>tree.unmount())
 })
 

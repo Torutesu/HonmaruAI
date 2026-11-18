@@ -57,6 +57,7 @@ export function CompanyApp({ app, api, canManage, reload, orgId }: {app: App; ap
   const forkEntity=db?.fork?.entities.find(e=>e.key===entity)
   function appendForkSchemaOperation(operation:Record<string,unknown>) { let operations:unknown[]=[];try{const parsed=JSON.parse(forkSchemaOperations);if(Array.isArray(parsed))operations=parsed}catch{}setForkSchemaOperations(JSON.stringify([...operations,operation],null,2)) }
   const previewCurrent=!!migrationPreview&&previewedPlan===plan&&previewedMigrationId===migrationId
+  const rollbackPlan=(()=>{try{const operations=JSON.parse(plan);return Array.isArray(operations)&&operations.some((operation:any)=>operation?.op==='restore_converted_column')}catch{return false}})()
   const mergeKeepProductionCount=mergeReview?.conflicts.filter(conflict=>mergeResolutions[conflict.changeId]==='production').length||0
   const mergeApplyCount=mergeReview?mergeReview.changes.length-mergeKeepProductionCount:0
   function resolveMigrationMatch(blocker:NonNullable<MigrationPreview['blockers'][number]>,recordId:string) {
@@ -65,9 +66,9 @@ export function CompanyApp({ app, api, canManage, reload, orgId }: {app: App; ap
   }
   function prepareSchemaRollback(migration:AppMigration) {
     if(!migration.integrityValid||!migration.inverseOperations?.length)return
-    if(plan!=='[]'&&!window.confirm('編集中の変更案を、検証済みの可逆スキーマ変更から作る新しいDB変更案で置き換えます。現在の入力は保持されません。続けますか？'))return
+    if(plan!=='[]'&&!window.confirm(t('Creating a new DB change from this migration replaces the current draft. The current input will not be kept. Continue?')))return
     const safeId=`rollback_${migration.id.toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,10)}_v${db?.version??0}`
-    setPlan(JSON.stringify(migration.inverseOperations,null,2));setMigrationId(safeId);setMigrationPreview(null);setConfirmMigration(false);setNotice(`${migration.id}から作る新しい逆変更案を用意しました。プレビューしてから適用してください。`)
+    setPlan(JSON.stringify(migration.inverseOperations));setMigrationId(safeId);setMigrationPreview(null);setConfirmMigration(false);setNotice(t('Migration {id} is ready as a new rollback proposal. Preview it before applying.',{id:migration.id}))
   }
   function appendMigrationOperation(operation:Record<string,unknown>) {
     let operations:unknown[]
@@ -133,7 +134,7 @@ export function CompanyApp({ app, api, canManage, reload, orgId }: {app: App; ap
         <h3>DB変更履歴</h3>
         {!db.migrations.length?<p>適用済みの変更はありません。</p>:<ol className="hx-db-migration-history">{db.migrations.map(migration=><li key={`${migration.id}:${migration.version}`}>
           <details><summary>v{migration.version} · {migration.id} · {new Date(migration.createdAt).toLocaleString()}</summary>
-            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre>{canManage&&migration.inverseOperations&&migration.inverseOperations.length>0&&<><p>追加列・空欄だけの列削除／型変更・列名変更・空テーブルの作成／削除から、検証済み逆変更案を作れます。値があるデータ変更は自動で戻せません。作成した案もプレビューしてから適用します。</p><button className="pill-btn quiet" disabled={busy} onClick={()=>prepareSchemaRollback(migration)}>逆変更案を作成</button></>}</>}
+            {!migration.integrityValid?<p role="alert">履歴の整合性を確認できません。記録内容は非表示にし、再適用も拒否します。</p>:<><p role="status">チェックサム検証済み · {migration.checksum.slice(0,12)}</p><pre>{JSON.stringify(migration.plan,null,2)}</pre>{canManage&&migration.rollbackUnavailableReason==='snapshot_limit'&&<p role="status">{t('This migration is too large for a safe rollback snapshot. It was applied, but automatic rollback data was not retained.')}</p>}{canManage&&migration.rollbackUnavailableReason==='multiple_conversions'&&<p role="status">{t('This migration converted multiple columns in one table. It was applied, but automatic rollback is unavailable because the schema sequence cannot be safely reversed.')}</p>}{canManage&&migration.inverseOperations&&migration.inverseOperations.length>0&&<><p>{t('A populated column conversion can be rolled back only while the record set and converted values still match. Rollback creates a new change; preview it before applying.')}</p><button className="pill-btn quiet" disabled={busy} onClick={()=>prepareSchemaRollback(migration)}>{t('Create rollback plan')}</button></>}</>}
           </details>
         </li>)}</ol>}
       </section>
@@ -168,7 +169,7 @@ export function CompanyApp({ app, api, canManage, reload, orgId }: {app: App; ap
         </form>}
       </section><form onSubmit={e=>{e.preventDefault();void run(async()=>{const r=await api.databaseChange(app.id,{action:'generate',prompt});setPlan(JSON.stringify(r.operations,null,2));setMigrationId('migration_'+Date.now());setMigrationPreview(null);setConfirmMigration(false)})}}><label>自然文から変更案を作成<textarea value={prompt} maxLength={4000} onChange={e=>setPrompt(e.target.value)} placeholder="例：担当者テキストをPeople表の氏名と完全一致でRelationに変換し、結果をプレビュー" /></label><button className="pill-btn" disabled={busy||!prompt.trim()}>AIで変更案を作成</button></form>
       <label>変更ID<input value={migrationId} onChange={e=>{setMigrationId(e.target.value);setMigrationPreview(null);setConfirmMigration(false)}} placeholder="convert_amount_v1" /></label>
-      <label>変更案（JSON）<textarea aria-label="DB変更案" className="hx-code-editor" value={plan} onChange={e=>{setPlan(e.target.value);setConfirmMigration(false)}} maxLength={30000} /></label>
+      <label>変更案（JSON）<textarea aria-label="DB変更案" className="hx-code-editor" value={plan} onChange={e=>{setPlan(e.target.value);setConfirmMigration(false)}} maxLength={rollbackPlan?500000:30000} /></label>
       <button className="pill-btn quiet" disabled={busy||!migrationId||plan==='[]'} onClick={()=>void run(async()=>{setMigrationPreview(null);setConfirmMigration(false);const preview=await api.previewDatabaseMigration(app.id,{action:'preview',id:migrationId,version:db.version,operations:JSON.parse(plan)});setMigrationPreview(preview);setPreviewedPlan(plan);setPreviewedMigrationId(migrationId)})}>変更内容をプレビュー</button>
       {migrationPreview&&<section className="hx-custom-approval" aria-label="DB変更プレビュー"><h3>DB変更プレビュー</h3><p>{migrationPreview.canApply?'適用できます。':'適用できません。ブロックされた行を修正してください。'} · 対象レコード {migrationPreview.changes.reduce((n,c)=>n+c.rowsScanned,0)}件 · 更新レコード {migrationPreview.changes.reduce((n,c)=>n+c.rowsChanged,0)}件</p>
       {migrationPreview.changes.map((change,index)=><details key={change.entity+index}><summary>{change.tableName} · {change.operations.join('、')} · {change.rowsChanged}件の行データ変更</summary><pre>{JSON.stringify(change.schemaChanges,null,2)}</pre>{change.examples.map(example=><pre key={example.id}>{JSON.stringify({recordId:example.id,before:example.before,after:example.after,...(example.relationMatches?{relationMatches:example.relationMatches}:{})},null,2)}</pre>)}</details>)}
