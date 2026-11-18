@@ -137,9 +137,21 @@ export class OrgRelay {
       try { payload = JSON.parse(job.payload); } catch { return new Response('not found', { status: 404 }); }
       if (!await browserConversationAllowed(this.db, orgId, job.created_by, payload.browserContext)) return new Response('not found', { status: 404 });
       const queued = this.desktopControls?.get(job.id) || [];
+      const activeControllers = new Set();
+      const at = Date.now();
+      for (const ws of this.state.getWebSockets()) {
+        if (ws.readyState !== 1) continue;
+        const att = ws.deserializeAttachment() || {};
+        if (att.desktopJobId === job.id && att.desktopCanControl === true &&
+            typeof att.desktopControlId === 'string' && Number(att.desktopControlUntil) > at) {
+          activeControllers.add(att.desktopControlId);
+        }
+      }
       const controls=[],remaining=[];
       for(const item of queued){
-        if(String(item.userId)!==String(job.created_by) || !(await allowed(this.db,orgId,item.userId,'harness.build')) || !(await mayUseConversation(this.db,orgId,item.userId,payload.browserContext?.channel)))continue;
+        if(String(item.userId)!==String(job.created_by) || !activeControllers.has(item.controllerId) ||
+            Number(item.expiresAt) <= at || !(await allowed(this.db,orgId,item.userId,'harness.build')) ||
+            !(await mayUseConversation(this.db,orgId,item.userId,payload.browserContext?.channel)))continue;
         if(controls.length<5)controls.push(item.action);else remaining.push(item);
       }
       if(remaining.length)this.desktopControls?.set(job.id,remaining);else this.desktopControls?.delete(job.id);
@@ -638,7 +650,9 @@ export class OrgRelay {
         return;
       }
       const canControl=String(job.created_by)===String(att.githubId);
-      ws.serializeAttachment({ ...att, desktopJobId: job.id, desktopCanControl: canControl });
+      ws.serializeAttachment({ ...att, desktopJobId: job.id, desktopCanControl: canControl,
+        ...(att.desktopJobId === job.id && typeof att.desktopControlId === 'string'
+          ? {} : { desktopControlId: canControl ? crypto.randomUUID() : null, desktopControlUntil: 0 }) });
       ws.send(JSON.stringify({ type: 'CUSTOM', name: 'browser_frame_ready', value: { jobId: job.id, canControl } }));
       return;
     }
@@ -654,9 +668,24 @@ export class OrgRelay {
         ws.serializeAttachment({...current,desktopJobId:null,desktopCanControl:false});
         ws.send(JSON.stringify({type:'CUSTOM',name:'browser_control_rejected',value:{jobId}}));return;
       }
+      const at = Date.now();
+      const controllerId = typeof current.desktopControlId === 'string' ? current.desktopControlId : crypto.randomUUID();
+      let heldByAnother = false;
+      for (const socket of this.state.getWebSockets()) {
+        if (socket === ws || socket.readyState !== 1) continue;
+        const attachment = socket.deserializeAttachment() || {};
+        if (attachment.desktopJobId === jobId && attachment.desktopCanControl === true &&
+            typeof attachment.desktopControlId === 'string' && attachment.desktopControlId !== controllerId &&
+            Number(attachment.desktopControlUntil) > at) { heldByAnother = true; break; }
+      }
+      if (heldByAnother) {
+        ws.send(JSON.stringify({type:'CUSTOM',name:'browser_control_rejected',value:{jobId}}));return;
+      }
+      const leaseUntil = at + 30_000;
       const queues=this.desktopControls||(this.desktopControls=new Map()),queue=queues.get(jobId)||[];
       if(queue.length>=10){ws.send(JSON.stringify({type:'CUSTOM',name:'browser_control_rejected',value:{jobId}}));return;}
-      queue.push({userId:String(current.githubId),action});queues.set(jobId,queue);
+      ws.serializeAttachment({ ...current, desktopControlId: controllerId, desktopControlUntil: leaseUntil });
+      queue.push({userId:String(current.githubId),controllerId,expiresAt:leaseUntil,action});queues.set(jobId,queue);
       ws.send(JSON.stringify({type:'CUSTOM',name:'browser_control_queued',value:{jobId}}));
       return;
     }

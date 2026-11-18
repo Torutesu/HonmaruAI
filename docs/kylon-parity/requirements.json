@@ -1581,6 +1581,12 @@
         "reviewedAt": "2026-11-15",
         "inspectedMain": "aa897cf641e2b235bb28d77330626e1a18020f02",
         "verified": "PR #1008 (merge e1af3c9c) adds explicit ACP teammate opt-in, a workspace+Agent-isolated Apple Container browser VM and persistent profile, with a DNS-pinning proxy that rejects private/special addresses and arbitrary CONNECT ports. Its exact-head CI #43652504240 passed all jobs; local Gateway 79, Worker browser/gateway 21, Web 2,030 tests and production build passed. PR #1009 (merge fad36d82) binds browser jobs and every action to a live author-owned source message, room/thread and current conversation permission; Worker full suite passed 3,538 tests. Follow-up main commits ea01cca and aa897cf add ephemeral same-thread JPEG streaming and requester-only live control. On current main, Gateway browser session/proxy tests 15/15, Gateway client tests 24/24, Worker gateway+relay tests 31/31, and Web ThreadHeader+WebSocket tests 25/25 passed. Automation and Workflow jobs cannot claim the ACP browser capability.",
+        "controlLeaseIncrement": {
+          "base": "3b0fc16a0d2d62392a7dab575c24b7eb36386876",
+          "scope": "A single live Relay socket holds a 30-second requester control lease per browser job. New actions renew the lease; parallel tabs are rejected while another live tab holds it. Queued actions are bound to that socket lease, expire with it, and are discarded after disconnect/takeover or current authorization loss.",
+          "localQA": "Worker test/relay.test.js passed 11/11, including two creator tabs, rejection of the competing tab, takeover after disconnect, stale queued-action suppression, private-room frame visibility, and permission revocation. Exact-head CI and production deployment are pending.",
+          "remaining": "This in-process control lease closes the concurrent-tab race in Relay, but does not cancel a browser action already executing on the Mac after a permission revoke. Authenticated production-conversation/multi-room revocation acceptance and same-task Kylon UI comparison remain open."
+        },
         "runtimeSmoke": {
           "reviewedAt": "2026-11-17",
           "environment": "Existing user-owned Mac mini Apple Container 1.5.0 runtime; signed CLI 1.7.1 used only to inspect it. Built browser image honmaru-browser:1655 for this verification; no global install or new paid service.",
@@ -1588,7 +1594,7 @@
           "limitation": "Authenticated production-conversation and multi-room permission/control acceptance, cloud-hosted PC, first-party non-ACP Agent providers, and same-task authenticated Kylon UI comparison remain open. The bounded thumbnail is a viewport overview and small text may need enlargement for legibility."
         }
       },
-      "remaining": "The Mac-owned isolated Chromium runtime has been verified against the public Kylon sandbox page. Cloud-hosted PC and first-party non-ACP Agent providers are not implemented. Authenticated production-conversation acceptance, multiple-room/user revoke and concurrent-control behavior on-device, and a same-task authenticated Kylon UI comparison remain unverified. Simple mode is unchanged; no new contract or billing was added."
+      "remaining": "The Mac-owned isolated Chromium runtime has been verified against the public Kylon sandbox page. Cloud-hosted PC and first-party non-ACP Agent providers are not implemented. Authenticated production-conversation/multi-room revocation acceptance, cancellation of a Mac browser action already running when permission is revoked, and a same-task authenticated Kylon UI comparison remain unverified. Automated Relay coverage now verifies exclusive concurrent-tab control, takeover after socket close, and removal of stale queued actions. Simple mode is unchanged; no new contract or billing was added."
     },
     {
       "id": "KY-121",
