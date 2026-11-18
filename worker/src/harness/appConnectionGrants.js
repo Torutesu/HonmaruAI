@@ -204,7 +204,7 @@ export async function changeAppConnectionGrant(db, orgId, appId, actorId, input)
   return { granted: true };
 }
 
-export async function invokeAppConnection(env, orgId, appId, viewerId, input) {
+export async function invokeAppConnection(env, orgId, appId, viewerId, input, {additionalAuthorize=async()=>true}={}) {
   const db = env.DB;
   if (!await mayUseAppAsMember(db, orgId, appId, viewerId)) return err('No such app.', 404);
   const name = String(input?.name || '');
@@ -216,13 +216,18 @@ export async function invokeAppConnection(env, orgId, appId, viewerId, input) {
     if (!grant) return err('No enabled connection granted to this App visitor.', 404);
   }
   const ownerId = grant ? String(grant.ownerId) : String(viewerId);
+  if(input.expectedOwnerId!==undefined&&String(input.expectedOwnerId)!==ownerId)return err('The bound connection owner changed. Review the Workflow source.',409);
+  if(input.version!==undefined&&Number(input.version)!==(grant?Number(grant.version):Number((await db.prepare('SELECT version FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4').bind(orgId,appId,ownerId,name).first())?.version)))return err('The bound connection changed. Review the Workflow source.',409);
   const authorize = async () => {
+    if(!await additionalAuthorize())return false;
     if (!await mayUseAppAsMember(db, orgId, appId, viewerId)) return false;
     if (!await mayUseAppAsMember(db, orgId, appId, ownerId)) return false;
     const current = await db.prepare(`SELECT version,endpoint,method,enabled FROM hx_app_connections
       WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4`)
       .bind(orgId,appId,ownerId,name).first().catch(()=>null);
-    if (!current || Number(current.enabled)!==1 || current.endpoint!==(grant?.endpoint||current.endpoint) || current.method!==(grant?.method||current.method) || (grant && current.version!==grant.version)) return false;
+    if (!current || Number(current.enabled)!==1 || current.endpoint!==(grant?.endpoint||current.endpoint) || current.method!==(grant?.method||current.method)
+      || (grant && current.version!==grant.version) || input.version!==undefined&&Number(current.version)!==Number(input.version)
+      || input.expectedOwnerId!==undefined&&String(ownerId)!==String(input.expectedOwnerId)) return false;
     if (grant) {
       const live=await getGrant(db,orgId,appId,name,viewerId);
       return Boolean(live && live.createdAt===grant.createdAt && live.version===grant.version && live.grantVersion===grant.grantVersion && live.ownerMembershipSince===grant.ownerMembershipSince && live.sourceAgentId===grant.sourceAgentId);

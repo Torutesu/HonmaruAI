@@ -2420,6 +2420,16 @@ const table: Record<string, string> = {
   'Could not get an AI answer. Try again.': 'Impossible d’obtenir une réponse de l’IA. Réessayez.',
   'Sources': 'Sources',
   'Open source': 'Ouvrir la source',
+  'App connection source': 'App de connexion',
+  'Choose an App': 'Choisir une App',
+  'Authorized App connections': 'Connexions App autorisées',
+  'Bind existing App connections to this Workflow. The App owner keeps control of the URL and credentials.': 'Associez les connexions App existantes à ce workflow. Le propriétaire de l’App conserve le contrôle de l’URL et des identifiants.',
+  'Loading connections…': 'Chargement des connexions…',
+  'Include connection': 'Inclure la connexion',
+  'Writes require a Workflow approval step and are not available in programs yet.': 'Les écritures nécessitent une étape d’approbation du workflow et ne sont pas encore disponibles dans les programmes.',
+  'No enabled App connections are available.': 'Aucune connexion App activée n’est disponible.',
+  'A selected connection changed or is no longer available. Re-select it before saving.': 'Une connexion sélectionnée a changé ou n’est plus disponible. Sélectionnez-la à nouveau avant d’enregistrer.',
+  'connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.': 'connection.request({appId, name, query}) envoie des requêtes en lecture seule limitées via la connexion App sélectionnée. Le programme ne reçoit jamais son URL ni ses identifiants.',
 }
 
 export default table

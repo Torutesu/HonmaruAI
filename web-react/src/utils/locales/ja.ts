@@ -4164,6 +4164,16 @@ const table: Record<string, string> = {
   'Could not get an AI answer. Try again.': 'AIの回答を取得できませんでした。もう一度お試しください。',
   'Sources': '情報源',
   'Open source': '情報源を開く',
+  'App connection source': 'App接続の参照元',
+  'Choose an App': 'Appを選択',
+  'Authorized App connections': '許可するApp接続',
+  'Bind existing App connections to this Workflow. The App owner keeps control of the URL and credentials.': '既存のApp接続をこのWorkflowに紐づけます。URLと認証情報はApp所有者が管理します。',
+  'Loading connections…': '接続を読み込み中…',
+  'Include connection': '接続を含める',
+  'Writes require a Workflow approval step and are not available in programs yet.': '書き込みにはWorkflowの承認ステップが必要です。プログラムからの書き込みはまだ利用できません。',
+  'No enabled App connections are available.': '有効なApp接続がありません。',
+  'A selected connection changed or is no longer available. Re-select it before saving.': '選択した接続は変更されたか利用できません。保存前に選び直してください。',
+  'connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.': 'connection.request({appId, name, query})は選択したApp接続を通じて制限付きの読み取り要求を送信します。プログラムにURLや認証情報は渡されません。',
 }
 
 export default table

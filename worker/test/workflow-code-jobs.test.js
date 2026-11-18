@@ -1,5 +1,5 @@
 import {env} from 'cloudflare:test';
-import {test,expect,beforeEach} from 'vitest';
+import {test,expect,beforeEach,vi} from 'vitest';
 import {upsertUser,upsertMembership} from '../src/db.js';
 import {enqueueWorkflowProgram,settleWorkflowProgram,workflowProgramAccessCTE,workflowProgramJobAccess,workflowProgramTrigger} from '../src/harness/workflowCodeJobs.js';
 import {ensureWorkflowSafety} from '../src/harness/workflowSafety.js';
@@ -375,6 +375,67 @@ async function setupProgramTableSource({privateApp=false,multiSource=false,writa
  const job=(await claimed.json()).job;expect(job.id).toBe(queued.jobId);expect(job.workflow).toBe(true);
  return {api,job,privateApp};
 }
+
+async function setupProgramConnectionSource(){
+ await upsertUser(env.DB,{githubId:'app-owner',login:'app-owner',name:'App Owner'});
+ await upsertMembership(env.DB,'program-org','app-owner','admin');
+ await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('connection-app','program-org','Connection App','connection-table','{}','app-owner','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES('program-org','connection-app','workspace',1)").run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES('program-org','connection-app','program-owner','github_issues',1,'https://api.github.com/repos/example/project/issues','GET',1)").run();
+ definition.steps=[{...definition.steps[0],sourceConnections:[{appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'GET'}]}];
+ await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=?1 WHERE run_id='program-run'").bind(JSON.stringify(definition)).run();
+ const queued=await enqueue({at:Date.now()});expect(queued.status).toBe('pending');
+ const token=`hgw_${crypto.randomUUID()}${crypto.randomUUID()}`;
+ const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))),byte=>byte.toString(16).padStart(2,'0')).join('');
+ await env.DB.prepare("UPDATE hx_gateways SET token_hash=?1 WHERE id='program-node'").bind(hash).run();
+ const api=(path,body={})=>worker.fetch(new Request(`https://example.com/gateways${path}`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)}),env,{waitUntil(){}});
+ const claimed=await api('/claim',{capabilities:['workflow-program-v1']});expect(claimed.status).toBe(200);
+ const job=(await claimed.json()).job;expect(job.id).toBe(queued.jobId);expect(job.workflow).toBe(true);
+ return {api,job};
+}
+
+test('Workflow App connection references are frozen to their current owner and version',async()=>{
+ await upsertUser(env.DB,{githubId:'app-owner',login:'app-owner',name:'App Owner'});
+ await upsertMembership(env.DB,'program-org','app-owner','admin');
+ await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('bound-app','program-org','Bound App','bound-table','{}','app-owner','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES('program-org','bound-app','program-owner','github_issues',1,'https://api.github.com/repos/example/project/issues','GET',1)").run();
+ const code='import {connection} from \'@honmaru/workflow-sdk\';';
+ const inputStep={type:'code',code,gatewayId:'program-node',sourceConnections:[{appId:'bound-app',name:'github_issues'}]};
+ const created=await createWorkflow(env.DB,'program-org',{name:'Bound App connection',trigger:{type:'manual'},steps:[inputStep]},'program-owner');
+ expect(created.error).toBeUndefined();
+ expect(created.workflow.steps[0].sourceConnections).toEqual([{appId:'bound-app',name:'github_issues',ownerId:'program-owner',version:1,method:'GET'}]);
+ const invalidWrite=await createWorkflow(env.DB,'program-org',{name:'Write connection',trigger:{type:'manual'},steps:[{...inputStep,sourceConnections:[{appId:'bound-app',name:'write_api'}]}]},'program-owner');
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES('program-org','bound-app','program-owner','write_api',1,'https://api.github.com/repos/example/project/issues','POST',1)").run();
+ const write=await createWorkflow(env.DB,'program-org',{name:'Write connection',trigger:{type:'manual'},steps:[{...inputStep,sourceConnections:[{appId:'bound-app',name:'write_api'}]}]},'program-owner');
+ expect(write.error).toContain('enabled GET App connection');expect(invalidWrite.error).toContain('enabled GET App connection');
+ await env.DB.prepare("UPDATE hx_app_connections SET version=2 WHERE org_id='program-org' AND app_id='bound-app' AND name='github_issues'").run();
+ const stale=await updateWorkflow(env.DB,'program-org',created.workflow.id,{steps:created.workflow.steps,expectedUpdatedAt:created.workflow.updatedAt});
+ expect(stale.error).toContain('Re-select any connection that changed');
+});
+
+test('Workflow connection.request uses its pinned URL and drops the response when App access is revoked in flight',async()=>{
+ const {api,job}=await setupProgramConnectionSource();
+ let revoke=false;const fetch=vi.fn(async(url)=>{
+  expect(new URL(String(url)).searchParams.get('state')).toBe('open');
+  if(revoke)await env.DB.prepare("UPDATE hx_app_access SET visibility='private',version=version+1 WHERE org_id='program-org' AND app_id='connection-app'").run();
+  return new Response(JSON.stringify({private:'provider response'}),{headers:{'content-type':'application/json'}});
+ });
+ vi.stubGlobal('fetch',fetch);
+ try{
+  const request={lease:job.lease,operation:'connection.request',params:{appId:'connection-app',name:'github_issues',query:{state:'open'}}};
+  const allowed=await api(`/jobs/${job.id}/state`,request);
+  expect(allowed.status).toBe(200);expect(await allowed.json()).toMatchObject({data:{private:'provider response'}});
+  revoke=true;
+  const response=await api(`/jobs/${job.id}/state`,request);
+  expect(response.status).toBe(403);
+  const denied=await response.json();
+  expect(denied).toMatchObject({message:expect.stringContaining('result was discarded')});
+  expect(JSON.stringify(denied)).not.toContain('provider response');
+  expect(fetch).toHaveBeenCalledTimes(2);
+  const injected=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'connection.request',params:{appId:'foreign-app',name:'github_issues'}});
+  expect(injected.status).toBe(403);
+ }finally{vi.unstubAllGlobals()}
+});
 
 test('saved TypeScript sources are normalized to explicit App entities and cannot name another workspace resource',async()=>{
  await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES('saved-primary','program-org','Primary','[]','program-owner','now','now')").run();

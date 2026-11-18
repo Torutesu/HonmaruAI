@@ -7,6 +7,7 @@ import {ensureWorkflowSafety,readWorkflowSafety,workflowBudgetStatus,workflowBud
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
 import {workflowApprovalClaimAuthority,workflowEffectAuthority} from './workflowEffectAuthority.js';
 import { mayUseApp, mayUseTable, mayEditTable } from './resourceAccess.js';
+import { appConnectionsForViewer } from './appConnectionGrants.js';
 import { holdWorkflowEvent } from './workflowHeld.js';
 import { WORKFLOW_WEBHOOK_REPLAY_TTL_MS, verifyWorkflowWebhook } from './workflowWebhookSignature.js';
 import { mayUseConversation } from './conversationAccess.js';
@@ -287,6 +288,32 @@ async function validProgramAgentSources(db,orgId,step,viewerId) {
   return true;
 }
 
+async function bindProgramConnectionSources(db,orgId,step,viewerId) {
+  if(step?.sourceConnections===undefined)return {sources:[]};
+  if(!Array.isArray(step.sourceConnections)||step.sourceConnections.length<1||step.sourceConnections.length>20
+    ||step.sourceConnections.some(source=>!source||typeof source!=='object'||Array.isArray(source)
+      ||Object.keys(source).some(key=>!['appId','name','ownerId','version','method'].includes(key))
+      ||typeof source.appId!=='string'||!source.appId.trim()||source.appId.length>200
+      ||typeof source.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(source.name)
+      ||source.ownerId!==undefined&&(typeof source.ownerId!=='string'||!source.ownerId||source.ownerId.length>200)
+      ||source.version!==undefined&&(!Number.isSafeInteger(source.version)||source.version<1)
+      ||source.method!==undefined&&source.method!=='GET')
+    ||new Set(step.sourceConnections.map(source=>`${source.appId}\0${source.name}`)).size!==step.sourceConnections.length)return {error:'Choose between 1 and 20 distinct App connections.'};
+  const catalogs=new Map();
+  const sources=[];
+  for(const reference of step.sourceConnections){
+    if(!catalogs.has(reference.appId))catalogs.set(reference.appId,await appConnectionsForViewer(db,orgId,reference.appId,viewerId));
+    const catalog=catalogs.get(reference.appId);
+    const live=!catalog.error&&(catalog.connections||[]).find(item=>item.name===reference.name&&Number(item.enabled)===1&&item.method==='GET'
+      &&(reference.ownerId===undefined||String(item.ownerId)===reference.ownerId)
+      &&(reference.version===undefined||Number(item.version)===reference.version)
+      &&(reference.method===undefined||item.method===reference.method));
+    if(!live)return {error:'Choose an enabled GET App connection you can access. Re-select any connection that changed.'};
+    sources.push({appId:reference.appId,name:reference.name,ownerId:String(live.ownerId),version:Number(live.version),method:'GET'});
+  }
+  return {sources};
+}
+
 async function validAppRecordTrigger(db, orgId, trigger, expectedTableId = undefined) {
   if (trigger.type !== 'app_record_change') return true;
   const tableId=await appEntityTable(db, orgId, trigger.appId, trigger.entityId);
@@ -311,6 +338,19 @@ export function normalizeSteps(raw) {
           const sourceFields=['sourceEntityId','sourceTableId'];
           if(s.sourceAgents!==undefined&&(!Array.isArray(s.sourceAgents)||s.sourceAgents.length<1||s.sourceAgents.length>20||s.sourceAgents.some(id=>typeof id!=='string'||!id.trim()||id.length>200)||new Set(s.sourceAgents).size!==s.sourceAgents.length))return {error:'Choose between 1 and 20 distinct Agents for the TypeScript program.'};
           const sourceAgents=s.sourceAgents===undefined?{}:{sourceAgents:[...s.sourceAgents]};
+          let sourceConnections={};
+          if(s.sourceConnections!==undefined){
+            if(!Array.isArray(s.sourceConnections)||s.sourceConnections.length<1||s.sourceConnections.length>20
+              ||s.sourceConnections.some(source=>!source||typeof source!=='object'||Array.isArray(source)
+                ||Object.keys(source).some(key=>!['appId','name','ownerId','version','method'].includes(key))
+                ||typeof source.appId!=='string'||!source.appId.trim()||source.appId.length>200
+                ||typeof source.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(source.name)
+                ||source.ownerId!==undefined&&(typeof source.ownerId!=='string'||!source.ownerId||source.ownerId.length>200)
+                ||source.version!==undefined&&(!Number.isSafeInteger(source.version)||source.version<1)
+                ||source.method!==undefined&&source.method!=='GET')
+              ||new Set(s.sourceConnections.map(source=>`${source.appId}\0${source.name}`)).size!==s.sourceConnections.length)return {error:'Choose between 1 and 20 distinct enabled GET App connections.'};
+            sourceConnections={sourceConnections:s.sourceConnections.map(source=>({appId:source.appId,name:source.name,...(source.ownerId!==undefined?{ownerId:source.ownerId}:{}),...(source.version!==undefined?{version:source.version}:{}),...(source.method!==undefined?{method:source.method}:{})}))};
+          }
           const hasLegacySource=sourceFields.some(key=>s[key]!==undefined&&s[key]!==null&&s[key]!=='');
           const hasSourceTables=s.sourceTables!==undefined;
           const hasSource=Boolean(s.sourceAppId)||hasLegacySource||hasSourceTables;
@@ -325,11 +365,11 @@ export function normalizeSteps(raw) {
                 ||typeof source.tableId!=='string'||!source.tableId.trim()||source.tableId.length>200||source.write!==undefined&&typeof source.write!=='boolean'||source.mutate!==undefined&&typeof source.mutate!=='boolean'||seen.has(source.entityId))return {error:'Choose distinct, complete App entities for the TypeScript program.'};
               seen.add(source.entityId);
             }
-            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,sourceAppId:text('sourceAppId',200),sourceTables:s.sourceTables.map(source=>({entityId:source.entityId,tableId:source.tableId,...(source.write?{write:true}:{}),...(source.mutate?{mutate:true}:{})})),...sourceAgents});
+            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,sourceAppId:text('sourceAppId',200),sourceTables:s.sourceTables.map(source=>({entityId:source.entityId,tableId:source.tableId,...(source.write?{write:true}:{}),...(source.mutate?{mutate:true}:{})})),...sourceAgents,...sourceConnections});
           }else{
             if(hasLegacySource&&sourceFields.some(key=>typeof s[key]!=='string'||!s[key].trim()||s[key].length>200))return {error:'Choose one complete App/Table source for the TypeScript program.'};
             if(hasLegacySource&&!/^([a-z][a-z0-9_]{0,39})$/.test(s.sourceEntityId))return {error:'Choose a valid App entity for the TypeScript program.'};
-            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,...(hasLegacySource?{sourceAppId:text('sourceAppId',200),sourceEntityId:text('sourceEntityId',40),sourceTableId:text('sourceTableId',200)}:{}),...sourceAgents});
+            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,...(hasLegacySource?{sourceAppId:text('sourceAppId',200),sourceEntityId:text('sourceEntityId',40),sourceTableId:text('sourceTableId',200)}:{}),...sourceAgents,...sourceConnections});
           }
         }
         break;
@@ -537,7 +577,7 @@ export async function mayViewWorkflow(db, orgId, workflow, viewerId) {
   if (workflow.trigger?.type === 'app_record_change' && !(await mayUseApp(db, orgId, workflow.trigger.appId, viewerId))) return false;
   for (const step of workflow.steps || []) {
     if (step.tableId && !(await mayUseTable(db, orgId, step.tableId, viewerId))) return false;
-    if (step.type==='code' && (!(await validProgramTableSource(db,orgId,step,viewerId))||!(await validProgramAgentSources(db,orgId,step,viewerId)))) return false;
+    if (step.type==='code' && (!(await validProgramTableSource(db,orgId,step,viewerId))||!(await validProgramAgentSources(db,orgId,step,viewerId))||(await bindProgramConnectionSources(db,orgId,step,viewerId)).error)) return false;
     if (step.channel && !(await mayUseConversation(db, orgId, viewerId, step.channel))) return false;
     if (step.agentId) {
       const agent = await db.prepare("SELECT * FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, step.agentId).first();
@@ -587,6 +627,7 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
   const programSource=s.steps.find(step=>step.type==='code');
   if(programSource&&!await validProgramTableSource(db,orgId,programSource,by))return {error:'Choose an App/Table source you can access.'};
   if(programSource&&!await validProgramAgentSources(db,orgId,programSource,by))return {error:'Choose Agents you can access for this TypeScript program.'};
+  if(programSource){const connections=await bindProgramConnectionSources(db,orgId,programSource,by);if(connections.error)return {error:connections.error};if(connections.sources.length)programSource.sourceConnections=connections.sources;}
   if (t.trigger.type === "row" && !(await getTable(db, orgId, t.trigger.tableId))) return { error: "No such table." };
   if (t.trigger.type === 'app_record_change' && (!(await validAppRecordTrigger(db, orgId, t.trigger)) || !(await mayUseApp(db, orgId, t.trigger.appId, by)))) return { error: "Choose an app and entity you can access." };
   const n = await db.prepare("SELECT COUNT(*) AS n FROM hx_workflows WHERE org_id = ?1").bind(orgId).first();
@@ -641,6 +682,7 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
     const programSource=s.steps.find(step=>step.type==='code');
     if(programSource&&(!await validProgramTableSource(db,orgId,programSource,wf.createdBy)||(changedBy!==null&&!await validProgramTableSource(db,orgId,programSource,changedBy))))return {error:'Choose an App/Table source you can access.'};
     if(programSource&&(!await validProgramAgentSources(db,orgId,programSource,wf.createdBy)||(changedBy!==null&&!await validProgramAgentSources(db,orgId,programSource,changedBy))))return {error:'Choose Agents you can access for this TypeScript program.'};
+    if(programSource){const connections=await bindProgramConnectionSources(db,orgId,programSource,wf.createdBy);if(connections.error)return {error:connections.error};if(changedBy!==null&&(await bindProgramConnectionSources(db,orgId,{...programSource,sourceConnections:connections.sources},changedBy)).error)return {error:'Choose App connections you can access.'};if(connections.sources.length)programSource.sourceConnections=connections.sources;}
     const unavailableConnection=await connectionStepsAvailable(db,orgId,s.steps,wf.createdBy);
     if(unavailableConnection)return unavailableConnection;
     steps = s.steps;
