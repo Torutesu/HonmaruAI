@@ -4912,6 +4912,8 @@ await step('Harness voice input reaches an ordinary field and stays off the Simp
       editor.focus()
     })
     await mic.click({ timeout: 5000 })
+    await mic.click({ timeout: 5000 })
+    await page.waitForFunction(() => document.querySelector('.hx-global-dictation')?.getAttribute('aria-pressed') === 'true', null, { timeout: 5000 })
     await page.evaluate(() => window.__honmaruSpeech.emit('again'))
     if (await editor.textContent() !== 'before final after again') throw new Error(`speech at the contenteditable end had a misplaced separator or range: ${await editor.textContent()}`)
     await page.screenshot({ path: `${SHOTS}/21-harness-voice-input.png` })
