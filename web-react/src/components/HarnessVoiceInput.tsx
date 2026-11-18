@@ -26,7 +26,7 @@ export function dictatedValue(value: string, start: number, end: number, spoken:
 }
 
 function hasInlineMic(value: HTMLElement) {
-  for (let parent: HTMLElement | null = value.parentElement, depth = 0; parent && depth < 5; parent = parent.parentElement, depth++) {
+  for (let parent: HTMLElement | null = value.parentElement, depth = 0; parent && parent !== document.body && depth < 5; parent = parent.parentElement, depth++) {
     if (parent.matches('.hx-dictation, .create-decision')) return true
     if (parent.querySelector('.hx-dictation, button.mic')) return true
   }
