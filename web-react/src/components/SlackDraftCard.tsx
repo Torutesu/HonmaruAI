@@ -38,6 +38,7 @@ export function SlackDraftCard({ httpBase, orgId, sessionToken, draftId, convers
   const query = new URLSearchParams({ orgId, conversation }).toString()
 
   const load = async () => {
+    setError('')
     const response = await fetch(`${path}?${query}`, { headers: { 'x-session-token': sessionToken } })
     const body = await response.json().catch(() => null)
     if (!response.ok || !body?.draft) throw new Error(body?.message || t('Could not load this Slack draft.'))

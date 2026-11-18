@@ -217,9 +217,9 @@ test("a muted conversation only notifies for explicit mentions", async () => {
     .toEqual([]);
 });
 
-test.each(["mute", "private", "guest", "thread-mute"])("queued push honors a later %s change before delivery", async (change) => {
+test.each(["mute", "private", "guest", "thread-mute", "thread-leave"])("queued push honors a later %s change before delivery", async (change) => {
   const { registerDevice } = await import("../src/db.js");
-  const token = ({ mute: "b", private: "c", guest: "d", "thread-mute": "e" })[change].repeat(64);
+  const token = ({ mute: "b", private: "c", guest: "d", "thread-mute": "e", "thread-leave": "g" })[change].repeat(64);
   await registerDevice(env.DB, { deviceToken: token, githubId: "8803", login: "kenji", environment: "production", platform: "ios" });
   const pushed = [];
   fetchMock.activate();
@@ -229,21 +229,22 @@ test.each(["mute", "private", "guest", "thread-mute"])("queued push honors a lat
   const penv = { ...env, APNS_KEY_ID: "ABC1234567", APNS_TEAM_ID: "TEAM123456", APNS_TOPIC: "com.honmaru.ai", APNS_PRIVATE_KEY: TEST_P8 };
   const members = await listMembers(env.DB, ORG, null);
   const now = Date.now();
-  const say = async (id, at) => {
-    const row = { id, kind: "message", channel: "b:cafe", author_login: "toru", body: "@Kenji confidential", created_at: new Date(at).toISOString() };
+  const say = async (id, at, body = "@Kenji confidential") => {
+    const row = { id, kind: "message", channel: "b:cafe", author_login: "toru", body, created_at: new Date(at).toISOString() };
     await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,body,kind,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)")
       .bind(id, ORG, row.channel, row.author_login, row.body, row.kind, row.created_at).run();
-    if (change === "thread-mute") {
+    if (change === "thread-mute" || change === "thread-leave") {
       row.parent_id = "queued-mute-root";
       await env.DB.prepare("UPDATE channel_messages SET parent_id=?1 WHERE id=?2").bind(row.parent_id,id).run();
     }
     await queueMessagePushes(penv, ORG, row, { members, now: at });
   };
   try {
-    if (change === "thread-mute") await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,body,kind,created_at) VALUES ('queued-mute-root',?1,'b:cafe','toru','Root','message','2026-01-01')").bind(ORG).run();
+    if (change === "thread-mute" || change === "thread-leave") await env.DB.prepare("INSERT INTO channel_messages(id,org_id,channel,author_login,body,kind,created_at) VALUES ('queued-mute-root',?1,'b:cafe','kenji','Root','message','2026-01-01')").bind(ORG).run();
     await say("before-change", now);
     expect(await queued()).toHaveLength(1);
     if (change === "thread-mute") await env.DB.prepare("INSERT INTO channel_thread_mutes(org_id,login,message_id) VALUES (?1,'kenji','queued-mute-root')").bind(ORG).run();
+    if (change === "thread-leave") await env.DB.prepare("INSERT INTO channel_thread_leaves(org_id,login,message_id) VALUES (?1,'kenji','queued-mute-root')").bind(ORG).run();
     if (change === "mute") await env.DB.prepare("INSERT INTO channel_prefs (org_id,login,channel,level) VALUES (?1,'kenji','b:cafe','mute')").bind(ORG).run();
     if (change === "private") await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='cafe'").bind(ORG).run();
     if (change === "guest") await env.DB.prepare("UPDATE memberships SET role='guest' WHERE org_id=?1 AND user_github_id='8803'").bind(ORG).run();
@@ -253,9 +254,10 @@ test.each(["mute", "private", "guest", "thread-mute"])("queued push honors a lat
     // Restoring access/preferences allows new notifications, but never replays the skipped message.
     await env.DB.prepare("DELETE FROM channel_prefs WHERE org_id=?1").bind(ORG).run();
     await env.DB.prepare("DELETE FROM channel_thread_mutes WHERE org_id=?1").bind(ORG).run();
+    await env.DB.prepare("DELETE FROM channel_thread_leaves WHERE org_id=?1").bind(ORG).run();
     await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(ORG).run();
     await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='8803'").bind(ORG).run();
-    await say("after-change", now + 2 * PUSH_DELAY_MS);
+    await say("after-change", now + 2 * PUSH_DELAY_MS, change === "thread-mute" || change === "thread-leave" ? "A regular thread reply" : "@Kenji confidential");
     expect(await sendDuePushes(penv, now + 3 * PUSH_DELAY_MS + 1000)).toEqual({ sent: 1, skipped: 0 });
     expect(pushed).toHaveLength(mentionStillNotifies ? 2 : 1);
   } finally { fetchMock.deactivate(); }

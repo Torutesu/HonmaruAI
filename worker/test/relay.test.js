@@ -46,12 +46,15 @@ test("live browser frames and controls stay inside the current private-room memb
   await setMode(env.DB, "core-team", "harness", "1001");
 
   const { ws: owner, messages: ownerMessages } = await joined("core-team", globalThis.__tokenA);
+  const { ws: secondOwnerTab, messages: secondOwnerMessages } = await joined("core-team", globalThis.__tokenA);
   const { ws: roomMember, messages: memberMessages } = await joined("core-team", globalThis.__tokenB);
   const { ws: outsider, messages: outsiderMessages } = await joined("core-team", outsiderToken);
   owner.send(JSON.stringify({ type: "desktop_join", payload: { jobId } }));
+  secondOwnerTab.send(JSON.stringify({ type: "desktop_join", payload: { jobId } }));
   roomMember.send(JSON.stringify({ type: "desktop_join", payload: { jobId } }));
   outsider.send(JSON.stringify({ type: "desktop_join", payload: { jobId } }));
   expect(await message(ownerMessages, m => m.type === "CUSTOM" && m.name === "browser_frame_ready" && m.value?.jobId === jobId)).toMatchObject({ value: { canControl: true } });
+  expect(await message(secondOwnerMessages, m => m.type === "CUSTOM" && m.name === "browser_frame_ready" && m.value?.jobId === jobId)).toMatchObject({ value: { canControl: true } });
   expect(await message(memberMessages, m => m.type === "CUSTOM" && m.name === "browser_frame_ready" && m.value?.jobId === jobId)).toMatchObject({ value: { canControl: false } });
   expect(await message(outsiderMessages, m => m.type === "CUSTOM" && m.name === "browser_frame_unavailable" && m.value?.jobId === jobId)).toBeTruthy();
 
@@ -59,15 +62,27 @@ test("live browser frames and controls stay inside the current private-room memb
   expect(await message(memberMessages, m => m.type === "CUSTOM" && m.name === "browser_control_rejected" && m.value?.jobId === jobId)).toBeTruthy();
   owner.send(JSON.stringify({ type: "desktop_control", payload: { jobId, action: { type: "click", x: 42, y: 84 } } }));
   expect(await message(ownerMessages, m => m.type === "CUSTOM" && m.name === "browser_control_queued" && m.value?.jobId === jobId)).toBeTruthy();
+  secondOwnerTab.send(JSON.stringify({ type: "desktop_control", payload: { jobId, action: { type: "click", x: 43, y: 85 } } }));
+  expect(await message(secondOwnerMessages, m => m.type === "CUSTOM" && m.name === "browser_control_rejected" && m.value?.jobId === jobId)).toBeTruthy();
 
+  // The creator's second tab can take over after the active control socket closes.
+  owner.close();
+  await until(() => owner.readyState === 3);
+  secondOwnerTab.send(JSON.stringify({ type: "desktop_control", payload: { jobId, action: { type: "click", x: 44, y: 86 } } }));
+  expect(await message(secondOwnerMessages, m => m.type === "CUSTOM" && m.name === "browser_control_queued" && m.value?.jobId === jobId)).toBeTruthy();
   const relay = env.ORG_RELAY.get(env.ORG_RELAY.idFromName("core-team"));
+  const controls = await relay.fetch(new Request(`https://relay.invalid/desktop/controls?orgId=core-team`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobId }),
+  }));
+  expect(await controls.json()).toEqual({ controls: [{ type: "click", x: 44, y: 86 }] });
+
   const sendFrame = () => relay.fetch(new Request(`https://relay.invalid/desktop/frame?orgId=core-team`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobId, image: "/9j/AA==" }),
   }));
   const firstFrame = await sendFrame();
   expect(firstFrame.status).toBe(200);
   expect(await firstFrame.json()).toEqual({ delivered: 2 });
-  expect(ownerMessages.some(m => m.type === "CUSTOM" && m.name === "browser_frame" && m.value?.jobId === jobId)).toBe(true);
+  expect(secondOwnerMessages.some(m => m.type === "CUSTOM" && m.name === "browser_frame" && m.value?.jobId === jobId)).toBe(true);
   expect(memberMessages.some(m => m.type === "CUSTOM" && m.name === "browser_frame" && m.value?.jobId === jobId)).toBe(true);
   expect(outsiderMessages.some(m => m.type === "CUSTOM" && m.name === "browser_frame" && m.value?.jobId === jobId)).toBe(false);
 
@@ -77,11 +92,11 @@ test("live browser frames and controls stay inside the current private-room memb
   expect(memberMessages.filter(m => m.type === "CUSTOM" && m.name === "browser_frame" && m.value?.jobId === jobId)).toHaveLength(1);
 
   await env.DB.prepare("DELETE FROM conversation_members WHERE org_id='core-team' AND channel=?1 AND login='realdev'").bind(channel).run();
-  owner.send(JSON.stringify({ type: "desktop_control", payload: { jobId, action: { type: "click", x: 10, y: 20 } } }));
-  expect(await message(ownerMessages, m => m.type === "CUSTOM" && m.name === "browser_control_rejected" && m.value?.jobId === jobId)).toBeTruthy();
+  secondOwnerTab.send(JSON.stringify({ type: "desktop_control", payload: { jobId, action: { type: "click", x: 10, y: 20 } } }));
+  expect(await message(secondOwnerMessages, m => m.type === "CUSTOM" && m.name === "browser_control_rejected" && m.value?.jobId === jobId)).toBeTruthy();
   const revokedFrame = await sendFrame();
   expect(revokedFrame.status).toBe(404);
-  owner.close();
+  secondOwnerTab.close();
   roomMember.close();
   outsider.close();
 });

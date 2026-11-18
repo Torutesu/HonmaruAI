@@ -2,11 +2,10 @@ import {workflowActivationState} from './workflowActivationState.js';
 import {settleWorkflowProgram,renewWorkflowProgramLease,WORKFLOW_PROGRAM_TIMEOUT_MS,WORKFLOW_PROGRAM_RESULT_GRACE_MS,workflowProgramJobAccess,workflowProgramAccessCTE} from './workflowCodeJobs.js';
 import {WorkflowStateInputError} from './workflowState.js';
 import {cleanWorkflowMessageDrafts} from './workflowMessageDrafts.js';
-import { enqueueExecution, jobView, readExecution, cancelExecution, nativeBrowserActionAllowed } from './executions.js';
+import { enqueueExecution, jobView, readExecution, cancelExecution, nativeBrowserActionAllowed, browserConversationAllowed } from './executions.js';
 import { HARNESS_TOOLS, callHarnessTool } from './mcpTools.js';
 import { mayRunAgent } from './agents.js';
 import { getMode } from './mode.js';
-import { browserConversationAllowed } from './executions.js';
 import { handleRemoteMcpEgressNode, expireRemoteMcpEgress, cancelRemoteMcpEgressForGateway } from './remoteMcpEgress.js';
 // Outbound-only execution nodes. A node token grants access to one workspace's
 // assigned jobs, never to workspace files, agent memories or integration keys.
@@ -20,6 +19,15 @@ const digest = async value => Array.from(new Uint8Array(await crypto.subtle.dige
 const secret = () => `${crypto.randomUUID()}${crypto.randomUUID()}`;
 const failure = (message, status = 400) => json({ message }, status);
 const activeMember = `(EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = hx_gateway_jobs.org_id AND m.user_github_id = hx_gateway_jobs.created_by AND LOWER(TRIM(COALESCE(m.role,'guest'))) != 'guest') AND NOT EXISTS (SELECT 1 FROM hx_app_action_jobs j WHERE j.job_id=hx_gateway_jobs.id AND NOT EXISTS (SELECT 1 FROM hx_apps a LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=j.org_id AND a.id=j.app_id AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=hx_gateway_jobs.created_by))))`;
+const ACP_QUEUE_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+async function failBrowserJobAfterAuthorizationLoss(db, { jobId, gatewayId, leaseHash, at }) {
+  const result = JSON.stringify({ status: 'failed', stdout: '', stderr: 'Browser access was revoked while this execution was running.', exitCode: 1 });
+  return db.prepare(`UPDATE hx_gateway_jobs SET status='failed',result=?5,finished_at=?4,lease_hash=NULL
+    WHERE id=?1 AND gateway_id=?2 AND lease_hash=?3 AND status='running'
+      AND (COALESCE(json_extract(payload,'$.browserTools'),0)=1 OR COALESCE(json_extract(payload,'$.nativeBrowserAction'),0)=1)`)
+    .bind(jobId,gatewayId,leaseHash,at,result).run();
+}
 
 
 export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp|progress|browser|browser-action|browser-frame)|remote-mcp\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish)))\/?$/.test(pathname);
@@ -83,7 +91,7 @@ export async function expireGatewayJobs(db, at = now(), env = null) {
   const result=await db.prepare(`${workflowProgramAccessCTE('?1')} UPDATE hx_gateway_jobs SET status = 'failed', finished_at = ?1, lease_hash = NULL,
     result = '{"error":"Execution lease or requester access expired."}'
     WHERE (status = 'running' AND (lease_until <= ?1 OR deadline <= ?1 OR NOT ${activeMember} OR NOT ${workflowProgramJobAccess}))
-       OR (status = 'queued' AND (created_at < ?1 - 3600000 OR NOT ${activeMember} OR NOT ${workflowProgramJobAccess}
+       OR (status = 'queued' AND (created_at < ?1 - CASE WHEN json_extract(payload,'$.acp')=1 THEN ${ACP_QUEUE_RETENTION_MS} ELSE 3600000 END OR NOT ${activeMember} OR NOT ${workflowProgramJobAccess}
         OR (json_extract(payload,'$.workflowProgram')=1 AND created_at < ?1 - 180000)))`).bind(at).run();
   // Also recover a committed node result whose HTTP response/settlement was
   // interrupted. Bound the cron/claim work; later ticks drain the remainder.
@@ -136,7 +144,9 @@ export async function handleGateways(request, env, url, input) {
       const programCapable=Array.isArray(input?.capabilities)&&input.capabilities.includes('workflow-program-v1');
       const acpCapable=Array.isArray(input?.capabilities)&&input.capabilities.includes('acp-v1');
       const browserActionCapable=Array.isArray(input?.capabilities)&&input.capabilities.includes('browser-action-v1');
-      const row = await db.prepare(`${workflowProgramAccessCTE('?2')} UPDATE hx_gateway_jobs SET status = 'running', lease_hash = ?3, lease_until = ?2 + 90000, deadline = ?2 + CASE WHEN json_extract(payload,'$.workflowProgram')=1 THEN ${WORKFLOW_PROGRAM_TIMEOUT_MS+WORKFLOW_PROGRAM_RESULT_GRACE_MS} WHEN json_extract(payload,'$.browserTools')=1 THEN 300000 ELSE 120000 END, started_at = ?2
+      const row = await db.prepare(`${workflowProgramAccessCTE('?2')} UPDATE hx_gateway_jobs SET status = 'running', lease_hash = ?3, lease_until = ?2 + 90000, deadline = ?2 + CASE WHEN json_extract(payload,'$.workflowProgram')=1 THEN ${WORKFLOW_PROGRAM_TIMEOUT_MS+WORKFLOW_PROGRAM_RESULT_GRACE_MS} WHEN json_extract(payload,'$.browserTools')=1 THEN 300000 ELSE 120000 END, started_at = ?2,
+        acp_progress = CASE WHEN json_extract(payload,'$.acp')=1 THEN ?7 ELSE acp_progress END,
+        acp_progress_at = CASE WHEN json_extract(payload,'$.acp')=1 THEN ?2 ELSE acp_progress_at END
         WHERE id = (SELECT id FROM hx_gateway_jobs WHERE gateway_id = ?1 AND status = 'queued'
           AND (?4=1 OR (COALESCE(json_extract(payload,'$.workflowProgram'),0)!=1 AND NOT EXISTS(SELECT 1 FROM hx_workflow_activations a WHERE a.job_id=hx_gateway_jobs.id)))
         AND (?5=1 OR COALESCE(json_extract(payload,'$.acp'),0)!=1)
@@ -146,9 +156,19 @@ export async function handleGateways(request, env, url, input) {
         AND status = 'queued' AND ${activeMember} AND ${workflowProgramJobAccess}
         AND NOT EXISTS (SELECT 1 FROM hx_gateway_jobs busy WHERE busy.gateway_id = ?1 AND busy.status = 'running')
         AND NOT EXISTS (SELECT 1 FROM hx_document_jobs busy WHERE busy.gateway_id = ?1 AND busy.status = 'running') RETURNING *`)
-        .bind(g.id, at, await digest(lease),programCapable?1:0,acpCapable?1:0,browserActionCapable?1:0).first();
+        .bind(g.id, at, await digest(lease),programCapable?1:0,acpCapable?1:0,browserActionCapable?1:0,JSON.stringify({kind:'thinking',title:`${g.name} reconnected; continuing the queued task`,status:'in_progress'})).first();
       const workflow=row&&await db.prepare('SELECT 1 FROM hx_workflow_activations WHERE org_id=?1 AND job_id=?2').bind(row.org_id,row.id).first();
       const payload=row?JSON.parse(row.payload):null;
+      if(row&&payload?.conversationContext){
+        let authorized=false;
+        try{authorized=await browserConversationAllowed(db,row.org_id,row.created_by,payload.conversationContext);}catch{}
+        if(!authorized){
+          await db.prepare(`UPDATE hx_gateway_jobs SET status='failed',result=?3,finished_at=?4,lease_hash=NULL
+            WHERE id=?1 AND gateway_id=?2 AND status='running' AND lease_hash=?5`)
+            .bind(row.id,g.id,JSON.stringify({error:'The source conversation is no longer authorized.'}),at,await digest(lease)).run();
+          return json({job:null});
+        }
+      }
       if(row&&payload?.browserTools===true){
         let authorized=false;
         try{authorized=await acpBrowserAllowed(db,row,payload);}catch{}
@@ -206,27 +226,45 @@ export async function handleGateways(request, env, url, input) {
     if (parts[3] === 'browser') {
       const job = await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by,gateway_id FROM hx_gateway_jobs WHERE ${guard}`)
         .bind(parts[2],g.id,leaseHash,now()).first();
-      if (!job) return failure('Execution is no longer authorized.',409);
+      if (!job) {
+        await failBrowserJobAfterAuthorizationLoss(db,{jobId:parts[2],gatewayId:g.id,leaseHash,at});
+        return failure('Execution is no longer authorized.',409);
+      }
       let payload;
       try { payload=JSON.parse(job.payload); } catch { return failure('Browser authorization is invalid.',400); }
-      if (!(await acpBrowserAllowed(db,job,payload))) return failure('Isolated browser access was revoked or is no longer allowed.',403);
+      if (!(await acpBrowserAllowed(db,job,payload))) {
+        await failBrowserJobAfterAuthorizationLoss(db,{jobId:parts[2],gatewayId:g.id,leaseHash,at});
+        return failure('Isolated browser access was revoked or is no longer allowed.',403);
+      }
       return json({ok:true});
     }
     if (parts[3] === 'browser-action') {
       const job=await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by,gateway_id FROM hx_gateway_jobs WHERE ${guard}`)
         .bind(parts[2],g.id,leaseHash,now()).first();
-      if(!job)return failure('Execution is no longer authorized.',409);
+      if(!job){
+        await failBrowserJobAfterAuthorizationLoss(db,{jobId:parts[2],gatewayId:g.id,leaseHash,at});
+        return failure('Execution is no longer authorized.',409);
+      }
       let payload; try{payload=JSON.parse(job.payload);}catch{return failure('Browser authorization is invalid.',400);}
-      if(!await nativeBrowserActionAllowed(db,job,payload))return failure('Native browser access was revoked or is no longer allowed.',403);
+      if(!await nativeBrowserActionAllowed(db,job,payload)){
+        await failBrowserJobAfterAuthorizationLoss(db,{jobId:parts[2],gatewayId:g.id,leaseHash,at});
+        return failure('Native browser access was revoked or is no longer allowed.',403);
+      }
       return json({ok:true});
     }
     if (parts[3] === 'browser-frame') {
       const job = await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by,gateway_id FROM hx_gateway_jobs WHERE ${guard}`)
         .bind(parts[2],g.id,leaseHash,now()).first();
-      if (!job) return failure('Execution is no longer authorized.',409);
+      if (!job) {
+        await failBrowserJobAfterAuthorizationLoss(db,{jobId:parts[2],gatewayId:g.id,leaseHash,at});
+        return failure('Execution is no longer authorized.',409);
+      }
       let payload;
       try { payload=JSON.parse(job.payload); } catch { return failure('Browser authorization is invalid.',400); }
-      if (!(await acpBrowserAllowed(db,job,payload))) return failure('Isolated browser access was revoked or is no longer allowed.',403);
+      if (!(await acpBrowserAllowed(db,job,payload))) {
+        await failBrowserJobAfterAuthorizationLoss(db,{jobId:parts[2],gatewayId:g.id,leaseHash,at});
+        return failure('Isolated browser access was revoked or is no longer allowed.',403);
+      }
       const relay=env.ORG_RELAY.get(env.ORG_RELAY.idFromName(job.org_id));
       if (input?.poll === true) {
         const response=await relay.fetch(`https://relay.invalid/desktop/controls?orgId=${encodeURIComponent(job.org_id)}`,{

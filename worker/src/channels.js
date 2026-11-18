@@ -7,7 +7,7 @@ import {agentRequestStatement} from './agentRequestDispatch.js';
 import { roomHookReplyGuard } from './harness/roomHookExecutionGrant.js';
 import { listMembers } from "./team.js";
 import { businessSlug } from "./db.js";
-import { resolveMentions, MENTION_BEFORE } from "./threads.js";
+import { resolveMentions, MENTION_BEFORE, mentionTokens, isRoomMention } from "./threads.js";
 
 const NOBODY = new Set();
 import { filesFor, toFile, claimFiles } from "./files.js";
@@ -1070,9 +1070,17 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
   const threads = new Set((mine.results || []).map((r) => r.thread));
   const leftThreads = new Set((left.results || []).map((r) => r.message_id));
   const keywords = parseKeywords(kw?.notify_keywords);
+  const access = await accessFor(db, orgId, login);
   // "@here" was for whoever was at the app then — a push, not a later
   // entry in Activity; "@channel" is for everyone.
-  const names = new Map((recent.results || []).map((r) => [r.id, Boolean(r.body) && resolveMentions(r.body, members, { online: NOBODY }).some((m) => m.login === login)]));
+  const names = new Map();
+  for (const row of recent.results || []) {
+    if (!row.body) { names.set(row.id, false); continue; }
+    const hasRoomMention = String(row.channel || '').startsWith('b:') && mentionTokens(row.body).some(isRoomMention);
+    const isCurrentPerson = hasRoomMention && (members || []).some(member => member.login === login && !String(member.login).startsWith('agent:'));
+    const roomLogins = isCurrentPerson && mayRead(row.channel, access) ? new Set([login]) : undefined;
+    names.set(row.id, resolveMentions(row.body, members, { online: NOBODY, roomLogins }).some((m) => m.login === login));
+  }
   // Named in a thread — in its first message or in a reply — is being in
   // it, as Threads has it: the replies after that are yours here too. Left
   // out, Threads kept such a thread new after its mention was seen here,
@@ -1096,7 +1104,6 @@ export async function activityFeed(db, orgId, login, members, { days = 30, limit
     if (picked.length >= limit) break;
   }
   const lastRead = read?.last_read_at || "";
-  const access = await accessFor(db, orgId, login);
   // Each one looked at, on any device, is no longer new anywhere.
   const { results: lookedAt } = await db.prepare("SELECT item FROM activity_reads WHERE org_id = ?1 AND login = ?2 AND read_at >= ?3")
     .bind(orgId, login, since).all().catch(() => ({ results: [] }));

@@ -73,8 +73,19 @@ function deactivateWorkflowFetchMock() {
 
 function revokeSourceBeforeWrite(db, appId, targetSql) {
   let revoked = false;
+  let pendingTargetWrite = false;
+  const revoke = async () => {
+    if (revoked) return;
+    revoked = true;
+    await db.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
+      ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, appId).run();
+  };
   const guarded = new Proxy(db, {
     get(target, property) {
+      if (property === 'batch') return async statements => {
+        if (pendingTargetWrite) await revoke();
+        return target.batch.call(target, statements);
+      };
       if (property !== 'prepare') {
         const value = Reflect.get(target, property, target);
         return typeof value === 'function' ? value.bind(target) : value;
@@ -82,6 +93,7 @@ function revokeSourceBeforeWrite(db, appId, targetSql) {
       return sql => {
         const statement = target.prepare(sql);
         if (revoked || !targetSql.test(String(sql))) return statement;
+        pendingTargetWrite = true;
         return new Proxy(statement, {
           get(prepared, method) {
             if (method === 'bind') return (...values) => {
@@ -89,11 +101,8 @@ function revokeSourceBeforeWrite(db, appId, targetSql) {
               return new Proxy(bound, {
                 get(boundStatement, boundMethod) {
                   if (boundMethod === 'run') return async (...args) => {
-                    if (!revoked) {
-                      revoked = true;
-                      await db.prepare(`INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?1,?2,'private',1)
-                        ON CONFLICT(org_id,app_id) DO UPDATE SET visibility='private',version=version+1`).bind(ORG, appId).run();
-                    }
+                    pendingTargetWrite = false;
+                    await revoke();
                     return boundStatement.run(...args);
                   };
                   const value = Reflect.get(boundStatement, boundMethod, boundStatement);
@@ -238,6 +247,7 @@ test('workflow run history resolves actors to workspace names and omits raw user
   const { workflow } = await made.json();
   const started = await (await send('POST', `/workflows/${workflow.id}/run`, mika, { orgId: ORG })).json();
   expect(started.run.startedByName).toBe('Mika');
+  expect(started.run.log[0].effectReceipt).toEqual({ operation: 'post', effect: 'local', target: 'conversation', outcome: 'completed' });
   expect(started.run).not.toHaveProperty('startedBy');
   expect(started.run.log[0].authorization[0]).toMatchObject({ actorName: 'Mika' });
   expect(started.run.log[0].authorization[0]).not.toHaveProperty('actorId');
@@ -2055,6 +2065,43 @@ test('an app record follow-up is fenced when source access is revoked before sch
   expect(fenced.wasRevoked()).toBe(true);
   expect(result.status).toBe('failed');
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_followups WHERE org_id=?1').bind(ORG).first()).n).toBe(0);
+});
+
+test('an app record add_row is fenced atomically when source access is revoked before the row write', async () => {
+  const sourceApp = (await (await send('POST', '/apps', mika, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Add row from current app record',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'add_row', tableId: invoices, values: { Client: 'Must not be added', Status: 'Draft' } }],
+  }, '9301');
+  const fenced = revokeSourceBeforeWrite(env.DB, sourceApp.id, /^INSERT INTO hx_rows\b/);
+  const result = await startRun({ ...env, DB: fenced.db }, {
+    orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'source-row', data: { Status: 'PRIVATE-CANARY' } }], totalCount: 1, truncated: false },
+  });
+  expect(fenced.wasRevoked()).toBe(true);
+  expect(result.status).toBe('failed');
+  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND json_extract(data,\'$.Client\')=?3').bind(ORG, invoices, 'Must not be added').first()).n).toBe(0);
+});
+
+test('an app record update_row is fenced atomically when source access is revoked before the row write', async () => {
+  const sourceApp = (await (await send('POST', '/apps', mika, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const target = (await (await send('POST', `/tables/${invoices}/rows`, mika, { orgId: ORG, values: { Client: 'Keep unchanged', Status: 'Draft' } })).json()).row;
+  const { createWorkflow } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Update row from current app record',
+    trigger: { type: 'app_record_change', appId: sourceApp.id, entityId: 'primary', events: ['update'] },
+    steps: [{ type: 'update_row', tableId: invoices, rowId: target.id, values: { Status: 'Must not update' } }],
+  }, '9301');
+  const fenced = revokeSourceBeforeWrite(env.DB, sourceApp.id, /^UPDATE hx_rows\b/);
+  const result = await startRun({ ...env, DB: fenced.db }, {
+    orgId: ORG, workflow, trigger: 'app_record_change', startedBy: '9302',
+    input: { tableId: sourceApp.tableId, records: [{ event: 'update', appId: sourceApp.id, entityId: 'primary', recordId: 'source-row', data: { Status: 'PRIVATE-CANARY' } }], totalCount: 1, truncated: false },
+  });
+  expect(fenced.wasRevoked()).toBe(true);
+  expect(result.status).toBe('failed');
+  expect((await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(ORG, invoices, target.id).first()).data).toContain('Draft');
 });
 
 test('a scheduled app record follow-up fails closed after its source App access is revoked', async () => {

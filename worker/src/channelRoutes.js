@@ -1128,6 +1128,8 @@ export async function handleChannels(request, env, url, { route, after }) {
         if (!version || version !== row.connection_version) return json({ message: 'The connected Slack account changed. Reconnect and reload this draft.' }, 409);
         try { target = await resolveSlackDestination(env, ctx.who.session.github_id, input.targetChannelId); }
         catch { return json({ message: 'Slack destinations could not be verified. Reload the destination list.' }, 502); }
+        const verifiedVersion = await slackConnectionVersion(env.DB, ctx.who.session.github_id).catch(() => null);
+        if (!verifiedVersion || verifiedVersion !== version || verifiedVersion !== row.connection_version) return json({ message: 'The connected Slack account changed while verifying the destination. Reload the draft.' }, 409);
         if (!target) return json({ message: 'That destination is not available in the connected Slack account.' }, 400);
       }
       const updated = await updateSlackDraft(env.DB, { ...identity, revision, text: content.text, target });
@@ -1167,6 +1169,12 @@ export async function handleChannels(request, env, url, { route, after }) {
     if (!stillAllowed || latestVersion !== row.connection_version) {
       await releaseSlackDraftClaim(env.DB, { orgId, id: row.id, claimId: claim.claim_id, errorCode: 'connection_changed' });
       return json({ message: 'The Slack connection or this Agent permission changed before sending. Reload the draft.' }, 409);
+    }
+    const stillAllowedByDlp = await checkOutgoing(env, request, { orgId, login: ctx.who.user.login, text: row.text,
+      ack: input.dlpAck === true, where: 'slack_draft', auditOverride: false });
+    if (stillAllowedByDlp) {
+      await releaseSlackDraftClaim(env.DB, { orgId, id: row.id, claimId: claim.claim_id, errorCode: 'dlp_policy_changed' });
+      return stillAllowedByDlp;
     }
     let response;
     try {

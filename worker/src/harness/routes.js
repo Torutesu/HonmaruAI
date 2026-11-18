@@ -440,7 +440,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (who.denied) return who.denied;
     if (request.method === 'GET') return json(await readDictationVocabulary(env.DB, who.session.github_id));
     if (request.method !== 'PUT') return json({ message: 'Method not allowed.' }, 405);
-    const saved = await saveDictationVocabulary(env.DB, who.session.github_id, input?.vocabulary, input?.corrections, input?.expectedRevision);
+    const saved = await saveDictationVocabulary(env.DB, who.session.github_id, input?.vocabulary, input?.corrections, input?.expectedRevision, input?.shortcut);
     if (saved.error) return fail(saved);
     const { results: workspaces = [] } = await env.DB.prepare('SELECT org_id FROM memberships WHERE user_github_id=?1').bind(String(who.session.github_id)).all();
     const event = appActivityEvent('dictation_vocabulary_changed', { orgId, userId: String(who.session.github_id), revision: saved.revision });
@@ -1774,9 +1774,9 @@ export async function handleHarness(request, env, url, context = {}) {
         if (request.method === 'GET') {
           if(url.searchParams.get('customPreview')==='1') {
             const result=await readCustomDraftPreviewFork(env.DB,orgId,app,me,Number(url.searchParams.get('version')));
-            return respond(result.error?result:{...(await databaseView(env.DB,orgId,app)),...result});
+            return respond(result.error?result:{...(await databaseView(env.DB,orgId,app,{includeRollbackOperations:canManage})),...result});
           }
-          return respond({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
+          return respond({ ...(await databaseView(env.DB, orgId, app,{includeRollbackOperations:canManage})), ...(await readFork(env.DB, orgId, appId, me)) });
         }
         if (request.method !== 'POST') return json({ message: 'Method not allowed.' },405);
         if (!canManage) return json({ message: 'Only its maker, an editor, or an admin can develop this app.' },403);

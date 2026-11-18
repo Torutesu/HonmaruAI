@@ -531,8 +531,15 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/appConversationFeatures.js",
-      "acceptance": "作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。全体Activityの表示・既読・対象会話への移動を統合。独立会話のOSプッシュと実機比較未確認部分は残る"
+      "code": "worker/src/harness/appConversationFeatures.js; web-react/src/components/AppConversationPanel.tsx; web-react/src/utils/locales/{ja,es,fr,de}.ts",
+      "acceptance": "作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。全体Activityの表示・既読・対象会話への移動を統合。チャットの表示文言とARIAラベルをアカウント言語に合わせ、作成元・現在の会話日時も選択言語で表示する。独立会話のOSプッシュと認証済み実画面比較未確認部分は残る",
+      "evidence": {
+        "localizedChrome": {
+          "scope": "App and record conversation static UI and ARIA copy uses t() with ja/es/fr/de entries; both inherited-source and current-message timestamps use getLocale(), while dateTime retains the original ISO value. Dynamic titles, authors, message bodies and server error text remain untouched.",
+          "verification": "Focused AppConversationPanel component and translation tests plus the Web production build; verify English and ja/es/fr/de labels and locale-formatted dates for source and current messages.",
+          "remaining": "Authenticated production Kylon side-by-side comparison and independent conversation OS push behavior remain unverified."
+        }
+      }
     },
     {
       "id": "KY-044",
@@ -813,12 +820,12 @@
         "embeddedAppSummary": {
           "scope": "AppAutomationではGET /workflows/:idがすでに返す過去168時間のsummaryを履歴パネルに表示し、中央Harness Workflow詳細と同じ共有UIを使う。token usage/costは推定値であり請求額ではない旨、未価格/使用量不明件数も表示する。",
           "localQA": "AutomationRuns, HarnessWorkflows and AppAutomations suites passed; full Web tests and production build passed. See docs/kylon-parity/verification.md.",
-          "remaining": "Exact-head CI, production release, authenticated Kylon visual comparison and acceptance are pending."
+          "remaining": "Run-level input context is still intentionally omitted, and the structured effect receipt does not yet include an independently reconciled provider-side result. Exact-head CI, production release, authenticated Kylon visual comparison and acceptance remain pending."
         },
         "latestIncrement": {
           "scope": "GET /workflows/:id/runs now supports stable keyset pagination (1–100 rows), server-side status filtering, and an opaque cursor anchored only to the last visible run. ACL-hidden runs are checked and omitted from both results and cursor state. AutomationRuns appends older pages and restarts from page one when the failed-only filter changes.",
           "localQA": "Worker harness-workflows suite includes stable tie ordering, page continuation, server-side failed filtering, ACL-hidden row omission, and invalid cursor/status coverage. Web AutomationRuns, AppAutomations, and API suites passed 67 tests. The production build passed before a final fixture-only Worker test correction; Worker suite rerun is in progress. See docs/kylon-parity/verification.md.",
-          "remaining": "Exact-head CI, production release, authenticated Kylon visual comparison, and production acceptance remain pending. Run-level input context and full effect traces are not captured."
+          "remaining": "The run-level input context remains intentionally omitted. Structured, payload-free effect receipts now record operation, effect class, target type, and completed/pending/failed/unknown/skipped outcome; provider-side reconciliation is not yet available. Exact-head CI, production release, authenticated Kylon visual comparison, and production acceptance remain pending."
         }
       }
     },
@@ -896,6 +903,11 @@
           "scope": "PR #994 adds approved Remote MCP write tools to direct Workflow Connection steps. Requires explicit admin workspace write classification, exact current actor×Agent×server×tool grant, and an immediately preceding approved Approval step in the same run. The card displays rendered arguments; payloads above 12 KB fail closed. Runtime rechecks policy before and after dispatch, discards results after revocation, and keeps ambiguous side effects non-replayable. Simple mode is unchanged.",
           "verification": "Focused Worker suites 187/187 and full Web suite 2,017/2,017 passed locally. Exact-head CI #43579317332 and main CI #43581230340 succeeded. Worker deploy #43581229709 and Web deploy #43581229717 succeeded.",
           "remaining": "Unsupported connectors, provider-side processing/billing cancellation guarantees, other side-effect routes and authenticated Kylon operation comparison remain incomplete."
+        },
+        "workflowAgentMemoryFence": {
+          "scope": "Normal Workflow Agent steps now omit review_agent_memory from their model tools, preserving read-only skill and memory lookup while preventing an Agent run grant from mutating shared Agent memory. A regression test covers the tool filter. This closes one concrete side-effect path; it does not complete the full side-effect audit.",
+          "verification": "Worker harness-workflows.test.js + workflow-agent-invoke.test.js passed 170/170 locally. Web AutomationRuns.test.tsx passed 32/32 and the TypeScript/production build succeeded. Exact-head CI and release remain pending.",
+          "remaining": "Other side-effect routes, provider-side processing/billing cancellation guarantees, and authenticated Kylon operation comparison remain incomplete."
         },
         "remaining": "Unsupported connectors, provider-side processing/billing cancellation guarantees, other side-effect routes and authenticated Kylon operation comparison remain incomplete."
       }
@@ -1581,6 +1593,18 @@
         "reviewedAt": "2026-11-15",
         "inspectedMain": "aa897cf641e2b235bb28d77330626e1a18020f02",
         "verified": "PR #1008 (merge e1af3c9c) adds explicit ACP teammate opt-in, a workspace+Agent-isolated Apple Container browser VM and persistent profile, with a DNS-pinning proxy that rejects private/special addresses and arbitrary CONNECT ports. Its exact-head CI #43652504240 passed all jobs; local Gateway 79, Worker browser/gateway 21, Web 2,030 tests and production build passed. PR #1009 (merge fad36d82) binds browser jobs and every action to a live author-owned source message, room/thread and current conversation permission; Worker full suite passed 3,538 tests. Follow-up main commits ea01cca and aa897cf add ephemeral same-thread JPEG streaming and requester-only live control. On current main, Gateway browser session/proxy tests 15/15, Gateway client tests 24/24, Worker gateway+relay tests 31/31, and Web ThreadHeader+WebSocket tests 25/25 passed. Automation and Workflow jobs cannot claim the ACP browser capability.",
+        "controlLeaseIncrement": {
+          "base": "3b0fc16a0d2d62392a7dab575c24b7eb36386876",
+          "scope": "A single live Relay socket holds a 30-second requester control lease per browser job. New actions renew the lease; parallel tabs are rejected while another live tab holds it. Queued actions are bound to that socket lease, expire with it, and are discarded after disconnect/takeover or current authorization loss.",
+          "localQA": "Worker test/relay.test.js passed 11/11, including two creator tabs, rejection of the competing tab, takeover after disconnect, stale queued-action suppression, private-room frame visibility, and permission revocation. Exact-head CI and production deployment are pending.",
+          "remaining": "This in-process control lease closes the concurrent-tab race in Relay, but does not cancel a browser action already executing on the Mac after a permission revoke. Authenticated production-conversation/multi-room revocation acceptance and same-task Kylon UI comparison remain open."
+        },
+        "revocationCancellationIncrement": {
+          "reviewedAt": "2026-11-18",
+          "scope": "Gateway browser actions now recheck their leased Harness authorization every 1.5 seconds while a local action is running. A 401/403/409 aborts the browser AbortSignal and ACP request; the Worker marks the matching running browser job failed, clears its lease, and refuses a late result.",
+          "localQA": "Gateway suite passed 30/30, including an in-flight authorization revocation abort. Worker harness-gateways suite passed 26/26, including revoked membership/ACL terminal failure and late-result rejection. The previous implementation was separately confirmed to leave the revoked job running.",
+          "remaining": "Polling detects revocation with up to a short interval of delay; a click or network request already sent to a remote site cannot be rolled back. Exact-head CI, production deployment, authenticated production acceptance, and same-task Kylon UI comparison remain open."
+        },
         "runtimeSmoke": {
           "reviewedAt": "2026-11-17",
           "environment": "Existing user-owned Mac mini Apple Container 1.5.0 runtime; signed CLI 1.7.1 used only to inspect it. Built browser image honmaru-browser:1655 for this verification; no global install or new paid service.",
@@ -1588,7 +1612,7 @@
           "limitation": "Authenticated production-conversation and multi-room permission/control acceptance, cloud-hosted PC, first-party non-ACP Agent providers, and same-task authenticated Kylon UI comparison remain open. The bounded thumbnail is a viewport overview and small text may need enlargement for legibility."
         }
       },
-      "remaining": "The Mac-owned isolated Chromium runtime has been verified against the public Kylon sandbox page. Cloud-hosted PC and first-party non-ACP Agent providers are not implemented. Authenticated production-conversation acceptance, multiple-room/user revoke and concurrent-control behavior on-device, and a same-task authenticated Kylon UI comparison remain unverified. Simple mode is unchanged; no new contract or billing was added."
+      "remaining": "The Mac-owned isolated Chromium runtime has been verified against the public Kylon sandbox page. Cloud-hosted PC and first-party non-ACP Agent providers are not implemented. Authenticated production-conversation/multi-room revocation acceptance and a same-task authenticated Kylon UI comparison remain unverified. Gateway polling aborts a local action after it detects browser authorization revocation, but a remote click/request already issued cannot be rolled back. Automated Relay coverage verifies exclusive concurrent-tab control, takeover after socket close, and removal of stale queued actions. Simple mode is unchanged; no new contract or billing was added."
     },
     {
       "id": "KY-121",
@@ -1661,8 +1685,13 @@
       "acceptance": "`@room`で現在のRoomに所属する人間だけへ通知する。Agent、DM/group DM、非メンバー、Roomアクセス失効者へ通知しない。公開/非公開、ゲスト、解除後、全角記号、URL/email、mention push/activityを検証し、既存Simple modeの通知経路を維持する。新規契約・課金なし。Kylon実画面との同一タスク比較を行う。",
       "evidence": {
         "reviewedAt": "2026-11-17",
-        "verified": "Kylon公式通知ガイドのRoom通知要件を実装。@roomをRoomの認可済みhuman audienceに限定し、public/private、joined guest、removed member、Agent、DM/group DMを回帰確認。Worker関連5 suiteは101/101成功。",
-        "remaining": "Activity/@meへの履歴表示、mention token境界の認証済みKylon比較、exact-head CI・本番デプロイ・複数端末の本番受入は残る。"
+        "verified": "Kylon公式通知ガイドのRoom通知要件を実装。@roomをRoomの認可済みhuman audienceに限定し、public/private、joined guest、removed member、Agent、DM/group DMを回帰確認。Activity/@meにもRoom audienceを再認可して履歴表示する。最新の focused reading・push・query-budget suites は34/34成功し、private Roomの非メンバーとauthorを除外する回帰を含む。",
+        "latestIncrement": {
+          "scope": "Activity feed previously resolved @room without its channel audience, so push reached the Room but recipients could not see the same message in Activity. It now resolves Room mentions against current human members and the current public/private Room audience, cached per Room for the feed request. This does not broaden message visibility or allow a stored mention to grant access.",
+          "localQA": "Regression first failed before the implementation, then reading.test.js + pushes.test.js + latency-query-budget.test.js passed 34/34.",
+          "remaining": "Exact-head CI, production deployment, multi-device production acceptance, mention-token boundary comparison, and authenticated Kylon UI comparison remain."
+        },
+        "remaining": "Exact-head CI・本番デプロイ・複数端末の本番受入、mention token境界の認証済みKylon比較は残る。"
       }
     },
     {
@@ -1675,9 +1704,9 @@
       "code": "worker/src/threadNotifications.js; worker/src/channelRoutes.js; worker/src/channels.js; worker/src/pushes.js; worker/schema.sql; worker/migrations.sql; web-react/src/components/HarnessThreadHeader.tsx; web-react/src/utils/useThreadNotifications.ts",
       "acceptance": "Muteとは独立した利用者別follow状態を端末間同期する。Leave中も既存read/reply accessを維持し、thread updateと通知を抑制する。明示Followで復帰し、Workspace/Room/thread ACLを再検証する。Mute中の明示@mention通知、他利用者のfollow状態、membership失効を回帰検証する。新規課金なし。Kylonと同一スレッドの操作比較を行う。",
       "evidence": {
-        "reviewedAt": "2026-11-17",
-        "verified": "Muteと独立した個人別leave状態をD1/APIに追加し、Leave中はthread list、Activity、返信通知を抑制。read/reply ACLは維持し、別session同期・Follow復帰を回帰確認。Worker関連5 suite 101/101、Web全270 files・2,063 tests、TypeScript・production build成功。",
-        "remaining": "明示@mentionを含む通知の抑制/Follow後の再開、端末・利用者間の本番受入、Kylonとの画面比較、exact-head CIと本番deployは未確認。"
+        "reviewedAt": "2026-11-18",
+        "verified": "Kylon公式通知ヘルプは、muted threadでは本人への明示@mentionだけ通知し、Leave thread後は一切通知しないと定義。HonmaruはMuteと独立した個人別leave状態をD1/APIに保存し、Leave中はthread list、Activity、push通知を抑制する一方、read/reply ACLを維持する。queued mentionの後にLeaveした場合は配信直前の再確認で破棄し、Followした後の新しいthread replyは通知する。thread-muteとthread-leaveを区別するpush regressionを追加。Worker pushes.test.js 21/21成功。",
+        "remaining": "追加回帰を含むexact-head CI、main CI、本番反映は未確認。認証済み複数利用者・端末間の本番受入、KylonとのLeave/Follow/mention同一操作の画面比較も未完了。"
       }
     },
     {
@@ -1688,11 +1717,11 @@
       "priority": "P1",
       "source": "https://kylon.io/changelog",
       "code": "web-react/src/components/HarnessVoiceInput.tsx; web-react/src/components/Dashboard.tsx; web-react/src/utils/dictation.ts",
-      "acceptance": "Harnessの検索・フォーム・レコード編集等の全通常テキスト入力とtextareaで、個人の語彙/補正、選択範囲、カーソル、文字数上限を保って音声入力する。パスワード、読み取り専用、無効欄、既に独自マイクを持つ入力は除外し、フォーカス移動/停止・キーボード操作・ダーク/ライト表示を検証。Simple表示には共通コントロールを出さず既存フローを維持。認証済みKylonと同一入力欄で比較し、追加契約・課金なし。",
+      "acceptance": "Harnessの検索・フォーム・レコード編集等の全通常テキスト入力（contenteditable含む）とtextareaで、個人の語彙/補正、選択範囲、カーソル、文字数上限を保って音声入力する。パスワード、読み取り専用、無効欄、既に独自マイクを持つ入力は除外し、フォーカス移動/停止・キーボード操作・ダーク/ライト表示を検証。Simple表示には共通コントロールを出さず既存フローを維持。認証済みKylonと同一入力欄で比較し、追加契約・課金なし。 個人ごとに音声入力ショートカットを変更でき、既存操作との競合を検出して案内する。",
       "evidence": {
         "reviewedAt": "2026-11-18",
-        "verified": "HarnessのDashboardにフォーカス連動する共通音声入力を追加。既存SpeechRecognition、個人語彙・補正とHarness APIを再利用し、テキスト/検索/email/url/tel入力とtextareaへ挿入。既存のchat mic、disabled/readonly、passwordや非テキスト型は除外。選択範囲・末尾空白・maxLengthを保持。Simple表示ではコンポーネントをmountしない。単体テスト4/4、Web全体2072/2072、TypeScriptとproduction build成功。ローカルHarness Playwright voice stepはlaptop/phone双方で通過。",
-        "remaining": "Harness tourのRoom fixtureには必須guidelinesを追加済み。PR #1081のexact-head CIとmain CI（Worker shards/E2Eを含む）は成功し、main Web deployも成功。全通常フィールドで発話後5分以内の単一語訂正を学習し、選択範囲の前後が保たれる場合だけ個人辞書へ保存。revision競合時は最新辞書を一度取得して再試行し、同一利用者の端末同期イベントも反映する。一般contenteditable、ネイティブWeb Speechの実マイク/権限挙動、認証済みKylonとの全フィールド同一タスク・Web/Mac比較は未検証。"
+        "verified": "HarnessのDashboardにフォーカス連動する共通音声入力を追加。既存SpeechRecognition、個人語彙・補正とHarness APIを再利用し、テキスト/検索/email/url/tel入力とtextareaへ挿入。既存のchat mic、disabled/readonly、passwordや非テキスト型は除外。選択範囲・末尾空白・maxLengthを保持。Simple表示ではコンポーネントをmountしない。単体テスト4/4、Web全体2072/2072、TypeScriptとproduction build成功。ローカルHarness Playwright voice stepはlaptop/phone双方で通過。 contenteditable=true/plaintext-only欄も対象に加え、選択範囲だけを置換して周辺DOMとインライン装飾を維持し、カーソル位置とinput eventを戻す。Focused unit suite 4/4、Web全体273 files・2,077 tests、TypeScript・production build成功。E2Eにcontenteditableの選択・装飾保持・カーソル復帰を検証するシナリオを追加。 個人設定に変更可能なAlt/Option+Shift+V既定ショートカット、アカウント別ローカル保存、既存検索/送信/ブラウザー操作との衝突拒否、Escキャンセルを追加。設定UIの競合/保存テストとショートカットutility testsを含むfocused 13/13成功、TypeScriptとproduction build成功。",
+        "remaining": "main exact-head CI、production Web deployment、authenticated Kylon field/shortcut comparison、native speech and microphone permission behavior remain unverified."
       }
     },
     {
@@ -1706,8 +1735,8 @@
       "acceptance": "AgentのSlack投稿依頼は接続済みの既存Slackアカウントを使って保存し、作成・表示・編集・破棄ではSlack APIへ投稿しない。Draftを作成した利用者だけが、現在のWorkspace/Agent/Slack grantを再確認した上で明示Sendできる。宛先は本人のSlackから取得した候補に限って変更でき、選択変更ごとにrevisionを更新し、別チャンネルへ移す時は元threadを消去する。Sendでは保存済み宛先とthreadを使い、リクエストから上書きできない。revision CASで二重送信と競合編集を拒否し、送信の不確定結果はunknownにして自動再送しない。Simple mode・既存カード返信を維持し、追加サービス・契約なし。CI、本番反映、Kylonとの同一タスク画面比較を確認する。",
       "evidence": {
         "reviewedAt": "2026-11-18",
-        "verified": "Kylon公式changelog (2026-11-14) は、AgentのSlackメッセージを会話中のdraft cardとして表示し、編集可能、Sendを選ぶまで投稿しないと説明する。HonmaruにはAgent→Slack汎用Draft機能がなく、既存のカード返信は決定済みカードへの人の返信で別経路。Slack Draft実装とテストは進行中。",
-        "remaining": "実装完了、認可・revocation・競合・provider timeoutを含むWorker/Webテスト、exact-head CI、main deploy、実画面のKylon比較と本番受入は未完了。"
+        "verified": "Kylon公式changelog (2026-11-14) の、人のSend操作までSlack投稿しないDraftを実装。Harnessでのみ有効な明示Agent grant、本人の既存Slack接続、Slackから取得した宛先、会話スコープ・作成者限定のDraft、編集/宛先変更/破棄、DLP警告の明示確認、保存先固定、revision CASによる重複送信防止、claim後の権限再確認、provider結果不明時の再送禁止を実装。Worker slack-drafts.test.js 7/7成功。今回、送信claim直後にgrantが失効する競合をD1 triggerで再現し、最後の権限確認でSlack呼び出し前に拒否することを追加回帰確認。Simple経路は従来のSlack接続挙動を維持。",
+        "remaining": "この追加回帰を含むexact-head CI、main CI・本番デプロイと本番の明示Send往復は未確認。認証済みKylonと同じ依頼・宛先変更・Draft確認・Send操作を並べた実画面比較も未完了。"
       }
     }
   ]

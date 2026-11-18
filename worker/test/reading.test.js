@@ -75,6 +75,23 @@ test("Activity holds what named you and replies in your threads, and nothing els
   expect((await (await get(`/channels/activity?${q({ orgId: ORG })}`, toru)).json()).items).toHaveLength(0);
 });
 
+test("Activity includes an @room mention only for people in the Room audience", async () => {
+  const room = await say(toru, "@room please review the release");
+  const { upsertBusiness } = await import("../src/db.js");
+  const { addMembers } = await import("../src/access.js");
+  const privateRoom = await upsertBusiness(env.DB, ORG, { name: "Private launch", createdBy: "9801" });
+  await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug=?2").bind(ORG, privateRoom.slug).run();
+  await addMembers(env.DB, { orgId: ORG, key: `b:${privateRoom.slug}`, logins: ["mika", "toru"], addedBy: "9801" });
+  const privateRoomMention = (await (await post("/channels/messages", toru, { orgId: ORG, channel: `b:${privateRoom.slug}`, body: "@room private review" })).json()).message;
+  const items = async (token) => (await (await get(`/channels/activity?${q({ orgId: ORG })}`, token)).json()).items;
+  const mikaItems = (await items(mika)).map(item => item.message.id);
+  expect(mikaItems).toContain(room.id);
+  expect(mikaItems).toContain(privateRoomMention.id);
+  expect((await items(kenji)).map(item => item.message.id)).toContain(room.id);
+  expect((await items(kenji)).map(item => item.message.id)).not.toContain(privateRoomMention.id);
+  expect((await items(toru)).map(item => item.message.id)).not.toContain(room.id);
+});
+
 test("Activity tells you who reacted to what you wrote — not your own reactions, not others' messages", async () => {
   const mine = await say(mika, "Roaster moved to Friday");
   const theirs = await say(toru, "Noted");

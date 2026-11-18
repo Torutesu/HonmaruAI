@@ -1780,6 +1780,7 @@ CREATE TABLE IF NOT EXISTS hx_user_dictation_accounts (
   user_id       TEXT PRIMARY KEY REFERENCES users(github_id) ON DELETE CASCADE,
   vocabulary    TEXT NOT NULL DEFAULT '[]',
   corrections   TEXT NOT NULL DEFAULT '[]',
+  voice_shortcut TEXT NOT NULL DEFAULT 'Alt+Shift+V',
   revision      INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
   updated_at    TEXT NOT NULL
 );

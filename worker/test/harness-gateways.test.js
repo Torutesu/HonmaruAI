@@ -85,6 +85,37 @@ test('ACP prompts require a local capability and carry only the configured agent
  expect(got.timeoutMs).toBe(110000);
  expect(got.payload).not.toHaveProperty('command');expect(got.payload).not.toHaveProperty('cwd');
 });
+test('an offline ACP node keeps queued conversation work and resumes it after reconnect',async()=>{
+ const {gateway,token}=await node();
+ await claim(token,['acp-v1'],['codex-local']);
+ const context=await browserConversation();
+ await env.DB.prepare('UPDATE hx_gateways SET last_seen_at=?2 WHERE org_id=?1 AND id=?3').bind(orgId,Date.now()-120_000,gateway.id).run();
+ const queued=await enqueueAcpExecution(env.DB,orgId,'9502',{gatewayId:gateway.id,agentKey:'codex-local',prompt:'Review the release notes',conversationContext:context});
+ expect(queued.job).toBeTruthy();
+ const payload=JSON.parse((await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first()).payload);
+ expect(payload.conversationContext).toEqual(context);
+ expect(JSON.parse((await env.DB.prepare('SELECT acp_progress FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first()).acp_progress).title).toContain('reconnect');
+ await expireGatewayJobs(env.DB,Date.now()+2*60*60*1000);
+ expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first()).status).toBe('queued');
+ const resumed=await claim(token,['acp-v1'],['codex-local']);
+ expect(resumed.id).toBe(queued.job.id);
+ const progress=JSON.parse((await env.DB.prepare('SELECT acp_progress FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first()).acp_progress);
+ expect(progress).toMatchObject({kind:'thinking',status:'in_progress'});
+ expect(progress.title).toContain('reconnected');
+ expect((await api('POST',`/jobs/${resumed.id}/finish`,null,{lease:resumed.lease,status:'succeeded',stdout:JSON.stringify({text:'Reviewed.',sessionId:'s-1'}),exitCode:0},token)).status).toBe(200);
+});
+test('an offline ACP task is discarded after its source conversation is revoked',async()=>{
+ const {gateway,token}=await node();
+ await claim(token,['acp-v1'],['codex-local']);
+ const context=await browserConversation();
+ await env.DB.prepare('UPDATE hx_gateways SET last_seen_at=?2 WHERE org_id=?1 AND id=?3').bind(orgId,Date.now()-120_000,gateway.id).run();
+ const queued=await enqueueAcpExecution(env.DB,orgId,'9502',{gatewayId:gateway.id,agentKey:'codex-local',prompt:'Review this page',conversationContext:context});
+ await env.DB.prepare('UPDATE channel_messages SET deleted_at=?3 WHERE org_id=?1 AND id=?2').bind(orgId,context.sourceMessageId,'deleted').run();
+ expect(await claim(token,['acp-v1'],['codex-local'])).toBeNull();
+ const failed=await env.DB.prepare('SELECT status,result FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2').bind(orgId,queued.job.id).first();
+ expect(failed.status).toBe('failed');
+ expect(JSON.parse(failed.result).error).toContain('conversation is no longer authorized');
+});
 test('ACP browser tools require a current conversation source and are bound to that room and thread',async()=>{
  const {gateway,token}=await node();
  await claim(token,['acp-v1'],['codex-local']);
@@ -135,7 +166,8 @@ test('native browser actions require explicit Harness Agent opt-in and the selec
  expect((await api('POST',`/jobs/${running.id}/browser-action`,null,{lease:running.lease},token)).status).toBe(200);
  await env.DB.prepare('UPDATE hx_agent_profiles SET native_browser_enabled=0 WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).run();
  expect((await api('POST',`/jobs/${running.id}/browser-action`,null,{lease:running.lease},token)).status).toBe(403);
- expect((await api('POST',`/jobs/${running.id}/finish`,null,{lease:running.lease,status:'succeeded',stdout:'{}',exitCode:0},token)).status).toBe(403);
+ expect(await env.DB.prepare('SELECT status,result,lease_hash FROM hx_gateway_jobs WHERE id=?1').bind(running.id).first()).toMatchObject({status:'failed',lease_hash:null,result:JSON.stringify({status:'failed',stdout:'',stderr:'Browser access was revoked while this execution was running.',exitCode:1})});
+ expect((await api('POST',`/jobs/${running.id}/finish`,null,{lease:running.lease,status:'succeeded',stdout:'{}',exitCode:0},token)).status).toBe(409);
  expect((await api('GET',`/jobs/${running.id}`,member)).status).toBe(404);
  await env.DB.prepare('UPDATE hx_agent_profiles SET native_browser_enabled=1 WHERE org_id=?1 AND agent_id=?2').bind(orgId,agentId).run();
  const cancellable=await enqueueNativeBrowserAction(env.DB,orgId,'9502',{agentId,browserContext:context,browserAction:{type:'screenshot'}});
@@ -447,12 +479,13 @@ test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks
   expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser-frame`,null,{lease:browserClaim.lease,image:'not-a-jpeg'},token)).status).toBe(413);
   await env.DB.prepare("UPDATE businesses SET private=1 WHERE org_id=?1 AND slug='browser-work'").bind(orgId).run();
   expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser`,null,{lease:browserClaim.lease},token)).status).toBe(403);
-  expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser-frame`,null,{lease:browserClaim.lease,image:'/9j/AA=='},token)).status).toBe(403);
+  expect(await env.DB.prepare('SELECT status,lease_hash FROM hx_gateway_jobs WHERE id=?1').bind(activeBrowser.job.id).first()).toMatchObject({status:'failed',lease_hash:null});
+  expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser-frame`,null,{lease:browserClaim.lease,image:'/9j/AA=='},token)).status).toBe(409);
   await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1 AND slug='browser-work'").bind(orgId).run();
   await setBrowserAllowed(false);
-  expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser`,null,{lease:browserClaim.lease},token)).status).toBe(403);
+  expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser`,null,{lease:browserClaim.lease},token)).status).toBe(409);
   await setBrowserAllowed(true);
-  expect((await api('POST', `/jobs/${activeBrowser.job.id}/cancel`, member)).status).toBe(200);
+  expect((await api('POST', `/jobs/${activeBrowser.job.id}/cancel`, member)).status).toBe(409);
 
   const enabled = await enqueueAcpExecution(env.DB, orgId, '9502', {
     gatewayId: gateway.id, agentKey: 'workspace-reader', prompt: 'Read this', agentId: 'acp-workspace', workspaceTools: true, browserTools:true,

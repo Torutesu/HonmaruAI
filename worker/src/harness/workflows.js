@@ -52,6 +52,7 @@ import { completer } from "./model.js";
 import { prepareAgent, mayRunAgent } from "./agents.js";
 import { scheduleFollowup } from "./followups.js";
 import { withRoomGuidelines } from "./guidelines.js";
+import { workflowAgentRunTools } from './workflowAgentInvoke.js';
 
 export const TRIGGERS = ["manual", "schedule", "webhook", "row", "app_record_change"];
 export const STEP_TYPES = ["post", "agent", "connection", "add_row", "update_row", "approval", "followup", "code"];
@@ -451,6 +452,34 @@ const comparableDefinition = (definition) => ({
   steps: definition?.steps,
   createdBy: definition?.createdBy,
 });
+const workflowEffectKind = step => {
+  if (step?.type === 'post') return { effect: 'local', target: 'conversation' };
+  if (step?.type === 'agent') return { effect: step.channel ? 'local' : 'ai', target: step.channel ? 'conversation' : 'agent' };
+  if (step?.type === 'connection') return { effect: 'external', target: 'connection' };
+  if (step?.type === 'add_row' || step?.type === 'update_row') return { effect: 'local', target: 'table' };
+  if (step?.type === 'approval') return { effect: 'local', target: 'approval' };
+  if (step?.type === 'followup') return { effect: 'local', target: 'followup' };
+  if (step?.type === 'code') return { effect: 'local', target: 'program' };
+  return { effect: 'none', target: 'workflow' };
+};
+const workflowEffectReceipt = (step, entry) => {
+  const kind = workflowEffectKind(step);
+  const outcome = entry?.outcome === 'unknown' ? 'unknown'
+    : entry?.status === 'ok' || entry?.status === 'done' ? 'completed'
+      : entry?.status === 'waiting' || entry?.status === 'pending' ? 'pending'
+        : entry?.status === 'skipped' ? 'skipped' : 'failed';
+  return { operation: step?.type || 'unknown', ...kind, outcome };
+};
+const publicWorkflowEffectReceipt = receipt => {
+  if (!receipt || typeof receipt !== 'object') return null;
+  const operations = ['post','agent','connection','add_row','update_row','approval','followup','code'];
+  const effects = ['none','local','external','ai'];
+  const targets = ['workflow','conversation','agent','connection','table','approval','followup','program'];
+  const outcomes = ['completed','pending','failed','unknown','skipped'];
+  if (!operations.includes(receipt.operation) || !effects.includes(receipt.effect)
+    || !targets.includes(receipt.target) || !outcomes.includes(receipt.outcome)) return null;
+  return { operation: receipt.operation, effect: receipt.effect, target: receipt.target, outcome: receipt.outcome };
+};
 const matchingRevision = (snapshot, startedAt, revisions) => {
   if (!snapshot || !Array.isArray(revisions)) return null;
   const started = Date.parse(startedAt);
@@ -478,9 +507,10 @@ const publicRun = (r, revisions) => {
   input: parse(r.input, null), log: parse(r.log, []).map(entry => {
     if (!entry || typeof entry !== 'object') return entry;
     const authorization = publicWorkflowAuthorizationEvents(entry.authorization);
-    const { authorization: _discarded, inputPreview: _discardedPreview, ...safeEntry } = entry;
+    const { authorization: _discarded, inputPreview: _discardedPreview, effectReceipt: _discardedReceipt, ...safeEntry } = entry;
     const inputPreview = publicWorkflowInputPreview(entry.inputPreview);
-    return { ...safeEntry, ...(inputPreview ? { inputPreview } : {}), ...(authorization.length ? { authorization } : {}) };
+    const effectReceipt = publicWorkflowEffectReceipt(entry.effectReceipt);
+    return { ...safeEntry, ...(inputPreview ? { inputPreview } : {}), ...(authorization.length ? { authorization } : {}), ...(effectReceipt ? { effectReceipt } : {}) };
   }), nextStep: r.next_step, cardId: r.card_id,
   startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
   };
@@ -1520,6 +1550,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
       ...(inputPreview ? { inputPreview } : {}),
       ...(finishedAt ? { finishedAt, durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)) } : {}),
       at: finishedAt || now(), ...entry,
+      effectReceipt: workflowEffectReceipt(step, entry),
       ...(authorizationTrace.events.length ? { authorization: authorizationTrace.events } : {}) };
     log[index] = entry;
     scope.steps[index + 1] = entry;
@@ -1611,6 +1642,27 @@ async function say(env, orgId, channel, body, { authorLogin = null, kind = "ai",
   return out?.row || null;
 }
 
+// App-record data can be read during preflight and written later, when the
+// checkpoint batch commits. Recheck that exact source snapshot in the row
+// mutation itself so a revoked source grant cannot race add_row/update_row.
+function workflowRowSourceWriteGuard({ orgId, runId, workflow, runTrigger, scope, owner }) {
+  if (runTrigger !== 'app_record_change') return undefined;
+  const trigger = workflow.trigger || {};
+  const tableId = scope.input?.tableId;
+  const appId = trigger.appId;
+  const entityId = trigger.entityId;
+  if (![tableId, appId, entityId, runId, orgId, owner].every(value => typeof value === 'string' && value)) {
+    return { sql: () => '0', binds: [] };
+  }
+  return {
+    sql: first => workflowEffectAuthority({
+      org: `?${first}`, runId: `?${first + 1}`, ownerId: `?${first + 2}`,
+      sourceSnapshot: { appId: `?${first + 3}`, entityId: `?${first + 4}`, tableId: `?${first + 5}` },
+    }),
+    binds: [orgId, runId, owner, appId, entityId, tableId],
+  };
+}
+
 async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, runActor, authorize, authorizationTrace, credentialSource, priorApproval = null }) {
   const db = env.DB;
   if (step.channel) {
@@ -1661,7 +1713,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         }} });
       if (!complete) return { status: "failed", error: "No AI model, or none left today." };
       const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "", userId: owner, allowPrivate: false });
-      const tools = { ...(prepared.skillTools || {}) };
+      const tools = workflowAgentRunTools(prepared.skillTools);
       const actorId = workflowConnectionActorId(runActor, workflow.id, owner);
       Object.assign(tools, await workflowAgentRemoteTools(env, {
         orgId, agentRow, owner, actorId, reservedNames: new Set(Object.keys(tools)), used: remoteToolsUsed, authorizationTrace, authorizeAgent,
@@ -1747,7 +1799,8 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       const canUseTable = await mayEditTable(db, orgId, step.tableId, owner);
       authorizationTrace.record('table', step.tableId, canUseTable);
       if (!canUseTable) return { status: "failed", error: "Table access required." };
-      const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, owner, undefined, { deferWrite: true });
+      const writeGuard = workflowRowSourceWriteGuard({ orgId, runId, workflow, runTrigger, scope, owner });
+      const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, owner, writeGuard, { deferWrite: true });
       if (r.error) return { status: "failed", error: r.error };
       const event=await prepareWorkflowRowEvent(db,{orgId,table:r.table,row:r.row,by:`workflow:${workflow.id}`,depth:depth+1});
       return { status: "ok", output: r.row.id, rowId: r.row.id,
@@ -1780,7 +1833,8 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         || scope.input?.records?.find(record => String(record?.recordId || '') === String(rowId))?.updatedAt
         || (await getRow(db, orgId, tableId, rowId))?.updatedAt;
       if (!observedRowVersion) return { status: 'failed', error: 'The row version is unavailable. Reload the source record before updating it.' };
-      const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`, observedRowVersion, undefined, owner, undefined, { deferWrite: true });
+      const writeGuard = workflowRowSourceWriteGuard({ orgId, runId, workflow, runTrigger, scope, owner });
+      const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`, observedRowVersion, undefined, owner, writeGuard, { deferWrite: true });
       if (r.error) return { status: "failed", error: r.error };
       const event=await prepareWorkflowRowEvent(db,{orgId,table:r.table,before:r.before,row:r.row,by:`workflow:${workflow.id}`,depth:depth+1});
       return { status: "ok", output: rowId, rowId,

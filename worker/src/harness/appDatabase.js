@@ -5,15 +5,58 @@ import { normalizeMemberFields } from './memberFields.js';
 import { parseRfc3339 } from './temporal.js';
 const err = (error, status = 400) => ({ error, status });
 const keyOK = k => typeof k === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(k);
+const MAX_MIGRATION_PLAN_BYTES = 30_000;
+const MAX_ROLLBACK_BYTES = 500_000;
 export const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  return JSON.stringify(value);
+}
+
+function fieldState(values, columnId) {
+  return Object.hasOwn(values, columnId) ? { present: true, value: values[columnId] } : { present: false };
+}
+
+function validFieldState(state) {
+  if (!state || typeof state !== 'object' || Array.isArray(state) || typeof state.present !== 'boolean') return false;
+  const keys = Object.keys(state);
+  return state.present ? keys.length === 2 && keys.includes('value') && state.value !== undefined : keys.length === 1;
+}
+
+function sameFieldState(values, columnId, state) {
+  const current = fieldState(values, columnId);
+  return current.present === state.present && (!current.present || canonicalJson(current.value) === canonicalJson(state.value));
+}
+
+function serializedPlanSize(operations) {
+  return new TextEncoder().encode(JSON.stringify(operations) || '').length;
+}
+
+function isRestorePlan(operations) {
+  return Array.isArray(operations) && operations.some(operation => operation?.op === 'restore_converted_column');
+}
+
+function validRestoreRows(rows) {
+  if (!Array.isArray(rows) || rows.length > MAX_ROWS) return false;
+  const ids = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || Array.isArray(row) || typeof row.id !== 'string' || !row.id || row.id.length > 64 || ids.has(row.id)
+      || !validFieldState(row.expected) || !validFieldState(row.restore)) return false;
+    ids.add(row.id);
+  }
+  return true;
+}
 
 function readJournalPlan(value) {
   try {
     const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return { operations: parsed, inverseOperations: null };
+    if (Array.isArray(parsed)) return { operations: parsed, inverseOperations: null, rollbackUnavailableReason: null };
     if (parsed?.format === 2 && Array.isArray(parsed.operations)
-      && (parsed.inverseOperations === null || Array.isArray(parsed.inverseOperations))) {
-      return { operations: parsed.operations, inverseOperations: parsed.inverseOperations };
+      && (parsed.inverseOperations === null || Array.isArray(parsed.inverseOperations))
+      && (parsed.rollbackUnavailableReason == null || ['snapshot_limit', 'multiple_conversions'].includes(parsed.rollbackUnavailableReason))) {
+      return { operations: parsed.operations, inverseOperations: parsed.inverseOperations, rollbackUnavailableReason: parsed.rollbackUnavailableReason || null };
     }
   } catch { /* malformed journals are surfaced as unverified below */ }
   return null;
@@ -36,7 +79,7 @@ export function relationStateError(entities) {
   return null;
 }
 
-export async function databaseView(db, orgId, app) {
+export async function databaseView(db, orgId, app, { includeRollbackOperations = false } = {}) {
   const state = await db.prepare('SELECT version FROM hx_app_database_state WHERE org_id=?1 AND app_id=?2').bind(orgId, app.id).first();
   const { results } = await db.prepare('SELECT entity_key, table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 ORDER BY entity_key').bind(orgId, app.id).all();
   const entities = [{ key: 'primary', table: await getTable(db, orgId, app.tableId) }];
@@ -48,7 +91,8 @@ export async function databaseView(db, orgId, app) {
     return {
       ...r,
       plan: integrityValid ? decoded.operations : null,
-      inverseOperations: integrityValid ? decoded.inverseOperations : null,
+      inverseOperations: integrityValid && includeRollbackOperations ? decoded.inverseOperations : null,
+      rollbackUnavailableReason: integrityValid ? decoded.rollbackUnavailableReason : null,
       integrityValid,
     };
   }));
@@ -208,7 +252,7 @@ export function planMigration(current, operations) {
       if (cols.error) return cols;
       const next = { ...table, columns: cols.columns };
       entities.set(op.entity, next); changed.set(op.entity, { ...changed.get(op.entity), table: next });
-    } else if (['rename_column', 'convert_column', 'drop_empty_column'].includes(op.op)) {
+    } else if (['rename_column', 'convert_column', 'drop_empty_column', 'restore_converted_column'].includes(op.op)) {
       const table = entities.get(op.entity);
       if (!table) return err('No such entity.');
       if (createdEntities.has(op.entity)) return err('Create an entity before migrating its columns in a separate change.');
@@ -223,6 +267,14 @@ export function planMigration(current, operations) {
         if (typeof op.name !== 'string' || !op.name.trim() || op.name.trim().length > 60) return err('Give the renamed column a name (1–60 characters).');
         if (nextColumns.some((column, i) => i !== index && column.name.toLowerCase() === op.name.trim().toLowerCase())) return err('A column already has that name.');
         nextColumns[index] = { ...existing, name: op.name.trim() };
+      } else if (op.op === 'restore_converted_column') {
+        if (!op.expectedColumn || canonicalJson(existing) !== canonicalJson(op.expectedColumn)
+          || !op.restoreColumn || op.restoreColumn.id !== existing.id || !validRestoreRows(op.rows) || !op.rows.length) {
+          return err('The saved conversion rollback is incomplete or no longer matches the schema.', 409);
+        }
+        const normalized = normalizeColumns(nextColumns.map((column, i) => i === index ? op.restoreColumn : column), table.columns, { allowRelations: true });
+        if (normalized.error || canonicalJson(normalized.columns[index]) !== canonicalJson(op.restoreColumn)) return err('The saved conversion rollback contains an unsupported original column definition.', 409);
+        nextColumns = normalized.columns;
       } else if (op.op === 'convert_column') {
         if (!MIGRATABLE_COLUMN_TYPES.has(op.type)) return err('Choose a supported column type.');
         const candidate = { ...existing, type: op.type };
@@ -262,7 +314,7 @@ export function planMigration(current, operations) {
   return { changes: [...changed].map(([key, value]) => ({ key, ...value })) };
 }
 
-const hasDataOperation = operations => operations.some(operation => ['convert_column', 'drop_empty_column', 'drop_entity'].includes(operation?.op));
+const hasDataOperation = operations => operations.some(operation => ['convert_column', 'restore_converted_column', 'drop_empty_column', 'drop_entity'].includes(operation?.op));
 
 async function hasWorkflowEntityReference(db, orgId, appId, entityKey, tableId) {
   return Boolean(await db.prepare(`SELECT 1 AS referenced FROM hx_workflows w WHERE w.org_id=?1 AND (
@@ -274,7 +326,8 @@ async function hasWorkflowEntityReference(db, orgId, appId, entityKey, tableId) 
 async function buildMigrationPreview(db, orgId, app, input) {
   if (!keyOK(input.id) || !Number.isSafeInteger(input.version) || input.version < 0) return err('A migration ID and database version are required.');
   const serialized = JSON.stringify(input.operations);
-  if (!serialized || serialized.length > 30000) return err('Migration is too large.');
+  const planLimit = isRestorePlan(input.operations) ? MAX_ROLLBACK_BYTES : MAX_MIGRATION_PLAN_BYTES;
+  if (!serialized || serializedPlanSize(input.operations) > planLimit) return err(isRestorePlan(input.operations) ? 'This rollback plan exceeds the 500 KB safe snapshot limit.' : 'Migration is too large.', 413);
   const current = await databaseView(db, orgId, app);
   if (current.version !== input.version) return err('Database schema changed. Reload before previewing.', 409);
   const planned = planMigration(current, input.operations);
@@ -315,7 +368,7 @@ async function buildMigrationPreview(db, orgId, app, input) {
   let bytes = new TextEncoder().encode(serialized).length;
   for (const change of planned.changes) {
     const ops = input.operations.filter(operation => operation.entity === change.key);
-    const rowOps = ops.filter(operation => ['convert_column', 'drop_empty_column'].includes(operation.op));
+    const rowOps = ops.filter(operation => ['convert_column', 'restore_converted_column', 'drop_empty_column'].includes(operation.op));
     const oldColumns = current.entities.find(entity => entity.key === change.key)?.table.columns || [];
     const schemaChanges = ops.map(operation => {
       const before = oldColumns.find(column => column.id === operation.column);
@@ -325,6 +378,7 @@ async function buildMigrationPreview(db, orgId, app, input) {
       if (operation.op === 'add_columns') return { op: operation.op, columns: operation.columns };
       if (operation.op === 'rename_column') return { op: operation.op, column: operation.column, from: before?.name, to: after?.name };
       if (operation.op === 'convert_column') return { op: operation.op, column: operation.column, name: before?.name, from: before?.type, to: after?.type, options: after?.options, ...(after?.type === 'relation' ? { targetEntity: after.targetEntity, multiple: after.multiple, ...(operation.matchBy ? { matchBy: operation.matchBy } : {}) } : {}) };
+      if (operation.op === 'restore_converted_column') return { op: operation.op, column: operation.column, name: operation.expectedColumn?.name, from: operation.expectedColumn?.type, to: operation.restoreColumn?.type };
       if (operation.op === 'drop_empty_column') return { op: operation.op, column: operation.column, name: before?.name, type: before?.type };
       return { op: operation.op };
     });
@@ -351,6 +405,13 @@ async function buildMigrationPreview(db, orgId, app, input) {
     snapshots.push(snapshot);
     const updatedRows = [];
     const columnNames = new Map(current.entities.find(entity => entity.key === change.key).table.columns.map(column => [column.id, column.name]));
+    const restoreRowsByOperation = new Map(rowOps.filter(item => item.op === 'restore_converted_column').map(operation => [operation, new Map(operation.rows.map(item => [item.id, item]))]));
+    for (const operation of rowOps.filter(item => item.op === 'restore_converted_column')) {
+      const expectedIds = restoreRowsByOperation.get(operation);
+      const actualIds = new Set(rows.map(row => row.id));
+      for (const rowId of expectedIds.keys()) if (!actualIds.has(rowId)) blockers.push({ entity: change.key, id: rowId, column: columnNames.get(operation.column) || operation.column, reason: 'A record from the saved conversion rollback no longer exists.' });
+      for (const row of rows) if (!expectedIds.has(row.id)) blockers.push({ entity: change.key, id: row.id, column: columnNames.get(operation.column) || operation.column, reason: 'A record was added after conversion and is not covered by the saved rollback.' });
+    }
     for (const row of rows) {
       let values;
       try { values = JSON.parse(row.data || '{}'); } catch { blockers.push({ entity: change.key, id: row.id, reason: 'Stored record data is not valid JSON.' }); continue; }
@@ -376,6 +437,24 @@ async function buildMigrationPreview(db, orgId, app, input) {
             for (const id of refs) rowRelations.push({ targetEntity: target.targetEntity, id, entity: change.key, rowId: row.id, column: columnNames.get(operation.column) || operation.column });
             if (converted.relationMatches?.length) rowRelationMatches.push({ column: operation.column, targetEntity: target.targetEntity, matches: converted.relationMatches });
           }
+        } else if (operation.op === 'restore_converted_column') {
+          const restore = restoreRowsByOperation.get(operation).get(row.id);
+          if (!restore || !sameFieldState(values, operation.column, restore.expected)) {
+            blockers.push({ entity: change.key, id: row.id, column: columnNames.get(operation.column) || operation.column, reason: 'The converted value changed after migration; the saved rollback will not overwrite it.' });
+            blocked = true; break;
+          }
+          if (restore.restore.present) {
+            const restored = { [operation.column]: restore.restore.value };
+            if (validateValues([operation.restoreColumn], restored).length) {
+              blockers.push({ entity: change.key, id: row.id, column: columnNames.get(operation.column) || operation.column, reason: 'The original value does not match the saved column definition.' });
+              blocked = true; break;
+            }
+            values[operation.column] = restore.restore.value;
+            if (operation.restoreColumn.type === 'relation' && restore.restore.value != null) {
+              const refs = Array.isArray(restore.restore.value) ? restore.restore.value : [restore.restore.value];
+              for (const id of refs) rowRelations.push({ targetEntity: operation.restoreColumn.targetEntity, id, entity: change.key, rowId: row.id, column: columnNames.get(operation.column) || operation.column });
+            }
+          } else delete values[operation.column];
         } else if (!isEmptyMigrationValue(source, oldColumns.find(column => column.id === operation.column))) {
           blockers.push({ entity: change.key, id: row.id, column: columnNames.get(operation.column) || operation.column, reason: 'Column contains data; only null, empty-string, or empty multiple-relation values can be dropped.' });
           blocked = true; break;
@@ -425,7 +504,119 @@ async function buildMigrationPreview(db, orgId, app, input) {
   if (bytes > 1_200_000) return err('This migration preview is too large. Split it into smaller migrations.', 413);
   const schema = current.entities.map(entity => ({ key: entity.key, tableId: entity.table.id, columns: JSON.stringify(entity.table.columns) }));
   const previewChecksum = await digest(JSON.stringify({ id: input.id, version: input.version, operations: input.operations, schema, snapshots, relationTargets }));
-  return { current, planned, snapshots, updates, schema, relationTargets, previewChecksum, summaries, blockers, serialized, nonAdditive: hasDataOperation(input.operations) };
+  const restoreOperations = new Map();
+  for (const operation of input.operations.filter(item => item?.op === 'convert_column')) {
+    const entity = current.entities.find(item => item.key === operation.entity);
+    const snapshot = snapshots.find(item => item.key === operation.entity);
+    const nextColumn = planned.changes.find(item => item.key === operation.entity)?.table.columns.find(column => column.id === operation.column);
+    const oldColumn = entity?.table.columns.find(column => column.id === operation.column);
+    if (!snapshot || !oldColumn || !nextColumn) continue;
+    const update = updates.find(item => item.tableId === snapshot.tableId);
+    const updatedRows = new Map((update?.rows || []).map(row => [row.id, row.data]));
+    const rows = [];
+    let populated = false;
+    for (const row of snapshot.rows) {
+      let before, after;
+      try {
+        before = JSON.parse(row.data || '{}');
+        after = JSON.parse(updatedRows.get(row.id) ?? (row.data || '{}'));
+      } catch { return err('Stored record data is not valid JSON.', 409); }
+      const restore = fieldState(before, operation.column), expected = fieldState(after, operation.column);
+      if (!isEmptyMigrationValue(restore.present ? restore.value : undefined, oldColumn)) populated = true;
+      rows.push({ id: row.id, expected, restore });
+    }
+    if (populated) {
+      const restoreOperation = { op: 'restore_converted_column', entity: operation.entity, column: operation.column,
+        expectedColumn: nextColumn, restoreColumn: oldColumn, rows };
+      restoreOperations.set(`${operation.entity}:${operation.column}`, restoreOperation);
+    }
+  }
+  let inverseOperations = buildInverseOperations({ current, planned, input, snapshots, restoreOperations });
+  const conversionCounts = new Map();
+  for (const operation of input.operations) if (operation?.op === 'convert_column') conversionCounts.set(operation.entity, (conversionCounts.get(operation.entity) || 0) + 1);
+  let rollbackUnavailableReason = inverseOperations === null && [...conversionCounts.values()].some(count => count > 1) ? 'multiple_conversions' : null;
+  let journalPlan = JSON.stringify({ format: 2, operations: input.operations, inverseOperations, ...(rollbackUnavailableReason ? { rollbackUnavailableReason } : {}) });
+  if (new TextEncoder().encode(journalPlan).length > MAX_ROLLBACK_BYTES && inverseOperations !== null) {
+    inverseOperations = null;
+    rollbackUnavailableReason = 'snapshot_limit';
+    journalPlan = JSON.stringify({ format: 2, operations: input.operations, inverseOperations, rollbackUnavailableReason });
+  }
+  if (new TextEncoder().encode(journalPlan).length > MAX_ROLLBACK_BYTES) return err('This migration plan exceeds the 500 KB safe journal limit.', 413);
+  return { current, planned, snapshots, updates, schema, relationTargets, previewChecksum, summaries, blockers, serialized, inverseOperations, rollbackUnavailableReason, nonAdditive: hasDataOperation(input.operations) };
+}
+
+function buildInverseOperations({ current, planned, input, snapshots, restoreOperations }) {
+  const conversionCounts = new Map();
+  for (const operation of input.operations) if (operation?.op === 'convert_column') {
+    conversionCounts.set(operation.entity, (conversionCounts.get(operation.entity) || 0) + 1);
+  }
+  // Each inverse currently describes the final schema. Reversing multiple
+  // conversions on one table would make the next inverse's schema stale.
+  if ([...conversionCounts.values()].some(count => count > 1)) return null;
+  const emptyColumnConversion = operation => {
+    if (operation?.op !== 'convert_column') return false;
+    const entity = current.entities.find(item => item.key === operation.entity);
+    const column = entity?.table.columns.find(item => item.id === operation.column);
+    const snapshot = snapshots.find(item => item.tableId === entity?.table.id);
+    return Boolean(column && snapshot && snapshot.rows.every(row => {
+      try { return isEmptyMigrationValue(JSON.parse(row.data || '{}')?.[column.id], column); }
+      catch { return false; }
+    }));
+  };
+  const emptyColumnDrop = operation => {
+    if (operation?.op !== 'drop_empty_column') return false;
+    const entity = current.entities.find(item => item.key === operation.entity);
+    const column = entity?.table.columns.find(item => item.id === operation.column);
+    const snapshot = snapshots.find(item => item.tableId === entity?.table.id);
+    return Boolean(column && snapshot && snapshot.rows.every(row => {
+      try { return isEmptyMigrationValue(JSON.parse(row.data || '{}')?.[column.id], column); }
+      catch { return false; }
+    }));
+  };
+  const emptyEntityChange = operation => {
+    if (operation?.op === 'create_entity') return !current.entities.some(item => item.key === operation.entity);
+    if (operation?.op !== 'drop_entity') return false;
+    const snapshot = snapshots.find(item => item.key === operation.entity);
+    return Boolean(snapshot && snapshot.rows.length === 0 && planned.changes.some(item => item.key === operation.entity && item.drop));
+  };
+  const reversible = input.operations.length > 0 && input.operations.every(operation => {
+    if (['add_columns', 'rename_column'].includes(operation?.op) || emptyColumnDrop(operation) || emptyEntityChange(operation)) return true;
+    return operation?.op === 'convert_column' && (restoreOperations.has(`${operation.entity}:${operation.column}`) || emptyColumnConversion(operation));
+  });
+  if (!reversible) return null;
+  return [...input.operations].reverse().flatMap(operation => {
+    if (operation.op === 'create_entity') return [{ op: 'drop_entity', entity: operation.entity }];
+    if (operation.op === 'drop_entity') {
+      const before = current.entities.find(entity => entity.key === operation.entity);
+      if (!before) return [];
+      return [{ op: 'create_entity', entity: operation.entity, name: before.table.name,
+        columns: before.table.columns.map(column => ({ name: column.name, type: column.type,
+          ...(column.type === 'select' ? { options: column.options || [] } : {}),
+          ...(column.type === 'relation' ? { targetEntity: column.targetEntity, multiple: Boolean(column.multiple) } : {}) })) }];
+    }
+    if (operation.op === 'drop_empty_column') {
+      const before = current.entities.find(entity => entity.key === operation.entity)?.table.columns.find(column => column.id === operation.column);
+      if (!before) return [];
+      return [{ op: 'add_columns', entity: operation.entity, columns: [{ name: before.name, type: before.type,
+        ...(before.type === 'select' ? { options: before.options || [] } : {}),
+        ...(before.type === 'relation' ? { targetEntity: before.targetEntity, multiple: Boolean(before.multiple) } : {}) }] }];
+    }
+    if (operation.op === 'add_columns') {
+      const change = planned.changes.find(item => item.key === operation.entity);
+      const existingIds = new Set(current.entities.find(entity => entity.key === operation.entity)?.table.columns.map(column => column.id) || []);
+      return (change?.table.columns || []).filter(column => !existingIds.has(column.id)).map(column => ({
+        op: 'drop_empty_column', entity: operation.entity, column: column.id,
+      }));
+    }
+    const before = current.entities.find(entity => entity.key === operation.entity)?.table.columns.find(column => column.id === operation.column);
+    if (!before) return [];
+    if (operation.op === 'rename_column') return [{ op: 'rename_column', entity: operation.entity, column: operation.column, name: before.name }];
+    const restore = restoreOperations.get(`${operation.entity}:${operation.column}`);
+    if (restore) return [restore];
+    return [{ op: 'convert_column', entity: operation.entity, column: operation.column, type: before.type,
+      ...(before.type === 'select' ? { options: before.options || [] } : {}),
+      ...(before.type === 'relation' ? { targetEntity: before.targetEntity, multiple: Boolean(before.multiple) } : {}) }];
+  });
 }
 
 export async function previewMigration(db, orgId, app, input, by) {
@@ -438,7 +629,8 @@ export async function previewMigration(db, orgId, app, input, by) {
 export async function applyMigration(db, orgId, app, input, by) {
   if (!keyOK(input.id) || !Number.isSafeInteger(input.version) || input.version < 0) return err('A migration ID and database version are required.');
   const serializedInput = JSON.stringify(input.operations);
-  if (!serializedInput || serializedInput.length > 30000) return err('Migration is too large.');
+  const inputLimit = isRestorePlan(input.operations) ? MAX_ROLLBACK_BYTES : MAX_MIGRATION_PLAN_BYTES;
+  if (!serializedInput || serializedPlanSize(input.operations) > inputLimit) return err(isRestorePlan(input.operations) ? 'This rollback plan exceeds the 500 KB safe snapshot limit.' : 'Migration is too large.', 413);
   const old = await db.prepare('SELECT checksum, version, plan FROM hx_app_migrations WHERE org_id=?1 AND app_id=?2 AND migration_id=?3').bind(orgId, app.id, input.id).first();
   if (old) {
     const decoded = readJournalPlan(old.plan);
@@ -452,71 +644,10 @@ export async function applyMigration(db, orgId, app, input, by) {
   if (preview.blockers.length) return err('Resolve every blocked row in the preview before applying this migration.', 409);
   if (preview.nonAdditive && input.previewChecksum !== preview.previewChecksum) return err('Data changed after preview. Preview the migration again.', 409);
   if (input.previewChecksum && input.previewChecksum !== preview.previewChecksum) return err('Migration preview changed. Review it again.', 409);
-  const { current, planned } = preview;
-  const emptyColumnConversion = operation => {
-    if (operation?.op !== 'convert_column') return false;
-    const entity = current.entities.find(item => item.key === operation.entity);
-    const column = entity?.table.columns.find(item => item.id === operation.column);
-    const snapshot = preview.snapshots.find(item => item.tableId === entity?.table.id);
-    return Boolean(column && snapshot && snapshot.rows.every(row => {
-      try { return isEmptyMigrationValue(JSON.parse(row.data || '{}')?.[column.id], column); }
-      catch { return false; }
-    }));
-  };
-  const emptyColumnDrop = operation => {
-    if (operation?.op !== 'drop_empty_column') return false;
-    const entity = current.entities.find(item => item.key === operation.entity);
-    const column = entity?.table.columns.find(item => item.id === operation.column);
-    const snapshot = preview.snapshots.find(item => item.tableId === entity?.table.id);
-    return Boolean(column && snapshot && snapshot.rows.every(row => {
-      try { return isEmptyMigrationValue(JSON.parse(row.data || '{}')?.[column.id], column); }
-      catch { return false; }
-    }));
-  };
-  const emptyEntityChange = operation => {
-    if (operation?.op === 'create_entity') return !current.entities.some(item => item.key === operation.entity);
-    if (operation?.op !== 'drop_entity') return false;
-    const snapshot = preview.snapshots.find(item => item.key === operation.entity);
-    return Boolean(snapshot && snapshot.rows.length === 0 && planned.changes.some(item => item.key === operation.entity && item.drop));
-  };
-  const reversibleSchemaOnly = input.operations.length > 0
-    && input.operations.every(operation => ['add_columns', 'rename_column'].includes(operation?.op) || emptyColumnConversion(operation) || emptyColumnDrop(operation) || emptyEntityChange(operation));
-  const inverseOperations = reversibleSchemaOnly
-    ? [...input.operations].reverse().flatMap(operation => {
-      if (operation.op === 'create_entity') return [{ op: 'drop_entity', entity: operation.entity }];
-      if (operation.op === 'drop_entity') {
-        const before = current.entities.find(entity => entity.key === operation.entity);
-        if (!before) return [];
-        return [{ op: 'create_entity', entity: operation.entity, name: before.table.name,
-          columns: before.table.columns.map(column => ({ name: column.name, type: column.type,
-            ...(column.type === 'select' ? { options: column.options || [] } : {}),
-            ...(column.type === 'relation' ? { targetEntity: column.targetEntity, multiple: Boolean(column.multiple) } : {}) })) }];
-      }
-      if (operation.op === 'drop_empty_column') {
-        const before = current.entities.find(entity => entity.key === operation.entity)?.table.columns.find(column => column.id === operation.column);
-        if (!before) return [];
-        return [{ op: 'add_columns', entity: operation.entity, columns: [{ name: before.name, type: before.type,
-          ...(before.type === 'select' ? { options: before.options || [] } : {}),
-          ...(before.type === 'relation' ? { targetEntity: before.targetEntity, multiple: Boolean(before.multiple) } : {}) }] }];
-      }
-      if (operation.op === 'add_columns') {
-        const change = planned.changes.find(item => item.key === operation.entity);
-        const existingIds = new Set(current.entities.find(entity => entity.key === operation.entity)?.table.columns.map(column => column.id) || []);
-        return (change?.table.columns || []).filter(column => !existingIds.has(column.id)).map(column => ({
-          op: 'drop_empty_column', entity: operation.entity, column: column.id,
-        }));
-      }
-      const before = current.entities.find(entity => entity.key === operation.entity)?.table.columns.find(column => column.id === operation.column);
-      if (!before) return [];
-      if (operation.op === 'rename_column') return [{ op: 'rename_column', entity: operation.entity, column: operation.column, name: before.name }];
-      return [{ op: 'convert_column', entity: operation.entity, column: operation.column, type: before.type,
-        ...(before.type === 'select' ? { options: before.options || [] } : {}),
-        ...(before.type === 'relation' ? { targetEntity: before.targetEntity, multiple: Boolean(before.multiple) } : {}) }];
-    })
-    : null;
+  const { current, planned, inverseOperations, rollbackUnavailableReason } = preview;
   // New journal entries wrap the exact requested operations and their reviewed,
   // stable-ID inverse. Legacy array entries remain readable and replayable.
-  const journalPlan = JSON.stringify({ format: 2, operations: input.operations, inverseOperations });
+  const journalPlan = JSON.stringify({ format: 2, operations: input.operations, inverseOperations, ...(rollbackUnavailableReason ? { rollbackUnavailableReason } : {}) });
   const checksum = await digest(journalPlan);
   const count = await db.prepare('SELECT COUNT(*) AS n FROM hx_tables WHERE org_id=?1').bind(orgId).first();
   if (count.n + planned.changes.filter(c => c.create).length > MAX_TABLES_PER_ORG) return err('Workspace table limit reached.', 409);

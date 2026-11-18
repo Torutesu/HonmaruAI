@@ -80,6 +80,11 @@ export function workflowAgentReadOnlyTools(skillTools = {}) {
   return Object.fromEntries(Object.entries(skillTools).filter(([name, tool]) => allowed.has(name) && tool && typeof tool.run === 'function'));
 }
 
+// A workflow run grant allows an Agent to work, not to edit the Agent's shared memory.
+export function workflowAgentRunTools(skillTools = {}) {
+  return Object.fromEntries(Object.entries(skillTools).filter(([name, tool]) => name !== 'review_agent_memory' && tool && typeof tool.run === 'function'));
+}
+
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (isObject(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;

@@ -1,5 +1,5 @@
 import {SYSTEM_COLUMNS, isSystemTimestamp, localDateTime, utcDateTime} from '../utils/systemColumns'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useId, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import {AppRelationPicker} from './AppRelationPicker'
 import {composing} from '../utils/keys'
@@ -8,8 +8,18 @@ import {instantFromLocalDateTime,localDateTimeInZone} from '../utils/zonedDateTi
 import type { Column, Row, View } from '../utils/harness'
 const operators = [['eq','equals'],['neq','does not equal'],['contains','contains'],['empty','is empty'],['not_empty','is not empty'],['gt','is greater than / after'],['lt','is less than / before']]
 type RelationEntity={key:string;table:{columns:Column[]};rows:Row[]}
+const timeZoneFallback=['UTC','Asia/Tokyo','Asia/Singapore','Europe/London','Europe/Paris','America/Los_Angeles','America/Chicago','America/New_York','Australia/Sydney']
+function availableTimeZones(current:string) {
+  const intlWithZones=Intl as typeof Intl & {supportedValuesOf?:(key:'timeZone')=>string[]}
+  const supported=intlWithZones.supportedValuesOf?.('timeZone')||timeZoneFallback
+  return [...new Set(['UTC',...supported,Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',current||'UTC'])].sort((a,b)=>a.localeCompare(b))
+}
+function isValidTimeZone(value:string) {
+  try { new Intl.DateTimeFormat('en',{timeZone:value}).format(0); return true } catch { return false }
+}
 export function AppViewControls({view,columns,save,canEdit,personal=false,onAdjust,relationEntities=[]}:{view:View;columns:Column[];save:(patch:Partial<View>)=>Promise<void>;canEdit:boolean;personal?:boolean;onAdjust?:(kind:'filter'|'group')=>void;relationEntities?:RelationEntity[]}) {
   const t=useT()
+  const timeZoneListId=`hx-time-zones-${useId().replace(/:/g,'')}`
   const queryColumns=[...columns,...SYSTEM_COLUMNS]
   const [open,setOpen]=useState<'filter'|'group'|null>(null)
   const [editing,setEditing]=useState(false)
@@ -18,10 +28,12 @@ export function AppViewControls({view,columns,save,canEdit,personal=false,onAdju
   const [group,setGroup]=useState(view.groupBy || '')
   const [busy,setBusy]=useState(false), [error,setError]=useState('')
   const [timeZoneBusy,setTimeZoneBusy]=useState(false),[timeZoneError,setTimeZoneError]=useState('')
-  const timeZoneChoices=[...new Set(['UTC','Asia/Tokyo','America/Los_Angeles','Europe/London',Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',view.timeZone||'UTC'])]
+  const [timeZoneDraft,setTimeZoneDraft]=useState(view.timeZone||'UTC')
+  const timeZoneChoices=availableTimeZones(view.timeZone||'UTC')
   const root=useRef<HTMLDivElement>(null)
   const trigger=useRef<HTMLButtonElement|null>(null)
   const close=()=>{setOpen(null);trigger.current?.focus()}
+  useEffect(()=>setTimeZoneDraft(view.timeZone||'UTC'),[view.timeZone])
   useEffect(()=>{
     if(!open)return
     root.current?.querySelector<HTMLElement>('[role="dialog"] button,[role="dialog"] select')?.focus()
@@ -53,7 +65,7 @@ export function AppViewControls({view,columns,save,canEdit,personal=false,onAdju
   }
   const filterOperatorLabel=(column:Column|undefined,op:string)=>column?.type==='relation'&&column.multiple?(op==='eq'?t('contains'):op==='neq'?t('does not contain'):operators.find(o=>o[0]===op)?.[1]):operators.find(o=>o[0]===op)?.[1]
   return <div ref={root} className="hx-view-controls" onKeyDown={e=>{if(e.key==='Escape'&&!composing(e)&&!busy){e.stopPropagation();close()}}}>
-    {view.type==='calendar'&&<label className="hx-calendar-timezone"><span>{t('Calendar time zone')}</span><select aria-label={t('Calendar time zone')} value={timeZoneChoices.includes(view.timeZone||'UTC')?view.timeZone||'UTC':'UTC'} disabled={!canEdit||timeZoneBusy} onChange={event=>{const timeZone=event.target.value;setTimeZoneBusy(true);setTimeZoneError('');void save({timeZone}).catch(reason=>setTimeZoneError(reason instanceof Error?reason.message:String(reason))).finally(()=>setTimeZoneBusy(false))}}>{timeZoneChoices.map(zone=><option key={zone} value={zone}>{zone}</option>)}</select>{timeZoneError&&<small role="alert">{timeZoneError}</small>}</label>}
+    {view.type==='calendar'&&<label className="hx-calendar-timezone"><span>{t('Calendar time zone')}</span><input aria-label={t('Calendar time zone')} list={timeZoneListId} value={timeZoneDraft} disabled={!canEdit||timeZoneBusy} onChange={event=>{const timeZone=event.target.value;setTimeZoneDraft(timeZone);if(!isValidTimeZone(timeZone)){setTimeZoneError(t('Enter a valid IANA time zone.'));return}setTimeZoneBusy(true);setTimeZoneError('');void save({timeZone}).catch(reason=>setTimeZoneError(reason instanceof Error?reason.message:String(reason))).finally(()=>setTimeZoneBusy(false))}}/><datalist id={timeZoneListId}>{timeZoneChoices.map(zone=><option key={zone} value={zone}/>)}</datalist>{timeZoneError&&<small role="alert">{timeZoneError}</small>}</label>}
     {(['filter','group'] as const).filter(kind=>kind==='filter'||view.type==='table'||view.type==='board').map(kind=><button key={kind} className={`pill-btn quiet ${open===kind?'on':''}`} title={controlLabel(kind)} aria-label={controlLabel(kind)} aria-haspopup="dialog" aria-expanded={open===kind} onClick={e=>{trigger.current=e.currentTarget;setOpen(open===kind?null:kind);setEditing(false);setError('');setFilters((view.filters||[]).map(f=>columns.find(c=>c.id===f.column)?.type==='relation'&&f.op==='contains'?{...f,op:'eq'}:f));setWhere(view.where);setGroup(view.groupBy||'')}}><Icon name={kind==='filter'?'filter':'group'} size={14}/>{t(kind==='filter'?'Filter records':'Group records')}{kind==='filter'&&activeCount>0&&<span className="hx-count">{activeCount}</span>}</button>)}
     {open&&<div className={`hx-view-popover ${editing&&open==='filter'?'editing':''}`} role="dialog" aria-label={t(open==='filter'?'Edit filters':'Edit grouping')}>
       {open==='filter'?<>

@@ -132,22 +132,24 @@ test("voice vocabulary syncs across a member's devices in Simple mode and stays 
   const { upsertMembership } = await import("../src/db.js");
   await upsertMembership(env.DB, "personal:another-workspace", "9102", "member");
   const empty = await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, mika)).json();
-  expect(empty).toEqual({ vocabulary: [], corrections: [], revision: 0 });
+  expect(empty).toEqual({ vocabulary: [], corrections: [], shortcut: "Alt+Shift+V", revision: 0 });
   const { ws: mikaOtherWorkspaceSocket, messages: mikaOtherWorkspaceMessages } = await joined("personal:another-workspace", mika);
   const saved = await send("PUT", "/hx/dictation-vocabulary", mika, {
-    orgId: ORG, vocabulary: [" Honmaru ", "Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], expectedRevision: 0,
+    orgId: ORG, vocabulary: [" Honmaru ", "Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], shortcut: "Ctrl+Alt+Q", expectedRevision: 0,
   });
   expect(saved.status).toBe(200);
-  expect(await saved.json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], revision: 1 });
+  expect(await saved.json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], shortcut: "Ctrl+Alt+Q", revision: 1 });
   const otherWorkspaceEvent = await message(mikaOtherWorkspaceMessages, event => event.name === "dictation_vocabulary_changed");
   expect(otherWorkspaceEvent?.value).toMatchObject({ userId: "9102", revision: 1 });
-  expect(await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, mika)).json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], revision: 1 });
-  expect(await (await get("/hx/dictation-vocabulary?orgId=personal%3Aanother-workspace", mika)).json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], revision: 1 });
-  expect(await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, toru)).json()).toMatchObject({ vocabulary: [], corrections: [], revision: 0 });
-  expect(await (await get(`/hx/dictation-vocabulary?orgId=personal%3Aelsewhere`, outsider)).json()).toMatchObject({ vocabulary: [], corrections: [], revision: 0 });
+  expect(await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, mika)).json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], shortcut: "Ctrl+Alt+Q", revision: 1 });
+  expect(await (await get("/hx/dictation-vocabulary?orgId=personal%3Aanother-workspace", mika)).json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], shortcut: "Ctrl+Alt+Q", revision: 1 });
+  expect(await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, toru)).json()).toMatchObject({ vocabulary: [], corrections: [], shortcut: "Alt+Shift+V", revision: 0 });
+  expect(await (await get(`/hx/dictation-vocabulary?orgId=personal%3Aelsewhere`, outsider)).json()).toMatchObject({ vocabulary: [], corrections: [], shortcut: "Alt+Shift+V", revision: 0 });
 
   const stale = await send("PUT", "/hx/dictation-vocabulary", mika, { orgId: ORG, vocabulary: ["Other"], expectedRevision: 0 });
   expect(stale.status).toBe(409);
+  const conflict = await send("PUT", "/hx/dictation-vocabulary", mika, { orgId: ORG, vocabulary: ["Honmaru"], expectedRevision: 1, shortcut: "Ctrl+R" });
+  expect(conflict.status).toBe(400);
   const tooLong = await send("PUT", "/hx/dictation-vocabulary", mika, { orgId: ORG, vocabulary: ["x".repeat(81)], expectedRevision: 1 });
   expect(tooLong.status).toBe(400);
   expect((await get(`/hx/dictation-vocabulary?orgId=${ORG}`, outsider)).status).toBe(403);
@@ -2786,6 +2788,31 @@ test('Google OAuth authorization uses fixed endpoints and stores callback tokens
   expect(config.accessToken).toBe('AUTH_CALLBACK_ACCESS');expect(config.refreshToken).toBe('AUTH_CALLBACK_REFRESH');
   const listing=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);const serialized=JSON.stringify(await listing.json());
   for(const secret of ['CALLBACK_CLIENT_SECRET','AUTH_CALLBACK_ACCESS','AUTH_CALLBACK_REFRESH'])expect(serialized).not.toContain(secret);
+ }finally{vi.unstubAllGlobals();useSecretKey({});}
+});
+
+test('Google OAuth callback refuses to persist tokens after App edit permission is revoked',async()=>{
+ const {app}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm',sample:false})).json();
+ await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+ const shared=await send('PUT',`/apps/${app.id}/access`,mika,{orgId:ORG,visibility:'workspace',version:0,people:[{userId:'9101',permission:'edit'}]});
+ expect(shared.status,JSON.stringify(await shared.clone().json())).toBe(200);
+ const {useSecretKey,isSealed}=await import('../src/secrets.js');
+ const keyEnv={...env,APP_WEB_URL:'https://example.com',DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ const fetch=vi.fn(async()=>new Response(JSON.stringify({access_token:'MUST_NOT_BE_STORED',refresh_token:'MUST_NOT_BE_STORED_REFRESH',expires_in:3600}),{headers:{'content-type':'application/json'}}));vi.stubGlobal('fetch',fetch);
+ try{
+  const saved=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'google_api',version:0,endpoint:'https://www.googleapis.com/drive/v3/files',method:'GET',authMode:'oauth',clientId:'1234567890-abcdefgh.apps.googleusercontent.com',clientSecret:'REVOKED_EDITOR_SECRET',scope:'https://www.googleapis.com/auth/drive.readonly'});
+  expect(saved.status).toBe(200);
+  const start=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'oauth_start',name:'google_api'});expect(start.status).toBe(200);
+  const {authorizeUrl}=await start.json();const auth=new URL(authorizeUrl);
+  const before=await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first();
+  const revoked=await send('PUT',`/apps/${app.id}/access`,mika,{orgId:ORG,visibility:'workspace',version:1,people:[{userId:'9101',permission:'view'}]});expect(revoked.status).toBe(200);
+  const callback=await worker.fetch(new Request(`https://example.com/apps/oauth/callback?state=${encodeURIComponent(auth.searchParams.get('state'))}&code=callback-code`),keyEnv);
+  expect(callback.status).toBe(400);
+  expect(fetch).not.toHaveBeenCalled();
+  const after=await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first();
+  expect(isSealed(after.token)).toBe(true);expect(after.token).toBe(before.token);
  }finally{vi.unstubAllGlobals();useSecretKey({});}
 });
 
