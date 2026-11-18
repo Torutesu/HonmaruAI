@@ -643,6 +643,7 @@ async function queueAcpPrompt(env, t, { orgId, requesterId, task, sessionId = nu
     gatewayId: t.remote?.gatewayId, agentKey: t.remote?.agentKey, prompt: task, sessionId, context,
     agentId: t.agentId, workspaceTools: t.remote?.workspaceTools === true,
     browserTools: t.remote?.browserTools === true,
+    conversationContext: conversation,
     ...(conversation ? { conversationTask: true, browserContext: conversation } : {}),
   });
   if (queued.error) throw Object.assign(new Error(queued.error), { status: queued.status || 400 });
@@ -669,7 +670,7 @@ const acp = {
     }
     let result = null;
     try { result = row.result ? JSON.parse(row.result) : null; } catch {}
-    if (row.status !== "succeeded" || !result || result.exitCode !== 0) return { texts: [], stop: "terminated", last: null, error: "local ACP run failed", costCents: null };
+    if (row.status !== "succeeded" || !result || result.exitCode !== 0) return { texts: [], stop: "terminated", last: null, error: typeof result?.error === 'string' ? result.error.slice(0, 300) : "local ACP run failed", costCents: null };
     let answer = {};
     try { answer = JSON.parse(result.stdout || "{}"); } catch {}
     return {
