@@ -1680,9 +1680,9 @@
       "code": "worker/src/threadNotifications.js; worker/src/channelRoutes.js; worker/src/channels.js; worker/src/pushes.js; worker/schema.sql; worker/migrations.sql; web-react/src/components/HarnessThreadHeader.tsx; web-react/src/utils/useThreadNotifications.ts",
       "acceptance": "Muteとは独立した利用者別follow状態を端末間同期する。Leave中も既存read/reply accessを維持し、thread updateと通知を抑制する。明示Followで復帰し、Workspace/Room/thread ACLを再検証する。Mute中の明示@mention通知、他利用者のfollow状態、membership失効を回帰検証する。新規課金なし。Kylonと同一スレッドの操作比較を行う。",
       "evidence": {
-        "reviewedAt": "2026-11-17",
-        "verified": "Muteと独立した個人別leave状態をD1/APIに追加し、Leave中はthread list、Activity、返信通知を抑制。read/reply ACLは維持し、別session同期・Follow復帰を回帰確認。Worker関連5 suite 101/101、Web全270 files・2,063 tests、TypeScript・production build成功。",
-        "remaining": "明示@mentionを含む通知の抑制/Follow後の再開、端末・利用者間の本番受入、Kylonとの画面比較、exact-head CIと本番deployは未確認。"
+        "reviewedAt": "2026-11-18",
+        "verified": "Kylon公式通知ヘルプは、muted threadでは本人への明示@mentionだけ通知し、Leave thread後は一切通知しないと定義。HonmaruはMuteと独立した個人別leave状態をD1/APIに保存し、Leave中はthread list、Activity、push通知を抑制する一方、read/reply ACLを維持する。queued mentionの後にLeaveした場合は配信直前の再確認で破棄し、Followした後の新しいthread replyは通知する。thread-muteとthread-leaveを区別するpush regressionを追加。Worker pushes.test.js 21/21成功。",
+        "remaining": "追加回帰を含むexact-head CI、main CI、本番反映は未確認。認証済み複数利用者・端末間の本番受入、KylonとのLeave/Follow/mention同一操作の画面比較も未完了。"
       }
     },
     {
