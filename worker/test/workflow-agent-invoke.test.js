@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import { fetchMock } from './helpers/fetch-mock.js';
 import { upsertMembership, upsertUser } from '../src/db.js';
 import { claimWorkflowNode } from '../src/harness/workflowCheckpoints.js';
-import { invokeWorkflowAgent, validateWorkflowAgentSchema, workflowAgentOutputMatches, workflowAgentInvocationKey, workflowAgentReadOnlyTools } from '../src/harness/workflowAgentInvoke.js';
+import { invokeWorkflowAgent, validateWorkflowAgentSchema, workflowAgentOutputMatches, workflowAgentInvocationKey, workflowAgentReadOnlyTools, workflowAgentRunTools } from '../src/harness/workflowAgentInvoke.js';
 import { ensureWorkflowSafety } from '../src/harness/workflowSafety.js';
 
 const ORG = 'agent-invoke-org';
@@ -77,6 +77,12 @@ test('Workflow Agent SDK only exposes read-only installed skill and memory helpe
     call_remote_service: { run },
   });
   expect(Object.keys(tools)).toEqual(['read_installed_skill', 'read_agent_memory']);
+});
+
+test('normal Workflow Agent steps cannot expose the shared memory mutation tool', () => {
+  const run = async () => null;
+  const tools = workflowAgentRunTools({ read_agent_memory: { run }, review_agent_memory: { run }, custom_read_tool: { run } });
+  expect(Object.keys(tools)).toEqual(['read_agent_memory', 'custom_read_tool']);
 });
 
 test('Worker rejects prompts above the SDK UTF-8 byte limit before provider use', async () => {

@@ -247,6 +247,7 @@ test('workflow run history resolves actors to workspace names and omits raw user
   const { workflow } = await made.json();
   const started = await (await send('POST', `/workflows/${workflow.id}/run`, mika, { orgId: ORG })).json();
   expect(started.run.startedByName).toBe('Mika');
+  expect(started.run.log[0].effectReceipt).toEqual({ operation: 'post', effect: 'local', target: 'conversation', outcome: 'completed' });
   expect(started.run).not.toHaveProperty('startedBy');
   expect(started.run.log[0].authorization[0]).toMatchObject({ actorName: 'Mika' });
   expect(started.run.log[0].authorization[0]).not.toHaveProperty('actorId');

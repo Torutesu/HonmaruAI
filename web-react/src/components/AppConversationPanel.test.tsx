@@ -18,10 +18,10 @@ test('record proposals require an explicit confirmation and expose undo after ap
  const api:any={conversation:vi.fn().mockResolvedValueOnce({threadId:'record',messages:[],hasMore:false,proposals:[proposal],canEditRecord:true}).mockResolvedValue({threadId:'record',messages:[],hasMore:false,proposals:[{...proposal,status:'applied',appliedUpdatedAt:'2026-11-08T00:00:00.000Z'}],canEditRecord:true}),reviewRecordProposal:vi.fn().mockResolvedValue({ok:true,status:'applied'})};let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" tableId="t" rowId="r" title="Record"/>)});
  expect(JSON.stringify(tree!.toJSON())).toContain('Updated');
- const approve=tree!.root.findAllByType('button').find(button=>button.children.includes('確認して適用'))!;
+ const approve=tree!.root.findAllByType('button').find(button=>button.children.includes('Review and apply'))!;
  await act(async()=>{await approve.props.onClick()});
  expect(api.reviewRecordProposal).toHaveBeenCalledWith('app','rp_1','approve');
- expect(JSON.stringify(tree!.toJSON())).toContain('変更を適用しました');
+ expect(JSON.stringify(tree!.toJSON())).toContain('Change applied');
  act(()=>tree!.unmount())
 })
 test('late responses from a previous record cannot appear in the current conversation',async()=>{
@@ -34,13 +34,13 @@ test('late responses from a previous record cannot appear in the current convers
 test('lost access clears the visible history and older pages remain deduplicated',async()=>{
  vi.stubGlobal('document',{visibilityState:'visible'});const api:any={conversation:vi.fn().mockResolvedValueOnce({threadId:'a',messages:[message(2)],hasMore:true}).mockResolvedValueOnce({threadId:'a',messages:[message(1)],hasMore:false}).mockRejectedValue(new Error('No such app.'))};let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App"/>)});
- await act(async()=>{await tree!.root.findAllByType('button').find(b=>b.children.includes('以前のメッセージ'))!.props.onClick()});expect(tree!.root.findAllByType('article')).toHaveLength(2);
- await act(async()=>{await tree!.root.findByProps({'aria-label':'会話を更新'}).props.onClick()});expect(tree!.root.findAllByType('article')).toHaveLength(0);expect(tree!.root.findByProps({role:'alert'})).toBeTruthy();act(()=>tree!.unmount());expect(mergeMessages([message(2)],[message(1),message(2)])).toHaveLength(2)
+ await act(async()=>{await tree!.root.findAllByType('button').find(b=>b.children.includes('Earlier messages'))!.props.onClick()});expect(tree!.root.findAllByType('article')).toHaveLength(2);
+ await act(async()=>{await tree!.root.findByProps({'aria-label':'Refresh conversation'}).props.onClick()});expect(tree!.root.findAllByType('article')).toHaveLength(0);expect(tree!.root.findByProps({role:'alert'})).toBeTruthy();act(()=>tree!.unmount());expect(mergeMessages([message(2)],[message(1),message(2)])).toHaveLength(2)
 })
 test('inherited history is shown and disappears when current source access is lost',async()=>{
  vi.stubGlobal('document',{visibilityState:'visible'});const api:any={orgId:'team:source',conversation:vi.fn().mockResolvedValueOnce({messages:[],hasMore:false,source:{channel:'b:design',threadId:'root',messages:[{id:'root',body:'Original request',authorName:'Maker',createdAt:'2026-10-18T00:00:00Z'}]}}).mockRejectedValue(new Error('Source access denied'))};let tree:ReturnType<typeof create>;
- await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App"/>)});expect(JSON.stringify(tree!.toJSON())).toContain('Original request');expect(tree!.root.findByProps({'aria-label':'作成元スレッドを開く'}).props.href).toBe('#/apps/app/team%3Asource?source=1');
- await act(async()=>{await tree!.root.findByProps({'aria-label':'会話を更新'}).props.onClick()});expect(JSON.stringify(tree!.toJSON())).not.toContain('Original request');
+ await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App"/>)});expect(JSON.stringify(tree!.toJSON())).toContain('Original request');expect(tree!.root.findByProps({'aria-label':'Open source thread'}).props.href).toBe('#/apps/app/team%3Asource?source=1');
+ await act(async()=>{await tree!.root.findByProps({'aria-label':'Refresh conversation'}).props.onClick()});expect(JSON.stringify(tree!.toJSON())).not.toContain('Original request');
  act(()=>tree!.root.findAllByType('button').find(b=>b.props.className==='hx-chat-ai')!.props.onClick());expect(tree!.root.findByType('textarea').props.value).toBe('@AI ');act(()=>tree!.unmount())
 })
 test('late source candidates and errors cannot cross an account change',async()=>{
@@ -48,7 +48,7 @@ test('late source candidates and errors cannot cross an account change',async()=
  const old:any={conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false}),conversationSources:vi.fn().mockImplementationOnce(()=>new Promise(r=>resolve=r)).mockImplementationOnce(()=>new Promise((_,r)=>reject=r))};
  const next:any={conversation:vi.fn().mockResolvedValue({messages:[message(2,'Current account')],hasMore:false})};let tree:ReturnType<typeof create>;
  await act(async()=>{tree=create(<AppConversationPanel api={old} appId="old" title="Old"/>)});
- const find=()=>tree!.root.findAllByType('button').find(b=>b.children.includes('作成元スレッドを引き継ぐ'))!;
+ const find=()=>tree!.root.findAllByType('button').find(b=>b.children.includes('Carry over a source thread'))!;
  act(()=>{find().props.onClick();find().props.onClick()});
  await act(async()=>{tree!.update(<AppConversationPanel api={next} appId="new" title="New"/>)});
  await act(async()=>{resolve({candidates:[{id:'private',body:'Previous account secret',channel:'b:private'}]});reject(new Error('Previous account failure'))});
@@ -59,10 +59,10 @@ test('late inheritance cannot refresh the previous account into a new conversati
  const old:any={conversation:vi.fn().mockResolvedValue({messages:[message(1,'Old account')],hasMore:false}),conversationSources:vi.fn().mockResolvedValue({candidates:[{id:'root',body:'Request',channel:'b:old'}]}),inheritConversation:vi.fn(()=>new Promise(r=>finish=r))};
  const next:any={conversation:vi.fn().mockResolvedValue({messages:[message(2,'New account')],hasMore:false})};let tree:ReturnType<typeof create>;
  await act(async()=>{tree=create(<AppConversationPanel api={old} appId="old" title="Old"/>)});
- await act(async()=>{tree!.root.findAllByType('button').find(b=>b.children.includes('作成元スレッドを引き継ぐ'))!.props.onClick()});
+ await act(async()=>{tree!.root.findAllByType('button').find(b=>b.children.includes('Carry over a source thread'))!.props.onClick()});
  act(()=>tree!.root.findByType('select').props.onChange({target:{value:'root'}}));
  await act(async()=>{tree!.update(<AppConversationPanel api={next} appId="new" title="New"/>)});
- expect(tree!.root.findAllByType('button').find(b=>b.children.includes('作成元スレッドを引き継ぐ'))!.props.disabled).toBe(false);
+ expect(tree!.root.findAllByType('button').find(b=>b.children.includes('Carry over a source thread'))!.props.disabled).toBe(false);
  await act(async()=>finish({}));
  expect(old.conversation).toHaveBeenCalledTimes(1);expect(JSON.stringify(tree!.toJSON())).not.toContain('Old account');expect(JSON.stringify(tree!.toJSON())).toContain('New account');act(()=>tree!.unmount())
 })
@@ -73,7 +73,7 @@ test('adjustment context seeds an unsent draft and refresh preserves the users e
  await act(async()=>{tree=create(<AppConversationPanel api={api} appId="app" title="App" initialDraft="Group this view:"/>)})
  expect(tree!.root.findByType('textarea').props.value).toBe('Group this view:');expect(api.postConversation).not.toHaveBeenCalled()
  act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'My unfinished reply'}}))
- await act(async()=>{await tree!.root.findByProps({'aria-label':'会話を更新'}).props.onClick()})
+ await act(async()=>{await tree!.root.findByProps({'aria-label':'Refresh conversation'}).props.onClick()})
  expect(tree!.root.findByType('textarea').props.value).toBe('My unfinished reply');expect(api.postConversation).not.toHaveBeenCalled()
  act(()=>tree!.unmount())
 })
