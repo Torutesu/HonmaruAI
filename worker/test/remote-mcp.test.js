@@ -635,3 +635,44 @@ test("Remote MCP execution rechecks the requester's current Agent audience", asy
   expect(await mayUseAgentRemoteMcp(env, { orgId: ORG, agentId, session: memberSession, serverId })).toBe(false);
   expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session: memberSession })).toEqual([]);
 });
+
+
+test("an Agent request can use the requester's own OAuth Remote MCP read tools without a persistent grant", async () => {
+  await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+  const agentId = "remote-mcp-own-oauth-agent";
+  const serverId = "remote-mcp-own-oauth-server";
+  const createdAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'oauth-reader','OAuth Reader','Read only.','team','remote-admin',?3,?3)`)
+    .bind(ORG, agentId, createdAt).run();
+  await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers
+    (id,org_id,name,endpoint,auth_mode,tools_json,allowed_tools,created_by,created_at,updated_at,egress_gateway_id)
+    VALUES (?1,?2,'Personal OAuth','https://mcp.example.com/mcp','oauth',?3,'["read"]','9551',?4,?4,?5)`)
+    .bind(serverId, ORG, JSON.stringify([{ name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]), createdAt, testGateway?.gateway?.id).run();
+  await env.DB.prepare(`INSERT INTO hx_remote_mcp_oauth_credentials
+    (org_id,server_id,user_github_id,membership_since,credential,created_at,updated_at)
+    SELECT ?1,?2,'9551',created_at,'{}',?3,?3 FROM memberships WHERE org_id=?1 AND user_github_id='9551'`)
+    .bind(ORG, serverId, createdAt).run();
+
+  const { agentRemoteMcpConnections, agentRemoteMcpTools, mayUseAgentRemoteMcp, mayUseAgentRemoteMcpForRequest } =
+    await import("../src/harness/agentRemoteMcp.js");
+  const request = { orgId: ORG, agentId, session, serverId, toolName: "read" };
+  expect(await mayUseAgentRemoteMcp(env, request)).toBe(false);
+  expect(await mayUseAgentRemoteMcpForRequest(env, request)).toBe(true);
+  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session })).toHaveLength(1);
+  expect(await agentRemoteMcpConnections(env.DB, { orgId: ORG, agentId, githubId: session.github_id }))
+    .toMatchObject([{ available: true, personalOAuthAccess: true, tools: [{ name: "read", enabled: false }] }]);
+
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  await upsertUser(env.DB, { githubId: "9552", login: "oauth-other-member", name: "Other Member" });
+  await upsertMembership(env.DB, ORG, "9552", "member");
+  const otherMember = { github_id: "9552" };
+  expect(await mayUseAgentRemoteMcpForRequest(env, { ...request, session: otherMember })).toBe(false);
+  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session: otherMember })).toEqual([]);
+
+  await env.DB.prepare("DELETE FROM hx_remote_mcp_oauth_credentials WHERE org_id=?1 AND server_id=?2 AND user_github_id='9551'")
+    .bind(ORG, serverId).run();
+  expect(await mayUseAgentRemoteMcpForRequest(env, request)).toBe(false);
+  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session })).toEqual([]);
+});

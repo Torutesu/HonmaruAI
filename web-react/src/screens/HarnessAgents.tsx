@@ -377,18 +377,19 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         </div>}
         <div className="rows-title">{t('Remote MCP sources')}</div>
         <p className="row-sub">{t('Read-only tools can be used in Agent conversations. Write tools are granted individually and run only in Workflows after approval.')}</p>
+        <p className="row-sub">{t('Your own connected OAuth account is available for read-only tools in Agent requests you start. The checkboxes below grant persistent Agent and Workflow access.')}</p>
         {remoteMcpConnections === null ? <div className="empty">{t('Loading…')}</div> : remoteMcpConnections.length === 0 ? <div className="studio-empty">{t('No Remote MCP servers are available. A workspace admin can connect one in Tools → Apps.')}</div> : <div className="rows">
           {remoteMcpConnections.map(connection => <section className="row static" key={connection.serverId} data-agent-remote-mcp={connection.serverId}>
             <span className="row-icon"><Icon name="plug" size={18} /></span>
             <span className="row-main">{connection.name}
               <span className="row-sub">{connection.available
-                ? t('Choose the tools this Agent needs. Write tools require Workflow approval and never run in chat.')
+                ? t('Your own OAuth tools are available in requests you start. Choose persistent Agent and Workflow grants here; writes still require approval.')
                 : connection.needsOAuth
                   ? t('Connect your own OAuth account in Tools → Apps before granting this Agent access.')
                 : t('This server has no workspace-approved tools. A workspace admin can refresh its tool list in Tools → Apps.')}</span>
               {connection.available && <span className="hx-agent-mcp-tool-list">{(connection.tools||[]).map(tool=><label className="hx-agent-mcp-tool" key={tool.name} data-agent-remote-mcp-tool={tool.name}>
                 <span><strong>{tool.title}{tool.requiresApproval&&<small> · {t('Workflow approval required')}</small>}</strong>{tool.description&&<small>{tool.description}</small>}</span>
-                <input type="checkbox" aria-label={t('Allow {agent} to use {tool} from {server}', { agent: agent.name, tool: tool.title, server: connection.name })} checked={tool.enabled} disabled={busy!==null} onChange={event=>{
+                <input type="checkbox" aria-label={t('Grant {agent} persistent access to {tool} from {server}', { agent: agent.name, tool: tool.title, server: connection.name })} checked={tool.enabled} disabled={busy!==null} onChange={event=>{
                   const granted=event.currentTarget.checked
                   void act('connection',async()=>{
                     const result=await api.setAgentRemoteMcpTool(agent.id,connection.serverId,tool.name,granted)

@@ -48,10 +48,12 @@ export async function agentRemoteMcpConnections(db, { orgId, agentId, githubId }
     const readOnlyToolCount = offered.filter(tool => !tool._remote.requiresApproval).length;
     const oauthConnected = server.auth_mode !== 'oauth' || await remoteMcpOAuthStatus(db, orgId, server.id, githubId);
     const available = offered.length > 0 && oauthConnected;
+    const personalOAuthAccess = server.auth_mode === 'oauth' && oauthConnected;
     return {
       serverId: server.id,
       name: server.name,
       available,
+      personalOAuthAccess,
       enabled: available && (grants.has(server.id) || offered.length > 0 && allowedTools.size === offered.length),
       tools: offered.map(tool => ({ name: tool._remote.toolName, title: tool.title || tool._remote.toolName,
         description: tool.description || '', inputSchema: tool.inputSchema,
@@ -193,6 +195,19 @@ export async function mayUseAgentRemoteMcp(env, { orgId, agentId, session, serve
   return matching.every(tool => specific.has(tool._remote.toolName));
 }
 
+export async function mayUseAgentRemoteMcpForRequest(env, { orgId, agentId, session, serverId, toolName }) {
+  if (await mayUseAgentRemoteMcp(env, { orgId, agentId, session, serverId, toolName })) return true;
+  const githubId = String(session?.github_id || '');
+  if (!githubId || !orgId || !agentId || !serverId || !toolName) return false;
+  if (!await mayRunAgent(env.DB, orgId, { id: agentId }, githubId).catch(() => false)) return false;
+  const [server, readOnlyTools] = await Promise.all([
+    env.DB.prepare('SELECT auth_mode FROM hx_remote_mcp_servers WHERE org_id=?1 AND id=?2').bind(orgId, serverId).first().catch(() => null),
+    remoteMcpTools(env.DB, orgId, { readOnlyOnly: true }).catch(() => []),
+  ]);
+  if (server?.auth_mode !== 'oauth' || !readOnlyTools.some(tool => tool?._remote?.serverId === serverId && tool?._remote?.toolName === toolName)) return false;
+  return remoteMcpOAuthStatus(env.DB, orgId, serverId, githubId).catch(() => false);
+}
+
 export async function agentRemoteMcpTools(env, { orgId, agentId, session }) {
   if (!session?.github_id || !await mayRunAgent(env.DB, orgId, { id: agentId }, session.github_id).catch(() => false)) return [];
   const connections = await agentRemoteMcpConnections(env.DB, {
@@ -200,5 +215,7 @@ export async function agentRemoteMcpTools(env, { orgId, agentId, session }) {
   });
   const tools = await remoteMcpTools(env.DB, orgId, { readOnlyOnly: true }).catch(() => []);
   const enabled = new Set(connections.flatMap(connection => (connection.tools || []).filter(tool => tool.enabled).map(tool => `${connection.serverId}\0${tool.name}`)));
-  return tools.filter(tool => enabled.has(`${tool?._remote?.serverId}\0${tool?._remote?.toolName}`));
+  const personalOAuthServers = new Set(connections.filter(connection => connection.personalOAuthAccess).map(connection => connection.serverId));
+  return tools.filter(tool => enabled.has(`${tool?._remote?.serverId}\0${tool?._remote?.toolName}`)
+    || personalOAuthServers.has(tool?._remote?.serverId));
 }
