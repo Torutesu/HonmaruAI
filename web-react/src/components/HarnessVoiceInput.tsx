@@ -4,12 +4,12 @@ import { Icon } from './Icon'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { detectDictationRangeCorrection, dictationAvailable, readDictationCorrections, readDictationVocabulary, startDictation, writeDictationCorrections, writeDictationVocabulary, type Dictation } from '../utils/dictation'
-import { matchesVoiceShortcut, readVoiceShortcut } from '../utils/voiceShortcut'
+import { matchesVoiceShortcut, readVoiceShortcut, writeVoiceShortcut } from '../utils/voiceShortcut'
 
 type TextControl = HTMLInputElement | HTMLTextAreaElement
 type VoiceTarget = TextControl | HTMLElement
-type Dictionary = { vocabulary: string[]; corrections: Array<{ from: string; to: string }>; revision: number }
-type DictationApi = { dictationVocabulary: () => Promise<Dictionary>; saveDictationVocabulary: (vocabulary: string[], corrections: Array<{ from: string; to: string }>, expectedRevision: number) => Promise<Dictionary> }
+type Dictionary = { vocabulary: string[]; corrections: Array<{ from: string; to: string }>; revision: number; shortcut?: string }
+type DictationApi = { dictationVocabulary: () => Promise<Dictionary>; saveDictationVocabulary: (vocabulary: string[], corrections: Array<{ from: string; to: string }>, expectedRevision: number, shortcut?: string) => Promise<Dictionary> }
 
 export function voiceInputEligible(field: { tagName: string; type?: string; disabled?: boolean; readOnly?: boolean; hidden?: boolean; inlineMic?: boolean; contentEditable?: string }) {
   if (field.disabled || field.readOnly || field.hidden || field.inlineMic) return false
@@ -68,8 +68,8 @@ function targetSelection(target: VoiceTarget) {
   const before = range.cloneRange()
   before.selectNodeContents(target)
   before.setEnd(range.startContainer, range.startOffset)
-  const start = before.toString().length
-  return { start, end: start + range.toString().length }
+  const start = before.cloneContents().textContent?.length || 0
+  return { start, end: start + (range.cloneContents().textContent?.length || 0) }
 }
 
 function editablePoint(target: HTMLElement, offset: number, affinity: 'start' | 'end') {
@@ -90,7 +90,7 @@ function editablePoint(target: HTMLElement, offset: number, affinity: 'start' | 
   return { node: target as Node, offset: target.childNodes.length }
 }
 
-function setTargetValue(target: VoiceTarget, value: string, caret: number, start: number, end: number) {
+function setTargetValue(target: VoiceTarget, value: string, caret: number, start: number, end: number, insertedText?: string) {
   if (!isTextControl(target)) {
     const range = document.createRange()
     const from = editablePoint(target, start, 'start')
@@ -98,7 +98,7 @@ function setTargetValue(target: VoiceTarget, value: string, caret: number, start
     range.setStart(from.node, from.offset)
     range.setEnd(to.node, to.offset)
     range.deleteContents()
-    const inserted = document.createTextNode(value.slice(start, end))
+    const inserted = document.createTextNode(insertedText ?? value.slice(start, end))
     range.insertNode(inserted)
     const selection = window.getSelection()
     range.setStart(inserted, Math.max(0, Math.min(inserted.length, caret - start)))
@@ -124,7 +124,7 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
   const targetRef = useRef<VoiceTarget | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
-  const sessionRef = useRef<{ target: VoiceTarget; handle: Dictation | null; active: boolean; prefix: string; suffix: string; lastValue: string } | null>(null)
+  const sessionRef = useRef<{ target: VoiceTarget; handle: Dictation | null; active: boolean; start: number; prefix: string; suffix: string; lastValue: string } | null>(null)
   const learningRef = useRef<{ target: VoiceTarget; expected: string; prefix: string; suffix: string; at: number } | null>(null)
   const savingCorrectionRef = useRef(false)
   const dictionaryRef = useRef<Dictionary>({ vocabulary: readDictationVocabulary(userId), corrections: readDictationCorrections(userId), revision: 0 })
@@ -139,7 +139,7 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
     dictionaryRef.current = pending
     void (async () => {
       try {
-        const saved = await api.saveDictationVocabulary(pending.vocabulary, pending.corrections, current.revision)
+        const saved = await api.saveDictationVocabulary(pending.vocabulary, pending.corrections, current.revision, current.shortcut)
         dictionaryRef.current = { ...saved, vocabulary: writeDictationVocabulary(userId, saved.vocabulary), corrections: writeDictationCorrections(userId, saved.corrections) }
       } catch {
         // Another device may have updated the dictionary. Refresh once, then
@@ -150,7 +150,7 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
             dictionaryRef.current = { ...latest, vocabulary: writeDictationVocabulary(userId, latest.vocabulary), corrections: writeDictationCorrections(userId, latest.corrections) }
           } else {
             const retry = add(latest)
-            const saved = await api.saveDictationVocabulary(retry.vocabulary, retry.corrections, latest.revision)
+            const saved = await api.saveDictationVocabulary(retry.vocabulary, retry.corrections, latest.revision, latest.shortcut)
             dictionaryRef.current = { ...saved, vocabulary: writeDictationVocabulary(userId, saved.vocabulary), corrections: writeDictationCorrections(userId, saved.corrections) }
           }
         } catch { /* The account-local correction still applies on this device. */ }
@@ -182,13 +182,17 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
     let cancelled = false
     void api.dictationVocabulary().then(remote => {
       if (cancelled) return
+      if (remote.shortcut) writeVoiceShortcut(userId, remote.shortcut)
       dictionaryRef.current = { ...remote, vocabulary: writeDictationVocabulary(userId, remote.vocabulary), corrections: writeDictationCorrections(userId, remote.corrections) }
     }).catch(() => { /* Use the account-scoped local copy when offline. */ })
     const changed = (event: Event) => {
       const detail = (event as CustomEvent<{ userId?: string; revision?: number }>).detail
       if (detail?.userId !== userId || !Number.isSafeInteger(detail.revision) || Number(detail.revision) <= dictionaryRef.current.revision) return
       void api.dictationVocabulary().then(remote => {
-        if (!cancelled && remote.revision >= dictionaryRef.current.revision) dictionaryRef.current = { ...remote, vocabulary: writeDictationVocabulary(userId, remote.vocabulary), corrections: writeDictationCorrections(userId, remote.corrections) }
+        if (!cancelled && remote.revision >= dictionaryRef.current.revision) {
+          if (remote.shortcut) writeVoiceShortcut(userId, remote.shortcut)
+          dictionaryRef.current = { ...remote, vocabulary: writeDictationVocabulary(userId, remote.vocabulary), corrections: writeDictationCorrections(userId, remote.corrections) }
+        }
       }).catch(() => { /* Keep the last account-local copy when offline. */ })
     }
     window.addEventListener('honmaru:dictation-vocabulary-changed', changed)
@@ -252,7 +256,7 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
     let prefix = value.slice(0, start)
     const suffix = value.slice(end)
     if (end === value.length && prefix && !/\s$/u.test(prefix)) prefix += ' '
-    const session = { target: field, handle: null as Dictation | null, active: true, prefix, suffix, lastValue: value }
+    const session = { target: field, handle: null as Dictation | null, active: true, start, prefix, suffix, lastValue: value }
     sessionRef.current = session
     setError(false)
     setListening(true)
@@ -263,10 +267,11 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
       // transcripts replace one another instead of duplicating words.
       const maxLength = isTextControl(field) ? field.maxLength : Number(field.getAttribute('maxlength') || -1)
       const end = session.lastValue.length - session.suffix.length
-      const fixed = dictatedValue(session.lastValue, session.prefix.length, end, spoken, maxLength)
+      const fixed = dictatedValue(session.lastValue, session.start, end, spoken, maxLength)
       const value = fixed.value
       learningRef.current = { target: field, expected: value, prefix: session.prefix, suffix: session.suffix, at: Date.now() }
-      setTargetValue(field, value, fixed.caret, session.prefix.length, end)
+      const insertedText = value.slice(session.start, value.length - session.suffix.length)
+      setTargetValue(field, value, fixed.caret, session.start, end, insertedText)
       session.lastValue = value
       if (fixed.truncated) stop()
     }, reason => {

@@ -4170,6 +4170,7 @@ const table: Record<string, string> = {
   'Press a shortcut now. Press Escape to cancel.': '設定するキーを押してください。Escapeキーでキャンセルします。',
   'That shortcut is already in use.': 'そのショートカットはすでに使われています。',
   'Voice input shortcut saved.': '音声入力ショートカットを保存しました。',
+  'Could not sync the voice input shortcut. It is saved on this device.': '音声入力ショートカットを同期できませんでした。この端末には保存しています。',
   'Listening for shortcut…': 'ショートカットを入力…',
   'Change shortcut': 'ショートカットを変更',
 }
