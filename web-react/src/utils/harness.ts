@@ -126,7 +126,7 @@ export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | '
 export interface AgentAppConnection { server: string; name: string; description: string; iconUrl: string | null; verified: boolean; allowWrites: boolean; connectedAt: string; granted: boolean }
 export interface AgentNativeConnection { source: 'notion' | 'github' | 'slack'; available: boolean; enabled: boolean; canShare?: boolean; shareEnabled?: boolean; shared?: boolean; workspaceAvailable?: boolean; workspaceEnabled?: boolean; canManageWorkspace?: boolean }
 export interface AgentRemoteMcpTool { name: string; title: string; description: string; enabled: boolean; requiresApproval?: boolean }
-export interface AgentRemoteMcpConnection { serverId: string; name: string; available: boolean; enabled: boolean; readOnlyToolCount: number; tools?:AgentRemoteMcpTool[]; needsOAuth?: boolean }
+export interface AgentRemoteMcpConnection { serverId: string; name: string; available: boolean; enabled: boolean; readOnlyToolCount: number; tools?:AgentRemoteMcpTool[]; needsOAuth?: boolean; personalOAuthAccess?: boolean }
 export interface WorkflowRemoteMcpTool extends AgentRemoteMcpTool { inputSchema?: Record<string, unknown>; requiresApproval: boolean }
 export interface WorkflowRemoteMcpConnection { serverId: string; name: string; available: boolean; needsOAuth?: boolean; tools: WorkflowRemoteMcpTool[] }
 export interface AgentConnectionState { connections: AgentAppConnection[]; nativeConnections: AgentNativeConnection[]; remoteMcpConnections?: AgentRemoteMcpConnection[]; workflowRemoteMcpConnections?: WorkflowRemoteMcpConnection[] }
