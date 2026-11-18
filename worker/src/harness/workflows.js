@@ -1569,6 +1569,27 @@ async function say(env, orgId, channel, body, { authorLogin = null, kind = "ai",
   return out?.row || null;
 }
 
+// App-record data can be read during preflight and written later, when the
+// checkpoint batch commits. Recheck that exact source snapshot in the row
+// mutation itself so a revoked source grant cannot race add_row/update_row.
+function workflowRowSourceWriteGuard({ orgId, runId, workflow, runTrigger, scope, owner }) {
+  if (runTrigger !== 'app_record_change') return undefined;
+  const trigger = workflow.trigger || {};
+  const tableId = scope.input?.tableId;
+  const appId = trigger.appId;
+  const entityId = trigger.entityId;
+  if (![tableId, appId, entityId, runId, orgId, owner].every(value => typeof value === 'string' && value)) {
+    return { sql: () => '0', binds: [] };
+  }
+  return {
+    sql: first => workflowEffectAuthority({
+      org: `?${first}`, runId: `?${first + 1}`, ownerId: `?${first + 2}`,
+      sourceSnapshot: { appId: `?${first + 3}`, entityId: `?${first + 4}`, tableId: `?${first + 5}` },
+    }),
+    binds: [orgId, runId, owner, appId, entityId, tableId],
+  };
+}
+
 async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, runActor, authorize, authorizationTrace, credentialSource, priorApproval = null }) {
   const db = env.DB;
   if (step.channel) {
@@ -1705,7 +1726,8 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       const canUseTable = await mayEditTable(db, orgId, step.tableId, owner);
       authorizationTrace.record('table', step.tableId, canUseTable);
       if (!canUseTable) return { status: "failed", error: "Table access required." };
-      const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, owner, undefined, { deferWrite: true });
+      const writeGuard = workflowRowSourceWriteGuard({ orgId, runId, workflow, runTrigger, scope, owner });
+      const r = await addRow(db, orgId, step.tableId, renderValues(step.values, scope), `workflow:${workflow.id}`, undefined, owner, writeGuard, { deferWrite: true });
       if (r.error) return { status: "failed", error: r.error };
       const event=await prepareWorkflowRowEvent(db,{orgId,table:r.table,row:r.row,by:`workflow:${workflow.id}`,depth:depth+1});
       return { status: "ok", output: r.row.id, rowId: r.row.id,
@@ -1738,7 +1760,8 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         || scope.input?.records?.find(record => String(record?.recordId || '') === String(rowId))?.updatedAt
         || (await getRow(db, orgId, tableId, rowId))?.updatedAt;
       if (!observedRowVersion) return { status: 'failed', error: 'The row version is unavailable. Reload the source record before updating it.' };
-      const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`, observedRowVersion, undefined, owner, undefined, { deferWrite: true });
+      const writeGuard = workflowRowSourceWriteGuard({ orgId, runId, workflow, runTrigger, scope, owner });
+      const r = await updateRow(db, orgId, tableId, rowId, renderValues(step.values, scope), `workflow:${workflow.id}`, observedRowVersion, undefined, owner, writeGuard, { deferWrite: true });
       if (r.error) return { status: "failed", error: r.error };
       const event=await prepareWorkflowRowEvent(db,{orgId,table:r.table,before:r.before,row:r.row,by:`workflow:${workflow.id}`,depth:depth+1});
       return { status: "ok", output: rowId, rowId,
