@@ -2420,6 +2420,14 @@ const table: Record<string, string> = {
   'Could not get an AI answer. Try again.': 'KI-Antwort konnte nicht abgerufen werden. Versuche es erneut.',
   'Sources': 'Quellen',
   'Open source': 'Quelle öffnen',
+  'Voice input shortcut': 'Sprachdiktat-Tastenkürzel',
+  'Start or stop dictation in the focused text field.': 'Diktat im fokussierten Textfeld starten oder beenden.',
+  'Current voice input shortcut': 'Aktuelles Diktat-Tastenkürzel',
+  'Press a shortcut now. Press Escape to cancel.': 'Tastenkürzel drücken. Mit Esc abbrechen.',
+  'That shortcut is already in use.': 'Dieses Tastenkürzel wird bereits verwendet.',
+  'Voice input shortcut saved.': 'Diktat-Tastenkürzel gespeichert.',
+  'Listening for shortcut…': 'Warte auf Tastenkürzel…',
+  'Change shortcut': 'Tastenkürzel ändern',
 }
 
 export default table
