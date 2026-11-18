@@ -1774,9 +1774,9 @@ export async function handleHarness(request, env, url, context = {}) {
         if (request.method === 'GET') {
           if(url.searchParams.get('customPreview')==='1') {
             const result=await readCustomDraftPreviewFork(env.DB,orgId,app,me,Number(url.searchParams.get('version')));
-            return respond(result.error?result:{...(await databaseView(env.DB,orgId,app)),...result});
+            return respond(result.error?result:{...(await databaseView(env.DB,orgId,app,{includeRollbackOperations:canManage})),...result});
           }
-          return respond({ ...(await databaseView(env.DB, orgId, app)), ...(await readFork(env.DB, orgId, appId, me)) });
+          return respond({ ...(await databaseView(env.DB, orgId, app,{includeRollbackOperations:canManage})), ...(await readFork(env.DB, orgId, appId, me)) });
         }
         if (request.method !== 'POST') return json({ message: 'Method not allowed.' },405);
         if (!canManage) return json({ message: 'Only its maker, an editor, or an admin can develop this app.' },403);

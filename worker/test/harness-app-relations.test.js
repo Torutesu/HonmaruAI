@@ -55,6 +55,133 @@ test('app relations require valid same-app targets and protect linked records fr
   expect((await deleteRecord(env.DB,orgId,customerEntity.table.id,raceTarget.id,raceTarget.updatedAt)).deleted).toBe(true);
 });
 
+test('populated conversion rollback restores only unchanged converted fields and protects history from viewers',async()=>{
+  const { createSession:session }=await import('../src/db.js');
+  for (const [id,login] of [['8102','rollback-editor'],['8103','rollback-viewer']]) {
+    await upsertUser(env.DB,{githubId:id,login,name:login});
+    await upsertMembership(env.DB,orgId,id,'member');
+  }
+  const editor=await session(env.DB,'8102','gho_rollback_editor'), viewer=await session(env.DB,'8103','gho_rollback_viewer');
+  expect((await call(`/apps/${app.id}/access`,owner,{visibility:'workspace',version:0,people:[{userId:'8102',permission:'edit'},{userId:'8103',permission:'view'}]},'PUT')).status).toBe(200);
+  expect((await dbCall({action:'migrate',id:'add_rollback_notes',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Notes',type:'text'}]}]})).status).toBe(200);
+  const row=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'0',notes:'keep me'}})).json()).row;
+  const before=(await (await call(`/apps/${app.id}/database`,owner)).json()).entities[0].table.columns.find(column=>column.name==='Task');
+  const convert={op:'convert_column',entity:'primary',column:before.id,type:'number'};
+  const preview=await dbCall({action:'preview',id:'convert_zero_v1',version:1,operations:[convert]});
+  const previewBody=await preview.json();expect(preview.status).toBe(200);expect(previewBody.canApply).toBe(true);
+  expect((await dbCall({action:'migrate',id:'convert_zero_v1',version:1,operations:[convert],previewChecksum:previewBody.previewChecksum})).status).toBe(200);
+  const ownerHistory=(await (await call(`/apps/${app.id}/database`,owner)).json()).migrations[0];
+  expect(ownerHistory.inverseOperations[0]).toMatchObject({op:'restore_converted_column'});
+  const viewerHistory=(await (await call(`/apps/${app.id}/database`,viewer)).json()).migrations[0];
+  expect(viewerHistory.inverseOperations).toBeNull();
+  const editorHistory=(await (await call(`/apps/${app.id}/database`,editor)).json()).migrations[0];
+  expect(editorHistory.inverseOperations).toEqual(ownerHistory.inverseOperations);
+
+  const afterConvert=await env.DB.prepare('SELECT updated_at FROM hx_rows WHERE org_id=?1 AND id=?2').bind(orgId,row.id).first();
+  const unrelated=await call(`/tables/${app.tableId}/rows/${row.id}`,owner,{values:{task:0,notes:'keep me'},expectedUpdatedAt:afterConvert.updated_at},'PATCH');
+  expect(unrelated.status).toBe(200);
+  const inverse=ownerHistory.inverseOperations;
+  const rollbackPreview=await dbCall({action:'preview',id:'rollback_convert_zero',version:2,operations:inverse});
+  const rollbackBody=await rollbackPreview.json();expect(rollbackBody.canApply).toBe(true);
+  const applied=await dbCall({action:'migrate',id:'rollback_convert_zero',version:2,operations:inverse,previewChecksum:rollbackBody.previewChecksum});
+  expect(applied.status).toBe(200);
+  const restored=JSON.parse((await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=?1 AND id=?2').bind(orgId,row.id).first()).data);
+  expect(restored).toMatchObject({task:'0',notes:'keep me'});
+});
+
+test('populated conversions on one entity do not expose an unsafe inverse',async()=>{
+  const add=await dbCall({action:'migrate',id:'add_second_convert_column',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Count',type:'text'}]}]});
+  expect(add.status).toBe(200);
+  const row=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'12',count:'3'}})).json()).row;
+  const columns=(await (await call(`/apps/${app.id}/database`,owner)).json()).entities[0].table.columns;
+  const operations=columns.map(column=>({op:'convert_column',entity:'primary',column:column.id,type:'number'}));
+  const preview=await dbCall({action:'preview',id:'multiple_convert_columns',version:1,operations});
+  const previewBody=await preview.json();expect(previewBody.canApply).toBe(true);
+  const applied=await dbCall({action:'migrate',id:'multiple_convert_columns',version:1,operations,previewChecksum:previewBody.previewChecksum});
+  expect(applied.status).toBe(200);
+  const history=(await (await call(`/apps/${app.id}/database`,owner)).json()).migrations[0];
+  expect(history.inverseOperations).toBeNull();
+  expect(history.rollbackUnavailableReason).toBe('multiple_conversions');
+  expect(row.id).toBeTruthy();
+});
+
+test('false checkbox values survive rollback and changed converted values block it',async()=>{
+  expect((await dbCall({action:'migrate',id:'add_done_checkbox',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Done',type:'checkbox'}]}]})).status).toBe(200);
+  const row=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'still here',done:false}})).json()).row;
+  const column=(await (await call(`/apps/${app.id}/database`,owner)).json()).entities[0].table.columns.find(item=>item.name==='Done');
+  const operation={op:'convert_column',entity:'primary',column:column.id,type:'text'};
+  const preview=await dbCall({action:'preview',id:'convert_false_checkbox',version:1,operations:[operation]});
+  const previewBody=await preview.json();expect(previewBody.canApply).toBe(true);
+  expect((await dbCall({action:'migrate',id:'convert_false_checkbox',version:1,operations:[operation],previewChecksum:previewBody.previewChecksum})).status).toBe(200);
+  const inverse=(await (await call(`/apps/${app.id}/database`,owner)).json()).migrations[0].inverseOperations;
+  expect(inverse[0].rows.find(item=>item.id===row.id).restore).toEqual({present:true,value:false});
+  const stored=await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=?1 AND id=?2').bind(orgId,row.id).first();
+  const changed=JSON.parse(stored.data);changed[column.id]='manually edited';
+  await env.DB.prepare('UPDATE hx_rows SET data=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify(changed),orgId,row.id).run();
+  const rollback=await dbCall({action:'preview',id:'rollback_false_checkbox',version:2,operations:inverse});
+  const rollbackBody=await rollback.json();expect(rollbackBody.canApply).toBe(false);expect(rollbackBody.blockerCount).toBeGreaterThan(0);
+  expect((await dbCall({action:'migrate',id:'rollback_false_checkbox',version:2,operations:inverse,previewChecksum:rollbackBody.previewChecksum})).status).toBe(409);
+});
+
+test('select and relation conversions retain bounded, type-safe rollback state',async()=>{
+  const created=await dbCall({action:'migrate',id:'create_conversion_targets',version:0,operations:[
+    {op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]},
+    {op:'add_columns',entity:'primary',columns:[{name:'Person name',type:'text'}]},
+  ]});expect(created.status).toBe(200);
+  const database=(await (await call(`/apps/${app.id}/database`,owner)).json());
+  const people=database.entities.find(entity=>entity.key==='people'), personName=database.entities[0].table.columns.find(column=>column.name==='Person name');
+  await call(`/tables/${people.table.id}/rows`,owner,{values:{name:'Alex'}});
+  const source=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'Open',person_name:'Alex'}})).json()).row;
+  const task=database.entities[0].table.columns.find(column=>column.name==='Task');
+  const selectOp={op:'convert_column',entity:'primary',column:task.id,type:'select',options:['Open']};
+  let preview=await dbCall({action:'preview',id:'convert_to_select',version:1,operations:[selectOp]});let previewBody=await preview.json();
+  expect(previewBody.canApply).toBe(true);
+  expect((await dbCall({action:'migrate',id:'convert_to_select',version:1,operations:[selectOp],previewChecksum:previewBody.previewChecksum})).status).toBe(200);
+  let history=(await (await call(`/apps/${app.id}/database`,owner)).json()).migrations[0];
+  expect(history.inverseOperations[0].rows.find(item=>item.id===source.id).restore).toEqual({present:true,value:'Open'});
+  const relationOp={op:'convert_column',entity:'primary',column:personName.id,type:'relation',targetEntity:'people',multiple:false,matchBy:people.table.columns[0].id};
+  preview=await dbCall({action:'preview',id:'convert_to_relation',version:2,operations:[relationOp]});previewBody=await preview.json();
+  expect(previewBody.canApply).toBe(true);
+  expect((await dbCall({action:'migrate',id:'convert_to_relation',version:2,operations:[relationOp],previewChecksum:previewBody.previewChecksum})).status).toBe(200);
+  history=(await (await call(`/apps/${app.id}/database`,owner)).json()).migrations[0];
+  expect(history.inverseOperations[0].rows.find(item=>item.id===source.id).restore).toEqual({present:true,value:'Alex'});
+  const rollback=await dbCall({action:'preview',id:'rollback_relation',version:3,operations:history.inverseOperations});
+  const rollbackBody=await rollback.json();expect(rollbackBody.canApply).toBe(true);
+  expect((await dbCall({action:'migrate',id:'rollback_relation',version:3,operations:history.inverseOperations,previewChecksum:rollbackBody.previewChecksum})).status).toBe(200);
+  const restored=JSON.parse((await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=?1 AND id=?2').bind(orgId,source.id).first()).data);
+  expect(restored.person_name).toBe('Alex');
+});
+
+test('rollback preview cannot apply after any row changes',async()=>{
+  await dbCall({action:'migrate',id:'add_rollback_notes_cas',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Notes',type:'text'}]}]});
+  const row=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'5',notes:'before'}})).json()).row;
+  const task=(await (await call(`/apps/${app.id}/database`,owner)).json()).entities[0].table.columns.find(column=>column.name==='Task');
+  const operation={op:'convert_column',entity:'primary',column:task.id,type:'number'};
+  let preview=await dbCall({action:'preview',id:'convert_for_rollback_cas',version:1,operations:[operation]});let body=await preview.json();
+  expect((await dbCall({action:'migrate',id:'convert_for_rollback_cas',version:1,operations:[operation],previewChecksum:body.previewChecksum})).status).toBe(200);
+  const inverse=(await (await call(`/apps/${app.id}/database`,owner)).json()).migrations[0].inverseOperations;
+  preview=await dbCall({action:'preview',id:'rollback_with_row_cas',version:2,operations:inverse});body=await preview.json();expect(body.canApply).toBe(true);
+  const changed=JSON.parse((await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=?1 AND id=?2').bind(orgId,row.id).first()).data);changed.notes='concurrent edit';
+  await env.DB.prepare('UPDATE hx_rows SET data=?1 WHERE org_id=?2 AND id=?3').bind(JSON.stringify(changed),orgId,row.id).run();
+  const applied=await dbCall({action:'migrate',id:'rollback_with_row_cas',version:2,operations:inverse,previewChecksum:body.previewChecksum});
+  expect(applied.status).toBe(409);
+});
+
+test('oversized rollback plans and tampered journal payloads fail closed',async()=>{
+  const tooLarge=[{op:'restore_converted_column',entity:'primary',column:'task',expectedColumn:{id:'task',name:'Task',type:'text'},restoreColumn:{id:'task',name:'Task',type:'text'},rows:[{id:'row',expected:{present:true,value:'x'.repeat(500_100)},restore:{present:false}}]}];
+  expect((await dbCall({action:'preview',id:'oversized_restore',version:0,operations:tooLarge})).status).toBe(413);
+  const row=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'12'}})).json()).row;
+  const task=(await (await call(`/apps/${app.id}/database`,owner)).json()).entities[0].table.columns[0];
+  const operation={op:'convert_column',entity:'primary',column:task.id,type:'number'};
+  const preview=await dbCall({action:'preview',id:'tamper_journal_source',version:0,operations:[operation]});const body=await preview.json();
+  expect((await dbCall({action:'migrate',id:'tamper_journal_source',version:0,operations:[operation],previewChecksum:body.previewChecksum})).status).toBe(200);
+  await env.DB.prepare("UPDATE hx_app_migrations SET plan=plan||' ' WHERE org_id=?1 AND app_id=?2 AND migration_id=?3").bind(orgId,app.id,'tamper_journal_source').run();
+  const history=(await (await call(`/apps/${app.id}/database`,owner)).json()).migrations[0];
+  expect(history.integrityValid).toBe(false);expect(history.inverseOperations).toBeNull();
+  expect((await dbCall({action:'migrate',id:'tamper_journal_source',version:0,operations:[operation],previewChecksum:body.previewChecksum})).status).toBe(409);
+  expect(row.id).toBeTruthy();
+});
+
 test('a preview can add linked records together and merge rejects an orphaned final state',async()=>{
   const customerEntity=await installRelations();
   let {fork}=await (await dbCall({action:'fork'})).json();
