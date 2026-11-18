@@ -109,6 +109,7 @@ const table: Record<string, string> = {
   'Date': '日付',
   'Date and time': '日時',
   'Calendar time zone': 'カレンダーのタイムゾーン',
+  'Enter a valid IANA time zone.': '有効なIANAタイムゾーンを入力してください。',
   'Sun': '日',
   'Mon': '月',
   'Tue': '火',

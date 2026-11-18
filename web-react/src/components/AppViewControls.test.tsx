@@ -1,4 +1,4 @@
-vi.mock('../utils/i18n',()=>({useT:()=> (key:string,values?:Record<string,unknown>)=>({'Filter records':'フィルター','Group records':'グループ化','{label} ({n} active)':'{label}（{n}件）','Edit filters':'フィルターを編集','Edit grouping':'グループ化を編集','{count} conditions (match all)':'{count}件の条件（すべて一致）','No filters':'フィルターなし','Adjust filters':'フィルターを調整','Adjust grouping':'グループ化を調整','Ask AI to suggest changes':'AIに調整案を相談','Records matching all conditions':'すべての条件に一致するレコード','Existing conditions':'既存の条件','Clear existing conditions':'既存条件を解除','Condition {n} field':'条件{n}のフィールド','Condition {n} operator':'条件{n}の演算子','Condition {n} value':'条件{n}の値','Remove condition {n}':'条件{n}を削除','equals':'と等しい','does not equal':'と等しくない','contains':'を含む','does not contain':'を含まない','is empty':'が空','is not empty':'が空ではない','Choose a value':'値を選択','Checked':'チェックあり','Unchecked':'チェックなし','Enter date and time in your device time zone (to the second).':'日時は端末のタイムゾーンで入力します（秒単位）。','Add condition':'条件を追加','No grouping':'グループ化なし','Grouping':'グループ化','Field':'フィールド','Group by field':'グループ化するフィールド','Group records with the same value.':'同じ値のレコードをまとめて表示します。','Only you can see this view. It syncs across your devices.':'自分だけに適用・端末間で同期されます。','Changes apply to everyone who uses this view.':'このビューを使うメンバーに反映されます。','Cancel':'キャンセル','Saving…':'保存中…','Save':'保存','Enter a value, or choose is empty to find blank values.':'条件の値を入力してください。空欄の検索には「が空」を選びます。'} as Record<string,string>)[key]?.replace(/\{(\w+)\}/g,(_,name)=>String(values?.[name]??''))??key}))
+vi.mock('../utils/i18n',()=>({useT:()=> (key:string,values?:Record<string,unknown>)=>({'Filter records':'フィルター','Group records':'グループ化','Calendar time zone':'カレンダーのタイムゾーン','Enter a valid IANA time zone.':'有効なIANAタイムゾーンを入力してください。','{label} ({n} active)':'{label}（{n}件）','Edit filters':'フィルターを編集','Edit grouping':'グループ化を編集','{count} conditions (match all)':'{count}件の条件（すべて一致）','No filters':'フィルターなし','Adjust filters':'フィルターを調整','Adjust grouping':'グループ化を調整','Ask AI to suggest changes':'AIに調整案を相談','Records matching all conditions':'すべての条件に一致するレコード','Existing conditions':'既存の条件','Clear existing conditions':'既存条件を解除','Condition {n} field':'条件{n}のフィールド','Condition {n} operator':'条件{n}の演算子','Condition {n} value':'条件{n}の値','Remove condition {n}':'条件{n}を削除','equals':'と等しい','does not equal':'と等しくない','contains':'を含む','does not contain':'を含まない','is empty':'が空','is not empty':'が空ではない','Choose a value':'値を選択','Checked':'チェックあり','Unchecked':'チェックなし','Enter date and time in your device time zone (to the second).':'日時は端末のタイムゾーンで入力します（秒単位）。','Add condition':'条件を追加','No grouping':'グループ化なし','Grouping':'グループ化','Field':'フィールド','Group by field':'グループ化するフィールド','Group records with the same value.':'同じ値のレコードをまとめて表示します。','Only you can see this view. It syncs across your devices.':'自分だけに適用・端末間で同期されます。','Changes apply to everyone who uses this view.':'このビューを使うメンバーに反映されます。','Cancel':'キャンセル','Saving…':'保存中…','Save':'保存','Enter a value, or choose is empty to find blank values.':'条件の値を入力してください。空欄の検索には「が空」を選びます。'} as Record<string,string>)[key]?.replace(/\{(\w+)\}/g,(_,name)=>String(values?.[name]??''))??key}))
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, expect, test, vi } from 'vitest'
@@ -14,6 +14,24 @@ function setup(save=vi.fn().mockResolvedValue(undefined),onAdjust?:()=>void,colu
   const click=(text:string)=>act(()=>tree!.root.findAllByType('button').find(b=>b.children.some(c=>c===text))!.props.onClick({currentTarget:{focus:vi.fn()}}))
   return {get tree(){return tree!},click,save}
 }
+
+test('calendar time zone search includes the runtime IANA catalog and saves valid zones',async()=>{
+  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
+  const save=vi.fn().mockResolvedValue(undefined)
+  let tree:ReturnType<typeof create>
+  act(()=>{tree=create(<AppViewControls view={{id:'calendar',name:'Calendar',type:'calendar',timeZone:'UTC'}} columns={[]} canEdit save={save}/> )})
+  const input=tree!.root.findByProps({'aria-label':'カレンダーのタイムゾーン'})
+  expect(input.props.list).toBeTruthy()
+  const zones=tree!.root.findAllByType('option').map(option=>option.props.value)
+  expect(zones).toContain('Asia/Singapore')
+  expect(zones).toContain('America/Phoenix')
+  await act(async()=>{input.props.onChange({target:{value:'Asia/Singapore'}});await Promise.resolve()})
+  expect(save).toHaveBeenCalledWith({timeZone:'Asia/Singapore'})
+  act(()=>input.props.onChange({target:{value:'Mars/Olympus'}}))
+  expect(save).toHaveBeenCalledTimes(1)
+  expect(tree!.root.findByProps({role:'alert'}).children).toContain('有効なIANAタイムゾーンを入力してください。')
+  act(()=>tree!.unmount())
+})
 test('filter editor saves selected values and preserves its draft on server rejection',async()=>{
   const save=vi.fn().mockRejectedValue(new Error('Reload before saving.'))
   const ui=setup(save)
