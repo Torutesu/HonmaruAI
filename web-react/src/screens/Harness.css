@@ -113,6 +113,8 @@
 .hx-run-authorization li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; align-items: baseline; gap: 4px 10px; overflow-wrap: anywhere; }
 .hx-run-authorization li time { grid-column: 1 / -1; color: var(--ash); }
 .hx-run-authorization code { font-family: var(--font-mono); font-size: 11px; }
+.hx-run-effect-receipt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 7px 0; padding: 7px 9px; border: 1px solid var(--hx-border); border-radius: 8px; color: var(--hx-text-muted); font-size: 12px; }
+.hx-run-effect-receipt strong { color: var(--hx-text); }
 .hx-run-history-panel > summary { cursor: pointer; }
 .hx-run-drafts { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--hx-border); border-radius: 10px; background: var(--hx-surface-muted, var(--hx-surface)); }
 .hx-run-drafts > strong { display: block; margin-bottom: 6px; }

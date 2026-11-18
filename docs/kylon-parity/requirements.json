@@ -813,12 +813,12 @@
         "embeddedAppSummary": {
           "scope": "AppAutomationではGET /workflows/:idがすでに返す過去168時間のsummaryを履歴パネルに表示し、中央Harness Workflow詳細と同じ共有UIを使う。token usage/costは推定値であり請求額ではない旨、未価格/使用量不明件数も表示する。",
           "localQA": "AutomationRuns, HarnessWorkflows and AppAutomations suites passed; full Web tests and production build passed. See docs/kylon-parity/verification.md.",
-          "remaining": "Exact-head CI, production release, authenticated Kylon visual comparison and acceptance are pending."
+          "remaining": "Run-level input context is still intentionally omitted, and the structured effect receipt does not yet include an independently reconciled provider-side result. Exact-head CI, production release, authenticated Kylon visual comparison and acceptance remain pending."
         },
         "latestIncrement": {
           "scope": "GET /workflows/:id/runs now supports stable keyset pagination (1–100 rows), server-side status filtering, and an opaque cursor anchored only to the last visible run. ACL-hidden runs are checked and omitted from both results and cursor state. AutomationRuns appends older pages and restarts from page one when the failed-only filter changes.",
           "localQA": "Worker harness-workflows suite includes stable tie ordering, page continuation, server-side failed filtering, ACL-hidden row omission, and invalid cursor/status coverage. Web AutomationRuns, AppAutomations, and API suites passed 67 tests. The production build passed before a final fixture-only Worker test correction; Worker suite rerun is in progress. See docs/kylon-parity/verification.md.",
-          "remaining": "Exact-head CI, production release, authenticated Kylon visual comparison, and production acceptance remain pending. Run-level input context and full effect traces are not captured."
+          "remaining": "The run-level input context remains intentionally omitted. Structured, payload-free effect receipts now record operation, effect class, target type, and completed/pending/failed/unknown/skipped outcome; provider-side reconciliation is not yet available. Exact-head CI, production release, authenticated Kylon visual comparison, and production acceptance remain pending."
         }
       }
     },
@@ -896,6 +896,11 @@
           "scope": "PR #994 adds approved Remote MCP write tools to direct Workflow Connection steps. Requires explicit admin workspace write classification, exact current actor×Agent×server×tool grant, and an immediately preceding approved Approval step in the same run. The card displays rendered arguments; payloads above 12 KB fail closed. Runtime rechecks policy before and after dispatch, discards results after revocation, and keeps ambiguous side effects non-replayable. Simple mode is unchanged.",
           "verification": "Focused Worker suites 187/187 and full Web suite 2,017/2,017 passed locally. Exact-head CI #43579317332 and main CI #43581230340 succeeded. Worker deploy #43581229709 and Web deploy #43581229717 succeeded.",
           "remaining": "Unsupported connectors, provider-side processing/billing cancellation guarantees, other side-effect routes and authenticated Kylon operation comparison remain incomplete."
+        },
+        "workflowAgentMemoryFence": {
+          "scope": "Normal Workflow Agent steps now omit review_agent_memory from their model tools, preserving read-only skill and memory lookup while preventing an Agent run grant from mutating shared Agent memory. A regression test covers the tool filter. This closes one concrete side-effect path; it does not complete the full side-effect audit.",
+          "verification": "Worker harness-workflows.test.js + workflow-agent-invoke.test.js passed 170/170 locally. Web AutomationRuns.test.tsx passed 32/32 and the TypeScript/production build succeeded. Exact-head CI and release remain pending.",
+          "remaining": "Other side-effect routes, provider-side processing/billing cancellation guarantees, and authenticated Kylon operation comparison remain incomplete."
         },
         "remaining": "Unsupported connectors, provider-side processing/billing cancellation guarantees, other side-effect routes and authenticated Kylon operation comparison remain incomplete."
       }

@@ -12,6 +12,14 @@ test('execution history loads on demand and exposes failed step details',async()
  expect(workflow).toHaveBeenCalledWith('wf');expect(JSON.stringify(tree.toJSON())).toContain('Permission revoked')
  act(()=>tree.unmount())
 })
+test('execution history shows a structured effect receipt without copying payload data into it',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-receipt',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[{step:1,type:'post',status:'ok',output:'Private message body',effectReceipt:{operation:'post',effect:'external',target:'conversation',outcome:'completed'}}]}]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>refresh(tree).props.onClick())
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain(t('Effect receipt'));expect(text).toContain(t('External action'));expect(text).toContain(t('Conversation'));expect(text).toContain(t('Completed'));expect(text).toContain('Private message body')
+ act(()=>tree.unmount())
+})
 test('failed App automation runs link back to their source chat only when it is still accessible',async()=>{
  const workflow=vi.fn().mockResolvedValue({runs:[{id:'failed',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[]}]})
  const workflowSource=vi.fn().mockResolvedValue({source:{threadId:'source-thread',channel:'b:ops'}});let tree:any
