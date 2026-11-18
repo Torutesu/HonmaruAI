@@ -2,6 +2,7 @@ import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, expect, test, vi } from 'vitest'
 import { Profile } from './Profile'
+import { displayVoiceShortcut } from '../utils/voiceShortcut'
 
 vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text, changeLocale: vi.fn() }))
 vi.mock('../utils/context', () => ({ getSenderContext: () => '', setSenderContext: vi.fn(), loadSenderContext: async () => '', saveSenderContext: async () => true, MAX_CONTEXT_CHARS: 1000 }))
@@ -15,7 +16,17 @@ const profile = { name: 'Synthetic reader', login: 'reader', email: null, locale
 
 async function mount(save: () => Promise<unknown>) {
   vi.stubGlobal('window', new EventTarget())
-  vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => init?.method === 'PUT' ? save() : Promise.resolve({ ok: true, json: async () => profile })))
+  let voicePrefs = { vocabulary: [] as string[], corrections: [] as Array<{ from: string; to: string }>, voiceShortcut: 'Alt+Shift+V', revision: 0 }
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    if (url.includes('/hx/dictation-vocabulary')) {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body || '{}'))
+        voicePrefs = { ...voicePrefs, voiceShortcut: body.voiceShortcut || voicePrefs.voiceShortcut, revision: voicePrefs.revision + 1 }
+      }
+      return Promise.resolve({ ok: true, json: async () => voicePrefs })
+    }
+    return init?.method === 'PUT' ? save() : Promise.resolve({ ok: true, json: async () => profile })
+  }))
   const changed = vi.fn()
   let tree!: ReturnType<typeof create>
   await act(async () => { tree = create(<Profile httpBase="https://synthetic.invalid" orgId="org" userId="reader" sessionToken="synthetic" businesses={[]} pendingCount={0} decidedCount={0} onOpen={vi.fn()} onLocaleChange={vi.fn()} onTranslationChange={changed} onSwitchOrg={vi.fn()} onLogout={vi.fn()} onClose={vi.fn()} />) })
@@ -47,6 +58,29 @@ test.each(['http', 'network'])('failed %s save stays visibly enabled and does no
   expect(button().props['aria-checked']).toBe(true)
   expect(changed).not.toHaveBeenCalled()
   expect(JSON.stringify(tree.toJSON())).toContain('That did not save.')
+  act(() => tree.unmount())
+})
+
+test('voice input shortcut warns on a reserved chord and saves the next valid chord', async () => {
+  const { tree } = await mount(async () => ({ ok: true }))
+  const change = () => tree.root.findAllByType('button').find(button => button.children.includes('Change shortcut'))!
+  act(() => change().props.onClick())
+  const press = (key: string, modifiers: Partial<{ altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }> = {}) => {
+    const event = new Event('keydown') as KeyboardEvent
+    for (const [name, value] of Object.entries({ key, isComposing: false, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...modifiers })) Object.defineProperty(event, name, { value })
+    window.dispatchEvent(event)
+  }
+  act(() => press('k', { ctrlKey: true }))
+  expect(JSON.stringify(tree.toJSON())).toContain('That shortcut is already in use.')
+  act(() => press('f', { metaKey: true }))
+  expect(JSON.stringify(tree.toJSON())).toContain('That shortcut is already in use.')
+  await act(async () => { press('m', { altKey: true, shiftKey: true }); await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(tree.root.findByProps({ 'aria-label': 'Current voice input shortcut' }).children).toContain(displayVoiceShortcut('Alt+Shift+M'))
+  expect(JSON.stringify(tree.toJSON())).toContain('Voice input shortcut saved.')
+  const calls = vi.mocked(fetch).mock.calls
+  const save = calls.find(([url, init]) => String(url).includes('/hx/dictation-vocabulary') && init?.method === 'PUT')
+  expect(save).toBeTruthy()
+  expect(JSON.parse(String(save?.[1]?.body))).toMatchObject({ orgId: 'org', voiceShortcut: 'Alt+Shift+M', expectedRevision: 0 })
   act(() => tree.unmount())
 })
 

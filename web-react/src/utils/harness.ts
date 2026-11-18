@@ -123,7 +123,7 @@ export interface AgentRoleState { version: number; scope: 'team' | 'personal'; c
 export interface AgentPeerRoleState { version:number; scope:'team'|'personal'; managed:boolean; canManage:boolean; members:Array<{agentId:string;name:string;role:'member'}>; candidates:Array<{id:string;name:string}> }
 export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | 'max'; mentionOnly: boolean; access: 'everyone' | 'people' | 'private'; people: string[]; nativeBrowserEnabled?: boolean; nativeBrowserGatewayId?: string | null }
 export interface AgentAppConnection { server: string; name: string; description: string; iconUrl: string | null; verified: boolean; allowWrites: boolean; connectedAt: string; granted: boolean }
-export interface AgentNativeConnection { source: 'notion' | 'github'; available: boolean; enabled: boolean; canShare?: boolean; shareEnabled?: boolean; shared?: boolean; workspaceAvailable?: boolean; workspaceEnabled?: boolean; canManageWorkspace?: boolean }
+export interface AgentNativeConnection { source: 'notion' | 'github' | 'slack'; available: boolean; enabled: boolean; canShare?: boolean; shareEnabled?: boolean; shared?: boolean; workspaceAvailable?: boolean; workspaceEnabled?: boolean; canManageWorkspace?: boolean }
 export interface AgentRemoteMcpTool { name: string; title: string; description: string; enabled: boolean; requiresApproval?: boolean }
 export interface AgentRemoteMcpConnection { serverId: string; name: string; available: boolean; enabled: boolean; readOnlyToolCount: number; tools?:AgentRemoteMcpTool[]; needsOAuth?: boolean }
 export interface WorkflowRemoteMcpTool extends AgentRemoteMcpTool { inputSchema?: Record<string, unknown>; requiresApproval: boolean }
@@ -189,8 +189,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     getMode: (signal?:AbortSignal) => call<{ mode: WorkspaceMode; canEdit: boolean; simpleOnly?: boolean; revision?: number }>('GET', '/orgs/mode',undefined,undefined,signal),
     setMode: (mode: WorkspaceMode) => call<{ mode: WorkspaceMode; canEdit: boolean }>('PUT', '/orgs/mode', { mode }),
     setDisplayPreference: (simpleOnly: boolean, expectedRevision: number) => call<{ simpleOnly: boolean; revision: number }>('PUT', '/hx/display-preference', { simpleOnly, expectedRevision }),
-    dictationVocabulary: () => call<{ vocabulary: string[]; corrections:Array<{from:string;to:string}>; revision: number }>('GET', '/hx/dictation-vocabulary'),
-    saveDictationVocabulary: (vocabulary: string[], corrections:Array<{from:string;to:string}>, expectedRevision: number) => call<{ vocabulary: string[]; corrections:Array<{from:string;to:string}>; revision: number }>('PUT', '/hx/dictation-vocabulary', { vocabulary, corrections, expectedRevision }),
+    dictationVocabulary: () => call<{ vocabulary: string[]; corrections:Array<{from:string;to:string}>; voiceShortcut: string; revision: number }>('GET', '/hx/dictation-vocabulary'),
+    saveDictationVocabulary: (vocabulary: string[], corrections:Array<{from:string;to:string}>, expectedRevision: number, voiceShortcut?: string) => call<{ vocabulary: string[]; corrections:Array<{from:string;to:string}>; voiceShortcut: string; revision: number }>('PUT', '/hx/dictation-vocabulary', { vocabulary, corrections, ...(voiceShortcut ? { voiceShortcut } : {}), expectedRevision }),
 
     templates: () => call<{ templates: Template[] }>('GET', '/apps/templates'),
     templateShares: (id: string) => call<{ shares: TemplateShare[]; canManage: boolean }>('GET', `/apps/${id}/template-shares`),

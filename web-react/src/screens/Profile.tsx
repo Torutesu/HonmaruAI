@@ -1,6 +1,6 @@
 import { SignedInSessions } from '../components/SignedInSessions'
 import { forgetMembers } from '../utils/mentions'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { getLocale, primary } from '../utils/locale'
 import { LanguageOptions } from '../components/LanguageOptions'
 import type { Business } from '../types/card'
@@ -14,6 +14,7 @@ import { TidyChannels } from '../components/TidyChannels'
 import { ArchivedChannels } from '../components/ArchivedChannels'
 import { useAppearance, setAppearance, THEMES, DENSITIES, type Theme, type Density } from '../utils/appearance'
 import { enterKey } from '../utils/keys'
+import { DEFAULT_VOICE_SHORTCUT, displayVoiceShortcut, readVoiceShortcut, shortcutFromEvent, voiceShortcutConflict, writeVoiceShortcut } from '../utils/voiceShortcut'
 
 interface Props {
   httpBase: string
@@ -141,6 +142,77 @@ export const Profile: React.FC<Props> = ({
   const [keySaved, setKeySaved] = useState(false)
   const [installable, setInstallable] = useState(canInstall)
   useEffect(() => onInstallChange(() => setInstallable(canInstall())), [])
+  const [voiceShortcut, setVoiceShortcut] = useState(() => readVoiceShortcut(userId))
+  const [recordingVoiceShortcut, setRecordingVoiceShortcut] = useState(false)
+  const [voiceShortcutNote, setVoiceShortcutNote] = useState<string | null>(null)
+  const [voiceShortcutBusy, setVoiceShortcutBusy] = useState(false)
+  const voiceDictionaryRef = useRef<{ vocabulary: string[]; corrections: Array<{ from: string; to: string }>; revision: number }>({ vocabulary: [], corrections: [], revision: 0 })
+  useEffect(() => { setVoiceShortcut(readVoiceShortcut(userId)); setRecordingVoiceShortcut(false); setVoiceShortcutNote(null) }, [userId])
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      const response = await fetch(`${httpBase}/hx/dictation-vocabulary?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+      const body = await response.json().catch(() => null)
+      if (!response.ok || !body || !Number.isSafeInteger(body.revision)) throw new Error('Could not load voice input settings.')
+      return body as { vocabulary: string[]; corrections: Array<{ from: string; to: string }>; voiceShortcut?: string; revision: number }
+    }
+    const refresh = () => { void load().then(remote => {
+      if (!active || remote.revision < voiceDictionaryRef.current.revision) return
+      voiceDictionaryRef.current = { vocabulary: remote.vocabulary || [], corrections: remote.corrections || [], revision: remote.revision }
+      setVoiceShortcut(writeVoiceShortcut(userId, remote.voiceShortcut || DEFAULT_VOICE_SHORTCUT))
+    }).catch(() => { /* Keep the account-scoped local shortcut when offline. */ }) }
+    refresh()
+    const changed = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string; revision?: number }>).detail
+      if (detail?.userId === userId && Number.isSafeInteger(detail.revision) && Number(detail.revision) > voiceDictionaryRef.current.revision) refresh()
+    }
+    window.addEventListener('honmaru:dictation-vocabulary-changed', changed)
+    return () => { active = false; window.removeEventListener('honmaru:dictation-vocabulary-changed', changed) }
+  }, [httpBase, orgId, sessionToken, userId])
+  const saveVoiceShortcut = useCallback(async (shortcut: string) => {
+    setVoiceShortcutBusy(true)
+    setVoiceShortcutNote(null)
+    try {
+      let current = voiceDictionaryRef.current
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await fetch(`${httpBase}/hx/dictation-vocabulary`, {
+          method: 'PUT', headers: { 'content-type': 'application/json', 'x-session-token': sessionToken },
+          body: JSON.stringify({ orgId, voiceShortcut: shortcut, expectedRevision: current.revision }),
+        })
+        const body = await response.json().catch(() => null)
+        if (response.ok && body && Number.isSafeInteger(body.revision)) {
+          voiceDictionaryRef.current = { vocabulary: body.vocabulary || [], corrections: body.corrections || [], revision: body.revision }
+          setVoiceShortcut(writeVoiceShortcut(userId, body.voiceShortcut || shortcut))
+          setVoiceShortcutNote(t('Voice input shortcut saved.'))
+          window.dispatchEvent(new CustomEvent('honmaru:dictation-vocabulary-changed', { detail: { userId, revision: body.revision } }))
+          return
+        }
+        if (response.status !== 409 || attempt > 0) throw new Error(body?.message || t('Voice input shortcut could not be saved.'))
+        const latest = await fetch(`${httpBase}/hx/dictation-vocabulary?orgId=${encodeURIComponent(orgId)}`, { headers: { 'x-session-token': sessionToken } })
+        const value = await latest.json().catch(() => null)
+        if (!latest.ok || !value || !Number.isSafeInteger(value.revision)) throw new Error(t('Voice input shortcut could not be saved.'))
+        current = { vocabulary: value.vocabulary || [], corrections: value.corrections || [], revision: value.revision }
+        voiceDictionaryRef.current = current
+      }
+    } catch (reason) {
+      setVoiceShortcutNote(reason instanceof Error ? reason.message : t('Voice input shortcut could not be saved.'))
+    } finally { setVoiceShortcutBusy(false) }
+  }, [httpBase, orgId, sessionToken, t, userId])
+  useEffect(() => {
+    if (!recordingVoiceShortcut) return
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); setRecordingVoiceShortcut(false); setVoiceShortcutNote(null); return }
+      if (event.isComposing) return
+      const shortcut = shortcutFromEvent(event)
+      if (!shortcut) return
+      event.preventDefault()
+      if (voiceShortcutConflict(shortcut)) { setVoiceShortcutNote(t('That shortcut is already in use.')); return }
+      void saveVoiceShortcut(shortcut)
+      setRecordingVoiceShortcut(false)
+    }
+    window.addEventListener('keydown', keydown, true)
+    return () => window.removeEventListener('keydown', keydown, true)
+  }, [recordingVoiceShortcut, saveVoiceShortcut, t, userId])
   // Typed before the profile arrived: the fetch must not overwrite it. That
   // race is exactly what the end-to-end suite hit on a fast machine.
   const aliasesTouched = useRef(false)
@@ -665,6 +737,19 @@ export const Profile: React.FC<Props> = ({
                     {t(DENSITY_LABEL[density])}
                   </label>
                 ))}
+              </div>
+            </div>
+            <div className="row static">
+              <span className="row-main">
+                {t('Voice input shortcut')}
+                <span className="row-sub">{t('Start or stop dictation in the focused text field.')}{voiceShortcutNote && <span role="status">{' '}{voiceShortcutNote}</span>}</span>
+              </span>
+              <div className="row-actions">
+                <kbd aria-label={t('Current voice input shortcut')}>{displayVoiceShortcut(voiceShortcut)}</kbd>
+                <button type="button" className="pill-btn" disabled={voiceShortcutBusy} aria-pressed={recordingVoiceShortcut} onClick={() => { setVoiceShortcutNote(recordingVoiceShortcut ? null : t('Press a shortcut now. Press Escape to cancel.')); setRecordingVoiceShortcut(value => !value) }}>
+                  {recordingVoiceShortcut ? t('Listening for shortcut…') : t('Change shortcut')}
+                </button>
+                {voiceShortcut !== DEFAULT_VOICE_SHORTCUT && <button type="button" className="pill-btn" disabled={voiceShortcutBusy} onClick={() => void saveVoiceShortcut(DEFAULT_VOICE_SHORTCUT)}>{t('Reset')}</button>}
               </div>
             </div>
           </div>

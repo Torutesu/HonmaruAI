@@ -120,6 +120,14 @@ export function detectDictationCorrection(previous: string, edited: string, dict
   return { from, to }
 }
 
+/** Learn only an edit inside the dictated range. Text around the selection must
+ * remain byte-for-byte identical so unrelated edits are never learned. */
+export function detectDictationRangeCorrection(previous: string, edited: string, dictatedPrefix: string, dictatedSuffix: string, locale = 'en'): DictationCorrection | null {
+  if (previous === edited || !previous.startsWith(dictatedPrefix) || !edited.startsWith(dictatedPrefix)
+    || dictatedSuffix && (!previous.endsWith(dictatedSuffix) || !edited.endsWith(dictatedSuffix))) return null
+  return detectDictationCorrection(previous, edited, dictatedPrefix, locale)
+}
+
 /// Start listening. `onText` gets the whole utterance so far, interim words
 /// included, so the box fills as the person speaks; `onEnd` fires when the
 /// browser stops on its own or `stop` is called.

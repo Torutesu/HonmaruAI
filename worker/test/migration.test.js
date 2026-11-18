@@ -298,7 +298,7 @@ test("the dictation preferences migration is a single executable deploy statemen
   expect(statement).toBeTruthy();
   await env.DB.exec(statement);
   const { results } = await env.DB.prepare("PRAGMA table_info(hx_user_dictation_accounts)").all();
-  expect(results.map(column => column.name)).toEqual(["user_id", "vocabulary", "corrections", "revision", "updated_at"]);
+  expect(results.map(column => column.name)).toEqual(["user_id", "vocabulary", "corrections", "voice_shortcut", "revision", "updated_at"]);
 });
 
 test("dictation migration merges workspace-local dictionaries into private account preferences", async () => {
@@ -318,6 +318,7 @@ test("dictation migration merges workspace-local dictionaries into private accou
   expect(await readDictationVocabulary(env.DB, "dictation-mika")).toEqual({
     vocabulary: ["Product Ops", "Tokyo", "Honmaru"],
     corrections: [{ from: "HQ", to: "Headquarters" }, { from: "honmaru", to: "HONMARU" }],
+    voiceShortcut: "Alt+Shift+V",
     revision: 4,
   });
   expect(await readDictationVocabulary(env.DB, "dictation-toru")).toMatchObject({ vocabulary: ["Toru private term"] });

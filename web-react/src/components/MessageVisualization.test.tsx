@@ -31,6 +31,10 @@ describe('message visualizations', () => {
     expect(parseMessageVisualization(JSON.stringify({ type: 'illustration', title: 'Too many', elements: Array.from({ length: 81 }, () => ({ type: 'circle', cx: 10, cy: 10, r: 4 })) }))).toBeNull()
     const segments = splitMessageVisualizations('before\n```honmaru-visual\nnot json\n```\nafter')
     expect(segments).toEqual([{ kind: 'text', text: 'before\n' }, { kind: 'text', text: '```honmaru-visual\nnot json\n```' }, { kind: 'text', text: '\nafter' }])
+    const draft = '```honmaru-slack-draft\n{"type":"slack_draft","draftId":"draft-123"}\n```'
+    expect(splitMessageVisualizations(draft, 'ag:writer')).toEqual([{ kind: 'slack-draft', draftId: 'draft-123' }])
+    expect(splitMessageVisualizations(draft, 'b:general')).toEqual([{ kind: 'text', text: draft }])
+    expect(splitMessageVisualizations('```honmaru-slack-draft\n{"type":"slack_draft","draftId":"bad id"}\n```', 'ag:writer')[0].kind).toBe('text')
   })
 
   it('renders chart data accessibly and supports series and data-view controls', () => {

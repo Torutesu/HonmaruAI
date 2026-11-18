@@ -1,5 +1,5 @@
 import {afterEach,expect,test,vi} from 'vitest'
-import {applyDictationVocabulary,detectDictationCorrection,readDictationVocabulary,writeDictationVocabulary,startDictation} from './dictation'
+import {applyDictationVocabulary,detectDictationCorrection,detectDictationRangeCorrection,readDictationVocabulary,writeDictationVocabulary,startDictation} from './dictation'
 
 const memory = new Map<string,string>()
 const storage = {
@@ -32,6 +32,14 @@ test('learns only a single token correction within the dictated suffix',()=>{
  expect(detectDictationCorrection('Hello wor1d','Changed wor1d','Hello ')).toBeNull()
  expect(detectDictationCorrection('本丸に行く','本丸へ行く','','ja')).toEqual({from:'に',to:'へ'})
  expect(detectDictationCorrection('今日会議','明日開始','','ja')).toBeNull()
+})
+
+test('learns a dictated-range correction only while the surrounding selection stays unchanged',()=>{
+ expect(detectDictationRangeCorrection('Send wor1d today','Send world today','Send ',' today')).toEqual({from:'wor1d',to:'world'})
+ expect(detectDictationRangeCorrection('Send wor1d today','Send  today','Send ',' today')).toBeNull()
+ expect(detectDictationRangeCorrection('Send wor1d today','Please send world today','Send ',' today')).toBeNull()
+ expect(detectDictationRangeCorrection('Send wor1d today','Send world tomorrow','Send ',' today')).toBeNull()
+ expect(detectDictationRangeCorrection('Send wor1d today','Send the final word today','Send ',' today')).toBeNull()
 })
 
 test('private vocabulary is normalized locally without passing phrase hints to the browser',()=>{

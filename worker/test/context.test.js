@@ -69,12 +69,12 @@ test("which sources a person has: Notion when connected, GitHub only in a reposi
   await env.DB.exec(schemaSql.replace(/\n/g, " "));
   const { setConnectorConfig } = await import("../src/db.js");
   const none = await connectedSources({ ...env, COMPOSIO_API_KEY: "ck" }, { github_id: "9001", github_access_token: null }, "personal:me");
-  expect(none).toEqual({ notion: false, github: false });
+  expect(none).toEqual({ notion: false, github: false, slack: false });
   await setConnectorConfig(env.DB, "9001", "notion", { connected: true });
   const { upsertMembership } = await import("../src/db.js");
   await upsertMembership(env.DB, "acme/ops", "9001", "member");
   const some = await connectedSources({ ...env, COMPOSIO_API_KEY: "ck" }, { github_id: "9001", github_access_token: "gho_x" }, "acme/ops");
-  expect(some).toEqual({ notion: true, github: true });
+  expect(some).toEqual({ notion: true, github: true, slack: false });
   // Their Notion is read in the one workspace their tools pull into, not in
   // every team they are in.
   await upsertMembership(env.DB, "team:other", "9001", "member");

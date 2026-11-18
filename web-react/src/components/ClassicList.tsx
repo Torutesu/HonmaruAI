@@ -4587,8 +4587,8 @@ export const ClassicList: React.FC<Props> = ({
   })
   // Structured inline visuals are a Harness feature. Keep the Simple message
   // renderer byte-for-byte on its existing rich-text path.
-  const rich = (text: string) => harness
-    ? <MessageVisualText text={text} renderText={richText} api={api} />
+  const rich = (text: string, conversation?: string) => harness
+    ? <MessageVisualText text={text} renderText={richText} api={api} conversation={conversation} />
     : richText(text)
   /// Whether a message calls you (utils/mentionsMe.ts): read from what was
   /// written, not a translation of it; an unsent one calls nobody.
@@ -5432,7 +5432,7 @@ export const ClassicList: React.FC<Props> = ({
             const card = m.cardId ? cardsById.get(m.cardId) : undefined
             out.push(block(m.id, { joined: false, at: m.createdAt, app: 'ai', name: t('Your AI'), badge: t('AI'), msgId: m.id, pinned: m.pinned, mentionsMe: callsMe(m), tools: toolsFor(thread.view!, m), onHold: holdFor(thread.view!, m), onMenu: menuFor(thread.view!, m) },
               <>
-                <div className="slk-text">{rich(shownBody(m).text)}</div>
+                <div className="slk-text">{rich(shownBody(m).text, m.channel)}</div>
                 {recurringOffer(m)}
                 {translationNote(m)}
                 {card && attachment(card)}

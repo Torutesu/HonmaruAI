@@ -144,7 +144,7 @@ export function scan(rules, text) {
 /// Before a person's words are kept: null to go ahead, or the answer to
 /// give instead. `ack` is the person having seen the warning and sending
 /// anyway; a block is never passed that way.
-export async function checkOutgoing(env, request, { orgId, login, text, files = [], ack = false, where = "message" }) {
+export async function checkOutgoing(env, request, { orgId, login, text, files = [], ack = false, auditOverride = true, where = "message" }) {
   if (!text && !files.length) return null;
   const rules = await rulesOf(env.DB, orgId, { enabledOnly: true });
   if (!rules.length) return null;
@@ -178,7 +178,7 @@ export async function checkOutgoing(env, request, { orgId, login, text, files = 
       message: `This looks like it contains ${hits.map((h) => h.name).join(", ")}${inWhat}. Send it anyway?`,
     }, 409);
   }
-  await audit(env, request, { orgId, action: "dlp.warning_overridden", actor, details: { rules: hits.map((h) => h.name), where: place, files: named.length } });
+  if (auditOverride) await audit(env, request, { orgId, action: "dlp.warning_overridden", actor, details: { rules: hits.map((h) => h.name), where: place, files: named.length } });
   return null;
 }
 
