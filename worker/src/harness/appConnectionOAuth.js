@@ -1,4 +1,6 @@
 import { aad, openField, sealField } from '../secrets.js';
+import { allowed } from '../permissions.js';
+import { hasExplicitAppPermission, mayEditApp, mayUseApp } from './resourceAccess.js';
 
 const TAG = '__honmaru_app_oauth_v1';
 const AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -64,13 +66,20 @@ export async function finishAppConnectionOAuth(env,url) {
   const stateHash=await sha(state);
   const s=await env.DB.prepare('DELETE FROM hx_app_connection_oauth_states WHERE state_hash=?1 RETURNING *').bind(stateHash).first().catch(()=>null);
   if(!s||s.expires_at<=new Date().toISOString()||`${url.origin}${url.pathname}`!==s.redirect_uri||url.searchParams.has('error'))return fail();
-  const ownerMayUse=async()=>env.DB.prepare(`SELECT m.created_at AS since FROM memberships m JOIN hx_apps a ON a.org_id=m.org_id
+  const ownerMayUse=async()=>Boolean(await env.DB.prepare(`SELECT m.created_at AS since FROM memberships m JOIN hx_apps a ON a.org_id=m.org_id
     LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id
     WHERE m.org_id=?1 AND m.user_github_id=?2 AND a.id=?3 AND m.created_at=(SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2)
       AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=?2)
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
-      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)`).bind(s.org_id,s.owner_id,s.app_id).first().catch(()=>null);
-  if(!await ownerMayUse())return fail();
+      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)`).bind(s.org_id,s.owner_id,s.app_id).first().catch(()=>null))
+    && await mayUseApp(env.DB,s.org_id,s.app_id,s.owner_id);
+  const ownerMayManage=async()=>{
+    if(!await ownerMayUse())return false;
+    if(await mayEditApp(env.DB,s.org_id,s.app_id,s.owner_id))return true;
+    if(await hasExplicitAppPermission(env.DB,s.org_id,s.app_id,s.owner_id))return false;
+    return allowed(env.DB,s.org_id,s.owner_id,'harness.delete_others');
+  };
+  if(!await ownerMayManage())return fail();
   const row=await env.DB.prepare(`SELECT * FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4 AND version=?5 AND endpoint=?6 AND method=?7 AND enabled=1 AND token=?8`)
     .bind(s.org_id,s.app_id,s.owner_id,s.connection_name,s.connection_version,s.endpoint,s.method,s.credential_ciphertext).first().catch(()=>null);
   if(!row)return fail();
@@ -85,14 +94,25 @@ export async function finishAppConnectionOAuth(env,url) {
     if(!response.ok||response.status>=300&&response.status<400)return fail();tokens=await readJson(response);
   } catch{return fail();}
   if(!safe(tokens.access_token,8192)||!safe(tokens.refresh_token,8192))return fail();
-  if(!await ownerMayUse())return fail();
+  if(!await ownerMayManage())return fail();
   const current=await env.DB.prepare(`SELECT * FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4 AND version=?5 AND token=?6 AND enabled=1`)
     .bind(s.org_id,s.app_id,s.owner_id,s.connection_name,s.connection_version,s.credential_ciphertext).first().catch(()=>null);
   if(!current)return fail();
   const cfg=await decodeAppOAuth(s.org_id,s.app_id,s.owner_id,s.connection_name,current.token);if(!cfg)return fail();
   const next={...cfg,accessToken:tokens.access_token,refreshToken:tokens.refresh_token,expiresAt:Date.now()+Math.min(Math.max(Number(tokens.expires_in)||3600,60),31536000)*1000,requiresReauthorization:false};
   const sealed=await encodeAppOAuth(env,s.org_id,s.app_id,s.owner_id,s.connection_name,next);
-  const saved=await env.DB.prepare(`UPDATE hx_app_connections SET token=?9 WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4 AND version=?5 AND endpoint=?6 AND method=?7 AND token=?8 AND enabled=1`)
+  if(!await ownerMayManage())return fail();
+  const saved=await env.DB.prepare(`UPDATE hx_app_connections SET token=?9 WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4 AND version=?5 AND endpoint=?6 AND method=?7 AND token=?8 AND enabled=1
+    AND EXISTS(SELECT 1 FROM memberships m JOIN hx_apps a ON a.org_id=m.org_id
+      LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id
+      LEFT JOIN hx_app_person_access person ON person.org_id=a.org_id AND person.app_id=a.id AND person.user_github_id=m.user_github_id
+      WHERE m.org_id=?1 AND m.user_github_id=?3 AND a.id=?2 AND a.deleted_at IS NULL
+        AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+        AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=?3)
+        AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
+        AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)
+        AND (a.created_by=?3 OR person.permission='edit'
+          OR (person.user_github_id IS NULL AND LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin'))))`)
     .bind(s.org_id,s.app_id,s.owner_id,s.connection_name,s.connection_version,s.endpoint,s.method,s.credential_ciphertext,sealed).run().catch(()=>null);
   if(!saved?.meta?.changes)return fail();
   return new Response('<!doctype html><title>Honmaru</title><p>Google連携が完了しました。このタブを閉じてアプリに戻ってください。</p>',{headers});
