@@ -1,11 +1,11 @@
 # Kylonとの機能差分とSimpleを維持する実装方針
 
-更新: 2026-11-12。現在の判定基準は [108項目の要件台帳](kylon-parity/requirements.json) と [機能差分行列](kylon-parity/matrix.md)。main `6184e93043cb0a98e210eb063442fb085a32105e` を確認済み。
+更新: 2026-11-19。現在の判定基準は [119項目の要件台帳](kylon-parity/requirements.json) と [機能差分行列](kylon-parity/matrix.md)。履歴メモは下記の明記がない限り現行の機能状態を表さない。
 
-**現時点で100%互換ではありません。** この文書の以下の項目は2026-10-16時点の履歴であり、現行の実装・優先順位・残差の正本ではありません。現在の差分、検証範囲、未完了事項は上記の108項目台帳・行列・検証記録を参照してください。
+**現時点で100%互換ではありません。** この文書の以下の項目は2026-10-16時点の履歴であり、現行の実装・優先順位・残差の正本ではありません。現在の差分、検証範囲、未完了事項は上記の119項目台帳・行列・検証記録を参照してください。
 
 - [調査結果・以前の判断の修正・実画面の確認範囲](kylon-parity/audit.md)
-- [93項目の機能差分と受入条件](kylon-parity/matrix.md)
+- [機能差分と受入条件](kylon-parity/matrix.md)
 - [機械可読の要件台帳](kylon-parity/requirements.json)
 - [Simpleを保つ設計と実装順](kylon-parity/architecture.md)
 - [取得した公式資料のURL・ハッシュ](kylon-parity/sources.json)

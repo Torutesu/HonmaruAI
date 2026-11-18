@@ -1738,6 +1738,21 @@
         "verified": "Kylon公式changelog (2026-11-14) の、人のSend操作までSlack投稿しないDraftを実装。Harnessでのみ有効な明示Agent grant、本人の既存Slack接続、Slackから取得した宛先、会話スコープ・作成者限定のDraft、編集/宛先変更/破棄、DLP警告の明示確認、保存先固定、revision CASによる重複送信防止、claim後の権限再確認、provider結果不明時の再送禁止を実装。Worker slack-drafts.test.js 7/7成功。今回、送信claim直後にgrantが失効する競合をD1 triggerで再現し、最後の権限確認でSlack呼び出し前に拒否することを追加回帰確認。Simple経路は従来のSlack接続挙動を維持。",
         "remaining": "この追加回帰を含むexact-head CI、main CI・本番デプロイと本番の明示Send往復は未確認。認証済みKylonと同じ依頼・宛先変更・Draft確認・Send操作を並べた実画面比較も未完了。"
       }
+    },
+    {
+      "id": "KY-129",
+      "category": "Automations",
+      "requirement": "AI使用量上限で予約実行をスキップした時、Automationを停止せずスレッドへ一度通知して次回予定時刻に再試行",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/changelog/2026-11-15",
+      "code": "worker/src/harness/workflows.js; worker/src/harness/workflowNoticeDelivery.js; worker/src/harness/workflowNoticeGuard.js; worker/src/channels.js; worker/schema.sql; worker/migrations.sql",
+      "acceptance": "予約実行がHonmaruのdeployment-key記録使用量上限に達した時だけ、その回をスキップしてAutomationを有効のまま保ち、次の予定時刻を維持する。連続した上限超過エピソードに対して作成者の現在のsource threadへ一度だけ通知し、ACL・membership・sourceを配信時にも再検証する。上限が回復した後に再超過した場合は新しい通知を出す。Simple経路、BYOK、外部請求、Kylon creditを混同せず、新しい有料サービスを追加しない。Worker全suite、exact-head CI、本番反映と認証済みKylonの同一予約タスク比較を確認する。",
+      "evidence": {
+        "reviewedAt": "2026-11-19",
+        "verified": "Kylon公式2026-11-15 changelogでは、credit不足時にscheduled Automation runをskipし、Automation自体はpauseせず、スレッドに一度通知して次回予定を再開すると説明されている。Honmaruでは既存のworkspace deployment-key recorded-list-price budgetに対して同等の有効状態・次回予定・エピソード単位通知を実装し、Kylon creditsや請求額とは区別した。回帰テストとmigration testは成功。",
+        "remaining": "HonmaruはKylon credit残高を参照せず、workspace deployment-keyの記録トークン概算を使うため完全に同じ課金モデルではない。Worker全suite、exact-head/main CI、migration deploy、production scheduled-run動作と同じ予約タスクによるKylon画面比較が未完了。"
+      }
     }
   ]
 }
