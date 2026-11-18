@@ -85,6 +85,37 @@ test('ACP prompts require a local capability and carry only the configured agent
  expect(got.timeoutMs).toBe(110000);
  expect(got.payload).not.toHaveProperty('command');expect(got.payload).not.toHaveProperty('cwd');
 });
+test('an offline ACP node keeps queued conversation work and resumes it after reconnect',async()=>{
+ const {gateway,token}=await node();
+ await claim(token,['acp-v1'],['codex-local']);
+ const context=await browserConversation();
+ await env.DB.prepare('UPDATE hx_gateways SET last_seen_at=?2 WHERE org_id=?1 AND id=?3').bind(orgId,Date.now()-120_000,gateway.id).run();
+ const queued=await enqueueAcpExecution(env.DB,orgId,'9502',{gatewayId:gateway.id,agentKey:'codex-local',prompt:'Review the release notes',conversationContext:context});
+ expect(queued.job).toBeTruthy();
+ const payload=JSON.parse((await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first()).payload);
+ expect(payload.conversationContext).toEqual(context);
+ expect(JSON.parse((await env.DB.prepare('SELECT acp_progress FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first()).acp_progress).title).toContain('reconnect');
+ await expireGatewayJobs(env.DB,Date.now()+2*60*60*1000);
+ expect((await env.DB.prepare('SELECT status FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first()).status).toBe('queued');
+ const resumed=await claim(token,['acp-v1'],['codex-local']);
+ expect(resumed.id).toBe(queued.job.id);
+ const progress=JSON.parse((await env.DB.prepare('SELECT acp_progress FROM hx_gateway_jobs WHERE id=?1').bind(queued.job.id).first()).acp_progress);
+ expect(progress).toMatchObject({kind:'thinking',status:'in_progress'});
+ expect(progress.title).toContain('reconnected');
+ expect((await api('POST',`/jobs/${resumed.id}/finish`,null,{lease:resumed.lease,status:'succeeded',stdout:JSON.stringify({text:'Reviewed.',sessionId:'s-1'}),exitCode:0},token)).status).toBe(200);
+});
+test('an offline ACP task is discarded after its source conversation is revoked',async()=>{
+ const {gateway,token}=await node();
+ await claim(token,['acp-v1'],['codex-local']);
+ const context=await browserConversation();
+ await env.DB.prepare('UPDATE hx_gateways SET last_seen_at=?2 WHERE org_id=?1 AND id=?3').bind(orgId,Date.now()-120_000,gateway.id).run();
+ const queued=await enqueueAcpExecution(env.DB,orgId,'9502',{gatewayId:gateway.id,agentKey:'codex-local',prompt:'Review this page',conversationContext:context});
+ await env.DB.prepare('UPDATE channel_messages SET deleted_at=?3 WHERE org_id=?1 AND id=?2').bind(orgId,context.sourceMessageId,'deleted').run();
+ expect(await claim(token,['acp-v1'],['codex-local'])).toBeNull();
+ const failed=await env.DB.prepare('SELECT status,result FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2').bind(orgId,queued.job.id).first();
+ expect(failed.status).toBe('failed');
+ expect(JSON.parse(failed.result).error).toContain('conversation is no longer authorized');
+});
 test('ACP browser tools require a current conversation source and are bound to that room and thread',async()=>{
  const {gateway,token}=await node();
  await claim(token,['acp-v1'],['codex-local']);

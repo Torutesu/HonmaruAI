@@ -207,9 +207,12 @@ export async function enqueueAcpExecution(db, orgId, me, input) {
   const gatewayId = String(input?.gatewayId || '');
   const agentKey = String(input?.agentKey || '');
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(agentKey)) return error('Invalid local ACP agent key.');
-  const gateway = await db.prepare(`SELECT g.id FROM hx_gateways g JOIN hx_gateway_acp_agents a ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
-    WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL AND g.last_seen_at>?4`).bind(orgId, gatewayId, agentKey, now()-90000).first();
-  if (!gateway) return error('The execution node is offline or does not advertise this ACP agent.', 409);
+  // A configured local Agent may accept work while its node is asleep. The
+  // last advertised ACP key is durable; the claim path still checks that the
+  // same key is present when the node reconnects.
+  const gateway = await db.prepare(`SELECT g.id,g.name,g.last_seen_at AS lastSeenAt FROM hx_gateways g JOIN hx_gateway_acp_agents a ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
+    WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL`).bind(orgId, gatewayId, agentKey).first();
+  if (!gateway) return error('The execution node is revoked or does not advertise this ACP agent.', 409);
   if (typeof input?.prompt !== 'string' || !input.prompt.trim()) return error('ACP prompt is required.');
   // Keep the Simple experience usable even if an administrator enabled this
   // teammate's Harness-only tools earlier. No Workspace data is offered here.
@@ -217,6 +220,10 @@ export async function enqueueAcpExecution(db, orgId, me, input) {
   const workspaceTools = input.workspaceTools === true && harnessMode;
   const browserContext = input.browserContext && typeof input.browserContext === 'object' && !Array.isArray(input.browserContext)
     ? input.browserContext : null;
+  const conversationContext = input.conversationContext && typeof input.conversationContext === 'object' && !Array.isArray(input.conversationContext)
+    ? input.conversationContext : null;
+  if (conversationContext && !(await browserConversationAllowed(db, orgId, me, conversationContext)))
+    return error('The source conversation is no longer authorized.', 403);
   let browserTools = input.browserTools === true && harnessMode && input.conversationTask === true &&
     await browserConversationAllowed(db,orgId,me,browserContext);
   if (workspaceTools) {
@@ -233,7 +240,7 @@ export async function enqueueAcpExecution(db, orgId, me, input) {
   const context = Array.isArray(input.context) ? input.context.slice(-30).map(line => String(line || '').slice(0, 4000)) : [];
   const requestedBrowserIdentity=typeof input.agentId==='string'&&/^[A-Za-z0-9_.:-]{1,160}$/.test(input.agentId)?input.agentId:null;
   const browserIdentity=workspaceTools?acpAgentId:requestedBrowserIdentity||`local-${agentKey}`;
-  const payload = JSON.stringify({ acp: true, agentKey, prompt: input.prompt.slice(0, 48000), ...(typeof input.sessionId === 'string' && input.sessionId.length <= 200 ? { sessionId: input.sessionId } : {}), ...(context.length ? { context } : {}), ...(workspaceTools ? { workspaceTools: true, agentId: acpAgentId } : {}), ...(browserTools ? { browserTools: true, browserIdentity, workspaceId: orgId, browserContext } : {}) });
+  const payload = JSON.stringify({ acp: true, agentKey, prompt: input.prompt.slice(0, 48000), ...(typeof input.sessionId === 'string' && input.sessionId.length <= 200 ? { sessionId: input.sessionId } : {}), ...(context.length ? { context } : {}), ...(conversationContext ? { conversationContext } : {}), ...(workspaceTools ? { workspaceTools: true, agentId: acpAgentId } : {}), ...(browserTools ? { browserTools: true, browserIdentity, workspaceId: orgId, browserContext } : {}) });
   if (new TextEncoder().encode(payload).length > 65536) return error('ACP prompt is too large.', 413);
   const jobId = id();
   const requestId = id();
@@ -243,5 +250,10 @@ export async function enqueueAcpExecution(db, orgId, me, input) {
     .bind(jobId, orgId, gateway.id, me, requestId, payload, now()).run();
   if (!result.meta?.changes) return error('Queue is full or the node was disconnected.', 409);
   const row = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE id = ?1').bind(jobId).first();
+  const online = gateway.lastSeenAt !== null && now() - Number(gateway.lastSeenAt) <= 90_000;
+  const nodeName = String(gateway.name || 'Execution node').slice(0, 60);
+  const progress = { kind: 'thinking', title: online ? `Waiting for ${nodeName} to pick up this task` : `Waiting for ${nodeName} to reconnect`, status: 'pending' };
+  await db.prepare('UPDATE hx_gateway_jobs SET acp_progress=?3,acp_progress_at=?4 WHERE org_id=?1 AND id=?2 AND status=\'queued\'')
+    .bind(orgId, jobId, JSON.stringify(progress), now()).run();
   return success({ job: jobView(row) }, 201);
 }
