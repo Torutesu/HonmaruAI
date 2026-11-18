@@ -1145,6 +1145,12 @@
           "verification": "Workflow and relay-auth suites passed 169/169. A regression changes run input, then submits a rewritten card with the changed argument hash; the original card is restored, exact-argument validation fails, and a fetch spy confirms zero Remote MCP dispatches. Full Worker suite passed 3,625/3,625 tests across 321 files.",
           "remaining": "Exact-head CI, production release, authenticated Kylon comparison and a live provider roundtrip remain pending."
         }
+      },
+      "personalOAuthRequest": {
+        "reviewedAt": "2026-11-19",
+        "scope": "Agent会話では依頼を開始した本人のOAuth Remote MCP接続だけを読み取り専用で自動利用できる。接続の永続Agent/Workflow grantは明示設定のまま、Workflowは既存grantと実行時の承認を引き続き必要とする。Header/API-keyの共有接続、他メンバーのOAuth token、書き込みtoolは自動利用しない。Simple modeは変わらない。",
+        "verification": "追加Worker regressionで本人接続の読取、別メンバーの拒否、未接続時の拒否、接続/切断に伴うtool表示、永続grantを変更しないことを検証。CI待ち。",
+        "remaining": "Gateway経由のライブOAuth tool roundtrip、Provider固有の全操作カテゴリ、複数アカウント本番受入、Kylon画面との実操作比較は未確認。"
       }
     },
     {

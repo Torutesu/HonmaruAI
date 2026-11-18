@@ -338,7 +338,7 @@ test('the agent Connections tab keeps personal grants separate from owner-shared
   await act(async()=>shareNotion().props.onChange({currentTarget:{checked:false}}))
   expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='DELETE'&&r.url.searchParams.get('shareWithAgent')==='1')).toBe(true)
   expect(shareNotion().props.checked).toBe(false)
-  const remoteMcp=()=>tree.root.findByProps({'data-agent-remote-mcp-tool':'search_policy'}).findByProps({'aria-label':'Allow {agent} to use {tool} from {server}'})
+  const remoteMcp=()=>tree.root.findByProps({'data-agent-remote-mcp-tool':'search_policy'}).findByProps({'aria-label':'Grant {agent} persistent access to {tool} from {server}'})
   expect(remoteMcp().props.checked).toBe(false)
   await act(async()=>remoteMcp().props.onChange({currentTarget:{checked:true}}))
   expect(requests.some(r=>r.url.pathname==='/hx/agents/a/apps'&&r.method==='POST'&&r.body.remoteMcpServerId==='remote-1'&&r.body.remoteMcpToolName==='search_policy')).toBe(true)

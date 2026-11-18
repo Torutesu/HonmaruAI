@@ -382,13 +382,15 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
             <span className="row-icon"><Icon name="plug" size={18} /></span>
             <span className="row-main">{connection.name}
               <span className="row-sub">{connection.available
-                ? t('Choose the tools this Agent needs. Write tools require Workflow approval and never run in chat.')
+                ? connection.personalOAuthAccess
+                  ? t('Your own OAuth tools are available in requests you start. Choose persistent Agent and Workflow grants here; writes still require approval.')
+                  : t('Choose persistent Agent and Workflow grants here. Write tools require Workflow approval and never run in chat.')
                 : connection.needsOAuth
                   ? t('Connect your own OAuth account in Tools → Apps before granting this Agent access.')
                 : t('This server has no workspace-approved tools. A workspace admin can refresh its tool list in Tools → Apps.')}</span>
               {connection.available && <span className="hx-agent-mcp-tool-list">{(connection.tools||[]).map(tool=><label className="hx-agent-mcp-tool" key={tool.name} data-agent-remote-mcp-tool={tool.name}>
                 <span><strong>{tool.title}{tool.requiresApproval&&<small> · {t('Workflow approval required')}</small>}</strong>{tool.description&&<small>{tool.description}</small>}</span>
-                <input type="checkbox" aria-label={t('Allow {agent} to use {tool} from {server}', { agent: agent.name, tool: tool.title, server: connection.name })} checked={tool.enabled} disabled={busy!==null} onChange={event=>{
+                <input type="checkbox" aria-label={t('Grant {agent} persistent access to {tool} from {server}', { agent: agent.name, tool: tool.title, server: connection.name })} checked={tool.enabled} disabled={busy!==null} onChange={event=>{
                   const granted=event.currentTarget.checked
                   void act('connection',async()=>{
                     const result=await api.setAgentRemoteMcpTool(agent.id,connection.serverId,tool.name,granted)

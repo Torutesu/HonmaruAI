@@ -4244,6 +4244,9 @@ const table: Record<string, string> = {
   'No enabled App connections are available.': '有効なApp接続がありません。',
   'A selected connection changed or is no longer available. Re-select it before saving.': '選択した接続は変更されたか利用できません。保存前に選び直してください。',
   'connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.': 'connection.request({appId, name, query})は選択したApp接続を通じて制限付きの読み取り要求を送信します。プログラムにURLや認証情報は渡されません。',
+  'Your own OAuth tools are available in requests you start. Choose persistent Agent and Workflow grants here; writes still require approval.': '自分が開始したAgent会話では自分のOAuthツールを読み取り専用で利用できます。ここではAgentとWorkflowへの継続的なアクセスを設定します。書き込みには引き続き承認が必要です。',
+  'Choose persistent Agent and Workflow grants here. Write tools require Workflow approval and never run in chat.': 'ここではAgentとWorkflowへの継続的なアクセスを設定します。書き込みツールはWorkflowの承認が必要で、チャットでは実行されません。',
+  'Grant {agent} persistent access to {tool} from {server}': '{agent}に{server}の{tool}への継続的なアクセスを許可'
 }
 
 export default table
