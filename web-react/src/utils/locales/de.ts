@@ -2471,6 +2471,16 @@ const table: Record<string, string> = {
   'Ask AI': 'KI fragen',
   'Send with {shortcut}': 'Mit {shortcut} senden',
   'Send message': 'Nachricht senden',
+  'App connection source': 'App-Verbindung',
+  'Choose an App': 'App auswählen',
+  'Authorized App connections': 'Freigegebene App-Verbindungen',
+  'Bind existing App connections to this Workflow. The App owner keeps control of the URL and credentials.': 'Vorhandene App-Verbindungen mit diesem Workflow verknüpfen. URL und Zugangsdaten bleiben unter Kontrolle des App-Eigentümers.',
+  'Loading connections…': 'Verbindungen werden geladen…',
+  'Include connection': 'Verbindung einbeziehen',
+  'Writes require a Workflow approval step and are not available in programs yet.': 'Schreibzugriffe benötigen einen Workflow-Freigabeschritt und sind in Programmen noch nicht verfügbar.',
+  'No enabled App connections are available.': 'Keine aktivierten App-Verbindungen verfügbar.',
+  'A selected connection changed or is no longer available. Re-select it before saving.': 'Eine ausgewählte Verbindung wurde geändert oder ist nicht mehr verfügbar. Wähle sie vor dem Speichern erneut aus.',
+  'connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.': 'connection.request({appId, name, query}) sendet begrenzte Leseanfragen über die ausgewählte App-Verbindung. Das Programm erhält weder URL noch Zugangsdaten.',
 }
 
 export default table

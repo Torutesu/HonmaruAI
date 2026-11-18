@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createStateBroker,validateStateRequest,createWorkflowOutputParser} from '../workflow-bridge.mjs';
-import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable,normalizeWorkflowInsert,insertWorkflowTableRow,normalizeWorkflowUpdate,normalizeWorkflowDelete,updateWorkflowTableRow,deleteWorkflowTableRow} from '../workflow-sdk.mjs';
+import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable,normalizeWorkflowInsert,insertWorkflowTableRow,normalizeWorkflowUpdate,normalizeWorkflowDelete,updateWorkflowTableRow,deleteWorkflowTableRow,normalizeWorkflowConnectionRequest,requestWorkflowConnection} from '../workflow-sdk.mjs';
 test('guest cannot choose activation identity or call arbitrary host operations',()=>{
  for(const request of [{id:1,method:'shell',params:{}},{id:1,method:'state.get',params:{runId:'other'}},{id:1,method:'state.set',params:{state:{},expectedRevision:0,owner:'other'}},{id:65,method:'state.get',params:{}}])assert.throws(()=>validateStateRequest(request));
 });
@@ -15,6 +15,31 @@ test('agent.invoke accepts only the bounded prompt, schema and tier contract',()
   {...params,schema:{type:'object',properties:{label:{type:'string',pattern:'x'}},additionalProperties:false}},
  ]) assert.throws(()=>validateStateRequest({id:1,method:'agent.invoke',params:bad}));
  assert.throws(()=>validateStateRequest({id:1,method:'agent.invoke',params:{...params,prompt:'  '}}));
+});
+
+test('connection.request accepts only a named frozen App connection and bounded query data',()=>{
+ const params={appId:'app-1',name:'issues',query:{state:'open',label:['bug','urgent']}};
+ assert.deepEqual(validateStateRequest({id:1,method:'connection.request',params}),{id:1,method:'connection.request',params});
+ for(const bad of [
+  {...params,url:'https://evil.example'}, {...params,method:'POST'}, {...params,body:{title:'x'}},
+  {...params,query:{access_token:'secret'}}, {...params,query:{q:'x'.repeat(20001)}},
+  {...params,query:{filter:{deep:{value:'x'}}}},
+ ])assert.throws(()=>validateStateRequest({id:1,method:'connection.request',params:bad}));
+ assert.throws(()=>validateStateRequest({id:1,method:'connection.request',params:{...params,appId:''}}));
+});
+
+test('Workflow SDK routes App calls only through frozen GET bindings',async()=>{
+ const calls=[],bridge={connectionSources:[{appId:'app-1',name:'issues',method:'GET'}],requestConnection:async input=>{calls.push(input);return {data:[{id:'i-1'}]}}};
+ assert.deepEqual(normalizeWorkflowConnectionRequest({appId:'app-1',name:'issues',query:{state:'open'}}),{appId:'app-1',name:'issues',query:{state:'open'}});
+ assert.deepEqual(await requestWorkflowConnection({appId:'app-1',name:'issues',query:{state:'open'}},bridge),{data:[{id:'i-1'}]});
+ assert.deepEqual(calls,[{appId:'app-1',name:'issues',query:{state:'open'}}]);
+ await assert.rejects(()=>requestWorkflowConnection({appId:'app-2',name:'issues'},bridge),/frozen binding/);
+ await assert.rejects(()=>requestWorkflowConnection({appId:'app-1',name:'issues'},{...bridge,connectionSources:[{appId:'app-1',name:'issues',method:'POST'}]}),/approval step/);
+ assert.throws(()=>normalizeWorkflowConnectionRequest({appId:'app-1',name:'issues',body:{title:'x'}}),/read-only/);
+ assert.throws(()=>normalizeWorkflowConnectionRequest({appId:'app-1',name:'issues',url:'https://example.com'}),/Invalid/);
+ globalThis.__workflowConnectionTestBridge=bridge;
+ try{const sdk=await import('data:text/javascript;base64,'+Buffer.from(workflowSdkSource('globalThis.__workflowConnectionTestBridge')).toString('base64'));assert.deepEqual(await sdk.connection.request({appId:'app-1',name:'issues'}),{data:[{id:'i-1'}]});}
+ finally{delete globalThis.__workflowConnectionTestBridge;}
 });
 
 test('broker serializes writes, rejects duplicate IDs and hides host error details',async()=>{

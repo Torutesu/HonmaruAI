@@ -186,10 +186,36 @@ export async function deleteWorkflowTableRow(input={},bridge=undefined) {
   return bridge.deleteTable(clean);
 }
 
+export function normalizeWorkflowConnectionRequest(input={}) {
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['appId','name','query','body'].includes(key))
+    ||typeof input.appId!=='string'||!input.appId.trim()||input.appId.length>200
+    ||typeof input.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(input.name)||input.body!==undefined)throw Error('Invalid read-only App connection request.');
+  const clean={appId:input.appId,name:input.name};
+  if(input.query!==undefined){
+    const query=input.query;
+    if(!query||typeof query!=='object'||Array.isArray(query)||Object.keys(query).length>100||new TextEncoder().encode(JSON.stringify(query)).length>20000)throw Error('Invalid App connection query.');
+    for(const [key,value] of Object.entries(query)){
+      const values=Array.isArray(value)?value:[value];
+      if(!key||key.length>100||/(token|auth|secret|password|credential|api[-_]?key)/i.test(key)||values.length>100||values.some(item=>!(typeof item==='string'||typeof item==='boolean'||typeof item==='number'&&Number.isFinite(item))))throw Error('Invalid App connection query value.');
+    }
+    clean.query=query;
+  }
+  return clean;
+}
+
+export async function requestWorkflowConnection(input={},bridge=undefined) {
+  const clean=normalizeWorkflowConnectionRequest(input),sources=bridge?.connectionSources||[];
+  const source=sources.find(item=>item.appId===clean.appId&&item.name===clean.name);
+  if(!source)throw Error('This Workflow has no frozen binding for the App connection.');
+  if(source.method!=='GET')throw Error('Writes through App connections require a Workflow approval step.');
+  if(typeof bridge?.requestConnection!=='function')throw Error('App connections are unavailable.');
+  return bridge.requestConnection(clean);
+}
+
 function workflowSdkBaseSource(bridgeExpression = 'undefined') {
   return `const parallel=${parallel.toString()};\nconst pipeline=${pipeline.toString()};\nconst normalizeWorkflowDraft=${normalizeWorkflowDraft.toString()};\nconst normalizeWorkflowAgentCall=${normalizeWorkflowAgentCall.toString()};\nconst invokeWorkflowAgent=${invokeWorkflowAgent.toString()};\nconst workflowBridge=()=>${bridgeExpression};\nexport async function sendMessage(text,options={}){const draft=normalizeWorkflowDraft(text,options);const bridge=workflowBridge();if(typeof bridge?.stageMessage!==\"function\")throw Error(\"Workflow message staging is unavailable.\");return bridge.stageMessage(draft)}\nexport async function agent(prompt,options={}){return invokeWorkflowAgent(prompt,options,workflowBridge())}\nexport {parallel,pipeline};`;
 }
 
 export function workflowSdkSource(bridgeExpression = 'undefined') {
-  return workflowSdkBaseSource(bridgeExpression) + `\nconst normalizeWorkflowQueryOptions=${normalizeWorkflowQueryOptions.toString()};\nconst queryWorkflowTable=${queryWorkflowTable.toString()};\nconst normalizeWorkflowInsert=${normalizeWorkflowInsert.toString()};\nconst insertWorkflowTableRow=${insertWorkflowTableRow.toString()};\nconst validWorkflowRowTarget=${validWorkflowRowTarget.toString()};\nconst normalizeWorkflowUpdate=${normalizeWorkflowUpdate.toString()};\nconst updateWorkflowTableRow=${updateWorkflowTableRow.toString()};\nconst normalizeWorkflowDelete=${normalizeWorkflowDelete.toString()};\nconst deleteWorkflowTableRow=${deleteWorkflowTableRow.toString()};\nconst sdkBridge=workflowBridge();\nexport const table=Object.freeze({query:(options={})=>queryWorkflowTable(options,sdkBridge),insert:(input={})=>insertWorkflowTableRow(input,sdkBridge),update:(input={})=>updateWorkflowTableRow(input,sdkBridge),delete:(input={})=>deleteWorkflowTableRow(input,sdkBridge)});`;
+  return workflowSdkBaseSource(bridgeExpression) + `\nconst normalizeWorkflowQueryOptions=${normalizeWorkflowQueryOptions.toString()};\nconst queryWorkflowTable=${queryWorkflowTable.toString()};\nconst normalizeWorkflowInsert=${normalizeWorkflowInsert.toString()};\nconst insertWorkflowTableRow=${insertWorkflowTableRow.toString()};\nconst validWorkflowRowTarget=${validWorkflowRowTarget.toString()};\nconst normalizeWorkflowUpdate=${normalizeWorkflowUpdate.toString()};\nconst updateWorkflowTableRow=${updateWorkflowTableRow.toString()};\nconst normalizeWorkflowDelete=${normalizeWorkflowDelete.toString()};\nconst deleteWorkflowTableRow=${deleteWorkflowTableRow.toString()};\nconst normalizeWorkflowConnectionRequest=${normalizeWorkflowConnectionRequest.toString()};\nconst requestWorkflowConnection=${requestWorkflowConnection.toString()};\nconst sdkBridge=workflowBridge();\nexport const table=Object.freeze({query:(options={})=>queryWorkflowTable(options,sdkBridge),insert:(input={})=>insertWorkflowTableRow(input,sdkBridge),update:(input={})=>updateWorkflowTableRow(input,sdkBridge),delete:(input={})=>deleteWorkflowTableRow(input,sdkBridge)});\nexport const connection=Object.freeze({request:(input={})=>requestWorkflowConnection(input,sdkBridge)});`;
 }

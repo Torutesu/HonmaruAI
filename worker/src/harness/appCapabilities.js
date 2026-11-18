@@ -203,6 +203,21 @@ export async function invokeConnection(db,orgId,appId,by,input,{env=null,authori
   if(!row)return err('No enabled connection for this account.',404);
   if(input.version!==row.version)return err('Connection changed. Review it before requesting.',409);
   if(!connectionEndpoint(row.endpoint,row.method))return err('Connection is no longer supported.',403);
+  let endpoint=row.endpoint;
+  if(input.query!==undefined){
+    if(row.method!=='GET'||!input.query||typeof input.query!=='object'||Array.isArray(input.query)||Object.keys(input.query).length>100)return err('Only GET connections accept bounded query parameters.');
+    try{
+      const url=new URL(endpoint);
+      for(const [key,raw] of Object.entries(input.query)){
+        if(!key||key.length>100||/(token|auth|secret|password|credential|api[-_]?key)/i.test(key))return err('Connection query contains a reserved credential field.');
+        const values=Array.isArray(raw)?raw:[raw];
+        if(values.length>100||values.some(value=>!(typeof value==='string'||typeof value==='boolean'||typeof value==='number'&&Number.isFinite(value))))return err('Connection query values must be bounded scalar values.');
+        for(const value of values)url.searchParams.append(key,String(value));
+      }
+      if(url.href.length>8000)return err('Connection URL exceeds the request limit.');
+      endpoint=url.href;
+    }catch{return err('Invalid connection query.');}
+  }
   let token=null;
   const openedCredential=row.token?await openConnectionCredential(orgId,appId,by,row.name,row.token):null;
   const oauthCredential=parseAppOAuth(openedCredential);
@@ -236,7 +251,7 @@ export async function invokeConnection(db,orgId,appId,by,input,{env=null,authori
   };
   try {
     if(!await authorize())return finish('failed',err('Connection access changed.',403));
-    const response=await fetch(row.endpoint,{method:row.method,body,redirect:'manual',signal:AbortSignal.timeout(15000),headers:{...(body?{'content-type':'application/json'}:{}),accept:'application/json','user-agent':'HonmaruAI','notion-version':'2026-03-11',...(token?{authorization:`Bearer ${token}`}:{})}});
+    const response=await fetch(endpoint,{method:row.method,body,redirect:'manual',signal:AbortSignal.timeout(15000),headers:{...(body?{'content-type':'application/json'}:{}),accept:'application/json','user-agent':'HonmaruAI','notion-version':'2026-03-11',...(token?{authorization:`Bearer ${token}`}:{})}});
     // The provider may finish after the App, visitor, owner, or grant loses
     // authority. Discard every response before status or body can escape.
     if(!await authorize()) {

@@ -9,6 +9,7 @@ import {workflowProgramSources} from './workflowProgramSources.js';
 import {mayRunAgent} from './agents.js';
 import {addRow,updateRow,deleteRow} from './tables.js';
 import {prepareWorkflowRowEventIfWatched,drainWorkflowRowEvents} from './workflowRowEventDispatch.js';
+import {appConnectionsForViewer} from './appConnectionGrants.js';
 const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
 export const WORKFLOW_PROGRAM_TIMEOUT_MS=15*60*1000;
 export const WORKFLOW_PROGRAM_RESULT_GRACE_MS=30*1000;
@@ -62,6 +63,16 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
    if(!agent||!await mayRunAgent(db,orgId,agent,definition.createdBy))return {status:'failed',error:'A Workflow Agent binding is no longer accessible.'};
   }
  }
+ const connectionSources=step.sourceConnections??[];
+ if(!Array.isArray(connectionSources)||connectionSources.length>20||connectionSources.some(source=>!source||typeof source!=='object'||Array.isArray(source)
+  ||Object.keys(source).sort().join(',')!=='appId,method,name,ownerId,version'||typeof source.appId!=='string'||!source.appId.trim()||source.appId.length>200
+  ||typeof source.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(source.name)||typeof source.ownerId!=='string'||!source.ownerId
+  ||!Number.isSafeInteger(source.version)||source.version<1||source.method!=='GET')||new Set(connectionSources.map(source=>`${source.appId}\0${source.name}`)).size!==connectionSources.length)
+  return {status:'failed',error:'The Workflow App connection bindings are invalid.'};
+ for(const source of connectionSources){
+  const catalog=await appConnectionsForViewer(db,orgId,source.appId,definition.createdBy).catch(()=>({error:'unavailable'}));
+  if(catalog.error||!catalog.connections?.some(item=>item.name===source.name&&String(item.ownerId)===source.ownerId&&Number(item.version)===source.version&&item.method===source.method&&Number(item.enabled)===1))return {status:'failed',error:'A Workflow App connection binding is no longer accessible.'};
+ }
  const tableSources=workflowProgramSources(step);
  if(step.sourceAppId||step.sourceEntityId||step.sourceTableId||step.sourceTables!==undefined){
   if(!step.sourceAppId||!tableSources.length||tableSources.length>20||new Set(tableSources.map(source=>source.entityId)).size!==tableSources.length
@@ -82,7 +93,7 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,run.workflow_id).first();
  const input=run.input?JSON.parse(run.input):null;
  const trigger=workflowProgramTrigger(run.trigger,input);
- const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSources:tableSources.map(item=>({appId:step.sourceAppId,entityId:item.entityId,tableId:item.tableId,...(item.write?{write:true}:{}),...(item.mutate?{mutate:true}:{})}))}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
+ const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSources:tableSources.map(item=>({appId:step.sourceAppId,entityId:item.entityId,tableId:item.tableId,...(item.write?{write:true}:{}),...(item.mutate?{mutate:true}:{})}))}:{}),...(connectionSources.length?{connectionSources}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
  if(new TextEncoder().encode(payload).length>65536)return {status:'failed',error:'Workflow code and input exceed the execution limit.'};
  const nodeId='program',fingerprint=await digest(run.definition),lease=await claimWorkflowNode(db,{orgId,runId,nodeId,fingerprint,effect:true,at,ttl:300000});
  if(lease.status==='done')return lease.result;
