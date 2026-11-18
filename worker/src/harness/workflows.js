@@ -2,7 +2,7 @@ import {normalizeWorkflowCondition,checkpointWorkflowCondition} from './workflow
 import {enqueueWorkflowProgram} from './workflowCodeJobs.js';
 import {recordWorkflowUsage,workflowRunUsage} from './workflowUsage.js';
 import {workflowSourceMayRun} from './workflowSourceAuthority.js';
-import {tryWorkflowNotice} from './workflowNoticeDelivery.js';
+import {clearScheduledBudgetSkip,recordScheduledBudgetSkip,tryWorkflowNotice} from './workflowNoticeDelivery.js';
 import {ensureWorkflowSafety,readWorkflowSafety,workflowBudgetStatus,workflowBudgetWindows,workflowAiBudgetWindows,workflowBudgetReason,recoverWorkflowBudgetPause,pauseWorkflowForBudget,workflowSettlementStatements} from './workflowSafety.js';
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
 import {workflowApprovalClaimAuthority,workflowEffectAuthority} from './workflowEffectAuthority.js';
@@ -1252,8 +1252,16 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
     const budget = await workspaceBudgetAdmission(env.DB, orgId);
     if (!budget.allowed) {
       await stopDeploymentRunsIfBudgetPaused(env.DB, orgId, budget);
+      if(trigger==='schedule'){
+        if(budget.reason==='workspace_ai_budget'){
+          await recordScheduledBudgetSkip(env.DB,orgId,workflow,budget.reason);
+          await tryWorkflowNotice(env,orgId,workflow.id);
+        }
+        return {status:'skipped',reason:budget.reason};
+      }
       return { status: 'paused', reason: budget.reason };
     }
+    if(trigger==='schedule')await clearScheduledBudgetSkip(env.DB,orgId,workflow.id);
   }
   const id = newId("run");
   const admittedAt=now(),windows=workflowBudgetWindows(Date.parse(admittedAt)),aiWindows=workflowAiBudgetWindows(Date.parse(admittedAt));
