@@ -6,7 +6,6 @@ import { enqueueExecution, jobView, readExecution, cancelExecution, nativeBrowse
 import { HARNESS_TOOLS, callHarnessTool } from './mcpTools.js';
 import { mayRunAgent } from './agents.js';
 import { getMode } from './mode.js';
-import { browserConversationAllowed } from './executions.js';
 import { handleRemoteMcpEgressNode, expireRemoteMcpEgress, cancelRemoteMcpEgressForGateway } from './remoteMcpEgress.js';
 // Outbound-only execution nodes. A node token grants access to one workspace's
 // assigned jobs, never to workspace files, agent memories or integration keys.
