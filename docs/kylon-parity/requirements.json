@@ -531,8 +531,15 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/appConversationFeatures.js",
-      "acceptance": "作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。全体Activityの表示・既読・対象会話への移動を統合。独立会話のOSプッシュと実機比較未確認部分は残る"
+      "code": "worker/src/harness/appConversationFeatures.js; web-react/src/components/AppConversationPanel.tsx; web-react/src/utils/locales/{ja,es,fr,de}.ts",
+      "acceptance": "作成元スレッドの履歴・返信・既読を共用。独立アプリ／レコード会話に明示的AI返信・メンション・アプリ内通知・既読同期を追加。全体Activityの表示・既読・対象会話への移動を統合。チャットの表示文言とARIAラベルをアカウント言語に合わせ、作成元・現在の会話日時も選択言語で表示する。独立会話のOSプッシュと認証済み実画面比較未確認部分は残る",
+      "evidence": {
+        "localizedChrome": {
+          "scope": "App and record conversation static UI and ARIA copy uses t() with ja/es/fr/de entries; both inherited-source and current-message timestamps use getLocale(), while dateTime retains the original ISO value. Dynamic titles, authors, message bodies and server error text remain untouched.",
+          "verification": "Focused AppConversationPanel component and translation tests plus the Web production build; verify English and ja/es/fr/de labels and locale-formatted dates for source and current messages.",
+          "remaining": "Authenticated production Kylon side-by-side comparison and independent conversation OS push behavior remain unverified."
+        }
+      }
     },
     {
       "id": "KY-044",
