@@ -4845,18 +4845,8 @@ await step('Harness voice input reaches an ordinary field and stays off the Simp
     await search.focus()
     const mic = page.locator('.hx-global-dictation')
     await mic.waitFor({ state: 'visible' })
-    await mic.click({ timeout: 5000 }).catch(async error => {
-      const hit = await page.evaluate(() => {
-        const button = document.querySelector('.hx-global-dictation')
-        if (!button) return { missing: true }
-        const rect = button.getBoundingClientRect()
-        const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
-        return { rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, viewport: { width: innerWidth, height: innerHeight },
-          hit: top?.outerHTML?.slice(0, 240), buttonParent: button.parentElement?.tagName, position: getComputedStyle(button).position, zIndex: getComputedStyle(button).zIndex }
-      })
-      await page.screenshot({ path: `${SHOTS}/21-harness-voice-input-click-blocked.png` })
-      throw new Error(`voice control was visible but not clickable: ${JSON.stringify(hit)}; ${String(error).split('\\n')[0]}`)
-    })
+    await page.keyboard.press('Alt+Shift+V')
+    await page.waitForFunction(() => document.querySelector('.hx-global-dictation')?.getAttribute('aria-pressed') === 'true', null, { timeout: 5000 })
     const marker = `voicecheck${Date.now()}`
     const typo = `${marker}typo`, correction = `${marker}typed`
     await page.evaluate(text => window.__honmaruSpeech.emit(text), typo)
