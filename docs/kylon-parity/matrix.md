@@ -328,3 +328,8 @@ Kylon公開Memory仕様の「型付き記憶を15〜60日ごとにAgentが再確
 2026-11-18 — 音声入力のHarness全欄展開
 
 Kylonの11月14日changelogで「voice input in every text field」を確認。Focused mic UIをDashboardでHarness表示時だけmountし、既存のSpeechRecognition・アカウント辞書を再利用。個人辞書のヒントは外部へ追加送信しない。会話欄に既存micがある場合は重ねず、Simpleの画面と処理経路は維持。単体4/4・Web全体2072/2072・TypeScript/production build成功。実ブラウザの音声挿入stepはlaptop/phone双方で通過。Harness tourのRoom fixtureには必須guidelinesを追加済み。main E2Eで、route切替時にmount後のfocusinが発生しないと音声コントロールが現れない欠陥を確認。mount時のactiveElement確認を追加し、再テスト・exact-head CI・本番反映は未完了。
+
+
+### 2026-11-19 — HighLevel MCP preset
+
+KylonのHighLevel標準接続を、公式OpenAI互換MCP endpointを使うHarnessプリセットとして追加。既存の per-member OAuth、Gateway、Agent tool grant、Workflow承認を再利用し、Simple modeは変更しない。Harness Apps 59テストとproduction buildは成功。実アカウントでのOAuth、ツール実行、書き込み承認、CIと本番反映は未確認のためpartial。HighLevelの公開機能セット全体をHonmaru専用UIで再実装したものではなく、提供MCP toolsの範囲に依存する。
