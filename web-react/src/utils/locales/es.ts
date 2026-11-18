@@ -2417,6 +2417,14 @@ const table: Record<string, string> = {
   'Could not get an AI answer. Try again.': 'No se pudo obtener una respuesta de IA. Inténtalo de nuevo.',
   'Sources': 'Fuentes',
   'Open source': 'Abrir fuente',
+  'Voice input shortcut': 'Atajo de dictado',
+  'Start or stop dictation in the focused text field.': 'Inicia o detiene el dictado en el campo de texto activo.',
+  'Current voice input shortcut': 'Atajo de dictado actual',
+  'Press a shortcut now. Press Escape to cancel.': 'Pulsa un atajo. Esc para cancelar.',
+  'That shortcut is already in use.': 'Ese atajo ya está en uso.',
+  'Voice input shortcut saved.': 'Atajo de dictado guardado.',
+  'Listening for shortcut…': 'Esperando el atajo…',
+  'Change shortcut': 'Cambiar atajo',
 }
 
 export default table
