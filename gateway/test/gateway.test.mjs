@@ -206,6 +206,36 @@ test('native browser action advertises its dedicated capability and performs one
  assert.deepEqual(JSON.parse(calls[2].body.stdout),{url:'https://example.com',title:'Example',text:'Visible page text'});
  assert.equal(calls[2].body.status,'succeeded');
 });
+test('native browser action aborts in flight when its authorization recheck is revoked',async()=>{
+ const calls=[];let authorizationChecks=0,actionStarted,actionAborted=false,finished=false;
+ const started=new Promise(resolve=>{actionStarted=resolve;});
+ const payload={nativeBrowserAction:true,workspaceId:'org-1',browserIdentity:'agent-1',browserContext:{channel:'room-1',threadId:'thread-1',sourceMessageId:'message-1',requesterLogin:'owner'},browserAction:{type:'click',x:20,y:30}};
+ const pending=processOne(async(path,body)=>{
+  calls.push({path,body});
+  if(path==='claim')return{job:{id:'native-revoked-in-flight',lease:'lease',payload}};
+  if(path==='jobs/native-revoked-in-flight/browser-action'){
+   authorizationChecks++;
+   if(authorizationChecks>1)throw Object.assign(new Error('authorization revoked'),{status:403});
+  }
+  if(path==='jobs/native-revoked-in-flight/finish')finished=true;
+  return{ok:true};
+ },{
+  browserAuthorizationCheckIntervalMs:2,
+  runBrowser:async({signal})=>{
+   actionStarted();
+   await new Promise((resolve,reject)=>{
+    signal.addEventListener('abort',()=>{actionAborted=true;reject(new Error('aborted after revoke'));},{once:true});
+    if(signal.aborted){actionAborted=true;reject(new Error('aborted after revoke'));}
+   });
+   return{clicked:true};
+  },
+ });
+ await started;
+ assert.equal(await pending,true);
+ assert.equal(authorizationChecks,2);
+ assert.equal(actionAborted,true);
+ assert.equal(finished,false);
+});
 test('native screenshot asks the local browser for a bounded visual thumbnail',async()=>{
  const calls=[],payload={nativeBrowserAction:true,workspaceId:'org-1',browserIdentity:'agent-1',browserAction:{type:'screenshot'}};
  await processOne(async(path,body)=>{calls.push({path,body});return path==='claim'?{job:{id:'native-thumbnail',lease:'lease',payload}}:{ok:true};},{runBrowser:async({action})=>{

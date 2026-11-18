@@ -91,7 +91,7 @@ export async function serveRemoteMcpEgress(call, { signal, onError = () => {}, o
   }
 }
 
-export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, runBrowser = runBrowserSessionAction, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000, browserControlPollIntervalMs = 6000 } = {}) {
+export async function processOne(call, { signal, run = runIsolated, runWorkflow = runWorkflowIsolated, runAcpAgent = runAcp, runBrowser = runBrowserSessionAction, acpAgents = {}, retryMs = FINISH_RETRY_MS, heartbeatIntervalMs = 10000, heartbeatGraceMs = 60000, browserControlPollIntervalMs = 6000, browserAuthorizationCheckIntervalMs = 1500 } = {}) {
   const capabilities=['workflow-program-v1'];
   // This is a separate, one-action capability. ACP remains opt-in by the
   // local agent allowlist and does not grant native Harness Agents access.
@@ -113,7 +113,32 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
   const abort = () => cancel.abort();
   signal?.addEventListener('abort', abort, { once: true });
   if (signal?.aborted) abort();
-  let checking = false, leaseLost = false, refused = false, lastHeartbeatAt = Date.now();
+  let checking = false, leaseLost = false, refused = false, browserAuthorizationLost = false, lastHeartbeatAt = Date.now();
+  const runFencedBrowserAction = async (authorizationPath, action, options, parentSignal = cancel.signal) => {
+    const monitorStop = new AbortController();
+    const actionStop = new AbortController();
+    const monitorSignal = AbortSignal.any([monitorStop.signal, parentSignal]);
+    const actionSignal = AbortSignal.any([cancel.signal, parentSignal, actionStop.signal]);
+    const monitor = (async () => {
+      while (!monitorSignal.aborted) {
+        try { await call(authorizationPath, { lease: job.lease }, { signal: monitorSignal }); }
+        catch (error) {
+          if (monitorStop.signal.aborted || parentSignal?.aborted || cancel.signal.aborted) return;
+          if ([401, 403, 409].includes(error?.status)) {
+            browserAuthorizationLost = true;
+            refused = true;
+          }
+          actionStop.abort();
+          cancel.abort();
+          return;
+        }
+        try { await sleep(browserAuthorizationCheckIntervalMs, undefined, { signal: monitorSignal }); }
+        catch { return; }
+      }
+    })();
+    try { return await runBrowser({ ...options, action, signal: actionSignal }); }
+    finally { monitorStop.abort(); await monitor.catch(() => {}); }
+  };
   const heartbeat = setInterval(async () => {
     if (checking) return;
     checking = true;
@@ -145,9 +170,8 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
         const payload=job.payload;
         if(typeof payload.workspaceId!=='string'||typeof payload.browserIdentity!=='string')throw new Error('Invalid browser action identity.');
         const action=validateBrowserAction(payload.browserAction);
-        await call(`jobs/${job.id}/browser-action`,{lease:job.lease},{signal:cancel.signal});
         const browserAction=action.type==='screenshot'?{...action,thumbnail:true}:action;
-        const browserResult=await runBrowser({workspaceId:payload.workspaceId,agentId:payload.browserIdentity,action:browserAction,signal:cancel.signal});
+        const browserResult=await runFencedBrowserAction(`jobs/${job.id}/browser-action`,browserAction,{workspaceId:payload.workspaceId,agentId:payload.browserIdentity});
         let bounded={};
         let screenshotTooLarge=false;
         if(browserResult&&typeof browserResult==='object'&&!Array.isArray(browserResult)){
@@ -176,9 +200,8 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
             try{
               const {controls=[]}=await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,poll:true},{signal:controlSignal});
               for(const action of controls.slice(0,5))await withBrowser(async()=>{
-                await call(`jobs/${job.id}/browser`,{lease:job.lease},{signal:controlSignal});
-                await runBrowser({...browserOptions,action,signal:controlSignal});
-                const frame=await runBrowser({...browserOptions,action:{type:'screenshot'},signal:controlSignal});
+                await runFencedBrowserAction(`jobs/${job.id}/browser`,action,browserOptions,controlSignal);
+                const frame=await runFencedBrowserAction(`jobs/${job.id}/browser`,{type:'screenshot'},browserOptions,controlSignal);
                 if(typeof frame?.image==='string'&&frame.image.length<=2_800_000)
                   await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,image:frame.image},{signal:controlSignal});
               });
@@ -193,11 +216,10 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
         ? await runAcpAgent(job.payload,{...options,acpAgents,
           browserCall: job.payload?.browserTools===true
             ? async (action,{signal}={}) => {
-                await call(`jobs/${job.id}/browser`,{lease:job.lease},{signal:signal||cancel.signal});
                 return withBrowser(async()=>{
-                  const browser={...browserOptions,signal:signal||cancel.signal};
-                  const result=await runBrowser({...browser,action});
-                  const frame=action?.type==='screenshot'&&typeof result?.image==='string'?result:await runBrowser({...browser,action:{type:'screenshot'}});
+                  const parentSignal=signal||cancel.signal;
+                  const result=await runFencedBrowserAction(`jobs/${job.id}/browser`,action,browserOptions,parentSignal);
+                  const frame=action?.type==='screenshot'&&typeof result?.image==='string'?result:await runFencedBrowserAction(`jobs/${job.id}/browser`,{type:'screenshot'},browserOptions,parentSignal);
                   if(typeof frame?.image==='string'&&frame.image.length<=2_800_000){
                     try{await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,image:frame.image},{signal:signal||cancel.signal});}catch{}
                   }
@@ -217,7 +239,7 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
     catch { result = { status: 'failed', stdout: '', stderr: 'The local runtime could not start this execution.', exitCode: null }; }
     controlStop.abort();
     if(controlPump)await controlPump.catch(()=>{});
-    if (leaseLost) return true;
+    if (leaseLost || browserAuthorizationLost) return true;
     // The result is kept until the server has it. A failed upload is tried
     // again, the heartbeat holding the lease meanwhile, rather than the job
     // left to expire as a failure; the code is never run again for it. A
