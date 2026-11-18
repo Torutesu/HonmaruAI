@@ -52,7 +52,10 @@ function validRestoreRows(rows) {
 function readJournalPlan(value) {
   try {
     const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return { operations: parsed, inverseOperations: null, rollbackUnavailableReason: null };
+    // Older journals stored only the forward plan. Their checksum can still
+    // be verified, but they never retained the original data needed to infer
+    // a safe inverse now.
+    if (Array.isArray(parsed)) return { operations: parsed, inverseOperations: null, rollbackUnavailableReason: 'legacy_format' };
     if (parsed?.format === 2 && Array.isArray(parsed.operations)
       && (parsed.inverseOperations === null || Array.isArray(parsed.inverseOperations))
       && (parsed.rollbackUnavailableReason == null || ['snapshot_limit', 'multiple_conversions'].includes(parsed.rollbackUnavailableReason))) {

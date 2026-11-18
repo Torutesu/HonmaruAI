@@ -5,7 +5,7 @@ import worker from '../src/index.js';
 import { createSession,upsertUser,upsertMembership } from '../src/db.js';
 import { generateAction,connectionEndpoint,listAppActionRuns } from '../src/harness/appCapabilities.js';
 import { normalizeAppHostname } from '../src/harness/appHosting.js';
-import { applyMigration, databaseView } from '../src/harness/appDatabase.js';
+import { applyMigration, databaseView, digest } from '../src/harness/appDatabase.js';
 import { setDisplayPreference } from '../src/harness/displayPreferences.js';
 const orgId='personal:company';let owner,member,app;
 const call=(path,token,body)=>worker.fetch(new Request('https://example.com'+path+(body?'':`${path.includes('?')?'&':'?'}orgId=${orgId}`),{method:body?'POST':'GET',headers:{'content-type':'application/json','x-session-token':token},...(body?{body:JSON.stringify({orgId,...body})}:{})}),{...env});
@@ -88,6 +88,22 @@ test('additive migration rollback is an integrity-bound new migration and refuse
  state=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  expect(state.migrations.find(item=>item.id==='add_priority_v1')).toMatchObject({integrityValid:false,plan:null,inverseOperations:null});
  expect(await applyMigration(env.DB,orgId,app,{id:add.id,version:0,operations:add.operations},'1')).toMatchObject({status:409,error:'Migration journal integrity check failed.'});
+});
+test('legacy migration journals remain verifiable but explain that rollback snapshots were never recorded',async()=>{
+ const operations=[{op:'add_columns',entity:'primary',columns:[{name:'Legacy',type:'text'}]}];
+ const applied=await applyMigration(env.DB,orgId,app,{id:'legacy_schema_v1',version:0,operations},'1');
+ expect(applied).toMatchObject({applied:true,version:1});
+ const plan=JSON.stringify(operations);
+ await env.DB.prepare('UPDATE hx_app_migrations SET plan=?1,checksum=?2 WHERE org_id=?3 AND app_id=?4 AND migration_id=?5')
+  .bind(plan,await digest(plan),orgId,app.id,'legacy_schema_v1').run();
+ let state=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
+ expect(state.migrations[0]).toMatchObject({integrityValid:true,plan:operations,inverseOperations:null,rollbackUnavailableReason:'legacy_format'});
+ expect(await applyMigration(env.DB,orgId,app,{id:'legacy_schema_v1',version:0,operations},'1')).toMatchObject({applied:true,replay:true,version:1});
+
+ await env.DB.prepare('UPDATE hx_app_migrations SET plan=?1 WHERE org_id=?2 AND app_id=?3 AND migration_id=?4')
+  .bind(JSON.stringify([{op:'drop_entity',entity:'primary'}]),orgId,app.id,'legacy_schema_v1').run();
+ state=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
+ expect(state.migrations[0]).toMatchObject({integrityValid:false,plan:null,inverseOperations:null,rollbackUnavailableReason:null});
 });
 test('tampered migration journal plans are flagged and cannot be replayed',async()=>{
  const req={action:'migrate',id:'integrity_check_v1',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Memo',type:'text'}]}]};

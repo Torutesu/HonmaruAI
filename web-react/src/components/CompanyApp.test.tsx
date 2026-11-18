@@ -303,6 +303,17 @@ test('database migration history explains when the bounded rollback snapshot was
  act(()=>tree.unmount())
 })
 
+test('database migration history explains legacy rollback limits only for verified journals',async()=>{
+ const legacy={id:'legacy_schema_v1',version:1,checksum:'abcdef1234567890',plan:[{op:'add_columns',entity:'primary',columns:[{name:'Legacy',type:'text'}]}],inverseOperations:null,rollbackUnavailableReason:'legacy_format',createdAt:'2026-11-09T00:00:00.000Z',integrityValid:true}
+ const tampered={...legacy,id:'tampered_legacy',integrityValid:false,plan:null,rollbackUnavailableReason:'legacy_format'}
+ const {tree}=await setup([],{fork:null,version:1,entities:[],migrations:[legacy,tampered]})
+ const history=tree.root.findByProps({'aria-label':'DB変更履歴'})
+ expect(history.findAllByType('p').some(item=>item.children.join('').includes('original data was not saved'))).toBe(true)
+ expect(history.findAllByType('button').some(item=>item.children.join('').includes('ロールバック'))).toBe(false)
+ expect(history.findAllByType('p').some(item=>item.children.join('').includes('tampered_legacy'))).toBe(false)
+ act(()=>tree.unmount())
+})
+
 test('a source-Agent connection grant can be enabled and revoked from the App connection UI',async()=>{
  let shared=false
  const connection={name:'repo_api',version:1,endpoint:'https://api.github.com/user',method:'GET',enabled:1,hasToken:1,ownerId:'9101',owned:true,canShare:true}

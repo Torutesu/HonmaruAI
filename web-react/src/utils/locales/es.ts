@@ -2461,6 +2461,7 @@ const table: Record<string, string> = {
   'Create rollback plan': 'Crear plan de reversión',
   'This migration is too large for a safe rollback snapshot. It was applied, but automatic rollback data was not retained.': 'La migración supera el límite seguro de la copia de reversión. Se aplicó, pero no se conservaron datos para revertirla automáticamente.',
   'This migration converted multiple columns in one table. It was applied, but automatic rollback is unavailable because the schema sequence cannot be safely reversed.': 'La migración convirtió varias columnas de una tabla. Se aplicó, pero no se puede revertir automáticamente porque la secuencia del esquema no puede invertirse de forma segura.',
+  'This migration was recorded before rollback snapshots were available. Its original data was not saved, so automatic rollback cannot be reconstructed safely.': 'Esta migración se registró antes de que hubiera instantáneas de reversión. No se guardaron los datos originales, así que no es posible reconstruir una reversión automática segura.',
   'Creating a new DB change from this migration replaces the current draft. The current input will not be kept. Continue?': 'Crear un cambio de base de datos desde esta migración reemplazará el borrador actual. No se conservará la entrada actual. ¿Continuar?',
   'Migration {id} is ready as a new rollback proposal. Preview it before applying.': 'La migración {id} está lista como una nueva propuesta de reversión. Previsualízala antes de aplicarla.',
   'Message input': 'Entrada del mensaje',
