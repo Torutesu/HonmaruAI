@@ -4227,6 +4227,7 @@ const table: Record<string, string> = {
   'Create rollback plan': '逆変更案を作成',
   'This migration is too large for a safe rollback snapshot. It was applied, but automatic rollback data was not retained.': '安全に保持できる上限を超えるため、適用時に自動ロールバック用データを保存していません。',
   'This migration converted multiple columns in one table. It was applied, but automatic rollback is unavailable because the schema sequence cannot be safely reversed.': '同じテーブルの複数列を変換しました。スキーマの順序を安全に逆戻しできないため、自動ロールバックは利用できません。',
+  'This migration was recorded before rollback snapshots were available. Its original data was not saved, so automatic rollback cannot be reconstructed safely.': 'この変更はロールバック用スナップショットがない旧形式で記録されています。元データが保存されていないため、安全な自動ロールバックは再構築できません。',
   'Creating a new DB change from this migration replaces the current draft. The current input will not be kept. Continue?': 'この変更履歴から新しいDB変更案を作成すると、編集中の案を置き換えます。現在の入力は保持されません。続けますか？',
   'Migration {id} is ready as a new rollback proposal. Preview it before applying.': '変更履歴{id}から新しい逆変更案を用意しました。適用前にプレビューしてください。',
   'Write a message… @ to mention': 'メッセージを入力… @でメンション',
