@@ -3,7 +3,7 @@ import {WorkflowProgramEditor} from './WorkflowProgramEditor'
 import {WorkflowConditionEditor,blankCondition} from './WorkflowConditionEditor'
 import {useT} from '../utils/i18n'
 import {Icon} from './Icon'
-import type {Step,StepType,Table,HarnessApi} from '../utils/harness'
+import type {App,AppEntity,Step,StepType,Table,HarnessApi} from '../utils/harness'
 export interface AgentFace {id:string;handle:string;name:string;emoji?:string|null}
 const STEP_TYPES:StepType[]=['post','agent','connection','add_row','update_row','approval','followup']
 const blankStep=(type:StepType):Step=>({type,...(type==='followup'?{minutes:1440}:{}),...(type==='connection'?{source:'notion',action:'search'}:{})})
@@ -14,8 +14,8 @@ function stepLabel(t: (k: string) => string, type: StepType) {
   } as Record<StepType, string>)[type]
 }
 
-export function StepEditor({ api, step, onChange, onRemove, tables, agents, triggerTable, previousStepType }: {
-  api?:HarnessApi; step: Step; onChange: (s: Step) => void; onRemove: () => void; tables: Table[]; agents: AgentFace[]; triggerTable?: Table; previousStepType?: StepType
+export function StepEditor({ api, step, onChange, onRemove, tables, agents, triggerTable, previousStepType, sourceApps=[] }: {
+  api?:HarnessApi; step: Step; onChange: (s: Step) => void; onRemove: () => void; tables: Table[]; agents: AgentFace[]; triggerTable?: Table; previousStepType?: StepType; sourceApps?:Array<{app:Pick<App,'id'|'name'>;entities:AppEntity[]}>
 }) {
   const t = useT()
   const [mcpConnections,setMcpConnections]=useState<NonNullable<Awaited<ReturnType<NonNullable<HarnessApi>['agentApps']>>['workflowRemoteMcpConnections']>>([])
@@ -30,7 +30,7 @@ export function StepEditor({ api, step, onChange, onRemove, tables, agents, trig
   },[api,step.agentId,step.source,step.type])
   const set = (patch: Partial<Step>) => onChange({ ...step, ...patch })
   const valueTable = step.type === 'add_row' ? tables.find((x) => x.id === step.tableId) : triggerTable
-  if(step.type==='code')return <div className="hx-step">{api?<WorkflowProgramEditor api={api} step={step} onChange={onChange}/>:<pre className="hx-program-source">{step.code}</pre>}<button className="btn-text danger" onClick={onRemove}>{t('Remove step')}</button></div>
+  if(step.type==='code')return <div className="hx-step">{api?<WorkflowProgramEditor api={api} step={step} onChange={onChange} sourceApps={sourceApps}/>:<pre className="hx-program-source">{step.code}</pre>}<button className="btn-text danger" onClick={onRemove}>{t('Remove step')}</button></div>
   return (
     <div className="hx-step">
       <div className="hx-step-head">

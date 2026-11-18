@@ -1,12 +1,13 @@
 import React,{useCallback,useEffect,useRef,useState} from 'react'
-import type {App,AppEntity,Gateway,HarnessApi,Step} from '../utils/harness'
+import type {App,AppConnection,AppEntity,Gateway,HarnessApi,Step} from '../utils/harness'
 import {useT} from '../utils/i18n'
 import {Icon} from './Icon'
 
-export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:HarnessApi;step:Step;onChange:(step:Step)=>void;sourceApps?:Array<{app:App;entities:AppEntity[]}>}) {
- const t=useT(),generation=useRef(0)
+export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:HarnessApi;step:Step;onChange:(step:Step)=>void;sourceApps?:Array<{app:Pick<App,'id'|'name'>;entities:AppEntity[]}>}) {
+ const t=useT(),generation=useRef(0),connectionGeneration=useRef(0)
  const lineNumbers=useRef<HTMLPreElement>(null)
  const [nodes,setNodes]=useState<Gateway[]>([]),[agents,setAgents]=useState<Array<{id:string;handle:string;name:string;emoji?:string|null}>>([]),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ const [connectionAppId,setConnectionAppId]=useState(step.sourceConnections?.[0]?.appId||step.sourceAppId||sourceApps[0]?.app.id||''),[connections,setConnections]=useState<AppConnection[]>([]),[connectionsBusy,setConnectionsBusy]=useState(false),[connectionsError,setConnectionsError]=useState('')
  const load=useCallback(async()=>{
   const token=++generation.current;setBusy(true);setError('')
   try{const [result,availableAgents]=await Promise.all([api.gateways(),api.workflowAgents()]);if(token===generation.current){setNodes(result.gateways.filter(node=>!node.revokedAt));setAgents(availableAgents.agents)}}
@@ -14,12 +15,25 @@ export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:Har
   finally{if(token===generation.current)setBusy(false)}
  },[api])
  useEffect(()=>{void load();return()=>{generation.current++}},[load])
+ useEffect(()=>{
+  const appId=connectionAppId,token=++connectionGeneration.current
+  if(!appId){setConnections([]);setConnectionsError('');return()=>{connectionGeneration.current++}}
+  if(typeof api.appConnections!=='function'){setConnections([]);setConnectionsBusy(false);setConnectionsError('');return()=>{connectionGeneration.current++}}
+  setConnectionsBusy(true);setConnectionsError('')
+  void api.appConnections(appId).then(result=>{if(token===connectionGeneration.current)setConnections(result.connections||[])}).catch(reason=>{if(token===connectionGeneration.current){setConnections([]);setConnectionsError(reason instanceof Error?reason.message:String(reason))}}).finally(()=>{if(token===connectionGeneration.current)setConnectionsBusy(false)})
+  return()=>{connectionGeneration.current++}
+ },[api,connectionAppId])
  const bytes=new TextEncoder().encode(step.code||'').length
  const lineCount=(step.code||'').split('\n').length
  const selectedApp=sourceApps.find(choice=>choice.app.id===step.sourceAppId)
  const selectedSources=step.sourceTables??(step.sourceEntityId&&step.sourceTableId?[{entityId:step.sourceEntityId,tableId:step.sourceTableId}]:[])
  const selectedEntityIds=new Set(selectedSources.map(source=>source.entityId))
  const selectedAgentIds=new Set(step.sourceAgents??[])
+ const selectedConnections=step.sourceConnections??[]
+ const setConnection=(connection:AppConnection,checked:boolean)=>{
+  const next=checked?[...selectedConnections.filter(item=>item.appId!==connectionAppId||item.name!==connection.name),{appId:connectionAppId,name:connection.name,ownerId:String(connection.ownerId||''),version:connection.version,method:connection.method}]:selectedConnections.filter(item=>item.appId!==connectionAppId||item.name!==connection.name)
+  onChange({...step,sourceConnections:next.length?next:undefined})
+ }
  const setSources=(entityIds:string[])=>{
   const entities=selectedApp?.entities.filter(entity=>entityIds.includes(entity.key))??[]
   if(!selectedApp||!entities.length){onChange({...step,sourceAppId:undefined,sourceEntityId:undefined,sourceTableId:undefined,sourceTables:undefined});return}
@@ -63,6 +77,24 @@ export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:Har
    {selectedApp&&selectedSources.some(source=>!selectedApp.entities.some(entity=>entity.key===source.entityId))&&<p role="alert">{t('Some selected entities are unavailable. Repair the source before saving.')}</p>}
    {!selectedSources.length&&<p role="alert">{t('Choose at least one App entity.')}</p>}
   </fieldset>}
+  <label className="hx-inline">{t('App connection source')} <select aria-label={t('App connection source')} value={connectionAppId} onChange={event=>setConnectionAppId(event.target.value)}>
+   <option value="">{t('Choose an App')}</option>
+   {connectionAppId&&!sourceApps.some(choice=>choice.app.id===connectionAppId)&&<option value={connectionAppId}>{t('Selected App unavailable')}</option>}
+   {sourceApps.map(choice=><option key={choice.app.id} value={choice.app.id}>{choice.app.name}</option>)}
+  </select></label>
+  <fieldset className="hx-program-sources" aria-label={t('Authorized App connections')}>
+   <legend>{t('Authorized App connections')}</legend>
+   <p className="row-sub">{t('Bind existing App connections to this Workflow. The App owner keeps control of the URL and credentials.')}</p>
+   {connectionsBusy&&<p role="status">{t('Loading connections…')}</p>}
+   {connectionsError&&<p className="form-error" role="alert">{connectionsError}</p>}
+   {!connectionsBusy&&!connectionsError&&connections.filter(item=>Number(item.enabled)===1).map(connection=>{
+    const selected=selectedConnections.some(item=>item.appId===connectionAppId&&item.name===connection.name)
+    const supported=connection.method==='GET'
+    return <label key={`${connection.ownerId||''}:${connection.name}`}><input type="checkbox" aria-label={`${t('Include connection')}: ${connection.name}`} checked={selected} disabled={!supported||!selected&&selectedConnections.length>=20} onChange={event=>setConnection(connection,event.target.checked)}/>{connection.name} · {connection.method}{connection.ownerName?` · ${connection.ownerName}`:''}{!supported?` · ${t('Writes require a Workflow approval step and are not available in programs yet.')}`:''}</label>
+   })}
+   {!connectionsBusy&&!connectionsError&&!connections.some(item=>Number(item.enabled)===1)&&<p className="row-sub">{t('No enabled App connections are available.')}</p>}
+   {selectedConnections.filter(item=>item.appId===connectionAppId).some(item=>!connections.some(connection=>connection.name===item.name&&String(connection.ownerId||'')===item.ownerId&&connection.version===item.version&&connection.method===item.method&&Number(connection.enabled)===1))&&<p role="alert">{t('A selected connection changed or is no longer available. Re-select it before saving.')}</p>}
+  </fieldset>
   <fieldset className="hx-program-sources" aria-label={t('Authorized Agents')}>
    <legend>{t('Authorized Agents')}</legend>
    {agents.map(agent=><label key={agent.id}><input type="checkbox" checked={selectedAgentIds.has(agent.id)} disabled={!selectedAgentIds.has(agent.id)&&selectedAgentIds.size>=20} onChange={event=>{const ids=event.target.checked?[...selectedAgentIds,agent.id]:[...selectedAgentIds].filter(id=>id!==agent.id);onChange({...step,sourceAgents:ids.length?ids:undefined})}}/>{agent.emoji?`${agent.emoji} `:''}{agent.name} (@{agent.handle})</label>)}
@@ -70,6 +102,7 @@ export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:Har
    {!selectedAgentIds.size&&<p className="row-sub">{t('Choose Agents that this program may call with agent(prompt, { agentId, schema }).')}</p>}
   </fieldset>
   <p className="row-sub">{t('The table.query helper reads saved App entities. table.insert requires Allow row creation; table.update and table.delete require Allow row updates and deletes. All changes commit only after the program succeeds. No VM network or database access is enabled.')}</p>
+  <p className="row-sub">{t('connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.')}</p>
   <div className="hx-program-code" style={{'--program-gutter':`${Math.max(2,String(lineCount).length)+2}ch`} as React.CSSProperties}>
    <div className="hx-program-gutter" aria-hidden="true"><pre ref={lineNumbers}>{Array.from({length:lineCount},(_,index)=>index+1).join('\n')}</pre></div>
    <textarea className="hx-program-source hx-program-input" aria-label={t('TypeScript source')} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={18} value={step.code||''} onScroll={event=>{if(lineNumbers.current)lineNumbers.current.style.transform=`translateY(-${event.currentTarget.scrollTop}px)`}} onChange={event=>onChange({...step,code:event.target.value})}/>
