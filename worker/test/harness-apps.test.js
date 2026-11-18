@@ -2791,6 +2791,31 @@ test('Google OAuth authorization uses fixed endpoints and stores callback tokens
  }finally{vi.unstubAllGlobals();useSecretKey({});}
 });
 
+test('Google OAuth callback refuses to persist tokens after App edit permission is revoked',async()=>{
+ const {app}=await (await send('POST','/apps',mika,{orgId:ORG,template:'crm',sample:false})).json();
+ await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+ const shared=await send('PUT',`/apps/${app.id}/access`,mika,{orgId:ORG,visibility:'workspace',version:0,people:[{userId:'9101',permission:'edit'}]});
+ expect(shared.status,JSON.stringify(await shared.clone().json())).toBe(200);
+ const {useSecretKey,isSealed}=await import('../src/secrets.js');
+ const keyEnv={...env,APP_WEB_URL:'https://example.com',DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ const fetch=vi.fn(async()=>new Response(JSON.stringify({access_token:'MUST_NOT_BE_STORED',refresh_token:'MUST_NOT_BE_STORED_REFRESH',expires_in:3600}),{headers:{'content-type':'application/json'}}));vi.stubGlobal('fetch',fetch);
+ try{
+  const saved=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'google_api',version:0,endpoint:'https://www.googleapis.com/drive/v3/files',method:'GET',authMode:'oauth',clientId:'1234567890-abcdefgh.apps.googleusercontent.com',clientSecret:'REVOKED_EDITOR_SECRET',scope:'https://www.googleapis.com/auth/drive.readonly'});
+  expect(saved.status).toBe(200);
+  const start=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'oauth_start',name:'google_api'});expect(start.status).toBe(200);
+  const {authorizeUrl}=await start.json();const auth=new URL(authorizeUrl);
+  const before=await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first();
+  const revoked=await send('PUT',`/apps/${app.id}/access`,mika,{orgId:ORG,visibility:'workspace',version:1,people:[{userId:'9101',permission:'view'}]});expect(revoked.status).toBe(200);
+  const callback=await worker.fetch(new Request(`https://example.com/apps/oauth/callback?state=${encodeURIComponent(auth.searchParams.get('state'))}&code=callback-code`),keyEnv);
+  expect(callback.status).toBe(400);
+  expect(fetch).not.toHaveBeenCalled();
+  const after=await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first();
+  expect(isSealed(after.token)).toBe(true);expect(after.token).toBe(before.token);
+ }finally{vi.unstubAllGlobals();useSecretKey({});}
+});
+
 test('failed Google OAuth refresh marks reauthorization required and never starts an external write',async()=>{
  const {app}=await makeDirectAgentApp();
  const {useSecretKey,openField,sealField,aad}=await import('../src/secrets.js');
