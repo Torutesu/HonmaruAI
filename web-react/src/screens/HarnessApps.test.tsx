@@ -521,6 +521,19 @@ test('Remote MCP server settings are available from the Harness Apps library', a
   expect(tree!.root.findByProps({ id: 'remote-mcp-title' }).children).toContain('Remote MCP servers')
   expect(tree!.root.findAllByProps({ className: 'remote-mcp-empty' }).some(node => node.children.includes('No Remote MCP servers connected yet.'))).toBe(true)
 })
+test('HighLevel preset fills the official OpenAI MCP endpoint and per-member OAuth setup', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => ({
+    ok: true,
+    json: async () => input.includes('/orgs/mode') ? { mode: 'harness' } : { servers: [], gateways: [], canManage: true },
+  })))
+  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
+  await act(async () => { tree!.root.findByProps({ 'data-highlevel-preset': true }).findByType('button').props.onClick() })
+  const form = tree!.root.findByProps({ className: 'remote-mcp-form' })
+  expect(form.findAllByType('input').map(node => node.props.value)).toContain('HighLevel')
+  expect(form.findAllByType('input').map(node => node.props.value)).toContain('https://services.leadconnectorhq.com/mcp/openai/v2/')
+  expect(form.findByProps({ 'aria-label': 'Authentication' }).props.value).toBe('oauth')
+  expect(form.findAllByType('input').some(node => node.props.checked)).toBe(true)
+})
 test('public MCP catalog results can be reviewed and selected for the connection form', async () => {
   const registryServer = {
     name: 'io.github.example/calendar', title: 'Calendar MCP', description: 'Manage calendar events', version: '1.2.0',
@@ -543,7 +556,7 @@ test('public MCP catalog results can be reviewed and selected for the connection
   })
   expect(fetchStub.mock.calls.map(([url]) => url)).toContain('https://api.example/remote-mcp/registry?q=calendar&orgId=team%3Aone')
   expect(tree!.root.findByProps({ 'data-registry-server': registryServer.name }).findAllByType('strong')[0].children).toContain('Calendar MCP')
-  await act(async () => { tree!.root.findAllByType('button').find(node => node.children.includes('Use server'))!.props.onClick() })
+  await act(async () => { tree!.root.findByProps({ 'data-registry-server': registryServer.name }).findByType('button').props.onClick() })
   expect(tree!.root.findAllByType('input').map(node => node.props.value)).toContain('Calendar MCP')
   expect(tree!.root.findAllByType('input').map(node => node.props.value)).toContain('https://calendar.example.com/mcp')
   expect(tree!.root.findByProps({ className: 'remote-mcp-message' }).children).toContain('The listing marks these headers as required. Enter credentials yourself; registry examples are never copied.')

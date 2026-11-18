@@ -13,6 +13,10 @@
 .remote-mcp-chevron { transition: transform .16s ease; }
 .remote-mcp-chevron.open { transform: rotate(180deg); }
 .remote-mcp-security, .remote-mcp-form-note { margin: 0; color: var(--st-faint); font-size: 12px; line-height: 1.5; }
+.remote-mcp-highlevel { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid var(--st-line); border-radius: 10px; background: var(--st-field); }
+.remote-mcp-highlevel > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.remote-mcp-highlevel strong { color: var(--st-ink); font-size: 13px; }
+.remote-mcp-highlevel code { overflow: hidden; color: var(--st-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .remote-mcp-catalog { display: flex; flex-direction: column; gap: 9px; padding: 13px; border: 1px solid var(--st-line); border-radius: 10px; background: var(--st-field); }
 .remote-mcp-catalog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .remote-mcp-catalog-heading h3 { margin: 0; color: var(--st-ink); font-size: 13.5px; }
@@ -80,6 +84,7 @@
   .remote-mcp-actions .studio-btn { flex: 1; justify-content: center; }
   .remote-mcp-catalog-grid { grid-template-columns: 1fr; }
   .remote-mcp-catalog-search { align-items: stretch; flex-direction: column; }
+  .remote-mcp-highlevel { align-items: stretch; flex-direction: column; }
   .remote-mcp-header-row { grid-template-columns: 1fr auto; }
   .remote-mcp-header-row input:first-child { grid-column: 1; }
   .remote-mcp-header-row input:nth-child(2) { grid-column: 1; }

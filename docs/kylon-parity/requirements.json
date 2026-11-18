@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-11-18",
+  "asOf": "2026-11-19",
   "baseline": "befb931ab44a78ff34a728422bd117d9293d97d6",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
@@ -1752,6 +1752,21 @@
         "reviewedAt": "2026-11-19",
         "verified": "Kylon公式2026-11-15 changelogでは、credit不足時にscheduled Automation runをskipし、Automation自体はpauseせず、スレッドに一度通知して次回予定を再開すると説明されている。Honmaruでは既存のworkspace deployment-key recorded-list-price budgetに対して同等の有効状態・次回予定・エピソード単位通知を実装し、Kylon creditsや請求額とは区別した。回帰テストとmigration testは成功。",
         "remaining": "HonmaruはKylon credit残高を参照せず、workspace deployment-keyの記録トークン概算を使うため完全に同じ課金モデルではない。Worker全suite、exact-head/main CI、migration deploy、production scheduled-run動作と同じ予約タスクによるKylon画面比較が未完了。"
+      }
+    },
+    {
+      "id": "KY-130",
+      "category": "Connections",
+      "requirement": "HighLevelを公式OpenAI MCP接続として追加し、本人のサインインとAgent単位の権限でCRM操作",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "web-react/src/components/RemoteMcpServers.tsx; worker/src/harness/remoteMcpOAuth.js; worker/src/harness/agentRemoteMcp.js; worker/src/harness/workflows.js",
+      "acceptance": "HarnessのRemote MCP設定からHighLevelの公式OpenAI互換URL https://services.leadconnectorhq.com/mcp/openai/v2/ を選択して追加できる。既存OAuthフローで各メンバーがHighLevelにサインインし、サブアカウントと権限をHighLevel側で承認する。APIキーの新規作成は求めず、既存Gateway経由・ツール発見・管理者が許可したツールのみAgentに公開し、既存書き込み確認・切断を使う。Simple modeは変えない。",
+      "evidence": {
+        "reviewedAt": "2026-11-19",
+        "verified": "Kylon changelog (2026-11-03) のbuilt-in HighLevel connectionとHighLevel公式MCP setup (OpenAI clients) の正規URLを確認。Remote MCP設定のHighLevelプリセットに名前・正規URL・OAuth 2.1自動登録を設定し、既存 per-member OAuth とRemote MCPのGateway/Agent tool grantsを再利用。Harness Apps UIテスト59件、production build成功。",
+        "remaining": "このPRのCI・本番反映と実HighLevelサインイン、tools/list、Agent許可・書き込み承認の実アカウント往復は未確認。HighLevelの全機能を直接複製した専用UIではなく、MCP serverが公開する機能に依存する。"
       }
     }
   ]
