@@ -2420,6 +2420,14 @@ const table: Record<string, string> = {
   'Could not get an AI answer. Try again.': 'Impossible d’obtenir une réponse de l’IA. Réessayez.',
   'Sources': 'Sources',
   'Open source': 'Ouvrir la source',
+  'Voice input shortcut': 'Raccourci de saisie vocale',
+  'Start or stop dictation in the focused text field.': 'Démarrer ou arrêter la dictée dans le champ de texte actif.',
+  'Current voice input shortcut': 'Raccourci de saisie vocale actuel',
+  'Press a shortcut now. Press Escape to cancel.': 'Appuyez sur un raccourci. Échap pour annuler.',
+  'That shortcut is already in use.': 'Ce raccourci est déjà utilisé.',
+  'Voice input shortcut saved.': 'Raccourci de saisie vocale enregistré.',
+  'Listening for shortcut…': 'En attente du raccourci…',
+  'Change shortcut': 'Modifier le raccourci',
 }
 
 export default table
