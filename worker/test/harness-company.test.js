@@ -63,7 +63,7 @@ test('migration replay, conflict, partial failure and private entity ACL',async(
 test('additive migration rollback is an integrity-bound new migration and refuses populated columns',async()=>{
  const add={action:'migrate',id:'add_priority_v1',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Priority',type:'text'}]}]};
  expect(await (await run('database',add)).json()).toMatchObject({applied:true,version:1});
- let state=await databaseView(env.DB,orgId,app);
+ let state=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  const migration=state.migrations[0];
  expect(migration).toMatchObject({id:'add_priority_v1',integrityValid:true,plan:add.operations,inverseOperations:[{op:'drop_empty_column',entity:'primary',column:'priority'}]});
  const rowResponse=await worker.fetch(new Request(`https://example.com/tables/${app.tableId}/rows`,{method:'POST',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,values:{task:'Keep me',priority:'urgent'}})}),{...env});
@@ -79,13 +79,13 @@ test('additive migration rollback is an integrity-bound new migration and refuse
  const rollback={...inverse,action:'migrate',previewChecksum:preview.previewChecksum};
  expect(await (await run('database',rollback)).json()).toMatchObject({applied:true,version:2});
  expect(await (await run('database',rollback)).json()).toMatchObject({replay:true,version:2});
- state=await databaseView(env.DB,orgId,app);
+ state=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  expect(state.entities[0].table.columns.map(column=>column.id)).toEqual(['task']);
  expect(state.migrations[0]).toMatchObject({id:'rollback_add_priority_v1',inverseOperations:[{op:'add_columns',entity:'primary',columns:[{name:'Priority',type:'text'}]}],integrityValid:true});
  const stored=(await (await call(`/tables/${app.tableId}`,owner)).json()).rows[0];
  expect(stored).toMatchObject({id:row.id,values:{task:'Keep me'}});
  await env.DB.prepare("UPDATE hx_app_migrations SET plan=json_set(plan,'$.inverseOperations[0].column','task') WHERE org_id=?1 AND app_id=?2 AND migration_id=?3").bind(orgId,app.id,'add_priority_v1').run();
- state=await databaseView(env.DB,orgId,app);
+ state=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  expect(state.migrations.find(item=>item.id==='add_priority_v1')).toMatchObject({integrityValid:false,plan:null,inverseOperations:null});
  expect(await applyMigration(env.DB,orgId,app,{id:add.id,version:0,operations:add.operations},'1')).toMatchObject({status:409,error:'Migration journal integrity check failed.'});
 });
@@ -121,14 +121,14 @@ test('rename rollback is a checksummed new schema migration and leaves row data 
  let preview=await (await run('database',{action:'preview',...rename})).json();
  expect(preview).toMatchObject({canApply:true,blockerCount:0});
  expect(await (await run('database',{action:'migrate',...rename,previewChecksum:preview.previewChecksum})).json()).toMatchObject({applied:true,version:1});
- let state=await databaseView(env.DB,orgId,app);
+ let state=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  const applied=state.migrations.find(item=>item.id===rename.id);
  expect(applied).toMatchObject({integrityValid:true,inverseOperations:[{op:'rename_column',entity:'primary',column:'task',name:'Task'}]});
  const rollback={id:'rollback_rename_task_v1',version:1,operations:applied.inverseOperations};
  preview=await (await run('database',{action:'preview',...rollback})).json();
  expect(preview).toMatchObject({canApply:true,blockerCount:0});
  expect(await (await run('database',{action:'migrate',...rollback,previewChecksum:preview.previewChecksum})).json()).toMatchObject({applied:true,version:2});
- state=await databaseView(env.DB,orgId,app);
+ state=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  expect(state.entities[0].table.columns).toEqual([{id:'task',name:'Task',type:'text'}]);
  expect(state.migrations.find(item=>item.id===rollback.id)).toMatchObject({integrityValid:true,inverseOperations:[{op:'rename_column',entity:'primary',column:'task',name:'Title'}]});
  const data=await (await call(`/tables/${app.tableId}`,owner)).json();
@@ -143,13 +143,13 @@ test('empty-column conversion rollback restores the prior type through a new pre
  let preview=await (await run('database',{action:'preview',...convert})).json();
  expect(preview).toMatchObject({canApply:true,blockerCount:0});
  expect((await run('database',{action:'migrate',...convert,previewChecksum:preview.previewChecksum})).status).toBe(200);
- let state=await databaseView(env.DB,orgId,app);
+ let state=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  expect(state.migrations.find(item=>item.id===convert.id).inverseOperations).toEqual([{op:'convert_column',entity:'primary',column:'amount',type:'text'}]);
  const rollback={id:'rollback_blank_amount_v1',version:2,operations:state.migrations.find(item=>item.id===convert.id).inverseOperations};
  preview=await (await run('database',{action:'preview',...rollback})).json();
  expect(preview).toMatchObject({canApply:true,blockerCount:0});
  expect((await run('database',{action:'migrate',...rollback,previewChecksum:preview.previewChecksum})).status).toBe(200);
- state=await databaseView(env.DB,orgId,app);
+ state=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  expect(state.entities[0].table.columns.find(column=>column.id==='amount')).toMatchObject({type:'text',name:'Amount'});
  expect(state.migrations.find(item=>item.id===rollback.id)).toMatchObject({integrityValid:true,inverseOperations:[{op:'convert_column',entity:'primary',column:'amount',type:'number'}]});
 });
@@ -600,8 +600,8 @@ test('private preview supports rename, strict conversion and an empty-column dro
  const merged=await (await run('database',{action:'merge_apply',forkId:current.id,revision:current.revision,checksum:review.checksum})).json();
  expect(merged).toMatchObject({merged:true,changed:1,schemaChanged:1});
  expect((await (await call(`/tables/${app.tableId}`,owner)).json()).rows).toMatchObject([{values:{task:42}}]);
- expect((await databaseView(env.DB,orgId,app)).entities[0].table.columns).toEqual([numberColumn]);
- expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({integrityValid:true,inverseOperations:null,plan:[{op:'convert_column',entity:'primary',column:'task',type:'number'},{op:'rename_column',entity:'primary',column:'task',name:'Estimate'}]});
+ expect((await databaseView(env.DB,orgId,app,{includeRollbackOperations:true})).entities[0].table.columns).toEqual([numberColumn]);
+ expect((await databaseView(env.DB,orgId,app,{includeRollbackOperations:true})).migrations[0]).toMatchObject({integrityValid:true,inverseOperations:null,plan:[{op:'convert_column',entity:'primary',column:'task',type:'number'},{op:'rename_column',entity:'primary',column:'task',name:'Estimate'}]});
 });
 
 test('empty-column drop and a new private entity merge with rows under the reviewed receipt',async()=>{
@@ -629,7 +629,7 @@ test('empty-column drop and a new private entity merge with rows under the revie
  expect(live.table.name).toBe('People');
  expect((await call(`/tables/${live.table.id}`,owner)).status).toBe(200);
  expect((await (await call(`/tables/${live.table.id}`,owner)).json()).rows).toMatchObject([{values:{name:'Mika'}}]);
- expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({integrityValid:true,inverseOperations:null});
+ expect((await databaseView(env.DB,orgId,app,{includeRollbackOperations:true})).migrations[0]).toMatchObject({integrityValid:true,inverseOperations:null});
 });
 
 test('private preview can delete an entity after its rows are removed and records the deletion atomically',async()=>{
@@ -653,7 +653,7 @@ test('private preview can delete an entity after its rows are removed and record
  expect((await (run('database')).then(response=>response.json())).entities.some(entity=>entity.key==='people')).toBe(false);
  expect(await env.DB.prepare('SELECT 1 FROM hx_tables WHERE org_id=?1 AND id=?2').bind(orgId,people.table.id).first()).toBeNull();
  expect(await env.DB.prepare('SELECT 1 FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(orgId,people.table.id).first()).toBeNull();
- expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({integrityValid:true,plan:[{op:'drop_entity',entity:'people'}],inverseOperations:null});
+ expect((await databaseView(env.DB,orgId,app,{includeRollbackOperations:true})).migrations[0]).toMatchObject({integrityValid:true,plan:[{op:'drop_entity',entity:'people'}],inverseOperations:null});
 });
 
 test('entity deletion is blocked while records or any Workflow trigger references the entity',async()=>{
@@ -675,13 +675,13 @@ test('entity deletion is blocked while records or any Workflow trigger reference
 test('ordinary migration requires an empty unreferenced entity and journals its destructive plan',async()=>{
  await run('database',{action:'migrate',id:'people_v1',version:0,operations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'},{name:'Status',type:'select',options:['New','Active']}]}]});
  const {entities,version}=await (await run('database')).json(),people=entities.find(entity=>entity.key==='people');
- expect((await databaseView(env.DB,orgId,app)).migrations[0]).toMatchObject({id:'people_v1',inverseOperations:[{op:'drop_entity',entity:'people'}],integrityValid:true});
+ expect((await databaseView(env.DB,orgId,app,{includeRollbackOperations:true})).migrations[0]).toMatchObject({id:'people_v1',inverseOperations:[{op:'drop_entity',entity:'people'}],integrityValid:true});
  const request={id:'drop_people_v2',version,operations:[{op:'drop_entity',entity:'people'}]};
  const preview=await (await run('database',{action:'preview',...request})).json();
  expect(preview).toMatchObject({canApply:true,changes:[{entity:'people',operations:['drop_entity'],rowsScanned:0,rowsChanged:0}]});
  expect(await (await run('database',{action:'migrate',...request,previewChecksum:preview.previewChecksum})).json()).toMatchObject({applied:true,version:2});
  expect((await (await run('database')).json()).entities.some(entity=>entity.key==='people')).toBe(false);
- let journal=await databaseView(env.DB,orgId,app);
+ let journal=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  expect(journal.migrations[0]).toMatchObject({plan:[{op:'drop_entity',entity:'people'}],inverseOperations:[{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'},{name:'Status',type:'select',options:['New','Active']}]}],integrityValid:true});
  const rollback={id:'restore_people_v3',version:2,operations:journal.migrations[0].inverseOperations};
  const restorePreview=await (await run('database',{action:'preview',...rollback})).json();
@@ -690,7 +690,7 @@ test('ordinary migration requires an empty unreferenced entity and journals its 
  const restored=(await (await run('database')).json()).entities.find(entity=>entity.key==='people');
  expect(restored.table.name).toBe('People');
  expect(restored.table.columns).toEqual(people.table.columns);
- journal=await databaseView(env.DB,orgId,app);
+ journal=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  expect(journal.migrations[0]).toMatchObject({id:'restore_people_v3',inverseOperations:[{op:'drop_entity',entity:'people'}],integrityValid:true});
  expect(await env.DB.prepare('SELECT 1 FROM hx_tables WHERE org_id=?1 AND id=?2').bind(orgId,people.table.id).first()).toBeNull();
 });
@@ -704,7 +704,7 @@ test('an empty column deletion can be restored as a new previewed migration',asy
  const preview=await (await run('database',{action:'preview',...drop})).json();
  expect(preview).toMatchObject({canApply:true,blockerCount:0});
  expect((await run('database',{action:'migrate',...drop,previewChecksum:preview.previewChecksum})).status).toBe(200);
- let journal=await databaseView(env.DB,orgId,app);
+ let journal=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  expect(journal.migrations[0]).toMatchObject({inverseOperations:[{op:'add_columns',entity:'primary',columns:[{name:'Status',type:'select',options:['New','Done']}]}],integrityValid:true});
  const rollback={id:'restore_status_v3',version:2,operations:journal.migrations[0].inverseOperations};
  const restorePreview=await (await run('database',{action:'preview',...rollback})).json();
@@ -713,7 +713,7 @@ test('an empty column deletion can be restored as a new previewed migration',asy
  const restored=(await (await run('database')).json()).entities[0].table.columns.find(column=>column.name==='Status');
  expect(restored).toMatchObject({id:'status',type:'select',options:['New','Done']});
  expect((await (await call(`/tables/${app.tableId}`,owner)).json()).rows).toMatchObject([{id:(await inserted.json()).row.id,values:{task:'Keep this record'}}]);
- journal=await databaseView(env.DB,orgId,app);
+ journal=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
  expect(journal.migrations[0]).toMatchObject({id:'restore_status_v3',inverseOperations:[{op:'drop_empty_column',entity:'primary',column:'status'}],integrityValid:true});
 });
 
