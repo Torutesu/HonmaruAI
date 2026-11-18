@@ -1587,6 +1587,12 @@
           "localQA": "Worker test/relay.test.js passed 11/11, including two creator tabs, rejection of the competing tab, takeover after disconnect, stale queued-action suppression, private-room frame visibility, and permission revocation. Exact-head CI and production deployment are pending.",
           "remaining": "This in-process control lease closes the concurrent-tab race in Relay, but does not cancel a browser action already executing on the Mac after a permission revoke. Authenticated production-conversation/multi-room revocation acceptance and same-task Kylon UI comparison remain open."
         },
+        "revocationCancellationIncrement": {
+          "reviewedAt": "2026-11-18",
+          "scope": "Gateway browser actions now recheck their leased Harness authorization every 1.5 seconds while a local action is running. A 401/403/409 aborts the browser AbortSignal and ACP request; the Worker marks the matching running browser job failed, clears its lease, and refuses a late result.",
+          "localQA": "Gateway suite passed 30/30, including an in-flight authorization revocation abort. Worker harness-gateways suite passed 26/26, including revoked membership/ACL terminal failure and late-result rejection. The previous implementation was separately confirmed to leave the revoked job running.",
+          "remaining": "Polling detects revocation with up to a short interval of delay; a click or network request already sent to a remote site cannot be rolled back. Exact-head CI, production deployment, authenticated production acceptance, and same-task Kylon UI comparison remain open."
+        },
         "runtimeSmoke": {
           "reviewedAt": "2026-11-17",
           "environment": "Existing user-owned Mac mini Apple Container 1.5.0 runtime; signed CLI 1.7.1 used only to inspect it. Built browser image honmaru-browser:1655 for this verification; no global install or new paid service.",
@@ -1594,7 +1600,7 @@
           "limitation": "Authenticated production-conversation and multi-room permission/control acceptance, cloud-hosted PC, first-party non-ACP Agent providers, and same-task authenticated Kylon UI comparison remain open. The bounded thumbnail is a viewport overview and small text may need enlargement for legibility."
         }
       },
-      "remaining": "The Mac-owned isolated Chromium runtime has been verified against the public Kylon sandbox page. Cloud-hosted PC and first-party non-ACP Agent providers are not implemented. Authenticated production-conversation/multi-room revocation acceptance, cancellation of a Mac browser action already running when permission is revoked, and a same-task authenticated Kylon UI comparison remain unverified. Automated Relay coverage now verifies exclusive concurrent-tab control, takeover after socket close, and removal of stale queued actions. Simple mode is unchanged; no new contract or billing was added."
+      "remaining": "The Mac-owned isolated Chromium runtime has been verified against the public Kylon sandbox page. Cloud-hosted PC and first-party non-ACP Agent providers are not implemented. Authenticated production-conversation/multi-room revocation acceptance and a same-task authenticated Kylon UI comparison remain unverified. Gateway polling aborts a local action after it detects browser authorization revocation, but a remote click/request already issued cannot be rolled back. Automated Relay coverage verifies exclusive concurrent-tab control, takeover after socket close, and removal of stale queued actions. Simple mode is unchanged; no new contract or billing was added."
     },
     {
       "id": "KY-121",
