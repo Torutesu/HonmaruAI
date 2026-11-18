@@ -657,11 +657,12 @@ test("an Agent request can use the requester's own OAuth Remote MCP read tools w
 
   const { agentRemoteMcpConnections, agentRemoteMcpTools, mayUseAgentRemoteMcp, mayUseAgentRemoteMcpForRequest } =
     await import("../src/harness/agentRemoteMcp.js");
-  const request = { orgId: ORG, agentId, session, serverId, toolName: "read" };
+  const requester = { github_id: "9551" };
+  const request = { orgId: ORG, agentId, session: requester, serverId, toolName: "read" };
   expect(await mayUseAgentRemoteMcp(env, request)).toBe(false);
   expect(await mayUseAgentRemoteMcpForRequest(env, request)).toBe(true);
-  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session })).toHaveLength(1);
-  expect(await agentRemoteMcpConnections(env.DB, { orgId: ORG, agentId, githubId: session.github_id }))
+  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session: requester })).toHaveLength(1);
+  expect(await agentRemoteMcpConnections(env.DB, { orgId: ORG, agentId, githubId: requester.github_id }))
     .toMatchObject([{ available: true, personalOAuthAccess: true, tools: [{ name: "read", enabled: false }] }]);
 
   const { upsertUser, upsertMembership } = await import("../src/db.js");
@@ -674,5 +675,5 @@ test("an Agent request can use the requester's own OAuth Remote MCP read tools w
   await env.DB.prepare("DELETE FROM hx_remote_mcp_oauth_credentials WHERE org_id=?1 AND server_id=?2 AND user_github_id='9551'")
     .bind(ORG, serverId).run();
   expect(await mayUseAgentRemoteMcpForRequest(env, request)).toBe(false);
-  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session })).toEqual([]);
+  expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session: requester })).toEqual([]);
 });
