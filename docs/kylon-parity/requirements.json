@@ -1693,11 +1693,11 @@
       "priority": "P1",
       "source": "https://kylon.io/changelog",
       "code": "web-react/src/components/HarnessVoiceInput.tsx; web-react/src/components/Dashboard.tsx; web-react/src/utils/dictation.ts",
-      "acceptance": "Harnessの検索・フォーム・レコード編集等の全通常テキスト入力とtextareaで、個人の語彙/補正、選択範囲、カーソル、文字数上限を保って音声入力する。パスワード、読み取り専用、無効欄、既に独自マイクを持つ入力は除外し、フォーカス移動/停止・キーボード操作・ダーク/ライト表示を検証。Simple表示には共通コントロールを出さず既存フローを維持。認証済みKylonと同一入力欄で比較し、追加契約・課金なし。",
+      "acceptance": "Harnessの検索・フォーム・レコード編集等の全通常テキスト入力（contenteditable含む）とtextareaで、個人の語彙/補正、選択範囲、カーソル、文字数上限を保って音声入力する。パスワード、読み取り専用、無効欄、既に独自マイクを持つ入力は除外し、フォーカス移動/停止・キーボード操作・ダーク/ライト表示を検証。Simple表示には共通コントロールを出さず既存フローを維持。認証済みKylonと同一入力欄で比較し、追加契約・課金なし。",
       "evidence": {
         "reviewedAt": "2026-11-18",
-        "verified": "HarnessのDashboardにフォーカス連動する共通音声入力を追加。既存SpeechRecognition、個人語彙・補正とHarness APIを再利用し、テキスト/検索/email/url/tel入力とtextareaへ挿入。既存のchat mic、disabled/readonly、passwordや非テキスト型は除外。選択範囲・末尾空白・maxLengthを保持。Simple表示ではコンポーネントをmountしない。単体テスト4/4、Web全体2072/2072、TypeScriptとproduction build成功。ローカルHarness Playwright voice stepはlaptop/phone双方で通過。",
-        "remaining": "Harness tourのRoom fixtureには必須guidelinesを追加済み。PR #1081のexact-head CIとmain CI（Worker shards/E2Eを含む）は成功し、main Web deployも成功。全通常フィールドで発話後5分以内の単一語訂正を学習し、選択範囲の前後が保たれる場合だけ個人辞書へ保存。revision競合時は最新辞書を一度取得して再試行し、同一利用者の端末同期イベントも反映する。一般contenteditable、ネイティブWeb Speechの実マイク/権限挙動、認証済みKylonとの全フィールド同一タスク・Web/Mac比較は未検証。"
+        "verified": "HarnessのDashboardにフォーカス連動する共通音声入力を追加。既存SpeechRecognition、個人語彙・補正とHarness APIを再利用し、テキスト/検索/email/url/tel入力とtextareaへ挿入。既存のchat mic、disabled/readonly、passwordや非テキスト型は除外。選択範囲・末尾空白・maxLengthを保持。Simple表示ではコンポーネントをmountしない。単体テスト4/4、Web全体2072/2072、TypeScriptとproduction build成功。ローカルHarness Playwright voice stepはlaptop/phone双方で通過。 contenteditable=true/plaintext-only欄も対象に加え、選択範囲だけを置換して周辺DOMとインライン装飾を維持し、カーソル位置とinput eventを戻す。Focused unit suite 4/4、Web全体273 files・2,077 tests、TypeScript・production build成功。E2Eにcontenteditableの選択・装飾保持・カーソル復帰を検証するシナリオを追加。",
+        "remaining": "contenteditableのE2Eを含むexact-head CI、main CI、本番Web反映、認証済みKylonとの全フィールド同一タスク・Web/Mac比較、ネイティブWeb Speechの実マイク/権限挙動は未確認。"
       }
     },
     {
