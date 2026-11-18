@@ -4845,7 +4845,18 @@ await step('Harness voice input reaches an ordinary field and stays off the Simp
     await search.focus()
     const mic = page.locator('.hx-global-dictation')
     await mic.waitFor({ state: 'visible' })
-    await mic.click()
+    await mic.click({ timeout: 5000 }).catch(async error => {
+      const hit = await page.evaluate(() => {
+        const button = document.querySelector('.hx-global-dictation')
+        if (!button) return { missing: true }
+        const rect = button.getBoundingClientRect()
+        const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        return { rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, viewport: { width: innerWidth, height: innerHeight },
+          hit: top?.outerHTML?.slice(0, 240), buttonParent: button.parentElement?.tagName, position: getComputedStyle(button).position, zIndex: getComputedStyle(button).zIndex }
+      })
+      await page.screenshot({ path: `${SHOTS}/21-harness-voice-input-click-blocked.png` })
+      throw new Error(`voice control was visible but not clickable: ${JSON.stringify(hit)}; ${String(error).split('\\n')[0]}`)
+    })
     const marker = `voicecheck${Date.now()}`
     const typo = `${marker}typo`, correction = `${marker}typed`
     await page.evaluate(text => window.__honmaruSpeech.emit(text), typo)
@@ -4857,6 +4868,49 @@ await step('Harness voice input reaches an ordinary field and stays off the Simp
       const state = await response.json()
       return state.corrections?.some(item => item.from === typo && item.to === correction)
     }, { api: API, orgId: auth.orgId, token: auth.token, typo, correction }, { timeout: 5000 })
+    await page.evaluate(() => {
+      const editor = document.createElement('div')
+      editor.contentEditable = 'true'
+      editor.setAttribute('aria-label', 'Voice test editor')
+      editor.innerHTML = 'before <strong>draft</strong> after'
+      editor.style.cssText = 'position:fixed;top:120px;left:20px;width:320px;min-height:42px;background:white;color:black;padding:10px;z-index:10'
+      document.body.append(editor)
+      editor.focus()
+      const text = editor.querySelector('strong').firstChild
+      const range = document.createRange()
+      range.setStart(text, 0)
+      range.setEnd(text, 5)
+      const selection = window.getSelection()
+      selection.removeAllRanges()
+      selection.addRange(range)
+    })
+    const editor = page.locator('[aria-label="Voice test editor"]')
+    await page.waitForFunction(() => {
+      const editor = document.querySelector('[aria-label="Voice test editor"]')
+      const button = document.querySelector('.hx-global-dictation')
+      return Boolean(editor && button && Math.abs(button.getBoundingClientRect().right - editor.getBoundingClientRect().right + 3) < 4)
+    }, null, { timeout: 5000 }).catch(async error => {
+      const state = await page.evaluate(() => ({ active: document.activeElement?.getAttribute('aria-label'), isEditable: document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable,
+        button: document.querySelector('.hx-global-dictation')?.getBoundingClientRect().toJSON(), editor: document.querySelector('[aria-label="Voice test editor"]')?.getBoundingClientRect().toJSON() }))
+      throw new Error(`voice control did not follow the contenteditable focus: ${JSON.stringify(state)}; ${String(error).split('\\n')[0]}`)
+    })
+    await mic.click({ timeout: 5000 }).catch(async error => {
+      const state = await page.evaluate(() => {
+        const button = document.querySelector('.hx-global-dictation')
+        const rect = button?.getBoundingClientRect()
+        const hit = rect && document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        return { hit: hit?.outerHTML?.slice(0, 240), button: rect?.toJSON(), editor: document.querySelector('[aria-label="Voice test editor"]')?.getBoundingClientRect().toJSON() }
+      })
+      throw new Error(`contenteditable voice control was not clickable: ${JSON.stringify(state)}; ${String(error).split('\\n')[0]}`)
+    })
+    await page.evaluate(() => window.__honmaruSpeech.emit('final'))
+    if (await editor.textContent() !== 'before final after') throw new Error(`speech did not replace selected contenteditable text: ${await editor.textContent()}`)
+    if (await editor.locator('strong').textContent() !== 'final') throw new Error('dictated text did not preserve the selected inline formatting')
+    const caretAfterSpeech = await page.evaluate(() => {
+      const selection = window.getSelection()
+      return selection?.isCollapsed && selection.anchorNode?.parentElement?.closest('[aria-label="Voice test editor"]') !== null
+    })
+    if (!caretAfterSpeech) throw new Error('contenteditable caret was not restored after dictation')
     await page.screenshot({ path: `${SHOTS}/21-harness-voice-input.png` })
     await setWorkspaceMode('simple', true)
     await page.goto(`${WEB}/?e2eHarnessVoice=simple#/tools`, { waitUntil: 'load' })

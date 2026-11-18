@@ -10,6 +10,9 @@ describe('Harness voice input coverage', () => {
     expect(voiceInputEligible({ tagName: 'input', type: 'text', hidden: true })).toBe(false)
     expect(voiceInputEligible({ tagName: 'textarea', readOnly: true })).toBe(false)
     expect(voiceInputEligible({ tagName: 'textarea', inlineMic: true })).toBe(false)
+    expect(voiceInputEligible({ tagName: 'div', contentEditable: 'true' })).toBe(true)
+    expect(voiceInputEligible({ tagName: 'div', contentEditable: 'plaintext-only' })).toBe(true)
+    expect(voiceInputEligible({ tagName: 'div', contentEditable: 'false' })).toBe(false)
   })
 
   it('replaces a selected range, keeps surrounding text, and places the caret after speech', () => {
