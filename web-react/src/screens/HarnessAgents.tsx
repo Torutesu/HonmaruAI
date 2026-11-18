@@ -377,13 +377,14 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         </div>}
         <div className="rows-title">{t('Remote MCP sources')}</div>
         <p className="row-sub">{t('Read-only tools can be used in Agent conversations. Write tools are granted individually and run only in Workflows after approval.')}</p>
-        <p className="row-sub">{t('Your own connected OAuth account is available for read-only tools in Agent requests you start. The checkboxes below grant persistent Agent and Workflow access.')}</p>
         {remoteMcpConnections === null ? <div className="empty">{t('Loading…')}</div> : remoteMcpConnections.length === 0 ? <div className="studio-empty">{t('No Remote MCP servers are available. A workspace admin can connect one in Tools → Apps.')}</div> : <div className="rows">
           {remoteMcpConnections.map(connection => <section className="row static" key={connection.serverId} data-agent-remote-mcp={connection.serverId}>
             <span className="row-icon"><Icon name="plug" size={18} /></span>
             <span className="row-main">{connection.name}
               <span className="row-sub">{connection.available
-                ? t('Your own OAuth tools are available in requests you start. Choose persistent Agent and Workflow grants here; writes still require approval.')
+                ? connection.personalOAuthAccess
+                  ? t('Your own OAuth tools are available in requests you start. Choose persistent Agent and Workflow grants here; writes still require approval.')
+                  : t('Choose persistent Agent and Workflow grants here. Write tools require Workflow approval and never run in chat.')
                 : connection.needsOAuth
                   ? t('Connect your own OAuth account in Tools → Apps before granting this Agent access.')
                 : t('This server has no workspace-approved tools. A workspace admin can refresh its tool list in Tools → Apps.')}</span>
