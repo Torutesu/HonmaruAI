@@ -1711,8 +1711,8 @@
       "acceptance": "AgentのSlack投稿依頼は接続済みの既存Slackアカウントを使って保存し、作成・表示・編集・破棄ではSlack APIへ投稿しない。Draftを作成した利用者だけが、現在のWorkspace/Agent/Slack grantを再確認した上で明示Sendできる。宛先は本人のSlackから取得した候補に限って変更でき、選択変更ごとにrevisionを更新し、別チャンネルへ移す時は元threadを消去する。Sendでは保存済み宛先とthreadを使い、リクエストから上書きできない。revision CASで二重送信と競合編集を拒否し、送信の不確定結果はunknownにして自動再送しない。Simple mode・既存カード返信を維持し、追加サービス・契約なし。CI、本番反映、Kylonとの同一タスク画面比較を確認する。",
       "evidence": {
         "reviewedAt": "2026-11-18",
-        "verified": "Kylon公式changelog (2026-11-14) は、AgentのSlackメッセージを会話中のdraft cardとして表示し、編集可能、Sendを選ぶまで投稿しないと説明する。HonmaruにはAgent→Slack汎用Draft機能がなく、既存のカード返信は決定済みカードへの人の返信で別経路。Slack Draft実装とテストは進行中。",
-        "remaining": "実装完了、認可・revocation・競合・provider timeoutを含むWorker/Webテスト、exact-head CI、main deploy、実画面のKylon比較と本番受入は未完了。"
+        "verified": "Kylon公式changelog (2026-11-14) の、人のSend操作までSlack投稿しないDraftを実装。Harnessでのみ有効な明示Agent grant、本人の既存Slack接続、Slackから取得した宛先、会話スコープ・作成者限定のDraft、編集/宛先変更/破棄、DLP警告の明示確認、保存先固定、revision CASによる重複送信防止、claim後の権限再確認、provider結果不明時の再送禁止を実装。Worker slack-drafts.test.js 7/7成功。今回、送信claim直後にgrantが失効する競合をD1 triggerで再現し、最後の権限確認でSlack呼び出し前に拒否することを追加回帰確認。Simple経路は従来のSlack接続挙動を維持。",
+        "remaining": "この追加回帰を含むexact-head CI、main CI・本番デプロイと本番の明示Send往復は未確認。認証済みKylonと同じ依頼・宛先変更・Draft確認・Send操作を並べた実画面比較も未完了。"
       }
     }
   ]
