@@ -2426,6 +2426,7 @@ const table: Record<string, string> = {
   'Press a shortcut now. Press Escape to cancel.': 'Tastenkürzel drücken. Mit Esc abbrechen.',
   'That shortcut is already in use.': 'Dieses Tastenkürzel wird bereits verwendet.',
   'Voice input shortcut saved.': 'Diktat-Tastenkürzel gespeichert.',
+  'Could not sync the voice input shortcut. It is saved on this device.': 'Das Diktat-Tastenkürzel konnte nicht synchronisiert werden. Es ist auf diesem Gerät gespeichert.',
   'Listening for shortcut…': 'Warte auf Tastenkürzel…',
   'Change shortcut': 'Tastenkürzel ändern',
 }

@@ -298,7 +298,21 @@ test("the dictation preferences migration is a single executable deploy statemen
   expect(statement).toBeTruthy();
   await env.DB.exec(statement);
   const { results } = await env.DB.prepare("PRAGMA table_info(hx_user_dictation_accounts)").all();
-  expect(results.map(column => column.name)).toEqual(["user_id", "vocabulary", "corrections", "revision", "updated_at"]);
+  expect(results.map(column => column.name)).toEqual(["user_id", "vocabulary", "corrections", "voice_shortcut", "revision", "updated_at"]);
+});
+
+test("upgrades an existing private dictation account with the default voice shortcut", async () => {
+  await env.DB.exec("DROP TABLE hx_user_dictation_accounts");
+  await env.DB.exec("CREATE TABLE hx_user_dictation_accounts (user_id TEXT PRIMARY KEY,vocabulary TEXT NOT NULL DEFAULT '[]',corrections TEXT NOT NULL DEFAULT '[]',revision INTEGER NOT NULL DEFAULT 1,updated_at TEXT NOT NULL)");
+  const statement = deployStatements(migrationsSql).find(line => line.startsWith("ALTER TABLE hx_user_dictation_accounts ADD COLUMN voice_shortcut "));
+  expect(statement).toBeTruthy();
+  await env.DB.exec(statement);
+  const { results } = await env.DB.prepare("PRAGMA table_info(hx_user_dictation_accounts)").all();
+  expect(results.map(column => column.name)).toContain("voice_shortcut");
+  await env.DB.exec("INSERT INTO users(github_id,login,created_at) VALUES ('dictation-upgrade','upgrade','2026-11-01')");
+  await env.DB.exec("INSERT INTO hx_user_dictation_accounts(user_id,vocabulary,corrections,revision,updated_at) VALUES ('dictation-upgrade','[]','[]',2,'2026-11-02')");
+  const { readDictationVocabulary } = await import("../src/harness/dictationVocabulary.js");
+  expect(await readDictationVocabulary(env.DB, "dictation-upgrade")).toMatchObject({ shortcut: "Alt+Shift+V", revision: 2 });
 });
 
 test("dictation migration merges workspace-local dictionaries into private account preferences", async () => {
@@ -318,6 +332,7 @@ test("dictation migration merges workspace-local dictionaries into private accou
   expect(await readDictationVocabulary(env.DB, "dictation-mika")).toEqual({
     vocabulary: ["Product Ops", "Tokyo", "Honmaru"],
     corrections: [{ from: "HQ", to: "Headquarters" }, { from: "honmaru", to: "HONMARU" }],
+    shortcut: "Alt+Shift+V",
     revision: 4,
   });
   expect(await readDictationVocabulary(env.DB, "dictation-toru")).toMatchObject({ vocabulary: ["Toru private term"] });

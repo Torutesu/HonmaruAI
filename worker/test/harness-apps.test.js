@@ -132,22 +132,24 @@ test("voice vocabulary syncs across a member's devices in Simple mode and stays 
   const { upsertMembership } = await import("../src/db.js");
   await upsertMembership(env.DB, "personal:another-workspace", "9102", "member");
   const empty = await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, mika)).json();
-  expect(empty).toEqual({ vocabulary: [], corrections: [], revision: 0 });
+  expect(empty).toEqual({ vocabulary: [], corrections: [], shortcut: "Alt+Shift+V", revision: 0 });
   const { ws: mikaOtherWorkspaceSocket, messages: mikaOtherWorkspaceMessages } = await joined("personal:another-workspace", mika);
   const saved = await send("PUT", "/hx/dictation-vocabulary", mika, {
-    orgId: ORG, vocabulary: [" Honmaru ", "Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], expectedRevision: 0,
+    orgId: ORG, vocabulary: [" Honmaru ", "Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], shortcut: "Ctrl+Alt+Q", expectedRevision: 0,
   });
   expect(saved.status).toBe(200);
-  expect(await saved.json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], revision: 1 });
+  expect(await saved.json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], shortcut: "Ctrl+Alt+Q", revision: 1 });
   const otherWorkspaceEvent = await message(mikaOtherWorkspaceMessages, event => event.name === "dictation_vocabulary_changed");
   expect(otherWorkspaceEvent?.value).toMatchObject({ userId: "9102", revision: 1 });
-  expect(await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, mika)).json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], revision: 1 });
-  expect(await (await get("/hx/dictation-vocabulary?orgId=personal%3Aanother-workspace", mika)).json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], revision: 1 });
-  expect(await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, toru)).json()).toMatchObject({ vocabulary: [], corrections: [], revision: 0 });
-  expect(await (await get(`/hx/dictation-vocabulary?orgId=personal%3Aelsewhere`, outsider)).json()).toMatchObject({ vocabulary: [], corrections: [], revision: 0 });
+  expect(await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, mika)).json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], corrections: [{ from: "honmaru", to: "Honmaru" }], shortcut: "Ctrl+Alt+Q", revision: 1 });
+  expect(await (await get("/hx/dictation-vocabulary?orgId=personal%3Aanother-workspace", mika)).json()).toMatchObject({ vocabulary: ["Honmaru", "Product Ops"], shortcut: "Ctrl+Alt+Q", revision: 1 });
+  expect(await (await get(`/hx/dictation-vocabulary?orgId=${ORG}`, toru)).json()).toMatchObject({ vocabulary: [], corrections: [], shortcut: "Alt+Shift+V", revision: 0 });
+  expect(await (await get(`/hx/dictation-vocabulary?orgId=personal%3Aelsewhere`, outsider)).json()).toMatchObject({ vocabulary: [], corrections: [], shortcut: "Alt+Shift+V", revision: 0 });
 
   const stale = await send("PUT", "/hx/dictation-vocabulary", mika, { orgId: ORG, vocabulary: ["Other"], expectedRevision: 0 });
   expect(stale.status).toBe(409);
+  const conflict = await send("PUT", "/hx/dictation-vocabulary", mika, { orgId: ORG, vocabulary: ["Honmaru"], expectedRevision: 1, shortcut: "Ctrl+R" });
+  expect(conflict.status).toBe(400);
   const tooLong = await send("PUT", "/hx/dictation-vocabulary", mika, { orgId: ORG, vocabulary: ["x".repeat(81)], expectedRevision: 1 });
   expect(tooLong.status).toBe(400);
   expect((await get(`/hx/dictation-vocabulary?orgId=${ORG}`, outsider)).status).toBe(403);

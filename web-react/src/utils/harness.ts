@@ -189,8 +189,8 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     getMode: (signal?:AbortSignal) => call<{ mode: WorkspaceMode; canEdit: boolean; simpleOnly?: boolean; revision?: number }>('GET', '/orgs/mode',undefined,undefined,signal),
     setMode: (mode: WorkspaceMode) => call<{ mode: WorkspaceMode; canEdit: boolean }>('PUT', '/orgs/mode', { mode }),
     setDisplayPreference: (simpleOnly: boolean, expectedRevision: number) => call<{ simpleOnly: boolean; revision: number }>('PUT', '/hx/display-preference', { simpleOnly, expectedRevision }),
-    dictationVocabulary: () => call<{ vocabulary: string[]; corrections:Array<{from:string;to:string}>; revision: number }>('GET', '/hx/dictation-vocabulary'),
-    saveDictationVocabulary: (vocabulary: string[], corrections:Array<{from:string;to:string}>, expectedRevision: number) => call<{ vocabulary: string[]; corrections:Array<{from:string;to:string}>; revision: number }>('PUT', '/hx/dictation-vocabulary', { vocabulary, corrections, expectedRevision }),
+    dictationVocabulary: () => call<{ vocabulary: string[]; corrections:Array<{from:string;to:string}>; shortcut: string; revision: number }>('GET', '/hx/dictation-vocabulary'),
+    saveDictationVocabulary: (vocabulary: string[], corrections:Array<{from:string;to:string}>, expectedRevision: number, shortcut?: string) => call<{ vocabulary: string[]; corrections:Array<{from:string;to:string}>; shortcut: string; revision: number }>('PUT', '/hx/dictation-vocabulary', { vocabulary, corrections, expectedRevision, ...(shortcut ? { shortcut } : {}) }),
 
     templates: () => call<{ templates: Template[] }>('GET', '/apps/templates'),
     templateShares: (id: string) => call<{ shares: TemplateShare[]; canManage: boolean }>('GET', `/apps/${id}/template-shares`),

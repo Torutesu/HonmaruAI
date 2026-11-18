@@ -16,7 +16,16 @@ const profile = { name: 'Synthetic reader', login: 'reader', email: null, locale
 
 async function mount(save: () => Promise<unknown>) {
   vi.stubGlobal('window', new EventTarget())
-  vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => init?.method === 'PUT' ? save() : Promise.resolve({ ok: true, json: async () => profile })))
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    if (url.includes('/hx/dictation-vocabulary')) {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body || '{}'))
+        return Promise.resolve({ ok: true, json: async () => ({ vocabulary: [], corrections: [], shortcut: body.shortcut || 'Alt+Shift+V', revision: 1 }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ vocabulary: [], corrections: [], shortcut: 'Alt+Shift+V', revision: 0 }) })
+    }
+    return init?.method === 'PUT' ? save() : Promise.resolve({ ok: true, json: async () => profile })
+  }))
   const changed = vi.fn()
   let tree!: ReturnType<typeof create>
   await act(async () => { tree = create(<Profile httpBase="https://synthetic.invalid" orgId="org" userId="reader" sessionToken="synthetic" businesses={[]} pendingCount={0} decidedCount={0} onOpen={vi.fn()} onLocaleChange={vi.fn()} onTranslationChange={changed} onSwitchOrg={vi.fn()} onLogout={vi.fn()} onClose={vi.fn()} />) })

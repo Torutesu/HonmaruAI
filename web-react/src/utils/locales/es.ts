@@ -2423,6 +2423,7 @@ const table: Record<string, string> = {
   'Press a shortcut now. Press Escape to cancel.': 'Pulsa un atajo. Esc para cancelar.',
   'That shortcut is already in use.': 'Ese atajo ya está en uso.',
   'Voice input shortcut saved.': 'Atajo de dictado guardado.',
+  'Could not sync the voice input shortcut. It is saved on this device.': 'No se pudo sincronizar el atajo de dictado. Se guardó en este dispositivo.',
   'Listening for shortcut…': 'Esperando el atajo…',
   'Change shortcut': 'Cambiar atajo',
 }
