@@ -2,6 +2,7 @@ import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, expect, test, vi } from 'vitest'
 import { Profile } from './Profile'
+import { displayVoiceShortcut } from '../utils/voiceShortcut'
 
 vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text, changeLocale: vi.fn() }))
 vi.mock('../utils/context', () => ({ getSenderContext: () => '', setSenderContext: vi.fn(), loadSenderContext: async () => '', saveSenderContext: async () => true, MAX_CONTEXT_CHARS: 1000 }))
@@ -47,6 +48,23 @@ test.each(['http', 'network'])('failed %s save stays visibly enabled and does no
   expect(button().props['aria-checked']).toBe(true)
   expect(changed).not.toHaveBeenCalled()
   expect(JSON.stringify(tree.toJSON())).toContain('That did not save.')
+  act(() => tree.unmount())
+})
+
+test('voice input shortcut warns on a reserved chord and saves the next valid chord', async () => {
+  const { tree } = await mount(async () => ({ ok: true }))
+  const change = () => tree.root.findAllByType('button').find(button => button.children.includes('Change shortcut'))!
+  act(() => change().props.onClick())
+  const press = (key: string, modifiers: Partial<{ altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }> = {}) => {
+    const event = new Event('keydown') as KeyboardEvent
+    for (const [name, value] of Object.entries({ key, isComposing: false, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...modifiers })) Object.defineProperty(event, name, { value })
+    window.dispatchEvent(event)
+  }
+  act(() => press('k', { ctrlKey: true }))
+  expect(JSON.stringify(tree.toJSON())).toContain('That shortcut is already in use.')
+  act(() => press('m', { altKey: true, shiftKey: true }))
+  expect(tree.root.findByProps({ 'aria-label': 'Current voice input shortcut' }).children).toContain(displayVoiceShortcut('Alt+Shift+M'))
+  expect(JSON.stringify(tree.toJSON())).toContain('Voice input shortcut saved.')
   act(() => tree.unmount())
 })
 

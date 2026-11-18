@@ -266,6 +266,8 @@
 .row .row-main { flex: 1; min-width: 0; }
 .row .row-sub { display: block; font-size: 12.5px; color: var(--ash); margin-top: 2px; }
 .row .row-value { color: var(--slate); font-size: 14px; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.row-actions kbd { padding: 3px 7px; border: 1px solid var(--bone); border-radius: 6px; background: var(--mist); font: 12px/1.4 var(--font-body); white-space: nowrap; }
 .row .row-icon {
   width: 32px; height: 32px; flex: none;
   display: grid; place-items: center;

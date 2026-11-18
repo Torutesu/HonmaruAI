@@ -4164,6 +4164,14 @@ const table: Record<string, string> = {
   'Could not get an AI answer. Try again.': 'AIの回答を取得できませんでした。もう一度お試しください。',
   'Sources': '情報源',
   'Open source': '情報源を開く',
+  'Voice input shortcut': '音声入力ショートカット',
+  'Start or stop dictation in the focused text field.': 'フォーカス中のテキスト欄で音声入力を開始・停止します。',
+  'Current voice input shortcut': '現在の音声入力ショートカット',
+  'Press a shortcut now. Press Escape to cancel.': '設定するキーを押してください。Escapeキーでキャンセルします。',
+  'That shortcut is already in use.': 'そのショートカットはすでに使われています。',
+  'Voice input shortcut saved.': '音声入力ショートカットを保存しました。',
+  'Listening for shortcut…': 'ショートカットを入力…',
+  'Change shortcut': 'ショートカットを変更',
 }
 
 export default table

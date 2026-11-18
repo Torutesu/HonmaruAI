@@ -4,6 +4,7 @@ import { Icon } from './Icon'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { detectDictationRangeCorrection, dictationAvailable, readDictationCorrections, readDictationVocabulary, startDictation, writeDictationCorrections, writeDictationVocabulary, type Dictation } from '../utils/dictation'
+import { matchesVoiceShortcut, readVoiceShortcut } from '../utils/voiceShortcut'
 
 type TextControl = HTMLInputElement | HTMLTextAreaElement
 type VoiceTarget = TextControl | HTMLElement
@@ -278,6 +279,22 @@ export function HarnessVoiceInput({ userId, api }: { userId: string; api: Dictat
     session.handle = handle
     if (!handle) { session.active = false; sessionRef.current = null; setListening(false); setError(true) }
   }, [stop])
+
+  useEffect(() => {
+    if (!canDictate) return
+    const keydown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.repeat || !matchesVoiceShortcut(event, readVoiceShortcut(userId))) return
+      const active = document.activeElement
+      const activeTarget = voiceTarget(active) ? active : null
+      if (active !== buttonRef.current && activeTarget !== targetRef.current) return
+      if (!targetRef.current?.isConnected) return
+      event.preventDefault()
+      event.stopPropagation()
+      toggle()
+    }
+    document.addEventListener('keydown', keydown, true)
+    return () => document.removeEventListener('keydown', keydown, true)
+  }, [canDictate, toggle, userId])
 
   if (!canDictate || !target || !position || typeof document === 'undefined') return null
   // A viewport-positioned control must escape the workspace's clipping and
