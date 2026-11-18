@@ -115,6 +115,29 @@ test('a grant revoked before Send blocks delivery and DLP warnings require an ex
   expect((await acknowledged.json()).draft.status).toBe('sent');
 });
 
+test('a grant revoked immediately after the send claim is rechecked before Slack is called', async () => {
+  await grantSlack();
+  const draft = await makeDraft({ text: 'Do not send after a mid-flight revocation.' });
+  await env.DB.prepare(`CREATE TRIGGER revoke_slack_draft_grant_after_claim
+    AFTER UPDATE OF status ON hx_slack_drafts
+    WHEN NEW.status='sending' AND OLD.status='pending'
+    BEGIN
+      DELETE FROM hx_agent_slack_draft_grants
+      WHERE org_id=NEW.org_id AND agent_id=NEW.agent_id AND user_github_id=NEW.creator_github_id;
+    END`).run();
+
+  const response = await send('POST', draftSendPath(draft.id), mika,
+    { orgId: ORG, conversation: `ag:${agentId}`, revision: 1 }, { COMPOSIO_API_KEY: 'ck-test' });
+
+  expect(response.status).toBe(409);
+  expect((await response.json()).message).toContain('changed before sending');
+  expect(await env.DB.prepare('SELECT status FROM hx_slack_drafts WHERE org_id=?1 AND id=?2')
+    .bind(ORG, draft.id).first()).toMatchObject({ status: 'pending' });
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_slack_draft_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=\'18102\'')
+    .bind(ORG, agentId).first()).toBeNull();
+  fetchMock.assertNoPendingInterceptors();
+});
+
 test('parallel Send clicks make one Slack call; replay is rejected after the saved revision is consumed', async () => {
   await grantSlack();
   const draft = await makeDraft({text:'One message only.',channel:'C24681357',thread:'1726000000.000100'});
