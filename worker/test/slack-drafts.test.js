@@ -138,6 +138,27 @@ test('a grant revoked immediately after the send claim is rechecked before Slack
   fetchMock.assertNoPendingInterceptors();
 });
 
+test('a DLP rule added after the send claim blocks delivery and releases the draft', async () => {
+  await grantSlack();
+  const draft = await makeDraft({ text: 'Send the ORCHID release note.' });
+  await env.DB.prepare(`CREATE TRIGGER add_dlp_rule_after_slack_claim
+    AFTER UPDATE OF status ON hx_slack_drafts
+    WHEN NEW.status='sending' AND OLD.status='pending'
+    BEGIN
+      INSERT INTO dlp_rules(id,org_id,name,kind,detector,pattern,action,enabled,created_by,created_at,updated_at)
+      VALUES('late-rule',NEW.org_id,'Release names','keywords',NULL,'["Orchid"]','block',1,'18101',datetime('now'),datetime('now'));
+    END`).run();
+
+  const response = await send('POST', draftSendPath(draft.id), mika,
+    { orgId: ORG, conversation: `ag:${agentId}`, revision: 1 }, { COMPOSIO_API_KEY: 'ck-test' });
+
+  expect(response.status).toBe(422);
+  expect((await response.json()).code).toBe('dlp-blocked');
+  expect(await env.DB.prepare('SELECT status,claim_id FROM hx_slack_drafts WHERE org_id=?1 AND id=?2')
+    .bind(ORG, draft.id).first()).toMatchObject({ status: 'pending', claim_id: null });
+  fetchMock.assertNoPendingInterceptors();
+});
+
 test('parallel Send clicks make one Slack call; replay is rejected after the saved revision is consumed', async () => {
   await grantSlack();
   const draft = await makeDraft({text:'One message only.',channel:'C24681357',thread:'1726000000.000100'});
@@ -188,4 +209,15 @@ test('a successful HTTP response with a Composio provider error envelope is not 
   expect(response.status).toBe(202);
   expect((await response.json()).draft.status).toBe('unknown');
   expect((await env.DB.prepare('SELECT status FROM hx_slack_drafts WHERE org_id=?1 AND id=?2').bind(ORG,draft.id).first()).status).not.toBe('sent');
+});
+
+test('a provider response without Slack ok=true is not marked sent', async () => {
+  await grantSlack();
+  const draft = await makeDraft({ text: 'Provider omitted its Slack success flag.' });
+  fetchMock.get('https://backend.composio.dev').intercept({path:'/api/v3/tools/execute/SLACK_SEND_MESSAGE',method:'POST'})
+    .reply(200,{successful:true,data:{message:{ts:'1726000003.000100'}}});
+  const response = await send('POST',draftSendPath(draft.id),mika,
+    {orgId:ORG,conversation:`ag:${agentId}`,revision:1},{COMPOSIO_API_KEY:'ck-test'});
+  expect(response.status).toBe(202);
+  expect((await response.json()).draft.status).toBe('unknown');
 });

@@ -30,6 +30,8 @@ describe('voice input shortcuts', () => {
 
   it('detects collisions with navigation, search, send, and browser shortcuts', () => {
     expect(voiceShortcutConflict('Meta+K')).toBe(true)
+    expect(voiceShortcutConflict('Meta+F')).toBe(true)
+    expect(voiceShortcutConflict('Ctrl+W')).toBe(true)
     expect(voiceShortcutConflict('Ctrl+Shift+V')).toBe(true)
     expect(voiceShortcutConflict(DEFAULT_VOICE_SHORTCUT)).toBe(false)
   })

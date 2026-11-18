@@ -9,7 +9,7 @@ export function slackActionResult(payload) {
   const action = payload?.results?.[0]?.response ?? payload;
   if (action?.successful !== true || action?.error) throw new Error('The Slack action returned a provider error.');
   const data = action.data;
-  if (!data || typeof data !== 'object' || data.ok === false || data.error) {
+  if (!data || typeof data !== 'object' || data.ok !== true || data.error) {
     throw new Error('The Slack action returned an unsuccessful provider response.');
   }
   return data;

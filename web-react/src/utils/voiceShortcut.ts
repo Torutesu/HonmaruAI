@@ -2,8 +2,11 @@ const PREFIX = 'honmaru.dictation.shortcut.v1'
 export const DEFAULT_VOICE_SHORTCUT = 'Alt+Shift+V'
 
 const RESERVED = new Set([
-  'Meta+K', 'Ctrl+K', 'Meta+/', 'Ctrl+/', 'Meta+Shift+O', 'Ctrl+Shift+O',
-  'Meta+Enter', 'Ctrl+Enter', 'Alt+ArrowLeft', 'Alt+ArrowRight', 'Ctrl+Shift+V', 'Meta+Shift+V',
+  'Meta+K','Ctrl+K','Meta+/','Ctrl+/','Meta+Shift+O','Ctrl+Shift+O','Meta+Enter','Ctrl+Enter','Meta+F','Ctrl+F','Meta+U','Ctrl+U',
+  'Meta+Shift+A','Ctrl+Shift+A','Meta+Shift+D','Ctrl+Shift+D','Meta+A','Ctrl+A','Meta+C','Ctrl+C','Meta+V','Ctrl+V','Meta+X','Ctrl+X',
+  'Meta+Z','Ctrl+Z','Meta+Y','Ctrl+Y','Meta+S','Ctrl+S','Meta+P','Ctrl+P','Meta+R','Ctrl+R','Meta+W','Ctrl+W','Meta+T','Ctrl+T',
+  'Meta+N','Ctrl+N','Meta+L','Ctrl+L','Meta+Shift+V','Ctrl+Shift+V','Meta+Shift+I','Ctrl+Shift+I','Meta+Shift+J','Ctrl+Shift+J','Meta+Shift+C','Ctrl+Shift+C',
+  'Alt+ArrowLeft', 'Alt+ArrowRight',
 ])
 
 export type ShortcutEvent = Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>
