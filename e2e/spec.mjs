@@ -4873,7 +4873,7 @@ await step('Harness voice input reaches an ordinary field and stays off the Simp
       editor.contentEditable = 'true'
       editor.setAttribute('aria-label', 'Voice test editor')
       editor.innerHTML = 'before <strong>draft</strong> after'
-      editor.style.cssText = 'position:fixed;top:120px;left:120px;width:360px;min-height:42px;background:white;color:black;padding:10px;z-index:10'
+      editor.style.cssText = 'position:fixed;top:120px;left:20px;width:320px;min-height:42px;background:white;color:black;padding:10px;z-index:10'
       document.body.append(editor)
       editor.focus()
       const text = editor.querySelector('strong').firstChild
