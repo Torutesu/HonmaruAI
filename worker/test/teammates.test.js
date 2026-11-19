@@ -4,6 +4,7 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { watchTeammateRuns } from "../src/channelRoutes.js";
+import {drainAgentFallbackNotifications,recordAgentFallbackState} from '../src/harness/agentFallback.js';
 
 // AI teammates, the way Claude Tag works in Slack: an admin sets Claude up
 // with a key from an account made for it, tools' keys go to Anthropic's vault,
@@ -144,6 +145,34 @@ test('opt-in ACP cloud fallback uses existing Workspace AI when the configured n
  expect(replies.map(reply=>reply.body).join('\n')).toContain('Completed with the existing Workspace model.');
  expect(await env.DB.prepare('SELECT COUNT(*) n FROM hx_gateway_jobs WHERE org_id=?1 AND gateway_id=?2').bind(ORG,gateway.id).first()).toEqual({n:0});
  expect(await env.DB.prepare("SELECT COUNT(*) n FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first()).toEqual({n:0});
+ const agentId=(await env.DB.prepare("SELECT agent_id FROM ai_teammates WHERE org_id=?1 AND provider='acp'").bind(ORG).first()).agent_id;
+ const agentDm=()=>env.DB.prepare('SELECT body,client_id FROM channel_messages WHERE org_id=?1 AND channel=?2 AND author_login=?3 ORDER BY created_at,id').bind(ORG,`ag:${agentId}|toru`,`agent:${agentId}`).all();
+ expect(await env.DB.prepare('SELECT current_state,version FROM hx_agent_fallback_state WHERE org_id=?1 AND agent_id=?2').bind(ORG,agentId).first()).toEqual({current_state:'workspace',version:1});
+ expect((await env.DB.prepare('SELECT state,status FROM hx_agent_fallback_events WHERE org_id=?1 AND agent_id=?2').bind(ORG,agentId).all()).results).toEqual([{state:'workspace',status:'delivered'}]);
+ const switched=await agentDm();
+ expect(switched.results).toHaveLength(1);
+ expect(switched.results[0].body).toContain('switched to Workspace AI');
+ expect(switched.results[0].client_id).toMatch(/^tmp-/);
+ // A reconnect sends the return-to-computer notice before any further task;
+ // duplicate claims do not create duplicate DMs.
+ const claim=()=>worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
+ await claim();
+ const returned=await agentDm();
+ expect(returned.results).toHaveLength(2);
+ expect(returned.results[1].body).toContain('switched back to running there');
+ expect(await env.DB.prepare('SELECT current_state,version FROM hx_agent_fallback_state WHERE org_id=?1 AND agent_id=?2').bind(ORG,agentId).first()).toEqual({current_state:'node',version:2});
+ await claim();
+ expect((await agentDm()).results).toHaveLength(2);
+ expect((await env.DB.prepare('SELECT state,status FROM hx_agent_fallback_events WHERE org_id=?1 AND agent_id=?2 ORDER BY version').bind(ORG,agentId).all()).results).toEqual([{state:'workspace',status:'delivered'},{state:'node',status:'delivered'}]);
+ // A failed live relay leaves the notification durable. Retrying publishes
+ // the same message id and cannot create a duplicate DM.
+ await recordAgentFallbackState(env.DB,{orgId:ORG,agentId,gatewayId:gateway.id,ownerLogin:'toru',state:'workspace',at:Date.now()+1});
+ await drainAgentFallbackNotifications(env,async()=>{throw new Error('relay offline')});
+ expect((await env.DB.prepare('SELECT status FROM hx_agent_fallback_events WHERE org_id=?1 AND agent_id=?2 AND version=3').bind(ORG,agentId).first()).status).toBe('pending');
+ expect((await agentDm()).results).toHaveLength(3);
+ await drainAgentFallbackNotifications(env,async()=>{});
+ expect((await agentDm()).results).toHaveLength(3);
+ expect((await env.DB.prepare('SELECT status FROM hx_agent_fallback_events WHERE org_id=?1 AND agent_id=?2 AND version=3').bind(ORG,agentId).first()).status).toBe('delivered');
 });
 
 test('Grok Bot routine returns a thread task through the one-time completion MCP tool', async () => {

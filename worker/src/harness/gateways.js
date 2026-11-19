@@ -7,6 +7,7 @@ import { HARNESS_TOOLS, callHarnessTool } from './mcpTools.js';
 import { mayRunAgent } from './agents.js';
 import { getMode } from './mode.js';
 import { handleRemoteMcpEgressNode, expireRemoteMcpEgress, cancelRemoteMcpEgressForGateway } from './remoteMcpEgress.js';
+import {restoreAgentsForGateway,drainAgentFallbackNotifications} from './agentFallback.js';
 // Outbound-only execution nodes. A node token grants access to one workspace's
 // assigned jobs, never to workspace files, agent memories or integration keys.
 import { member, json } from './routes.js';
@@ -138,6 +139,14 @@ export async function handleGateways(request, env, url, input) {
           const statements=[db.prepare('DELETE FROM hx_gateway_acp_agents WHERE gateway_id=?1').bind(g.id),...agentKeys.map(key=>db.prepare('INSERT INTO hx_gateway_acp_agents(org_id,gateway_id,agent_key,last_seen_at) VALUES(?1,?2,?3,?4)').bind(g.org_id,g.id,key,at))];
           await db.batch(statements);
         }
+      }
+      // A returning node completes the cloud-to-computer transition even
+      // before another user sends work to that Agent.
+      if ((g.last_seen_at == null || at - Number(g.last_seen_at) > 90_000) && await getMode(db,g.org_id)==='harness') {
+        try {
+          await restoreAgentsForGateway(env,{orgId:g.org_id,gatewayId:g.id,at});
+          await drainAgentFallbackNotifications(env);
+        } catch (err) { console.error('Agent runtime return notification deferred',String(err?.message||err).slice(0,160)); }
       }
       await expireGatewayJobs(db, at, env);
       const lease = secret();
