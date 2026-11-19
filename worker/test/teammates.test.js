@@ -90,7 +90,7 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local'});
  expect(configured.status).toBe(200);
  const teammate=(await configured.json()).teammate;
- expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task',workspaceTools:false});
+ expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task',workspaceTools:false,fallbackToWorkspaceAI:false});
  expect(JSON.stringify(teammate)).not.toContain(token);
  const message=(await (await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:`@${teammate.handle} review this repository`},{TEAMMATE_WATCH_MS:'0'})).json()).message;
  const run=await env.DB.prepare("SELECT * FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first();
@@ -123,6 +123,27 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  expect((await enabled.json()).teammate.workspaceTools).toBe(true);
  const saved=await env.DB.prepare("SELECT remote FROM ai_teammates WHERE org_id=?1 AND provider='acp'").bind(ORG).first();
  expect(JSON.parse(saved.remote).workspaceTools).toBe(true);
+});
+
+test('opt-in ACP cloud fallback uses existing Workspace AI when the configured node is offline',async()=>{
+ const {setMode}=await import('../src/harness/mode.js');await setMode(env.DB,ORG,'harness','9701');
+ const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
+ const {gateway,token}=await registered.json();
+ await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
+ expect((await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:'yes'})).status).toBe(400);
+ const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:true});
+ expect(configured.status).toBe(200);
+ expect((await configured.json()).teammate.fallbackToWorkspaceAI).toBe(true);
+ await env.DB.prepare('UPDATE hx_gateways SET last_seen_at=1 WHERE org_id=?1 AND id=?2').bind(ORG,gateway.id).run();
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(400,{error:{message:'Responses unavailable'}}).times(2);
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,{choices:[{message:{content:'Completed with the existing Workspace model.'}}],usage:{prompt_tokens:8,completion_tokens:6}});
+ const sent=await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:'@acp-agent summarize the launch plan'},{OPENAI_API_KEY:'sk-existing-workspace',TEAMMATE_WATCH_MS:'0'});
+ expect(sent.status).toBe(201);
+ const replies=await thread(toru,(await sent.json()).message.id);
+ expect(replies.map(reply=>reply.body).join('\n')).toContain('execution node is offline');
+ expect(replies.map(reply=>reply.body).join('\n')).toContain('Completed with the existing Workspace model.');
+ expect(await env.DB.prepare('SELECT COUNT(*) n FROM hx_gateway_jobs WHERE org_id=?1 AND gateway_id=?2').bind(ORG,gateway.id).first()).toEqual({n:0});
+ expect(await env.DB.prepare("SELECT COUNT(*) n FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first()).toEqual({n:0});
 });
 
 test('Grok Bot routine returns a thread task through the one-time completion MCP tool', async () => {

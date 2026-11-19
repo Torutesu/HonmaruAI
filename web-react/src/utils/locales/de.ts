@@ -2350,6 +2350,9 @@ const table: Record<string, string> = {
   'Actor': 'Akteur',
   'Allow this ACP agent to use its isolated browser': 'Diesem ACP-Agent den isolierten Browser erlauben',
   'Isolated browser access is available in Harness mode only.': 'Der isolierte Browser ist nur im Harness-Modus verfügbar.',
+  'Use Workspace AI when this execution node is offline': 'Workspace-KI verwenden, wenn dieser Ausführungsknoten offline ist',
+  'Cloud fallback is available in Harness mode only.': 'Cloud-Fallback ist nur im Harness-Modus verfügbar.',
+  'Off by default. When enabled, a disconnected local Agent can answer through the Workspace AI account and its existing usage limits. This may use billable model capacity already configured for this Workspace; it adds no service or subscription. It does not run when access or budget checks deny the request.': 'Standardmäßig deaktiviert. Wenn aktiviert, kann ein getrennter lokaler Agent über das Workspace-KI-Konto und dessen bestehende Nutzungslimits antworten. Dabei kann bereits für diesen Workspace eingerichtete, kostenpflichtige Modellkapazität verbraucht werden; es wird kein Dienst und kein Abonnement hinzugefügt. Bei Ablehnung durch Zugriffs- oder Budgetprüfungen wird der Fallback nicht ausgeführt.',
   'Page text, screenshots, and text entered by this agent are sent to the local ACP agent and its existing provider. Sign-ins persist in this agent’s isolated browser on the execution node.': 'Seitentext, Screenshots und von diesem Agent eingegebener Text werden an den lokalen ACP-Agent und seinen bestehenden Anbieter gesendet. Anmeldungen bleiben im isolierten Browser dieses Agents auf dem Ausführungsknoten gespeichert.',
 
   'Egress Gateway': 'Ausgangs-Gateway',

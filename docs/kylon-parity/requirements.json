@@ -1774,6 +1774,21 @@
         "verified": "Kylon changelog (2026-11-03) のbuilt-in HighLevel connectionとHighLevel公式MCP setup (OpenAI clients) の正規URLを確認。Remote MCP設定のHighLevelプリセットに名前・正規URL・OAuth 2.1自動登録を設定し、既存 per-member OAuth とRemote MCPのGateway/Agent tool grantsを再利用。Harness Apps UIテスト59件、production build成功。",
         "remaining": "このPRのCI・本番反映と実HighLevelサインイン、tools/list、Agent許可・書き込み承認の実アカウント往復は未確認。HighLevelの全機能を直接複製した専用UIではなく、MCP serverが公開する機能に依存する。"
       }
+    },
+    {
+      "id": "KY-131",
+      "category": "Agents",
+      "requirement": "オフラインのローカルAgentをWorkspace AIへフォールバック",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/changelog/2026-11-15",
+      "code": "worker/src/teammates.js; worker/src/channelRoutes.js; web-react/src/components/AiTeammates.tsx",
+      "acceptance": "Kylonの2026-11-15動作ではPC offline/signed-out/provider quota時にCloudへ切替し、切替/復帰をDM通知する。Honmaruでは新規課金を避けるため明示opt-inで既存Workspace AI・日次許可・予算だけを使い、現在のローカルACP heartbeatが90秒超過した場合に限って同一Agent profileの返信をCloudで生成する。予算・権限拒否時はfallbackしない。Simpleを変えず、Local→cloud切替表示、権限失効、二重起動、Provider回復、キャンセルを検証する。",
+      "evidence": {
+        "reviewedAt": "2026-11-19",
+        "verified": "Kylon公式changelog 2026-11-15に、local agent offline/signed-out/quota exhaustion時のdefault-on cloud fallbackと所有者向けswitch/back通知を確認。Honmaruには初期無効のowner settingとoffline-node時の既存Workspace AI fallback、Workspace AI予算と日次allowanceの確認、応答内でfallback理由を明示するコードを追加。新規provider契約・サービスは増やさない。",
+        "remaining": "同一Providerがローカルで認証失敗・quota超過した時の検知とfallback、switch/backのDM通知、再接続時の復帰/重複防止、実機動作・Kylonとの同一タスク比較は未実装。今回の回帰テストとexact-head CI・本番反映も未完了。既存Workspace AI設定の使用料は発生し得るため明示opt-inとし、Kylonのdefault-onとは意図的に異なる。"
+      }
     }
   ]
 }
