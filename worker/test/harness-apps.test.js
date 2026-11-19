@@ -2730,6 +2730,8 @@ test('App connection grant lists only metadata, decrypts as its owner, and revoc
 
 test('workspace admins can review sanitized App connection grants and revoke only the exact grant',async()=>{
  const {app}=await makeDirectAgentApp();
+ await env.DB.prepare("UPDATE hx_apps SET created_by='9102' WHERE org_id=? AND id=?").bind(ORG,app.id).run();
+ await env.DB.prepare("UPDATE hx_app_access SET visibility='private' WHERE org_id=? AND app_id=?").bind(ORG,app.id).run();
  const {useSecretKey,isSealed}=await import('../src/secrets.js');
  const keyEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
  const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
@@ -2746,6 +2748,8 @@ test('workspace admins can review sanitized App connection grants and revoke onl
  const inventory=await review.json();
  expect(inventory.grants).toHaveLength(1);
  expect(inventory.grants[0]).toMatchObject({ownerId:'9102',name:'mika_service',grantedVersion:1,active:1});
+ const privateAppData=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);
+ expect(privateAppData.status).toBe(404);
  expect(JSON.stringify(inventory)).not.toContain('api.github.com');
  expect(JSON.stringify(inventory)).not.toContain('private-secret-path');
  expect(JSON.stringify(inventory)).not.toContain('OWNER_TOKEN_MUST_NOT_APPEAR');
