@@ -1170,8 +1170,12 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/proxy/tools-api",
-      "code": "worker/src/harness/roomHooks.js",
-      "acceptance": "署名検証・仮名顧客単位のInbox/既読・ルーム会話連携。自動返信/メディア取得なし。送信接続・手動返信・実LINE往復は未対応"
+      "code": "worker/src/harness/roomHooks.js; worker/src/harness/lineWebhook.js; worker/src/harness/lineInboxReplies.js; web-react/src/components/RoomWebhooks.tsx; worker/test/room-hooks.test.js; web-react/src/components/RoomWebhooks.test.tsx",
+      "acceptance": "署名検証・仮名顧客単位のInbox/既読・ルーム会話連携。既存LINE Official Accountのチャネルアクセストークンを暗号化保存し、利用者が明示操作した時だけ手動返信を送信する。返信先IDの暗号化、現行ルームメンバー確認、request ID重複排除、LINEが結果を確定しない場合の自動再送禁止を検証する。自動返信/メディア取得は行わず、新しいサービスや契約を追加しない。実LINE往復とKylon実画面比較を別途確認する。",
+      "evidence": {
+        "inProgress": "PR #1117 adds opt-in manual replies through the existing LINE Official Account. Channel access token and reply destination are encrypted with workspace AAD. Replies require current room access, are recorded before the provider call, deduplicate by request ID, retry only after a definitive provider rejection, and remain locked after an uncertain result. Worker and UI regression coverage is included; CI is in progress. Provider delivery is mocked in tests and no real message has been sent.",
+        "remaining": "Exact-head CI, merge/main CI, production migration/deployment, authenticated real LINE send/receive roundtrip, Kylon side-by-side interaction comparison, and multi-user production isolation remain."
+      }
     },
     {
       "id": "KY-082",
