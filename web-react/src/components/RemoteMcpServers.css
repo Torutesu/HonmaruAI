@@ -94,3 +94,12 @@
 .remote-mcp-write-policy input { accent-color: var(--st-accent); }
 .remote-mcp-write-policy small { font-size: 10.5px; line-height: 1.3; }
 @media (max-width: 640px) { .remote-mcp-write-policy { flex-basis: 100%; padding-left: 24px; } }
+.remote-mcp-share { display: flex; flex-direction: column; gap: 9px; margin-top: 11px; padding: 12px; border: 1px solid var(--st-line); border-radius: 9px; background: var(--st-bg); }
+.remote-mcp-share > div:first-child strong, .remote-mcp-share-list > strong { color: var(--st-ink); font-size: 12.5px; }
+.remote-mcp-share p { margin: 4px 0 0; color: var(--st-dim); font-size: 11.5px; line-height: 1.5; }
+.remote-mcp-share-option { display: flex; align-items: center; gap: 8px; min-height: 24px; color: var(--st-ink); font-size: 12px; cursor: pointer; }
+.remote-mcp-share-option input { accent-color: var(--st-accent); }
+.remote-mcp-share-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow: auto; padding: 9px; border: 1px solid var(--st-line); border-radius: 7px; }
+.remote-mcp-share-list small, .remote-mcp-share-footer small { color: var(--st-faint); font-size: 11px; }
+.remote-mcp-share-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+@media (max-width: 640px) { .remote-mcp-share-footer { align-items: stretch; flex-direction: column; } }

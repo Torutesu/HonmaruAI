@@ -387,6 +387,9 @@ ALTER TABLE hx_remote_mcp_oauth_states ADD COLUMN client_secret TEXT NOT NULL DE
 ALTER TABLE hx_remote_mcp_oauth_states ADD COLUMN token_auth_method TEXT NOT NULL DEFAULT 'none';
 ALTER TABLE hx_remote_mcp_oauth_states ADD COLUMN redirect_uri TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS hx_remote_mcp_oauth_states_expiry ON hx_remote_mcp_oauth_states(expires_at);
+CREATE TABLE IF NOT EXISTS hx_remote_mcp_oauth_share_sets (org_id TEXT NOT NULL, server_id TEXT NOT NULL, owner_github_id TEXT NOT NULL, owner_membership_since TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0 CHECK(version>=0), mutation_id TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,server_id,owner_github_id), FOREIGN KEY(org_id,server_id,owner_github_id) REFERENCES hx_remote_mcp_oauth_credentials(org_id,server_id,user_github_id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS hx_remote_mcp_oauth_shares (org_id TEXT NOT NULL, server_id TEXT NOT NULL, owner_github_id TEXT NOT NULL, audience_type TEXT NOT NULL CHECK(audience_type IN ('workspace','member','agent')), audience_id TEXT NOT NULL, audience_membership_since TEXT, created_at TEXT NOT NULL, PRIMARY KEY(org_id,server_id,owner_github_id,audience_type,audience_id), FOREIGN KEY(org_id,server_id,owner_github_id) REFERENCES hx_remote_mcp_oauth_share_sets(org_id,server_id,owner_github_id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS hx_remote_mcp_oauth_shares_member ON hx_remote_mcp_oauth_shares(org_id,audience_type,audience_id,server_id);
 
 CREATE TABLE IF NOT EXISTS hx_workspace_file_origins (org_id TEXT NOT NULL, file_id TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('human','agent')), PRIMARY KEY(org_id,file_id), FOREIGN KEY(org_id,file_id) REFERENCES hx_workspace_files(org_id,id) ON DELETE CASCADE);
 
