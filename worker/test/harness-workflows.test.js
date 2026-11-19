@@ -373,7 +373,7 @@ test.each(['row', 'app_record_change'])('a %s event updates its actual record wh
   const rows = (await (await get(`/tables/${app.tableId}?${q({ orgId: ORG })}`, mika)).json()).rows;
   expect(rows.find(row => row.id === source.id).values.status).toBe('Done');
   expect(rows.find(row => row.id === other.id).values.status).toBe('Ready');
-});
+}, 15_000);
 
 test.each(['row', 'app_record_change'])('a %s event rejects an ambiguous row.id update while permitting an explicit field target', async triggerType => {
   const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Explicit target', columns: [

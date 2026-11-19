@@ -30,7 +30,12 @@ struct AgentDraft: Identifiable, Hashable {
     var createdByName: String?
     var updatedByName: String?
 
-    init() {}
+    init(privateCreation: Bool = false) {
+        if privateCreation {
+            scope = "personal"
+            canChangeScope = false
+        }
+    }
 
     init(agent: ChatAgent) {
         id = agent.id
@@ -49,13 +54,17 @@ struct AgentDraft: Identifiable, Hashable {
         updatedByName = agent.updatedByName
     }
 
-    init(preset p: ChatAgentPreset) {
+    init(preset p: ChatAgentPreset, privateCreation: Bool = false) {
         name = p.name
         handle = p.handle
         emoji = p.emoji ?? ""
         description = p.description
         instructions = p.instructions
         preset = p.id
+        if privateCreation {
+            scope = "personal"
+            canChangeScope = false
+        }
     }
 
     var isNew: Bool { agentId == nil }
@@ -79,6 +88,8 @@ struct AgentsView: View {
 
     @State private var agents: [ChatAgent] = []
     @State private var presets: [ChatAgentPreset] = []
+    @State private var privateCreation = false
+    @State private var canCreateAgents = false
     @State private var loading = false
     @State private var error: String?
     @State private var editing: AgentDraft?
@@ -149,8 +160,10 @@ struct AgentsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button { editing = AgentDraft() } label: { Label("New agent", systemImage: "square.and.pencil") }
+                    Button { editing = AgentDraft(privateCreation: privateCreation) } label: { Label("New agent", systemImage: "square.and.pencil") }
+                        .disabled(!canCreateAgents)
                     Button { importing = true } label: { Label("Import a .md file", systemImage: "square.and.arrow.down") }
+                        .disabled(!canCreateAgents)
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -291,7 +304,7 @@ struct AgentsView: View {
             }
             Spacer(minLength: 8)
             Button {
-                editing = AgentDraft(preset: p)
+                editing = AgentDraft(preset: p, privateCreation: privateCreation)
             } label: {
                 Text(added ? LocalizedStringKey("Add again") : LocalizedStringKey("Add"))
                     .font(.footnote.weight(.semibold))
@@ -299,7 +312,7 @@ struct AgentsView: View {
                     .glassCapsule(interactive: true)
             }
             .buttonStyle(.plain)
-            .disabled(appState.isGuest)
+            .disabled(appState.isGuest || !canCreateAgents)
         }
     }
 
@@ -313,7 +326,10 @@ struct AgentsView: View {
             let out = try await ChatService.agents(orgId: orgId, locale: appState.readerLanguageCode, base: base)
             apply(out.agents)
             presets = out.presets ?? []
+            privateCreation = out.privateCreation == true
+            canCreateAgents = true
         } catch {
+            canCreateAgents = false
             self.error = error.localizedDescription
         }
     }

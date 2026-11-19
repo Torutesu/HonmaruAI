@@ -990,6 +990,7 @@ enum ChatService {
     struct Agents: Decodable {
         let agents: [ChatAgent]
         let presets: [ChatAgentPreset]?
+        let privateCreation: Bool?
     }
     struct AgentSaved: Decodable {
         let agent: ChatAgent?

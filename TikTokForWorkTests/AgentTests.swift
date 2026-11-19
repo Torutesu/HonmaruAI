@@ -33,13 +33,25 @@ final class AgentTests: XCTestCase {
         let list = """
         {"agents":[{"id":"a2","handle":"mine","name":"Mine","emoji":null,"description":"","instructions":"x","scope":"personal",
           "mine":true,"updatedAt":"2026-09-24T09:00:00.000Z","canEdit":true,"canDelete":true,"markdown":"x"}],
-         "presets":[{"id":"secretary","handle":"secretary","emoji":"🗂️","name":"Secretary","description":"Summaries.","instructions":"# Secretary"}]}
+         "presets":[{"id":"secretary","handle":"secretary","emoji":"🗂️","name":"Secretary","description":"Summaries.","instructions":"# Secretary"}],
+         "privateCreation":true}
         """.data(using: .utf8)!
         let out = try JSONDecoder().decode(ChatService.Agents.self, from: list)
         XCTAssertEqual(out.agents.first?.isPersonal, true)
         XCTAssertEqual(out.agents.first?.glyph, "🤖")
         XCTAssertEqual(out.presets?.first?.id, "secretary")
         XCTAssertEqual(AgentDraft(preset: try XCTUnwrap(out.presets?.first)).preset, "secretary")
+        XCTAssertTrue(out.privateCreation == true)
+        let privateDraft = AgentDraft(privateCreation: out.privateCreation == true)
+        XCTAssertEqual(privateDraft.scope, "personal")
+        XCTAssertFalse(privateDraft.canChangeScope)
+        let privatePresetDraft = AgentDraft(preset: try XCTUnwrap(out.presets?.first), privateCreation: true)
+        XCTAssertEqual(privatePresetDraft.scope, "personal")
+        XCTAssertFalse(privatePresetDraft.canChangeScope)
+        XCTAssertEqual(AgentDraft().scope, "team")
+        let simpleMode = try JSONDecoder().decode(ChatService.Agents.self, from: #"{"agents":[],"presets":[]}"#.data(using: .utf8)!)
+        XCTAssertNil(simpleMode.privateCreation)
+        XCTAssertEqual(AgentDraft(privateCreation: simpleMode.privateCreation == true).scope, "team")
 
         // An older Worker sends no agents in the overview; it still decodes.
         let old = #"{"activity":[],"members":[]}"#.data(using: .utf8)!
