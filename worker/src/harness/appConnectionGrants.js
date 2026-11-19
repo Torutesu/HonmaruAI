@@ -153,6 +153,8 @@ export async function appConnectionGrantReview(db, orgId, appId) {
     LEFT JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.connection_owner_id
     LEFT JOIN users u ON u.github_id=g.connection_owner_id
     WHERE g.org_id=?1 AND g.app_id=?2
+      AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=g.org_id AND d.purge_started_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=g.org_id)
     ORDER BY g.created_at DESC,g.connection_owner_id,g.connection_name`).bind(orgId,appId).all();
   return { grants: results || [] };
 }
