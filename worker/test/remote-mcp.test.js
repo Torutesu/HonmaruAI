@@ -520,7 +520,7 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
           .bind(ORG, agent.id, server.id, new Date(Date.now()+1000).toISOString()).run();
       }
       return { statusCode: 200, data: { jsonrpc: "2.0", id: message(opts).id, result: { content: [{ type: "text", text: calls === 1 ? "approved policy result" : "revoked private result" }] } } };
-    }).times(3);
+    }).persist();
 
   activateRemoteFetchMock();
   try {
