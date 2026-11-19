@@ -1858,7 +1858,9 @@ export async function handleHarness(request, env, url, context = {}) {
         if(request.method==='GET') {
           if(url.searchParams.get('review')==='1') {
             if(!canReviewConnections)return json({message:'Only workspace admins can review App connection grants.'},403);
-            return json(await appConnectionGrantReview(env.DB,orgId,appId));
+            const review=await appConnectionGrantReview(env.DB,orgId,appId,me);
+            if(review.denied)return json({message:'Workspace admin access changed. Reload and try again.'},403);
+            return json(review);
           }
           const result=await appConnectionsForViewer(env.DB,orgId,appId,me);
           if(result.error)return fail(result);
