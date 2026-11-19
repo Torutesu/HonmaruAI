@@ -272,12 +272,14 @@ function appRowWriteGuard(orgParam, tableParam, userParam) {
   return `EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?${orgParam} AND m.user_github_id=?${userParam} AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
     AND NOT EXISTS(
       SELECT 1 FROM hx_apps linked
+      JOIN memberships m ON m.org_id=linked.org_id AND m.user_github_id=?${userParam}
       LEFT JOIN hx_app_access policy ON policy.org_id=linked.org_id AND policy.app_id=linked.id
       LEFT JOIN hx_app_person_access personal ON personal.org_id=linked.org_id AND personal.app_id=linked.id AND personal.user_github_id=?${userParam}
       WHERE linked.org_id=?${orgParam}
         AND (linked.table_id=?${tableParam} OR EXISTS(SELECT 1 FROM hx_app_entities entity WHERE entity.org_id=linked.org_id AND entity.app_id=linked.id AND entity.table_id=?${tableParam}))
-        AND NOT (linked.created_by=?${userParam} OR personal.permission='edit'
-          OR (personal.user_github_id IS NULL AND COALESCE(policy.visibility,'workspace')='workspace'))
+        AND NOT (linked.created_by=?${userParam} OR COALESCE(personal.permission,'')='edit'
+          OR (personal.user_github_id IS NULL AND COALESCE(policy.visibility,'workspace')='workspace' AND LOWER(TRIM(COALESCE(m.role,'guest'))) IN ('owner','admin'))
+          OR (personal.user_github_id IS NULL AND COALESCE(policy.visibility,'workspace')='workspace' AND COALESCE(policy.workspace_record_write,0)=1))
     )
     AND NOT EXISTS(SELECT 1 FROM hx_app_entities orphan
       WHERE orphan.org_id=?${orgParam} AND orphan.table_id=?${tableParam}

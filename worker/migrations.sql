@@ -534,6 +534,7 @@ CREATE INDEX IF NOT EXISTS idx_hx_external_file_invites_v2_redeemed ON hx_extern
 ALTER TABLE hx_workflow_runs ADD COLUMN credential_source TEXT NOT NULL DEFAULT 'unknown';
 
 ALTER TABLE hx_app_access ADD COLUMN room_channel TEXT;
+ALTER TABLE hx_app_access ADD COLUMN workspace_record_write INTEGER NOT NULL DEFAULT 0 CHECK (workspace_record_write IN (0,1));
 
 CREATE TABLE IF NOT EXISTS hx_app_public_shares (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, app_version INTEGER NOT NULL, access_version INTEGER NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT);
 CREATE INDEX IF NOT EXISTS idx_hx_app_public_shares_app ON hx_app_public_shares(org_id,app_id,created_at);

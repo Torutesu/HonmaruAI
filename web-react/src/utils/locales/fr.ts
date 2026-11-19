@@ -2484,6 +2484,10 @@ const table: Record<string, string> = {
   'No enabled App connections are available.': 'Aucune connexion d’app activée n’est disponible.',
   'A selected connection changed or is no longer available. Re-select it before saving.': 'Une connexion sélectionnée a changé ou n’est plus disponible. Sélectionnez-la à nouveau avant d’enregistrer.',
   'connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.': 'connection.request({appId, name, query}) envoie des requêtes en lecture seule limitées via la connexion choisie. Le programme ne reçoit jamais son URL ni ses identifiants.',
+  'Workspace members can edit records': 'Les membres de l’espace de travail peuvent modifier les enregistrements',
+  'This lets workspace members create, edit, and delete records. It does not let them change this app, its schema, or connections.': 'Les membres peuvent créer, modifier et supprimer des enregistrements, sans pouvoir modifier cette app, son schéma ni ses connexions.',
+  'Sharing applies to this app and its records. Room access is checked against current membership.': 'Le partage s’applique à cette app et à ses enregistrements. L’accès au salon est vérifié selon les membres actuels.',
+  'A member with record write access can review this change.': 'Un membre autorisé à modifier les enregistrements peut examiner cette modification.',
 }
 
 export default table

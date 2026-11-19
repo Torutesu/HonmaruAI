@@ -3518,3 +3518,65 @@ test('room Apps with multiple source Agent assignments cannot choose an implicit
 });
 
 
+
+
+test('workspace record opt-in grants row writes without App or schema management', async () => {
+  const { app } = await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+  const { setAppAccess, mayWriteAppRecords, mayWriteTableRecords } = await import('../src/harness/resourceAccess.js');
+  const shared = await setAppAccess(env.DB, ORG, app.id, '9101', { visibility:'workspace', workspaceRecordWrite:true, version:0 });
+  expect(shared.access).toMatchObject({ visibility:'workspace', workspaceRecordWrite:true });
+  expect(await mayWriteAppRecords(env.DB,ORG,app.id,'9102')).toBe(true);
+  expect(await mayWriteTableRecords(env.DB,ORG,app.tableId,'9102')).toBe(true);
+
+  const created = await send('POST',`/tables/${app.tableId}/rows`,mika,{orgId:ORG,values:{company:'Workspace writer'}});
+  expect(created.status).toBe(201);
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9102'},'add_row',{tableId:app.tableId,values:{company:'MCP writer'}})).isError).not.toBe(true);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB,ORG,{name:'Workspace row writer',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{company:'Workflow writer'}}]},'9102');
+  expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).status).toBe('done');
+
+  expect((await send('PUT',`/apps/${app.id}`,mika,{orgId:ORG,name:'Not an editor'})).status).toBe(403);
+  expect((await send('PUT',`/tables/${app.tableId}`,mika,{orgId:ORG,name:'Not a schema editor'})).status).toBe(404);
+  const disabled = await setAppAccess(env.DB,ORG,app.id,'9101',{visibility:'workspace',workspaceRecordWrite:false,version:1});
+  expect(disabled.access.workspaceRecordWrite).toBe(false);
+  expect(await mayWriteTableRecords(env.DB,ORG,app.tableId,'9102')).toBe(false);
+  expect((await send('POST',`/tables/${app.tableId}/rows`,mika,{orgId:ORG,values:{company:'Denied after revoke'}})).status).toBe(404);
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9102'},'add_row',{tableId:app.tableId,values:{company:'Denied after revoke'}})).isError).toBe(true);
+  expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).status).toBe('failed');
+
+  // The row mutation itself rechecks the persisted policy, even if a caller
+  // skips the route-level preflight or loses access between preflight and D1.
+  const direct = await addRow(env.DB,ORG,app.tableId,{company:'Denied in SQL'},'9102',undefined,'9102');
+  expect(direct.error).toBeTruthy();
+
+  const { workflow: queuedWorkflow } = await createWorkflow(env.DB,ORG,{name:'Writer revoked while approval waits',trigger:{type:'manual'},steps:[
+    {type:'approval',to:'toru',title:'Continue the record update?'},
+    {type:'add_row',tableId:app.tableId,values:{company:'Must not survive a revoke'}},
+  ]},'9102');
+  const pending = await startRun(env,{orgId:ORG,workflow:queuedWorkflow,trigger:'manual'});
+  expect(pending.status).toBe('waiting');
+  const savedCard = await env.DB.prepare('SELECT data FROM cards WHERE org_id=?1 AND card_id=?2').bind(ORG,pending.cardId).first();
+  const card = JSON.parse(savedCard.data);
+  card.decision = {action:'approve',actorUserID:card.recipientUserID};
+  const { settleWorkflowApproval } = await import('../src/harness/workflows.js');
+  expect((await settleWorkflowApproval(env,ORG,card)).status).toBe('failed');
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(ORG,app.tableId).first()).n).toBe(3);
+});
+
+test('a linked read-only App blocks workspace record writes to the shared table', async () => {
+  const { app: writer } = await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+  const { app: viewer } = await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+  await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(writer.tableId,ORG,viewer.id).run();
+  const { setAppAccess, mayWriteTableRecords } = await import('../src/harness/resourceAccess.js');
+  await setAppAccess(env.DB,ORG,writer.id,'9101',{visibility:'workspace',workspaceRecordWrite:true,version:0});
+  await setAppAccess(env.DB,ORG,viewer.id,'9101',{visibility:'workspace',workspaceRecordWrite:false,version:0});
+  expect(await mayWriteTableRecords(env.DB,ORG,writer.tableId,'9102')).toBe(false);
+  expect((await send('POST',`/tables/${writer.tableId}/rows`,mika,{orgId:ORG,values:{company:'Blocked by linked app'}})).status).toBe(404);
+  await setAppAccess(env.DB,ORG,viewer.id,'9101',{visibility:'workspace',workspaceRecordWrite:true,version:1});
+  expect(await mayWriteTableRecords(env.DB,ORG,writer.tableId,'9102')).toBe(true);
+  expect((await send('POST',`/tables/${writer.tableId}/rows`,mika,{orgId:ORG,values:{company:'Allowed by both apps'}})).status).toBe(201);
+  await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES(?1,?2,'9102','view',?3)").bind(ORG,viewer.id,new Date().toISOString()).run();
+  expect(await mayWriteTableRecords(env.DB,ORG,writer.tableId,'9102')).toBe(false);
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(ORG,writer.tableId).first()).n).toBe(1);
+});

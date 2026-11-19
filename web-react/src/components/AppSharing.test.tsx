@@ -21,7 +21,7 @@ test('sharing sends the displayed version and preserves private selection on a c
   expect(tree!.root.findByProps({ id: 'app-sharing-people-title-app' }).type).toBe('h3')
   expect(tree!.root.findAllByType('select')[0].props.value).toBe('private')
   await act(async () => { tree!.root.findAllByType('select')[0].props.onChange({ target: { value: 'workspace' } }) })
-  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ orgId: 'org', visibility: 'workspace', version: 3, people: [{ userId: '42', permission: 'view' }] })
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ orgId: 'org', visibility: 'workspace', workspaceRecordWrite: true, version: 3, people: [{ userId: '42', permission: 'view' }] })
   expect(tree!.root.findAllByType('select')[0].props.value).toBe('private')
   expect(tree!.root.findByProps({ role: 'alert' }).children).toContain('Sharing changed. Reload before saving.')
 })
@@ -51,7 +51,7 @@ test('a person override is saved with a version and inherited members are omitte
   expect(selects[1].props.value).toBe('inherit')
   expect(selects[1].props.disabled).toBe(true)
   await act(async () => { selects[2].props.onChange({ target: { value: 'edit' } }) })
-  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ orgId: 'org', visibility: 'workspace', version: 4, people: [
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ orgId: 'org', visibility: 'workspace', workspaceRecordWrite: false, version: 4, people: [
     { userId: '2', permission: 'edit' }, { userId: '3', permission: 'none' },
   ] })
   expect(tree!.root.findAllByType('select')[2].props.value).toBe('edit')
@@ -64,7 +64,7 @@ test('room audience retains person overrides and saves a versioned room scope', 
   vi.stubGlobal('fetch', fetcher)
   await act(async () => { tree = create(<AppSharing {...props} />) })
   await act(async () => { tree!.root.findAllByType('select')[0].props.onChange({target:{value:'room'}}) })
-  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'org',visibility:'room',channel:'b:ops',version:2,people:[{userId:'2',permission:'view'}]})
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({orgId:'org',visibility:'room',workspaceRecordWrite:false,channel:'b:ops',version:2,people:[{userId:'2',permission:'view'}]})
 })
 
 test('public app link creation and revocation use pinned app and audience versions', async () => {
@@ -79,7 +79,7 @@ test('public app link creation and revocation use pinned app and audience versio
     .mockResolvedValueOnce(new Response(JSON.stringify({shares:[{id:'share-1',createdAt:'2026-11-06T00:00:00.000Z',expiresAt:'2026-11-13T00:00:00.000Z',revokedAt:'2026-11-06T00:01:00.000Z'}]})))
   vi.stubGlobal('location',{origin:'https://app.test'}); vi.stubGlobal('fetch',fetcher)
   await act(async()=>{tree=create(<AppSharing {...props}/>)} )
-  const consent=tree!.root.findAllByType('input').find(input=>input.props.type==='checkbox')!
+  const consent=tree!.root.findAllByType('input').find(input=>input.props['aria-label']==='I confirm this app and its current records may be read by anyone with the link.')!
   await act(async()=>{consent.props.onChange({target:{checked:true}})})
   const createButton=()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Create link'))!
   await act(async()=>{await createButton().props.onClick()})
@@ -105,4 +105,18 @@ test('Agent approval changes request status without manufacturing a bearer link'
   expect(fetcher.mock.calls[3][0]).toContain('/public-share-approvals?')
   expect(JSON.parse(fetcher.mock.calls[3][1].body)).toMatchObject({orgId:'org',requestId:'request-1',decision:'approve'})
   expect(tree!.root.findAllByType('a').some(link=>String(link.props.href).includes('/app-share/'))).toBe(false)
+})
+
+
+test('workspace record writers can be enabled without granting app management', async () => {
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ access: { visibility: 'workspace', workspaceRecordWrite: false, version: 7 }, canEdit: true, people: [] })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ access: { visibility: 'workspace', workspaceRecordWrite: true, version: 8 }, canEdit: true, people: [] })))
+  vi.stubGlobal('fetch', fetcher)
+  await act(async () => { tree = create(<AppSharing {...props} />) })
+  const checkbox = tree!.root.findAllByType('input').find(input => input.props['aria-label'] === 'Workspace members can edit records')!
+  expect(checkbox.props.checked).toBe(false)
+  await act(async () => { checkbox.props.onChange({ target: { checked: true } }) })
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({ visibility: 'workspace', workspaceRecordWrite: true, version: 7 })
+  expect(tree!.root.findAllByType('input').find(input => input.props['aria-label'] === 'Workspace members can edit records')!.props.checked).toBe(true)
 })

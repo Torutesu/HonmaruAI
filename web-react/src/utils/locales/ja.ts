@@ -4248,7 +4248,11 @@ const table: Record<string, string> = {
   'connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.': 'connection.request({appId, name, query})は選択したApp接続を通じて制限付きの読み取り要求を送信します。プログラムにURLや認証情報は渡されません。',
   'Your own OAuth tools are available in requests you start. Choose persistent Agent and Workflow grants here; writes still require approval.': '自分が開始したAgent会話では自分のOAuthツールを読み取り専用で利用できます。ここではAgentとWorkflowへの継続的なアクセスを設定します。書き込みには引き続き承認が必要です。',
   'Choose persistent Agent and Workflow grants here. Write tools require Workflow approval and never run in chat.': 'ここではAgentとWorkflowへの継続的なアクセスを設定します。書き込みツールはWorkflowの承認が必要で、チャットでは実行されません。',
-  'Grant {agent} persistent access to {tool} from {server}': '{agent}に{server}の{tool}への継続的なアクセスを許可'
+  'Grant {agent} persistent access to {tool} from {server}': '{agent}に{server}の{tool}への継続的なアクセスを許可',
+  'Workspace members can edit records': 'ワークスペースのメンバーがレコードを編集できます',
+  'This lets workspace members create, edit, and delete records. It does not let them change this app, its schema, or connections.': 'ワークスペースのメンバーがレコードを作成・編集・削除できます。この設定でアプリ本体、スキーマ、接続の変更は許可されません。',
+  'Sharing applies to this app and its records. Room access is checked against current membership.': 'この設定はアプリとそのレコードに適用されます。ルームのアクセス権は現在のメンバーシップに基づいて確認されます。',
+  'A member with record write access can review this change.': 'レコードの書き込み権限を持つメンバーがこの変更を確認できます。',
 }
 
 export default table
