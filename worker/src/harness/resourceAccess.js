@@ -3,10 +3,10 @@ import { readableConversation, mayUseConversation } from './conversationAccess.j
 // Explicit app visibility. Absence means the legacy workspace-wide policy.
 // Room links are navigation only; they never grant access to a private app.
 export async function appAccess(db, orgId, appId) {
-  const row = await db.prepare(`SELECT a.created_by, p.visibility, p.version, p.room_channel FROM hx_apps a
+  const row = await db.prepare(`SELECT a.created_by, p.visibility, p.version, p.room_channel, p.workspace_record_write FROM hx_apps a
     LEFT JOIN hx_app_access p ON p.org_id = a.org_id AND p.app_id = a.id
     WHERE a.org_id = ?1 AND a.id = ?2 AND a.deleted_at IS NULL`).bind(orgId, appId).first();
-  return row ? { ownerId: row.created_by, visibility: row.room_channel ? 'room' : (row.visibility || 'workspace'), roomChannel: row.room_channel || null, version: row.version || 0 } : null;
+  return row ? { ownerId: row.created_by, visibility: row.room_channel ? 'room' : (row.visibility || 'workspace'), roomChannel: row.room_channel || null, workspaceRecordWrite: Boolean(row.workspace_record_write), version: row.version || 0 } : null;
 }
 
 export async function mayUseApp(db, orgId, appId, userId) {
@@ -17,6 +17,26 @@ export async function mayUseApp(db, orgId, appId, userId) {
 export async function mayEditApp(db, orgId, appId, userId) {
   if (!userId) return false;
   return (await appPermission(db, orgId, appId, userId)) === 'edit';
+}
+
+// Record editing is separate from changing an App, its schema, or its
+// connections. Only an owner's explicit workspace record-write setting grants
+// the ordinary workspace audience write access; personal view/none overrides
+// remain authoritative.
+export async function mayWriteAppRecords(db, orgId, appId, userId) {
+  if (!userId) return false;
+  const permission = await appPermission(db, orgId, appId, userId);
+  if (permission === 'edit') return true;
+  if (permission !== 'view') return false;
+  const row = await db.prepare(`SELECT COALESCE(a.visibility,'workspace') AS visibility,
+      COALESCE(a.workspace_record_write,0) AS workspace_record_write, a.room_channel
+    FROM hx_apps app JOIN memberships m ON m.org_id=app.org_id AND m.user_github_id=?3
+    LEFT JOIN hx_app_access a ON a.org_id=app.org_id AND a.app_id=app.id
+    LEFT JOIN hx_app_person_access p ON p.org_id=app.org_id AND p.app_id=app.id AND p.user_github_id=?3
+    WHERE app.org_id=?1 AND app.id=?2 AND app.deleted_at IS NULL
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+      AND p.user_github_id IS NULL`).bind(orgId, appId, String(userId)).first();
+  return Boolean(row && !row.room_channel && row.visibility === 'workspace' && row.workspace_record_write === 1);
 }
 
 export async function hasExplicitAppPermission(db, orgId, appId, userId) {
@@ -86,6 +106,19 @@ export async function mayEditTable(db, orgId, tableId, userId) {
   return true;
 }
 
+// A table may be exposed through several Apps. Writing its records is allowed
+// only when every linked App grants it, just like table visibility.
+export async function mayWriteTableRecords(db, orgId, tableId, userId) {
+  if (!(await mayUseTable(db, orgId, tableId, userId))) return false;
+  const { results = [] } = await db.prepare('SELECT id FROM hx_apps WHERE org_id=?1 AND table_id=?2 UNION SELECT app_id AS id FROM hx_app_entities WHERE org_id=?1 AND table_id=?2').bind(orgId, tableId).all();
+  const orphan = await db.prepare('SELECT 1 FROM hx_app_entities e WHERE e.org_id=?1 AND e.table_id=?2 AND NOT EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=e.org_id AND a.id=e.app_id) LIMIT 1').bind(orgId, tableId).first();
+  if (orphan) return false;
+  // Preserve legacy standalone tables, which have no App policy to evaluate.
+  if (!results.length) return true;
+  for (const app of results) if (!(await mayWriteAppRecords(db, orgId, app.id, userId))) return false;
+  return true;
+}
+
 // Recheck a rendered app and its primary table together after reading rows.
 // Every app linked to the table must remain visible, as with mayUseTable; a
 // single SQL statement prevents an ACL change between individual checks.
@@ -128,6 +161,8 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
   if (input.visibility === 'room' && (!roomChannel || roomChannel.length > 200 || !(await mayUseConversation(db, orgId, userId, roomChannel)))) return { error: 'Choose a room you can access.', status: 400 };
   if (!Number.isSafeInteger(input.version) || input.version < 0) return { error: 'A current access version is required.' };
   const hasPeopleUpdate = Array.isArray(input.people);
+  if (input.workspaceRecordWrite !== undefined && typeof input.workspaceRecordWrite !== 'boolean') return { error: 'Workspace record access must be true or false.' };
+  const workspaceRecordWrite = input.workspaceRecordWrite === undefined ? current.workspaceRecordWrite : input.workspaceRecordWrite;
   if (input.people !== undefined && !hasPeopleUpdate) return { error: 'People access must be a list.' };
   const people = hasPeopleUpdate ? input.people : [];
   const seen = new Set();
@@ -142,6 +177,7 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
   const at = new Date().toISOString(), token = crypto.randomUUID();
   const storedVisibility = input.visibility === 'room' ? 'private' : input.visibility;
   const stmts = [];
+  const recordWriteParam = hasPeopleUpdate ? 9 : 8;
   const peopleJson = hasPeopleUpdate ? JSON.stringify(people.map(({ userId, permission }) => ({ userId: String(userId).trim(), permission }))) : null;
   const validPeople = param => hasPeopleUpdate ? `AND NOT EXISTS(
     SELECT 1 FROM json_each(${param}) selected
@@ -150,15 +186,15 @@ export async function setAppAccess(db, orgId, appId, userId, input) {
     WHERE selectedMember.user_github_id IS NULL
       OR LOWER(TRIM(COALESCE(selectedMember.role,'guest'))) IN ('guest','owner','admin')
   )` : '';
-  if (input.version === 0) stmts.push(db.prepare(`INSERT OR IGNORE INTO hx_app_access(org_id,app_id,visibility,version,change_token)
-    SELECT ?1,?2,'workspace',0,NULL WHERE EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3 AND LOWER(TRIM(m.role))!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?3)
+  if (input.version === 0) stmts.push(db.prepare(`INSERT OR IGNORE INTO hx_app_access(org_id,app_id,visibility,version,change_token,workspace_record_write)
+    SELECT ?1,?2,'workspace',0,NULL,0 WHERE EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?3 AND LOWER(TRIM(m.role))!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?3)
       ${validPeople('?4')}`)
     .bind(...(hasPeopleUpdate ? [orgId, appId, String(userId), peopleJson] : [orgId, appId, String(userId)])));
-  stmts.push(db.prepare(`UPDATE hx_app_access SET visibility=?3,room_channel=?7,version=version+1,change_token=?5
+  stmts.push(db.prepare(`UPDATE hx_app_access SET visibility=?3,room_channel=?7,workspace_record_write=?${recordWriteParam},version=version+1,change_token=?5
     WHERE org_id=?1 AND app_id=?2 AND version=?4
       AND EXISTS(SELECT 1 FROM hx_apps a JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=?6 AND LOWER(TRIM(m.role))!='guest' WHERE a.org_id=?1 AND a.id=?2 AND a.created_by=?6)
       ${validPeople('?8')}`)
-    .bind(...(hasPeopleUpdate ? [orgId,appId,storedVisibility,input.version,token,String(userId),roomChannel,peopleJson] : [orgId,appId,storedVisibility,input.version,token,String(userId),roomChannel])));
+    .bind(...(hasPeopleUpdate ? [orgId,appId,storedVisibility,input.version,token,String(userId),roomChannel,peopleJson,workspaceRecordWrite ? 1 : 0] : [orgId,appId,storedVisibility,input.version,token,String(userId),roomChannel,workspaceRecordWrite ? 1 : 0])));
   if (hasPeopleUpdate) {
     stmts.push(db.prepare('DELETE FROM hx_app_person_access WHERE org_id=?1 AND app_id=?2 AND EXISTS(SELECT 1 FROM hx_app_access WHERE org_id=?1 AND app_id=?2 AND change_token=?3)').bind(orgId,appId,token));
     stmts.push(db.prepare(`INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at)

@@ -65,7 +65,7 @@ import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
 import { listTableContracts, publishTableContract, readTableContract } from './tableContracts.js';
-import { appAccess, appPeopleAccess, hasExplicitAppPermission, mayEditApp, mayEditTable, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { appAccess, appPeopleAccess, hasExplicitAppPermission, mayEditApp, mayEditTable, mayWriteTableRecords, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
 import { mayUseConversation, readableConversation } from './conversationAccess.js';
 import { browserConversationAllowed } from './executions.js';
 import { listMembers as memoryMembers } from '../team.js';
@@ -725,7 +725,9 @@ export async function handleHarness(request, env, url, context = {}) {
       return null;
     }
     if (!(await mayUseTable(env.DB, orgId, tableId, me))) return json({ message: "No such table." }, 404);
-    if (request.method !== 'GET' && !(await mayEditTable(env.DB,orgId,tableId,me))) return json({ message: "No such table." }, 404);
+    if (request.method !== 'GET' && sub === 'rows') {
+      if (!(await mayWriteTableRecords(env.DB,orgId,tableId,me))) return json({ message: "No such table." }, 404);
+    } else if (request.method !== 'GET' && !(await mayEditTable(env.DB,orgId,tableId,me))) return json({ message: "No such table." }, 404);
     if (sub === "contract" && request.method === "GET") {
       const table = await getTable(env.DB, orgId, tableId);
       return table ? json(tableContract(table)) : json({ message: "No such table." }, 404);
@@ -944,7 +946,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "run" && request.method === "POST") {
       for (const step of wf.steps || []) {
         if (!['add_row','update_row'].includes(step.type) || !step.tableId) continue;
-        if (!await mayEditTable(env.DB,orgId,step.tableId,me)) return json({ message: 'Edit access to every target app is required to run this workflow.' }, 403);
+        if (!await mayWriteTableRecords(env.DB,orgId,step.tableId,me)) return json({ message: 'Record write access to every target app is required to run this workflow.' }, 403);
       }
       // Pausing stops automatic triggers; an explicit manual run does not
       // enable the workflow or replay its queued webhook deliveries.
@@ -1653,7 +1655,7 @@ export async function handleHarness(request, env, url, context = {}) {
         const annotations=await listAppAnnotations(env.DB,orgId,appId,query);
         const table=query.rowId?await getTable(env.DB,orgId,query.tableId):null;
         const proposals=query.rowId?(await env.DB.prepare(`SELECT id,CASE WHEN status='pending' AND expires_at<=? THEN 'stale' ELSE status END AS status,changes,expires_at AS expiresAt,applied_updated_at AS appliedUpdatedAt FROM hx_app_record_proposals WHERE org_id=? AND app_id=? AND table_id=? AND row_id=? AND status IN ('pending','applying','applied','undone','rejected','stale') ORDER BY created_at DESC LIMIT 10`).bind(new Date().toISOString(),orgId,appId,query.tableId,query.rowId).all()).results.map(p=>({...p,fields:Object.entries(JSON.parse(p.changes||'{}')).map(([id,value])=>({id,name:table?.columns?.find(column=>column.id===id)?.name||id,value}))})):[];
-        return json({...access,source:source?await sourceHistory(env.DB,orgId,who.user,source):null,aiReplies,annotations,proposals,canEditRecord:query.rowId?await mayEditTable(env.DB,orgId,query.tableId,me):false});
+        return json({...access,source:source?await sourceHistory(env.DB,orgId,who.user,source):null,aiReplies,annotations,proposals,canEditRecord:query.rowId?await mayWriteTableRecords(env.DB,orgId,query.tableId,me):false});
       }
       let requestProof;
       if(aiConversationRequest){
@@ -1689,7 +1691,7 @@ export async function handleHarness(request, env, url, context = {}) {
       const scope={tableId:proposal.table_id,rowId:proposal.row_id};
       const access=await appConversation(env.DB,orgId,me,appId,scope);
       if(access.error)return fail(access);
-      if(!(await mayEditTable(env.DB,orgId,proposal.table_id,me)))return json({message:'You cannot edit this record.'},403);
+      if(!(await mayWriteTableRecords(env.DB,orgId,proposal.table_id,me)))return json({message:'You cannot edit this record.'},403);
       const action=input?.action;
       if(action==='reject'){
         const result=await env.DB.prepare(`UPDATE hx_app_record_proposals SET status='rejected',reviewed_by=?,reviewed_at=? WHERE id=? AND org_id=? AND app_id=? AND status='pending' AND expires_at>?`).bind(String(me),new Date().toISOString(),proposal.id,orgId,appId,new Date().toISOString()).run();
@@ -2117,7 +2119,7 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === "PUT") {
         const result = await setAppAccess(env.DB, orgId, appId, me, input);
-        if (!result.error) await audit(env, request, { orgId, action: "app.access_changed", actor: person(who.user), entity: { type: "app", id: appId }, details: { visibility: result.access.visibility, version: result.access.version, room: result.access.roomChannel || null, explicitPeople: Array.isArray(input.people) ? input.people.length : null } });
+        if (!result.error) await audit(env, request, { orgId, action: "app.access_changed", actor: person(who.user), entity: { type: "app", id: appId }, details: { visibility: result.access.visibility, workspaceRecordWrite: result.access.workspaceRecordWrite, version: result.access.version, room: result.access.roomChannel || null, explicitPeople: Array.isArray(input.people) ? input.people.length : null } });
         return result.error ? fail(result) : json(result);
       }
       return json({ message: "Method not allowed." }, 405);

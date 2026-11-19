@@ -2029,7 +2029,7 @@ CREATE INDEX IF NOT EXISTS idx_hx_agent_memory_preferences_user ON hx_agent_memo
 
 CREATE TABLE IF NOT EXISTS hx_workflow_run_definitions (run_id TEXT PRIMARY KEY REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, org_id TEXT NOT NULL, definition TEXT NOT NULL, created_at TEXT NOT NULL);
 
-CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, change_token TEXT, room_channel TEXT, PRIMARY KEY (org_id, app_id));
+CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, change_token TEXT, room_channel TEXT, workspace_record_write INTEGER NOT NULL DEFAULT 0 CHECK (workspace_record_write IN (0,1)), PRIMARY KEY (org_id, app_id));
 CREATE TABLE IF NOT EXISTS hx_app_person_access (
   org_id TEXT NOT NULL,
   app_id TEXT NOT NULL,

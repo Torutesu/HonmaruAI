@@ -267,3 +267,20 @@ test('file transfer endpoints return forbidden when the connection lacks their s
     expect((await response.json()).message).toContain(scope);
   }
 });
+
+
+test('workspace record opt-in allows list row edits but not list schema changes', async () => {
+  await setMode(env.DB, orgId, 'harness', actor.githubId);
+  const created = await createApp(env.DB, { orgId, by: actor.githubId, name: 'Workspace records', columns: [{ name: 'Name', type: 'text' }] });
+  const { setAppAccess } = await import('../src/harness/resourceAccess.js');
+  await setAppAccess(env.DB,orgId,created.app.id,actor.githubId,{visibility:'workspace',workspaceRecordWrite:true,version:0});
+  const member = { ...actor, githubId:'7102', login:'u:two@example.test', name:'Two', tokenId:'key-2' };
+  const row = await run('add_list_record',{listId:created.app.tableId,values:{name:'Allowed'},requestId:'workspace-writer-001'},member);
+  expect(row.record.values.name).toBe('Allowed');
+  const changed = await run('update_list_record',{listId:created.app.tableId,recordId:row.record.id,values:{name:'Updated'},expectedUpdatedAt:row.record.updatedAt},member);
+  expect(changed.record.values.name).toBe('Updated');
+  const list = await run('read_list',{listId:created.app.tableId},member);
+  await expect(run('update_list',{listId:created.app.tableId,name:'No schema edit',expectedUpdatedAt:list.list.updatedAt},member)).rejects.toThrow('permission');
+  await setAppAccess(env.DB,orgId,created.app.id,actor.githubId,{visibility:'workspace',workspaceRecordWrite:false,version:1});
+  await expect(run('add_list_record',{listId:created.app.tableId,values:{name:'Denied'},requestId:'workspace-writer-002'},member)).rejects.toThrow('permission');
+});

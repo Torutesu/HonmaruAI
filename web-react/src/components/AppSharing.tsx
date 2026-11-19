@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useT } from '../utils/i18n'
 
 type Visibility = 'private' | 'workspace' | 'room'
-interface Access { visibility: Visibility; version: number; roomChannel?: string | null }
+interface Access { visibility: Visibility; version: number; roomChannel?: string | null; workspaceRecordWrite: boolean }
 interface PersonAccess { userId: string; login: string; name: string; permission: 'none' | 'view' | 'edit'; explicit: boolean; canOverride?: boolean; role?: 'owner' | 'admin' | 'member' | 'guest' }
 interface AccessResponse { access: Access; people?: PersonAccess[]; rooms?: string[]; canEdit?: boolean; canManage?: boolean; canPublicShare?: boolean; message?: string }
 interface Share { id: string; createdAt: string; expiresAt: string; revokedAt: string | null }
@@ -58,11 +58,11 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
       .catch(err => { if (!controller.signal.aborted) setError(String(err.message)) })
     return () => controller.abort()
   }, [httpBase, orgId, sessionToken, appId, loadShares, loadApprovalRequests])
-  const save = async (visibility: Visibility, channel?: string, nextPeople = people) => {
+  const save = async (visibility: Visibility, channel?: string, nextPeople = people, workspaceRecordWrite = access?.workspaceRecordWrite || false) => {
     if (!access) return
     setBusy(true); setError('')
     try {
-      const res = await fetch(`${httpBase}/apps/${appId}/access`, { method: 'PUT', headers, body: JSON.stringify({ orgId, visibility, ...(visibility === 'room' ? { channel } : {}), version: access.version, people: nextPeople.filter(person => person.explicit && person.canOverride !== false && person.role !== 'owner' && person.role !== 'admin').map(({ userId, permission }) => ({ userId, permission })) }) })
+      const res = await fetch(`${httpBase}/apps/${appId}/access`, { method: 'PUT', headers, body: JSON.stringify({ orgId, visibility, workspaceRecordWrite, ...(visibility === 'room' ? { channel } : {}), version: access.version, people: nextPeople.filter(person => person.explicit && person.canOverride !== false && person.role !== 'owner' && person.role !== 'admin').map(({ userId, permission }) => ({ userId, permission })) }) })
       const data: AccessResponse = await res.json()
       if (!res.ok) throw new Error(data.message || String(res.status))
       setAccess(data.access)
@@ -115,13 +115,15 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
     <div className="rows-title">{t('Sharing')}</div>
     {error && <div className="form-error" role="alert">{error}</div>}
     {access && <div className="row static"><span className="row-main">
-      <select aria-label={t('App visibility')} value={access.visibility} disabled={!canEdit || busy} onChange={e => void save(e.target.value as Visibility, room)}>
+      <select aria-label={t('App visibility')} value={access.visibility} disabled={!canEdit || busy} onChange={e => { const visibility = e.target.value as Visibility; void save(visibility, room, people, visibility === 'workspace' && access.visibility !== 'workspace' ? true : access.workspaceRecordWrite) }}>
         <option value="workspace">{t('Workspace members')}</option><option value="private">{t('Only me')}</option><option value="room">{t('Selected room')}</option>
       </select>
       {access.visibility === 'room' && <select aria-label={t('Room')} value={room} disabled={!canEdit || busy || !rooms.length} onChange={e => { setRoom(e.target.value); void save('room', e.target.value) }}>
         {rooms.map(channel => <option key={channel} value={channel}>{channel}</option>)}
       </select>}
       <span className="row-sub">{t('Sharing applies to this app and its records. Room access is checked against current membership.')}</span>
+      {access.visibility === 'workspace' && <label className="app-sharing-record-write"><input type="checkbox" aria-label={t('Workspace members can edit records')} checked={access.workspaceRecordWrite} disabled={!canEdit || busy} onChange={event => void save('workspace', undefined, people, event.target.checked)} />{t('Workspace members can edit records')}</label>}
+      {access.visibility === 'workspace' && <span className="row-sub">{t('This lets workspace members create, edit, and delete records. It does not let them change this app, its schema, or connections.')}</span>}
     </span></div>}
     {access && people.length > 0 && <section className="app-sharing-people" aria-labelledby={`app-sharing-people-title-${appId}`}>
       <h3 className="rows-title" id={`app-sharing-people-title-${appId}`}>{t('Person access')}</h3>
@@ -142,7 +144,7 @@ export function AppSharing({ httpBase, orgId, sessionToken, appId, appVersion }:
     </span></div>}
     {canPublicShare && <div className="row static"><span className="row-main">
       <strong>{t('Anyone with a link')}</strong><span className="row-sub">{t('Anyone with the link can read the published app and its current records. The link expires and can be revoked.')}</span>
-      <label><input type="checkbox" checked={consent} disabled={!canManage || busy} onChange={e => setConsent(e.target.checked)} />{t('I confirm this app and its current records may be read by anyone with the link.')}</label>
+      <label><input type="checkbox" aria-label={t('I confirm this app and its current records may be read by anyone with the link.')} checked={consent} disabled={!canManage || busy} onChange={e => setConsent(e.target.checked)} />{t('I confirm this app and its current records may be read by anyone with the link.')}</label>
       <select aria-label={t('Link expiry')} value={expiresInDays} disabled={!canManage || busy} onChange={e => setExpiresInDays(Number(e.target.value))}>{[1,7,30,90].map(days => <option key={days} value={days}>{days} {t('days')}</option>)}</select>
       <button className="pill-btn" disabled={!canManage || busy || !consent} onClick={() => void createShare()}>{t('Create link')}</button>
       {createdUrl && <p role="status"><a href={createdUrl}>{createdUrl}</a> {t('Copy this link now; it is shown only once.')}</p>}

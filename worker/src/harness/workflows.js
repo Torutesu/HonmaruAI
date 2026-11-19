@@ -6,7 +6,7 @@ import {clearScheduledBudgetSkip,recordScheduledBudgetSkip,tryWorkflowNotice} fr
 import {ensureWorkflowSafety,readWorkflowSafety,workflowBudgetStatus,workflowBudgetWindows,workflowAiBudgetWindows,workflowBudgetReason,recoverWorkflowBudgetPause,pauseWorkflowForBudget,workflowSettlementStatements} from './workflowSafety.js';
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
 import {workflowApprovalClaimAuthority,workflowEffectAuthority} from './workflowEffectAuthority.js';
-import { mayUseApp, mayUseTable, mayEditTable } from './resourceAccess.js';
+import { mayUseApp, mayUseTable, mayWriteTableRecords } from './resourceAccess.js';
 import { appConnectionsForViewer } from './appConnectionGrants.js';
 import { holdWorkflowEvent } from './workflowHeld.js';
 import { WORKFLOW_WEBHOOK_REPLAY_TTL_MS, verifyWorkflowWebhook } from './workflowWebhookSignature.js';
@@ -1819,7 +1819,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       return { status: 'ok', output, connection: { agentId: step.agentId, source: step.source, action: 'search', query, actorId } };
     }
     case "add_row": {
-      const canUseTable = await mayEditTable(db, orgId, step.tableId, owner);
+      const canUseTable = await mayWriteTableRecords(db, orgId, step.tableId, owner);
       authorizationTrace.record('table', step.tableId, canUseTable);
       if (!canUseTable) return { status: "failed", error: "Table access required." };
       const writeGuard = workflowRowSourceWriteGuard({ orgId, runId, workflow, runTrigger, scope, owner });
@@ -1846,7 +1846,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       }
       const rowId = step.rowId ? render(step.rowId, scope) : implicitRowId;
       if (tableId) {
-        const canUseTable = await mayEditTable(db, orgId, tableId, owner);
+        const canUseTable = await mayWriteTableRecords(db, orgId, tableId, owner);
         authorizationTrace.record('table', tableId, canUseTable);
         if (!canUseTable) return { status: "failed", error: "Table access required." };
       }

@@ -7,7 +7,7 @@ import { viewOf } from './channels.js';
 import { accessFor } from './access.js';
 import { getFileObject, uploadFile, MAX_FILE_BYTES } from './files.js';
 import { listTables, getTable, createTable, planTableUpdate, listRows, addRow, updateRow, COLUMN_TYPES } from './harness/tables.js';
-import { mayUseTable, mayEditTable } from './harness/resourceAccess.js';
+import { mayUseTable, mayEditTable, mayWriteTableRecords } from './harness/resourceAccess.js';
 import { getMode } from './harness/mode.js';
 import { allowed } from './permissions.js';
 import { drainWorkflowRowEvents } from './harness/workflowRowEventDispatch.js';
@@ -81,14 +81,13 @@ async function once(env, actor, operation, args, run) {
   return value;
 }
 
-async function allowList(env, actor, listId, writing) {
+async function allowList(env, actor, listId, writing, recordWrite = false) {
   if (await getMode(env.DB, actor.orgId) !== 'harness') throw new McpInputError('Lists require Harness mode.');
   if (writing && !await allowed(env.DB, actor.orgId, actor.githubId, 'harness.build')) throw new McpInputError('You do not have permission to change lists.');
   if (listId && !await mayUseTable(env.DB, actor.orgId, listId, actor.githubId)) throw new McpInputError('No such list.');
-  // Build permission belongs to every ordinary member and seeing an app's table
-  // is often only a view grant, so writes need edit access to every app that
-  // exposes the table, the same rule as the web table route and Harness MCP.
-  if (listId && writing && !await mayEditTable(env.DB, actor.orgId, listId, actor.githubId)) throw new McpInputError('You do not have permission to change this list.');
+  // Record writes use the distinct App record policy; list schema changes keep
+  // requiring edit access because they alter the contract for every user.
+  if (listId && writing && !(recordWrite ? await mayWriteTableRecords(env.DB, actor.orgId, listId, actor.githubId) : await mayEditTable(env.DB, actor.orgId, listId, actor.githubId))) throw new McpInputError('You do not have permission to change this list.');
 }
 
 async function checkContent(env, actor, request, text, where) {
@@ -220,7 +219,7 @@ export async function callContentTool(env, actor, name, args = {}, request, ctx)
     return mcpResult({ file: fileInfo(file, env, request), fileId: file.id, shared: Boolean(file.message_id) });
   }
   const writing = definition.scope === 'lists:write';
-  await allowList(env, actor, args.listId, writing);
+  await allowList(env, actor, args.listId, writing, name === 'add_list_record' || name === 'update_list_record');
   if (name === 'list_lists') {
     const q = (args.query || '').toLocaleLowerCase();
     const visible = [];
