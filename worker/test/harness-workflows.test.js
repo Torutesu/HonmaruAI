@@ -31,7 +31,7 @@ const call = async (path, init, over = {}) => {
 const headers = (token) => ({ "content-type": "application/json", "x-session-token": token });
 const send = async (method, path, token, body) => {
   const payload = body && { ...body };
-  const rowPath = path.match(/^\\/tables\\/([^/?]+)\\/rows\\/([^/?]+)/);
+  const rowPath = path.match(/^\/tables\/([^/?]+)\/rows\/([^/?]+)/);
   if (rowPath && ['PATCH', 'PUT', 'DELETE'].includes(method)) {
     const [, tableId, rowId] = rowPath;
     const row = await env.DB.prepare('SELECT updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3')
