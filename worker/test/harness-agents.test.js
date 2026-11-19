@@ -122,7 +122,7 @@ test('generic app connection grant and revoke notify each current agent device w
 
 test("told to remember, an agent keeps it without a model, and reads it, its specialty and skills next time, at its tier", async () => {
   await send("PUT", `/hx/agents/${agentId}/profile`, mika, { orgId: ORG, specialty: "Accounts receivable", tier: "max" });
-  const skill = (await (await send("POST", "/skills", mika, { orgId: ORG, name: "Dunning", body: "Day 7: polite nudge. Day 14: call." })).json()).skill;
+  const skill = (await (await send("POST", "/skills", mika, { orgId: ORG, name: "Dunning", body: "Day 7: polite nudge. Day 14: call.", visibility: "workspace" })).json()).skill;
   expect((await send("POST", `/hx/agents/${agentId}/skills`, mika, { orgId: ORG, skillId: skill.id })).status).toBe(200);
 
   const kept = await send("POST", "/channels/messages", kenji, { orgId: ORG, channel: "b:ops", body: "@billy remember that Acme pays on the 25th" }, MODEL);
@@ -484,7 +484,7 @@ test('Harness routes clear new requests only to accessible room members, leaving
   await env.DB.prepare("INSERT INTO channel_agents(org_id,channel,agent_id,added_by,added_at) VALUES (?1,'b:ops','routing-default','mika',?2)").bind(ORG,at).run();
   await env.DB.prepare("UPDATE hx_agent_profiles SET specialty='invoices',updated_by='mika',updated_at=?3 WHERE org_id=?1 AND agent_id=?2").bind(ORG,agentId,at).run();
   await env.DB.prepare("UPDATE hx_room_responses SET default_agent_id='routing-default' WHERE org_id=?1 AND channel='b:ops'").bind(ORG).run();
-  const skillMade = await send('POST', '/skills', mika, { orgId: ORG, name: 'Vendor statement matching', description: 'Match vendor statements and reconcile invoice totals', body: 'Private procedure body must not be used as routing metadata.' });
+  const skillMade = await send('POST', '/skills', mika, { orgId: ORG, name: 'Vendor statement matching', description: 'Match vendor statements and reconcile invoice totals', body: 'Private procedure body must not be used as routing metadata.', visibility: 'workspace' });
   expect(skillMade.status).toBe(201);
   const skill = (await skillMade.json()).skill;
   expect((await send('POST', `/hx/agents/${agentId}/skills`, mika, { orgId: ORG, skillId: skill.id })).status).toBe(200);

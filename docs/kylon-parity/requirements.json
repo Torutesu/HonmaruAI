@@ -441,9 +441,10 @@
       "code": "worker/src/harness/skills.js",
       "acceptance": "本文・パッケージ資産のprivate/workspace、所有者のみの共有変更、一覧/実行/ファイル読込みの権限確認を実装。workspace Skill所有者またはAgent管理者が同一workspaceの有効Agentへ既存hx_agent_skills関係で割当・解除でき、各操作時に現在の所有権・メンバーシップ・Agent状態を再確認。記憶由来のsource scopeは再共有・別Agent割当不可。共有リンク・認証済みKylon比較・本番複数ユーザー検証は残る",
       "evidence": {
-        "reviewedAt": "2026-11-16",
-        "implementedScope": "Workspace Skill owners may explicitly grant/revoke their own shareable workspace Skill for an active same-workspace Agent; existing Agent managers retain assignment authority. Existing hx_agent_skills relation is reused. Current membership, target Agent state, Skill ownership/visibility, and source scope are checked at the write boundary; imported source-scoped Skills cannot be broadened.",
-        "verification": "docs/kylon-parity/verification.md"
+        "reviewedAt": "2026-11-20",
+        "implementedScope": "Workspace Skill owners may explicitly grant/revoke their own shareable workspace Skill for an active same-workspace Agent; existing Agent managers retain assignment authority. Existing hx_agent_skills relation is reused. Current membership, target Agent state, Skill ownership/visibility, and source scope are checked at the write boundary; imported source-scoped Skills cannot be broadened. The authenticated HTTP creation boundary now defaults omitted visibility to private in Harness mode; explicit workspace publication remains supported, and Simple mode keeps its legacy workspace default.",
+        "verification": "docs/kylon-parity/verification.md",
+        "localVerification": "Combined focused Worker tests: 126/126 passed (Skill access, Harness Agent, and teammate cancellation suites). Full Worker run: 3,675/3,677 passed before two shared-Skill fixtures were updated to request workspace visibility explicitly; exact-head full CI remains the final gate."
       }
     },
     {
