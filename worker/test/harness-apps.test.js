@@ -2753,7 +2753,7 @@ test('workspace admins can review sanitized App connection grants and revoke onl
  expect(review.status).toBe(200);
  const inventory=await review.json();
  expect(inventory.grants).toHaveLength(1);
- expect(inventory.grants[0]).toMatchObject({ownerId:'9102',name:'mika_service',grantedVersion:1,connectionActive:1,grantUsable:false});
+ expect(inventory.grants[0]).toMatchObject({ownerId:'9102',name:'mika_service',grantedVersion:1,connectionActive:1,ownerHasSourceAccess:false});
  const privateAppData=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);
  expect(privateAppData.status).toBe(404);
  expect(JSON.stringify(inventory)).not.toContain('api.github.com');
