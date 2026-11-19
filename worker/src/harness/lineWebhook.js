@@ -20,12 +20,12 @@ async function customerAlias(accountId, source) {
   const material = JSON.stringify(['line-inbox-v1',accountId,source.type,String(externalId)]);
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(material)));
   const alias = Array.from(digest.slice(0,5), byte => byte.toString(16).padStart(2,'0')).join('');
-  return `customer-${alias}`;
+  return `customer-${Array.from(digest.slice(0,16), byte => byte.toString(16).padStart(2,'0')).join('')}`;
 }
 
 /// Convert only inbound LINE message events into room text. Profile IDs are
-/// represented by a workspace-scoped pseudonym; message content remains
-/// untrusted input and is never sent to an Agent by this path.
+/// represented by a workspace-scoped pseudonym. Recipient IDs are passed only
+/// to encrypted storage for explicit manual replies; messages never start an Agent.
 export async function lineMessagesFromWebhook(accountId, payload) {
   if (!payload || typeof payload !== 'object' || !Array.isArray(payload.events) || payload.events.length > 100) {
     return {error:'The LINE webhook payload is invalid.',status:400};
@@ -40,12 +40,16 @@ export async function lineMessagesFromWebhook(accountId, payload) {
       : typeof message.id==='string' && message.id ? `message:${message.id}` : '';
     if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id)) return {error:'A LINE message event is missing its stable event ID.',status:400};
     const alias=await customerAlias(accountId,event.source);
+    const targetType=['user','group','room'].includes(event.source?.type)?event.source.type:null;
+    const targetKey=targetType==='user'?'userId':targetType==='group'?'groupId':targetType==='room'?'roomId':null;
+    const targetId=targetKey&&typeof event.source?.[targetKey]==='string'?event.source[targetKey]:'';
+    const customerTarget=targetType&&targetId.length>0&&targetId.length<=128&&!/[\\u0000-\\u001f\\u007f]/.test(targetId)?{type:targetType,id:targetId}:null;
     let content;
     if(message.type==='text' && typeof message.text==='string') content=message.text;
     else if(['image','video','audio','file','location','sticker'].includes(message.type)) content=`Attachment received (${message.type}). This connection stores text events only.`;
     else content=`Unsupported LINE message type: ${String(message.type||'unknown').slice(0,40)}.`;
     const body=`LINE · ${alias}\n${content}`.slice(0,4000);
-    messages.push({eventId:id,body,customerKey:alias});
+    messages.push({eventId:id,body,customerKey:alias,...(customerTarget?{customerTarget}:{})});
   }
   return {messages,ignored};
 }

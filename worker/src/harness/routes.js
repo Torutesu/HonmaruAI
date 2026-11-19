@@ -25,6 +25,7 @@ import { heldWorkflowSummary, discardWorkflowEvents, readHeldWorkflowEvent } fro
 import { roomHookStatuses } from './roomHookStatus.js';
 import {roomVisualState,setRoomVisual} from './roomVisuals.js';
 import { createRoomHook, listRoomHooks, changeRoomHook, listLineInbox, readLineInboxConversation, markLineInboxRead } from './roomHooks.js';
+import { sendLineInboxReply } from './lineInboxReplies.js';
 import {readRoomVisualImage} from './roomVisualImage.js';
 import {roomRoleState,setRoomPrivacy} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
@@ -552,6 +553,16 @@ export async function handleHarness(request, env, url, context = {}) {
     if (result.error) return fail(result);
     const response=json(result);response.headers.set('Cache-Control','no-store');return response;
   }
+  if (url.pathname === '/hx/rooms/line-replies') {
+    if (request.method !== 'POST') return json({message:'Method not allowed.'},405);
+    const room = await resolveChannel(env.DB,orgId,who.user,input.channel);
+    if (!room || room.kind !== 'business') return json({message:'No such room.'},404);
+    if (!await allowed(env.DB,orgId,me,'harness.build')) return json({message:'You cannot manage integrations in this workspace.'},403);
+    const result=await sendLineInboxReply(env,{orgId,channel:room.key,actorId:me,hookId:input.hookId,customerKey:input.customerKey,requestId:input.requestId,body:input.body});
+    if(result.error)return fail(result);
+    await audit(env,request,{orgId,action:'room.line_reply_sent',actor:person(who.user),entity:{type:'channel',id:room.key},details:{hookId:input.hookId,customerKey:input.customerKey,replyId:result.reply?.id}});
+    const response=json(result,result.replay?200:201);response.headers.set('Cache-Control','no-store');return response;
+  }
   if (url.pathname === '/hx/rooms/webhooks') {
     if (!['GET','POST','PUT'].includes(request.method)) return json({message:'Method not allowed.'},405);
     const channel = request.method === 'GET' ? url.searchParams.get('channel') : input.channel;
@@ -561,8 +572,8 @@ export async function handleHarness(request, env, url, context = {}) {
     const result = request.method === 'GET'
       ? await listRoomHooks(env.DB,orgId,room.key,me)
       : request.method === 'POST'
-        ? await createRoomHook(env.DB,orgId,room.key,me,input.name,{provider:input.provider,channelSecret:input.channelSecret})
-        : input.action==='retry' ? await retryRoomHook(env,orgId,room.key,me,input) : await changeRoomHook(env.DB,orgId,room.key,me,input.id,input.version,input.action,input.channelSecret);
+        ? await createRoomHook(env.DB,orgId,room.key,me,input.name,{provider:input.provider,channelSecret:input.channelSecret,channelAccessToken:input.channelAccessToken})
+        : input.action==='retry' ? await retryRoomHook(env,orgId,room.key,me,input) : await changeRoomHook(env.DB,orgId,room.key,me,input.id,input.version,input.action,input.channelSecret,input.channelAccessToken);
     if (result.error) return fail(result);
     if (request.method === 'GET') result.events = await roomHookStatuses(env,orgId,result.events,me);
     if (request.method !== 'GET') await audit(env,request,{orgId,action:'room.webhook_changed',actor:person(who.user),entity:{type:'channel',id:room.key},details:{action:request.method==='POST'?'create':input.action}});

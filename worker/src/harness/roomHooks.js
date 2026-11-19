@@ -11,7 +11,7 @@ const currentMembership = `EXISTS(SELECT 1 FROM businesses b
  WHERE b.org_id=?1 AND 'b:'||b.slug=?2 AND b.archived_at IS NULL
  AND u.github_id=?3 AND lower(trim(coalesce(m.role,'member')))!='guest' AND m.created_at||'/'||c.added_at=?4)`;
 
-async function actorInRoom(db, orgId, channel, actorId) {
+export async function actorInRoom(db, orgId, channel, actorId) {
   const room = await roomRoleState(db, orgId, channel);
   if (!room?.managed) return fail('No such active managed room.', 404);
   const actor = room.members.find(member => member.kind === 'person' && member.id === String(actorId) && member.eligible);
@@ -22,7 +22,9 @@ export async function createRoomHook(db, orgId, channel, actorId, name, options 
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 120) return fail('A webhook name of 1–120 characters is required.', 400);
   const provider = options.provider === 'line' ? 'line' : 'room';
   const channelSecret = typeof options.channelSecret === 'string' ? options.channelSecret.trim() : '';
+  const channelAccessToken = typeof options.channelAccessToken === 'string' ? options.channelAccessToken.trim() : '';
   if (provider === 'line' && (channelSecret.length < 16 || channelSecret.length > 256)) return fail('A valid LINE channel secret is required.', 400);
+  if (channelAccessToken.length > 5000) return fail('The LINE channel access token is too long.', 400);
   const current = await actorInRoom(db, orgId, channel, actorId);
   if (current.error) return current;
   const id = crypto.randomUUID(), at = new Date().toISOString();
@@ -31,9 +33,9 @@ export async function createRoomHook(db, orgId, channel, actorId, name, options 
     SELECT ?5,?1,?2,?6,?3,?4,?7,?8,?8 WHERE ${currentMembership}`)
     .bind(orgId, channel, String(actorId), current.actor.membership, id, name.trim(), secretHash, at)];
   if (provider === 'line') {
-    statements.push(db.prepare(`INSERT INTO hx_line_room_hooks(id,org_id,channel_secret,created_at)
-      SELECT ?1,?2,?3,?4 WHERE EXISTS(SELECT 1 FROM hx_room_hooks WHERE id=?1 AND org_id=?2 AND channel=?5 AND revoked_at IS NULL)`)
-      .bind(id, orgId, await sealField(channelSecret, aad.lineRoomHook(orgId, id), orgId), at, channel));
+    statements.push(db.prepare(`INSERT INTO hx_line_room_hooks(id,org_id,channel_secret,channel_access_token,created_at)
+      SELECT ?1,?2,?3,?4,?5 WHERE EXISTS(SELECT 1 FROM hx_room_hooks WHERE id=?1 AND org_id=?2 AND channel=?6 AND revoked_at IS NULL)`)
+      .bind(id, orgId, await sealField(channelSecret, aad.lineRoomHook(orgId, id), orgId), channelAccessToken?await sealField(channelAccessToken,aad.lineRoomHookAccessToken(orgId,id),orgId):null, at, channel));
   }
   const result = await db.batch(statements);
   const created = Boolean(result[0]?.meta?.changes) && (provider !== 'line' || Boolean(result[1]?.meta?.changes));
@@ -45,7 +47,7 @@ export async function listRoomHooks(db, orgId, channel, actorId) {
   const current = await actorInRoom(db, orgId, channel, actorId);
   if (current.error) return current;
   const { results } = await db.prepare(`SELECT h.id,h.name,h.version,h.revoked_at AS revokedAt,h.created_at AS createdAt,
-      CASE WHEN l.id IS NULL THEN 'room' ELSE 'line' END AS provider
+      CASE WHEN l.id IS NULL THEN 'room' ELSE 'line' END AS provider, CASE WHEN l.channel_access_token IS NULL THEN 0 ELSE 1 END AS canReply
     FROM hx_room_hooks h LEFT JOIN hx_line_room_hooks l ON l.id=h.id AND l.org_id=h.org_id
     WHERE h.org_id=?1 AND h.channel=?2 ORDER BY h.created_at,h.id`)
     .bind(orgId, channel).all();
@@ -64,8 +66,8 @@ export async function listRoomHooks(db, orgId, channel, actorId) {
 
 // Rotation and revocation are versioned. Only the creator's original grant
 // can rotate a secret; a current room member may revoke a stranded hook.
-export async function changeRoomHook(db, orgId, channel, actorId, id, version, action, channelSecretInput = '') {
-  if (!Number.isSafeInteger(version) || version < 1 || !['rotate', 'revoke', 'replace-line-secret'].includes(action)) return fail('A current webhook version and action are required.', 400);
+export async function changeRoomHook(db, orgId, channel, actorId, id, version, action, channelSecretInput = '', channelAccessTokenInput = '') {
+  if (!Number.isSafeInteger(version) || version < 1 || !['rotate', 'revoke', 'replace-line-secret','replace-line-access-token'].includes(action)) return fail('A current webhook version and action are required.', 400);
   const current = await actorInRoom(db, orgId, channel, actorId);
   if (current.error) return current;
   if (action === 'replace-line-secret') {
@@ -86,12 +88,29 @@ export async function changeRoomHook(db, orgId, channel, actorId, id, version, a
       ? { version: version + 1 }
       : fail('LINE connection or room membership changed. Reload before saving.', 409);
   }
+  if (action === 'replace-line-access-token') {
+    const accessToken = typeof channelAccessTokenInput === 'string' ? channelAccessTokenInput.trim() : '';
+    if (accessToken.length < 10 || accessToken.length > 5000) return fail('A valid LINE channel access token is required.', 400);
+    const sealed = await sealField(accessToken, aad.lineRoomHookAccessToken(orgId, id), orgId);
+    const results = await db.batch([
+      db.prepare(`UPDATE hx_line_room_hooks SET channel_access_token=?7 WHERE org_id=?1 AND id=?5
+        AND EXISTS(SELECT 1 FROM hx_room_hooks WHERE org_id=?1 AND channel=?2 AND id=?5 AND version=?6 AND revoked_at IS NULL AND creator_id=?3 AND member_since=?4 AND ${currentMembership})`)
+        .bind(orgId, channel, String(actorId), current.actor.membership, id, version, sealed),
+      db.prepare(`UPDATE hx_room_hooks SET version=version+1,updated_at=?7
+        WHERE org_id=?1 AND channel=?2 AND id=?5 AND version=?6 AND revoked_at IS NULL
+        AND creator_id=?3 AND member_since=?4 AND ${currentMembership}`)
+        .bind(orgId, channel, String(actorId), current.actor.membership, id, version, new Date().toISOString()),
+    ]);
+    return results[0]?.meta?.changes && results[1]?.meta?.changes
+      ? { version: version + 1 }
+      : fail('LINE connection or room membership changed. Reload before saving.', 409);
+  }
   const next = action === 'rotate' ? await createRoomWebhookSecret() : null;
   const at = new Date().toISOString();
   const line = await db.prepare('SELECT 1 AS line FROM hx_line_room_hooks WHERE id=?1 AND org_id=?2').bind(id, orgId).first();
   if (action === 'rotate' && line) return fail('LINE uses its channel secret. Replace it with the value from LINE Developers.', 400);
   const statements = [];
-  if (action === 'revoke' && line) statements.push(db.prepare(`UPDATE hx_line_room_hooks SET channel_secret=NULL
+  if (action === 'revoke' && line) statements.push(db.prepare(`UPDATE hx_line_room_hooks SET channel_secret=NULL,channel_access_token=NULL
     WHERE id=?5 AND org_id=?1
     AND EXISTS(SELECT 1 FROM hx_room_hooks WHERE org_id=?1 AND channel=?2 AND id=?5 AND version=?6 AND revoked_at IS NULL AND ${currentMembership})`)
     .bind(orgId, channel, String(actorId), current.actor.membership, id, version));
@@ -132,7 +151,7 @@ export async function authenticateLineRoomHook(db, id, rawBody, signature, verif
 
 // A receipt and its root message commit together. The authenticated grant is
 // checked again inside the write, not merely before reading the request body.
-export async function receiveRoomHookEvent(db, hook, { eventId, body, customerKey }, { dispatch = true } = {}) {
+export async function receiveRoomHookEvent(db, hook, { eventId, body, customerKey, customerTarget = null }, { dispatch = true } = {}) {
   if (!hook || typeof eventId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(eventId)
     || typeof body !== 'string' || !body.trim() || body.length > 4000
     || (hook.provider === 'line' && !lineCustomerKey(customerKey))) return fail('A validated event is required.', 400);
@@ -156,12 +175,25 @@ export async function receiveRoomHookEvent(db, hook, { eventId, body, customerKe
       AND EXISTS(SELECT 1 FROM channel_messages WHERE id=?9 AND org_id=?1 AND channel=?2)
       ON CONFLICT(message_id) DO NOTHING`)
       .bind(...values, identity.eventKey, identity.payloadHash, messageId, at));
-  if (hook.provider === 'line') statements.push(db.prepare(`INSERT INTO hx_line_inbox_messages(event_key,org_id,channel,hook_id,customer_key,message_id,created_at)
+  if (hook.provider === 'line') {
+    statements.push(db.prepare(`INSERT INTO hx_line_inbox_messages(event_key,org_id,channel,hook_id,customer_key,message_id,created_at)
       SELECT ?7,?1,?2,?5,?11,?9,?10 WHERE ${grant}
       AND EXISTS(SELECT 1 FROM hx_room_hook_events WHERE event_key=?7 AND payload_hash=?8 AND message_id=?9)
       AND EXISTS(SELECT 1 FROM channel_messages WHERE id=?9 AND org_id=?1 AND channel=?2)
       ON CONFLICT(event_key) DO NOTHING`)
       .bind(...values, identity.eventKey, identity.payloadHash, messageId, at, customerKey));
+    if(customerTarget&&['user','group','room'].includes(customerTarget.type)&&typeof customerTarget.id==='string'&&customerTarget.id.length>0&&customerTarget.id.length<=128){
+      const fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(['line-target-v1',hook.orgId,hook.id,customerTarget.type,customerTarget.id]))),b=>b.toString(16).padStart(2,'0')).join('');
+      const targetCiphertext=await sealField(JSON.stringify(customerTarget),aad.lineInboxCustomerTarget(hook.orgId,hook.id,customerKey),hook.orgId);
+      statements.push(db.prepare(`INSERT INTO hx_line_inbox_customers(org_id,channel,hook_id,customer_key,target_type,target_fingerprint,target_ciphertext,updated_at)
+        SELECT ?1,?2,?5,?11,?12,?13,?14,?10 WHERE ${grant}
+          AND EXISTS(SELECT 1 FROM hx_line_inbox_messages WHERE event_key=?7 AND org_id=?1 AND hook_id=?5 AND customer_key=?11)
+        ON CONFLICT(org_id,channel,hook_id,customer_key) DO UPDATE SET
+          target_type=excluded.target_type,target_fingerprint=excluded.target_fingerprint,target_ciphertext=excluded.target_ciphertext,updated_at=excluded.updated_at
+        WHERE hx_line_inbox_customers.target_fingerprint=excluded.target_fingerprint`)
+        .bind(...values, identity.eventKey, identity.payloadHash, messageId, at, customerKey, customerTarget.type, fingerprint, targetCiphertext));
+    }
+  }
   statements.push(db.prepare(`SELECT e.message_id,e.payload_hash FROM hx_room_hook_events e
       WHERE e.event_key=?7 AND e.org_id=?1 AND e.channel=?2 AND ${grant}`)
       .bind(...values, identity.eventKey));
@@ -172,7 +204,7 @@ export async function receiveRoomHookEvent(db, hook, { eventId, body, customerKe
   return { messageId: receipt.message_id, replay: !result[0].meta?.changes };
 }
 
-const lineCustomerKey = value => typeof value === 'string' && /^(?:customer-[a-f0-9]{10}|unknown)$/.test(value);
+const lineCustomerKey = value => typeof value === 'string' && /^(?:customer-(?:[a-f0-9]{10}|[a-f0-9]{32})|unknown)$/.test(value);
 
 export async function listLineInbox(db, orgId, channel, actorId, hookId) {
   const current = await actorInRoom(db, orgId, channel, actorId);
@@ -210,12 +242,17 @@ export async function readLineInboxConversation(db, orgId, channel, actorId, hoo
   if (before && !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z\|[0-9a-f-]{36}$/i.test(before)) return fail('The conversation cursor is invalid.', 400);
   const cursor = before.split('|');
   const params = [orgId, channel, String(actorId), current.actor.membership, hookId, customerKey, before ? cursor[0] : '', before ? cursor[1] : ''];
-  const {results} = await db.prepare(`SELECT m.message_id AS messageId,m.created_at AS createdAt,msg.body
-    FROM hx_line_inbox_messages m JOIN channel_messages msg ON msg.id=m.message_id AND msg.org_id=m.org_id AND msg.channel=m.channel
-    WHERE m.org_id=?1 AND m.channel=?2 AND m.hook_id=?5 AND m.customer_key=?6 AND msg.deleted_at IS NULL
-      AND ${currentMembership}
-      AND (?7='' OR m.created_at<?7 OR (m.created_at=?7 AND m.message_id<?8))
-    ORDER BY m.created_at DESC,m.message_id DESC LIMIT 51`).bind(...params).all();
+  const {results} = await db.prepare(`SELECT messageId,createdAt,body,direction,deliveryStatus FROM (
+      SELECT m.message_id AS messageId,m.created_at AS createdAt,msg.body,'inbound' AS direction,'received' AS deliveryStatus
+      FROM hx_line_inbox_messages m JOIN channel_messages msg ON msg.id=m.message_id AND msg.org_id=m.org_id AND msg.channel=m.channel
+      WHERE m.org_id=?1 AND m.channel=?2 AND m.hook_id=?5 AND m.customer_key=?6 AND msg.deleted_at IS NULL
+      UNION ALL
+      SELECT r.id AS messageId,r.created_at AS createdAt,r.body,'outbound' AS direction,r.status AS deliveryStatus
+      FROM hx_line_inbox_replies r WHERE r.org_id=?1 AND r.channel=?2 AND r.hook_id=?5 AND r.customer_key=?6
+    ) conversation
+    WHERE ${currentMembership}
+      AND (?7='' OR createdAt<?7 OR (createdAt=?7 AND messageId<?8))
+    ORDER BY createdAt DESC,messageId DESC LIMIT 51`).bind(...params).all();
   const hasMore=results.length>50, page=results.slice(0,50).reverse();
   return {hook,customerKey,messages:page,hasMore,nextCursor:hasMore?`${page[0]?.createdAt}|${page[0]?.messageId}`:null};
 }
