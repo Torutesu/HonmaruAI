@@ -60,7 +60,8 @@ export async function listRoomHooks(db, orgId, channel, actorId) {
     WHERE e.org_id=?1 AND e.channel=?2
       AND NOT EXISTS(SELECT 1 FROM hx_line_room_hooks l WHERE l.id=e.hook_id AND l.org_id=e.org_id)
     ORDER BY e.created_at DESC,e.message_id DESC LIMIT 20`).bind(orgId,channel).all();
-  return { hooks: results, events };
+  const hooks = results.map(({canReply,...hook}) => hook.provider === 'line' ? {...hook, canReply:Boolean(canReply)} : hook);
+  return { hooks, events };
 
 }
 
