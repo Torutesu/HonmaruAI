@@ -63,7 +63,8 @@ export async function sendLineInboxReply(env,{orgId,channel,actorId,hookId,custo
  }
  let response;
  try{
-  response=await fetch('https://api.line.me/v2/bot/message/push',{
+  const providerFetch=typeof env.LINE_FETCH==='function'?env.LINE_FETCH:fetch;
+  response=await providerFetch('https://api.line.me/v2/bot/message/push',{
    method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
    body:JSON.stringify({to:target.id,messages:[{type:'text',text:clean}]}),
    redirect:'error',cache:'no-store',
