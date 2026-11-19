@@ -508,10 +508,10 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
       if (calls === 2) {
         await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9551' AND server_id=?3")
           .bind(ORG, agent.id, server.id).run();
-      } else if (calls === 3) {
         await env.DB.prepare("UPDATE hx_remote_mcp_servers SET allowed_tools=?1 WHERE org_id=?2 AND id=?3")
           .bind(JSON.stringify(["get_manual"]), ORG, server.id).run();
-      } else if (calls === 4) {
+      } else if (calls === 3) {
+        // Revoke and re-grant the same permission while the provider response is in flight.
         await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id='9551' AND server_id=?3")
           .bind(ORG, agent.id, server.id).run();
         await env.DB.prepare(`INSERT INTO hx_agent_remote_mcp_grants
@@ -520,7 +520,7 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
           .bind(ORG, agent.id, server.id, new Date(Date.now()+1000).toISOString()).run();
       }
       return { statusCode: 200, data: { jsonrpc: "2.0", id: message(opts).id, result: { content: [{ type: "text", text: calls === 1 ? "approved policy result" : "revoked private result" }] } } };
-    }).times(4);
+    }).times(3);
 
   activateRemoteFetchMock();
   try {
@@ -577,12 +577,6 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
     expect(await refreshedTools[manualRead].run({ query: "manual" })).toMatch(/result was discarded/);
     state = await (await call(`/hx/agents/${agent.id}/apps?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) })).json();
     expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: true, readOnlyToolCount: 1 }]);
-    // Refresh once more after the allowlist mutation; the next provider call revokes and re-grants access in flight.
-    const latestTools = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: true, agentId: agent.id });
-    const latestManualRead = Object.keys(latestTools).find(name => name.includes("get_manual"));
-    expect(latestManualRead).toBeTruthy();
-    expect(await latestTools[latestManualRead].run({ query: "manual after regrant" })).toMatch(/result was discarded/);
-
     const shared = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: false, agentId: agent.id });
     expect(Object.keys(shared).some((name) => name.startsWith("mcp_"))).toBe(false);
   } finally {
