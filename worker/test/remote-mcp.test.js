@@ -534,7 +534,7 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
     expect((await allow.json()).server.allowedTools).toEqual(["search_policy", "get_manual", "delete_record"]);
 
     let state = await (await call(`/hx/agents/${agent.id}/apps?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) })).json();
-    expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: false, readOnlyToolCount: 1 }]);
+    expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: false, readOnlyToolCount: 2 }]);
     let tools = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: true, agentId: agent.id });
     expect(Object.keys(tools).filter((name) => name.startsWith("mcp_"))).toEqual([]);
 
