@@ -568,7 +568,7 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
       method: "POST", headers: headers(session), body: JSON.stringify({ orgId: ORG, remoteMcpServerId: server.id }),
     });
     expect(regranted.status).toBe(200);
-    expect(await tools[readOnly].run({ query: "policy" })).toMatch(/result was discarded/);
+    expect(await tools[readOnly].run({ query: "policy" })).toMatch(/no longer has permission/);
     state = await (await call(`/hx/agents/${agent.id}/apps?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) })).json();
     expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: true, readOnlyToolCount: 1 }]);
     const refreshedTools = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: true, agentId: agent.id });
