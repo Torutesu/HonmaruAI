@@ -192,6 +192,8 @@ test('LINE room hooks verify raw signatures, deduplicate inbound events and do n
     const sendReply=()=>worker.fetch(new Request('https://example.test/hx/rooms/line-replies',{method:'POST',headers:{'content-type':'application/json','x-session-token':session},body:JSON.stringify(replyInput)}),securedEnv,{waitUntil(){}});
     const rejected=await sendReply();
     expect(rejected.status).toBe(502);
+    const rejectedState=await env.DB.prepare('SELECT status,body FROM hx_line_inbox_replies WHERE org_id=?1 AND hook_id=?2 AND request_id=?3').bind(org,connection.hook.id,replyInput.requestId).first();
+    expect(rejectedState).toEqual({status:'failed',body:replyInput.body});
     const sent=await sendReply();
     expect(sent.status).toBe(201);
     expect(await sent.json()).toMatchObject({reply:{direction:'outbound',deliveryStatus:'sent',body:replyInput.body}});
