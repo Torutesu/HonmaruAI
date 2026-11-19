@@ -53,6 +53,10 @@ Usage:
   honmaru workspace room unarchive <room-id>
   honmaru workspace room create --name NAME --scope public|private --request-id ID [--members REF,REF]
   honmaru workspace room read <room-id> [--limit N] [--cursor CURSOR]
+  honmaru workspace timeline list [--unread] [--limit N]
+  honmaru workspace timeline count|get <item-key>
+  honmaru workspace timeline read <item-key>|all
+  honmaru workspace timeline pin|unpin <item-key>
   honmaru workspace message search <query> [--limit N] [--cursor CURSOR]
   honmaru workspace message get <message-id>
   honmaru workspace message edit <room-id> <message-id> --body TEXT --version N [--acknowledge-dlp]
@@ -164,7 +168,7 @@ const ALIAS_VALUE_FLAGS = new Set([
   "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "dest", "format", "timeout-seconds", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "expires-in-days", "file-id", "org-id", "reason", "token-env", "contract-version",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "confirm", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "unread", "confirm", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
 
 async function readSkillSource(source) {
   const root = resolve(source);
@@ -293,6 +297,29 @@ function positionalCount(positional, exact, usage) {
 async function resolveWorkspaceCommand(resource, operation, positional, options, env = process.env) {
   const pair = `${resource || ""} ${operation || ""}`.trim();
   switch (pair) {
+    case "timeline list": {
+      onlyFlags(options, ["unread", "limit"]); positionalCount(positional, 0, "honmaru workspace timeline list [--unread] [--limit N]");
+      const args = {};
+      const limit = integerOption(options, "limit", { min: 1, max: 50 });
+      if (limit !== undefined) args.limit = limit;
+      if (options.unread) args.unread = true;
+      return { tool: "timeline_list", args };
+    }
+    case "timeline count":
+      onlyFlags(options, []); positionalCount(positional, 0, "honmaru workspace timeline count");
+      return { tool: "timeline_count", args: {} };
+    case "timeline get":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace timeline get <item-key>");
+      return { tool: "timeline_get", args: { key: positional[0] } };
+    case "timeline read":
+      onlyFlags(options, []); positionalCount(positional, 1, "honmaru workspace timeline read <item-key>|all");
+      return positional[0] === "all"
+        ? { tool: "timeline_read_all", args: {} }
+        : { tool: "timeline_read", args: { key: positional[0] } };
+    case "timeline pin":
+    case "timeline unpin":
+      onlyFlags(options, []); positionalCount(positional, 1, `honmaru workspace timeline ${operation} <item-key>`);
+      return { tool: "timeline_pin", args: { key: positional[0], pinned: operation === "pin" } };
     case "room list": {
       onlyFlags(options, ["query", "type", "cursor", "limit", "archived"]); positionalCount(positional, 0, "honmaru workspace room list [--archived] [options]");
       if (options.archived) {
