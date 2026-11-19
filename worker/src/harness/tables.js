@@ -326,12 +326,22 @@ export async function addRow(db, orgId, tableId, values, by, validation, writeUs
 
 /// Change some values of a row; the others stay. Returns the row before and
 /// after, so a caller can tell what changed (Workflows trigger on it).
+async function appBackedTable(db, orgId, tableId) {
+  return Boolean(await db.prepare(`SELECT 1 AS linked FROM hx_apps a WHERE a.org_id=?1 AND a.table_id=?2
+    UNION ALL SELECT 1 AS linked FROM hx_app_entities e WHERE e.org_id=?1 AND e.table_id=?2 LIMIT 1`)
+    .bind(orgId, tableId).first());
+}
+
 export async function updateRow(db, orgId, tableId, rowId, values, by, expectedUpdatedAt, validation, writeUserId, writeGuard, { deferWrite = false } = {}) {
   // Legacy/simple table calls remain compatible. The version token is
   // mandatory for strict app writes and externally guarded writes.
   if ((validation === 'strict' || writeGuard) && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt)) return { error: 'expectedUpdatedAt is required. Reload the row before editing it.', status: 400 };
   const observed = await tableForWrite(db, orgId, tableId);
   if (!observed) return { error: "No such table.", status: 404 };
+  if (writeUserId != null && await appBackedTable(db, orgId, tableId)
+    && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt)) {
+    return { error: 'expectedUpdatedAt is required. Reload the row before editing it.', status: 400 };
+  }
   const {table}=observed;
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
@@ -370,6 +380,10 @@ export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt, wr
   if (writeGuard && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt)) return { error: 'expectedUpdatedAt is required. Reload the row before deleting it.', status: 400 };
   const observed = await tableForWrite(db, orgId, tableId);
   if (!observed) return { error: "No such row.", status: 404 };
+  if (writeUserId != null && await appBackedTable(db, orgId, tableId)
+    && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt)) {
+    return { error: 'expectedUpdatedAt is required. Reload the row before deleting it.', status: 400 };
+  }
   const {table}=observed;
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };

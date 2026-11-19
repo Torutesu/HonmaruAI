@@ -5,7 +5,18 @@ import worker from '../src/index.js';
 import { createSession, upsertMembership, upsertUser } from '../src/db.js';
 
 const org = 'personal:aggregate-independent';
-const request = (path, token, body, method='POST', db=env.DB) => worker.fetch(new Request(`https://example.com${path}${method==='DELETE'?`?orgId=${encodeURIComponent(org)}`:''}`, { method, headers:{'content-type':'application/json','x-session-token':token}, ...(body?{body:JSON.stringify({orgId:org,...body})}:{}) }), {...env,DB:db});
+const request = async (path, token, body, method='POST', db=env.DB) => {
+  const payload=body&&{...body};
+  const rowPath=path.match(/^\/tables\/([^/?]+)\/rows\/([^/?]+)/);
+  if(rowPath&&['PATCH','PUT','DELETE'].includes(method)){
+    const [,tableId,rowId]=rowPath;
+    const row=await env.DB.prepare('SELECT updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(org,tableId,rowId).first();
+    if(row&&method==='DELETE'&&!new URL(`https://example.com${path}`).searchParams.has('expectedUpdatedAt'))path+=`${path.includes('?')?'&':'?'}expectedUpdatedAt=${encodeURIComponent(row.updated_at)}`;
+    else if(row&&method!=='DELETE'&&payload?.expectedUpdatedAt===undefined)payload.expectedUpdatedAt=row.updated_at;
+  }
+  const url=method==='DELETE'?`${path}${path.includes('?')?'&':'?'}orgId=${encodeURIComponent(org)}`:path;
+  return worker.fetch(new Request(`https://example.com${url}`, { method, headers:{'content-type':'application/json','x-session-token':token}, ...(payload?{body:JSON.stringify({orgId:org,...payload})}:{}) }), {...env,DB:db});
+};
 async function setup({multiple=false}={}) {
   await env.DB.exec(schema.replace(/\n/g,' '));
   await upsertUser(env.DB,{githubId:'bind-owner',login:'bind-owner',name:'Bind Owner'});

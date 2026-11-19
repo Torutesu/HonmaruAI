@@ -29,7 +29,22 @@ const call = async (path, init, over = {}) => {
   return res;
 };
 const headers = (token) => ({ "content-type": "application/json", "x-session-token": token });
-const send = (method, path, token, body) => call(path, { method, headers: headers(token), body: JSON.stringify(body) });
+const send = async (method, path, token, body) => {
+  const payload = body && { ...body };
+  const rowPath = path.match(/^\/tables\/([^/?]+)\/rows\/([^/?]+)/);
+  if (rowPath && ['PATCH', 'PUT', 'DELETE'].includes(method)) {
+    const [, tableId, rowId] = rowPath;
+    const row = await env.DB.prepare('SELECT updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3')
+      .bind(ORG, tableId, rowId).first();
+    if (row && method === 'DELETE' && !new URL(`https://example.com${path}`).searchParams.has('expectedUpdatedAt')) {
+      const separator = path.includes('?') ? '&' : '?';
+      path += `${separator}expectedUpdatedAt=${encodeURIComponent(row.updated_at)}`;
+    } else if (row && method !== 'DELETE' && payload?.expectedUpdatedAt === undefined) {
+      payload.expectedUpdatedAt = row.updated_at;
+    }
+  }
+  return call(path, { method, headers: headers(token), ...(payload ? { body: JSON.stringify(payload) } : {}) });
+};
 const get = (path, token) => call(path, { headers: headers(token) });
 const q = (o) => new URLSearchParams(o).toString();
 const messages = async (token) => (await (await get(`/channels/messages?${q({ orgId: ORG, channel: "b:ops" })}`, token)).json()).messages || [];
