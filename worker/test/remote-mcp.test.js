@@ -677,3 +677,40 @@ test("an Agent request can use the requester's own OAuth Remote MCP read tools w
   expect(await mayUseAgentRemoteMcpForRequest(env, request)).toBe(false);
   expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session: requester })).toEqual([]);
 });
+
+test("OAuth connection sharing is owner-controlled, versioned, and rechecked against current membership and Agent access", async () => {
+  const { upsertUser, upsertMembership } = await import("../src/db.js");
+  const { saveRemoteMcpOAuthShares, remoteMcpOAuthShareSettings, remoteMcpOAuthShareType } = await import("../src/harness/remoteMcpOAuth.js");
+  const { mayUseAgentRemoteMcpForRequest } = await import("../src/harness/agentRemoteMcp.js");
+  await upsertUser(env.DB, { githubId: "9552", login: "share-member", name: "Share Member" });
+  await upsertMembership(env.DB, ORG, "9552", "member");
+  const agentId = "remote-mcp-shared-agent", serverId = "remote-mcp-shared-server", createdAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'shared-reader','Shared Reader','Read only.','team','remote-admin',?3,?3)`).bind(ORG, agentId, createdAt).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_profiles (org_id,agent_id,access,people,updated_by,updated_at)
+    VALUES (?1,?2,'everyone','[]','9551',?3)`).bind(ORG, agentId, createdAt).run();
+  await env.DB.prepare(`INSERT INTO hx_remote_mcp_servers
+    (id,org_id,name,endpoint,auth_mode,tools_json,allowed_tools,created_by,created_at,updated_at)
+    VALUES (?1,?2,'Shared OAuth','https://mcp.example.com/mcp','oauth',?3,'["read"]','9551',?4,?4)`)
+    .bind(serverId, ORG, JSON.stringify([{ name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]), createdAt).run();
+  await env.DB.prepare(`INSERT INTO hx_remote_mcp_oauth_credentials
+    (org_id,server_id,user_github_id,membership_since,credential,created_at,updated_at)
+    SELECT ?1,?2,'9551',created_at,'{}',?3,?3 FROM memberships WHERE org_id=?1 AND user_github_id='9551'`)
+    .bind(ORG, serverId, createdAt).run();
+
+  const saved = await saveRemoteMcpOAuthShares(env.DB, ORG, serverId, "9551", { version: 0, everyone: false, memberIds: ["9552"], agentIds: [agentId] });
+  expect(saved).toMatchObject({ settings: { version: 1, memberIds: ["9552"], agentIds: [agentId] } });
+  expect(await remoteMcpOAuthShareType(env.DB, { orgId: ORG, serverId, ownerId: "9551", requesterId: "9552", agentId })).toBe("agent");
+  expect(await mayUseAgentRemoteMcpForRequest(testEnv, { orgId: ORG, agentId, session: { github_id: "9552" }, serverId, toolName: "read", connectionOwnerId: "9551" })).toBe(true);
+  expect((await saveRemoteMcpOAuthShares(env.DB, ORG, serverId, "9551", { version: 0, everyone: true, memberIds: [], agentIds: [] })).status).toBe(409);
+
+  const membership = await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9552'").bind(ORG).first();
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9552'").bind(ORG).run();
+  await upsertMembership(env.DB, ORG, "9552", "member");
+  expect(await remoteMcpOAuthShareType(env.DB, { orgId: ORG, serverId, ownerId: "9551", requesterId: "9552", agentId })).toBe("agent");
+  expect(await remoteMcpOAuthShareSettings(env.DB, ORG, serverId, "9551")).toMatchObject({ memberIds: [], agentIds: [agentId] });
+  expect(membership.created_at).toBeTruthy();
+  await env.DB.prepare("DELETE FROM hx_remote_mcp_oauth_shares WHERE org_id=?1 AND server_id=?2 AND audience_type='agent'")
+    .bind(ORG, serverId).run();
+  expect(await mayUseAgentRemoteMcpForRequest(testEnv, { orgId: ORG, agentId, session: { github_id: "9552" }, serverId, toolName: "read", connectionOwnerId: "9551" })).toBe(false);
+});

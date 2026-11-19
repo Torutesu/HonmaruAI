@@ -16,6 +16,7 @@ type RegistryServer = {
   name: string; title: string; description: string; version: string; endpoint: string
   headers: Array<{ name: string; required: boolean; description: string }>
 }
+type OAuthShares = { version: number; everyone: boolean; memberIds: string[]; agentIds: string[]; members: Array<{ id: string; name: string }>; agents: Array<{ id: string; name: string }> }
 
 function registryEndpointHost(endpoint: string) {
   try { return new URL(endpoint).hostname } catch { return endpoint }
@@ -47,6 +48,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
   const [confirmGatewayTrust, setConfirmGatewayTrust] = useState(false)
   const [gatewayEdits, setGatewayEdits] = useState<Record<string, string>>({})
   const [gatewayTrustEdits, setGatewayTrustEdits] = useState<Record<string, boolean>>({})
+  const [shareSettings, setShareSettings] = useState<Record<string, OAuthShares>>({})
 
   const authHeaders = { 'content-type': 'application/json', 'x-session-token': sessionToken }
   const load = useCallback(async () => {
@@ -160,8 +162,33 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
     setBusy(`${server.id}:oauth`); setError(null); setNote(null)
     try {
       await call(`/remote-mcp/${encodeURIComponent(server.id)}/oauth/disconnect`, 'POST', {})
+      setShareSettings(current => { const next = { ...current }; delete next[server.id]; return next })
       setNote(t('Your OAuth account was disconnected.'))
       await load()
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setBusy(null) }
+  }
+
+  const loadShares = async (server: RemoteServer) => {
+    setBusy(`${server.id}:shares`); setError(null)
+    try {
+      const settings = await call(`/remote-mcp/${encodeURIComponent(server.id)}/oauth/shares`, 'GET') as OAuthShares
+      setShareSettings(current => ({ ...current, [server.id]: settings }))
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setBusy(null) }
+  }
+
+  const saveShares = async (server: RemoteServer) => {
+    const settings = shareSettings[server.id]
+    if (!settings) return
+    setBusy(`${server.id}:shares`); setError(null); setNote(null)
+    try {
+      const saved = await call(`/remote-mcp/${encodeURIComponent(server.id)}/oauth/shares`, 'PUT', {
+        version: settings.version, everyone: settings.everyone,
+        memberIds: settings.everyone ? [] : settings.memberIds, agentIds: settings.agentIds,
+      }) as Pick<OAuthShares, 'version' | 'everyone' | 'memberIds' | 'agentIds'>
+      setShareSettings(current => ({ ...current, [server.id]: { ...settings, ...saved } }))
+      setNote(t('Connection access updated. Credentials remain with the owner.'))
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(null) }
   }
@@ -268,6 +295,9 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
                     <button type="button" className="studio-btn" disabled={busy === `${server.id}:oauth`} onClick={() => server.oauthConnected ? void disconnectOAuth(server) : void connectOAuth(server)}>
                       <Icon name="plug" size={13} /> {busy === `${server.id}:oauth` ? t('Opening…') : server.oauthConnected ? t('Disconnect my account') : t('Connect my account')}
                     </button>
+                    {server.oauthConnected && <button type="button" className="studio-btn" disabled={busy === `${server.id}:shares`} onClick={() => shareSettings[server.id] ? setShareSettings(current => { const next = { ...current }; delete next[server.id]; return next }) : void loadShares(server)}>
+                      {shareSettings[server.id] ? t('Close access settings') : busy === `${server.id}:shares` ? t('Loading…') : t('Manage access')}
+                    </button>}
                   </>}
                   <button type="button" className="studio-btn" disabled={!canManage || busy === server.id} onClick={() => void discover(server.id)}>
                     <Icon name="refresh" size={13} /> {busy === server.id ? t('Checking…') : t('Discover tools')}
@@ -288,6 +318,14 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
                 <button type="button" className="studio-btn" disabled={busy === `${server.id}:gateway` || !(gatewayEdits[server.id] ?? server.egressGatewayId) || gatewayEdits[server.id] !== server.egressGatewayId && !gatewayTrustEdits[server.id]} onClick={() => void assignGateway(server)}>{busy === `${server.id}:gateway` ? t('Saving…') : t('Save Gateway')}</button>
               </div>}
               <div className="remote-mcp-subline">{server.authMode === 'oauth' ? t('Each member connects their own account · encrypted') : server.hasAuthentication ? t('Authentication saved · encrypted') : t('No authentication header')} · {t('{n} tools available', { n: server.tools.length })}</div>
+              {shareSettings[server.id] && <div className="remote-mcp-share" aria-label={t('OAuth connection access')}>
+                <div><strong>{t('Who can use your connection')}</strong><p>{t('Your login and tokens stay private. Authorized Agents send requests through Honmaru, which checks access for every call.')}</p></div>
+                <label className="remote-mcp-share-option"><input type="checkbox" checked={!shareSettings[server.id].everyone && shareSettings[server.id].memberIds.length === 0 && shareSettings[server.id].agentIds.length === 0} onChange={() => setShareSettings(current => ({ ...current, [server.id]: { ...current[server.id], everyone: false, memberIds: [], agentIds: [] } }))} />{t('Only me')}</label>
+                <label className="remote-mcp-share-option"><input type="checkbox" checked={shareSettings[server.id].everyone} onChange={event => setShareSettings(current => ({ ...current, [server.id]: { ...current[server.id], everyone: event.target.checked, memberIds: [] } }))} />{t('Everyone in this workspace')}</label>
+                <div className="remote-mcp-share-list"><strong>{t('Specific people')}</strong>{shareSettings[server.id].members.map(member => <label className="remote-mcp-share-option" key={member.id}><input type="checkbox" checked={shareSettings[server.id].memberIds.includes(member.id)} disabled={shareSettings[server.id].everyone} onChange={event => setShareSettings(current => { const s=current[server.id]; return { ...current, [server.id]: { ...s, memberIds: event.target.checked ? [...s.memberIds,member.id] : s.memberIds.filter(id=>id!==member.id) } } })} />{member.name}</label>)}{shareSettings[server.id].members.length === 0 && <small>{t('No other workspace members.')}</small>}</div>
+                <div className="remote-mcp-share-list"><strong>{t('Agents')}</strong>{shareSettings[server.id].agents.map(agent => <label className="remote-mcp-share-option" key={agent.id}><input type="checkbox" checked={shareSettings[server.id].agentIds.includes(agent.id)} onChange={event => setShareSettings(current => { const s=current[server.id]; return { ...current, [server.id]: { ...s, agentIds: event.target.checked ? [...s.agentIds,agent.id] : s.agentIds.filter(id=>id!==agent.id) } } })} />{agent.name}</label>)}{shareSettings[server.id].agents.length === 0 && <small>{t('No Agents you can access.')}</small>}</div>
+                <div className="remote-mcp-share-footer"><small>{t('People and Agents remain subject to workspace and Agent access rules.')}</small><button type="button" className="studio-btn primary" disabled={busy === `${server.id}:shares`} onClick={() => void saveShares(server)}>{busy === `${server.id}:shares` ? t('Saving…') : t('Save access')}</button></div>
+              </div>}
               {server.tools.length > 0 && <div className="remote-mcp-tools">
                 {server.tools.map((tool) => {
                   const key = `${server.id}:${tool.name}`
@@ -324,7 +362,7 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
                   <label>{t('Client ID')}<input value={oauthClientId} onChange={(event) => setOauthClientId(event.target.value)} maxLength={500} required placeholder={t('OAuth client ID')} /></label>
                   <label>{t('Client secret')}<input type="password" autoComplete="new-password" value={oauthClientSecret} onChange={(event) => setOauthClientSecret(event.target.value)} maxLength={4096} placeholder={t('Optional for public clients')} /></label>
                 </>}
-                <p className="remote-mcp-form-note">{t('Each member authorizes their own account with PKCE. Tokens are encrypted and never shared between members.')}</p>
+                <p className="remote-mcp-form-note">{t('Each member authorizes their own account with PKCE. Tokens stay encrypted with the owner; the owner can grant selected people or Agents proxy access.')}</p>
                 <p className="remote-mcp-form-note">{t('Workflow runs use the workflow creator’s connected account.')}</p>
               </> : <>
                 <p className="remote-mcp-form-note">{t('Use the final HTTPS URL without query parameters.')}</p>
