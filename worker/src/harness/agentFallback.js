@@ -99,7 +99,7 @@ export async function drainAgentFallbackNotifications(env,broadcast,{limit=25}={
      const clientId=`tmp-${String(event.id).replace(/[^0-9a-z-]/gi,'').toLowerCase().slice(0,76)}`;
      const out=await postMessage(env.DB,{orgId:event.org_id,key:resolved.key,authorLogin:`agent:${agent.id}`,body,kind:'agent',clientId});
      if(out.error||!out.row)throw new Error(out.error||'Could not save the Agent runtime notice.');
-     if(broadcast&&!out.replay)await broadcast(env,event.org_id,resolved.key,out.row);
+     if(broadcast)await broadcast(env,event.org_id,resolved.key,out.row);
      await env.DB.prepare(`UPDATE hx_agent_fallback_events SET status='delivered',updated_at=?3
        WHERE org_id=?1 AND id=?2 AND status='pending'`).bind(event.org_id,event.id,new Date().toISOString()).run();
      delivered++;
