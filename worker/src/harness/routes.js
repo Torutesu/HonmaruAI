@@ -48,7 +48,7 @@ import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, rebaseLegacyFork, readFork, mutateFork, mutateForkSchema } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, listAppActionRuns, connections, saveConnection } from './appCapabilities.js';
-import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
+import { appConnectionsForViewer, appConnectionGrantReview, revokeAppConnectionGrantForReview, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
 import { startAppConnectionOAuth } from './appConnectionOAuth.js';
 import { appRemoteMcpForViewer, changeAppRemoteMcpGrant, invokeAppRemoteMcp } from './appRemoteMcp.js';
 import { generateCustomSource, saveCustomRelease, validateSource, MAX_PREVIEW_SOURCE } from "./customApps.js";
@@ -1674,11 +1674,12 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({...r,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
     }
     const app = await getApp(env.DB, orgId, appId);
+    const canReviewConnections = sub === 'connections' && await allowed(env.DB, orgId, me, 'workspace.integrations');
     // Workspace Admins may manage room-navigation links on a private App,
     // but this narrow exception never grants access to App data or metadata.
     const canManagePrivateLinks = sub === 'links' && ['POST', 'DELETE'].includes(request.method)
       && await mayChange(env, orgId, who, app?.createdBy);
-    if (!app || (!(await mayUseApp(env.DB, orgId, appId, me)) && !canManagePrivateLinks)) return json({ message: "No such app." }, 404);
+    if (!app || (!(await mayUseApp(env.DB, orgId, appId, me)) && !canManagePrivateLinks && !canReviewConnections)) return json({ message: "No such app." }, 404);
     if(sub==='record-proposals'&&parts.length===4){
       if(request.method!=='POST')return json({message:'Method not allowed.'},405);
       const proposal=await env.DB.prepare(`SELECT * FROM hx_app_record_proposals WHERE org_id=? AND app_id=? AND id=?`).bind(orgId,appId,parts[3]).first();
@@ -1853,12 +1854,23 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (sub === 'connections') {
         if(request.method==='GET') {
+          if(url.searchParams.get('review')==='1') {
+            if(!canReviewConnections)return json({message:'Only workspace admins can review App connection grants.'},403);
+            return json(await appConnectionGrantReview(env.DB,orgId,appId));
+          }
           const result=await appConnectionsForViewer(env.DB,orgId,appId,me);
           if(result.error)return fail(result);
           const remoteMcp=await appRemoteMcpForViewer(env.DB,orgId,appId,me);
           return remoteMcp.error?fail(remoteMcp):json({...result,remoteMcp});
         }
         if(request.method!=='POST')return json({message:'Method not allowed.'},405);
+        if(input.action==='review_revoke') {
+          if(!canReviewConnections)return json({message:'Only workspace admins can revoke App connection grants from the access review.'},403);
+          const result=await revokeAppConnectionGrantForReview(env.DB,orgId,appId,input);
+          if(result.error)return fail(result);
+          await audit(env,request,{orgId,action:'app.connection_grant_admin_revoked',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{ownerId:String(input.ownerId),connectionName:String(input.name)}});
+          return json(result);
+        }
         if(input.action==='request')return respond(await invokeAppConnection(env,orgId,appId,me,input),'app.connection_requested');
         if(input.action==='remote_mcp_request')return respond(await invokeAppRemoteMcp(env,orgId,appId,me,input),'app.remote_mcp_requested');
         if(input.action==='save')return respond(await saveConnection(env.DB,orgId,appId,me,input,env),'app.connection_saved');
