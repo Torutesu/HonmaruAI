@@ -930,11 +930,19 @@ async function ensureAgentRow(db, orgId, provider, login, on, existingId, member
   if (existingId) {
     await db.prepare("UPDATE custom_agents SET deleted_at = NULL, updated_at = ?3 WHERE org_id = ?1 AND id = ?2").bind(orgId, id, now).run();
   } else {
+    // Check handle conflicts as if this were team-wide. The workspace may
+    // switch modes between this read and the atomic write below.
     const handle = (await handleTaken(db, orgId, p.handle, { members, scope: "team", ownerLogin: login })) ? `${p.handle}-ai` : p.handle;
-    await db.prepare(
+    const create = db.prepare(
       `INSERT INTO custom_agents (org_id, id, handle, name, emoji, description, instructions, scope, owner_login, preset, provider, created_at, updated_by, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', 'team', ?7, NULL, ?8, ?9, ?7, ?9)`
-    ).bind(orgId, id, handle, p.name, p.emoji, `Works on what you hand it in a thread, with the team's repositories and tools.`, login, provider, now).run();
+       SELECT ?1,?2,?3,?4,?5,?6,'',
+         CASE WHEN EXISTS(SELECT 1 FROM org_settings WHERE org_id=?1 AND mode='harness') THEN 'personal' ELSE 'team' END,
+         ?7,NULL,?8,?9,?7,?9`)
+      .bind(orgId, id, handle, p.name, p.emoji, `Works on what you hand it in a thread, with the team's repositories and tools.`, login, provider, now);
+    const profile = db.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at)
+      SELECT ?1,?2,'private','[]',?3,?4 WHERE EXISTS(
+        SELECT 1 FROM org_settings WHERE org_id=?1 AND mode='harness')`).bind(orgId,id,login,now);
+    await db.batch([create,profile]);
   }
   return id;
 }

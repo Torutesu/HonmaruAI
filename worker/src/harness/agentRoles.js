@@ -3,7 +3,7 @@
 export async function explicitAgentRoles(db, orgId, agentIds, login) {
   if (!login || !agentIds.length) return new Map();
   const { results } = await db.prepare(`SELECT r.agent_id,r.role FROM hx_agent_members r
-    JOIN custom_agents a ON a.org_id=r.org_id AND a.id=r.agent_id AND a.scope='team' AND a.deleted_at IS NULL AND a.provider IS NULL
+    JOIN custom_agents a ON a.org_id=r.org_id AND a.id=r.agent_id AND a.scope='team' AND a.deleted_at IS NULL
     JOIN hx_agent_profiles p ON p.org_id=r.org_id AND p.agent_id=r.agent_id
     JOIN users u ON u.github_id=r.user_id
     JOIN memberships m ON m.org_id=r.org_id AND m.user_github_id=r.user_id AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' AND m.created_at=r.member_since
@@ -13,9 +13,9 @@ export async function explicitAgentRoles(db, orgId, agentIds, login) {
 }
 
 export async function agentRoleState(db, orgId, agentId) {
-  const agent = await db.prepare(`SELECT a.owner_login,a.scope,COALESCE(s.version,0) AS version
+  const agent = await db.prepare(`SELECT a.owner_login,a.scope,a.provider,COALESCE(s.version,0) AS version
     FROM custom_agents a LEFT JOIN hx_agent_access s ON s.org_id=a.org_id AND s.agent_id=a.id
-    WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND a.provider IS NULL`).bind(orgId,agentId).first();
+    WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL`).bind(orgId,agentId).first();
   if (!agent) return null;
   const {results} = await db.prepare(`SELECT u.github_id AS userId,u.login,u.name,
     CASE WHEN u.login=?3 THEN 'admin' ELSE r.role END AS role,
@@ -24,7 +24,7 @@ export async function agentRoleState(db, orgId, agentId) {
     LEFT JOIN hx_agent_members r ON r.org_id=m.org_id AND r.agent_id=?2 AND r.user_id=u.github_id AND r.member_since=m.created_at
     WHERE u.login=?3 OR r.user_id IS NOT NULL ORDER BY owner DESC,u.name,u.github_id`)
     .bind(orgId,agentId,agent.owner_login).all();
-  return {version:agent.version,scope:agent.scope,members:results};
+  return {version:agent.version,scope:agent.scope,provider:agent.provider||null,members:results};
 }
 
 export async function setAgentRole(db, orgId, agentId, { actorId, targetId, role, expectedVersion }) {
@@ -54,7 +54,7 @@ export async function setAgentRole(db, orgId, agentId, { actorId, targetId, role
       WHERE org_id=?1 AND agent_id=?2 AND version=?6
       AND EXISTS (SELECT 1 FROM custom_agents a JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
         JOIN users u ON u.github_id=?3 JOIN memberships m ON m.org_id=a.org_id AND m.user_github_id=u.github_id AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
-        WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND a.provider IS NULL AND (a.scope='team' OR (a.scope='personal' AND a.owner_login=u.login AND ?7!='none'))
+        WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND (a.scope='team' OR (a.scope='personal' AND a.owner_login=u.login AND ?7!='none'))
         AND (a.owner_login=u.login OR EXISTS(SELECT 1 FROM hx_agent_members r WHERE r.org_id=?1 AND r.agent_id=?2 AND r.user_id=?3 AND r.member_since=m.created_at
           AND (r.role='admin' OR (r.role='member' AND (
             (?7='member' AND NOT EXISTS(SELECT 1 FROM hx_agent_members t WHERE t.org_id=?1 AND t.agent_id=?2 AND t.user_id=?4 AND t.member_since=?8))
@@ -90,6 +90,7 @@ export async function transferAgentOwnership(db, orgId, agentId, {actorId,target
   if(!Number.isSafeInteger(expectedVersion)||expectedVersion<0) return {error:'A current access version is required.',status:400};
   const state=await agentRoleState(db,orgId,agentId);
   if(!state) return {error:'No such agent.',status:404};
+  if(state.provider) return {error:'Ownership transfer for external teammates must be managed in Studio.',status:409};
   const actor=state.members.find(m=>m.userId===actorId),target=state.members.find(m=>m.userId===targetId);
   if(!actor?.owner) return {error:'Only the current owner can transfer this agent.',status:403};
   if(state.scope!=='team'||!target||target.owner||target.role!=='admin') return {error:'Choose another active human agent admin.',status:409};

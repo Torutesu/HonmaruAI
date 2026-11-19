@@ -62,7 +62,7 @@
 
 | ID | 要件 | 現状 | 優先 | コード根拠 | 完了条件・残差 |
 |---|---|---|---|---|---|
-| KY-011 | 新規エージェントの初期非公開 | 一部実装 | P0 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 標準作成・Markdown取込を作成者限定で原子的に保存。既存共有・Simpleを維持。外部teammate・全端末UIは残る |
+| KY-011 | 新規エージェントの初期非公開 | 一部実装 | P0 | [customAgents.js](../../worker/src/customAgents.js), [teammates.js](../../worker/src/teammates.js), [agentRoles.js](../../worker/src/harness/agentRoles.js), [HarnessAgents.tsx](../../web-react/src/screens/HarnessAgents.tsx) | 標準作成・Markdown取込・Studio外部teammateも作成者限定でprofileと原子的に保存。選択メンバーのみ明示共有し、Simpleの既存共有は維持。全端末UI・本番隔離確認は残る |
 | KY-012 | 名前・専門・ペルソナ・アバター | 一部 | P1 | [worker/src/customAgents.js](../../worker/src/customAgents.js) | 作成・編集・表示と日英入力を全対象クライアントで検証 |
 | KY-013 | Fast/Pro/Maxの品質とコスト | 一部 | P1 | [worker/src/harness/agents.js](../../worker/src/harness/agents.js) | 現行lite/standard/maxとの差を定義し全実行経路で同じモデル選択と計測 |
 | KY-014 | 独立したAgent Admin/Member | 一部実装 | P0 | [worker/src/harness/agentRoles.js](../../worker/src/harness/agentRoles.js) | 個別役割・制限付き共有・Memberによる通常メンバー追加削除・自己退出・作成者履歴を保持する所有者移譲・競合検出・最後の人間Admin保護を実装。Agent同士の役割・全実行経路のE2E・本番移譲検証は未完了 |

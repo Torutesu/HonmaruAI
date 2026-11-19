@@ -32,7 +32,7 @@ import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 // An agent is still written on the Agents screen; this is where it gets a
 // specialty, a tier, a memory, skills, and a say in who may call it.
 
-interface AgentFace { avatarUrl?: string | null; instructions?: string; id: string; handle: string; name: string; emoji?: string | null; description?: string; specialty?: string; scope?: string; mine?: boolean; createdByName?: string | null; createdAt?: string }
+interface AgentFace { avatarUrl?: string | null; instructions?: string; id: string; handle: string; name: string; emoji?: string | null; description?: string; specialty?: string; scope?: string; provider?: string | null; mine?: boolean; createdByName?: string | null; createdAt?: string }
 
 const TIER_HINT: Record<AgentProfile['tier'], string> = {
   lite: 'Fast and cheap, for simple work.',
@@ -193,7 +193,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
       {error && <div className="form-error">{error}</div>}
       <div className="hx-profile-heading"><button className="hx-profile-avatar-trigger" aria-label={t("Show {name}’s avatar", { name: agent.name })} aria-haspopup="dialog" onClick={() => setAvatarPreview(true)}><AgentAvatar agent={agent} className="hx-profile-avatar" /></button><h1>{agent.name}</h1><button className="pill-btn quiet" onClick={props.onMessage} aria-label={t('Message')}><Icon name="message" size={18} /></button></div>
       <div className="hx-profile-tabs" role="tablist">{(['profile','connections','skills','memory','followups'] as const).map(key => <button key={key} role="tab" aria-selected={section === key} onClick={() => setSection(key)}>{t(key === 'profile' ? 'Profile' : key === 'connections' ? 'Connections' : key === 'skills' ? 'Skills' : key === 'memory' ? 'Memory' : 'Follow-ups')}</button>)}</div>
-      {accessDialog && <AgentAccessDialog agentId={agent.id} load={loadAccess} transfer={(ref,version)=>api.transferAgentOwnership(agent.id,ref,version)} save={(ref,role,version)=>api.setAgentMember(agent.id,ref,role,version)} onClose={scope=>{setAccessDialog(false);props.onAccessChanged();if(scope)props.onUpdated({id:agent.id,scope});void load()}}/>}
+      {accessDialog && <AgentAccessDialog agentId={agent.id} load={loadAccess} transfer={agent.provider ? undefined : (ref,version)=>api.transferAgentOwnership(agent.id,ref,version)} save={(ref,role,version)=>api.setAgentMember(agent.id,ref,role,version)} onClose={scope=>{setAccessDialog(false);props.onAccessChanged();if(scope)props.onUpdated({id:agent.id,scope});void load()}}/>}
       {peerAccessDialog && <AgentPeerAccessDialog agentId={agent.id} load={loadPeerAccess} save={(memberAgentId,role,version)=>api.setAgentPeerMember(agent.id,memberAgentId,role,version)} onClose={()=>setPeerAccessDialog(false)}/>}
       {avatarPreview && <AgentAvatarPreview agent={agent} onClose={() => setAvatarPreview(false)}/>}
       {profileDialog && <EditAgentProfile agent={agent} profile={profile} onClose={() => setProfileDialog(false)} onSave={async (patch, picture) => {
