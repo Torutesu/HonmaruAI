@@ -376,7 +376,7 @@ export async function handleHarness(request, env, url, context = {}) {
       if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Skill sharing is available in Harness mode.' }, 404);
       const agentId = typeof input.agentId === 'string' && input.agentId ? input.agentId : null;
       if (agentId) {
-        const agent = await env.DB.prepare("SELECT id, owner_login, scope FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, agentId).first();
+        const agent = await env.DB.prepare("SELECT id, owner_login, scope, provider FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, agentId).first();
         if (!agent || agent.scope === 'personal' && agent.owner_login !== who.user.login
           || !await mayAccessAgent(env.DB, orgId, { ...agent, ownerLogin: agent?.owner_login }, who.user.login)) return json({ message: 'No such agent.' }, 404);
         const delegatedRole = (await explicitAgentRoles(env.DB, orgId, [agentId], who.user.login)).get(agentId);
@@ -1386,6 +1386,11 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "profile") {
       if (request.method === "GET") return json({ profile: await getProfile(env.DB, orgId, agentId), tiers: TIERS, access: ACCESS, canEdit });
       if (request.method === "PUT") {
+        if (agent.provider && await getMode(env.DB, orgId) === 'harness'
+          && ((input.access !== undefined && input.access !== 'private')
+            || (input.people !== undefined && (!Array.isArray(input.people) || input.people.length > 0)))) {
+          return json({ message: 'Share this teammate through Agent access so its audience stays explicit.' }, 409);
+        }
         const currentProfile=(input.nativeBrowserEnabled!==undefined||input.nativeBrowserGatewayId!==undefined)
           ? await getProfile(env.DB,orgId,agentId) : null;
         if (input.nativeBrowserEnabled === true || input.nativeBrowserGatewayId) {

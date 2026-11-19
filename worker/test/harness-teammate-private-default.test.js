@@ -40,6 +40,8 @@ test('Harness external teammate creation is private until selected-member access
  expect(await env.DB.prepare('SELECT access,people FROM hx_agent_profiles WHERE org_id=?1 AND agent_id=?2').bind(ORG,agent.id).first()).toEqual({access:'private',people:'[]'});
  expect((await (await get(`/channels/agents?${query({orgId:ORG})}`,memberToken)).json()).agents.some(row=>row.id===agent.id)).toBe(false);
  expect((await get(`/hx/agents/${agent.id}/members?${query({orgId:ORG})}`,memberToken)).status).toBe(404);
+ expect((await send('PUT',`/hx/agents/${agent.id}/profile`,ownerToken,{orgId:ORG,access:'everyone'})).status).toBe(409);
+ expect((await send('PUT',`/hx/agents/${agent.id}/profile`,ownerToken,{orgId:ORG,access:'people',people:['member']})).status).toBe(409);
 
  const access=await (await get(`/hx/agents/${agent.id}/members?${query({orgId:ORG})}`,ownerToken)).json();
  expect(access).toMatchObject({scope:'personal',version:0});
