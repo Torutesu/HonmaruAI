@@ -492,15 +492,15 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
   const endpoint = fetchMock.get(origin);
   const message = (opts) => JSON.parse(opts.body);
   endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "initialize" })
-    .reply((opts) => ({ statusCode: 200, data: { jsonrpc: "2.0", id: message(opts).id, result: { protocolVersion: "2025-06-18" } }, responseOptions: { headers: { "mcp-session-id": "agent-session" } } })).times(4);
+    .reply((opts) => ({ statusCode: 200, data: { jsonrpc: "2.0", id: message(opts).id, result: { protocolVersion: "2025-06-18" } }, responseOptions: { headers: { "mcp-session-id": "agent-session" } } })).persist();
   endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "notifications/initialized" })
-    .reply(202, null).times(4);
+    .reply(202, null).persist();
   endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "tools/list" })
     .reply((opts) => ({ statusCode: 200, data: { jsonrpc: "2.0", id: message(opts).id, result: { tools: [
       { name: "search_policy", title: "Search policy", description: "Search approved policy content.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true } },
       { name: "get_manual", title: "Get manual", description: "Read approved manuals.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true } },
       { name: "delete_record", title: "Delete record", description: "Delete a record.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
-    ] } } }));
+    ] } } })).persist();
   let calls = 0;
   endpoint.intercept({ path: "/mcp", method: "POST", body: (body) => JSON.parse(body).method === "tools/call" })
     .reply(async (opts) => {
@@ -577,6 +577,7 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
     expect(await refreshedTools[manualRead].run({ query: "manual" })).toMatch(/result was discarded/);
     state = await (await call(`/hx/agents/${agent.id}/apps?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) })).json();
     expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: true, readOnlyToolCount: 1 }]);
+    expect(calls).toBe(3);
     const shared = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: false, agentId: agent.id });
     expect(Object.keys(shared).some((name) => name.startsWith("mcp_"))).toBe(false);
   } finally {
