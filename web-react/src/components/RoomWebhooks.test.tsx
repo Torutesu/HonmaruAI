@@ -179,7 +179,7 @@ test('LINE Inbox sends an explicit manual reply and reloads the transcript',asyn
  const reply={id:'reply-1',createdAt:'2026-11-08T12:02:00.000Z',body:'We are checking.',direction:'outbound',deliveryStatus:'sent'}
  const fetcher=vi.fn()
   .mockResolvedValueOnce({ok:true,json:async()=>({hooks:[hook]})})
-  .mockResolvedValueOnce({ok:true,json:async()=>({hook,conversations:[]})})
+  .mockResolvedValueOnce({ok:true,json:async()=>({hook,conversations:[{customerKey,latestAt:'2026-11-08T12:00:00.000Z',messageCount:1,unreadCount:1,preview:'Need help'}]})})
   .mockResolvedValueOnce({ok:true,json:async()=>({hook,customerKey,hasMore:false,messages:[{messageId:'msg-1',createdAt:'2026-11-08T12:00:00.000Z',body:'Need help',direction:'inbound',deliveryStatus:'received'}]})})
   .mockResolvedValueOnce({ok:true,json:async()=>({reply})})
   .mockResolvedValueOnce({ok:true,json:async()=>({hook,customerKey,hasMore:false,messages:[{messageId:'msg-1',createdAt:'2026-11-08T12:00:00.000Z',body:'Need help',direction:'inbound',deliveryStatus:'received'},reply]})})
