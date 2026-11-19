@@ -157,7 +157,7 @@ export async function appConnectionGrantReview(db, orgId, appId) {
   return { grants: results || [] };
 }
 
-export async function revokeAppConnectionGrantForReview(db, orgId, appId, input) {
+export async function revokeAppConnectionGrantForReview(db, orgId, appId, actorId, input) {
   const ownerId=String(input?.ownerId||'');
   const name=String(input?.name||'');
   const grantedAt=String(input?.grantedAt||'');
@@ -168,8 +168,12 @@ export async function revokeAppConnectionGrantForReview(db, orgId, appId, input)
     return err('Choose the exact App connection grant to revoke.');
   const removed=await db.prepare(`DELETE FROM hx_app_connection_grants
     WHERE org_id=?1 AND app_id=?2 AND connection_owner_id=?3 AND connection_name=?4 AND created_at=?5
-      AND connection_version=?6 AND source_agent_id=?7 AND granted_by=?8`)
-    .bind(orgId,appId,ownerId,name,grantedAt,grantedVersion,sourceAgentId,grantedBy).run();
+      AND connection_version=?6 AND source_agent_id=?7 AND granted_by=?8
+      AND EXISTS(SELECT 1 FROM memberships reviewer WHERE reviewer.org_id=?1 AND reviewer.user_github_id=?9
+        AND LOWER(TRIM(COALESCE(reviewer.role,''))) IN ('owner','admin'))
+      AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)`)
+    .bind(orgId,appId,ownerId,name,grantedAt,grantedVersion,sourceAgentId,grantedBy,String(actorId)).run();
   return Number(removed.meta?.changes)===1 ? {revoked:true} : err('The grant changed. Reload the access review and try again.',409);
 }
 
