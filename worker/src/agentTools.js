@@ -19,7 +19,7 @@ import { getUserByGithubId } from "./db.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 import { getMode } from "./harness/mode.js";
 import { agentSourceCredential, agentSourceProvider } from "./harness/agentConnections.js";
-import { agentRemoteMcpTools, mayUseAgentRemoteMcpForRequest } from "./harness/agentRemoteMcp.js";
+import { agentRemoteMcpAuthorizationStamp, agentRemoteMcpTools, mayUseAgentRemoteMcpForRequest } from "./harness/agentRemoteMcp.js";
 import { callRemoteMcpTool } from "./harness/remoteMcp.js";
 import { agentRoomHistoryTools } from "./harness/agentRoomHistory.js";
 import { nativeBrowserAgentTools } from "./harness/nativeBrowserTools.js";
@@ -230,6 +230,8 @@ export async function agentTools(env, { orgId, session, language = "en", persona
           const connectionOwnerId = offered?._remote?.connectionOwnerId || String(session.github_id);
           const grant = { orgId, agentId, session, serverId, toolName: offered?._remote?.toolName, connectionOwnerId };
           if (!await mayUseAgentRemoteMcpForRequest(env, grant)) return "Not searched: this Agent no longer has permission to use that Remote MCP source.";
+          const authorizationStampBefore = await agentRemoteMcpAuthorizationStamp(env, grant);
+          if (!authorizationStampBefore) return "Not searched: this Agent's Remote MCP authorization changed before dispatch.";
           const result = await callRemoteMcpTool(env, {
             orgId,
             githubId: String(session.github_id),
@@ -239,7 +241,9 @@ export async function agentTools(env, { orgId, session, language = "en", persona
           }, offered, args, { readOnlyOnly: true, authorization: {
             kind: "agent-request", agentId, toolName: offered?._remote?.toolName, connectionOwnerId,
           } }).catch(() => null);
-          if (!await mayUseAgentRemoteMcpForRequest(env, grant)) return "Not searched: Remote MCP access changed while the request was running; the result was discarded.";
+          const authorizationStampAfter = await agentRemoteMcpAuthorizationStamp(env, grant);
+          if (!await mayUseAgentRemoteMcpForRequest(env, grant) || authorizationStampAfter !== authorizationStampBefore)
+            return "Not searched: Remote MCP access changed while the request was running; the result was discarded.";
           if (!result || result.isError) return "The connected Remote MCP source could not return a result.";
           const text = (Array.isArray(result.content) ? result.content : [])
             .filter((part) => part?.type === "text" && typeof part.text === "string")
