@@ -173,6 +173,19 @@ test('opt-in ACP cloud fallback uses existing Workspace AI when the configured n
  await drainAgentFallbackNotifications(env,async()=>{});
  expect((await agentDm()).results).toHaveLength(3);
  expect((await env.DB.prepare('SELECT status FROM hx_agent_fallback_events WHERE org_id=?1 AND agent_id=?2 AND version=3').bind(ORG,agentId).first()).status).toBe('delivered');
+
+ // Concurrent CAS updates report success only to the caller that commits the state.
+ const concurrent=await Promise.all([
+  recordAgentFallbackState(env.DB,{orgId:ORG,agentId,gatewayId:gateway.id,ownerLogin:'toru',state:'node',at:Date.now()+2}),
+  recordAgentFallbackState(env.DB,{orgId:ORG,agentId,gatewayId:gateway.id,ownerLogin:'toru',state:'node',at:Date.now()+3}),
+ ]);
+ expect(concurrent.filter(Boolean)).toHaveLength(1);
+ expect(await env.DB.prepare('SELECT current_state,version FROM hx_agent_fallback_state WHERE org_id=?1 AND agent_id=?2').bind(ORG,agentId).first()).toEqual({current_state:'node',version:4});
+ const broadcasts=[];
+ const publish=async(_env,_org,_key,row)=>broadcasts.push(row.id);
+ await Promise.all([drainAgentFallbackNotifications(env,publish),drainAgentFallbackNotifications(env,publish)]);
+ expect(broadcasts).toHaveLength(1);
+ expect((await agentDm()).results).toHaveLength(4);
 });
 
 test('Grok Bot routine returns a thread task through the one-time completion MCP tool', async () => {
