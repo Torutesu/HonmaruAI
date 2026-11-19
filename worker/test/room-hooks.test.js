@@ -1,4 +1,5 @@
 import { drainRoomHookDispatch } from '../src/harness/roomHookDispatch.js';
+import { fetchMock } from './helpers/fetch-mock.js';
 import { env,runInDurableObject } from 'cloudflare:test';
 import { beforeEach, expect, test } from 'vitest';
 import { upsertUser, upsertMembership, createSession } from '../src/db.js';
@@ -138,14 +139,17 @@ test('LINE room hooks verify raw signatures, deduplicate inbound events and do n
   const channelSecret='line-channel-secret-'.padEnd(32,'x');
   const create=await worker.fetch(new Request(`https://example.test/hx/rooms/webhooks?orgId=${org}&channel=${encodeURIComponent(channel)}`,{
     method:'POST',headers:{'content-type':'application/json','x-session-token':session},
-    body:JSON.stringify({orgId:org,channel,name:'LINE support',provider:'line',channelSecret}),
+    body:JSON.stringify({orgId:org,channel,name:'LINE support',provider:'line',channelSecret,channelAccessToken:'line-access-token-for-tests'}),
   }),env,{waitUntil(){}});
   expect(create.status).toBe(200);
   const connection=await create.json();
   expect(connection.secret).toBeUndefined();
   expect(connection.hook).toMatchObject({provider:'line',name:'LINE support'});
   const list=await worker.fetch(new Request(`https://example.test/hx/rooms/webhooks?orgId=${org}&channel=${encodeURIComponent(channel)}`,{headers:{'x-session-token':session}}),env,{waitUntil(){}});
-  expect((await list.json()).hooks[0].provider).toBe('line');
+  expect((await list.json()).hooks[0]).toMatchObject({provider:'line',canReply:true});
+  const encryptedToken=await env.DB.prepare('SELECT channel_access_token FROM hx_line_room_hooks WHERE id=?1').bind(connection.hook.id).first();
+  expect(encryptedToken.channel_access_token).toBeTruthy();
+  expect(encryptedToken.channel_access_token).not.toContain('line-access-token-for-tests');
 
   const payload=JSON.stringify({destination:'bot',events:[{
     type:'message',webhookEventId:'01H810YECXQQZ37VAXPF6H9E6T',timestamp:1_692_251_666_727,
@@ -172,11 +176,30 @@ test('LINE room hooks verify raw signatures, deduplicate inbound events and do n
   const firstInbox=await inbox.json();
   expect(firstInbox.conversations).toHaveLength(1);
   expect(firstInbox.conversations[0]).toMatchObject({messageCount:1,unreadCount:1,preview:expect.stringContaining('Need a delivery update')});
-  expect(firstInbox.conversations[0].customerKey).toMatch(/^customer-[a-f0-9]{10}$/);
+  expect(firstInbox.conversations[0].customerKey).toMatch(/^customer-[a-f0-9]{32}$/);
   expect(JSON.stringify(firstInbox)).not.toContain('U-do-not-store-this-id');
   const customerKey=firstInbox.conversations[0].customerKey;
   const detail=await worker.fetch(new Request(`https://example.test${inboxPath}&customerKey=${encodeURIComponent(customerKey)}`,{headers:{'x-session-token':session}}),env,{waitUntil(){}});
   expect(await detail.json()).toMatchObject({customerKey,hasMore:false,messages:[{body:expect.stringContaining('Need a delivery update')}]});
+  fetchMock.get('https://api.line.me').intercept({path:'/v2/bot/message/push',method:'POST'}).reply(200,{});
+  fetchMock.activate();
+  try {
+    const replyInput={orgId:org,channel,hookId:connection.hook.id,customerKey,requestId:'123e4567-e89b-42d3-a456-426614174000',body:'I will check that for you.'};
+    const sendReply=()=>worker.fetch(new Request('https://example.test/hx/rooms/line-replies',{method:'POST',headers:{'content-type':'application/json','x-session-token':session},body:JSON.stringify(replyInput)}),env,{waitUntil(){}});
+    const sent=await sendReply();
+    expect(sent.status).toBe(201);
+    expect(await sent.json()).toMatchObject({reply:{direction:'outbound',deliveryStatus:'sent',body:replyInput.body}});
+    const replayed=await sendReply();
+    expect(replayed.status).toBe(200);
+    expect(await replayed.json()).toMatchObject({replay:true,reply:{deliveryStatus:'sent'}});
+    const transcript=await worker.fetch(new Request(`https://example.test${inboxPath}&customerKey=${encodeURIComponent(customerKey)}`,{headers:{'x-session-token':session}}),env,{waitUntil(){}});
+    expect((await transcript.json()).messages.map(message=>message.direction)).toEqual(['inbound','outbound']);
+    const target=await env.DB.prepare('SELECT target_ciphertext FROM hx_line_inbox_customers WHERE org_id=?1 AND hook_id=?2 AND customer_key=?3').bind(org,connection.hook.id,customerKey).first();
+    expect(target.target_ciphertext).toBeTruthy();
+    expect(target.target_ciphertext).not.toContain('U-do-not-store-this-id');
+    const outsiderReply=await worker.fetch(new Request('https://example.test/hx/rooms/line-replies',{method:'POST',headers:{'content-type':'application/json','x-session-token':await createSession(env.DB,'outsider','line-inbox-outsider-reply')},body:JSON.stringify(replyInput)}),env,{waitUntil(){}});
+    expect(outsiderReply.status).toBeGreaterThanOrEqual(400);
+  } finally { fetchMock.deactivate(); }
   const read=await worker.fetch(new Request(`https://example.test/hx/rooms/line-inbox?orgId=${org}`,{
     method:'POST',headers:{'content-type':'application/json','x-session-token':session},
     body:JSON.stringify({orgId:org,channel,hookId:connection.hook.id,customerKey}),

@@ -2491,6 +2491,22 @@ const table: Record<string, string> = {
   'This lets workspace members create, edit, and delete records. It does not let them change this app, its schema, or connections.': 'Mitglieder können Datensätze erstellen, bearbeiten und löschen, aber weder diese App noch ihr Schema oder ihre Verbindungen ändern.',
   'Sharing applies to this app and its records. Room access is checked against current membership.': 'Die Freigabe gilt für diese App und ihre Datensätze. Der Raumzugriff richtet sich nach der aktuellen Mitgliedschaft.',
   'A member with record write access can review this change.': 'Ein Mitglied mit Schreibzugriff auf Datensätze kann diese Änderung prüfen.',
+  "LINE channel access token": "LINE-Kanalzugriffstoken",
+  "Replies use your existing LINE Official Account quota.": "Antworten verbrauchen das bestehende Kontingent Ihres LINE Official Accounts.",
+  "Set or replace channel access token": "Kanalzugriffstoken festlegen oder ersetzen",
+  "Save channel access token": "Kanalzugriffstoken speichern",
+  "Reply manually through LINE": "Manuell über LINE antworten",
+  "Write a reply…": "Antwort schreiben…",
+  "Send LINE reply": "LINE-Antwort senden",
+  "Replies use your existing LINE Official Account quota. Sends with an uncertain result are not repeated automatically.": "Antworten verbrauchen das bestehende Kontingent Ihres LINE Official Accounts. Bei unklarem Status wird nicht automatisch erneut gesendet.",
+  "Reply status is not confirmed": "Der Antwortstatus ist unbestätigt",
+  "If the send status is uncertain, check LINE before retrying.": "Prüfen Sie bei unklarem Sendestatus LINE, bevor Sie es erneut versuchen.",
+  "Add a LINE channel access token to enable manual replies. Replies use your existing LINE Official Account quota.": "Fügen Sie ein LINE-Kanalzugriffstoken hinzu, um manuelle Antworten zu aktivieren. Sie nutzen das bestehende Kontingent Ihres LINE Official Accounts.",
+  "Sent from LINE Inbox": "Aus LINE Inbox gesendet",
+  "Reply rejected": "Antwort abgelehnt",
+  "Reply status unknown": "Antwortstatus unbekannt",
+  "Reply sending": "Antwort wird gesendet",
+  "I checked LINE; start a new reply": "LINE geprüft; neue Antwort beginnen",
 }
 
 export default table

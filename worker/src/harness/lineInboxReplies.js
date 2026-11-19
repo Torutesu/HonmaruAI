@@ -32,7 +32,9 @@ export async function sendLineInboxReply(env,{orgId,channel,actorId,hookId,custo
  const rawTarget=await openField(recipient.target_ciphertext,aad.lineInboxCustomerTarget(orgId,hookId,customerKey),orgId);
  let target;try{target=JSON.parse(rawTarget||'null')}catch{return fail('The encrypted LINE reply destination is unavailable.',409)}
  if(!target||target.type!==recipient.target_type||!['user','group','room'].includes(target.type)||typeof target.id!=='string'||!target.id)return fail('The encrypted LINE reply destination is unavailable.',409);
- const id=crypto.randomUUID(),at=new Date().toISOString();
+ const at=new Date().toISOString();
+ const id=crypto.randomUUID();
+ let sendId=id,sendCreatedAt=at;
  const inserted=await db.prepare(`INSERT OR IGNORE INTO hx_line_inbox_replies
    (id,org_id,channel,hook_id,customer_key,request_id,body,status,created_by,created_at,updated_at)
    SELECT ?5,?1,?2,?6,?7,?8,?9,'sending',?3,?10,?10
@@ -47,30 +49,41 @@ export async function sendLineInboxReply(env,{orgId,channel,actorId,hookId,custo
   const prior=await db.prepare(`SELECT id,status,body,created_at AS createdAt FROM hx_line_inbox_replies
     WHERE org_id=?1 AND hook_id=?2 AND request_id=?3`).bind(orgId,hookId,requestId).first();
   if(prior?.status==='sent')return {reply:{...prior,direction:'outbound',deliveryStatus:'sent'},replay:true};
-  if(prior)return fail('This reply attempt may already have reached LINE. Check the conversation before sending again.',409);
-  return fail('LINE connection or room membership changed. Reload before sending.',409);
+  if(prior?.status==='failed'&&prior.body===clean){
+   const retried=await db.prepare(`UPDATE hx_line_inbox_replies SET status='sending',updated_at=?5
+     WHERE org_id=?1 AND channel=?2 AND hook_id=?6 AND request_id=?7 AND body=?8 AND status='failed'
+       AND EXISTS(SELECT 1 FROM hx_room_hooks h JOIN hx_line_room_hooks l ON l.id=h.id AND l.org_id=h.org_id
+         WHERE h.org_id=?1 AND h.channel=?2 AND h.id=?6 AND h.version=?9 AND h.revoked_at IS NULL AND l.channel_access_token IS NOT NULL)
+       AND EXISTS(SELECT 1 FROM hx_line_inbox_customers c WHERE c.org_id=?1 AND c.channel=?2 AND c.hook_id=?6 AND c.customer_key=?4 AND c.target_fingerprint=?10)
+       AND ${currentMembership}`)
+     .bind(orgId,channel,String(actorId),customerKey,at,hookId,requestId,clean,hook.version,recipient.target_fingerprint).run();
+   if(retried.meta?.changes){sendId=prior.id;sendCreatedAt=prior.createdAt;}
+   else return fail('LINE connection or room membership changed. Reload before sending.',409);
+  }else if(prior)return fail('This reply attempt may already have reached LINE. Check the conversation before sending again.',409);
+  else return fail('LINE connection or room membership changed. Reload before sending.',409);
  }
  let response;
  try{
   response=await fetch('https://api.line.me/v2/bot/message/push',{
    method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
    body:JSON.stringify({to:target.id,messages:[{type:'text',text:clean}]}),
+   redirect:'error',cache:'no-store',
   });
  }catch{
-  await db.prepare(`UPDATE hx_line_inbox_replies SET status='unknown',updated_at=?1 WHERE org_id=?2 AND id=?3 AND status='sending'`).bind(new Date().toISOString(),orgId,id).run().catch(()=>{});
+  await db.prepare(`UPDATE hx_line_inbox_replies SET status='unknown',updated_at=?1 WHERE org_id=?2 AND id=?3 AND status='sending'`).bind(new Date().toISOString(),orgId,sendId).run().catch(()=>{});
   return fail('LINE did not confirm the send. Check the conversation before sending again.',502);
  }
  if(!response.ok){
   const unknown=response.status>=500;
   await db.prepare(`UPDATE hx_line_inbox_replies SET status=?1,updated_at=?2 WHERE org_id=?3 AND id=?4 AND status='sending'`)
-   .bind(unknown?'unknown':'failed',new Date().toISOString(),orgId,id).run().catch(()=>{});
+   .bind(unknown?'unknown':'failed',new Date().toISOString(),orgId,sendId).run().catch(()=>{});
   return fail(unknown?'LINE did not confirm the send. Check the conversation before sending again.':'LINE rejected the reply. Check the channel token and recipient before trying again.',502);
  }
  await response.body?.cancel().catch(()=>{});
  const providerRequestId=response.headers.get('x-line-request-id');
  const settled=await db.prepare(`UPDATE hx_line_inbox_replies SET status='sent',provider_request_id=?1,updated_at=?2
    WHERE org_id=?3 AND id=?4 AND status='sending'`)
-   .bind(providerRequestId,new Date().toISOString(),orgId,id).run().catch(()=>null);
- if(!settled?.meta?.changes)return {reply:{id,body:clean,createdAt:at,direction:'outbound',deliveryStatus:'unknown'},pending:true};
- return {reply:{id,body:clean,createdAt:at,direction:'outbound',deliveryStatus:'sent'},requestId:providerRequestId||null};
+   .bind(providerRequestId,new Date().toISOString(),orgId,sendId).run().catch(()=>null);
+ if(!settled?.meta?.changes)return {reply:{id:sendId,body:clean,createdAt:sendCreatedAt,direction:'outbound',deliveryStatus:'unknown'},pending:true};
+ return {reply:{id:sendId,body:clean,createdAt:sendCreatedAt,direction:'outbound',deliveryStatus:'sent'},requestId:providerRequestId||null};
 }

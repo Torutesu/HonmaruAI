@@ -2491,6 +2491,22 @@ const table: Record<string, string> = {
   'This lets workspace members create, edit, and delete records. It does not let them change this app, its schema, or connections.': 'Les membres peuvent créer, modifier et supprimer des enregistrements, sans pouvoir modifier cette app, son schéma ni ses connexions.',
   'Sharing applies to this app and its records. Room access is checked against current membership.': 'Le partage s’applique à cette app et à ses enregistrements. L’accès au salon est vérifié selon les membres actuels.',
   'A member with record write access can review this change.': 'Un membre autorisé à modifier les enregistrements peut examiner cette modification.',
+  "LINE channel access token": "Jeton d’accès au canal LINE",
+  "Replies use your existing LINE Official Account quota.": "Les réponses utilisent le quota existant de votre compte officiel LINE.",
+  "Set or replace channel access token": "Définir ou remplacer le jeton d’accès au canal",
+  "Save channel access token": "Enregistrer le jeton d’accès au canal",
+  "Reply manually through LINE": "Répondre manuellement via LINE",
+  "Write a reply…": "Écrire une réponse…",
+  "Send LINE reply": "Envoyer la réponse LINE",
+  "Replies use your existing LINE Official Account quota. Sends with an uncertain result are not repeated automatically.": "Les réponses utilisent le quota existant de votre compte officiel LINE. Un envoi au résultat incertain n’est pas répété automatiquement.",
+  "Reply status is not confirmed": "L’état de la réponse n’est pas confirmé",
+  "If the send status is uncertain, check LINE before retrying.": "Si l’état de l’envoi est incertain, vérifiez LINE avant de réessayer.",
+  "Add a LINE channel access token to enable manual replies. Replies use your existing LINE Official Account quota.": "Ajoutez un jeton d’accès au canal LINE pour activer les réponses manuelles. Elles utilisent le quota existant de votre compte officiel LINE.",
+  "Sent from LINE Inbox": "Envoyé depuis la boîte LINE",
+  "Reply rejected": "Réponse refusée",
+  "Reply status unknown": "État de la réponse inconnu",
+  "Reply sending": "Envoi de la réponse",
+  "I checked LINE; start a new reply": "J’ai vérifié LINE ; commencer une nouvelle réponse",
 }
 
 export default table

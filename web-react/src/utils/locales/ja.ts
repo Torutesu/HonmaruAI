@@ -4256,6 +4256,23 @@ const table: Record<string, string> = {
   'This lets workspace members create, edit, and delete records. It does not let them change this app, its schema, or connections.': 'ワークスペースのメンバーがレコードを作成・編集・削除できます。この設定でアプリ本体、スキーマ、接続の変更は許可されません。',
   'Sharing applies to this app and its records. Room access is checked against current membership.': 'この設定はアプリとそのレコードに適用されます。ルームのアクセス権は現在のメンバーシップに基づいて確認されます。',
   'A member with record write access can review this change.': 'レコードの書き込み権限を持つメンバーがこの変更を確認できます。',
+  "LINE channel access token": "LINEチャネルアクセストークン",
+  "Replies use your existing LINE Official Account quota.": "返信には既存のLINE公式アカウントの送信枠を使います。",
+  "Set or replace channel access token": "チャネルアクセストークンを設定・変更",
+  "Save channel access token": "チャネルアクセストークンを保存",
+  "Reply manually through LINE": "LINEから手動で返信",
+  "Sending…": "送信中…",
+  "Send LINE reply": "LINE返信を送信",
+  "Replies use your existing LINE Official Account quota. Sends with an uncertain result are not repeated automatically.": "返信には既存のLINE公式アカウントの送信枠を使います。送信結果が不明な場合、自動再送はしません。",
+  "Reply sent": "返信を送信しました",
+  "Reply status is not confirmed": "返信の送信状態を確認できません",
+  "If the send status is uncertain, check LINE before retrying.": "送信状態が不明な場合は、再試行する前にLINEを確認してください。",
+  "Add a LINE channel access token to enable manual replies. Replies use your existing LINE Official Account quota.": "手動返信を有効にするにはLINEチャネルアクセストークンを追加してください。返信には既存のLINE公式アカウントの送信枠を使います。",
+  "Sent from LINE Inbox": "LINE Inboxから送信",
+  "Reply rejected": "返信が拒否されました",
+  "Reply status unknown": "返信状態を確認できません",
+  "Reply sending": "返信を送信中",
+  "I checked LINE; start a new reply": "LINEを確認しました。新しい返信を開始",
 }
 
 export default table

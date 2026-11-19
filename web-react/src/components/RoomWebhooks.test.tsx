@@ -23,10 +23,11 @@ test('LINE connection submits its channel secret and displays the receive URL wi
  const inputs=tree.root.findAllByType('input')
  act(()=>inputs[0].props.onChange({target:{value:'LINE support'}}))
  act(()=>tree.root.findByType('select').props.onChange({target:{value:'line'}}))
- const secretInput=tree.root.findAllByType('input').find(input=>input.props.type==='password')!
- act(()=>secretInput.props.onChange({target:{value:'line-channel-secret-123456'}}))
+ const secretInputs=tree.root.findAllByType('input').filter(input=>input.props.type==='password')
+ act(()=>secretInputs[0].props.onChange({target:{value:'line-channel-secret-123456'}}))
+ act(()=>secretInputs[1].props.onChange({target:{value:'line-access-token-for-ui-test'}}))
  await act(async()=>tree.root.findByType('form').props.onSubmit({preventDefault:vi.fn()}))
- expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({provider:'line',channelSecret:'line-channel-secret-123456'})
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({provider:'line',channelSecret:'line-channel-secret-123456',channelAccessToken:'line-access-token-for-ui-test'})
  const rendered=JSON.stringify(tree.toJSON())
  expect(rendered).toContain('https://relay.test/hooks/line/line-hook')
  expect(rendered).toContain('Copy webhook URL')
@@ -169,5 +170,28 @@ test('LINE Inbox lists conversations, opens messages, and marks a thread read',a
  expect(fetcher.mock.calls[3][0]).toContain('/hx/rooms/line-inbox')
  expect(fetcher.mock.calls[3][1]).toMatchObject({method:'POST'})
  expect(JSON.parse(fetcher.mock.calls[3][1].body)).toMatchObject({hookId:hook.id,customerKey})
+ act(()=>tree.unmount())
+})
+
+test('LINE Inbox sends an explicit manual reply and reloads the transcript',async()=>{
+ const hook={id:'123e4567-e89b-12d3-a456-426614174000',name:'Support',version:1,revokedAt:null,provider:'line',canReply:true}
+ const customerKey='customer-0123456789abcdef0123456789abcdef'
+ const reply={id:'reply-1',createdAt:'2026-11-08T12:02:00.000Z',body:'We are checking.',direction:'outbound',deliveryStatus:'sent'}
+ const fetcher=vi.fn()
+  .mockResolvedValueOnce({ok:true,json:async()=>({hooks:[hook]})})
+  .mockResolvedValueOnce({ok:true,json:async()=>({hook,conversations:[]})})
+  .mockResolvedValueOnce({ok:true,json:async()=>({hook,customerKey,hasMore:false,messages:[{messageId:'msg-1',createdAt:'2026-11-08T12:00:00.000Z',body:'Need help',direction:'inbound',deliveryStatus:'received'}]})})
+  .mockResolvedValueOnce({ok:true,json:async()=>({reply})})
+  .mockResolvedValueOnce({ok:true,json:async()=>({hook,customerKey,hasMore:false,messages:[{messageId:'msg-1',createdAt:'2026-11-08T12:00:00.000Z',body:'Need help',direction:'inbound',deliveryStatus:'received'},reply]})})
+ vi.stubGlobal('fetch',fetcher);let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<RoomWebhooks api={api} channel="b:room"/>)})
+ await act(async()=>tree.root.findAllByType('button').find(b=>b.props.children==='Open Inbox')!.props.onClick())
+ await act(async()=>tree.root.findByProps({className:'room-line-inbox-customer'}).props.onClick())
+ act(()=>tree.root.findByType('textarea').props.onChange({target:{value:'We are checking.'}}))
+ await act(async()=>tree.root.findByProps({className:'room-line-inbox-reply'}).props.onSubmit({preventDefault:vi.fn()}))
+ expect(fetcher.mock.calls[3][0]).toContain('/hx/rooms/line-replies')
+ expect(JSON.parse(fetcher.mock.calls[3][1].body)).toMatchObject({hookId:hook.id,customerKey,body:'We are checking.'})
+ expect(JSON.stringify(tree.toJSON())).toContain('Reply sent')
+ expect(JSON.stringify(tree.toJSON())).toContain('We are checking.')
  act(()=>tree.unmount())
 })

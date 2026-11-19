@@ -39,7 +39,7 @@ export async function createRoomHook(db, orgId, channel, actorId, name, options 
   }
   const result = await db.batch(statements);
   const created = Boolean(result[0]?.meta?.changes) && (provider !== 'line' || Boolean(result[1]?.meta?.changes));
-  return created ? { hook: { id, name: name.trim(), version: 1, createdAt: at, provider }, ...(provider === 'room' ? { secret } : {}) }
+  return created ? { hook: { id, name: name.trim(), version: 1, createdAt: at, provider, ...(provider === 'line' ? { canReply: Boolean(channelAccessToken) } : {}) }, ...(provider === 'room' ? { secret } : {}) }
     : fail('Room membership changed. Reload before creating a webhook.', 409);
 }
 
@@ -182,8 +182,8 @@ export async function receiveRoomHookEvent(db, hook, { eventId, body, customerKe
       AND EXISTS(SELECT 1 FROM channel_messages WHERE id=?9 AND org_id=?1 AND channel=?2)
       ON CONFLICT(event_key) DO NOTHING`)
       .bind(...values, identity.eventKey, identity.payloadHash, messageId, at, customerKey));
-    if(customerTarget&&['user','group','room'].includes(customerTarget.type)&&typeof customerTarget.id==='string'&&customerTarget.id.length>0&&customerTarget.id.length<=128){
-      const fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(['line-target-v1',hook.orgId,hook.id,customerTarget.type,customerTarget.id]))),b=>b.toString(16).padStart(2,'0')).join('');
+    if(customerTarget&&['user','group','room'].includes(customerTarget.type)&&typeof customerTarget.id==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(customerTarget.id)){
+      const fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(['line-target-v1',hook.orgId,hook.id,customerTarget.type,customerTarget.id])))),b=>b.toString(16).padStart(2,'0')).join('');
       const targetCiphertext=await sealField(JSON.stringify(customerTarget),aad.lineInboxCustomerTarget(hook.orgId,hook.id,customerKey),hook.orgId);
       statements.push(db.prepare(`INSERT INTO hx_line_inbox_customers(org_id,channel,hook_id,customer_key,target_type,target_fingerprint,target_ciphertext,updated_at)
         SELECT ?1,?2,?5,?11,?12,?13,?14,?10 WHERE ${grant}

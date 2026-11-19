@@ -19,7 +19,6 @@ async function customerAlias(accountId, source) {
   if (!externalId || !['user','group','room'].includes(source?.type)) return 'unknown';
   const material = JSON.stringify(['line-inbox-v1',accountId,source.type,String(externalId)]);
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(material)));
-  const alias = Array.from(digest.slice(0,5), byte => byte.toString(16).padStart(2,'0')).join('');
   return `customer-${Array.from(digest.slice(0,16), byte => byte.toString(16).padStart(2,'0')).join('')}`;
 }
 
@@ -43,7 +42,7 @@ export async function lineMessagesFromWebhook(accountId, payload) {
     const targetType=['user','group','room'].includes(event.source?.type)?event.source.type:null;
     const targetKey=targetType==='user'?'userId':targetType==='group'?'groupId':targetType==='room'?'roomId':null;
     const targetId=targetKey&&typeof event.source?.[targetKey]==='string'?event.source[targetKey]:'';
-    const customerTarget=targetType&&targetId.length>0&&targetId.length<=128&&!/[\\u0000-\\u001f\\u007f]/.test(targetId)?{type:targetType,id:targetId}:null;
+    const customerTarget=targetType&&targetId.length>0&&targetId.length<=128&&!/[\u0000-\u001f\u007f]/.test(targetId)?{type:targetType,id:targetId}:null;
     let content;
     if(message.type==='text' && typeof message.text==='string') content=message.text;
     else if(['image','video','audio','file','location','sticker'].includes(message.type)) content=`Attachment received (${message.type}). This connection stores text events only.`;
