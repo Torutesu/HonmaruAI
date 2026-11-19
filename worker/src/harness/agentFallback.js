@@ -40,7 +40,7 @@ export async function recordAgentFallbackState(db,{orgId,agentId,gatewayId,owner
    return false;
  }
  const expected=Number(current.version),version=expected+1,id=eventId();
- await db.batch([
+ const result=await db.batch([
    db.prepare(`UPDATE hx_agent_fallback_state SET gateway_id=?3,current_state=?4,version=?5,updated_at=?6
      WHERE org_id=?1 AND agent_id=?2 AND gateway_id=?7 AND current_state=?8 AND version=?9`)
      .bind(orgId,agentId,gatewayId,state,version,stamp,current.gateway_id,current.current_state,expected),
@@ -49,7 +49,7 @@ export async function recordAgentFallbackState(db,{orgId,agentId,gatewayId,owner
        WHERE s.org_id=?2 AND s.agent_id=?3 AND s.gateway_id=?4 AND s.current_state=?6 AND s.version=?7)`)
      .bind(id,orgId,agentId,gatewayId,ownerLogin,state,version,stamp),
  ]);
- return true;
+ return Boolean(result[0]?.meta?.changes);
 }
 
 /** A node claim that follows a real disconnect can switch eligible Agents back immediately. */
