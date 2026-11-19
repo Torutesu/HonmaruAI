@@ -14,7 +14,7 @@ import { mayUseConversation } from './conversationAccess.js';
 import { getMode } from './mode.js';
 import { enforce } from '../ratelimit.js';
 import { callRemoteMcpTool, remoteMcpTools } from './remoteMcp.js';
-import { workflowAgentRemoteTools, workflowRemoteToolAllowed } from './workflowAgentRemoteTools.js';
+import { workflowAgentRemoteTools, workflowRemoteToolAllowed, workflowRemoteToolAuthorizationStamp } from './workflowAgentRemoteTools.js';
 import { mayUseAgentRemoteMcp } from './agentRemoteMcp.js';
 import { searchNotion, searchGithubIssues, formatSourcesForModel } from '../context.js';
 import { agentSourceCredential, hasAgentSourceGrant } from './agentConnections.js';
@@ -1786,6 +1786,11 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
           authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, false);
           return { status: 'failed', error: 'Remote MCP access changed before dispatch; no request was sent.' };
         }
+        const authorizationStampBefore = await workflowRemoteToolAuthorizationStamp(env, orgId, step.agentId, actorId, principalTool, { requiresApproval });
+        if (!authorizationStampBefore) {
+          authorizationTrace.record('connection', step.serverId + '/' + step.toolName, false);
+          return { status: 'failed', error: 'Remote MCP access changed before dispatch; no request was sent.' };
+        }
         const result = await callRemoteMcpTool(env, {
           orgId, githubId: String(actorId), login: actor.login, name: actor.name || actor.login,
           agentName: selectedAgent.handle || selectedAgent.name || 'Agent',
@@ -1793,8 +1798,9 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
           kind: 'agent', agentId: step.agentId, toolName: step.toolName,
           ...(step.connectionOwnerId ? { connectionOwnerId: step.connectionOwnerId } : {}),
         } }).catch(() => null);
+        const authorizationStampAfter = await workflowRemoteToolAuthorizationStamp(env, orgId, step.agentId, actorId, principalTool, { requiresApproval });
         const allowedAfterCall = await authorize(authorizationTrace)
-          && await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, principalTool, { requiresApproval });
+          && authorizationStampAfter !== null && authorizationStampAfter === authorizationStampBefore;
         authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, allowedAfterCall);
         if (!allowedAfterCall) return { status: 'failed', error: 'Remote MCP access changed while the read was running; the result was discarded.' };
         if (!result || result.isError) return { status: 'failed', error: 'The Remote MCP tool could not return a result.' };

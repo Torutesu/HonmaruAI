@@ -1,7 +1,7 @@
 import { getUserByGithubId } from '../db.js';
 import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
 import { getMode } from './mode.js';
-import { mayUseAgentRemoteMcp, workflowAgentRemoteMcpTools } from './agentRemoteMcp.js';
+import { agentRemoteMcpAuthorizationStamp, mayUseAgentRemoteMcp, workflowAgentRemoteMcpTools } from './agentRemoteMcp.js';
 import { callRemoteMcpTool, remoteMcpTools } from './remoteMcp.js';
 
 export async function workflowRemoteToolAllowed(env, orgId, agentId, actorId, offered, { requiresApproval = false } = {}) {
@@ -16,6 +16,16 @@ export async function workflowRemoteToolAllowed(env, orgId, agentId, actorId, of
   const expectedName = ownerId ? `${canonical?.name || ''}__owner_${ownerId}`.slice(0, 120) : canonical?.name;
   return Boolean(canonical && expectedName === offered.name)
     && await mayUseAgentRemoteMcp(env, { orgId, agentId, session: { github_id: actorId }, serverId: ref.serverId, toolName: ref.toolName, connectionOwnerId: ref.connectionOwnerId || null });
+}
+
+export async function workflowRemoteToolAuthorizationStamp(env, orgId, agentId, actorId, offered, { requiresApproval = false } = {}) {
+  const ref = offered?._remote;
+  if (!ref?.serverId || !ref?.toolName || !offered?.name
+    || !await workflowRemoteToolAllowed(env, orgId, agentId, actorId, offered, { requiresApproval })) return null;
+  return agentRemoteMcpAuthorizationStamp(env, {
+    orgId, agentId, session: { github_id: actorId }, serverId: ref.serverId,
+    toolName: ref.toolName, connectionOwnerId: ref.connectionOwnerId || null,
+  });
 }
 
 export async function workflowAgentRemoteTools(env, { orgId, agentRow, actorId, reservedNames = new Set(), used = new Map(), authorizationTrace = null, authorizeAgent, onBudgetDenied = null }) {
@@ -41,11 +51,14 @@ export async function workflowAgentRemoteTools(env, { orgId, agentRow, actorId, 
         const dispatchAllowed = Boolean(actor) && await authorizeAgent() && await workflowRemoteToolAllowed(env, orgId, agentRow.id, actorId, offered);
         authorizationTrace?.record('connection', `${ref.serverId}/${ref.toolName}`, dispatchAllowed);
         if (!dispatchAllowed) return 'Not searched: access changed before dispatch.';
+        const authorizationStampBefore = await workflowRemoteToolAuthorizationStamp(env, orgId, agentRow.id, actorId, offered);
+        if (!authorizationStampBefore) return 'Not searched: access changed before dispatch.';
         const result = await callRemoteMcpTool(env, {
           orgId, githubId: String(actorId), login: actor.login, name: actor.name || actor.login,
           agentName: agentRow.handle || agentRow.name || 'Agent',
         }, offered, args, { readOnlyOnly: true, authorization: { kind: 'agent', agentId: agentRow.id, toolName: ref.toolName, ...(ref.connectionOwnerId ? { connectionOwnerId: ref.connectionOwnerId } : {}) } }).catch(() => null);
-        const allowedAfter = await workflowRemoteToolAllowed(env, orgId, agentRow.id, actorId, offered);
+        const authorizationStampAfter = await workflowRemoteToolAuthorizationStamp(env, orgId, agentRow.id, actorId, offered);
+        const allowedAfter = authorizationStampAfter !== null && authorizationStampAfter === authorizationStampBefore;
         authorizationTrace?.record('connection', `${ref.serverId}/${ref.toolName}`, allowedAfter);
         if (!await authorizeAgent() || !allowedAfter) return 'Not searched: access changed while the request was running; the result was discarded.';
         const budgetAfter = await workspaceBudgetAdmission(env.DB, orgId);
