@@ -2741,13 +2741,19 @@ test('workspace admins can review sanitized App connection grants and revoke onl
  expect(saved.status,JSON.stringify(await saved.clone().json())).toBe(200);
  const granted=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'grant',name:'mika_service'});
  expect(granted.status,JSON.stringify(await granted.clone().json())).toBe(200);
+ const {appConnectionGrantReview}=await import('../src/harness/appConnectionGrants.js');
+ expect(await appConnectionGrantReview(env.DB,ORG,app.id,'9102')).toEqual({denied:true});
+ const changedAt=new Date().toISOString();
+ await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at)
+   VALUES(?,?,'private','[]','9101',?) ON CONFLICT(org_id,agent_id) DO UPDATE SET access='private',people='[]',updated_by='9101',updated_at=excluded.updated_at`)
+   .bind(ORG,'agent_conn_source',changedAt).run();
  const ordinary=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}&review=1`,mika);
  expect(ordinary.status).toBe(403);
  const review=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}&review=1`,toru);
  expect(review.status).toBe(200);
  const inventory=await review.json();
  expect(inventory.grants).toHaveLength(1);
- expect(inventory.grants[0]).toMatchObject({ownerId:'9102',name:'mika_service',grantedVersion:1,active:1});
+ expect(inventory.grants[0]).toMatchObject({ownerId:'9102',name:'mika_service',grantedVersion:1,connectionActive:1,grantUsable:false});
  const privateAppData=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);
  expect(privateAppData.status).toBe(404);
  expect(JSON.stringify(inventory)).not.toContain('api.github.com');
