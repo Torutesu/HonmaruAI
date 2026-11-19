@@ -1674,7 +1674,9 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({...r,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
     }
     const app = await getApp(env.DB, orgId, appId);
-    const canReviewConnections = sub === 'connections' && await allowed(env.DB, orgId, me, 'workspace.integrations');
+    const reviewRequest = sub === 'connections' && ((request.method === 'GET' && url.searchParams.get('review') === '1')
+      || (request.method === 'POST' && input.action === 'review_revoke'));
+    const canReviewConnections = reviewRequest && await allowed(env.DB, orgId, me, 'workspace.integrations');
     // Workspace Admins may manage room-navigation links on a private App,
     // but this narrow exception never grants access to App data or metadata.
     const canManagePrivateLinks = sub === 'links' && ['POST', 'DELETE'].includes(request.method)
@@ -1866,7 +1868,7 @@ export async function handleHarness(request, env, url, context = {}) {
         if(request.method!=='POST')return json({message:'Method not allowed.'},405);
         if(input.action==='review_revoke') {
           if(!canReviewConnections)return json({message:'Only workspace admins can revoke App connection grants from the access review.'},403);
-          const result=await revokeAppConnectionGrantForReview(env.DB,orgId,appId,input);
+          const result=await revokeAppConnectionGrantForReview(env.DB,orgId,appId,me,input);
           if(result.error)return fail(result);
           await audit(env,request,{orgId,action:'app.connection_grant_admin_revoked',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{ownerId:String(input.ownerId),connectionName:String(input.name)}});
           return json(result);
