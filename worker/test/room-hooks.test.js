@@ -192,14 +192,15 @@ test('LINE room hooks verify raw signatures, deduplicate inbound events and do n
   }};
   {
     const replyInput={orgId:org,channel,hookId:connection.hook.id,customerKey,requestId:'123e4567-e89b-42d3-a456-426614174000',body:'I will check that for you.'};
-    const sendReply=()=>worker.fetch(new Request('https://example.test/hx/rooms/line-replies',{method:'POST',headers:{'content-type':'application/json','x-session-token':session},body:JSON.stringify(replyInput)}),securedEnv,{waitUntil(){}});
+    const sendReply=()=>worker.fetch(new Request('https://example.test/hx/rooms/line-replies',{method:'POST',headers:{'content-type':'application/json','x-session-token':session},body:JSON.stringify(replyInput)}),replyEnv,{waitUntil(){}});
     const rejected=await sendReply();
     expect(rejected.status).toBe(502);
     const rejectedState=await env.DB.prepare('SELECT status,body FROM hx_line_inbox_replies WHERE org_id=?1 AND hook_id=?2 AND request_id=?3').bind(org,connection.hook.id,replyInput.requestId).first();
     expect(rejectedState).toEqual({status:'failed',body:replyInput.body});
     const sent=await sendReply();
     expect(sent.status).toBe(201);
-    expect(await sent.json()).toMatchObject({reply:{direction:'outbound',deliveryStatus:'sent',body:replyInput.body}});\n    expect(providerCalls).toBe(2);
+    expect(await sent.json()).toMatchObject({reply:{direction:'outbound',deliveryStatus:'sent',body:replyInput.body}});
+    expect(providerCalls).toBe(2);
     const replayed=await sendReply();
     expect(replayed.status).toBe(200);
     expect(await replayed.json()).toMatchObject({replay:true,reply:{deliveryStatus:'sent'}});
