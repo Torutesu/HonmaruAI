@@ -576,6 +576,8 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
     expect(await tools[manualRead].run({ query: "manual" })).toMatch(/result was discarded/);
     state = await (await call(`/hx/agents/${agent.id}/apps?orgId=${encodeURIComponent(ORG)}`, { headers: headers(session) })).json();
     expect(state.remoteMcpConnections).toMatchObject([{ serverId: server.id, available: true, enabled: true, readOnlyToolCount: 1 }]);
+    // The fourth provider call revokes and re-grants the same permission while the response is in flight.
+    expect(await tools[manualRead].run({ query: "manual after regrant" })).toMatch(/result was discarded/);
 
     const shared = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: false, agentId: agent.id });
     expect(Object.keys(shared).some((name) => name.startsWith("mcp_"))).toBe(false);
