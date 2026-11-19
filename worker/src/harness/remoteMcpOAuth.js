@@ -483,6 +483,159 @@ export async function remoteMcpOAuthStatus(db, orgId, serverId, userId) {
   return Boolean(row?.connected);
 }
 
+const shareIds = value => Array.isArray(value) && value.length <= 100
+  && value.every(id => typeof id === "string" && id.trim() === id && id.length > 0 && id.length <= 200 && !/[\u0000-\u001f\u007f]/.test(id));
+
+export async function remoteMcpOAuthShareSettings(db, orgId, serverId, ownerId) {
+  const owner = await db.prepare(`SELECT c.membership_since AS membershipSince FROM hx_remote_mcp_oauth_credentials c
+    JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id
+      AND m.created_at=c.membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+    JOIN hx_remote_mcp_servers s ON s.org_id=c.org_id AND s.id=c.server_id AND s.auth_mode='oauth'
+    WHERE c.org_id=?1 AND c.server_id=?2 AND c.user_github_id=?3`)
+    .bind(orgId, serverId, String(ownerId)).first().catch(() => null);
+  if (!owner) return null;
+  const [state, shares] = await Promise.all([
+    db.prepare(`SELECT version FROM hx_remote_mcp_oauth_share_sets WHERE org_id=?1 AND server_id=?2
+      AND owner_github_id=?3 AND owner_membership_since=?4`).bind(orgId, serverId, String(ownerId), owner.membershipSince).first(),
+    db.prepare(`SELECT sh.audience_type AS type,sh.audience_id AS id FROM hx_remote_mcp_oauth_shares sh
+      WHERE sh.org_id=?1 AND sh.server_id=?2 AND sh.owner_github_id=?3 AND EXISTS(
+        SELECT 1 FROM hx_remote_mcp_oauth_share_sets set_row WHERE set_row.org_id=?1 AND set_row.server_id=?2
+          AND set_row.owner_github_id=?3 AND set_row.owner_membership_since=?4)
+        AND (sh.audience_type='workspace' OR (sh.audience_type='member' AND EXISTS(
+          SELECT 1 FROM memberships m WHERE m.org_id=sh.org_id AND CAST(m.user_github_id AS TEXT)=sh.audience_id
+            AND m.created_at=sh.audience_membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'))
+          OR (sh.audience_type='agent' AND EXISTS(SELECT 1 FROM custom_agents a WHERE a.org_id=sh.org_id
+            AND a.id=sh.audience_id AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL)))`)
+      .bind(orgId, serverId, String(ownerId), owner.membershipSince).all(),
+  ]);
+  const rows = shares.results || [];
+  return {
+    version: Number(state?.version || 0),
+    everyone: rows.some(row => row.type === 'workspace' && row.id === '*'),
+    memberIds: rows.filter(row => row.type === 'member').map(row => String(row.id)),
+    agentIds: rows.filter(row => row.type === 'agent').map(row => String(row.id)),
+  };
+}
+
+export async function saveRemoteMcpOAuthShares(db, orgId, serverId, ownerId, input) {
+  ownerId = String(ownerId || '');
+  const expectedVersion = input?.version;
+  const everyone = input?.everyone;
+  const memberIds = input?.memberIds;
+  const agentIds = input?.agentIds;
+  if (!ownerId || !Number.isSafeInteger(expectedVersion) || expectedVersion < 0 || typeof everyone !== 'boolean'
+    || !shareIds(memberIds) || !shareIds(agentIds) || new Set(memberIds).size !== memberIds.length
+    || new Set(agentIds).size !== agentIds.length || memberIds.some(id => id === ownerId)
+    || (everyone && memberIds.length)) return { error: 'Choose a valid connection audience and reload before saving.', status: 400 };
+  if (memberIds.length + agentIds.length > 100) return { error: 'Choose no more than 100 people and Agents.', status: 400 };
+
+  const memberJson = JSON.stringify(memberIds), agentJson = JSON.stringify(agentIds);
+  const mutation = crypto.randomUUID(), now = new Date().toISOString();
+  const ownerIsCurrent = `EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_credentials c
+    JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id
+      AND m.created_at=c.membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+    JOIN hx_remote_mcp_servers s ON s.org_id=c.org_id AND s.id=c.server_id AND s.auth_mode='oauth'
+    WHERE c.org_id=?1 AND c.server_id=?2 AND c.user_github_id=?3
+      AND c.membership_since=hx_remote_mcp_oauth_share_sets.owner_membership_since)`;
+  const allMembersCurrent = `NOT EXISTS(SELECT 1 FROM json_each(?4) picked
+    WHERE NOT EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.github_id=m.user_github_id
+      WHERE m.org_id=?1 AND CAST(m.user_github_id AS TEXT)=picked.value AND m.user_github_id!=?3
+        AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'))`;
+  const allAgentsAvailableToOwner = `NOT EXISTS(SELECT 1 FROM json_each(?5) picked
+    WHERE NOT EXISTS(SELECT 1 FROM custom_agents a JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id
+      JOIN users owner ON owner.github_id=?3 JOIN memberships om ON om.org_id=a.org_id AND om.user_github_id=owner.github_id
+        AND LOWER(TRIM(COALESCE(om.role,'guest')))!='guest'
+      WHERE a.org_id=?1 AND a.id=picked.value AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL
+        AND (a.owner_login=owner.login OR p.access='everyone'
+          OR (p.access='people' AND EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(p.people) THEN p.people ELSE '[]' END) allowed WHERE allowed.value=owner.login))
+          OR EXISTS(SELECT 1 FROM hx_agent_members ar WHERE ar.org_id=a.org_id AND ar.agent_id=a.id
+            AND ar.user_id=owner.github_id AND ar.member_since=om.created_at))))`;
+  const statements = [
+    db.prepare(`INSERT OR IGNORE INTO hx_remote_mcp_oauth_share_sets
+      (org_id,server_id,owner_github_id,owner_membership_since,version,mutation_id,updated_at)
+      SELECT c.org_id,c.server_id,c.user_github_id,c.membership_since,0,NULL,?4 FROM hx_remote_mcp_oauth_credentials c
+      JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id
+        AND m.created_at=c.membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+      JOIN hx_remote_mcp_servers s ON s.org_id=c.org_id AND s.id=c.server_id AND s.auth_mode='oauth'
+      WHERE c.org_id=?1 AND c.server_id=?2 AND c.user_github_id=?3`)
+      .bind(orgId, serverId, ownerId, now),
+    db.prepare(`UPDATE hx_remote_mcp_oauth_share_sets SET version=version+1,mutation_id=?6,updated_at=?7
+      WHERE org_id=?1 AND server_id=?2 AND owner_github_id=?3 AND version=?8
+        AND ${ownerIsCurrent} AND ${allMembersCurrent} AND ${allAgentsAvailableToOwner}
+      RETURNING version`).bind(orgId, serverId, ownerId, memberJson, agentJson, mutation, now, expectedVersion),
+    db.prepare(`DELETE FROM hx_remote_mcp_oauth_shares WHERE org_id=?1 AND server_id=?2 AND owner_github_id=?3
+      AND EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_share_sets WHERE org_id=?1 AND server_id=?2 AND owner_github_id=?3 AND mutation_id=?4)`)
+      .bind(orgId, serverId, ownerId, mutation),
+  ];
+  if (everyone) statements.push(db.prepare(`INSERT INTO hx_remote_mcp_oauth_shares
+    (org_id,server_id,owner_github_id,audience_type,audience_id,audience_membership_since,created_at)
+    SELECT ?1,?2,?3,'workspace','*',NULL,?5 WHERE EXISTS(
+      SELECT 1 FROM hx_remote_mcp_oauth_share_sets WHERE org_id=?1 AND server_id=?2 AND owner_github_id=?3 AND mutation_id=?4)`)
+    .bind(orgId, serverId, ownerId, mutation, now));
+  if (memberIds.length) statements.push(db.prepare(`INSERT INTO hx_remote_mcp_oauth_shares
+    (org_id,server_id,owner_github_id,audience_type,audience_id,audience_membership_since,created_at)
+    SELECT ?1,?2,?3,'member',CAST(m.user_github_id AS TEXT),m.created_at,?6 FROM json_each(?4) picked
+    JOIN memberships m ON m.org_id=?1 AND CAST(m.user_github_id AS TEXT)=picked.value
+      AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+    WHERE EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_share_sets WHERE org_id=?1 AND server_id=?2 AND owner_github_id=?3 AND mutation_id=?5)`)
+    .bind(orgId, serverId, ownerId, memberJson, mutation, now));
+  if (agentIds.length) statements.push(db.prepare(`INSERT INTO hx_remote_mcp_oauth_shares
+    (org_id,server_id,owner_github_id,audience_type,audience_id,audience_membership_since,created_at)
+    SELECT ?1,?2,?3,'agent',a.id,NULL,?6 FROM json_each(?4) picked
+    JOIN custom_agents a ON a.org_id=?1 AND a.id=picked.value AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL
+    WHERE EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_share_sets WHERE org_id=?1 AND server_id=?2 AND owner_github_id=?3 AND mutation_id=?5)`)
+    .bind(orgId, serverId, ownerId, agentJson, mutation, now));
+  const result = await db.batch(statements);
+  if (!result[1]?.meta?.changes) return { error: 'The connection or audience changed. Reload and try again.', status: 409 };
+  const settings = await remoteMcpOAuthShareSettings(db, orgId, serverId, ownerId);
+  if (!settings || settings.version !== expectedVersion + 1
+    || settings.everyone !== everyone
+    || settings.memberIds.length !== memberIds.length || memberIds.some(id => !settings.memberIds.includes(id))
+    || settings.agentIds.length !== agentIds.length || agentIds.some(id => !settings.agentIds.includes(id)))
+    return { error: 'The connection or audience changed. Reload and try again.', status: 409 };
+  return { settings };
+}
+
+export async function remoteMcpOAuthAccounts(db, { orgId, serverId, requesterId, agentId }) {
+  if (!orgId || !serverId || !requesterId || !agentId) return [];
+  const { results = [] } = await db.prepare(`SELECT c.user_github_id AS ownerId,
+      COALESCE(owner.name,owner.login) AS ownerName,
+      CASE WHEN c.user_github_id=?3 THEN 'own'
+        WHEN EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_shares sh WHERE sh.org_id=c.org_id AND sh.server_id=c.server_id
+          AND sh.owner_github_id=c.user_github_id AND sh.audience_type='agent' AND sh.audience_id=?4) THEN 'agent'
+        WHEN EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_shares sh JOIN memberships recipient
+          ON recipient.org_id=sh.org_id AND CAST(recipient.user_github_id AS TEXT)=sh.audience_id
+            AND recipient.created_at=sh.audience_membership_since AND LOWER(TRIM(COALESCE(recipient.role,'guest')))!='guest'
+          WHERE sh.org_id=c.org_id AND sh.server_id=c.server_id AND sh.owner_github_id=c.user_github_id
+            AND sh.audience_type='member' AND CAST(recipient.user_github_id AS TEXT)=?3) THEN 'member'
+        ELSE 'workspace' END AS shareType
+    FROM hx_remote_mcp_oauth_credentials c
+    JOIN memberships owner_membership ON owner_membership.org_id=c.org_id AND owner_membership.user_github_id=c.user_github_id
+      AND owner_membership.created_at=c.membership_since AND LOWER(TRIM(COALESCE(owner_membership.role,'guest')))!='guest'
+    JOIN users owner ON owner.github_id=c.user_github_id
+    JOIN hx_remote_mcp_servers s ON s.org_id=c.org_id AND s.id=c.server_id AND s.auth_mode='oauth'
+    JOIN memberships requester ON requester.org_id=c.org_id AND CAST(requester.user_github_id AS TEXT)=?3
+      AND LOWER(TRIM(COALESCE(requester.role,'guest')))!='guest'
+    WHERE c.org_id=?1 AND c.server_id=?2 AND (
+      CAST(c.user_github_id AS TEXT)=?3
+      OR EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_shares sh WHERE sh.org_id=c.org_id AND sh.server_id=c.server_id
+        AND sh.owner_github_id=c.user_github_id AND sh.audience_type='workspace' AND sh.audience_id='*')
+      OR EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_shares sh WHERE sh.org_id=c.org_id AND sh.server_id=c.server_id
+        AND sh.owner_github_id=c.user_github_id AND sh.audience_type='member' AND sh.audience_id=?3
+          AND sh.audience_membership_since=requester.created_at)
+      OR EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_shares sh WHERE sh.org_id=c.org_id AND sh.server_id=c.server_id
+        AND sh.owner_github_id=c.user_github_id AND sh.audience_type='agent' AND sh.audience_id=?4
+          AND EXISTS(SELECT 1 FROM custom_agents a WHERE a.org_id=?1 AND a.id=?4 AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL)))
+    ORDER BY ownerName COLLATE NOCASE,owner.login,c.user_github_id`)
+    .bind(orgId, serverId, String(requesterId), agentId).all().catch(() => ({ results: [] }));
+  return results.map(row => ({ ownerId: String(row.ownerId), ownerName: row.ownerName || 'Workspace member', shareType: row.shareType }));
+}
+
+export async function remoteMcpOAuthShareType(db, { orgId, serverId, ownerId, requesterId, agentId }) {
+  const accounts = await remoteMcpOAuthAccounts(db, { orgId, serverId, requesterId, agentId });
+  return accounts.find(account => account.ownerId === String(ownerId))?.shareType || null;
+}
+
 export async function disconnectRemoteMcpOAuth(db, orgId, serverId, userId) {
   const result = await db.prepare(`DELETE FROM hx_remote_mcp_oauth_credentials
     WHERE org_id=?1 AND server_id=?2 AND user_github_id=?3
@@ -491,14 +644,14 @@ export async function disconnectRemoteMcpOAuth(db, orgId, serverId, userId) {
   return Boolean(result.meta?.changes);
 }
 
-async function refreshCredential(env, row, credential, authorization = null) {
+async function refreshCredential(env, row, credential, authorization = null, actorId = row.user_github_id) {
   if (!credential.refreshToken) return null;
   const server = await env.DB.prepare("SELECT id FROM hx_remote_mcp_servers WHERE org_id=?1 AND id=?2 AND auth_mode='oauth'")
     .bind(row.org_id, row.server_id).first();
   if (!server) return null;
   let tokens;
   try {
-    tokens = await exchangeToken(env, { orgId: row.org_id, serverId: row.server_id, actorId: row.user_github_id, authorization }, credential.tokenEndpoint, {
+    tokens = await exchangeToken(env, { orgId: row.org_id, serverId: row.server_id, actorId, authorization }, credential.tokenEndpoint, {
       grant_type: "refresh_token", refresh_token: credential.refreshToken,
       client_id: credential.clientId, resource: credential.resource,
     }, typeof credential.clientSecret === "string" ? credential.clientSecret : "", credential.tokenAuthMethod || "none");
@@ -529,7 +682,7 @@ async function latestUsableCredential(env, row) {
   return value;
 }
 
-export async function remoteMcpOAuthAccessToken(env, { orgId, serverId, userId, authorization = null }) {
+export async function remoteMcpOAuthAccessToken(env, { orgId, serverId, userId, actorId = userId, authorization = null }) {
   const row = await env.DB.prepare(`SELECT c.* FROM hx_remote_mcp_oauth_credentials c
     JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id AND m.created_at=c.membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
     JOIN hx_remote_mcp_servers s ON s.org_id=c.org_id AND s.id=c.server_id AND s.auth_mode='oauth'
@@ -542,7 +695,7 @@ export async function remoteMcpOAuthAccessToken(env, { orgId, serverId, userId, 
     return { token: null, error: "The OAuth credential is unavailable. Reconnect this Remote MCP server." };
   }
   if (credential.expiresAt && credential.expiresAt <= Date.now() + 30_000) {
-    const refreshed = await refreshCredential(env, row, credential, authorization);
+    const refreshed = await refreshCredential(env, row, credential, authorization, actorId);
     if (!refreshed) return { token: null, error: "The OAuth authorization expired. Reconnect this Remote MCP server." };
     return { token: refreshed.accessToken, error: null };
   }

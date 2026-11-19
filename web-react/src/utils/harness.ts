@@ -80,7 +80,7 @@ export interface Step {
   code?: string; gatewayId?: string; sourceAppId?: string; sourceEntityId?: string; sourceTableId?: string; sourceTables?: Array<{entityId:string;tableId:string;write?:boolean;mutate?:boolean}>; sourceAgents?:string[]; sourceConnections?:Array<{appId:string;name:string;ownerId?:string;version?:number;method?:string}>
   when?: WorkflowCondition
   type: StepType
-  channel?: string; text?: string; agentId?: string; prompt?: string; source?: 'notion'|'github'|'remote_mcp'; action?: 'search'; query?: string; serverId?:string; toolName?:string; args?:Record<string,unknown>; tableId?: string; rowId?: string
+  channel?: string; text?: string; agentId?: string; prompt?: string; source?: 'notion'|'github'|'remote_mcp'; action?: 'search'; query?: string; serverId?:string; connectionOwnerId?:string; toolName?:string; args?:Record<string,unknown>; tableId?: string; rowId?: string
   values?: Record<string, unknown>; to?: string; title?: string; summary?: string; minutes?: number
 }
 export interface WorkflowSourceState {source:{threadId:string;channel:string;body:string;createdAt:string}|null;canBind:boolean;canMove?:boolean;candidates:Array<{id:string;channel:string;body:string;createdAt:string}>;nextCursor:number|null}
@@ -126,9 +126,9 @@ export interface AgentProfile { specialty: string; tier: 'lite' | 'standard' | '
 export interface AgentAppConnection { server: string; name: string; description: string; iconUrl: string | null; verified: boolean; allowWrites: boolean; connectedAt: string; granted: boolean }
 export interface AgentNativeConnection { source: 'notion' | 'github' | 'slack'; available: boolean; enabled: boolean; canShare?: boolean; shareEnabled?: boolean; shared?: boolean; workspaceAvailable?: boolean; workspaceEnabled?: boolean; canManageWorkspace?: boolean }
 export interface AgentRemoteMcpTool { name: string; title: string; description: string; enabled: boolean; requiresApproval?: boolean }
-export interface AgentRemoteMcpConnection { serverId: string; name: string; available: boolean; enabled: boolean; readOnlyToolCount: number; tools?:AgentRemoteMcpTool[]; needsOAuth?: boolean }
+export interface AgentRemoteMcpConnection { serverId: string; name: string; connectionOwnerId?: string | null; connectionOwnerName?: string | null; shared?: boolean; shareType?: 'own'|'agent'|'member'|'workspace'; requestEnabled?: boolean; available: boolean; enabled: boolean; readOnlyToolCount: number; tools?:AgentRemoteMcpTool[]; needsOAuth?: boolean; personalOAuthAccess?: boolean }
 export interface WorkflowRemoteMcpTool extends AgentRemoteMcpTool { inputSchema?: Record<string, unknown>; requiresApproval: boolean }
-export interface WorkflowRemoteMcpConnection { serverId: string; name: string; available: boolean; needsOAuth?: boolean; tools: WorkflowRemoteMcpTool[] }
+export interface WorkflowRemoteMcpConnection { serverId: string; name: string; connectionOwnerId?:string|null; connectionOwnerName?:string|null; shareType?:'own'|'agent'|'member'|'workspace'; available: boolean; needsOAuth?: boolean; tools: WorkflowRemoteMcpTool[] }
 export interface AgentConnectionState { connections: AgentAppConnection[]; nativeConnections: AgentNativeConnection[]; remoteMcpConnections?: AgentRemoteMcpConnection[]; workflowRemoteMcpConnections?: WorkflowRemoteMcpConnection[] }
 export interface HomeData {
   mode: WorkspaceMode

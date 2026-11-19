@@ -3985,6 +3985,8 @@ const table: Record<string, string> = {
   'Choose an enabled tool': '有効なツールを選択',
   'This tool can write to an external service. Add an Approval step immediately before it. The approver will see the tool name and rendered arguments.': 'このツールは外部サービスに書き込みます。直前に承認ステップを追加してください。承認者にはツール名と展開後の引数が表示されます。',
   'Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.': 'ここで使う前に、Agentの接続タブでRemote MCPツールを個別に許可してください。',
+  'Grant this Agent the specific Remote MCP tool in its Connections tab or have a connection owner share it with this Agent.': 'Agentの接続タブでRemote MCPツールを個別に許可するか、接続の所有者にこのAgentへの共有を依頼してください。',
+  'This connection was shared with the selected Agent. The owner keeps the login; the Workflow checks the share and Agent access before and after every request.': 'この接続は選択したAgentに共有されています。ログイン情報は所有者が管理し、Workflowは各リクエストの前後に共有設定とAgentのアクセス権を確認します。',
   'Calls only the selected tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.': '選択したツールだけを呼び出します。Workerは各リクエストの前後にスキーマと権限を再確認します。引数に認証情報を含めないでください。',
   'Require approval for Workflow writes from {tool}': '{tool}のWorkflow書き込みに承認を必須にする',
   'Allow Workflow writes · requires approval': 'Workflowからの書き込みを許可 · 承認必須',
@@ -4244,6 +4246,9 @@ const table: Record<string, string> = {
   'No enabled App connections are available.': '有効なApp接続がありません。',
   'A selected connection changed or is no longer available. Re-select it before saving.': '選択した接続は変更されたか利用できません。保存前に選び直してください。',
   'connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.': 'connection.request({appId, name, query})は選択したApp接続を通じて制限付きの読み取り要求を送信します。プログラムにURLや認証情報は渡されません。',
+  'Your own OAuth tools are available in requests you start. Choose persistent Agent and Workflow grants here; writes still require approval.': '自分が開始したAgent会話では自分のOAuthツールを読み取り専用で利用できます。ここではAgentとWorkflowへの継続的なアクセスを設定します。書き込みには引き続き承認が必要です。',
+  'Choose persistent Agent and Workflow grants here. Write tools require Workflow approval and never run in chat.': 'ここではAgentとWorkflowへの継続的なアクセスを設定します。書き込みツールはWorkflowの承認が必要で、チャットでは実行されません。',
+  'Grant {agent} persistent access to {tool} from {server}': '{agent}に{server}の{tool}への継続的なアクセスを許可'
 }
 
 export default table

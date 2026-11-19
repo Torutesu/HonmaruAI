@@ -37,7 +37,7 @@ test('Remote MCP Workflow steps list workspace-approved read and write tools and
  await act(async()=>{tree=create(renderEditor())})
  expect(api.agentApps).toHaveBeenCalledWith('a1',{workflow:true})
  const connection=()=>tree.root.findByProps({'aria-label':'Remote MCP connection'})
- act(()=>connection().props.onChange({target:{value:'mcp-1'}}))
+ act(()=>connection().props.onChange({target:{value:'mcp-1\u0000'}}))
  act(()=>tree.update(renderEditor()))
  const tool=()=>tree.root.findByProps({'aria-label':'Remote MCP tool'})
  expect(tool().findAllByType('option').map((node:any)=>node.children.join(''))).toEqual(['Choose an approved tool','Search policy','Create issue · approval required'])
@@ -52,6 +52,21 @@ test('Remote MCP Workflow steps list workspace-approved read and write tools and
  act(()=>tree.update(<StepEditor api={api} step={step} onChange={next=>{step=next;onChange(next)}} onRemove={()=>{}} tables={[]} agents={[{id:'a1',handle:'policy',name:'Policy Agent'}]} previousStepType="approval"/>))
  expect(tree.root.findAllByType('div').some((node:any)=>node.children.includes('A human approval is immediately before this write. The approver sees the exact tool and arguments.'))).toBe(true)
  act(()=>tree.unmount())
+})
+
+test('Remote MCP Workflow editor distinguishes an Agent-shared OAuth connection from the current user account',async()=>{
+ const rows=[
+  {serverId:'mcp-1',name:'Knowledge',available:true,tools:[{name:'search',title:'Search',enabled:true,requiresApproval:false}]},
+  {serverId:'mcp-1',name:'Knowledge · Shared by Mika',connectionOwnerId:'9551',connectionOwnerName:'Mika',shareType:'agent',available:true,tools:[{name:'search',title:'Search',enabled:true,requiresApproval:false}]},
+ ];
+ const api:any={agentApps:vi.fn().mockResolvedValue({workflowRemoteMcpConnections:rows})};let step:any={type:'connection',source:'remote_mcp',agentId:'a1',args:{}};const onChange=vi.fn();let tree:any;
+ const renderEditor=()=> <StepEditor api={api} step={step} onChange={next=>{step=next;onChange(next)}} onRemove={()=>{}} tables={[]} agents={[{id:'a1',handle:'policy',name:'Policy Agent'}]}/>;
+ await act(async()=>{tree=create(renderEditor())});
+ const connection=tree.root.findByProps({'aria-label':'Remote MCP connection'});
+ expect(connection.findAllByType('option').map((option:any)=>option.props.value)).toEqual(['', 'mcp-1\u0000', 'mcp-1\u00009551']);
+ act(()=>connection.props.onChange({target:{value:'mcp-1\u00009551'}}));
+ expect(step).toMatchObject({serverId:'mcp-1',connectionOwnerId:'9551',toolName:'search'});
+ act(()=>tree.unmount());
 })
 
 test('Workflow editor blocks OAuth-disconnected Remote MCP servers and explains how to connect them',async()=>{

@@ -58,17 +58,18 @@ function cleanRequest(request) {
   let authorization;
   if (request.authorization !== undefined) {
     const value = request.authorization;
-    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !["kind", "agentId", "toolName", "appId", "viewerId"].includes(key))) throw new Error("Invalid Remote MCP egress authorization context.");
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !["kind", "agentId", "toolName", "appId", "viewerId", "connectionOwnerId"].includes(key))) throw new Error("Invalid Remote MCP egress authorization context.");
     const kind = value.kind || (typeof value.agentId === "string" && typeof value.toolName === "string" ? "agent" : "member");
-    if (kind !== "admin" && kind !== "member" && kind !== "agent" && kind !== "app") throw new Error("Invalid Remote MCP egress authorization context.");
+    if (kind !== "admin" && kind !== "member" && kind !== "agent" && kind !== "agent-request" && kind !== "app") throw new Error("Invalid Remote MCP egress authorization context.");
     authorization = {
       kind,
       ...(typeof value.agentId === "string" && value.agentId.length <= 200 ? { agentId: value.agentId } : {}),
       ...(typeof value.toolName === "string" && value.toolName.length <= 200 ? { toolName: value.toolName } : {}),
       ...(typeof value.appId === "string" && value.appId.length <= 200 ? { appId: value.appId } : {}),
       ...(typeof value.viewerId === "string" && value.viewerId.length <= 200 ? { viewerId: value.viewerId } : {}),
+      ...(typeof value.connectionOwnerId === "string" && value.connectionOwnerId.length <= 200 ? { connectionOwnerId: value.connectionOwnerId } : {}),
     };
-    if (authorization.kind === "agent" && (!authorization.agentId || !authorization.toolName)) throw new Error("Agent egress requires an exact Agent and tool authorization.");
+    if ((authorization.kind === "agent" || authorization.kind === "agent-request") && (!authorization.agentId || !authorization.toolName)) throw new Error("Agent egress requires an exact Agent and tool authorization.");
     if (authorization.kind === "app" && (!authorization.appId || !authorization.viewerId)) throw new Error("App egress requires a current App viewer.");
   }
   const timeoutMs = Number.isInteger(request.timeoutMs) ? Math.max(1_000, Math.min(request.timeoutMs, MAX_TIMEOUT_MS)) : DEFAULT_TIMEOUT_MS;
@@ -110,14 +111,16 @@ async function authorizationStillValid(db, row, authorization = null) {
     const ownerStillAdmin = await allowed(db, row.org_id, String(gateway.created_by), "workspace.mode").catch(() => false);
     if (!ownerStillAdmin) return false;
     if (authorization?.kind === "admin" && !await allowed(db, row.org_id, row.actor_id, "workspace.mode").catch(() => false)) return false;
-    if ((authorization?.kind === "agent" || authorization?.kind === "app" || authorization?.agentId) && authorization.agentId && authorization.toolName) {
-      const { mayUseAgentRemoteMcp } = await import("./agentRemoteMcp.js");
-      if (!await mayUseAgentRemoteMcp({ DB: db }, {
+    if ((authorization?.kind === "agent" || authorization?.kind === "agent-request" || authorization?.kind === "app" || authorization?.agentId) && authorization.agentId && authorization.toolName) {
+      const gate = authorization.kind === "agent-request" ? "mayUseAgentRemoteMcpForRequest" : "mayUseAgentRemoteMcp";
+      const module = await import("./agentRemoteMcp.js");
+      if (!await module[gate]({ DB: db }, {
         orgId: row.org_id,
         agentId: authorization.agentId,
         session: { github_id: row.actor_id },
         serverId: row.server_id,
         toolName: authorization.toolName,
+        connectionOwnerId: authorization.connectionOwnerId || null,
       }).catch(() => false)) return false;
     }
     if (authorization?.kind === "app" && authorization.appId && authorization.viewerId) {
