@@ -1147,7 +1147,7 @@ export async function handleHarness(request, env, url, context = {}) {
     const agentId = parts[2];
     const sub = parts[3];
     const agent = await env.DB
-      .prepare("SELECT id, owner_login, scope FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
+      .prepare("SELECT id, owner_login, scope, provider FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
       .bind(orgId, agentId)
       .first();
     // Someone else's personal agent is theirs alone: it is not here at all.
@@ -1386,6 +1386,11 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "profile") {
       if (request.method === "GET") return json({ profile: await getProfile(env.DB, orgId, agentId), tiers: TIERS, access: ACCESS, canEdit });
       if (request.method === "PUT") {
+        if (agent.provider && await getMode(env.DB, orgId) === 'harness'
+          && ((input.access !== undefined && input.access !== 'private')
+            || (input.people !== undefined && (!Array.isArray(input.people) || input.people.length > 0)))) {
+          return json({ message: 'Share this teammate through Agent access so its audience stays explicit.' }, 409);
+        }
         const currentProfile=(input.nativeBrowserEnabled!==undefined||input.nativeBrowserGatewayId!==undefined)
           ? await getProfile(env.DB,orgId,agentId) : null;
         if (input.nativeBrowserEnabled === true || input.nativeBrowserGatewayId) {

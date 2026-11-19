@@ -143,8 +143,13 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
-      "code": "worker/src/customAgents.js",
-      "acceptance": "Harnessの標準作成・Markdown取込は作成者限定、profileと原子的に保存。既存共有とSimpleを維持。Studioの外部teammate経路・全端末UIは残る"
+      "code": "worker/src/customAgents.js; worker/src/teammates.js; worker/src/harness/agentRoles.js; web-react/src/screens/HarnessAgents.tsx",
+      "acceptance": "Harnessの標準作成・Markdown取込・Studio外部teammate経路は作成者限定、profileと原子的に保存。既存共有とSimpleを維持。全端末UIは残る",
+      "evidence": {
+        "reviewedAt": "2026-11-20",
+        "verified": "Harnessで新しく作る外部AI teammateはpersonal scopeとprivate profileをD1 batchで同時作成。既存のAgent access API/UIから選択メンバーだけに共有し、scopeをteamへ移してもprofile access=privateを保つ。未共有メンバーの一覧・詳細・呼出権は拒否し、共有後は利用でき、権限取消で再び一覧から消える。Worker teammates.test.jsとharness-agents.test.js 84/84成功。Simple modeでの従来のworkspace共有は回帰テストで成功。",
+        "remaining": "HarnessAgentsの実画面での共有操作、iOS/desktop全端末の共有UI、exact-head CI、本番反映と別アカウントの本番隔離確認は未完了。"
+      }
     },
     {
       "id": "KY-012",
