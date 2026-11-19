@@ -343,6 +343,59 @@ test('stopping an assignment interrupts only the exact Claude session and genera
  expect(sent).toEqual({events:[{type:'user.interrupt'}]});
 });
 
+test('a failed concurrent local stop cannot overwrite the active remote stop lease',async()=>{
+ await launch();
+ const {postMessage}=await import('../src/channels.js');
+ const {getSession}=await import('../src/db.js');
+ const {beginAssignment}=await import('../src/harness/agentAssignments.js');
+ const agent=await env.DB.prepare("SELECT id FROM custom_agents WHERE org_id=?1 AND provider='claude'").bind(ORG).first();
+ const {row}=await postMessage(env.DB,{orgId:ORG,key:'b:cafe',authorLogin:'mika',body:'Cancel this run'});
+ const begun=await beginAssignment(env.DB,{orgId:ORG,row,agentId:agent.id,actorId:'9702',sessionKey:(await getSession(env.DB,mika)).token});
+ expect(begun.started).toBe(true);
+ const assignmentId=begun.assignment.id;
+ await env.DB.prepare("UPDATE hx_agent_assignments SET status='cancelled',remote_stop_status='pending',remote_stop_updated_at='2026-11-01' WHERE org_id=?1 AND id=?2").bind(ORG,assignmentId).run();
+ await env.DB.prepare(`INSERT INTO ai_teammate_runs(id,org_id,provider,channel,thread_id,remote_id,status,created_at,updated_at,assignment_id,assignment_generation,assignment_agent_id)
+  VALUES('race-remote',?1,'claude','b:cafe',?2,'sesn_stop_race','running','2026-11-01','2026-11-01',?3,?4,?5)`)
+  .bind(ORG,row.id,assignmentId,begun.assignment.generation,agent.id).run();
+
+ let enteredProvider,releaseProvider;
+ const providerEntered=new Promise(resolve=>{enteredProvider=resolve});
+ const providerGate=new Promise(resolve=>{releaseProvider=resolve});
+ anthropic().intercept({path:'/v1/sessions/sesn_stop_race/events?beta=true',method:'POST'}).reply(200,async()=>{
+  enteredProvider();await providerGate;return{data:[{type:'user.interrupt'}]};
+ });
+
+ let localCalls=0,enteredFirst,releaseFirst,enteredSecond,releaseSecond;
+ const firstLocalEntered=new Promise(resolve=>{enteredFirst=resolve});
+ const firstLocalGate=new Promise(resolve=>{releaseFirst=resolve});
+ const secondLocalEntered=new Promise(resolve=>{enteredSecond=resolve});
+ const secondLocalGate=new Promise(resolve=>{releaseSecond=resolve});
+ const binding={idFromName:id=>id,get:()=>({fetch:async()=>{
+  localCalls++;
+  if(localCalls===1){enteredFirst();await firstLocalGate;return Response.json({cancelled:true,active:true});}
+  enteredSecond();await secondLocalGate;return new Response('Local cancellation unavailable.',{status:503});
+ }})};
+ const body={orgId:ORG,channel:'b:cafe',messageId:row.id,assignmentId,generation:begun.assignment.generation};
+ const first=send('POST','/channels/agent-runs/stop',mika,body,{AGENT_RUNNER:binding});
+ await firstLocalEntered;
+ const second=send('POST','/channels/agent-runs/stop',mika,body,{AGENT_RUNNER:binding});
+ await secondLocalEntered;
+
+ releaseFirst();
+ await providerEntered;
+ releaseSecond();
+ const secondResponse=await second;
+ expect(secondResponse.status).toBe(200);
+ expect(await secondResponse.json()).toEqual({stopped:true,remoteStop:'requesting'});
+ expect(await env.DB.prepare('SELECT remote_stop_status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,assignmentId).first()).toEqual({remote_stop_status:'requesting'});
+
+ releaseProvider();
+ const firstResponse=await first;
+ expect(firstResponse.status).toBe(200);
+ expect(await firstResponse.json()).toEqual({stopped:true,remoteStop:'requested'});
+ expect(await env.DB.prepare('SELECT remote_stop_status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,assignmentId).first()).toEqual({remote_stop_status:'requested'});
+});
+
 test.each([['success','requested'],['provider failure','failed'],['start failure','no_remote_run']])('stopping while Claude is creating a session reconciles the provider outcome: %s',async(outcome,stopStatus)=>{
  await launch();
  const {setMode}=await import('../src/harness/mode.js');
