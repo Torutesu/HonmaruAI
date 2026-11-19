@@ -181,11 +181,14 @@ test('LINE room hooks verify raw signatures, deduplicate inbound events and do n
   const customerKey=firstInbox.conversations[0].customerKey;
   const detail=await worker.fetch(new Request(`https://example.test${inboxPath}&customerKey=${encodeURIComponent(customerKey)}`,{headers:{'x-session-token':session}}),env,{waitUntil(){}});
   expect(await detail.json()).toMatchObject({customerKey,hasMore:false,messages:[{body:expect.stringContaining('Need a delivery update')}]});
+  fetchMock.get('https://api.line.me').intercept({path:'/v2/bot/message/push',method:'POST'}).reply(400,{message:'Invalid access token'});
   fetchMock.get('https://api.line.me').intercept({path:'/v2/bot/message/push',method:'POST'}).reply(200,{});
   fetchMock.activate();
   try {
     const replyInput={orgId:org,channel,hookId:connection.hook.id,customerKey,requestId:'123e4567-e89b-42d3-a456-426614174000',body:'I will check that for you.'};
     const sendReply=()=>worker.fetch(new Request('https://example.test/hx/rooms/line-replies',{method:'POST',headers:{'content-type':'application/json','x-session-token':session},body:JSON.stringify(replyInput)}),env,{waitUntil(){}});
+    const rejected=await sendReply();
+    expect(rejected.status).toBe(502);
     const sent=await sendReply();
     expect(sent.status).toBe(201);
     expect(await sent.json()).toMatchObject({reply:{direction:'outbound',deliveryStatus:'sent',body:replyInput.body}});
