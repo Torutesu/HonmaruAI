@@ -54,9 +54,9 @@ export async function sendLineInboxReply(env,{orgId,channel,actorId,hookId,custo
      WHERE org_id=?1 AND channel=?2 AND hook_id=?6 AND request_id=?7 AND body=?8 AND status='failed'
        AND EXISTS(SELECT 1 FROM hx_room_hooks h JOIN hx_line_room_hooks l ON l.id=h.id AND l.org_id=h.org_id
          WHERE h.org_id=?1 AND h.channel=?2 AND h.id=?6 AND h.version=?9 AND h.revoked_at IS NULL AND l.channel_access_token IS NOT NULL)
-       AND EXISTS(SELECT 1 FROM hx_line_inbox_customers c WHERE c.org_id=?1 AND c.channel=?2 AND c.hook_id=?6 AND c.customer_key=?4 AND c.target_fingerprint=?10)
+       AND EXISTS(SELECT 1 FROM hx_line_inbox_customers c WHERE c.org_id=?1 AND c.channel=?2 AND c.hook_id=?6 AND c.customer_key=?11 AND c.target_fingerprint=?10)
        AND ${currentMembership}`)
-     .bind(orgId,channel,String(actorId),customerKey,at,hookId,requestId,clean,hook.version,recipient.target_fingerprint).run();
+     .bind(orgId,channel,String(actorId),current.actor.membership,at,hookId,requestId,clean,hook.version,recipient.target_fingerprint,customerKey).run();
    if(retried.meta?.changes){sendId=prior.id;sendCreatedAt=prior.createdAt;}
    else return fail('LINE connection or room membership changed. Reload before sending.',409);
   }else if(prior)return fail('This reply attempt may already have reached LINE. Check the conversation before sending again.',409);
