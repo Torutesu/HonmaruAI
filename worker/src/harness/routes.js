@@ -376,7 +376,7 @@ export async function handleHarness(request, env, url, context = {}) {
       if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Skill sharing is available in Harness mode.' }, 404);
       const agentId = typeof input.agentId === 'string' && input.agentId ? input.agentId : null;
       if (agentId) {
-        const agent = await env.DB.prepare("SELECT id, owner_login, scope, provider FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, agentId).first();
+        const agent = await env.DB.prepare("SELECT id, owner_login, scope FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL").bind(orgId, agentId).first();
         if (!agent || agent.scope === 'personal' && agent.owner_login !== who.user.login
           || !await mayAccessAgent(env.DB, orgId, { ...agent, ownerLogin: agent?.owner_login }, who.user.login)) return json({ message: 'No such agent.' }, 404);
         const delegatedRole = (await explicitAgentRoles(env.DB, orgId, [agentId], who.user.login)).get(agentId);
@@ -1147,7 +1147,7 @@ export async function handleHarness(request, env, url, context = {}) {
     const agentId = parts[2];
     const sub = parts[3];
     const agent = await env.DB
-      .prepare("SELECT id, owner_login, scope FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
+      .prepare("SELECT id, owner_login, scope, provider FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
       .bind(orgId, agentId)
       .first();
     // Someone else's personal agent is theirs alone: it is not here at all.
