@@ -56,7 +56,7 @@ import { enforce } from "./ratelimit.js";
 import { listMembers } from "./team.js";
 import { allowed } from "./permissions.js";
 import { resolveMentions } from "./threads.js";
-import { teammateForAgent, startTeammateRun, loadTeammate, readRun, settleRun, openRuns, canSignIn } from "./teammates.js";
+import { PROVIDERS as TEAMMATE_PROVIDERS, teammateForAgent, startTeammateRun, loadTeammate, readRun, settleRun, openRuns, canSignIn } from "./teammates.js";
 import { answerAsProxies, proxyTeammateAnswer, getProxy, saveProxy, mentionedPeople } from "./proxy.js";
 import { autoBuild } from "./autoBuild.js";
 import { appendCardEvent } from "./events.js";
@@ -562,6 +562,22 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const allowance = provider ? await allowanceFor(env, orgId, { githubId: String(session.github_id) }) : null;
   const workspaceMode = await getMode(env.DB, orgId).catch(() => null);
   const harness = workspaceMode === "harness";
+  // Optional cloud fallback is considered only for a local ACP teammate whose
+  // owner enabled it and whose node heartbeat is stale. It uses the already
+  // configured Workspace AI provider and its existing allowance/budget gates.
+  const fallbackTeammates = new Map();
+  if (harness && provider && allowance?.allowed) {
+    for (const agent of agents) {
+      if (!TEAMMATE_PROVIDERS[agent.provider]?.localGateway) continue;
+      const teammate = await teammateForAgent(env.DB, orgId, agent, env).catch(() => null);
+      if (!teammate?.remote?.fallbackToWorkspaceAI || !teammate.remote.gatewayId || !teammate.remote.agentKey) continue;
+      const node = await env.DB.prepare(`SELECT g.last_seen_at FROM hx_gateways g
+        JOIN hx_gateway_acp_agents a ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
+        WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL`)
+        .bind(orgId, teammate.remote.gatewayId, teammate.remote.agentKey).first().catch(() => null);
+      if (!node || node.last_seen_at == null || Date.now() - Number(node.last_seen_at) > 90_000) fallbackTeammates.set(agent.id, teammate);
+    }
+  }
   const isDirectSourceAgent = resolved.kind === 'agent' && agents.length === 1 && agents[0].id === resolved.agent?.id;
   const [transcript, playbook] = provider && allowance?.allowed
     ? await Promise.all([contextFor(env.DB, orgId, resolved.key, row, { whole: resolved.kind === "agent" }), row.parent_id ? [] : playbookFor(env.DB, orgId, taskText)])
@@ -662,7 +678,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   // service, so they do not take a slot.
   let modelLeft = !allowance?.metered ? Infinity : Math.max(0, allowance.remaining ?? 0);
   const spend = agents.map((agent) => {
-    if (agent.provider) return "teammate";
+    if (agent.provider && !fallbackTeammates.has(agent.id)) return "teammate";
     if (!allowance?.metered) return allowance?.allowed ? "model" : "quota";
     if (modelLeft <= 0) return "quota";
     modelLeft -= 1;
@@ -687,7 +703,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     if (authorize && !await authorize()) return;
     // An AI teammate works through its own service, not the workspace's
     // model: it starts, says so, and answers when it is done.
-    if (agent.provider) {
+    if (agent.provider && !fallbackTeammates.has(agent.id)) {
       await progress(agent, "agent");
       const t = await teammateForAgent(env.DB, orgId, agent, env).catch(() => null);
       try {
@@ -776,6 +792,9 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         // turned it down (no call was paid for), or it ran out of time.
         text = result.answer || serverText(locale, result.called ? "agent.failedEmpty" : "agent.failedService");
         modelAnswered = Boolean(result.answer);
+      }
+      if (modelAnswered && fallbackTeammates.has(agent.id)) {
+        text = `${serverText(locale, "agent.workspaceFallback")}\n\n${text}`;
       }
       if (slackDraftIds.length) {
         const markers = [...new Set(slackDraftIds)].filter(id => !String(text || '').includes(id))

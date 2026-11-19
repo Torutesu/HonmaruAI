@@ -26,6 +26,7 @@ interface Teammate {
   monthlyLimit: number | null; spentThisMonth: number; tools: Tool[]; ready: boolean
   workspaceTools: boolean
   browserTools: boolean
+  fallbackToWorkspaceAI: boolean
   /// Claude: an issue link or a bug report posted in a channel starts it.
   autoBuild?: boolean
   gatewayId: string; agentKey: string; webhookUrl: string; completionMcpUrl: string
@@ -36,7 +37,7 @@ interface Gateway { id: string; name: string; lastSeenAt?: number | null; acpAge
 interface Draft {
   apiKey: string; githubToken: string; account: string; model: string; instructions: string; repos: string
   everywhere: boolean; channels: Set<string>; limit: string; tools: Tool[]; autoBuild: boolean
-  gatewayId: string; agentKey: string; workspaceTools: boolean; browserTools: boolean; webhookUrl: string
+  gatewayId: string; agentKey: string; workspaceTools: boolean; browserTools: boolean; fallbackToWorkspaceAI: boolean; webhookUrl: string
 }
 
 const draftOf = (tm: Teammate): Draft => ({
@@ -45,7 +46,7 @@ const draftOf = (tm: Teammate): Draft => ({
   limit: tm.monthlyLimit === null ? '' : String(tm.monthlyLimit), tools: tm.tools.map((x) => ({ ...x, secretValue: '' })),
   autoBuild: tm.autoBuild !== false,
   gatewayId: tm.gatewayId || '', agentKey: tm.agentKey || '',
-  workspaceTools: tm.workspaceTools === true, browserTools: tm.browserTools === true, webhookUrl: tm.webhookUrl || '',
+  workspaceTools: tm.workspaceTools === true, browserTools: tm.browserTools === true, fallbackToWorkspaceAI: tm.fallbackToWorkspaceAI === true, webhookUrl: tm.webhookUrl || '',
 })
 
 export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionToken: string }> = ({ httpBase, orgId, sessionToken }) => {
@@ -117,7 +118,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
     if (tm.models.length || tm.freeModel) body.model = draft.model
     if (tm.needs.account) body.account = draft.account
     if (tm.needs.gateway) { body.gatewayId = draft.gatewayId; body.agentKey = draft.agentKey }
-    if (tm.needs.gateway) { body.workspaceTools = draft.workspaceTools; body.browserTools = draft.browserTools }
+    if (tm.needs.gateway) { body.workspaceTools = draft.workspaceTools; body.browserTools = draft.browserTools; body.fallbackToWorkspaceAI = draft.fallbackToWorkspaceAI }
     if (tm.needs.webhookBot) body.webhookUrl = draft.webhookUrl.trim()
     if (tm.needs.tools) body.tools = draft.tools.map((x) => ({ name: x.name, secretName: x.secretName, host: x.host, ...(x.secretValue?.trim() ? { secretValue: x.secretValue.trim() } : {}) }))
     if (draft.apiKey.trim()) body.apiKey = draft.apiKey.trim()
@@ -222,6 +223,11 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
               <span><input type="checkbox" disabled={off || !harnessMode} checked={draft.browserTools} onChange={(e) => set({ browserTools: e.target.checked })} data-teammate-browser-tools /> {t('Allow this ACP agent to use its isolated browser')}</span>
               {!harnessMode && <small>{t('Isolated browser access is available in Harness mode only.')}</small>}
               <small>{t('Page text, screenshots, and text entered by this agent are sent to the local ACP agent and its existing provider. Sign-ins persist in this agent’s isolated browser on the execution node.')}</small>
+            </label>
+            <label className="teammate-field">
+              <span><input type="checkbox" disabled={off || !harnessMode} checked={draft.fallbackToWorkspaceAI} onChange={(e) => set({ fallbackToWorkspaceAI: e.target.checked })} data-teammate-cloud-fallback /> {t('Use Workspace AI when this execution node is offline')}</span>
+              {!harnessMode && <small>{t('Cloud fallback is available in Harness mode only.')}</small>}
+              <small>{t('Off by default. When enabled, a disconnected local Agent can answer through the Workspace AI account and its existing usage limits. This may use billable model capacity already configured for this Workspace; it adds no service or subscription. It does not run when access or budget checks deny the request.')}</small>
             </label>
             <p className="form-note">{t('ACP agents execute with the Mac user’s permissions and may access local files, credentials, and network resources. In default mode, the gateway accepts one action requested by the agent; strict mode accepts read-only actions and rejects writes or terminal actions. Only connect agents and working directories you trust.')}</p>
           </>
