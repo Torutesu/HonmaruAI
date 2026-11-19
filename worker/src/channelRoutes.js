@@ -7,6 +7,7 @@ import {drainAgentHandoffs} from './harness/agentHandoffDispatch.js';
 import {remoteHandoffInstruction,parseRemoteHandoff} from './harness/remoteHandoff.js';
 import {drainTeammateResults} from './teammateResultDispatch.js';
 import {agentRunSnapshot} from './harness/agentRunSnapshot.js';
+import {recordAgentFallbackState,drainAgentFallbackNotifications} from './harness/agentFallback.js';
 import { publicAppShareAgentTools } from './harness/appShareApproval.js';
 import {stopAssignment} from './harness/agentAssignmentStop.js';
 import {runAgentAssignment} from './harness/runAgentAssignment.js';
@@ -566,17 +567,30 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   // owner enabled it and whose node heartbeat is stale. It uses the already
   // configured Workspace AI provider and its existing allowance/budget gates.
   const fallbackTeammates = new Map();
-  if (harness && provider && allowance?.allowed) {
+  if (harness) {
     for (const agent of agents) {
       if (!TEAMMATE_PROVIDERS[agent.provider]?.localGateway) continue;
       const teammate = await teammateForAgent(env.DB, orgId, agent, env).catch(() => null);
       if (!teammate?.remote?.fallbackToWorkspaceAI || !teammate.remote.gatewayId || !teammate.remote.agentKey) continue;
-      const node = await env.DB.prepare(`SELECT g.last_seen_at FROM hx_gateways g
+      let node;
+      try {
+        node = await env.DB.prepare(`SELECT g.last_seen_at,g.revoked_at,a.agent_key,ca.owner_login FROM hx_gateways g
         JOIN hx_gateway_acp_agents a ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
-        WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL`)
-        .bind(orgId, teammate.remote.gatewayId, teammate.remote.agentKey).first().catch(() => null);
-      if (!node || node.last_seen_at == null || Date.now() - Number(node.last_seen_at) > 90_000) fallbackTeammates.set(agent.id, teammate);
+        JOIN custom_agents ca ON ca.org_id=g.org_id AND ca.id=?4 AND ca.deleted_at IS NULL
+        WHERE g.org_id=?1 AND g.id=?2`).bind(orgId, teammate.remote.gatewayId, teammate.remote.agentKey,agent.id).first();
+      } catch { continue; }
+      // Missing registrations, revocation, and failed reads are not evidence
+      // of an offline computer and must never bypass the local execution grant.
+      if (!node || node.revoked_at != null || !node.agent_key || !node.owner_login) continue;
+      const online = node.last_seen_at != null && Date.now() - Number(node.last_seen_at) <= 90_000;
+      if (online) {
+        await recordAgentFallbackState(env.DB,{orgId,agentId:agent.id,gatewayId:teammate.remote.gatewayId,ownerLogin:node.owner_login,state:'node'});
+      } else if (provider && allowance?.allowed) {
+        await recordAgentFallbackState(env.DB,{orgId,agentId:agent.id,gatewayId:teammate.remote.gatewayId,ownerLogin:node.owner_login,state:'workspace'});
+        fallbackTeammates.set(agent.id, teammate);
+      }
     }
+    await drainAgentFallbackNotifications(env,broadcastStored).catch(err=>console.error('Agent fallback notification drain failed',safe(err?.message)));
   }
   const isDirectSourceAgent = resolved.kind === 'agent' && agents.length === 1 && agents[0].id === resolved.agent?.id;
   const [transcript, playbook] = provider && allowance?.allowed
@@ -918,6 +932,7 @@ async function runTeammate(env, { orgId, user, requesterId, resolved, row, membe
 /// Look in on teammates at work, and post what each finished with into the
 /// thread it came from. Once (the minute cron), or until `deadline`.
 export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause = 8000, signal = null } = {}) {
+  await drainAgentFallbackNotifications(env,broadcastStored).catch(err=>console.error('Agent fallback notification drain failed',safe(err?.message)));
   const publish=async payload=>postTeammateResult(env,payload.run,await loadTeammate(env.DB,payload.run.org_id,payload.run.provider,env),payload.read,payload.status,{clientId:`tmp-${payload.deliveryId}`,deliveryAgentId:payload.agentId});
   const progressSeen=new Map();
   const publishProgress=async(run,teammate,progress)=>{
