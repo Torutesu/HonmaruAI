@@ -50,7 +50,7 @@ export async function agentRemoteMcpConnections(db, { orgId, agentId, githubId }
     if (server.auth_mode === 'oauth') {
       accounts = await remoteMcpOAuthAccounts(db, { orgId, serverId: server.id, requesterId: githubId, agentId });
       if (!accounts.some(account => account.ownerId === String(githubId))) {
-        accounts = [{ ownerId: String(githubId), ownerName: null, shareType: 'disconnected' }];
+        accounts = [...accounts, { ownerId: String(githubId), ownerName: null, shareType: 'disconnected' }];
       }
     } else accounts = [{ ownerId: String(githubId), ownerName: null, shareType: 'own' }];
     for (const account of accounts) {
@@ -92,37 +92,65 @@ export async function agentRemoteMcpConnections(db, { orgId, agentId, githubId }
 // read-only grants so adding it here never widens an Agent's standing access.
 export async function workflowRemoteMcpConnections(db, { orgId, agentId, githubId }) {
   if (!orgId || !agentId || !githubId) return [];
-  const [servers, tools, agentConnections] = await Promise.all([
-    db.prepare('SELECT id, name, auth_mode FROM hx_remote_mcp_servers WHERE org_id=?1 ORDER BY created_at, id')
-      .bind(orgId).all().catch(() => ({ results: [] })),
+  const [tools, agentConnections] = await Promise.all([
     remoteMcpTools(db, orgId, { workflowWritable: true }).catch(() => []),
     agentRemoteMcpConnections(db, { orgId, agentId, githubId }).catch(() => []),
   ]);
-  const grantedTools = new Map(agentConnections.filter(server => !server.shared).map(server => [server.serverId,
-    new Set((server.tools || []).filter(tool => tool.enabled).map(tool => tool.name))]));
   const byServer = new Map();
   for (const tool of tools) {
     const id = tool?._remote?.serverId;
     if (id) byServer.set(id, [...(byServer.get(id) || []), tool]);
   }
-  return Promise.all((servers.results || []).map(async server => {
-    const offered = byServer.get(server.id) || [];
-    const oauthConnected = server.auth_mode !== 'oauth' || await remoteMcpOAuthStatus(db, orgId, server.id, githubId);
+  return agentConnections.filter(connection => !connection.shared || connection.shareType === 'agent').map(connection => {
+    const offered = byServer.get(connection.serverId) || [];
+    const granted = new Set((connection.tools || []).filter(tool => tool.enabled).map(tool => tool.name));
     return {
-      serverId: server.id,
-      name: server.name,
-      available: offered.length > 0 && oauthConnected,
-      needsOAuth: !oauthConnected,
+      serverId: connection.serverId,
+      connectionOwnerId: connection.shared ? connection.connectionOwnerId : null,
+      connectionOwnerName: connection.shared ? connection.connectionOwnerName : null,
+      shareType: connection.shareType,
+      name: connection.shared ? `${connection.name} · ${connection.connectionOwnerName || 'Shared by member'}` : connection.name,
+      available: offered.length > 0 && connection.available,
+      needsOAuth: connection.needsOAuth,
       tools: offered.map(tool => ({
         name: tool._remote.toolName,
         title: tool.title || tool._remote.toolName,
         description: tool.description || '',
         inputSchema: tool.inputSchema,
         requiresApproval: tool._remote.requiresApproval === true,
-        enabled: Boolean(grantedTools.get(server.id)?.has(tool._remote.toolName)),
+        enabled: connection.available && granted.has(tool._remote.toolName),
       })),
     };
-  }));
+  });
+}
+
+// Workflow Agent turns may use only explicit Agent grants or connections the
+// owner deliberately shared with this Agent. A requester's own one-off OAuth
+// access in chat does not become a persistent Workflow connection.
+export async function workflowAgentRemoteMcpTools(env, { orgId, agentId, session }) {
+  const githubId = String(session?.github_id || '');
+  if (!githubId || !await mayRunAgent(env.DB, orgId, { id: agentId }, githubId).catch(() => false)) return [];
+  const [connections, tools] = await Promise.all([
+    agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId }),
+    remoteMcpTools(env.DB, orgId, { readOnlyOnly: true }).catch(() => []),
+  ]);
+  const offered = [];
+  for (const connection of connections) {
+    if (connection.shared && connection.shareType !== 'agent') continue;
+    for (const tool of tools) {
+      if (tool?._remote?.serverId !== connection.serverId
+        || !connection.tools?.some(item => item.name === tool._remote.toolName && item.enabled)) continue;
+      if (!connection.shared) offered.push(tool);
+      else offered.push({
+        ...tool,
+        name: `${tool.name}__owner_${connection.connectionOwnerId}`.slice(0, 120),
+        title: `${tool.title || tool.name} · ${connection.connectionOwnerName || 'Shared connection'}`.slice(0, 120),
+        description: `${tool.description || ''} This OAuth connection was shared with this Agent; access is rechecked for each call.`.slice(0, 2_000),
+        _remote: { ...tool._remote, connectionOwnerId: connection.connectionOwnerId },
+      });
+    }
+  }
+  return offered;
 }
 
 export async function setAgentRemoteMcpTool(env, { orgId, agentId, session, serverId, toolName, enabled }) {

@@ -2278,6 +2278,8 @@ const table: Record<string, string> = {
   'Choose an enabled tool': 'Aktives Tool auswählen',
   'This tool can write to an external service. Add an Approval step immediately before it. The approver will see the tool name and rendered arguments.': 'Dieses Tool schreibt in einen externen Dienst. Füge direkt davor einen Genehmigungsschritt ein. Die genehmigende Person sieht Toolnamen und aufgelöste Argumente.',
   'Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.': 'Gib dieses Remote-MCP-Tool im Tab „Verbindungen“ des Agents frei, bevor du es hier verwendest.',
+  'Grant this Agent the specific Remote MCP tool in its Connections tab or have a connection owner share it with this Agent.': 'Gib dieses Remote-MCP-Tool im Tab „Verbindungen“ des Agents frei oder bitte den Verbindungsinhaber, es mit diesem Agent zu teilen.',
+  'This connection was shared with the selected Agent. The owner keeps the login; the Workflow checks the share and Agent access before and after every request.': 'Diese Verbindung wurde mit dem ausgewählten Agent geteilt. Der Inhaber behält den Login; der Workflow prüft die Freigabe und den Agent-Zugriff vor und nach jeder Anfrage.',
   'Calls only the selected tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.': 'Nur das ausgewählte Tool wird aufgerufen. Worker prüft Schema und Berechtigung vor und nach jedem Aufruf erneut. Keine Zugangsdaten in Argumente einfügen.',
   'Require approval for Workflow writes from {tool}': 'Genehmigung für Workflow-Schreibzugriffe von {tool} verlangen',
   'Allow Workflow writes · requires approval': 'Workflow-Schreibzugriffe erlauben · Genehmigung erforderlich',

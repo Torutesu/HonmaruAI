@@ -3985,6 +3985,8 @@ const table: Record<string, string> = {
   'Choose an enabled tool': '有効なツールを選択',
   'This tool can write to an external service. Add an Approval step immediately before it. The approver will see the tool name and rendered arguments.': 'このツールは外部サービスに書き込みます。直前に承認ステップを追加してください。承認者にはツール名と展開後の引数が表示されます。',
   'Grant this Agent the specific Remote MCP tool in its Connections tab before using it here.': 'ここで使う前に、Agentの接続タブでRemote MCPツールを個別に許可してください。',
+  'Grant this Agent the specific Remote MCP tool in its Connections tab or have a connection owner share it with this Agent.': 'Agentの接続タブでRemote MCPツールを個別に許可するか、接続の所有者にこのAgentへの共有を依頼してください。',
+  'This connection was shared with the selected Agent. The owner keeps the login; the Workflow checks the share and Agent access before and after every request.': 'この接続は選択したAgentに共有されています。ログイン情報は所有者が管理し、Workflowは各リクエストの前後に共有設定とAgentのアクセス権を確認します。',
   'Calls only the selected tool. The Worker checks its schema and permission again before and after each request. Do not put credentials in the arguments.': '選択したツールだけを呼び出します。Workerは各リクエストの前後にスキーマと権限を再確認します。引数に認証情報を含めないでください。',
   'Require approval for Workflow writes from {tool}': '{tool}のWorkflow書き込みに承認を必須にする',
   'Allow Workflow writes · requires approval': 'Workflowからの書き込みを許可 · 承認必須',
