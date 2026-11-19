@@ -169,8 +169,8 @@ export async function appConnectionGrantReview(db, orgId, appId, actorId) {
   const grants=[];
   for(const row of results||[]) {
     if(row.ownerId==null)continue;
-    let grantUsable=Boolean(source&&source.id===row.sourceAgentId&&await mayUseSourceAgent(db,orgId,source,row.ownerId));
-    grants.push({...row,grantUsable});
+    const ownerHasSourceAccess=Boolean(source&&source.id===row.sourceAgentId&&await mayUseSourceAgent(db,orgId,source,row.ownerId));
+    grants.push({...row,ownerHasSourceAccess});
   }
   return {grants};
 }
