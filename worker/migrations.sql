@@ -225,9 +225,13 @@ CREATE TABLE IF NOT EXISTS hx_room_hooks (id TEXT PRIMARY KEY, org_id TEXT NOT N
 CREATE INDEX IF NOT EXISTS idx_hx_room_hooks_room ON hx_room_hooks(org_id,channel,created_at);
 CREATE TABLE IF NOT EXISTS hx_room_hook_events (event_key TEXT PRIMARY KEY, hook_id TEXT NOT NULL, org_id TEXT NOT NULL, channel TEXT NOT NULL, payload_hash TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS hx_line_room_hooks (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel_secret TEXT, created_at TEXT NOT NULL);
-/* Customer pseudonyms and local read cursors only; raw LINE profile IDs are never persisted. */
+ALTER TABLE hx_line_room_hooks ADD COLUMN channel_access_token TEXT;
+/* Customer IDs and channel tokens are encrypted; raw LINE IDs never leave encrypted storage. */
 CREATE TABLE IF NOT EXISTS hx_line_inbox_messages (event_key TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_hx_line_inbox_customer ON hx_line_inbox_messages(org_id,channel,hook_id,customer_key,created_at,message_id);
+CREATE TABLE IF NOT EXISTS hx_line_inbox_customers (org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, target_type TEXT NOT NULL CHECK(target_type IN ('user','group','room')), target_fingerprint TEXT NOT NULL, target_ciphertext TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,channel,hook_id,customer_key));
+CREATE TABLE IF NOT EXISTS hx_line_inbox_replies (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, request_id TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('sending','sent','failed','unknown')), provider_request_id TEXT, created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(org_id,hook_id,request_id));
+CREATE INDEX IF NOT EXISTS idx_hx_line_inbox_replies ON hx_line_inbox_replies(org_id,channel,hook_id,customer_key,created_at,id);
 CREATE TABLE IF NOT EXISTS hx_line_inbox_reads (org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, actor_id TEXT NOT NULL, last_read_at TEXT NOT NULL, PRIMARY KEY(org_id,channel,hook_id,customer_key,actor_id));
 
 CREATE TABLE IF NOT EXISTS hx_room_hook_dispatch (message_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
