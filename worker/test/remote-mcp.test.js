@@ -655,13 +655,14 @@ test("an Agent request can use the requester's own OAuth Remote MCP read tools w
     SELECT ?1,?2,'9551',created_at,'{}',?3,?3 FROM memberships WHERE org_id=?1 AND user_github_id='9551'`)
     .bind(ORG, serverId, createdAt).run();
 
-  const { agentRemoteMcpConnections, agentRemoteMcpTools, mayUseAgentRemoteMcp, mayUseAgentRemoteMcpForRequest } =
+  const { agentRemoteMcpConnections, agentRemoteMcpTools, workflowAgentRemoteMcpTools, mayUseAgentRemoteMcp, mayUseAgentRemoteMcpForRequest } =
     await import("../src/harness/agentRemoteMcp.js");
   const requester = { github_id: "9551" };
   const request = { orgId: ORG, agentId, session: requester, serverId, toolName: "read" };
   expect(await mayUseAgentRemoteMcp(env, request)).toBe(false);
   expect(await mayUseAgentRemoteMcpForRequest(env, request)).toBe(true);
   expect(await agentRemoteMcpTools(env, { orgId: ORG, agentId, session: requester })).toHaveLength(1);
+  expect(await workflowAgentRemoteMcpTools(env, { orgId: ORG, agentId, session: requester })).toEqual([]);
   expect(await agentRemoteMcpConnections(env.DB, { orgId: ORG, agentId, githubId: requester.github_id }))
     .toMatchObject([{ available: true, personalOAuthAccess: true, tools: [{ name: "read", enabled: false }] }]);
 
@@ -681,7 +682,7 @@ test("an Agent request can use the requester's own OAuth Remote MCP read tools w
 test("OAuth connection sharing is owner-controlled, versioned, and rechecked against current membership and Agent access", async () => {
   const { upsertUser, upsertMembership } = await import("../src/db.js");
   const { saveRemoteMcpOAuthShares, remoteMcpOAuthShareSettings, remoteMcpOAuthShareType } = await import("../src/harness/remoteMcpOAuth.js");
-  const { mayUseAgentRemoteMcpForRequest } = await import("../src/harness/agentRemoteMcp.js");
+  const { mayUseAgentRemoteMcpForRequest, workflowAgentRemoteMcpTools } = await import("../src/harness/agentRemoteMcp.js");
   await upsertUser(env.DB, { githubId: "9552", login: "share-member", name: "Share Member" });
   await upsertMembership(env.DB, ORG, "9552", "member");
   const agentId = "remote-mcp-shared-agent", serverId = "remote-mcp-shared-server", createdAt = new Date().toISOString();
@@ -702,6 +703,10 @@ test("OAuth connection sharing is owner-controlled, versioned, and rechecked aga
   expect(saved).toMatchObject({ settings: { version: 1, memberIds: ["9552"], agentIds: [agentId] } });
   expect(await remoteMcpOAuthShareType(env.DB, { orgId: ORG, serverId, ownerId: "9551", requesterId: "9552", agentId })).toBe("agent");
   expect(await mayUseAgentRemoteMcpForRequest(testEnv, { orgId: ORG, agentId, session: { github_id: "9552" }, serverId, toolName: "read", connectionOwnerId: "9551" })).toBe(true);
+  const workflowTools = await workflowAgentRemoteMcpTools(testEnv, { orgId: ORG, agentId, session: { github_id: "9552" } });
+  expect(workflowTools).toHaveLength(1);
+  expect(workflowTools[0].name).toMatch(/__owner_9551$/);
+  expect(workflowTools[0]._remote).toMatchObject({ serverId, toolName: "read", connectionOwnerId: "9551" });
   expect((await saveRemoteMcpOAuthShares(env.DB, ORG, serverId, "9551", { version: 0, everyone: true, memberIds: [], agentIds: [] })).status).toBe(409);
 
   const membership = await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9552'").bind(ORG).first();
@@ -713,4 +718,5 @@ test("OAuth connection sharing is owner-controlled, versioned, and rechecked aga
   await env.DB.prepare("DELETE FROM hx_remote_mcp_oauth_shares WHERE org_id=?1 AND server_id=?2 AND audience_type='agent'")
     .bind(ORG, serverId).run();
   expect(await mayUseAgentRemoteMcpForRequest(testEnv, { orgId: ORG, agentId, session: { github_id: "9552" }, serverId, toolName: "read", connectionOwnerId: "9551" })).toBe(false);
+  expect(await workflowAgentRemoteMcpTools(testEnv, { orgId: ORG, agentId, session: { github_id: "9552" } })).toEqual([]);
 });
