@@ -2361,12 +2361,88 @@ test('combined schema check enforces database management and every linked app AC
  await check('9102',false);await check('9101',true);
  await env.DB.prepare("DELETE FROM hx_app_access WHERE org_id=? AND app_id=?").bind(ORG,app.id).run();
  await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES(?,?,'shared',?)").bind(ORG,linked.id,app.tableId).run();
- await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'private',1)").bind(ORG,linked.id).run();
- await check('9101',false);await check('9102',true);
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'workspace',1)").bind(ORG,linked.id).run();
+ await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES(?,?,'9102','none',?)").bind(ORG,linked.id,new Date().toISOString()).run();
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],true)).toBe(true);
+ await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES(?,?,'9101','none',?)").bind(ORG,linked.id,new Date().toISOString()).run();
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9101',[app.tableId],true)).toBe(false);
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],true)).toBe(true);
  await env.DB.prepare("DELETE FROM hx_app_entities WHERE org_id=? AND app_id=?").bind(ORG,linked.id).run();
  await env.DB.prepare("UPDATE hx_tables SET name='Changed' WHERE org_id=? AND id=?").bind(ORG,app.tableId).run();
  expect(await mayUseDatabase(env.DB,ORG,app.id,'9101',[app.tableId],true)).toBe(true);
  expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
+});
+
+test('App database reads follow effective person and Room grants while writes require edit',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const accessPath=`/apps/${app.id}/access`;
+ await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9103'").bind(ORG).run();
+ expect((await send('PUT',accessPath,toru,{orgId:ORG,visibility:'workspace',version:0,people:[
+  {userId:'9102',permission:'view'},{userId:'9103',permission:'none'},
+ ]})).status).toBe(200);
+
+ const databasePath=`/apps/${app.id}/database?orgId=${ORG}`;
+ expect((await get(databasePath,mika)).status).toBe(200);
+ expect((await get(databasePath,guest)).status).toBe(404);
+ const {mayUseDatabase}=await import('../src/harness/databaseAccess.js');
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],false)).toBe(true);
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],true)).toBe(false);
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9103',[app.tableId],false)).toBe(false);
+ expect((await send('POST',`/apps/${app.id}/database`,mika,{orgId:ORG,action:'migrate',id:'view-cannot-migrate',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Denied',type:'text'}]}]})).status).toBe(403);
+ expect((await send('PUT',accessPath,toru,{orgId:ORG,visibility:'workspace',version:1,people:[
+  {userId:'9102',permission:'edit'},{userId:'9103',permission:'none'},
+ ]})).status).toBe(200);
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],true)).toBe(true);
+ const editorPlan={id:'editor_can_migrate',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'AccessFenceColumn',type:'text'}]}]};
+ const editorPreview=await send('POST',`/apps/${app.id}/database`,mika,{orgId:ORG,action:'preview',...editorPlan});
+ expect(editorPreview.status,await editorPreview.clone().text()).toBe(200);
+ const editorChecksum=(await editorPreview.json()).previewChecksum;
+ expect((await send('POST',`/apps/${app.id}/database`,mika,{orgId:ORG,action:'migrate',...editorPlan,previewChecksum:editorChecksum})).status).toBe(200);
+
+ const at=new Date().toISOString();
+ await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'db_acl_room','DB ACL room',1,'9101',?2)").bind(ORG,at).run();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'b:db_acl_room','mika','toru',?2),(?1,'b:db_acl_room','toru','toru',?2)").bind(ORG,at).run();
+ const {app:roomApp}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,room_channel,version) VALUES(?1,?2,'private','b:db_acl_room',1)").bind(ORG,roomApp.id).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(true);
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],true)).toBe(false);
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9103',[roomApp.tableId],false)).toBe(false);
+ await env.DB.prepare("UPDATE hx_app_access SET room_channel='dm:mika|toru' WHERE org_id=?1 AND app_id=?2").bind(ORG,roomApp.id).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(true);
+ await env.DB.prepare("UPDATE hx_app_access SET room_channel='dm:nobody|mika' WHERE org_id=?1 AND app_id=?2").bind(ORG,roomApp.id).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(true);
+ await env.DB.prepare("UPDATE hx_app_access SET room_channel='g:0123456789abcdef' WHERE org_id=?1 AND app_id=?2").bind(ORG,roomApp.id).run();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'g:0123456789abcdef','mika','toru',?2)").bind(ORG,at).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(true);
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel='g:0123456789abcdef' AND login='mika'").bind(ORG).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(false);
+ await env.DB.prepare("UPDATE hx_app_access SET room_channel='b:db_acl_room' WHERE org_id=?1 AND app_id=?2").bind(ORG,roomApp.id).run();
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:db_acl_room' AND login='mika'").bind(ORG).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(false);
+ await env.DB.prepare("INSERT INTO hx_room_access(org_id,channel,version,deleted_at) VALUES(?1,'b:db_acl_room',1,?)").bind(ORG,at).run();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'b:db_acl_room','mika','toru',?2)").bind(ORG,at).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(false);
+});
+
+test('database migration transaction rechecks a per-person edit grant after preflight',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ expect((await send('PUT',`/apps/${app.id}/access`,toru,{orgId:ORG,visibility:'private',version:0,people:[{userId:'9102',permission:'edit'}]})).status).toBe(200);
+ const {mayUseDatabase}=await import('../src/harness/databaseAccess.js');
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],true)).toBe(true);
+ const {applyMigration}=await import('../src/harness/appDatabase.js');
+ let revoked=false;
+ const racingDb=new Proxy(env.DB,{get(db,key){
+  if(key==='batch')return async statements=>{
+   if(!revoked){revoked=true;await env.DB.prepare("UPDATE hx_app_person_access SET permission='view' WHERE org_id=?1 AND app_id=?2 AND user_github_id='9102'").bind(ORG,app.id).run()}
+   return db.batch(statements);
+  };
+  return typeof db[key]==='function'?db[key].bind(db):db[key];
+ }});
+ const result=await applyMigration(racingDb,ORG,app,{id:'race_after_acl_preflight',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'AccessFenceBlocked',type:'text'}]}]},'9102');
+ expect(result).toMatchObject({status:409});
+ expect(await env.DB.prepare('SELECT version FROM hx_app_database_state WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).toBeNull();
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_migrations WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).n).toBe(0);
+ expect((await (await get(`/tables/${app.tableId}?orgId=${ORG}`,mika)).json()).table.columns.map(column=>column.name)).not.toContain('AccessFenceBlocked');
 });
 
 const runCustomGenerationRace=async(kind,phase)=>{
