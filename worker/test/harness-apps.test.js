@@ -2728,6 +2728,41 @@ test('App connection grant lists only metadata, decrypts as its owner, and revoc
  } finally {vi.unstubAllGlobals();useSecretKey({});}
 });
 
+test('workspace admins can review sanitized App connection grants and revoke only the exact grant',async()=>{
+ const {app}=await makeDirectAgentApp();
+ const {useSecretKey,isSealed}=await import('../src/secrets.js');
+ const keyEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ try {
+ const saved=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'save',name:'mika_service',version:0,endpoint:'https://api.github.com/private-secret-path',method:'GET',token:'OWNER_TOKEN_MUST_NOT_APPEAR'});
+ expect(saved.status,JSON.stringify(await saved.clone().json())).toBe(200);
+ const granted=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'grant',name:'mika_service'});
+ expect(granted.status,JSON.stringify(await granted.clone().json())).toBe(200);
+ const ordinary=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}&review=1`,mika);
+ expect(ordinary.status).toBe(403);
+ const review=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}&review=1`,toru);
+ expect(review.status).toBe(200);
+ const inventory=await review.json();
+ expect(inventory.grants).toHaveLength(1);
+ expect(inventory.grants[0]).toMatchObject({ownerId:'9102',name:'mika_service',grantedVersion:1,active:1});
+ expect(JSON.stringify(inventory)).not.toContain('api.github.com');
+ expect(JSON.stringify(inventory)).not.toContain('private-secret-path');
+ expect(JSON.stringify(inventory)).not.toContain('OWNER_TOKEN_MUST_NOT_APPEAR');
+ const stale=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'review_revoke',...inventory.grants[0],grantedAt:'stale'});
+ expect(stale.status).toBe(409);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).n).toBe(1);
+ const revoked=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'review_revoke',...inventory.grants[0]});
+ expect(revoked.status).toBe(200);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).n).toBe(0);
+ const stillOwnerConnection=await env.DB.prepare("SELECT enabled,token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9102' AND name='mika_service'").bind(ORG,app.id).first();
+ expect(stillOwnerConnection.enabled).toBe(1);
+ expect(isSealed(stillOwnerConnection.token)).toBe(true);
+ const blocked=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'request',name:'mika_service'});
+ expect(blocked.status).toBe(409);
+ } finally {useSecretKey({});}
+});
+
 test('App Google OAuth refresh is single-flight, rotates tokens atomically, and never exposes credentials',async()=>{
  const {app}=await makeDirectAgentApp();
  const {useSecretKey,openField,sealField,aad}=await import('../src/secrets.js');
