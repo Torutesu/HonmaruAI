@@ -1,5 +1,5 @@
 // postMessage's parameters: workspace ?2, channel ?3, author ?4, parent ?9;
-// workflow identity: workflow ?14, generation ?15, creator ?16, budget notice ?17.
+// workflow identity: workflow ?14, generation ?15, creator ?16, notice ids ?17/?18.
 // Only the workflow's current creator may receive durable system notices.
 export const workflowNoticeGuard=`EXISTS (
  SELECT 1 FROM hx_workflows w
@@ -14,6 +14,8 @@ export const workflowNoticeGuard=`EXISTS (
      WHERE n.org_id=?2 AND n.workflow_id=?14 AND n.generation=?15 AND n.recipient_id=?16 AND s.paused_at IS NOT NULL)
    OR EXISTS(SELECT 1 FROM hx_workflow_ai_budget_notices n
      WHERE n.org_id=?2 AND n.workflow_id=?14 AND n.id=?17 AND n.recipient_id=?16)
+   OR EXISTS(SELECT 1 FROM hx_workflow_schedule_budget_notices n
+     WHERE n.org_id=?2 AND n.workflow_id=?14 AND n.id=?18 AND n.recipient_id=?16 AND n.delivered_at IS NULL)
  )
  AND (
   (substr(?3,1,2)='b:' AND EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?2 AND 'b:'||b.slug=?3 AND b.archived_at IS NULL
