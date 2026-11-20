@@ -14,8 +14,8 @@ RUN npm ci --omit=dev \
     && npx playwright install --with-deps chromium \
     && rm -rf /root/.npm /var/lib/apt/lists/*
 
-COPY browser-image/browser-entrypoint.sh browser-image/browser-proxy-server.mjs browser-image/browser-guest.mjs browser-image/browser-command.mjs browser-session.mjs ./
+COPY browser-image/browser-entrypoint.sh browser-image/browser-proxy-server.mjs browser-image/browser-guest.mjs browser-image/browser-command.mjs browser-image/command-server.mjs browser-session.mjs ./
 COPY browser-proxy.mjs ./
-RUN chmod 0555 browser-entrypoint.sh && chmod 0444 browser-proxy.mjs browser-proxy-server.mjs browser-guest.mjs browser-command.mjs browser-session.mjs
+RUN chmod 0555 browser-entrypoint.sh && chmod 0444 browser-proxy.mjs browser-proxy-server.mjs browser-guest.mjs browser-command.mjs command-server.mjs browser-session.mjs
 
 ENTRYPOINT ["/opt/honmaru/browser-entrypoint.sh"]
