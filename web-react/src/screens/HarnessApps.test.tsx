@@ -132,6 +132,26 @@ test.each(['filter','group'] as const)('personal-view %s opens native editing fi
   expect(state.api.savePersonalViews).not.toHaveBeenCalled()
 })
 
+test('shared-view grouping suggestion opens an unsent chat draft without saving view settings',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+ const shared={id:'all',type:'table',name:'All',rows:[]}
+ state.api={
+  app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:4,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'},{id:'state',name:'Status',type:'select',options:['Open','Done']}]},rows:[],views:[shared],canCustomize:true}),
+  personalViews:vi.fn().mockResolvedValue({revision:1,activeView:'all',views:[],computed:[],layouts:{}}),
+  savePersonalViews:vi.fn(),updateApp:vi.fn(),conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+ }
+ await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+ act(()=>tree!.root.findAllByType('button').find(button=>button.props['aria-label']==='グループ化')!.props.onClick({currentTarget:{focus:vi.fn()}}))
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('AIに調整案を相談'))!.props.onClick())
+ const route=parseRoute(location.hash)
+ expect(route).toMatchObject({appSource:true,appSourceSection:'data',appId:'tasks',appOrg:'team:one'})
+ expect(route.appDraft).toContain('ビュー「All」のグループ化を調整')
+ expect(route.appDraft).not.toContain('個人ビュー')
+ expect(state.api.savePersonalViews).not.toHaveBeenCalled()
+ expect(state.api.updateApp).not.toHaveBeenCalled()
+ act(()=>tree!.unmount())
+})
+
 test('view tabs navigate by keyboard without saving until activated', async () => {
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
   const first={id:'all',type:'table',name:'All',rows:[]}, second={id:'metrics',type:'metrics',name:'Metrics',values:[]}

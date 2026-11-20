@@ -7,10 +7,10 @@ import type {Column, Row} from '../utils/harness'
 afterEach(()=>vi.unstubAllGlobals())
 const columns=[{id:'state',name:'状態',type:'select' as const,options:['未着手','完了']}]
 const view={id:'v',name:'All',type:'table' as const}
-function setup(save=vi.fn().mockResolvedValue(undefined),onAdjust?:()=>void,columnsOverride:Column[]=columns,relationEntities:Array<{key:string;table:{columns:Column[]};rows:Row[]}> = []){
+function setup(save=vi.fn().mockResolvedValue(undefined),onAdjust?:()=>void,columnsOverride:Column[]=columns,relationEntities:Array<{key:string;table:{columns:Column[]};rows:Row[]}> = [],personal=false){
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
   let tree:ReturnType<typeof create>
-  act(()=>{tree=create(<AppViewControls view={view} columns={columnsOverride} relationEntities={relationEntities} canEdit save={save} onAdjust={onAdjust}/> )})
+  act(()=>{tree=create(<AppViewControls view={view} columns={columnsOverride} relationEntities={relationEntities} canEdit save={save} onAdjust={onAdjust} personal={personal}/> )})
   const click=(text:string)=>act(()=>tree!.root.findAllByType('button').find(b=>b.children.some(c=>c===text))!.props.onClick({currentTarget:{focus:vi.fn()}}))
   return {get tree(){return tree!},click,save}
 }
@@ -141,12 +141,23 @@ test('multi-relation exclusion filters show and persist the negative operator',a
  act(()=>ui.tree.unmount())
  })
 
-test('group adjustment opens direct editing first and retains AI suggestions as a secondary action',()=>{
+test('shared group adjustment opens an unsent AI consultation first and keeps direct editing available',()=>{
  const adjust=vi.fn();const ui=setup(undefined,adjust)
+ ui.click('グループ化');ui.click('AIに調整案を相談')
+ expect(adjust).toHaveBeenCalledWith('group');expect(ui.save).not.toHaveBeenCalled()
+ expect(ui.tree.root.findAllByProps({role:'dialog'})).toHaveLength(0)
  ui.click('グループ化');ui.click('グループ化を調整')
- expect(adjust).not.toHaveBeenCalled();expect(ui.save).not.toHaveBeenCalled()
+ expect(ui.tree.root.findByProps({'aria-label':'グループ化するフィールド'})).toBeDefined()
+ expect(ui.save).not.toHaveBeenCalled()
+ act(()=>ui.tree.unmount())
+})
+
+test('personal group adjustment keeps direct editing first and AI consultation secondary',()=>{
+ const adjust=vi.fn();const ui=setup(undefined,adjust,columns,[],true)
+ ui.click('グループ化');ui.click('グループ化を調整')
+ expect(adjust).not.toHaveBeenCalled()
  expect(ui.tree.root.findByProps({'aria-label':'グループ化するフィールド'})).toBeDefined()
  ui.click('キャンセル');ui.click('グループ化');ui.click('AIに調整案を相談')
- expect(adjust).toHaveBeenCalledWith('group')
+ expect(adjust).toHaveBeenCalledWith('group');expect(ui.save).not.toHaveBeenCalled()
  act(()=>ui.tree.unmount())
 })
