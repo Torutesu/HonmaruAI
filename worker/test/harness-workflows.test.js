@@ -3206,6 +3206,7 @@ test('scheduled workspace-budget skips keep the Automation enabled and notify on
  await env.DB.prepare('UPDATE hx_workflows SET next_run_at=?1 WHERE org_id=?2 AND id=?3').bind(at,ORG,workflow.id).run();
  await runDueWorkflows(env,{now:new Date()});
  expect(await getWorkflow(env.DB,ORG,workflow.id)).toMatchObject({enabled:true});
+ expect(Date.parse((await getWorkflow(env.DB,ORG,workflow.id)).nextRunAt)).toBeGreaterThan(Date.parse(at));
  expect(await env.DB.prepare('SELECT status FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first()).toBeNull();
  expect(await deliverScheduledBudgetNotices(env,ORG,workflow.id)).toBe(0);
  const replies=()=>env.DB.prepare('SELECT body FROM channel_messages WHERE org_id=?1 AND parent_id=?2').bind(ORG,root.row.id).all();
