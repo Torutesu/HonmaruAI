@@ -212,7 +212,7 @@ test('an online ACP node that rejects a full queue falls back without creating o
  expect(await env.DB.prepare("SELECT COUNT(*) n FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first()).toEqual({n:0});
 });
 
-test('a signed-out local ACP runtime falls back once to Workspace AI before sending any local prompt',async()=>{
+test.each(['signed_out','runtime_unavailable','provider_limited'])('a local ACP runtime safely falls back once to Workspace AI for %s before sending any local prompt',async(fallbackReason)=>{
  const {setMode}=await import('../src/harness/mode.js');await setMode(env.DB,ORG,'harness','9701');
  const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
  const {gateway,token}=await registered.json();
@@ -227,16 +227,18 @@ test('a signed-out local ACP runtime falls back once to Workspace AI before send
  expect(JSON.parse(job.payload).prompt).toContain('summarize the launch plan');
  const claimed=await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
  const localJob=(await claimed.json()).job;
- const finished=await worker.fetch(new Request(`https://example.com/gateways/jobs/${localJob.id}/finish`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({lease:localJob.lease,status:'failed',stdout:'',stderr:'signed in required',exitCode:1,fallbackReason:'signed_out'})}),env,ctx);
+ const rejected=await worker.fetch(new Request(`https://example.com/gateways/jobs/${localJob.id}/finish`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({lease:localJob.lease,status:'failed',stdout:'',stderr:'permission denied',exitCode:1,fallbackReason:'permission_denied'})}),env,ctx);
+ expect(rejected.status).toBe(400);
+ const finished=await worker.fetch(new Request(`https://example.com/gateways/jobs/${localJob.id}/finish`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({lease:localJob.lease,status:'failed',stdout:'',stderr:'local provider unavailable',exitCode:1,fallbackReason})}),env,ctx);
  expect(finished.status).toBe(200);
  const savedJob=await env.DB.prepare('SELECT status,result FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2').bind(ORG,localJob.id).first();
  expect(savedJob.status).toBe('failed');
- expect(JSON.parse(savedJob.result).fallbackReason).toBe('signed_out');
+ expect(JSON.parse(savedJob.result).fallbackReason).toBe(fallbackReason);
  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(400,{error:{message:'Responses unavailable'}}).times(2);
  fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,{choices:[{message:{content:'The launch plan is ready for review.'}}],usage:{prompt_tokens:8,completion_tokens:6}});
  await watchTeammateRuns({...env,OPENAI_API_KEY:'sk-existing-workspace'},{ids:[run.id],deadline:Date.now()+1000});
  const replies=await thread(toru,source.id);
- expect(replies.map(reply=>reply.body).join('\n')).toContain('local provider needs sign-in');
+ expect(replies.map(reply=>reply.body).join('\n')).toContain(fallbackReason==='signed_out'?'local provider needs sign-in':fallbackReason==='provider_limited'?'reached its usage limit':'could not start the task');
  expect(replies.map(reply=>reply.body).join('\n')).toContain('The launch plan is ready for review.');
  expect(await env.DB.prepare('SELECT status FROM ai_teammate_runs WHERE id=?1').bind(run.id).first()).toEqual({status:'idle'});
  const agentId=(await env.DB.prepare("SELECT agent_id FROM ai_teammates WHERE org_id=?1 AND provider='acp'").bind(ORG).first()).agent_id;

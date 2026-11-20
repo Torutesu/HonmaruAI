@@ -689,7 +689,7 @@ const acp = {
     try { result = row.result ? JSON.parse(row.result) : null; } catch {}
     if (row.status !== "succeeded" || !result || result.exitCode !== 0) return {
       texts: [], stop: "terminated", last: null,
-      ...(result?.fallbackReason === 'signed_out' ? { workspaceFallbackReason: 'signed_out' } : {}),
+      ...(['signed_out', 'runtime_unavailable', 'provider_limited'].includes(result?.fallbackReason) ? { workspaceFallbackReason: result.fallbackReason } : {}),
       error: typeof result?.error === 'string' ? result.error.slice(0, 300) : "local ACP run failed", costCents: null,
     };
     let answer = {};

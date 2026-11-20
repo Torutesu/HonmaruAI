@@ -95,6 +95,7 @@ class StdioJsonRpc {
       // on this Mac; no prompt or mutable policy is accepted from the Worker.
       if (message.method === 'session/request_permission') {
         const result = permissionResponse(message.params?.options, message.params?.toolCall, this.permissionPolicy || 'default');
+        this.onHostRequest?.();
         this.#write({ jsonrpc: '2.0', id: message.id, result });
       } else {
         this.#write({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Client method is not supported.' } });
@@ -109,6 +110,8 @@ class StdioJsonRpc {
       if (message.error) {
         const error = new Error('ACP request failed.');
         error.code = Number.isInteger(message.error.code) ? message.error.code : null;
+        error.protocolMessage = typeof message.error.message === 'string' ? message.error.message.slice(0, 500) : '';
+        try { error.protocolData = typeof message.error.data === 'string' ? message.error.data.slice(0, 500) : message.error.data && typeof message.error.data === 'object' ? JSON.stringify(message.error.data).slice(0, 500) : ''; } catch { error.protocolData = ''; }
         pending.reject(error);
       }
       else pending.resolve(message.result || {});
@@ -218,7 +221,14 @@ async function startWorkspaceMcp(mcpCall, browserCall, signal) {
  * The job can select an allowlist key, but can never choose a command, args,
  * cwd, environment, MCP server, filesystem capability, or terminal.
  */
-export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 60000, mcpCall, browserCall, onProgress } = {}) {
+function safePrePromptFallback(error) {
+  const details = `${error?.protocolMessage || ''} ${error?.protocolData || ''}`.toLowerCase();
+  if (/\bpermission\b|\baccess denied\b|\bforbidden\b|\bnot authorized\b|\bnot allowed\b|\bbudget (?:is )?(?:exhausted|exceeded)\b|\bbilling permission\b/.test(details)) return null;
+  if (/(?:usage|rate|request)[ -]?(?:limit|quota)|quota exceeded|resource exhausted|out of credits|credits exhausted|usage cap reached/.test(details)) return 'provider_limited';
+  return 'runtime_unavailable';
+}
+
+async function runAcpOnce(payload, { acpAgents = {}, signal, timeoutMs = 60000, mcpCall, browserCall, onProgress } = {}) {
   const cfg = agentConfig(acpAgents, payload?.agentKey);
   const prompt = String(payload?.prompt || '');
   if (!prompt.trim() || Buffer.byteLength(prompt) > MAX_PROMPT_BYTES) throw new Error('Invalid ACP prompt.');
@@ -240,6 +250,10 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
   let workspaceMcp = null;
   let progressTail = Promise.resolve();
   let lastProgress = '';
+  let promptSent = false;
+  let sessionActivity = false;
+  let workspaceToolInvoked = false;
+  rpc.onHostRequest = () => { sessionActivity = true; };
   let abort;
   let cancelTermTimer = null;
   let cancelKillTimer = null;
@@ -247,6 +261,7 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
   const startedAt = Date.now();
   rpc.onNotification = message => {
     if (message.method !== 'session/update') return;
+    sessionActivity = true;
     const update = message.params?.update;
     let progress = null;
     if (update?.sessionUpdate === 'agent_message_chunk') progress = { kind: 'reply', title: 'Preparing a reply' };
@@ -311,7 +326,11 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     // auth method describes how a user can sign in; it does not mean the Agent
     // is currently signed out. Only the protocol's auth_required response from
     // session/new is a safe signal: no session turn or local prompt has begun.
-    if (payload.workspaceTools === true || payload.browserTools === true) workspaceMcp = await startWorkspaceMcp(payload.workspaceTools===true?mcpCall:null,payload.browserTools===true?browserCall:null,signal);
+    if (payload.workspaceTools === true || payload.browserTools === true) workspaceMcp = await startWorkspaceMcp(
+      payload.workspaceTools===true && typeof mcpCall === 'function' ? (...args) => { workspaceToolInvoked = true; return mcpCall(...args); } : null,
+      payload.browserTools===true && typeof browserCall === 'function' ? (...args) => { workspaceToolInvoked = true; return browserCall(...args); } : null,
+      signal,
+    );
     const sessionParams = { cwd: cfg.cwd, mcpServers: workspaceMcp ? [workspaceMcp.config] : [] };
     if (payload.sessionId && initialized.agentCapabilities?.loadSession) {
       try {
@@ -330,7 +349,8 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
       try {
         created = await rpc.request('session/new', sessionParams, Math.min(15000, remaining()));
       } catch (error) {
-        if (error?.code === -32000) return { status: 'failed', stdout: '', stderr: 'This ACP agent needs an interactive sign-in on its computer.', exitCode: 1, fallbackReason: 'signed_out' };
+        const fallbackReason = safePrePromptFallback(error);
+        if (error?.code === -32000 && fallbackReason && fallbackReason !== 'provider_limited' && !sessionActivity && !workspaceToolInvoked) return { status: 'failed', stdout: '', stderr: 'This ACP agent needs an interactive sign-in on its computer.', exitCode: 1, fallbackReason: 'signed_out' };
         throw error;
       }
       if (typeof created.sessionId !== 'string' || !created.sessionId) throw new Error('ACP agent did not create a session.');
@@ -343,11 +363,21 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     const promptBlocks = [];
     if (prior) promptBlocks.push({ type: 'text', text: `Earlier conversation:\n${prior}` });
     promptBlocks.push({ type: 'text', text: prompt });
+    promptSent = true;
     const result = await rpc.request('session/prompt', { sessionId, prompt: promptBlocks }, remaining());
     await progressTail;
     if (signal?.aborted) throw new Error('ACP run cancelled.');
     const answer = text.join('').trim();
     return { status: result.stopReason === 'cancelled' ? 'failed' : 'succeeded', stdout: JSON.stringify({ text: answer, sessionId, stopReason: result.stopReason || null }), stderr: '', exitCode: 0 };
+  } catch (error) {
+    if (promptSent || sessionActivity || workspaceToolInvoked || signal?.aborted) throw error;
+    const fallbackReason = safePrePromptFallback(error);
+    if (!fallbackReason) throw error;
+    return {
+      status: 'failed', stdout: '',
+      stderr: fallbackReason === 'signed_out' ? 'This ACP agent needs an interactive sign-in on its computer.' : 'The local ACP provider could not start this task.',
+      exitCode: 1, fallbackReason,
+    };
   } finally {
     clearTimeout(cancelTermTimer);
     clearTimeout(cancelKillTimer);
@@ -360,6 +390,21 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
     signalAgent(child, 'SIGTERM');
     await new Promise(resolve => setTimeout(() => { signalAgent(child, 'SIGKILL'); resolve(); }, 300));
   }
+}
+
+/** Retry only failures before an ACP prompt is sent; no user task can have run yet. */
+export async function runAcp(payload, options = {}) {
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1, options.timeoutMs) : 60000;
+  const deadline = Date.now() + timeoutMs;
+  let result;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (options.signal?.aborted) throw new Error('ACP run cancelled.');
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 1) break;
+    result = await runAcpOnce(payload, { ...options, timeoutMs: remainingMs });
+    if (result.fallbackReason !== 'runtime_unavailable' || attempt === 2 || deadline - Date.now() <= 1000) return result;
+  }
+  return result || { status: 'failed', stdout: '', stderr: 'The local ACP provider could not start this task.', exitCode: 1, fallbackReason: 'runtime_unavailable' };
 }
 
 export function configuredAcpAgentIds(acpAgents) {

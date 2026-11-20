@@ -391,7 +391,7 @@ export async function handleGateways(request, env, url, input) {
     }
     let fallbackReason;
     if (input.fallbackReason !== undefined) {
-      if (finishedPayload?.acp !== true || input.status !== 'failed' || !Number.isInteger(input.exitCode) || input.exitCode === 0 || input.fallbackReason !== 'signed_out') return failure('Invalid local ACP fallback signal.', 400);
+      if (finishedPayload?.acp !== true || input.status !== 'failed' || !Number.isInteger(input.exitCode) || input.exitCode === 0 || !['signed_out', 'runtime_unavailable', 'provider_limited'].includes(input.fallbackReason)) return failure('Invalid local ACP fallback signal.', 400);
       fallbackReason = input.fallbackReason;
     }
     const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null, ...(fallbackReason ? { fallbackReason } : {}), ...(messages!==undefined?{messages}:{}),...(tableWrites!==undefined?{tableWrites}:{}),...(tableMutations!==undefined?{tableMutations}:{}) };

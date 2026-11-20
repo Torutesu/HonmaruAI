@@ -945,7 +945,7 @@ async function runTeammate(env, { orgId, user, requesterId, resolved, row, membe
 
 const FALLBACK_RUNNING_STALE_MS = 3 * 60 * 1000;
 
-async function answerSignedOutAcpWithWorkspaceAI(env, run, teammate, { signal = null } = {}) {
+async function answerAcpWithWorkspaceAI(env, run, teammate, fallbackReason, { signal = null } = {}) {
   // A runtime fallback is safe only for a normal chat request. External
   // actions, room hooks, and Agent-to-Agent assignments keep their existing
   // execution and approval paths.
@@ -964,7 +964,7 @@ async function answerSignedOutAcpWithWorkspaceAI(env, run, teammate, { signal = 
     .bind(run.org_id, teammate.remote.gatewayId, run.remote_id).first().catch(() => null);
   let payload;
   try { payload = JSON.parse(job?.payload || '{}'); } catch { return null; }
-  if (payload.acp !== true || typeof payload.prompt !== 'string' || !payload.prompt.trim()) return null;
+  if (payload.acp !== true || typeof payload.prompt !== 'string' || !payload.prompt.trim() || !['signed_out', 'runtime_unavailable', 'provider_limited'].includes(fallbackReason)) return null;
   const provider = await providerFor(env, run.org_id);
   const allowance = provider ? await allowanceFor(env, run.org_id, { githubId: String(starter.github_id) }) : null;
   if (!provider || !allowance?.allowed) return null;
@@ -984,20 +984,27 @@ async function answerSignedOutAcpWithWorkspaceAI(env, run, teammate, { signal = 
     return Boolean(await resolveChannel(env.DB, run.org_id, starter, run.channel, currentMembers).catch(() => null));
   };
   if (!await freshAuthorization()) { await allowance.release?.(); return null; }
-  const prepared = await prepareAgent(env, run.org_id, agent, provider, { channel: run.channel, userId: starter.github_id });
-  prepared.agent = await withRoomGuidelines(env.DB, run.org_id, run.channel, prepared.agent);
+  let prepared;
+  try {
+    prepared = await prepareAgent(env, run.org_id, agent, provider, { channel: run.channel, userId: starter.github_id });
+    prepared.agent = await withRoomGuidelines(env.DB, run.org_id, run.channel, prepared.agent);
+  } catch (error) {
+    await allowance.release?.().catch(() => {});
+    console.error('ACP Workspace AI fallback preparation failed', safe(error?.message));
+    return null;
+  }
   let result;
   try {
     result = await askAgent({
       provider, agent: prepared.agent,
-      request: `The local ACP provider is signed out and no local task was started. Answer the same request using this Agent's profile.\n\n${payload.prompt}`,
+      request: `The local ACP task was not started (${fallbackReason}). Answer the same request using this Agent's profile.\n\n${payload.prompt}`,
       transcript: [], playbook: [], where: resolved.kind === 'business' ? `the #${resolved.slug} channel` : 'a direct conversation',
       askedBy: starter.name || starter.login, readerLanguage: locale, env,
       deadline: Date.now() + 45_000, authorize: freshAuthorization, signal,
       usageContext: { roomSlug: resolved.kind === 'business' ? resolved.slug : null, agentId: agent.id },
     });
   } catch (error) {
-    console.error('signed-out ACP Workspace AI fallback failed', safe(error?.message));
+    console.error('ACP Workspace AI fallback failed', safe(error?.message));
     result = { called: false, answer: null };
   }
   if (result?.called) {
@@ -1008,7 +1015,7 @@ async function answerSignedOutAcpWithWorkspaceAI(env, run, teammate, { signal = 
   await recordAgentFallbackState(env.DB, { orgId: run.org_id, agentId: agent.id, gatewayId: teammate.remote.gatewayId, ownerLogin: agent.owner_login, state: 'workspace' });
   await drainAgentFallbackNotifications(env, broadcastStored).catch(err => console.error('Agent fallback notification drain failed', safe(err?.message)));
   return {
-    texts: [serverText(locale, 'agent.workspaceFallbackSignedOut'), result.answer],
+    texts: [serverText(locale, fallbackReason === 'signed_out' ? 'agent.workspaceFallbackSignedOut' : fallbackReason === 'provider_limited' ? 'agent.workspaceFallbackProviderLimited' : 'agent.workspaceFallbackRuntime'), result.answer],
     stop: 'end_turn', last: null, costCents: null,
   };
 }
@@ -1061,14 +1068,14 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
           // reply through the same result outbox instead.
           if (Date.now() - Date.parse(run.updated_at) < FALLBACK_RUNNING_STALE_MS) { working -= 1; continue; }
           read = { texts: [], stop: 'terminated', last: null, error: 'Workspace AI fallback did not finish.' };
-        } else if (read.workspaceFallbackReason === 'signed_out') {
+        } else if (['signed_out', 'runtime_unavailable', 'provider_limited'].includes(read.workspaceFallbackReason)) {
           const claimAt = new Date().toISOString();
           const claim = await env.DB.prepare(`UPDATE ai_teammate_runs SET status='fallback_running',updated_at=?4
             WHERE id=?1 AND org_id=?2 AND status='running' AND turn_version=?3`).bind(run.id,run.org_id,run.turn_version ?? 0,claimAt).run();
           if (!(claim.meta?.changes > 0)) { working -= 1; continue; }
           expectedRunStatus = 'fallback_running';
-          read = await answerSignedOutAcpWithWorkspaceAI(env, run, t, { signal }) || {
-            texts: [], stop: 'terminated', last: null, error: 'The local ACP provider is signed out and Workspace AI fallback is unavailable.',
+          read = await answerAcpWithWorkspaceAI(env, run, t, read.workspaceFallbackReason, { signal }) || {
+            texts: [], stop: 'terminated', last: null, error: 'The local ACP task could not be started and Workspace AI fallback is unavailable.',
           };
         }
         if(read.progress) {
