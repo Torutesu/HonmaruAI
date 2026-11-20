@@ -832,7 +832,8 @@
           "scope": "GET /workflows/:id/runs now supports stable keyset pagination (1–100 rows), server-side status filtering, and an opaque cursor anchored only to the last visible run. ACL-hidden runs are checked and omitted from both results and cursor state. AutomationRuns appends older pages and restarts from page one when the failed-only filter changes.",
           "localQA": "Worker harness-workflows suite includes stable tie ordering, page continuation, server-side failed filtering, ACL-hidden row omission, and invalid cursor/status coverage. Web AutomationRuns, AppAutomations, and API suites passed 67 tests. The production build passed before a final fixture-only Worker test correction; Worker suite rerun is in progress. See docs/kylon-parity/verification.md.",
           "remaining": "The run-level input context remains intentionally omitted. Structured, payload-free effect receipts now record operation, effect class, target type, and completed/pending/failed/unknown/skipped outcome; provider-side reconciliation is not yet available. Exact-head CI, production release, authenticated Kylon visual comparison, and production acceptance remain pending."
-        }
+        },
+        "localQA": "undefined Follow-up candidate: App-embedded Automation history now renders the API’s sanitized configured-step template in a collapsed, localized preview and explains size-limit omission; it does not expose runtime records, messages, or connection values. Web full suite (2,115 tests), production build, and TypeScript checks passed locally; exact-head CI, merge, release, and authenticated Kylon UI comparison remain pending."
       }
     },
     {

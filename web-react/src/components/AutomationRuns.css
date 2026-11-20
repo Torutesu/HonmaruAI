@@ -1,0 +1,35 @@
+.hx-run-input-preview {
+  margin: 7px 0;
+  border: 1px solid var(--hx-border, var(--bone));
+  border-radius: var(--radius-input);
+  padding: 7px 9px;
+  color: var(--hx-text, var(--ink));
+  font-size: 12px;
+}
+
+.hx-run-input-preview > summary {
+  cursor: pointer;
+  color: var(--hx-text-muted, var(--ash));
+}
+
+.hx-run-input-preview > summary:focus-visible {
+  outline: 2px solid var(--hx-accent, var(--brand-violet));
+  outline-offset: 2px;
+}
+
+.hx-run-input-preview pre {
+  margin: 7px 0 4px;
+  padding: 8px;
+  border-radius: var(--radius-input);
+  background: var(--hx-surface-muted, var(--mist));
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hx-run-input-preview p {
+  margin: 4px 0 0;
+  color: var(--hx-text-muted, var(--ash));
+  font-size: 11px;
+}

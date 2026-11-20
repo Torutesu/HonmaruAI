@@ -20,6 +20,29 @@ test('execution history shows a structured effect receipt without copying payloa
  expect(text).toContain(t('Effect receipt'));expect(text).toContain(t('External action'));expect(text).toContain(t('Conversation'));expect(text).toContain(t('Completed'));expect(text).toContain('Private message body')
  act(()=>tree.unmount())
 })
+test('execution history exposes only the sanitized input template in a collapsed details section',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-input',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[{step:1,type:'post',status:'ok',inputPreview:{mode:'template',input:{text:'Hello {{input.customer}}'},note:'Runtime record, message, and connection values are not retained.'}}]}]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>refresh(tree).props.onClick())
+ const preview=tree.root.findAllByType('details').find((details:any)=>details.props.className==='hx-run-input-preview')
+ expect(preview.props.open).toBeUndefined()
+ const rendered=JSON.stringify(tree.toJSON())
+ expect(rendered).toContain(t('Post in a room'))
+ expect(rendered).toContain(t('Input template'))
+ expect(rendered).toContain('{{input.customer}}')
+ expect(rendered).toContain(t('Runtime record, message, and connection values are not retained.'))
+ expect(rendered).not.toContain('runtime-secret-value')
+ act(()=>tree.unmount())
+})
+test('execution history explains when the sanitized input preview was omitted',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-input-omitted',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[{step:2,type:'post',status:'ok',inputPreview:{mode:'template',omitted:true,reason:'run_limit'}}]}]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>refresh(tree).props.onClick())
+ const rendered=JSON.stringify(tree.toJSON())
+ expect(rendered).toContain(t('Preview omitted because the run trace size limit was reached.'))
+ expect(rendered).not.toContain('undefined')
+ act(()=>tree.unmount())
+})
 test('failed App automation runs link back to their source chat only when it is still accessible',async()=>{
  const workflow=vi.fn().mockResolvedValue({runs:[{id:'failed',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[]}]})
  const workflowSource=vi.fn().mockResolvedValue({source:{threadId:'source-thread',channel:'b:ops'}});let tree:any
