@@ -4756,4 +4756,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 ### 2026-11-21 — KY-133 ChatGPT Custom MCP OAuth (candidate)
 
 - KylonのChatGPT連携告知を比較要件に追加。HonmaruのOAuth metadataにChatGPT標準Custom MCP OAuth用のDCRを追加した。登録対象をS256 PKCEを使うpublic authorization-code clientに限定し、HTTPS/loopback callbackの完全一致、scope制限、登録数上限、未使用の古い登録の削除を実装。MCP tools/listはtoolごとの必要OAuth scopeを返す。Workspace選択、同意、ACL再確認、監査、接続管理、失効は既存の認可境界を維持。Simple modeはそのまま、新規サービス・有料契約はなし。
-- 対象Worker suite 49/49、全Worker suite 323 files / 3,702 tests成功。parity validator、構文検査、`git diff --check`も成功。exact-head CI、main CI、本番反映、実ChatGPT接続、Kylon同一タスク比較は未完了。
+- 対象Worker suite 49/49、全Worker suite 323 files / 3,702 tests成功。PR #1141 のexact-head CI、main CI、Worker deployが成功。公開Worker healthは`ok:true`、`encryption.all=true`。実ChatGPT接続とKylon同一タスク比較は未完了。
+
+### 2026-11-21 — KY-059/KY-064 TypeScript App write approval (candidate)
+
+- TypeScript Workflowの`connection.request()`をGET専用にし、`connection.stageWrite()`で非GET要求を1 runにつき1件だけ準備する。run完了時に接続所有者だけへ承認カードを発行し、承認前は外部送信せず、内部Table変更とメッセージも保留する。承認後は固定されたApp/owner/version/method/bodyを再照合し、90秒のcheckpoint claimと既存App Connection request ledgerで同時承認・再送を防ぐ。曖昧なprovider結果は再試行せず、拒否時は送信も内部変更も行わない。成功run historyにはrequest bodyを含めず、接続名・method・operation ID・状態だけを残す。
+- Local QA: Gateway full suite **117/117**、Worker workflow suites **212/212**、Web WorkflowProgramEditor/i18n **11/11**、Web full suite **2,116/2,116**。Web typecheck/build、`node --check`、parity validator、JSON parse、`git diff --check`も成功。Full Worker suite is running. Exact-head CI, merge/deploy, and authenticated Kylon approval-screen acceptance remain pending. No new paid service; Simple mode is unchanged.
