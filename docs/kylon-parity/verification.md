@@ -4762,3 +4762,11 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - TypeScript Workflowの`connection.request()`をGET専用にし、`connection.stageWrite()`で非GET要求を1 runにつき1件だけ準備する。run完了時に接続所有者だけへ承認カードを発行し、承認前は外部送信せず、内部Table変更とメッセージも保留する。承認後は固定されたApp/owner/version/method/bodyを再照合し、90秒のcheckpoint claimと既存App Connection request ledgerで同時承認・再送を防ぐ。曖昧なprovider結果は再試行せず、拒否時は送信も内部変更も行わない。成功run historyにはrequest bodyを含めず、接続名・method・operation ID・状態だけを残す。
 - Local QA: Gateway full suite **117/117**、Worker workflow suites **212/212**、Web WorkflowProgramEditor/i18n **11/11**、Web full suite **2,116/2,116**。Web typecheck/build、`node --check`、parity validator、JSON parse、`git diff --check`も成功。Full Worker suite is running. Exact-head CI, merge/deploy, and authenticated Kylon approval-screen acceptance remain pending. No new paid service; Simple mode is unchanged.
+
+### 2026-11-21 — Reconcile released App history and Room move evidence
+
+- PR #1041 added creator-scoped, keyset-paged App action history. The list exposes action/version/status/timestamps only; inputs and results stay out of the list and are loaded through the existing creator-bound result route after explicit user action. Focused Worker harness-company+migration suites passed **61/61**, and CompanyApp UI passed **14/14**, including ACL loss, creator filtering, output redaction, pagination and index/query-plan checks.
+- PR #1041 merged as c2ce4221. Exact-head CI run **43789456503** passed all 13 checks.
+- PR #1051 added atomic App-to-Room link movement with source revision CAS and source/destination Room authorization inside the final write. Worker harness-apps.test.js passed **174/174**; Web HarnessApps.test.tsx passed **57/57**; TypeScript and production build passed.
+- PR #1051 merged as 5dc549e0. Exact-head CI run **43859603716** passed all 13 checks, including Worker shards, E2E, iOS, Windows Edge, Desktop and Gateway. Both releases are ancestors of main 55436f2; main CI **44826860875**, Worker migration/deploy/Verify **44826860605**, and Web deploy/domain verification **44826860578** succeeded.
+- This reconciles release/CI evidence only. Authenticated multi-user room-move acceptance and direct Kylon UI/interaction comparison remain unverified.
