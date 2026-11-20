@@ -1045,7 +1045,10 @@ export async function handleHarness(request, env, url, context = {}) {
         return json({ skills });
       }
       if (request.method === "POST") {
-        const r = await createSkill(env.DB, orgId, input, me);
+        const skillInput = await getMode(env.DB, orgId) === 'harness' && input?.visibility == null
+          ? { ...input, visibility: 'private' }
+          : input;
+        const r = await createSkill(env.DB, orgId, skillInput, me);
         return r.error ? fail(r) : json(r, 201);
       }
       return null;

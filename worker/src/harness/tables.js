@@ -272,6 +272,7 @@ function appRowWriteGuard(orgParam, tableParam, userParam) {
   return `EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=?${orgParam} AND m.user_github_id=?${userParam} AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
     AND NOT EXISTS(
       SELECT 1 FROM hx_apps linked
+      JOIN memberships m ON m.org_id=linked.org_id AND m.user_github_id=?${userParam}
       LEFT JOIN hx_app_access policy ON policy.org_id=linked.org_id AND policy.app_id=linked.id
       LEFT JOIN hx_app_person_access personal ON personal.org_id=linked.org_id AND personal.app_id=linked.id AND personal.user_github_id=?${userParam}
       WHERE linked.org_id=?${orgParam}
@@ -324,12 +325,22 @@ export async function addRow(db, orgId, tableId, values, by, validation, writeUs
 
 /// Change some values of a row; the others stay. Returns the row before and
 /// after, so a caller can tell what changed (Workflows trigger on it).
+async function appBackedTable(db, orgId, tableId) {
+  return Boolean(await db.prepare(`SELECT 1 AS linked FROM hx_apps a WHERE a.org_id=?1 AND a.table_id=?2
+    UNION ALL SELECT 1 AS linked FROM hx_app_entities e WHERE e.org_id=?1 AND e.table_id=?2 LIMIT 1`)
+    .bind(orgId, tableId).first());
+}
+
 export async function updateRow(db, orgId, tableId, rowId, values, by, expectedUpdatedAt, validation, writeUserId, writeGuard, { deferWrite = false } = {}) {
   // Legacy/simple table calls remain compatible. The version token is
   // mandatory for strict app writes and externally guarded writes.
   if ((validation === 'strict' || writeGuard) && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt)) return { error: 'expectedUpdatedAt is required. Reload the row before editing it.', status: 400 };
   const observed = await tableForWrite(db, orgId, tableId);
   if (!observed) return { error: "No such table.", status: 404 };
+  if (writeUserId != null && await appBackedTable(db, orgId, tableId)
+    && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt)) {
+    return { error: 'expectedUpdatedAt is required. Reload the row before editing it.', status: 400 };
+  }
   const {table}=observed;
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };
@@ -368,6 +379,10 @@ export async function deleteRow(db, orgId, tableId, rowId, expectedUpdatedAt, wr
   if (writeGuard && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt)) return { error: 'expectedUpdatedAt is required. Reload the row before deleting it.', status: 400 };
   const observed = await tableForWrite(db, orgId, tableId);
   if (!observed) return { error: "No such row.", status: 404 };
+  if (writeUserId != null && await appBackedTable(db, orgId, tableId)
+    && (typeof expectedUpdatedAt !== 'string' || !expectedUpdatedAt)) {
+    return { error: 'expectedUpdatedAt is required. Reload the row before deleting it.', status: 400 };
+  }
   const {table}=observed;
   const before = await getRow(db, orgId, tableId, rowId);
   if (!before) return { error: "No such row.", status: 404 };

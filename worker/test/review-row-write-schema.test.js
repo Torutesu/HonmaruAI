@@ -26,6 +26,16 @@ beforeEach(async()=>{
  row=(await (await add(`/tables/${app.tableId}/rows`,{values:{task:'Example'}})).json()).row;
 });
 
+test('app-backed row edits and deletes require the version seen by the client',async()=>{
+ const edit=await request(`/tables/${app.tableId}/rows/${row.id}`,member,{method:'PATCH',body:{values:{task:'Stale edit'}}});
+ expect(edit.status).toBe(400);
+ expect((await edit.json()).message).toMatch(/expectedUpdatedAt is required/i);
+ const remove=await request(`/tables/${app.tableId}/rows/${row.id}`,member,{method:'DELETE'});
+ expect(remove.status).toBe(400);
+ expect((await remove.json()).message).toMatch(/expectedUpdatedAt is required/i);
+ expect(JSON.parse((await env.DB.prepare('SELECT data FROM hx_rows WHERE id=?').bind(row.id).first()).data).task).toBe('Example');
+});
+
 
 test('stale text update is rejected after schema migration and target deletion',async()=>{
  let updated=await request(`/tables/${app.tableId}/rows/${row.id}`,member,{method:'PATCH',body:{values:{task:null},expectedUpdatedAt:row.updatedAt}});

@@ -103,6 +103,16 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
     setError(null)
   }
 
+  const useHighLevel = () => {
+    setName('HighLevel')
+    setEndpoint('https://services.leadconnectorhq.com/mcp/openai/v2/')
+    setAuthMode('oauth')
+    setOauthRegistration('auto')
+    setOauthClientId(''); setOauthClientSecret(''); setBearer(''); setHeaders([])
+    setNote(t('Each member authorizes their own account with PKCE. Tokens are encrypted and never shared between members.'))
+    setError(null)
+  }
+
   const addServer = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy('add'); setError(null); setNote(null)
     const outgoing = authMode === 'headers' ? [...headers.filter((h) => h.name.trim() && h.value), ...(bearer.trim() ? [{ name: 'Authorization', value: `Bearer ${bearer.trim()}` }] : [])] : []
@@ -214,6 +224,10 @@ export function RemoteMcpServers({ httpBase, orgId, sessionToken }: { httpBase: 
         {error && <div className="remote-mcp-message error" role="alert">{error}</div>}
         {note && <div className="remote-mcp-message" role="status">{note}</div>}
         <p className="remote-mcp-security">{t('HTTPS Streamable HTTP only. Credentials are encrypted at rest. Redirects, local IP addresses and private hostnames are blocked. Agents need an API token with Execute access, and only checked tools are exposed.')}</p>
+        <div className="remote-mcp-highlevel" data-highlevel-preset>
+          <div><strong>HighLevel</strong><code>https://services.leadconnectorhq.com/mcp/openai/v2/</code></div>
+          <button type="button" className="studio-btn" disabled={!canManage} onClick={useHighLevel}>{canManage ? t('Use server') : t('Admin only')}</button>
+        </div>
         <div className="remote-mcp-catalog" data-remote-mcp-catalog>
           <div className="remote-mcp-catalog-heading">
             <div><h3>{t('Browse the public MCP catalog')}</h3><p>{t('Browse or search public Streamable HTTP server listings in the MCP Registry and add one to this workspace.')}</p></div>

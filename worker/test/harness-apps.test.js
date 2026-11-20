@@ -3395,5 +3395,3 @@ test('room Apps with multiple source Agent assignments cannot choose an implicit
  expect(grant.status).toBe(403);
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).toEqual({n:0});
 });
-
-

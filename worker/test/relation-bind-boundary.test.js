@@ -5,7 +5,17 @@ import worker from '../src/index.js';
 import { createSession, upsertMembership, upsertUser } from '../src/db.js';
 
 const org = 'personal:bind-boundary';
-const call = (path, token, body, method='POST', db=env.DB) => worker.fetch(new Request(`https://example.com${path}`, { method, headers:{'content-type':'application/json','x-session-token':token}, body:JSON.stringify({orgId:org,...body}) }), {...env,DB:db});
+const call = async (path, token, body, method='POST', db=env.DB) => {
+  const payload=body&&{...body};
+  const rowPath=path.match(/^\/tables\/([^/?]+)\/rows\/([^/?]+)/);
+  if(rowPath&&['PATCH','PUT','DELETE'].includes(method)){
+    const [,tableId,rowId]=rowPath;
+    const row=await env.DB.prepare('SELECT updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3').bind(org,tableId,rowId).first();
+    if(row&&method==='DELETE'&&!new URL(`https://example.com${path}`).searchParams.has('expectedUpdatedAt'))path+=`${path.includes('?')?'&':'?'}expectedUpdatedAt=${encodeURIComponent(row.updated_at)}`;
+    else if(row&&method!=='DELETE'&&payload?.expectedUpdatedAt===undefined)payload.expectedUpdatedAt=row.updated_at;
+  }
+  return worker.fetch(new Request(`https://example.com${path}`, { method, headers:{'content-type':'application/json','x-session-token':token}, body:JSON.stringify({orgId:org,...payload}) }), {...env,DB:db});
+};
 function observe(limit=Infinity) {
   const hits=[];
   const db=new Proxy(env.DB,{get(target,prop){

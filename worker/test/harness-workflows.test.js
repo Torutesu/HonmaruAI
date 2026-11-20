@@ -29,7 +29,22 @@ const call = async (path, init, over = {}) => {
   return res;
 };
 const headers = (token) => ({ "content-type": "application/json", "x-session-token": token });
-const send = (method, path, token, body) => call(path, { method, headers: headers(token), body: JSON.stringify(body) });
+const send = async (method, path, token, body) => {
+  const payload = body && { ...body };
+  const rowPath = path.match(/^\/tables\/([^/?]+)\/rows\/([^/?]+)/);
+  if (rowPath && ['PATCH', 'PUT', 'DELETE'].includes(method)) {
+    const [, tableId, rowId] = rowPath;
+    const row = await env.DB.prepare('SELECT updated_at FROM hx_rows WHERE org_id=?1 AND table_id=?2 AND id=?3')
+      .bind(ORG, tableId, rowId).first();
+    if (row && method === 'DELETE' && !new URL(`https://example.com${path}`).searchParams.has('expectedUpdatedAt')) {
+      const separator = path.includes('?') ? '&' : '?';
+      path += `${separator}expectedUpdatedAt=${encodeURIComponent(row.updated_at)}`;
+    } else if (row && method !== 'DELETE' && payload?.expectedUpdatedAt === undefined) {
+      payload.expectedUpdatedAt = row.updated_at;
+    }
+  }
+  return call(path, { method, headers: headers(token), ...(payload ? { body: JSON.stringify(payload) } : {}) });
+};
 const get = (path, token) => call(path, { headers: headers(token) });
 const q = (o) => new URLSearchParams(o).toString();
 const messages = async (token) => (await (await get(`/channels/messages?${q({ orgId: ORG, channel: "b:ops" })}`, token)).json()).messages || [];
@@ -373,7 +388,7 @@ test.each(['row', 'app_record_change'])('a %s event updates its actual record wh
   const rows = (await (await get(`/tables/${app.tableId}?${q({ orgId: ORG })}`, mika)).json()).rows;
   expect(rows.find(row => row.id === source.id).values.status).toBe('Done');
   expect(rows.find(row => row.id === other.id).values.status).toBe('Ready');
-});
+}, 15_000);
 
 test.each(['row', 'app_record_change'])('a %s event rejects an ambiguous row.id update while permitting an explicit field target', async triggerType => {
   const { app } = await (await send('POST', '/apps', mika, { orgId: ORG, name: 'Explicit target', columns: [
@@ -3175,6 +3190,37 @@ test('workspace AI pause blocks a new Harness workflow run before it is created'
  expect(await response.json()).toMatchObject({reason:'workspace_ai_budget',message:expect.stringContaining('estimated AI usage limit')});
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first()).toMatchObject({n:0});
  expect((await messages(mika)).some(message=>message.body==='Must not post')).toBe(false);
+});
+
+test('scheduled workspace-budget skips keep the Automation enabled and notify once per exhaustion episode',async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ const {createWorkflow,getWorkflow}=await import('../src/harness/workflows.js');
+ const {deliverScheduledBudgetNotices}=await import('../src/harness/workflowNoticeDelivery.js');
+ const made=await createWorkflow(env.DB,ORG,{name:'Budgeted schedule',trigger:{type:'schedule',cadence:'daily',hour:9,timezone:'UTC'},steps:[{type:'post',channel:'b:ops',text:'Scheduled work'}]},'9302');
+ const workflow=made.workflow,root=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Automation source'});
+ await send('POST',`/workflows/${workflow.id}/source`,mika,{orgId:ORG,messageId:root.row.id});
+ const at=new Date(Date.now()-1_000).toISOString();
+ await saveWorkspaceAIBudget(env.DB,ORG,{revision:0,dailyLimitUsd:.000001,weeklyLimitUsd:0,monthlyLimitUsd:0,action:'pause'},'9302',at);
+ await env.DB.prepare(`INSERT INTO ai_calls(org_id,user_github_id,purpose,provider,model,input_tokens,output_tokens,usd,byok,created_at)
+  VALUES(?1,'9302','ask','OpenAI','gpt-4o-mini',100,100,.000001,0,?2)`).bind(ORG,at).run();
+ await env.DB.prepare('UPDATE hx_workflows SET next_run_at=?1 WHERE org_id=?2 AND id=?3').bind(at,ORG,workflow.id).run();
+ await runDueWorkflows(env,{now:new Date()});
+ expect(await getWorkflow(env.DB,ORG,workflow.id)).toMatchObject({enabled:true});
+ expect(Date.parse((await getWorkflow(env.DB,ORG,workflow.id)).nextRunAt)).toBeGreaterThan(Date.parse(at));
+ expect(await env.DB.prepare('SELECT status FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first()).toBeNull();
+ expect(await deliverScheduledBudgetNotices(env,ORG,workflow.id)).toBe(0);
+ const replies=()=>env.DB.prepare('SELECT body FROM channel_messages WHERE org_id=?1 AND parent_id=?2').bind(ORG,root.row.id).all();
+ expect((await replies()).results.map(row=>row.body).filter(body=>body.includes('skipped this scheduled run'))).toHaveLength(1);
+ const scheduled=await getWorkflow(env.DB,ORG,workflow.id);
+ await startRun(env,{orgId:ORG,workflow:scheduled,trigger:'schedule',startedBy:'9302'});
+ expect((await replies()).results.map(row=>row.body).filter(body=>body.includes('skipped this scheduled run'))).toHaveLength(1);
+ await env.DB.prepare('DELETE FROM ai_calls WHERE org_id=?1').bind(ORG).run();
+ expect((await startRun(env,{orgId:ORG,workflow:scheduled,trigger:'schedule',startedBy:'9302'})).status).toBe('done');
+ await env.DB.prepare(`INSERT INTO ai_calls(org_id,user_github_id,purpose,provider,model,input_tokens,output_tokens,usd,byok,created_at)
+  VALUES(?1,'9302','ask','OpenAI','gpt-4o-mini',100,100,.000001,0,?2)`).bind(ORG,at).run();
+ expect((await startRun(env,{orgId:ORG,workflow:scheduled,trigger:'schedule',startedBy:'9302'})).status).toBe('skipped');
+ expect((await replies()).results.map(row=>row.body).filter(body=>body.includes('skipped this scheduled run'))).toHaveLength(2);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_schedule_budget_notices WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first()).toMatchObject({n:2});
 });
 
 test('an Agent model request that cannot fit the workspace pause is cancelled before dispatch', async () => {

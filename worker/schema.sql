@@ -2727,6 +2727,9 @@ CREATE TABLE IF NOT EXISTS hx_workflow_outcomes (org_id TEXT NOT NULL, run_id TE
 CREATE TABLE IF NOT EXISTS hx_workflow_safety_notices (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, generation TEXT NOT NULL, run_id TEXT NOT NULL, recipient_id TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT, read_at TEXT, last_attempt_at TEXT, PRIMARY KEY(org_id,workflow_id,generation));
 
 CREATE TABLE IF NOT EXISTS hx_workflow_sources (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, channel TEXT NOT NULL, thread_id TEXT NOT NULL, created_by TEXT NOT NULL, PRIMARY KEY(org_id,workflow_id));
+CREATE TABLE IF NOT EXISTS hx_workflow_schedule_budget_state (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, episode INTEGER NOT NULL DEFAULT 0 CHECK(episode>=0), is_active INTEGER NOT NULL DEFAULT 0 CHECK(is_active IN (0,1)), recipient_id TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,workflow_id));
+CREATE TABLE IF NOT EXISTS hx_workflow_schedule_budget_notices (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, workflow_id TEXT NOT NULL, episode INTEGER NOT NULL CHECK(episode>0), recipient_id TEXT NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT, last_attempt_at TEXT, UNIQUE(org_id,workflow_id,episode));
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_schedule_budget_pending ON hx_workflow_schedule_budget_notices(delivered_at,last_attempt_at,created_at);
 
 CREATE TABLE IF NOT EXISTS hx_workflow_generation_jobs (org_id TEXT NOT NULL, user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, lease_token TEXT NOT NULL, lease_until INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('running','failed','complete')), generated TEXT, workflow_id TEXT, PRIMARY KEY(org_id,user_id,request_id), CHECK(status != 'complete' OR (workflow_id IS NOT NULL AND generated IS NOT NULL)));
 

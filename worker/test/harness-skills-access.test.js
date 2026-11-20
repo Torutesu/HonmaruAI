@@ -46,6 +46,7 @@ test('public Skill share creation and import are unavailable in Simple mode', as
   });
   expect(simpleSkillResponse.status).toBe(201);
   const simpleSkill = (await simpleSkillResponse.json()).skill;
+  expect(simpleSkill.visibility).toBe('workspace');
   const simpleCreate = await request('POST', `/skills/${simpleSkill.id}/shares`, owner, {
     expiresInDays: 7, confirmAnyoneWithLink: true,
   });
@@ -54,8 +55,14 @@ test('public Skill share creation and import are unavailable in Simple mode', as
 
   const harnessMode = await request('PUT', '/orgs/mode', admin, { mode: 'harness' });
   expect(harnessMode.status).toBe(200);
+  const defaultPrivateResponse = await request('POST', '/skills', owner, {
+    name: 'Private by default in Harness', description: 'A safe private description.', body: 'Private instructions.',
+  });
+  expect(defaultPrivateResponse.status).toBe(201);
+  expect((await defaultPrivateResponse.json()).skill).toMatchObject({ visibility: 'private', createdBy: '9401' });
+  expect((await (await request('GET', '/skills', member)).json()).skills.map(skill => skill.name)).toEqual(['Simple mode Skill']);
   const harnessSkillResponse = await request('POST', '/skills', owner, {
-    name: 'Harness mode Skill', description: 'A safe sharing description.', body: 'Shared instructions.',
+    name: 'Harness mode Skill', description: 'A safe sharing description.', body: 'Shared instructions.', visibility: 'workspace',
   });
   expect(harnessSkillResponse.status).toBe(201);
   const harnessSkill = (await harnessSkillResponse.json()).skill;

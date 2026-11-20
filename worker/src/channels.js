@@ -752,7 +752,7 @@ export async function postMessage(db, { orgId, key, authorLogin, body, kind = "m
       AND s.channel=a.channel AND s.kind='message' AND COALESCE(s.parent_id,s.id)=a.thread_id AND s.id=?16 AND s.body=?17 AND s.author_login=?18 AND COALESCE(s.parent_id,'')=?19 AND s.deleted_at IS NULL
       AND ${assignmentReplyAuthority('a')})` : '';
     const noticeLive=workflowNotice?` AND ${workflowNoticeGuard}`:'';
-    const noticeValues=workflowNotice?[workflowNotice.workflowId,workflowNotice.generation||'',workflowNotice.recipientId,workflowNotice.budgetNoticeId||'']:[];
+    const noticeValues=workflowNotice?[workflowNotice.workflowId,workflowNotice.generation||'',workflowNotice.recipientId,workflowNotice.budgetNoticeId||'',workflowNotice.scheduleSkipNoticeId||'']:[];
     const fenceValues=assignmentFence?[assignmentFence.assignmentId,assignmentFence.generation,assignmentFence.sourceId,assignmentFence.sourceBody,assignmentFence.sourceAuthor,assignmentFence.sourceParent || '']:[];
     const sameCreationRoom=creation && key.startsWith('b:') ? ` AND EXISTS(SELECT 1 FROM businesses b WHERE b.org_id=?2 AND 'b:'||b.slug=?3 AND b.created_at=?15 AND b.private=?16)` : '';
     const creationLive=creation?` AND ${conversationWriteAuthority('?2','?3','?14')} AND EXISTS(SELECT 1 FROM users WHERE github_id=?14 AND login=?4)${sameCreationRoom}`:'';

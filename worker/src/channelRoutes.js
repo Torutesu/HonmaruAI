@@ -1768,9 +1768,16 @@ export async function handleChannels(request, env, url, { route, after }) {
       } else {
         const current=await env.DB.prepare('SELECT remote_stop_status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2 AND generation=?3').bind(body.orgId,body.assignmentId,body.generation).first().catch(()=>null);
         if(localStopFailed) {
-          await env.DB.prepare(`UPDATE hx_agent_assignments SET remote_stop_status='failed',remote_stop_updated_at=?4
-            WHERE org_id=?1 AND id=?2 AND generation=?3 AND status='cancelled'`).bind(body.orgId,body.assignmentId,body.generation,new Date().toISOString()).run().catch(error=>console.error('failed stop status save failed',safe(error?.message)));
-          remoteStop={status:'failed'};
+          const failed=await env.DB.prepare(`UPDATE hx_agent_assignments SET remote_stop_status='failed',remote_stop_updated_at=?5
+            WHERE org_id=?1 AND id=?2 AND generation=?3 AND status='cancelled'
+              AND remote_stop_status IS ?4 AND COALESCE(remote_stop_status,'')!='requesting'`)
+            .bind(body.orgId,body.assignmentId,body.generation,current?.remote_stop_status??null,new Date().toISOString()).run()
+            .catch(error=>{console.error('failed stop status save failed',safe(error?.message));return null;});
+          if(failed?.meta?.changes)remoteStop={status:'failed'};
+          else {
+            const latest=await env.DB.prepare('SELECT remote_stop_status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2 AND generation=?3').bind(body.orgId,body.assignmentId,body.generation).first().catch(()=>null);
+            remoteStop={status:latest?.remote_stop_status||'requesting'};
+          }
         } else remoteStop={status:current?.remote_stop_status || 'requesting'};
       }
     }
