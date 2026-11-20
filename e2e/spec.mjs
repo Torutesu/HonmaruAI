@@ -2131,8 +2131,14 @@ await step('a channel opens at its newest message, and stays there while what is
     const settled = await where()
     if (!settled.newestInView) throw new Error(`something loading above pushed the newest message out of sight: ${JSON.stringify(settled)}`)
     // Scrolled up by hand, it is left where it was put.
-    await d.evaluate(() => { const log = document.querySelector('.slk-main .slk-log'); log.scrollTop = Math.max(0, log.scrollTop - 500) })
+    const beforeReading = await where()
+    await d.locator('.slk-main .slk-log').hover()
+    await d.mouse.wheel(0, -500)
     await d.waitForTimeout(200)
+    const readingBeforeGrowth = await where()
+    if (readingBeforeGrowth.fromBottom < 400 || readingBeforeGrowth.fromBottom <= beforeReading.fromBottom) {
+      throw new Error(`the user could not move up into the conversation: ${JSON.stringify({ beforeReading, readingBeforeGrowth })}`)
+    }
     await grow()
     await d.waitForTimeout(300)
     const reading = await where()
