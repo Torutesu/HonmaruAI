@@ -515,6 +515,37 @@ test('ordinary joined members can invite people through the managed public-room 
   await Promise.all(pending);
 });
 
+test('private room membership changes refresh current and affected members without notifying other workspace members',async()=>{
+  const {default:worker}=await import('../src/index.js');
+  const {createSession}=await import('../src/db.js');
+  const {memberRef}=await import('../src/team.js');
+  await upsertUser(env.DB,{githubId:'observer',login:'observer',name:'Observer'});
+  await upsertMembership(env.DB,org,'observer','member');
+  await initializeRoomRoles(env.DB,org,channel,'creator');
+  const deliveries=[];
+  const routeEnv={...env,ORG_RELAY:{idFromName:()=> 'room-roles',get:()=>({fetch:async(_url,init)=>{
+    const payload=JSON.parse(init.body);
+    if(Array.isArray(payload.deliveries)) deliveries.push(...payload.deliveries.filter(item=>item.event?.name==='businesses'));
+    return new Response(null,{status:200});
+  }})}};
+  const pending=[];
+  const call=async(actor,method,body)=>worker.fetch(new Request('https://example.com/channels/members',{method,headers:{'content-type':'application/json','x-session-token':await createSession(env.DB,actor,'test')},body:JSON.stringify({orgId:org,channel,...body})}),routeEnv,{waitUntil:p=>pending.push(p)});
+  const added=await call('creator','POST',{refs:[await memberRef(org,'outsider')]});
+  expect(added.status).toBe(200);
+  await Promise.all(pending.splice(0));
+  expect([...new Set(deliveries.map(item=>item.to))].sort()).toEqual(['creator','guest','outsider','reader']);
+  expect(deliveries.find(item=>item.to==='reader').event.value.businesses.some(room=>room.slug==='planning')).toBe(true);
+  expect(deliveries.some(item=>item.to==='observer')).toBe(false);
+
+  deliveries.length=0;
+  const removed=await call('outsider','DELETE',{});
+  expect(removed.status).toBe(200);
+  await Promise.all(pending.splice(0));
+  expect([...new Set(deliveries.map(item=>item.to))].sort()).toEqual(['creator','guest','outsider','reader']);
+  expect(deliveries.find(item=>item.to==='outsider').event.value.businesses.some(room=>room.slug==='planning')).toBe(false);
+  expect(deliveries.some(item=>item.to==='observer')).toBe(false);
+});
+
 
 test('managed agent invitations require a current participant and never resurrect old agent admin grants',async()=>{
   await env.DB.prepare("UPDATE businesses SET private=0 WHERE org_id=?1").bind(org).run();

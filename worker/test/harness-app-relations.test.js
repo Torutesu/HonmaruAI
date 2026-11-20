@@ -89,7 +89,7 @@ test('populated conversion rollback restores only unchanged converted fields and
   expect(restored).toMatchObject({task:'0',notes:'keep me'});
 });
 
-test('populated conversions on one entity do not expose an unsafe inverse',async()=>{
+test('populated conversions on one entity expose a safe per-column inverse',async()=>{
   const add=await dbCall({action:'migrate',id:'add_second_convert_column',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Count',type:'text'}]}]});
   expect(add.status).toBe(200);
   const row=(await (await call(`/tables/${app.tableId}/rows`,owner,{values:{task:'12',count:'3'}})).json()).row;
@@ -100,8 +100,13 @@ test('populated conversions on one entity do not expose an unsafe inverse',async
   const applied=await dbCall({action:'migrate',id:'multiple_convert_columns',version:1,operations,previewChecksum:previewBody.previewChecksum});
   expect(applied.status).toBe(200);
   const history=(await (await call(`/apps/${app.id}/database`,owner)).json()).migrations[0];
-  expect(history.inverseOperations).toBeNull();
-  expect(history.rollbackUnavailableReason).toBe('multiple_conversions');
+  expect(history.inverseOperations).toHaveLength(2);
+  expect(history.rollbackUnavailableReason).toBeNull();
+  const rollbackPreview=await dbCall({action:'preview',id:'rollback_multiple_convert_columns',version:2,operations:history.inverseOperations});
+  const rollbackBody=await rollbackPreview.json();expect(rollbackBody.canApply).toBe(true);
+  expect((await dbCall({action:'migrate',id:'rollback_multiple_convert_columns',version:2,operations:history.inverseOperations,previewChecksum:rollbackBody.previewChecksum})).status).toBe(200);
+  const restored=JSON.parse((await env.DB.prepare('SELECT data FROM hx_rows WHERE org_id=?1 AND id=?2').bind(orgId,row.id).first()).data);
+  expect(restored).toMatchObject({task:'12',count:'3'});
   expect(row.id).toBeTruthy();
 });
 
