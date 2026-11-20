@@ -4252,6 +4252,8 @@ const table: Record<string, string> = {
   'Loading connections…': '接続を読み込み中…',
   'Include connection': '接続を含める',
   'Writes require a Workflow approval step and are not available in programs yet.': '書き込みにはWorkflowの承認ステップが必要です。プログラムからの書き込みはまだ利用できません。',
+  'Allow writes via this connection': 'この接続経由の書き込みを許可',
+  'connection.request({appId, name, query}) sends bounded GET requests. For a connection explicitly allowed to write, use connection.request({appId, name, body, operationId}) with a stable operationId. This permission allows writes whenever the saved Workflow runs; it does not pause for per-run approval. The program never receives the URL or credential. External writes are attempted once; an unknown result must be reconciled at the provider and is never retried.': 'connection.request({appId, name, query})は上限付きGETリクエストを送信します。明示的に書き込みを許可した接続では、安定したoperationIdを指定してconnection.request({appId, name, body, operationId})を使います。この許可により、保存済みWorkflowが実行されるたびに書き込みます。実行ごとの承認待ちはありません。プログラムにURLや認証情報は渡りません。外部書き込みは一度だけ試行し、結果不明の場合は外部サービス側で確認します。再送はしません。',
   'No enabled App connections are available.': '有効なApp接続がありません。',
   'A selected connection changed or is no longer available. Re-select it before saving.': '選択した接続は変更されたか利用できません。保存前に選び直してください。',
   'connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.': 'connection.request({appId, name, query})は選択したApp接続を通じて制限付きの読み取り要求を送信します。プログラムにURLや認証情報は渡されません。',

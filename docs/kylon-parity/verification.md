@@ -4736,8 +4736,14 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - The command-server helper is included by the Apple Container image and copied into the Mac LaunchAgent runtime. No new dependency, contract, or paid service; Simple mode is unchanged.
 - Local Gateway full suite: **116/116** passed, including in-flight page close, persistent-profile reuse, queued disconnected command suppression, and installed runtime contents. `git diff --check` and JavaScript syntax checks passed. Exact-head CI, merge, production runtime reinstall/browser smoke, authenticated multi-room revocation, and same-task Kylon UI comparison remain pending. Closing a page cannot undo an operation the remote site already accepted.
 
-### 2026-11-21 — KY-061 embedded Automation input templates (candidate)
+### 2026-11-21 — KY-061 embedded Automation input templates (released)
 
 - App-embedded Automation history now identifies each step by localized step type and status, and exposes the existing sanitized configured-input template in a collapsed disclosure. It explains when the preview was omitted due to trace size limits. Runtime record, message, and connection values remain excluded from the preview. Component-owned styling uses theme variables and remains available when the App route renders the component.
 - Added Japanese, Spanish, French, and German strings and coverage for a visible template, omission state, and the absence of runtime values.
-- Local Web suite: **2,115/2,115** passed across 277 files; production build and `tsc --noEmit` passed; `git diff --check` passed. Exact-head CI, merge, production release, and authenticated Kylon UI comparison remain pending.
+- Local Web suite: **2,115/2,115** passed across 277 files; production build and `tsc --noEmit` passed; `git diff --check` passed. PR #1138 exact-head CI, main CI and Web Pages/domain Verify succeeded. Authenticated Kylon UI comparison remains pending.
+
+
+### 2026-11-21 — KY-059 explicitly bound App Connection writes (candidate)
+
+- TypeScript Workflows can now use the existing App Connection broker for non-GET methods only when the saved source binding explicitly opts into writes. The frozen binding includes App, owner, version, and method; the Worker rechecks the live binding and Workflow/App access before and after dispatch. Requests are bounded JSON with a stable caller operation ID; the Worker derives a run-scoped idempotency key and the existing request ledger refuses duplicate sends. The VM receives no URL or credential, and ambiguous/revoked outcomes are not retried. This is saved Workflow authorization, not Kylon per-run approval-step parity.
+- Local QA: Gateway workflow-bridge.test.mjs 18/18; Worker workflow-code-jobs.test.js 54/54; WorkflowProgramEditor plus i18n tests 11/11; full Web suite 2,116/2,116; production build, TypeScript checks, parity validator, diff check, and changed Worker node --check passed. The full Worker suite is running; exact-head CI, merge/deployment, and authenticated production/Kylon acceptance remain pending. No new paid service; Simple mode is unchanged.

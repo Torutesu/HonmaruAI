@@ -65,9 +65,10 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  }
  const connectionSources=step.sourceConnections??[];
  if(!Array.isArray(connectionSources)||connectionSources.length>20||connectionSources.some(source=>!source||typeof source!=='object'||Array.isArray(source)
-  ||Object.keys(source).sort().join(',')!=='appId,method,name,ownerId,version'||typeof source.appId!=='string'||!source.appId.trim()||source.appId.length>200
+  ||!['appId,method,name,ownerId,version','appId,method,name,ownerId,version,write'].includes(Object.keys(source).sort().join(','))||typeof source.appId!=='string'||!source.appId.trim()||source.appId.length>200
   ||typeof source.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(source.name)||typeof source.ownerId!=='string'||!source.ownerId
-  ||!Number.isSafeInteger(source.version)||source.version<1||source.method!=='GET')||new Set(connectionSources.map(source=>`${source.appId}\0${source.name}`)).size!==connectionSources.length)
+  ||!Number.isSafeInteger(source.version)||source.version<1||!['GET','POST','PUT','PATCH','DELETE'].includes(source.method)
+  ||source.method==='GET'&&source.write===true||source.method!=='GET'&&source.write!==true)||new Set(connectionSources.map(source=>`${source.appId}\0${source.name}`)).size!==connectionSources.length)
   return {status:'failed',error:'The Workflow App connection bindings are invalid.'};
  for(const source of connectionSources){
   const catalog=await appConnectionsForViewer(db,orgId,source.appId,definition.createdBy).catch(()=>({error:'unavailable'}));

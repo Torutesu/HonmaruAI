@@ -187,10 +187,18 @@ export async function deleteWorkflowTableRow(input={},bridge=undefined) {
 }
 
 export function normalizeWorkflowConnectionRequest(input={}) {
-  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['appId','name','query','body'].includes(key))
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['appId','name','query','body','operationId'].includes(key))
     ||typeof input.appId!=='string'||!input.appId.trim()||input.appId.length>200
-    ||typeof input.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(input.name)||input.body!==undefined)throw Error('Invalid read-only App connection request.');
+    ||typeof input.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(input.name))throw Error('Invalid App connection request.');
   const clean={appId:input.appId,name:input.name};
+  if(input.body!==undefined){
+    if(!input.body||typeof input.body!=='object'||Array.isArray(input.body)||input.query!==undefined
+      ||typeof input.operationId!=='string'||! /^[a-zA-Z0-9_-]{1,32}$/.test(input.operationId))throw Error('App connection writes need an object body and a stable operationId.');
+    let body;
+    try{body=JSON.stringify(input.body)}catch{throw Error('Invalid App connection body.');}
+    if(new TextEncoder().encode(body).length>20000)throw Error('App connection body exceeds 20 KB.');
+    clean.body=JSON.parse(body);clean.operationId=input.operationId;
+  }else if(input.operationId!==undefined)throw Error('operationId is only available for App connection writes.');
   if(input.query!==undefined){
     const query=input.query;
     if(!query||typeof query!=='object'||Array.isArray(query)||Object.keys(query).length>100)throw Error('Invalid App connection query.');
@@ -211,7 +219,9 @@ export async function requestWorkflowConnection(input={},bridge=undefined) {
   const clean=normalizeWorkflowConnectionRequest(input),sources=bridge?.connectionSources||[];
   const source=sources.find(item=>item.appId===clean.appId&&item.name===clean.name);
   if(!source)throw Error('This Workflow has no frozen binding for the App connection.');
-  if(source.method!=='GET')throw Error('Writes through App connections require a Workflow approval step.');
+  if(source.method==='GET'&&clean.body!==undefined)throw Error('GET App connections are read-only.');
+  if(source.method!=='GET'&&(!source.write||clean.body===undefined))throw Error('This Workflow has no explicit write permission for the App connection.');
+  if(!['GET','POST','PUT','PATCH','DELETE'].includes(source.method))throw Error('This App connection method is unsupported.');
   if(typeof bridge?.requestConnection!=='function')throw Error('App connections are unavailable.');
   return bridge.requestConnection(clean);
 }

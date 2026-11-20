@@ -1,4 +1,4 @@
-import React from 'react'
+import React,{useState} from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { HarnessApi } from '../utils/harness'
@@ -62,4 +62,22 @@ test('skips local compilation for source above the runtime byte limit', async ()
   expect(tree.root.findByProps({ role: 'alert' }).children.join('')).toBe('Program source exceeds 48 KB.')
   expect(tree.root.findAllByType('details')).toHaveLength(0)
   act(() => tree.unmount())
+})
+
+test('lets a Workflow explicitly bind and enable writes for an App connection',async()=>{
+ const step=makeStep('import {connection} from "@honmaru/workflow-sdk";')
+ const api={...makeApi(),appConnections:vi.fn().mockResolvedValue({connections:[
+  {name:'issues',method:'GET',enabled:1,version:1,ownerId:'owner'},
+  {name:'create_issue',method:'POST',enabled:1,version:3,ownerId:'owner'},
+ ]})} as unknown as HarnessApi
+ function Harness(){const [value,setValue]=useState(step);return <WorkflowProgramEditor api={api} step={value} onChange={setValue} sourceApps={[{app:{id:'app-1',name:'Tasks'},entities:[]}]}/>}
+ let tree!:ReturnType<typeof create>
+ await act(async()=>{tree=create(<Harness/>)});await act(async()=>{await Promise.resolve()})
+ const include=tree.root.findByProps({'aria-label':'Include connection: create_issue'})
+ expect(include.props.disabled).toBe(false);act(()=>include.props.onChange({target:{checked:true}}))
+ const allow=tree.root.findByProps({'aria-label':'Allow writes via this connection: create_issue'})
+ expect(allow.props.checked).toBe(false);act(()=>allow.props.onChange({target:{checked:true}}))
+ expect(tree.root.findByProps({'aria-label':'Allow writes via this connection: create_issue'}).props.checked).toBe(true)
+ expect(textContent(tree.root.findAllByType('p').find(node=>textContent(node).includes('stable operationId')))).toContain('unknown result')
+ act(()=>tree.unmount())
 })

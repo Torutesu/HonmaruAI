@@ -8,13 +8,24 @@ import {normalizeWorkflowDraft} from './workflow-sdk.mjs';
 
 export const WORKFLOW_EXECUTION_TIMEOUT_MS=15*60*1000;
 function control(binary,args){return new Promise(resolve=>{const child=spawn(binary,args,{stdio:'ignore',shell:false});const timer=setTimeout(()=>child.kill('SIGKILL'),5000);const done=()=>{clearTimeout(timer);resolve()};child.once('error',done);child.once('close',done);});}
+export function validateWorkflowConnectionSources(sources){
+ if(sources===undefined)return;
+ if(!Array.isArray(sources)||sources.length<1||sources.length>20||sources.some(source=>!source||typeof source!=='object'||Array.isArray(source)
+  ||!['appId,method,name,ownerId,version','appId,method,name,ownerId,version,write'].includes(Object.keys(source).sort().join(','))
+  ||typeof source.appId!=='string'||!source.appId||source.appId.length>200||!/^([a-z][a-z0-9_]{0,39})$/.test(source.name)
+  ||typeof source.ownerId!=='string'||!source.ownerId||source.ownerId.length>200||!Number.isSafeInteger(source.version)||source.version<1
+  ||!['GET','POST','PUT','PATCH','DELETE'].includes(source.method)
+  ||source.method==='GET'&&source.write!==undefined||source.method!=='GET'&&source.write!==true)
+  ||new Set(sources.map(source=>`${source.appId}\0${source.name}`)).size!==sources.length)throw Error('Invalid App connection sources context.');
+ return sources;
+}
 // Only trusted orchestration calls this with an activation-bound state callback.
 // No API route, general gateway payload or model tool can select this runner yet.
 export async function runWorkflowIsolated({code,context={}},{stateOperation,binary=process.env.HONMARU_CONTAINER_BIN||'container',timeoutMs=WORKFLOW_EXECUTION_TIMEOUT_MS,signal}={}){
  if(!context||typeof context!=='object'||Array.isArray(context)||Object.keys(context).some(key=>!['workspaceId','roomId','agentId','timezone','trigger','tableSource','tableSources','connectionSources'].includes(key)))throw Error('Invalid public workflow context.');
  if(context.tableSource!==undefined&&(!context.tableSource||typeof context.tableSource!=='object'||Array.isArray(context.tableSource)||Object.keys(context.tableSource).sort().join(',')!=='appId,entityId,tableId'||Object.values(context.tableSource).some(value=>typeof value!=='string'||!value||value.length>200)))throw Error('Invalid App/Table source context.');
  if(context.tableSources!==undefined&&(!Array.isArray(context.tableSources)||context.tableSources.length<1||context.tableSources.length>20||context.tableSource!==undefined||context.tableSources.some(source=>!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).some(key=>!['appId','entityId','tableId','write','mutate'].includes(key))||Object.keys(source).filter(key=>!['write','mutate'].includes(key)).sort().join(',')!=='appId,entityId,tableId'||source.write!==undefined&&typeof source.write!=='boolean'||source.mutate!==undefined&&typeof source.mutate!=='boolean'||[source.appId,source.entityId,source.tableId].some(value=>typeof value!=='string'||!value||value.length>200)||!/^([a-z][a-z0-9_]{0,39})$/.test(source.entityId))||new Set(context.tableSources.map(source=>`${source.appId}\0${source.entityId}`)).size!==context.tableSources.length||new Set(context.tableSources.map(source=>source.appId)).size!==1))throw Error('Invalid App/Table sources context.');
- if(context.connectionSources!==undefined&&(!Array.isArray(context.connectionSources)||context.connectionSources.length<1||context.connectionSources.length>20||context.connectionSources.some(source=>!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).sort().join(',')!=='appId,method,name,ownerId,version'||typeof source.appId!=='string'||!source.appId||source.appId.length>200||!/^([a-z][a-z0-9_]{0,39})$/.test(source.name)||typeof source.ownerId!=='string'||!source.ownerId||source.ownerId.length>200||!Number.isSafeInteger(source.version)||source.version<1||source.method!=='GET')||new Set(context.connectionSources.map(source=>`${source.appId}\0${source.name}`)).size!==context.connectionSources.length))throw Error('Invalid App connection sources context.');
+ validateWorkflowConnectionSources(context.connectionSources);
  if(typeof code!=='string'||!code.trim()||Buffer.byteLength(JSON.stringify({code,context}))>65536)throw Error('Invalid workflow module.');
  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>WORKFLOW_EXECUTION_TIMEOUT_MS)throw Error('Invalid execution timeout.');
  const controller=new AbortController();
