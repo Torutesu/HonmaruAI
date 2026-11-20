@@ -75,6 +75,28 @@ test('ACP only reports signed-out when session creation returns auth_required', 
   });
 });
 
+test('ACP retries only pre-prompt runtime failures and returns a bounded fallback reason', async () => {
+  directory = await mkdtemp(join(tmpdir(), 'honmaru-acp-retry-'));
+  const marker = join(directory, 'attempts');
+  const script = `require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'x'); process.exit(1);`;
+  const result = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Review this repository' }, {
+    timeoutMs: 10000,
+    acpAgents: { fixture: { command: process.execPath, args: ['-e', script], cwd: directory } },
+  });
+  assert.equal(result.fallbackReason, 'runtime_unavailable');
+  assert.equal((await readFile(marker, 'utf8')).length, 3);
+});
+
+test('ACP recognizes explicit provider usage limits before prompt but refuses permission errors', async () => {
+  const { execPath } = await import('node:process');
+  const fixture = message => `const r=require('node:readline').createInterface({input:process.stdin}),s=x=>process.stdout.write(JSON.stringify(x)+'\\n');r.on('line',l=>{const m=JSON.parse(l);if(m.method==='initialize')s({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{}}});else if(m.method==='session/new')s({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:${JSON.stringify(message)}}});});`;
+  const acpAgents = { fixture: { command: execPath, args: ['-e', fixture('Usage limit reached for this provider')], cwd: process.cwd() } };
+  const limited = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize this repository' }, { acpAgents, timeoutMs: 5000 });
+  assert.equal(limited.fallbackReason, 'provider_limited');
+  acpAgents.fixture.args = ['-e', fixture('Permission denied for this workspace')];
+  await assert.rejects(runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize this repository' }, { acpAgents, timeoutMs: 5000 }));
+});
+
 test('ACP terminal auth advertisement alone does not block an already authenticated session', async () => {
   const { execPath } = await import('node:process');
   const script = `const r=require('node:readline').createInterface({input:process.stdin}),s=x=>process.stdout.write(JSON.stringify(x)+'\\n');r.on('line',l=>{const m=JSON.parse(l);if(m.method==='initialize')s({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[{id:'sign-in',type:'terminal'}]}});else if(m.method==='session/new')s({jsonrpc:'2.0',id:m.id,result:{sessionId:'active'}});else if(m.method==='session/prompt')s({jsonrpc:'2.0',id:m.id,result:{stopReason:'end_turn'}})});`;

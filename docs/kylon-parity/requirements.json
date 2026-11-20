@@ -1793,12 +1793,12 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://kylon.io/changelog/2026-11-15",
-      "code": "worker/src/teammates.js; worker/src/channelRoutes.js; worker/src/harness/agentFallback.js; worker/src/harness/gateways.js; worker/src/serverCopy.js; worker/schema.sql; worker/migrations.sql; web-react/src/components/AiTeammates.tsx",
+      "code": "gateway/acp.mjs; gateway/test/acp.test.mjs; worker/src/teammates.js; worker/src/channelRoutes.js; worker/src/harness/agentFallback.js; worker/src/harness/gateways.js; worker/src/serverCopy.js; worker/schema.sql; worker/migrations.sql; web-react/src/components/AiTeammates.tsx",
       "acceptance": "Kylonの2026-11-15動作ではPC offline/signed-out/provider quota時にCloudへ切替し、切替/復帰をDM通知する。Honmaruも未選択時は既定で有効とし、オーナーが明示的に無効化できる。既存Workspace AI・日次許可・予算だけを使い、現在のローカルACP heartbeatが90秒超過した場合、またはオフライン判定との競合で実行ノードがGateway jobを作る前に要求を拒否した場合に同一Agent profileの返信をCloudで生成する。予算・権限拒否時はfallbackしない。Simpleを変えず、Local→cloud切替表示、権限失効、二重起動、Provider回復、キャンセルを検証する。",
       "evidence": {
         "reviewedAt": "2026-11-19",
-        "verified": "Kylon公式changelog 2026-11-15に、local agent offline/signed-out/quota exhaustion時のdefault-on cloud fallbackと所有者向けswitch/back通知を確認。Honmaruはオーナー未選択時default-onとし、明示offは保持。fallbackは既存Workspace AIだけを使い、日次allowanceと予算で制御。切替/復帰DMを永続イベントとして記録し、Mac mini再接続で即時復帰、安定client IDで重複抑止、配信失敗を再試行する処理を追加。online heartbeat後のqueue満杯/切断事前拒否をfallback。追加でACP標準仕様を確認し、terminal auth methodの広告のみではなくsession/newのauth_required (-32000) をsigned-outの根拠として検出する処理と、Workspace AI実行前のGateway登録/Agent/メンバー/チャンネル権限再確認、実行claimによる重複抑止を実装。Gateway ACP suite 36/36 passed。Worker統合テストは実行中。Simple modeと明示opt-outは対象外。新規provider契約・サービスは追加しない。",
-        "remaining": "ローカルprovider quota/runtime retry exhaustion、session/prompt開始後に発生する認証失効、バックグラウンドに移ったrunのfallback、実機・Kylonとの同一タスク比較、exact-head CIと本番反映は未確認。今回は session/new のauth_required、queue-full拒否、offline→Workspace AI、node再接続→復帰DM、重複claim、DM relay失敗後のretryを回帰確認中。既存Workspace AIの利用枠を消費し得る。"
+        "verified": "Kylon公式changelog 2026-11-15に、local agent offline/signed-out/quota exhaustion時のdefault-on cloud fallbackと所有者向けswitch/back通知を確認。Honmaruはオーナー未選択時default-onとし、明示offは保持。fallbackは既存Workspace AIだけを使い、日次allowanceと予算で制御。切替/復帰DMを永続イベントとして記録し、Mac mini再接続で即時復帰、安定client IDで重複抑止、配信失敗を再試行。online heartbeat後のqueue満杯/切断事前拒否もfallback。今回、ACPのruntime起動・session初期化失敗をprompt送信前に限って最大3回再試行し、明示的なprovider usage/rate/quota制限を分類。session/prompt送信、ACP session update、Workspace MCP/permission requestを観測した後はfallbackしない。permission/budget拒否とキャンセルも対象外。Workspace AI fallback前のGateway登録/Agent/メンバー/チャンネル権限、日次allowance/予算を再確認し、run claimで重複起動を抑止。Gateway ACP 9/9、Workerのteammates/gateway統合65/65、台帳checkerとJSON検査が成功。全Worker suiteは実行中。Simple modeと明示opt-outは変更なし。新規provider契約・サービスは追加しない。",
+        "remaining": "ACP quota/error文言は標準化されないため明示的な文言だけを検出し、他のprovider usage-limit表現は未対応の可能性がある。prompt送信後の認証失効/実行失敗は重複実行防止のためfallbackしない。実機・Kylonとの同一タスク比較、exact-head CI、本番反映は未確認。既存Workspace AIの利用枠を消費し得る。"
       }
     },
     {
