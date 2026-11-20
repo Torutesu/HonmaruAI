@@ -4752,3 +4752,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Smithery Agent App tools now recheck current Agent audience, grant, membership generation, app connection generation and write permission immediately before and after provider dispatch. Read results are discarded after revocation. Ambiguous writes are reported as unknown and are never retried. Simple-mode `appTools` behavior is unchanged.
 - Worker `smithery-apps.test.js` passed **15/15**, including pre-dispatch audience denial and discarding a private read result when audience access is revoked in flight. Full Worker suite passed **323/323 files, 3,699/3,699 tests**. Exact-head CI, merge/deployment, authenticated multi-user acceptance and direct Kylon comparison remain pending.
+
+### 2026-11-21 — KY-133 ChatGPT Custom MCP OAuth (candidate)
+
+- KylonのChatGPT連携告知を比較要件に追加。HonmaruのOAuth metadataにChatGPT標準Custom MCP OAuth用のDCRを追加した。登録対象をS256 PKCEを使うpublic authorization-code clientに限定し、HTTPS/loopback callbackの完全一致、scope制限、登録数上限、未使用の古い登録の削除を実装。MCP tools/listはtoolごとの必要OAuth scopeを返す。Workspace選択、同意、ACL再確認、監査、接続管理、失効は既存の認可境界を維持。Simple modeはそのまま、新規サービス・有料契約はなし。
+- 対象Worker suite 49/49、全Worker suite 323 files / 3,702 tests成功。parity validator、構文検査、`git diff --check`も成功。exact-head CI、main CI、本番反映、実ChatGPT接続、Kylon同一タスク比較は未完了。

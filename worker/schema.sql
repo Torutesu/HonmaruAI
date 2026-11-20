@@ -2897,7 +2897,7 @@ CREATE TABLE IF NOT EXISTS channel_message_delivery (org_id TEXT NOT NULL, messa
 CREATE INDEX IF NOT EXISTS idx_channel_message_delivery_due ON channel_message_delivery(kind,status,next_attempt,lease_until);
 CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
   id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, redirect_uris TEXT NOT NULL,
-  created_at INTEGER NOT NULL, disabled_at INTEGER
+  created_at INTEGER NOT NULL, disabled_at INTEGER, registration_kind TEXT NOT NULL DEFAULT 'manual', scope_allowlist TEXT, grant_types TEXT
 );
 CREATE INDEX IF NOT EXISTS mcp_oauth_clients_owner ON mcp_oauth_clients(owner_id);
 CREATE TABLE IF NOT EXISTS mcp_oauth_requests (

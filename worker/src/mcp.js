@@ -418,7 +418,11 @@ async function handleMessage(env, agent, msg, request, ctx = null) {
       // Only what this token may call.
       return rpcResult(msg.id, { tools: toolRegistry(await harnessTools(env, agent))
         .filter((t) => hasScope(agent.scopes, scopeOfTool(t.name)))
-        .map(({ name, title, description, inputSchema, annotations, outputSchema }) => ({ name, title, description, inputSchema, ...(annotations ? { annotations } : {}), ...(outputSchema ? { outputSchema } : {}) })) });
+        .map(({ name, title, description, inputSchema, annotations, outputSchema }) => {
+          const scope = scopeOfTool(name);
+          return { name, title, description, inputSchema, ...(annotations ? { annotations } : {}), ...(outputSchema ? { outputSchema } : {}),
+            ...(MCP_ALL_SCOPES.includes(scope) ? { _meta: { securitySchemes: [{ type: 'oauth2', scopes: [scope] }] } } : {}) };
+        }) });
     case "tools/call": {
       const name = typeof params.name === "string" ? params.name : "";
       if (params.arguments !== undefined && (!params.arguments || typeof params.arguments !== "object" || Array.isArray(params.arguments))) return rpcError(msg.id, -32602, "Tool arguments must be an object.");

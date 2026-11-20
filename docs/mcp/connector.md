@@ -1,16 +1,13 @@
 # Hosted Honmaru MCP connector
 
-## Connect an external agent
+## Connect ChatGPT or another remote MCP client
 
-The endpoint is the deployed Worker origin followed by `/mcp`. It uses Streamable HTTP with JSON responses and MCP protocol version `2025-11-25` (also negotiates `2025-06-18` and `2025-03-26`). It does not require custom headers: OAuth clients use `Authorization: Bearer <access-token>`. There is no persistent SSE session or server-initiated subscription.
+1. In ChatGPT, add a custom connector/app using the deployed MCP endpoint (`https://<worker-origin>/mcp`). ChatGPT discovers the authorization server and registers its public OAuth client at `/mcp/oauth/register` automatically.
+2. Sign in to Honmaru when consent opens. Check the client name, callback domain, workspace, and requested permissions. Select only the scopes needed; private channels, DMs, writes, files, and lists require explicit selection.
+3. ChatGPT exchanges the authorization code with S256 PKCE and calls `/mcp` with its access token. Access is bound to the selected workspace and resource.
+4. Disconnect the ChatGPT connection under Honmaru Studio → API & Webhooks → MCP connections. Revocation, workspace removal/rejoin, applicable SSO/SCIM policy, or disabling a manually registered client prevents later calls. A queued send also requires the original authorization when its delivery runs.
 
-1. In Honmaru, open Studio → API & Webhooks → MCP connections. Register your agent application's name and its exact OAuth callback URL. Copy the generated client ID into that application's MCP OAuth configuration. Registration requires a signed-in Honmaru account; arbitrary anonymous dynamic registration is not enabled.
-2. Configure the agent's remote MCP URL and registered client ID. The agent discovers the authorization server, generates an S256 PKCE challenge and state, and opens the authorization URL in the browser.
-3. Sign in to Honmaru if necessary. The pending request survives login in the same tab. Check the app name, callback domain, and client ID; choose a workspace and permissions. Only public conversation reading is initially selected when requested. Private channels, DMs, writes, files, and lists require explicit selection.
-4. The client exchanges the returned code with its verifier, then calls `/mcp` with the access token. Store the refresh token securely and replace it after each refresh. Concurrent refreshes must be serialized: reuse of an already consumed refresh token revokes the connection.
-5. Disconnect an app in the same settings panel. Revocation, workspace removal/rejoin, applicable SSO/SCIM policy, and client disabling prevent later calls. A queued send also requires the original authorization when its delivery runs.
-
-Claw and ShogunAI can use this flow if their remote MCP integration accepts a registered OAuth client ID and authorization-code PKCE. Named-client interoperability has not yet been demonstrated. A client that only supports anonymous dynamic registration needs an adapter or future registration support; do not invent a client ID. Existing developer personal-token clients can continue using Bearer or `x-honmaru-token`; legacy `read`/`write` grants do not acquire conversation access.
+Other remote MCP clients can use the same dynamic registration flow, or use the manual flow: open Studio → API & Webhooks → MCP connections, register the exact callback URL, and copy the generated client ID into the client. Dynamic registration accepts only public authorization-code clients using S256 PKCE and no client secret; unsupported grants and non-HTTPS/non-loopback callback URLs are rejected. Existing developer personal-token clients can continue using Bearer or `x-honmaru-token`; legacy `read`/`write` grants do not acquire conversation access.
 
 ## Deployment configuration
 

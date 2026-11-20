@@ -12,6 +12,9 @@ import { MCP_CONNECTOR_SCOPES, MCP_SCOPE_INFO } from './mcpScopes.js';
 const HOUR = 3600000;
 const MONTH = 30 * 24 * HOUR;
 const PREFIX = '/mcp/oauth';
+const DYNAMIC_OWNER = '__mcp_dynamic_client__';
+const MAX_DYNAMIC_CLIENTS = 5000;
+const CLIENT_RETENTION = 365 * 24 * HOUR;
 const noStore = { 'content-type': 'application/json', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'access-control-allow-origin': '*' };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: noStore });
 const error = (code, description, status = 400) => json({ error: code, error_description: description }, status);
@@ -104,6 +107,10 @@ export async function sweepMcpOAuth(env) {
   for (const table of ['mcp_oauth_requests', 'mcp_oauth_codes', 'mcp_oauth_tokens', 'mcp_oauth_grants']) {
     await env.DB.prepare(`DELETE FROM ${table} WHERE rowid IN(SELECT rowid FROM ${table} WHERE expires_at<=?1 LIMIT 500)`).bind(now).run();
   }
+  await env.DB.prepare(`DELETE FROM mcp_oauth_clients WHERE id IN (
+    SELECT c.id FROM mcp_oauth_clients c WHERE c.registration_kind='dynamic' AND c.created_at<=?1
+      AND NOT EXISTS(SELECT 1 FROM mcp_oauth_grants g WHERE g.client_id=c.id AND g.revoked_at IS NULL AND g.expires_at>?2)
+    LIMIT 100)`).bind(now - CLIENT_RETENTION, now).run();
 }
 async function recordRevocation(env, request, grant, reason, actor = { type: 'system' }) {
   if (!grant) return;
@@ -116,11 +123,14 @@ async function revokeGrant(env, request, grantId, reason) {
 }
 async function issueTokens(env, grant) {
   const access = random('hmoa_'), refresh = random('hmor_'), now = Date.now();
+  const client = await env.DB.prepare('SELECT grant_types FROM mcp_oauth_clients WHERE id=?1 AND disabled_at IS NULL').bind(grant.client_id).first();
+  const grantTypes = client?.grant_types ? parse(client.grant_types) : ['authorization_code', 'refresh_token'];
+  const refreshAllowed = grantTypes.includes('refresh_token');
   await env.DB.batch([
     env.DB.prepare("INSERT INTO mcp_oauth_tokens(token_hash,grant_id,kind,expires_at) VALUES(?1,?2,'access',?3)").bind(await sha256Hex(access), grant.id, Math.min(now + HOUR, grant.expires_at)),
-    env.DB.prepare("INSERT INTO mcp_oauth_tokens(token_hash,grant_id,kind,expires_at) VALUES(?1,?2,'refresh',?3)").bind(await sha256Hex(refresh), grant.id, grant.expires_at),
+    ...(refreshAllowed ? [env.DB.prepare("INSERT INTO mcp_oauth_tokens(token_hash,grant_id,kind,expires_at) VALUES(?1,?2,'refresh',?3)").bind(await sha256Hex(refresh), grant.id, grant.expires_at)] : []),
   ]);
-  return json({ access_token: access, token_type: 'Bearer', expires_in: Math.floor((Math.min(now + HOUR, grant.expires_at) - now) / 1000), refresh_token: refresh, scope: parse(grant.scopes).join(' ') });
+  return json({ access_token: access, token_type: 'Bearer', expires_in: Math.floor((Math.min(now + HOUR, grant.expires_at) - now) / 1000), ...(refreshAllowed ? { refresh_token: refresh } : {}), scope: parse(grant.scopes).join(' ') });
 }
 async function exchange(env, request, input) {
   if (request.headers.has('authorization') || typeof input.client_id !== 'string' || input.resource !== mcpResource(env, request)) return error('invalid_request', 'A registered public client and exact resource are required.');
@@ -137,6 +147,8 @@ async function exchange(env, request, input) {
     return issueTokens(env, grant);
   }
   if (input.grant_type === 'refresh_token') {
+    const allowed = await env.DB.prepare(`SELECT 1 FROM mcp_oauth_clients c WHERE c.id=?1 AND c.disabled_at IS NULL AND (c.grant_types IS NULL OR EXISTS(SELECT 1 FROM json_each(c.grant_types) WHERE value=?2))`).bind(input.client_id, 'refresh_token').first().catch(() => null);
+    if (!allowed) return error('unsupported_grant_type', 'This client did not register refresh_token.');
     if (!/^hmor_[a-f0-9]{64}$/.test(input.refresh_token || '')) return error('invalid_grant', 'Invalid refresh token.');
     const hash = await sha256Hex(input.refresh_token);
     const existing = await env.DB.prepare("SELECT t.*,g.client_id,g.resource FROM mcp_oauth_tokens t JOIN mcp_oauth_grants g ON g.id=t.grant_id WHERE t.token_hash=?1 AND t.kind='refresh'").bind(hash).first();
@@ -158,6 +170,43 @@ async function exchange(env, request, input) {
   return error('unsupported_grant_type', 'Use authorization_code or refresh_token.');
 }
 
+async function registerDynamicClient(env, input) {
+  const redirects = input.redirect_uris;
+  if (!Array.isArray(redirects) || redirects.length < 1 || redirects.length > 10 ||
+      redirects.some(uri => typeof uri !== 'string' || uri.length > 2048 || validUrl(uri) !== uri) ||
+      new Set(redirects).size !== redirects.length) {
+    return error('invalid_redirect_uri', 'Provide one to ten exact HTTPS or loopback redirect URIs without fragments.');
+  }
+  const grantTypes = input.grant_types === undefined ? ['authorization_code', 'refresh_token'] : input.grant_types;
+  if ((input.token_endpoint_auth_method !== undefined && input.token_endpoint_auth_method !== 'none') ||
+      (!Array.isArray(grantTypes) || !grantTypes.includes('authorization_code') || grantTypes.some(v => !['authorization_code', 'refresh_token'].includes(v)) || new Set(grantTypes).size !== grantTypes.length) ||
+      (input.response_types !== undefined && (!Array.isArray(input.response_types) || input.response_types.length !== 1 || input.response_types[0] !== 'code')) ||
+      (input.application_type !== undefined && input.application_type !== 'web')) {
+    return error('invalid_client_metadata', 'Only public authorization-code clients using PKCE and refresh tokens are supported.');
+  }
+  let scopeAllowlist = null;
+  if (input.scope !== undefined) {
+    scopeAllowlist = scopeList(input.scope);
+    if (!scopeAllowlist) return error('invalid_client_metadata', 'The requested scopes are not supported.');
+  }
+  const name = typeof input.client_name === 'string' && input.client_name.trim()
+    ? input.client_name.trim().replace(/\s+/g, ' ').slice(0, 100)
+    : 'External MCP client';
+  const id = random('hmclient_');
+  await env.DB.prepare(`DELETE FROM mcp_oauth_clients WHERE id IN (
+    SELECT c.id FROM mcp_oauth_clients c WHERE c.registration_kind='dynamic' AND c.created_at<=?1
+      AND NOT EXISTS(SELECT 1 FROM mcp_oauth_grants g WHERE g.client_id=c.id AND g.revoked_at IS NULL AND g.expires_at>?2) LIMIT 100)`)
+    .bind(Date.now() - CLIENT_RETENTION, Date.now()).run();
+  const saved = await env.DB.prepare(`INSERT INTO mcp_oauth_clients(id,owner_id,name,redirect_uris,created_at,registration_kind,scope_allowlist,grant_types)
+    SELECT ?1,?2,?3,?4,?5,'dynamic',?6,?7
+    WHERE (SELECT COUNT(*) FROM mcp_oauth_clients WHERE registration_kind='dynamic' AND disabled_at IS NULL)<?8
+    RETURNING id`).bind(id, DYNAMIC_OWNER, name, JSON.stringify(redirects), Date.now(), scopeAllowlist ? JSON.stringify(scopeAllowlist) : null, JSON.stringify(grantTypes), MAX_DYNAMIC_CLIENTS).first();
+  if (!saved) return error('server_error', 'Dynamic client registrations are temporarily full.', 503);
+  return json({ client_id: id, client_id_issued_at: Math.floor(Date.now() / 1000), client_name: name,
+    redirect_uris: redirects, token_endpoint_auth_method: 'none', grant_types: grantTypes, response_types: ['code'],
+    ...(scopeAllowlist ? { scope: scopeAllowlist.join(' ') } : {}) }, 201);
+}
+
 export async function handleMcpOAuth(request, env, url = new URL(request.url)) {
   const path = url.pathname;
   const protectedPath = path === '/.well-known/oauth-protected-resource' || path === '/.well-known/oauth-protected-resource/mcp';
@@ -166,7 +215,7 @@ export async function handleMcpOAuth(request, env, url = new URL(request.url)) {
     if (request.method !== 'GET') return new Response(null, { status: 405, headers: { allow: 'GET', ...noStore } });
     const base = baseUrl(env, request);
     return json(protectedPath ? { resource: mcpResource(env, request), authorization_servers: [base], scopes_supported: MCP_CONNECTOR_SCOPES, bearer_methods_supported: ['header'] } : {
-      issuer: base, authorization_endpoint: `${base}${PREFIX}/authorize`, token_endpoint: `${base}${PREFIX}/token`, revocation_endpoint: `${base}${PREFIX}/revoke`,
+      issuer: base, authorization_endpoint: `${base}${PREFIX}/authorize`, token_endpoint: `${base}${PREFIX}/token`, revocation_endpoint: `${base}${PREFIX}/revoke`, registration_endpoint: `${base}${PREFIX}/register`,
       response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'], code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'], scopes_supported: MCP_CONNECTOR_SCOPES,
     });
   }
@@ -177,6 +226,7 @@ export async function handleMcpOAuth(request, env, url = new URL(request.url)) {
   const limited = await enforce(env, request, path === `${PREFIX}/token` ? 'mcp/oauth-token' : 'mcp/oauth');
   if (limited) return limited;
   try {
+    if (path === `${PREFIX}/register` && request.method === 'POST') return registerDynamicClient(env, await body(request));
     if (path === `${PREFIX}/authorize` && request.method === 'GET') {
       for (const key of url.searchParams.keys()) if (url.searchParams.getAll(key).length !== 1) return error('invalid_request', 'Duplicate authorization parameter.');
       const input = Object.fromEntries(url.searchParams);
@@ -184,6 +234,7 @@ export async function handleMcpOAuth(request, env, url = new URL(request.url)) {
       const scopes = scopeList(input.scope);
       if (!client || !parse(client.redirect_uris).includes(input.redirect_uri)) return error('invalid_request', 'Unknown client or redirect URI.');
       if (input.response_type !== 'code' || input.code_challenge_method !== 'S256' || !/^[A-Za-z0-9_-]{43}$/.test(input.code_challenge || '') || input.resource !== mcpResource(env, request) || !scopes || typeof input.state !== 'string' || !input.state || input.state.length > 1024) return error('invalid_request', 'Use code, S256 PKCE, an exact resource, state, and supported scopes.');
+      if (client.scope_allowlist && scopes.some(scope => !parse(client.scope_allowlist).includes(scope))) return error('invalid_scope', 'This client did not register the requested permissions.');
       const id = random('hmreq_');
       await env.DB.prepare('INSERT INTO mcp_oauth_requests(id,client_id,redirect_uri,resource,scopes,state,challenge,expires_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)')
         .bind(id, client.id, input.redirect_uri, input.resource, JSON.stringify(scopes), input.state, input.code_challenge, Date.now() + 10 * 60000).run();
@@ -205,20 +256,20 @@ export async function handleMcpOAuth(request, env, url = new URL(request.url)) {
     if (path === `${PREFIX}/scopes` && request.method === 'GET') return json({ scopes: MCP_SCOPE_INFO });
     if (path === `${PREFIX}/clients`) {
       if (request.method === 'GET') {
-        const rows = await env.DB.prepare('SELECT id,name,redirect_uris,created_at FROM mcp_oauth_clients WHERE owner_id=?1 AND disabled_at IS NULL ORDER BY created_at DESC LIMIT 20').bind(String(who.session.github_id)).all();
+        const rows = await env.DB.prepare("SELECT id,name,redirect_uris,created_at FROM mcp_oauth_clients WHERE owner_id=?1 AND registration_kind='manual' AND disabled_at IS NULL ORDER BY created_at DESC LIMIT 20").bind(String(who.session.github_id)).all();
         return json({ clients: rows.results.map(r => ({ id: r.id, name: r.name, redirectUris: parse(r.redirect_uris), createdAt: r.created_at })), resource: mcpResource(env, request) });
       }
       if (request.method === 'POST') {
         const input = await body(request);
         if (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 100 || !Array.isArray(input.redirectUris) || !input.redirectUris.length || input.redirectUris.length > 10 || input.redirectUris.some(uri => typeof uri !== 'string' || uri.length > 2048 || validUrl(uri) !== uri)) return error('invalid_client_metadata', 'Provide an app name and exact HTTPS or loopback redirect URIs without fragments.');
         const id = random('hmclient_');
-        const saved = await env.DB.prepare('INSERT INTO mcp_oauth_clients(id,owner_id,name,redirect_uris,created_at) SELECT ?1,?2,?3,?4,?5 WHERE (SELECT COUNT(*) FROM mcp_oauth_clients WHERE owner_id=?2 AND disabled_at IS NULL)<20 RETURNING id')
+        const saved = await env.DB.prepare("INSERT INTO mcp_oauth_clients(id,owner_id,name,redirect_uris,created_at,registration_kind) SELECT ?1,?2,?3,?4,?5,'manual' WHERE (SELECT COUNT(*) FROM mcp_oauth_clients WHERE owner_id=?2 AND registration_kind='manual' AND disabled_at IS NULL)<20 RETURNING id")
           .bind(id, String(who.session.github_id), input.name.trim(), JSON.stringify([...new Set(input.redirectUris)]), Date.now()).first();
         return saved ? json({ client_id: id, client_name: input.name.trim(), redirect_uris: input.redirectUris, token_endpoint_auth_method: 'none' }, 201) : error('invalid_request', 'Revoke an existing app before registering another.');
       }
     }
     if (path.startsWith(`${PREFIX}/clients/`) && request.method === 'DELETE') {
-      const row = await env.DB.prepare('UPDATE mcp_oauth_clients SET disabled_at=?1 WHERE id=?2 AND owner_id=?3 RETURNING id').bind(Date.now(), path.slice(`${PREFIX}/clients/`.length), String(who.session.github_id)).first();
+      const row = await env.DB.prepare("UPDATE mcp_oauth_clients SET disabled_at=?1 WHERE id=?2 AND owner_id=?3 AND registration_kind='manual' RETURNING id").bind(Date.now(), path.slice(`${PREFIX}/clients/`.length), String(who.session.github_id)).first();
       return row ? json({ revoked: true }) : error('not_found', 'App not found.', 404);
     }
     if (path === `${PREFIX}/connections` && request.method === 'GET') {
