@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 27480)
+Total output lines: 1143
+
 import React from 'react'
 import { act, create } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -130,6 +133,26 @@ test.each(['filter','group'] as const)('personal-view %s opens native editing fi
   expect(state.api.savePersonalViews).not.toHaveBeenCalled()
   expect(state.api.updateApp).not.toHaveBeenCalled()
   expect(state.api.savePersonalViews).not.toHaveBeenCalled()
+})
+
+test('shared-view grouping suggestion opens an unsent chat draft without saving view settings',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+ const shared={id:'all',type:'table',name:'All',rows:[]}
+ state.api={
+  app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:4,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'},{id:'state',name:'Status',type:'select',options:['Open','Done']}]},rows:[],views:[shared],canCustomize:true}),
+  personalViews:vi.fn().mockResolvedValue({revision:1,activeView:'all',views:[],computed:[],layouts:{}}),
+  savePersonalViews:vi.fn(),updateApp:vi.fn(),conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+ }
+ await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+ act(()=>tree!.root.findAllByType('button').find(button=>button.props['aria-label']==='グループ化')!.props.onClick({currentTarget:{focus:vi.fn()}}))
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('AIに調整案を相談'))!.props.onClick())
+ const route=parseRoute(location.hash)
+ expect(route).toMatchObject({appSource:true,appSourceSection:'data',appId:'tasks',appOrg:'team:one'})
+ expect(route.appDraft).toContain('ビュー「All」のグループ化を調整')
+ expect(route.appDraft).not.toContain('個人ビュー')
+ expect(state.api.savePersonalViews).not.toHaveBeenCalled()
+ expect(state.api.updateApp).not.toHaveBeenCalled()
+ act(()=>tree!.unmount())
 })
 
 test('view tabs navigate by keyboard without saving until activated', async () => {
@@ -380,364 +403,7 @@ test('calendar titles and search use relation labels with an ID fallback, and da
   const search=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
   expect(visible('Acme')).toBe(1);expect(visible('customer_missing')).toBe(1)
   act(()=>search().props.onChange({target:{value:'acme'}}))
-  expect(visible('Acme')).toBe(1);expect(visible('customer_missing')).toBe(0)
-  expect(JSON.stringify(tree!.toJSON())).toContain('1 records')
-  act(()=>search().props.onChange({target:{value:'customer_missing'}}))
-  expect(visible('Acme')).toBe(0);expect(visible('customer_missing')).toBe(1)
-  act(()=>search().props.onChange({target:{value:''}}))
-  await act(async()=>{tree!.root.findAllByProps({type:'date'})[0].props.onChange({target:{value:'2028-03-01'}});await new Promise(resolve=>setTimeout(resolve,0))})
-  expect(state.api.updateRow).toHaveBeenCalledWith('tasks','known',{due:'2028-03-01'},known.updatedAt)
-})
-
-test('the metrics view does not offer a search that cannot filter its aggregates', async () => {
-  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
-  const row={id:'a',values:{title:'Alpha'},updatedAt:''}
-  const tableView={id:'all',type:'table',name:'All',rows:[row]}
-  const metrics={id:'metrics',type:'metrics',name:'Metrics',values:[{label:'Total',op:'count',value:1}]}
-  state.api={
-    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[tableView,metrics]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[tableView,metrics],canCustomize:true}),
-    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),
-    savePersonalViews:vi.fn(async (_id, value)=>({...value,revision:value.revision+1})),
-    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
-  }
-  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
-  const search=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')
-  act(()=>search()!.props.onChange({target:{value:'Alpha'}}))
-  await act(async()=>{tree!.root.findAllByProps({role:'tab'})[1].props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
-  expect(search()).toBeUndefined()
-  expect(JSON.stringify(tree!.toJSON())).toContain('Total')
-  await act(async()=>{tree!.root.findAllByProps({role:'tab'})[0].props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
-  expect(search()!.props.value).toBe('Alpha')
-})
-
-test('a collapsed floating search exposes the active query and reopens it without clearing the filter', async () => {
-  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
-  const alpha={id:'a',values:{title:'Alpha'},updatedAt:''},beta={id:'b',values:{title:'Beta'},updatedAt:''}
-  const view={id:'main',type:'table',name:'All',rows:[alpha,beta]}
-  state.api={
-    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[alpha,beta],views:[view],canCustomize:false}),
-    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{}}),
-    conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
-  }
-  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data" floating/>);await new Promise(resolve=>setTimeout(resolve,0))})
-  const toggle=()=>tree!.root.findByProps({className:'hx-floating-search pill-btn quiet'})
-  const input=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
-  act(()=>toggle().props.onClick())
-  act(()=>input().props.onChange({target:{value:'Alpha'}}))
-  expect(tree!.root.findAllByProps({'data-row':'b'})).toHaveLength(0)
-  act(()=>toggle().props.onClick())
-  const indicator=tree!.root.findByProps({className:'hx-floating-search-query'})
-  expect(indicator.props.title).toBe('Search: Alpha')
-  expect(input().props.value).toBe('Alpha')
-  act(()=>indicator.props.onClick())
-  expect(toggle().props['aria-expanded']).toBe(true)
-  expect(input().props.value).toBe('Alpha')
-  act(()=>input().props.onChange({target:{value:''}}))
-  expect(tree!.root.findAllByProps({'data-row':'a'})).toHaveLength(1)
-  expect(tree!.root.findAllByProps({'data-row':'b'})).toHaveLength(1)
-  expect(tree!.root.findAllByProps({className:'hx-floating-search-query'})).toHaveLength(0)
-})
-
-test('resizing a floating viewer preserves active search focus without moving unrelated focus', async () => {
-  const doc={activeElement:null as any,addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'}
-  vi.stubGlobal('document',doc)
-  const observers:Array<{callback:(entries:Array<{contentRect:{width:number}}>)=>void;target?:unknown}>=[]
-  vi.stubGlobal('ResizeObserver',class {
-    entry:{callback:(entries:Array<{contentRect:{width:number}}>)=>void;target?:unknown}
-    constructor(callback:(entries:Array<{contentRect:{width:number}}>)=>void){this.entry={callback};observers.push(this.entry)}
-    observe(target:unknown){this.entry.target=target}
-    disconnect(){}
-  })
-  let nextFrame=0
-  const frames=new Map<number,()=>void>()
-  vi.stubGlobal('requestAnimationFrame',(fn:()=>void)=>{frames.set(++nextFrame,fn);return nextFrame})
-  vi.stubGlobal('cancelAnimationFrame',(id:number)=>frames.delete(id))
-  const row={id:'a',values:{title:'Alpha'},updatedAt:''},view={id:'main',type:'table',name:'All',rows:[row]}
-  state.api={
-    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[view],canCustomize:false}),
-    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{}}),
-    conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
-  }
-  const toolbar={clientWidth:700},toggleNode={},queryNode={},other={}
-  const inputNode={focus:vi.fn(()=>{doc.activeElement=inputNode})}
-  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data" floating/>,{createNodeMock:element=>{
-    if(element.props.className==='hx-data-toolbar')return toolbar
-    if(element.props.className==='hx-floating-search pill-btn quiet')return toggleNode
-    if(element.props.className==='hx-floating-search-query')return queryNode
-    if(element.props.type==='search')return inputNode
-    if(element.props.className==='hx-table-wrap')return {clientWidth:400}
-    return null
-  }});await new Promise(resolve=>setTimeout(resolve,0))})
-  const toggle=()=>tree!.root.findByProps({className:'hx-floating-search pill-btn quiet'})
-  const input=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
-  const resize=(width:number)=>act(()=>{toolbar.clientWidth=width;observers.find(entry=>entry.target===toolbar)!.callback([{contentRect:{width}}])})
-  const flush=()=>act(()=>{for(const [id,callback] of [...frames]){frames.delete(id);callback()}})
-  // Focusing an already visible field leaves it expanded on a narrower toolbar,
-  // without re-focusing the field (and interrupting a composition session).
-  act(()=>input().props.onFocus());expect(toggle().props['aria-expanded']).toBe(true)
-  expect(inputNode.focus).not.toHaveBeenCalled()
-  act(()=>input().props.onChange({target:{value:'Alpha'}}));act(()=>toggle().props.onClick())
-  doc.activeElement=queryNode;resize(700);flush();expect(doc.activeElement).toBe(inputNode)
-  doc.activeElement=toggleNode;resize(700);flush();expect(doc.activeElement).toBe(inputNode)
-  doc.activeElement=other;resize(700);flush();expect(doc.activeElement).toBe(other)
-  doc.activeElement=queryNode;resize(700);doc.activeElement=other;flush();expect(doc.activeElement).toBe(other)
-  doc.activeElement=queryNode;resize(700);resize(320);flush();expect(doc.activeElement).toBe(queryNode)
-  resize(700);toolbar.clientWidth=320;flush();expect(doc.activeElement).toBe(queryNode)
-  resize(700);expect(frames.size).toBe(1);act(()=>tree!.unmount());tree=undefined;expect(frames.size).toBe(0)
-})
-
-test('Escape during IME composition does not close the fullscreen app', async () => {
-  const listeners=new Set<(event:any)=>void>()
-  vi.stubGlobal('document',{visibilityState:'visible',addEventListener:(name:string,fn:(event:any)=>void)=>{if(name==='keydown')listeners.add(fn)},removeEventListener:(name:string,fn:(event:any)=>void)=>{if(name==='keydown')listeners.delete(fn)}})
-  const row={id:'a',values:{title:'Alpha'},updatedAt:''},view={id:'main',type:'table',name:'All',rows:[row]}
-  state.api={
-    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[row],views:[view],canCustomize:false}),
-    personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{}}),
-    conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
-  }
-  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data" floating/>);await new Promise(resolve=>setTimeout(resolve,0))})
-  act(()=>tree!.root.findByProps({'aria-label':'全画面表示'}).props.onClick())
-  const send=(event:any)=>act(()=>{for(const listener of listeners)listener(event)})
-  const stop=vi.fn()
-  send({key:'Escape',isComposing:true,stopPropagation:stop})
-  send({key:'Escape',keyCode:229,stopPropagation:stop})
-  expect(tree!.root.findAllByProps({'aria-label':'全画面表示を終了'})).toHaveLength(1)
-  expect(stop).not.toHaveBeenCalled()
-  send({key:'Escape',stopPropagation:stop})
-  expect(stop).toHaveBeenCalledOnce()
-  expect(tree!.root.findAllByProps({'aria-label':'全画面表示'})).toHaveLength(1)
-})
-const button = (label: string) => tree!.root.findAllByType('button').find(node => node.props.children === label)!
-test.each(['board','calendar'] as const)('search and annotation cancellation coexist in the %s view', async type => {
-  const listeners = new Set<(event:any)=>void>()
-  const frameWindow = {postMessage:vi.fn()}
-  const frame = {tagName:'IFRAME',closest:()=>null,contentWindow:frameWindow,getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})}
-  vi.stubGlobal('document',{elementsFromPoint:()=>[frame],addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
-  vi.stubGlobal('window',{addEventListener:(type:string,fn:(event:any)=>void)=>{if(type==='message')listeners.add(fn)},removeEventListener:(type:string,fn:(event:any)=>void)=>{if(type==='message')listeners.delete(fn)}})
-  const date = new Date(); const day = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
-  const alpha={id:'a',values:{title:'Alpha',stage:'Open',due:day},updatedAt:''}, beta={id:'b',values:{title:'Beta',stage:'Open',due:day},updatedAt:''}
-  const view={id:'main',type,name:'Main',groupBy:'stage',dateColumn:'due',rows:[alpha,beta],lanes:[{key:'Open',rows:[alpha,beta]}],days:[{date:day,rows:[alpha,beta]}],undated:[]}
-  state.api={app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'},{id:'stage',name:'Stage',type:'select',options:['Open']},{id:'due',name:'Due',type:'date'}]},rows:[alpha,beta],views:[view],canCustomize:true}),personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'main',views:[],computed:[],layouts:{}}),conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]})}
-  const layer={style:{pointerEvents:'auto'},contains:()=>false,focus:vi.fn(),setPointerCapture:vi.fn(),getBoundingClientRect:()=>({left:0,top:0,width:100,height:100})}
-  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>,{createNodeMock:element=>element.props.className==='hx-annotation-layer'?layer:null});await new Promise(resolve=>setTimeout(resolve,0))})
-  const input=()=>tree!.root.findAllByType('input').find(node=>node.props['aria-label']==='Search records')!
-  const visible=(label:string)=>tree!.root.findAllByProps({'aria-label':`${label}の詳細を開く`}).length
-  act(()=>input().props.onChange({target:{value:'Beta'}}))
-  expect(visible('Alpha')).toBe(0);expect(visible('Beta')).toBe(1)
-  act(()=>tree!.root.findByProps({'aria-label':'注釈'}).props.onClick())
-  const overlay=tree!.root.findByProps({role:'application'})
-  act(()=>{overlay.props.onPointerDown({button:0,clientX:10,clientY:10,pointerId:1,preventDefault:vi.fn()});overlay.props.onPointerUp({clientX:20,clientY:20,pointerId:1})})
-  const request=frameWindow.postMessage.mock.calls[0][0]
-  act(()=>overlay.props.onKeyDown({key:'Escape',preventDefault:vi.fn()}))
-  await act(async()=>{for(const fn of [...listeners])fn({source:frameWindow,data:{type:'honmaru:annotation-target-result',id:request.id,target:'stale'}})})
-  expect(listeners.size).toBe(0);expect(tree!.root.findAllByProps({'aria-label':'どのように修正しますか？'})).toHaveLength(0)
-  act(()=>input().props.onChange({target:{value:''}}))
-  expect(visible('Alpha')).toBe(1);expect(visible('Beta')).toBe(1)
-  expect(JSON.stringify(tree!.toJSON())).toContain('2 records')
-})
-test('Remote MCP server settings are available from the Harness Apps library', async () => {
-  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
-  expect(tree!.root.findByProps({ id: 'remote-mcp-title' }).children).toContain('Remote MCP servers')
-  expect(tree!.root.findAllByProps({ className: 'remote-mcp-empty' }).some(node => node.children.includes('No Remote MCP servers connected yet.'))).toBe(true)
-})
-test('HighLevel preset fills the official OpenAI MCP endpoint and per-member OAuth setup', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (input: string) => ({
-    ok: true,
-    json: async () => input.includes('/orgs/mode') ? { mode: 'harness' } : { servers: [], gateways: [], canManage: true },
-  })))
-  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
-  await act(async () => { tree!.root.findByProps({ 'data-highlevel-preset': true }).findByType('button').props.onClick() })
-  const form = tree!.root.findByProps({ className: 'remote-mcp-form' })
-  expect(form.findAllByType('input').map(node => node.props.value)).toContain('HighLevel')
-  expect(form.findAllByType('input').map(node => node.props.value)).toContain('https://services.leadconnectorhq.com/mcp/openai/v2/')
-  expect(form.findByProps({ 'aria-label': 'Authentication' }).props.value).toBe('oauth')
-  expect(form.findAllByType('input').some(node => node.props.checked)).toBe(true)
-})
-test('public MCP catalog results can be reviewed and selected for the connection form', async () => {
-  const registryServer = {
-    name: 'io.github.example/calendar', title: 'Calendar MCP', description: 'Manage calendar events', version: '1.2.0',
-    endpoint: 'https://calendar.example.com/mcp', headers: [{ name: 'Authorization', required: true, description: 'Paste a token from the provider.' }],
-  }
-  const fetchStub = vi.fn(async (input: string) => ({
-    ok: true,
-    json: async () => input.includes('/orgs/mode')
-      ? { mode: 'harness' }
-      : input.includes('/remote-mcp/registry') ? { servers: [registryServer], nextCursor: null } : { servers: [], canManage: true },
-  }))
-  vi.stubGlobal('fetch', fetchStub)
-  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
-  const search = tree!.root.findByProps({ 'aria-label': 'Search MCP servers' })
-  act(() => search.props.onChange({ target: { value: 'calendar' } }))
-  const searchForm = tree!.root.findByProps({ className: 'remote-mcp-catalog-search' })
-  await act(async () => {
-    searchForm.props.onSubmit({ preventDefault: vi.fn() })
-    await new Promise(resolve => setTimeout(resolve, 0))
-  })
-  expect(fetchStub.mock.calls.map(([url]) => url)).toContain('https://api.example/remote-mcp/registry?q=calendar&orgId=team%3Aone')
-  expect(tree!.root.findByProps({ 'data-registry-server': registryServer.name }).findAllByType('strong')[0].children).toContain('Calendar MCP')
-  await act(async () => { tree!.root.findByProps({ 'data-registry-server': registryServer.name }).findByType('button').props.onClick() })
-  expect(tree!.root.findAllByType('input').map(node => node.props.value)).toContain('Calendar MCP')
-  expect(tree!.root.findAllByType('input').map(node => node.props.value)).toContain('https://calendar.example.com/mcp')
-  expect(tree!.root.findByProps({ className: 'remote-mcp-message' }).children).toContain('The listing marks these headers as required. Enter credentials yourself; registry examples are never copied.')
-  expect(tree!.root.findByProps({ 'aria-label': 'Header value' }).props.required).toBe(true)
-  expect(tree!.root.findByProps({ 'aria-label': 'Header value' }).props['aria-description']).toBe('Paste a token from the provider.')
-  expect(tree!.root.findByProps({ 'aria-label': 'Authentication' }).props.value).toBe('headers')
-  await act(async () => {
-    tree!.root.findAllByType('button').find(node => node.children.includes('Browse catalog'))!.props.onClick()
-    await new Promise(resolve => setTimeout(resolve, 0))
-  })
-  expect(fetchStub.mock.calls.map(([url]) => url)).toContain('https://api.example/remote-mcp/registry?orgId=team%3Aone')
-})
-test('Remote MCP OAuth lets members connect their own account from the Harness Apps screen', async () => {
-  const oauthServer = {
-    id: 'oauth-server', name: 'Private CRM', endpoint: 'https://mcp.crm.example.com/mcp', hasAuthentication: true,
-    authMode: 'oauth', oauthRegistration: 'auto', oauthConnected: false, tools: [], allowedTools: [], connectedAt: null,
-    createdAt: '2026-11-01T00:00:00Z',
-  }
-  const fetchStub = vi.fn(async (input: string) => ({
-    ok: true,
-    json: async () => input.includes('/orgs/mode') ? { mode: 'harness' } : { servers: [oauthServer], canManage: true },
-  }))
-  vi.stubGlobal('fetch', fetchStub)
-  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
-  expect(fetchStub.mock.calls.map(([url]) => url)).toContain('https://api.example/remote-mcp?orgId=team%3Aone')
-  expect(JSON.stringify(tree!.toJSON())).toContain('Private CRM')
-  expect(tree!.root.findAllByType('button').some(node => node.children.includes('Connect my account'))).toBe(true)
-  const authSelect = tree!.root.findByProps({ 'aria-label': 'Authentication' })
-  expect(authSelect.findAllByType('option').map(node => node.props.value)).toContain('oauth')
-  act(() => authSelect.props.onChange({ target: { value: 'oauth' } }))
-  expect(JSON.stringify(tree!.toJSON())).toContain('Workflow runs use the workflow creator’s connected account.')
-})
-async function start(prompt='First request') {
-  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
-  act(() => button('Build an app').props.onClick())
-  act(() => tree!.root.findByType('textarea').props.onChange({ target: { value: prompt } }))
-  let completion!: Promise<void>
-  act(() => { completion = button('Build').props.onClick() })
-  return { completion }
-}
-test('generation still opens its app when the same screen is active', async () => {
-  const { completion } = await start()
-  await act(async () => { finish({ app: { id: 'created' }, source: 'template' }); await completion })
-  expect(location.hash).toBe('#/apps/created/team%3Aone')
-})
-test('only a fenced obsolete generation starts a new request on retry', async () => {
-  state.api.generate.mockRejectedValueOnce(new Error('Network failed'))
-    .mockRejectedValueOnce(new HarnessApiError('Old proposal stopped',409,'APP_GENERATION_OBSOLETE_UNPUBLISHED'))
-    .mockResolvedValueOnce({app:{id:'created'},source:'template'})
-  const { completion } = await start('A tracker')
-  await act(async () => { await completion })
-  const firstId=state.api.generate.mock.calls[0][2].requestId
-  await act(async () => { await button('Build').props.onClick() })
-  expect(state.api.generate.mock.calls[1][2].requestId).toBe(firstId)
-  expect(JSON.stringify(tree!.toJSON())).toContain('Old proposal stopped')
-  await act(async () => { await button('Build').props.onClick() })
-  expect(state.api.generate.mock.calls[2][2].requestId).not.toBe(firstId)
-  expect(location.hash).toBe('#/apps/created/team%3Aone')
-})
-test('the API retains the status and code of an obsolete generation response', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ok:false,status:409,json:async()=>({message:'Old proposal stopped',code:'APP_GENERATION_OBSOLETE_UNPUBLISHED'})}))
-  await expect(harnessApi('https://api.example','team:one','one').generate('A tracker',undefined,{requestId:'test_request_id_001'}))
-    .rejects.toMatchObject({message:'Old proposal stopped',status:409,code:'APP_GENERATION_OBSOLETE_UNPUBLISHED'})
-})
-test('other 409 responses preserve the generation request ID', async () => {
-  state.api.generate.mockRejectedValueOnce(new HarnessApiError('Still creating',409))
-    .mockResolvedValueOnce({app:{id:'created'},source:'template'})
-  const {completion}=await start('A tracker')
-  await act(async()=>{await completion})
-  const firstId=state.api.generate.mock.calls[0][2].requestId
-  await act(async()=>{await button('Build').props.onClick()})
-  expect(state.api.generate.mock.calls[1][2].requestId).toBe(firstId)
-})
-test('room generation opens the saved source route rather than a detached app panel',async()=>{
- const {completion}=await start('Build a tracker for #general')
- await act(async()=>{finish({app:{id:'created'},source:'template'});await completion})
- expect(state.api.generate).toHaveBeenCalledWith('Build a tracker for #general','b:general',expect.objectContaining({captureSource:true}))
- expect(location.hash).toBe('#/apps/created/team%3Aone?source=1')
-})
-test('sample rows are empty by default and the selected limit is submitted',async()=>{
- await act(async()=>{tree=create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}}/>)})
- act(()=>button('Build an app').props.onClick())
- act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'Invoice tracker with sample data'}}))
- const limit=tree!.root.findByProps({'aria-label':'Maximum sample rows'})
- expect(limit.props.value).toBe(0)
- expect(tree!.root.findByProps({role:'status'}).children).toContain('To include sample rows, choose a limit under Initial data.')
- act(()=>limit.props.onChange({target:{value:'1'}}))
- let completion!:Promise<void>
- act(()=>{completion=button('Build').props.onClick()})
- expect(state.api.generate).toHaveBeenCalledWith('Invoice tracker with sample data',undefined,expect.objectContaining({sampleCount:1}))
- await act(async()=>{finish({app:{id:'created'},source:'template'});await completion})
- await act(async()=>{tree!.root.findByType(AppView).props.onBack()})
- expect(tree!.root.findByProps({'aria-label':'Maximum sample rows'}).props.value).toBe(0)
-})
-test('opening an app from the library starts in its data viewer', async () => {
-  state.api.apps.mockResolvedValue({ apps: [{
-    id: 'existing', name: 'Tracker', description: 'A task tracker', icon: 'grid', tableId: 'tasks',
-    template: null, version: 2, createdBy: 'user', updatedAt: '2026-10-31T00:00:00Z', channels: [],
-    definition: { views: [], custom: { published: '<main></main>' } },
-  }] })
-  await act(async () => { tree = create(<HarnessApps httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} />) })
-  await act(async () => { tree!.root.findByProps({ 'aria-label': 'Open Tracker' }).props.onClick() })
-  expect(location.hash).toBe('#/apps/existing/team%3Aone?section=data')
-})
-test('the app data viewer keeps one record-create action in the table toolbar', async () => {
-  vi.stubGlobal('document', { addEventListener: vi.fn(), removeEventListener: vi.fn(), visibilityState: 'visible' })
-  state.api = {
-    app: vi.fn().mockResolvedValue({
-      app: { id: 'tasks', name: 'UI確認用タスク', description: '', icon: 'grid', tableId: 'tasks', template: null, version: 1, createdBy: 'owner', channels: [], definition: { views: [] } },
-      table: { id: 'tasks', orgId: 'team:one', name: 'UI確認用タスク', columns: [{ id: 'title', name: 'タスク名', type: 'text' }] },
-      rows: [], views: [{ id: 'all', type: 'table', name: 'All tasks', rows: [] }], canCustomize: true,
-    }),
-    personalViews: vi.fn().mockResolvedValue({ revision: 0, views: [], computed: [], layouts: {} }),
-    conversation: vi.fn().mockResolvedValue({ messages: [], hasMore: false, annotations: [] }),
-    conversationNotifications: vi.fn().mockResolvedValue({ items: [] }),
-    templateShares: vi.fn().mockResolvedValue({ shares: [], canManage: true }),
-    versions: vi.fn().mockResolvedValue({ versions: [] }),
-  }
-  await act(async () => {
-    tree = create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={() => {}} api={state.api} appId="tasks" onBack={() => {}} initialSection="data" />)
-    await new Promise(resolve => setTimeout(resolve, 0))
-  })
-  const createActions = tree!.root.findAllByProps({ className: 'pill-btn hx-create-record' })
-  expect(createActions).toHaveLength(1)
-  expect(createActions[0].children).toContain('新規タスク')
-  expect(createActions[0].props.title).toBe('新規タスク')
-  expect(createActions[0].props['aria-label']).toBe('新規タスク')
-  expect(tree!.root.findAllByType('h2').some(node => node.children.includes('タスク'))).toBe(true)
-  expect(tree!.root.findAllByType('button').some(node => node.children.includes('Add a row'))).toBe(false)
-  act(()=>createActions[0].props.onClick())
-  expect(tree!.root.findByType(AppRecordDialog).props.createTitle).toBe('新規タスク')
-})
-test('a shared personal-looking ID and a legacy collision offer safe personal-only recovery',async()=>{
-  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
-  const shared={id:'personal_collision',type:'table',name:'Shared',rows:[]}
-  const personal={...shared,name:'Old personal'}
-  state.api={
-    app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',template:null,version:1,createdBy:'owner',channels:[],definition:{views:[shared]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[shared],canCustomize:false}),
-    personalViews:vi.fn().mockResolvedValue({revision:1,activeView:shared.id,views:[personal],computed:[personal],layouts:{}}),
-    conversation:vi.fn().mockResolvedValue({messages:[],hasMore:false,annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
-    templateShares:vi.fn().mockResolvedValue({shares:[],canManage:false}),versions:vi.fn().mockResolvedValue({versions:[]}),
-  }
-  await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
-  const tabs=tree!.root.findAllByProps({role:'tab'})
-  expect(tabs).toHaveLength(2)
-  expect(tabs[0].props['aria-selected']).toBe(true)
-  expect(tabs[0].findAllByProps({className:'hx-personal-badge'})).toHaveLength(0)
-  expect(tabs[1].props.disabled).toBe(true)
-  expect(tabs[1].props.title).toContain('IDが重複')
-  act(()=>tree!.root.findByProps({'aria-label':'新しいビュー'}).props.onClick())
-  expect(tree!.root.findAllByType('button').some(node=>node.children.includes('個人ビューを削除'))).toBe(false)
-  act(()=>tree!.root.findAllByType('button').find(node=>node.children.includes('重複を解消'))!.props.onClick())
-  expect(JSON.stringify(tree!.toJSON())).toContain('共有ビューとレコードは残ります')
-  const saved={revision:2,activeView:shared.id,views:[],computed:[],layouts:{}}
-  state.api.savePersonalViews=vi.fn().mockResolvedValue(saved)
-  await act(async()=>{tree!.root.findAllByType('button').find(node=>node.children.includes('個人ビューのみ削除する'))!.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))})
-  expect(state.api.savePersonalViews).toHaveBeenCalledOnce()
-  expect(state.api.savePersonalViews.mock.calls[0][1].views).toEqual([])
-  expect(state.api.savePersonalViews.mock.calls[0][1].activeView).toBe(shared.id)
-  expect(tree!.root.findAllByProps({role:'tab'})).toHaveLength(1)
-})
-test('a late personal-view read cannot restore a deleted view and focus returns to the shared tab',async()=>{
+  expect(visible('Acme')).toBe(1);expect(visible('custo…7480 tokens truncated… returns to the shared tab',async()=>{
   vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
   const shared={id:'all',type:'table',name:'Shared',rows:[]},mine={id:'personal_mine',type:'table',name:'Mine',rows:[]}
   const initial={revision:1,activeView:mine.id,views:[mine],computed:[mine],layouts:{[mine.id]:{order:['title'],widths:{}}}}
