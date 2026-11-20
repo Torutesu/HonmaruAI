@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createStateBroker,validateStateRequest,createWorkflowOutputParser} from '../workflow-bridge.mjs';
 import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable,normalizeWorkflowInsert,insertWorkflowTableRow,normalizeWorkflowUpdate,normalizeWorkflowDelete,updateWorkflowTableRow,deleteWorkflowTableRow,normalizeWorkflowConnectionRequest,requestWorkflowConnection,paginateWorkflowConnection} from '../workflow-sdk.mjs';
+import {validateWorkflowConnectionSources} from '../workflow-runner.mjs';
 test('guest cannot choose activation identity or call arbitrary host operations',()=>{
  for(const request of [{id:1,method:'shell',params:{}},{id:1,method:'state.get',params:{runId:'other'}},{id:1,method:'state.set',params:{state:{},expectedRevision:0,owner:'other'}},{id:65,method:'state.get',params:{}}])assert.throws(()=>validateStateRequest(request));
 });
@@ -24,8 +25,23 @@ test('connection.request accepts only a named frozen App connection and bounded 
   {...params,url:'https://evil.example'}, {...params,method:'POST'}, {...params,body:{title:'x'}},
   {...params,query:{access_token:'secret'}}, {...params,query:{q:'x'.repeat(20001)}},
   {...params,query:{filter:{deep:{value:'x'}}}},
+  {...params,body:{title:'x'},operationId:'stable-write'}, {...params,operationId:'stable-write'},
  ])assert.throws(()=>validateStateRequest({id:1,method:'connection.request',params:bad}));
  assert.throws(()=>validateStateRequest({id:1,method:'connection.request',params:{...params,appId:''}}));
+});
+
+test('runner accepts only frozen GET or explicitly write-enabled App connection bindings',()=>{
+ const get={appId:'app-1',name:'issues',ownerId:'owner-1',version:1,method:'GET'};
+ const write={appId:'app-1',name:'create_issue',ownerId:'owner-1',version:2,method:'POST',write:true};
+ assert.deepEqual(validateWorkflowConnectionSources([get]),[get]);
+ assert.deepEqual(validateWorkflowConnectionSources([write]),[write]);
+ for(const invalid of [
+  [{...write,write:undefined}],
+  [{...get,write:true}],
+  [{...write,method:'TRACE'}],
+  [get,{...get}],
+ ])assert.throws(()=>validateWorkflowConnectionSources(invalid),/Invalid App connection sources context/);
+ assert.equal(validateWorkflowConnectionSources(undefined),undefined);
 });
 
 test('Workflow SDK routes App calls only through frozen GET bindings',async()=>{
@@ -34,8 +50,15 @@ test('Workflow SDK routes App calls only through frozen GET bindings',async()=>{
  assert.deepEqual(await requestWorkflowConnection({appId:'app-1',name:'issues',query:{state:'open'}},bridge),{data:[{id:'i-1'}]});
  assert.deepEqual(calls,[{appId:'app-1',name:'issues',query:{state:'open'}}]);
  await assert.rejects(()=>requestWorkflowConnection({appId:'app-2',name:'issues'},bridge),/frozen binding/);
- await assert.rejects(()=>requestWorkflowConnection({appId:'app-1',name:'issues'},{...bridge,connectionSources:[{appId:'app-1',name:'issues',method:'POST'}]}),/approval step/);
- assert.throws(()=>normalizeWorkflowConnectionRequest({appId:'app-1',name:'issues',body:{title:'x'}}),/read-only/);
+ const writeCalls=[],writeBridge={connectionSources:[{appId:'app-1',name:'issues',method:'POST',write:true}],requestConnection:async input=>{writeCalls.push(input);return {data:{id:'created-1'}}}};
+ assert.deepEqual(await requestWorkflowConnection({appId:'app-1',name:'issues',body:{title:'x'},operationId:'create-1'},writeBridge),{data:{id:'created-1'}});
+ assert.deepEqual(writeCalls,[{appId:'app-1',name:'issues',body:{title:'x'},operationId:'create-1'}]);
+ globalThis.__workflowConnectionWriteTestBridge=writeBridge;
+ try{const sdk=await import('data:text/javascript;base64,'+Buffer.from(workflowSdkSource('globalThis.__workflowConnectionWriteTestBridge')).toString('base64'));assert.deepEqual(await sdk.connection.request({appId:'app-1',name:'issues',body:{title:'sdk'},operationId:'sdk-write-1'}),{data:{id:'created-1'}});}
+ finally{delete globalThis.__workflowConnectionWriteTestBridge;}
+ await assert.rejects(()=>requestWorkflowConnection({appId:'app-1',name:'issues',body:{title:'x'},operationId:'create-1'},{...bridge,connectionSources:[{appId:'app-1',name:'issues',method:'POST'}]}),/write permission/);
+ assert.throws(()=>normalizeWorkflowConnectionRequest({appId:'app-1',name:'issues',body:{title:'x'}}),/stable operationId/);
+ assert.deepEqual(normalizeWorkflowConnectionRequest({appId:'app-1',name:'issues',body:{title:'x'},operationId:'create-1'}),{appId:'app-1',name:'issues',body:{title:'x'},operationId:'create-1'});
  assert.throws(()=>normalizeWorkflowConnectionRequest({appId:'app-1',name:'issues',url:'https://example.com'}),/Invalid/);
  globalThis.__workflowConnectionTestBridge=bridge;
  try{const sdk=await import('data:text/javascript;base64,'+Buffer.from(workflowSdkSource('globalThis.__workflowConnectionTestBridge')).toString('base64'));assert.deepEqual(await sdk.connection.request({appId:'app-1',name:'issues'}),{data:[{id:'i-1'}]});}

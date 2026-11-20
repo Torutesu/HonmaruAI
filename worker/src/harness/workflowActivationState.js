@@ -11,7 +11,7 @@ import {appConnectionsForViewer,invokeAppConnection} from './appConnectionGrants
 export async function workflowActivationState(db,activation,method,params,at=Date.now(),env=null) {
  activationScope(activation);
  if(!activation)throw Error('An authenticated activation is required.');
- const keys=method==='agent.invoke'?['agentId','prompt','schema','tier']:method==='state.get'?['view','includeCurrentRun']:method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:method==='table.query'?['where','q','pageSize','cursor','entityId']:method==='table.insert'?['entityId','values']:method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:method==='table.delete'?['entityId','rowId','expectedUpdatedAt']:method==='connection.request'?['appId','name','query']:null;
+ const keys=method==='agent.invoke'?['agentId','prompt','schema','tier']:method==='state.get'?['view','includeCurrentRun']:method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:method==='table.query'?['where','q','pageSize','cursor','entityId']:method==='table.insert'?['entityId','values']:method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:method==='table.delete'?['entityId','rowId','expectedUpdatedAt']:method==='connection.request'?['appId','name','query','body','operationId']:null;
  if(!keys||!params||typeof params!=='object'||Array.isArray(params)||Object.keys(params).some(key=>!keys.includes(key)))return {error:'Invalid state operation.',status:400};
  const binding=await db.prepare(`SELECT a.org_id,a.run_id,a.node_id,a.node_owner,a.node_attempt,d.definition,r.workflow_id FROM hx_workflow_activations a
  JOIN hx_gateway_jobs j ON j.org_id=a.org_id AND j.id=a.job_id
@@ -27,7 +27,8 @@ export async function workflowActivationState(db,activation,method,params,at=Dat
   if(step?.type!=='code'||!Array.isArray(sources)||sources.length<1||sources.length>20)return {error:'This Workflow has no explicitly authorized App connection.',status:403};
   if(typeof params.appId!=='string'||typeof params.name!=='string'||!sources.some(source=>source.appId===params.appId&&source.name===params.name))return {error:'Choose an explicitly authorized App connection.',status:403};
   const source=sources.find(item=>item.appId===params.appId&&item.name===params.name);
-  if(source.method!=='GET')return {error:'Writes through App connections require a Workflow approval step.',status:403};
+  if(!['GET','POST','PUT','PATCH','DELETE'].includes(source.method)||source.method!=='GET'&&source.write!==true)return {error:'The App connection method is not enabled for this Workflow.',status:403};
+  if(source.method==='GET'&&(params.body!==undefined||params.operationId!==undefined)||source.method!=='GET'&&(!params.body||typeof params.body!=='object'||Array.isArray(params.body)||typeof params.operationId!=='string'||! /^[a-zA-Z0-9_-]{1,32}$/.test(params.operationId)||params.query!==undefined||new TextEncoder().encode(JSON.stringify(params.body)).length>20000))return {error:'The App connection request does not match its frozen read/write contract.',status:400};
   const current=await appConnectionsForViewer(db,binding.org_id,source.appId,definition.createdBy);
   const live=current.error?null:current.connections.find(item=>item.name===source.name&&String(item.ownerId)===source.ownerId&&Number(item.version)===source.version&&item.method===source.method&&Number(item.enabled)===1);
   if(!live)return {error:'The bound App connection is unavailable or changed.',status:403};
@@ -37,7 +38,14 @@ export async function workflowActivationState(db,activation,method,params,at=Dat
    const fresh=await appConnectionsForViewer(db,binding.org_id,source.appId,definition.createdBy).catch(()=>({error:'unavailable'}));
    return Boolean(!fresh.error&&fresh.connections.some(item=>item.name===source.name&&String(item.ownerId)===source.ownerId&&Number(item.version)===source.version&&item.method===source.method&&Number(item.enabled)===1));
   };
-  try{return await invokeAppConnection(env,binding.org_id,source.appId,definition.createdBy,{name:source.name,version:source.version,expectedOwnerId:source.ownerId,query:params.query},{additionalAuthorize:authorize});}
+  let requestId;
+  if(source.method!=='GET'){
+   // Keep one external write key stable if this same workflow operation is observed again.
+   const identityHash=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`${binding.run_id}\0${source.appId}\0${source.name}\0${params.operationId}`)));
+   const suffix=Array.from(identityHash,byte=>byte.toString(16).padStart(2,'0')).join('').slice(0,64);
+   requestId=`wf-${suffix}`;
+  }
+  try{return await invokeAppConnection(env,binding.org_id,source.appId,definition.createdBy,{name:source.name,version:source.version,expectedOwnerId:source.ownerId,query:params.query,body:params.body,...(requestId?{requestId}:{})},{additionalAuthorize:authorize});}
   catch{return {error:'The App connection request failed.',status:502};}
  }
  if(['table.query','table.insert','table.update','table.delete'].includes(method)){

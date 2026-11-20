@@ -301,24 +301,27 @@ async function bindProgramConnectionSources(db,orgId,step,viewerId) {
   if(step?.sourceConnections===undefined)return {sources:[]};
   if(!Array.isArray(step.sourceConnections)||step.sourceConnections.length<1||step.sourceConnections.length>20
     ||step.sourceConnections.some(source=>!source||typeof source!=='object'||Array.isArray(source)
-      ||Object.keys(source).some(key=>!['appId','name','ownerId','version','method'].includes(key))
+      ||Object.keys(source).some(key=>!['appId','name','ownerId','version','method','write'].includes(key))
       ||typeof source.appId!=='string'||!source.appId.trim()||source.appId.length>200
       ||typeof source.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(source.name)
       ||source.ownerId!==undefined&&(typeof source.ownerId!=='string'||!source.ownerId||source.ownerId.length>200)
       ||source.version!==undefined&&(!Number.isSafeInteger(source.version)||source.version<1)
-      ||source.method!==undefined&&source.method!=='GET')
+      ||source.method!==undefined&&!['GET','POST','PUT','PATCH','DELETE'].includes(source.method)
+      ||source.write!==undefined&&typeof source.write!=='boolean'
+      ||(source.method??'GET')==='GET'&&source.write===true
+      ||(source.method??'GET')!=='GET'&&source.write!==true)
     ||new Set(step.sourceConnections.map(source=>`${source.appId}\0${source.name}`)).size!==step.sourceConnections.length)return {error:'Choose between 1 and 20 distinct App connections.'};
   const catalogs=new Map();
   const sources=[];
   for(const reference of step.sourceConnections){
     if(!catalogs.has(reference.appId))catalogs.set(reference.appId,await appConnectionsForViewer(db,orgId,reference.appId,viewerId));
     const catalog=catalogs.get(reference.appId);
-    const live=!catalog.error&&(catalog.connections||[]).find(item=>item.name===reference.name&&Number(item.enabled)===1&&item.method==='GET'
+    const method=reference.method??'GET';
+    const live=!catalog.error&&(catalog.connections||[]).find(item=>item.name===reference.name&&Number(item.enabled)===1&&item.method===method
       &&(reference.ownerId===undefined||String(item.ownerId)===reference.ownerId)
-      &&(reference.version===undefined||Number(item.version)===reference.version)
-      &&(reference.method===undefined||item.method===reference.method));
-    if(!live)return {error:'Choose an enabled GET App connection you can access. Re-select any connection that changed.'};
-    sources.push({appId:reference.appId,name:reference.name,ownerId:String(live.ownerId),version:Number(live.version),method:'GET'});
+      &&(reference.version===undefined||Number(item.version)===reference.version));
+    if(!live)return {error:'Choose an enabled App connection you can access. Re-select any connection that changed.'};
+    sources.push({appId:reference.appId,name:reference.name,ownerId:String(live.ownerId),version:Number(live.version),method,...(method!=='GET'?{write:true}:{})});
   }
   return {sources};
 }
@@ -351,14 +354,17 @@ export function normalizeSteps(raw) {
           if(s.sourceConnections!==undefined){
             if(!Array.isArray(s.sourceConnections)||s.sourceConnections.length<1||s.sourceConnections.length>20
               ||s.sourceConnections.some(source=>!source||typeof source!=='object'||Array.isArray(source)
-                ||Object.keys(source).some(key=>!['appId','name','ownerId','version','method'].includes(key))
+                ||Object.keys(source).some(key=>!['appId','name','ownerId','version','method','write'].includes(key))
                 ||typeof source.appId!=='string'||!source.appId.trim()||source.appId.length>200
                 ||typeof source.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(source.name)
                 ||source.ownerId!==undefined&&(typeof source.ownerId!=='string'||!source.ownerId||source.ownerId.length>200)
                 ||source.version!==undefined&&(!Number.isSafeInteger(source.version)||source.version<1)
-                ||source.method!==undefined&&source.method!=='GET')
-              ||new Set(s.sourceConnections.map(source=>`${source.appId}\0${source.name}`)).size!==s.sourceConnections.length)return {error:'Choose between 1 and 20 distinct enabled GET App connections.'};
-            sourceConnections={sourceConnections:s.sourceConnections.map(source=>({appId:source.appId,name:source.name,...(source.ownerId!==undefined?{ownerId:source.ownerId}:{}),...(source.version!==undefined?{version:source.version}:{}),...(source.method!==undefined?{method:source.method}:{})}))};
+                ||source.method!==undefined&&!['GET','POST','PUT','PATCH','DELETE'].includes(source.method)
+                ||source.write!==undefined&&typeof source.write!=='boolean'
+                ||(source.method??'GET')==='GET'&&source.write===true
+                ||(source.method??'GET')!=='GET'&&source.write!==true)
+              ||new Set(s.sourceConnections.map(source=>`${source.appId}\0${source.name}`)).size!==s.sourceConnections.length)return {error:'Choose between 1 and 20 distinct enabled App connections; non-GET connections require explicit write permission.'};
+              sourceConnections={sourceConnections:s.sourceConnections.map(source=>({appId:source.appId,name:source.name,...(source.ownerId!==undefined?{ownerId:source.ownerId}:{}),...(source.version!==undefined?{version:source.version}:{}),...(source.method!==undefined?{method:source.method}:{}),...(source.write===true?{write:true}:{})}))};
           }
           const hasLegacySource=sourceFields.some(key=>s[key]!==undefined&&s[key]!==null&&s[key]!=='');
           const hasSourceTables=s.sourceTables!==undefined;

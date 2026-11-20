@@ -376,13 +376,13 @@ async function setupProgramTableSource({privateApp=false,multiSource=false,writa
  return {api,job,privateApp};
 }
 
-async function setupProgramConnectionSource(){
+async function setupProgramConnectionSource({method='GET',write=false}={}){
  await upsertUser(env.DB,{githubId:'app-owner',login:'app-owner',name:'App Owner'});
  await upsertMembership(env.DB,'program-org','app-owner','admin');
  await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('connection-app','program-org','Connection App','connection-table','{}','app-owner','now','now')").run();
  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES('program-org','connection-app','workspace',1)").run();
- await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES('program-org','connection-app','program-owner','github_issues',1,'https://api.github.com/repos/example/project/issues','GET',1)").run();
- definition.steps=[{...definition.steps[0],sourceConnections:[{appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'GET'}]}];
+ await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES('program-org','connection-app','program-owner','github_issues',1,'https://api.github.com/repos/example/project/issues',?1,1)").bind(method).run();
+ definition.steps=[{...definition.steps[0],sourceConnections:[{appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method,...(write?{write:true}:{})}]}];
  await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=?1 WHERE run_id='program-run'").bind(JSON.stringify(definition)).run();
  const queued=await enqueue({at:Date.now()});expect(queued.status).toBe('pending');
  const token=`hgw_${crypto.randomUUID()}${crypto.randomUUID()}`;
@@ -404,10 +404,12 @@ test('Workflow App connection references are frozen to their current owner and v
  const created=await createWorkflow(env.DB,'program-org',{name:'Bound App connection',trigger:{type:'manual'},steps:[inputStep]},'program-owner');
  expect(created.error).toBeUndefined();
  expect(created.workflow.steps[0].sourceConnections).toEqual([{appId:'bound-app',name:'github_issues',ownerId:'program-owner',version:1,method:'GET'}]);
- const invalidWrite=await createWorkflow(env.DB,'program-org',{name:'Write connection',trigger:{type:'manual'},steps:[{...inputStep,sourceConnections:[{appId:'bound-app',name:'write_api'}]}]},'program-owner');
  await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES('program-org','bound-app','program-owner','write_api',1,'https://api.github.com/repos/example/project/issues','POST',1)").run();
- const write=await createWorkflow(env.DB,'program-org',{name:'Write connection',trigger:{type:'manual'},steps:[{...inputStep,sourceConnections:[{appId:'bound-app',name:'write_api'}]}]},'program-owner');
- expect(write.error).toContain('enabled GET App connection');expect(invalidWrite.error).toContain('enabled GET App connection');
+ const invalidWrite=await createWorkflow(env.DB,'program-org',{name:'Write connection',trigger:{type:'manual'},steps:[{...inputStep,sourceConnections:[{appId:'bound-app',name:'write_api',method:'POST'}]}]},'program-owner');
+ const write=await createWorkflow(env.DB,'program-org',{name:'Write connection',trigger:{type:'manual'},steps:[{...inputStep,sourceConnections:[{appId:'bound-app',name:'write_api',method:'POST',write:true}]}]},'program-owner');
+ expect(invalidWrite.error).toContain('non-GET connections require explicit write permission');
+ expect(write.error).toBeUndefined();
+ expect(write.workflow.steps[0].sourceConnections).toEqual([{appId:'bound-app',name:'write_api',ownerId:'program-owner',version:1,method:'POST',write:true}]);
  await env.DB.prepare("UPDATE hx_app_connections SET version=2 WHERE org_id='program-org' AND app_id='bound-app' AND name='github_issues'").run();
  const stale=await updateWorkflow(env.DB,'program-org',created.workflow.id,{steps:created.workflow.steps,expectedUpdatedAt:created.workflow.updatedAt});
  expect(stale.error).toContain('Re-select any connection that changed');
@@ -434,6 +436,29 @@ test('Workflow connection.request uses its pinned URL and drops the response whe
   expect(fetch).toHaveBeenCalledTimes(2);
   const injected=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'connection.request',params:{appId:'foreign-app',name:'github_issues'}});
   expect(injected.status).toBe(403);
+ }finally{vi.unstubAllGlobals()}
+});
+
+test('Workflow App connection writes require a frozen write binding and an at-most-once operation ID',async()=>{
+ const {api,job}=await setupProgramConnectionSource({method:'POST',write:true});
+ const fetch=vi.fn(async(url,init)=>{
+  expect(String(url)).toBe('https://api.github.com/repos/example/project/issues');
+  expect(init.method).toBe('POST');expect(JSON.parse(init.body)).toEqual({title:'Approved issue'});
+  return new Response(JSON.stringify({number:41}),{headers:{'content-type':'application/json'}});
+ });
+ vi.stubGlobal('fetch',fetch);
+ try{
+  const request={lease:job.lease,operation:'connection.request',params:{appId:'connection-app',name:'github_issues',body:{title:'Approved issue'},operationId:'issue-41'}};
+  const first=await api(`/jobs/${job.id}/state`,request);
+  expect(first.status).toBe(200);expect(await first.json()).toMatchObject({data:{number:41}});
+  const replay=await api(`/jobs/${job.id}/state`,request);
+  expect(replay.status).toBe(409);
+  const changedBody=await api(`/jobs/${job.id}/state`,{...request,params:{...request.params,body:{title:'Different issue'}}});
+  expect(changedBody.status).toBe(409);
+  const distinctOperation=await api(`/jobs/${job.id}/state`,{...request,params:{...request.params,operationId:'issue-42'}});
+  expect(distinctOperation.status).toBe(200);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(await env.DB.prepare("SELECT status FROM hx_app_connection_requests WHERE org_id='program-org' AND app_id='connection-app' AND created_by='program-owner' ORDER BY created_at").all()).toMatchObject({results:[{status:'succeeded'},{status:'succeeded'}]});
  }finally{vi.unstubAllGlobals()}
 });
 

@@ -53,6 +53,10 @@ export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:Har
   const next=checked?[...selectedConnections.filter(item=>item.appId!==connectionAppId||item.name!==connection.name),{appId:connectionAppId,name:connection.name,ownerId:String(connection.ownerId||''),version:connection.version,method:connection.method}]:selectedConnections.filter(item=>item.appId!==connectionAppId||item.name!==connection.name)
   onChange({...step,sourceConnections:next.length?next:undefined})
  }
+ const setConnectionWrite=(connection:AppConnection,write:boolean)=>{
+  const next=selectedConnections.map(item=>item.appId===connectionAppId&&item.name===connection.name?{...item,...(write?{write:true}:{write:undefined})}:item)
+  onChange({...step,sourceConnections:next.length?next:undefined})
+ }
  const setSources=(entityIds:string[])=>{
   const entities=selectedApp?.entities.filter(entity=>entityIds.includes(entity.key))??[]
   if(!selectedApp||!entities.length){onChange({...step,sourceAppId:undefined,sourceEntityId:undefined,sourceTableId:undefined,sourceTables:undefined});return}
@@ -108,8 +112,9 @@ export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:Har
    {connectionsError&&<p className="form-error" role="alert">{connectionsError}</p>}
    {!connectionsBusy&&!connectionsError&&connections.filter(item=>Number(item.enabled)===1).map(connection=>{
     const selected=selectedConnections.some(item=>item.appId===connectionAppId&&item.name===connection.name)
-    const supported=connection.method==='GET'
-    return <label key={`${connection.ownerId||''}:${connection.name}`}><input type="checkbox" aria-label={`${t('Include connection')}: ${connection.name}`} checked={selected} disabled={!supported||!selected&&selectedConnections.length>=20} onChange={event=>setConnection(connection,event.target.checked)}/>{connection.name} · {connection.method}{connection.ownerName?` · ${connection.ownerName}`:''}{!supported?` · ${t('Writes require a Workflow approval step and are not available in programs yet.')}`:''}</label>
+    const supported=['GET','POST','PUT','PATCH','DELETE'].includes(connection.method)
+    const binding=selectedConnections.find(item=>item.appId===connectionAppId&&item.name===connection.name)
+    return <div key={`${connection.ownerId||''}:${connection.name}`}><label><input type="checkbox" aria-label={`${t('Include connection')}: ${connection.name}`} checked={selected} disabled={!supported||!selected&&selectedConnections.length>=20} onChange={event=>setConnection(connection,event.target.checked)}/>{connection.name} · {connection.method}{connection.ownerName?` · ${connection.ownerName}`:''}</label>{selected&&connection.method!=='GET'&&<label><input type="checkbox" aria-label={`${t('Allow writes via this connection')}: ${connection.name}`} checked={binding?.write===true} onChange={event=>setConnectionWrite(connection,event.target.checked)}/>{t('Allow writes via this connection')}</label>}</div>
    })}
    {!connectionsBusy&&!connectionsError&&!connections.some(item=>Number(item.enabled)===1)&&<p className="row-sub">{t('No enabled App connections are available.')}</p>}
    {selectedConnections.filter(item=>item.appId===connectionAppId).some(item=>!connections.some(connection=>connection.name===item.name&&String(connection.ownerId||'')===item.ownerId&&connection.version===item.version&&connection.method===item.method&&Number(connection.enabled)===1))&&<p role="alert">{t('A selected connection changed or is no longer available. Re-select it before saving.')}</p>}
@@ -121,7 +126,7 @@ export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:Har
    {!selectedAgentIds.size&&<p className="row-sub">{t('Choose Agents that this program may call with agent(prompt, { agentId, schema }).')}</p>}
   </fieldset>
   <p className="row-sub">{t('The table.query helper reads saved App entities. table.insert requires Allow row creation; table.update and table.delete require Allow row updates and deletes. All changes commit only after the program succeeds. No VM network or database access is enabled.')}</p>
-  <p className="row-sub">{t('connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.')}</p>
+  <p className="row-sub">{t('connection.request({appId, name, query}) sends bounded GET requests. For a connection explicitly allowed to write, use connection.request({appId, name, body, operationId}) with a stable operationId. This permission allows writes whenever the saved Workflow runs; it does not pause for per-run approval. The program never receives the URL or credential. External writes are attempted once; an unknown result must be reconciled at the provider and is never retried.')}</p>
   <p className="row-sub">{t('connection.paginate({appId, name, query, getItems, getNextQuery}) follows provider pages through the same connection. Page, item, and byte limits are bounded; check complete before treating results as exhaustive.')}</p>
   <div className="hx-program-code" style={{'--program-gutter':`${Math.max(2,String(lineCount).length)+2}ch`} as React.CSSProperties}>
    <div className="hx-program-gutter" aria-hidden="true"><pre ref={lineNumbers}>{Array.from({length:lineCount},(_,index)=>index+1).join('\n')}</pre></div>
