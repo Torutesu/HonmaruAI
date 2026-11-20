@@ -1824,6 +1824,21 @@
         "verification": "Focused component tests 3/3 passed; full web-react suite 277 files / 2,110 tests passed; TypeScript noEmit and Vite production build passed. Compiler chunk is lazy: 3.45MB uncompressed / 970KB gzip; it is not part of the initial bundle.",
         "remaining": "PR exact-head CI, main CI, production deployment and browser-level E2E acceptance remain pending. Kylon live editor comparison and type-level diagnostics are not claimed; compiler-based semantic typechecking is outside this slice."
       }
+    },
+    {
+      "id": "KY-133",
+      "category": "Connections",
+      "requirement": "ChatGPTからHonmaru WorkspaceをKylonのChatGPT連携相当で参照・操作",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/blog/kylon-in-chatgpt",
+      "code": "worker/src/mcpOAuth.js; worker/src/mcp.js; worker/schema.sql; worker/migrations.sql; worker/test/mcp-oauth-integration.test.js",
+      "acceptance": "ChatGPTのCustom MCP OAuthフローがDCRで接続でき、OAuth 2.1 authorization code + S256 PKCE、resource binding、明示的なユーザー同意、選択Workspace、最小scope、refresh/revokeを使う。MCP tools/listはtoolごとのOAuth scopeをsecuritySchemesに出し、既存のHonmaru ACL・監査・失効を維持する。Simple modeを維持し、新規課金・外部サービス契約なし。実ChatGPTコネクターで同一Workspaceの会話・ファイル・Harness操作をKylonと比較する。",
+      "evidence": {
+        "reviewedAt": "2026-11-21",
+        "verified": "ChatGPT向けOAuth authorization-server metadataにregistration_endpointを追加。匿名DCRはpublic authorization-code + S256 PKCE clientに限定し、redirect URIをHTTPS/loopback exact-match、scope allowlist、refresh grant、保管上限、休眠client cleanupで制御。tools/listにtool単位OAuth scope metadataを返し、対象Worker suite 49/49成功、Worker全体323 files / 3,702 tests成功。DCR→Honmaru consent→PKCE token exchange→scoped tool listing→disconnect/revocationを統合テストで確認。",
+        "remaining": "exact-head CI、merge後のmain CIと本番deploy、実ChatGPT接続とKylon同一タスクの認証済み画面比較を完了するまで部分実装。"
+      }
     }
   ]
 }

@@ -5,18 +5,19 @@ import { createSession, upsertUser, upsertMembership } from '../src/db.js';
 const ORG = 'personal:mcp-oauth', resource = 'https://example.com/mcp', verifier = 'a'.repeat(64);
 const configuration = () => ({ ...env, APP_WEB_URL: 'https://app.honmaruai.com', MCP_PUBLIC_URL: resource });
 let session, client;
+const redirectUri = () => client.redirect_uris?.[0] || 'https://client.example/callback';
 const call = (path, { method = 'GET', data, token, headers = {} } = {}) => handleMcpOAuth(new Request(`https://example.com${path}`, { method, headers: { ...(data === undefined ? {} : { 'content-type': 'application/json' }), ...(token ? { 'x-session-token': token } : {}), ...headers }, body: data === undefined ? undefined : JSON.stringify(data) }), configuration());
 async function authorization(extra = {}) {
   const challenge = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return call(`/mcp/oauth/authorize?${new URLSearchParams({ client_id: client.client_id, redirect_uri: 'https://client.example/callback', resource, scope: 'chat:read chat:write chat:private', state: 'client-state', response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge, ...extra })}`);
+  return call(`/mcp/oauth/authorize?${new URLSearchParams({ client_id: client.client_id, redirect_uri: redirectUri(), resource, scope: 'chat:read chat:write chat:private', state: 'client-state', response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge, ...extra })}`);
 }
-async function requestId() {
-  const response = await authorization();
+async function requestId(extra = {}) {
+  const response = await authorization(extra);
   expect(response.status).toBe(302);
   return new URL(response.headers.get('location')).hash.split('/').pop();
 }
-async function consent(scopes = ['chat:read']) {
-  const id = await requestId();
+async function consent(scopes = ['chat:read'], oauth = {}) {
+  const id = await requestId(oauth);
   const response = await call(`/mcp/oauth/requests/${id}`, { method: 'POST', token: session, data: { approve: true, orgId: ORG, scopes } });
   const result = await response.json();
   expect(response.status, JSON.stringify(result)).toBe(200);
@@ -24,7 +25,7 @@ async function consent(scopes = ['chat:read']) {
   expect(redirect.searchParams.get('state')).toBe('client-state');
   return { id, code: redirect.searchParams.get('code') };
 }
-const exchange = (code, extra = {}) => call('/mcp/oauth/token', { method: 'POST', data: { grant_type: 'authorization_code', client_id: client.client_id, redirect_uri: 'https://client.example/callback', resource, code, code_verifier: verifier, ...extra } });
+const exchange = (code, extra = {}) => call('/mcp/oauth/token', { method: 'POST', data: { grant_type: 'authorization_code', client_id: client.client_id, redirect_uri: redirectUri(), resource, code, code_verifier: verifier, ...extra } });
 async function token() {
   const response = await exchange((await consent()).code);
   const result = await response.json();
@@ -40,11 +41,37 @@ beforeEach(async () => {
   expect(response.status).toBe(201);
   client = await response.json();
 });
-test('discovery advertises PKCE and registered public clients', async () => {
+test('discovery advertises PKCE and the bounded dynamic client registration endpoint', async () => {
   const metadata = await (await call('/.well-known/oauth-authorization-server')).json();
-  expect(metadata).toMatchObject({ issuer: 'https://example.com', token_endpoint_auth_methods_supported: ['none'], code_challenge_methods_supported: ['S256'] });
-  expect(metadata.registration_endpoint).toBeUndefined();
+  expect(metadata).toMatchObject({ issuer: 'https://example.com', token_endpoint_auth_methods_supported: ['none'], code_challenge_methods_supported: ['S256'], registration_endpoint: 'https://example.com/mcp/oauth/register' });
   expect((await (await call('/.well-known/oauth-protected-resource/mcp')).json()).resource).toBe(resource);
+});
+test('dynamic registration accepts bounded public PKCE clients and rejects unsafe metadata', async () => {
+  const response = await call('/mcp/oauth/register', { method: 'POST', data: { client_name: 'ChatGPT Honmaru', redirect_uris: ['https://chatgpt.com/connector/oauth/test-callback'], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none', scope: 'chat:read chat:write' } });
+  const registered = await response.json();
+  expect(response.status).toBe(201);
+  expect(registered).toMatchObject({ client_name: 'ChatGPT Honmaru', token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], scope: 'chat:read chat:write' });
+  expect(registered.client_id).toMatch(/^hmclient_[a-f0-9]{64}$/);
+  expect((await env.DB.prepare('SELECT registration_kind,scope_allowlist,grant_types FROM mcp_oauth_clients WHERE id=?1').bind(registered.client_id).first()))
+    .toEqual({ registration_kind: 'dynamic', scope_allowlist: '["chat:read","chat:write"]', grant_types: '["authorization_code","refresh_token"]' });
+  await expect((await call('/mcp/oauth/clients', { token: session })).json()).resolves.toMatchObject({ clients: [expect.objectContaining({ id: client.client_id })] });
+  expect((await call(`/mcp/oauth/clients/${registered.client_id}`, { method: 'DELETE', token: session })).status).toBe(404);
+  for (const invalid of [
+    { redirect_uris: ['https://client.example/callback#fragment'] },
+    { redirect_uris: ['http://192.168.1.2/callback'] },
+    { redirect_uris: ['https://client.example/callback'], token_endpoint_auth_method: 'client_secret_basic' },
+    { redirect_uris: ['https://client.example/callback'], grant_types: ['client_credentials'] },
+  ]) expect((await call('/mcp/oauth/register', { method: 'POST', data: { redirect_uris: ['https://client.example/callback'], ...invalid } })).status).toBe(400);
+});
+test('dynamic client scopes are enforced at authorization and refresh grants follow registration', async () => {
+  const registered = await (await call('/mcp/oauth/register', { method: 'POST', data: { client_name: 'Read-only ChatGPT', redirect_uris: ['https://chatgpt.com/connector/oauth/test-callback'], grant_types: ['authorization_code'], scope: 'chat:read' } })).json();
+  client = registered;
+  expect((await authorization({ scope: 'chat:write' })).status).toBe(400);
+  const { code } = await consent(['chat:read'], { scope: 'chat:read' });
+  const result = await (await exchange(code)).json();
+  expect(result.access_token).toMatch(/^hmoa_/);
+  expect(result.refresh_token).toBeUndefined();
+  expect((await call('/mcp/oauth/token', { method: 'POST', data: { grant_type: 'refresh_token', client_id: client.client_id, resource, refresh_token: 'hmor_' + 'a'.repeat(64) } })).status).toBe(400);
 });
 test('real-session consent issues a hashed token for selected scopes and workspace', async () => {
   const granted = await token(), who = await actor(granted.access_token);
@@ -160,4 +187,14 @@ test('expiry cleanup retains live credentials and consumed refresh replay eviden
   expect(await actor(next.access_token)).not.toBeNull();
   expect((await call('/mcp/oauth/token', { method: 'POST', data: { grant_type: 'refresh_token', client_id: client.client_id, resource, refresh_token: first.refresh_token } })).status).toBe(400);
   expect(await actor(next.access_token)).toBeNull();
+});
+test('dynamic client cleanup removes only expired registrations with no active grant', async () => {
+  const inactive = await (await call('/mcp/oauth/register', { method: 'POST', data: { redirect_uris: ['https://chatgpt.com/connector/oauth/old'] } })).json();
+  const active = await (await call('/mcp/oauth/register', { method: 'POST', data: { redirect_uris: ['https://chatgpt.com/connector/oauth/active'] } })).json();
+  const first = await token(), activeActor = await actor(first.access_token);
+  await env.DB.prepare('UPDATE mcp_oauth_clients SET created_at=0 WHERE id IN (?1,?2)').bind(inactive.client_id, active.client_id).run();
+  await env.DB.prepare('UPDATE mcp_oauth_grants SET client_id=?2 WHERE id=?1').bind(activeActor.grantId, active.client_id).run();
+  await sweepMcpOAuth(configuration());
+  expect(await env.DB.prepare('SELECT id FROM mcp_oauth_clients WHERE id=?1').bind(inactive.client_id).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT id FROM mcp_oauth_clients WHERE id=?1').bind(active.client_id).first()).not.toBeNull();
 });
