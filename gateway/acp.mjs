@@ -224,7 +224,7 @@ async function startWorkspaceMcp(mcpCall, browserCall, signal) {
 function safePrePromptFallback(error) {
   const details = `${error?.protocolMessage || ''} ${error?.protocolData || ''}`.toLowerCase();
   if (/\bpermission\b|\baccess (?:was )?denied\b|\baccess forbidden\b|\bforbidden\b|\bnot authorized\b|\bnot permitted\b|\bnot allowed\b|\bunauthori[sz]ed\b|\binsufficient (?:scope|permission)\b|\b(?:policy|organization) (?:denied|blocked|forbids?)\b|\bapproval required\b|\bconsent required\b|\bbudget (?:is )?(?:exhausted|exceeded)\b|\bbilling permission\b/.test(details)) return null;
-  if (/(?:usage|rate|request)[ -]?(?:limit|quota)|quota exceeded|resource exhausted|out of credits|credits exhausted|usage cap reached/.test(details)) return 'provider_limited';
+  if (/\b(?:usage|rate|request|token|monthly|daily|spending|plan|billing)[\s_-]*(?:limit|quota|cap|allowance)\b|\b(?:limit|quota|cap|allowance)\b.{0,48}\b(?:reached|exceeded|exhausted|depleted)\b|\b(?:reached|exceeded|exhausted|depleted)\b.{0,48}\b(?:limit|quota|cap|allowance)\b|\binsufficient[\s_-]+quota\b|\btoo many requests\b|\bresource exhausted\b|\bpayment required\b|\b(?:no|not enough) credits? (?:remaining|left|available)\b|\bcredits? (?:are )?(?:exhausted|depleted|used up)\b/.test(details)) return 'provider_limited';
   return 'runtime_unavailable';
 }
 
