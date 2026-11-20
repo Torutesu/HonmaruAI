@@ -564,9 +564,10 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   const workspaceMode = await getMode(env.DB, orgId).catch(() => null);
   const harness = workspaceMode === "harness";
   // Optional cloud fallback is considered only for a local ACP teammate whose
-  // owner enabled it and whose node heartbeat is stale. It uses the already
-  // configured Workspace AI provider and its existing allowance/budget gates.
+  // owner enabled it and whose node is offline. It uses the already configured
+  // Workspace AI provider and its existing allowance/budget gates.
   const fallbackTeammates = new Map();
+  const fallbackReasons = new Map();
   if (harness) {
     for (const agent of agents) {
       if (!TEAMMATE_PROVIDERS[agent.provider]?.localGateway) continue;
@@ -588,6 +589,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       } else if (provider && allowance?.allowed) {
         await recordAgentFallbackState(env.DB,{orgId,agentId:agent.id,gatewayId:teammate.remote.gatewayId,ownerLogin:node.owner_login,state:'workspace'});
         fallbackTeammates.set(agent.id, teammate);
+        fallbackReasons.set(agent.id, 'offline');
       }
     }
     await drainAgentFallbackNotifications(env,broadcastStored).catch(err=>console.error('Agent fallback notification drain failed',safe(err?.message)));
@@ -720,15 +722,23 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     if (agent.provider && !fallbackTeammates.has(agent.id)) {
       await progress(agent, "agent");
       const t = await teammateForAgent(env.DB, orgId, agent, env).catch(() => null);
+      let teammateResult;
       try {
         const edits = resolved.kind === 'agent' && resolved.agent?.id === agent.id
           ? await consumeDraftEditContext(env.DB,{orgId,messageId:row.id,agentId:agent.id}) : [];
-        return await runTeammate(env, { orgId, user, requesterId:session.github_id, resolved, row, members, locale, agent, t, authorize, roomHookSource, replyFence, taskText: taskText + draftEditPrompt(edits), signal, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) });
+        teammateResult = await runTeammate(env, { orgId, user, requesterId:session.github_id, resolved, row, members, locale, agent, t, authorize, roomHookSource, replyFence, allowWorkspaceFallback:harness, taskText: taskText + draftEditPrompt(edits), signal, deadline: Date.now() + (env.TEAMMATE_WATCH_MS !== undefined ? Number(env.TEAMMATE_WATCH_MS) : env.AGENT_INLINE === "1" || !env.AGENT_RUNNER ? 20000 : 240000) });
       } catch(err) {
         if(replyFence)throw err;
         console.error("teammate failed",safe(err?.message));
       } finally {await progress(agent,"done");}
-      return;
+      if (teammateResult?.workspaceFallback === 'unavailable') {
+        fallbackTeammates.set(agent.id, t);
+        fallbackReasons.set(agent.id, 'unavailable');
+        if (provider && allowance?.allowed && (!allowance.metered || modelLeft > 0)) {
+          if (allowance.metered) modelLeft -= 1;
+          spend[index] = 'model';
+        } else spend[index] = 'quota';
+      } else return teammateResult;
     }
     await progress(agent, "agent");
     let text;
@@ -808,7 +818,8 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         modelAnswered = Boolean(result.answer);
       }
       if (modelAnswered && fallbackTeammates.has(agent.id)) {
-        text = `${serverText(locale, "agent.workspaceFallback")}\n\n${text}`;
+        const reasonKey = fallbackReasons.get(agent.id) === 'unavailable' ? 'agent.workspaceFallbackUnavailable' : 'agent.workspaceFallback';
+        text = `${serverText(locale, reasonKey)}\n\n${text}`;
       }
       if (slackDraftIds.length) {
         const markers = [...new Set(slackDraftIds)].filter(id => !String(text || '').includes(id))
@@ -886,7 +897,7 @@ const teammateParent = (resolved, row) => row.parent_id || (resolved.kind === "a
 /// An AI teammate's turn (teammates.js): the thread handed to it, a line
 /// saying it has started, and its answer when it has one — watched here
 /// while this request may still run, and by the minute cron after that.
-async function runTeammate(env, { orgId, user, requesterId, resolved, row, members, locale, agent, t, deadline, authorize = null, roomHookSource = false, replyFence = null, taskText = row.body, signal = null }) {
+async function runTeammate(env, { orgId, user, requesterId, resolved, row, members, locale, agent, t, deadline, authorize = null, roomHookSource = false, replyFence = null, allowWorkspaceFallback = false, taskText = row.body, signal = null }) {
   const parentId = teammateParent(resolved, row);
   const say = async (key) => {
     if (authorize && !await authorize()) return;
@@ -918,6 +929,9 @@ async function runTeammate(env, { orgId, user, requesterId, resolved, row, membe
     });
   } catch (err) {
     console.error("teammate start failed", safe(err?.message));
+    if (allowWorkspaceFallback && err?.safeWorkspaceFallback && (t.remote?.fallbackToWorkspaceAIConfigured !== true || t.remote?.fallbackToWorkspaceAI === true)) {
+      return { workspaceFallback: 'unavailable' };
+    }
     return say("teammate.failed");
   }
   if (started.refused) return say(started.refused === "limit" ? "teammate.limit" : started.refused === "busy" ? "teammate.busy" : "teammate.notHere");

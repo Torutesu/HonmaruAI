@@ -657,7 +657,13 @@ async function queueAcpPrompt(env, t, { orgId, requesterId, task, sessionId = nu
     conversationContext: conversation,
     ...(conversation ? { conversationTask: true, browserContext: conversation } : {}),
   });
-  if (queued.error) throw Object.assign(new Error(queued.error), { status: queued.status || 400 });
+  if (queued.error) throw Object.assign(new Error(queued.error), {
+    status: queued.status || 400,
+    // This exact queue rejection is returned before a Gateway job exists.
+    // It is therefore safe to answer with Workspace AI without replaying
+    // work that may already have changed the local machine.
+    safeWorkspaceFallback: queued.status === 409 && queued.error === 'Queue is full or the node was disconnected.',
+  });
   return queued.job;
 }
 

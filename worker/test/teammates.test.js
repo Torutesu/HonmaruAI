@@ -192,6 +192,26 @@ test('default ACP cloud fallback uses existing Workspace AI when the configured 
  expect((await agentDm()).results).toHaveLength(4);
 });
 
+test('an online ACP node that rejects a full queue falls back without creating or replaying a local job',async()=>{
+ const {setMode}=await import('../src/harness/mode.js');await setMode(env.DB,ORG,'harness','9701');
+ const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
+ const {gateway,token}=await registered.json();
+ await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
+ const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local'});
+ expect(configured.status).toBe(200);
+ for(let i=0;i<100;i++)await env.DB.prepare(`INSERT INTO hx_gateway_jobs(id,org_id,gateway_id,created_by,request_id,payload,status,created_at)
+   VALUES(?1,?2,?3,'9701',?4,'{}','queued',?5)`).bind(`queue-${i}`,ORG,gateway.id,`queue-request-${i}`,Date.now()).run();
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(400,{error:{message:'Responses unavailable'}}).times(2);
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,{choices:[{message:{content:'Completed with the existing Workspace model.'}}],usage:{prompt_tokens:8,completion_tokens:6}});
+ const sent=await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:'@acp-agent summarize the launch plan'},{OPENAI_API_KEY:'sk-existing-workspace'});
+ expect(sent.status).toBe(201);
+ const replies=await thread(toru,(await sent.json()).message.id);
+ expect(replies.map(reply=>reply.body).join('\n')).toContain('node could not accept the task');
+ expect(replies.map(reply=>reply.body).join('\n')).toContain('Completed with the existing Workspace model.');
+ expect(await env.DB.prepare('SELECT COUNT(*) n FROM hx_gateway_jobs WHERE org_id=?1 AND gateway_id=?2').bind(ORG,gateway.id).first()).toEqual({n:100});
+ expect(await env.DB.prepare("SELECT COUNT(*) n FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first()).toEqual({n:0});
+});
+
 test('Grok Bot routine returns a thread task through the one-time completion MCP tool', async () => {
   const dataKey = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
   const pool = fetchMock.get('https://routine.example.com');
