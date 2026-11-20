@@ -91,7 +91,7 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local'});
  expect(configured.status).toBe(200);
  const teammate=(await configured.json()).teammate;
- expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task',workspaceTools:false,fallbackToWorkspaceAI:false});
+ expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task',workspaceTools:false,fallbackToWorkspaceAI:true});
  expect(JSON.stringify(teammate)).not.toContain(token);
  const message=(await (await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:`@${teammate.handle} review this repository`},{TEAMMATE_WATCH_MS:'0'})).json()).message;
  const run=await env.DB.prepare("SELECT * FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first();
@@ -126,12 +126,14 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  expect(JSON.parse(saved.remote).workspaceTools).toBe(true);
 });
 
-test('opt-in ACP cloud fallback uses existing Workspace AI when the configured node is offline',async()=>{
+test('default ACP cloud fallback uses existing Workspace AI when the configured node is offline and preserves owner opt-out',async()=>{
  const {setMode}=await import('../src/harness/mode.js');await setMode(env.DB,ORG,'harness','9701');
  const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
  const {gateway,token}=await registered.json();
  await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
  expect((await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:'yes'})).status).toBe(400);
+ const optedOut=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:false});
+ expect((await optedOut.json()).teammate.fallbackToWorkspaceAI).toBe(false);
  const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:true});
  expect(configured.status).toBe(200);
  expect((await configured.json()).teammate.fallbackToWorkspaceAI).toBe(true);

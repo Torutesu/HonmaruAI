@@ -156,9 +156,10 @@ export function toClientTeammate(t, provider, spentCents = 0, canRevealWebhookUr
     completionMcpUrl: p.webhookBot && canRevealWebhookUrl ? completionMcpUrl : "",
     workspaceTools: Boolean(t?.remote?.workspaceTools),
     browserTools: Boolean(t?.remote?.browserTools),
-    // Cloud fallback is opt-in so an offline local agent never silently
-    // switches work onto the workspace's existing metered model account.
-    fallbackToWorkspaceAI: Boolean(t?.remote?.fallbackToWorkspaceAI),
+    // Match Kylon's fallback-on-unless-changed behavior for local ACP agents.
+    // An explicit false remains an owner choice; all fallback requests still
+    // pass the Workspace AI access and budget checks before they can run.
+    fallbackToWorkspaceAI: Boolean(p.localGateway && t?.remote?.fallbackToWorkspaceAI !== false),
     repos: t?.repos || [], model: t?.model || p.defaultModel || "", instructions: t?.instructions || "",
     channels: t?.channels ?? null,
     autoBuild: t ? t.autoBuild !== false : true,
@@ -186,7 +187,7 @@ function cleanInput(input, current, provider) {
     out.agentKey = agentKey || null;
     out.workspaceTools = input.workspaceTools === undefined ? Boolean(current?.remote?.workspaceTools) : input.workspaceTools;
     out.browserTools = input.browserTools === undefined ? Boolean(current?.remote?.browserTools) : input.browserTools;
-    out.fallbackToWorkspaceAI = input.fallbackToWorkspaceAI === undefined ? Boolean(current?.remote?.fallbackToWorkspaceAI) : input.fallbackToWorkspaceAI;
+    out.fallbackToWorkspaceAI = input.fallbackToWorkspaceAI === undefined ? current?.remote?.fallbackToWorkspaceAI !== false : input.fallbackToWorkspaceAI;
   }
   if (p.webhookBot && input.webhookUrl !== undefined) {
     const raw = String(input.webhookUrl || "").trim();

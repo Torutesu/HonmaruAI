@@ -1794,11 +1794,11 @@
       "priority": "P0",
       "source": "https://kylon.io/changelog/2026-11-15",
       "code": "worker/src/teammates.js; worker/src/channelRoutes.js; worker/src/harness/agentFallback.js; worker/src/harness/gateways.js; worker/src/serverCopy.js; worker/schema.sql; worker/migrations.sql; web-react/src/components/AiTeammates.tsx",
-      "acceptance": "Kylonの2026-11-15動作ではPC offline/signed-out/provider quota時にCloudへ切替し、切替/復帰をDM通知する。Honmaruでは新規課金を避けるため明示opt-inで既存Workspace AI・日次許可・予算だけを使い、現在のローカルACP heartbeatが90秒超過した場合に限って同一Agent profileの返信をCloudで生成する。予算・権限拒否時はfallbackしない。Simpleを変えず、Local→cloud切替表示、権限失効、二重起動、Provider回復、キャンセルを検証する。",
+  "acceptance": "Kylonの2026-11-15動作ではPC offline/signed-out/provider quota時にCloudへ切替し、切替/復帰をDM通知する。Honmaruも未選択時は既定で有効とし、オーナーが明示的に無効化できる。既存Workspace AI・日次許可・予算だけを使い、現在のローカルACP heartbeatが90秒超過した場合に同一Agent profileの返信をCloudで生成する。予算・権限拒否時はfallbackしない。Simpleを変えず、Local→cloud切替表示、権限失効、二重起動、Provider回復、キャンセルを検証する。",
       "evidence": {
         "reviewedAt": "2026-11-19",
-        "verified": "Kylon公式changelog 2026-11-15に、local agent offline/signed-out/quota exhaustion時のdefault-on cloud fallbackと所有者向けswitch/back通知を確認。Honmaruは初期無効のopt-inで既存Workspace AIだけを使い、日次allowanceと予算で制御。切替/復帰DMを永続イベントとして記録し、Mac mini再接続で即時復帰、安定client IDで重複抑止、配信失敗を再試行する処理を追加。関連Worker teammate/migrationテスト62件成功。新規provider契約・サービスは追加しない。",
-        "remaining": "ローカルprovider quota/signed-out/runtime retry exhaustionの検知とfallback、復帰と新しい実行の競合防止、実機・Kylonとの同一タスク比較、exact-head CIと本番反映は未確認。回帰テストでは offline→Workspace AI、node再接続→復帰DM、重複claim、DM relay失敗後のretryを確認。既存Workspace AIの利用枠は消費し得るため初期無効opt-inとし、Kylon default-onとは意図的に異なる。"
+    "verified": "Kylon公式changelog 2026-11-15に、local agent offline/signed-out/quota exhaustion時のdefault-on cloud fallbackと所有者向けswitch/back通知を確認。Honmaruはオーナー未選択時default-onとし、明示offは保持。fallbackは既存Workspace AIだけを使い、日次allowanceと予算で制御。切替/復帰DMを永続イベントとして記録し、Mac mini再接続で即時復帰、安定client IDで重複抑止、配信失敗を再試行する処理を追加。関連Worker teammate/migrationテスト62件成功。新規provider契約・サービスは追加しない。",
+    "remaining": "ローカルprovider quota/signed-out/runtime retry exhaustionの検知とfallback、復帰と新しい実行の競合防止、実機・Kylonとの同一タスク比較、exact-head CIと本番反映は未確認。回帰テストでは offline→Workspace AI、node再接続→復帰DM、重複claim、DM relay失敗後のretryを確認。既存Workspace AIの利用枠を消費し得る。"
       }
     }
   ]

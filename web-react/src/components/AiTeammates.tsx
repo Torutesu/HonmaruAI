@@ -46,7 +46,7 @@ const draftOf = (tm: Teammate): Draft => ({
   limit: tm.monthlyLimit === null ? '' : String(tm.monthlyLimit), tools: tm.tools.map((x) => ({ ...x, secretValue: '' })),
   autoBuild: tm.autoBuild !== false,
   gatewayId: tm.gatewayId || '', agentKey: tm.agentKey || '',
-  workspaceTools: tm.workspaceTools === true, browserTools: tm.browserTools === true, fallbackToWorkspaceAI: tm.fallbackToWorkspaceAI === true, webhookUrl: tm.webhookUrl || '',
+  workspaceTools: tm.workspaceTools === true, browserTools: tm.browserTools === true, fallbackToWorkspaceAI: tm.fallbackToWorkspaceAI !== false, webhookUrl: tm.webhookUrl || '',
 })
 
 export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionToken: string }> = ({ httpBase, orgId, sessionToken }) => {
@@ -227,7 +227,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
             <label className="teammate-field">
               <span><input type="checkbox" disabled={off || !harnessMode} checked={draft.fallbackToWorkspaceAI} onChange={(e) => set({ fallbackToWorkspaceAI: e.target.checked })} data-teammate-cloud-fallback /> {t('Use Workspace AI when this execution node is offline')}</span>
               {!harnessMode && <small>{t('Cloud fallback is available in Harness mode only.')}</small>}
-              <small>{t('Off by default. When enabled, a disconnected local Agent can answer through the Workspace AI account and its existing usage limits. This may use billable model capacity already configured for this Workspace; it adds no service or subscription. It does not run when access or budget checks deny the request.')}</small>
+              <small>{t('On by default unless an owner turns it off. When a local Agent is disconnected, it can answer through the Workspace AI account and its existing usage limits. This may use billable model capacity already configured for this Workspace; it adds no service or subscription. It does not run when access or budget checks deny the request.')}</small>
             </label>
             <p className="form-note">{t('ACP agents execute with the Mac user’s permissions and may access local files, credentials, and network resources. In default mode, the gateway accepts one action requested by the agent; strict mode accepts read-only actions and rejects writes or terminal actions. Only connect agents and working directories you trust.')}</p>
           </>
