@@ -106,7 +106,11 @@ class StdioJsonRpc {
       if (!pending) return;
       this.pending.delete(message.id);
       clearTimeout(pending.timer);
-      if (message.error) pending.reject(new Error('ACP request failed.'));
+      if (message.error) {
+        const error = new Error('ACP request failed.');
+        error.code = Number.isInteger(message.error.code) ? message.error.code : null;
+        pending.reject(error);
+      }
       else pending.resolve(message.result || {});
       return;
     }
@@ -303,10 +307,10 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
       clientInfo: { name: 'HonmaruAI', title: 'HonmaruAI local gateway', version: '1.0.0' },
     }, Math.min(15000, remaining()));
     if (initialized.protocolVersion !== 1) throw new Error('ACP protocol version is not supported.');
-    const authMethods = Array.isArray(initialized.authMethods) ? initialized.authMethods : [];
-    // ACP agents own their sign-in and credentials. The host must not call
-    // `authenticate`; an operator signs into the provider on this Mac first.
-    if (authMethods.some(method => method?.type === 'terminal')) throw new Error('This ACP agent requires an interactive login. Sign it in on the Mac first.');
+    // ACP agents own their sign-in and credentials. An advertised terminal
+    // auth method describes how a user can sign in; it does not mean the Agent
+    // is currently signed out. Only the protocol's auth_required response from
+    // session/new is a safe signal: no session turn or local prompt has begun.
     if (payload.workspaceTools === true || payload.browserTools === true) workspaceMcp = await startWorkspaceMcp(payload.workspaceTools===true?mcpCall:null,payload.browserTools===true?browserCall:null,signal);
     const sessionParams = { cwd: cfg.cwd, mcpServers: workspaceMcp ? [workspaceMcp.config] : [] };
     if (payload.sessionId && initialized.agentCapabilities?.loadSession) {
@@ -322,7 +326,13 @@ export async function runAcp(payload, { acpAgents = {}, signal, timeoutMs = 6000
       }
     }
     if (!sessionId) {
-      const created = await rpc.request('session/new', sessionParams, Math.min(15000, remaining()));
+      let created;
+      try {
+        created = await rpc.request('session/new', sessionParams, Math.min(15000, remaining()));
+      } catch (error) {
+        if (error?.code === -32000) return { status: 'failed', stdout: '', stderr: 'This ACP agent needs an interactive sign-in on its computer.', exitCode: 1, fallbackReason: 'signed_out' };
+        throw error;
+      }
       if (typeof created.sessionId !== 'string' || !created.sessionId) throw new Error('ACP agent did not create a session.');
       sessionId = created.sessionId;
     }
