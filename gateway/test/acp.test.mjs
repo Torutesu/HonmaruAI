@@ -87,13 +87,30 @@ test('ACP retries only pre-prompt runtime failures and returns a bounded fallbac
   assert.equal((await readFile(marker, 'utf8')).length, 3);
 });
 
-test('ACP recognizes explicit provider usage limits before prompt but refuses permission errors', async () => {
+test('ACP recognizes provider quota and rate limit variants before prompt but refuses permission errors', async () => {
   const { execPath } = await import('node:process');
   const fixture = message => `const r=require('node:readline').createInterface({input:process.stdin}),s=x=>process.stdout.write(JSON.stringify(x)+'\\n');r.on('line',l=>{const m=JSON.parse(l);if(m.method==='initialize')s({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{}}});else if(m.method==='session/new')s({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:${JSON.stringify(message)}}});});`;
   const acpAgents = { fixture: { command: execPath, args: ['-e', fixture('Usage limit reached for this provider')], cwd: process.cwd() } };
-  const limited = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize this repository' }, { acpAgents, timeoutMs: 5000 });
-  assert.equal(limited.fallbackReason, 'provider_limited');
-  for (const message of ['Permission denied for this workspace', 'Unauthorized', 'Not permitted by organization policy', 'Access was denied']) {
+  for (const message of [
+    'Usage limit reached for this provider',
+    'insufficient_quota: You exceeded your current quota',
+    'Too many requests. Please try again later.',
+    'Monthly spending limit has been reached',
+    'No credits remaining for this plan',
+    'Payment required to continue using this model',
+  ]) {
+    acpAgents.fixture.args = ['-e', fixture(message)];
+    const limited = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize this repository' }, { acpAgents, timeoutMs: 5000 });
+    assert.equal(limited.fallbackReason, 'provider_limited', message);
+  }
+  for (const message of [
+    'Permission denied for this workspace',
+    'Unauthorized',
+    'Not permitted by organization policy',
+    'Access was denied',
+    'Workspace budget exceeded',
+    'Organization policy denied fallback after a rate limit',
+  ]) {
     acpAgents.fixture.args = ['-e', fixture(message)];
     await assert.rejects(runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize this repository' }, { acpAgents, timeoutMs: 5000 }));
   }
