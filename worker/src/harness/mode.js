@@ -16,12 +16,19 @@ export async function getMode(db, orgId) {
 
 export async function setMode(db, orgId, mode, by) {
   if (!MODES.includes(mode)) return { error: `mode must be one of ${MODES.join(", ")}` };
+  // updated_at is also the authorization generation for mode-gated in-flight
+  // work. Keep it strictly increasing even when two mode changes land in the
+  // same clock millisecond (e.g. Harness → Simple → Harness).
+  const previous = await db.prepare("SELECT updated_at FROM org_settings WHERE org_id = ?1").bind(orgId).first();
+  const now = Date.now();
+  const previousTime = Date.parse(previous?.updated_at || "");
+  const updatedAt = new Date(Number.isFinite(previousTime) ? Math.max(now, previousTime + 1) : now).toISOString();
   await db
     .prepare(
       `INSERT INTO org_settings (org_id, mode, updated_by, updated_at) VALUES (?1, ?2, ?3, ?4)
        ON CONFLICT(org_id) DO UPDATE SET mode = excluded.mode, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
     )
-    .bind(orgId, mode, String(by), new Date().toISOString())
+    .bind(orgId, mode, String(by), updatedAt)
     .run();
   return { mode };
 }

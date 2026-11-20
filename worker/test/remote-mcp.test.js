@@ -521,6 +521,11 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
       } else if (calls === 4) {
         // A Workspace mode downgrade during an in-flight read must discard its result.
         await env.DB.prepare("UPDATE org_settings SET mode='simple' WHERE org_id=?1").bind(ORG).run();
+      } else if (calls === 5) {
+        // Returning to Harness must not restore a response authorized before
+        // the intervening Simple-mode change.
+        await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "simple" }) });
+        await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
       }
       return { statusCode: 200, data: { jsonrpc: "2.0", id: message(opts).id, result: { content: [{ type: "text", text: calls === 1 ? "approved policy result" : "revoked private result" }] } } };
     }).persist();
@@ -588,6 +593,18 @@ test("a personal Agent needs its caller's grant and live tool allowlist for Remo
     expect(await refreshedTools[manualRead].run({ query: "mode changes during request" })).toMatch(/result was discarded/);
     expect(calls).toBe(4);
     expect((await env.DB.prepare("SELECT mode FROM org_settings WHERE org_id=?1").bind(ORG).first()).mode).toBe("simple");
+    await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+    const beforeToggle = await env.DB.prepare("SELECT updated_at FROM org_settings WHERE org_id=?1").bind(ORG).first();
+    await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "simple" }) });
+    await call("/orgs/mode", { method: "PUT", headers: headers(session), body: JSON.stringify({ orgId: ORG, mode: "harness" }) });
+    const afterToggle = await env.DB.prepare("SELECT updated_at FROM org_settings WHERE org_id=?1").bind(ORG).first();
+    expect(Date.parse(afterToggle.updated_at)).toBeGreaterThan(Date.parse(beforeToggle.updated_at));
+    const toggleTools = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: true, agentId: agent.id });
+    const toggleRead = Object.keys(toggleTools).find((name) => name.includes("get_manual"));
+    expect(toggleRead).toBeTruthy();
+    expect(await toggleTools[toggleRead].run({ query: "mode toggled away and back during request" })).toMatch(/result was discarded/);
+    expect(calls).toBe(5);
+    expect((await env.DB.prepare("SELECT mode FROM org_settings WHERE org_id=?1").bind(ORG).first()).mode).toBe("harness");
     await env.DB.prepare("UPDATE org_settings SET mode='harness' WHERE org_id=?1").bind(ORG).run();
     const shared = await agentTools(testEnv, { orgId: ORG, session: { github_id: "9551" }, personal: false, agentId: agent.id });
     expect(Object.keys(shared).some((name) => name.startsWith("mcp_"))).toBe(false);

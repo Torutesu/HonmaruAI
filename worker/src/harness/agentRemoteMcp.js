@@ -236,7 +236,8 @@ export async function agentRemoteMcpAuthorizationStamp(env, { orgId, agentId, se
   const ownerId = String(connectionOwnerId || githubId);
   if (!githubId || !ownerId || !orgId || !agentId || !serverId || !toolName) return null;
   try {
-    const workspaceMode = await getMode(env.DB, orgId).catch(() => null);
+    const modeSettings = await env.DB.prepare("SELECT mode,updated_at FROM org_settings WHERE org_id=?1").bind(orgId).first().catch(() => null);
+    const workspaceMode = modeSettings?.mode || 'simple';
     if (workspaceMode !== 'harness') return null;
     const [access, memberships, legacyGrant, toolGrants, server, credential, shares] = await Promise.all([
       env.DB.prepare("SELECT a.created_at,a.updated_at,a.deleted_at,a.scope,a.owner_login,p.access,p.people,p.updated_at AS profile_updated_at,COALESCE(x.version,0) AS access_version,x.mutation_id AS access_mutation,(SELECT json_group_array(json_object('user',r.user_id,'since',r.member_since,'role',r.role,'updatedAt',r.updated_at)) FROM hx_agent_members r WHERE r.org_id=a.org_id AND r.agent_id=a.id) AS agent_members FROM custom_agents a LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id LEFT JOIN hx_agent_access x ON x.org_id=a.org_id AND x.agent_id=a.id WHERE a.org_id=?1 AND a.id=?2").bind(orgId, agentId).first(),
@@ -249,6 +250,7 @@ export async function agentRemoteMcpAuthorizationStamp(env, { orgId, agentId, se
     ]);
     return JSON.stringify({
       orgId, agentId, githubId, serverId, toolName, ownerId, workspaceMode,
+      workspaceModeUpdatedAt: modeSettings?.updated_at || null,
       access: access || null,
       memberships: memberships?.results || [],
       legacyGrant: legacyGrant || null,

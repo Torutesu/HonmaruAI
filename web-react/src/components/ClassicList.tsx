@@ -4310,7 +4310,12 @@ export const ClassicList: React.FC<Props> = ({
     if (!el) return
     const settle = () => { if (keepHeld(el)) return; if (pinned.current && keepScroll.current === null) el.scrollTop = el.scrollHeight }
     const onScroll = () => { pinned.current = isAtBottom(el) }
-    const letGo = () => { held.current = null }
+    const letGo = (event?: Event) => {
+      held.current = null
+      // Record upward scroll intent before MutationObserver/ResizeObserver
+      // callbacks can run ahead of the resulting scroll event.
+      if (event instanceof WheelEvent && event.deltaY < 0) pinned.current = false
+    }
     const changed = new MutationObserver(settle)
     changed.observe(el, { childList: true, subtree: true, characterData: true })
     const sized = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(settle) : null
