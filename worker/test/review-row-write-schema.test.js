@@ -36,7 +36,6 @@ test('app-backed row edits and deletes require the version seen by the client',a
  expect(JSON.parse((await env.DB.prepare('SELECT data FROM hx_rows WHERE id=?').bind(row.id).first()).data).task).toBe('Example');
 });
 
-
 test('stale text update is rejected after schema migration and target deletion',async()=>{
  let updated=await request(`/tables/${app.tableId}/rows/${row.id}`,member,{method:'PATCH',body:{values:{task:null},expectedUpdatedAt:row.updatedAt}});
  expect(updated.status).toBe(200);row=(await updated.json()).row;

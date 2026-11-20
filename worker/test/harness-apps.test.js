@@ -2361,12 +2361,88 @@ test('combined schema check enforces database management and every linked app AC
  await check('9102',false);await check('9101',true);
  await env.DB.prepare("DELETE FROM hx_app_access WHERE org_id=? AND app_id=?").bind(ORG,app.id).run();
  await env.DB.prepare("INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES(?,?,'shared',?)").bind(ORG,linked.id,app.tableId).run();
- await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'private',1)").bind(ORG,linked.id).run();
- await check('9101',false);await check('9102',true);
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'workspace',1)").bind(ORG,linked.id).run();
+ await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES(?,?,'9102','none',?)").bind(ORG,linked.id,new Date().toISOString()).run();
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],true)).toBe(true);
+ await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES(?,?,'9101','none',?)").bind(ORG,linked.id,new Date().toISOString()).run();
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9101',[app.tableId],true)).toBe(false);
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],true)).toBe(true);
  await env.DB.prepare("DELETE FROM hx_app_entities WHERE org_id=? AND app_id=?").bind(ORG,linked.id).run();
  await env.DB.prepare("UPDATE hx_tables SET name='Changed' WHERE org_id=? AND id=?").bind(ORG,app.tableId).run();
  expect(await mayUseDatabase(env.DB,ORG,app.id,'9101',[app.tableId],true)).toBe(true);
  expect(await mayGenerateFromSchema(env.DB,ORG,app.id,'9101',entities)).toBe(false);
+});
+
+test('App database reads follow effective person and Room grants while writes require edit',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ const accessPath=`/apps/${app.id}/access`;
+ await env.DB.prepare("UPDATE memberships SET role='member' WHERE org_id=?1 AND user_github_id='9103'").bind(ORG).run();
+ expect((await send('PUT',accessPath,toru,{orgId:ORG,visibility:'workspace',version:0,people:[
+  {userId:'9102',permission:'view'},{userId:'9103',permission:'none'},
+ ]})).status).toBe(200);
+
+ const databasePath=`/apps/${app.id}/database?orgId=${ORG}`;
+ expect((await get(databasePath,mika)).status).toBe(200);
+ expect((await get(databasePath,guest)).status).toBe(404);
+ const {mayUseDatabase}=await import('../src/harness/databaseAccess.js');
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],false)).toBe(true);
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],true)).toBe(false);
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9103',[app.tableId],false)).toBe(false);
+ expect((await send('POST',`/apps/${app.id}/database`,mika,{orgId:ORG,action:'migrate',id:'view-cannot-migrate',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Denied',type:'text'}]}]})).status).toBe(403);
+ expect((await send('PUT',accessPath,toru,{orgId:ORG,visibility:'workspace',version:1,people:[
+  {userId:'9102',permission:'edit'},{userId:'9103',permission:'none'},
+ ]})).status).toBe(200);
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],true)).toBe(true);
+ const editorPlan={id:'editor_can_migrate',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'AccessFenceColumn',type:'text'}]}]};
+ const editorPreview=await send('POST',`/apps/${app.id}/database`,mika,{orgId:ORG,action:'preview',...editorPlan});
+ expect(editorPreview.status,await editorPreview.clone().text()).toBe(200);
+ const editorChecksum=(await editorPreview.json()).previewChecksum;
+ expect((await send('POST',`/apps/${app.id}/database`,mika,{orgId:ORG,action:'migrate',...editorPlan,previewChecksum:editorChecksum})).status).toBe(200);
+
+ const at=new Date().toISOString();
+ await env.DB.prepare("INSERT INTO businesses(org_id,slug,name,private,created_by,created_at) VALUES (?1,'db_acl_room','DB ACL room',1,'9101',?2)").bind(ORG,at).run();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'b:db_acl_room','mika','toru',?2),(?1,'b:db_acl_room','toru','toru',?2)").bind(ORG,at).run();
+ const {app:roomApp}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,room_channel,version) VALUES(?1,?2,'private','b:db_acl_room',1)").bind(ORG,roomApp.id).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(true);
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],true)).toBe(false);
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9103',[roomApp.tableId],false)).toBe(false);
+ await env.DB.prepare("UPDATE hx_app_access SET room_channel='dm:mika|toru' WHERE org_id=?1 AND app_id=?2").bind(ORG,roomApp.id).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(true);
+ await env.DB.prepare("UPDATE hx_app_access SET room_channel='dm:nobody|mika' WHERE org_id=?1 AND app_id=?2").bind(ORG,roomApp.id).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(true);
+ await env.DB.prepare("UPDATE hx_app_access SET room_channel='g:0123456789abcdef' WHERE org_id=?1 AND app_id=?2").bind(ORG,roomApp.id).run();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'g:0123456789abcdef','mika','toru',?2)").bind(ORG,at).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(true);
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel='g:0123456789abcdef' AND login='mika'").bind(ORG).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(false);
+ await env.DB.prepare("UPDATE hx_app_access SET room_channel='b:db_acl_room' WHERE org_id=?1 AND app_id=?2").bind(ORG,roomApp.id).run();
+ await env.DB.prepare("DELETE FROM conversation_members WHERE org_id=?1 AND channel='b:db_acl_room' AND login='mika'").bind(ORG).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(false);
+ await env.DB.prepare("INSERT INTO hx_room_access(org_id,channel,version,deleted_at) VALUES(?1,'b:db_acl_room',1,?)").bind(ORG,at).run();
+ await env.DB.prepare("INSERT INTO conversation_members(org_id,channel,login,added_by,added_at) VALUES (?1,'b:db_acl_room','mika','toru',?2)").bind(ORG,at).run();
+ expect(await mayUseDatabase(env.DB,ORG,roomApp.id,'9102',[roomApp.tableId],false)).toBe(false);
+});
+
+test('database migration transaction rechecks a per-person edit grant after preflight',async()=>{
+ const {app}=await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+ expect((await send('PUT',`/apps/${app.id}/access`,toru,{orgId:ORG,visibility:'private',version:0,people:[{userId:'9102',permission:'edit'}]})).status).toBe(200);
+ const {mayUseDatabase}=await import('../src/harness/databaseAccess.js');
+ expect(await mayUseDatabase(env.DB,ORG,app.id,'9102',[app.tableId],true)).toBe(true);
+ const {applyMigration}=await import('../src/harness/appDatabase.js');
+ let revoked=false;
+ const racingDb=new Proxy(env.DB,{get(db,key){
+  if(key==='batch')return async statements=>{
+   if(!revoked){revoked=true;await env.DB.prepare("UPDATE hx_app_person_access SET permission='view' WHERE org_id=?1 AND app_id=?2 AND user_github_id='9102'").bind(ORG,app.id).run()}
+   return db.batch(statements);
+  };
+  return typeof db[key]==='function'?db[key].bind(db):db[key];
+ }});
+ const result=await applyMigration(racingDb,ORG,app,{id:'race_after_acl_preflight',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'AccessFenceBlocked',type:'text'}]}]},'9102');
+ expect(result).toMatchObject({status:409});
+ expect(await env.DB.prepare('SELECT version FROM hx_app_database_state WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).toBeNull();
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_migrations WHERE org_id=?1 AND app_id=?2').bind(ORG,app.id).first()).n).toBe(0);
+ expect((await (await get(`/tables/${app.tableId}?orgId=${ORG}`,mika)).json()).table.columns.map(column=>column.name)).not.toContain('AccessFenceBlocked');
 });
 
 const runCustomGenerationRace=async(kind,phase)=>{
@@ -2726,6 +2802,51 @@ test('App connection grant lists only metadata, decrypts as its owner, and revoc
   const blocked=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'request',name:'repo_api',version:1});
   expect(blocked.status).toBe(404);expect(fetch).toHaveBeenCalledTimes(1);
  } finally {vi.unstubAllGlobals();useSecretKey({});}
+});
+
+test('workspace admins can review sanitized App connection grants and revoke only the exact grant',async()=>{
+ const {app}=await makeDirectAgentApp();
+ await env.DB.prepare("UPDATE hx_apps SET created_by='9102' WHERE org_id=? AND id=?").bind(ORG,app.id).run();
+ await env.DB.prepare("UPDATE hx_app_access SET visibility='private' WHERE org_id=? AND app_id=?").bind(ORG,app.id).run();
+ const {useSecretKey,isSealed}=await import('../src/secrets.js');
+ const keyEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ try {
+ const saved=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'save',name:'mika_service',version:0,endpoint:'https://api.github.com/private-secret-path',method:'GET',token:'OWNER_TOKEN_MUST_NOT_APPEAR'});
+ expect(saved.status,JSON.stringify(await saved.clone().json())).toBe(200);
+ const granted=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'grant',name:'mika_service'});
+ expect(granted.status,JSON.stringify(await granted.clone().json())).toBe(200);
+ const {appConnectionGrantReview}=await import('../src/harness/appConnectionGrants.js');
+ expect(await appConnectionGrantReview(env.DB,ORG,app.id,'9102')).toEqual({denied:true});
+ const changedAt=new Date().toISOString();
+ await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at)
+   VALUES(?,?,'private','[]','9101',?) ON CONFLICT(org_id,agent_id) DO UPDATE SET access='private',people='[]',updated_by='9101',updated_at=excluded.updated_at`)
+   .bind(ORG,'agent_conn_source',changedAt).run();
+ const ordinary=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}&review=1`,mika);
+ expect(ordinary.status).toBe(403);
+ const review=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}&review=1`,toru);
+ expect(review.status).toBe(200);
+ const inventory=await review.json();
+ expect(inventory.grants).toHaveLength(1);
+ expect(inventory.grants[0]).toMatchObject({ownerId:'9102',name:'mika_service',grantedVersion:1,connectionActive:1,ownerHasSourceAccess:false});
+ const privateAppData=await keyed('GET',`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);
+ expect(privateAppData.status).toBe(404);
+ expect(JSON.stringify(inventory)).not.toContain('api.github.com');
+ expect(JSON.stringify(inventory)).not.toContain('private-secret-path');
+ expect(JSON.stringify(inventory)).not.toContain('OWNER_TOKEN_MUST_NOT_APPEAR');
+ const stale=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'review_revoke',...inventory.grants[0],grantedAt:'stale'});
+ expect(stale.status).toBe(409);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).n).toBe(1);
+ const revoked=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'review_revoke',...inventory.grants[0]});
+ expect(revoked.status).toBe(200);
+ expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).n).toBe(0);
+ const stillOwnerConnection=await env.DB.prepare("SELECT enabled,token FROM hx_app_connections WHERE org_id=? AND app_id=? AND created_by='9102' AND name='mika_service'").bind(ORG,app.id).first();
+ expect(stillOwnerConnection.enabled).toBe(1);
+ expect(isSealed(stillOwnerConnection.token)).toBe(true);
+ const blocked=await keyed('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'request',name:'mika_service'});
+ expect(blocked.status).toBe(409);
+ } finally {useSecretKey({});}
 });
 
 test('App Google OAuth refresh is single-flight, rotates tokens atomically, and never exposes credentials',async()=>{
@@ -3394,4 +3515,68 @@ test('room Apps with multiple source Agent assignments cannot choose an implicit
  const grant=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'grant',name:'ambiguous_api'});
  expect(grant.status).toBe(403);
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_connection_grants WHERE org_id=? AND app_id=?').bind(ORG,app.id).first()).toEqual({n:0});
+});
+
+
+
+
+test('workspace record opt-in grants row writes without App or schema management', async () => {
+  const { app } = await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+  const { setAppAccess, mayWriteAppRecords, mayWriteTableRecords } = await import('../src/harness/resourceAccess.js');
+  const shared = await setAppAccess(env.DB, ORG, app.id, '9101', { visibility:'workspace', workspaceRecordWrite:true, version:0 });
+  expect(shared.access).toMatchObject({ visibility:'workspace', workspaceRecordWrite:true });
+  expect(await mayWriteAppRecords(env.DB,ORG,app.id,'9102')).toBe(true);
+  expect(await mayWriteTableRecords(env.DB,ORG,app.tableId,'9102')).toBe(true);
+
+  const created = await send('POST',`/tables/${app.tableId}/rows`,mika,{orgId:ORG,values:{company:'Workspace writer'}});
+  expect(created.status).toBe(201);
+  const { callHarnessTool } = await import('../src/harness/mcpTools.js');
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9102'},'add_row',{tableId:app.tableId,values:{company:'MCP writer'}})).isError).not.toBe(true);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB,ORG,{name:'Workspace row writer',trigger:{type:'manual'},steps:[{type:'add_row',tableId:app.tableId,values:{company:'Workflow writer'}}]},'9102');
+  expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).status).toBe('done');
+
+  expect((await send('PUT',`/apps/${app.id}`,mika,{orgId:ORG,name:'Not an editor'})).status).toBe(403);
+  expect((await send('PUT',`/tables/${app.tableId}`,mika,{orgId:ORG,name:'Not a schema editor'})).status).toBe(404);
+  const disabled = await setAppAccess(env.DB,ORG,app.id,'9101',{visibility:'workspace',workspaceRecordWrite:false,version:1});
+  expect(disabled.access.workspaceRecordWrite).toBe(false);
+  expect(await mayWriteTableRecords(env.DB,ORG,app.tableId,'9102')).toBe(false);
+  expect((await send('POST',`/tables/${app.tableId}/rows`,mika,{orgId:ORG,values:{company:'Denied after revoke'}})).status).toBe(404);
+  expect((await callHarnessTool(env,{orgId:ORG,githubId:'9102'},'add_row',{tableId:app.tableId,values:{company:'Denied after revoke'}})).isError).toBe(true);
+  expect((await startRun(env,{orgId:ORG,workflow,trigger:'manual'})).status).toBe('failed');
+
+  // The row mutation itself rechecks the persisted policy, even if a caller
+  // skips the route-level preflight or loses access between preflight and D1.
+  const direct = await addRow(env.DB,ORG,app.tableId,{company:'Denied in SQL'},'9102',undefined,'9102');
+  expect(direct.error).toBeTruthy();
+
+  const { workflow: queuedWorkflow } = await createWorkflow(env.DB,ORG,{name:'Writer revoked while approval waits',trigger:{type:'manual'},steps:[
+    {type:'approval',to:'toru',title:'Continue the record update?'},
+    {type:'add_row',tableId:app.tableId,values:{company:'Must not survive a revoke'}},
+  ]},'9102');
+  const pending = await startRun(env,{orgId:ORG,workflow:queuedWorkflow,trigger:'manual'});
+  expect(pending.status).toBe('waiting');
+  const savedCard = await env.DB.prepare('SELECT data FROM cards WHERE org_id=?1 AND card_id=?2').bind(ORG,pending.cardId).first();
+  const card = JSON.parse(savedCard.data);
+  card.decision = {action:'approve',actorUserID:card.recipientUserID};
+  const { settleWorkflowApproval } = await import('../src/harness/workflows.js');
+  expect((await settleWorkflowApproval(env,ORG,card)).status).toBe('failed');
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(ORG,app.tableId).first()).n).toBe(3);
+});
+
+test('a linked read-only App blocks workspace record writes to the shared table', async () => {
+  const { app: writer } = await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+  const { app: viewer } = await (await send('POST','/apps',toru,{orgId:ORG,template:'crm',sample:false})).json();
+  await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(writer.tableId,ORG,viewer.id).run();
+  const { setAppAccess, mayWriteTableRecords } = await import('../src/harness/resourceAccess.js');
+  await setAppAccess(env.DB,ORG,writer.id,'9101',{visibility:'workspace',workspaceRecordWrite:true,version:0});
+  await setAppAccess(env.DB,ORG,viewer.id,'9101',{visibility:'workspace',workspaceRecordWrite:false,version:0});
+  expect(await mayWriteTableRecords(env.DB,ORG,writer.tableId,'9102')).toBe(false);
+  expect((await send('POST',`/tables/${writer.tableId}/rows`,mika,{orgId:ORG,values:{company:'Blocked by linked app'}})).status).toBe(404);
+  await setAppAccess(env.DB,ORG,viewer.id,'9101',{visibility:'workspace',workspaceRecordWrite:true,version:1});
+  expect(await mayWriteTableRecords(env.DB,ORG,writer.tableId,'9102')).toBe(true);
+  expect((await send('POST',`/tables/${writer.tableId}/rows`,mika,{orgId:ORG,values:{company:'Allowed by both apps'}})).status).toBe(201);
+  await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES(?1,?2,'9102','view',?3)").bind(ORG,viewer.id,new Date().toISOString()).run();
+  expect(await mayWriteTableRecords(env.DB,ORG,writer.tableId,'9102')).toBe(false);
+  expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_rows WHERE org_id=?1 AND table_id=?2').bind(ORG,writer.tableId).first()).n).toBe(1);
 });

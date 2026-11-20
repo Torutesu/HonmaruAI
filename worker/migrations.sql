@@ -225,9 +225,13 @@ CREATE TABLE IF NOT EXISTS hx_room_hooks (id TEXT PRIMARY KEY, org_id TEXT NOT N
 CREATE INDEX IF NOT EXISTS idx_hx_room_hooks_room ON hx_room_hooks(org_id,channel,created_at);
 CREATE TABLE IF NOT EXISTS hx_room_hook_events (event_key TEXT PRIMARY KEY, hook_id TEXT NOT NULL, org_id TEXT NOT NULL, channel TEXT NOT NULL, payload_hash TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS hx_line_room_hooks (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel_secret TEXT, created_at TEXT NOT NULL);
-/* Customer pseudonyms and local read cursors only; raw LINE profile IDs are never persisted. */
+ALTER TABLE hx_line_room_hooks ADD COLUMN channel_access_token TEXT;
+/* Customer IDs and channel tokens are encrypted; raw LINE IDs never leave encrypted storage. */
 CREATE TABLE IF NOT EXISTS hx_line_inbox_messages (event_key TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_hx_line_inbox_customer ON hx_line_inbox_messages(org_id,channel,hook_id,customer_key,created_at,message_id);
+CREATE TABLE IF NOT EXISTS hx_line_inbox_customers (org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, target_type TEXT NOT NULL CHECK(target_type IN ('user','group','room')), target_fingerprint TEXT NOT NULL, target_ciphertext TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,channel,hook_id,customer_key));
+CREATE TABLE IF NOT EXISTS hx_line_inbox_replies (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, request_id TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('sending','sent','failed','unknown')), provider_request_id TEXT, created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(org_id,hook_id,request_id));
+CREATE INDEX IF NOT EXISTS idx_hx_line_inbox_replies ON hx_line_inbox_replies(org_id,channel,hook_id,customer_key,created_at,id);
 CREATE TABLE IF NOT EXISTS hx_line_inbox_reads (org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, actor_id TEXT NOT NULL, last_read_at TEXT NOT NULL, PRIMARY KEY(org_id,channel,hook_id,customer_key,actor_id));
 
 CREATE TABLE IF NOT EXISTS hx_room_hook_dispatch (message_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
@@ -534,6 +538,7 @@ CREATE INDEX IF NOT EXISTS idx_hx_external_file_invites_v2_redeemed ON hx_extern
 ALTER TABLE hx_workflow_runs ADD COLUMN credential_source TEXT NOT NULL DEFAULT 'unknown';
 
 ALTER TABLE hx_app_access ADD COLUMN room_channel TEXT;
+ALTER TABLE hx_app_access ADD COLUMN workspace_record_write INTEGER NOT NULL DEFAULT 0 CHECK (workspace_record_write IN (0,1));
 
 CREATE TABLE IF NOT EXISTS hx_app_public_shares (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, app_version INTEGER NOT NULL, access_version INTEGER NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT);
 CREATE INDEX IF NOT EXISTS idx_hx_app_public_shares_app ON hx_app_public_shares(org_id,app_id,created_at);
@@ -667,3 +672,8 @@ CREATE TABLE IF NOT EXISTS hx_document_export_links (org_id TEXT NOT NULL,token_
 CREATE INDEX IF NOT EXISTS idx_hx_document_export_links_expiry ON hx_document_export_links(org_id,expires_at,job_id);
 CREATE TABLE IF NOT EXISTS hx_table_contract_versions (org_id TEXT NOT NULL, table_id TEXT NOT NULL, contract_hash TEXT NOT NULL CHECK(length(contract_hash)=64), contract_json TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,table_id,contract_hash));
 CREATE INDEX IF NOT EXISTS idx_hx_table_contract_versions_order ON hx_table_contract_versions(org_id,table_id,created_at DESC,contract_hash);
+
+-- #KY-131: persist local/cloud runtime transitions and retry owner DMs without replaying Agent work.
+CREATE TABLE IF NOT EXISTS hx_agent_fallback_state (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, gateway_id TEXT NOT NULL, current_state TEXT NOT NULL CHECK(current_state IN ('node','workspace')), version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id));
+CREATE TABLE IF NOT EXISTS hx_agent_fallback_events (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, agent_id TEXT NOT NULL, gateway_id TEXT NOT NULL, owner_login TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('node','workspace')), version INTEGER NOT NULL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','delivered','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(org_id,agent_id,version));
+CREATE INDEX IF NOT EXISTS idx_agent_fallback_events_pending ON hx_agent_fallback_events(status,created_at);

@@ -58,6 +58,47 @@ test('MCP Room discovery is public-only and join/leave change the token owner me
   expect((await call('discover_public_rooms', {})).rooms.map(room => room.channel)).not.toContain('b:private');
 });
 
+test('MCP timeline list/get/count/read use personal Activity state and get is read-only', async () => {
+  await upsertBusiness(env.DB, orgId, { name: 'General', createdBy: 'mcp-a' });
+  const root = await seed('b:general', 'my thread');
+  const reply = (await postMessage(env.DB, { orgId, key: 'b:general', authorLogin: 'beth', body: 'reply for alex', parentId: root.id })).row;
+  const listed = await call('timeline_list', { limit: 20 });
+  const item = listed.items.find(entry => entry.key === `m:${reply.id}`);
+  expect(item).toMatchObject({ key: `m:${reply.id}`, unread: true, type: 'reply' });
+  expect(await call('timeline_count', {})).toMatchObject({ unreadCount: 1, capped: false });
+  expect(await call('timeline_get', { key: item.key })).toMatchObject({ item: { key: item.key, unread: true } });
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM activity_reads WHERE org_id=?1 AND login=?2').bind(orgId, 'alex').first('n')).toBe(0);
+  expect(await call('timeline_read', { key: item.key })).toMatchObject({ items: [item.key] });
+  expect(await call('timeline_pin', { key: item.key, pinned: true })).toMatchObject({ key: item.key, threadId: root.id, pinned: true, semantics: 'containing_thread' });
+  expect(await env.DB.prepare('SELECT message_id FROM channel_thread_pins WHERE org_id=?1 AND user_id=?2').bind(orgId, 'mcp-a').first('message_id')).toBe(root.id);
+  expect((await call('timeline_list', { unread: true })).items).toEqual([]);
+  const unreadBefore = (await call('timeline_list', {}, { ...actor, githubId: 'mcp-b', login: 'beth', name: 'Beth' })).items.filter(entry => entry.unread);
+  expect(unreadBefore.some(entry => entry.key === item.key)).toBe(false);
+  const allReply = (await postMessage(env.DB, { orgId, key: 'b:general', authorLogin: 'beth', body: 'another reply', parentId: root.id })).row;
+  expect(await call('timeline_read_all', {})).toMatchObject({ items: [`m:${allReply.id}`] });
+  expect((await call('timeline_count', {})).unreadCount).toBe(0);
+  expect(await call('timeline_pin', { key: `m:${allReply.id}`, pinned: false })).toMatchObject({ pinned: false });
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_thread_pins WHERE org_id=?1 AND user_id=?2').bind(orgId, 'mcp-a').first('n')).toBe(0);
+  const bethNotice = (await postMessage(env.DB, { orgId, key: 'b:general', authorLogin: 'cara', body: '@beth, please review this' })).row;
+  const bethActor = { ...actor, githubId: 'mcp-b', login: 'beth', name: 'Beth' };
+  const bethItem = (await call('timeline_list', {}, bethActor)).items.find(entry => entry.key === `m:${bethNotice.id}`);
+  expect(bethItem).toBeTruthy();
+  const secondPin = await call('timeline_pin', { key: bethItem.key, pinned: true }, bethActor);
+  expect(secondPin.threadId).toBe(bethNotice.id);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_thread_pins WHERE org_id=?1 AND user_id=?2').bind(orgId, 'mcp-a').first('n')).toBe(0);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM channel_thread_pins WHERE org_id=?1 AND user_id=?2').bind(orgId, 'mcp-b').first('n')).toBe(1);
+});
+
+test('MCP timeline honors token private and DM scopes and refuses inaccessible item keys', async () => {
+  const privateRoot = await seed('b:private', 'private thread');
+  const privateMessage = (await postMessage(env.DB, { orgId, key: 'b:private', authorLogin: 'beth', body: 'private reply', parentId: privateRoot.id })).row;
+  const narrow = { ...actor, scopes: ['chat:read', 'chat:write'] };
+  expect((await call('timeline_list', {}, narrow)).items.map(item => item.message.id)).not.toContain(privateMessage.id);
+  await expect(call('timeline_get', { key: `m:${privateMessage.id}` }, narrow)).rejects.toThrow('No accessible Activity item');
+  const expanded = { ...actor, scopes: [...actor.scopes, 'chat:private'] };
+  expect((await call('timeline_list', {}, expanded)).items.some(item => item.message.id === privateMessage.id)).toBe(true);
+});
+
 test('MCP Room rename, archive, restore and archive listing preserve membership boundaries', async () => {
   await upsertBusiness(env.DB, orgId, { name: 'Roadmap', createdBy: 'mcp-b' });
   await initializeRoomRoles(env.DB, orgId, 'b:roadmap', 'mcp-b');

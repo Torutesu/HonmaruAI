@@ -134,6 +134,66 @@ export async function appConnectionsForViewer(db, orgId, appId, viewerId) {
   return { connections: [...ownRows, ...visible], hosts: own.hosts, ...(sourceAccess ? { sourceAgent: { id: source.id, name: source.name || source.id } } : {}) };
 }
 
+// Workspace admins need a credential-free inventory to review App grants.
+// Keep this separate from the runtime connection list so review never returns
+// endpoints, tokens, OAuth state, request data, or Remote MCP arguments.
+export async function appConnectionGrantReview(db, orgId, appId, actorId) {
+  const { results = [] } = await db.prepare(`WITH review_authority AS (
+      SELECT CASE WHEN EXISTS(SELECT 1 FROM memberships reviewer WHERE reviewer.org_id=?1 AND reviewer.user_github_id=?2
+          AND LOWER(TRIM(COALESCE(reviewer.role,''))) IN ('owner','admin'))
+        AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
+        AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)
+        THEN 1 ELSE 0 END AS authorized
+    )
+    SELECT review_authority.authorized,g.connection_owner_id AS ownerId,
+      COALESCE(u.name,u.login,'Workspace member') AS ownerName,
+      g.connection_name AS name,g.connection_version AS grantedVersion,
+      g.source_agent_id AS sourceAgentId,g.granted_by AS grantedBy,
+      g.created_at AS grantedAt,c.version AS currentVersion,c.enabled AS enabled,
+      CASE WHEN c.version=g.connection_version AND c.enabled=1
+        AND c.endpoint=g.endpoint AND c.method=g.method
+        AND m.created_at=g.owner_membership_since
+        AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+        AND NOT EXISTS(SELECT 1 FROM hx_app_connections other WHERE other.org_id=g.org_id AND other.app_id=g.app_id
+          AND other.name=g.connection_name AND other.created_by!=g.connection_owner_id)
+        THEN 1 ELSE 0 END AS connectionActive
+    FROM review_authority
+    LEFT JOIN hx_app_connection_grants g ON review_authority.authorized=1 AND g.org_id=?1 AND g.app_id=?3
+    LEFT JOIN hx_app_connections c ON c.org_id=g.org_id AND c.app_id=g.app_id
+      AND c.created_by=g.connection_owner_id AND c.name=g.connection_name
+    LEFT JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.connection_owner_id
+    LEFT JOIN users u ON u.github_id=g.connection_owner_id
+    ORDER BY g.created_at DESC,g.connection_owner_id,g.connection_name`).bind(orgId,String(actorId),appId).all();
+  if(Number(results?.[0]?.authorized)!==1)return {denied:true};
+  const source=await sourceAgent(db,orgId,appId);
+  const grants=[];
+  for(const row of results||[]) {
+    if(row.ownerId==null)continue;
+    const ownerHasSourceAccess=Boolean(source&&source.id===row.sourceAgentId&&await mayUseSourceAgent(db,orgId,source,row.ownerId));
+    grants.push({...row,ownerHasSourceAccess});
+  }
+  return {grants};
+}
+export async function revokeAppConnectionGrantForReview(db, orgId, appId, actorId, input) {
+  const ownerId=String(input?.ownerId||'');
+  const name=String(input?.name||'');
+  const grantedAt=String(input?.grantedAt||'');
+  const grantedVersion=Number(input?.grantedVersion);
+  const sourceAgentId=String(input?.sourceAgentId||'');
+  const grantedBy=String(input?.grantedBy||'');
+  if(!ownerId || !/^[a-z][a-z0-9_]{0,39}$/.test(name) || !grantedAt || !Number.isSafeInteger(grantedVersion) || !sourceAgentId || !grantedBy)
+    return err('Choose the exact App connection grant to revoke.');
+  const removed=await db.prepare(`DELETE FROM hx_app_connection_grants
+    WHERE org_id=?1 AND app_id=?2 AND connection_owner_id=?3 AND connection_name=?4 AND created_at=?5
+      AND connection_version=?6 AND source_agent_id=?7 AND granted_by=?8
+      AND EXISTS(SELECT 1 FROM memberships reviewer WHERE reviewer.org_id=?1 AND reviewer.user_github_id=?9
+        AND LOWER(TRIM(COALESCE(reviewer.role,''))) IN ('owner','admin'))
+      AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)`)
+    .bind(orgId,appId,ownerId,name,grantedAt,grantedVersion,sourceAgentId,grantedBy,String(actorId)).run();
+  return Number(removed.meta?.changes)===1 ? {revoked:true} : err('The grant changed. Reload the access review and try again.',409);
+}
+
 export async function changeAppConnectionGrant(db, orgId, appId, actorId, input) {
   if (!/^[a-z][a-z0-9_]{0,39}$/.test(String(input?.name || '')) || !['grant', 'revoke'].includes(input?.action)) return err('Choose a connection and grant or revoke App access.');
   const name = String(input.name);

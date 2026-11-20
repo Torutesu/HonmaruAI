@@ -48,6 +48,34 @@ test("workspace call sends JSON arguments and returns the MCP result", async () 
   assert.equal(stderr.read(), "");
 });
 
+test("timeline aliases map read operations and containing-thread pins to MCP tools", async () => {
+  const calls = [];
+  const fetcher = async (_url, init) => {
+    const req = JSON.parse(init.body);
+    calls.push(req.params);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { structuredContent: {} } }), { status: 200 });
+  };
+  const stdout = output();
+  const stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = (argv) => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "timeline", "list", "--unread", "--limit", "10"]), 0);
+  assert.equal(await run(["workspace", "timeline", "count"]), 0);
+  assert.equal(await run(["workspace", "timeline", "get", "m:message_1"]), 0);
+  assert.equal(await run(["workspace", "timeline", "read", "all"]), 0);
+  assert.equal(await run(["workspace", "timeline", "pin", "m:message_1"]), 0);
+  assert.equal(await run(["workspace", "timeline", "unpin", "r:message_1:abc"]), 0);
+  assert.deepEqual(calls, [
+    { name: "timeline_list", arguments: { limit: 10, unread: true } },
+    { name: "timeline_count", arguments: {} },
+    { name: "timeline_get", arguments: { key: "m:message_1" } },
+    { name: "timeline_read_all", arguments: {} },
+    { name: "timeline_pin", arguments: { key: "m:message_1", pinned: true } },
+    { name: "timeline_pin", arguments: { key: "r:message_1:abc", pinned: false } },
+  ]);
+  assert.equal(stderr.read(), "");
+});
+
 test("skill aliases map reads and assignment changes to the scoped MCP tools", async () => {
   const calls = [];
   let partialShare = false;

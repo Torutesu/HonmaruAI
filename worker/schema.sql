@@ -2029,7 +2029,7 @@ CREATE INDEX IF NOT EXISTS idx_hx_agent_memory_preferences_user ON hx_agent_memo
 
 CREATE TABLE IF NOT EXISTS hx_workflow_run_definitions (run_id TEXT PRIMARY KEY REFERENCES hx_workflow_runs(id) ON DELETE CASCADE, org_id TEXT NOT NULL, definition TEXT NOT NULL, created_at TEXT NOT NULL);
 
-CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, change_token TEXT, room_channel TEXT, PRIMARY KEY (org_id, app_id));
+CREATE TABLE IF NOT EXISTS hx_app_access (org_id TEXT NOT NULL, app_id TEXT NOT NULL REFERENCES hx_apps(id) ON DELETE CASCADE, visibility TEXT NOT NULL CHECK (visibility IN ('workspace', 'private')), version INTEGER NOT NULL, change_token TEXT, room_channel TEXT, workspace_record_write INTEGER NOT NULL DEFAULT 0 CHECK (workspace_record_write IN (0,1)), PRIMARY KEY (org_id, app_id));
 CREATE TABLE IF NOT EXISTS hx_app_person_access (
   org_id TEXT NOT NULL,
   app_id TEXT NOT NULL,
@@ -2572,10 +2572,13 @@ CREATE TABLE IF NOT EXISTS hx_room_hooks (id TEXT PRIMARY KEY, org_id TEXT NOT N
 CREATE INDEX IF NOT EXISTS idx_hx_room_hooks_room ON hx_room_hooks(org_id,channel,created_at);
 CREATE TABLE IF NOT EXISTS hx_room_hook_events (event_key TEXT PRIMARY KEY, hook_id TEXT NOT NULL, org_id TEXT NOT NULL, channel TEXT NOT NULL, payload_hash TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
 /* LINE's per-channel secret is encrypted and receives signed inbound events. */
-CREATE TABLE IF NOT EXISTS hx_line_room_hooks (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel_secret TEXT, created_at TEXT NOT NULL);
-/* Customer pseudonyms and local read cursors only; raw LINE profile IDs are never persisted. */
+CREATE TABLE IF NOT EXISTS hx_line_room_hooks (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel_secret TEXT, channel_access_token TEXT, created_at TEXT NOT NULL);
+/* Customer IDs and channel tokens are encrypted; raw LINE IDs never leave encrypted storage. */
 CREATE TABLE IF NOT EXISTS hx_line_inbox_messages (event_key TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, message_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_hx_line_inbox_customer ON hx_line_inbox_messages(org_id,channel,hook_id,customer_key,created_at,message_id);
+CREATE TABLE IF NOT EXISTS hx_line_inbox_customers (org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, target_type TEXT NOT NULL CHECK(target_type IN ('user','group','room')), target_fingerprint TEXT NOT NULL, target_ciphertext TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,channel,hook_id,customer_key));
+CREATE TABLE IF NOT EXISTS hx_line_inbox_replies (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, request_id TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('sending','sent','failed','unknown')), provider_request_id TEXT, created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(org_id,hook_id,request_id));
+CREATE INDEX IF NOT EXISTS idx_hx_line_inbox_replies ON hx_line_inbox_replies(org_id,channel,hook_id,customer_key,created_at,id);
 CREATE TABLE IF NOT EXISTS hx_line_inbox_reads (org_id TEXT NOT NULL, channel TEXT NOT NULL, hook_id TEXT NOT NULL, customer_key TEXT NOT NULL, actor_id TEXT NOT NULL, last_read_at TEXT NOT NULL, PRIMARY KEY(org_id,channel,hook_id,customer_key,actor_id));
 
 CREATE TABLE IF NOT EXISTS hx_room_hook_dispatch (message_id TEXT PRIMARY KEY, org_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
@@ -2738,6 +2741,10 @@ CREATE INDEX IF NOT EXISTS idx_hx_agent_request_dispatch_due ON hx_agent_request
 
 CREATE TABLE IF NOT EXISTS ai_teammate_result_dispatch (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, run_id TEXT NOT NULL, turn_version INTEGER NOT NULL, agent_id TEXT NOT NULL, assignment_id TEXT, assignment_generation INTEGER, assignment_agent_id TEXT, payload TEXT, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, UNIQUE(org_id,run_id,turn_version));
 CREATE INDEX IF NOT EXISTS idx_teammate_result_pending ON ai_teammate_result_dispatch(status,next_attempt,lease_until);
+
+CREATE TABLE IF NOT EXISTS hx_agent_fallback_state (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, gateway_id TEXT NOT NULL, current_state TEXT NOT NULL CHECK(current_state IN ('node','workspace')), version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id));
+CREATE TABLE IF NOT EXISTS hx_agent_fallback_events (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, agent_id TEXT NOT NULL, gateway_id TEXT NOT NULL, owner_login TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('node','workspace')), version INTEGER NOT NULL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','delivered','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(org_id,agent_id,version));
+CREATE INDEX IF NOT EXISTS idx_agent_fallback_events_pending ON hx_agent_fallback_events(status,created_at);
 
 CREATE TABLE IF NOT EXISTS hx_app_automation_state (org_id TEXT NOT NULL, app_id TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, draft TEXT NOT NULL, published TEXT, release_id TEXT, published_at TEXT, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, PRIMARY KEY(org_id,app_id));
 

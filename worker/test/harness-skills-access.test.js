@@ -799,8 +799,12 @@ test('person-scoped memory conversion audit records person scope without exposin
   expect(response.status).toBe(201);
   const event=await env.DB.prepare("SELECT body FROM audit_events WHERE org_id=? AND action='agent.memory_converted' ORDER BY seq DESC LIMIT 1").bind(orgId).first();
   const details=JSON.parse(event.body).details;
-  expect(details.scope).toBe('person');
-  expect(JSON.stringify(details)).not.toContain('9401');
+  expect(details).toMatchObject({version:memory.version,keptMemory:true,scope:'person'});
+  expect(details).not.toHaveProperty('userId');
+  expect(details).not.toHaveProperty('ownerLogin');
+  expect(details).not.toHaveProperty('ownerId');
+  expect(details).not.toHaveProperty('createdBy');
+  expect(Object.keys(details).sort()).toEqual(['keptMemory','memoryId','scope','skillId','version']);
 });
 
 test('conversion keeps legacy memory on request and rejects stale or repeated versions',async()=>{

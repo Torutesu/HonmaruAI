@@ -6,7 +6,7 @@ import {clearScheduledBudgetSkip,recordScheduledBudgetSkip,tryWorkflowNotice} fr
 import {ensureWorkflowSafety,readWorkflowSafety,workflowBudgetStatus,workflowBudgetWindows,workflowAiBudgetWindows,workflowBudgetReason,recoverWorkflowBudgetPause,pauseWorkflowForBudget,workflowSettlementStatements} from './workflowSafety.js';
 import {managedAutomationGuard,managedAutomationRelease,managedAutomationMayRun} from './appAutomationGuard.js';
 import {workflowApprovalClaimAuthority,workflowEffectAuthority} from './workflowEffectAuthority.js';
-import { mayUseApp, mayUseTable, mayEditTable } from './resourceAccess.js';
+import { mayUseApp, mayUseTable, mayWriteTableRecords } from './resourceAccess.js';
 import { appConnectionsForViewer } from './appConnectionGrants.js';
 import { holdWorkflowEvent } from './workflowHeld.js';
 import { WORKFLOW_WEBHOOK_REPLAY_TTL_MS, verifyWorkflowWebhook } from './workflowWebhookSignature.js';
@@ -14,7 +14,7 @@ import { mayUseConversation } from './conversationAccess.js';
 import { getMode } from './mode.js';
 import { enforce } from '../ratelimit.js';
 import { callRemoteMcpTool, remoteMcpTools } from './remoteMcp.js';
-import { workflowAgentRemoteTools, workflowRemoteToolAllowed } from './workflowAgentRemoteTools.js';
+import { workflowAgentRemoteTools, workflowRemoteToolAllowed, workflowRemoteToolAuthorizationStamp } from './workflowAgentRemoteTools.js';
 import { mayUseAgentRemoteMcp } from './agentRemoteMcp.js';
 import { searchNotion, searchGithubIssues, formatSourcesForModel } from '../context.js';
 import { agentSourceCredential, hasAgentSourceGrant } from './agentConnections.js';
@@ -1786,6 +1786,11 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
           authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, false);
           return { status: 'failed', error: 'Remote MCP access changed before dispatch; no request was sent.' };
         }
+        const authorizationStampBefore = await workflowRemoteToolAuthorizationStamp(env, orgId, step.agentId, actorId, principalTool, { requiresApproval });
+        if (!authorizationStampBefore) {
+          authorizationTrace.record('connection', step.serverId + '/' + step.toolName, false);
+          return { status: 'failed', error: 'Remote MCP access changed before dispatch; no request was sent.' };
+        }
         const result = await callRemoteMcpTool(env, {
           orgId, githubId: String(actorId), login: actor.login, name: actor.name || actor.login,
           agentName: selectedAgent.handle || selectedAgent.name || 'Agent',
@@ -1793,8 +1798,9 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
           kind: 'agent', agentId: step.agentId, toolName: step.toolName,
           ...(step.connectionOwnerId ? { connectionOwnerId: step.connectionOwnerId } : {}),
         } }).catch(() => null);
+        const authorizationStampAfter = await workflowRemoteToolAuthorizationStamp(env, orgId, step.agentId, actorId, principalTool, { requiresApproval });
         const allowedAfterCall = await authorize(authorizationTrace)
-          && await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, principalTool, { requiresApproval });
+          && authorizationStampAfter !== null && authorizationStampAfter === authorizationStampBefore;
         authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, allowedAfterCall);
         if (!allowedAfterCall) return { status: 'failed', error: 'Remote MCP access changed while the read was running; the result was discarded.' };
         if (!result || result.isError) return { status: 'failed', error: 'The Remote MCP tool could not return a result.' };
@@ -1819,7 +1825,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       return { status: 'ok', output, connection: { agentId: step.agentId, source: step.source, action: 'search', query, actorId } };
     }
     case "add_row": {
-      const canUseTable = await mayEditTable(db, orgId, step.tableId, owner);
+      const canUseTable = await mayWriteTableRecords(db, orgId, step.tableId, owner);
       authorizationTrace.record('table', step.tableId, canUseTable);
       if (!canUseTable) return { status: "failed", error: "Table access required." };
       const writeGuard = workflowRowSourceWriteGuard({ orgId, runId, workflow, runTrigger, scope, owner });
@@ -1846,7 +1852,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       }
       const rowId = step.rowId ? render(step.rowId, scope) : implicitRowId;
       if (tableId) {
-        const canUseTable = await mayEditTable(db, orgId, tableId, owner);
+        const canUseTable = await mayWriteTableRecords(db, orgId, tableId, owner);
         authorizationTrace.record('table', tableId, canUseTable);
         if (!canUseTable) return { status: "failed", error: "Table access required." };
       }

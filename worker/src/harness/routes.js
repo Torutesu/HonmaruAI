@@ -25,6 +25,7 @@ import { heldWorkflowSummary, discardWorkflowEvents, readHeldWorkflowEvent } fro
 import { roomHookStatuses } from './roomHookStatus.js';
 import {roomVisualState,setRoomVisual} from './roomVisuals.js';
 import { createRoomHook, listRoomHooks, changeRoomHook, listLineInbox, readLineInboxConversation, markLineInboxRead } from './roomHooks.js';
+import { sendLineInboxReply } from './lineInboxReplies.js';
 import {readRoomVisualImage} from './roomVisualImage.js';
 import {roomRoleState,setRoomPrivacy} from './roomRoles.js';
 import {managedRoomSettings,saveManagedRoomSettings} from './roomSettings.js';
@@ -48,7 +49,7 @@ import { appPins, setAppPin } from './appPins.js';
 import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, rebaseLegacyFork, readFork, mutateFork, mutateForkSchema } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, listAppActionRuns, connections, saveConnection } from './appCapabilities.js';
-import { appConnectionsForViewer, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
+import { appConnectionsForViewer, appConnectionGrantReview, revokeAppConnectionGrantForReview, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
 import { startAppConnectionOAuth } from './appConnectionOAuth.js';
 import { appRemoteMcpForViewer, changeAppRemoteMcpGrant, invokeAppRemoteMcp } from './appRemoteMcp.js';
 import { generateCustomSource, saveCustomRelease, validateSource, MAX_PREVIEW_SOURCE } from "./customApps.js";
@@ -65,7 +66,7 @@ import { handleGateways, isGatewayNodeRoute } from './gateways.js';
 import { setSkillAccess } from './skillAccess.js';
 import { tableContract } from "./tableContract.js";
 import { listTableContracts, publishTableContract, readTableContract } from './tableContracts.js';
-import { appAccess, appPeopleAccess, hasExplicitAppPermission, mayEditApp, mayEditTable, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { appAccess, appPeopleAccess, hasExplicitAppPermission, mayEditApp, mayEditTable, mayWriteTableRecords, mayUseApp, mayUseTable, mayReadAppRows, setAppAccess, visibleResources, visibleAppLinks } from './resourceAccess.js';
 import { mayUseConversation, readableConversation } from './conversationAccess.js';
 import { browserConversationAllowed } from './executions.js';
 import { listMembers as memoryMembers } from '../team.js';
@@ -552,6 +553,16 @@ export async function handleHarness(request, env, url, context = {}) {
     if (result.error) return fail(result);
     const response=json(result);response.headers.set('Cache-Control','no-store');return response;
   }
+  if (url.pathname === '/hx/rooms/line-replies') {
+    if (request.method !== 'POST') return json({message:'Method not allowed.'},405);
+    const room = await resolveChannel(env.DB,orgId,who.user,input.channel);
+    if (!room || room.kind !== 'business') return json({message:'No such room.'},404);
+    if (!await allowed(env.DB,orgId,me,'harness.build')) return json({message:'You cannot manage integrations in this workspace.'},403);
+    const result=await sendLineInboxReply(env,{orgId,channel:room.key,actorId:me,hookId:input.hookId,customerKey:input.customerKey,requestId:input.requestId,body:input.body});
+    if(result.error)return fail(result);
+    await audit(env,request,{orgId,action:'room.line_reply_sent',actor:person(who.user),entity:{type:'channel',id:room.key},details:{hookId:input.hookId,customerKey:input.customerKey,replyId:result.reply?.id}});
+    const response=json(result,result.replay?200:201);response.headers.set('Cache-Control','no-store');return response;
+  }
   if (url.pathname === '/hx/rooms/webhooks') {
     if (!['GET','POST','PUT'].includes(request.method)) return json({message:'Method not allowed.'},405);
     const channel = request.method === 'GET' ? url.searchParams.get('channel') : input.channel;
@@ -561,8 +572,8 @@ export async function handleHarness(request, env, url, context = {}) {
     const result = request.method === 'GET'
       ? await listRoomHooks(env.DB,orgId,room.key,me)
       : request.method === 'POST'
-        ? await createRoomHook(env.DB,orgId,room.key,me,input.name,{provider:input.provider,channelSecret:input.channelSecret})
-        : input.action==='retry' ? await retryRoomHook(env,orgId,room.key,me,input) : await changeRoomHook(env.DB,orgId,room.key,me,input.id,input.version,input.action,input.channelSecret);
+        ? await createRoomHook(env.DB,orgId,room.key,me,input.name,{provider:input.provider,channelSecret:input.channelSecret,channelAccessToken:input.channelAccessToken})
+        : input.action==='retry' ? await retryRoomHook(env,orgId,room.key,me,input) : await changeRoomHook(env.DB,orgId,room.key,me,input.id,input.version,input.action,input.channelSecret,input.channelAccessToken);
     if (result.error) return fail(result);
     if (request.method === 'GET') result.events = await roomHookStatuses(env,orgId,result.events,me);
     if (request.method !== 'GET') await audit(env,request,{orgId,action:'room.webhook_changed',actor:person(who.user),entity:{type:'channel',id:room.key},details:{action:request.method==='POST'?'create':input.action}});
@@ -725,7 +736,9 @@ export async function handleHarness(request, env, url, context = {}) {
       return null;
     }
     if (!(await mayUseTable(env.DB, orgId, tableId, me))) return json({ message: "No such table." }, 404);
-    if (request.method !== 'GET' && !(await mayEditTable(env.DB,orgId,tableId,me))) return json({ message: "No such table." }, 404);
+    if (request.method !== 'GET' && sub === 'rows') {
+      if (!(await mayWriteTableRecords(env.DB,orgId,tableId,me))) return json({ message: "No such table." }, 404);
+    } else if (request.method !== 'GET' && !(await mayEditTable(env.DB,orgId,tableId,me))) return json({ message: "No such table." }, 404);
     if (sub === "contract" && request.method === "GET") {
       const table = await getTable(env.DB, orgId, tableId);
       return table ? json(tableContract(table)) : json({ message: "No such table." }, 404);
@@ -944,7 +957,7 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "run" && request.method === "POST") {
       for (const step of wf.steps || []) {
         if (!['add_row','update_row'].includes(step.type) || !step.tableId) continue;
-        if (!await mayEditTable(env.DB,orgId,step.tableId,me)) return json({ message: 'Edit access to every target app is required to run this workflow.' }, 403);
+        if (!await mayWriteTableRecords(env.DB,orgId,step.tableId,me)) return json({ message: 'Record write access to every target app is required to run this workflow.' }, 403);
       }
       // Pausing stops automatic triggers; an explicit manual run does not
       // enable the workflow or replay its queued webhook deliveries.
@@ -1134,7 +1147,7 @@ export async function handleHarness(request, env, url, context = {}) {
     const agentId = parts[2];
     const sub = parts[3];
     const agent = await env.DB
-      .prepare("SELECT id, owner_login, scope FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
+      .prepare("SELECT id, owner_login, scope, provider FROM custom_agents WHERE org_id = ?1 AND id = ?2 AND deleted_at IS NULL")
       .bind(orgId, agentId)
       .first();
     // Someone else's personal agent is theirs alone: it is not here at all.
@@ -1373,6 +1386,11 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === "profile") {
       if (request.method === "GET") return json({ profile: await getProfile(env.DB, orgId, agentId), tiers: TIERS, access: ACCESS, canEdit });
       if (request.method === "PUT") {
+        if (agent.provider && await getMode(env.DB, orgId) === 'harness'
+          && ((input.access !== undefined && input.access !== 'private')
+            || (input.people !== undefined && (!Array.isArray(input.people) || input.people.length > 0)))) {
+          return json({ message: 'Share this teammate through Agent access so its audience stays explicit.' }, 409);
+        }
         const currentProfile=(input.nativeBrowserEnabled!==undefined||input.nativeBrowserGatewayId!==undefined)
           ? await getProfile(env.DB,orgId,agentId) : null;
         if (input.nativeBrowserEnabled === true || input.nativeBrowserGatewayId) {
@@ -1656,7 +1674,7 @@ export async function handleHarness(request, env, url, context = {}) {
         const annotations=await listAppAnnotations(env.DB,orgId,appId,query);
         const table=query.rowId?await getTable(env.DB,orgId,query.tableId):null;
         const proposals=query.rowId?(await env.DB.prepare(`SELECT id,CASE WHEN status='pending' AND expires_at<=? THEN 'stale' ELSE status END AS status,changes,expires_at AS expiresAt,applied_updated_at AS appliedUpdatedAt FROM hx_app_record_proposals WHERE org_id=? AND app_id=? AND table_id=? AND row_id=? AND status IN ('pending','applying','applied','undone','rejected','stale') ORDER BY created_at DESC LIMIT 10`).bind(new Date().toISOString(),orgId,appId,query.tableId,query.rowId).all()).results.map(p=>({...p,fields:Object.entries(JSON.parse(p.changes||'{}')).map(([id,value])=>({id,name:table?.columns?.find(column=>column.id===id)?.name||id,value}))})):[];
-        return json({...access,source:source?await sourceHistory(env.DB,orgId,who.user,source):null,aiReplies,annotations,proposals,canEditRecord:query.rowId?await mayEditTable(env.DB,orgId,query.tableId,me):false});
+        return json({...access,source:source?await sourceHistory(env.DB,orgId,who.user,source):null,aiReplies,annotations,proposals,canEditRecord:query.rowId?await mayWriteTableRecords(env.DB,orgId,query.tableId,me):false});
       }
       let requestProof;
       if(aiConversationRequest){
@@ -1677,11 +1695,14 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({...r,...(marker.annotationId?{annotationId:marker.annotationId}:{})});
     }
     const app = await getApp(env.DB, orgId, appId);
+    const reviewRequest = sub === 'connections' && ((request.method === 'GET' && url.searchParams.get('review') === '1')
+      || (request.method === 'POST' && input.action === 'review_revoke'));
+    const canReviewConnections = reviewRequest && await allowed(env.DB, orgId, me, 'workspace.integrations');
     // Workspace Admins may manage room-navigation links on a private App,
     // but this narrow exception never grants access to App data or metadata.
     const canManagePrivateLinks = sub === 'links' && ['POST', 'DELETE'].includes(request.method)
       && await mayChange(env, orgId, who, app?.createdBy);
-    if (!app || (!(await mayUseApp(env.DB, orgId, appId, me)) && !canManagePrivateLinks)) return json({ message: "No such app." }, 404);
+    if (!app || (!(await mayUseApp(env.DB, orgId, appId, me)) && !canManagePrivateLinks && !canReviewConnections)) return json({ message: "No such app." }, 404);
     if(sub==='record-proposals'&&parts.length===4){
       if(request.method!=='POST')return json({message:'Method not allowed.'},405);
       const proposal=await env.DB.prepare(`SELECT * FROM hx_app_record_proposals WHERE org_id=? AND app_id=? AND id=?`).bind(orgId,appId,parts[3]).first();
@@ -1689,7 +1710,7 @@ export async function handleHarness(request, env, url, context = {}) {
       const scope={tableId:proposal.table_id,rowId:proposal.row_id};
       const access=await appConversation(env.DB,orgId,me,appId,scope);
       if(access.error)return fail(access);
-      if(!(await mayEditTable(env.DB,orgId,proposal.table_id,me)))return json({message:'You cannot edit this record.'},403);
+      if(!(await mayWriteTableRecords(env.DB,orgId,proposal.table_id,me)))return json({message:'You cannot edit this record.'},403);
       const action=input?.action;
       if(action==='reject'){
         const result=await env.DB.prepare(`UPDATE hx_app_record_proposals SET status='rejected',reviewed_by=?,reviewed_at=? WHERE id=? AND org_id=? AND app_id=? AND status='pending' AND expires_at>?`).bind(String(me),new Date().toISOString(),proposal.id,orgId,appId,new Date().toISOString()).run();
@@ -1856,12 +1877,25 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (sub === 'connections') {
         if(request.method==='GET') {
+          if(url.searchParams.get('review')==='1') {
+            if(!canReviewConnections)return json({message:'Only workspace admins can review App connection grants.'},403);
+            const review=await appConnectionGrantReview(env.DB,orgId,appId,me);
+            if(review.denied)return json({message:'Workspace admin access changed. Reload and try again.'},403);
+            return json(review);
+          }
           const result=await appConnectionsForViewer(env.DB,orgId,appId,me);
           if(result.error)return fail(result);
           const remoteMcp=await appRemoteMcpForViewer(env.DB,orgId,appId,me);
           return remoteMcp.error?fail(remoteMcp):json({...result,remoteMcp});
         }
         if(request.method!=='POST')return json({message:'Method not allowed.'},405);
+        if(input.action==='review_revoke') {
+          if(!canReviewConnections)return json({message:'Only workspace admins can revoke App connection grants from the access review.'},403);
+          const result=await revokeAppConnectionGrantForReview(env.DB,orgId,appId,me,input);
+          if(result.error)return fail(result);
+          await audit(env,request,{orgId,action:'app.connection_grant_admin_revoked',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{ownerId:String(input.ownerId),connectionName:String(input.name)}});
+          return json(result);
+        }
         if(input.action==='request')return respond(await invokeAppConnection(env,orgId,appId,me,input),'app.connection_requested');
         if(input.action==='remote_mcp_request')return respond(await invokeAppRemoteMcp(env,orgId,appId,me,input),'app.remote_mcp_requested');
         if(input.action==='save')return respond(await saveConnection(env.DB,orgId,appId,me,input,env),'app.connection_saved');
@@ -2104,7 +2138,7 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === "PUT") {
         const result = await setAppAccess(env.DB, orgId, appId, me, input);
-        if (!result.error) await audit(env, request, { orgId, action: "app.access_changed", actor: person(who.user), entity: { type: "app", id: appId }, details: { visibility: result.access.visibility, version: result.access.version, room: result.access.roomChannel || null, explicitPeople: Array.isArray(input.people) ? input.people.length : null } });
+        if (!result.error) await audit(env, request, { orgId, action: "app.access_changed", actor: person(who.user), entity: { type: "app", id: appId }, details: { visibility: result.access.visibility, workspaceRecordWrite: result.access.workspaceRecordWrite, version: result.access.version, room: result.access.roomChannel || null, explicitPeople: Array.isArray(input.people) ? input.people.length : null } });
         return result.error ? fail(result) : json(result);
       }
       return json({ message: "Method not allowed." }, 405);

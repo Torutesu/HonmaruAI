@@ -1,5 +1,5 @@
 import { sha256Hex } from './auth.js';
-import { getMessage, present, listThread, searchMessages, viewOf, VISIBLE, cleanEmoji, editMessage, deleteMessage } from './channels.js';
+import { getMessage, present, listThread, searchMessages, viewOf, VISIBLE, cleanEmoji, editMessage, deleteMessage, activityFeed, markActivitySeen, markRead, readThreadsSeenInActivity } from './channels.js';
 import { resolveMcpConversation, mcpConversationContext, mcpAudienceSql, messageLink } from './mcpConversation.js';
 import { McpInputError, requireMcpScope, mcpResult, validateMcpInput } from './mcpSupport.js';
 import { prepareConversationMessage, acceptConversationMessage } from './conversationOperations.js';
@@ -68,6 +68,12 @@ export const CHAT_TOOLS = [
   write('delete_message', 'Delete your own message using its exact current contentVersion. Deleting a thread with other people’s replies requires withThread=true and removes those replies too.', { conversationId: id, messageId: id, expectedContentVersion: { type: 'integer', minimum: 0 }, withThread: { type: 'boolean' } }, ['conversationId', 'messageId', 'expectedContentVersion'], 'chat:write', { destructiveHint: true, idempotentHint: false }),
   read('read_channel', 'Read a bounded history page without marking it read. Follow nextCursor for older messages.', { conversationId: id, cursor, limit }, ['conversationId']),
   read('read_thread', 'Read the parent and a bounded page of thread replies without marking them read. Follow nextCursor for older replies.', { conversationId: id, threadId: id, cursor, limit }, ['conversationId', 'threadId']),
+  read('timeline_list', 'List your recent message and reaction Activity without marking it read. Results respect your workspace access and this connection’s chat:dm/chat:private scopes. App notifications are not included.', { unread: { type: 'boolean' }, limit: { type: 'integer', minimum: 1, maximum: 50 } }),
+  read('timeline_count', 'Count unread message and reaction Activity in the current bounded Activity window. App notifications are not included; count is capped at 100 items.', {}),
+  read('timeline_get', 'Get one currently visible message or reaction Activity item without marking it read. Use the item key returned by timeline_list. App notifications are not included.', { key: { type: 'string', minLength: 3, maxLength: 120 } }, ['key']),
+  write('timeline_read', 'Mark one currently visible message or reaction Activity item read across your devices. App notifications are not included.', { key: { type: 'string', minLength: 3, maxLength: 120 } }, ['key'], 'chat:write'),
+  write('timeline_read_all', 'Mark the visible unread message and reaction Activity items read across your devices. Also advances your Activity read position. App notifications are not included.', {}, [], 'chat:write'),
+  write('timeline_pin', 'Pin or unpin the conversation thread containing one currently visible message or reaction Activity item in your personal thread pins. This pins the containing thread, not an individual Feed occurrence.', { key: { type: 'string', minLength: 3, maxLength: 120 }, pinned: { type: 'boolean' } }, ['key', 'pinned'], 'chat:write'),
   read('get_file_conversation', 'Get the existing conversation attached to a file you can access. Looking up a file never creates a thread.', { fileId: id }, ['fileId'], 'files:read'),
   write('open_file_conversation', 'Open or create the conversation attached to a file you can access. The thread inherits the file Room/DM access; creation is idempotent and notifies current participants.', { fileId: id }, ['fileId'], 'chat:write'),
   write('rename_thread', 'Rename an accessible thread using its current title version. Supply version 0 when it has no custom title.', { conversationId: id, threadId: id, title: { type: 'string', minLength: 1, maxLength: 160 }, version: { type: 'integer', minimum: 0 } }, ['conversationId', 'threadId', 'title', 'version'], 'chat:write'),
@@ -145,6 +151,54 @@ export async function callChatTool(env, actor, name, args = {}, request = null, 
   requireMcpScope(actor, tool.scope);
   validateMcpInput(args, tool.inputSchema);
   const size = args.limit || 30;
+  if (name.startsWith('timeline_')) {
+    const context = await mcpConversationContext(env, actor);
+    const feed = await activityFeed(env.DB, actor.orgId, actor.login, context.members, { limit: 100 });
+    const canSee = async item => {
+      const channel = item?.message?.channel;
+      if (typeof channel !== 'string') return false;
+      if ((channel.startsWith('dm:') || channel.startsWith('g:')) && !actor.scopes.includes('chat:dm')) return false;
+      if (channel.startsWith('b:')) {
+        const room = await env.DB.prepare('SELECT private,archived_at FROM businesses WHERE org_id=?1 AND slug=?2').bind(actor.orgId, channel.slice(2)).first();
+        if (!room || room.archived_at || (room.private && !actor.scopes.includes('chat:private'))) return false;
+      }
+      return Boolean(viewOf(channel, actor.login, context.members, context.access));
+    };
+    const visible = [];
+    for (const item of feed.items) if (await canSee(item)) visible.push(item);
+    if (name === 'timeline_list') {
+      const items = visible.filter(item => !args.unread || item.unread).slice(0, args.limit || 20);
+      return mcpResult({ items, limit: args.limit || 20, unreadOnly: args.unread === true });
+    }
+    if (name === 'timeline_count') return mcpResult({ unreadCount: visible.filter(item => item.unread).length, considered: visible.length, capped: visible.length === 100 });
+    if (name === 'timeline_get') {
+      const item = visible.find(entry => entry.key === args.key);
+      if (!item) throw new McpInputError('No accessible Activity item.');
+      return mcpResult({ item });
+    }
+    if (name === 'timeline_pin') {
+      const item = visible.find(entry => entry.key === args.key);
+      if (!item) throw new McpInputError('No accessible Activity item.');
+      const messageId = item.message.parentId || item.message.id;
+      const result = await setThreadPin(env.DB, actor.orgId, { github_id: actor.githubId, login: actor.login }, messageId, args.pinned);
+      failResult(result);
+      return mcpResult({ key: item.key, threadId: messageId, pinned: args.pinned, semantics: 'containing_thread' });
+    }
+    if (name === 'timeline_read') {
+      const item = visible.find(entry => entry.key === args.key);
+      if (!item) throw new McpInputError('No accessible Activity item.');
+      const items = await markActivitySeen(env.DB, actor.orgId, actor.login, [item.key]);
+      const threads = items.length ? await readThreadsSeenInActivity(env.DB, actor.orgId, actor.login, items) : [];
+      return mcpResult({ items, threads });
+    }
+    if (name === 'timeline_read_all') {
+      const keys = visible.filter(item => item.unread).map(item => item.key);
+      const items = await markActivitySeen(env.DB, actor.orgId, actor.login, keys);
+      const threads = items.length ? await readThreadsSeenInActivity(env.DB, actor.orgId, actor.login, items) : [];
+      const position = await markRead(env.DB, actor.orgId, actor.login, 'activity', undefined, true);
+      return mcpResult({ items, threads, ...position, capped: visible.length === 100 });
+    }
+  }
   if (name === 'get_file_conversation' || name === 'open_file_conversation') {
     requireMcpScope(actor, 'files:read');
     const context = await mcpConversationContext(env, actor);

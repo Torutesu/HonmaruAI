@@ -4,6 +4,7 @@ import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { watchTeammateRuns } from "../src/channelRoutes.js";
+import {drainAgentFallbackNotifications,recordAgentFallbackState} from '../src/harness/agentFallback.js';
 
 // AI teammates, the way Claude Tag works in Slack: an admin sets Claude up
 // with a key from an account made for it, tools' keys go to Anthropic's vault,
@@ -90,7 +91,7 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local'});
  expect(configured.status).toBe(200);
  const teammate=(await configured.json()).teammate;
- expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task',workspaceTools:false});
+ expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task',workspaceTools:false,fallbackToWorkspaceAI:false});
  expect(JSON.stringify(teammate)).not.toContain(token);
  const message=(await (await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:`@${teammate.handle} review this repository`},{TEAMMATE_WATCH_MS:'0'})).json()).message;
  const run=await env.DB.prepare("SELECT * FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first();
@@ -123,6 +124,66 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  expect((await enabled.json()).teammate.workspaceTools).toBe(true);
  const saved=await env.DB.prepare("SELECT remote FROM ai_teammates WHERE org_id=?1 AND provider='acp'").bind(ORG).first();
  expect(JSON.parse(saved.remote).workspaceTools).toBe(true);
+});
+
+test('opt-in ACP cloud fallback uses existing Workspace AI when the configured node is offline',async()=>{
+ const {setMode}=await import('../src/harness/mode.js');await setMode(env.DB,ORG,'harness','9701');
+ const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
+ const {gateway,token}=await registered.json();
+ await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
+ expect((await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:'yes'})).status).toBe(400);
+ const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:true});
+ expect(configured.status).toBe(200);
+ expect((await configured.json()).teammate.fallbackToWorkspaceAI).toBe(true);
+ await env.DB.prepare('UPDATE hx_gateways SET last_seen_at=1 WHERE org_id=?1 AND id=?2').bind(ORG,gateway.id).run();
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(400,{error:{message:'Responses unavailable'}}).times(2);
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,{choices:[{message:{content:'Completed with the existing Workspace model.'}}],usage:{prompt_tokens:8,completion_tokens:6}});
+ const sent=await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:'@acp-agent summarize the launch plan'},{OPENAI_API_KEY:'sk-existing-workspace',TEAMMATE_WATCH_MS:'0'});
+ expect(sent.status).toBe(201);
+ const replies=await thread(toru,(await sent.json()).message.id);
+ expect(replies.map(reply=>reply.body).join('\n')).toContain('execution node is offline');
+ expect(replies.map(reply=>reply.body).join('\n')).toContain('Completed with the existing Workspace model.');
+ expect(await env.DB.prepare('SELECT COUNT(*) n FROM hx_gateway_jobs WHERE org_id=?1 AND gateway_id=?2').bind(ORG,gateway.id).first()).toEqual({n:0});
+ expect(await env.DB.prepare("SELECT COUNT(*) n FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first()).toEqual({n:0});
+ const agentId=(await env.DB.prepare("SELECT agent_id FROM ai_teammates WHERE org_id=?1 AND provider='acp'").bind(ORG).first()).agent_id;
+ const agentDm=()=>env.DB.prepare('SELECT body,client_id FROM channel_messages WHERE org_id=?1 AND channel=?2 AND author_login=?3 ORDER BY created_at,id').bind(ORG,`ag:${agentId}|toru`,`agent:${agentId}`).all();
+ expect(await env.DB.prepare('SELECT current_state,version FROM hx_agent_fallback_state WHERE org_id=?1 AND agent_id=?2').bind(ORG,agentId).first()).toEqual({current_state:'workspace',version:1});
+ expect((await env.DB.prepare('SELECT state,status FROM hx_agent_fallback_events WHERE org_id=?1 AND agent_id=?2').bind(ORG,agentId).all()).results).toEqual([{state:'workspace',status:'delivered'}]);
+ const switched=await agentDm();
+ expect(switched.results).toHaveLength(1);
+ expect(switched.results[0].body).toContain('switched to Workspace AI');
+ expect(switched.results[0].client_id).toMatch(/^tmp-/);
+ // A reconnect sends the return-to-computer notice before any further task;
+ // duplicate claims do not create duplicate DMs.
+ const claim=()=>worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
+ await claim();
+ const returned=await agentDm();
+ expect(returned.results).toHaveLength(2);
+ expect(returned.results[1].body).toContain('switched back to running there');
+ expect(await env.DB.prepare('SELECT current_state,version FROM hx_agent_fallback_state WHERE org_id=?1 AND agent_id=?2').bind(ORG,agentId).first()).toEqual({current_state:'node',version:2});
+ await claim();
+ expect((await agentDm()).results).toHaveLength(2);
+ expect((await env.DB.prepare('SELECT state,status FROM hx_agent_fallback_events WHERE org_id=?1 AND agent_id=?2 ORDER BY version').bind(ORG,agentId).all()).results).toEqual([{state:'workspace',status:'delivered'},{state:'node',status:'delivered'}]);
+ // A failed live relay leaves the notification durable. Retrying publishes
+ // the same message id and cannot create a duplicate DM.
+ await recordAgentFallbackState(env.DB,{orgId:ORG,agentId,gatewayId:gateway.id,ownerLogin:'toru',state:'workspace',at:Date.now()+1});
+ await drainAgentFallbackNotifications(env,async()=>{throw new Error('relay offline')});
+ expect((await env.DB.prepare('SELECT status FROM hx_agent_fallback_events WHERE org_id=?1 AND agent_id=?2 AND version=3').bind(ORG,agentId).first()).status).toBe('pending');
+ expect((await agentDm()).results).toHaveLength(3);
+ await drainAgentFallbackNotifications(env,async()=>{});
+ expect((await agentDm()).results).toHaveLength(3);
+ expect((await env.DB.prepare('SELECT status FROM hx_agent_fallback_events WHERE org_id=?1 AND agent_id=?2 AND version=3').bind(ORG,agentId).first()).status).toBe('delivered');
+
+ // Concurrent CAS updates report success only to the caller that commits the state.
+ // Overlapping notice drains still persist one message with the stable client ID.
+ const concurrent=await Promise.all([
+  recordAgentFallbackState(env.DB,{orgId:ORG,agentId,gatewayId:gateway.id,ownerLogin:'toru',state:'node',at:Date.now()+2}),
+  recordAgentFallbackState(env.DB,{orgId:ORG,agentId,gatewayId:gateway.id,ownerLogin:'toru',state:'node',at:Date.now()+3}),
+ ]);
+ expect(concurrent.filter(Boolean)).toHaveLength(1);
+ expect(await env.DB.prepare('SELECT current_state,version FROM hx_agent_fallback_state WHERE org_id=?1 AND agent_id=?2').bind(ORG,agentId).first()).toEqual({current_state:'node',version:4});
+ await Promise.all([drainAgentFallbackNotifications(env,async()=>{}),drainAgentFallbackNotifications(env,async()=>{})]);
+ expect((await agentDm()).results).toHaveLength(4);
 });
 
 test('Grok Bot routine returns a thread task through the one-time completion MCP tool', async () => {

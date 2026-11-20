@@ -1,7 +1,7 @@
 import {FILE_WRITE_TOOLS,callFileWriteTool} from './fileWriteTools.js';
 import {FILE_READ_TOOLS,callFileReadTool} from './fileTools.js';
 import { EXECUTION_TOOLS, callExecutionTool } from './executionTools.js';
-import { mayUseApp, mayUseTable, mayEditTable, mayReadAppRows, visibleResources, visibleAppLinks } from './resourceAccess.js';
+import { mayUseApp, mayUseTable, mayEditTable, mayWriteTableRecords, mayReadAppRows, visibleResources, visibleAppLinks } from './resourceAccess.js';
 // The harness over MCP (docs/kylon-gap-plan.md): what Kylon's Tools API and
 // workspace CLI give an outside agent — the workspace's apps, tables,
 // workflows and follow-ups — offered only by a workspace in harness mode.
@@ -441,14 +441,14 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
       return pageResult({}, rows, r.offset, r.total);
     }
     case "add_row": {
-      if (!(await mayEditTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
+      if (!(await mayWriteTableRecords(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
       const r = await addRow(db, orgId, String(args.tableId || ""), args.values, by, undefined, by);
       if (r.error) return err(r.error);
       if(r.rowEventId)await drainWorkflowRowEvents(env,{eventId:r.rowEventId,limit:1});
       return out({ row: presentRow(r.row), rowVersions: { [r.row.id]: r.row.updatedAt } });
     }
     case "update_row": {
-      if (!(await mayEditTable(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
+      if (!(await mayWriteTableRecords(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
       if (typeof args.expectedUpdatedAt !== 'string' || !args.expectedUpdatedAt) return err('expectedUpdatedAt is required. Read the current row version before editing it.');
       const r = await updateRow(db, orgId, String(args.tableId || ""), String(args.rowId || ""), args.values, by, args.expectedUpdatedAt, undefined, by);
       if (r.error) return err(r.error);

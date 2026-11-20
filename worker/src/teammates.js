@@ -156,6 +156,9 @@ export function toClientTeammate(t, provider, spentCents = 0, canRevealWebhookUr
     completionMcpUrl: p.webhookBot && canRevealWebhookUrl ? completionMcpUrl : "",
     workspaceTools: Boolean(t?.remote?.workspaceTools),
     browserTools: Boolean(t?.remote?.browserTools),
+    // Cloud fallback is opt-in so an offline local agent never silently
+    // switches work onto the workspace's existing metered model account.
+    fallbackToWorkspaceAI: Boolean(t?.remote?.fallbackToWorkspaceAI),
     repos: t?.repos || [], model: t?.model || p.defaultModel || "", instructions: t?.instructions || "",
     channels: t?.channels ?? null,
     autoBuild: t ? t.autoBuild !== false : true,
@@ -176,12 +179,14 @@ function cleanInput(input, current, provider) {
     const agentKey = String(input.agentKey ?? current?.remote?.agentKey ?? "").trim();
     if (input.workspaceTools !== undefined && typeof input.workspaceTools !== "boolean") return { error: "Workspace MCP access must be enabled or disabled." };
     if (input.browserTools !== undefined && typeof input.browserTools !== "boolean") return { error: "Isolated browser access must be enabled or disabled." };
+    if (input.fallbackToWorkspaceAI !== undefined && typeof input.fallbackToWorkspaceAI !== "boolean") return { error: "Workspace AI fallback must be enabled or disabled." };
     if (gatewayId && !/^[A-Za-z0-9_-]{8,80}$/.test(gatewayId)) return { error: "Choose a registered execution node." };
     if (agentKey && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(agentKey)) return { error: "Write the local ACP agent key configured on the node." };
     out.gatewayId = gatewayId || null;
     out.agentKey = agentKey || null;
     out.workspaceTools = input.workspaceTools === undefined ? Boolean(current?.remote?.workspaceTools) : input.workspaceTools;
     out.browserTools = input.browserTools === undefined ? Boolean(current?.remote?.browserTools) : input.browserTools;
+    out.fallbackToWorkspaceAI = input.fallbackToWorkspaceAI === undefined ? Boolean(current?.remote?.fallbackToWorkspaceAI) : input.fallbackToWorkspaceAI;
   }
   if (p.webhookBot && input.webhookUrl !== undefined) {
     const raw = String(input.webhookUrl || "").trim();
@@ -925,11 +930,19 @@ async function ensureAgentRow(db, orgId, provider, login, on, existingId, member
   if (existingId) {
     await db.prepare("UPDATE custom_agents SET deleted_at = NULL, updated_at = ?3 WHERE org_id = ?1 AND id = ?2").bind(orgId, id, now).run();
   } else {
+    // Check handle conflicts as if this were team-wide. The workspace may
+    // switch modes between this read and the atomic write below.
     const handle = (await handleTaken(db, orgId, p.handle, { members, scope: "team", ownerLogin: login })) ? `${p.handle}-ai` : p.handle;
-    await db.prepare(
+    const create = db.prepare(
       `INSERT INTO custom_agents (org_id, id, handle, name, emoji, description, instructions, scope, owner_login, preset, provider, created_at, updated_by, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', 'team', ?7, NULL, ?8, ?9, ?7, ?9)`
-    ).bind(orgId, id, handle, p.name, p.emoji, `Works on what you hand it in a thread, with the team's repositories and tools.`, login, provider, now).run();
+       SELECT ?1,?2,?3,?4,?5,?6,'',
+         CASE WHEN EXISTS(SELECT 1 FROM org_settings WHERE org_id=?1 AND mode='harness') THEN 'personal' ELSE 'team' END,
+         ?7,NULL,?8,?9,?7,?9`)
+      .bind(orgId, id, handle, p.name, p.emoji, `Works on what you hand it in a thread, with the team's repositories and tools.`, login, provider, now);
+    const profile = db.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at)
+      SELECT ?1,?2,'private','[]',?3,?4 WHERE EXISTS(
+        SELECT 1 FROM org_settings WHERE org_id=?1 AND mode='harness')`).bind(orgId,id,login,now);
+    await db.batch([create,profile]);
   }
   return id;
 }
@@ -948,10 +961,10 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
     channels: current ? current.channels : null, monthlyLimitCents: current ? current.monthlyLimitCents : p.defaultLimit,
     tools: current?.tools || [], remote: current?.remote || {}, agentId: current?.agentId || null,
     autoBuild: current ? current.autoBuild !== false : true,
-    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools", "browserTools", "webhookUrl"].includes(k))),
+    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools", "browserTools", "fallbackToWorkspaceAI", "webhookUrl"].includes(k))),
   };
   if (out.account !== undefined) next.remote = { ...next.remote, account: out.account };
-  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey, workspaceTools: out.workspaceTools === true, browserTools: out.browserTools === true };
+  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey, workspaceTools: out.workspaceTools === true, browserTools: out.browserTools === true, fallbackToWorkspaceAI: out.fallbackToWorkspaceAI === true };
   if (p.webhookBot && out.webhookUrl !== undefined) next.remote = { ...next.remote, webhookUrl: out.webhookUrl };
   if (p.githubToken && !p.keyless && next.repos.length && !next.githubToken) return { error: `Add a GitHub token so ${p.name} can reach the repositories.` };
   let toolChanges = { kept: next.tools, written: [], removed: [] };

@@ -143,8 +143,13 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
-      "code": "worker/src/customAgents.js",
-      "acceptance": "Harnessの標準作成・Markdown取込は作成者限定、profileと原子的に保存。既存共有とSimpleを維持。Studioの外部teammate経路・全端末UIは残る"
+      "code": "worker/src/customAgents.js; worker/src/teammates.js; worker/src/harness/agentRoles.js; web-react/src/screens/HarnessAgents.tsx",
+      "acceptance": "Harnessの標準作成・Markdown取込・Studio外部teammate経路は作成者限定、profileと原子的に保存。既存共有とSimpleを維持。全端末UIは残る",
+      "evidence": {
+        "reviewedAt": "2026-11-20",
+        "verified": "Harnessで新しく作る外部AI teammateはpersonal scopeとprivate profileをD1 batchで同時作成。既存のAgent access API/UIから選択メンバーだけに共有し、scopeをteamへ移してもprofile access=privateを保つ。未共有メンバーの一覧・詳細・呼出権は拒否し、共有後は利用でき、権限取消で再び一覧から消える。Worker teammates.test.jsとharness-agents.test.js 84/84成功。Simple modeでの従来のworkspace共有は回帰テストで成功。",
+        "remaining": "HarnessAgentsの実画面での共有操作、iOS/desktop全端末の共有UI、exact-head CI、本番反映と別アカウントの本番隔離確認は未完了。"
+      }
     },
     {
       "id": "KY-012",
@@ -441,9 +446,10 @@
       "code": "worker/src/harness/skills.js",
       "acceptance": "本文・パッケージ資産のprivate/workspace、所有者のみの共有変更、一覧/実行/ファイル読込みの権限確認を実装。workspace Skill所有者またはAgent管理者が同一workspaceの有効Agentへ既存hx_agent_skills関係で割当・解除でき、各操作時に現在の所有権・メンバーシップ・Agent状態を再確認。記憶由来のsource scopeは再共有・別Agent割当不可。共有リンク・認証済みKylon比較・本番複数ユーザー検証は残る",
       "evidence": {
-        "reviewedAt": "2026-11-16",
-        "implementedScope": "Workspace Skill owners may explicitly grant/revoke their own shareable workspace Skill for an active same-workspace Agent; existing Agent managers retain assignment authority. Existing hx_agent_skills relation is reused. Current membership, target Agent state, Skill ownership/visibility, and source scope are checked at the write boundary; imported source-scoped Skills cannot be broadened.",
-        "verification": "docs/kylon-parity/verification.md"
+        "reviewedAt": "2026-11-20",
+        "implementedScope": "Workspace Skill owners may explicitly grant/revoke their own shareable workspace Skill for an active same-workspace Agent; existing Agent managers retain assignment authority. Existing hx_agent_skills relation is reused. Current membership, target Agent state, Skill ownership/visibility, and source scope are checked at the write boundary; imported source-scoped Skills cannot be broadened. The authenticated HTTP creation boundary now defaults omitted visibility to private in Harness mode; explicit workspace publication remains supported, and Simple mode keeps its legacy workspace default.",
+        "verification": "docs/kylon-parity/verification.md",
+        "localVerification": "Combined focused Worker tests: 126/126 passed (Skill access, Harness Agent, and teammate cancellation suites). Full Worker run: 3,675/3,677 passed before two shared-Skill fixtures were updated to request workspace visibility explicitly; exact-head full CI remains the final gate."
       }
     },
     {
@@ -1170,8 +1176,13 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/proxy/tools-api",
-      "code": "worker/src/harness/roomHooks.js",
-      "acceptance": "署名検証・仮名顧客単位のInbox/既読・ルーム会話連携。自動返信/メディア取得なし。送信接続・手動返信・実LINE往復は未対応"
+      "code": "worker/src/harness/roomHooks.js; worker/src/harness/lineWebhook.js; worker/src/harness/lineInboxReplies.js; web-react/src/components/RoomWebhooks.tsx; worker/test/room-hooks.test.js; web-react/src/components/RoomWebhooks.test.tsx",
+      "acceptance": "署名検証・仮名顧客単位のInbox/既読・ルーム会話連携。既存LINE Official Accountのチャネルアクセストークンを暗号化保存し、利用者が明示操作した時だけ手動返信を送信する。返信先IDの暗号化、現行ルームメンバー確認、request ID重複排除、LINEが結果を確定しない場合の自動再送禁止を検証する。自動返信/メディア取得は行わず、新しいサービスや契約を追加しない。実LINE往復とKylon実画面比較を別途確認する。",
+      "evidence": {
+        "release": "PR #1117 merged as 8a7f31fcf701daae900917c37dec5d3ee19bec1c. Exact-head CI run #44541371890 and main CI run #44546205449 passed all required jobs, including all Worker shards and E2E. Worker deploy run #44546205438 completed D1 migrations, deployed version ff3343eb-0747-46b5-81ae-0524b3e2b971, and verified /health ok:true with encryption.all=true. Web deploy run #44546205475 passed Pages/domain verification; app.honmaruai.com served index-DLzHedsa.js. Initial Worker deploy attempt encountered Cloudflare R2 API error 10001; retry succeeded.",
+        "verified": "Manual replies use the existing LINE Official Account token and quota, encrypted with workspace AAD. The reply destination is encrypted; sends require current room membership, persist before provider invocation, deduplicate request IDs, retry only after a definitive rejection, and lock uncertain outcomes. Tests cover the mocked 400 rejection then same-ID successful retry, replay, authorization, encrypted token/recipient, and UI. No real LINE message was sent.",
+        "remaining": "Authenticated real LINE send/receive roundtrip, Kylon side-by-side interaction comparison, and multi-user production isolation remain. Automatic replies and media retrieval remain disabled."
+      }
     },
     {
       "id": "KY-082",
@@ -1773,6 +1784,21 @@
         "reviewedAt": "2026-11-19",
         "verified": "Kylon changelog (2026-11-03) のbuilt-in HighLevel connectionとHighLevel公式MCP setup (OpenAI clients) の正規URLを確認。Remote MCP設定のHighLevelプリセットに名前・正規URL・OAuth 2.1自動登録を設定し、既存 per-member OAuth とRemote MCPのGateway/Agent tool grantsを再利用。Harness Apps UIテスト59件、production build成功。",
         "remaining": "このPRのCI・本番反映と実HighLevelサインイン、tools/list、Agent許可・書き込み承認の実アカウント往復は未確認。HighLevelの全機能を直接複製した専用UIではなく、MCP serverが公開する機能に依存する。"
+      }
+    },
+    {
+      "id": "KY-131",
+      "category": "Agents",
+      "requirement": "オフラインのローカルAgentをWorkspace AIへフォールバック",
+      "status": "partial",
+      "priority": "P0",
+      "source": "https://kylon.io/changelog/2026-11-15",
+      "code": "worker/src/teammates.js; worker/src/channelRoutes.js; worker/src/harness/agentFallback.js; worker/src/harness/gateways.js; worker/src/serverCopy.js; worker/schema.sql; worker/migrations.sql; web-react/src/components/AiTeammates.tsx",
+      "acceptance": "Kylonの2026-11-15動作ではPC offline/signed-out/provider quota時にCloudへ切替し、切替/復帰をDM通知する。Honmaruでは新規課金を避けるため明示opt-inで既存Workspace AI・日次許可・予算だけを使い、現在のローカルACP heartbeatが90秒超過した場合に限って同一Agent profileの返信をCloudで生成する。予算・権限拒否時はfallbackしない。Simpleを変えず、Local→cloud切替表示、権限失効、二重起動、Provider回復、キャンセルを検証する。",
+      "evidence": {
+        "reviewedAt": "2026-11-19",
+        "verified": "Kylon公式changelog 2026-11-15に、local agent offline/signed-out/quota exhaustion時のdefault-on cloud fallbackと所有者向けswitch/back通知を確認。Honmaruは初期無効のopt-inで既存Workspace AIだけを使い、日次allowanceと予算で制御。切替/復帰DMを永続イベントとして記録し、Mac mini再接続で即時復帰、安定client IDで重複抑止、配信失敗を再試行する処理を追加。関連Worker teammate/migrationテスト62件成功。新規provider契約・サービスは追加しない。",
+        "remaining": "ローカルprovider quota/signed-out/runtime retry exhaustionの検知とfallback、復帰と新しい実行の競合防止、実機・Kylonとの同一タスク比較、exact-head CIと本番反映は未確認。回帰テストでは offline→Workspace AI、node再接続→復帰DM、重複claim、DM relay失敗後のretryを確認。既存Workspace AIの利用枠は消費し得るため初期無効opt-inとし、Kylon default-onとは意図的に異なる。"
       }
     }
   ]
