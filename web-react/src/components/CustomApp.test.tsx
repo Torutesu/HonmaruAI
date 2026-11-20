@@ -127,8 +127,8 @@ test('a generated Remote MCP read requires host approval and uses only an App-sh
  await act(async()=>{await handler({source:contentWindow,data:{type:'honmaru:request',id:'remote-request',operation:'remote_mcp',args:{serverId:'server-1',toolName:'lookup',args:{query:'release'}}}})})
  expect(connectionChange).not.toHaveBeenCalled()
  expect(tree!.root.findByType('pre').children.join('')).toContain('release')
- expect(tree!.root.findAllByType('p').some(node=>node.children.join('').includes('読み取り専用ツール'))).toBe(true)
- const confirm=tree!.root.findAllByType('button').find(button=>button.children.join('')==='この変更を許可')!
+ expect(tree!.root.findAllByType('p').some(node=>node.children.join('').includes('This read-only tool is shared with this app'))).toBe(true)
+ const confirm=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Allow this change')!
  await act(async()=>{await confirm.props.onClick()})
  expect(connectionChange).toHaveBeenCalledWith('app',{action:'remote_mcp_request',serverId:'server-1',toolName:'lookup',args:{query:'release'},requestId:'remote-request'})
  act(()=>tree!.unmount())
@@ -161,7 +161,7 @@ test('writable preview uses only its private fork and keeps the production SDK r
   await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'test'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>,{createNodeMock:e=>e.type==='iframe'?{contentWindow}:null})})
   await act(async()=>{await Promise.resolve()})
   await act(async()=>{await handler({source:contentWindow,data:{type:'honmaru:request',id:'r',operation:'create',args:{values:{name:'Preview'}}}})})
-  const confirm=tree!.root.findAllByType('button').find(b=>b.children.join('')==='この変更を許可')!
+  const confirm=tree!.root.findAllByType('button').find(b=>b.children.join('')==='Allow this change')!
   await act(async()=>{await confirm.props.onClick()})
   expect(api.addRow).not.toHaveBeenCalled()
   expect(customPreviewWrite).toHaveBeenCalledWith('app',1,expect.objectContaining({forkId:'fork',revision:1,entity:'primary',operation:'create'}))
@@ -220,7 +220,7 @@ test('secondary preview entities read and write only the private database',async
  expect(contentWindow.postMessage).toHaveBeenCalledWith(expect.objectContaining({id:'read',value:{table:people,rows:[{...row,values:{name:'Private',Name:'Private'}}]}}),'*')
  await act(async()=>handler({source:contentWindow,data:{type:'honmaru:request',id:'write',operation:'update',args:{id:'person',entity:'people',values:{name:'Updated'}}}}))
  expect(customPreviewWrite).not.toHaveBeenCalled()
- await act(async()=>tree!.root.findAllByType('button').find(b=>b.children.join('')==='この変更を許可')!.props.onClick())
+ await act(async()=>tree!.root.findAllByType('button').find(b=>b.children.join('')==='Allow this change')!.props.onClick())
  expect(customPreviewWrite).toHaveBeenCalledWith('app',1,expect.objectContaining({entity:'people',operation:'update',rowId:'person',expectedUpdatedAt:'v1'}))
  expect(api.addRow).not.toHaveBeenCalled();expect(api.entityRows).not.toHaveBeenCalled()
  act(()=>tree!.unmount())
@@ -238,7 +238,7 @@ test('a runner that never renders exposes retry and ignores old acknowledgements
   const oldId=contentWindow.postMessage.mock.calls[0][0].renderId
   act(()=>{vi.advanceTimersByTime(15000)})
   const retry=tree!.root.findByType('button')
-  expect(retry.children.join('')).toBe('再試行')
+  expect(retry.children.join('')).toBe('Try again')
   act(()=>retry.props.onClick())
   expect(tree!.root.findAllByType('button')).toHaveLength(0)
   act(()=>handler({source:contentWindow,data:{type:'honmaru:rendered',renderId:oldId}}))
@@ -273,19 +273,19 @@ test('custom app Git draft connection writes only through the generated branch f
   const reload=vi.fn();
   let tree:ReturnType<typeof create>;
   await act(async()=>{tree=create(<CustomAppEditor app={editorApp} table={editorTable} rows={[]} api={api} reload={reload} httpBase="https://api.example"/>);await Promise.resolve()});
-  const owner=tree!.root.findByProps({'aria-label':'ドラフト GitHub owner'});
-  const repo=tree!.root.findByProps({'aria-label':'ドラフト GitHub repository'});
+  const owner=tree!.root.findByProps({'aria-label':'Draft GitHub owner'});
+  const repo=tree!.root.findByProps({'aria-label':'Draft GitHub repository'});
   act(()=>{owner.props.onChange({target:{value:'acme'}});repo.props.onChange({target:{value:'private-app'}})});
-  const connect=tree!.root.findAllByType('button').find(button=>button.children.join('')==='このアプリにリポジトリを接続')!;
+  const connect=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Connect repository to this app')!;
   await act(async()=>{connect.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
   expect(customCommit).toHaveBeenCalledWith('app',{action:'bind_git_repo',version:3,owner:'acme',repo:'private-app'});
   expect(tree!.toJSON()).toBeTruthy();
   expect(JSON.stringify(tree!.toJSON())).toContain('honmaru/apps/app/draft');
-  const sync=tree!.root.findAllByType('button').find(button=>button.children.join('')==='現在のコードをGitHubドラフトへ同期')!;
+  const sync=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Sync current code to GitHub draft')!;
   await act(async()=>{sync.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
   expect(customCommit).toHaveBeenCalledWith('app',{action:'sync_git_draft',version:3,html:'<main>release</main>'});
   expect(reload).toHaveBeenCalled();
-  const refresh=tree!.root.findAllByType('button').find(button=>button.children.join('')==='GitHubの最新ドラフトを取り込む')!;
+  const refresh=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Import latest GitHub draft')!;
   await act(async()=>{refresh.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
   expect(customCommit).toHaveBeenCalledWith('app',{action:'refresh_git_draft',version:3});
   expect(reload).toHaveBeenCalledTimes(2);
@@ -297,7 +297,7 @@ test('custom app editor explains when automatic GitHub draft refresh needs recon
   const api={customCommitState:vi.fn().mockResolvedValue(state)} as any;
   let tree:ReturnType<typeof create>;
   await act(async()=>{tree=create(<CustomAppEditor app={editorApp} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
-  expect(tree!.root.findAllByProps({role:'alert'}).some(node=>node.children.join('').includes('自動同期が一時停止しています'))).toBe(true);
+  expect(tree!.root.findAllByProps({role:'alert'}).some(node=>node.children.join('').includes('GitHub automatic sync is paused'))).toBe(true);
   expect(tree!.root.findAllByProps({role:'alert'}).some(node=>node.children.join('').includes('Reconnect the GitHub account'))).toBe(true);
   act(()=>tree!.unmount());
 });
@@ -309,8 +309,8 @@ test('Git commit editor exposes pending review and displays server self-review r
   let tree:ReturnType<typeof create>;
   await act(async()=>{tree=create(<CustomAppEditor app={editorApp} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
   expect(tree!.root.findAllByProps({ 'aria-label':'GitHub commit approval' })).toHaveLength(1);
-  expect(tree!.root.findAllByType('button').some(button=>button.children.join('')==='Owner/Adminとして承認')).toBe(true);
-  const review=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Owner/Adminとして承認')!;
+  expect(tree!.root.findAllByType('button').some(button=>button.children.join('')==='Approve as Owner/Admin')).toBe(true);
+  const review=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Approve as Owner/Admin')!;
   await act(async()=>{await review.props.onClick()});
   expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({
     action:'review_commit_approval',decision:'approve',approvalId:'approval-1',commitSha:'a'.repeat(40),sourceHash:'b'.repeat(64),
@@ -325,7 +325,7 @@ test('Git commit editor disables stale approvals after the API reports a publish
   const api={customCommitState:vi.fn().mockResolvedValue(state),customCommit} as any;
   let tree:ReturnType<typeof create>;
   await act(async()=>{tree=create(<CustomAppEditor app={editorApp} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
-  const publish=tree!.root.findAllByType('button').find(button=>button.children.join('')==='承認済みGitHub commitを公開')!;
+  const publish=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Publish approved GitHub commit')!;
   await act(async()=>{publish.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
   expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({action:'publish_commit',version:3,approvalId:'approval-1'}));
   expect(tree!.root.findAllByProps({role:'alert'}).some(node=>String(node.children.join('')).includes('publish scope'))).toBe(true);
@@ -347,11 +347,11 @@ test('Git commit editor imports through its API action and publishes only after 
   const branch=tree!.root.findByProps({ 'aria-label':'GitHub branch' });
   const sha=tree!.root.findByProps({ 'aria-label':'GitHub commit SHA' });
   act(()=>{owner.props.onChange({target:{value:'acme'}});repo.props.onChange({target:{value:'static-app'}});branch.props.onChange({target:{value:'main'}});sha.props.onChange({target:{value:'a'.repeat(40)}})});
-  const importButton=tree!.root.findAllByType('button').find(button=>button.children.join('')==='commitのHTMLと静的アセットを取り込む')!;
+  const importButton=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Import commit HTML and static assets')!;
   await act(async()=>{importButton.props.onClick();await new Promise(resolve=>setTimeout(resolve,0))});
   expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({action:'import_commit',owner:'acme',repo:'static-app',branch:'main',commitSha:'a'.repeat(40)}));
   expect(reload).toHaveBeenCalled();
-  const publish=tree!.root.findAllByType('button').find(button=>button.children.join('')==='承認済みGitHub commitを公開')!;
+  const publish=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Publish approved GitHub commit')!;
   await act(async()=>{await publish.props.onClick()});
   expect(customCommit).toHaveBeenCalledWith('app',expect.objectContaining({action:'publish_commit',version:3,approvalId:'approval-1'}));
   expect(reload).toHaveBeenCalledTimes(2);
@@ -365,12 +365,12 @@ test('custom domain publishing requires a visible explicit all-records consent',
   const app={...editorApp,definition:{custom:{draft:'<main>release</main>',published:'<main>release</main>'}}};
   let tree:ReturnType<typeof create>;
   await act(async()=>{tree=create(<CustomAppEditor app={app} table={editorTable} rows={[]} api={api} reload={vi.fn()} httpBase="https://api.example"/>);await Promise.resolve()});
-  const panel=tree!.root.findByProps({'aria-label':'カスタムドメイン公開'});
-  expect(JSON.stringify(tree!.toJSON())).toContain('このドメインではカスタム画面と全レコードを誰でも閲覧できます');
-  const hostname=tree!.root.findByProps({'aria-label':'独自ドメインのホスト名'});
+  const panel=tree!.root.findByProps({'aria-label':'Custom domain publishing'});
+  expect(JSON.stringify(tree!.toJSON())).toContain('Anyone can view the custom interface and all records on this domain');
+  const hostname=tree!.root.findByProps({'aria-label':'Custom domain hostname'});
   act(()=>hostname.props.onChange({target:{value:'app.example.com'}}));
-  const checkbox=tree!.root.findByProps({'aria-label':'全レコードの公開を確認'});
-  const attach=tree!.root.findAllByType('button').find(button=>button.children.join('')==='独自ドメインを追加')!;
+  const checkbox=tree!.root.findByProps({'aria-label':'Confirm public access to all records'});
+  const attach=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Add custom domain')!;
   expect(attach.props.disabled).toBe(true);
   act(()=>checkbox.props.onChange({target:{checked:true}}));
   expect(attach.props.disabled).toBe(false);
@@ -386,8 +386,8 @@ test('custom app editor exposes the independent approval gate for a saved draft'
  const api={customPublishState:vi.fn(async()=>state),customPublish:vi.fn(async(_id:string,input:any)=>{if(input.action==='request_approval')state={...state,approval:{id:'approval',status:'pending',requestedBy:'maker',reviewerId:null,sourceHash:'hash',draftVersion:2,scope:'custom-app.publish'}};return {saved:true}}),customPreviewDatabase:vi.fn().mockResolvedValue({fork:null}),customPreviewFork:vi.fn().mockResolvedValue({fork:null})}as any
  let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:2,definition:{custom:{draft:'<h1>saved</h1>'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>)} )
- expect(tree!.root.findAllByProps({'aria-label':'公開承認ポリシー'})).toHaveLength(1)
- const request=tree!.root.findAllByType('button').find(b=>b.children.join('')==='このプレビューの承認を依頼')!
+ expect(tree!.root.findAllByProps({'aria-label':'Publishing approval policy'})).toHaveLength(1)
+ const request=tree!.root.findAllByType('button').find(b=>b.children.join('')==='Request approval for this preview')!
  await act(async()=>request.props.onClick())
  expect(api.customPublish).toHaveBeenCalledWith('app',expect.objectContaining({action:'request_approval',version:2,candidateId:'preview-1'}))
  expect(tree!.root.findAllByProps({role:'status'}).some(n=>n.children.join('').includes('pending'))).toBe(true)
@@ -403,11 +403,11 @@ test('stale validation schema offers a warned refresh that replaces only preview
  vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
  let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<CustomAppEditor app={{id:'app',version:1,definition:{custom:{draft:'<h1>draft</h1>'}}}as any} table={table} rows={[]} api={api} reload={()=>{}} httpBase="https://api.example"/>)} )
- expect(JSON.stringify(tree!.toJSON())).toContain('作り直すと、このプレビューだけに保存したレコードは置き換えられます。本番レコードは変更されません。')
- const refresh=tree!.root.findAllByType('button').find(button=>button.children.join('')==='検証DBを作り直す')!
+ expect(JSON.stringify(tree!.toJSON())).toContain('Recreating it replaces records saved only in this preview. Production records are unchanged.')
+ const refresh=tree!.root.findAllByType('button').find(button=>button.children.join('')==='Recreate preview database')!
  act(()=>refresh.props.onClick())
  expect(tree!.root.findAllByProps({role:'alertdialog'})).toHaveLength(1)
- await act(async()=>tree!.root.findAllByType('button').find(button=>button.children.join('')==='置き換えて作成')!.props.onClick())
+ await act(async()=>tree!.root.findAllByType('button').find(button=>button.children.join('')==='Replace and create')!.props.onClick())
  expect(api.customPreviewFork).toHaveBeenCalledWith('app',1,'fork',1)
  act(()=>tree!.unmount())
 })
