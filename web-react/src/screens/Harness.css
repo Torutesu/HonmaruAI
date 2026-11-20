@@ -264,6 +264,14 @@
 .hx-program-gutter pre { margin: 0; padding: 14px 8px; text-align: right; font: inherit; white-space: pre; }
 .hx-program-code .hx-program-input { display: block; border: 0; border-radius: 0; white-space: pre; overflow-wrap: normal; font: inherit; }
 .hx-program-code .hx-program-input:focus-visible { outline: none; }
+.hx-program-diagnostics { display: grid; gap: 8px; min-width: 0; color: var(--hx-muted, var(--ash)); font-size: 12px; }
+.hx-program-diagnostics > p, .hx-program-diagnostics > div { margin: 0; padding: 10px 12px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-input); background: var(--hx-surface, var(--signal-white)); }
+.hx-program-diagnostics [role="alert"] { color: var(--danger, #a33); }
+.hx-program-diagnostics ul { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 20px; color: var(--hx-text, var(--ink-black)); }
+.hx-program-diagnostics li { overflow-wrap: anywhere; }
+.hx-program-diagnostics details { min-width: 0; }
+.hx-program-diagnostics summary { width: fit-content; cursor: pointer; color: var(--hx-text, var(--ink-black)); }
+.hx-program-transpiled { max-height: 420px; overflow: auto; margin: 8px 0 0; padding: 12px; border: 1px solid var(--hx-border, var(--bone)); border-radius: var(--radius-input); background: var(--hx-surface, var(--signal-white)); color: var(--hx-text, var(--ink-black)); font: 12px/1.6 var(--font-mono); white-space: pre; }
 
 .hx-template-sharing { margin-top: 20px; }
 .app-sharing-people { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hx-border, var(--bone)); }

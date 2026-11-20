@@ -4379,6 +4379,7 @@ const table: Record<string, string> = {
   'Allow this change': 'この変更を許可', 'Loading app…': 'アプリを読み込んでいます…', 'The app could not be displayed.': 'アプリを表示できませんでした。',
   'No direct external requests; connections require confirmation · Inherits app viewing permissions · Publishing actions are recorded in the audit log': '直接の外部通信なし・接続は確認付き · アプリの閲覧権限を継承 · 公開操作は監査ログに記録',
   Branch: 'ブランチ', 'GitHub owner': 'GitHub owner', 'GitHub repository': 'GitHubリポジトリ', 'GitHub branch': 'GitHubブランチ', 'GitHub commit SHA': 'GitHub commit SHA',
+  'Program syntax diagnostics': 'プログラム構文チェック', 'Checking syntax…': '構文を確認しています…', 'Syntax check passed. This is not a type check.': '構文チェックに成功しました。型チェックではありません。', 'The syntax checker could not load. Saving is still available.': '構文チェッカーを読み込めませんでした。保存は引き続き可能です。', 'Fix syntax errors before running this program.': 'このプログラムを実行する前に構文エラーを修正してください。', 'Line {line}, column {column}': '{line}行 {column}列', 'Program syntax error': 'プログラムの構文エラー', 'Showing the first 12 errors.': '先頭の12件を表示しています。', 'Show transpiled JavaScript': '変換後のJavaScriptを表示', 'This preview removes TypeScript syntax only. It does not run the program or check types.': 'このプレビューはTypeScript構文を取り除くだけです。プログラムの実行や型チェックは行いません。',
 }
 
 export default table

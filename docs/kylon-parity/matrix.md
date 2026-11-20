@@ -2,7 +2,7 @@
 
 調査基準日: 2026-11-19。公開仕様とログイン済み画面、Honmaruのmainを照合。実装ありは限定範囲の状態であり、同等性の合格ではない。未実装は調査した主要コード経路で確認できなかった項目。PR #939をmain `76db474ee0a4400e6adfc9b93b79dc562d40e433`へマージ。PR exact-head CI #43337139421、main CI #43340080575、Worker deploy #43340080401、Web deploy #43340080328の必須job・Verifyが成功。PR #940は `def4fbd6b04a87b28784d05261f363b2925ee694` としてmainへmerge済み。PR CI #43345382463はiOS/Windowsを含む全必須job成功、main CI #43347623523、Worker migration/deploy/Verify #43347623374、Web Pages/domain Verify #43347623133成功。Worker healthはencryption.all=true、両Web domainは `index-D4wM6RDL.js` を配信。KY-061/097の認証済みKylon並列比較は未確認。DNS rebindingの解決とは扱わない。全110項目の再受入を意味しない。PR #941 (`ac732e0f3d1a4ef61ea626aef63a699ff10beef0`) のexact-head CI #43351662357・main CI #43353765545・Worker deploy #43353765648成功。PR #942 (`b8949ca6386479afb03fe18ce6d2425c873e303c`) はexact-head CI #43358291159/#43358341647、main CI #43360721660、Worker deploy #43360721699、Web deploy #43360721616成功。D1の259 schema statements一括適用、Worker health encryption.all=true、Pages配信を確認。PR #980 (`bc1afc527b4b38cdd0478e511297b98256584bb5`) はmain `1c32e12c2b80188accba7cb1f7e59e82b515770f` にマージ。main CI #43504779958（Worker 4 shards・E2E含む）success、Worker deploy #43504780175は本番D1 migration・deploy・Verify success、healthは `ok:true` / `encryption.all=true`。Web deploy #43504779834 success、`app.honmaruai.com` が `index-BcqpUk0X.js` を配信。PR #1006をmain `599762db667a6c5e802bb8c3d12902804894812c`へ統合。exact-head CI #43637314442は成功、Web deploy #43639336448はPagesと独自ドメインで配信確認済み。main CI #43639336451はWorker 4 shards・E2EがGitHub上でin_progressのまま更新がなく、完了未確認。
 
-全121項目。現行集計は実装あり4、一部116、要検証1。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
+2026-11-20時点で全122項目。現行集計は実装あり4、一部117、要検証1。KY-132はローカル検証済みだがPR/本番受け入れ前のため「一部」。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
 2026-11-19時点の台帳集計は121件（実装あり4、一部116、要検証1）。2026-11-12の109件集計は当時の履歴として残す。PR #1006 main CI #43639336451の停滞は後続main CI #43678815421で解消を確認（PR #1014の後続main）。PR #1015はexact-head CI #43680371839成功後、merge commit `429e306c`としてmainへ統合され、main CIとWorker/Web deploy成功。公開URLのredirect credential/downgrade hardeningを反映した。DNS rebindingは未解決のまま。
 
@@ -336,3 +336,7 @@ Kylonの11月14日changelogで「voice input in every text field」を確認。F
 ### 2026-11-19 — HighLevel MCP preset
 
 KylonのHighLevel標準接続を、公式OpenAI互換MCP endpointを使うHarnessプリセットとして追加。既存の per-member OAuth、Gateway、Agent tool grant、Workflow承認を再利用し、Simple modeは変更しない。Harness Apps 59テストとproduction buildは成功。実アカウントでのOAuth、ツール実行、書き込み承認、CIと本番反映は未確認のためpartial。HighLevelの公開機能セット全体をHonmaru専用UIで再実装したものではなく、提供MCP toolsの範囲に依存する。
+
+### 2026-11-20 — Workflow TypeScript diagnostics and transpile preview
+
+KY-132としてWorkflowのコード編集に、遅延ロードされた既存TypeScript compilerによる構文・変換診断を追加。入力後300msで解析し、構文エラーは行/列付きで表示、正常時は折り畳み式のJavaScript変換プレビューを表示する。ブラウザではコードを評価しない。意味上の型検査は行わないと明示。48KBを超える場合はコンパイルを止める。既存`typescript`依存だけを使い新規依存・課金なし。focused 3/3、Web全体277/277ファイル・2,110テスト、型チェック、本番ビルド成功。compiler chunkは3.45MB (gzip 970KB) でコード編集時だけ遅延ロードされる。マージ後main CI、ブラウザE2E、本番配信、Kylon実画面比較は未完了。
