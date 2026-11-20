@@ -4,7 +4,8 @@ import { allowed } from "../permissions.js";
 import { isPublicUrl } from "../links.js";
 import { getMode } from "./mode.js";
 import { remoteMcpFetch } from "./remoteMcpTransport.js";
-import { disconnectRemoteMcpOAuth, remoteMcpOAuthAccessToken, remoteMcpOAuthStatus, startRemoteMcpOAuth } from "./remoteMcpOAuth.js";
+import { disconnectRemoteMcpOAuth, remoteMcpOAuthAccessToken, remoteMcpOAuthShareSettings, remoteMcpOAuthStatus, saveRemoteMcpOAuthShares, startRemoteMcpOAuth } from "./remoteMcpOAuth.js";
+import { mayRunAgent } from "./agents.js";
 
 const REMOTE_MCP_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const MAX_RESPONSE_BYTES = 1_000_000;
@@ -362,7 +363,7 @@ async function writeAudit(env, request, who, orgId, action, row, details = {}) {
 export async function handleRemoteMcp(request, env, url, input, { orgId, who, canManage }) {
   if (!orgId) return json({ message: "orgId is required." }, 400);
   if (await getMode(env.DB, orgId) !== "harness") return json({ message: "Remote MCP connections are available in Harness mode." }, 404);
-  const match = url.pathname.match(/^\/remote-mcp(?:\/([^/]+)(?:\/(discover|tools|gateway|oauth\/(?:start|disconnect)))?)?$/);
+  const match = url.pathname.match(/^\/remote-mcp(?:\/([^/]+)(?:\/(discover|tools|gateway|oauth\/(?:start|disconnect|shares)))?)?$/);
   if (!match) return null;
   const [, id, operation] = match;
 
@@ -450,6 +451,37 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
     const removed = await disconnectRemoteMcpOAuth(env.DB, orgId, id, who?.session?.github_id);
     if (removed) await writeAudit(env, request, who, orgId, "remote_mcp.oauth_disconnected", row);
     return json({ connected: false, removed });
+  }
+  if ((request.method === "GET" || request.method === "PUT") && operation === "oauth/shares") {
+    const ownerId = String(who?.session?.github_id || '');
+    if (!ownerId) return json({ message: 'Sign in again before managing connection access.' }, 401);
+    if (request.method === 'GET') {
+      const settings = await remoteMcpOAuthShareSettings(env.DB, orgId, id, ownerId);
+      if (!settings) return json({ message: 'Connect your own OAuth account before sharing this connection.' }, 409);
+      const [memberRows, agentRows] = await Promise.all([
+        env.DB.prepare(`SELECT CAST(u.github_id AS TEXT) AS id,COALESCE(u.name,u.login) AS name
+          FROM users u JOIN memberships m ON m.user_github_id=u.github_id AND m.org_id=?1
+          WHERE LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' AND CAST(u.github_id AS TEXT)!=?2
+          ORDER BY name COLLATE NOCASE,u.github_id LIMIT 500`).bind(orgId, ownerId).all(),
+        env.DB.prepare(`SELECT a.id,a.name FROM custom_agents a JOIN hx_agent_profiles p
+            ON p.org_id=a.org_id AND p.agent_id=a.id
+          WHERE a.org_id=?1 AND a.scope='team' AND a.provider IS NULL AND a.deleted_at IS NULL
+          ORDER BY a.name COLLATE NOCASE,a.id LIMIT 500`).bind(orgId).all(),
+      ]);
+      const agents = [];
+      for (const agent of agentRows.results || []) {
+        if (await mayRunAgent(env.DB, orgId, agent, ownerId).catch(() => false)) agents.push(agent);
+      }
+      return json({ ...settings, members: memberRows.results || [], agents });
+    }
+    const result = await saveRemoteMcpOAuthShares(env.DB, orgId, id, ownerId, input || {});
+    if (result.error) return json({ message: result.error }, result.status || 400);
+    await writeAudit(env, request, who, orgId, 'remote_mcp.oauth_shares_updated', row, {
+      everyone: input?.everyone === true,
+      memberCount: Array.isArray(input?.memberIds) ? input.memberIds.length : 0,
+      agentCount: Array.isArray(input?.agentIds) ? input.agentIds.length : 0,
+    });
+    return json(result.settings);
   }
   if (!canManage) return json({ message: "Only a workspace admin can manage Remote MCP servers." }, 403);
 
@@ -573,7 +605,8 @@ export async function callRemoteMcpTool(env, agent, offeredTool, args, { readOnl
   try {
     let headers;
     if (row.auth_mode === "oauth") {
-      const auth = await remoteMcpOAuthAccessToken(env, { orgId: agent.orgId, serverId: row.id, userId: agent.githubId, authorization });
+      const connectionOwnerId = String(ref.connectionOwnerId || agent.githubId);
+      const auth = await remoteMcpOAuthAccessToken(env, { orgId: agent.orgId, serverId: row.id, userId: connectionOwnerId, actorId: agent.githubId, authorization: { ...authorization, connectionOwnerId } });
       if (!auth.token) return { content: [{ type: "text", text: auth.error || "Connect your OAuth account before using this source." }], isError: true };
       headers = [{ name: "Authorization", value: `Bearer ${auth.token}` }];
     } else {
