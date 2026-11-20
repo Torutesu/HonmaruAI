@@ -345,7 +345,7 @@ export async function handleGateways(request, env, url, input) {
       try { messages=cleanWorkflowMessageDrafts(input.messages); }
       catch { return failure('Invalid staged workflow messages.',400); }
     }
-    let tableWrites,tableMutations;
+    let tableWrites,tableMutations,connectionWrites;
     if(input.tableWrites!==undefined){
       try{
         if(!Array.isArray(input.tableWrites)||input.tableWrites.length>4)throw Error();
@@ -376,6 +376,20 @@ export async function handleGateways(request, env, url, input) {
         if(new TextEncoder().encode(JSON.stringify(tableMutations)).length>24000)throw Error();
       }catch{return failure('Invalid staged Workflow row mutations.',400);}
     }
+    if(input.connectionWrites!==undefined){
+      try{
+        if(!Array.isArray(input.connectionWrites)||input.connectionWrites.length>1)throw Error();
+        connectionWrites=input.connectionWrites.map(item=>{
+          if(!item||typeof item!=='object'||Array.isArray(item)||Object.keys(item).sort().join(',')!=='appId,body,method,name,operationId,ownerId,version'
+            ||typeof item.appId!=='string'||!item.appId||item.appId.length>200||typeof item.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(item.name)
+            ||typeof item.ownerId!=='string'||!item.ownerId||item.ownerId.length>200||!Number.isSafeInteger(item.version)||item.version<1
+            ||!['POST','PUT','PATCH','DELETE'].includes(item.method)||typeof item.operationId!=='string'||! /^[a-zA-Z0-9_-]{1,32}$/.test(item.operationId)
+            ||!item.body||typeof item.body!=='object'||Array.isArray(item.body))throw Error();
+          return {appId:item.appId,name:item.name,ownerId:item.ownerId,version:item.version,method:item.method,operationId:item.operationId,body:item.body};
+        });
+        if(new TextEncoder().encode(JSON.stringify(connectionWrites)).length>23000)throw Error();
+      }catch{return failure('Invalid staged external Workflow request.',400);}
+    }
     let finishedPayload = null;
     if(parts[3]==='finish'){
       const candidate=await db.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1 AND gateway_id=?2 AND lease_hash=?3')
@@ -394,9 +408,9 @@ export async function handleGateways(request, env, url, input) {
       if (finishedPayload?.acp !== true || input.status !== 'failed' || !Number.isInteger(input.exitCode) || input.exitCode === 0 || !['signed_out', 'runtime_unavailable', 'provider_limited'].includes(input.fallbackReason)) return failure('Invalid local ACP fallback signal.', 400);
       fallbackReason = input.fallbackReason;
     }
-    const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null, ...(fallbackReason ? { fallbackReason } : {}), ...(messages!==undefined?{messages}:{}),...(tableWrites!==undefined?{tableWrites}:{}),...(tableMutations!==undefined?{tableMutations}:{}) };
+    const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null, ...(fallbackReason ? { fallbackReason } : {}), ...(messages!==undefined?{messages}:{}),...(tableWrites!==undefined?{tableWrites}:{}),...(tableMutations!==undefined?{tableMutations}:{}),...(connectionWrites!==undefined?{connectionWrites}:{}) };
     if (new TextEncoder().encode(JSON.stringify(result)).length > 70000) return failure('Result is too large.', 413);
-    if(messages!==undefined||tableWrites!==undefined||tableMutations!==undefined){
+    if(messages!==undefined||tableWrites!==undefined||tableMutations!==undefined||connectionWrites!==undefined){
       const encodedResult=JSON.stringify(result);
       const matched=await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload FROM hx_gateway_jobs WHERE id=?1 AND gateway_id=?2 AND lease_hash=?3
        AND ((${guard}) OR (status IN ('succeeded','failed','timed_out') AND result=?5))`)

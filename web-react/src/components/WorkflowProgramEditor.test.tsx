@@ -78,6 +78,7 @@ test('lets a Workflow explicitly bind and enable writes for an App connection',a
  const allow=tree.root.findByProps({'aria-label':'Allow writes via this connection: create_issue'})
  expect(allow.props.checked).toBe(false);act(()=>allow.props.onChange({target:{checked:true}}))
  expect(tree.root.findByProps({'aria-label':'Allow writes via this connection: create_issue'}).props.checked).toBe(true)
- expect(textContent(tree.root.findAllByType('p').find(node=>textContent(node).includes('stable operationId')))).toContain('unknown result')
+ const instructions=textContent(tree.root.findAllByType('p').find(node=>textContent(node).includes('connection.stageWrite')))
+ expect(instructions).toContain('private approval card');expect(instructions).toContain('never retries')
  act(()=>tree.unmount())
 })

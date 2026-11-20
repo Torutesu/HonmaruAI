@@ -10,7 +10,28 @@ import {mayRunAgent} from './agents.js';
 import {addRow,updateRow,deleteRow} from './tables.js';
 import {prepareWorkflowRowEventIfWatched,drainWorkflowRowEvents} from './workflowRowEventDispatch.js';
 import {appConnectionsForViewer} from './appConnectionGrants.js';
+import {getUserByGithubId} from '../db.js';
+import {workflowEffectAuthority} from './workflowEffectAuthority.js';
+import {appendCardEvent} from '../events.js';
+import {announceCards} from '../announce.js';
+import {notifyCard,anyChannelConfigured} from '../notify.js';
 const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
+const appWriteApprovalLabels={
+ en:{title:'Approve external App request',app:'App connection',method:'Method',body:'Request body'},
+ ja:{title:'外部Appリクエストを承認',app:'App接続',method:'Method',body:'リクエスト本文'},
+ es:{title:'Aprobar solicitud externa de App',app:'Conexión de App',method:'Método',body:'Cuerpo de la solicitud'},
+ fr:{title:'Approuver la requête externe de l’app',app:'Connexion d’app',method:'Méthode',body:'Corps de la requête'},
+ de:{title:'Externe App-Anfrage freigeben',app:'App-Verbindung',method:'Methode',body:'Anfragetext'},
+};
+function appWriteApprovalLocalization(locale,name,workflowName,method,body){
+ const code=String(locale||'en').toLowerCase().split('-')[0],labels=appWriteApprovalLabels[code];
+ if(!labels||code==='en')return {};
+ const encoded=JSON.stringify(body);
+ return {[code]:{
+  title:labels.title,summary:`${name} · ${method}`,
+  context:`Workflow: ${workflowName}\n${labels.app}: ${name}\n${labels.method}: ${method}\n${labels.body}:\n${encoded}`,
+ }};
+}
 export const WORKFLOW_PROGRAM_TIMEOUT_MS=15*60*1000;
 export const WORKFLOW_PROGRAM_RESULT_GRACE_MS=30*1000;
 
@@ -149,7 +170,7 @@ export async function renewWorkflowProgramLease(db,{jobId,gatewayId,leaseHash,at
 // Reconcile only persisted terminal results. The caller cannot supply an
 // outcome, source, checkpoint lease, or replacement program. Retrying this
 // transaction cannot increment the failure streak twice.
-export async function settleWorkflowProgram(db,jobId,env=null) {
+export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=false,writeDecision=false,declined=false}={}) {
  const binding=await db.prepare(`SELECT a.org_id,a.run_id,d.definition,j.gateway_id,j.lease_hash,j.finished_at AS job_finished_at,j.status AS job_status FROM hx_workflow_activations a
   JOIN hx_workflow_run_definitions d ON d.org_id=a.org_id AND d.run_id=a.run_id
   JOIN hx_gateway_jobs j ON j.org_id=a.org_id AND j.id=a.job_id WHERE a.job_id=?1`).bind(jobId).first();
@@ -158,7 +179,49 @@ export async function settleWorkflowProgram(db,jobId,env=null) {
  const stored=await db.prepare('SELECT result FROM hx_gateway_jobs WHERE id=?1 AND org_id=?2').bind(jobId,binding.org_id).first();
  let programResult={};try{programResult=JSON.parse(stored?.result||'{}')}catch{}
  const step=JSON.parse(binding.definition).steps?.[0],sources=workflowProgramSources(step);
- const tableStatements=[];let writeFailed=false;
+ const connectionWrites=Array.isArray(programResult.connectionWrites)?programResult.connectionWrites:[];
+ if(programResult.connectionWrites!==undefined&&(!Array.isArray(programResult.connectionWrites)||connectionWrites.length!==1))return {settled:false,error:'Only one external App write may be staged per Workflow run.'};
+ if(connectionWrites.length&&!writeDecision&&binding.job_status==='succeeded'){
+  const request=connectionWrites[0],source=(step?.sourceConnections||[]).find(item=>item.appId===request?.appId&&item.name===request?.name);
+  if(!source||source.method==='GET'||source.write!==true||source.ownerId!==request.ownerId||source.version!==request.version||source.method!==request.method
+    ||typeof request.operationId!=='string'||! /^[a-zA-Z0-9_-]{1,32}$/.test(request.operationId)||!request.body||typeof request.body!=='object'||Array.isArray(request.body)
+    ||new TextEncoder().encode(JSON.stringify(request.body)).length>20000)return {settled:false,error:'The staged external write does not match its frozen App connection.'};
+  const owner=await getUserByGithubId(db,source.ownerId).catch(()=>null);
+  if(!owner||!await appConnectionsForViewer(db,binding.org_id,source.appId,JSON.parse(binding.definition).createdBy).then(result=>!result.error&&result.connections.some(item=>item.name===source.name&&String(item.ownerId)===source.ownerId&&Number(item.version)===source.version&&item.method===source.method&&Number(item.enabled)===1)).catch(()=>false))return {settled:false,error:'The App connection owner or binding is no longer available.'};
+  const at=new Date().toISOString(),cardId=`wf-${binding.run_id}-write-${(await digest(jobId)).slice(0,16)}`;
+  const workflowName=JSON.parse(binding.definition).name||'Workflow';
+  let card={id:cardId,recipientUserID:owner.login,senderUserID:owner.login,type:'approval',title:'Approve external App request',summary:`${source.name} · ${source.method}`,context:`Workflow: ${workflowName}\nApp connection: ${source.name}\nMethod: ${source.method}\nRequest body:\n${JSON.stringify(request.body)}`,localized:appWriteApprovalLocalization(owner.locale,source.name,workflowName,source.method,request.body),originalLanguage:'en',priority:'medium',status:'pending',createdAt:at,sourceApp:'Workflow',sourceDetail:workflowName,requestedBy:{login:owner.login,name:workflowName},workflowApproval:{runId:binding.run_id,workflowId:JSON.parse(binding.definition).id,codeWrite:{jobId,appId:source.appId,name:source.name,ownerId:source.ownerId,version:source.version,method:source.method,operationId:request.operationId,body:request.body}}};
+  const guard=workflowEffectAuthority({org:'?1',runId:'?7',ownerId:'?8',recipientLogin:'?9'});
+  const saved=await db.prepare(`INSERT INTO cards(org_id,card_id,recipient_user_id,sender_user_id,created_at,data,status,priority,decided_at,updated_at)
+   SELECT ?1,?2,?3,?4,?5,?6,'pending','medium',NULL,?5 WHERE ${guard}
+   ON CONFLICT(org_id,card_id) DO NOTHING`).bind(binding.org_id,cardId,owner.login,owner.login,at,JSON.stringify(card),binding.run_id,String(JSON.parse(binding.definition).createdBy),owner.login).run();
+  if(!saved.meta?.changes){
+   const previous=await db.prepare('SELECT recipient_user_id,data FROM cards WHERE org_id=?1 AND card_id=?2').bind(binding.org_id,cardId).first().catch(()=>null);
+   let previousCard;try{previousCard=JSON.parse(previous?.data||'null')}catch{}
+   if(previous?.recipient_user_id!==owner.login||previousCard?.workflowApproval?.runId!==binding.run_id
+    ||previousCard?.workflowApproval?.codeWrite?.jobId!==jobId||JSON.stringify(previousCard?.workflowApproval?.codeWrite?.body)!==JSON.stringify(request.body))return {settled:false,error:'Workflow or approver access changed before the approval was created.'};
+   if(previousCard.decision||previousCard.status!=='pending')return {settled:false,status:'awaiting-approval-settlement'};
+   card=previousCard;
+  }
+  const waiting=await db.batch([
+   db.prepare(`UPDATE hx_workflow_runs SET status='waiting',card_id=?1 WHERE org_id=?2 AND id=?3 AND status='running'
+    AND EXISTS(SELECT 1 FROM cards WHERE org_id=?2 AND card_id=?1 AND recipient_user_id=?4)`).bind(cardId,binding.org_id,binding.run_id,owner.login),
+   db.prepare(`UPDATE hx_workflow_node_checkpoints SET lease_until=0 WHERE org_id=?1 AND run_id=?2 AND node_id='program' AND status='running'
+    AND EXISTS(SELECT 1 FROM hx_workflow_activations a WHERE a.org_id=?1 AND a.run_id=?2 AND a.job_id=?3
+      AND a.node_owner=hx_workflow_node_checkpoints.owner AND a.node_attempt=hx_workflow_node_checkpoints.attempt)`).bind(binding.org_id,binding.run_id,jobId),
+  ]);
+  if(!waiting[0]?.meta?.changes||!waiting[1]?.meta?.changes)return {settled:false};
+  if(saved.meta?.changes){
+   await appendCardEvent(db,binding.org_id,{cardId,type:'created',actorUserId:owner.login,note:'workflow',snapshot:card}).catch(()=>{});
+   if(env){
+    await announceCards(env,binding.org_id,[card]).catch(()=>{});
+    if(anyChannelConfigured(env)&&Object.hasOwn(appWriteApprovalLabels,String(owner.locale||'en').toLowerCase().split('-')[0]))
+     await notifyCard(env,{card,kind:'created',excludeLogin:null,orgId:binding.org_id}).catch(()=>{});
+   }
+  }
+  return {settled:true,status:'waiting',cardId};
+ }
+ const tableStatements=[];let writeFailed=connectionWrites.length>0&&writeDecision&&!approvedWrite;
  const writeOffsets=new Map();
  const legacyWrites=Array.isArray(programResult.tableWrites)?programResult.tableWrites:[];
  const requestedMutations=Array.isArray(programResult.tableMutations)?programResult.tableMutations.map(item=>({...item})):legacyWrites.map(item=>({...item,operation:'insert'}));
@@ -192,10 +255,11 @@ export async function settleWorkflowProgram(db,jobId,env=null) {
  const update=db.prepare(`WITH terminal AS (
   SELECT r.org_id,r.id,j.id AS job_id,j.status AS job_status,j.result,j.finished_at,j.started_at AS job_started_at,j.created_at AS job_created_at,
    (j.status='succeeded' AND j.started_at IS NOT NULL AND j.finished_at>=j.started_at
-    AND j.finished_at<j.lease_until AND j.finished_at<j.deadline AND j.finished_at<c.lease_until
+    AND j.finished_at<j.lease_until AND j.finished_at<j.deadline AND (j.finished_at<c.lease_until OR ?7=1)
     AND ${workflowStateAuthority} AND ?6=1
     AND (json_extract(j.payload,'$.context.roomId') IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=r.org_id AND source.workflow_id=r.workflow_id AND source.channel=json_extract(j.payload,'$.context.roomId')))
     AND EXISTS(SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by WHERE g.id=j.gateway_id AND g.org_id=r.org_id AND g.revoked_at IS NULL AND LOWER(TRIM(m.role)) IN ('admin','owner'))
+    AND (json_array_length(j.result,'$.connectionWrites') IS NULL OR ?7=1)
    ) AS accepted
   FROM hx_workflow_activations a JOIN hx_gateway_jobs j ON j.id=a.job_id AND j.org_id=a.org_id
   JOIN hx_workflow_runs r ON r.id=a.run_id AND r.org_id=a.org_id
@@ -206,16 +270,21 @@ export async function settleWorkflowProgram(db,jobId,env=null) {
    AND d.definition=?3 AND json_array_length(d.definition,'$.steps')=1 AND json_extract(d.definition,'$.steps[0].type')='code'
    AND j.status IN ('succeeded','failed','timed_out','cancelled') AND j.finished_at IS NOT NULL
  ), outcome AS (
-  SELECT *,CASE WHEN accepted THEN 'done' WHEN job_status='cancelled' THEN 'cancelled' ELSE 'failed' END AS run_status,
+  SELECT *,CASE WHEN accepted THEN 'done' WHEN ?8=1 THEN 'declined' WHEN job_status='cancelled' THEN 'cancelled' ELSE 'failed' END AS run_status,
     json_object('step',1,'type','code','jobId',job_id,'operationId','workflow:'||id||':step:1',
     'startedAt',strftime('%Y-%m-%dT%H:%M:%fZ',COALESCE(job_started_at,job_created_at)/1000.0,'unixepoch'),
     'finishedAt',strftime('%Y-%m-%dT%H:%M:%fZ',finished_at/1000.0,'unixepoch'),
     'durationMs',MAX(0,finished_at-COALESCE(job_started_at,job_created_at)),
     'at',strftime('%Y-%m-%dT%H:%M:%fZ',finished_at/1000.0,'unixepoch'),
-    'status',CASE WHEN accepted THEN 'done' ELSE 'failed' END,
+    'status',CASE WHEN accepted THEN 'done' WHEN ?8=1 THEN 'declined' ELSE 'failed' END,
     'output',CASE WHEN accepted THEN COALESCE(json_extract(result,'$.stdout'),'') ELSE NULL END,
     'messages',json(CASE WHEN accepted AND json_type(result,'$.messages')='array' THEN json_extract(result,'$.messages') ELSE '[]' END),
-    'error',CASE WHEN accepted THEN NULL WHEN job_status='timed_out' THEN 'Program execution timed out.' WHEN job_status='cancelled' THEN 'Program execution was cancelled.' WHEN job_status='failed' THEN 'Program execution failed.' WHEN ?6=0 THEN 'An App row change could not be applied under the current permissions or table schema.' ELSE 'Program completion is no longer authorized or its lease expired.' END) AS entry
+    'externalWrite',CASE WHEN accepted AND ?7=1 AND json_array_length(result,'$.connectionWrites')>0 THEN json_object(
+      'appId',json_extract(result,'$.connectionWrites[0].appId'),'name',json_extract(result,'$.connectionWrites[0].name'),
+      'method',json_extract(result,'$.connectionWrites[0].method'),'operationId',json_extract(result,'$.connectionWrites[0].operationId'),'status','sent') ELSE NULL END,
+    'error',CASE WHEN accepted THEN NULL WHEN ?8=1 THEN 'External App request was declined. No request was sent.'
+      WHEN json_array_length(result,'$.connectionWrites')>0 AND ?7=0 THEN 'External request did not complete. Its result may be unknown; do not retry it.'
+      WHEN job_status='timed_out' THEN 'Program execution timed out.' WHEN job_status='cancelled' THEN 'Program execution was cancelled.' WHEN job_status='failed' THEN 'Program execution failed.' WHEN ?6=0 THEN 'An App row change could not be applied under the current permissions or table schema.' ELSE 'Program completion is no longer authorized or its lease expired.' END) AS entry
   FROM terminal
  ) UPDATE hx_workflow_runs SET status=(SELECT run_status FROM outcome),
   log=(SELECT json_array(json(entry)) FROM outcome),next_step=1,
@@ -226,19 +295,19 @@ export async function settleWorkflowProgram(db,jobId,env=null) {
   WHERE org_id=?1 AND run_id=?2 AND node_id='program' AND status IN ('running','unknown')
    AND EXISTS(SELECT 1 FROM hx_workflow_activations a JOIN hx_workflow_runs r ON r.id=a.run_id AND r.org_id=a.org_id
     WHERE a.job_id=?3 AND a.node_owner=hx_workflow_node_checkpoints.owner AND a.node_attempt=hx_workflow_node_checkpoints.attempt
-     AND r.status IN ('done','failed','cancelled') AND json_extract(r.log,'$[0].jobId')=?3)`)
+     AND r.status IN ('done','failed','declined','cancelled') AND json_extract(r.log,'$[0].jobId')=?3)`)
   .bind(binding.org_id,binding.run_id,jobId);
  const completionFence=db.prepare(`INSERT INTO hx_workflow_node_checkpoints(org_id,run_id,node_id,fingerprint,effect,status,owner,attempt,lease_until)
   SELECT ?1,?2,'program','effect-fence',1,'invalid-effect','fence',1,0 WHERE NOT EXISTS(
    SELECT 1 FROM hx_workflow_runs r WHERE r.org_id=?1 AND r.id=?2 AND r.status='done' AND json_extract(r.log,'$[0].jobId')=?3)`)
   .bind(binding.org_id,binding.run_id,jobId);
- const finish=async(accept)=>db.batch([...(accept?tableStatements:[]),update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,accept?1:0),...(accept&&tableStatements.length?[completionFence]:[]),...workflowSettlementStatements(db,binding.org_id,binding.run_id),checkpoint]);
+ const finish=async(accept)=>db.batch([...(accept?tableStatements:[]),update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,accept?1:0,approvedWrite?1:0,declined?1:0),...(accept&&tableStatements.length?[completionFence]:[]),...workflowSettlementStatements(db,binding.org_id,binding.run_id),checkpoint]);
  let result;
  try{result=await finish(!writeFailed)}catch(error){
   if(!tableStatements.length)throw error;
   // A failed guarded mutation rolls back every row and event statement. Settle
   // the terminal job as failed in a clean transaction instead of retrying it.
-  const rejectedUpdate=update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,0);
+  const rejectedUpdate=update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,0,approvedWrite?1:0,declined?1:0);
   result=await db.batch([rejectedUpdate,...workflowSettlementStatements(db,binding.org_id,binding.run_id),checkpoint]);
  }
  if(result[0]?.meta?.changes&&!writeFailed&&requestedMutations.length&&env)await drainWorkflowRowEvents(env,{limit:requestedMutations.length,now:Date.now()});

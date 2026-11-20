@@ -2,13 +2,13 @@ import { normalizeWorkflowAgentCall } from './workflow-sdk.mjs';
 
 // Internal host broker. The callback must already be bound to an authorized
 // activation; the guest never supplies workspace/run/lease credentials.
-const METHODS=new Set(['state.get','state.set','table.query','table.insert','table.update','table.delete','agent.invoke','connection.request']);
+const METHODS=new Set(['state.get','state.set','table.query','table.insert','table.update','table.delete','agent.invoke','connection.request','connection.stageWrite']);
 export function validateStateRequest(request) {
  if(!request||!Number.isSafeInteger(request.id)||request.id<1||request.id>64||!METHODS.has(request.method))throw Error('Invalid state operation.');
  const params=request.params;
  if(!params||typeof params!=='object'||Array.isArray(params))throw Error('Invalid state parameters.');
  let cleanParams=params;
- const keys=request.method==='agent.invoke'?['agentId','prompt','schema','tier']:request.method==='state.get'?['view','includeCurrentRun']:request.method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:request.method==='table.query'?['where','q','pageSize','cursor','entityId']:request.method==='table.insert'?['entityId','values']:request.method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:request.method==='connection.request'?['appId','name','query','body','operationId']:['entityId','rowId','expectedUpdatedAt'];
+ const keys=request.method==='agent.invoke'?['agentId','prompt','schema','tier']:request.method==='state.get'?['view','includeCurrentRun']:request.method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:request.method==='table.query'?['where','q','pageSize','cursor','entityId']:request.method==='table.insert'?['entityId','values']:request.method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:request.method==='connection.request'?['appId','name','query']:request.method==='connection.stageWrite'?['appId','name','body','operationId']:['entityId','rowId','expectedUpdatedAt'];
  if(Object.keys(params).some(key=>!keys.includes(key)))throw Error('Unexpected state parameter.');
  if(request.method==='agent.invoke') {
   const clean=normalizeWorkflowAgentCall(params.prompt,{agentId:params.agentId,schema:params.schema,tier:params.tier});
@@ -16,15 +16,14 @@ export function validateStateRequest(request) {
   cleanParams=clean;
  } else if(request.method==='connection.request') {
   if(typeof params.appId!=='string'||!params.appId.trim()||params.appId.length>200||typeof params.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(params.name))throw Error('Invalid App connection binding.');
-  if(params.body!==undefined){
-   if(!params.body||typeof params.body!=='object'||Array.isArray(params.body)||params.query!==undefined
-    ||typeof params.operationId!=='string'||! /^[a-zA-Z0-9_-]{1,32}$/.test(params.operationId)||Buffer.byteLength(JSON.stringify(params.body))>20000)throw Error('Invalid App connection write.');
-  }else if(params.operationId!==undefined)throw Error('Invalid App connection operation ID.');
   if(params.query!==undefined){
    const query=params.query;
    if(!query||typeof query!=='object'||Array.isArray(query)||Object.keys(query).length>100||Buffer.byteLength(JSON.stringify(query))>20000)throw Error('Invalid App connection query.');
    for(const [key,value] of Object.entries(query))if(!key||key.length>100||/(token|auth|secret|password|credential|api[-_]?key)/i.test(key)||!((typeof value==='string'||typeof value==='boolean'||typeof value==='number'&&Number.isFinite(value))||Array.isArray(value)&&value.length<=100&&value.every(item=>typeof item==='string'||typeof item==='boolean'||typeof item==='number'&&Number.isFinite(item))))throw Error('Invalid App connection query value.');
   }
+ } else if(request.method==='connection.stageWrite') {
+  if(typeof params.appId!=='string'||!params.appId.trim()||params.appId.length>200||typeof params.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(params.name)
+   ||!params.body||typeof params.body!=='object'||Array.isArray(params.body)||typeof params.operationId!=='string'||! /^[a-zA-Z0-9_-]{1,32}$/.test(params.operationId)||Buffer.byteLength(JSON.stringify(params.body))>20000)throw Error('Invalid staged App connection write.');
  } else if(request.method==='state.get') {
   if(params.view!==undefined&&!['committed','checkpoint'].includes(params.view))throw Error('Invalid state view.');
   if(params.includeCurrentRun!==undefined&&typeof params.includeCurrentRun!=='boolean')throw Error('Invalid current-run option.');

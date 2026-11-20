@@ -219,11 +219,20 @@ export async function requestWorkflowConnection(input={},bridge=undefined) {
   const clean=normalizeWorkflowConnectionRequest(input),sources=bridge?.connectionSources||[];
   const source=sources.find(item=>item.appId===clean.appId&&item.name===clean.name);
   if(!source)throw Error('This Workflow has no frozen binding for the App connection.');
-  if(source.method==='GET'&&clean.body!==undefined)throw Error('GET App connections are read-only.');
-  if(source.method!=='GET'&&(!source.write||clean.body===undefined))throw Error('This Workflow has no explicit write permission for the App connection.');
+ if(clean.body!==undefined)throw Error('External writes require connection.stageWrite() and per-run approval.');
+ if(source.method!=='GET')throw Error('Use connection.stageWrite() for this write-enabled App connection.');
   if(!['GET','POST','PUT','PATCH','DELETE'].includes(source.method))throw Error('This App connection method is unsupported.');
   if(typeof bridge?.requestConnection!=='function')throw Error('App connections are unavailable.');
   return bridge.requestConnection(clean);
+}
+
+export async function stageWorkflowConnectionWrite(input={},bridge=undefined) {
+ const clean=normalizeWorkflowConnectionRequest(input),sources=bridge?.connectionSources||[];
+ const source=sources.find(item=>item.appId===clean.appId&&item.name===clean.name);
+ if(!source||source.method==='GET'||source.write!==true)throw Error('This Workflow has no explicitly authorized write binding for the App connection.');
+ if(clean.body===undefined)throw Error('connection.stageWrite() requires a JSON body and stable operationId.');
+ if(typeof bridge?.stageConnectionWrite!=='function')throw Error('App connection writes are unavailable.');
+ return bridge.stageConnectionWrite(clean);
 }
 
 export async function paginateWorkflowConnection(input={},bridge=undefined) {
@@ -275,8 +284,9 @@ const normalizeWorkflowDelete=${normalizeWorkflowDelete.toString()};
 const deleteWorkflowTableRow=${deleteWorkflowTableRow.toString()};
 const normalizeWorkflowConnectionRequest=${normalizeWorkflowConnectionRequest.toString()};
 const requestWorkflowConnection=${requestWorkflowConnection.toString()};
+const stageWorkflowConnectionWrite=${stageWorkflowConnectionWrite.toString()};
 const paginateWorkflowConnection=${paginateWorkflowConnection.toString()};
 const sdkBridge=workflowBridge();
 export const table=Object.freeze({query:(options={})=>queryWorkflowTable(options,sdkBridge),insert:(input={})=>insertWorkflowTableRow(input,sdkBridge),update:(input={})=>updateWorkflowTableRow(input,sdkBridge),delete:(input={})=>deleteWorkflowTableRow(input,sdkBridge)});
-export const connection=Object.freeze({request:(input={})=>requestWorkflowConnection(input,sdkBridge),paginate:(input={})=>paginateWorkflowConnection(input,sdkBridge)});`;
+export const connection=Object.freeze({request:(input={})=>requestWorkflowConnection(input,sdkBridge),stageWrite:(input={})=>stageWorkflowConnectionWrite(input,sdkBridge),paginate:(input={})=>paginateWorkflowConnection(input,sdkBridge)});`;
 }

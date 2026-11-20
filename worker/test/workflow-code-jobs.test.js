@@ -6,7 +6,7 @@ import {ensureWorkflowSafety} from '../src/harness/workflowSafety.js';
 import {readExecution,cancelExecution,enqueueExecution} from '../src/harness/executions.js';
 import {expireGatewayJobs} from '../src/harness/gateways.js';
 import worker from '../src/index.js';
-import {createWorkflow,updateWorkflow,startRun,continueRun,normalizeSteps,cancelWorkflowRun} from '../src/harness/workflows.js';
+import {createWorkflow,updateWorkflow,startRun,continueRun,normalizeSteps,cancelWorkflowRun,settleWorkflowApproval} from '../src/harness/workflows.js';
 import {setMode} from '../src/harness/mode.js';
 import {saveWorkspaceAIBudget} from '../src/workspaceAIBudget.js';
 let definition;
@@ -439,7 +439,7 @@ test('Workflow connection.request uses its pinned URL and drops the response whe
  }finally{vi.unstubAllGlobals()}
 });
 
-test('Workflow App connection writes require a frozen write binding and an at-most-once operation ID',async()=>{
+test('Workflow App connection writes are staged for owner approval and never dispatched by the activation',async()=>{
  const {api,job}=await setupProgramConnectionSource({method:'POST',write:true});
  const fetch=vi.fn(async(url,init)=>{
   expect(String(url)).toBe('https://api.github.com/repos/example/project/issues');
@@ -448,17 +448,57 @@ test('Workflow App connection writes require a frozen write binding and an at-mo
  });
  vi.stubGlobal('fetch',fetch);
  try{
-  const request={lease:job.lease,operation:'connection.request',params:{appId:'connection-app',name:'github_issues',body:{title:'Approved issue'},operationId:'issue-41'}};
-  const first=await api(`/jobs/${job.id}/state`,request);
-  expect(first.status).toBe(200);expect(await first.json()).toMatchObject({data:{number:41}});
-  const replay=await api(`/jobs/${job.id}/state`,request);
-  expect(replay.status).toBe(409);
-  const changedBody=await api(`/jobs/${job.id}/state`,{...request,params:{...request.params,body:{title:'Different issue'}}});
-  expect(changedBody.status).toBe(409);
-  const distinctOperation=await api(`/jobs/${job.id}/state`,{...request,params:{...request.params,operationId:'issue-42'}});
-  expect(distinctOperation.status).toBe(200);
-  expect(fetch).toHaveBeenCalledTimes(2);
-  expect(await env.DB.prepare("SELECT status FROM hx_app_connection_requests WHERE org_id='program-org' AND app_id='connection-app' AND created_by='program-owner' ORDER BY created_at").all()).toMatchObject({results:[{status:'succeeded'},{status:'succeeded'}]});
+  const params={appId:'connection-app',name:'github_issues',body:{title:'Approved issue'},operationId:'issue-41'};
+  const direct=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'connection.request',params});
+  expect(direct.status).toBe(400);
+  const staged=await api(`/jobs/${job.id}/state`,{lease:job.lease,operation:'connection.stageWrite',params});
+  expect(staged.status).toBe(200);expect(await staged.json()).toMatchObject({staged:true});
+  const invalidFinish=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'',stderr:'',exitCode:0,connectionWrites:[{appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'GET',operationId:'issue-41',body:{title:'x'}}]});
+  expect(invalidFinish.status).toBe(400);
+  expect(fetch).not.toHaveBeenCalled();
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org' AND app_id='connection-app'").first()).n).toBe(0);
+ }finally{vi.unstubAllGlobals()}
+});
+
+test('a staged App write waits for its owner and is sent once only after approval',async()=>{
+ const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
+ const request={appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:'issue-41',body:{title:'Approved issue'}};
+ const finished=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'Program result',stderr:'',exitCode:0,messages:[],connectionWrites:[request]});
+ expect(finished.status).toBe(200);
+ const result=await env.DB.prepare("SELECT status,card_id FROM hx_workflow_runs WHERE id='program-run'").first();
+ expect(result.status).toBe('waiting');expect(result.card_id).toEqual(expect.any(String));
+ const saved=await env.DB.prepare("SELECT recipient_user_id,data FROM cards WHERE org_id='program-org' AND card_id=?1").bind(result.card_id).first();
+ const card=JSON.parse(saved.data);
+ expect(saved.recipient_user_id).toBe('program-owner');
+ expect(card.workflowApproval).toMatchObject({runId:'program-run',workflowId:'program-wf',codeWrite:{jobId:job.id,appId:'connection-app',name:'github_issues',method:'POST',operationId:'issue-41',body:{title:'Approved issue'}}});
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org'").first()).n).toBe(0);
+ const fetch=vi.fn(async(_url,init)=>{
+  expect(init.method).toBe('POST');expect(JSON.parse(init.body)).toEqual({title:'Approved issue'});
+  return new Response(JSON.stringify({number:41}),{headers:{'content-type':'application/json'}});
+ });vi.stubGlobal('fetch',fetch);
+ try{
+  const approved={...card,status:'approved',decision:{action:'approve',actorUserID:'program-owner',decidedAt:new Date().toISOString()}};
+  await env.DB.prepare("UPDATE cards SET data=?1,status='approved' WHERE org_id='program-org' AND card_id=?2").bind(JSON.stringify(approved),result.card_id).run();
+  const [settled,redelivery]=await Promise.all([settleWorkflowApproval(env,'program-org',approved),settleWorkflowProgram(env.DB,job.id)]);
+  expect(settled.status).toBe('done');expect(redelivery.status).toBe('awaiting-approval-settlement');expect(fetch).toHaveBeenCalledTimes(1);
+  expect((await env.DB.prepare("SELECT status FROM hx_app_connection_requests WHERE org_id='program-org' AND app_id='connection-app'").first()).status).toBe('succeeded');
+  expect(await settleWorkflowApproval(env,'program-org',approved)).toBeNull();
+  expect(fetch).toHaveBeenCalledTimes(1);
+ }finally{vi.unstubAllGlobals()}
+});
+
+test('declining an external App write ends the run without dispatching or applying it',async()=>{
+ const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
+ const request={appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:'issue-decline',body:{title:'Do not send'}};
+ const finished=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'',stderr:'',exitCode:0,messages:[],connectionWrites:[request]});
+ expect(finished.status).toBe(200);
+ const run=await env.DB.prepare("SELECT status,card_id FROM hx_workflow_runs WHERE id='program-run'").first();
+ const stored=await env.DB.prepare("SELECT data FROM cards WHERE org_id='program-org' AND card_id=?1").bind(run.card_id).first();
+ const card=JSON.parse(stored.data),fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ try{
+  const declined=await settleWorkflowApproval(env,'program-org',{...card,status:'declined',decision:{action:'decline',actorUserID:'program-owner'}});
+  expect(declined.status).toBe('declined');expect(fetch).not.toHaveBeenCalled();
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org'").first()).n).toBe(0);
  }finally{vi.unstubAllGlobals()}
 });
 
