@@ -93,8 +93,19 @@ test('ACP recognizes explicit provider usage limits before prompt but refuses pe
   const acpAgents = { fixture: { command: execPath, args: ['-e', fixture('Usage limit reached for this provider')], cwd: process.cwd() } };
   const limited = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize this repository' }, { acpAgents, timeoutMs: 5000 });
   assert.equal(limited.fallbackReason, 'provider_limited');
-  acpAgents.fixture.args = ['-e', fixture('Permission denied for this workspace')];
-  await assert.rejects(runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize this repository' }, { acpAgents, timeoutMs: 5000 }));
+  for (const message of ['Permission denied for this workspace', 'Unauthorized', 'Not permitted by organization policy', 'Access was denied']) {
+    acpAgents.fixture.args = ['-e', fixture(message)];
+    await assert.rejects(runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize this repository' }, { acpAgents, timeoutMs: 5000 }));
+  }
+});
+
+test('ACP does not retry or fall back when an explicit provider error arrives after prompt submission', async () => {
+  const { execPath } = await import('node:process');
+  const script = `const r=require('node:readline').createInterface({input:process.stdin}),s=x=>process.stdout.write(JSON.stringify(x)+'\\n');r.on('line',l=>{const m=JSON.parse(l);if(m.method==='initialize')s({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{}}});else if(m.method==='session/new')s({jsonrpc:'2.0',id:m.id,result:{sessionId:'active'}});else if(m.method==='session/prompt')s({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'Usage limit reached'}})});`;
+  const result = runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize this repository' }, {
+    acpAgents: { fixture: { command: execPath, args: ['-e', script], cwd: process.cwd() } }, timeoutMs: 5000,
+  });
+  await assert.rejects(result, /ACP request failed/);
 });
 
 test('ACP terminal auth advertisement alone does not block an already authenticated session', async () => {
