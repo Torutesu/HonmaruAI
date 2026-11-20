@@ -61,7 +61,8 @@ export async function restoreAgentsForGateway(env,{orgId,gatewayId,at=Date.now()
      AND ga.agent_key=CASE WHEN json_valid(t.remote) THEN json_extract(t.remote,'$.agentKey') ELSE NULL END
    WHERE s.org_id=?1 AND s.gateway_id=?2 AND s.current_state='workspace' AND a.owner_login IS NOT NULL
      AND CASE WHEN json_valid(t.remote) THEN json_extract(t.remote,'$.gatewayId') ELSE NULL END=?2
-     AND CASE WHEN json_valid(t.remote) THEN json_extract(t.remote,'$.fallbackToWorkspaceAI') ELSE NULL END=1`)
+     AND (CASE WHEN json_valid(t.remote) THEN COALESCE(json_extract(t.remote,'$.fallbackToWorkspaceAIConfigured'),0) ELSE 0 END!=1
+       OR CASE WHEN json_valid(t.remote) THEN json_extract(t.remote,'$.fallbackToWorkspaceAI') ELSE NULL END=1)`)
    .bind(orgId,gatewayId).all();
  for(const row of results)await recordAgentFallbackState(env.DB,{orgId,agentId:row.agent_id,gatewayId,ownerLogin:row.owner_login,state:'node',at});
  return results.length;

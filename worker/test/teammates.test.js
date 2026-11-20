@@ -134,9 +134,13 @@ test('default ACP cloud fallback uses existing Workspace AI when the configured 
  expect((await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:'yes'})).status).toBe(400);
  const optedOut=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:false});
  expect((await optedOut.json()).teammate.fallbackToWorkspaceAI).toBe(false);
- const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:true});
- expect(configured.status).toBe(200);
- expect((await configured.json()).teammate.fallbackToWorkspaceAI).toBe(true);
+ let savedRemote=JSON.parse((await env.DB.prepare("SELECT remote FROM ai_teammates WHERE org_id=?1 AND provider='acp'").bind(ORG).first()).remote);
+ expect(savedRemote.fallbackToWorkspaceAIConfigured).toBe(true);
+ expect(savedRemote.fallbackToWorkspaceAI).toBe(false);
+ // Before the marker existed, false was the persisted default rather than an owner choice.
+ delete savedRemote.fallbackToWorkspaceAIConfigured;
+ await env.DB.prepare("UPDATE ai_teammates SET remote=?1 WHERE org_id=?2 AND provider='acp'").bind(JSON.stringify(savedRemote),ORG).run();
+ expect((await (await get(`/teammates?${q({orgId:ORG,provider:'acp'})}`,toru)).json()).teammate.fallbackToWorkspaceAI).toBe(true);
  await env.DB.prepare('UPDATE hx_gateways SET last_seen_at=1 WHERE org_id=?1 AND id=?2').bind(ORG,gateway.id).run();
  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(400,{error:{message:'Responses unavailable'}}).times(2);
  fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,{choices:[{message:{content:'Completed with the existing Workspace model.'}}],usage:{prompt_tokens:8,completion_tokens:6}});

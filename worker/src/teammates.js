@@ -157,9 +157,9 @@ export function toClientTeammate(t, provider, spentCents = 0, canRevealWebhookUr
     workspaceTools: Boolean(t?.remote?.workspaceTools),
     browserTools: Boolean(t?.remote?.browserTools),
     // Match Kylon's fallback-on-unless-changed behavior for local ACP agents.
-    // An explicit false remains an owner choice; all fallback requests still
-    // pass the Workspace AI access and budget checks before they can run.
-    fallbackToWorkspaceAI: Boolean(p.localGateway && t?.remote?.fallbackToWorkspaceAI !== false),
+    // Older releases wrote false as the default without recording an owner
+    // choice, so only the new marker makes false an explicit opt-out.
+    fallbackToWorkspaceAI: Boolean(p.localGateway && (t?.remote?.fallbackToWorkspaceAIConfigured !== true || t?.remote?.fallbackToWorkspaceAI === true)),
     repos: t?.repos || [], model: t?.model || p.defaultModel || "", instructions: t?.instructions || "",
     channels: t?.channels ?? null,
     autoBuild: t ? t.autoBuild !== false : true,
@@ -187,7 +187,12 @@ function cleanInput(input, current, provider) {
     out.agentKey = agentKey || null;
     out.workspaceTools = input.workspaceTools === undefined ? Boolean(current?.remote?.workspaceTools) : input.workspaceTools;
     out.browserTools = input.browserTools === undefined ? Boolean(current?.remote?.browserTools) : input.browserTools;
-    out.fallbackToWorkspaceAI = input.fallbackToWorkspaceAI === undefined ? current?.remote?.fallbackToWorkspaceAI !== false : input.fallbackToWorkspaceAI;
+    out.fallbackToWorkspaceAI = input.fallbackToWorkspaceAI === undefined
+      ? current?.remote?.fallbackToWorkspaceAIConfigured === true ? current.remote.fallbackToWorkspaceAI === true : true
+      : input.fallbackToWorkspaceAI;
+    out.fallbackToWorkspaceAIConfigured = input.fallbackToWorkspaceAI === undefined
+      ? current?.remote?.fallbackToWorkspaceAIConfigured === true
+      : true;
   }
   if (p.webhookBot && input.webhookUrl !== undefined) {
     const raw = String(input.webhookUrl || "").trim();
@@ -962,10 +967,10 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
     channels: current ? current.channels : null, monthlyLimitCents: current ? current.monthlyLimitCents : p.defaultLimit,
     tools: current?.tools || [], remote: current?.remote || {}, agentId: current?.agentId || null,
     autoBuild: current ? current.autoBuild !== false : true,
-    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools", "browserTools", "fallbackToWorkspaceAI", "webhookUrl"].includes(k))),
+    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools", "browserTools", "fallbackToWorkspaceAI", "fallbackToWorkspaceAIConfigured", "webhookUrl"].includes(k))),
   };
   if (out.account !== undefined) next.remote = { ...next.remote, account: out.account };
-  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey, workspaceTools: out.workspaceTools === true, browserTools: out.browserTools === true, fallbackToWorkspaceAI: out.fallbackToWorkspaceAI === true };
+  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey, workspaceTools: out.workspaceTools === true, browserTools: out.browserTools === true, fallbackToWorkspaceAI: out.fallbackToWorkspaceAI === true, fallbackToWorkspaceAIConfigured: out.fallbackToWorkspaceAIConfigured === true };
   if (p.webhookBot && out.webhookUrl !== undefined) next.remote = { ...next.remote, webhookUrl: out.webhookUrl };
   if (p.githubToken && !p.keyless && next.repos.length && !next.githubToken) return { error: `Add a GitHub token so ${p.name} can reach the repositories.` };
   let toolChanges = { kept: next.tools, written: [], removed: [] };

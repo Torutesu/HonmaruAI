@@ -571,7 +571,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     for (const agent of agents) {
       if (!TEAMMATE_PROVIDERS[agent.provider]?.localGateway) continue;
       const teammate = await teammateForAgent(env.DB, orgId, agent, env).catch(() => null);
-      if (!teammate?.remote?.fallbackToWorkspaceAI || !teammate.remote.gatewayId || !teammate.remote.agentKey) continue;
+      if ((teammate?.remote?.fallbackToWorkspaceAIConfigured === true && teammate.remote.fallbackToWorkspaceAI !== true) || !teammate?.remote?.gatewayId || !teammate.remote.agentKey) continue;
       let node;
       try {
         node = await env.DB.prepare(`SELECT g.last_seen_at,g.revoked_at,a.agent_key,ca.owner_login FROM hx_gateways g
