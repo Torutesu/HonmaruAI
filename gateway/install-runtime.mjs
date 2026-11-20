@@ -13,6 +13,6 @@ export async function copyServiceRuntime(source, destination) {
   for (const file of serviceModules) await copyFile(join(source,file),join(destination,file));
   const browserSource=join(source,'browser-image'),browserDestination=join(destination,'browser-image');
   await mkdir(browserDestination,{recursive:true,mode:0o700});
-  for(const file of ['Dockerfile','package.json','package-lock.json','browser-entrypoint.sh','browser-proxy-server.mjs','browser-guest.mjs','browser-command.mjs'])
+  for(const file of ['Dockerfile','package.json','package-lock.json','browser-entrypoint.sh','browser-proxy-server.mjs','browser-guest.mjs','browser-command.mjs','command-server.mjs'])
     await copyFile(join(browserSource,file),join(browserDestination,file));
 }
