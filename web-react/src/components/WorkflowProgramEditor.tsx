@@ -6,7 +6,9 @@ import {Icon} from './Icon'
 export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:HarnessApi;step:Step;onChange:(step:Step)=>void;sourceApps?:Array<{app:Pick<App,'id'|'name'>;entities:AppEntity[]}>}) {
  const t=useT(),generation=useRef(0),connectionGeneration=useRef(0)
  const lineNumbers=useRef<HTMLPreElement>(null)
+ const compileGeneration=useRef(0)
  const [nodes,setNodes]=useState<Gateway[]>([]),[agents,setAgents]=useState<Array<{id:string;handle:string;name:string;emoji?:string|null}>>([]),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ const [compileState,setCompileState]=useState<{status:'idle'|'checking'|'ready'|'error'|'unavailable';diagnostics:Array<{line:number;column:number;message:string}>;output:string}>({status:'idle',diagnostics:[],output:''})
  const [connectionAppId,setConnectionAppId]=useState(step.sourceConnections?.[0]?.appId||step.sourceAppId||sourceApps[0]?.app.id||''),[connections,setConnections]=useState<AppConnection[]>([]),[connectionsBusy,setConnectionsBusy]=useState(false),[connectionsError,setConnectionsError]=useState('')
  const load=useCallback(async()=>{
   const token=++generation.current;setBusy(true);setError('')
@@ -24,6 +26,23 @@ export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:Har
   return()=>{connectionGeneration.current++}
  },[api,connectionAppId])
  const bytes=new TextEncoder().encode(step.code||'').length
+ useEffect(()=>{
+  const code=step.code||'',token=++compileGeneration.current
+  if(!code.trim()||new TextEncoder().encode(code).length>48000){setCompileState({status:'idle',diagnostics:[],output:''});return()=>{compileGeneration.current++}}
+  const timer=setTimeout(()=>{
+   setCompileState(previous=>({...previous,status:'checking'}))
+   void import('typescript').then(ts=>{
+    const result=ts.transpileModule(code,{fileName:'workflow.ts',reportDiagnostics:true,compilerOptions:{target:ts.ScriptTarget.ESNext,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.Preserve,verbatimModuleSyntax:true}})
+    if(token!==compileGeneration.current)return
+    const diagnostics=(result.diagnostics||[]).filter(item=>item.category===ts.DiagnosticCategory.Error).map(item=>{
+     const location=item.file&&item.start!==undefined?item.file.getLineAndCharacterOfPosition(item.start):null
+     return {line:location?location.line+1:0,column:location?location.character+1:0,message:ts.flattenDiagnosticMessageText(item.messageText,'\n')}
+    })
+    setCompileState({status:diagnostics.length?'error':'ready',diagnostics,output:result.outputText})
+   }).catch(()=>{if(token===compileGeneration.current)setCompileState({status:'unavailable',diagnostics:[],output:''})})
+  },300)
+  return()=>{clearTimeout(timer);compileGeneration.current++}
+ },[step.code])
  const lineCount=(step.code||'').split('\n').length
  const selectedApp=sourceApps.find(choice=>choice.app.id===step.sourceAppId)
  const selectedSources=step.sourceTables??(step.sourceEntityId&&step.sourceTableId?[{entityId:step.sourceEntityId,tableId:step.sourceTableId}]:[])
@@ -107,6 +126,13 @@ export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:Har
    <div className="hx-program-gutter" aria-hidden="true"><pre ref={lineNumbers}>{Array.from({length:lineCount},(_,index)=>index+1).join('\n')}</pre></div>
    <textarea className="hx-program-source hx-program-input" aria-label={t('TypeScript source')} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={18} value={step.code||''} onScroll={event=>{if(lineNumbers.current)lineNumbers.current.style.transform=`translateY(-${event.currentTarget.scrollTop}px)`}} onChange={event=>onChange({...step,code:event.target.value})}/>
   </div>
+  <section className="hx-program-diagnostics" aria-label={t('Program syntax diagnostics')} aria-live="polite">
+   {compileState.status==='checking'&&<p role="status">{t('Checking syntax…')}</p>}
+   {compileState.status==='ready'&&<p role="status">{t('Syntax check passed. This is not a type check.')}</p>}
+   {compileState.status==='unavailable'&&<p role="status">{t('The syntax checker could not load. Saving is still available.')}</p>}
+   {compileState.status==='error'&&<div role="alert"><strong>{t('Fix syntax errors before running this program.')}</strong><ul>{compileState.diagnostics.slice(0,12).map((item,index)=><li key={`${item.line}:${item.column}:${index}`}>{item.line?t('Line {line}, column {column}',{line:item.line,column:item.column}):t('Program syntax error')}: {item.message}</li>)}</ul>{compileState.diagnostics.length>12&&<p>{t('Showing the first 12 errors.')}</p>}</div>}
+   {compileState.status==='ready'&&<details><summary>{t('Show transpiled JavaScript')}</summary><p className="row-sub">{t('This preview removes TypeScript syntax only. It does not run the program or check types.')}</p><pre className="hx-program-transpiled"><code>{compileState.output}</code></pre></details>}
+  </section>
   <div className="hx-program-toolbar"><span>{t('Saved state is available through @honmaru/workflow-sdk.')}</span><span>{t('Use parallel and pipeline for bounded batches; failed items return null and call onError.')}</span><span>{t('table.query reads, while insert, update, and delete are staged within the saved App/Table permissions.')}</span><span>{t('sendMessage(text) stages a report draft in run history; it never posts to a Room.')}</span><span>{t('Workflow programs can run for up to 15 minutes.')}</span><span>{bytes.toLocaleString()} / 48,000 B</span></div>
   {bytes>48000&&<p className="form-error" role="alert">{t('Program source exceeds 48 KB.')}</p>}
  </section>
