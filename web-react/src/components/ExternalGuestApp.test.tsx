@@ -50,7 +50,7 @@ test('external App guest renders only the published Custom App in an opaque ifra
   const frame=tree.root.findByType('iframe')
   expect(frame.props.sandbox).toBe('allow-scripts')
   expect(frame.props.referrerPolicy).toBe('no-referrer')
-  expect(frame.props.title).toBe('カスタムアプリ')
+  expect(frame.props.title).toBe('Custom app')
   expect(tree.root.findByType(CustomAppFrame).props.rows).toHaveLength(1)
   expect(JSON.stringify(tree.toJSON())).toContain('isolated frame')
  }finally{if(tree)act(()=>tree.unmount());vi.unstubAllGlobals()}
