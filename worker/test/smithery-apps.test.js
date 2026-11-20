@@ -352,6 +352,58 @@ test("Harness connections are granted per agent and caller, and revocation stops
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_agent_app_grants WHERE org_id = ?1 AND user_github_id = '9702'").bind(ORG).first()).toEqual({ n: 0 });
 });
 
+test("Smithery Agent tools recheck Agent audience before dispatch and discard responses after revocation", async()=>{
+  await allow();
+  await connect(mika,"MIKA-ONLY-DATA");
+  await call("/orgs/mode",owner,{method:"PUT",body:{orgId:ORG,mode:"harness"}});
+  const agentId="agent-smithery-revocation";
+  const at=new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'smithery-fence','Smithery Fence','Use only explicitly granted apps.','team','toru',?3,?3)`)
+    .bind(ORG,agentId,at).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at)
+    VALUES(?1,?2,'people','["mika"]','9702',?3)`).bind(ORG,agentId,at).run();
+  const path=`/hx/agents/${agentId}/apps`;
+  expect((await call(path,mika,{method:"POST",body:{orgId:ORG,server:"linear"}})).status).toBe(200);
+
+  const session=await sessionOf(mika),taint={value:false};
+  const offered=await appTools(apiEnv(),{orgId:ORG,session,agentId,taint,requireAgentGrant:true});
+  expect(offered.app1_search_issues).toBeDefined();
+  await env.DB.prepare(`UPDATE hx_agent_profiles SET people='["toru"]',updated_at=?3 WHERE org_id=?1 AND agent_id=?2`)
+    .bind(ORG,agentId,new Date().toISOString()).run();
+  const denied=await offered.app1_search_issues.run({query:"private"});
+  expect(denied).toContain("no longer allowed for this agent");
+  expect(fake.calls).toHaveLength(0);
+
+  await env.DB.prepare(`UPDATE hx_agent_profiles SET people='["mika"]',updated_at=?3 WHERE org_id=?1 AND agent_id=?2`)
+    .bind(ORG,agentId,new Date().toISOString()).run();
+  const active=await appTools(apiEnv(),{orgId:ORG,session,agentId,taint,requireAgentGrant:true});
+  const real=globalThis.fetch;
+  let finishRequest,signalStarted,dispatches=0;
+  const started=new Promise(resolve=>{signalStarted=resolve;});
+  globalThis.fetch=async(input,init)=>{
+    const url=new URL(typeof input==="string"?input:input.url);
+    if(url.origin==="https://api.smithery.ai"&&url.pathname.endsWith("/.tools/search_issues")){
+      dispatches++;
+      signalStarted();
+      return await new Promise(resolve=>{finishRequest=()=>resolve(Response.json({content:[{type:"text",text:"MIKA-ONLY-DATA"}]}));});
+    }
+    return real(input,init);
+  };
+  try{
+    const request=active.app1_search_issues.run({query:"private"});
+    await started;
+    await env.DB.prepare(`UPDATE hx_agent_profiles SET people='["toru"]',updated_at=?3 WHERE org_id=?1 AND agent_id=?2`)
+      .bind(ORG,agentId,new Date().toISOString()).run();
+    finishRequest();
+    const result=await request;
+    expect(result).toContain("access changed while the request was running");
+    expect(result).not.toContain("MIKA-ONLY-DATA");
+    expect(dispatches).toBe(1);
+  }finally{globalThis.fetch=real;}
+});
+
 test("Harness native Notion access needs an agent grant and discards a result revoked in flight", async () => {
   await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "harness" } });
   const agentId = "agent-native-source";

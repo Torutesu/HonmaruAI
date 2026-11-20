@@ -188,10 +188,10 @@
       "status": "partial",
       "priority": "P0",
       "source": "https://docs.kylon.io/agents/overview",
-      "code": "worker/src/harness/routes.js, worker/src/harness/agentConnections.js, worker/src/harness/agentRemoteMcp.js, worker/src/agentTools.js, worker/test/remote-mcp.test.js",
-      "acceptance": "全API/外部実行の経路監査を継続。Native/Remote MCP資格情報ヘルパーも利用者の現在のAgent権限を毎回確認し、権限失効後の実行・ツール列挙を拒否する。全経路と複数利用者での本番隔離検証は残る",
+      "code": "worker/src/harness/routes.js, worker/src/harness/agentConnections.js, worker/src/harness/agentRemoteMcp.js, worker/src/agentTools.js, worker/src/smitheryApps.js, worker/test/remote-mcp.test.js, worker/test/smithery-apps.test.js",
+      "acceptance": "全API/外部実行の経路監査を継続。Native/Remote MCPとSmithery AppのAgentツールで利用者の現在のAgent権限を毎回確認し、Agent audience・grant・membership・App接続の失効後は実行を拒否し、実行中に失効した読み取り結果は破棄する。書き込みの曖昧な結果は再試行せず不明と報告する。全経路と複数利用者での本番隔離検証は残る",
       "evidence": {
-        "verified": "Existing direct API, room list, role, schedule, and external execution routes were re-audited; no confirmed bypass was found. Native credential access now calls mayRunAgent at the credential boundary; Remote MCP authorization and tool enumeration recheck current grants. They now also fail closed when Workspace mode is Simple, including tools created earlier in Harness; an in-flight result is discarded if the mode changes during the provider call. Regressions cover mode downgrade before dispatch and mid-call. `worker npm test -- --run test/remote-mcp.test.js` passed (15 tests). Existing route/provider re-audit and Agent privacy revocation cases remain covered by prior focused tests.",
+        "verified": "Existing direct API, room list, role, schedule, and external execution routes were re-audited; no confirmed bypass was found. Native credential access calls mayRunAgent at the credential boundary; Remote MCP authorization and tool enumeration recheck current grants and fail closed in Simple mode, including tools created earlier in Harness. In-flight results are discarded after permission or mode revocation. Smithery Agent App tools now also recheck the current Agent audience plus exact grant, membership generation and app connection before dispatch and after provider response; reads are discarded after revocation, while ambiguous writes are reported as unknown and are not retried. Regressions cover Smithery audience revocation before dispatch and mid-call. Focused Smithery tests passed (15 tests); full Worker suite passed (323 files, 3,699 tests); Remote MCP tests passed (15 tests).",
         "remaining": "Full route/provider audit, exact-head CI and production deployment, authenticated multi-user isolation and visual comparison remain."
       }
     },
