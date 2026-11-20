@@ -193,11 +193,15 @@ export function normalizeWorkflowConnectionRequest(input={}) {
   const clean={appId:input.appId,name:input.name};
   if(input.query!==undefined){
     const query=input.query;
-    if(!query||typeof query!=='object'||Array.isArray(query)||Object.keys(query).length>100||new TextEncoder().encode(JSON.stringify(query)).length>20000)throw Error('Invalid App connection query.');
+    if(!query||typeof query!=='object'||Array.isArray(query)||Object.keys(query).length>100)throw Error('Invalid App connection query.');
+    let queryCharacters=0;
     for(const [key,value] of Object.entries(query)){
       const values=Array.isArray(value)?value:[value];
-      if(!key||key.length>100||/(token|auth|secret|password|credential|api[-_]?key)/i.test(key)||values.length>100||values.some(item=>!(typeof item==='string'||typeof item==='boolean'||typeof item==='number'&&Number.isFinite(item))))throw Error('Invalid App connection query value.');
+      if(!key||key.length>100||/(token|auth|secret|password|credential|api[-_]?key)/i.test(key)||values.length>100||values.some(item=>!(typeof item==='string'||typeof item==='boolean'||typeof item==='number'&&Number.isFinite(item))||typeof item==='string'&&item.length>20000))throw Error('Invalid App connection query value.');
+      queryCharacters+=key.length+values.reduce((total,item)=>total+(typeof item==='string'?item.length:24),0);
+      if(queryCharacters>20000)throw Error('Invalid App connection query.');
     }
+    if(new TextEncoder().encode(JSON.stringify(query)).length>20000)throw Error('Invalid App connection query.');
     clean.query=query;
   }
   return clean;
@@ -212,10 +216,57 @@ export async function requestWorkflowConnection(input={},bridge=undefined) {
   return bridge.requestConnection(clean);
 }
 
+export async function paginateWorkflowConnection(input={},bridge=undefined) {
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['appId','name','query','getItems','getNextQuery','maxPages','maxItems','maxBytes'].includes(key))
+    ||typeof input.getItems!=='function'||typeof input.getNextQuery!=='function')throw Error('connection.paginate requires getItems and getNextQuery functions.');
+  const maxPages=input.maxPages??10,maxItems=input.maxItems??1000,maxBytes=input.maxBytes??1_000_000;
+  if(!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>32||!Number.isSafeInteger(maxItems)||maxItems<1||maxItems>10000||!Number.isSafeInteger(maxBytes)||maxBytes<1||maxBytes>1_000_000)throw Error('Connection pagination limits exceed the allowed bounds.');
+  const initial=normalizeWorkflowConnectionRequest({appId:input.appId,name:input.name,...(input.query!==undefined?{query:input.query}:{})});
+  const request=(query)=>requestWorkflowConnection({appId:initial.appId,name:initial.name,...(query!==undefined?{query}:{})},bridge);
+  const keyOf=query=>JSON.stringify(query??null,Object.keys(query||{}).sort());
+  let query=initial.query,items=[],bytes=0,pages=0;
+  const seen=new Set();
+  for(;pages<maxPages;pages++){
+    const queryKey=keyOf(query);
+    if(seen.has(queryKey))return {items,complete:false,pages,nextQuery:query??null,incompleteReason:'repeated_query'};
+    seen.add(queryKey);
+    // Reauthorize the saved App/Connection binding on every page. Never retry
+    // a failed or ambiguous provider request here.
+    const response=await request(query);
+    if(!response||typeof response!=='object'||!Object.hasOwn(response,'data'))throw Error('The App connection returned an invalid page.');
+    const pageItems=await input.getItems(response?.data);
+    if(!Array.isArray(pageItems))throw Error('Connection pagination getItems must return an array.');
+    if(items.length+pageItems.length>maxItems)return {items,complete:false,pages:pages+1,incompleteReason:'page_item_limit'};
+    const pageBytes=new TextEncoder().encode(JSON.stringify(pageItems)).length;
+    if(bytes+pageBytes>maxBytes)return {items,complete:false,pages:pages+1,incompleteReason:'page_size_limit'};
+    items.push(...pageItems);bytes+=pageBytes;
+    const next=await input.getNextQuery(response?.data,query);
+    if(next===null||next===undefined)return {items,complete:true,pages:pages+1,nextQuery:null};
+    const cleanNext=normalizeWorkflowConnectionRequest({appId:initial.appId,name:initial.name,query:next}).query;
+    if(seen.has(keyOf(cleanNext)))return {items,complete:false,pages:pages+1,incompleteReason:'repeated_query'};
+    query=cleanNext;
+  }
+  return {items,complete:false,pages,nextQuery:query??null,incompleteReason:'page_limit'};
+}
+
 function workflowSdkBaseSource(bridgeExpression = 'undefined') {
   return `const parallel=${parallel.toString()};\nconst pipeline=${pipeline.toString()};\nconst normalizeWorkflowDraft=${normalizeWorkflowDraft.toString()};\nconst normalizeWorkflowAgentCall=${normalizeWorkflowAgentCall.toString()};\nconst invokeWorkflowAgent=${invokeWorkflowAgent.toString()};\nconst workflowBridge=()=>${bridgeExpression};\nexport async function sendMessage(text,options={}){const draft=normalizeWorkflowDraft(text,options);const bridge=workflowBridge();if(typeof bridge?.stageMessage!==\"function\")throw Error(\"Workflow message staging is unavailable.\");return bridge.stageMessage(draft)}\nexport async function agent(prompt,options={}){return invokeWorkflowAgent(prompt,options,workflowBridge())}\nexport {parallel,pipeline};`;
 }
 
 export function workflowSdkSource(bridgeExpression = 'undefined') {
-  return workflowSdkBaseSource(bridgeExpression) + `\nconst normalizeWorkflowQueryOptions=${normalizeWorkflowQueryOptions.toString()};\nconst queryWorkflowTable=${queryWorkflowTable.toString()};\nconst normalizeWorkflowInsert=${normalizeWorkflowInsert.toString()};\nconst insertWorkflowTableRow=${insertWorkflowTableRow.toString()};\nconst validWorkflowRowTarget=${validWorkflowRowTarget.toString()};\nconst normalizeWorkflowUpdate=${normalizeWorkflowUpdate.toString()};\nconst updateWorkflowTableRow=${updateWorkflowTableRow.toString()};\nconst normalizeWorkflowDelete=${normalizeWorkflowDelete.toString()};\nconst deleteWorkflowTableRow=${deleteWorkflowTableRow.toString()};\nconst normalizeWorkflowConnectionRequest=${normalizeWorkflowConnectionRequest.toString()};\nconst requestWorkflowConnection=${requestWorkflowConnection.toString()};\nconst sdkBridge=workflowBridge();\nexport const table=Object.freeze({query:(options={})=>queryWorkflowTable(options,sdkBridge),insert:(input={})=>insertWorkflowTableRow(input,sdkBridge),update:(input={})=>updateWorkflowTableRow(input,sdkBridge),delete:(input={})=>deleteWorkflowTableRow(input,sdkBridge)});\nexport const connection=Object.freeze({request:(input={})=>requestWorkflowConnection(input,sdkBridge)});`;
+  return workflowSdkBaseSource(bridgeExpression) + `\nconst normalizeWorkflowQueryOptions=${normalizeWorkflowQueryOptions.toString()};
+const queryWorkflowTable=${queryWorkflowTable.toString()};
+const normalizeWorkflowInsert=${normalizeWorkflowInsert.toString()};
+const insertWorkflowTableRow=${insertWorkflowTableRow.toString()};
+const validWorkflowRowTarget=${validWorkflowRowTarget.toString()};
+const normalizeWorkflowUpdate=${normalizeWorkflowUpdate.toString()};
+const updateWorkflowTableRow=${updateWorkflowTableRow.toString()};
+const normalizeWorkflowDelete=${normalizeWorkflowDelete.toString()};
+const deleteWorkflowTableRow=${deleteWorkflowTableRow.toString()};
+const normalizeWorkflowConnectionRequest=${normalizeWorkflowConnectionRequest.toString()};
+const requestWorkflowConnection=${requestWorkflowConnection.toString()};
+const paginateWorkflowConnection=${paginateWorkflowConnection.toString()};
+const sdkBridge=workflowBridge();
+export const table=Object.freeze({query:(options={})=>queryWorkflowTable(options,sdkBridge),insert:(input={})=>insertWorkflowTableRow(input,sdkBridge),update:(input={})=>updateWorkflowTableRow(input,sdkBridge),delete:(input={})=>deleteWorkflowTableRow(input,sdkBridge)});
+export const connection=Object.freeze({request:(input={})=>requestWorkflowConnection(input,sdkBridge),paginate:(input={})=>paginateWorkflowConnection(input,sdkBridge)});`;
 }

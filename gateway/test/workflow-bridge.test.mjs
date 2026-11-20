@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createStateBroker,validateStateRequest,createWorkflowOutputParser} from '../workflow-bridge.mjs';
-import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable,normalizeWorkflowInsert,insertWorkflowTableRow,normalizeWorkflowUpdate,normalizeWorkflowDelete,updateWorkflowTableRow,deleteWorkflowTableRow,normalizeWorkflowConnectionRequest,requestWorkflowConnection} from '../workflow-sdk.mjs';
+import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable,normalizeWorkflowInsert,insertWorkflowTableRow,normalizeWorkflowUpdate,normalizeWorkflowDelete,updateWorkflowTableRow,deleteWorkflowTableRow,normalizeWorkflowConnectionRequest,requestWorkflowConnection,paginateWorkflowConnection} from '../workflow-sdk.mjs';
 test('guest cannot choose activation identity or call arbitrary host operations',()=>{
  for(const request of [{id:1,method:'shell',params:{}},{id:1,method:'state.get',params:{runId:'other'}},{id:1,method:'state.set',params:{state:{},expectedRevision:0,owner:'other'}},{id:65,method:'state.get',params:{}}])assert.throws(()=>validateStateRequest(request));
 });
@@ -40,6 +40,49 @@ test('Workflow SDK routes App calls only through frozen GET bindings',async()=>{
  globalThis.__workflowConnectionTestBridge=bridge;
  try{const sdk=await import('data:text/javascript;base64,'+Buffer.from(workflowSdkSource('globalThis.__workflowConnectionTestBridge')).toString('base64'));assert.deepEqual(await sdk.connection.request({appId:'app-1',name:'issues'}),{data:[{id:'i-1'}]});}
  finally{delete globalThis.__workflowConnectionTestBridge;}
+});
+
+test('connection.paginate follows provider cursors through the frozen binding and stops at configured limits',async()=>{
+ const calls=[],pages=new Map([
+  [null,{data:{issues:[{id:'i-1'}],next:'cursor-1'}}],
+  ['cursor-1',{data:{issues:[{id:'i-2'}],next:null}}],
+ ]);
+ const bridge={connectionSources:[{appId:'app-1',name:'issues',method:'GET'}],requestConnection:async input=>{
+  calls.push(input);const cursor=input.query?.cursor??null;const response=pages.get(cursor);if(!response)throw Error('connection access changed');return response;
+ }};
+ const result=await paginateWorkflowConnection({appId:'app-1',name:'issues',query:{state:'open'},getItems:data=>data.issues,getNextQuery:data=>data.next?{state:'open',cursor:data.next}:null},bridge);
+ assert.deepEqual(result,{items:[{id:'i-1'},{id:'i-2'}],complete:true,pages:2,nextQuery:null});
+ assert.deepEqual(calls.map(call=>call.query),[{state:'open'},{state:'open',cursor:'cursor-1'}]);
+ globalThis.__workflowPaginationBridge=bridge;
+ try {
+  const sdk=await import('data:text/javascript;base64,'+Buffer.from(workflowSdkSource('globalThis.__workflowPaginationBridge')).toString('base64'));
+  assert.equal(typeof sdk.connection.paginate,'function');
+  const generated=await sdk.connection.paginate({appId:'app-1',name:'issues',query:{state:'open'},getItems:data=>data.issues,getNextQuery:data=>data.next?{state:'open',cursor:data.next}:null});
+  assert.equal(generated.complete,true);assert.equal(generated.items.length,2);
+ } finally { delete globalThis.__workflowPaginationBridge; }
+ const capped=await paginateWorkflowConnection({appId:'app-1',name:'issues',query:{state:'open'},maxPages:1,getItems:data=>data.issues,getNextQuery:data=>({cursor:data.next})},bridge);
+ assert.deepEqual(capped,{items:[{id:'i-1'}],complete:false,pages:1,nextQuery:{cursor:'cursor-1'},incompleteReason:'page_limit'});
+ await assert.rejects(()=>paginateWorkflowConnection({appId:'app-1',name:'issues',getItems:data=>data,getNextQuery:()=>null,maxPages:33},bridge),/limits/);
+});
+
+test('connection.paginate never retries or hides incomplete and malformed results',async()=>{
+ let calls=0;
+ const bridge={connectionSources:[{appId:'app-1',name:'issues',method:'GET'}],requestConnection:async()=>{calls++;if(calls===2)throw Error('access revoked');return {data:{issues:[{id:'i-1'}],next:'cursor-1'}}}};
+ await assert.rejects(()=>paginateWorkflowConnection({appId:'app-1',name:'issues',getItems:data=>data.issues,getNextQuery:data=>data.next?{cursor:data.next}:null},bridge),/access revoked/);
+ assert.equal(calls,2);
+ const repeated=await paginateWorkflowConnection({appId:'app-1',name:'issues',getItems:data=>data.issues,getNextQuery:()=>({cursor:'same'})},{...bridge,requestConnection:async()=>({data:{issues:[{id:'i-1'}],next:'same'}})});
+ assert.deepEqual(repeated,{items:[{id:'i-1'},{id:'i-1'}],complete:false,pages:2,incompleteReason:'repeated_query'});
+ let reorderedCalls=0;
+ const reordered=await paginateWorkflowConnection({appId:'app-1',name:'issues',query:{cursor:'same',limit:10},getItems:data=>data.issues,getNextQuery:()=>({limit:10,cursor:'same'})},{connectionSources:[{appId:'app-1',name:'issues',method:'GET'}],requestConnection:async()=>{reorderedCalls++;return {data:{issues:[{id:'i-1'}]}}}});
+ assert.deepEqual(reordered,{items:[{id:'i-1'}],complete:false,pages:1,incompleteReason:'repeated_query'});assert.equal(reorderedCalls,1);
+ const itemCapped=await paginateWorkflowConnection({appId:'app-1',name:'issues',maxItems:1,getItems:()=>{const item={};item.self=item;return [item,item]},getNextQuery:()=>null},{...bridge,requestConnection:async()=>({data:{issues:[]}})});
+ assert.deepEqual(itemCapped,{items:[],complete:false,pages:1,incompleteReason:'page_item_limit'});
+ const byteCapped=await paginateWorkflowConnection({appId:'app-1',name:'issues',maxBytes:8,getItems:data=>data.issues,getNextQuery:()=>null},{...bridge,requestConnection:async()=>({data:{issues:[{id:'i-1'}]}})});
+ assert.deepEqual(byteCapped,{items:[],complete:false,pages:1,incompleteReason:'page_size_limit'});
+ await assert.rejects(()=>paginateWorkflowConnection({appId:'app-1',name:'issues',getItems:()=>({id:'i-1'}),getNextQuery:()=>null},{...bridge,requestConnection:async()=>({data:{}})}),/return an array/);
+ let oversizedCalls=0;
+ await assert.rejects(()=>paginateWorkflowConnection({appId:'app-1',name:'issues',query:{q:'x'.repeat(20001)},getItems:data=>data,getNextQuery:()=>null},{connectionSources:[{appId:'app-1',name:'issues',method:'GET'}],requestConnection:async()=>{oversizedCalls++;return {data:{}}}}),/Invalid App connection query/);
+ assert.equal(oversizedCalls,0);
 });
 
 test('broker serializes writes, rejects duplicate IDs and hides host error details',async()=>{

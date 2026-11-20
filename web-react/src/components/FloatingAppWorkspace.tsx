@@ -4,9 +4,11 @@ import {AppView} from '../screens/Harness'
 import {harnessApi,type HarnessApi} from '../utils/harness'
 import {hashForApp,type AppSection} from '../utils/route'
 import {fitFloatingRect,floatingRectStorageKey,initialFloatingRect,readFloatingRect,writeFloatingRect,type FloatingRect} from '../utils/floatingApp'
+import {useT} from '../utils/i18n'
 
 type Pane={appId:string;section:AppSection;initialSection:AppSection;rect:FloatingRect;storageKey:string|null;owner:HarnessApi}
 export function FloatingAppWorkspace({children,httpBase,orgId,userId,sessionToken,enabled,interactive=true}:{children:React.ReactNode;httpBase:string;orgId:string;userId:string;sessionToken:string;enabled:boolean;interactive?:boolean}) {
+ const t=useT()
  const [pane,setPane]=useState<Pane|null>(null)
  const api=useMemo(()=>harnessApi(httpBase,orgId,sessionToken),[httpBase,orgId,sessionToken])
  const returnFocus=useRef<HTMLElement|null>(null)
@@ -46,7 +48,7 @@ export function FloatingAppWorkspace({children,httpBase,orgId,userId,sessionToke
  const finish=(event:React.PointerEvent<HTMLDivElement>)=>{const current=drag.current;if(current?.id===event.pointerId){const dx=event.clientX-current.x,dy=event.clientY-current.y;const rect=fitFloatingRect(current.resize?{...current.rect,width:current.rect.width+dx,height:current.rect.height+dy}:{...current.rect,x:current.rect.x+dx,y:current.rect.y+dy},{width:innerWidth,height:innerHeight});setPane(p=>p?{...p,rect}:p);writeFloatingRect(storage(),current.storageKey,rect);drag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId)}}
  return <FloatingAppContext.Provider value={enabled?open:null}>
   {children}
-  {enabled&&pane&&pane.owner===api&&<div ref={interactionRoot} className="hx-floating-app" data-compact={pane.rect.width<720?'':undefined} role="region" aria-label="フローティングアプリ" aria-description="矢印キーで移動、Shiftと矢印キーでサイズ変更" tabIndex={0} style={{left:pane.rect.x,top:pane.rect.y,width:pane.rect.width,height:pane.rect.height}}
+  {enabled&&pane&&pane.owner===api&&<div ref={interactionRoot} className="hx-floating-app" data-compact={pane.rect.width<720?'':undefined} role="region" aria-label={t('Floating app')} aria-description={t('Use arrow keys to move; Shift+arrow keys to resize')} tabIndex={0} style={{left:pane.rect.x,top:pane.rect.y,width:pane.rect.width,height:pane.rect.height}}
    onPointerDown={start} onPointerMove={event=>{const d=drag.current;if(!d||d.id!==event.pointerId)return;const dx=event.clientX-d.x,dy=event.clientY-d.y;d.currentRect=move(d.resize?{...d.rect,width:d.rect.width+dx,height:d.rect.height+dy}:{...d.rect,x:d.rect.x+dx,y:d.rect.y+dy})}} onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={()=>{if(drag.current){writeFloatingRect(storage(),drag.current.storageKey,drag.current.currentRect);drag.current=null}}}
     onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();event.stopPropagation();close();return}if(event.target!==event.currentTarget||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();const dx=event.key==='ArrowLeft'?-16:event.key==='ArrowRight'?16:0,dy=event.key==='ArrowUp'?-16:event.key==='ArrowDown'?16:0;move(event.shiftKey?{...pane.rect,width:pane.rect.width+dx,height:pane.rect.height+dy}:{...pane.rect,x:pane.rect.x+dx,y:pane.rect.y+dy},true)}}>
     <AppView key={pane.appId} api={api} appId={pane.appId} httpBase={httpBase} orgId={orgId} sessionToken={sessionToken} initialSection={pane.initialSection} onSectionChange={section=>setPane(p=>p?{...p,section}:p)} floating floatingCompact={pane.rect.width<720} onClose={close} onBack={()=>{location.hash=hashForApp(pane.appId,orgId,undefined,pane.section);setPane(null)}} />

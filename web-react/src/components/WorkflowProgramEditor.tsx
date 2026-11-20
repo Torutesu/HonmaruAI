@@ -122,6 +122,7 @@ export function WorkflowProgramEditor({api,step,onChange,sourceApps=[]}:{api:Har
   </fieldset>
   <p className="row-sub">{t('The table.query helper reads saved App entities. table.insert requires Allow row creation; table.update and table.delete require Allow row updates and deletes. All changes commit only after the program succeeds. No VM network or database access is enabled.')}</p>
   <p className="row-sub">{t('connection.request({appId, name, query}) sends bounded read-only requests through the selected App connection. The program never receives its URL or credential.')}</p>
+  <p className="row-sub">{t('connection.paginate({appId, name, query, getItems, getNextQuery}) follows provider pages through the same connection. Page, item, and byte limits are bounded; check complete before treating results as exhaustive.')}</p>
   <div className="hx-program-code" style={{'--program-gutter':`${Math.max(2,String(lineCount).length)+2}ch`} as React.CSSProperties}>
    <div className="hx-program-gutter" aria-hidden="true"><pre ref={lineNumbers}>{Array.from({length:lineCount},(_,index)=>index+1).join('\n')}</pre></div>
    <textarea className="hx-program-source hx-program-input" aria-label={t('TypeScript source')} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={18} value={step.code||''} onScroll={event=>{if(lineNumbers.current)lineNumbers.current.style.transform=`translateY(-${event.currentTarget.scrollTop}px)`}} onChange={event=>onChange({...step,code:event.target.value})}/>

@@ -1,6 +1,9 @@
 // The interface in de: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Floating app': 'Schwebende App',
+  'Use arrow keys to move; Shift+arrow keys to resize': 'Mit den Pfeiltasten verschieben; mit Umschalt+Pfeiltaste Größe ändern',
+  'connection.paginate({appId, name, query, getItems, getNextQuery}) follows provider pages through the same connection. Page, item, and byte limits are bounded; check complete before treating results as exhaustive.': 'connection.paginate({appId, name, query, getItems, getNextQuery}) durchläuft Anbieterseiten über dieselbe Verbindung. Seiten-, Element- und Bytegrenzen sind festgelegt; prüfe complete, bevor du die Ergebnisse als vollständig behandelst.',
   'Slack draft': 'Slack-Entwurf',
   'Could not load this Slack draft.': 'Der Slack-Entwurf konnte nicht geladen werden.',
   'The Slack draft could not be updated. Reload to check its status.': 'Der Entwurf konnte nicht aktualisiert werden. Lade neu, um den Status zu prüfen.',

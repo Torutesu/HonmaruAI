@@ -102,7 +102,7 @@ export async function appSourceNavigation({ context, web, apiHost, shots }) {
     const appScreen = page.locator('.shell > .hx-app-detail')
     await appScreen.getByRole('button', { name: /^(?:More app actions|その他のアプリ操作)$/ }).click()
     await appScreen.getByRole('menuitem', { name: /^(?:Float over the workspace|ワークスペース上にフローティング表示)$/ }).click()
-    const floating = page.getByRole('region', { name: 'フローティングアプリ', exact: true })
+    const floating = page.getByRole('region', { name: /^(?:Floating app|フローティングアプリ)$/ })
     await floating.locator('.hx-data-toolbar').waitFor({ timeout: 20000 })
     const initialBox = await floating.boundingBox()
     await floating.focus()

@@ -8,7 +8,7 @@ import { parseRoute } from '../utils/route'
 import { AppRecordDialog } from '../components/AppRecordDialog'
 import * as csvExport from '../utils/csvExport'
 
-const state = vi.hoisted(() => ({ api: null as any }))
+const state = vi.hoisted(() => ({ api: null as any, float: null as any }))
 vi.mock('./HarnessShared', async importOriginal => ({
   ...await importOriginal<typeof import('./HarnessShared')>(),
   useApi: () => state.api,
@@ -18,6 +18,7 @@ vi.mock('../utils/i18n', () => {
   return { useT: () => identity }
 })
 vi.mock('../utils/appPins', () => ({ useAppPins: () => ({ pins: [], toggle: vi.fn() }) }))
+vi.mock('../components/FloatingAppContext', () => ({ useFloatingApp: () => state.float }))
 vi.mock('../components/AppRecordDialog',()=>({AppRecordDialog:()=>null}))
 let finish: (value: any) => void
 let tree: ReturnType<typeof create> | undefined
@@ -38,6 +39,24 @@ test('an embedded source App exposes distinct Back and panel-close actions',asyn
  act(()=>tree!.root.findByProps({'aria-label':'パネルを閉じる'}).props.onClick())
  expect(back).toHaveBeenCalledOnce()
  expect(close).toHaveBeenCalledOnce()
+})
+
+test('floating an App returns to the Apps library without closing its workspace screen',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'})
+ const view={id:'all',type:'table',name:'All',rows:[]}
+ state.api={
+  app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[view],canCustomize:true}),
+  personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),
+  conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]}),
+ }
+ const float=vi.fn(),close=vi.fn(),back=vi.fn();state.float=float
+ await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={close} api={state.api} appId="tasks" onBack={back} initialSection="data"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+ act(()=>tree!.root.findByProps({'aria-label':'More app actions'}).props.onClick())
+ act(()=>tree!.root.findAllByProps({role:'menuitem'}).find(item=>item.children.includes('Float over the workspace'))!.props.onClick())
+ expect(float).toHaveBeenCalledWith('tasks','data')
+ expect(back).toHaveBeenCalledOnce()
+ expect(close).not.toHaveBeenCalled()
+ state.float=null
 })
 
 test('new record labels use the primary table when its title differs from the app',()=>{

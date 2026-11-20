@@ -3,6 +3,7 @@ import {act,create,type ReactTestRenderer} from 'react-test-renderer'
 import {afterEach,beforeEach,expect,test,vi} from 'vitest'
 import {FloatingAppWorkspace} from './FloatingAppWorkspace'
 import {useFloatingApp} from './FloatingAppContext'
+import {t} from '../utils/i18n'
 vi.mock('../screens/Harness',()=>({AppView:(props:any)=><div data-app={props.appId} data-initial-section={props.initialSection}><button onClick={()=>props.onSectionChange('settings')}>Settings</button><button onClick={props.onBack}>Dock</button><button onClick={props.onClose}>Close</button></div>}))
 vi.mock('../utils/harness',()=>({harnessApi:(base:string,org:string,session:string)=>({base,org,session})}))
 let tree:ReactTestRenderer
@@ -19,6 +20,11 @@ test('keeps underlying conversation mounted, supports keyboard movement and retu
  expect(regions()[0].props.style.left).toBe(692)
  act(()=>button('Settings').props.onClick());expect(tree.root.findByProps({'data-app':'test_app'}).props['data-initial-section']).toBe('data');act(()=>button('Dock').props.onClick())
  expect(location.hash).toBe('#/apps/test_app/team%3Aone?section=settings');expect(regions()).toHaveLength(0)
+})
+test('exposes localized names and keyboard instructions to assistive technology',()=>{
+ act(()=>{tree=create(view())});act(()=>button('Float').props.onClick())
+ expect(regions()[0].props['aria-label']).toBe(t('Floating app'))
+ expect(regions()[0].props['aria-description']).toBe(t('Use arrow keys to move; Shift+arrow keys to resize'))
 })
 test('removes floating content on workspace, credential and simple-mode transitions',()=>{
  act(()=>{tree=create(view())});act(()=>button('Float').props.onClick())
