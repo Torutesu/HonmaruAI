@@ -169,6 +169,42 @@ test('empty-column conversion rollback restores the prior type through a new pre
  expect(state.entities[0].table.columns.find(column=>column.id==='amount')).toMatchObject({type:'text',name:'Amount'});
  expect(state.migrations.find(item=>item.id===rollback.id)).toMatchObject({integrityValid:true,inverseOperations:[{op:'convert_column',entity:'primary',column:'amount',type:'number'}]});
 });
+test('multiple converted columns roll back together and refuse the entire batch after any converted value changes',async()=>{
+ const add={id:'add_migration_fields_v1',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Amount',type:'text'},{name:'Status',type:'text'}]}]};
+ expect((await run('database',{action:'migrate',...add})).status).toBe(200);
+ const inserted=await worker.fetch(new Request(`https://example.com/tables/${app.tableId}/rows`,{method:'POST',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,values:{task:'bounded',amount:'12.50',status:'Open'}})}),{...env});
+ const row=(await inserted.json()).row;
+ const convert={id:'convert_migration_fields_v2',version:1,operations:[
+  {op:'convert_column',entity:'primary',column:'amount',type:'number'},
+  {op:'convert_column',entity:'primary',column:'status',type:'select',options:['Open','Closed']},
+ ]};
+ let preview=await (await run('database',{action:'preview',...convert})).json();
+ expect(preview).toMatchObject({canApply:true,blockerCount:0});
+ expect((await run('database',{action:'migrate',...convert,previewChecksum:preview.previewChecksum})).status).toBe(200);
+ let journal=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
+ const applied=journal.migrations.find(item=>item.id===convert.id);
+ expect(applied.inverseOperations).toHaveLength(2);
+ expect(applied.rollbackUnavailableReason).toBeNull();
+
+ await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.amount',99) WHERE org_id=?1 AND table_id=?2 AND id=?3").bind(orgId,app.tableId,row.id).run();
+ const rollback={id:'rollback_migration_fields_v3',version:2,operations:applied.inverseOperations};
+ preview=await (await run('database',{action:'preview',...rollback})).json();
+ expect(preview).toMatchObject({canApply:false,blockerCount:1});
+ expect(preview.blockers[0]).toMatchObject({id:row.id,column:'Amount'});
+ expect((await run('database',{action:'migrate',...rollback,previewChecksum:preview.previewChecksum})).status).toBe(409);
+ let current=(await (await call(`/tables/${app.tableId}`,owner)).json()).rows[0];
+ expect(current.values).toMatchObject({amount:99,status:'Open'});
+
+ await env.DB.prepare("UPDATE hx_rows SET data=json_set(data,'$.amount',12.5) WHERE org_id=?1 AND table_id=?2 AND id=?3").bind(orgId,app.tableId,row.id).run();
+ preview=await (await run('database',{action:'preview',...rollback})).json();
+ expect(preview).toMatchObject({canApply:true,blockerCount:0});
+ expect(await (await run('database',{action:'migrate',...rollback,previewChecksum:preview.previewChecksum})).json()).toMatchObject({applied:true,version:3});
+ expect(await (await run('database',{action:'migrate',...rollback,previewChecksum:preview.previewChecksum})).json()).toMatchObject({replay:true,version:3});
+ current=(await (await call(`/tables/${app.tableId}`,owner)).json()).rows[0];
+ expect(current.values).toMatchObject({amount:'12.50',status:'Open'});
+ journal=await databaseView(env.DB,orgId,app,{includeRollbackOperations:true});
+ expect(journal.migrations.find(item=>item.id===convert.id)).toMatchObject({integrityValid:true,inverseOperations:applied.inverseOperations});
+});
 test('data migrations preview strict conversions, reject stale rows, and only drop empty columns',async()=>{
  const add={action:'migrate',id:'amount_text_v1',version:0,operations:[{op:'add_columns',entity:'primary',columns:[{name:'Amount',type:'text'},{name:'Flag',type:'checkbox'},{name:'Score',type:'number'},{name:'Unused',type:'text'}]}]};
  expect((await run('database',add)).status).toBe(200);

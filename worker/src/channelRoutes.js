@@ -2680,6 +2680,14 @@ export async function handleChannels(request, env, url, { route, after }) {
     const locale = await loadCopy(env, me.locale || "en", { orgId });
     const nameOf = (login) => ctx.members.find((m) => m.login === login)?.name || login;
     const listFor = async (login) => ({ to: login, event: customEvent("businesses", { businesses: await listBusinesses(env.DB, orgId, { viewer: login }) }) });
+    const refreshRoomBusinessViews = async (affectedLogins) => {
+      // Public rooms appear in every workspace directory; private rooms only
+      // need to refresh people who can see the room, plus changed members.
+      const viewers = publicManagedMembership
+        ? (await listMembers(env.DB, orgId, ctx.who.session.github_id)).map((member) => member.login)
+        : [...await membersOf(env.DB, orgId, key), ...affectedLogins];
+      await announceTo(env, orgId, await Promise.all([...new Set(viewers)].map(listFor)));
+    };
     const note = async (text) => {
       const out = await postMessage(env.DB, { orgId, key, authorLogin: null, body: text, kind: "ai" });
       if (out.row) await broadcast(env, orgId, { ...ctx.resolved, logins: await membersOf(env.DB, orgId, key) }, out.row, ctx.members);
@@ -2695,7 +2703,7 @@ export async function handleChannels(request, env, url, { route, after }) {
         const count = await addMembers(env.DB, { orgId, key, logins: adding.map((m) => m.login), addedBy: me.login, legacyOnly: true });
         if (!count) return json({ message: "Room membership changed. Reload before saving." }, 409);
       }
-      await announceTo(env, orgId, await Promise.all(adding.map((m) => listFor(m.login))));
+      await refreshRoomBusinessViews(adding.map((m) => m.login));
       await note(serverText(locale, "channel.added", { who: nameOf(me.login), names: adding.map((m) => m.name).join(", ") }));
       // One entry per person, who is the entity — so their name goes under
       // their own key, never into the details in the clear.
@@ -2710,7 +2718,7 @@ export async function handleChannels(request, env, url, { route, after }) {
     const removal = await removeRoomSubject(env.DB, orgId, key, { actorId: ctx.who.session.github_id, kind: "person", id: target.userId, version: body.version });
     if (removal.error) return json({ message: removal.error }, removal.status);
     if (!removal.managed) await removeMember(env.DB, { orgId, key, login: target.login });
-    await announceTo(env, orgId, [await listFor(target.login)]);
+    await refreshRoomBusinessViews([target.login]);
     const { evictFromJam } = await import("./announce.js");
     await evictFromJam(env, orgId, target.login, key);
     await note(target.login === me.login

@@ -549,13 +549,6 @@ async function buildMigrationPreview(db, orgId, app, input) {
 }
 
 function buildInverseOperations({ current, planned, input, snapshots, restoreOperations }) {
-  const conversionCounts = new Map();
-  for (const operation of input.operations) if (operation?.op === 'convert_column') {
-    conversionCounts.set(operation.entity, (conversionCounts.get(operation.entity) || 0) + 1);
-  }
-  // Each inverse currently describes the final schema. Reversing multiple
-  // conversions on one table would make the next inverse's schema stale.
-  if ([...conversionCounts.values()].some(count => count > 1)) return null;
   const emptyColumnConversion = operation => {
     if (operation?.op !== 'convert_column') return false;
     const entity = current.entities.find(item => item.key === operation.entity);
