@@ -27,6 +27,7 @@ import { audit, person } from "./audit.js";
 import { allowed } from "./permissions.js";
 import { enforce } from "./ratelimit.js";
 import { safe } from "./log.js";
+import { mayRunAgent } from "./harness/agents.js";
 
 const API = "https://api.smithery.ai";
 const MAX_APPS = 20;
@@ -254,7 +255,10 @@ export async function appTools(env, { orgId, session, taint, writes = false, req
   if (requireAgentGrant && !agentId) return {};
   const githubId = String(session.github_id);
   // Only a member (not a guest) of this workspace, only apps still allowed.
-  const sql = `SELECT c.id, c.server, a.name, a.allow_writes FROM app_connections c
+  const sql = `SELECT c.id, c.server, c.updated_at AS connectionUpdatedAt,
+          m.created_at AS membershipSince, a.name, a.allow_writes,
+          ${requireAgentGrant ? 'g.created_at AS grantCreatedAt' : "NULL AS grantCreatedAt"}
+       FROM app_connections c
        JOIN org_apps a ON a.org_id = c.org_id AND a.server = c.server
        JOIN memberships m ON m.org_id = c.org_id AND m.user_github_id = c.user_github_id
        ${requireAgentGrant ? `JOIN hx_agent_app_grants g ON g.org_id = c.org_id AND g.agent_id = ?3
@@ -289,15 +293,26 @@ export async function appTools(env, { orgId, session, taint, writes = false, req
         parameters: schemaOf(t),
         strict: false,
         run: async (args) => {
+          const currentGrant = async () => {
+            const grant = await env.DB.prepare(`SELECT a.allow_writes AS allowWrites,agent.owner_login AS ownerLogin FROM hx_agent_app_grants g
+              JOIN custom_agents agent ON agent.org_id=g.org_id AND agent.id=g.agent_id AND agent.deleted_at IS NULL
+              JOIN app_connections c ON c.org_id=g.org_id AND c.user_github_id=g.user_github_id AND c.server=g.server AND c.status='connected'
+              JOIN org_apps a ON a.org_id=c.org_id AND a.server=c.server
+              JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id
+              WHERE g.org_id=?1 AND g.agent_id=?2 AND g.user_github_id=?3 AND g.server=?4
+                AND c.id=?5 AND c.updated_at=?6 AND m.created_at=?7 AND g.created_at=?8
+                AND LOWER(TRIM(COALESCE(m.role,'member')))!='guest'`)
+              .bind(orgId, String(agentId), githubId, row.server, row.id, row.connectionUpdatedAt, row.membershipSince, row.grantCreatedAt)
+              .first().catch(() => null);
+            if (!grant || !await mayRunAgent(env.DB, orgId, { id: agentId }, githubId).catch(() => false)) return null;
+            return grant;
+          };
+          let stillGranted = null;
           if (requireAgentGrant) {
-            const stillGranted = await env.DB.prepare(`SELECT a.allow_writes AS allowWrites, agent.owner_login AS ownerLogin FROM hx_agent_app_grants g
-              JOIN custom_agents agent ON agent.org_id = g.org_id AND agent.id = g.agent_id AND agent.deleted_at IS NULL
-              JOIN app_connections c ON c.org_id = g.org_id AND c.user_github_id = g.user_github_id AND c.server = g.server AND c.status = 'connected'
-              JOIN org_apps a ON a.org_id = c.org_id AND a.server = c.server
-              JOIN memberships m ON m.org_id = c.org_id AND m.user_github_id = c.user_github_id
-              WHERE g.org_id = ?1 AND g.agent_id = ?2 AND g.user_github_id = ?3 AND g.server = ?4
-                AND LOWER(TRIM(COALESCE(m.role,'member'))) != 'guest'`).bind(orgId, String(agentId), githubId, row.server).first().catch(() => null);
-            if (!stillGranted) return `${row.name} is no longer allowed for this agent. Ask the connection owner to grant it again in Agents → Connections.`;
+            stillGranted = await currentGrant();
+            if (!stillGranted) {
+              return `${row.name} is no longer allowed for this agent. Ask the connection owner to grant it again in Agents → Connections.`;
+            }
             if (!readsOnly(t) && (!writes || !stillGranted.allowWrites || stillGranted.ownerLogin !== user?.login)) {
               return `${row.name} no longer permits this agent to write. Ask the workspace owner to review its write permission.`;
             }
@@ -307,10 +322,24 @@ export async function appTools(env, { orgId, session, taint, writes = false, req
           try {
             r = await call(env, `${connPath(env, row.id)}/.tools/${encodeURIComponent(t.name)}`, { method: "POST", body: args && typeof args === "object" ? args : {}, token });
           } catch {
-            return `${row.name} could not be reached.`;
+            return readsOnly(t)
+              ? `${row.name} could not be reached.`
+              : `${row.name} may have received the write, but its outcome is unknown. It was not retried. Reconcile it in ${row.name} before trying again.`;
           }
           await audit(env, request, { orgId, action: "apps.tool_called", actor: person(user) || { type: "system" }, details: { app: row.server, tool: String(t.name).slice(0, 80), ok: r.ok } });
+          if (requireAgentGrant) {
+            const current = await currentGrant();
+            const writeStillAllowed = readsOnly(t) || Boolean(writes && current?.allowWrites && current.ownerLogin === user?.login);
+            if (!current || !writeStillAllowed) {
+              return readsOnly(t)
+                ? `${row.name} access changed while the request was running; its result was discarded.`
+                : `${row.name} access changed while the request was running; the outcome is unknown. It was not retried. Reconcile it in ${row.name} before trying again.`;
+            }
+          }
           if (r.status === 404 || r.status === 401 || r.status === 403) return `${row.name} is not connected any more. The person can connect it again in Tools → Apps.`;
+          if (!readsOnly(t) && (r.status === 408 || r.status >= 500)) {
+            return `${row.name} may have received the write, but its outcome is unknown. It was not retried. Reconcile it in ${row.name} before trying again.`;
+          }
           if (!r.ok) return `${row.name} refused: ${String(r.data?.message || r.status).slice(0, 200)}`;
           const text = resultText(r.data);
           return `<app_result app="${row.name.replace(/"/g, "")}">\n${text || "(nothing)"}\n</app_result>`;
