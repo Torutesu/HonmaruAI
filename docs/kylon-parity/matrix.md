@@ -4,7 +4,7 @@
 
 全120項目。現行集計は実装あり4、一部115、要検証1。優先度P0は権限・データ・実行の基盤、P1は日常業務の機能一致、P2はプロバイダ/配布/高度機能。全項目の受入試験が終わるまで「100%」と表示しない。
 
-2026-11-19時点の台帳集計は120件（実装あり4、一部115、要検証1）。2026-11-12の109件集計は当時の履歴として残す。PR #1006 main CI #43639336451の停滞は後続main CI #43678815421で解消を確認（PR #1014の後続main）。PR #1015はexact-head CI #43680371839成功後、merge commit `429e306c`としてmainへ統合され、main CIとWorker/Web deploy成功。公開URLのredirect credential/downgrade hardeningを反映した。DNS rebindingは未解決のまま.
+2026-11-19時点の台帳集計は120件（実装あり4、一部115、要検証1）。2026-11-12の109件集計は当時の履歴として残す。PR #1006 main CI #43639336451の停滞は後続main CI #43678815421で解消を確認（PR #1014の後続main）。PR #1015はexact-head CI #43680371839成功後、merge commit `429e306c`としてmainへ統合され、main CIとWorker/Web deploy成功。公開URLのredirect credential/downgrade hardeningを反映した。DNS rebindingは未解決のまま。
 
 2026-11-17 PR #1073をmain `35609a26dc306e03b224645322349448a5c7525a`へ統合。PR exact-head CI #44060919420の全必須job（Worker 4 shard・E2E・Windows Edgeを含む）成功。main CI #44064395471（Worker全4 shard・E2Eを含む）成功、Worker deploy #44064395577はD1 migration・deploy・Verify成功、`/health`は`ok:true`・`encryption.all=true`。Web deploy #44064395491のPages/domain Verify成功し、`app.honmaruai.com`が`index-DIsAY4L5.js`を配信。KY-052 OAuth接続・KY-004 Workflow SDK AgentへのRoom規則・KY-121 Agent名/専門検索を反映。Google OAuthの認証済み外部往復、Kylonとの実画面比較、複数利用者本番ACL受入は未確認。
 
