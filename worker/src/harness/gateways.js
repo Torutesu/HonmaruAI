@@ -376,10 +376,12 @@ export async function handleGateways(request, env, url, input) {
         if(new TextEncoder().encode(JSON.stringify(tableMutations)).length>24000)throw Error();
       }catch{return failure('Invalid staged Workflow row mutations.',400);}
     }
+    let finishedPayload = null;
     if(parts[3]==='finish'){
       const candidate=await db.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1 AND gateway_id=?2 AND lease_hash=?3')
         .bind(parts[2],g.id,leaseHash).first();
       let payload; try{payload=JSON.parse(candidate?.payload||'{}');}catch{return failure('Execution payload is invalid.',400);}
+      finishedPayload = payload;
       if(payload.nativeBrowserAction===true){
         const active=await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by,gateway_id FROM hx_gateway_jobs WHERE ${guard}`)
           .bind(parts[2],g.id,leaseHash,now()).first();
@@ -387,7 +389,12 @@ export async function handleGateways(request, env, url, input) {
         if(!await nativeBrowserActionAllowed(db,active,payload))return failure('Native browser access was revoked or is no longer allowed.',403);
       }
     }
-    const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null, ...(messages!==undefined?{messages}:{}),...(tableWrites!==undefined?{tableWrites}:{}),...(tableMutations!==undefined?{tableMutations}:{}) };
+    let fallbackReason;
+    if (input.fallbackReason !== undefined) {
+      if (finishedPayload?.acp !== true || input.status !== 'failed' || !Number.isInteger(input.exitCode) || input.exitCode === 0 || input.fallbackReason !== 'signed_out') return failure('Invalid local ACP fallback signal.', 400);
+      fallbackReason = input.fallbackReason;
+    }
+    const result = { stdout: String(input.stdout || ''), stderr: String(input.stderr || ''), exitCode: Number.isInteger(input.exitCode) ? input.exitCode : null, ...(fallbackReason ? { fallbackReason } : {}), ...(messages!==undefined?{messages}:{}),...(tableWrites!==undefined?{tableWrites}:{}),...(tableMutations!==undefined?{tableMutations}:{}) };
     if (new TextEncoder().encode(JSON.stringify(result)).length > 70000) return failure('Result is too large.', 413);
     if(messages!==undefined||tableWrites!==undefined||tableMutations!==undefined){
       const encodedResult=JSON.stringify(result);

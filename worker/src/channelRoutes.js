@@ -31,7 +31,7 @@ import { searchThread } from "./threadSearch.js";
 import { previewThreadShare, threadSharePolicy, setThreadSharePolicy, storeThreadShare, readThreadShare, revokeOwnThreadShare } from "./threadShares.js";
 import { appActivity, readAppActivity, appActivityProof, appActivityDeliveryKeys } from './harness/appActivity.js';
 import { checkOutgoing } from "./dlp.js";
-import { prepareAgent, rememberRequest, addAgentMemory, listAgentMemories, filterResponders, profilesFor } from "./harness/agents.js";
+import { prepareAgent, rememberRequest, addAgentMemory, listAgentMemories, filterResponders, profilesFor, mayRunAgent } from "./harness/agents.js";
 import { getMode } from "./harness/mode.js";
 import { searchHarnessResources } from "./harness/unifiedSearch.js";
 import { getDisplayPreference } from "./harness/displayPreferences.js";
@@ -943,6 +943,76 @@ async function runTeammate(env, { orgId, user, requesterId, resolved, row, membe
   return {deferred:Boolean(started.run.assignment_id)};
 }
 
+const FALLBACK_RUNNING_STALE_MS = 3 * 60 * 1000;
+
+async function answerSignedOutAcpWithWorkspaceAI(env, run, teammate, { signal = null } = {}) {
+  // A runtime fallback is safe only for a normal chat request. External
+  // actions, room hooks, and Agent-to-Agent assignments keep their existing
+  // execution and approval paths.
+  if (run.assignment_id || run.room_hook_source || run.on_behalf_of || await getMode(env.DB, run.org_id) !== 'harness') return null;
+  if (teammate?.remote?.fallbackToWorkspaceAIConfigured === true && teammate.remote.fallbackToWorkspaceAI !== true) return null;
+  const starter = run.started_by ? await getUserByLogin(env.DB, run.started_by).catch(() => null) : null;
+  if (!starter?.github_id || !starter.login) return null;
+  const agent = await env.DB.prepare(`SELECT id,handle,name,emoji,instructions,scope,owner_login
+    FROM custom_agents WHERE org_id=?1 AND id=?2 AND provider IN ('acp','hermes','grok-build','antigravity-cli') AND deleted_at IS NULL`)
+    .bind(run.org_id, teammate?.agentId || '').first().catch(() => null);
+  if (!agent || !await mayRunAgent(env.DB, run.org_id, agent, starter.github_id)) return null;
+  const members = await listMembers(env.DB, run.org_id, starter.github_id).catch(() => []);
+  const resolved = await resolveChannel(env.DB, run.org_id, starter, run.channel, members).catch(() => null);
+  if (!resolved) return null;
+  const job = await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE org_id=?1 AND gateway_id=?2 AND id=?3')
+    .bind(run.org_id, teammate.remote.gatewayId, run.remote_id).first().catch(() => null);
+  let payload;
+  try { payload = JSON.parse(job?.payload || '{}'); } catch { return null; }
+  if (payload.acp !== true || typeof payload.prompt !== 'string' || !payload.prompt.trim()) return null;
+  const provider = await providerFor(env, run.org_id);
+  const allowance = provider ? await allowanceFor(env, run.org_id, { githubId: String(starter.github_id) }) : null;
+  if (!provider || !allowance?.allowed) return null;
+  const locale = await loadCopy(env, starter.locale || 'en', { orgId: run.org_id });
+  const freshAuthorization = async () => {
+    if (signal?.aborted || await getMode(env.DB, run.org_id).catch(() => null) !== 'harness') return false;
+    const current = await loadTeammate(env.DB, run.org_id, teammate.provider, env).catch(() => null);
+    if (!current?.enabled || current.agentId !== agent.id ||
+        (current.remote?.fallbackToWorkspaceAIConfigured === true && current.remote.fallbackToWorkspaceAI !== true)) return false;
+    const registration = await env.DB.prepare(`SELECT 1 FROM hx_gateways g JOIN hx_gateway_acp_agents a
+      ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
+      WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL`)
+      .bind(run.org_id, current.remote?.gatewayId || '', current.remote?.agentKey || '').first().catch(() => null);
+    if (!registration) return false;
+    if (!await mayRunAgent(env.DB, run.org_id, agent, starter.github_id)) return false;
+    const currentMembers = await listMembers(env.DB, run.org_id, starter.github_id).catch(() => []);
+    return Boolean(await resolveChannel(env.DB, run.org_id, starter, run.channel, currentMembers).catch(() => null));
+  };
+  if (!await freshAuthorization()) { await allowance.release?.(); return null; }
+  const prepared = await prepareAgent(env, run.org_id, agent, provider, { channel: run.channel, userId: starter.github_id });
+  prepared.agent = await withRoomGuidelines(env.DB, run.org_id, run.channel, prepared.agent);
+  let result;
+  try {
+    result = await askAgent({
+      provider, agent: prepared.agent,
+      request: `The local ACP provider is signed out and no local task was started. Answer the same request using this Agent's profile.\n\n${payload.prompt}`,
+      transcript: [], playbook: [], where: resolved.kind === 'business' ? `the #${resolved.slug} channel` : 'a direct conversation',
+      askedBy: starter.name || starter.login, readerLanguage: locale, env,
+      deadline: Date.now() + 45_000, authorize: freshAuthorization, signal,
+      usageContext: { roomSlug: resolved.kind === 'business' ? resolved.slug : null, agentId: agent.id },
+    });
+  } catch (error) {
+    console.error('signed-out ACP Workspace AI fallback failed', safe(error?.message));
+    result = { called: false, answer: null };
+  }
+  if (result?.called) {
+    if (allowance.metered) await allowance.consume().catch(() => {});
+    await settleUsage(env.DB, provider, { orgId: run.org_id, githubId: starter.github_id }).catch(() => {});
+  } else await allowance.release?.().catch(() => {});
+  if (signal?.aborted || !result?.answer || !await freshAuthorization()) return null;
+  await recordAgentFallbackState(env.DB, { orgId: run.org_id, agentId: agent.id, gatewayId: teammate.remote.gatewayId, ownerLogin: agent.owner_login, state: 'workspace' });
+  await drainAgentFallbackNotifications(env, broadcastStored).catch(err => console.error('Agent fallback notification drain failed', safe(err?.message)));
+  return {
+    texts: [serverText(locale, 'agent.workspaceFallbackSignedOut'), result.answer],
+    stop: 'end_turn', last: null, costCents: null,
+  };
+}
+
 /// Look in on teammates at work, and post what each finished with into the
 /// thread it came from. Once (the minute cron), or until `deadline`.
 export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause = 8000, signal = null } = {}) {
@@ -976,14 +1046,31 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
     for (const run of runs) {
       working += 1;
       try {
+        let expectedRunStatus = run.status;
         const t = await loadTeammate(env.DB, run.org_id, run.provider, env);
         // A Grok Bot completion is authenticated by the one-time callback token;
         // reading its local result does not need the routine's webhook secret.
         // The integration can still finish if the secret-encryption key is
         // temporarily unavailable to a deferred Worker invocation.
         const callbackRun = run.provider === "grok-bot" && t?.enabled && t?.agentId;
-        const read = canSignIn(t) || callbackRun ? await readRun(env, t, run,{signal}) : { texts: [], stop: "terminated", last: null, costCents: null };
+        let read = canSignIn(t) || callbackRun ? await readRun(env, t, run,{signal}) : { texts: [], stop: "terminated", last: null, costCents: null };
         if(signal?.aborted)return;
+        if (run.status === 'fallback_running') {
+          // A Worker can be evicted while the cloud call is in flight. Do not
+          // issue it again: after a bounded grace period, settle one failure
+          // reply through the same result outbox instead.
+          if (Date.now() - Date.parse(run.updated_at) < FALLBACK_RUNNING_STALE_MS) { working -= 1; continue; }
+          read = { texts: [], stop: 'terminated', last: null, error: 'Workspace AI fallback did not finish.' };
+        } else if (read.workspaceFallbackReason === 'signed_out') {
+          const claimAt = new Date().toISOString();
+          const claim = await env.DB.prepare(`UPDATE ai_teammate_runs SET status='fallback_running',updated_at=?4
+            WHERE id=?1 AND org_id=?2 AND status='running' AND turn_version=?3`).bind(run.id,run.org_id,run.turn_version ?? 0,claimAt).run();
+          if (!(claim.meta?.changes > 0)) { working -= 1; continue; }
+          expectedRunStatus = 'fallback_running';
+          read = await answerSignedOutAcpWithWorkspaceAI(env, run, t, { signal }) || {
+            texts: [], stop: 'terminated', last: null, error: 'The local ACP provider is signed out and Workspace AI fallback is unavailable.',
+          };
+        }
         if(read.progress) {
           const key=JSON.stringify(read.progress);
           if(progressSeen.get(run.id)!==key) {
@@ -991,7 +1078,7 @@ export async function watchTeammateRuns(env, { ids = null, deadline = 0, pause =
             await publishProgress(run,t,read.progress).catch(err=>console.error('ACP progress broadcast failed',safe(err?.message)));
           }
         }
-        const status = await settleRun(env.DB, run, read, new Date(), {deliveryAgentId:t?.agentId});
+        const status = await settleRun(env.DB, run, read, new Date(), {deliveryAgentId:t?.agentId,expectedStatus:expectedRunStatus});
         if (read.stop || status) working -= 1;
         if (status) {
           if(t?.agentId && !run.on_behalf_of)await drainTeammateResults(env,publish,{runId:run.id});

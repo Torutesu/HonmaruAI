@@ -1797,8 +1797,8 @@
   "acceptance": "Kylonの2026-11-15動作ではPC offline/signed-out/provider quota時にCloudへ切替し、切替/復帰をDM通知する。Honmaruも未選択時は既定で有効とし、オーナーが明示的に無効化できる。既存Workspace AI・日次許可・予算だけを使い、現在のローカルACP heartbeatが90秒超過した場合、またはオフライン判定との競合で実行ノードがGateway jobを作る前に要求を拒否した場合に同一Agent profileの返信をCloudで生成する。予算・権限拒否時はfallbackしない。Simpleを変えず、Local→cloud切替表示、権限失効、二重起動、Provider回復、キャンセルを検証する。",
       "evidence": {
         "reviewedAt": "2026-11-19",
-    "verified": "Kylon公式changelog 2026-11-15に、local agent offline/signed-out/quota exhaustion時のdefault-on cloud fallbackと所有者向けswitch/back通知を確認。Honmaruはオーナー未選択時default-onとし、明示offは保持。fallbackは既存Workspace AIだけを使い、日次allowanceと予算で制御。切替/復帰DMを永続イベントとして記録し、Mac mini再接続で即時復帰、安定client IDで重複抑止、配信失敗を再試行する処理を追加。今回、online heartbeat後にACP queueが満杯/切断状態を返した場合、Gateway jobが作成されずローカル実行が始まっていないことを根拠に同じAgent profileをWorkspace AIへ切替する処理と回帰テストを追加。Simple modeと明示opt-outは対象外。Teammates integration suite 36/36 passed。新規provider契約・サービスは追加しない。",
-    "remaining": "ローカルprovider quota/signed-out/runtime retry exhaustionの検知とfallback、バックグラウンドに移ったrunのfallback、復帰と新しい実行の競合防止、実機・Kylonとの同一タスク比較、exact-head CIと本番反映は未確認。回帰テストでは offline→Workspace AI、queue-full拒否→Workspace AI、node再接続→復帰DM、重複claim、DM relay失敗後のretryを確認。既存Workspace AIの利用枠を消費し得る。"
+    "verified": "Kylon公式changelog 2026-11-15に、local agent offline/signed-out/quota exhaustion時のdefault-on cloud fallbackと所有者向けswitch/back通知を確認。Honmaruはオーナー未選択時default-onとし、明示offは保持。fallbackは既存Workspace AIだけを使い、日次allowanceと予算で制御。切替/復帰DMを永続イベントとして記録し、Mac mini再接続で即時復帰、安定client IDで重複抑止、配信失敗を再試行する処理を追加。online heartbeat後のqueue満杯/切断事前拒否をfallback。追加でACP標準仕様を確認し、terminal auth methodの広告のみではなくsession/newのauth_required (-32000) をsigned-outの根拠として検出する処理と、Workspace AI実行前のGateway登録/Agent/メンバー/チャンネル権限再確認、実行claimによる重複抑止を実装。Gateway ACP suite 36/36 passed。Worker統合テストは実行中。Simple modeと明示opt-outは対象外。新規provider契約・サービスは追加しない。",
+    "remaining": "ローカルprovider quota/runtime retry exhaustion、session/prompt開始後に発生する認証失効、バックグラウンドに移ったrunのfallback、実機・Kylonとの同一タスク比較、exact-head CIと本番反映は未確認。今回は session/new のauth_required、queue-full拒否、offline→Workspace AI、node再接続→復帰DM、重複claim、DM relay失敗後のretryを回帰確認中。既存Workspace AIの利用枠を消費し得る。"
       }
     }
   ]

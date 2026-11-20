@@ -687,7 +687,11 @@ const acp = {
     }
     let result = null;
     try { result = row.result ? JSON.parse(row.result) : null; } catch {}
-    if (row.status !== "succeeded" || !result || result.exitCode !== 0) return { texts: [], stop: "terminated", last: null, error: typeof result?.error === 'string' ? result.error.slice(0, 300) : "local ACP run failed", costCents: null };
+    if (row.status !== "succeeded" || !result || result.exitCode !== 0) return {
+      texts: [], stop: "terminated", last: null,
+      ...(result?.fallbackReason === 'signed_out' ? { workspaceFallbackReason: 'signed_out' } : {}),
+      error: typeof result?.error === 'string' ? result.error.slice(0, 300) : "local ACP run failed", costCents: null,
+    };
     let answer = {};
     try { answer = JSON.parse(result.stdout || "{}"); } catch {}
     return {
@@ -1064,6 +1068,7 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, sourceThr
   ).bind(orgId, t.provider, key, threadId).first();
   const startHeld = (run) => run?.status === "starting" && Date.parse(run.updated_at) > now.getTime() - START_HOLD_MS;
   if (startHeld(existing)) return { refused: "busy" };
+  if (existing?.status === 'fallback_running') return { refused: 'busy' };
   if(existing?.status==='running' && (assignment || existing.assignment_id))return {refused:'busy'};
   const turnRequest = await withRoomGuidelinesRequest(env.DB, orgId, key, request);
   const stamp = now.toISOString();
@@ -1223,11 +1228,11 @@ export async function openRuns(db, { limit = 25, ids = null, now = new Date() } 
   if (ids) {
     if (!ids.length) return [];
     const marks = ids.map((_, i) => `?${i + 1}`).join(",");
-    const { results } = await db.prepare(`SELECT * FROM ai_teammate_runs WHERE id IN (${marks}) AND status = 'running'`).bind(...ids).all();
+    const { results } = await db.prepare(`SELECT * FROM ai_teammate_runs WHERE id IN (${marks}) AND status IN ('running','fallback_running')`).bind(...ids).all();
     return results || [];
   }
   const { results } = await db.prepare(`UPDATE ai_teammate_runs SET checked_at = ?2 WHERE id IN (
-      SELECT id FROM ai_teammate_runs WHERE status = 'running' ORDER BY checked_at, updated_at LIMIT ?1) RETURNING *`).bind(limit, now.toISOString()).all();
+      SELECT id FROM ai_teammate_runs WHERE status IN ('running','fallback_running') ORDER BY checked_at, updated_at LIMIT ?1) RETURNING *`).bind(limit, now.toISOString()).all();
   return (results || []).sort((a, b) => String(a.updated_at).localeCompare(String(b.updated_at)));
 }
 
@@ -1237,7 +1242,7 @@ export async function openRuns(db, { limit = 25, ids = null, now = new Date() } 
 /// turn or concurrent second settlement changes nothing. Non-proxy replies
 /// retry local publication from that outbox; remote work is never replayed.
 /// Returns the new status, or null when there is nothing new to publish.
-export async function settleRun(db, run, read, now = new Date(), {deliveryAgentId=null}={}) {
+export async function settleRun(db, run, read, now = new Date(), {deliveryAgentId=null,expectedStatus=run.status==='fallback_running'?'fallback_running':'running'}={}) {
   let status = null;
   if (read.stop === "end_turn" || read.stop === "requires_action" || read.stop === "retries_exhausted") status = "idle";
   else if (read.stop === "budget_reached") status = "budget";
@@ -1247,8 +1252,8 @@ export async function settleRun(db, run, read, now = new Date(), {deliveryAgentI
   // Proxy proposals can contain external actions and retain their existing
   // path until their own idempotency contract covers replay.
   const deliveryId=deliveryAgentId && !run.on_behalf_of?crypto.randomUUID():null;
-  const update=db.prepare("UPDATE ai_teammate_runs SET status = ?2, last_event_at = COALESCE(?3, last_event_at), cost_cents = COALESCE(?4, cost_cents), result_delivery_id=?7, remote_turn=COALESCE(?8,remote_turn) WHERE id = ?1 AND status = 'running' AND org_id=?5 AND turn_version=?6")
-    .bind(run.id,status,read.last || null,read.costCents,run.org_id,run.turn_version ?? 0,deliveryId,read.remoteTurn || null);
+  const update=db.prepare("UPDATE ai_teammate_runs SET status = ?2, last_event_at = COALESCE(?3, last_event_at), cost_cents = COALESCE(?4, cost_cents), result_delivery_id=?7, remote_turn=COALESCE(?8,remote_turn) WHERE id = ?1 AND status = ?9 AND org_id=?5 AND turn_version=?6")
+    .bind(run.id,status,read.last || null,read.costCents,run.org_id,run.turn_version ?? 0,deliveryId,read.remoteTurn || null,expectedStatus);
   let out;
   if(deliveryId) {
     const snapshot={id:run.id,org_id:run.org_id,provider:run.provider,channel:run.channel,thread_id:run.thread_id,started_by:run.started_by || null,room_hook_source:run.room_hook_source || null,turn_version:run.turn_version ?? 0,assignment_id:run.assignment_id || null,assignment_generation:run.assignment_generation ?? null,assignment_agent_id:run.assignment_agent_id || null};

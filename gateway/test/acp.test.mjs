@@ -62,6 +62,30 @@ test('ACP v1 keeps host capabilities disabled, reuses agent-owned auth, and pres
   assert.ok(!JSON.stringify(progress).includes('do not forward'));
 });
 
+test('ACP only reports signed-out when session creation returns auth_required', async () => {
+  const { execPath } = await import('node:process');
+  const script = `const r=require('node:readline').createInterface({input:process.stdin}),s=x=>process.stdout.write(JSON.stringify(x)+'\\n');r.on('line',l=>{const m=JSON.parse(l);if(m.method==='initialize')s({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[{id:'sign-in',type:'terminal'}]}});else if(m.method==='session/new')s({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'Authentication required'}});else if(m.method==='session/prompt')process.exit(9)});`;
+  const result = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Review this repository' }, {
+    timeoutMs: 5000,
+    acpAgents: { fixture: { command: execPath, args: ['-e', script], cwd: process.cwd() } },
+  });
+  assert.deepEqual(result, {
+    status: 'failed', stdout: '', stderr: 'This ACP agent needs an interactive sign-in on its computer.',
+    exitCode: 1, fallbackReason: 'signed_out',
+  });
+});
+
+test('ACP terminal auth advertisement alone does not block an already authenticated session', async () => {
+  const { execPath } = await import('node:process');
+  const script = `const r=require('node:readline').createInterface({input:process.stdin}),s=x=>process.stdout.write(JSON.stringify(x)+'\\n');r.on('line',l=>{const m=JSON.parse(l);if(m.method==='initialize')s({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{},authMethods:[{id:'sign-in',type:'terminal'}]}});else if(m.method==='session/new')s({jsonrpc:'2.0',id:m.id,result:{sessionId:'active'}});else if(m.method==='session/prompt')s({jsonrpc:'2.0',id:m.id,result:{stopReason:'end_turn'}})});`;
+  const result = await runAcp({ acp: true, agentKey: 'fixture', prompt: 'Review this repository' }, {
+    timeoutMs: 5000,
+    acpAgents: { fixture: { command: execPath, args: ['-e', script], cwd: process.cwd() } },
+  });
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.fallbackReason, undefined);
+});
+
 test('ACP Workspace tools use the short-lived local MCP relay only when explicitly enabled', async () => {
   directory = await mkdtemp(join(tmpdir(), 'honmaru-acp-mcp-'));
   const agentFile = join(directory, 'agent.mjs');
