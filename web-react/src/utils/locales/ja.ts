@@ -4495,4 +4495,42 @@ Object.assign(table, {
   'Save schema proposal to preview': 'スキーマ変更を検証DBに保存',
   'Cloudflare Pages': 'Cloudflare Pages',
 })
+Object.assign(table, {
+  'Cannot load proposal JSON as an array. Fix it before continuing.': '変更案JSONを配列として読み込めません。先に内容を修正してください。',
+  'Operation added to the proposal. Review it before previewing.': '変更案に操作を追加しました。内容を確認してからプレビューしてください。',
+  'Example: Open, In progress, Done': '例：Open, In progress, Done',
+  'Table to edit columns': '編集する列のテーブル',
+  'Column to edit': '編集する列',
+  'Column change action': '列の変更操作',
+  'Rename column': '列名を変更',
+  'Convert data type': 'データ型を変換',
+  'Delete empty column': '空の列を削除',
+  'Column name after rename': '変更後の列名',
+  'Type after change': '変更後の型',
+  'Column options after conversion': '変換後の選択肢',
+  'Relation cardinality': 'Relationの件数',
+  'Columns with values cannot be deleted. Data is checked again before confirmation.': '値の入った列はプレビュー時に削除できません。確認前に実データを再検証します。',
+  'Add {action} to proposal': '{action}を変更案に追加',
+  'Relation source table': 'Relation元テーブル',
+  'Relation name': 'Relation名',
+  'Example: Customers': '例：顧客',
+  'Add relation to proposal': 'Relationを変更案に追加',
+  '{count} rows changed': '{count}件の行データ変更',
+  '{count} values cannot be converted or columns are not empty. Showing the first 20.': '変換できない値、または空ではない列が {count}件あります。最初の20件を表示しています。',
+  'Target record for “{label}”': '「{label}」のリンク先レコード',
+  'Choose a record': '候補を選択'
+})
+Object.assign(table, {
+  'Record details': 'レコード詳細',
+  'New {table}': '新規{table}',
+  'New record': '新規レコード',
+  'Create a new record in {app}': '{app}に新しいレコードを作成します。',
+  'Creating…': '作成中…',
+  'Choose {field}': '{field}を選択',
+  'Record conversation': 'レコードチャット',
+  'Selected record': '選択したレコード',
+  'Current data view: {view}': '現在のデータ表示: {view}'
+})
+Object.assign(table, { 'Column relation target table': '変換先Relationテーブル' })
+Object.assign(table, { 'Column relation cardinality': '変換先Relationの件数' })
 export default table

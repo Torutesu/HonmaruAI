@@ -4,11 +4,18 @@ import type {AppEntity, Column, Row} from '../utils/harness'
 import {AppPersonPicker, type AppPerson} from './AppPersonPicker'
 import {AppRelationPicker} from './AppRelationPicker'
 import {useT} from '../utils/i18n'
+import {getLocale} from '../utils/locale'
 import {numberPreservesDecimal} from '../utils/numericPrecision'
 import {instantFromLocalDateTime,localDateTimeInZone} from '../utils/zonedDateTime'
 
 type RelationEntity=AppEntity & {rows:Row[]}
 const asDraft=(source:Record<string,unknown>,columns:Column[])=>Object.fromEntries(Object.entries(source).map(([id,value])=>{const column=columns.find(item=>item.id===id);return[id,column?.type==='datetime'&&typeof value==='string'?localDateTimeInZone(value,Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'):value]}))
+export function formatRecordTimestamp(value:string|undefined,locale=getLocale()):string {
+ if(!value)return '—'
+ const date=new Date(value)
+ if(!Number.isFinite(date.getTime()))return '—'
+ try{return new Intl.DateTimeFormat(locale,{dateStyle:'medium',timeStyle:'short'}).format(date)}catch{return new Intl.DateTimeFormat('en',{dateStyle:'medium',timeStyle:'short'}).format(date)}
+}
 
 function equalValue(left:unknown,right:unknown):boolean {
  if(Object.is(left,right))return true
@@ -50,14 +57,14 @@ export function AppRecordDialog({appName,tableName=appName,createTitle,columns,i
   pending.current=true;setBusy(true);setError('');try{await save(values());onClose()}catch(e){setError(e instanceof Error?e.message:String(e))}finally{pending.current=false;setBusy(false)}
  }
  const change=(id:string,value:unknown)=>setDraft(d=>({...d,[id]:value}))
- return <Dialog title={record?"レコード詳細":createTitle??(tableName!==appName?`新規${tableName}`:"新規レコード")} lede={record?appName:`${appName}に新しいレコードを作成します。`} className={`hx-record-dialog${conversation?' hx-record-with-chat':''}`} onClose={close} footer={<><button className="dlg-btn" disabled={busy} onClick={close}>キャンセル</button><button className="dlg-btn primary" form="hx-record-form" type="submit" disabled={busy}>{busy?(record?'保存中…':'作成中…'):(record?'保存':'作成')}</button></>}>
+ return <Dialog title={record?t('Record details'):createTitle??(tableName!==appName?t('New {table}',{table:tableName}):t('New record'))} lede={record?appName:t('Create a new record in {app}',{app:appName})} className={`hx-record-dialog${conversation?' hx-record-with-chat':''}`} onClose={close} footer={<><button className="dlg-btn" disabled={busy} onClick={close}>{t('Cancel')}</button><button className="dlg-btn primary" form="hx-record-form" type="submit" disabled={busy}>{busy?(record?t('Saving…'):t('Creating…')):(record?t('Save'):t('Create'))}</button></>}>
   <div className="hx-record-columns"><form id="hx-record-form" ref={form} onSubmit={e=>void submit(e)} className="hx-record-form">
    {columns.map((c,i)=>c.type==='relation'
     ? <div key={c.id} className="hx-record-field"><span className="dlg-label">{c.name}</span><AppRelationPicker column={c} value={draft[c.id]} rows={relationEntities.find(item=>item.key===c.targetEntity)?.rows} targetColumn={relationEntities.find(item=>item.key===c.targetEntity)?.table.columns[0]} disabled={busy} onChange={value=>change(c.id,value)}/></div>
     : c.type==='person'
     ? <div key={c.id} className="hx-record-field"><span className="dlg-label">{c.name}</span><AppPersonPicker label={c.name} value={String(draft[c.id]??'')} members={members} ready={membersReady} disabled={busy} onChange={value=>change(c.id,value)}/></div>
-    : <label key={c.id}><span className="dlg-label">{c.name}</span>{c.type==='checkbox'?<input type="checkbox" checked={Boolean(draft[c.id])} disabled={busy} onChange={e=>change(c.id,e.target.checked)}/>:c.type==='select'?<select className="dlg-input" disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}><option value="">{c.name}を選択</option>{draft[c.id] && !(c.options||[]).includes(String(draft[c.id])) ? <option value={String(draft[c.id])}>{String(draft[c.id])}</option>:null}{(c.options||[]).map(o=><option key={o}>{o}</option>)}</select>:c.type==='text'?<textarea className="dlg-input" rows={i===0?3:2} maxLength={5000} disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}/>:<input className="dlg-input" type={c.type==='number'?'number':c.type==='date'?'date':c.type==='datetime'?'datetime-local':c.type==='email'?'email':c.type==='url'?'url':'text'} step={c.type==='number'?'any':c.type==='datetime'?1:undefined} disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}/>}</label>)}
-   {record&&<dl className="hx-record-metadata"><div><dt>ID</dt><dd>{record.id}</dd></div><div><dt>作成日時</dt><dd>{record.createdAt ? new Date(record.createdAt).toLocaleString() : '—'}</dd></div><div><dt>更新日時</dt><dd>{new Date(record.updatedAt).toLocaleString()}</dd></div></dl>}
+    : <label key={c.id}><span className="dlg-label">{c.name}</span>{c.type==='checkbox'?<input type="checkbox" checked={Boolean(draft[c.id])} disabled={busy} onChange={e=>change(c.id,e.target.checked)}/>:c.type==='select'?<select className="dlg-input" disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}><option value="">{t('Choose {field}',{field:c.name})}</option>{draft[c.id] && !(c.options||[]).includes(String(draft[c.id])) ? <option value={String(draft[c.id])}>{String(draft[c.id])}</option>:null}{(c.options||[]).map(o=><option key={o}>{o}</option>)}</select>:c.type==='text'?<textarea className="dlg-input" rows={i===0?3:2} maxLength={5000} disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}/>:<input className="dlg-input" type={c.type==='number'?'number':c.type==='date'?'date':c.type==='datetime'?'datetime-local':c.type==='email'?'email':c.type==='url'?'url':'text'} step={c.type==='number'?'any':c.type==='datetime'?1:undefined} disabled={busy} value={String(draft[c.id]??'')} onChange={e=>change(c.id,e.target.value)}/>}</label>)}
+   {record&&<dl className="hx-record-metadata"><div><dt>{t('ID')}</dt><dd>{record.id}</dd></div><div><dt>{t('Created')}</dt><dd>{formatRecordTimestamp(record.createdAt)}</dd></div><div><dt>{t('Updated')}</dt><dd>{formatRecordTimestamp(record.updatedAt)}</dd></div></dl>}
    {error&&<p role="alert" className="dlg-error">{error}</p>}
   </form>{conversation}</div>
   {confirmDiscard&&<Dialog title={t('Discard unsaved record changes?')} lede={t('Your record changes have not been saved.')} onClose={()=>setConfirmDiscard(false)} footer={<><button className="dlg-btn" onClick={()=>setConfirmDiscard(false)}>{t('Keep editing')}</button><button className="dlg-btn primary" onClick={onClose}>{t('Discard changes')}</button></>}>{null}</Dialog>}
