@@ -24,7 +24,7 @@ test('refreshing actions after an external edit cannot silently rebase unsaved c
  act(()=>button('report · Draft').props.onClick())
  act(()=>tree.root.findByProps({'aria-label':'Server action code'}).props.onChange({target:{value:'return "my edit"'}}))
  act(()=>button('Database').props.onClick())
- await act(async()=>{button('検証DBを作成').props.onClick();await Promise.resolve();await Promise.resolve()})
+ await act(async()=>{button('Create preview database').props.onClick();await Promise.resolve();await Promise.resolve()})
  act(()=>button('Server actions').props.onClick())
  await act(async()=>{button('Save action draft').props.onClick();await Promise.resolve()})
  expect(api.actionChange).toHaveBeenCalledWith('a',{action:'draft',name:'report',code:'return "my edit"',version:1})
