@@ -481,6 +481,10 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
 }
 
+export function isIconName(value: string): value is IconName {
+  return Object.prototype.hasOwnProperty.call(PATHS, value)
+}
+
 interface Props {
   name: IconName
   size?: number
@@ -491,6 +495,7 @@ interface Props {
 
 export const Icon: React.FC<Props> = ({ name, size = 24, className }) => (
   <svg
+    data-icon={name}
     className={className}
     width={size}
     height={size}
