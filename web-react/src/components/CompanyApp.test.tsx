@@ -1,7 +1,29 @@
 import React from 'react'
 import {act,create} from 'react-test-renderer'
-import {expect,test,vi} from 'vitest'
+import {beforeEach,expect,test,vi} from 'vitest'
 import {CompanyApp} from './CompanyApp'
+import {changeLocale,localeReady} from '../utils/i18n'
+
+beforeEach(()=>changeLocale('en'))
+
+test('company app chrome and action controls follow the selected locale',async()=>{
+ const localeStorage={value:'en',getItem(){return this.value},setItem(_key:string,value:string){this.value=value},removeItem(){this.value=''}}
+ vi.stubGlobal('localStorage',localeStorage)
+ changeLocale('es')
+ await localeReady()
+ const api:any={appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[]}),appDatabase:vi.fn().mockResolvedValue({fork:null,version:1,entities:[],migrations:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]})}
+ let tree:ReturnType<typeof create>|undefined
+ try{
+  await act(async()=>{tree=create(<CompanyApp app={{id:'app'}as any} api={api} canManage reload={vi.fn()}/>);await Promise.resolve()})
+  expect(tree!.root.findAllByType('h2')[0].children.join('')).toBe('Plataforma de ejecución de la aplicación')
+  expect(tree!.root.findAllByType('button').some(button=>button.children.join('')==='Acciones del servidor')).toBe(true)
+  expect(tree!.root.findAllByType('button').some(button=>button.children.join('')==='Generar acción')).toBe(true)
+ }finally{
+  if(tree)act(()=>tree!.unmount())
+  changeLocale('en')
+  vi.unstubAllGlobals()
+ }
+})
 
 test('server action history loads own paged runs and only fetches a result when explicitly opened',async()=>{
  const runItem={id:'run-1',actionName:'report',actionVersion:3,status:'succeeded',createdAt:1000,startedAt:1001,finishedAt:1002}
@@ -60,7 +82,7 @@ async function setup(conflicts:unknown[]=[],database:any=null) {
  const reload=vi.fn();let tree:ReturnType<typeof create>
  await act(async()=>{tree=create(<CompanyApp app={{id:'app'}as any} api={api as any} canManage reload={reload}/> )})
  const button=(name:string)=>tree!.root.findAllByType('button').find(b=>b.children.join('')===name)!
- await act(async()=>button('データベース').props.onClick())
+ await act(async()=>button('Database').props.onClick())
  return {tree:tree!,button,api,reload}
 }
 test('production merge requires a reviewed diff and sends exactly its checksum and revision',async()=>{
@@ -346,7 +368,7 @@ test('a source-Agent connection grant can be enabled and revoked from the App co
  let tree!:ReturnType<typeof create>
  await act(async()=>{tree=create(<CompanyApp app={{id:'app'} as any} api={api} canManage reload={()=>{}}/> )})
  const button=(name:string)=>tree.root.findAllByType('button').find(item=>item.children.join('')===name)!
- await act(async()=>button('外部接続').props.onClick())
+ await act(async()=>button('External connections').props.onClick())
  const selected=()=>tree.root.findAllByType('button').find(item=>item.children.join('').startsWith('repo_api'))!
  await act(async()=>selected().props.onClick())
  await act(async()=>button('このAppに接続を共有').props.onClick())
@@ -365,7 +387,7 @@ test('Google OAuth connection starts from the saved App connection without expos
  try{
   await act(async()=>{tree=create(<CompanyApp app={{id:'app'} as any} api={api} canManage reload={()=>{}}/>);await Promise.resolve()})
   const button=(name:string)=>tree.root.findAllByType('button').find(item=>item.children.join('')===name)!
-  await act(async()=>button('外部接続').props.onClick())
+  await act(async()=>button('External connections').props.onClick())
   await act(async()=>tree.root.findAllByType('button').find(item=>item.children.join('').startsWith('google_api'))!.props.onClick())
   const authSelect=tree.root.findAllByType('select').find(item=>item.findAllByType('option').some(option=>option.props.value==='oauth'))!
   await act(async()=>authSelect.props.onChange({target:{value:'oauth'}}))
