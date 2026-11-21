@@ -975,8 +975,8 @@
       "code": "worker/src/harness/followups.js, worker/src/harness/followupRoomApps.js",
       "acceptance": "個人Agent DMのFollow-upで接続済み個人連携を読み取り、共有RoomではHarness modeに限り全Room閲覧者が読める同じRoom scoped Company Appの実レコードを検索する。結果にアプリ・ID・URLを根拠として返し、権限・Audience・接続・テーブル変更時は破棄する。共有チャンネルでは個人連携を使わず、Simple modeを維持する",
       "evidence": {
-        "verified": "個人Agent DMでは既存のread-only Notion/GitHub/Smithery連携をFollow-upへ接続し、外部read toolがある場合は初回モデル応答でtool callを必須化。接続済みアプリが書き込みを許可していてもFollow-upでは読み取りツールだけを公開。接続結果の出典/ID/URLを回答に含めるよう指示し、会話・Agent権限を各tool callの前後で再確認する。共有チャンネルには個人連携を渡さない。今回、Harness共有Roomでは同じRoom向けに共有され、Roomの全読者がreadできるCompany Appだけをツールに公開。private/workspace/別Room App、個別deny、複数Appで共有するテーブルはfail closed。Room audience、App policy token、個別grant、Table schema/data revisionを読み取り前後とモデル実行後に比較し、変更中の結果は配信しない。48 KBの応答上限と50行上限を適用し、列IDを指定して狭められる。Simpleでは追加ツールなし。Worker harness-workflows.test.js 159/159成功。",
-        "remaining": "全Follow-upに対する外部コネクタ対応ではなく、Company App検索も共有Roomとprimary tableに限定。サービスごとの状態・書き込み操作・証跡画面は未実装。実接続アカウント、本番の複数利用者分離、Kylon同一タスク比較は未確認。Exact-head CIとWorker deployは未実施。"
+        "verified": "個人Agent DMでは既存のread-only Notion/GitHub/Smithery連携をFollow-upへ接続し、外部read toolがある場合は初回モデル応答でtool callを必須化。接続済みアプリが書き込みを許可していてもFollow-upでは読み取りツールだけを公開。接続結果の出典/ID/URLを回答に含めるよう指示し、会話・Agent権限を各tool callの前後で再確認する。共有チャンネルには個人連携を渡さない。Harness共有Roomでは同じRoom向けに共有され、Roomの全読者がreadできるCompany Appだけをツールに公開。private/workspace/別Room Appと個別denyはfail closed。読み取るtableが別の非公開Appからも参照されていても、選択したApp自身のRoom scopeと全員のApp ACLを満たせば利用でき、非公開App名や権限は漏らさない。Room audience、App policy token、個別grant、Table schema/data revisionを読み取り前後とモデル実行後に比較し、変更中の結果は配信しない。48 KBの応答上限と50行上限を適用し、列IDを指定して狭められる。Simpleでは追加ツールなし。Worker harness-workflows.test.js 159/159成功。重複table回帰は既存guardで失敗し、修正後に成功。Worker全suite 324 files/3,713 tests成功。PR #1164 exact-head CI全件成功、main commit ca543bc3578a1aaf4842e95b3709d8ff1d8b90cdにmerge。GitHub連携ではmain CI/deploy runを検出できていない。",
+        "remaining": "全Follow-upに対する外部コネクタ対応ではなく、Company App検索も共有Roomとprimary tableに限定。サービスごとの状態・書き込み操作・証跡画面は未実装。実接続アカウント、本番の複数利用者分離、Worker production deployment result、Kylon同一タスク比較は未確認。"
       }
     },
     {
