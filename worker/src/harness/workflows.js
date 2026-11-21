@@ -1261,7 +1261,7 @@ async function rowScope(db, orgId, tableId, row, tableSnapshot) {
 
 /// Start a run. `input` is what started it: { text } by hand, the posted
 /// JSON for a webhook, { row, before } for a row.
-export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null, incomingHookEvent = null, rowEventHash = null, rowEventPersistent = false }) {
+export async function startRun(env, { orgId, workflow, trigger, input = null, startedBy = null, depth = 0, heldEventId = null, incomingHookSecret = null, incomingHookEvent = null, rowEventHash = null, rowEventPersistent = false, scheduledOccurrence = null }) {
   let safety=await ensureWorkflowSafety(env.DB,orgId,workflow.id);
   if(!safety)return null;
   if(safety.pause_reason?.startsWith('budget_'))safety=await recoverWorkflowBudgetPause(env.DB,orgId,workflow.id,safety);
@@ -1296,14 +1296,18 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
   const tooLarge = stored !== null && stored.length > MAX_INPUT;
   const failed = tooLarge ? [{ step: 1, type: workflow.steps[0]?.type, at: now(), status: "failed", error: `What started this run is over ${MAX_INPUT} characters.` }] : [];
   const created = await env.DB.batch([
-    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at, finished_at, credential_source)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?30
+    env.DB.prepare(`INSERT INTO hx_workflow_runs (id, org_id, workflow_id, trigger, status, input, log, next_step, started_by, started_at, finished_at, credential_source, scheduled_for)
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?30, ?32
       WHERE (?12 IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_held_events h JOIN hx_workflows w ON w.id=h.workflow_id AND w.org_id=h.org_id
         WHERE h.id=?12 AND h.org_id=?2 AND h.workflow_id=?3 AND h.run_id IS NULL AND h.expires_at>?10 AND w.enabled=1 AND json_extract(w.trigger,'$.type')='webhook'))
       AND (?13 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE id=?3 AND org_id=?2 AND enabled=1 AND hook_secret=?13 AND json_extract(trigger,'$.type')='webhook'))
       AND (?28 IS NULL OR NOT EXISTS(SELECT 1 FROM hx_workflow_webhook_receipts h WHERE h.org_id=?2 AND h.workflow_id=?3 AND h.event_id=?28 AND h.expires_at>?10))
       AND (?29 IS NULL OR NOT EXISTS(SELECT 1 FROM hx_workflow_row_receipts h WHERE h.org_id=?2 AND h.workflow_id=?3 AND h.event_hash=?29 AND (?31=1 OR h.expires_at>?10)))
       AND EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND archived_at IS NULL)
+      AND (?32 IS NULL OR (EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND enabled=1)
+        AND EXISTS(SELECT 1 FROM hx_workflow_schedule_occurrences o WHERE o.org_id=?2 AND o.workflow_id=?3 AND o.scheduled_for=?32
+          AND o.status='processing' AND o.lease_owner=?33 AND o.lease_until>?10 AND o.run_id IS NULL)))
+      AND (?32 IS NULL OR NOT EXISTS(SELECT 1 FROM hx_workflow_runs r WHERE r.org_id=?2 AND r.workflow_id=?3 AND r.scheduled_for=?32))
       AND NOT EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?2 AND workflow_id=?3 AND status IN ('running','waiting'))
       AND EXISTS(SELECT 1 FROM hx_workflow_safety s WHERE s.org_id=?2 AND s.workflow_id=?3 AND s.generation=?19 AND s.paused_at IS NULL
         AND (s.daily_run_limit=0 OR (SELECT COUNT(*) FROM hx_workflow_runs r WHERE r.org_id=?2 AND r.workflow_id=?3 AND r.started_at>=?20 AND r.started_at<=?23)<s.daily_run_limit)
@@ -1315,7 +1319,7 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
           AND (s.monthly_ai_budget_micros=0 OR ((SELECT COALESCE(SUM(u.estimated_micros),0) FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27)<s.monthly_ai_budget_micros AND NOT EXISTS(SELECT 1 FROM hx_workflow_usage u WHERE u.org_id=?2 AND u.workflow_id=?3 AND u.created_at>=?26 AND u.created_at<=?27 AND u.estimated_micros IS NULL))))))
       AND ${managedAutomationGuard('?2','?3','?14')}
       AND (?14 IS NULL OR EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?2 AND id=?3 AND name=?15 AND json(trigger)=json(?16) AND json(steps)=json(?17) AND created_by=?18))`)
-      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null,rowEventHash,credentialSource,rowEventPersistent?1:0),
+      .bind(id, orgId, workflow.id, trigger, tooLarge ? "failed" : "running", tooLarge ? null : stored, JSON.stringify(failed), failed.length, startedBy ? String(startedBy) : null, admittedAt, tooLarge ? admittedAt : null, heldEventId, incomingHookSecret, automationReleaseId, workflow.name, JSON.stringify(workflow.trigger), JSON.stringify(workflow.steps), String(workflow.createdBy),safety.generation,windows.dailyStart,windows.weeklyStart,windows.monthlyStart,admittedAt,aiWindows['24h'].start,aiWindows['7d'].start,aiWindows['30d'].start,admittedAt,incomingHookEvent?.eventId || null,rowEventHash,credentialSource,rowEventPersistent?1:0,scheduledOccurrence?.scheduledFor || null,scheduledOccurrence?.owner || null),
     env.DB.prepare(`INSERT INTO hx_workflow_run_definitions (run_id, org_id, definition, created_at)
       SELECT ?1,?2,json_set(?3,'$.definitionRevision',(
         SELECT MAX(h.revision) FROM hx_workflow_revisions h WHERE h.org_id=?2 AND h.workflow_id=json_extract(?3,'$.id')
@@ -1333,6 +1337,10 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
     ...(heldEventId ? [env.DB.prepare(`UPDATE hx_workflow_held_events SET run_id=?1 WHERE id=?2 AND org_id=?3 AND workflow_id=?4 AND run_id IS NULL
       AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?3)`).bind(id, heldEventId, orgId, workflow.id)] : []),
     ...workflowSettlementStatements(env.DB,orgId,id),
+    ...(scheduledOccurrence ? [env.DB.prepare(`UPDATE hx_workflow_schedule_occurrences SET status='started',run_id=?1,lease_owner=NULL,lease_until=NULL,updated_at=?2
+      WHERE org_id=?3 AND workflow_id=?4 AND scheduled_for=?5 AND status='processing' AND lease_owner=?6
+      AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?3 AND id=?1 AND scheduled_for=?5)`)
+      .bind(id,admittedAt,orgId,workflow.id,scheduledOccurrence.scheduledFor,scheduledOccurrence.owner)] : []),
     ...(incomingHookEvent ? [env.DB.prepare(`INSERT INTO hx_workflow_webhook_receipts(org_id,workflow_id,event_id,payload_hash,received_at,expires_at,status,run_id)
       SELECT ?2,?3,?4,?5,?6,?7,'accepted',?1 FROM hx_workflow_runs WHERE id=?1 AND org_id=?2
       ON CONFLICT(org_id,workflow_id,event_id) DO UPDATE SET payload_hash=excluded.payload_hash,received_at=excluded.received_at,expires_at=excluded.expires_at,status='accepted',run_id=excluded.run_id,held_event_id=NULL
@@ -1352,6 +1360,15 @@ export async function startRun(env, { orgId, workflow, trigger, input = null, st
       .bind(id,orgId,workflow.id,heldEventId,admittedAt)] : []),
   ]);
   if (!created[0].meta?.changes) {
+    if (scheduledOccurrence) {
+      const linked = await env.DB.prepare(`SELECT run_id FROM hx_workflow_schedule_occurrences
+        WHERE org_id=?1 AND workflow_id=?2 AND scheduled_for=?3 AND status='started'`)
+        .bind(orgId,workflow.id,scheduledOccurrence.scheduledFor).first();
+      if (linked?.run_id) return getRun(env.DB,orgId,linked.run_id);
+      await env.DB.prepare(`UPDATE hx_workflow_schedule_occurrences SET status='pending',lease_owner=NULL,lease_until=NULL,updated_at=?1
+        WHERE org_id=?2 AND workflow_id=?3 AND scheduled_for=?4 AND status='processing' AND lease_owner=?5 AND run_id IS NULL`)
+        .bind(admittedAt,orgId,workflow.id,scheduledOccurrence.scheduledFor,scheduledOccurrence.owner).run();
+    }
     if (rowEventHash) {
       const receipt = await env.DB.prepare(`SELECT run_id FROM hx_workflow_row_receipts
         WHERE org_id=?1 AND workflow_id=?2 AND event_hash=?3 AND expires_at>?4`)
@@ -2249,20 +2266,53 @@ export async function runDueWorkflows(env, { now: at = new Date(), limit = 25 } 
     .bind(at.toISOString(), limit)
     .all()
     .catch(() => ({ results: [] }));
+  // Capture each occurrence in the same transaction that advances the next
+  // tick. A later admission error can then retry this durable row.
+  if (results?.length) {
+    const capturedAt = at.toISOString();
+    const statements = results.flatMap(r => {
+      const wf = publicWorkflow(r);
+      return [
+        env.DB.prepare(`INSERT INTO hx_workflow_schedule_occurrences(org_id,workflow_id,scheduled_for,status,created_at,updated_at)
+          SELECT ?1,?2,?3,'pending',?4,?4 WHERE EXISTS(SELECT 1 FROM hx_workflows WHERE org_id=?1 AND id=?2 AND enabled=1 AND next_run_at=?3)
+          ON CONFLICT(org_id,workflow_id,scheduled_for) DO NOTHING`).bind(wf.orgId,wf.id,r.next_run_at,capturedAt),
+        env.DB.prepare("UPDATE hx_workflows SET next_run_at=?1 WHERE id=?2 AND org_id=?4 AND enabled=1 AND next_run_at=?3")
+          .bind(nextScheduledRunAt(wf.trigger,r.next_run_at,at),wf.id,r.next_run_at,wf.orgId),
+      ];
+    });
+    await env.DB.batch(statements);
+  }
+
+  const pendingOccurrences = await env.DB.prepare(`SELECT o.org_id AS occurrence_org_id,o.workflow_id AS occurrence_workflow_id,
+      o.scheduled_for,o.lease_owner,o.status AS occurrence_status,w.*
+    FROM hx_workflow_schedule_occurrences o JOIN hx_workflows w ON w.org_id=o.org_id AND w.id=o.workflow_id
+    WHERE w.enabled=1 AND w.archived_at IS NULL AND o.scheduled_for<=?1
+      AND (o.status='pending' OR (o.status='processing' AND o.lease_until<=?1))
+    ORDER BY o.scheduled_for,o.org_id,o.workflow_id LIMIT ?2`).bind(at.toISOString(),limit).all();
   let ran = 0;
-  for (const r of results || []) {
-    const wf = publicWorkflow(r);
-    // Claimed by moving its next time on, so two crons cannot both run it.
-    const claim = await env.DB
-      .prepare("UPDATE hx_workflows SET next_run_at = ?1 WHERE id = ?2 AND org_id = ?4 AND next_run_at = ?3")
-      .bind(nextScheduledRunAt(wf.trigger, r.next_run_at, at), wf.id, r.next_run_at, wf.orgId)
-      .run();
-    if (!claim.meta?.changes) continue;
+  for (const occurrence of pendingOccurrences.results || []) {
+    const owner = newId('schedule');
+    const leaseUntil = new Date(at.getTime()+90_000).toISOString();
+    const claimed = await env.DB.prepare(`UPDATE hx_workflow_schedule_occurrences SET status='processing',lease_owner=?1,lease_until=?2,updated_at=?3
+      WHERE org_id=?4 AND workflow_id=?5 AND scheduled_for=?6 AND (status='pending' OR (status='processing' AND lease_until<=?3))`)
+      .bind(owner,leaseUntil,at.toISOString(),occurrence.occurrence_org_id,occurrence.occurrence_workflow_id,occurrence.scheduled_for).run();
+    if (!claimed.meta?.changes) continue;
+    const wf = publicWorkflow(occurrence);
     try {
-      const result=await startRun(env, { orgId: wf.orgId, workflow: wf, trigger: "schedule" });
-      if(result?.id)ran += 1;
+      const result = await startRun(env,{orgId:occurrence.occurrence_org_id,workflow:wf,trigger:'schedule',scheduledOccurrence:{scheduledFor:occurrence.scheduled_for,owner}});
+      if (result?.id) ran += 1;
+      else if (result?.status === 'skipped' || result?.status === 'paused') {
+        await env.DB.prepare(`UPDATE hx_workflow_schedule_occurrences SET status='skipped',lease_owner=NULL,lease_until=NULL,updated_at=?1
+          WHERE org_id=?2 AND workflow_id=?3 AND scheduled_for=?4 AND status='processing' AND lease_owner=?5`)
+          .bind(at.toISOString(),occurrence.occurrence_org_id,occurrence.occurrence_workflow_id,occurrence.scheduled_for,owner).run();
+      }
     } catch (e) {
-      console.error("workflow run failed", e?.message);
+      console.error('workflow run failed',e?.message);
+      // If admission did not commit, make it available on the next cron tick.
+      // If it did, the atomic startRun batch already changed it to started.
+      await env.DB.prepare(`UPDATE hx_workflow_schedule_occurrences SET status='pending',lease_owner=NULL,lease_until=NULL,updated_at=?1
+        WHERE org_id=?2 AND workflow_id=?3 AND scheduled_for=?4 AND status='processing' AND lease_owner=?5 AND run_id IS NULL`)
+        .bind(at.toISOString(),occurrence.occurrence_org_id,occurrence.occurrence_workflow_id,occurrence.scheduled_for,owner).run().catch(()=>{});
     }
   }
   return ran;

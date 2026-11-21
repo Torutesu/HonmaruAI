@@ -1978,11 +1978,26 @@ CREATE TABLE IF NOT EXISTS hx_workflow_runs (
   started_by    TEXT,
   started_at    TEXT NOT NULL,
   finished_at   TEXT,
-  credential_source TEXT NOT NULL DEFAULT 'unknown' CHECK(credential_source IN ('deployment','workspace','none','unknown','unresolved'))
+  credential_source TEXT NOT NULL DEFAULT 'unknown' CHECK(credential_source IN ('deployment','workspace','none','unknown','unresolved')),
+  scheduled_for TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_hx_runs_workflow ON hx_workflow_runs(workflow_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_hx_runs_card ON hx_workflow_runs(org_id, card_id);
 CREATE INDEX IF NOT EXISTS idx_hx_runs_active ON hx_workflow_runs(org_id, workflow_id) WHERE status IN ('running','waiting');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_runs_schedule_occurrence ON hx_workflow_runs(org_id,workflow_id,scheduled_for) WHERE scheduled_for IS NOT NULL;
+CREATE TABLE IF NOT EXISTS hx_workflow_schedule_occurrences (
+  org_id TEXT NOT NULL,
+  workflow_id TEXT NOT NULL,
+  scheduled_for TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','started','skipped')),
+  lease_owner TEXT,
+  lease_until TEXT,
+  run_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,workflow_id,scheduled_for)
+);
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_schedule_pending ON hx_workflow_schedule_occurrences(status,lease_until,scheduled_for);
 
 /* Follow-ups (harness/followups.js): an agent, or the team's AI, comes back
    to a conversation at a set time to do something again. */
