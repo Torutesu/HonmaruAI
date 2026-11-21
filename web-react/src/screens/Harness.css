@@ -134,6 +134,9 @@
 .hx-run-summary-note { margin-top: 12px; }
 @media (max-width: 520px) { .hx-run-summary { padding: 12px; } .hx-run-summary-metrics { gap: 8px; } .hx-run-summary-metrics strong { font-size: 17px; } }
 .hx-run-history-tools { display: flex; justify-content: flex-end; margin: 10px 0 6px; }
+.hx-run-filter { display: inline-flex; align-items: center; gap: 7px; color: var(--hx-muted, var(--ash)); font-size: 12px; }
+.hx-run-filter select { max-width: min(220px, 62vw); border: 1px solid var(--hx-border, var(--bone)); border-radius: 999px; padding: 6px 28px 6px 10px; color: var(--hx-text, var(--ink)); background: var(--hx-surface, var(--signal-white)); font: inherit; }
+.hx-run-filter select:focus-visible { outline: 2px solid var(--hx-accent, var(--brand-violet)); outline-offset: 2px; }
 .hx-run-filter[aria-pressed="true"] { border-color: color-mix(in srgb, #d14343 48%, var(--hx-border, var(--bone))); color: var(--hx-danger, #c04444); background: color-mix(in srgb, #d14343 8%, var(--hx-surface, var(--signal-white))); }
 .hx-run-filter:focus-visible,
 .hx-run-history-panel > button:focus-visible,
