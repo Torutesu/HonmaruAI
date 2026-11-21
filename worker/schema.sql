@@ -1984,7 +1984,6 @@ CREATE TABLE IF NOT EXISTS hx_workflow_runs (
 CREATE INDEX IF NOT EXISTS idx_hx_runs_workflow ON hx_workflow_runs(workflow_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_hx_runs_card ON hx_workflow_runs(org_id, card_id);
 CREATE INDEX IF NOT EXISTS idx_hx_runs_active ON hx_workflow_runs(org_id, workflow_id) WHERE status IN ('running','waiting');
-CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_runs_schedule_occurrence ON hx_workflow_runs(org_id,workflow_id,scheduled_for) WHERE scheduled_for IS NOT NULL;
 CREATE TABLE IF NOT EXISTS hx_workflow_schedule_occurrences (
   org_id TEXT NOT NULL,
   workflow_id TEXT NOT NULL,
