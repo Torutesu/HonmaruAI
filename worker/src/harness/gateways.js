@@ -83,6 +83,19 @@ async function acpBrowserAllowed(db, row, payload) {
   return Boolean(teammate && await mayRunAgent(db, row.org_id, teammate, row.created_by));
 }
 
+async function desktopControlStillAuthorized(env, orgId, jobId, input) {
+  const hasController = input?.controllerId !== undefined;
+  const hasExpiry = input?.controlExpiresAt !== undefined;
+  if (!hasController && !hasExpiry) return true;
+  if (!hasController || !hasExpiry || typeof input.controllerId !== 'string' || !Number.isFinite(input.controlExpiresAt)) return false;
+  const relay = env.ORG_RELAY.get(env.ORG_RELAY.idFromName(orgId));
+  const response = await relay.fetch(`https://relay.invalid/desktop/authorize-control?orgId=${encodeURIComponent(orgId)}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jobId, controllerId: input.controllerId, expiresAt: input.controlExpiresAt }),
+  }).catch(() => null);
+  return response?.ok === true;
+}
+
 export async function expireGatewayJobs(db, at = now(), env = null) {
   if (env?.DATA_KEY) {
     const { results: orgs = [] } = await db.prepare(`SELECT DISTINCT org_id AS id FROM hx_remote_mcp_egress
@@ -245,6 +258,7 @@ export async function handleGateways(request, env, url, input) {
         await failBrowserJobAfterAuthorizationLoss(db,{jobId:parts[2],gatewayId:g.id,leaseHash,at});
         return failure('Isolated browser access was revoked or is no longer allowed.',403);
       }
+      if (!(await desktopControlStillAuthorized(env, job.org_id, parts[2], input))) return failure('Desktop control was released or expired.', 403);
       return json({ok:true});
     }
     if (parts[3] === 'browser-action') {
@@ -283,6 +297,7 @@ export async function handleGateways(request, env, url, input) {
         const result=await response.json().catch(()=>({controls:[]}));
         return json({ok:true,controls:Array.isArray(result.controls)?result.controls.slice(0,5):[]});
       }
+      if (!(await desktopControlStillAuthorized(env, job.org_id, parts[2], input))) return failure('Desktop control was released or expired.', 403);
       if (typeof input?.image !== 'string' || input.image.length > 2_800_000 || !/^\/9j\/[A-Za-z0-9+/]+={0,2}$/.test(input.image)) return failure('Invalid browser frame.',413);
       const response=await relay.fetch(`https://relay.invalid/desktop/frame?orgId=${encodeURIComponent(job.org_id)}`,{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jobId:parts[2],image:input.image})

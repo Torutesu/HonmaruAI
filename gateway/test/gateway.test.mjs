@@ -305,12 +305,12 @@ test('browser actions publish only bounded JPEG frames through the same executio
  assert.deepEqual(browserActions,[{type:'click',x:20,y:30},{type:'screenshot'}]);
  assert.deepEqual(calls.find(item=>item.path==='jobs/acp-live/browser-frame')?.body,{lease:'live-lease',image:'/9j/AA=='});
 });
-test('local ACP browser accepts bounded requester control actions while the task is active',async()=>{
+test('local ACP browser accepts requester control only while its controller lease is live',async()=>{
  const calls=[],browserActions=[];let delivered=false;
  await processOne(async(path,body)=>{
   calls.push({path,body});
   if(path==='claim')return{job:{id:'acp-control',lease:'control-lease',payload:{acp:true,browserTools:true,agentKey:'codex',browserIdentity:'agent-1',workspaceId:'org-1',prompt:'Open the release notes'}}};
-  if(path==='jobs/acp-control/browser-frame'&&body.poll){if(delivered)return{controls:[]};delivered=true;return{controls:[{type:'click',x:42,y:84}]};}
+  if(path==='jobs/acp-control/browser-frame'&&body.poll){if(delivered)return{controls:[]};delivered=true;return{controls:[{action:{type:'click',x:42,y:84},controllerId:'controller-1',expiresAt:Date.now()+30000}]};}
   return{ok:true};
  },{
   browserControlPollIntervalMs:2,
@@ -319,8 +319,26 @@ test('local ACP browser accepts bounded requester control actions while the task
  });
  assert.ok(browserActions.some(action=>action.type==='click'&&action.x===42&&action.y===84));
  assert.ok(calls.some(item=>item.path==='jobs/acp-control/browser'&&item.body.lease==='control-lease'));
+ assert.ok(calls.some(item=>item.path==='jobs/acp-control/browser'&&item.body.controllerId==='controller-1'));
  assert.ok(calls.some(item=>item.path==='jobs/acp-control/browser-frame'&&item.body.image==='/9j/AA=='));
  assert.equal(calls.at(-1).path,'jobs/acp-control/finish');
+});
+test('a controller disconnected after polling cannot dispatch its queued browser action',async()=>{
+ const calls=[];let delivered=false,signalControlCheck;
+ const controlCheck=new Promise(resolve=>{signalControlCheck=resolve;});
+ await processOne(async(path,body)=>{
+  calls.push({path,body});
+  if(path==='claim')return{job:{id:'acp-stale-control',lease:'control-lease',payload:{acp:true,browserTools:true,agentKey:'codex',browserIdentity:'agent-1',workspaceId:'org-1',prompt:'Open the release notes'}}};
+  if(path==='jobs/acp-stale-control/browser-frame'&&body.poll){if(delivered)return{controls:[]};delivered=true;return{controls:[{action:{type:'click',x:42,y:84},controllerId:'controller-gone',expiresAt:Date.now()+30000}]};}
+  if(path==='jobs/acp-stale-control/browser'&&body.controllerId){signalControlCheck();throw Object.assign(new Error('control released'),{status:403});}
+  return{ok:true};
+ },{
+  browserControlPollIntervalMs:2,
+  runAcpAgent:async()=>{await controlCheck;return{status:'succeeded',stdout:'done',stderr:'',exitCode:0};},
+  runBrowser:async()=>assert.fail('a disconnected controller action must not reach the browser'),
+ });
+ assert.equal(calls.at(-1).path,'jobs/acp-stale-control/finish');
+ assert.equal(calls.some(item=>item.path==='jobs/acp-stale-control/browser-frame'&&item.body.image),false);
 });
 test('agent and requester browser actions never overlap and requester control runs before the next agent action',async()=>{
  const calls=[],order=[];let delivered=false,active=0,maxActive=0;
@@ -334,7 +352,7 @@ test('agent and requester browser actions never overlap and requester control ru
  const done=processOne(async(path,body)=>{
   calls.push({path,body});
   if(path==='claim')return{job:{id:'acp-exclusive',lease:'exclusive-lease',payload:{acp:true,browserTools:true,agentKey:'codex',browserIdentity:'agent-1',workspaceId:'org-1',prompt:'Open the release notes'}}};
-  if(path==='jobs/acp-exclusive/browser-frame'&&body.poll){signalPolled();if(delivered)return{controls:[]};delivered=true;return{controls:[{type:'click',x:42,y:84}]};}
+  if(path==='jobs/acp-exclusive/browser-frame'&&body.poll){signalPolled();if(delivered)return{controls:[]};delivered=true;return{controls:[{action:{type:'click',x:42,y:84},controllerId:'controller-exclusive',expiresAt:Date.now()+30000}]};}
   return{ok:true};
  },{
   browserControlPollIntervalMs:2,

@@ -474,6 +474,7 @@ test('ACP Workspace MCP is opt-in, read-only, node-and-lease bound, and rechecks
   const browserClaim=await claim(token,['acp-v1'],['workspace-reader']);
   expect(browserClaim).toMatchObject({id:activeBrowser.job.id,timeoutMs:270000,payload:{browserTools:true}});
   expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser`,null,{lease:browserClaim.lease},token)).status).toBe(200);
+  expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser`,null,{lease:browserClaim.lease,controllerId:'disconnected-controller',controlExpiresAt:Date.now()+30000},token)).status).toBe(403);
   expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser-frame`,null,{lease:browserClaim.lease,image:'/9j/AA=='},token)).status).toBe(200);
   expect(await (await api('POST',`/jobs/${activeBrowser.job.id}/browser-frame`,null,{lease:browserClaim.lease,poll:true},token)).json()).toMatchObject({ok:true,controls:[]});
   expect((await api('POST',`/jobs/${activeBrowser.job.id}/browser-frame`,null,{lease:browserClaim.lease,image:'not-a-jpeg'},token)).status).toBe(413);
