@@ -4,7 +4,7 @@ import {describeWorkflowCondition} from '../utils/workflowCondition'
 import {getLocale} from '../utils/locale'
 import {runDuration} from '../utils/runDuration'
 import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHistory'
-import {hashForThread} from '../utils/route'
+import {hashForCard,hashForThread} from '../utils/route'
 import {stepLabel,triggerLabel,type WorkflowAppOption} from '../utils/workflowLabels'
 import {filterKeysForColumn,filterValueText,hasRemovedFilter,newFilterKey,unresolvedFilterKeys,type FilterMap} from '../utils/workflowFilters'
 import {WorkflowRunUsage} from '../components/WorkflowRunUsage'
@@ -16,7 +16,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon } from '../components/Icon'
 import {StepEditor} from '../components/WorkflowStepEditor'
-import type { Workflow, Run, WorkflowRunSummary, Step, StepType, Trigger, TriggerType, Table, App, ConditionScalar, HeldWorkflowEvents, HarnessApi } from '../utils/harness'
+import type { Workflow, Run, WorkflowRunPage, WorkflowRunSummary, Step, StepType, Trigger, TriggerType, Table, App, ConditionScalar, HeldWorkflowEvents, HarnessApi } from '../utils/harness'
 import { HarnessApiError } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
@@ -331,7 +331,8 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [guidedError,setGuidedError]=useState('')
   const [manual, setManual] = useState(false)
   const [open, setOpen] = useState<{ workflow: Workflow; runs: Run[]; summary: WorkflowRunSummary; canEdit: boolean; held?: HeldWorkflowEvents; sourceThreadId?: string | null } | null>(null)
-  const [failedRunsOnly,setFailedRunsOnly]=useState(false)
+  const [runStatus,setRunStatus]=useState('')
+  const [runPage,setRunPage]=useState<WorkflowRunPage|null>(null)
   const [budgetDraft,setBudgetDraft]=useState({daily:'0',weekly:'0',monthly:'0',ai24h:'0',ai7d:'0',ai30d:'0',aiAction:'warn' as 'warn'|'pause'})
   const [hook, setHook] = useState<string | null>(null)
   // The server keeps only a digest of the webhook secret, so it can be shown
@@ -350,7 +351,6 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [syncError,setSyncError]=useState('')
   const detailRequest = useRef(0)
   const { busy, error, act } = useAct()
-  useEffect(()=>setFailedRunsOnly(false),[open?.workflow.id])
   useEffect(()=>{
     const safety=open?.workflow.safety
     if(!safety)return
@@ -363,10 +363,19 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     const request=detailRequest.current
     const refresh=async()=>{
       try{
-        const result=await api.workflow(activeWorkflowId, heldPageOffset)
+        const [result,page]=await Promise.all([
+          api.workflow(activeWorkflowId, heldPageOffset),
+          api.workflowRunsPage?.(activeWorkflowId,{limit:50,...(runStatus?{status:runStatus}:{})}) ?? Promise.resolve(null),
+        ])
         if(stopped||detailRequest.current!==request)return
         setSyncError('')
-        setOpen(current=>current?.workflow.id===activeWorkflowId?{...result,sourceThreadId:current.sourceThreadId}:current)
+        if(page)setRunPage(page)
+        setOpen(current=>{
+          if(current?.workflow.id!==activeWorkflowId)return current
+          const recent=page?.runs??result.runs
+          const recentIds=new Set(recent.map(run=>run.id))
+          return {...result,runs:[...recent,...current.runs.filter(run=>!recentIds.has(run.id))],sourceThreadId:current.sourceThreadId}
+        })
         if(result.runs.some(run=>run.status==='running'))timer=setTimeout(refresh,5000)
       }catch(error){
         if(stopped||detailRequest.current!==request)return
@@ -377,7 +386,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     }
     timer=setTimeout(refresh,5000)
     return()=>{stopped=true;clearTimeout(timer)}
-  },[api,activeWorkflowId,busy,heldPageOffset])
+  },[api,activeWorkflowId,busy,heldPageOffset,runStatus])
 
 
   const load = useCallback(() => act('load', async () => {
@@ -399,13 +408,15 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     if(props.onNavigateWorkflow && props.requestedWorkflowId!==id){props.onNavigateWorkflow(id);return Promise.resolve()}
     const request = ++detailRequest.current
     return act(`open:${id}`, async () => {
+      setRunStatus(''); setRunPage(null)
       setSyncError(''); setHookAction(null); setReplaySelection(null); setDiscardSelection(null); setHeldPageOffset(0); setConfirmDelete(false); setConfirmArchive(false); setConfirmRestore(false)
       try {
-        const [result,source] = await Promise.all([
+        const [result,source,page] = await Promise.all([
           api.workflow(id, 0),
           api.workflowSource(id, undefined, false).catch(() => null),
+          api.workflowRunsPage?.(id,{limit:50}) ?? Promise.resolve(null),
         ])
-        if (detailRequest.current === request) { setOpen({...result,sourceThreadId:source?.source?.threadId||null}); setHeldPageOffset(result.held?.pageOffset ?? 0) }
+        if (detailRequest.current === request) { setOpen({...result,runs:page?.runs??result.runs,sourceThreadId:source?.source?.threadId||null}); setRunPage(page); setHeldPageOffset(result.held?.pageOffset ?? 0) }
       } catch (error) {
         if (detailRequest.current === request) throw error
       }
@@ -458,9 +469,13 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
 
   const refreshOpen = async (id: string, offset = heldPageOffset) => {
     const request = detailRequest.current
-    const result = await api.workflow(id, offset)
+    const [result,page] = await Promise.all([
+      api.workflow(id, offset),
+      api.workflowRunsPage?.(id,{limit:50,...(runStatus?{status:runStatus}:{})}) ?? Promise.resolve(null),
+    ])
     if (detailRequest.current === request && result.workflow.id === id) {
-      setOpen(current => current?.workflow.id === id ? {...result,sourceThreadId:current.sourceThreadId} : current)
+      setOpen(current => current?.workflow.id === id ? {...result,runs:page?.runs??result.runs,sourceThreadId:current.sourceThreadId} : current)
+      setRunPage(page)
       setHeldPageOffset(result.held?.pageOffset ?? 0)
       const live = result.held?.discardEventIds
       if (live) {
@@ -491,7 +506,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
     const pausedPeriod=budgetPause&&!aiBudgetPause?(w.safety?.pause_reason?.slice('budget_'.length) as 'daily'|'weekly'|'monthly'):null
     const pausedBudget=aiPausedPeriod?budget?.ai?.[aiPausedPeriod]:pausedPeriod?budget?.[pausedPeriod]:null
     const budgetDraftValid=['daily','weekly','monthly'].every(key=>{const value=budgetDraft[key as 'daily'|'weekly'|'monthly'];return value!==''&&Number.isSafeInteger(Number(value))&&Number(value)>=0&&Number(value)<=1_000_000})&&['ai24h','ai7d','ai30d'].every(key=>{const value=Number(budgetDraft[key as 'ai24h'|'ai7d'|'ai30d']);return budgetDraft[key as 'ai24h'|'ai7d'|'ai30d']!==''&&Number.isFinite(value)&&value>=0&&value<=1_000_000&&Math.abs(value*1_000_000-Math.round(value*1_000_000))<0.001})
-    const visibleRuns=open.runs.filter(run=>!failedRunsOnly||run.status==='failed')
+    const visibleRuns=open.runs
     const runDays=groupRunsByStartDay(visibleRuns)
     const summary=open.summary
     return (
@@ -701,8 +716,24 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
         <WorkflowRunSummaryCard summary={summary}/>
         <div className="rows-title">{t('Runs')}</div>
         {open.runs.length === 0 && <div className="empty">{t('It has not run yet.')}</div>}
-        {!!open.runs.length&&<div className="hx-run-history-tools"><button type="button" className="pill-btn quiet hx-run-filter" aria-pressed={failedRunsOnly} onClick={()=>setFailedRunsOnly(value=>!value)}>{t('Failed runs only')}</button></div>}
-        {open.runs.length>0&&visibleRuns.length===0&&<p className="hx-run-empty">{t('No failed runs.')}</p>}
+        {(open.runs.length>0||runPage)&&<div className="hx-run-history-tools"><label className="hx-run-filter"><span>{t('Filter runs')}</span><select aria-label={t('Filter runs')} value={runStatus} disabled={!!busy} onChange={event=>{
+          const status=event.target.value
+          setRunStatus(status)
+          void act('run-history-filter',async()=>{
+            try {
+              const page=await api.workflowRunsPage(w.id,{limit:50,...(status?{status}:{})})
+              setRunPage(page)
+              setOpen(current=>current?.workflow.id===w.id?{...current,runs:page.runs}:current)
+            } catch (error) {
+              setRunStatus(runStatus)
+              throw error
+            }
+          })
+        }}>
+          <option value="">{t('All runs')}</option>
+          {['running','waiting','done','ok','failed','declined','cancelled','interrupted','no_agents','unknown'].map(status=><option key={status} value={status}>{t(status)}</option>)}
+        </select></label></div>}
+        {open.runs.length===0&&runPage&&<p className="hx-run-empty">{runStatus?t('No runs match this status.'):t('It has not run yet.')}</p>}
         {runDays.map(([key,group])=><section className="hx-run-day" key={key}><h4>{runDayLabel(group.date,getLocale(),t)}</h4><div className="rows hx-run-day-rows">
           {group.runs.map((r) => (
             <div key={r.id} className="row static hx-run" data-run={r.id}>
@@ -753,6 +784,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                   </details> : <span key={l.step} className="row-sub hx-log">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span></span>
                 )})}
                 {r.status === 'failed' && open.sourceThreadId && <a className="pill-btn quiet hx-run-ask" href={hashForThread(open.sourceThreadId,props.orgId)} title={t('Open the automation thread to ask how to recover without rerunning this workflow.')}>{t('Ask in chat')}</a>}
+                {r.status === 'waiting' && r.cardId && <a className="pill-btn quiet hx-run-approval" href={hashForCard(r.cardId,props.orgId)}>{t('Open approval')}</a>}
                 {open.canEdit && r.status === 'running' && Date.now() - Date.parse(r.startedAt) >= 30 * 60 * 1000 && <section className="form-note hx-run-recovery">
                   <p>{t('This run has been active for over 30 minutes and may have stopped responding.')}</p>
                   {recoveringRun === r.id ? <>
@@ -771,6 +803,12 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
             </div>
           ))}
         </div></section>)}
+        {runPage?.hasMore&&<button type="button" className="pill-btn quiet" disabled={!!busy} onClick={()=>act('run-history-more',async()=>{
+          if(!runPage.nextCursor)return
+          const page=await api.workflowRunsPage(w.id,{limit:50,cursor:runPage.nextCursor,...(runStatus?{status:runStatus}:{})})
+          setRunPage(page)
+          setOpen(current=>current?.workflow.id===w.id?{...current,runs:[...current.runs,...page.runs.filter(run=>!current.runs.some(existing=>existing.id===run.id))]}:current)
+        })}>{t('Load older runs')}</button>}
       </Shell>
     )
   }

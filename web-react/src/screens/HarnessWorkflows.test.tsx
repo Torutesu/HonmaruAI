@@ -138,7 +138,7 @@ test('workflow step details expose bounded input, authorization, usage, duration
  expect(text).toContain('Step AI usage');
  expect(text).toContain('0.000500');
 });
-test('workflow run history groups dates and filters failed runs',async()=>{
+test('workflow run history groups dates and filters failed runs on the server',async()=>{
  state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[
   {id:'done-new',status:'done',trigger:'manual',startedAt:'2026-10-24T12:00:00Z',log:[]},
   {id:'failed-new',status:'failed',trigger:'manual',startedAt:'2026-10-24T08:00:00Z',log:[]},
@@ -147,19 +147,43 @@ test('workflow run history groups dates and filters failed runs',async()=>{
  await open()
  expect(tree.root.findAllByProps({className:'hx-run-day'})).toHaveLength(2)
  expect(tree.root.findAll(node=>typeof node.props['data-run']==='string')).toHaveLength(3)
- await act(async()=>button('Failed runs only').props.onClick())
- expect(button('Failed runs only').props['aria-pressed']).toBe(true)
+ state.api.workflowRunsPage=vi.fn().mockResolvedValueOnce({runs:[{id:'failed-new',status:'failed',trigger:'manual',startedAt:'2026-10-24T08:00:00Z',log:[]}],hasMore:false,nextCursor:null}).mockResolvedValueOnce({runs:[
+  {id:'done-new',status:'done',trigger:'manual',startedAt:'2026-10-24T12:00:00Z',log:[]},
+  {id:'failed-new',status:'failed',trigger:'manual',startedAt:'2026-10-24T08:00:00Z',log:[]},
+  {id:'done-old',status:'done',trigger:'manual',startedAt:'2026-10-22T12:00:00Z',log:[]},
+ ],hasMore:false,nextCursor:null})
+ await act(async()=>tree.root.findByProps({'aria-label':'Filter runs'}).props.onChange({target:{value:'failed'}}))
  expect(tree.root.findAllByProps({className:'hx-run-day'})).toHaveLength(1)
  expect(tree.root.findAll(node=>typeof node.props['data-run']==='string').map(run=>run.props['data-run'])).toEqual(['failed-new'])
- await act(async()=>button('Failed runs only').props.onClick())
+ expect(state.api.workflowRunsPage).toHaveBeenCalledWith(workflow.id,{limit:50,status:'failed'})
+ await act(async()=>tree.root.findByProps({'aria-label':'Filter runs'}).props.onChange({target:{value:''}}))
  expect(tree.root.findAll(node=>typeof node.props['data-run']==='string')).toHaveLength(3)
 });
-test('workflow run failure filter reports when no run has failed',async()=>{
+test('workflow run status filter reports when there are no matching runs',async()=>{
  state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[{id:'done-only',status:'done',trigger:'manual',startedAt:'2026-10-24T12:00:00Z',log:[]}]})
  await open()
- await act(async()=>button('Failed runs only').props.onClick())
- expect(JSON.stringify(tree.toJSON())).toContain('No failed runs.')
+ state.api.workflowRunsPage=vi.fn().mockResolvedValue({runs:[],hasMore:false,nextCursor:null})
+ await act(async()=>tree.root.findByProps({'aria-label':'Filter runs'}).props.onChange({target:{value:'failed'}}))
+ expect(JSON.stringify(tree.toJSON())).toContain('No runs match this status.')
  expect(tree.root.findAll(node=>typeof node.props['data-run']==='string')).toHaveLength(0)
+});
+test('a failed run filter request restores the previous filter and history',async()=>{
+ state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[{id:'still-visible',status:'done',trigger:'manual',startedAt:'2026-10-24T12:00:00Z',log:[]}]})
+ await open()
+ state.api.workflowRunsPage=vi.fn().mockRejectedValue(new Error('history unavailable'))
+ await act(async()=>tree.root.findByProps({'aria-label':'Filter runs'}).props.onChange({target:{value:'failed'}}))
+ expect(tree.root.findByProps({'aria-label':'Filter runs'}).props.value).toBe('')
+ expect(tree.root.findAll(node=>typeof node.props['data-run']==='string').map(run=>run.props['data-run'])).toEqual(['still-visible'])
+ expect(JSON.stringify(tree.toJSON())).toContain('history unavailable')
+});
+test('workflow run history loads older pages and links waiting runs to their approval card',async()=>{
+ const first={id:'waiting-run',status:'waiting',trigger:'manual',startedAt:'2026-10-24T12:00:00Z',log:[],cardId:'approval-card'}
+ state.api.workflowRunsPage=vi.fn().mockResolvedValueOnce({runs:[first],hasMore:true,nextCursor:'cursor-next'}).mockResolvedValueOnce({runs:[{id:'old-run',status:'done',trigger:'manual',startedAt:'2026-10-22T12:00:00Z',log:[]}],hasMore:false,nextCursor:null})
+ await open()
+ expect(tree.root.findByProps({href:'#/feed/approval-card/one'}).children).toContain('Open approval')
+ await act(async()=>button('Load older runs').props.onClick())
+ expect(state.api.workflowRunsPage).toHaveBeenLastCalledWith(workflow.id,{limit:50,cursor:'cursor-next'})
+ expect(tree.root.findAll(node=>typeof node.props['data-run']==='string').map(run=>run.props['data-run'])).toEqual(['waiting-run','old-run'])
 });
 test('unlimited workflow run budgets do not render a fake unlimited run total',async()=>{
  const unlimited={limit:0,used:0,resetAt:'2026-10-27T00:00:00.000Z',exhausted:false}
