@@ -192,7 +192,13 @@
       "acceptance": "全API/外部実行の経路監査を継続。Native/Remote MCPとSmithery AppのAgentツールで利用者の現在のAgent権限を毎回確認し、Agent audience・grant・membership・App接続の失効後は実行を拒否し、実行中に失効した読み取り結果は破棄する。書き込みの曖昧な結果は再試行せず不明と報告する。全経路と複数利用者での本番隔離検証は残る",
       "evidence": {
         "verified": "Existing direct API, room list, role, schedule, and external execution routes were re-audited; no confirmed bypass was found. Native credential access calls mayRunAgent at the credential boundary; Remote MCP authorization and tool enumeration recheck current grants and fail closed in Simple mode, including tools created earlier in Harness. In-flight results are discarded after permission or mode revocation. Smithery Agent App tools now also recheck the current Agent audience plus exact grant, membership generation and app connection before dispatch and after provider response; reads are discarded after revocation, while ambiguous writes are reported as unknown and are not retried. Regressions cover Smithery audience revocation before dispatch and mid-call. Focused Smithery tests passed (15 tests); full Worker suite passed (323 files, 3,699 tests); Remote MCP tests passed (15 tests).",
-        "remaining": "Full route/provider audit, exact-head CI and production deployment, authenticated multi-user isolation and visual comparison remain."
+        "remaining": "The full route/provider audit, authenticated multi-user isolation, and visual comparison remain.",
+        "permissionFenceIncrement": {
+          "reviewedAt": "2026-11-21",
+          "scope": "PR #1156 (main 872a1c1) adds a monotonic Agent-access generation fence for Native Notion/GitHub and Smithery calls. Revoke-then-regrant ABA changes cannot make an older in-flight result appear authorized; grant mutations use atomic D1 batches.",
+          "verification": "Focused Smithery and Harness Agent tests passed (63 tests). PR CI #44894530805 and main CI #44896614365 passed; Worker deployment #44896614418 succeeded.",
+          "remaining": "The full route/provider audit, authenticated multi-user isolation, and visual comparison remain."
+        }
       }
     },
     {
@@ -1649,8 +1655,14 @@
           "reviewedAt": "2026-11-21",
           "base": "8e6455148994117e2fde18c058bf7a504302f2c9",
           "scope": "The browser command server now turns an HTTP client disconnect into an AbortSignal. A cancelled active command closes its Playwright page so in-flight browser work rejects; the persistent context/profile stays mounted and a fresh page is created for the next authorized command. Disconnected commands waiting in the serial queue are skipped. The new server helper is included in both the container image and copied Mac runtime.",
-          "localQA": "Gateway full suite passed 116/116, including an active-page close/resume test, disconnected queued-command suppression, browser-session persistence, and installed-runtime file resolution. Exact-head CI, merge, and production runtime reinstall/smoke remain pending.",
-          "remaining": "Closing the page interrupts local Playwright work but cannot undo a remote site operation already accepted before cancellation. Production permission-revocation acceptance, live multi-room control, and same-task authenticated Kylon comparison remain open."
+          "localQA": "Gateway full suite passed 116/116, including an active-page close/resume test, disconnected queued-command suppression, browser-session persistence, and installed-runtime file resolution. Exact-head CI, merge, and production runtime reinstall/smoke remain pending. PR #1157 further fences browser actions against controller lease loss.",
+          "remaining": "Closing the page interrupts local Playwright work but cannot undo a remote site operation already accepted before cancellation. Authenticated production permission-revocation acceptance, live multi-room control, cloud-hosted PC, non-ACP first-party Agent providers, and same-task authenticated Kylon comparison remain open."
+        },
+        "postPollControllerFenceIncrement": {
+          "reviewedAt": "2026-11-21",
+          "scope": "PR #1157 (main 4c27f72) returns the controller identity and lease expiry with each Relay action and asks the Worker to reauthorize the connected owner socket and current lease before browser actions and frames. The gateway checks once before running and polls during a long action; loss of human control stops that action without cancelling the ACP task, so a later authorized takeover can continue.",
+          "verification": "Focused Worker Relay and Harness Gateway tests passed (37 tests); Gateway suite passed (31 tests). PR CI #44898883313 and main CI #44900995919 passed; Worker deployment #44900995834 succeeded.",
+          "remaining": "A remote site action accepted before authorization loss cannot be rolled back. Cloud-hosted PC, non-ACP first-party Agent providers, authenticated production multi-room acceptance, and same-task authenticated Kylon UI comparison remain open."
         }
       },
       "remaining": "The Mac-owned isolated Chromium runtime has been verified against the public Kylon sandbox page. Cloud-hosted PC and first-party non-ACP Agent providers are not implemented. Authenticated production-conversation/multi-room revocation acceptance and a same-task authenticated Kylon UI comparison remain unverified. Gateway polling aborts the host command when it detects browser authorization revocation; disconnect now closes the active page and drops disconnected queued commands, but a remote operation already accepted cannot be rolled back. Automated Relay coverage verifies exclusive concurrent-tab control, takeover after socket close, and removal of stale queued actions. Simple mode is unchanged; no new contract or billing was added."
@@ -1695,9 +1707,9 @@
       "code": "worker/src/harness/filePins.js; worker/src/harness/fileReadRoutes.js; web-react/src/components/HarnessPinnedFiles.tsx; web-react/src/components/WorkspaceFilesPanel.tsx",
       "acceptance": "利用者ごとにファイルを固定し、全端末のサイドバーへ同期する。表示・固定時に現行file ACLを再確認し、固定がアクセス権を付与しない。アクセス失効・削除済みファイルは表示せず、通常のfile routeで再認可して開く。Simple modeを維持し、新規契約・課金なし。ログイン済みKylon実画面との比較を行う。",
       "evidence": {
-        "reviewedAt": "2026-11-17",
-        "verified": "利用者個別のD1 pin状態、GET/PUT、表示・固定ごとのファイルACL再確認、削除・アクセス失効時の非表示、Kylon風side railからRoom-scoped file routeを開く導線を実装中。",
-        "remaining": "Focused tests、exact-head CI、main CI、本番デプロイと実端末確認が未完了。認証済みKylonとのサイドバー比較も未実施。"
+        "reviewedAt": "2026-11-21",
+        "verified": "User-scoped D1 file pins are filtered through the current file ACL on every read and open through the regular room-scoped file route. Fixed a client-side scope-switch race: pins are now visible and actionable only after the current workspace and authenticated API instance have loaded, so a previous member/session pin list is hidden immediately while the new scope refreshes. Added regressions for workspace and API identity changes. Web full suite passed (283 files, 2,172 tests), production build and TypeScript check passed.",
+        "remaining": "Authenticated separate-account production sync acceptance and direct same-task Kylon sidebar/UI comparison remain."
       }
     },
     {
