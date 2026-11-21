@@ -897,8 +897,8 @@
       "code": "worker/src/harness/workflows.js",
       "acceptance": "承認先・実行定義・run・stepをapproval cardに固定し、宛先の現workspace membershipとcard/run/step bindingを承認時に検証。二重承認やreplayを拒否し、membership失効後の既存socketも副作用を再開できない。",
       "evidence": {
-        "verified": "Focused Worker workflow and code-job suites passed 212/212; the approval path tests owner recipient, staged body integrity, one post-approval dispatch, replay refusal and decline without dispatch. Full Gateway suite passed 117/117; full Web suite passed 2,116/2,116 with build and TypeScript checks. Full Worker suite is running; exact-head CI, merge/deployment and authenticated Kylon approval-screen/multi-device comparison remain pending.",
-        "remaining": "Full Worker suite and exact-head CI, main CI and production release for this per-run approval flow remain. Authenticated Kylon approval-screen and multi-device behavior comparison remains unverified.",
+        "verified": "The approval path tests owner recipient, staged body integrity, one post-approval dispatch, replay refusal and decline without dispatch. The feature merged in main commit 55436f2f. Exact-head CI #44826860875 passed all relevant jobs, including all four Worker shards (323 files, 3,704 tests); Worker deployment #44826860605 and Web deployment #44826860578 succeeded.",
+        "remaining": "Authenticated Kylon approval-screen and multi-device behavior comparison remains unverified. The implementation's approval and dispatch guarantees have passed exact-head CI and production deployment; this does not establish visual or behavioral parity with Kylon.",
         "implementedScope": "Workflow approval settlement compare-and-swaps the exact waiting run/card and next step, preserves one card per step, and resumes the run’s frozen definition. Current membership is revalidated at relay decision protocols and on the atomic run claim. TypeScript App writes now create a private card for the bound connection owner; the run and staged internal effects wait until that exact card is approved. A checkpoint lease prevents concurrent approval handlers from dispatching twice, while the existing request ledger safely resumes a confirmed success and refuses unknown outcomes. Decline terminates without dispatch. Simple mode is unchanged."
       }
     },
@@ -1803,8 +1803,8 @@
       "acceptance": "予約実行がHonmaruのdeployment-key記録使用量上限に達した時だけ、その回をスキップしてAutomationを有効のまま保ち、次の予定時刻を維持する。連続した上限超過エピソードに対して作成者の現在のsource threadへ一度だけ通知し、ACL・membership・sourceを配信時にも再検証する。上限が回復した後に再超過した場合は新しい通知を出す。Simple経路、BYOK、外部請求、Kylon creditを混同せず、新しい有料サービスを追加しない。Worker全suite、exact-head CI、本番反映と認証済みKylonの同一予約タスク比較を確認する。",
       "evidence": {
         "reviewedAt": "2026-11-19",
-        "verified": "Kylon公式2026-11-15 changelogでは、credit不足時にscheduled Automation runをskipし、Automation自体はpauseせず、スレッドに一度通知して次回予定を再開すると説明されている。Honmaruでは既存のworkspace deployment-key recorded-list-price budgetに対して同等の有効状態・次回予定・エピソード単位通知を実装し、Kylon creditsや請求額とは区別した。回帰テストとmigration testは成功。",
-        "remaining": "HonmaruはKylon credit残高を参照せず、workspace deployment-keyの記録トークン概算を使うため完全に同じ課金モデルではない。Worker全suite、exact-head/main CI、migration deploy、production scheduled-run動作と同じ予約タスクによるKylon画面比較が未完了。"
+        "verified": "Kylon公式2026-11-15 changelogでは、credit不足時にscheduled Automation runをskipし、Automation自体はpauseせず、スレッドに一度通知して次回予定を再開すると説明されている。Honmaruでは既存のworkspace deployment-key recorded-list-price budgetに対して同等の有効状態・次回予定・エピソード単位通知を実装し、Kylon creditsや請求額とは区別した。回帰テストとmigration testは成功。PR #1108 の exact-head CI #44448600675 と main push CI #44451703305 は成功。PR #1108 は main commit 5ac73c74 に統合済み。",
+        "remaining": "HonmaruはKylon credit残高を参照せず、workspace deployment-keyの記録トークン概算を使うため完全に同じ課金モデルではない。production scheduled-run動作と同じ予約タスクによるKylon画面比較は未確認。"
       }
     },
     {
