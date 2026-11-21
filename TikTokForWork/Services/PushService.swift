@@ -77,7 +77,7 @@ final class PushService: NSObject, ObservableObject {
     /// An App notification carries the exact App and optional record scope.
     /// The native app has record detail but no App conversation UI. Preserve
     /// the originating message id while routing to the exact record.
-    struct AppTarget: Equatable, Identifiable {
+    struct AppTarget: Hashable, Identifiable {
         let orgId: String
         let appId: String
         let messageId: String
