@@ -4776,3 +4776,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - PR #1051 added atomic App-to-Room link movement with source revision CAS and source/destination Room authorization inside the final write. Worker harness-apps.test.js passed **174/174**; Web HarnessApps.test.tsx passed **57/57**; TypeScript and production build passed.
 - PR #1051 merged as 5dc549e0. Exact-head CI run **43859603716** passed all 13 checks, including Worker shards, E2E, iOS, Windows Edge, Desktop and Gateway. Both releases are ancestors of main 55436f2; main CI **44826860875**, Worker migration/deploy/Verify **44826860605**, and Web deploy/domain verification **44826860578** succeeded.
 - This reconciles release/CI evidence only. Authenticated multi-user room-move acceptance and direct Kylon UI/interaction comparison remain unverified.
+
+### 2026-11-21 — Reconcile Agent follow-up routing and Simple preference revision fences
+
+- Current main includes natural-name Agent routing and a two-minute quick thread follow-up for the same author after exactly one Agent was named. Non-task acknowledgements, an intervening human reply, expiry, ambiguous multi-Agent calls, and Simple mode do not inherit that Agent. Local Worker suites `harness-agents`, `harness-apps`, and `harness-company` passed **282/282**; Web `harness-mode.test.tsx` passed **13/13**.
+- Agent follow-up behavior is on main commit `ff1c7cd7580e9107238961e8ac125aee789bd590`; main CI #42532779147 passed all required jobs and Worker deploy #42532779181 succeeded. Simple preference CAS/reconciliation is on main commit `c46ae3f4e9d277e00a2a48c11d6ed20edf7ba7d0`; main CI #42599358962, Worker deploy #42599358916, and Web deploy #42599359236 succeeded.
+- The remaining acceptance is authenticated Kylon behavior/UI comparison, production synchronization across two separate devices, and native iOS/Android visual parity. This evidence update does not claim those checks.
