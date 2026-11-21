@@ -34,7 +34,7 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
  const name=`honmaru-${randomUUID()}`,nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce;
  const child=spawn(binary,containerArgs(name,WORKFLOW_BOOTSTRAP),{stdio:['pipe','pipe','pipe'],shell:false});
  let closed=false,status=null,killPromise,forceTimer,wireBytes=0,responseBytes=0,logBytes=0;
- const messages=[],tableMutations=[],connectionWrites=[],mutationTargets=new Set(),requestIds=new Set();let messageBytes=0,tableMutationBytes=0;
+ const messages=[],tableMutations=[],connectionWrites=[],connectionWriteOperationIds=new Set(),mutationTargets=new Set(),requestIds=new Set();let connectionWriteBinding=null,connectionWriteSequence=0,messageBytes=0,tableMutationBytes=0;
  let stdout=Buffer.alloc(0),stderr=Buffer.alloc(0);
  const decoder=new StringDecoder('utf8');
  const stop=reason=>{
@@ -104,7 +104,8 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
   const exitCode=await completion;closed=true;controller.abort();
   if(killPromise)await killPromise;
   try{parser.push(decoder.end());parser.end();}catch{status||='failed';}
-  const result={status:status||(exitCode===0?'succeeded':'failed'),stdout:stdout.toString('utf8'),stderr:stderr.toString('utf8'),exitCode,messages,...(status===null&&exitCode===0&&tableMutations.length?{tableMutations}:{}),...(status===null&&exitCode===0&&connectionWrites.length?{connectionWrites}:{})};
+  const stagedConnectionWrites=connectionWrites.filter(Boolean);
+  const result={status:status||(exitCode===0?'succeeded':'failed'),stdout:stdout.toString('utf8'),stderr:stderr.toString('utf8'),exitCode,messages,...(status===null&&exitCode===0&&tableMutations.length?{tableMutations}:{}),...(status===null&&exitCode===0&&stagedConnectionWrites.length?{connectionWrites:stagedConnectionWrites}:{})};
   if(logBytes>32768)result.stderr+='\nOutput limit exceeded.';
   if(signal?.aborted)result.stderr+='\nExecution cancelled.';
   while(Buffer.byteLength(JSON.stringify(result))>65000){result.stdout=result.stdout.slice(0,Math.floor(result.stdout.length/2));result.stderr=result.stderr.slice(0,Math.floor(result.stderr.length/2));}
