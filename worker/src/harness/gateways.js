@@ -393,7 +393,7 @@ export async function handleGateways(request, env, url, input) {
     }
     if(input.connectionWrites!==undefined){
       try{
-        if(!Array.isArray(input.connectionWrites)||input.connectionWrites.length>1)throw Error();
+        if(!Array.isArray(input.connectionWrites)||input.connectionWrites.length>3)throw Error();
         connectionWrites=input.connectionWrites.map(item=>{
           if(!item||typeof item!=='object'||Array.isArray(item)||Object.keys(item).sort().join(',')!=='appId,body,method,name,operationId,ownerId,version'
             ||typeof item.appId!=='string'||!item.appId||item.appId.length>200||typeof item.name!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(item.name)
