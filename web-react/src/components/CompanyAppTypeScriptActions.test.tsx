@@ -11,12 +11,12 @@ test('a TypeScript server action keeps its language when the draft is saved and 
  let tree!:ReturnType<typeof create>;await act(async()=>{tree=create(<CompanyApp app={{id:'typed-app',version:1} as any} api={api} canManage reload={()=>{}}/>)});
  act(()=>tree.root.findByProps({placeholder:'calculate_total'}).props.onChange({target:{value:'typed_action'}}))
  act(()=>tree.root.findByProps({'aria-label':'Execution language'}).props.onChange({target:{value:'typescript'}}))
- act(()=>tree.root.findByProps({'aria-label':'サーバー処理のコード'}).props.onChange({target:{value:source}}))
+ act(()=>tree.root.findByProps({'aria-label':'Server action code'}).props.onChange({target:{value:source}}))
  const button=(text:string)=>tree.root.findAllByType('button').find(b=>b.children.join('')===text)!
- await act(async()=>{button('処理の下書きを保存').props.onClick();await Promise.resolve();await Promise.resolve()})
+ await act(async()=>{button('Save action draft').props.onClick();await Promise.resolve();await Promise.resolve()})
  expect(api.actionChange).toHaveBeenCalledWith('typed-app',expect.objectContaining({action:'draft',name:'typed_action',version:0,language:'typescript',code:source}))
  expect(tree.root.findByProps({'aria-label':'Execution language'}).props.value).toBe('typescript')
- act(()=>button('typed_action · 下書き').props.onClick())
+ act(()=>button('typed_action · Draft').props.onClick())
  await act(async()=>{tree.root.findByType('details').props.onToggle({currentTarget:{open:true}});await Promise.resolve()})
  expect(tree.toJSON()).toBeTruthy()
  act(()=>tree.unmount())
