@@ -6,9 +6,9 @@ import es from '../utils/locales/es'
 import fr from '../utils/locales/fr'
 import de from '../utils/locales/de'
 import {AppConversationInbox} from './AppConversationInbox'
-const state=vi.hoisted(()=>({dictionary:{} as Record<string,string>}))
-vi.mock('../utils/i18n',()=>{const translate=(key:string)=>state.dictionary[key]||key;return {useT:()=>translate}})
-afterEach(()=>{vi.unstubAllGlobals();state.dictionary={}})
+const state=vi.hoisted(()=>({dictionary:{} as Record<string,string>,unstable:false}))
+vi.mock('../utils/i18n',()=>{const translate=(key:string)=>state.dictionary[key]||key;return {useT:()=>state.unstable?(key:string)=>state.dictionary[key]||key:translate}})
+afterEach(()=>{vi.unstubAllGlobals();state.dictionary={};state.unstable=false})
 
 const dictionaries:Record<string,Record<string,string>>={en:{},ja,es,fr,de}
 const expected=(key:string,locale:string)=>dictionaries[locale][key]||key
@@ -39,6 +39,16 @@ test.each(['en','ja','es','fr','de'])('renders translated notification chrome an
  expect(rendered).toContain(expected('App',locale))
  expect(rendered).toContain('AI update')
  expect(rendered).toContain('Mention update')
+ act(()=>tree!.unmount())
+})
+
+test('notification loading stays stable when a translator returns a new function on every render',async()=>{
+ state.unstable=true
+ vi.stubGlobal('document',{visibilityState:'visible'})
+ const api:any={conversationNotifications:vi.fn().mockResolvedValue({items:[]})}
+ let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppConversationInbox api={api} appId="app" onOpen={vi.fn()}/>);await Promise.resolve()})
+ expect(api.conversationNotifications).toHaveBeenCalledOnce()
  act(()=>tree!.unmount())
 })
 
