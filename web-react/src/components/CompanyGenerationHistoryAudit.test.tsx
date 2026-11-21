@@ -16,6 +16,6 @@ test('opening history during generation does not silently omit history',async()=
  act(()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
  await act(async()=>{finish({name:'report',code:'return 2'});await generation})
  expect(api.actionHistory).toHaveBeenCalledOnce()
- expect(JSON.stringify(tree.toJSON())).toContain('2026-01-01')
+ expect(JSON.stringify(tree.toJSON())).toContain(new Date('2026-01-01').toLocaleString())
  act(()=>tree.unmount())
 })
