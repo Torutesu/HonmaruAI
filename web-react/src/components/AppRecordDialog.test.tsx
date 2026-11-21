@@ -1,27 +1,39 @@
 import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {afterEach,expect,test,vi} from 'vitest'
-import {AppRecordDialog} from './AppRecordDialog'
+import {AppRecordDialog,formatRecordTimestamp} from './AppRecordDialog'
 vi.mock('./Dialog',()=>({Dialog:({children,footer,onClose,title,lede}:any)=><div><h2>{title}</h2><p>{lede}</p><button onClick={onClose}>閉じる</button>{children}{footer}</div>}))
 afterEach(()=>vi.unstubAllGlobals())
 const columns=[{id:'title',name:'タスク名',type:'text' as const},{id:'count',name:'件数',type:'number' as const},{id:'state',name:'状態',type:'select' as const,options:['未着手','完了']}]
 test('a distinct table label names the new record while the app title stays in its description',()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});let tree:ReturnType<typeof create>
  act(()=>{tree=create(<AppRecordDialog appName="UI確認用タスク" tableName="タスク" columns={columns} save={vi.fn()} onClose={()=>{}}/>)});
- expect(tree!.root.findByType('h2').children.join('')).toBe('新規タスク')
- expect(tree!.root.findByType('p').children.join('')).toBe('UI確認用タスクに新しいレコードを作成します。')
+ expect(tree!.root.findByType('h2').children.join('')).toBe('New タスク')
+ expect(tree!.root.findByType('p').children.join('')).toBe('Create a new record in UI確認用タスク')
  act(()=>tree!.unmount())
 })
 test('a create title does not change the heading when editing an existing record',()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});let tree:ReturnType<typeof create>
  act(()=>{tree=create(<AppRecordDialog appName="Tasks" createTitle="New task" columns={columns} record={{id:'r',values:{},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={()=>{}}/>)});
- expect(tree!.root.findByType('h2').children.join('')).toBe('レコード詳細')
+ expect(tree!.root.findByType('h2').children.join('')).toBe('Record details')
+ act(()=>tree!.unmount())
+})
+test('record metadata uses the account locale and guards invalid timestamps',()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()})
+ vi.stubGlobal('localStorage',{getItem:()=> 'de'})
+ const record={id:'r',values:{},createdAt:'2026-10-18T11:00:00.000Z',updatedAt:'invalid'}
+ expect(formatRecordTimestamp(record.createdAt)).toBe(new Intl.DateTimeFormat('de',{dateStyle:'medium',timeStyle:'short'}).format(new Date(record.createdAt)))
+ expect(formatRecordTimestamp(record.updatedAt)).toBe('—')
+ let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<AppRecordDialog appName="Tasks" columns={[]} record={record} save={vi.fn()} onClose={()=>{}}/>)});
+ const metadata=tree!.root.findByProps({className:'hx-record-metadata'})
+ expect(metadata.findAllByType('dd').map(item=>item.children.join(''))).toEqual(['r',formatRecordTimestamp(record.createdAt),'—'])
  act(()=>tree!.unmount())
 })
 test('opening and cancelling do not create rows; errors preserve drafts and typed submission',async()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const save=vi.fn().mockRejectedValueOnce(new Error('保存できません')).mockResolvedValue(undefined),onClose=vi.fn();let tree:ReturnType<typeof create>
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} save={save} onClose={onClose}/>)});
- expect(save).not.toHaveBeenCalled();act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('キャンセル'))!.props.onClick());expect(onClose).toHaveBeenCalledOnce();onClose.mockClear()
+ expect(save).not.toHaveBeenCalled();act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('Cancel'))!.props.onClick());expect(onClose).toHaveBeenCalledOnce();onClose.mockClear()
  act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'改行\nタスク'}}));act(()=>tree!.root.findByType('input').props.onChange({target:{value:'0'}}));act(()=>tree!.root.findByType('select').props.onChange({target:{value:'完了'}}))
  await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});
  expect(save).toHaveBeenCalledWith({title:'改行\nタスク',count:0,state:'完了'});expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findByType('textarea').props.value).toBe('改行\nタスク');expect(tree!.root.findByProps({role:'alert'}).children).toContain('保存できません')
@@ -50,11 +62,11 @@ test('closing changed record asks before discarding and preserves draft when con
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const onClose=vi.fn();let tree:ReturnType<typeof create>
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} record={{id:'r',values:{title:'Original'},updatedAt:'2026-10-18'}} conversation={<textarea aria-label="chat" defaultValue="unsent"/>} save={vi.fn()} onClose={onClose}/>)});
  act(()=>tree!.root.findAllByType('textarea')[0].props.onChange({target:{value:'Changed'}}))
- act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick())
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Cancel'))!.props.onClick())
  expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findAllByType('h2').map(x=>x.children.join(''))).toContain('Discard unsaved record changes?')
  act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Keep editing'))!.props.onClick())
  expect(tree!.root.findAllByType('textarea')[0].props.value).toBe('Changed');expect(tree!.root.findByProps({'aria-label':'chat'}).props.defaultValue).toBe('unsent')
- act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick())
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Cancel'))!.props.onClick())
  act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Discard changes'))!.props.onClick())
  expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
 })
@@ -64,15 +76,15 @@ test('restoring equivalent values and unchanged initial new-record values closes
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} record={{id:'r',values:{title:'Original',count:12},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={onClose}/>)});
  act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'Changed'}}));act(()=>tree!.root.findByType('textarea').props.onChange({target:{value:'Original'}}))
  act(()=>tree!.root.findByType('input').props.onChange({target:{value:'12'}}))
- act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick());expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Cancel'))!.props.onClick());expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
  onClose.mockClear();act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} initial={{title:'Prefilled'}} save={vi.fn()} onClose={onClose}/>)});
- act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick());expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Cancel'))!.props.onClick());expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
 })
 
 test('incomplete browser input prompts even when no React change event was received',()=>{
  vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const onClose=vi.fn();let tree:ReturnType<typeof create>
  act(()=>{tree=create(<AppRecordDialog appName="タスク" columns={columns} record={{id:'r',values:{title:'Original'},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={onClose}/>,{createNodeMock:node=>node.type==='form'?{querySelectorAll:()=>[{validity:{badInput:true}}]}:null})});
- act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick())
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Cancel'))!.props.onClick())
  expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findAllByType('h2').map(x=>x.children.join(''))).toContain('Discard unsaved record changes?');act(()=>tree!.unmount())
 })
 
@@ -84,7 +96,7 @@ test('restoring multiple related records in the original order is not a pending 
  act(()=>tree!.root.findByProps({'aria-label':'Related'}).props.onClick())
  const option=()=>tree!.root.findAllByProps({role:'option'}).find(button=>button.findAllByType('span').some(span=>span.children.includes('B')))!
  act(()=>option().props.onClick());act(()=>option().props.onClick())
- act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('キャンセル'))!.props.onClick())
+ act(()=>tree!.root.findAllByType('button').find(button=>button.children.includes('Cancel'))!.props.onClick())
  expect(onClose).toHaveBeenCalledOnce();act(()=>tree!.unmount())
 })
 
@@ -154,7 +166,7 @@ test.each([
  act(()=>{tree=create(<AppRecordDialog appName="Tasks" columns={[column]} record={{id:'r',values:{count:original},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={onClose}/>)})
  act(()=>tree!.root.findByType('input').props.onChange({target:{value:entered}}))
  expect(tree!.root.findByType('input').props.value).toBe(entered)
- act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('キャンセル'))!.props.onClick())
+ act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('Cancel'))!.props.onClick())
  expect(onClose).not.toHaveBeenCalled();expect(tree!.root.findAllByType('h2').map(x=>x.children.join(''))).toContain('Discard unsaved record changes?');act(()=>tree!.unmount())
 })
 
@@ -164,6 +176,6 @@ test('returning numeric input exactly to its original displayed text closes with
  act(()=>{tree=create(<AppRecordDialog appName="Tasks" columns={[column]} record={{id:'r',values:{count:9007199254740992},updatedAt:'2026-10-18'}} save={vi.fn()} onClose={onClose}/>)})
  act(()=>tree!.root.findByType('input').props.onChange({target:{value:'9007199254740993'}}))
  act(()=>tree!.root.findByType('input').props.onChange({target:{value:'9007199254740992'}}))
- act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('キャンセル'))!.props.onClick())
+ act(()=>tree!.root.findAllByType('button').find(b=>b.children.includes('Cancel'))!.props.onClick())
  expect(onClose).toHaveBeenCalledOnce();expect(tree!.root.findAllByType('h2').map(x=>x.children.join(''))).not.toContain('Discard unsaved record changes?');act(()=>tree!.unmount())
 })

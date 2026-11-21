@@ -2722,4 +2722,42 @@ Object.assign(table, {
   'Save schema proposal to preview': 'Guardar propuesta de esquema en la vista previa',
   'Cloudflare Pages': 'Cloudflare Pages',
 })
+Object.assign(table, {
+  'Cannot load proposal JSON as an array. Fix it before continuing.': 'No se puede cargar la propuesta JSON como una matriz. Corrígela antes de continuar.',
+  'Operation added to the proposal. Review it before previewing.': 'Se añadió la operación a la propuesta. Revísala antes de previsualizar.',
+  'Example: Open, In progress, Done': 'Ejemplo: Open, In progress, Done',
+  'Table to edit columns': 'Tabla para editar columnas',
+  'Column to edit': 'Columna que editar',
+  'Column change action': 'Acción de columna',
+  'Rename column': 'Cambiar nombre de columna',
+  'Convert data type': 'Convertir tipo de datos',
+  'Delete empty column': 'Eliminar columna vacía',
+  'Column name after rename': 'Nombre de columna nuevo',
+  'Type after change': 'Tipo nuevo',
+  'Column options after conversion': 'Opciones de conversión',
+  'Relation cardinality': 'Cantidad de vínculos',
+  'Columns with values cannot be deleted. Data is checked again before confirmation.': 'No se pueden eliminar columnas con valores. Los datos se vuelven a comprobar antes de confirmar.',
+  'Add {action} to proposal': 'Añadir {action} a la propuesta',
+  'Relation source table': 'Tabla de origen de la relación',
+  'Relation name': 'Nombre de la relación',
+  'Example: Customers': 'Ejemplo: Clientes',
+  'Add relation to proposal': 'Añadir relación a la propuesta',
+  '{count} rows changed': '{count} filas modificadas',
+  '{count} values cannot be converted or columns are not empty. Showing the first 20.': 'Hay {count} valores que no se pueden convertir o columnas que no están vacías. Se muestran los primeros 20.',
+  'Target record for “{label}”': 'Registro de destino para “{label}”',
+  'Choose a record': 'Elegir un registro'
+})
+Object.assign(table, {
+  'Record details': 'Detalles del registro',
+  'New {table}': 'Nuevo {table}',
+  'New record': 'Nuevo registro',
+  'Create a new record in {app}': 'Crear un registro nuevo en {app}.',
+  'Creating…': 'Creando…',
+  'Choose {field}': 'Elegir {field}',
+  'Record conversation': 'Conversación del registro',
+  'Selected record': 'Registro seleccionado',
+  'Current data view: {view}': 'Vista de datos actual: {view}'
+})
+Object.assign(table, { 'Column relation target table': 'Tabla de destino de la relación' })
+Object.assign(table, { 'Column relation cardinality': 'Cantidad de vínculos de la conversión' })
 export default table
